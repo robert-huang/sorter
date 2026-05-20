@@ -211,6 +211,34 @@ export interface SlotMeta {
    * the LIST tab or the gear menu.
    */
   pinned?: boolean;
+  /**
+   * Cloud-backup fields (tier 0b). All optional; absence on existing
+   * slots is indistinguishable from "not opted in" — no migration code
+   * needed, same pattern as `pinned?`.
+   *
+   * cloudOptIn:      user has chosen to back this slot up to cloud.
+   * cloudId:         provider-specific id of the cloud-side blob (Drive
+   *                  file id). Slot↔file binding is by id, not by
+   *                  filename, so a Drive-side rename doesn't break it.
+   * cloudPushedAt:   local ISO timestamp of the most-recent successful
+   *                  Push from this device. Compared against `updatedAt`
+   *                  to drive the 3-state sync indicator.
+   * cloudUpdatedAt:  ISO timestamp the cloud copy reports as its own
+   *                  last-modified time (from Drive's `modifiedTime`).
+   * cloudEtag:       opaque etag the provider returned with the last
+   *                  Push or Pull. Used by the pre-Push stale-cache
+   *                  check: if the current cloud etag differs from this
+   *                  one, somebody else (or another device) changed the
+   *                  cloud copy in between and we warn before clobbering.
+   *
+   * Populated by `setCloud*` helpers in storage.ts; never touched by
+   * autosave's normal write path.
+   */
+  cloudOptIn?: boolean;
+  cloudId?: string;
+  cloudPushedAt?: string;
+  cloudUpdatedAt?: string;
+  cloudEtag?: string;
 }
 
 /**

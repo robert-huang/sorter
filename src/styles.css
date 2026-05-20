@@ -15,6 +15,12 @@
   --warn-bg: #fff7d6;
   --warn-border: #f0d97a;
   --warn-text: #6e5b00;
+  /* Standalone success / warning ink colors for inline status indicators
+     (e.g. the cloud-sync icon in the per-slot row). Distinct from the
+     --warn-* trio above, which is sized for banner backgrounds — these
+     are meant to read against the surface, not a colored chip. */
+  --success: #16a34a;
+  --warning: #d97706;
   --header-bg: #3c4961;
   --header-text: #ffffff;
   --header-active-border: #ffffff;
@@ -52,6 +58,9 @@
   --warn-bg: #4a4017;
   --warn-border: #b39830;
   --warn-text: #ffe082;
+  /* Brighter on dark surface so the inline indicator still pops. */
+  --success: #4ade80;
+  --warning: #fbbf24;
   --header-bg: var(--surface);
   --header-text: var(--text);
   --header-active-border: var(--accent);
@@ -581,6 +590,68 @@ a {
   color: var(--text-muted);
 }
 
+/* Cloud-backup primary entry: the "Pick cloud folder" CTA after a
+ * fresh sign-in. Bolder so the user notices it's the obvious next
+ * step before browsing or signing out. */
+.settings-item.primary {
+  font-weight: 600;
+  color: var(--accent, var(--text));
+}
+
+/* Inline hint after a settings-item label, e.g. the picked folder
+ * name shown in parens after "Browse cloud library…". Truncates so a
+ * long folder name doesn't wrap and crowd the gear popover. */
+.settings-item-hint {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: normal;
+  max-width: 12em;
+  display: inline-block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+/* ---------- Cloud library modal ---------- */
+
+.cloud-library-list {
+  list-style: none;
+  margin: 8px 0 16px;
+  padding: 0;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.cloud-library-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 6px;
+  background: var(--surface);
+}
+
+.cloud-library-row-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.cloud-library-row-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cloud-library-row-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
 /* ---------- Page content ---------- */
 
 .page {
@@ -683,8 +754,14 @@ a {
 
 .slot-row {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  /* Two stacked rows inside each card: name + meta on top, all
+     action buttons below. Switched away from the original side-by-
+     side layout because the action row grew enough (Resume + pin +
+     cloud + push + pull + download + delete) to crowd the name /
+     meta into 1-2 char wraps inside the narrow gear-menu column. */
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
   padding: 8px 10px;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
@@ -751,8 +828,24 @@ a {
 .slot-actions {
   display: flex;
   align-items: center;
+  /* Wrap to a third line on very narrow containers (mobile portrait,
+     resizable panels) rather than overflowing. flex-wrap keeps the
+     primary Resume button visually first and pushes the icon
+     buttons to the end naturally. */
+  flex-wrap: wrap;
   gap: 6px;
-  flex-shrink: 0;
+}
+
+/* Push the icon cluster (pin, cloud, push, pull, download, delete) to
+   the right edge of the action row while keeping the primary
+   Resume / Active affordance pinned to the left. Achieved by
+   giving the left-side element auto right-margin — flex consumes the
+   remaining horizontal space as that margin instead of distributing
+   it as gap, so the icons collapse to the right without needing a
+   wrapper element. */
+.slot-actions > .btn,
+.slot-actions > .slot-active-tag {
+  margin-right: auto;
 }
 
 .slot-active-tag {
@@ -910,6 +1003,68 @@ a {
 
 .icon-button.pinned:hover {
   background: var(--accent-soft);
+}
+
+/* Cloud sync indicator on the per-slot row. Three-state color coding
+   so the user can tell at a glance which slots are backed up and
+   whether the local copy is ahead of the cloud:
+
+     - default (no .cloud-on):    var(--text-faint) — outline "cloud"
+                                  meaning "click to back this slot up"
+     - .cloud-on.cloud-synced:    success-green; local matches cloud
+     - .cloud-on.cloud-pending:   warning-amber; local has unpushed
+                                  changes (the Push button next to it
+                                  is the one to click)
+
+   We only override `color` (not background) so the cloud glyph reads
+   as a status indicator that doubles as a button — hover still uses
+   the shared .icon-button:hover affordance for tactile feedback. */
+.icon-button.cloud-on.cloud-synced {
+  color: var(--success);
+}
+
+.icon-button.cloud-on.cloud-pending {
+  color: var(--warning);
+}
+
+/* In-flight push/pull spinner. Applied to the icon-button rendering
+   the spinner glyph (↻) while a cloud Push or Pull call is pending.
+   Pure CSS rotation rather than an SVG/Lottie keeps this in the
+   monochrome icon-button column and avoids any asset pipeline.
+
+   prefers-reduced-motion: a steady (non-rotating) glyph is still a
+   distinct visual state vs the regular ⇡/⇣ — combined with the
+   `disabled` attribute and the swapped-in glyph, the user can still
+   tell the button is busy. We just don't spin it. */
+.icon-button.spinning {
+  animation: iconSpin 0.9s linear infinite;
+  /* `disabled` on a button drops opacity by default in some UAs;
+     keep the spinner readable by floor-ing the faded color back
+     toward the normal icon-button color. */
+  color: var(--text);
+}
+
+.icon-button.spinning:disabled {
+  /* Override the global disabled-opacity dim so the spinner stays
+     readable while it's animating. Cursor stays default to make it
+     obvious clicks are no-ops, not just visually muted. */
+  opacity: 0.85;
+  cursor: progress;
+}
+
+@keyframes iconSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .icon-button.spinning {
+    animation: none;
+  }
 }
 
 /* ---------- Preview ---------- */
