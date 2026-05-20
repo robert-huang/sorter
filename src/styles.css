@@ -22,8 +22,13 @@
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
   --radius: 10px;
   --radius-sm: 6px;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
-    Ubuntu, Cantarell, 'Helvetica Neue', sans-serif;
+  /* 'Plus Jakarta Sans' is a humanist geometric sans loaded via Google Fonts
+     in index.html. System fonts remain as fallbacks for FOUT and offline. */
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont,
+    'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Helvetica Neue', sans-serif;
+  /* Tabular numerals: numbers in lists, counters, and meta share equal
+     widths so columns line up (e.g. "23 compares" / "9 compares"). */
+  font-variant-numeric: tabular-nums;
   color: var(--text);
 }
 
@@ -783,6 +788,31 @@ a {
   padding-left: 18px;
 }
 
+/* Per-occurrence rows inside a single warning. Renders the duplicated
+   row's source/row + a small Edit-label button so the user can
+   disambiguate without touching the raw CSV. Indented one extra step
+   under the parent `<li>` so the visual hierarchy is obvious. */
+.warning-occurrences {
+  margin: 6px 0 0;
+  padding-left: 16px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.warning-occurrences li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.warning-winner-tag {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
 .preview-start-row {
   margin-top: 14px;
   display: flex;
@@ -1451,6 +1481,67 @@ a {
 .edit-item-field input:focus {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
+}
+
+.edit-item-field input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+/* Advanced panel inside the EditItemModal — hidden behind a "Show
+   advanced" toggle. Holds the optional "Logical ID" field used to
+   disambiguate two labels that slug to the same canonical id. */
+.edit-item-advanced {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+}
+
+.edit-item-advanced-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.edit-item-advanced-title {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.edit-item-id-error {
+  color: var(--danger);
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+/* Plain-text toggle button used inside modals and inline-help blocks.
+   Looks like a hyperlink, behaves like a button. Distinct from .btn
+   because it's used in dense text contexts where the .btn padding
+   would feel heavy. */
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.link-btn:hover {
+  opacity: 0.8;
+}
+
+/* Compact .btn variant for in-line actions inside warning rows etc.
+   Smaller padding + font so it doesn't dominate the surrounding
+   12px-context. */
+.btn.small {
+  padding: 2px 8px;
+  font-size: 12px;
+  border-radius: var(--radius-sm);
 }
 
 .form-row {

@@ -202,6 +202,144 @@ export function updateItem(
   return { ...state, items: { ...state.items, [id]: next } } as SortState;
 }
 
+/**
+ * Rewrite every `ItemId` reference inside a progress slice. Used by
+ * `updateItemId` to keep the sort-state arrays in sync with a renamed
+ * id, and exported separately so callers (App.tsx) can apply the same
+ * rewrite to every snapshot in the undo ring — otherwise an undo
+ * after a rename would resurrect a stale id that no longer keys the
+ * items dict and the UI would render blanks for those references.
+ *
+ * Pure: returns a new progress object with the same shape but with
+ * `oldId` replaced by `newId` wherever it appears in nested arrays,
+ * single-id fields, and frame structures. If `oldId` doesn't appear
+ * anywhere in the progress, the returned object is structurally
+ * equal to the input (we still return a fresh object — callers
+ * generally don't care, and skipping the spread doesn't buy much).
+ */
+export function rewriteIdInProgress(
+  progress: SortProgress,
+  oldId: ItemId,
+  newId: ItemId,
+): SortProgress {
+  if (oldId === newId) return progress;
+  const mapId = (id: ItemId): ItemId => (id === oldId ? newId : id);
+  const mapArr = (ids: ItemId[]): ItemId[] => ids.map(mapId);
+  if (progress.engine === 'insertion') {
+    return {
+      ...progress,
+      sorted: mapArr(progress.sorted),
+      pending: mapArr(progress.pending),
+      hidden: mapArr(progress.hidden),
+      current:
+        progress.current === null
+          ? null
+          : { ...progress.current, insertingId: mapId(progress.current.insertingId) },
+    };
+  }
+  // merge engine
+  return {
+    ...progress,
+    queue: progress.queue.map(mapArr),
+    hidden: mapArr(progress.hidden),
+    unplaced: mapArr(progress.unplaced),
+    pendingManualInserts: mapArr(progress.pendingManualInserts),
+    current:
+      progress.current === null
+        ? null
+        : {
+            left: mapArr(progress.current.left),
+            right: mapArr(progress.current.right),
+            merged: mapArr(progress.current.merged),
+          },
+    currentManualInsert:
+      progress.currentManualInsert === null
+        ? null
+        : {
+            ...progress.currentManualInsert,
+            insertingId: mapId(progress.currentManualInsert.insertingId),
+            frame: {
+              ...progress.currentManualInsert.frame,
+              insertingId: mapId(progress.currentManualInsert.frame.insertingId),
+            },
+          },
+    currentAutoInsert:
+      progress.currentAutoInsert === null
+        ? null
+        : {
+            ...progress.currentAutoInsert,
+            target: mapArr(progress.currentAutoInsert.target),
+            pendingInserts: mapArr(progress.currentAutoInsert.pendingInserts),
+            frame:
+              progress.currentAutoInsert.frame === null
+                ? null
+                : {
+                    ...progress.currentAutoInsert.frame,
+                    insertingId: mapId(progress.currentAutoInsert.frame.insertingId),
+                  },
+          },
+  };
+}
+
+/**
+ * Rename the logical id of an item from `oldId` to `newId`. Returns
+ * a new SortState with:
+ *  - the items dict rekeyed (old entry dropped, new entry added with
+ *    `id` field also updated so `item.id === <key>` stays invariant)
+ *  - every `ItemId` reference in the progress slice rewritten via
+ *    `rewriteIdInProgress`
+ *
+ * Rejections (return `null`):
+ *  - `newId` is empty after trim
+ *  - `oldId` is not present in `state.items`
+ *  - `newId` already exists in `state.items` (collision)
+ *
+ * No-op shortcut (returns input state unchanged so the caller skips
+ * pushing an undo frame):
+ *  - `newId.trim() === oldId`
+ *
+ * IMPORTANT: this helper rewrites the live progress only. The undo
+ * ring lives outside the engine (in App.tsx) and must be rewritten
+ * by the caller using `rewriteIdInProgress` on each entry — otherwise
+ * an undo after rename will restore an arrays-reference-old-id /
+ * dict-keyed-by-new-id mismatch and the UI will render blanks.
+ */
+export function updateItemId(
+  state: SortState,
+  oldId: ItemId,
+  newId: ItemId,
+): SortState | null {
+  const trimmed = newId.trim();
+  if (trimmed.length === 0) return null;
+  if (trimmed === oldId) return state;
+  const existing = state.items[oldId];
+  if (!existing) return null;
+  if (state.items[trimmed]) return null;
+  // Rekey items dict and update the item's own id field to match.
+  const { [oldId]: dropped, ...rest } = state.items;
+  void dropped;
+  const items = { ...rest, [trimmed]: { ...existing, id: trimmed } };
+  // Pull the progress slice out (everything except items), rewrite,
+  // and stitch back together. The cast through `unknown` is needed
+  // because TS can't see that rewriteIdInProgress preserves the
+  // discriminant.
+  const progressOnly = stripItems(state);
+  const rewritten = rewriteIdInProgress(progressOnly, oldId, trimmed);
+  return { ...rewritten, items } as SortState;
+}
+
+/** Drop the `items` field for code that operates on progress only. */
+function stripItems(state: SortState): SortProgress {
+  if (state.engine === 'insertion') {
+    const { items: _drop, ...rest } = state;
+    void _drop;
+    return rest as InsertionProgress;
+  }
+  const { items: _drop, ...rest } = state;
+  void _drop;
+  return rest as MergeProgress;
+}
+
 // ---------- add items (engine-aware) ----------
 
 /**

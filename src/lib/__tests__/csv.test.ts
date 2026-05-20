@@ -16,7 +16,7 @@ describe('canonicalKey', () => {
     expect(canonicalKey('  The Mind  ')).toBe('the-mind');
     expect(canonicalKey('INCEPTION')).toBe('inception');
   });
-  it('collapses non-alphanumerics into single dashes', () => {
+  it('replaces each non-letter/non-digit with a dash (edge runs stripped)', () => {
     expect(canonicalKey("It's a Wonderful Life!!")).toBe(
       'it-s-a-wonderful-life',
     );
@@ -26,12 +26,44 @@ describe('canonicalKey', () => {
     expect(canonicalKey('   ')).toBe('item');
     expect(canonicalKey('!!')).toBe('item');
   });
-  it('collides "Cafe" and "Café" deliberately (intent: case-insensitive dedup)', () => {
+  it('preserves diacritics via NFKC (Café stays distinct from caf)', () => {
+    // Pre-fix behavior stripped the é (Café → 'caf', colliding with the
+    // word "Caf"). NFKC + Unicode letter class keeps the accent.
     expect(canonicalKey('Cafe')).toBe('cafe');
-    expect(canonicalKey('Café')).toBe('caf');
-    // Documenting actual behavior: accents are stripped because we only keep
-    // [a-z0-9]; "Café" -> "caf". They don't collide today. If we ever care
-    // we'd need to normalize unicode first.
+    expect(canonicalKey('Café')).toBe('café');
+    expect(canonicalKey('Café')).not.toBe(canonicalKey('Cafe'));
+  });
+  it('keeps CJK characters as letters (each title gets its own id)', () => {
+    expect(canonicalKey('君の膵臓をたべたい')).toBe('君の膵臓をたべたい');
+    expect(canonicalKey('物語シリーズ')).toBe('物語シリーズ');
+    // Two distinct CJK labels must produce two distinct ids — guards
+    // against the regression where every all-CJK label collapsed to
+    // the literal fallback 'item'.
+    expect(canonicalKey('君の膵臓をたべたい')).not.toBe(
+      canonicalKey('物語シリーズ'),
+    );
+  });
+  it('NFKC-normalizes full-width Latin and digits to ASCII', () => {
+    // ＣＬＡＮＮＡＤ (fullwidth) → CLANNAD (ASCII) → 'clannad'; the ` ~`
+    // between sections is TWO non-letter chars so it becomes `--`.
+    expect(canonicalKey('ＣＬＡＮＮＡＤ ~After Story~')).toBe(
+      'clannad--after-story',
+    );
+    expect(canonicalKey('進撃の巨人２')).toBe('進撃の巨人2');
+    // Roman numerals decompose: Ⅱ → 'II', then lowercase.
+    expect(canonicalKey('傷物語〈Ⅱ熱血篇〉')).toBe('傷物語-ii熱血篇');
+  });
+  it('distinguishes punctuation-run lengths (Kaguya-sama fix)', () => {
+    // The motivating regression: ～ (single) vs ？～ (pair) MUST produce
+    // distinct ids. Under a previous collapsing variant, both would
+    // become 'foo-bar'.
+    expect(canonicalKey('foo~bar')).toBe('foo-bar');
+    expect(canonicalKey('foo?~bar')).toBe('foo--bar');
+    expect(canonicalKey('foo~bar')).not.toBe(canonicalKey('foo?~bar'));
+    // Kaguya-sama S1 vs S2 — concrete instance of the same shape.
+    expect(canonicalKey('かぐや様は告らせたい～天才たちの恋愛頭脳戦～')).not.toBe(
+      canonicalKey('かぐや様は告らせたい？～天才たちの恋愛頭脳戦～'),
+    );
   });
 });
 
@@ -158,6 +190,51 @@ describe('dedupRows', () => {
       mk('Pit', 's1', 3),
     ]);
     expect(w2[0].reason).toBe('duplicate-in-source');
+  });
+
+  it('does NOT collapse distinct CJK labels onto the same id', () => {
+    // Regression for the pre-Unicode-aware canonicalKey: every CJK
+    // label slugged to '' → fallback 'item', so three different
+    // titles produced one survivor + two "duplicate of row 1"
+    // warnings. The fix gives each CJK label its own id.
+    const { items, warnings } = dedupRows([
+      mk('君の膵臓をたべたい', 'pasted CSV', 1),
+      mk('君の膵臓をたべたい', 'pasted CSV', 2), // true duplicate
+      mk('物語シリーズ', 'pasted CSV', 3),       // distinct title
+    ]);
+    expect(items.map((i) => i.id)).toEqual([
+      '君の膵臓をたべたい',
+      '物語シリーズ',
+    ]);
+    expect(warnings.length).toBe(1);
+    expect(warnings[0].canonicalKey).toBe('君の膵臓をたべたい');
+    expect(warnings[0].occurrences.map((o) => o.rowNumber)).toEqual([1, 2]);
+  });
+
+  it('honors an explicit idOverride instead of canonicalKey(label)', () => {
+    // Two rows with the same label but distinct idOverrides should be
+    // treated as separate items — this is how the START-tab edit
+    // overlay disambiguates a genuine collision without changing the
+    // displayed label.
+    const { items, warnings } = dedupRows([
+      { label: 'Same Label', sourceName: 's1', sourceRow: 1, idOverride: 'one' },
+      { label: 'Same Label', sourceName: 's1', sourceRow: 2, idOverride: 'two' },
+    ]);
+    expect(items.map((i) => i.id)).toEqual(['one', 'two']);
+    expect(warnings.length).toBe(0);
+  });
+
+  it('idOverride can also collide INTO another row to force a dedup', () => {
+    // Inverse case: two rows with distinct labels but the same
+    // idOverride should dedup as if they were the same item.
+    const { items, warnings } = dedupRows([
+      { label: 'Foo (alt)', sourceName: 's1', sourceRow: 1, idOverride: 'foo' },
+      { label: 'Foo',       sourceName: 's1', sourceRow: 2, idOverride: 'foo' },
+    ]);
+    expect(items.length).toBe(1);
+    expect(items[0].id).toBe('foo');
+    expect(warnings.length).toBe(1);
+    expect(warnings[0].canonicalKey).toBe('foo');
   });
 });
 

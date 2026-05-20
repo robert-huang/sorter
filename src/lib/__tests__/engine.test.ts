@@ -6,13 +6,15 @@ import {
   getRanking,
   hideItem,
   restoreProgress,
+  rewriteIdInProgress,
   snapshotProgress,
   transitionMergeDoneToInsertion,
   unhideItem,
   updateItem,
+  updateItemId,
 } from '../engine';
 import { initSort, pickLeft, pickRight } from '../queueMergeSort';
-import { seedAsSorted } from '../insertionSort';
+import { seedAsSorted, addItems as insertionAddItems } from '../insertionSort';
 import type { InsertionState, Item, MergeState } from '../types';
 
 const A: Item = { id: 'a', label: 'A' };
@@ -290,5 +292,135 @@ describe('cross-engine undo (restoreProgress)', () => {
       expect(restored.done).toBe(true);
       expect(restored.queue.length).toBe(1);
     }
+  });
+});
+
+describe('updateItemId', () => {
+  it('rekeys the items dict and updates item.id to match', () => {
+    const m = initSort([A, B, C]);
+    const next = updateItemId(m, 'a', 'alpha');
+    expect(next).not.toBeNull();
+    if (!next) return;
+    expect(next.items.alpha).toBeDefined();
+    expect(next.items.alpha.id).toBe('alpha');
+    expect(next.items.a).toBeUndefined();
+  });
+
+  it('rewrites references inside merge queue + frame', () => {
+    // Construct a merge state with a non-trivial frame: drive one pick
+    // so `current` is populated and the queue still has work.
+    let m: MergeState = initSort([A, B, C]);
+    // After init, queue starts as singletons and the first pick pops
+    // a pair into `current`. Hide a different item too so hidden[]
+    // has content.
+    m = hideItem(m, 'c') as MergeState;
+    const initialPair = getPair(m);
+    expect(initialPair).not.toBeNull();
+    const renamed = updateItemId(m, 'a', 'alpha');
+    expect(renamed).not.toBeNull();
+    if (!renamed || renamed.engine !== 'merge') {
+      throw new Error('expected merge state');
+    }
+    // Old id must NOT appear anywhere in the progress.
+    const allMerge = [
+      ...renamed.queue.flat(),
+      ...(renamed.current?.left ?? []),
+      ...(renamed.current?.right ?? []),
+      ...(renamed.current?.merged ?? []),
+      ...renamed.hidden,
+      ...renamed.unplaced,
+      ...renamed.pendingManualInserts,
+    ];
+    expect(allMerge).not.toContain('a');
+    // 'c' stays in hidden — proves rename was surgical, not blanket.
+    expect(renamed.hidden).toContain('c');
+  });
+
+  it('rewrites references inside insertion sorted + pending + current', () => {
+    const ins = seedAsSorted([A, B, C]) as InsertionState;
+    // Push some pending so `current` is populated.
+    const { state: withPending } = insertionAddItems(ins, [X, Y]);
+    expect(withPending.current?.insertingId).toBe('x');
+
+    const renamed = updateItemId(withPending, 'b', 'beta');
+    expect(renamed).not.toBeNull();
+    if (!renamed || renamed.engine !== 'insertion') {
+      throw new Error('expected insertion state');
+    }
+    expect(renamed.sorted).toContain('beta');
+    expect(renamed.sorted).not.toContain('b');
+    // current.insertingId untouched ('x', not 'b'), pending stays put.
+    expect(renamed.current?.insertingId).toBe('x');
+    expect(renamed.pending).toEqual(['y']);
+  });
+
+  it('rejects empty / collision / unknown ids by returning null', () => {
+    const m = initSort([A, B, C]);
+    expect(updateItemId(m, 'a', '')).toBeNull();        // empty
+    expect(updateItemId(m, 'a', '   ')).toBeNull();     // empty after trim
+    expect(updateItemId(m, 'a', 'b')).toBeNull();       // collision
+    expect(updateItemId(m, 'nope', 'alpha')).toBeNull(); // unknown old
+  });
+
+  it('returns input state unchanged when newId === oldId (no undo needed)', () => {
+    const m = initSort([A, B, C]);
+    expect(updateItemId(m, 'a', 'a')).toBe(m);
+  });
+
+  it('trims whitespace on newId before applying', () => {
+    const m = initSort([A, B]);
+    const next = updateItemId(m, 'a', '  alpha  ');
+    expect(next).not.toBeNull();
+    if (!next) return;
+    expect(next.items.alpha).toBeDefined();
+    expect(next.items['  alpha  ']).toBeUndefined();
+  });
+
+  it('accepts any non-empty trimmed string (CJK, emoji, etc.)', () => {
+    const m = initSort([A, B]);
+    const next = updateItemId(m, 'a', 'かぐや-s1');
+    expect(next).not.toBeNull();
+    if (!next) return;
+    expect(next.items['かぐや-s1']).toBeDefined();
+    expect(next.items['かぐや-s1'].id).toBe('かぐや-s1');
+  });
+});
+
+describe('rewriteIdInProgress (used by App.tsx to fix the undo ring)', () => {
+  it('returns same progress when oldId === newId', () => {
+    const m = initSort([A, B, C]);
+    const snap = snapshotProgress(m);
+    expect(rewriteIdInProgress(snap, 'a', 'a')).toBe(snap);
+  });
+
+  it('rewriting then restoring an old snapshot via the rewritten ring keeps refs consistent', () => {
+    // Simulates what App.tsx does: it has a SortState plus an undo
+    // ring of progress snapshots. When the user renames id "a" →
+    // "alpha", App.tsx maps every snapshot through rewriteIdInProgress
+    // so undo doesn't restore an arrays-reference-old-id /
+    // dict-keyed-by-new-id mismatch.
+    //
+    // Walk: take a merge snapshot, rename in the live state, rewrite
+    // the snapshot, then restore the snapshot onto the renamed state
+    // and verify the restored progress only references 'alpha'.
+    const m = initSort([A, B, C]);
+    const earlierSnap = snapshotProgress(m);
+    const renamed = updateItemId(m, 'a', 'alpha');
+    if (!renamed) throw new Error('rename failed');
+    const rewrittenSnap = rewriteIdInProgress(earlierSnap, 'a', 'alpha');
+    const restored = restoreProgress(renamed, rewrittenSnap);
+    expect(restored.engine).toBe('merge');
+    if (restored.engine !== 'merge') return;
+    // 'alpha' must be reachable via the items dict (still keyed by
+    // 'alpha' from the rename) AND referenced by the restored queue.
+    expect(restored.items.alpha).toBeDefined();
+    const all = [
+      ...restored.queue.flat(),
+      ...(restored.current?.left ?? []),
+      ...(restored.current?.right ?? []),
+      ...(restored.current?.merged ?? []),
+    ];
+    expect(all).toContain('alpha');
+    expect(all).not.toContain('a');
   });
 });
