@@ -11,7 +11,6 @@ import type {
 import {
   addItem as engineAddItem,
   addItems as engineAddItems,
-  comparisonsRemaining as engineComparisonsRemaining,
   type EngineOptions,
   getRanking as engineGetRanking,
   hideItem as engineHideItem,
@@ -23,6 +22,7 @@ import {
   snapshotProgress as engineSnapshotProgress,
   transitionMergeDoneToInsertion,
   unhideItem as engineUnhideItem,
+  updateItem as engineUpdateItem,
 } from './lib/engine';
 import {
   appendPreRankedSublist,
@@ -216,13 +216,22 @@ export function App() {
   }, []);
 
   // -------- document.title --------
+  // Title format: "<slot name> — Sorter" (with " ✓" suffix when done),
+  // or just "Sorter" when no slot is loaded. The slot name beats the
+  // comparisons-remaining counter because users running multiple
+  // sorter tabs in parallel need to tell them apart at a glance, and
+  // the in-app header already shows "Comparison #N" / "~M left".
+  // `manifest` is in the deps so a rename via the gear menu re-titles
+  // the tab immediately.
   useEffect(() => {
-    if (!state || state.done) {
-      document.title = state?.done ? 'Done — Sorter' : 'Sorter';
+    if (!state) {
+      document.title = 'Sorter';
       return;
     }
-    document.title = `${engineComparisonsRemaining(state, engineOptions)} left — Sorter`;
-  }, [state, engineOptions]);
+    const slotName = manifest.slots.find((s) => s.id === manifest.activeId)?.name;
+    const base = slotName ?? 'Untitled sort';
+    document.title = state.done ? `${base} ✓ — Sorter` : `${base} — Sorter`;
+  }, [state, manifest]);
 
   // -------- theme + settings toggles --------
   const toggleTheme = useCallback(() => {
@@ -297,6 +306,24 @@ export function App() {
         if (!cur) return cur;
         pushUndo(cur);
         return engineUnhideItem(cur, id);
+      });
+    },
+    [pushUndo],
+  );
+
+  // In-place metadata edit (label / url / imageUrl). `engineUpdateItem`
+  // returns the same state reference when nothing actually changes —
+  // that's our signal to NOT push an undo frame and NOT trigger a state
+  // re-render. Driving use-case: fixing labels whose commas got eaten by
+  // the CSV parser at import time.
+  const doEditItem = useCallback(
+    (id: ItemId, patch: { label?: string; url?: string; imageUrl?: string }) => {
+      setState((cur) => {
+        if (!cur) return cur;
+        const next = engineUpdateItem(cur, id, patch);
+        if (next === cur) return cur;
+        pushUndo(cur);
+        return next;
       });
     },
     [pushUndo],
@@ -850,6 +877,7 @@ export function App() {
         onForget={doForget}
         onReorderInSorted={doReorderInSorted}
         onReturnToPending={doReturnToPending}
+        onEditItem={doEditItem}
       />
     );
   } else if (activeTab === 'rank') {

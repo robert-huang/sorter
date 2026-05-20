@@ -131,6 +131,77 @@ export function unhideItem(state: SortState, id: ItemId): SortState {
     : merge.unhideItem(state, id);
 }
 
+/**
+ * Patch the metadata of a single item (label / url / imageUrl) without
+ * touching the sort structure. Engine-agnostic because both engines
+ * share the same `items` dict and the item's `id` is the only thing
+ * the queue/sorted/pending/unplaced/etc. arrays actually reference.
+ *
+ * Driving use-case: pasted lists whose labels contain a comma get
+ * mis-parsed (comma is treated as the CSV column separator, so the
+ * tail of the label leaks into the `url` column). The user wants to
+ * fix the affected item in place after the fact rather than start
+ * over.
+ *
+ * Patch semantics:
+ *  - `label`: defined → set to the trimmed value; empty trimmed value
+ *    is rejected (we never want a blank label) and we return the
+ *    state unchanged.
+ *  - `url` / `imageUrl`: defined and non-empty → set; defined and
+ *    empty string → cleared (`undefined`). This is how the user
+ *    removes a bogus URL that came from a comma split.
+ *
+ * The item `id` is intentionally NOT recomputed from the new label.
+ * The id is referenced by every collection in the sort state
+ * (queue, sublists, hidden[], unplaced[], pending[], sorted[],
+ * pendingManualInserts[], currentManualInsert.insertingId, etc.) and
+ * is internal — the user never sees it. Keeping it stable means a
+ * label edit is a strict in-place patch with no structural risk.
+ *
+ * Returns the input state unchanged when the id is unknown or the
+ * patch is a no-op (so the caller can skip pushing a useless undo
+ * frame).
+ */
+export function updateItem(
+  state: SortState,
+  id: ItemId,
+  patch: { label?: string; url?: string; imageUrl?: string },
+): SortState {
+  const existing = state.items[id];
+  if (!existing) return state;
+  const next: Item = { ...existing };
+  let changed = false;
+  if (patch.label !== undefined) {
+    const trimmed = patch.label.trim();
+    if (trimmed.length === 0) return state; // refuse blank labels
+    if (trimmed !== existing.label) {
+      next.label = trimmed;
+      changed = true;
+    }
+  }
+  if (patch.url !== undefined) {
+    const trimmed = patch.url.trim();
+    const nextUrl = trimmed.length === 0 ? undefined : trimmed;
+    if (nextUrl !== existing.url) {
+      next.url = nextUrl;
+      changed = true;
+    }
+  }
+  if (patch.imageUrl !== undefined) {
+    const trimmed = patch.imageUrl.trim();
+    const nextImg = trimmed.length === 0 ? undefined : trimmed;
+    if (nextImg !== existing.imageUrl) {
+      next.imageUrl = nextImg;
+      changed = true;
+    }
+  }
+  if (!changed) return state;
+  // Patch via spread on the items dict. Engine-specific state arrays
+  // are untouched — id is the only thing they reference, and id is
+  // unchanged.
+  return { ...state, items: { ...state.items, [id]: next } } as SortState;
+}
+
 // ---------- add items (engine-aware) ----------
 
 /**

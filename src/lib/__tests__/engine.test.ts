@@ -9,6 +9,7 @@ import {
   snapshotProgress,
   transitionMergeDoneToInsertion,
   unhideItem,
+  updateItem,
 } from '../engine';
 import { initSort, pickLeft, pickRight } from '../queueMergeSort';
 import { seedAsSorted } from '../insertionSort';
@@ -165,6 +166,106 @@ describe('transitionMergeDoneToInsertion', () => {
     expect(m.hidden).toContain('b');
     const { state } = transitionMergeDoneToInsertion(m, [X]);
     expect(state.hidden).toContain('b');
+  });
+});
+
+describe('updateItem (metadata edit)', () => {
+  // Reusable items with full metadata so we can verify clears + edits.
+  const withMeta: Item = {
+    id: 'a',
+    label: 'Foo',
+    url: 'https://foo.example',
+    imageUrl: 'https://img.example/foo.png',
+  };
+
+  it('updates label / url / imageUrl on a merge state, preserves structure', () => {
+    const m = initSort([withMeta, B, C]);
+    const next = updateItem(m, 'a', {
+      label: 'Foo, Inc',
+      url: 'https://foo-inc.example',
+    });
+    expect(next.items.a.label).toBe('Foo, Inc');
+    expect(next.items.a.url).toBe('https://foo-inc.example');
+    // imageUrl untouched (patch didn't include it).
+    expect(next.items.a.imageUrl).toBe('https://img.example/foo.png');
+    // Structure preserved: queue / engine identity intact.
+    expect(next.engine).toBe('merge');
+    if (next.engine === 'merge' && m.engine === 'merge') {
+      expect(next.queue).toEqual(m.queue);
+      expect(next.current).toEqual(m.current);
+    }
+    // Id stays stable — that's the whole point (queue references it).
+    expect(next.items.a.id).toBe('a');
+  });
+
+  it('updates an item on an insertion state without touching sorted[]', () => {
+    const ins = seedAsSorted([withMeta, B, C]);
+    const next = updateItem(ins, 'a', { label: 'Foo, Inc' });
+    expect(next.items.a.label).toBe('Foo, Inc');
+    expect(next.engine).toBe('insertion');
+    if (next.engine === 'insertion' && ins.engine === 'insertion') {
+      expect(next.sorted).toEqual(ins.sorted);
+    }
+  });
+
+  it('treats empty-string url / imageUrl as a clear (back to undefined)', () => {
+    const m = initSort([withMeta, B]);
+    const cleared = updateItem(m, 'a', { url: '', imageUrl: '' });
+    expect(cleared.items.a.url).toBeUndefined();
+    expect(cleared.items.a.imageUrl).toBeUndefined();
+    // Label untouched.
+    expect(cleared.items.a.label).toBe('Foo');
+  });
+
+  it('trims whitespace on all fields', () => {
+    const m = initSort([withMeta, B]);
+    const next = updateItem(m, 'a', {
+      label: '  Foo, Inc  ',
+      url: '  https://x.example  ',
+      imageUrl: '  ',
+    });
+    expect(next.items.a.label).toBe('Foo, Inc');
+    expect(next.items.a.url).toBe('https://x.example');
+    // imageUrl that becomes empty after trim is cleared.
+    expect(next.items.a.imageUrl).toBeUndefined();
+  });
+
+  it('refuses to set a blank label (returns input state unchanged)', () => {
+    const m = initSort([withMeta, B]);
+    const next = updateItem(m, 'a', { label: '   ' });
+    expect(next).toBe(m); // same reference — caller skips undo push
+    expect(m.items.a.label).toBe('Foo'); // unchanged
+  });
+
+  it('returns the input state unchanged when the patch is a no-op', () => {
+    const m = initSort([withMeta, B]);
+    // Same values, just re-typed.
+    const next = updateItem(m, 'a', {
+      label: 'Foo',
+      url: 'https://foo.example',
+      imageUrl: 'https://img.example/foo.png',
+    });
+    expect(next).toBe(m);
+  });
+
+  it('returns the input state unchanged when the id is unknown', () => {
+    const m = initSort([withMeta, B]);
+    const next = updateItem(m, 'nope', { label: 'Whatever' });
+    expect(next).toBe(m);
+  });
+
+  it('does not affect ids referenced by hidden / unplaced / sorted arrays', () => {
+    // Hide A so it lives in hidden[]; then rename — hidden[] must still
+    // contain 'a' (the id), not the label.
+    const m0 = initSort([withMeta, B, C]) as MergeState;
+    const m1 = hideItem(m0, 'a') as MergeState;
+    expect(m1.hidden).toContain('a');
+    const m2 = updateItem(m1, 'a', { label: 'Renamed' });
+    expect(m2.engine).toBe('merge');
+    if (m2.engine === 'merge') {
+      expect(m2.hidden).toContain('a');
+    }
+    expect(m2.items.a.label).toBe('Renamed');
   });
 });
 
