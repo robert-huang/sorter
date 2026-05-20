@@ -1,23 +1,28 @@
 import { describe, expect, it } from 'vitest';
 import {
   addItem,
+  addItems,
   appendPreRankedSublist,
   breakApartSublist,
+  cancelManualInsert,
   comparisonsRemaining,
+  forgetUnplaced,
   getPair,
   getRanking,
   hideItem,
   initSort,
+  manualInsert,
   mergesRemaining,
   pickLeft,
   pickRight,
   reorderInSublist,
   restoreProgress,
   seedFromSublists,
+  shouldAutoInsert,
   snapshotProgress,
   unhideItem,
 } from '../queueMergeSort';
-import type { Item, SortState } from '../types';
+import type { Item, MergeState } from '../types';
 
 const A: Item = { id: 'a', label: 'A' };
 const B: Item = { id: 'b', label: 'B' };
@@ -32,7 +37,7 @@ const E: Item = { id: 'e', label: 'E' };
 function runWithOracle(
   items: Item[],
   desiredOrder: string[],
-): SortState {
+): MergeState {
   const rank = new Map(desiredOrder.map((id, i) => [id, i]));
   let s = initSort(items);
   let safety = 1000;
@@ -280,6 +285,102 @@ describe('addItem (mid-sort)', () => {
   });
 });
 
+describe('addItems (batch singletons)', () => {
+  it('appends N items as N singleton sublists, preserving input order', () => {
+    const s0 = initSort([A, B]);
+    expect(s0.queue.length).toBeGreaterThanOrEqual(0);
+    const beforeQ = s0.queue.length;
+    const { state: s1, skipped } = addItems(s0, [C, D, E]);
+    expect(skipped).toEqual([]);
+    // Three new singletons at the back, in C/D/E order.
+    expect(s1.queue.slice(beforeQ)).toEqual([['c'], ['d'], ['e']]);
+    expect(s1.items.c).toBeDefined();
+    expect(s1.items.d).toBeDefined();
+    expect(s1.items.e).toBeDefined();
+  });
+
+  it('flips done back to false when adding into a completed sort', () => {
+    // Drive a 2-item sort to done, then bulk-add.
+    let s: MergeState = initSort([A, B]);
+    while (!s.done) {
+      const p = getPair(s);
+      if (!p) break;
+      s = p.leftId <= p.rightId ? pickLeft(s) : pickRight(s);
+    }
+    expect(s.done).toBe(true);
+    const { state: next } = addItems(s, [C, D]);
+    expect(next.done).toBe(false);
+    // After advance(), one of C/D should be in flight via current.
+    expect(next.current || next.queue.some((sub) => sub.length > 0)).toBeTruthy();
+  });
+
+  it('dedups by id and reports skipped; metadata fills missing fields only', () => {
+    const s0 = initSort([{ id: 'a', label: 'A' }, B]);
+    const { state: s1, skipped } = addItems(s0, [
+      { id: 'a', label: 'A', url: 'https://new', imageUrl: 'https://i' },
+      C,
+    ]);
+    expect(skipped).toEqual(['a']);
+    expect(s1.items.a.url).toBe('https://new');
+    expect(s1.items.a.imageUrl).toBe('https://i');
+    // C added as a singleton.
+    expect(s1.queue.some((sub) => sub.length === 1 && sub[0] === 'c')).toBe(true);
+  });
+
+  it("does not overwrite the existing item's URL when both are set", () => {
+    const s0 = initSort([{ id: 'a', label: 'A', url: 'https://orig' }]);
+    const { state: s1, skipped } = addItems(s0, [
+      { id: 'a', label: 'A', url: 'https://new' },
+    ]);
+    expect(skipped).toEqual(['a']);
+    expect(s1.items.a.url).toBe('https://orig');
+  });
+
+  it('all-duplicate input returns the same state with skipped populated', () => {
+    const s0 = initSort([A, B]);
+    const beforeQ = s0.queue.map((sub) => sub.slice());
+    const { state: s1, skipped } = addItems(s0, [A, B]);
+    expect(skipped).toEqual(['a', 'b']);
+    // Queue unchanged when there are no survivors.
+    expect(s1.queue).toEqual(beforeQ);
+  });
+
+  it('bumps totalComparisonsEverNeeded — bar never moves backwards', () => {
+    const s0 = initSort([A, B]);
+    const before = s0.totalComparisonsEverNeeded;
+    const { state: s1 } = addItems(s0, [C, D, E]);
+    expect(s1.totalComparisonsEverNeeded).toBeGreaterThanOrEqual(before);
+  });
+
+  it('produces the same final ranking as calling addItem in a loop', () => {
+    // Run two parallel sorts: one via N addItem calls, one via addItems(N),
+    // both driven by the same alphabetic oracle. Final ranks must agree.
+    const seedA: MergeState = initSort([A]);
+    const seedB: MergeState = initSort([A]);
+    const adds = [B, C, D, E];
+
+    let loopState: MergeState = seedA;
+    for (const it of adds) {
+      const r = addItem(loopState, it);
+      if (r) loopState = r;
+    }
+    while (!loopState.done) {
+      const p = getPair(loopState);
+      if (!p) break;
+      loopState = p.leftId <= p.rightId ? pickLeft(loopState) : pickRight(loopState);
+    }
+
+    let batchState: MergeState = addItems(seedB, adds).state;
+    while (!batchState.done) {
+      const p = getPair(batchState);
+      if (!p) break;
+      batchState = p.leftId <= p.rightId ? pickLeft(batchState) : pickRight(batchState);
+    }
+
+    expect(getRanking(loopState)).toEqual(getRanking(batchState));
+  });
+});
+
 describe('appendPreRankedSublist', () => {
   it('adds the sublist to the back and net-new items only', () => {
     const s0 = initSort([A, B]);
@@ -432,5 +533,502 @@ describe('snapshot/restore round-trip', () => {
     const restored = restoreProgress(s1, snap);
     expect(restored.hidden).toEqual([]);
     expect(getPair(restored)).toEqual(getPair(s0));
+  });
+});
+
+// ============================================================================
+// Exile on merge close (new) — when a merge closes with items hidden, the
+// hidden ids land in `state.unplaced` instead of riding along inside the
+// closed sublist. See plan §5b.
+// ============================================================================
+
+/**
+ * Drive a merge state by oracle until done OR until the predicate
+ * returns true. Returns the final state and the count of comparisons made.
+ *
+ * The third arg can be EITHER a stopWhen predicate (back-compat) OR a
+ * MergeOptions bag — `runUntil(s, order, { autoInsertEnabled: false })`.
+ * Some callers need both, so the fourth slot accepts the options bag
+ * when the third is a predicate.
+ */
+function runUntil(
+  initial: MergeState,
+  desiredOrder: string[],
+  stopWhenOrOpts?: ((s: MergeState) => boolean) | { autoInsertEnabled?: boolean },
+  maybeOpts?: { autoInsertEnabled?: boolean },
+): MergeState {
+  const stopWhen = typeof stopWhenOrOpts === 'function' ? stopWhenOrOpts : undefined;
+  const opts =
+    typeof stopWhenOrOpts === 'object' && stopWhenOrOpts !== null
+      ? stopWhenOrOpts
+      : maybeOpts;
+  const rank = new Map(desiredOrder.map((id, i) => [id, i]));
+  let s = initial;
+  let safety = 1000;
+  while (!s.done && safety-- > 0) {
+    if (stopWhen && stopWhen(s)) return s;
+    const pair = getPair(s);
+    if (!pair) break;
+    const lr = rank.get(pair.leftId) ?? Number.MAX_SAFE_INTEGER;
+    const rr = rank.get(pair.rightId) ?? Number.MAX_SAFE_INTEGER;
+    s = lr <= rr ? pickLeft(s, opts) : pickRight(s, opts);
+  }
+  return s;
+}
+
+describe('exile on merge close (plan §5b)', () => {
+  it('hidden mid-merge ids land in `unplaced`, not in the closed sublist', () => {
+    // Construct the chat-time example via seedFromSublists so we have
+    // a deterministic initial merge of [A,B,C,D,E] vs [F,G,H].
+    const F: Item = { id: 'f', label: 'F' };
+    const G: Item = { id: 'g', label: 'G' };
+    const H: Item = { id: 'h', label: 'H' };
+    const s0 = seedFromSublists({
+      sublists: [
+        [A, B, C, D, E],
+        [F, G, H],
+      ],
+      extras: [],
+    });
+    expect(s0.current).not.toBeNull();
+    expect(s0.current!.left).toEqual(['a', 'b', 'c', 'd', 'e']);
+    expect(s0.current!.right).toEqual(['f', 'g', 'h']);
+
+    // Hide G before any picks land on it.
+    let s = hideItem(s0, 'g');
+    // Drive: ABC over F, F over D (so F goes in merged after a/b/c),
+    // D, E land. Order in `merged` ends up [a,b,c,f,d,e]; right side
+    // tail is [h] (g is hidden). Closing: visible = [a,b,c,f,d,e,h],
+    // exiled = [g] → queue gets [a,b,c,f,d,e,h]; unplaced=['g'].
+    s = runUntil(s, ['a', 'b', 'c', 'f', 'd', 'e', 'g', 'h']);
+    expect(s.done).toBe(true);
+    expect(s.unplaced).toEqual(['g']);
+    expect(s.queue).toEqual([['a', 'b', 'c', 'f', 'd', 'e', 'h']]);
+  });
+
+  it('unhide while still in current.left / current.right rejoins the merge', () => {
+    const F: Item = { id: 'f', label: 'F' };
+    const G: Item = { id: 'g', label: 'G' };
+    const H: Item = { id: 'h', label: 'H' };
+    const s0 = seedFromSublists({
+      sublists: [
+        [A, B, C, D, E],
+        [F, G, H],
+      ],
+      extras: [],
+    });
+    // Hide G, then unhide G before the merge reaches it. Then run to
+    // completion: G should appear in the final ranking, no unplaced.
+    let s = hideItem(s0, 'g');
+    s = unhideItem(s, 'g');
+    s = runUntil(s, ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']);
+    expect(s.done).toBe(true);
+    expect(s.unplaced).toEqual([]);
+    expect(getRanking(s)).toEqual(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']);
+  });
+
+  it('undo across exile restores the pre-close snapshot (hidden, unplaced empty)', () => {
+    // 5-vs-3 merge so hiding one right-side item doesn't auto-close.
+    // Snapshot mid-merge (G hidden, no exile yet), drive to close
+    // (exile happens), restore — should be back to mid-merge / no exile.
+    const F: Item = { id: 'f', label: 'F' };
+    const G: Item = { id: 'g', label: 'G' };
+    const H: Item = { id: 'h', label: 'H' };
+    const s0 = seedFromSublists({
+      sublists: [
+        [A, B, C, D, E],
+        [F, G, H],
+      ],
+      extras: [],
+    });
+    let s = hideItem(s0, 'g');
+    expect(s.unplaced).toEqual([]);
+    expect(s.current).not.toBeNull();
+    const snap = snapshotProgress(s);
+
+    s = runUntil(s, ['a', 'b', 'c', 'f', 'd', 'e', 'g', 'h']);
+    expect(s.unplaced).toEqual(['g']);
+    expect(s.done).toBe(true);
+
+    const restored = restoreProgress(s, snap);
+    expect(restored.unplaced).toEqual([]);
+    expect(restored.hidden).toContain('g');
+    expect(restored.done).toBe(false);
+    expect(restored.current).not.toBeNull();
+  });
+
+  it('done is gated by pending manual inserts (not by unplaced)', () => {
+    // After exile, queue has one sublist and current is null; the
+    // sort IS done — unplaced does NOT block done. The user chose
+    // (by hiding) to leave those items out.
+    const F: Item = { id: 'f', label: 'F' };
+    const G: Item = { id: 'g', label: 'G' };
+    const H: Item = { id: 'h', label: 'H' };
+    const s0 = seedFromSublists({
+      sublists: [
+        [A, B, C, D, E],
+        [F, G, H],
+      ],
+      extras: [],
+    });
+    let s = hideItem(s0, 'g');
+    s = runUntil(s, ['a', 'b', 'c', 'f', 'd', 'e', 'g', 'h']);
+    expect(s.done).toBe(true);
+    expect(s.unplaced).toEqual(['g']);
+
+    // But if we click Insert on G, done flips back to false until G
+    // resolves.
+    const sInserting = manualInsert(s, 'g');
+    expect(sInserting.done).toBe(false);
+    expect(sInserting.currentManualInsert?.insertingId).toBe('g');
+  });
+});
+
+describe('manualInsert + drainManualInserts (plan §5c)', () => {
+  it('Insert on G after exile binary-searches G into the closed sublist', () => {
+    const F: Item = { id: 'f', label: 'F' };
+    const G: Item = { id: 'g', label: 'G' };
+    const H: Item = { id: 'h', label: 'H' };
+    const s0 = seedFromSublists({
+      sublists: [
+        [A, B, C, D, E],
+        [F, G, H],
+      ],
+      extras: [],
+    });
+    let s = hideItem(s0, 'g');
+    s = runUntil(s, ['a', 'b', 'c', 'f', 'd', 'e', 'g', 'h']);
+    expect(s.unplaced).toEqual(['g']);
+
+    // Click Insert on G; manual-insert frame should appear with G against
+    // some probe from the [a,b,c,f,d,e,h] sublist.
+    s = manualInsert(s, 'g');
+    expect(s.currentManualInsert).not.toBeNull();
+    expect(s.currentManualInsert!.insertingId).toBe('g');
+    expect(getPair(s)?.leftId).toBe('g');
+
+    // Resolve with oracle: G ranks between F and H.
+    s = runUntil(s, ['a', 'b', 'c', 'f', 'd', 'e', 'g', 'h']);
+    expect(s.done).toBe(true);
+    expect(s.unplaced).toEqual([]);
+    expect(s.currentManualInsert).toBeNull();
+    // G is somewhere between F (index 3) and H (last) in the final
+    // sublist, depending on probe order. With MVP full-range bounds,
+    // exact position depends on the oracle path.
+    const final = s.queue[0];
+    const gi = final.indexOf('g');
+    const fi = final.indexOf('f');
+    const hi = final.indexOf('h');
+    expect(gi).toBeGreaterThan(fi);
+    expect(gi).toBeLessThan(hi);
+  });
+
+  it('Insert mid-merge queues until the merge closes (deferred drain)', () => {
+    // Set up: merge [A,B,C] vs [D]; hide B; pick to close merge.
+    // Force the classic merge path because auto-insert would intercept
+    // this shape (K=1, N=3 → binary insert beats the full merge) and
+    // turn this into an auto-insert scenario, which has its own tests.
+    const s0 = seedFromSublists(
+      {
+        sublists: [[A, B, C], [D]],
+        extras: [],
+      },
+      { autoInsertEnabled: false },
+    );
+    let s = hideItem(s0, 'b', { autoInsertEnabled: false });
+    // Pick A → A goes to merged. Now left=[B,C] (visibly [C]).
+    // Pick C over D → C to merged; left=[]. flushIfMergeComplete →
+    // visible=[A,C,D], exile=[B]. Done.
+    s = runUntil(s, ['a', 'c', 'b', 'd'], { autoInsertEnabled: false });
+    expect(s.done).toBe(true);
+    expect(s.unplaced).toEqual(['b']);
+    expect(s.queue).toEqual([['a', 'c', 'd']]);
+  });
+
+  it('drainManualInserts installs the manual-insert frame immediately when no merge is running', () => {
+    // s.done with unplaced=['x']; insert X → frame installed at once.
+    const X: Item = { id: 'x', label: 'X' };
+    const s0 = initSort([A, B, X]);
+    // Hide X mid-merge, then drive to close. X gets exiled.
+    let s = hideItem(s0, 'x');
+    s = runUntil(s, ['a', 'b', 'x']);
+    expect(s.done).toBe(true);
+    expect(s.unplaced).toEqual(['x']);
+    expect(s.currentManualInsert).toBeNull();
+
+    s = manualInsert(s, 'x');
+    expect(s.currentManualInsert).not.toBeNull();
+    expect(s.currentManualInsert!.insertingId).toBe('x');
+  });
+
+  it('forgetUnplaced drops the id permanently', () => {
+    const F: Item = { id: 'f', label: 'F' };
+    const G: Item = { id: 'g', label: 'G' };
+    const H: Item = { id: 'h', label: 'H' };
+    const s0 = seedFromSublists({
+      sublists: [
+        [A, B, C, D, E],
+        [F, G, H],
+      ],
+      extras: [],
+    });
+    let s = hideItem(s0, 'g');
+    s = runUntil(s, ['a', 'b', 'c', 'f', 'd', 'e', 'g', 'h']);
+    expect(s.unplaced).toEqual(['g']);
+    s = forgetUnplaced(s, 'g');
+    expect(s.unplaced).toEqual([]);
+    expect(getRanking(s)).not.toContain('g');
+  });
+
+  it('cancelManualInsert bounces the inserting id back to unplaced', () => {
+    const F: Item = { id: 'f', label: 'F' };
+    const G: Item = { id: 'g', label: 'G' };
+    const H: Item = { id: 'h', label: 'H' };
+    const s0 = seedFromSublists({
+      sublists: [
+        [A, B, C, D, E],
+        [F, G, H],
+      ],
+      extras: [],
+    });
+    let s = hideItem(s0, 'g');
+    s = runUntil(s, ['a', 'b', 'c', 'f', 'd', 'e', 'g', 'h']);
+    s = manualInsert(s, 'g');
+    expect(s.currentManualInsert?.insertingId).toBe('g');
+    s = cancelManualInsert(s);
+    expect(s.currentManualInsert).toBeNull();
+    expect(s.unplaced).toContain('g');
+  });
+});
+
+// ============================================================================
+// Phase 2: auto-insert heuristic
+//
+// advance() may swap a popped queue pair for binary insertion when the
+// smaller side is small enough that insertion beats the full merge. The
+// frame lives on `currentAutoInsert`; rank-aware bound tightening makes
+// subsequent inserts cheaper than the rank-blind worst case.
+// ============================================================================
+
+describe('shouldAutoInsert heuristic', () => {
+  it('returns true when binary insertion strictly beats the merge', () => {
+    // Concrete cases from the heuristic doc comment.
+    expect(shouldAutoInsert(1, 4)).toBe(true); // 1*⌈log₂5⌉=3 < 4
+    expect(shouldAutoInsert(4, 1)).toBe(true); // symmetric
+    expect(shouldAutoInsert(2, 8)).toBe(true); // 2·⌈log₂10⌉=8 < 9
+    expect(shouldAutoInsert(1, 100)).toBe(true);
+  });
+
+  it('returns false when the merge would tie or win', () => {
+    expect(shouldAutoInsert(3, 5)).toBe(false); // 3·⌈log₂8⌉=9 > 7
+    expect(shouldAutoInsert(4, 4)).toBe(false); // 4·⌈log₂8⌉=12 > 7
+    expect(shouldAutoInsert(1, 1)).toBe(false); // insert=1 not < merge=1
+    expect(shouldAutoInsert(2, 2)).toBe(false);
+  });
+
+  it('returns false on degenerate sizes', () => {
+    expect(shouldAutoInsert(0, 5)).toBe(false);
+    expect(shouldAutoInsert(5, 0)).toBe(false);
+    expect(shouldAutoInsert(0, 0)).toBe(false);
+  });
+});
+
+describe('advance() auto-insert installation', () => {
+  it('installs an auto-insert frame when the popped pair is skewed', () => {
+    // [A,B,C,D,E] vs [F] — K=1, N=5. insert=⌈log₂6⌉=3 < merge=5.
+    const F: Item = { id: 'f', label: 'F' };
+    const s = seedFromSublists({
+      sublists: [[A, B, C, D, E], [F]],
+      extras: [],
+    });
+    expect(s.current).toBeNull();
+    expect(s.currentAutoInsert).not.toBeNull();
+    expect(s.currentAutoInsert!.target).toEqual(['a', 'b', 'c', 'd', 'e']);
+    expect(s.currentAutoInsert!.pendingInserts).toEqual([]);
+    expect(s.currentAutoInsert!.frame).not.toBeNull();
+    expect(s.currentAutoInsert!.frame!.insertingId).toBe('f');
+  });
+
+  it('falls back to a normal merge when the pair is balanced', () => {
+    // [A,B,C] vs [D,E,F] — K=N=3. insert=3·⌈log₂6⌉=9 > merge=5.
+    const F: Item = { id: 'f', label: 'F' };
+    const s = seedFromSublists({
+      sublists: [[A, B, C], [D, E, F]],
+      extras: [],
+    });
+    expect(s.currentAutoInsert).toBeNull();
+    expect(s.current).not.toBeNull();
+  });
+
+  it('does NOT auto-insert when the flag is off, even for skewed pairs', () => {
+    const F: Item = { id: 'f', label: 'F' };
+    const s = seedFromSublists(
+      { sublists: [[A, B, C, D, E], [F]], extras: [] },
+      { autoInsertEnabled: false },
+    );
+    expect(s.currentAutoInsert).toBeNull();
+    expect(s.current).not.toBeNull();
+    expect(s.current!.left).toEqual(['a', 'b', 'c', 'd', 'e']);
+    expect(s.current!.right).toEqual(['f']);
+  });
+
+  it('picks the LARGER side as target and the SMALLER as pendingInserts', () => {
+    // Reverse the input order: smaller first. Engine should still
+    // put the larger side on `target`.
+    const F: Item = { id: 'f', label: 'F' };
+    const s = seedFromSublists({
+      sublists: [[F], [A, B, C, D, E]],
+      extras: [],
+    });
+    expect(s.currentAutoInsert!.target).toEqual(['a', 'b', 'c', 'd', 'e']);
+    expect(s.currentAutoInsert!.frame!.insertingId).toBe('f');
+  });
+
+  it('drives a 1-into-5 auto-insert to completion (inserts F mid-list)', () => {
+    // Insert F somewhere in the middle. Oracle says C < F < D.
+    const F: Item = { id: 'f', label: 'F' };
+    const s0 = seedFromSublists({
+      sublists: [[A, B, C, D, E], [F]],
+      extras: [],
+    });
+    // Drive: oracle ranks F between C and D.
+    const s = runUntil(s0, ['a', 'b', 'c', 'f', 'd', 'e']);
+    expect(s.done).toBe(true);
+    expect(s.currentAutoInsert).toBeNull();
+    expect(s.queue).toEqual([['a', 'b', 'c', 'f', 'd', 'e']]);
+  });
+});
+
+describe('drainAutoInsert rank-aware bound tightening', () => {
+  it('uses lastInsertedPosition + 1 as the next insert\'s lower bound', () => {
+    // Use 2-into-8 so multiple inserts happen and rank-aware bounds
+    // can compound. pendingInserts is [X, Y] in rank order; X lands,
+    // then Y\'s startInsert is called with lo = X\'s position + 1.
+    const items: Item[] = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map(
+      (id) => ({ id, label: id.toUpperCase() }),
+    );
+    const X: Item = { id: 'x', label: 'X' };
+    const Y: Item = { id: 'y', label: 'Y' };
+    // K=2 vs N=8 → insertCost=2·⌈log₂10⌉=8 < mergeCost=9 → auto-insert.
+    const s0 = seedFromSublists({
+      sublists: [items, [X, Y]],
+      extras: [],
+    });
+    expect(s0.currentAutoInsert).not.toBeNull();
+    // Drive: X ranks between B and C; Y ranks between D and E.
+    const oracle = ['a', 'b', 'x', 'c', 'd', 'y', 'e', 'f', 'g', 'h'];
+    const s = runUntil(s0, oracle);
+    expect(s.done).toBe(true);
+    expect(s.queue).toEqual([oracle]);
+  });
+
+  it('exiles hidden target ids when the auto-insert closes', () => {
+    // 1-into-5, hide one of the target ids mid-auto-insert. The
+    // probe-skip path keeps the auto-insert running; the exile rule
+    // applies at close time so the hidden id ends up in `unplaced`
+    // instead of riding along in the closed sublist at a stale slot.
+    const F: Item = { id: 'f', label: 'F' };
+    const seed = seedFromSublists({
+      sublists: [[A, B, C, D, E], [F]],
+      extras: [],
+    });
+    let s = hideItem(seed, 'd');
+    expect(s.hidden).toContain('d');
+    // Drive: oracle says F should land between B and C.
+    s = runUntil(s, ['a', 'b', 'f', 'c', 'e']);
+    expect(s.done).toBe(true);
+    // D should be exiled to unplaced (the exile rule on merge close
+    // applies equally to auto-insert close).
+    expect(s.unplaced).toContain('d');
+    // D should NOT be in the final queue.
+    expect(s.queue[0]).not.toContain('d');
+  });
+
+  it('cancels the in-flight auto-insert when its inserting id is hidden, then continues the next pendingInsert', () => {
+    const items: Item[] = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map(
+      (id) => ({ id, label: id.toUpperCase() }),
+    );
+    const X: Item = { id: 'x', label: 'X' };
+    const Y: Item = { id: 'y', label: 'Y' };
+    const s0 = seedFromSublists({
+      sublists: [items, [X, Y]],
+      extras: [],
+    });
+    // First insert is X. Hide X mid-flight; the frame should cancel
+    // and the engine should advance to Y.
+    expect(s0.currentAutoInsert!.frame!.insertingId).toBe('x');
+    const s1 = hideItem(s0, 'x');
+    // Either Y is the new in-flight insert, or pendingInserts has
+    // already drained to a frame on Y.
+    expect(s1.currentAutoInsert!.frame).not.toBeNull();
+    expect(s1.currentAutoInsert!.frame!.insertingId).toBe('y');
+    expect(s1.hidden).toContain('x');
+  });
+
+  it('drops a queued pendingInsert id when it is hidden', () => {
+    const items: Item[] = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map(
+      (id) => ({ id, label: id.toUpperCase() }),
+    );
+    const X: Item = { id: 'x', label: 'X' };
+    const Y: Item = { id: 'y', label: 'Y' };
+    const s0 = seedFromSublists({
+      sublists: [items, [X, Y]],
+      extras: [],
+    });
+    // Y is queued (X is in flight). Hide Y; pendingInserts loses Y.
+    const s1 = hideItem(s0, 'y');
+    expect(s1.currentAutoInsert!.pendingInserts).not.toContain('y');
+  });
+});
+
+describe('auto-insert + snapshot/undo', () => {
+  it('snapshotProgress deep-copies currentAutoInsert so mutations on the live state do not leak', () => {
+    const F: Item = { id: 'f', label: 'F' };
+    const s = seedFromSublists({
+      sublists: [[A, B, C, D, E], [F]],
+      extras: [],
+    });
+    const snap = snapshotProgress(s);
+    // Mutate the live state\'s frame.
+    s.currentAutoInsert!.target.push('z');
+    expect(snap.currentAutoInsert).not.toBeNull();
+    expect(snap.currentAutoInsert!.target).not.toContain('z');
+  });
+
+  it('restoreProgress brings back an in-flight auto-insert frame', () => {
+    const F: Item = { id: 'f', label: 'F' };
+    const s0 = seedFromSublists({
+      sublists: [[A, B, C, D, E], [F]],
+      extras: [],
+    });
+    const snap = snapshotProgress(s0);
+    // Drive one pick — frame advances.
+    const s1 = pickLeft(s0);
+    expect(s1.currentAutoInsert!.frame).not.toBeNull();
+    // Undo via restoreProgress puts the frame back to its install state.
+    const s2 = restoreProgress(s1, snap);
+    expect(s2.currentAutoInsert!.frame!.insertingId).toBe(
+      s0.currentAutoInsert!.frame!.insertingId,
+    );
+    expect(s2.currentAutoInsert!.target).toEqual(['a', 'b', 'c', 'd', 'e']);
+  });
+});
+
+describe('comparisonsRemaining auto-insert forecast', () => {
+  it('charges min(merge, auto-insert) per pair when the flag is on', () => {
+    const F: Item = { id: 'f', label: 'F' };
+    const sOn = seedFromSublists({
+      sublists: [[A, B, C, D, E], [F]],
+      extras: [],
+    });
+    const sOff = seedFromSublists(
+      { sublists: [[A, B, C, D, E], [F]], extras: [] },
+      { autoInsertEnabled: false },
+    );
+    // The auto-insert forecast (~⌈log₂6⌉ = 3) is strictly cheaper than
+    // the merge forecast (5 + 1 - 1 = 5).
+    const onCost = comparisonsRemaining(sOn, { autoInsertEnabled: true });
+    const offCost = comparisonsRemaining(sOff, { autoInsertEnabled: false });
+    expect(onCost).toBeLessThan(offCost);
   });
 });

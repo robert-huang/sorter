@@ -19,6 +19,12 @@ interface Props {
   onResumeActive: () => void;
   onStartScratch: (items: Item[]) => void;
   onStartPreranked: (args: { sublists: Item[][]; extras: Item[] }) => void;
+  /**
+   * CSV-as-sorted entry point. Skips the sort entirely; items become the
+   * frozen `sorted[]` of an insertion-mode slot. The user can later
+   * "+ Add items" on RESULT to binary-insert new items.
+   */
+  onStartAlreadySorted: (items: Item[]) => void;
 }
 
 interface StagedFile {
@@ -38,12 +44,18 @@ export function StartScreen({
   onResumeActive,
   onStartScratch,
   onStartPreranked,
+  onStartAlreadySorted,
 }: Props) {
   const [mode, setMode] = useState<Mode>('scratch');
 
   // -------- scratch mode --------
   const [scratchText, setScratchText] = useState('');
   const [scratchSkipHeader, setScratchSkipHeader] = useState(false);
+  // When checked, the parsed items are treated as already-sorted: skip
+  // the merge sort entirely and start the slot in insertion mode with
+  // an empty pending list. The user can then "+ Add items" to insert
+  // new items via binary insertion. See plan §6c.
+  const [scratchAlreadySorted, setScratchAlreadySorted] = useState(false);
   const scratchFileRef = useRef<HTMLInputElement | null>(null);
   const scratchDetectedHeader = useMemo(() => {
     if (!scratchText.trim()) return false;
@@ -89,7 +101,11 @@ export function StartScreen({
   }
 
   function onStartScratchClick(): void {
-    onStartScratch(scratchResult.items);
+    if (scratchAlreadySorted) {
+      onStartAlreadySorted(scratchResult.items);
+    } else {
+      onStartScratch(scratchResult.items);
+    }
   }
 
   const scratchPreviewSources: PreviewSource[] = useMemo(() => {
@@ -308,12 +324,37 @@ export function StartScreen({
               </span>
             )}
           </div>
+          <div className="checkbox-row">
+            <input
+              id="scratch-already-sorted"
+              type="checkbox"
+              checked={scratchAlreadySorted}
+              onChange={(e) => setScratchAlreadySorted(e.target.checked)}
+            />
+            <label htmlFor="scratch-already-sorted">
+              These items are already in ranking order (skip the sort)
+            </label>
+            {scratchAlreadySorted && (
+              <span className="header-hint">
+                ⓘ Slot starts in insertion mode; add new items later via
+                "+ Add items".
+              </span>
+            )}
+          </div>
           <ImportPreview
             sources={scratchPreviewSources}
             totalItems={scratchResult.items.length}
             warnings={scratchResult.warnings}
-            startLabel={`Start sorting (${scratchResult.items.length} item${scratchResult.items.length === 1 ? '' : 's'})`}
-            startDisabled={scratchResult.items.length < 2}
+            startLabel={
+              scratchAlreadySorted
+                ? `Use as ranking (${scratchResult.items.length} item${scratchResult.items.length === 1 ? '' : 's'})`
+                : `Start sorting (${scratchResult.items.length} item${scratchResult.items.length === 1 ? '' : 's'})`
+            }
+            startDisabled={
+              scratchAlreadySorted
+                ? scratchResult.items.length < 1
+                : scratchResult.items.length < 2
+            }
             onStart={onStartScratchClick}
           />
         </div>

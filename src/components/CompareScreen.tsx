@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Item, ItemId, SortState } from '../lib/types';
-import { comparisonsRemaining, getPair } from '../lib/queueMergeSort';
+import { comparisonsRemaining, getPair } from '../lib/engine';
 import { ItemCard } from './ItemCard';
 
 /**
@@ -20,6 +20,36 @@ interface Props {
   onPickLeft: () => void;
   onPickRight: () => void;
   onHide: (id: ItemId) => void;
+  /** Cancel an in-flight manual insert (merge engine only). */
+  onCancelManualInsert: () => void;
+  /**
+   * Whether the merge engine may auto-insert popped pairs (engine setting).
+   * Threaded through here only to make the progress-bar forecast match what
+   * advance() will actually do — no other UI here depends on it.
+   */
+  autoInsertEnabled: boolean;
+}
+
+/**
+ * What kind of comparison the user is being asked to make right now.
+ *  - 'merging' — a normal merge frame (left=head of left, right=head of right)
+ *  - 'manual-insert' — a user-triggered insert mini-session on the merge
+ *    engine (an exiled item being binary-inserted into a queue sublist).
+ *    Cancelable via the banner's Cancel button.
+ *  - 'auto-insert' — an engine-triggered auto-insert frame on the merge
+ *    engine (a small side being binary-inserted into a much larger
+ *    target sublist). Not cancelable as a session — to opt out, the
+ *    user disables auto-insert in settings; to skip an individual item
+ *    they hide it.
+ *  - 'inserting' — the insertion engine's full-session binary insertion
+ */
+type CompareMode = 'merging' | 'manual-insert' | 'auto-insert' | 'inserting';
+
+function currentMode(state: SortState): CompareMode {
+  if (state.engine === 'insertion') return 'inserting';
+  if (state.currentManualInsert) return 'manual-insert';
+  if (state.currentAutoInsert && state.currentAutoInsert.frame) return 'auto-insert';
+  return 'merging';
 }
 
 interface OutgoingPair {
@@ -49,8 +79,26 @@ export function CompareScreen({
   onPickLeft,
   onPickRight,
   onHide,
+  onCancelManualInsert,
+  autoInsertEnabled,
 }: Props) {
   const pair = getPair(state);
+  const mode = currentMode(state);
+  // During any insert mode the "left" item is the one being inserted,
+  // and hiding it would cancel the mini-session in a confusing way. We
+  // hide the trash button on the left card in those modes.
+  const hideRemoveOnLeft = mode !== 'merging';
+  const insertingId = (() => {
+    if (state.engine === 'insertion') return state.current?.insertingId ?? null;
+    if (state.currentManualInsert) return state.currentManualInsert.insertingId;
+    if (state.currentAutoInsert && state.currentAutoInsert.frame) {
+      return state.currentAutoInsert.frame.insertingId;
+    }
+    return null;
+  })();
+  const insertingLabel = insertingId
+    ? state.items[insertingId]?.label ?? insertingId
+    : null;
 
   // -------- pair-change animation pipeline --------
   // The pair just rendered on the previous render (for change detection).
@@ -233,14 +281,55 @@ export function CompareScreen({
   // rank screen so it's only visible when there's actually a sort in
   // flight. Denominator is the max-so-far ("totalComparisonsEverNeeded")
   // so mid-sort growth (adding items / pre-ranked sublists) bumps the bar
-  // back rather than letting it appear to retreat.
+  // back rather than letting it appear to retreat. The autoInsertEnabled
+  // prop feeds the per-pair forecast so the bar matches what advance()
+  // will actually do.
   const total = state.totalComparisonsEverNeeded ?? 0;
-  const remaining = comparisonsRemaining(state);
+  const remaining = comparisonsRemaining(state, { autoInsertEnabled });
   const completed = Math.max(0, total - remaining);
   const pct = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0;
 
   const leftSlotClass = `compare-slot${leftRevealed ? '' : ' compare-slot--hidden'}`;
   const rightSlotClass = `compare-slot${rightRevealed ? '' : ' compare-slot--hidden'}`;
+
+  // Banner shown above the compare grid identifying the current mode.
+  // Drives both UI clarity (user knows whether this is "the merge", a
+  // user-triggered manual insert, or an engine-triggered auto insert)
+  // and the Cancel affordance (only for manual inserts).
+  let banner: JSX.Element | null = null;
+  if (mode === 'manual-insert' && insertingLabel) {
+    banner = (
+      <div className="compare-banner">
+        <span className="compare-banner-label">
+          Inserting <strong>{insertingLabel}</strong> into queue sublist
+        </span>
+        <button
+          type="button"
+          className="btn"
+          onClick={onCancelManualInsert}
+          title="Cancel this insert and return the item to the To be inserted bucket"
+        >
+          Cancel insertion
+        </button>
+      </div>
+    );
+  } else if (mode === 'auto-insert' && insertingLabel) {
+    banner = (
+      <div className="compare-banner">
+        <span className="compare-banner-label">
+          Inserting <strong>{insertingLabel}</strong> into queue sublist
+        </span>
+      </div>
+    );
+  } else if (mode === 'inserting' && insertingLabel) {
+    banner = (
+      <div className="compare-banner">
+        <span className="compare-banner-label">
+          Inserting <strong>{insertingLabel}</strong>
+        </span>
+      </div>
+    );
+  }
 
   return (
     <div className="page">
@@ -250,6 +339,7 @@ export function CompareScreen({
       >
         <div className="compare-progress-fill" style={{ width: `${pct}%` }} />
       </div>
+      {banner}
       <div className="compare-help">
         Which do you prefer? Click a card or use ← / → · ↑ to undo · middle-click to open link
       </div>
@@ -258,7 +348,7 @@ export function CompareScreen({
           <ItemCard
             item={left}
             onPick={onPickLeft}
-            onRemove={() => onHide(left.id)}
+            onRemove={hideRemoveOnLeft ? undefined : () => onHide(left.id)}
           />
         </div>
         <div key={`pop-${popInKeyRight}-r`} className={rightSlotClass}>

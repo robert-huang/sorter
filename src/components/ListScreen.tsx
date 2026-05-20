@@ -1,7 +1,11 @@
 import { useMemo, useState } from 'react';
-import type { Item, SortState } from '../lib/types';
-import { AddItemModal } from './AddItemModal';
-import { AddPreRankedModal } from './AddPreRankedModal';
+import type {
+  InsertionState,
+  Item,
+  MergeState,
+  SortState,
+} from '../lib/types';
+import { AddItemsModal } from './AddItemsModal';
 
 interface Props {
   state: SortState;
@@ -9,8 +13,33 @@ interface Props {
   onUnhide: (id: string) => void;
   onReorder: (queueIndex: number, itemIndex: number, dir: -1 | 1) => void;
   onBreakApart: (queueIndex: number) => void;
+  /** Add a single item (Single tab). */
   onAddItem: (item: Item) => void;
+  /**
+   * Add many items as N individual adds (Multiple tab, unranked):
+   *  - insertion engine: appends each to pending FIFO.
+   *  - merge engine: appends N singleton sublists to the queue back.
+   */
+  onAddItems: (items: Item[]) => void;
+  /**
+   * Add many items as ONE pre-ranked sublist (Multiple tab, merge engine
+   * only, with the "Treat as pre-ranked sublist" checkbox checked).
+   */
   onAppendPreRanked: (items: Item[]) => void;
+  /** Merge-only: queue an unplaced id for binary-insertion. */
+  onManualInsert: (id: string) => void;
+  /** Merge-only: drop an unplaced id permanently. */
+  onForget: (id: string) => void;
+  /**
+   * Insertion-only: nudge an item up (-1) or down (+1) in `sorted[]`.
+   * Cancels and restarts any in-flight insert frame.
+   */
+  onReorderInSorted: (sortedIndex: number, dir: -1 | 1) => void;
+  /**
+   * Insertion-only: pull an item out of `sorted[]` and re-insert it
+   * via a fresh binary insertion (queued to the front of `pending`).
+   */
+  onReturnToPending: (id: string) => void;
 }
 
 function Thumb({ item }: { item: Item }) {
@@ -25,17 +54,31 @@ function Thumb({ item }: { item: Item }) {
   );
 }
 
-export function ListScreen({
+export function ListScreen(props: Props) {
+  if (props.state.engine === 'insertion') {
+    return <InsertionListView {...props} state={props.state} />;
+  }
+  return <MergeListView {...props} state={props.state} />;
+}
+
+// ============================================================================
+// MERGE VIEW — original list screen + Unplaced (N) section (renamed
+// "To be inserted (N)" since the user-facing action is now "Insert")
+// ============================================================================
+
+function MergeListView({
   state,
   onHide,
   onUnhide,
   onReorder,
   onBreakApart,
   onAddItem,
+  onAddItems,
   onAppendPreRanked,
-}: Props) {
+  onManualInsert,
+  onForget,
+}: Props & { state: MergeState }) {
   const [addOpen, setAddOpen] = useState(false);
-  const [appendOpen, setAppendOpen] = useState(false);
   const hidden = useMemo(() => new Set(state.hidden), [state.hidden]);
   const existingIds = useMemo(
     () => new Set(Object.keys(state.items)),
@@ -46,7 +89,7 @@ export function ListScreen({
     <div className="page">
       {state.current && (
         <div className="list-merging">
-          <div className="list-section-label">Currently merging</div>
+          <div className="list-section-label">Current sublist</div>
           <CurrentMergeRow
             label="Merged so far"
             ids={state.current.merged}
@@ -78,8 +121,7 @@ export function ListScreen({
               marginTop: 8,
             }}
           >
-            Use the RANK tab to make comparisons, or undo to back out of this
-            merge.
+            Use the RANK tab to make comparisons.
           </div>
         </div>
       )}
@@ -109,31 +151,92 @@ export function ListScreen({
         />
       ))}
 
+      {state.unplaced.length > 0 && (
+        <div className="list-unplaced">
+          <div className="list-section-label">
+            To be inserted ({state.unplaced.length})
+          </div>
+          <p
+            style={{
+              fontSize: 13,
+              color: 'var(--text-muted)',
+              marginTop: 0,
+            }}
+          >
+            These items were removed mid-merge and have not been re-inserted
+            into the ranking yet. Click <strong>↺ Insert</strong> to
+            binary-search them into a queue sublist, or{' '}
+            <strong>× Forget</strong> to drop them from the rank.
+          </p>
+          {state.unplaced.map((id) => {
+            const item = state.items[id];
+            if (!item) return null;
+            const queued = state.pendingManualInserts.includes(id);
+            const inserting =
+              state.currentManualInsert?.insertingId === id;
+            return (
+              <div key={id} className="queue-item-row">
+                <Thumb item={item} />
+                <span className="label-cell" title={item.label}>
+                  {item.label}
+                  {inserting && (
+                    <span style={{ color: 'var(--text-faint)' }}>
+                      {' '}
+                      · inserting now
+                    </span>
+                  )}
+                  {queued && !inserting && (
+                    <span style={{ color: 'var(--text-faint)' }}>
+                      {' '}
+                      · queued for insertion
+                    </span>
+                  )}
+                </span>
+                <span className="actions">
+                  <button
+                    className="icon-btn"
+                    onClick={() => onManualInsert(id)}
+                    disabled={queued || inserting}
+                    title="Binary-search this item back into the ranking"
+                  >
+                    ↺ Insert
+                  </button>
+                  <button
+                    className="icon-btn danger"
+                    onClick={() => onForget(id)}
+                    title="Drop this item from the rank permanently"
+                  >
+                    × Forget
+                  </button>
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       <div className="add-buttons">
         <button className="btn" onClick={() => setAddOpen(true)}>
-          + Add item
-        </button>
-        <button className="btn" onClick={() => setAppendOpen(true)}>
-          + Add pre-ranked list
+          + Add item(s)
         </button>
       </div>
 
       {addOpen && (
-        <AddItemModal
+        <AddItemsModal
+          engine="merge"
           existingIds={existingIds}
           onCancel={() => setAddOpen(false)}
-          onAdd={(item) => {
+          onAddOne={(item) => {
             onAddItem(item);
             setAddOpen(false);
           }}
-        />
-      )}
-      {appendOpen && (
-        <AddPreRankedModal
-          onCancel={() => setAppendOpen(false)}
-          onAppend={(items) => {
+          onAddMany={(items) => {
+            onAddItems(items);
+            setAddOpen(false);
+          }}
+          onAddPreRanked={(items) => {
             onAppendPreRanked(items);
-            setAppendOpen(false);
+            setAddOpen(false);
           }}
         />
       )}
@@ -151,7 +254,7 @@ function CurrentMergeRow({
 }: {
   label: string;
   ids: string[];
-  state: SortState;
+  state: MergeState;
   hidden: Set<string>;
   onHide: (id: string) => void;
   onUnhide: (id: string) => void;
@@ -216,7 +319,7 @@ function SublistView({
 }: {
   sub: string[];
   queueIndex: number;
-  state: SortState;
+  state: MergeState;
   hidden: Set<string>;
   onHide: (id: string) => void;
   onUnhide: (id: string) => void;
@@ -305,6 +408,200 @@ function SublistView({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// INSERTION VIEW — Sorted (frozen) + Pending sections, plus a banner for
+// the currently-inserting item. No reorder / break-apart / queue concepts.
+// ============================================================================
+
+function InsertionListView({
+  state,
+  onHide,
+  onUnhide,
+  onAddItem,
+  onAddItems,
+  onReorderInSorted,
+  onReturnToPending,
+}: Props & { state: InsertionState }) {
+  const [addOpen, setAddOpen] = useState(false);
+  const hidden = useMemo(() => new Set(state.hidden), [state.hidden]);
+  const existingIds = useMemo(
+    () => new Set(Object.keys(state.items)),
+    [state.items],
+  );
+
+  const insertingId = state.current?.insertingId;
+
+  return (
+    <div className="page">
+      {insertingId && (
+        <div className="list-merging">
+          <div className="list-section-label">Currently inserting</div>
+          <div className="list-chip-row">
+            <span className="chip">
+              <Thumb item={state.items[insertingId]} />
+              {state.items[insertingId]?.label ?? insertingId}
+            </span>
+          </div>
+          <div
+            style={{
+              fontSize: 12,
+              color: 'var(--text-muted)',
+              marginTop: 8,
+            }}
+          >
+            Use the RANK tab to binary-search this item into the sorted list,
+            or undo to back out.
+          </div>
+        </div>
+      )}
+
+      <div className="list-section-label">
+        Sorted ({state.sorted.length})
+      </div>
+      <p
+        style={{
+          fontSize: 13,
+          color: 'var(--text-muted)',
+          marginTop: 0,
+        }}
+      >
+        Ranking carried over from the original sort. You can nudge an
+        item with <strong>↑ / ↓</strong> or pull it back to re-insert
+        with <strong>↻</strong> — both cancel and restart the current
+        insert, costing up to ⌈log₂(N+1)⌉ extra comparisons. Use
+        <strong> × Remove</strong> to drop an item from the rank.
+      </p>
+      <div className="queue-sublist">
+        <div className="queue-sublist-items">
+          {state.sorted.map((id, ii) => {
+            const item = state.items[id];
+            if (!item) return null;
+            const isHidden = hidden.has(id);
+            return (
+              <div
+                key={id}
+                className={`queue-item-row ${isHidden ? 'hidden' : ''}`}
+              >
+                <span className="rank">{ii + 1}.</span>
+                <Thumb item={item} />
+                <span className="label-cell" title={item.label}>
+                  {item.label}
+                </span>
+                {!isHidden && state.sorted.length > 1 && (
+                  <span className="actions">
+                    <button
+                      className="icon-btn"
+                      onClick={() => onReorderInSorted(ii, -1)}
+                      disabled={ii === 0}
+                      title="Nudge up (cancels and restarts the current insert)"
+                    >
+                      ↑
+                    </button>
+                    <button
+                      className="icon-btn"
+                      onClick={() => onReorderInSorted(ii, 1)}
+                      disabled={ii === state.sorted.length - 1}
+                      title="Nudge down (cancels and restarts the current insert)"
+                    >
+                      ↓
+                    </button>
+                    <button
+                      className="icon-btn"
+                      onClick={() => onReturnToPending(id)}
+                      title="Pull this item back out and re-insert it (fresh binary search)"
+                    >
+                      ↻
+                    </button>
+                  </span>
+                )}
+                <span className="actions">
+                  {isHidden ? (
+                    <button
+                      className="icon-btn"
+                      onClick={() => onUnhide(id)}
+                      title="Restore"
+                    >
+                      ↺
+                    </button>
+                  ) : (
+                    <button
+                      className="icon-btn danger"
+                      onClick={() => onHide(id)}
+                      title="Remove"
+                    >
+                      ×
+                    </button>
+                  )}
+                </span>
+              </div>
+            );
+          })}
+          {state.sorted.length === 0 && (
+            <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+              (no sorted items yet)
+            </div>
+          )}
+        </div>
+      </div>
+
+      {state.pending.length > 0 && (
+        <>
+          <div className="list-section-label">
+            Pending ({state.pending.length})
+          </div>
+          <div className="queue-sublist">
+            <div className="queue-sublist-items">
+              {state.pending.map((id) => {
+                const item = state.items[id];
+                if (!item) return null;
+                return (
+                  <div key={id} className="queue-item-row">
+                    <Thumb item={item} />
+                    <span className="label-cell" title={item.label}>
+                      {item.label}
+                    </span>
+                    <span className="actions">
+                      <button
+                        className="icon-btn danger"
+                        onClick={() => onHide(id)}
+                        title="Skip this item"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
+
+      <div className="add-buttons">
+        <button className="btn" onClick={() => setAddOpen(true)}>
+          + Add item(s)
+        </button>
+      </div>
+
+      {addOpen && (
+        <AddItemsModal
+          engine="insertion"
+          existingIds={existingIds}
+          onCancel={() => setAddOpen(false)}
+          onAddOne={(item) => {
+            onAddItem(item);
+            setAddOpen(false);
+          }}
+          onAddMany={(items) => {
+            onAddItems(items);
+            setAddOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }

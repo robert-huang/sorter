@@ -7,6 +7,7 @@ export interface Item {
   imageUrl?: string;
 }
 
+/** Merge-engine in-flight merge frame: two sublists being interleaved into `merged`. */
 export interface MergeFrame {
   left: ItemId[];
   right: ItemId[];
@@ -14,28 +15,136 @@ export interface MergeFrame {
 }
 
 /**
- * The mutable progress slice. This is what we snapshot into the undo ring and
- * write into the save file. Items dict lives at SortState level and never
- * changes shape after import (we only ever ADD items, never mutate existing).
+ * Binary-insertion primitive frame. Shared between the insertion engine
+ * (in `insertionSort.ts`) and the deferred-Place mini-sessions on the
+ * merge engine (in `queueMergeSort.ts`). lo/hi are inclusive bounds into
+ * the target `sorted[]` array; probe = `(lo+hi) >> 1`.
  */
-export interface SortProgress {
-  queue: ItemId[][];
-  current: MergeFrame | null;
+export interface InsertFrame {
+  insertingId: ItemId;
+  lo: number;
+  hi: number;
+  probe: number;
+}
+
+/**
+ * Merge-engine manual-insert frame: wraps an InsertFrame with the queue
+ * sublist it targets, so a user-triggered Insert mini-session can splice
+ * the inserting item into the right sublist when it resolves.
+ *
+ * "Manual" distinguishes this from the auto-insert frame (also binary
+ * insertion, but triggered automatically by `advance()` when the next
+ * queue pair is skewed enough for binary insertion to beat the full
+ * merge). Both share the same `binaryInsertion` primitive — the
+ * difference is just who triggers them and whether they're cancelable.
+ */
+export interface ManualInsertFrame {
+  insertingId: ItemId;
+  targetQueueIndex: number;
+  frame: InsertFrame;
+}
+
+/**
+ * Merge-engine auto-insert frame: a batch of items being binary-inserted
+ * into the `target` sublist (which was popped from the queue). When all
+ * items have landed, `target` is pushed back to the queue and the merge
+ * engine advances to the next pair.
+ *
+ * `pendingInserts` drains FIFO from the smaller side's visible items in
+ * their input order, which is also the rank order — so we can narrow the
+ * next insert's lower bound to (lastInsertedPosition + 1) for rank-aware
+ * bound tightening.
+ */
+export interface AutoInsertFrame {
+  /** The larger side popped from the queue; grows as items land. */
+  target: ItemId[];
+  /** FIFO of items still to insert, in original (rank) order. */
+  pendingInserts: ItemId[];
+  /** Currently-in-flight binary-insertion frame, or null between inserts. */
+  frame: InsertFrame | null;
+  /**
+   * Position of the most-recently-landed item in `target`, used to
+   * narrow the next insert's `lo` bound (rank-aware: the next item
+   * ranks AFTER the previous one in user-expressed order). Null before
+   * the first insert lands.
+   */
+  lastInsertedPosition: number | null;
+}
+
+/** Fields shared between MergeProgress and InsertionProgress. */
+interface SortProgressBase {
   comparisons: number;
   done: boolean;
   hidden: ItemId[];
   /**
    * Running max of `comparisonsRemaining` so the progress bar never goes
    * backwards when mid-sort edits (addItem, appendPreRankedSublist,
-   * breakApartSublist) increase the work-to-do. Tracks the all-time-high
-   * worst-case comparisons this sort has ever needed from any point.
+   * breakApartSublist, addItems on insertion mode, etc.) increase the
+   * work-to-do. Tracks the all-time-high worst-case comparisons this
+   * sort has ever needed from any point.
    */
   totalComparisonsEverNeeded: number;
 }
 
-export interface SortState extends SortProgress {
-  items: Record<ItemId, Item>;
+/**
+ * Merge-engine progress slice. The original SortProgress shape, plus
+ * fields for the exile + deferred-Insert + auto-insert mechanics.
+ */
+export interface MergeProgress extends SortProgressBase {
+  engine: 'merge';
+  queue: ItemId[][];
+  current: MergeFrame | null;
+  /**
+   * Items that were hidden during an in-flight merge and got swept up
+   * at merge-close time. They live here until the user explicitly
+   * inserts them (or Forgets them) — see queueMergeSort.manualInsert
+   * and queueMergeSort.forgetUnplaced.
+   *
+   * (The bucket is still called `unplaced` in the data shape — it's the
+   * holding area, not the action — so the field name stays stable
+   * across the rename.)
+   */
+  unplaced: ItemId[];
+  /**
+   * FIFO of items the user clicked Insert on while a merge was still
+   * running. Drain between merge boundaries.
+   */
+  pendingManualInserts: ItemId[];
+  /**
+   * The currently-running manual-insert mini-session (user-triggered),
+   * or null. Invariant: (current && currentManualInsert) is never
+   * true. Invariant: (currentAutoInsert && currentManualInsert) is
+   * never true.
+   */
+  currentManualInsert: ManualInsertFrame | null;
+  /**
+   * The currently-running auto-insert frame (engine-triggered when
+   * `advance()` decides a popped pair is skewed enough for binary
+   * insertion to beat the full merge), or null. Invariant:
+   * (current && currentAutoInsert) is never true.
+   */
+  currentAutoInsert: AutoInsertFrame | null;
 }
+
+/**
+ * Insertion-engine progress slice. `sorted` is treated as frozen (no
+ * re-ranking within a session); `pending` drains FIFO via binary insert.
+ */
+export interface InsertionProgress extends SortProgressBase {
+  engine: 'insertion';
+  /** Locked-in order from the seed rank, best→worst. */
+  sorted: ItemId[];
+  /** New items still to insert, FIFO. */
+  pending: ItemId[];
+  /** The currently-running binary-insertion frame, or null between items. */
+  current: InsertFrame | null;
+}
+
+export type SortProgress = MergeProgress | InsertionProgress;
+
+export type MergeState = MergeProgress & { items: Record<ItemId, Item> };
+export type InsertionState = InsertionProgress & { items: Record<ItemId, Item> };
+export type SortState = MergeState | InsertionState;
 
 export type DedupReason =
   | 'duplicate-in-source'
@@ -59,8 +168,21 @@ export interface DedupWarning {
   reason: DedupReason;
 }
 
+/**
+ * v1: original single-engine merge schema (no `engine` field on progress).
+ * v2: engine-discriminated progress shape with the original Place vocabulary
+ *     (`currentPlacement` / `pendingPlacements`).
+ * v3: rename pass to "Insert" vocabulary
+ *     (`currentManualInsert` / `pendingManualInserts`) plus the new
+ *     `currentAutoInsert` field for the auto-insert mechanic.
+ *
+ * Loaders accept all three; v1 blobs are upgraded through v2 to v3 in
+ * memory at read time (defaults engine='merge', adds the new fields,
+ * renames old field names). On the next write the blob is persisted
+ * as v3.
+ */
 export interface SaveFile {
-  version: 1;
+  version: 1 | 2 | 3;
   createdAt: string;
   items: Record<ItemId, Item>;
   progress: SortProgress;
@@ -92,4 +214,15 @@ export interface SlotsManifest {
   version: 1;
   activeId: string | null;
   slots: SlotMeta[];
+}
+
+// ---------- helpers ----------
+
+/** Discriminate at runtime; useful where TS can't narrow. */
+export function isInsertionState(state: SortState): state is InsertionState {
+  return state.engine === 'insertion';
+}
+
+export function isMergeState(state: SortState): state is MergeState {
+  return state.engine === 'merge';
 }

@@ -1,11 +1,25 @@
 import { useState } from 'react';
 import type { Item, SortState } from '../lib/types';
-import { comparisonsRemaining, getRanking } from '../lib/queueMergeSort';
+import { comparisonsRemaining, getRanking } from '../lib/engine';
+import { AddPreRankedModal } from './AddPreRankedModal';
 
 interface Props {
   state: SortState;
   onUnhide: (id: string) => void;
-  onReset: () => void;
+  /**
+   * Start over from scratch: re-init the sort with the same items but
+   * no comparison history. Shows a confirm modal in App.tsx (unless the
+   * user opted out of it). Distinct from "Delete this slot" — items
+   * survive, only the ranking work is discarded.
+   */
+  onStartOver: () => void;
+  /**
+   * Batch-add items to the current sort, engine-aware. On insertion
+   * engine: appends to pending. On merge engine, not-done: appends a
+   * pre-ranked sublist. On merge engine, done: triggers the
+   * merge→insertion engine transition (which App.tsx confirms via modal).
+   */
+  onAddItems: (items: Item[]) => void;
 }
 
 function initials(label: string): string {
@@ -40,9 +54,10 @@ function downloadText(text: string, filename: string, mime: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export function ResultScreen({ state, onUnhide, onReset }: Props) {
+export function ResultScreen({ state, onUnhide, onStartOver, onAddItems }: Props) {
   const [copied, setCopied] = useState<'csv' | 'md' | 'txt' | null>(null);
   const [showHidden, setShowHidden] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
 
   if (!state.done) {
     return (
@@ -82,7 +97,28 @@ export function ResultScreen({ state, onUnhide, onReset }: Props) {
   return (
     <div className="page">
       <div className="page-section">
-        <h2>Final ranking</h2>
+        <div className="result-header">
+          <h2>Final ranking</h2>
+          <div className="result-export">
+            <button
+              className="btn"
+              onClick={() =>
+                downloadText(csv, `sorter-ranking.csv`, 'text/csv')
+              }
+            >
+              Download CSV
+            </button>
+            <button className="btn" onClick={() => copy(md, 'md')}>
+              {copied === 'md' ? '✓ Copied' : 'Copy as Markdown'}
+            </button>
+            <button className="btn" onClick={() => copy(txt, 'txt')}>
+              {copied === 'txt' ? '✓ Copied' : 'Copy as plain text'}
+            </button>
+            <button className="btn" onClick={() => copy(csv, 'csv')}>
+              {copied === 'csv' ? '✓ Copied' : 'Copy as CSV'}
+            </button>
+          </div>
+        </div>
         <ol className="result-list">
           {ranking.map((it, i) => (
             <li key={it.id} className="result-row">
@@ -110,25 +146,6 @@ export function ResultScreen({ state, onUnhide, onReset }: Props) {
             </li>
           ))}
         </ol>
-        <div className="result-export">
-          <button
-            className="btn"
-            onClick={() =>
-              downloadText(csv, `sorter-ranking.csv`, 'text/csv')
-            }
-          >
-            Download CSV
-          </button>
-          <button className="btn" onClick={() => copy(md, 'md')}>
-            {copied === 'md' ? '✓ Copied' : 'Copy as Markdown'}
-          </button>
-          <button className="btn" onClick={() => copy(txt, 'txt')}>
-            {copied === 'txt' ? '✓ Copied' : 'Copy as plain text'}
-          </button>
-          <button className="btn" onClick={() => copy(csv, 'csv')}>
-            {copied === 'csv' ? '✓ Copied' : 'Copy as CSV'}
-          </button>
-        </div>
       </div>
 
       {hiddenItems.length > 0 && (
@@ -168,10 +185,27 @@ export function ResultScreen({ state, onUnhide, onReset }: Props) {
       )}
 
       <div className="result-bottom">
-        <button className="btn danger" onClick={onReset}>
+        <button className="btn" onClick={() => setAddOpen(true)}>
+          + Add items
+        </button>
+        <button
+          className="btn danger"
+          onClick={onStartOver}
+          title="Discard all comparisons and re-queue the items as a fresh sort. Items keep their cards. Undoable."
+        >
           Start over
         </button>
       </div>
+
+      {addOpen && (
+        <AddPreRankedModal
+          onCancel={() => setAddOpen(false)}
+          onAppend={(items) => {
+            onAddItems(items);
+            setAddOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }

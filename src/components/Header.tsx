@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { SettingsMenu } from './SettingsMenu';
 import { CheckIcon, FloppyIcon } from './icons';
 import type { SlotsManifest, SortState } from '../lib/types';
-import { comparisonsRemaining } from '../lib/queueMergeSort';
+import { comparisonsRemaining } from '../lib/engine';
 import type { ThemeName } from '../lib/storage';
 
 export type TabId = 'start' | 'list' | 'rank' | 'result';
@@ -28,12 +28,19 @@ interface Props {
   onSwitchSlot: (id: string) => void;
   onDeleteSlot: (id: string) => void;
   onRenameSlot: (id: string, name: string) => void;
+  /** Download a JSON copy of any slot's on-disk blob (per-row icon in
+   *  the gear menu). Distinct from `onDownload`, which dumps the
+   *  in-memory active session. */
+  onDownloadSlot: (id: string) => void;
   /** When in 'start' mode with no items yet, RANK / LIST / RESULT tabs are disabled. */
   hasState: boolean;
   theme: ThemeName;
   onToggleTheme: () => void;
   showEstimatedRemaining: boolean;
   onToggleShowEstimatedRemaining: () => void;
+  /** Whether the merge engine may auto-insert skewed pairs. Default on. */
+  autoInsertEnabled: boolean;
+  onToggleAutoInsertEnabled: () => void;
 }
 
 const SAVED_TICK_MS = 1200;
@@ -54,17 +61,23 @@ export function Header({
   onSwitchSlot,
   onDeleteSlot,
   onRenameSlot,
+  onDownloadSlot,
   hasState,
   theme,
   onToggleTheme,
   showEstimatedRemaining,
   onToggleShowEstimatedRemaining,
+  autoInsertEnabled,
+  onToggleAutoInsertEnabled,
 }: Props) {
   // `remaining` feeds the optional "~K left" suffix on the toolbar stats
   // label. The progress bar that used to live in the header has moved into
   // CompareScreen (rank-tab-only), so the percent-of-total math also lives
-  // there now.
-  const remaining = state ? comparisonsRemaining(state) : 0;
+  // there now. We pass autoInsertEnabled so the per-pair forecast charges
+  // the cheaper of merge / auto-insert when the heuristic is enabled.
+  const remaining = state
+    ? comparisonsRemaining(state, { autoInsertEnabled })
+    : 0;
   const cmps = state?.comparisons ?? 0;
 
   // "Comparison #N" framing — N is the click the user is about to make
@@ -227,8 +240,11 @@ export function Header({
             onSwitchSlot={onSwitchSlot}
             onDeleteSlot={onDeleteSlot}
             onRenameSlot={onRenameSlot}
+            onDownloadSlot={onDownloadSlot}
             showEstimatedRemaining={showEstimatedRemaining}
             onToggleShowEstimatedRemaining={onToggleShowEstimatedRemaining}
+            autoInsertEnabled={autoInsertEnabled}
+            onToggleAutoInsertEnabled={onToggleAutoInsertEnabled}
           />
         </div>
       </div>

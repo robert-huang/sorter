@@ -15,8 +15,18 @@ interface Props {
   onSwitchSlot: (id: string) => void;
   onDeleteSlot: (id: string) => void;
   onRenameSlot: (id: string, name: string) => void;
+  /** Download a JSON copy of a slot's on-disk blob from the per-row
+   *  button in the slot list. */
+  onDownloadSlot: (id: string) => void;
   showEstimatedRemaining: boolean;
   onToggleShowEstimatedRemaining: () => void;
+  /**
+   * Whether the merge engine auto-inserts a popped pair when the smaller
+   * side is small enough that binary insertion beats the full merge.
+   * Default on. Off forces every pair through the classic merge.
+   */
+  autoInsertEnabled: boolean;
+  onToggleAutoInsertEnabled: () => void;
 }
 
 export function SettingsMenu({
@@ -29,8 +39,11 @@ export function SettingsMenu({
   onSwitchSlot,
   onDeleteSlot,
   onRenameSlot,
+  onDownloadSlot,
   showEstimatedRemaining,
   onToggleShowEstimatedRemaining,
+  autoInsertEnabled,
+  onToggleAutoInsertEnabled,
 }: Props) {
   const [open, setOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -95,6 +108,7 @@ export function SettingsMenu({
               onSwitch={handleSwitch}
               onDelete={onDeleteSlot}
               onRename={onRenameSlot}
+              onDownload={onDownloadSlot}
             />
           </div>
           <div className="settings-divider" />
@@ -121,6 +135,17 @@ export function SettingsMenu({
               onChange={onToggleShowEstimatedRemaining}
             />{' '}
             Show estimated comparisons left
+          </label>
+          <label
+            className="settings-item checkbox"
+            title="When on, the sort can swap a popped queue pair for binary insertion when the smaller side is small enough that insertion beats the full merge. Turn off to force classic merge on every pair."
+          >
+            <input
+              type="checkbox"
+              checked={autoInsertEnabled}
+              onChange={onToggleAutoInsertEnabled}
+            />{' '}
+            Auto-insert skewed pairs
           </label>
           <div className="settings-divider" />
           <div className="settings-status">
