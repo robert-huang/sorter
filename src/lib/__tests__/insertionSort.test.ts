@@ -359,6 +359,47 @@ describe('hide / unhide', () => {
     expect(s1.pending).toEqual([]);
     expect(s1.done).toBe(true);
   });
+
+  it('hiding every probe in [lo, hi] resolves the frame instead of stalling', () => {
+    // Regression for the "all-probes-hidden stall" bug. Pre-fix, after
+    // hiding every visible probe the frame remained set with no visible
+    // candidates: getPair returned null while state.done stayed false,
+    // and the user saw the misleading empty-state "Add some items on
+    // the START tab" with no path forward except undo.
+    //
+    // Now hideItem detects the collapsed range via skipHiddenProbes and
+    // splices the inserting id at the resolved position itself.
+    const s0 = build({ sorted: [A, B, C], pending: [X] });
+    expect(s0.current?.insertingId).toBe('x');
+    // Hide every item in sorted[]. The frame's [lo, hi] collapses to a
+    // single virtual position with no visible candidates.
+    let s = hideItem(s0, 'a');
+    s = hideItem(s, 'b');
+    s = hideItem(s, 'c');
+    // x must have been spliced into sorted and the frame cleared.
+    expect(s.current).toBeNull();
+    expect(s.sorted).toContain('x');
+    expect(s.pending).toEqual([]);
+    // With no remaining work and an empty pending queue, the sort is done.
+    expect(s.done).toBe(true);
+    // getPair returns null because we're done, not because we stalled.
+    expect(getPair(s)).toBeNull();
+    // Visible ranking is just x (a/b/c are all hidden).
+    expect(getRanking(s)).toEqual(['x']);
+  });
+
+  it('partial hide that still leaves a visible probe does not splice early', () => {
+    // Sanity check: hiding *some* of the probes shouldn't trigger the
+    // splice path — we only short-circuit when [lo, hi] has zero
+    // visible candidates. With [A, B, C, D, E] and X being inserted,
+    // hiding b still leaves a, c, d, e to probe against.
+    const s0 = build({ sorted: [A, B, C, D, E], pending: [X] });
+    const s1 = hideItem(s0, 'b');
+    expect(s1.current).not.toBeNull();
+    expect(s1.current?.insertingId).toBe('x');
+    expect(s1.sorted).not.toContain('x');
+    expect(getPair(s1)).not.toBeNull();
+  });
 });
 
 describe('reorderInSorted (Phase 1 freeze-relax)', () => {

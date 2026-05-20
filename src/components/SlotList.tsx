@@ -18,6 +18,10 @@ interface Props {
   /** Download a JSON copy of this slot's on-disk blob — for backup
    *  before deleting / starting over / hitting the cap. */
   onDownload: (id: string) => void;
+  /** Toggle the pinned flag on a slot. Pinned slots survive the
+   *  `createSlot` eviction loop when the cap is hit, so the user can
+   *  protect favorite sorts from being auto-deleted. */
+  onTogglePin: (id: string, pinned: boolean) => void;
 }
 
 /**
@@ -44,6 +48,16 @@ function pluralize(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
 
+/**
+ * Below this slot count the list fits comfortably on one screen, so a
+ * search box would just be visual noise. At/above this count the user
+ * may have trouble scanning by name — the input appears (and stays
+ * sticky-ish via the popover) so they can narrow the list to one
+ * candidate quickly. Tuned to match the height of the gear-menu
+ * popover before vertical scrolling kicks in.
+ */
+const SEARCH_THRESHOLD = 5;
+
 export function SlotList({
   slots,
   loadedSlotId,
@@ -51,7 +65,12 @@ export function SlotList({
   onDelete,
   onRename,
   onDownload,
+  onTogglePin,
 }: Props) {
+  // Local-only state — search is a render filter, never persisted.
+  // Reset is implicit (close + reopen the gear menu remounts SlotList).
+  const [query, setQuery] = useState('');
+
   if (slots.length === 0) {
     return (
       <div className="slot-list empty">
@@ -60,26 +79,61 @@ export function SlotList({
     );
   }
 
-  // Most-recently-touched first — matches the "last used" Resume CTA on
-  // START and is the order users intuitively expect for a recents list.
+  // Pinned first (so favorites stay visible at the top), then by
+  // most-recently-touched. Inside each group the order matches the
+  // user's recents intuition.
   const ordered = slots
     .slice()
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    .sort((a, b) => {
+      const pa = a.pinned ? 1 : 0;
+      const pb = b.pinned ? 1 : 0;
+      if (pa !== pb) return pb - pa;
+      return b.updatedAt.localeCompare(a.updatedAt);
+    });
+
+  // Apply the case-insensitive contains filter AFTER the sort so the
+  // pinned-first + recency ordering survives. Trim the query so a
+  // stray trailing space (common when typing fast) doesn't drop every
+  // row to zero results.
+  const showSearch = slots.length >= SEARCH_THRESHOLD;
+  const trimmedQuery = query.trim();
+  const filtered = trimmedQuery
+    ? ordered.filter((s) =>
+        s.name.toLowerCase().includes(trimmedQuery.toLowerCase()),
+      )
+    : ordered;
 
   return (
     <div className="slot-list">
       <div className="slot-list-header">Saved sorts</div>
-      {ordered.map((s) => (
-        <SlotRow
-          key={s.id}
-          slot={s}
-          isLoaded={loadedSlotId === s.id}
-          onSwitch={onSwitch}
-          onDelete={onDelete}
-          onRename={onRename}
-          onDownload={onDownload}
+      {showSearch && (
+        <input
+          type="search"
+          className="slot-search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={`Search ${slots.length} slot${slots.length === 1 ? '' : 's'}…`}
+          aria-label="Filter saved sorts by name"
         />
-      ))}
+      )}
+      {filtered.length === 0 ? (
+        <div className="slot-list-empty">
+          No slots match &ldquo;{trimmedQuery}&rdquo;.
+        </div>
+      ) : (
+        filtered.map((s) => (
+          <SlotRow
+            key={s.id}
+            slot={s}
+            isLoaded={loadedSlotId === s.id}
+            onSwitch={onSwitch}
+            onDelete={onDelete}
+            onRename={onRename}
+            onDownload={onDownload}
+            onTogglePin={onTogglePin}
+          />
+        ))
+      )}
     </div>
   );
 }
@@ -92,6 +146,7 @@ interface RowProps {
   onDelete: (id: string) => void;
   onRename: (id: string, name: string) => void;
   onDownload: (id: string) => void;
+  onTogglePin: (id: string, pinned: boolean) => void;
 }
 
 function SlotRow({
@@ -101,6 +156,7 @@ function SlotRow({
   onDelete,
   onRename,
   onDownload,
+  onTogglePin,
 }: RowProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(slot.name);
@@ -135,11 +191,13 @@ function SlotRow({
     setDraft(slot.name);
   }
 
+  const isPinned = !!slot.pinned;
   const meta = [
     pluralize(slot.totalItems, 'item'),
     pluralize(slot.comparisons, 'comparison'),
     slot.done ? 'done' : null,
     relativeTime(slot.updatedAt),
+    isPinned ? 'pinned' : null,
   ]
     .filter(Boolean)
     .join(' · ');
@@ -188,6 +246,22 @@ function SlotRow({
             Resume
           </button>
         )}
+        <button
+          className={`icon-button${isPinned ? ' pinned' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onTogglePin(slot.id, !isPinned);
+          }}
+          title={
+            isPinned
+              ? `Unpin "${slot.name}" — allow auto-eviction when storage fills up`
+              : `Pin "${slot.name}" — exclude from auto-eviction when storage fills up`
+          }
+          aria-label={isPinned ? `Unpin ${slot.name}` : `Pin ${slot.name}`}
+          aria-pressed={isPinned}
+        >
+          {isPinned ? '★' : '☆'}
+        </button>
         <button
           className="icon-button"
           onClick={(e) => {

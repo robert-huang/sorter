@@ -7,6 +7,7 @@ import {
   parseCsvRows,
   parseSources,
 } from '../lib/csv';
+import { Modal } from './Modal';
 
 /**
  * Unified "Add item(s)" modal. Two tabs:
@@ -48,51 +49,50 @@ export function AddItemsModal({
   const [tab, setTab] = useState<Tab>('single');
 
   return (
-    <div className="modal-backdrop" onClick={onCancel}>
-      <div
-        className="modal modal-wide"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3>Add item{tab === 'multiple' ? 's' : ''}</h3>
-        <div className="modal-tabs" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'single'}
-            className={`modal-tab${tab === 'single' ? ' active' : ''}`}
-            onClick={() => setTab('single')}
-          >
-            Single
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'multiple'}
-            className={`modal-tab${tab === 'multiple' ? ' active' : ''}`}
-            onClick={() => setTab('multiple')}
-          >
-            Multiple
-          </button>
-        </div>
-
-        {tab === 'single' && (
-          <SingleTab
-            existingIds={existingIds}
-            engine={engine}
-            onCancel={onCancel}
-            onAdd={onAddOne}
-          />
-        )}
-        {tab === 'multiple' && (
-          <MultipleTab
-            engine={engine}
-            onCancel={onCancel}
-            onAddMany={onAddMany}
-            onAddPreRanked={onAddPreRanked}
-          />
-        )}
+    <Modal
+      label={`Add item${tab === 'multiple' ? 's' : ''}`}
+      onClose={onCancel}
+      className="modal-wide"
+    >
+      <h3>Add item{tab === 'multiple' ? 's' : ''}</h3>
+      <div className="modal-tabs" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'single'}
+          className={`modal-tab${tab === 'single' ? ' active' : ''}`}
+          onClick={() => setTab('single')}
+        >
+          Single
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'multiple'}
+          className={`modal-tab${tab === 'multiple' ? ' active' : ''}`}
+          onClick={() => setTab('multiple')}
+        >
+          Multiple
+        </button>
       </div>
-    </div>
+
+      {tab === 'single' && (
+        <SingleTab
+          existingIds={existingIds}
+          engine={engine}
+          onCancel={onCancel}
+          onAdd={onAddOne}
+        />
+      )}
+      {tab === 'multiple' && (
+        <MultipleTab
+          engine={engine}
+          onCancel={onCancel}
+          onAddMany={onAddMany}
+          onAddPreRanked={onAddPreRanked}
+        />
+      )}
+    </Modal>
   );
 }
 

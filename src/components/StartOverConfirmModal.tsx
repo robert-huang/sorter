@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Modal } from './Modal';
 
 interface Props {
   itemCount: number;
@@ -21,49 +22,47 @@ interface Props {
 export function StartOverConfirmModal({ itemCount, onConfirm, onCancel }: Props) {
   const [dontAsk, setDontAsk] = useState(false);
   return (
-    <div className="modal-backdrop" onClick={onCancel}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h3>Start over from scratch?</h3>
-        <p style={{ color: 'var(--text-muted)' }}>
-          This mints a <strong>new slot</strong> seeded with your{' '}
-          {itemCount} ranked item{itemCount === 1 ? '' : 's'} as singletons
-          and runs a fresh merge sort from the top. Items keep their cards
-          (labels, links, images); only the comparison history starts
-          empty.
-        </p>
-        <p style={{ color: 'var(--text-muted)' }}>
-          <strong>Your current slot is preserved.</strong> It stays in the
-          gear-menu slot list with its full sort and undo history &mdash;
-          you can resume it any time. To remove it, use &ldquo;Delete this
-          slot&rdquo; in the gear menu.
-        </p>
-        <p style={{ color: 'var(--text-muted)' }}>
-          <strong>Removed items don&rsquo;t come along.</strong> Anything
-          you hid during the previous sort (or left in the To-be-inserted
-          bucket) stays in the old slot and isn&rsquo;t seeded into the
-          new one.
-        </p>
-        <div className="checkbox-row">
-          <input
-            id="dont-ask-start-over"
-            type="checkbox"
-            checked={dontAsk}
-            onChange={(e) => setDontAsk(e.target.checked)}
-          />
-          <label htmlFor="dont-ask-start-over">Don&rsquo;t ask again</label>
-        </div>
-        <div className="modal-actions">
-          <button className="btn" onClick={onCancel}>
-            Cancel
-          </button>
-          <button
-            className="btn danger"
-            onClick={() => onConfirm(dontAsk)}
-          >
-            Start over
-          </button>
-        </div>
+    <Modal label="Start over confirmation" onClose={onCancel}>
+      <h3>Start over from scratch?</h3>
+      <p style={{ color: 'var(--text-muted)' }}>
+        This mints a <strong>new slot</strong> seeded with your{' '}
+        {itemCount} ranked item{itemCount === 1 ? '' : 's'} as singletons
+        and runs a fresh merge sort from the top. Items keep their cards
+        (labels, links, images); only the comparison history starts
+        empty.
+      </p>
+      <p style={{ color: 'var(--text-muted)' }}>
+        <strong>Your current slot is preserved.</strong> It stays in the
+        gear-menu slot list with its full sort and undo history &mdash;
+        you can resume it any time. To remove it, use &ldquo;Delete this
+        slot&rdquo; in the gear menu.
+      </p>
+      <p style={{ color: 'var(--text-muted)' }}>
+        <strong>Removed items don&rsquo;t come along.</strong> Anything
+        you hid during the previous sort (or left in the To-be-inserted
+        bucket) stays in the old slot and isn&rsquo;t seeded into the
+        new one.
+      </p>
+      <div className="checkbox-row">
+        <input
+          id="dont-ask-start-over"
+          type="checkbox"
+          checked={dontAsk}
+          onChange={(e) => setDontAsk(e.target.checked)}
+        />
+        <label htmlFor="dont-ask-start-over">Don&rsquo;t ask again</label>
       </div>
-    </div>
+      <div className="modal-actions">
+        <button className="btn" onClick={onCancel}>
+          Cancel
+        </button>
+        <button
+          className="btn danger"
+          onClick={() => onConfirm(dontAsk)}
+        >
+          Start over
+        </button>
+      </div>
+    </Modal>
   );
 }

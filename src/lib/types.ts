@@ -202,6 +202,15 @@ export interface SlotMeta {
   totalItems: number;
   comparisons: number;
   done: boolean;
+  /**
+   * When true, this slot is excluded from `createSlot`'s eviction loop
+   * — it won't be auto-deleted to make room for a new slot. The user
+   * can still delete it manually via the trashcan. Defaults to false
+   * (unpinned); stored as `undefined` on old slots so the absence is
+   * indistinguishable from false. Toggle via the per-row pin button in
+   * the LIST tab or the gear menu.
+   */
+  pinned?: boolean;
 }
 
 /**

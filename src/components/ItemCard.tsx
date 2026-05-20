@@ -18,6 +18,18 @@ export function ItemCard({ item, onPick, onRemove, disabled }: Props) {
     if (onPick) onPick();
   }
 
+  function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>): void {
+    if (disabled) return;
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    // Only handle activation when the card itself is focused. Without
+    // this guard, Enter pressed on the inner remove-button or external
+    // link would double-fire: once for the child's native action, again
+    // here as the keydown bubbles up to the card.
+    if (e.target !== e.currentTarget) return;
+    e.preventDefault(); // Space scrolls the page by default; suppress.
+    if (onPick) onPick();
+  }
+
   function onMouseUp(e: React.MouseEvent): void {
     if (disabled) return;
     if (e.button === 1 && item.url) {
@@ -44,10 +56,15 @@ export function ItemCard({ item, onPick, onRemove, disabled }: Props) {
         showImage ? '' : ' text-only'
       }`}
       onClick={onClick}
+      onKeyDown={onKeyDown}
       onMouseUp={onMouseUp}
       onAuxClick={onAuxClick}
       role="button"
-      tabIndex={0}
+      // Disabled cards stay focusable for screen readers but skip
+      // activation. tabIndex=-1 would hide them from tab order; we
+      // prefer aria-disabled so the read order still flows naturally.
+      tabIndex={disabled ? -1 : 0}
+      aria-disabled={disabled || undefined}
       aria-label={`Pick ${item.label}`}
       title={item.label}
     >

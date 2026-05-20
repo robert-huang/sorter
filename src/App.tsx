@@ -36,27 +36,36 @@ import {
   reorderInSublist,
   seedFromSublists,
 } from './lib/queueMergeSort';
-import {
-  addItems as insertionAddItems,
-  seedAsSorted,
-} from './lib/insertionSort';
+import { seedAsSorted } from './lib/insertionSort';
 import {
   type AutosaveBlob,
+  type AutosaveError,
   autoNameFromBlob,
   createSlot,
   deleteSlot,
+  downloadAllSlots,
   downloadSave,
   flushAutosave,
+  importAllSlots,
   isAutosaveAvailable,
   loadSaveFromFile,
+  MANIFEST_KEY,
+  consumeManifestRepairNotice,
+  discardPendingAutosave,
   migrateLegacyIfNeeded,
   peekEvictionTarget,
   primeActiveSlot,
+  repairManifestIfCorrupt,
+  SLOT_CAP,
+  slotBlobKey,
   readManifest,
   readSettings,
   readSlotBlob,
+  pinSlot,
   renameSlot,
+  getLastAutosaveError,
   scheduleAutosave,
+  subscribeAutosaveError,
   setActiveSlot,
   updateSettings,
   type ThemeName,
@@ -67,6 +76,9 @@ import { StartScreen } from './components/StartScreen';
 import { CompareScreen, type LastInteraction } from './components/CompareScreen';
 import { ListScreen } from './components/ListScreen';
 import { ResultScreen } from './components/ResultScreen';
+import { SharedImportModal } from './components/SharedImportModal';
+import { type SharedRanking, decodeShareLink, readShareParamFromHash } from './lib/share';
+import { BackupRestoreConfirmModal } from './components/BackupRestoreConfirmModal';
 import { SlotCapConfirmModal } from './components/SlotCapConfirmModal';
 import { SlotDeleteConfirmModal } from './components/SlotDeleteConfirmModal';
 import { StartOverConfirmModal } from './components/StartOverConfirmModal';
@@ -108,6 +120,10 @@ function buildBlob(state: SortState, undoRing: SortProgress[]): AutosaveBlob {
  */
 function bootRead(): { manifest: SlotsManifest } {
   migrateLegacyIfNeeded();
+  // Repair AFTER legacy migration so the migrate path's freshly-written
+  // manifest is treated as canonical. Repair only fires when the
+  // manifest is present-but-broken; missing is the empty case.
+  repairManifestIfCorrupt();
   primeActiveSlot();
   return { manifest: readManifest() };
 }
@@ -181,6 +197,38 @@ export function App() {
   const [pendingTransition, setPendingTransition] = useState<{
     items: Item[];
   } | null>(null);
+  // Latest terminal autosave failure (or null once cleared). When non-null
+  // we render a sticky banner above the app shell explaining that the last
+  // save couldn't write and offering the obvious manual remedies (pin /
+  // delete slots, download a backup). Subscribed to the storage module so
+  // both autosave debounced writes and Save-Now writes update this in
+  // sync, and so the recovery toast can fire on the same edge.
+  const [autosaveError, setAutosaveError] = useState<AutosaveError | null>(
+    () => getLastAutosaveError(),
+  );
+  // Multi-tab coordination: when another tab edits THIS slot's blob in
+  // localStorage, the `storage` event fires here. We capture the slot
+  // id so the banner can render with the right name + reload action.
+  // Cleared by the Reload (overwrites in-memory state) or Dismiss
+  // (continues with potentially-stale view; last-writer-wins on next
+  // autosave). Null = no stale state.
+  const [multitabStaleSlotId, setMultitabStaleSlotId] = useState<string | null>(null);
+  // Share-link recipient pending: populated at boot when the URL hash
+  // carries a valid `#share=...` payload. The SharedImportModal renders
+  // a preview + "Import as new slot" action. Cleared on import or dismiss.
+  const [sharedPending, setSharedPending] = useState<SharedRanking | null>(null);
+  // "Restore from backup…" pending: populated once the user picks an
+  // archive file AND we've parsed the JSON envelope without error.
+  // Holds the archive bytes (so the import handlers can re-feed them
+  // to `importAllSlots`) plus a precomputed slot count + per-slot
+  // collision split, used by the modal to label the merge / replace
+  // buttons. Cleared on Cancel or after either import completes.
+  const [restorePending, setRestorePending] = useState<{
+    json: string;
+    source: string;
+    total: number;
+    newCount: number;
+  } | null>(null);
 
   // -------- boot: migrate + read manifest only --------
   // We intentionally don't auto-load the active slot's blob here. Refresh
@@ -189,6 +237,26 @@ export function App() {
   useEffect(() => {
     const { manifest: m } = bootRead();
     setManifest(m);
+    // If the manifest was corrupt and we just rebuilt it, surface the
+    // recovery so the user knows their slots are still there (possibly
+    // renamed by the autoname heuristic since original metadata is lost).
+    const repairCount = consumeManifestRepairNotice();
+    if (repairCount !== null) {
+      if (repairCount > 0) {
+        flashSkipped(
+          `Slot list was corrupted; rebuilt ${repairCount} slot${repairCount === 1 ? '' : 's'} from backup data. Names may differ — rename as needed.`,
+        );
+      } else {
+        flashSkipped(
+          'Slot list was corrupted but no recoverable blobs were found. Starting fresh.',
+        );
+      }
+    }
+    // flashSkipped is a stable useCallback (deps=[]) so referencing it
+    // here from a once-only boot effect is safe; exhaustive-deps would
+    // force this effect to re-run on flashSkipped identity changes
+    // (which it never does) so we suppress.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // -------- apply theme to <html> attribute (boot + every toggle) --------
@@ -274,6 +342,120 @@ export function App() {
     if (skippedTimer.current) clearTimeout(skippedTimer.current);
     skippedTimer.current = setTimeout(() => setSkippedMessage(null), 4000);
   }, []);
+
+  // -------- autosave error surfacing --------
+  // Storage emits a notification on terminal failure (banner) and on
+  // successful auto-recovery (toast). We also mirror any undoRing trim
+  // back into in-memory state — otherwise the next scheduleAutosave
+  // immediately re-grows the on-disk ring and we hit quota again.
+  useEffect(() => {
+    const unsub = subscribeAutosaveError((err, recovery) => {
+      setAutosaveError(err);
+      if (recovery?.kind === 'evicted-slot' && recovery.evicted) {
+        flashSkipped(
+          `Storage was full — deleted "${recovery.evicted.name}" to make room. Pin slots you want to keep.`,
+        );
+        // The evicted slot just disappeared from disk; refresh the
+        // manifest so the LIST tab stops showing it.
+        setManifest(readManifest());
+      } else if (recovery?.kind === 'trimmed-undo' && recovery.newUndoRingLen !== undefined) {
+        flashSkipped(
+          `Storage was full — trimmed undo history to the last ${recovery.newUndoRingLen} actions.`,
+        );
+        const keep = recovery.newUndoRingLen;
+        setUndoRing((ring) => (ring.length > keep ? ring.slice(-keep) : ring));
+      }
+    });
+    return unsub;
+  }, [flashSkipped]);
+
+  // -------- multi-tab coordination --------
+  // The browser's `storage` event fires in OTHER tabs (not the writing
+  // one) when localStorage changes. Two key shapes we care about:
+  //  1. Manifest key changed → another tab created/deleted/renamed/pinned
+  //     a slot. Re-read the manifest so the LIST tab reflects reality.
+  //  2. Active slot's blob key changed → another tab is sorting in the
+  //     same slot as us. Surface a "stale" banner so the user can reload
+  //     (overwriting their in-memory changes with the other tab's disk
+  //     state) or dismiss (continue + last-writer-wins on next autosave).
+  // No banner shown when this tab has no in-memory state for the slot
+  // (the next visit will load the fresh blob anyway).
+  useEffect(() => {
+    function onStorage(e: StorageEvent): void {
+      if (!e.key) return;
+      if (e.key === MANIFEST_KEY) {
+        setManifest(readManifest());
+        return;
+      }
+      if (!e.key.startsWith('sorter:slot:')) return;
+      // Re-read manifest so we use its current activeId, not a stale
+      // closure value. Cheap (one localStorage get + JSON.parse).
+      const m = readManifest();
+      if (m.activeId && e.key === slotBlobKey(m.activeId)) {
+        setMultitabStaleSlotId((prev) => prev ?? m.activeId);
+      }
+    }
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
+  // Reload action for the multi-tab stale banner: discard the in-flight
+  // autosave (NEVER flush — that would clobber the other tab's writes),
+  // re-read the slot blob from disk, and replace in-memory state. If
+  // the blob disappeared between the event and the click (e.g. the
+  // other tab deleted the slot), fall back to clearing state.
+  const onMultitabReload = useCallback(() => {
+    if (!multitabStaleSlotId) return;
+    discardPendingAutosave();
+    const session = deserialize(readSlotBlob(multitabStaleSlotId));
+    if (session) {
+      setState(session.state);
+      setUndoRing(session.undoRing);
+    } else {
+      // Other tab deleted the slot between the event and the click.
+      // Drop in-memory state and return to START so the user picks
+      // their next move explicitly.
+      setState(null);
+      setUndoRing([]);
+      setActiveTab('start');
+    }
+    setManifest(readManifest());
+    setMultitabStaleSlotId(null);
+  }, [multitabStaleSlotId]);
+
+  // -------- share-link recipient: detect at boot --------
+  // Decode `#share=<payload>` once on mount. Successful decode pops the
+  // SharedImportModal; failures clear the hash silently (a friendly
+  // "this share link is broken" banner is a future-nice but not
+  // essential — most failures come from hand-edited URLs, which the
+  // sender will notice and re-share).
+  // (The boot effect itself runs in source order — i.e. below the
+  // adoptNewSession definition further down — but is registered here
+  // alongside other a-bit-special boot effects to keep them grouped.)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const param = readShareParamFromHash(window.location.hash);
+    if (!param) return;
+    const decoded = decodeShareLink(param);
+    if (decoded) {
+      setSharedPending(decoded);
+    } else {
+      // Bad payload — clear the hash so a refresh doesn't keep
+      // re-prompting on the same broken URL.
+      clearShareHash();
+      flashSkipped('The share link you opened was broken or unreadable.');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Clear `#share=...` from the URL without scrolling or triggering a
+  // popstate. history.replaceState is the only API that lets us mutate
+  // the fragment without an event the rest of the app might react to.
+  function clearShareHash(): void {
+    if (typeof window === 'undefined') return;
+    const { origin, pathname, search } = window.location;
+    window.history.replaceState(null, '', `${origin}${pathname}${search}`);
+  }
 
   const doPick = useCallback(
     (side: 'left' | 'right') => {
@@ -405,8 +587,20 @@ export function App() {
     [pushUndo, engineOptions],
   );
 
+  // doAppendPreRanked is merge-only by definition; on a merge-done state
+  // we route through the engine-transition confirm modal instead of
+  // appending more sublist work that would re-merge against the frozen
+  // ranking. Same routing pattern is mirrored in doAddItem / doAddItemsList
+  // so RESULTS' "Add items" behaves identically no matter which add path
+  // the user takes.
   const doAppendPreRanked = useCallback(
     (items: Item[]) => {
+      if (!state || items.length === 0) return;
+      if (state.engine !== 'merge') return;
+      if (state.done) {
+        setPendingTransition({ items });
+        return;
+      }
       setState((cur) => {
         if (!cur || cur.engine !== 'merge') return cur;
         pushUndo(cur);
@@ -423,7 +617,7 @@ export function App() {
         return next;
       });
     },
-    [pushUndo, flashSkipped, engineOptions],
+    [state, pushUndo, flashSkipped, engineOptions],
   );
 
   // ---- manual insert (merge-only) ----
@@ -497,8 +691,17 @@ export function App() {
   );
 
   // ---- single-item add: engine-aware, mutates current slot ----
+  // On merge-engine-done we route to the engine-transition confirm modal
+  // instead of appending a singleton sublist that would force the user
+  // to re-merge it against the frozen ranking — same pattern as the
+  // multi-item paths.
   const doAddItem = useCallback(
     (item: Item) => {
+      if (!state) return;
+      if (state.engine === 'merge' && state.done) {
+        setPendingTransition({ items: [item] });
+        return;
+      }
       setState((cur) => {
         if (!cur) return cur;
         const next = engineAddItem(cur, item, engineOptions);
@@ -507,16 +710,20 @@ export function App() {
         return next;
       });
     },
-    [pushUndo, engineOptions],
+    [state, pushUndo, engineOptions],
   );
 
-  // ---- multi-item add (LIST tab "Multiple" tab): engine-aware ----
-  // Insertion → appends each to pending FIFO. Merge → appends N singleton
-  // sublists. For "merge a pre-ranked sublist" semantics, see
-  // `doAppendPreRanked` instead.
+  // ---- multi-item add (LIST tab "Multiple" tab unchecked): engine-aware ----
+  // Insertion → appends each to pending FIFO. Merge (not done) → appends
+  // N singleton sublists. Merge (done) → engine-transition confirm modal.
+  // For "merge a pre-ranked sublist" semantics, see `doAppendPreRanked`.
   const doAddItemsList = useCallback(
     (items: Item[]) => {
-      if (items.length === 0) return;
+      if (!state || items.length === 0) return;
+      if (state.engine === 'merge' && state.done) {
+        setPendingTransition({ items });
+        return;
+      }
       setState((cur) => {
         if (!cur) return cur;
         const { state: next, skipped } = engineAddItems(cur, items, engineOptions);
@@ -532,40 +739,7 @@ export function App() {
         return next;
       });
     },
-    [pushUndo, flashSkipped, engineOptions],
-  );
-
-  // ---- batch-add via "+ Add items" — engine-aware in-place mutation ----
-  // For merge engine that's already done, this triggers a confirm modal
-  // that warns about leaving the queue-merge structure behind (we can't
-  // undo back across the transition only via the in-memory undo ring,
-  // since the ring is bounded).
-  const doAddItemsBatch = useCallback(
-    (items: Item[]) => {
-      if (!state || items.length === 0) return;
-      if (state.engine === 'insertion') {
-        pushUndo(state);
-        const { state: next, skipped } = insertionAddItems(state, items);
-        if (skipped.length > 0) {
-          flashSkipped(
-            `Skipped ${skipped.length} item${skipped.length === 1 ? '' : 's'} already in the sort.`,
-          );
-        }
-        setState(next);
-        setActiveTab('rank');
-        return;
-      }
-      // Merge engine: if not done, we just append a pre-ranked sublist
-      // and stay on merge engine. If done, ask the user whether they
-      // want to switch to insertion mode (much faster) — that's the
-      // engine-transition pathway.
-      if (!state.done) {
-        doAppendPreRanked(items);
-        return;
-      }
-      setPendingTransition({ items });
-    },
-    [state, pushUndo, flashSkipped, doAppendPreRanked],
+    [state, pushUndo, flashSkipped, engineOptions],
   );
 
   const confirmTransition = useCallback(() => {
@@ -610,7 +784,19 @@ export function App() {
   const performSlotMint = useCallback(
     (session: SavedSession, name: string, initialTab?: TabId) => {
       const blob = buildBlob(session.state, session.undoRing);
-      const { evicted } = createSlot(blob, name);
+      const result = createSlot(blob, name);
+      if (result === null) {
+        // Blob write failed (typically quota exhaustion AFTER eviction
+        // already ran). The manifest may still have lost some slots to
+        // the failed eviction — refresh from disk so the LIST tab
+        // reflects reality. Flash a loud error so the user knows their
+        // session was NOT persisted (still in-memory only for now).
+        setManifest(readManifest());
+        flashSkipped(
+          'Could not save the new slot — browser storage is full. Pin / delete a slot to free room and try again.',
+        );
+        return;
+      }
       setManifest(readManifest());
       setState(session.state);
       setUndoRing(session.undoRing);
@@ -621,10 +807,10 @@ export function App() {
       // common case, but the safety-net eviction inside createSlot can
       // still trip if some race nudged us past cap between the peek and
       // the mint. Either way, surface what got deleted.
-      if (evicted.length > 0) {
-        const names = evicted.map((e) => `"${e.name}"`).join(', ');
+      if (result.evicted.length > 0) {
+        const names = result.evicted.map((e) => `"${e.name}"`).join(', ');
         flashSkipped(
-          `Made room: deleted oldest slot${evicted.length === 1 ? '' : 's'} ${names}.`,
+          `Made room: deleted oldest slot${result.evicted.length === 1 ? '' : 's'} ${names}.`,
         );
       }
     },
@@ -664,6 +850,44 @@ export function App() {
     },
     [performSlotMint],
   );
+
+  // Import a shared payload as a new slot. Branches on payload.kind:
+  //
+  //  - 'ranking'  → seed an insertion-engine DONE state via `seedAsSorted`.
+  //                 Engine choice barely matters since there are no
+  //                 pending comparisons; the user can hit Start over to
+  //                 re-sort with their preferred engine if desired. Land
+  //                 on RESULT so the imported ranking is immediately
+  //                 visible.
+  //  - 'template' → seed a fresh sort via `initSort` (respects the
+  //                 user's current engine + auto-insert preferences).
+  //                 Land on RANK because there is no result yet — the
+  //                 recipient is supposed to do their own sorting.
+  //
+  // Both routes funnel through adoptNewSession so cap-eviction /
+  // quota-recovery / first-write failure are handled uniformly with
+  // all other "mint a new slot" paths.
+  const onSharedImport = useCallback(
+    (payload: SharedRanking) => {
+      if (payload.kind === 'template') {
+        const next = initSort(payload.items, engineOptions);
+        const session: SavedSession = { state: next, undoRing: [] };
+        adoptNewSession(session, payload.name, 'rank');
+      } else {
+        const next = seedAsSorted(payload.items);
+        const session: SavedSession = { state: next, undoRing: [] };
+        adoptNewSession(session, payload.name, 'result');
+      }
+      clearShareHash();
+      setSharedPending(null);
+    },
+    [adoptNewSession, engineOptions],
+  );
+
+  const onSharedDismiss = useCallback(() => {
+    clearShareHash();
+    setSharedPending(null);
+  }, []);
 
   // -------- start --------
   const onStartScratch = useCallback(
@@ -771,6 +995,11 @@ export function App() {
     setManifest(m);
   }, []);
 
+  const onTogglePinSlot = useCallback((id: string, pinned: boolean) => {
+    const m = pinSlot(id, pinned);
+    setManifest(m);
+  }, []);
+
   // Download a JSON copy of any slot's blob — not just the one currently
   // loaded into memory. Used by the per-row download button in the
   // gear-menu slot list (back up before deleting / starting over) and by
@@ -818,6 +1047,106 @@ export function App() {
         });
     },
     [adoptNewSession],
+  );
+
+  // -------- bulk backup (every slot in one archive) --------
+  // Just delegates to the storage helper; no in-memory state changes
+  // because the on-disk slots aren't touched. Disabled in the menu
+  // when manifest is empty so this should never be a no-op.
+  const onBackupAll = useCallback(() => {
+    downloadAllSlots();
+  }, []);
+
+  // Parse the picked archive file, do a count-only pre-flight so the
+  // confirm modal can label its buttons accurately, and stage the
+  // import. Validation failures get the friendly alert path — same
+  // UX as a corrupt single-slot save.
+  const onRestoreFromBackup = useCallback((file: File) => {
+    file
+      .text()
+      .then((json) => {
+        // Lenient pre-parse: just inspect the manifest's slot ids so we
+        // can compute "M new vs K already present". `importAllSlots`
+        // does the real per-blob validation later; the modal preview
+        // is intentionally optimistic.
+        let parsedTotal = 0;
+        let parsedNew = 0;
+        try {
+          const env = JSON.parse(json) as {
+            archiveVersion?: unknown;
+            manifest?: { slots?: Array<{ id?: unknown }> };
+          };
+          if (env.archiveVersion !== 1) {
+            throw new Error(
+              `Unsupported archive version: ${String(env.archiveVersion)}`,
+            );
+          }
+          const slots = Array.isArray(env.manifest?.slots)
+            ? env.manifest!.slots
+            : [];
+          parsedTotal = slots.length;
+          const existingIds = new Set(
+            readManifest().slots.map((s) => s.id),
+          );
+          parsedNew = slots.filter(
+            (s) => typeof s.id === 'string' && !existingIds.has(s.id),
+          ).length;
+        } catch (err) {
+          alert(
+            `Could not read backup file: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          return;
+        }
+        setRestorePending({
+          json,
+          source: file.name || 'backup.json',
+          total: parsedTotal,
+          newCount: parsedNew,
+        });
+      })
+      .catch((err: unknown) => {
+        alert(
+          `Could not read backup file: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
+  }, []);
+
+  // Apply the pending restore in the chosen mode and surface the result.
+  // Merge keeps the user's current session intact; replace wipes both
+  // disk AND in-memory state and lands them on START so they can pick
+  // up where the archive left off (or pick a different slot manually).
+  const performRestore = useCallback(
+    (mode: 'merge' | 'replace') => {
+      if (!restorePending) return;
+      const result = importAllSlots(restorePending.json, mode);
+      setRestorePending(null);
+      if (result.error) {
+        alert(`Could not import backup: ${result.error}`);
+        return;
+      }
+      // For replace: flush any in-flight autosave was already cancelled
+      // inside storage; here we just drop in-memory state so the UI
+      // doesn't render a session whose blob may have just been wiped.
+      if (mode === 'replace') {
+        setState(null);
+        setUndoRing([]);
+        setActiveTab('start');
+      }
+      setManifest(readManifest());
+      const parts: string[] = [
+        `Imported ${result.imported} slot${result.imported === 1 ? '' : 's'}`,
+      ];
+      if (result.renamedIds.length > 0) {
+        parts.push(
+          `${result.renamedIds.length} renamed to avoid id collisions`,
+        );
+      }
+      if (result.skipped > 0) {
+        parts.push(`${result.skipped} skipped`);
+      }
+      flashSkipped(`${parts.join(' · ')}.`);
+    },
+    [restorePending, flashSkipped],
   );
 
   // -------- reset (now == delete the active slot) --------
@@ -949,9 +1278,14 @@ export function App() {
     body = (
       <ResultScreen
         state={state}
+        slotName={
+          manifest.slots.find((s) => s.id === manifest.activeId)?.name
+        }
         onUnhide={doUnhide}
         onStartOver={requestStartOver}
-        onAddItems={doAddItemsBatch}
+        onAddOne={doAddItem}
+        onAddMany={doAddItemsList}
+        onAddPreRanked={doAppendPreRanked}
       />
     );
   }
@@ -971,6 +1305,62 @@ export function App() {
           URL). Use the Download button to keep progress.
         </div>
       )}
+      {autosaveError && (
+        // Persistent banner: stays up until the next successful write
+        // clears the error (storage notifies the subscribed handler).
+        // The Dismiss button lets the user hide it without unblocking
+        // storage — useful when they've decided to keep working in
+        // memory-only mode until they get around to housekeeping.
+        <div className="app-banner danger">
+          <span>
+            Autosave failed — browser storage is full. Your work is safe in
+            this tab, but won't survive a refresh until you make room. Pin
+            slots you want to keep, then delete an old one (gear menu),
+            or use Download to back up the current sort.
+          </span>
+          <button
+            type="button"
+            className="banner-dismiss"
+            onClick={() => setAutosaveError(null)}
+            aria-label="Dismiss storage-full warning"
+            title="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      )}
+      {multitabStaleSlotId && state && (
+        // Another tab edited the same slot's saved data. Reload pulls the
+        // other tab's writes in (discarding our pending autosave so we
+        // don't clobber them); Dismiss keeps the current in-memory view
+        // — next autosave will overwrite the other tab. Only shown when
+        // we have in-memory state for the slot; without state, the next
+        // visit naturally reads the fresh blob.
+        <div className="app-banner warn">
+          <span>
+            Another browser tab updated this slot. Reload to view the latest
+            saved progress (your unsaved changes here will be discarded),
+            or keep working and overwrite the other tab.
+          </span>
+          <button
+            type="button"
+            className="banner-action"
+            onClick={onMultitabReload}
+            aria-label="Reload slot from other tab"
+          >
+            Reload
+          </button>
+          <button
+            type="button"
+            className="banner-dismiss"
+            onClick={() => setMultitabStaleSlotId(null)}
+            aria-label="Dismiss multi-tab warning"
+            title="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      )}
       {skippedMessage && <div className="app-banner">{skippedMessage}</div>}
       <Header
         activeTab={activeTab}
@@ -983,12 +1373,15 @@ export function App() {
         autosaveAvailable={autosaveOn}
         onLoadFromFile={onLoadFile}
         onReset={onResetRequest}
+        onBackupAll={onBackupAll}
+        onRestoreFromBackup={onRestoreFromBackup}
         manifest={manifest}
         loadedSlotId={loadedSlotId}
         onSwitchSlot={onSwitchSlot}
         onDeleteSlot={onDeleteSlot}
         onRenameSlot={onRenameSlot}
         onDownloadSlot={onDownloadSlot}
+        onTogglePinSlot={onTogglePinSlot}
         hasState={hasState}
         theme={theme}
         onToggleTheme={toggleTheme}
@@ -1040,6 +1433,28 @@ export function App() {
             capPending.commit();
           }}
           onContinue={capPending.commit}
+        />
+      )}
+      {sharedPending && (
+        <SharedImportModal
+          payload={sharedPending}
+          onImport={onSharedImport}
+          onDismiss={onSharedDismiss}
+        />
+      )}
+      {restorePending && (
+        <BackupRestoreConfirmModal
+          total={restorePending.total}
+          newCount={restorePending.newCount}
+          source={restorePending.source}
+          hasExisting={manifest.slots.length > 0}
+          mergeWouldExceedCap={
+            manifest.slots.length + restorePending.total > SLOT_CAP
+          }
+          slotCap={SLOT_CAP}
+          onCancel={() => setRestorePending(null)}
+          onMerge={() => performRestore('merge')}
+          onReplace={() => performRestore('replace')}
         />
       )}
     </div>

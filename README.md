@@ -207,7 +207,7 @@ Sun/moon button in the toolbar toggles light ↔ dark mode. The choice is persis
 
 ## Save slots
 
-The app keeps up to **10 named save slots** in your browser. One slot is **active** at a time — it's the one getting the live autosave and undo ring. Other slots are frozen snapshots you can resume any time from the gear menu.
+The app keeps up to **30 named save slots** in your browser. One slot is **active** at a time — it's the one getting the live autosave and undo ring. Other slots are frozen snapshots you can resume any time from the gear menu.
 
 ### How slots work
 
@@ -219,8 +219,27 @@ The app keeps up to **10 named save slots** in your browser. One slot is **activ
 - **Rename** by clicking the slot's name in the gear menu and editing in place. Enter to commit, Escape to cancel.
 - **Delete** with the × in the slot row. Deleting the loaded slot drops you back at START.
 - **Download backup** with the ⬇ button in the slot row — exports that slot's JSON without switching to it. Handy before deleting or before hitting the cap.
-- **Cap of 30.** Once you're at the cap, creating a new slot pops the `SlotCapConfirmModal` listing the oldest slot that would be deleted; you can Cancel, "Download oldest first" (saves a JSON of the victim, then continues), or "Delete oldest & continue". On the rare safety-net path where the storage layer still has to evict (e.g. multiple paths race to cap), a toast banner names what got deleted.
+- **Pin (★)** in the slot row marks a slot as exempt from automatic eviction. Pinned slots are NEVER touched by the slot-cap eviction modal's "Delete oldest" path OR by the safety-net eviction that fires when autosave hits the browser's storage quota. Use it to protect sorts you care about long-term while letting the app freely evict scratch work.
+- **Cap of 30.** Once you're at the cap, creating a new slot pops the `SlotCapConfirmModal` listing the oldest *unpinned* slot that would be deleted; you can Cancel, "Download oldest first" (saves a JSON of the victim, then continues), or "Delete oldest & continue". If every slot is pinned, the cap blocks the mint entirely and surfaces a banner — unpin or delete to make room. On the rare safety-net path where the storage layer still has to evict (e.g. multiple paths race to cap), a toast banner names what got deleted.
 - **Migration.** If you used a previous build of this app (single autosave under `sorter:v1`), it's auto-converted into your first slot on next launch — nothing is lost.
+- **Manifest repair.** If localStorage's manifest blob ever becomes unreadable (corrupted JSON, partial write from a crash), the boot path scans for any remaining slot blobs and rebuilds a fresh manifest from their contents. A one-shot banner reports how many slots were recovered. Slot names from the rebuild come from the items themselves (since the original metadata was lost with the manifest); rename as needed.
+
+### Multi-tab coordination
+
+The app can be open in multiple browser tabs at once. We use the browser's `storage` event to keep them loosely in sync:
+
+- **Manifest changes** (create / delete / rename / pin in another tab) refresh the slot list silently in this tab.
+- **Same-slot edits** in another tab — i.e. you've been sorting the same slot in two tabs at the same time — pop a "Another browser tab updated this slot" banner here with a **Reload** action. Reload discards this tab's in-flight autosave (so it doesn't clobber the other tab's writes) and re-reads the slot blob from disk. Dismiss keeps the in-memory state and lets the next autosave overwrite the other tab (last-writer-wins).
+- The banner only shows when this tab has in-memory state for the affected slot. Without state, the next visit naturally reads the fresh blob.
+
+### Storage quota recovery
+
+If autosave hits the browser's localStorage quota (you'll typically only see this after years of accumulated slots), recovery runs in two stages before surfacing a hard failure:
+
+1. **Trim the undo ring.** Drops the oldest half of the undo entries on disk AND mirrors that trim in-memory so the next write doesn't immediately re-grow the on-disk ring.
+2. **Evict the oldest non-pinned non-active slot.** Same rule as cap eviction — pinned slots are protected. A toast banner names what got deleted.
+
+If neither stage frees enough room (every slot is pinned, or the single remaining slot still doesn't fit), a persistent danger banner appears: "Autosave failed — browser storage is full." Your work continues in-memory for the session; pin / delete a slot or Download the current sort to a JSON file to recover.
 
 ### Autosave (per-slot, in `localStorage`)
 
@@ -242,6 +261,15 @@ These two buttons are deliberately different:
 ### Load
 
 Gear menu → "Load save file…" → pick a previously-downloaded JSON. It's imported as a brand-new slot (auto-named from the file's basename) and activated.
+
+## Share link
+
+On the RESULT tab of a completed sort, the **Share link** button generates a URL that encodes the final ranking in its hash fragment (`#share=<base64url-payload>`). Anyone who opens the link in any browser sees a preview overlay and can import the ranking as a new slot in their own browser.
+
+- **Encodes only the final ranking** — labels, URLs, and image URLs in rank order. Sort history, hidden items, undo ring, and engine state are intentionally NOT included. The recipient gets a frozen, done sort they can re-rank by hitting Start over.
+- **Nothing is sent to a server.** The hash fragment never leaves the user's browser unless they paste the URL somewhere else. The encoder runs entirely client-side; the decoder runs entirely client-side at boot.
+- **Size**: the modal shows the payload size in KB and warns above ~50 KB ("may fail to paste in some chat / mail apps") — at that point Download the JSON instead and share the file. Practical ceiling is browser-dependent but generally past 100 KB the hash will still work in URL bars, just not necessarily in every paste destination.
+- **Bad / hand-edited payloads** decode to null; the recipient sees a "share link was broken or unreadable" toast and the bad hash is cleared from the URL so a refresh doesn't keep re-prompting.
 
 ## Where state physically lives
 
@@ -269,7 +297,8 @@ Coverage:
 - **Insertion engine** (`insertionSort.test.ts`): seed-as-sorted, FIFO drain, add/addItems mid-plan, hide-while-inserting, snapshot/restore.
 - **Engine dispatch** (`engine.test.ts`): polymorphic getPair / comparisonsRemaining / hide / unhide / addItems, `transitionMergeDoneToInsertion`, cross-engine undo round-trip.
 - **CSV** (`csv.test.ts`): canonical key, header detection, dedup with metadata merging, multi-source parsing.
-- **Storage** (`storage.test.ts`): slot CRUD, legacy v1 migration, cap eviction, autosave routing to the active slot, v1 → v3 and v2 → v3 progress upgrades (including undo ring), v3 round-trip for both engine shapes.
+- **Storage** (`storage.test.ts`): slot CRUD, legacy v1 migration, cap eviction (pin-aware), autosave routing + debounce + force-flush + discard-pending, v1 → v3 and v2 → v3 progress upgrades (including undo ring), v3 round-trip for both engine shapes, two-stage quota recovery (trim undo → evict non-pinned), manifest repair from orphaned slot blobs after manifest corruption.
+- **Share link** (`share.test.ts`): encode/decode round-trip (incl. non-ASCII labels, order preservation, dropped-undefined optional fields), failure modes (bad base64, bad JSON, wrong version, empty items, wrong-type optional fields), URL hash extraction.
 
 ## Save-file format & migration
 
@@ -314,17 +343,27 @@ src/
                         # addItem, addItems, transitionMergeDoneToInsertion)
     csv.ts              # canonical key, header detection, parse, dedup
     storage.ts          # isAutosaveAvailable, slot CRUD, v1→v2 upgradeProgress,
-                        # migrateLegacyIfNeeded, scheduleAutosave/flushAutosave,
+                        # migrateLegacyIfNeeded, repairManifestIfCorrupt,
+                        # scheduleAutosave/flushAutosave/discardPendingAutosave,
+                        # pinSlot, peekEvictionTarget, isAtCapAndAllPinned,
+                        # subscribeAutosaveError (two-stage quota recovery),
                         # downloadSave/loadSaveFromFile, settings
+    share.ts            # encodeShareLink/decodeShareLink (URL-fragment payload),
+                        # shareUrlFor, readShareParamFromHash
     __tests__/          # vitest suites
   hooks/useKeyboard.ts
   components/           # Header, SettingsMenu, StartScreen, ImportPreview,
-                        # SlotList, ListScreen (engine-aware),
+                        # SlotList (with pin ★ toggle), ListScreen (engine-aware),
                         # CompareScreen (engine indicator + cancel-placement),
-                        # ResultScreen (+ Add items), ItemCard,
+                        # ResultScreen (+ Add items, + Share link), ItemCard,
+                        # ItemThumb (shared image + onError-fallback initials),
+                        # Modal (shared dialog shell: focus trap / Escape /
+                        #        restore-focus / role+aria),
                         # AddItemsModal (unified Single / Multiple tabs),
-                        # AddPreRankedModal (RESULT-tab batch add),
-                        # SlotDeleteConfirmModal
+                        # ShareLinkModal (sender: URL + copy + size warn),
+                        # SharedImportModal (recipient: preview + import-as-new),
+                        # SlotDeleteConfirmModal, SlotCapConfirmModal,
+                        # StartOverConfirmModal, EditItemModal
 ```
 
 ## License

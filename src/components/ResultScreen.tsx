@@ -1,10 +1,18 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { Item, SortState } from '../lib/types';
 import { comparisonsRemaining, getRanking } from '../lib/engine';
-import { AddPreRankedModal } from './AddPreRankedModal';
+import { AddItemsModal } from './AddItemsModal';
+import { ItemThumb } from './ItemThumb';
+import { ShareLinkModal } from './ShareLinkModal';
 
 interface Props {
   state: SortState;
+  /**
+   * Active slot's display name. Passed through to the share-link
+   * payload so the recipient sees a meaningful default slot name
+   * after import (instead of the generic "Shared sort" fallback).
+   */
+  slotName?: string;
   onUnhide: (id: string) => void;
   /**
    * Start over from scratch: re-init the sort with the same items but
@@ -14,20 +22,27 @@ interface Props {
    */
   onStartOver: () => void;
   /**
-   * Batch-add items to the current sort, engine-aware. On insertion
-   * engine: appends to pending. On merge engine, not-done: appends a
-   * pre-ranked sublist. On merge engine, done: triggers the
-   * merge→insertion engine transition (which App.tsx confirms via modal).
+   * Add a single item via the AddItemsModal's Single tab. App.tsx
+   * dispatches engine-aware: merge → singleton sublist (or transition
+   * modal if merge is done); insertion → push to pending.
    */
-  onAddItems: (items: Item[]) => void;
+  onAddOne: (item: Item) => void;
+  /**
+   * Add many items via the Multiple tab (pre-ranked checkbox unchecked).
+   * Merge → N singleton sublists; insertion → push to pending FIFO;
+   * merge-done → engine-transition confirm modal.
+   */
+  onAddMany: (items: Item[]) => void;
+  /**
+   * Add many items via the Multiple tab with the "Treat as one
+   * pre-ranked sublist" checkbox checked. Merge → appendPreRankedSublist
+   * as one sublist; merge-done → engine-transition confirm modal.
+   * Undefined / hidden checkbox on insertion engine since pending is
+   * FIFO either way.
+   */
+  onAddPreRanked?: (items: Item[]) => void;
 }
 
-function initials(label: string): string {
-  const words = label.trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return '?';
-  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
-  return (words[0][0] + words[1][0]).toUpperCase();
-}
 
 function buildCsv(items: Item[]): string {
   const escape = (v: string | undefined): string => {
@@ -54,10 +69,25 @@ function downloadText(text: string, filename: string, mime: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export function ResultScreen({ state, onUnhide, onStartOver, onAddItems }: Props) {
+export function ResultScreen({
+  state,
+  slotName,
+  onUnhide,
+  onStartOver,
+  onAddOne,
+  onAddMany,
+  onAddPreRanked,
+}: Props) {
   const [copied, setCopied] = useState<'csv' | 'md' | 'txt' | null>(null);
   const [showHidden, setShowHidden] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+
+  // existingIds powers AddItemsModal's de-dup hints; it shows in the
+  // multiple-tab preview ("N already in your sort, will be skipped").
+  // AddItemsModal also handles the engine-aware tab UI itself — we pass
+  // state.engine and it hides the "pre-ranked" checkbox on insertion.
+  const existingIds = useMemo(() => new Set(Object.keys(state.items)), [state.items]);
 
   if (!state.done) {
     return (
@@ -117,19 +147,20 @@ export function ResultScreen({ state, onUnhide, onStartOver, onAddItems }: Props
             <button className="btn" onClick={() => copy(csv, 'csv')}>
               {copied === 'csv' ? '✓ Copied' : 'Copy as CSV'}
             </button>
+            <button
+              className="btn"
+              onClick={() => setShareOpen(true)}
+              title="Generate a link recipients can open to import this ranking"
+            >
+              Share link
+            </button>
           </div>
         </div>
         <ol className="result-list">
           {ranking.map((it, i) => (
             <li key={it.id} className="result-row">
               <div className="rank-num">{i + 1}</div>
-              <div className="image-wrap">
-                {it.imageUrl ? (
-                  <img src={it.imageUrl} alt="" />
-                ) : (
-                  <div className="placeholder">{initials(it.label)}</div>
-                )}
-              </div>
+              <ItemThumb item={it} as="div" className="image-wrap" />
               <div className="label-cell">{it.label}</div>
               <div>
                 {it.url && (
@@ -164,13 +195,7 @@ export function ResultScreen({ state, onUnhide, onStartOver, onAddItems }: Props
                   <div className="rank-num" style={{ color: 'var(--text-faint)' }}>
                     —
                   </div>
-                  <div className="image-wrap">
-                    {it.imageUrl ? (
-                      <img src={it.imageUrl} alt="" />
-                    ) : (
-                      <div className="placeholder">{initials(it.label)}</div>
-                    )}
-                  </div>
+                  <ItemThumb item={it} as="div" className="image-wrap" />
                   <div className="label-cell" style={{ textDecoration: 'line-through' }}>
                     {it.label}
                   </div>
@@ -198,12 +223,33 @@ export function ResultScreen({ state, onUnhide, onStartOver, onAddItems }: Props
       </div>
 
       {addOpen && (
-        <AddPreRankedModal
+        <AddItemsModal
+          engine={state.engine}
+          existingIds={existingIds}
           onCancel={() => setAddOpen(false)}
-          onAppend={(items) => {
-            onAddItems(items);
+          onAddOne={(item) => {
+            onAddOne(item);
             setAddOpen(false);
           }}
+          onAddMany={(items) => {
+            onAddMany(items);
+            setAddOpen(false);
+          }}
+          onAddPreRanked={
+            onAddPreRanked
+              ? (items) => {
+                  onAddPreRanked(items);
+                  setAddOpen(false);
+                }
+              : undefined
+          }
+        />
+      )}
+      {shareOpen && (
+        <ShareLinkModal
+          ranking={ranking}
+          slotName={slotName}
+          onClose={() => setShareOpen(false)}
         />
       )}
     </div>

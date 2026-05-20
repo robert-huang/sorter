@@ -416,7 +416,13 @@ function bumpTotalComparisons(progress: InsertionProgress): void {
 /**
  * Hide an item. Different semantics depending on where the id lives:
  *  - in pending → remove from pending (decrements total)
- *  - in sorted → mark hidden; probe-skipping handles it on the fly
+ *  - in sorted → mark hidden; probe-skipping handles it on the fly,
+ *    UNLESS the active frame's [lo, hi] now contains zero visible
+ *    probes — in that case there's nothing left to compare against, so
+ *    we splice the inserting id at the resolved position and drain.
+ *    Without this, getPair would return null while state.done is still
+ *    false and the user would see a misleading "no comparison" state
+ *    with no way forward except undo.
  *  - mid-insert (== current.insertingId) → cancel frame, drain next
  */
 export function hideItem(
@@ -441,6 +447,25 @@ export function hideItem(
       // pending-shrink might let us go done if nothing remains.
       if (next.current === null && next.pending.length === 0) {
         next.done = true;
+      }
+    }
+    // Whether the hidden id was in pending or sorted, the active frame
+    // may have just lost its last visible probe. Resolve the stalled
+    // frame here (rather than leaving it for the UI to discover via a
+    // null pair) by simulating the same splice-and-drain path that
+    // applyPick takes when it encounters a collapsed visible range.
+    if (next.current) {
+      const hiddenSet = new Set(next.hidden);
+      const skipped = skipHiddenProbes(next.current, next.sorted, hiddenSet);
+      if ('done' in skipped) {
+        const insertingId = next.current.insertingId;
+        next.sorted = [
+          ...next.sorted.slice(0, skipped.position),
+          insertingId,
+          ...next.sorted.slice(skipped.position),
+        ];
+        next.current = null;
+        drainPending(next);
       }
     }
   }

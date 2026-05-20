@@ -26,6 +26,16 @@ export interface MergeOptions {
    * instead of a normal merge frame when the popped pair is skewed
    * enough that binary insertion beats the full merge. Set false to
    * force every pair through the classic merge.
+   *
+   * Correctness contract: auto-insert assumes the smaller side is in
+   * true rank order. That holds for sublists produced by merges (which
+   * are correct by construction) and for sublists the user has
+   * explicitly opted in as pre-ranked (via the "Treat as pre-ranked"
+   * checkbox or the pre-ranked seed flow). If the user asserts
+   * pre-ranked-ness untruthfully (e.g., paste an alphabetical CSV and
+   * tick the checkbox), auto-insert will silently produce a wrong
+   * final ranking. The Settings toggle exists for users who want the
+   * conservative behavior.
    */
   autoInsertEnabled?: boolean;
 }

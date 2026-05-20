@@ -21,6 +21,10 @@ interface Props {
   onLoadFromFile: (file: File) => void;
   /** Confirm + delete the active slot. */
   onReset: () => void;
+  /** Trigger a JSON download of every slot in one archive file. */
+  onBackupAll: () => void;
+  /** Hand a SlotArchive JSON file to App for parsing + confirm modal. */
+  onRestoreFromBackup: (file: File) => void;
   /** Full slots manifest — feeds the gear-menu slot list. */
   manifest: SlotsManifest;
   /** Slot currently loaded into memory; null when on START. */
@@ -28,6 +32,9 @@ interface Props {
   onSwitchSlot: (id: string) => void;
   onDeleteSlot: (id: string) => void;
   onRenameSlot: (id: string, name: string) => void;
+  /** Pin/unpin a slot from the gear-menu row. Pinned slots are excluded
+   *  from the auto-eviction loop when storage hits the cap. */
+  onTogglePinSlot: (id: string, pinned: boolean) => void;
   /** Download a JSON copy of any slot's on-disk blob (per-row icon in
    *  the gear menu). Distinct from `onDownload`, which dumps the
    *  in-memory active session. */
@@ -56,11 +63,14 @@ export function Header({
   autosaveAvailable,
   onLoadFromFile,
   onReset,
+  onBackupAll,
+  onRestoreFromBackup,
   manifest,
   loadedSlotId,
   onSwitchSlot,
   onDeleteSlot,
   onRenameSlot,
+  onTogglePinSlot,
   onDownloadSlot,
   hasState,
   theme,
@@ -234,6 +244,8 @@ export function Header({
             autosaveAvailable={autosaveAvailable}
             onLoadFromFile={onLoadFromFile}
             onReset={onReset}
+            onBackupAll={onBackupAll}
+            onRestoreFromBackup={onRestoreFromBackup}
             hasActiveSlot={hasState}
             manifest={manifest}
             loadedSlotId={loadedSlotId}
@@ -241,6 +253,7 @@ export function Header({
             onDeleteSlot={onDeleteSlot}
             onRenameSlot={onRenameSlot}
             onDownloadSlot={onDownloadSlot}
+            onTogglePinSlot={onTogglePinSlot}
             showEstimatedRemaining={showEstimatedRemaining}
             onToggleShowEstimatedRemaining={onToggleShowEstimatedRemaining}
             autoInsertEnabled={autoInsertEnabled}
