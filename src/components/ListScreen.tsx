@@ -6,7 +6,7 @@ import type {
   SortState,
 } from '../lib/types';
 import { AddItemsModal } from './AddItemsModal';
-import { EditItemModal } from './EditItemModal';
+import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
 
 interface Props {
   state: SortState;
@@ -47,11 +47,14 @@ interface Props {
    * display fields change. Used to fix labels mis-parsed at import
    * time (e.g. commas inside the label being treated as the CSV
    * column separator).
+   *
+   * `patch.id`, when present, also renames the item's logical id.
+   * The handler in App.tsx applies it atomically with the metadata
+   * patch and rewrites the undo ring so a later undo doesn't restore
+   * stale-id references. See `engine.updateItemId` and
+   * `engine.rewriteIdInProgress`.
    */
-  onEditItem: (
-    id: string,
-    patch: { label?: string; url?: string; imageUrl?: string },
-  ) => void;
+  onEditItem: (id: string, patch: EditItemSavePayload) => void;
 }
 
 function Thumb({ item }: { item: Item }) {
@@ -136,6 +139,18 @@ function MergeListView({
     () => new Set(Object.keys(state.items)),
     [state.items],
   );
+  // id → label for every item EXCEPT the one currently being edited.
+  // Powers the collision check inside EditItemModal's advanced panel.
+  // Recomputed when state.items changes (cheap — N items, infrequent
+  // open) or when the modal opens against a different id.
+  const otherIds = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const it of Object.values(state.items)) {
+      if (it.id === editingId) continue;
+      m.set(it.id, it.label);
+    }
+    return m;
+  }, [state.items, editingId]);
 
   return (
     <div className="page">
@@ -306,6 +321,9 @@ function MergeListView({
             onEditItem(editingItem.id, patch);
             setEditingId(null);
           }}
+          allowEditId
+          currentId={editingItem.id}
+          otherIds={otherIds}
         />
       )}
     </div>
@@ -512,6 +530,14 @@ function InsertionListView({
     () => new Set(Object.keys(state.items)),
     [state.items],
   );
+  const otherIds = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const it of Object.values(state.items)) {
+      if (it.id === editingId) continue;
+      m.set(it.id, it.label);
+    }
+    return m;
+  }, [state.items, editingId]);
 
   const insertingId = state.current?.insertingId;
 
@@ -704,6 +730,9 @@ function InsertionListView({
             onEditItem(editingItem.id, patch);
             setEditingId(null);
           }}
+          allowEditId
+          currentId={editingItem.id}
+          otherIds={otherIds}
         />
       )}
     </div>

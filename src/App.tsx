@@ -19,10 +19,12 @@ import {
   reorderInSorted as engineReorderInSorted,
   restoreProgress as engineRestoreProgress,
   returnToPending as engineReturnToPending,
+  rewriteIdInProgress as engineRewriteIdInProgress,
   snapshotProgress as engineSnapshotProgress,
   transitionMergeDoneToInsertion,
   unhideItem as engineUnhideItem,
   updateItem as engineUpdateItem,
+  updateItemId as engineUpdateItemId,
 } from './lib/engine';
 import {
   appendPreRankedSublist,
@@ -311,19 +313,70 @@ export function App() {
     [pushUndo],
   );
 
-  // In-place metadata edit (label / url / imageUrl). `engineUpdateItem`
-  // returns the same state reference when nothing actually changes —
-  // that's our signal to NOT push an undo frame and NOT trigger a state
-  // re-render. Driving use-case: fixing labels whose commas got eaten by
-  // the CSV parser at import time.
+  // In-place metadata edit (label / url / imageUrl + optional id
+  // rename). `engineUpdateItem` returns the same state reference when
+  // nothing actually changes — that's our signal to NOT push an undo
+  // frame and NOT trigger a state re-render. Driving use-case: fixing
+  // labels whose commas got eaten by the CSV parser at import time.
+  //
+  // When `patch.id` is set (the "advanced" panel in EditItemModal),
+  // we apply BOTH operations atomically inside a single setState +
+  // single undo push:
+  //   1. engineUpdateItem applies the metadata patch (label/url/imageUrl)
+  //   2. engineUpdateItemId rekeys the items dict and rewrites every
+  //      ItemId reference in the progress slice.
+  // The undo ring is ALSO rewritten so a subsequent undo doesn't
+  // restore a snapshot keyed under the old id while the items dict
+  // is keyed under the new one — see engine.rewriteIdInProgress.
+  //
+  // engineUpdateItemId can reject (returns null) for empty / unknown
+  // / colliding ids. The modal validates synchronously so a reject
+  // here implies a race — we silently fall back to applying just the
+  // metadata patch in that case.
   const doEditItem = useCallback(
-    (id: ItemId, patch: { label?: string; url?: string; imageUrl?: string }) => {
+    (
+      id: ItemId,
+      patch: {
+        label?: string;
+        url?: string;
+        imageUrl?: string;
+        id?: ItemId;
+      },
+    ) => {
+      const { id: rawNewId, ...metaPatch } = patch;
+      // Normalize the rename intent once so the setState callback
+      // doesn't have to re-narrow.
+      const newId: ItemId | null =
+        rawNewId !== undefined && rawNewId.trim() !== id
+          ? rawNewId.trim()
+          : null;
       setState((cur) => {
         if (!cur) return cur;
-        const next = engineUpdateItem(cur, id, patch);
-        if (next === cur) return cur;
+        const afterMeta = engineUpdateItem(cur, id, metaPatch);
+        if (newId === null) {
+          if (afterMeta === cur) return cur;
+          pushUndo(cur);
+          return afterMeta;
+        }
+        const renamed = engineUpdateItemId(afterMeta, id, newId);
+        if (renamed === null) {
+          // Rename rejected (race with collision created elsewhere,
+          // or some other engine-level guard) — keep the meta patch.
+          if (afterMeta === cur) return cur;
+          pushUndo(cur);
+          return afterMeta;
+        }
+        // Push undo for the pre-edit state, then rewrite every prior
+        // snapshot (including the one we just pushed) so a later undo
+        // restores progress arrays referencing the NEW id. The items
+        // dict is shared across snapshots so it's already keyed by
+        // the new id — a snapshot still pointing at the old id would
+        // render blanks. See engine.rewriteIdInProgress.
         pushUndo(cur);
-        return next;
+        setUndoRing((ring) =>
+          ring.map((snap) => engineRewriteIdInProgress(snap, id, newId)),
+        );
+        return renamed;
       });
     },
     [pushUndo],

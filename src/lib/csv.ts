@@ -5,14 +5,34 @@ import type { DedupWarning, Item, ItemId } from './types';
 
 /**
  * Slug a label down to a stable canonical key for dedup + id purposes.
- * trim, lowercase, replace any run of non-alphanumerics with a single `-`,
- * strip leading/trailing `-`. Empty result becomes 'item' as a fallback.
+ *
+ * Steps:
+ *  1. NFKC-normalize so full-width Latin (`ＣＬＡＮＮＡＤ` → `CLANNAD`),
+ *     half/full-width katakana, decomposed accents (`é` as `e + ◌́`), and
+ *     full-width punctuation (`？` → `?`, `～` → `~`) collapse to a
+ *     single canonical form before we slug them.
+ *  2. trim, lowercase (locale-aware so `İ` folds correctly for non-ASCII
+ *     scripts).
+ *  3. Replace each NON-letter / non-number Unicode codepoint with `-`.
+ *     We deliberately do NOT collapse runs of non-letter chars into a
+ *     single `-` — preserving the count means two titles that differ
+ *     only by an extra punctuation character produce distinct ids
+ *     (`かぐや様...～...～` vs `かぐや様...？～...～` → S1 vs S2 of
+ *     Kaguya-sama dedup correctly instead of colliding on a single
+ *     `-`). Trade-off: trivial whitespace differences like `"Foo Bar"`
+ *     vs `"Foo  Bar"` now produce different ids (`foo-bar` vs
+ *     `foo--bar`) — acceptable for CSV data where repeated whitespace
+ *     is rare.
+ *  4. Strip any run of `-` at the start or end. Trailing punctuation
+ *     like `!!` still gets folded off cleanly.
+ *  5. Empty result falls back to `'item'`.
  */
 export function canonicalKey(label: string): ItemId {
   const slug = label
+    .normalize('NFKC')
     .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]/gu, '-')
     .replace(/^-+|-+$/g, '');
   return slug || 'item';
 }
@@ -59,6 +79,15 @@ export interface RawRow {
   imageUrl?: string;
   sourceName: string;
   sourceRow: number; // 1-indexed within source, AFTER header skip
+  /**
+   * Optional explicit id override. When set, `dedupRows` uses this
+   * value instead of `canonicalKey(label)` to identify the row. Used
+   * by the START tab's edit-overlay to let the user disambiguate two
+   * different labels that happen to slug to the same id (or to rename
+   * a row's logical id without touching its display label). When
+   * unset, dedup behavior is unchanged.
+   */
+  idOverride?: ItemId;
 }
 
 export interface ParseResult {
@@ -144,7 +173,7 @@ export function dedupRows(rows: RawRow[]): {
   >();
 
   for (const row of rows) {
-    const id = canonicalKey(row.label);
+    const id = row.idOverride ?? canonicalKey(row.label);
     const existing = byKey.get(id);
     if (!existing) {
       byKey.set(id, {
@@ -228,7 +257,7 @@ export function parseSources(sources: SourceParse[]): {
     const seen = new Set<ItemId>();
     const localItems: Item[] = [];
     for (const r of s.rawRows) {
-      const id = canonicalKey(r.label);
+      const id = r.idOverride ?? canonicalKey(r.label);
       if (seen.has(id)) continue;
       seen.add(id);
       localItems.push({

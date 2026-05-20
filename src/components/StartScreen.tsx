@@ -1,6 +1,7 @@
-import { useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import type { Item, SlotMeta } from '../lib/types';
 import {
+  canonicalKey,
   looksLikeHeader,
   parseCsvRows,
   parseExtrasText,
@@ -9,7 +10,62 @@ import {
   type SourceParse,
 } from '../lib/csv';
 import { ImportPreview, type PreviewSource } from './ImportPreview';
+import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
 import Papa from 'papaparse';
+
+/**
+ * In-memory edit overlay for the START tab. Keyed by
+ * `${sourceName}:${originalRowNumber}` because that handle is stable
+ * across re-parses and is already shown to the user in the dedup
+ * warning text. Values store an optional label and/or id override —
+ * either may be set independently (e.g. id-only rename without
+ * touching the displayed label, or vice versa).
+ *
+ * The overlay is applied to RawRow values BEFORE parseSources runs
+ * its dedup pass, so the user can disambiguate two rows that
+ * collapse to the same canonical id (rename one's label, or assign
+ * one an explicit id) and have the warning disappear on the next
+ * render.
+ *
+ * Brutally cleared on any source-text mutation (textarea edit, file
+ * replaced/removed, header-skip toggle) because row numbers shift
+ * and we'd otherwise apply stale overrides to unrelated rows.
+ */
+type OverlayMap = Map<string, { label?: string; id?: string }>;
+
+function overlayKey(sourceName: string, sourceRow: number): string {
+  return `${sourceName}:${sourceRow}`;
+}
+
+function applyOverrides(rows: RawRow[], overrides: OverlayMap): RawRow[] {
+  if (overrides.size === 0) return rows;
+  return rows.map((r) => {
+    const o = overrides.get(overlayKey(r.sourceName, r.sourceRow));
+    if (!o) return r;
+    const next: RawRow = { ...r };
+    if (o.label !== undefined) next.label = o.label;
+    if (o.id !== undefined) next.idOverride = o.id;
+    return next;
+  });
+}
+
+/** Drop every overlay entry whose key is sourced from `sourceName`. */
+function dropSourceFromOverrides(
+  overrides: OverlayMap,
+  sourceName: string,
+): OverlayMap {
+  if (overrides.size === 0) return overrides;
+  const prefix = `${sourceName}:`;
+  let touched = false;
+  const next = new Map(overrides);
+  for (const k of next.keys()) {
+    if (k.startsWith(prefix)) {
+      next.delete(k);
+      touched = true;
+    }
+  }
+  return touched ? next : overrides;
+}
 
 type Mode = 'scratch' | 'preranked';
 
@@ -48,6 +104,25 @@ export function StartScreen({
 }: Props) {
   const [mode, setMode] = useState<Mode>('scratch');
 
+  // Shared overlay across both modes. Entries are keyed by
+  // `${sourceName}:${rowNumber}`, so the scratch source ('pasted CSV')
+  // and any pre-ranked file or 'extras' use distinct keys naturally.
+  const [overrides, setOverrides] = useState<OverlayMap>(new Map());
+
+  // The dedup-warning row the user clicked Edit on. Drives the
+  // EditItemModal. Stored as a transient object containing everything
+  // the modal needs to render and write back to overrides on save.
+  const [editTarget, setEditTarget] = useState<{
+    sourceName: string;
+    rowNumber: number;
+    /** The label dedup actually saw (post-override). Pre-fills the modal. */
+    currentLabel: string;
+    /** The id dedup actually saw (post-override). Pre-fills the advanced field. */
+    currentId: string;
+    /** All other ids in the current preview (excludes this row), for collision check. */
+    otherIds: Map<string, string>;
+  } | null>(null);
+
   // -------- scratch mode --------
   const [scratchText, setScratchText] = useState('');
   const [scratchSkipHeader, setScratchSkipHeader] = useState(false);
@@ -80,12 +155,12 @@ export function StartScreen({
         ? [
             {
               sourceName: 'pasted CSV',
-              rawRows: scratchParsed.rows,
+              rawRows: applyOverrides(scratchParsed.rows, overrides),
               detectedHeader: scratchParsed.detectedHeader,
             },
           ]
         : [],
-    [scratchParsed],
+    [scratchParsed, overrides],
   );
 
   const scratchResult = useMemo(
@@ -93,10 +168,27 @@ export function StartScreen({
     [scratchSources],
   );
 
+  // Wrapper for setScratchText that also drops any overlay entries
+  // tied to the 'pasted CSV' source. Necessary because edits to the
+  // raw text typically shift row numbers and stale overrides would
+  // then apply to unrelated rows.
+  const updateScratchText = useCallback((next: string) => {
+    setScratchText(next);
+    setOverrides((prev) => dropSourceFromOverrides(prev, 'pasted CSV'));
+  }, []);
+
+  // Same reason: toggling the header-skip checkbox shifts every row's
+  // sourceRow by ±1, so any existing overlay entry for 'pasted CSV'
+  // would point at the wrong row after the toggle.
+  const updateScratchSkipHeader = useCallback((next: boolean) => {
+    setScratchSkipHeader(next);
+    setOverrides((prev) => dropSourceFromOverrides(prev, 'pasted CSV'));
+  }, []);
+
   function onScratchFile(e: React.ChangeEvent<HTMLInputElement>): void {
     const file = e.target.files?.[0];
     if (!file) return;
-    file.text().then((t) => setScratchText(t));
+    file.text().then((t) => updateScratchText(t));
     e.target.value = '';
   }
 
@@ -156,21 +248,45 @@ export function StartScreen({
   }
 
   function setStagedSkipHeader(id: string, skip: boolean): void {
-    setStagedFiles((prev) =>
-      prev.map((f) => (f.id === id ? { ...f, skipHeader: skip } : f)),
-    );
+    setStagedFiles((prev) => {
+      const target = prev.find((f) => f.id === id);
+      if (target) {
+        // Header toggle shifts every row's sourceRow by ±1, so any
+        // existing override for this file would land on the wrong row.
+        setOverrides((cur) => dropSourceFromOverrides(cur, target.name));
+      }
+      return prev.map((f) => (f.id === id ? { ...f, skipHeader: skip } : f));
+    });
   }
 
   function removeStaged(id: string): void {
-    setStagedFiles((prev) => prev.filter((f) => f.id !== id));
+    setStagedFiles((prev) => {
+      const target = prev.find((f) => f.id === id);
+      if (target) {
+        setOverrides((cur) => dropSourceFromOverrides(cur, target.name));
+      }
+      return prev.filter((f) => f.id !== id);
+    });
   }
+
+  // Same invalidation rule for extras: any text/header change shifts
+  // rows, so the 'extras' source's overrides are dropped.
+  const updateExtrasText = useCallback((next: string) => {
+    setExtrasText(next);
+    setOverrides((prev) => dropSourceFromOverrides(prev, 'extras'));
+  }, []);
+
+  const updateExtrasSkipHeader = useCallback((next: boolean) => {
+    setExtrasSkipHeader(next);
+    setOverrides((prev) => dropSourceFromOverrides(prev, 'extras'));
+  }, []);
 
   const prerankedResult = useMemo(() => {
     const sources: SourceParse[] = stagedFiles.map((f) => {
       const r = parseCsvRows(f.text, f.name, f.skipHeader);
       return {
         sourceName: f.name,
-        rawRows: r.rows,
+        rawRows: applyOverrides(r.rows, overrides),
         detectedHeader: r.detectedHeader,
       };
     });
@@ -186,14 +302,14 @@ export function StartScreen({
       if (plain.length > 0) {
         sources.push({
           sourceName: 'extras',
-          rawRows: plain,
+          rawRows: applyOverrides(plain, overrides),
           detectedHeader: false,
         });
       }
     } else if (extrasParsed.rows.length > 0) {
       sources.push({
         sourceName: 'extras',
-        rawRows: extrasParsed.rows,
+        rawRows: applyOverrides(extrasParsed.rows, overrides),
         detectedHeader: extrasParsed.detectedHeader,
       });
     }
@@ -230,7 +346,7 @@ export function StartScreen({
       sublists,
       extras,
     };
-  }, [stagedFiles, extrasText, extrasSkipHeader]);
+  }, [stagedFiles, extrasText, extrasSkipHeader, overrides]);
 
   function onStartPrerankedClick(): void {
     onStartPreranked({
@@ -238,6 +354,130 @@ export function StartScreen({
       extras: prerankedResult.extras,
     });
   }
+
+  // -------- edit-modal wiring (per-occurrence Edit in dedup warnings) --------
+  //
+  // The modal lives on StartScreen (not on ImportPreview) because we
+  // need access to the live overrides state to read/write. ImportPreview
+  // signals upward via onEditOccurrence; we resolve the row to the
+  // actual RawRow it dedups to, build the otherIds collision map from
+  // the current result, and stash everything in editTarget. The modal
+  // reads from editTarget on render and writes back to overrides on
+  // save.
+  //
+  // Reused for both scratch ('pasted CSV' source) and pre-ranked
+  // (staged file names + 'extras').
+
+  const buildOpenEdit = useCallback(
+    (
+      rawRows: RawRow[],
+      result: { items: Item[] },
+    ) =>
+      (sourceName: string, rowNumber: number): void => {
+        // Find the post-override RawRow for this occurrence so the
+        // modal pre-fills with whatever the user has already typed in
+        // a previous edit pass — not the original source-text value.
+        const overridden = applyOverrides(rawRows, overrides);
+        const row = overridden.find(
+          (r) => r.sourceName === sourceName && r.sourceRow === rowNumber,
+        );
+        if (!row) return;
+        // Match the id assignment dedup uses: explicit override wins,
+        // otherwise canonicalKey(label). This stays correct even when
+        // two rows have the same label and only one of them carries
+        // an idOverride.
+        const currentId = row.idOverride ?? canonicalKey(row.label);
+        // Build otherIds: every id currently in the deduped result
+        // EXCEPT the id this row currently maps to. That way the
+        // collision check fires on a clash with any other existing
+        // row, but a no-op edit (same id) doesn't trip it. We index
+        // by id → label so the error message can name the colliding
+        // item.
+        const otherIds = new Map<string, string>();
+        for (const it of result.items) {
+          if (it.id === currentId) continue;
+          otherIds.set(it.id, it.label);
+        }
+        setEditTarget({
+          sourceName,
+          rowNumber,
+          currentLabel: row.label,
+          currentId,
+          otherIds,
+        });
+      },
+    [overrides],
+  );
+
+  const onEditOccurrenceScratch = useMemo(
+    () => buildOpenEdit(scratchParsed.rows, scratchResult),
+    [buildOpenEdit, scratchParsed.rows, scratchResult],
+  );
+
+  const onEditOccurrencePreranked = useMemo(
+    () => {
+      // Flatten all source raw rows for the pre-ranked side so the
+      // lookup can find the right row across staged files + extras.
+      const allRawRows: RawRow[] = [];
+      for (const f of stagedFiles) {
+        const r = parseCsvRows(f.text, f.name, f.skipHeader);
+        allRawRows.push(...r.rows);
+      }
+      if (extrasText.trim()) {
+        const ex = parseCsvRows(extrasText, 'extras', extrasSkipHeader);
+        if (ex.rows.length > 0) {
+          allRawRows.push(...ex.rows);
+        } else {
+          allRawRows.push(...parseExtrasText(extrasText));
+        }
+      }
+      return buildOpenEdit(allRawRows, prerankedResult);
+    },
+    [buildOpenEdit, stagedFiles, extrasText, extrasSkipHeader, prerankedResult],
+  );
+
+  const onEditSave = useCallback(
+    (payload: EditItemSavePayload) => {
+      if (!editTarget) return;
+      const key = overlayKey(editTarget.sourceName, editTarget.rowNumber);
+      setOverrides((prev) => {
+        const next = new Map(prev);
+        const cur = next.get(key) ?? {};
+        const updated: { label?: string; id?: string } = { ...cur };
+        if (payload.label !== undefined && payload.label !== editTarget.currentLabel) {
+          updated.label = payload.label;
+        }
+        if (payload.id !== undefined && payload.id !== editTarget.currentId) {
+          updated.id = payload.id;
+        }
+        // If neither label nor id actually changed vs the live values
+        // (e.g. user opened the modal then saved without touching
+        // anything), drop the entry rather than persisting a no-op.
+        if (
+          updated.label === undefined &&
+          updated.id === undefined
+        ) {
+          next.delete(key);
+        } else {
+          next.set(key, updated);
+        }
+        return next;
+      });
+      setEditTarget(null);
+    },
+    [editTarget],
+  );
+
+  // Stub item passed into EditItemModal — we don't have a real
+  // engine-side Item at this point (the user is pre-parse). Label
+  // and id are seeded from editTarget; url/imageUrl are unused
+  // because we pass fieldsToShow={{ url: false, imageUrl: false }}.
+  const editStubItem: Item | null = editTarget
+    ? {
+        id: editTarget.currentId,
+        label: editTarget.currentLabel,
+      }
+    : null;
 
   // -------- render --------
 
@@ -293,7 +533,7 @@ export function StartScreen({
             className="csv-textarea"
             placeholder={`Pit, https://example.com/pit, https://example.com/pit.jpg\nThe Mind, , https://example.com/mind.jpg\nCodenames`}
             value={scratchText}
-            onChange={(e) => setScratchText(e.target.value)}
+            onChange={(e) => updateScratchText(e.target.value)}
           />
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
             <button
@@ -315,7 +555,7 @@ export function StartScreen({
               id="scratch-header"
               type="checkbox"
               checked={scratchSkipHeader}
-              onChange={(e) => setScratchSkipHeader(e.target.checked)}
+              onChange={(e) => updateScratchSkipHeader(e.target.checked)}
             />
             <label htmlFor="scratch-header">First row is a header</label>
             {scratchDetectedHeader && !scratchSkipHeader && (
@@ -356,6 +596,7 @@ export function StartScreen({
                 : scratchResult.items.length < 2
             }
             onStart={onStartScratchClick}
+            onEditOccurrence={onEditOccurrenceScratch}
           />
         </div>
       )}
@@ -433,7 +674,7 @@ export function StartScreen({
               className="csv-textarea"
               placeholder={`The Mind\nPit\nCodenames`}
               value={extrasText}
-              onChange={(e) => setExtrasText(e.target.value)}
+              onChange={(e) => updateExtrasText(e.target.value)}
               style={{ minHeight: 100 }}
             />
             <div className="checkbox-row">
@@ -441,7 +682,7 @@ export function StartScreen({
                 id="extras-header"
                 type="checkbox"
                 checked={extrasSkipHeader}
-                onChange={(e) => setExtrasSkipHeader(e.target.checked)}
+                onChange={(e) => updateExtrasSkipHeader(e.target.checked)}
               />
               <label htmlFor="extras-header">First row is a header</label>
               {extrasDetectedHeader && !extrasSkipHeader && (
@@ -461,8 +702,21 @@ export function StartScreen({
             startLabel={`Start sorting (${prerankedResult.items.length} item${prerankedResult.items.length === 1 ? '' : 's'})`}
             startDisabled={prerankedResult.items.length < 2}
             onStart={onStartPrerankedClick}
+            onEditOccurrence={onEditOccurrencePreranked}
           />
         </div>
+      )}
+
+      {editStubItem && editTarget && (
+        <EditItemModal
+          item={editStubItem}
+          onCancel={() => setEditTarget(null)}
+          onSave={onEditSave}
+          fieldsToShow={{ url: false, imageUrl: false }}
+          allowEditId
+          currentId={editTarget.currentId}
+          otherIds={editTarget.otherIds}
+        />
       )}
     </div>
   );
