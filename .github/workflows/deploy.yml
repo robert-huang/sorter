@@ -1,0 +1,57 @@
+# Build + deploy the Vite app to GitHub Pages on every push to main.
+# Uses GitHub's first-party Pages actions — no gh-pages branch, no
+# committed dist/. Repo Pages source must be set to "GitHub Actions"
+# under Settings → Pages.
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  # Manual re-runs from the Actions tab.
+  workflow_dispatch:
+
+# Pages deploy needs id-token: write (for the OIDC handshake) and
+# pages: write (to publish). contents: read covers the checkout.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one in-flight deploy at a time; queue further pushes.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      # Sanity gate — keeps the deploy green only when tests pass.
+      - run: npm test
+
+      # `vite build` outputs to dist/. base: './' in vite.config.ts means
+      # the bundle works under any subpath, including /sorter/.
+      - run: npm run build
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
