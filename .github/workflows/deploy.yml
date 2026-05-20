@@ -43,7 +43,26 @@ jobs:
 
       # `vite build` outputs to dist/. base: './' in vite.config.ts means
       # the bundle works under any subpath, including /sorter/.
+      #
+      # VITE_GOOGLE_CLIENT_ID + VITE_GOOGLE_CLIENT_SECRET are the OAuth
+      # credentials for cloud backup. Both end up inlined into the
+      # deployed JS bundle — Google's "Web application" client type is
+      # classified as confidential and rejects PKCE token exchange
+      # without a client_secret, so the browser code has to send both.
+      # That makes the "secret" not literally secret here, but we still
+      # keep both out of the source tree so forkers don't quietly
+      # consume the project's Google API quota / consent screen. The
+      # real anti-phishing defense is the Authorized redirect URIs
+      # allowlist on the Google Cloud Console side — a stolen id+secret
+      # can only redirect to URLs we've explicitly registered.
+      #
+      # If either repo secret is unset, ${{ secrets.X }} resolves to ''
+      # and the deployed app falls back to its "not configured" banner;
+      # everything except cloud backup still works.
       - run: npm run build
+        env:
+          VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
+          VITE_GOOGLE_CLIENT_SECRET: ${{ secrets.VITE_GOOGLE_CLIENT_SECRET }}
 
       - uses: actions/upload-pages-artifact@v5
         with:

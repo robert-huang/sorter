@@ -22,6 +22,23 @@ interface Props {
    *  `createSlot` eviction loop when the cap is hit, so the user can
    *  protect favorite sorts from being auto-deleted. */
   onTogglePin: (id: string, pinned: boolean) => void;
+  // ---------- cloud backup (tier 0b) ----------
+  /**
+   * When false, the per-row cloud controls (opt-in toggle + Push/Pull
+   * buttons) are hidden entirely. Driven from the same `cloudStatus`
+   * the gear-menu cloud section uses — only the 'ready' tier exposes
+   * per-row controls because earlier tiers can't actually push or pull.
+   */
+  cloudControlsVisible: boolean;
+  onCloudToggleOptIn: (id: string, optIn: boolean) => void;
+  onCloudPush: (id: string) => void;
+  onCloudPull: (id: string) => void;
+  /** Ids of slots whose Push call is in flight. The matching button
+   *  in those rows shows a rotating spinner glyph instead of the
+   *  up-arrow, and is `disabled` to suppress further clicks. */
+  cloudPushingIds: ReadonlySet<string>;
+  /** Same as cloudPushingIds, but for Pull. */
+  cloudPullingIds: ReadonlySet<string>;
 }
 
 /**
@@ -66,6 +83,12 @@ export function SlotList({
   onRename,
   onDownload,
   onTogglePin,
+  cloudControlsVisible,
+  onCloudToggleOptIn,
+  onCloudPush,
+  onCloudPull,
+  cloudPushingIds,
+  cloudPullingIds,
 }: Props) {
   // Local-only state — search is a render filter, never persisted.
   // Reset is implicit (close + reopen the gear menu remounts SlotList).
@@ -131,6 +154,12 @@ export function SlotList({
             onRename={onRename}
             onDownload={onDownload}
             onTogglePin={onTogglePin}
+            cloudControlsVisible={cloudControlsVisible}
+            onCloudToggleOptIn={onCloudToggleOptIn}
+            onCloudPush={onCloudPush}
+            onCloudPull={onCloudPull}
+            cloudPushing={cloudPushingIds.has(s.id)}
+            cloudPulling={cloudPullingIds.has(s.id)}
           />
         ))
       )}
@@ -147,6 +176,42 @@ interface RowProps {
   onRename: (id: string, name: string) => void;
   onDownload: (id: string) => void;
   onTogglePin: (id: string, pinned: boolean) => void;
+  cloudControlsVisible: boolean;
+  onCloudToggleOptIn: (id: string, optIn: boolean) => void;
+  onCloudPush: (id: string) => void;
+  onCloudPull: (id: string) => void;
+  /** True while this row's Push call is in flight (spinner + disabled). */
+  cloudPushing: boolean;
+  /** True while this row's Pull call is in flight (spinner + disabled). */
+  cloudPulling: boolean;
+}
+
+/**
+ * Three-state per-row cloud sync status:
+ *  - 'off'      → user hasn't opted this slot in. Cloud icon hidden /
+ *                 gray.
+ *  - 'pending'  → opted in but the local copy has changed since the
+ *                 last push (or never pushed yet). Yellow up-arrow.
+ *  - 'synced'   → opted in, local matches the cloud copy on this device
+ *                 as of the last push. Green check.
+ *
+ * Pull-vs-cloud-newer is intentionally NOT a state here — Phase 1 has
+ * no fresh listing on every render so we can't reliably know "the
+ * cloud is ahead of me" without an extra fetch on every gear-menu
+ * open. The CloudLibraryModal is the path for discovering newer
+ * cloud copies.
+ */
+type CloudSyncState = 'off' | 'pending' | 'synced';
+
+function deriveSyncState(slot: SlotMeta): CloudSyncState {
+  if (!slot.cloudOptIn) return 'off';
+  if (!slot.cloudId || !slot.cloudPushedAt) return 'pending';
+  // Local updates bump `updatedAt`; pushes stamp `cloudPushedAt`. If
+  // updatedAt > cloudPushedAt, local has unpushed changes. Strict-
+  // greater because the autosave write that follows a push can land
+  // on the same millisecond as cloudPushedAt without representing a
+  // real change.
+  return slot.updatedAt > slot.cloudPushedAt ? 'pending' : 'synced';
 }
 
 function SlotRow({
@@ -157,6 +222,12 @@ function SlotRow({
   onRename,
   onDownload,
   onTogglePin,
+  cloudControlsVisible,
+  onCloudToggleOptIn,
+  onCloudPush,
+  onCloudPull,
+  cloudPushing,
+  cloudPulling,
 }: RowProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(slot.name);
@@ -192,12 +263,15 @@ function SlotRow({
   }
 
   const isPinned = !!slot.pinned;
+  const syncState = deriveSyncState(slot);
   const meta = [
     pluralize(slot.totalItems, 'item'),
     pluralize(slot.comparisons, 'comparison'),
     slot.done ? 'done' : null,
     relativeTime(slot.updatedAt),
     isPinned ? 'pinned' : null,
+    cloudControlsVisible && syncState === 'synced' ? 'cloud ✓' : null,
+    cloudControlsVisible && syncState === 'pending' ? 'cloud ⇡' : null,
   ]
     .filter(Boolean)
     .join(' · ');
@@ -226,7 +300,12 @@ function SlotRow({
           <button
             className="slot-name"
             type="button"
-            title="Click to rename"
+            // Title surfaces the full name so users can read it via
+            // hover when the row width forces a `text-overflow: ellipsis`
+            // truncation (e.g. long names in the narrow gear-menu
+            // popover). The rename hint is appended so we don't lose
+            // the affordance that used to be the sole title.
+            title={`${slot.name}\n(click to rename)`}
             onClick={() => setEditing(true)}
           >
             {slot.name}
@@ -262,6 +341,17 @@ function SlotRow({
         >
           {isPinned ? '★' : '☆'}
         </button>
+        {cloudControlsVisible && (
+          <CloudRowControls
+            slot={slot}
+            syncState={syncState}
+            onToggleOptIn={onCloudToggleOptIn}
+            onPush={onCloudPush}
+            onPull={onCloudPull}
+            pushing={cloudPushing}
+            pulling={cloudPulling}
+          />
+        )}
         <button
           className="icon-button"
           onClick={(e) => {
@@ -286,5 +376,163 @@ function SlotRow({
         </button>
       </div>
     </div>
+  );
+}
+
+interface CloudRowControlsProps {
+  slot: SlotMeta;
+  syncState: CloudSyncState;
+  onToggleOptIn: (id: string, optIn: boolean) => void;
+  onPush: (id: string) => void;
+  onPull: (id: string) => void;
+  /** Whether a Push for this slot is currently in flight. Drives the
+   *  spinner glyph swap on the Push button and disables the button so
+   *  the user can't queue a second click. The opt-in toggle is also
+   *  disabled while either operation is in flight — opting out
+   *  mid-push would race the upload's manifest write. */
+  pushing: boolean;
+  /** Whether a Pull for this slot is currently in flight. */
+  pulling: boolean;
+}
+
+/**
+ * Per-row cloud controls. Renders the opt-in toggle (cloud icon with
+ * sync-state coloring) plus Push / Pull buttons gated on opt-in
+ * state. Pulled into its own subcomponent to keep `SlotRow` focused
+ * on the non-cloud bits.
+ *
+ * Three icon states, all the same glyph (`☁`) — colored differently
+ * via CSS so the click target stays in a stable position regardless
+ * of state and the visual scan reads as "this column is the cloud
+ * status indicator":
+ *
+ *  - 'off' (no cloud-on class):  faint outline — "click to back up"
+ *  - 'pending' (cloud-on .cloud-pending):  amber — "local has unpushed
+ *                                          changes; click to unlink"
+ *  - 'synced'  (cloud-on .cloud-synced):   green — "in sync with cloud;
+ *                                          click to unlink (deletes
+ *                                          cloud copy, keeps local)"
+ *
+ * Tooltip wording mirrors that: it tells the user what clicking will
+ * do, since the icon is also the toggle button.
+ *
+ * Pull is hidden until there's an established cloud binding (cloudId
+ * present) — without one there's nothing to pull. The Cloud library
+ * modal is the path for adopting cloud copies that have no local
+ * counterpart yet.
+ */
+function CloudRowControls({
+  slot,
+  syncState,
+  onToggleOptIn,
+  onPush,
+  onPull,
+  pushing,
+  pulling,
+}: CloudRowControlsProps) {
+  const optedIn = syncState !== 'off';
+  const hasCloudBinding = !!slot.cloudId;
+  const inFlight = pushing || pulling;
+
+  // Tooltip telegraphs the action a click will perform, since the
+  // icon doubles as the toggle button. When opted in, opting out
+  // destroys the cloud copy — the App-level handler shows a confirm
+  // modal first, but the tooltip should still warn so users don't
+  // click expecting a no-op. When a push/pull is in flight the
+  // toggle is disabled (changing opt-in state mid-upload would race
+  // the in-flight call's manifest write), so we surface that in the
+  // tooltip too.
+  const toggleTitle = inFlight
+    ? `Sync in progress for "${slot.name}"…`
+    : optedIn
+      ? hasCloudBinding
+        ? `Stop backing up "${slot.name}" to cloud (deletes the cloud copy; local stays)`
+        : `Stop backing up "${slot.name}" to cloud`
+      : `Back up "${slot.name}" to cloud`;
+
+  const cloudIcon = '☁';
+
+  // Per-button glyph swap during in-flight calls. The spinner is a
+  // simple text glyph rather than an SVG/Lottie so it stays in the
+  // monochrome icon-button column (matches ★ / ⇡ / ⇣ / ⬇ / ×) and
+  // doesn't require any asset pipeline work. Rotation comes from the
+  // `.spinning` CSS class — see `styles.css`.
+  const SPINNER_GLYPH = '↻';
+
+  const cloudClassExtra =
+    syncState === 'synced'
+      ? ' cloud-on cloud-synced'
+      : syncState === 'pending'
+        ? ' cloud-on cloud-pending'
+        : '';
+
+  return (
+    <>
+      <button
+        className={`icon-button${cloudClassExtra}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggleOptIn(slot.id, !optedIn);
+        }}
+        title={toggleTitle}
+        aria-label={toggleTitle}
+        aria-pressed={optedIn}
+        // Block opt-out clicks while a push or pull is mid-flight —
+        // the in-flight handler is about to write the manifest, and
+        // a concurrent opt-out would race it and either leak the
+        // Drive file or roll back the sync metadata to a stale
+        // value. Re-enables automatically when the operation
+        // releases its in-flight gate.
+        disabled={inFlight}
+      >
+        {cloudIcon}
+      </button>
+      {optedIn && (
+        <button
+          className={`icon-button${pushing ? ' spinning' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onPush(slot.id);
+          }}
+          title={
+            pushing
+              ? `Pushing "${slot.name}" to cloud…`
+              : syncState === 'pending'
+                ? `Push "${slot.name}" to cloud (local changes pending)`
+                : `Push "${slot.name}" to cloud now`
+          }
+          aria-label={
+            pushing ? `Pushing ${slot.name} to cloud` : `Push ${slot.name} to cloud`
+          }
+          aria-busy={pushing}
+          disabled={pushing}
+        >
+          {pushing ? SPINNER_GLYPH : '⇡'}
+        </button>
+      )}
+      {optedIn && hasCloudBinding && (
+        <button
+          className={`icon-button${pulling ? ' spinning' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onPull(slot.id);
+          }}
+          title={
+            pulling
+              ? `Pulling "${slot.name}" from cloud…`
+              : `Replace "${slot.name}" with the cloud copy`
+          }
+          aria-label={
+            pulling
+              ? `Pulling ${slot.name} from cloud`
+              : `Pull ${slot.name} from cloud`
+          }
+          aria-busy={pulling}
+          disabled={pulling}
+        >
+          {pulling ? SPINNER_GLYPH : '⇣'}
+        </button>
+      )}
+    </>
   );
 }

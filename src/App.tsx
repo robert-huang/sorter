@@ -63,8 +63,15 @@ import {
   readSlotBlob,
   pinSlot,
   renameSlot,
+  replaceSlotBlob,
+  setCloudOptIn,
+  setCloudPulled,
+  setCloudPushed,
+  clearCloudBinding,
   getLastAutosaveError,
+  hasPendingAutosave,
   scheduleAutosave,
+  subscribeAfterWrite,
   subscribeAutosaveError,
   setActiveSlot,
   updateSettings,
@@ -82,7 +89,36 @@ import { BackupRestoreConfirmModal } from './components/BackupRestoreConfirmModa
 import { SlotCapConfirmModal } from './components/SlotCapConfirmModal';
 import { SlotDeleteConfirmModal } from './components/SlotDeleteConfirmModal';
 import { StartOverConfirmModal } from './components/StartOverConfirmModal';
+import { CloudLibraryModal } from './components/CloudLibraryModal';
+import { CloudPushConflictModal } from './components/CloudPushConflictModal';
+import { CloudUnlinkConfirmModal } from './components/CloudUnlinkConfirmModal';
+import type { CloudMenuStatus } from './components/SettingsMenu';
+import {
+  type AuthState as CloudAuthState,
+  CloudEtagMismatchError,
+  type CloudPushOptions,
+  type CloudSlotMeta,
+  buildSlotFilename,
+  getAuthState as cloudGetAuthState,
+  handleAuthRedirect as cloudHandleAuthRedirect,
+  pickFolder as cloudPickFolder,
+  pullSlot as cloudPullSlot,
+  pushSlot as cloudPushSlot,
+  registerDefaultCloudProvider,
+  removeCloudSlot as cloudRemoveCloudSlot,
+  signIn as cloudSignIn,
+  signOut as cloudSignOut,
+  subscribeAuthChange as cloudSubscribeAuthChange,
+} from './lib/cloud';
+import { GoogleDriveProvider } from './lib/cloud/googleDrive';
+import { InFlightTracker } from './lib/inFlightTracker';
 import { useKeyboard } from './hooks/useKeyboard';
+
+// Register the default cloud provider exactly once at module load.
+// Tests that need to swap it can call `_setCloudProviderForTesting`
+// before any cloud call (the proxy lazily instantiates this factory
+// only when no test override is set).
+registerDefaultCloudProvider(() => new GoogleDriveProvider());
 
 const UNDO_CAP = 50;
 
@@ -149,7 +185,7 @@ export function App() {
   // requestDeleteSlot so the modal and the "Don't ask again" preference are
   // shared.
   const [slotPendingDelete, setSlotPendingDelete] = useState<
-    { id: string; name: string } | null
+    { id: string; name: string; cloudId?: string } | null
   >(null);
   // A pending "Start over" confirmation on the RESULT tab. When non-null,
   // StartOverConfirmModal is shown. itemCount feeds the modal copy.
@@ -229,6 +265,61 @@ export function App() {
     total: number;
     newCount: number;
   } | null>(null);
+  // Cloud auth state (tier 0b). Tracked in app state so the gear menu's
+  // cloud section re-renders on every transition (sign-in, folder
+  // pick, sign-out, token expiry). Initialised from the provider's
+  // synchronous state so the very first render is correct without a
+  // flash. `cloudAvailable` collapses the whole cloud section when
+  // autosave itself is unavailable — there's no slot to back up.
+  const cloudAvailable = autosaveOn;
+  const [cloudAuth, setCloudAuth] = useState<CloudAuthState>(() =>
+    cloudAvailable ? cloudGetAuthState() : { status: 'signed-out' },
+  );
+  const [cloudLibraryOpen, setCloudLibraryOpen] = useState(false);
+  // Pending pre-Push stale-cache confirmation. When non-null, the
+  // CloudPushConflictModal is rendered; `onConfirm` re-issues the
+  // push without `expectedEtag` (force overwrite).
+  // `onConfirm` re-issues the push without `expectedEtag` (force
+  // overwrite). `onCancel` runs in addition to clearing the modal —
+  // it exists so the push handler can release its in-flight gate
+  // when the user backs out, otherwise the slot's Push button would
+  // stay stuck on the spinner forever.
+  const [cloudConflict, setCloudConflict] = useState<
+    { slotName: string; onConfirm: () => void; onCancel: () => void } | null
+  >(null);
+  // Pending cloud-unlink confirmation. Only triggers when the user
+  // clicks the cloud-icon toggle on a slot that has a cloud binding
+  // (cloudId set) — opt-in → opt-out is destructive (deletes the
+  // Drive file) and is too easy to misclick into without a guard.
+  // The opt-IN direction never opens this modal; that path is
+  // non-destructive (just sets the local flag).
+  const [cloudUnlinkPending, setCloudUnlinkPending] = useState<
+    { slotName: string; onConfirm: () => void } | null
+  >(null);
+  // Per-slot Push / Pull in-flight tracking. Two trackers so a slot
+  // could (in principle) be pushing one button while pulling a
+  // different one — they don't share UI state. The refs are the
+  // source of truth for the re-entrancy guard (synchronous, so
+  // double-clicks resolve deterministically); the matching React
+  // states are derived snapshots used to drive icon spinners and
+  // `disabled` props on the buttons. Always update them in lockstep
+  // (tracker mutation → setPushingIds(tracker.snapshot())).
+  const pushTrackerRef = useRef(new InFlightTracker());
+  const pullTrackerRef = useRef(new InFlightTracker());
+  const [pushingIds, setPushingIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const [pullingIds, setPullingIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  // ITP / refresh-token-rejected banner gate. When the auth state
+  // transitions to 'expired', we surface a one-shot banner pointing
+  // the user back to Sign in. Dismissable; resets when the auth state
+  // leaves 'expired' (sign-in completes, or sign-out clears tokens),
+  // so a later expiry re-shows the banner. Locked decision: no
+  // retry queue — the user re-signs-in and re-triggers actions
+  // manually. Personal scale.
+  const [cloudExpiredDismissed, setCloudExpiredDismissed] = useState(false);
 
   // -------- boot: migrate + read manifest only --------
   // We intentionally don't auto-load the active slot's blob here. Refresh
@@ -265,9 +356,28 @@ export function App() {
   }, [theme]);
 
   // -------- autosave: schedule on every state change, flush on tab close --------
+  // `isDirty` tracks whether the in-memory state has diverged from
+  // disk: true while a debounced write is queued (or the autosave
+  // is otherwise pending), false after the write lands. Drives the
+  // toolbar Save button's "💾 Save" (dirty) vs "✓ Saved" (clean)
+  // label — explicit signal instead of the old transient "Saved"
+  // flash that fired only on manual Save clicks.
+  //
+  // Why we read hasPendingAutosave() right after scheduleAutosave:
+  // scheduleAutosave may force-flush synchronously when the
+  // AUTOSAVE_MAX_* thresholds are crossed; in that case pendingBlob
+  // is already cleared by the time we check, and dirty should
+  // remain false. The two-step (call + immediately re-read) gets
+  // both the queued and force-flushed cases right without
+  // duplicating the threshold logic up here.
+  const [isDirty, setIsDirty] = useState(false);
   useEffect(() => {
-    if (!autosaveOn || !state) return;
+    if (!autosaveOn || !state) {
+      setIsDirty(false);
+      return;
+    }
     scheduleAutosave(buildBlob(state, undoRing));
+    setIsDirty(hasPendingAutosave());
   }, [state, undoRing, autosaveOn]);
 
   useEffect(() => {
@@ -284,6 +394,34 @@ export function App() {
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, []);
+
+  // -------- keep React manifest in sync with autosave writes --------
+  // Each successful autosave bumps the slot's `updatedAt` (and counters)
+  // in localStorage but NOT in React state. Without this subscription
+  // the slot-row meta in the gear menu would render stale values —
+  // most visibly, the cloud-sync indicator would stay on "synced" (✓)
+  // forever because `slot.updatedAt > slot.cloudPushedAt` never
+  // becomes true from React's point of view.
+  //
+  // Re-reading the whole manifest is cheap (small JSON parse on a
+  // handful of slot metas) and runs at most once per AUTOSAVE_DEBOUNCE_MS
+  // — same cadence as the underlying write, well below render budget.
+  // We deliberately reuse the `subscribeAfterWrite` seam that was
+  // built for the eventual Tier 1 autosave-to-cloud subscriber; a
+  // UI-refresh subscriber is a valid second client.
+  useEffect(() => {
+    if (!autosaveOn) return;
+    const unsubscribe = subscribeAfterWrite(() => {
+      setManifest(readManifest());
+      // Successful write means in-memory now matches disk. Re-reading
+      // from storage (vs. naively `setIsDirty(false)`) keeps the
+      // signal correct even if a brand-new schedule landed between
+      // the write completing and this listener firing — rare in
+      // practice but cheap to be precise about.
+      setIsDirty(hasPendingAutosave());
+    });
+    return unsubscribe;
+  }, [autosaveOn]);
 
   // -------- document.title --------
   // Title format: "<slot name> — Sorter" (with " ✓" suffix when done),
@@ -423,30 +561,76 @@ export function App() {
     setMultitabStaleSlotId(null);
   }, [multitabStaleSlotId]);
 
-  // -------- share-link recipient: detect at boot --------
-  // Decode `#share=<payload>` once on mount. Successful decode pops the
-  // SharedImportModal; failures clear the hash silently (a friendly
-  // "this share link is broken" banner is a future-nice but not
-  // essential — most failures come from hand-edited URLs, which the
-  // sender will notice and re-share).
-  // (The boot effect itself runs in source order — i.e. below the
-  // adoptNewSession definition further down — but is registered here
-  // alongside other a-bit-special boot effects to keep them grouped.)
+  // -------- boot: cloud auth redirect + share-link recipient --------
+  // Order matters: cloud auth redirect runs FIRST because it restores
+  // any pre-auth hash that signIn() stashed before bouncing through
+  // Google (locked-decision: a mid-import `#share=...` survives the
+  // OAuth round-trip). Once that hash is back in place, the share
+  // link decode reads the same path it would have seen if no OAuth
+  // round-trip had happened.
+  //
+  // Both are once-only — the deps array is intentionally `[]` and the
+  // eslint suppression below is for `flashSkipped`, which is a stable
+  // useCallback.
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const param = readShareParamFromHash(window.location.hash);
-    if (!param) return;
-    const decoded = decodeShareLink(param);
-    if (decoded) {
-      setSharedPending(decoded);
-    } else {
-      // Bad payload — clear the hash so a refresh doesn't keep
-      // re-prompting on the same broken URL.
-      clearShareHash();
-      flashSkipped('The share link you opened was broken or unreadable.');
+    let canceled = false;
+    async function run(): Promise<void> {
+      // Cloud auth redirect handler. No-op when the URL has no auth
+      // params (the common case). Errors surface to the console only;
+      // the user sees the result via getAuthState on the next render.
+      if (cloudAvailable) {
+        try {
+          await cloudHandleAuthRedirect();
+        } catch (err) {
+          console.warn('cloud auth redirect failed', err);
+        }
+      }
+      if (canceled) return;
+      // Share-link decode. Reads from the CURRENT hash (which the auth
+      // redirect handler has by now restored if it was stashed).
+      const param = readShareParamFromHash(window.location.hash);
+      if (!param) return;
+      const decoded = decodeShareLink(param);
+      if (decoded) {
+        setSharedPending(decoded);
+      } else {
+        clearShareHash();
+        flashSkipped('The share link you opened was broken or unreadable.');
+      }
     }
+    void run();
+    return () => {
+      canceled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Subscribe to cloud auth state changes so the gear menu re-renders
+  // on every transition (sign-in completes, folder picked, sign-out,
+  // token expired). The subscription is set up regardless of
+  // `cloudAvailable` so a future toggle-cloud-on path wouldn't need a
+  // remount, but the proxy is a no-op when no provider is registered
+  // (which is the only reason we'd be in the unavailable branch).
+  useEffect(() => {
+    if (!cloudAvailable) return;
+    const unsub = cloudSubscribeAuthChange((state) => setCloudAuth(state));
+    // Also re-read once on mount in case the auth redirect handler
+    // fired its listener before this effect attached.
+    setCloudAuth(cloudGetAuthState());
+    return () => {
+      unsub();
+    };
+  }, [cloudAvailable]);
+
+  // Re-arm the expired-banner dismissal flag whenever the auth state
+  // leaves 'expired'. That way a later expiry surfaces the banner
+  // again (a single sign-in -> work -> expire -> dismiss session
+  // should be a clean cycle, not "dismissed forever after first
+  // expiry").
+  useEffect(() => {
+    if (cloudAuth.status !== 'expired') setCloudExpiredDismissed(false);
+  }, [cloudAuth.status]);
 
   // Clear `#share=...` from the URL without scrolling or triggering a
   // popstate. history.replaceState is the only API that lets us mutate
@@ -780,9 +964,28 @@ export function App() {
    * session, and flash a toast if the storage layer had to evict
    * something. Pre-condition: caller has either confirmed the
    * eviction via the cap modal or verified we're below cap.
+   *
+   * Optional `cloudBinding`: when present, the freshly-minted slot is
+   * also stamped with cloud-sync metadata and opted-in. Used by the
+   * cloud library Pull flow (`onCloudPull`) so a pulled slot remembers
+   * which Drive file it came from — future Push goes back to the same
+   * file instead of creating a duplicate. The stamping happens BEFORE
+   * the `setManifest(readManifest())` below so the slot appears in the
+   * list already wearing its cloud icon (no UI flicker between
+   * "regular new slot" and "cloud-linked slot").
    */
   const performSlotMint = useCallback(
-    (session: SavedSession, name: string, initialTab?: TabId) => {
+    (
+      session: SavedSession,
+      name: string,
+      initialTab?: TabId,
+      cloudBinding?: {
+        cloudId: string;
+        cloudEtag: string;
+        cloudPushedAt: string;
+        cloudUpdatedAt: string;
+      },
+    ) => {
       const blob = buildBlob(session.state, session.undoRing);
       const result = createSlot(blob, name);
       if (result === null) {
@@ -796,6 +999,14 @@ export function App() {
           'Could not save the new slot — browser storage is full. Pin / delete a slot to free room and try again.',
         );
         return;
+      }
+      if (cloudBinding) {
+        // Order matters: stamp cloud fields, then flip opt-in. Both
+        // calls go through the same atomic manifest writer in
+        // storage.ts so the on-disk shape stays consistent even if a
+        // refresh interrupts us between calls.
+        setCloudPushed(result.meta.id, cloudBinding);
+        setCloudOptIn(result.meta.id, true);
       }
       setManifest(readManifest());
       setState(session.state);
@@ -833,7 +1044,17 @@ export function App() {
    * and only then do we call into the storage layer.
    */
   const adoptNewSession = useCallback(
-    (session: SavedSession, name: string, initialTab?: TabId) => {
+    (
+      session: SavedSession,
+      name: string,
+      initialTab?: TabId,
+      cloudBinding?: {
+        cloudId: string;
+        cloudEtag: string;
+        cloudPushedAt: string;
+        cloudUpdatedAt: string;
+      },
+    ) => {
       const victim = peekEvictionTarget();
       if (victim) {
         setCapPending({
@@ -841,12 +1062,12 @@ export function App() {
           cancel: () => setCapPending(null),
           commit: () => {
             setCapPending(null);
-            performSlotMint(session, name, initialTab);
+            performSlotMint(session, name, initialTab, cloudBinding);
           },
         });
         return;
       }
-      performSlotMint(session, name, initialTab);
+      performSlotMint(session, name, initialTab, cloudBinding);
     },
     [performSlotMint],
   );
@@ -888,6 +1109,378 @@ export function App() {
     clearShareHash();
     setSharedPending(null);
   }, []);
+
+  // -------- cloud backup handlers (tier 0b) --------
+  // All gear-menu cloud entries route through these. They're small
+  // wrappers that surface errors as toasts via `flashSkipped` rather
+  // than throwing — the user gets a one-line explanation instead of
+  // a console-only failure.
+
+  const onCloudSignIn = useCallback(() => {
+    void (async () => {
+      try {
+        await cloudSignIn();
+        // signIn navigates the browser (PKCE redirect), so this point
+        // is only reached on the same-page no-op failure path.
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Cloud sign-in failed.';
+        flashSkipped(msg);
+      }
+    })();
+    // flashSkipped is a stable useCallback (deps=[]) so referencing it
+    // inside this once-stable handler is safe; suppress exhaustive-deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const onCloudPickFolder = useCallback(() => {
+    void (async () => {
+      try {
+        await cloudPickFolder();
+        // Auth listener fires from inside the provider on successful
+        // pick, which updates `cloudAuth` and re-renders the menu.
+      } catch (err) {
+        // pickFolder rejects on user cancel — that's not worth a toast.
+        console.debug('folder pick canceled', err);
+      }
+    })();
+  }, []);
+
+  const onCloudBrowse = useCallback(() => {
+    setCloudLibraryOpen(true);
+  }, []);
+
+  const onCloudSignOut = useCallback(() => {
+    void (async () => {
+      await cloudSignOut();
+      setCloudLibraryOpen(false);
+    })();
+  }, []);
+
+  // Routed from the library modal's Pull button. Wraps the inbound
+  // cloud blob into the `SavedSession` shape that `adoptNewSession`
+  // already speaks — keeping cap-eviction / quota-recovery / first-
+  // write-failure on the one well-tested path.
+  //
+  // The new local slot is stamped with the cloud-sync metadata (via
+  // `cloudBinding`) so future Push goes back to the SAME Drive file
+  // instead of creating a duplicate. `cloudPushedAt` is stamped to
+  // "now" because the local copy matches cloud exactly at this
+  // instant — the per-row indicator should show "synced", not the
+  // misleading "pending" you'd get if cloudPushedAt were left blank.
+  const onCloudPull = useCallback(
+    async (meta: CloudSlotMeta) => {
+      try {
+        const pulled = await cloudPullSlot(meta.cloudId);
+        const session = deserialize(pulled.blob);
+        if (!session) {
+          flashSkipped('Pulled file was not a valid sorter slot.');
+          return;
+        }
+        // Close the library before triggering the mint so a cap-confirm
+        // modal renders cleanly on top of the gear-menu region rather
+        // than on top of the library list.
+        setCloudLibraryOpen(false);
+        adoptNewSession(session, meta.displayName, undefined, {
+          cloudId: meta.cloudId,
+          cloudEtag: pulled.etag,
+          cloudPushedAt: new Date().toISOString(),
+          cloudUpdatedAt: pulled.updatedAt,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Pull failed.';
+        flashSkipped(msg);
+      }
+    },
+    // adoptNewSession isn't defined yet at this point in source order;
+    // `eslint-disable-next-line` covers the forward-reference noise.
+    // The closure resolves it at call time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  // ---------- per-slot cloud handlers (tier 0b Phase 2) ----------
+
+  /**
+   * Toggle the cloud opt-in flag on a slot. Just flips the manifest
+   * bit — does NOT immediately push (the user can do that explicitly
+   * via the Push button). When toggling OFF, we also call
+   * `removeCloudSlot` to delete the cloud copy so the local choice
+   * stays honest with what's in Drive. On a failed remove, we keep
+   * the local cloud binding so the user can retry.
+   */
+  const onCloudToggleOptInSlot = useCallback((id: string, optIn: boolean) => {
+    const m = readManifest();
+    const slot = m.slots.find((s) => s.id === id);
+    if (!slot) return;
+    if (optIn) {
+      // Opt-IN is non-destructive — just flip the local bit. No
+      // cloud-side work (the actual upload happens on user-initiated
+      // Push) and no confirm needed.
+      setCloudOptIn(id, true);
+      setManifest(readManifest());
+      return;
+    }
+    // Opt-OUT with NO cloud binding: there's nothing to destroy in
+    // Drive, so flip the bit silently. Saves the user a confirm
+    // click for what's effectively a no-op.
+    if (!slot.cloudId) {
+      setCloudOptIn(id, false);
+      setManifest(readManifest());
+      return;
+    }
+    // Opt-OUT with a cloud binding present: this WILL delete the
+    // Drive file. Gate on a confirm modal so a stray click on the
+    // cloud icon can't silently nuke a backup. The async work
+    // (cloud delete + local meta clear) only runs after explicit
+    // confirmation.
+    const performUnlink = async () => {
+      setCloudUnlinkPending(null);
+      setCloudOptIn(id, false);
+      setManifest(readManifest());
+      try {
+        await cloudRemoveCloudSlot(slot.cloudId!);
+        clearCloudBinding(id);
+        setManifest(readManifest());
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Cloud delete failed.';
+        flashSkipped(`Couldn't delete the cloud copy of ${slot.name}: ${msg}`);
+      }
+    };
+    setCloudUnlinkPending({
+      slotName: slot.name,
+      onConfirm: () => void performUnlink(),
+    });
+    // flashSkipped is stable; suppress exhaustive-deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /**
+   * Push a slot's blob to the cloud. Reads the current blob from
+   * storage (NOT from in-memory `state` — the active slot may not
+   * even be loaded, and disk is the source of truth for autosaved
+   * content anyway). On etag-mismatch the App layer surfaces the
+   * conflict modal, which on confirm re-invokes the push without
+   * `expectedEtag` to force overwrite.
+   */
+  const onCloudPushSlot = useCallback(
+    (id: string) => {
+      if (!autosaveOn) return;
+      // Re-entrancy guard: a rapid double-click on the Push button
+      // used to fire two concurrent uploads racing each other's etag
+      // check (one would win, the loser would pop a spurious
+      // conflict modal). The tracker.tryAcquire below makes the
+      // second click a no-op until the first call settles. The
+      // matching `pushingIds` state drives the spinner glyph + the
+      // `disabled` attribute on the button so the user sees that
+      // their click registered but is in progress.
+      if (!pushTrackerRef.current.tryAcquire(id)) return;
+      setPushingIds(pushTrackerRef.current.snapshot());
+      // Flush any pending autosave to disk first so we're pushing
+      // the freshest local bytes.
+      flushAutosave();
+      const m = readManifest();
+      const slot = m.slots.find((s) => s.id === id);
+      if (!slot) {
+        pushTrackerRef.current.release(id);
+        setPushingIds(pushTrackerRef.current.snapshot());
+        return;
+      }
+      const blob = readSlotBlob(id);
+      if (!blob) {
+        flashSkipped(`Couldn't read ${slot.name} for cloud push.`);
+        pushTrackerRef.current.release(id);
+        setPushingIds(pushTrackerRef.current.snapshot());
+        return;
+      }
+      const opts: CloudPushOptions = {
+        desiredFilename: buildSlotFilename(slot.name, slot.id),
+        sorterSlotId: slot.id,
+        displayName: slot.name,
+        expectedEtag: slot.cloudEtag,
+      };
+      function releasePushGate(): void {
+        pushTrackerRef.current.release(id);
+        setPushingIds(pushTrackerRef.current.snapshot());
+      }
+      // attemptPush returns true iff the conflict-modal path took
+      // ownership of the in-flight gate (the gate is released only
+      // when the user picks Cancel or Push-anyway on the modal).
+      // Returning a bool — rather than reading `cloudConflict` from
+      // the closure — avoids the classic stale-state pitfall where
+      // a setCloudConflict call earlier in the same tick isn't yet
+      // visible to a later read of `cloudConflict`.
+      async function attemptPush(withExpectedEtag: boolean): Promise<boolean> {
+        try {
+          const localOpts = withExpectedEtag ? opts : { ...opts, expectedEtag: undefined };
+          const result = await cloudPushSlot(slot!.cloudId ?? null, blob!, localOpts);
+          const wasDriveSideRecovery = slot!.cloudId !== null && result.cloudId !== slot!.cloudId;
+          setCloudPushed(id, {
+            cloudId: result.cloudId,
+            cloudEtag: result.etag,
+            cloudPushedAt: new Date().toISOString(),
+            cloudUpdatedAt: result.updatedAt,
+          });
+          setManifest(readManifest());
+          if (wasDriveSideRecovery) {
+            flashSkipped(
+              `${slot!.name}'s cloud copy was missing — created a fresh one in your Drive folder.`,
+            );
+          }
+        } catch (err) {
+          if (err instanceof CloudEtagMismatchError) {
+            // Hand the gate off to the conflict modal: cancelling
+            // releases it; confirming releases it after the retry
+            // attempt resolves. Either way the spinner keeps
+            // spinning until the user resolves the modal, which
+            // matches the user's mental model ("the push is still
+            // pending, waiting on my decision").
+            setCloudConflict({
+              slotName: slot!.name,
+              onConfirm: () => {
+                setCloudConflict(null);
+                void (async () => {
+                  try {
+                    await attemptPush(false);
+                  } finally {
+                    releasePushGate();
+                  }
+                })();
+              },
+              onCancel: releasePushGate,
+            });
+            return true;
+          }
+          const msg = err instanceof Error ? err.message : 'Cloud push failed.';
+          flashSkipped(`Push failed for ${slot!.name}: ${msg}`);
+        }
+        return false;
+      }
+      void (async () => {
+        let conflictTookOver = false;
+        try {
+          conflictTookOver = await attemptPush(true);
+        } finally {
+          if (!conflictTookOver) releasePushGate();
+        }
+      })();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+    [autosaveOn],
+  );
+
+  /**
+   * Pull a slot's cloud copy and OVERWRITE the local blob in place
+   * (keeping the slot id and cloudId binding). Distinct from the
+   * library-modal Pull, which mints a NEW slot. If the slot is
+   * currently loaded into memory, reload it so the user sees the
+   * pulled state immediately (no awkward "your unsaved local edits
+   * are still in memory" trap).
+   *
+   * Pull-overflow strip (locked decision): if writing the pulled blob
+   * fails (local quota), strip its undo ring and retry once. Push
+   * always uploads with an empty undo ring, so a cloud-originated
+   * blob normally has nothing to strip — but a hand-edited Drive
+   * file (or an early-Phase-2 file pushed before the strip rule
+   * landed) might. After a successful strip-and-write, we do NOT
+   * re-Push the truncated version: leaves the option open for another
+   * device with more quota to pull the full version intact.
+   */
+  const onCloudPullSlot = useCallback(
+    (id: string) => {
+      if (!autosaveOn) return;
+      // Re-entrancy guard: see the matching comment on onCloudPushSlot.
+      // Pull is less likely to race (the user only clicks it once per
+      // download intention), but a misfire on a flaky network shouldn't
+      // be able to start a second pull while the first is still
+      // resolving and clobber the first's manifest write.
+      if (!pullTrackerRef.current.tryAcquire(id)) return;
+      setPullingIds(pullTrackerRef.current.snapshot());
+      function releasePullGate(): void {
+        pullTrackerRef.current.release(id);
+        setPullingIds(pullTrackerRef.current.snapshot());
+      }
+      const m = readManifest();
+      const slot = m.slots.find((s) => s.id === id);
+      if (!slot || !slot.cloudId) {
+        releasePullGate();
+        return;
+      }
+      // Capture the post-narrowing cloudId in a local — TypeScript's
+      // narrowing of `slot.cloudId` from `string | undefined` to
+      // `string` doesn't survive the async-IIFE closure boundary,
+      // so reading `slot.cloudId` inside the IIFE would be typed as
+      // `string | undefined` again.
+      const cloudId = slot.cloudId;
+      void (async () => {
+        try {
+          const result = await cloudPullSlot(cloudId);
+          let strippedUndo = false;
+          let wrote = replaceSlotBlob(id, result.blob);
+          if (!wrote && result.blob.undoRing.length > 0) {
+            // Quota recovery: strip the undo ring and retry. Also
+            // mutate the in-memory `result.blob` so the session-
+            // reload branch below sees the same stripped shape we
+            // just persisted (otherwise the in-memory state would
+            // briefly carry the full undo ring, then get contradicted
+            // by the next read of disk).
+            result.blob.undoRing = [];
+            wrote = replaceSlotBlob(id, result.blob);
+            strippedUndo = wrote;
+          }
+          if (!wrote) {
+            flashSkipped(
+              `Pulled ${slot.name} but couldn't write it locally — try deleting some slots to free space.`,
+            );
+            return;
+          }
+          if (strippedUndo) {
+            flashSkipped(
+              `Pulled ${slot.name} but had to drop its undo history to fit local storage.`,
+            );
+          }
+          setCloudPulled(id, {
+            cloudId,
+            cloudEtag: result.etag,
+            cloudUpdatedAt: result.updatedAt,
+          });
+          const refreshed = readManifest();
+          setManifest(refreshed);
+          // If the pulled slot is the loaded-into-memory one, swap the
+          // in-memory state to match. Otherwise the user would still
+          // see their old pre-pull view until they Resume the slot.
+          // We read the active id from the fresh manifest rather than
+          // closing over `loadedSlotId` (which is computed AFTER this
+          // handler in source order) — same source-of-truth, no
+          // forward-reference noise.
+          if (refreshed.activeId === id) {
+            const session = deserialize(result.blob);
+            if (session) {
+              setState(session.state);
+              setUndoRing(session.undoRing);
+            }
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Cloud pull failed.';
+          flashSkipped(`Pull failed for ${slot.name}: ${msg}`);
+        } finally {
+          releasePullGate();
+        }
+      })();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+    [autosaveOn],
+  );
+
+  // Derive the gear-menu's cloud tier from the live auth state. Pulled
+  // out as a useMemo so SettingsMenu's prop identity is stable across
+  // renders that don't change auth state.
+  const cloudStatus: CloudMenuStatus = useMemo(() => {
+    if (!cloudAvailable) return 'unavailable';
+    if (cloudAuth.status === 'signed-out') return 'signed-out';
+    if (cloudAuth.status === 'expired') return 'expired';
+    if (!cloudAuth.folderId) return 'needs-folder';
+    return 'ready';
+  }, [cloudAvailable, cloudAuth]);
 
   // -------- start --------
   const onStartScratch = useCallback(
@@ -975,16 +1568,42 @@ export function App() {
   // Used by both the gear-popover trashcan (any slot) and the toolbar "Delete
   // this slot" item (currently active slot). Reads the manifest fresh so the
   // modal title shows the right name even if the manifest closure is stale.
+  //
+  // suppressResetConfirm short-circuits the modal ONLY when there's no
+  // cloud copy. The local-vs-everywhere choice should always be explicit
+  // for cloud-backed slots, never silently default to one side.
   const requestDeleteSlot = useCallback(
     (id: string) => {
       const slot = readManifest().slots.find((s) => s.id === id);
       if (!slot) return;
-      if (readSettings().suppressResetConfirm) {
+      if (!slot.cloudId && readSettings().suppressResetConfirm) {
         performDeleteSlot(id);
       } else {
-        setSlotPendingDelete({ id, name: slot.name });
+        setSlotPendingDelete({ id, name: slot.name, cloudId: slot.cloudId });
       }
     },
+    [performDeleteSlot],
+  );
+
+  /**
+   * Delete a slot's local + cloud blob in lock-step. Cloud delete runs
+   * first so a cloud-side failure (e.g. revoked permission) surfaces
+   * before we destroy the local copy — keeps the user from losing
+   * everything when only the cloud delete misbehaves.
+   */
+  const performDeleteSlotEverywhere = useCallback(
+    async (id: string, cloudId: string) => {
+      try {
+        await cloudRemoveCloudSlot(cloudId);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Cloud delete failed.';
+        flashSkipped(`Couldn't delete the cloud copy: ${msg}. Local slot left in place.`);
+        return;
+      }
+      performDeleteSlot(id);
+    },
+    // performDeleteSlot is closure-captured; flashSkipped is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [performDeleteSlot],
   );
 
@@ -1329,6 +1948,37 @@ export function App() {
           </button>
         </div>
       )}
+      {cloudAvailable && cloudAuth.status === 'expired' && !cloudExpiredDismissed && (
+        // Refresh-token-rejected banner. Locked behavior (Phase 3
+        // ITP): no automatic retry queue — surfacing the prompt
+        // immediately is the whole recovery mechanism. The Sign in
+        // button triggers a same-window OAuth redirect; the dismiss
+        // button suppresses the banner for the rest of the session
+        // (re-armed on any auth-status transition out of 'expired').
+        <div className="app-banner warn">
+          <span>
+            Cloud session expired &mdash; sign in again to resume Push / Pull.
+            Your local sorts are unaffected.
+          </span>
+          <button
+            type="button"
+            className="banner-action"
+            onClick={onCloudSignIn}
+            aria-label="Sign in to cloud again"
+          >
+            Sign in
+          </button>
+          <button
+            type="button"
+            className="banner-dismiss"
+            onClick={() => setCloudExpiredDismissed(true)}
+            aria-label="Dismiss cloud session expired warning"
+            title="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      )}
       {multitabStaleSlotId && state && (
         // Another tab edited the same slot's saved data. Reload pulls the
         // other tab's writes in (discarding our pending autosave so we
@@ -1371,6 +2021,7 @@ export function App() {
         onSaveNow={onSaveNow}
         onDownload={onDownload}
         autosaveAvailable={autosaveOn}
+        isDirty={isDirty}
         onLoadFromFile={onLoadFile}
         onReset={onResetRequest}
         onBackupAll={onBackupAll}
@@ -1389,17 +2040,39 @@ export function App() {
         onToggleShowEstimatedRemaining={toggleShowEstimatedRemaining}
         autoInsertEnabled={autoInsertEnabled}
         onToggleAutoInsertEnabled={toggleAutoInsertEnabled}
+        cloudStatus={cloudStatus}
+        cloudFolderName={cloudAuth.folderName}
+        onCloudSignIn={onCloudSignIn}
+        onCloudPickFolder={onCloudPickFolder}
+        onCloudBrowse={onCloudBrowse}
+        onCloudSignOut={onCloudSignOut}
+        onCloudToggleOptIn={onCloudToggleOptInSlot}
+        onCloudPushSlot={onCloudPushSlot}
+        onCloudPullSlot={onCloudPullSlot}
+        cloudPushingIds={pushingIds}
+        cloudPullingIds={pullingIds}
       />
       <main className="app-main">{body}</main>
       {slotPendingDelete && (
         <SlotDeleteConfirmModal
           slotName={slotPendingDelete.name}
+          hasCloudCopy={!!slotPendingDelete.cloudId}
           onCancel={() => setSlotPendingDelete(null)}
-          onConfirm={(dontAsk) => {
+          onConfirmLocalOnly={(dontAsk) => {
             if (dontAsk) updateSettings({ suppressResetConfirm: true });
             const id = slotPendingDelete.id;
             setSlotPendingDelete(null);
             performDeleteSlot(id);
+          }}
+          onConfirmEverywhere={() => {
+            const id = slotPendingDelete.id;
+            const cloudId = slotPendingDelete.cloudId;
+            setSlotPendingDelete(null);
+            if (cloudId) {
+              void performDeleteSlotEverywhere(id, cloudId);
+            } else {
+              performDeleteSlot(id);
+            }
           }}
         />
       )}
@@ -1440,6 +2113,37 @@ export function App() {
           payload={sharedPending}
           onImport={onSharedImport}
           onDismiss={onSharedDismiss}
+        />
+      )}
+      {cloudLibraryOpen && (
+        <CloudLibraryModal
+          onClose={() => setCloudLibraryOpen(false)}
+          onPull={onCloudPull}
+          onSignedOut={() => setCloudAuth(cloudGetAuthState())}
+          onFolderChanged={() => setCloudAuth(cloudGetAuthState())}
+        />
+      )}
+      {cloudUnlinkPending && (
+        <CloudUnlinkConfirmModal
+          slotName={cloudUnlinkPending.slotName}
+          onCancel={() => setCloudUnlinkPending(null)}
+          onConfirm={cloudUnlinkPending.onConfirm}
+        />
+      )}
+      {cloudConflict && (
+        <CloudPushConflictModal
+          slotName={cloudConflict.slotName}
+          onCancel={() => {
+            // Release the in-flight gate the push handler is still
+            // holding (so the spinner stops + the button re-enables)
+            // BEFORE clearing the modal state — the order doesn't
+            // matter functionally, but keeping side-effects first
+            // matches the rest of the modal-cancel paths in this
+            // file.
+            cloudConflict.onCancel();
+            setCloudConflict(null);
+          }}
+          onPushAnyway={cloudConflict.onConfirm}
         />
       )}
       {restorePending && (

@@ -11,6 +11,8 @@ Both engines share the same RANK / LIST / RESULT screens, undo ring, autosave, a
 
 No backend. No telemetry. No accounts. Everything runs in your browser.
 
+> Optional opt-in: per-slot cloud backup via Google Drive (manual Push/Pull). See the Cloud backup section below for details.
+
 ## Quick start
 
 ```bash
@@ -271,6 +273,83 @@ On the RESULT tab of a completed sort, the **Share link** button generates a URL
 - **Size**: the modal shows the payload size in KB and warns above ~50 KB ("may fail to paste in some chat / mail apps") — at that point Download the JSON instead and share the file. Practical ceiling is browser-dependent but generally past 100 KB the hash will still work in URL bars, just not necessarily in every paste destination.
 - **Bad / hand-edited payloads** decode to null; the recipient sees a "share link was broken or unreadable" toast and the bad hash is cleared from the URL so a refresh doesn't keep re-prompting.
 
+## Cloud backup (optional, opt-in per slot)
+
+Slot-level Push / Pull to a Google Drive folder of your choosing. The whole feature is opt-in — both at sign-in time and per-slot — and the app never touches files you didn't explicitly grant access to.
+
+### What gets backed up
+
+- One Drive file per slot, written under a folder you pick on first sign-in. The filename is `<slotName>_<slotId>.sorter.json`. The same v3 save-file envelope the Download button produces, so you can drop a slot file out of Drive and re-import it via "Load save file…" without any reshaping.
+- The slot↔file binding is by Drive file id, not by name. Rename the file in Drive's UI and the binding still works (the app overrides the name on the next Push — the local slot name is the source of truth).
+- The undo ring is **stripped before upload**. Personal-scale: smaller blobs, no cross-device undo noise, cloud-as-truth means you'll never want to undo something that happened on a different device.
+
+### Setup
+
+1. Click the ⚙ gear → **Sign in to cloud backup…** — a same-window Google OAuth redirect using PKCE. The app requests only the `drive.file` scope, which can see / touch nothing in your Drive *except* files this app creates or files you explicitly grant via the Picker.
+2. After OAuth, the gear menu shows **Pick cloud folder…** — opens Google's Picker for you to choose where backups will live. Any folder works (an existing one, or a fresh "Sorter Backups" folder you make).
+3. The folder choice is persisted (`sorter:cloud:folder:v1` in localStorage). You can change folders any time via **Change cloud folder…** in the gear menu.
+
+### Per-slot Push / Pull
+
+Open the gear menu, find the slot row in the saved-sorts list:
+
+- **☁ toggle** turns cloud backup on/off for that slot. Turning it off also deletes the cloud copy (the local choice stays honest with what's in your Drive). Turning it back on later creates a fresh file on the next Push.
+- **⇡ Push** uploads the current local copy of the slot. Updates the existing Drive file when one is bound, otherwise creates a new one.
+- **⇣ Pull** replaces the local copy with the cloud copy in place (keeping the same local slot id and the binding). If the slot is the one currently loaded in memory, the active view reloads to match.
+
+The per-slot meta line shows `cloud ✓` when the local copy matches the last Push from this device, or `cloud ⇡` when there are local changes you haven't pushed yet.
+
+### Conflict handling
+
+- **Cloud copy was changed elsewhere** — if another device (or a hand-edit in Drive) has pushed since this device last synced, the next Push pops a confirm modal. You can Cancel (and Pull first to merge by hand) or **Push anyway**, which overwrites the cloud copy with the local one.
+- **Cloud copy was deleted in Drive** — the next Push detects the 404 and creates a fresh file under the chosen folder; the local binding rebinds to the new id and a toast explains what happened.
+- **Local storage full on Pull** — if the pulled blob doesn't fit, the app strips its undo ring and retries once. The cloud copy is *not* re-Pushed after the strip, so another device with more quota can still pull the full version.
+
+### Cloud library
+
+Gear menu → **Browse cloud library…** shows every slot file under your chosen folder. Pull from here to adopt a cloud slot as a brand-new local slot (different from the per-row Pull, which replaces an existing one in place).
+
+### Sign-out / Delete-everywhere
+
+- **Sign out of cloud** wipes the tokens and the folder selection from localStorage. Cloud-side files are untouched — they stay in your Drive.
+- **Delete a slot that has a cloud copy** — the delete confirm modal grows a third button: **Remove from device** (cloud copy stays) vs **Delete everywhere** (also wipes the cloud blob). The cloud-vs-not choice is always explicit; there's no "Don't ask again" shortcut for cloud-backed slots.
+
+### Sessions / token refresh
+
+The app uses Google's refresh-token flow to silently keep your session alive across page reloads. If the refresh token gets revoked (you removed app access in your Google account, the token aged out, or Safari ITP cleared storage), a yellow **"Cloud session expired — sign in again"** banner appears at the top of the app. No retry queue — re-sign-in and re-trigger whatever you wanted to do.
+
+### Build config
+
+Cloud backup is gated on two build-time env vars:
+
+- **`VITE_GOOGLE_CLIENT_ID`** — your OAuth client id from [Google Cloud Console](https://console.cloud.google.com) (APIs & Services → Credentials → Web application credential type).
+- **`VITE_GOOGLE_CLIENT_SECRET`** — the matching "client secret" Google generates alongside the id (same Credentials page, "Client secrets" panel on the right of the OAuth client detail view).
+
+Without either, the gear menu's cloud entry surfaces a "not configured" error on click and the rest of the app still works normally.
+
+> **About the "secret" in a browser bundle.** PKCE-in-the-browser flows usually don't need a client secret, but Google's "Web application" OAuth client type is classified as confidential and rejects token exchange without one — there's no public-client type that accepts arbitrary `https://` redirect URIs the way "Web application" does, so it's the only viable client type for a serverless GitHub-Pages-hosted app. The "secret" therefore ends up inlined into the deployed JS bundle, alongside the client id. The real anti-phishing defense is still the **Authorized redirect URIs** allowlist on the Google Cloud Console side — a stolen id+secret pair can only redirect to URLs you've explicitly registered, which makes phishing your app's consent screen impractical. We treat the secret the same way as the client id: kept out of source so forks don't accidentally consume your Google API quota, but accepted as visible in the built bundle.
+
+For local dev, drop both in a `.env.local` at the repo root (gitignored by `.env*` in `.gitignore`):
+
+```bash
+VITE_GOOGLE_CLIENT_ID=123456-abc….apps.googleusercontent.com
+VITE_GOOGLE_CLIENT_SECRET=GOCSPX-…
+```
+
+Then `npm start` (rebuilds + serves) or `npm run dev` picks them up. **Vite inlines env vars at build time**, so if you change `.env.local` while `npm start` is running you have to Ctrl+C and re-run it before the new value takes effect.
+
+### Deploying to GitHub Pages with cloud backup
+
+The included `.github/workflows/deploy.yml` builds + publishes the app to GitHub Pages on every push to `main`. To enable cloud backup on the deployed copy:
+
+1. **Add two repo secrets** — Repo Settings → Secrets and variables → Actions → **New repository secret**, once for each:
+    - Name: `VITE_GOOGLE_CLIENT_ID`, value: your `…apps.googleusercontent.com` OAuth client id
+    - Name: `VITE_GOOGLE_CLIENT_SECRET`, value: the matching client secret
+   The workflow's `npm run build` step is wired to read both via `${{ secrets.VITE_GOOGLE_CLIENT_ID }}` and `${{ secrets.VITE_GOOGLE_CLIENT_SECRET }}`, so the next push inlines them into the deployed bundle. If either is missing the deployed app falls back to the "not configured" banner with no other ill effects.
+2. **Register the GitHub Pages URL with your OAuth client** — in Google Cloud Console → APIs & Services → Credentials → your OAuth client:
+    - Authorized JavaScript origins: `https://<your-username>.github.io`
+    - Authorized redirect URIs: `https://<your-username>.github.io/<repo-name>/` *(trailing slash is mandatory — Google does exact-string matching on redirect URIs and the app sends `window.location.origin + window.location.pathname`, which for an `index.html` at the directory root resolves to `…/<repo>/`)*
+
 ## Where state physically lives
 
 | What | Where |
@@ -279,6 +358,11 @@ On the RESULT tab of a completed sort, the **Share link** button generates a URL
 | Slot manifest | `localStorage` key `sorter:slots:v1`. Tracks slot ids, names, and which is active. |
 | Slot blobs | `localStorage` key `sorter:slot:<id>:v1` per slot. Holds items, progress, undo ring for that slot. |
 | Settings (theme, etc.) | `localStorage` key `sorter:settings:v1`. |
+| Cloud OAuth tokens | `localStorage` key `sorter:cloud:tokens:v1`. Access + refresh tokens for Google Drive. Wiped by Sign out. |
+| Cloud folder selection | `localStorage` key `sorter:cloud:folder:v1`. Drive folder id + display name. Wiped by Sign out. |
+| Cloud PKCE state (transient) | `sessionStorage` key `sorter:cloud:pkce:v1`. Lives only across the OAuth redirect round-trip. |
+| Pre-auth URL hash (transient) | `sessionStorage` key `sorter:preAuthHash`. Restores any in-flight `#share=…` payload after the OAuth redirect. |
+| Cloud slot files | One JSON file per opted-in slot inside the Drive folder you picked. Named `<slotName>_<slotId>.sorter.json`. |
 | Image cache | Browser HTTP cache; auto-managed. |
 
 All `localStorage` entries live inside the browser's profile directory (macOS Chrome: `~/Library/Application Support/Google/Chrome/<profile>/Local Storage/leveldb/`). They survive restarts; vanish if you clear browsing data; scoped to one browser on one machine.
@@ -350,10 +434,21 @@ src/
                         # downloadSave/loadSaveFromFile, settings
     share.ts            # encodeShareLink/decodeShareLink (URL-fragment payload),
                         # shareUrlFor, readShareParamFromHash
+    cloud.ts            # provider-agnostic cloud backup interface +
+                        # proxy + filename helpers (buildSlotFilename,
+                        # parseDisplayNameFromFilename) + CloudEtagMismatchError
+    cloud/
+      googleDrive.ts    # Google Drive provider impl: PKCE OAuth, token storage,
+                        # folder picker integration, list/pull/push/remove,
+                        # 404-fallback create-new, version-based etag check
     __tests__/          # vitest suites
   hooks/useKeyboard.ts
-  components/           # Header, SettingsMenu, StartScreen, ImportPreview,
-                        # SlotList (with pin ★ toggle), ListScreen (engine-aware),
+  components/           # Header, SettingsMenu (now with cloud sign-in / browse /
+                        # change folder / sign-out entries), StartScreen,
+                        # ImportPreview,
+                        # SlotList (pin ★ toggle + per-row cloud opt-in /
+                        #          Push / Pull controls when cloud is ready),
+                        # ListScreen (engine-aware),
                         # CompareScreen (engine indicator + cancel-placement),
                         # ResultScreen (+ Add items, + Share link), ItemCard,
                         # ItemThumb (shared image + onError-fallback initials),
@@ -362,8 +457,13 @@ src/
                         # AddItemsModal (unified Single / Multiple tabs),
                         # ShareLinkModal (sender: URL + copy + size warn),
                         # SharedImportModal (recipient: preview + import-as-new),
-                        # SlotDeleteConfirmModal, SlotCapConfirmModal,
-                        # StartOverConfirmModal, EditItemModal
+                        # SlotDeleteConfirmModal (split into Remove from device /
+                        #                         Delete everywhere when slot
+                        #                         has a cloud copy),
+                        # SlotCapConfirmModal,
+                        # StartOverConfirmModal, EditItemModal,
+                        # CloudLibraryModal (read-only browse + Pull-as-new-slot),
+                        # CloudPushConflictModal (etag-mismatch confirm)
 ```
 
 ## License

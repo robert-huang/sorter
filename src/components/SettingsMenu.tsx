@@ -2,6 +2,22 @@ import { useEffect, useRef, useState } from 'react';
 import { SlotList } from './SlotList';
 import type { SlotsManifest } from '../lib/types';
 
+/**
+ * Cloud-section auth tier rendered in the gear menu.
+ *
+ * signed-out:     show "Sign in to cloud"
+ * needs-folder:   tokens present but no folder picked yet — show
+ *                 "Pick cloud folder" highlighted as the next step
+ * ready:          tokens + folder present — show Browse / Change
+ *                 folder / Sign out
+ * expired:        refresh token gone — show "Please sign in again"
+ *                 with the Sign-in entry as the primary action
+ *
+ * `unavailable` collapses the section entirely (e.g. autosave is
+ * off — cloud backup has nothing to back up to).
+ */
+export type CloudMenuStatus = 'unavailable' | 'signed-out' | 'needs-folder' | 'ready' | 'expired';
+
 interface Props {
   autosaveAvailable: boolean;
   onLoadFromFile: (file: File) => void;
@@ -39,6 +55,35 @@ interface Props {
    */
   autoInsertEnabled: boolean;
   onToggleAutoInsertEnabled: () => void;
+  // ---------- cloud backup (tier 0b) ----------
+  /** Current cloud menu tier; collapses the section when 'unavailable'. */
+  cloudStatus: CloudMenuStatus;
+  /** Display name of the currently-picked folder; shown as a hint
+   *  under "Browse cloud library" in the 'ready' tier. */
+  cloudFolderName?: string;
+  /** Initiate the OAuth redirect. Called for both initial sign-in and
+   *  re-sign-in from the 'expired' tier. */
+  onCloudSignIn: () => void;
+  /** Open the Google Picker so the user can choose a folder.
+   *  Must be called from the click handler so popup blockers don't
+   *  eat the picker. */
+  onCloudPickFolder: () => void;
+  /** Open the read-only Phase-1 cloud library modal. */
+  onCloudBrowse: () => void;
+  /** Sign out: wipes tokens + folder selection. Cloud-side files are
+   *  not touched. */
+  onCloudSignOut: () => void;
+  /** Per-slot cloud handlers passed through to SlotList. Only consumed
+   *  when `cloudStatus === 'ready'` — earlier tiers can't push/pull. */
+  onCloudToggleOptIn: (id: string, optIn: boolean) => void;
+  onCloudPushSlot: (id: string) => void;
+  onCloudPullSlot: (id: string) => void;
+  /** Ids of slots whose Push request is currently in flight — driven
+   *  from App.tsx's InFlightTracker. SlotList uses these to swap the
+   *  Push glyph for a spinner and disable the button. */
+  cloudPushingIds: ReadonlySet<string>;
+  /** Same as cloudPushingIds, but for Pull. */
+  cloudPullingIds: ReadonlySet<string>;
 }
 
 export function SettingsMenu({
@@ -59,6 +104,17 @@ export function SettingsMenu({
   onToggleShowEstimatedRemaining,
   autoInsertEnabled,
   onToggleAutoInsertEnabled,
+  cloudStatus,
+  cloudFolderName,
+  onCloudSignIn,
+  onCloudPickFolder,
+  onCloudBrowse,
+  onCloudSignOut,
+  onCloudToggleOptIn,
+  onCloudPushSlot,
+  onCloudPullSlot,
+  cloudPushingIds,
+  cloudPullingIds,
 }: Props) {
   const [open, setOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -145,6 +201,12 @@ export function SettingsMenu({
               onRename={onRenameSlot}
               onDownload={onDownloadSlot}
               onTogglePin={onTogglePinSlot}
+              cloudControlsVisible={cloudStatus === 'ready'}
+              onCloudToggleOptIn={onCloudToggleOptIn}
+              onCloudPush={onCloudPushSlot}
+              onCloudPull={onCloudPullSlot}
+              cloudPushingIds={cloudPushingIds}
+              cloudPullingIds={cloudPullingIds}
             />
           </div>
           <div className="settings-divider" />
@@ -182,6 +244,31 @@ export function SettingsMenu({
           >
             Delete this slot
           </button>
+          {cloudStatus !== 'unavailable' && (
+            <>
+              <div className="settings-divider" />
+              <CloudSection
+                status={cloudStatus}
+                folderName={cloudFolderName}
+                onSignIn={() => {
+                  setOpen(false);
+                  onCloudSignIn();
+                }}
+                onPickFolder={() => {
+                  setOpen(false);
+                  onCloudPickFolder();
+                }}
+                onBrowse={() => {
+                  setOpen(false);
+                  onCloudBrowse();
+                }}
+                onSignOut={() => {
+                  setOpen(false);
+                  onCloudSignOut();
+                }}
+              />
+            </>
+          )}
           <div className="settings-divider" />
           <label className="settings-item checkbox">
             <input
@@ -223,5 +310,91 @@ export function SettingsMenu({
         onChange={onArchiveFileChange}
       />
     </div>
+  );
+}
+
+interface CloudSectionProps {
+  status: CloudMenuStatus;
+  folderName?: string;
+  onSignIn: () => void;
+  onPickFolder: () => void;
+  onBrowse: () => void;
+  onSignOut: () => void;
+}
+
+/**
+ * Cloud backup section inside the gear menu. Renders different entries
+ * per `status` tier so the user always has exactly one obvious next
+ * step:
+ *
+ *  - signed-out / expired: "Sign in to cloud" (expired shows a one-line
+ *    explanation under it).
+ *  - needs-folder: "Pick cloud folder" highlighted; explains what the
+ *    folder is for so the user isn't startled when the Google Picker
+ *    pops up.
+ *  - ready: Browse / Change folder / Sign out.
+ *
+ * Pulled out of the main render so the entry-state branching is in
+ * one place instead of inline.
+ */
+function CloudSection({
+  status,
+  folderName,
+  onSignIn,
+  onPickFolder,
+  onBrowse,
+  onSignOut,
+}: CloudSectionProps) {
+  if (status === 'signed-out' || status === 'expired') {
+    return (
+      <>
+        {status === 'expired' && (
+          <div
+            className="settings-status"
+            style={{ color: 'var(--text-warn, var(--text-muted))' }}
+          >
+            Cloud session expired &mdash; please sign in again.
+          </div>
+        )}
+        <button className="settings-item" onClick={onSignIn}>
+          Sign in to cloud backup&hellip;
+        </button>
+      </>
+    );
+  }
+  if (status === 'needs-folder') {
+    return (
+      <>
+        <div className="settings-status">
+          Cloud sign-in complete. Pick a Drive folder to store your backups.
+        </div>
+        <button className="settings-item primary" onClick={onPickFolder}>
+          Pick cloud folder&hellip;
+        </button>
+        <button className="settings-item" onClick={onSignOut}>
+          Sign out of cloud
+        </button>
+      </>
+    );
+  }
+  // ready
+  return (
+    <>
+      <button className="settings-item" onClick={onBrowse}>
+        Browse cloud library&hellip;
+        {folderName && (
+          <span className="settings-item-hint" title={folderName}>
+            {' '}
+            ({folderName})
+          </span>
+        )}
+      </button>
+      <button className="settings-item" onClick={onPickFolder}>
+        Change cloud folder&hellip;
+      </button>
+      <button className="settings-item" onClick={onSignOut}>
+        Sign out of cloud
+      </button>
+    </>
   );
 }

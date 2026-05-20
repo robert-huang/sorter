@@ -4,3 +4,11 @@ dist
 *.log
 .vite
 coverage
+
+# Vite env files. Vite auto-loads `.env`, `.env.local`, and the
+# `.env.<mode>` variants at build time. `*.local` is the recommended
+# place for per-developer values (like VITE_GOOGLE_CLIENT_ID for cloud
+# backup) — never commit them.
+.env
+.env.*
+!.env.example

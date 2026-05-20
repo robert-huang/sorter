@@ -1,5 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { SettingsMenu } from './SettingsMenu';
+import { useLayoutEffect, useRef, useState } from 'react';
+import { SettingsMenu, type CloudMenuStatus } from './SettingsMenu';
 import { CheckIcon, FloppyIcon } from './icons';
 import type { SlotsManifest, SortState } from '../lib/types';
 import { comparisonsRemaining } from '../lib/engine';
@@ -18,6 +18,13 @@ interface Props {
   /** Download the active slot's session as a JSON file. */
   onDownload: () => void;
   autosaveAvailable: boolean;
+  /** Whether the in-memory state has diverged from what's on disk.
+   *  Drives the toolbar save button: when true, "💾 Save" prompts
+   *  the user to flush; when false, "✓ Saved" surfaces that the
+   *  autosave has caught up. Source of truth is App.tsx — see the
+   *  `setIsDirty` calls around the autosave-schedule effect and
+   *  the subscribeAfterWrite listener. */
+  isDirty: boolean;
   onLoadFromFile: (file: File) => void;
   /** Confirm + delete the active slot. */
   onReset: () => void;
@@ -48,9 +55,24 @@ interface Props {
   /** Whether the merge engine may auto-insert skewed pairs. Default on. */
   autoInsertEnabled: boolean;
   onToggleAutoInsertEnabled: () => void;
+  // ---------- cloud backup (tier 0b) ----------
+  cloudStatus: CloudMenuStatus;
+  cloudFolderName?: string;
+  onCloudSignIn: () => void;
+  onCloudPickFolder: () => void;
+  onCloudBrowse: () => void;
+  onCloudSignOut: () => void;
+  onCloudToggleOptIn: (id: string, optIn: boolean) => void;
+  onCloudPushSlot: (id: string) => void;
+  onCloudPullSlot: (id: string) => void;
+  /** Per-row in-flight indicators forwarded straight to SettingsMenu →
+   *  SlotList → CloudRowControls. Header doesn't read them, it just
+   *  pipes them through; declared here so the existing top-down prop
+   *  chain stays the single source of truth for the gear menu. */
+  cloudPushingIds: ReadonlySet<string>;
+  cloudPullingIds: ReadonlySet<string>;
 }
 
-const SAVED_TICK_MS = 1200;
 
 export function Header({
   activeTab,
@@ -61,6 +83,7 @@ export function Header({
   onSaveNow,
   onDownload,
   autosaveAvailable,
+  isDirty,
   onLoadFromFile,
   onReset,
   onBackupAll,
@@ -79,6 +102,17 @@ export function Header({
   onToggleShowEstimatedRemaining,
   autoInsertEnabled,
   onToggleAutoInsertEnabled,
+  cloudStatus,
+  cloudFolderName,
+  onCloudSignIn,
+  onCloudPickFolder,
+  onCloudBrowse,
+  onCloudSignOut,
+  onCloudToggleOptIn,
+  onCloudPushSlot,
+  onCloudPullSlot,
+  cloudPushingIds,
+  cloudPullingIds,
 }: Props) {
   // `remaining` feeds the optional "~K left" suffix on the toolbar stats
   // label. The progress bar that used to live in the header has moved into
@@ -112,27 +146,33 @@ export function Header({
     theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
   const themeBtnGlyph = theme === 'dark' ? '☾' : '☀';
 
-  // Transient "Saved" tick after the Save button is clicked. Lives here
-  // (rather than App) because it's pure UI feedback for this component.
-  const [savedTick, setSavedTick] = useState(false);
-  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    return () => {
-      if (savedTimer.current) clearTimeout(savedTimer.current);
-    };
-  }, []);
-
+  // Save button label/icon are driven by `isDirty` directly: it
+  // already covers the autosave path (debounced writes flip it back
+  // to false within ~500ms of the last change) AND the manual-Save
+  // path (flushAutosave inside onSaveNow lands a synchronous write
+  // that fires subscribeAfterWrite, which clears isDirty in App).
+  // No more transient timeout — the button's appearance is now a
+  // truthful, persistent reflection of "in-memory matches disk".
+  //
+  // We still call onSaveNow on click when dirty (forces an immediate
+  // write instead of waiting for the debounce). When clean, the
+  // click is a no-op visually, but we keep the click-through wired
+  // up so a user who clicks "Saved" to "re-save" gets the expected
+  // (idempotent) write rather than a frustrating dead button.
   function handleSaveClick(): void {
     onSaveNow();
-    setSavedTick(true);
-    if (savedTimer.current) clearTimeout(savedTimer.current);
-    savedTimer.current = setTimeout(() => setSavedTick(false), SAVED_TICK_MS);
   }
 
+  // Disable only when there's nothing meaningful to save (no slot
+  // loaded, or autosave unavailable in this environment). Don't
+  // disable on `!isDirty` — see the comment above about preserving
+  // the click-through.
   const saveDisabled = !hasState || !autosaveAvailable;
   const saveTitle = !autosaveAvailable
     ? 'Autosave unavailable on file:// — use Download'
-    : 'Save now to in-browser storage';
+    : isDirty
+      ? 'Unsaved changes — click to save to in-browser storage now'
+      : 'Saved to in-browser storage. Click to force-save anyway.';
 
   // -------- sliding tab indicator --------
   // Refs to each pill so we can measure the active one's offsetLeft + width
@@ -209,18 +249,19 @@ export function Header({
         <div className="header-toolbar-stats">{statText}</div>
         <div className="header-toolbar-right">
           <button
-            className={`toolbar-button${savedTick ? ' saved' : ''}`}
+            className={`toolbar-button${!isDirty ? ' saved' : ''}`}
             onClick={handleSaveClick}
             disabled={saveDisabled}
             title={saveTitle}
+            aria-label={isDirty ? 'Save now' : 'Saved'}
           >
-            {savedTick ? (
+            {isDirty ? (
               <>
-                <CheckIcon size={14} /> Saved
+                <FloppyIcon size={14} /> Save
               </>
             ) : (
               <>
-                <FloppyIcon size={14} /> Save
+                <CheckIcon size={14} /> Saved
               </>
             )}
           </button>
@@ -258,6 +299,17 @@ export function Header({
             onToggleShowEstimatedRemaining={onToggleShowEstimatedRemaining}
             autoInsertEnabled={autoInsertEnabled}
             onToggleAutoInsertEnabled={onToggleAutoInsertEnabled}
+            cloudStatus={cloudStatus}
+            cloudFolderName={cloudFolderName}
+            onCloudSignIn={onCloudSignIn}
+            onCloudPickFolder={onCloudPickFolder}
+            onCloudBrowse={onCloudBrowse}
+            onCloudSignOut={onCloudSignOut}
+            onCloudToggleOptIn={onCloudToggleOptIn}
+            onCloudPushSlot={onCloudPushSlot}
+            onCloudPullSlot={onCloudPullSlot}
+            cloudPushingIds={cloudPushingIds}
+            cloudPullingIds={cloudPullingIds}
           />
         </div>
       </div>

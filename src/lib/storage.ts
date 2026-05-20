@@ -696,6 +696,155 @@ export function updateSlotMeta(
   return m;
 }
 
+// ---------- cloud-meta helpers (tier 0b) ----------
+
+/**
+ * Per-slot cloud-sync metadata setters. Thin wrappers over
+ * `updateSlotMeta` so callers don't have to remember the field names
+ * and so the storage layer stays the single source of truth for the
+ * meta shape. All are no-ops for unknown slot ids.
+ *
+ * These never trigger an autosave write — they patch the manifest only.
+ * The companion cloud blob (the upload/download) is the cloud layer's
+ * responsibility (`src/lib/cloud.ts`).
+ */
+export function setCloudOptIn(id: string, optIn: boolean): SlotsManifest {
+  return updateSlotMeta(id, { cloudOptIn: optIn });
+}
+
+export function setCloudId(id: string, cloudId: string | undefined): SlotsManifest {
+  return updateSlotMeta(id, { cloudId });
+}
+
+/**
+ * Stamp the post-Push metadata in one call so the manifest write is
+ * atomic. Used by the push flow: on a successful upload we want to
+ * record the new etag, the cloud-side updatedAt, and the local push
+ * time together — partial state would confuse the 3-state indicator.
+ */
+export function setCloudPushed(
+  id: string,
+  patch: { cloudId: string; cloudEtag: string; cloudPushedAt: string; cloudUpdatedAt: string },
+): SlotsManifest {
+  return updateSlotMeta(id, patch);
+}
+
+/**
+ * Stamp the post-Pull metadata in one call. Distinct from
+ * setCloudPushed because Pull updates `cloudUpdatedAt` from the
+ * server-reported timestamp but does NOT touch `cloudPushedAt` (the
+ * local push time is unchanged by a pull).
+ */
+export function setCloudPulled(
+  id: string,
+  patch: { cloudId: string; cloudEtag: string; cloudUpdatedAt: string },
+): SlotsManifest {
+  return updateSlotMeta(id, patch);
+}
+
+/**
+ * Replace a slot's persisted blob with an inbound payload — used by
+ * the per-slot cloud Pull path so the same local slot id keeps its
+ * cloudId binding (versus `adoptNewSession` from the cloud library
+ * modal, which mints a fresh slot). Also stamps the meta fields the
+ * autosave path would have stamped (`updatedAt`, `totalItems`,
+ * `comparisons`, `done`) so the slot list shows correct counts
+ * immediately.
+ *
+ * Cancels any pending autosave for the affected slot before writing
+ * to avoid the autosave's old blob clobbering the pulled one when its
+ * timer fires.
+ *
+ * Returns false on quota failure (caller surfaces a toast); true on
+ * success. Does NOT fire `notifyAfterWrite` — the post-write seam is
+ * specifically the autosave path's exit point, and a Pull is not an
+ * autosave (the cloud-sync subscriber would otherwise immediately
+ * re-Push what we just Pulled).
+ */
+export function replaceSlotBlob(id: string, blob: AutosaveBlob): boolean {
+  if (!isAutosaveAvailable()) return false;
+  if (currentActiveId === id) {
+    cancelPendingAutosave();
+  }
+  if (!tryWriteSlotBlob(id, blob)) return false;
+  updateSlotMeta(id, {
+    updatedAt: new Date().toISOString(),
+    totalItems: Object.keys(blob.items).length,
+    comparisons: blob.progress.comparisons,
+    done: blob.progress.done,
+  });
+  // Re-sync the in-memory autosave bookkeeping so the next
+  // `scheduleAutosave` doesn't immediately force-write because it
+  // sees a huge `comparisons - comparisonsAtLastFlush` delta.
+  if (currentActiveId === id) {
+    resetAutosaveBookkeeping(blob.progress.comparisons);
+  }
+  return true;
+}
+
+/**
+ * Wipe all cloud-sync metadata for a slot. Used by:
+ *  - Remove-from-cloud (slot kept locally, cloud copy deleted).
+ *  - Drive-side-delete recovery (cloud copy was deleted out from
+ *    under us; clear the stale cloudId so the next push creates a
+ *    fresh file).
+ * Leaves `cloudOptIn` untouched — the user's opt-in preference
+ * survives a remove-from-cloud and is what makes the slot eligible
+ * for a future re-push.
+ */
+export function clearCloudBinding(id: string): SlotsManifest {
+  return updateSlotMeta(id, {
+    cloudId: undefined,
+    cloudEtag: undefined,
+    cloudPushedAt: undefined,
+    cloudUpdatedAt: undefined,
+  });
+}
+
+// ---------- post-write notification registry (tier 0b seam) ----------
+
+/**
+ * Event-log seam fired after every successful autosave write to a
+ * slot's blob. Phase 1 has no subscribers — this exists so the future
+ * Tier 1 autosave-to-cloud layer can observe "a slot just changed
+ * locally" without `storage.ts` needing to know anything about cloud.
+ *
+ * Policy (debounce / max-wait / "should we push") lives in the
+ * subscriber, NOT here. The locked decision is that the cloud-flush
+ * call site is imperative (`cloud.cloudFlushSlot(id)`) rather than
+ * implicitly chained off this notify — but the notify is the cheapest
+ * possible hook for a subscriber that wants to schedule its own flush.
+ *
+ * Subscriber-throws-are-isolated: a buggy subscriber must not break
+ * the write path. We catch + warn and keep going.
+ */
+type PostWriteListener = (slotId: string) => void;
+
+const postWriteListeners = new Set<PostWriteListener>();
+
+export function subscribeAfterWrite(listener: PostWriteListener): () => void {
+  postWriteListeners.add(listener);
+  return () => {
+    postWriteListeners.delete(listener);
+  };
+}
+
+function notifyAfterWrite(slotId: string): void {
+  for (const l of postWriteListeners) {
+    try {
+      l(slotId);
+    } catch (err) {
+      console.warn('post-write listener threw', err);
+    }
+  }
+}
+
+/** Test-only: drop all subscribers. Lets the cloud test suite reset
+ *  the seam between cases without leaking listeners across test files. */
+export function _clearPostWriteListeners(): void {
+  postWriteListeners.clear();
+}
+
 // ---------- autosave (debounced with max-wait) ----------
 
 let pendingBlob: AutosaveBlob | null = null;
@@ -846,8 +995,9 @@ const QUOTA_RECOVERY_UNDO_KEEP = 5;
  */
 function commitWriteSuccess(blob: AutosaveBlob, recovery?: AutosaveRecovery): void {
   if (currentActiveId === null) return;
+  const writtenId = currentActiveId;
   const now = new Date().toISOString();
-  updateSlotMeta(currentActiveId, {
+  updateSlotMeta(writtenId, {
     updatedAt: now,
     totalItems: Object.keys(blob.items).length,
     comparisons: blob.progress.comparisons,
@@ -858,6 +1008,9 @@ function commitWriteSuccess(blob: AutosaveBlob, recovery?: AutosaveRecovery): vo
   // Always notify on success: clears any banner the UI was showing,
   // and if a recovery happened, fires the toast on the same edge.
   notifyError(null, recovery);
+  // Fire the post-write seam after the meta patch + error-clear so
+  // subscribers see the slot's updated meta, not a stale one.
+  notifyAfterWrite(writtenId);
 }
 
 /**
@@ -982,6 +1135,31 @@ export function scheduleAutosave(blob: AutosaveBlob): void {
     return;
   }
   scheduleFlush();
+}
+
+/**
+ * True iff a debounced autosave write is queued — i.e. the in-memory
+ * state of the active slot has diverged from what's on disk and a
+ * write hasn't landed yet. Used by the UI to drive the toolbar Save
+ * button's "💾 Save" (dirty) vs "✓ Saved" (clean) state.
+ *
+ * Note: this flips back to false the moment `performWrite` succeeds
+ * (whether via the debounce timer firing, a force-flush from the
+ * AUTOSAVE_MAX_WAIT_MS / AUTOSAVE_MAX_COMPARISONS thresholds, or
+ * `flushAutosave()`). Pair with `subscribeAfterWrite` to drive a
+ * dirty-tracking UI state from React.
+ *
+ * Edge case worth knowing about: when a slot is resumed from disk,
+ * the App-side `scheduleAutosave` effect runs and queues a write
+ * with the just-loaded blob. That redundant write resolves within
+ * one debounce cycle (~500ms), so the dirty signal briefly reports
+ * true after Resume. Cleaner alternatives (no-op detection via deep
+ * compare, marking the loaded blob as "already written" in
+ * bookkeeping) were considered and rejected as not worth the
+ * complexity for a 500ms cosmetic blip.
+ */
+export function hasPendingAutosave(): boolean {
+  return pendingBlob !== null;
 }
 
 /**
