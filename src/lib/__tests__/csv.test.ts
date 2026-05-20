@@ -258,11 +258,48 @@ describe('parseSources', () => {
         detectedHeader: false,
       },
     ]);
-    expect(r.perSource[0].items.map((i) => i.id)).toEqual(['a', 'b']);
-    expect(r.perSource[1].items.map((i) => i.id)).toEqual(['b', 'c']);
+    expect(r.perSource[0].items.map((pi) => pi.item.id)).toEqual(['a', 'b']);
+    expect(r.perSource[1].items.map((pi) => pi.item.id)).toEqual(['b', 'c']);
     expect(r.items.map((i) => i.id).sort()).toEqual(['a', 'b', 'c']);
     expect(r.warnings.length).toBe(1);
     expect(r.warnings[0].canonicalKey).toBe('b');
+  });
+
+  it('per-source items carry the originating sourceRow', () => {
+    // Powers the START-tab per-row Edit button: clicking the pencil
+    // on any preview row must resolve back to the correct RawRow
+    // even when the source has rows out of contiguous 1..N order
+    // (e.g. blank lines stripped before parseCsvRows).
+    const r = parseSources([
+      {
+        sourceName: 'list-a',
+        rawRows: [
+          { label: 'A', sourceName: 'list-a', sourceRow: 1 },
+          { label: 'B', sourceName: 'list-a', sourceRow: 4 },
+          { label: 'C', sourceName: 'list-a', sourceRow: 7 },
+        ],
+        detectedHeader: false,
+      },
+    ]);
+    expect(r.perSource[0].items.map((pi) => pi.sourceRow)).toEqual([1, 4, 7]);
+  });
+
+  it('per-source sourceRow points at the FIRST occurrence within the source', () => {
+    // When a label appears twice in the same source, the preview row
+    // should map to the first occurrence — that's the position dedup
+    // keeps, and where the user expects "Edit" to land.
+    const r = parseSources([
+      {
+        sourceName: 'list-a',
+        rawRows: [
+          { label: 'A', sourceName: 'list-a', sourceRow: 1 },
+          { label: 'A', sourceName: 'list-a', sourceRow: 5 }, // dropped
+          { label: 'B', sourceName: 'list-a', sourceRow: 8 },
+        ],
+        detectedHeader: false,
+      },
+    ]);
+    expect(r.perSource[0].items.map((pi) => pi.sourceRow)).toEqual([1, 8]);
   });
 });
 

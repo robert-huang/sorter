@@ -17,21 +17,30 @@ import Papa from 'papaparse';
  * In-memory edit overlay for the START tab. Keyed by
  * `${sourceName}:${originalRowNumber}` because that handle is stable
  * across re-parses and is already shown to the user in the dedup
- * warning text. Values store an optional label and/or id override —
- * either may be set independently (e.g. id-only rename without
- * touching the displayed label, or vice versa).
+ * warning text.
+ *
+ * Each override field is independent — any subset may be present.
+ * Semantics:
+ *  - `label`: present means "rewrite the row's label".
+ *  - `id`:    present means "force this idOverride on the RawRow".
+ *  - `url` / `imageUrl`: an empty string means "explicitly clear the
+ *    source's URL/IMAGE". A non-empty string sets it. A missing key
+ *    means the source value is unchanged.
  *
  * The overlay is applied to RawRow values BEFORE parseSources runs
- * its dedup pass, so the user can disambiguate two rows that
- * collapse to the same canonical id (rename one's label, or assign
- * one an explicit id) and have the warning disappear on the next
- * render.
+ * its dedup pass, so the user can disambiguate two rows that collapse
+ * to the same canonical id (rename one's label, or assign one an
+ * explicit id) AND fix mis-parsed URL/image metadata without going
+ * back to the raw CSV.
  *
  * Brutally cleared on any source-text mutation (textarea edit, file
  * replaced/removed, header-skip toggle) because row numbers shift
  * and we'd otherwise apply stale overrides to unrelated rows.
  */
-type OverlayMap = Map<string, { label?: string; id?: string }>;
+type OverlayMap = Map<
+  string,
+  { label?: string; id?: string; url?: string; imageUrl?: string }
+>;
 
 function overlayKey(sourceName: string, sourceRow: number): string {
   return `${sourceName}:${sourceRow}`;
@@ -45,6 +54,12 @@ function applyOverrides(rows: RawRow[], overrides: OverlayMap): RawRow[] {
     const next: RawRow = { ...r };
     if (o.label !== undefined) next.label = o.label;
     if (o.id !== undefined) next.idOverride = o.id;
+    // For url/imageUrl, empty-string overrides are treated as
+    // "explicitly cleared" — RawRow uses `undefined` to mean missing,
+    // so map '' → undefined while still distinguishing "no override"
+    // (key absent) from "cleared" (key present and empty).
+    if (o.url !== undefined) next.url = o.url || undefined;
+    if (o.imageUrl !== undefined) next.imageUrl = o.imageUrl || undefined;
     return next;
   });
 }
@@ -119,6 +134,9 @@ export function StartScreen({
     currentLabel: string;
     /** The id dedup actually saw (post-override). Pre-fills the advanced field. */
     currentId: string;
+    /** Current url/image (post-override). Pre-fills the URL / Image URL fields. */
+    currentUrl: string | undefined;
+    currentImageUrl: string | undefined;
     /** All other ids in the current preview (excludes this row), for collision check. */
     otherIds: Map<string, string>;
   } | null>(null);
@@ -325,7 +343,8 @@ export function StartScreen({
     for (const ps of result.perSource) {
       const isExtras = ps.sourceName === 'extras';
       const taken: Item[] = [];
-      for (const it of ps.items) {
+      for (const pi of ps.items) {
+        const it = pi.item;
         if (seen.has(it.id)) continue;
         seen.add(it.id);
         // Use the FULLY-merged item from the global dedup (it may have URL/
@@ -403,6 +422,8 @@ export function StartScreen({
           rowNumber,
           currentLabel: row.label,
           currentId,
+          currentUrl: row.url,
+          currentImageUrl: row.imageUrl,
           otherIds,
         });
       },
@@ -443,19 +464,41 @@ export function StartScreen({
       setOverrides((prev) => {
         const next = new Map(prev);
         const cur = next.get(key) ?? {};
-        const updated: { label?: string; id?: string } = { ...cur };
+        const updated: {
+          label?: string;
+          id?: string;
+          url?: string;
+          imageUrl?: string;
+        } = { ...cur };
         if (payload.label !== undefined && payload.label !== editTarget.currentLabel) {
           updated.label = payload.label;
         }
         if (payload.id !== undefined && payload.id !== editTarget.currentId) {
           updated.id = payload.id;
         }
-        // If neither label nor id actually changed vs the live values
-        // (e.g. user opened the modal then saved without touching
-        // anything), drop the entry rather than persisting a no-op.
+        // URL / image: payload always carries empty string when the
+        // user cleared the field. Compare against the row's current
+        // value (treating undefined as '' for the comparison) so a
+        // no-op pass-through doesn't write a redundant override. An
+        // empty-string override IS meaningful when the source CSV
+        // had a value — that's how the user clears mis-parsed URLs.
+        if (payload.url !== undefined && payload.url !== (editTarget.currentUrl ?? '')) {
+          updated.url = payload.url;
+        }
+        if (
+          payload.imageUrl !== undefined &&
+          payload.imageUrl !== (editTarget.currentImageUrl ?? '')
+        ) {
+          updated.imageUrl = payload.imageUrl;
+        }
+        // If no field actually changed vs the live values (e.g. user
+        // opened the modal then saved without touching anything),
+        // drop the entry rather than persisting a no-op.
         if (
           updated.label === undefined &&
-          updated.id === undefined
+          updated.id === undefined &&
+          updated.url === undefined &&
+          updated.imageUrl === undefined
         ) {
           next.delete(key);
         } else {
@@ -469,13 +512,15 @@ export function StartScreen({
   );
 
   // Stub item passed into EditItemModal — we don't have a real
-  // engine-side Item at this point (the user is pre-parse). Label
-  // and id are seeded from editTarget; url/imageUrl are unused
-  // because we pass fieldsToShow={{ url: false, imageUrl: false }}.
+  // engine-side Item at this point (the user is pre-parse). Seeded
+  // from editTarget so the modal's label / URL / image inputs all
+  // pre-fill with whatever dedup currently sees (post-override).
   const editStubItem: Item | null = editTarget
     ? {
         id: editTarget.currentId,
         label: editTarget.currentLabel,
+        url: editTarget.currentUrl,
+        imageUrl: editTarget.currentImageUrl,
       }
     : null;
 
@@ -712,7 +757,6 @@ export function StartScreen({
           item={editStubItem}
           onCancel={() => setEditTarget(null)}
           onSave={onEditSave}
-          fieldsToShow={{ url: false, imageUrl: false }}
           allowEditId
           currentId={editTarget.currentId}
           otherIds={editTarget.otherIds}
