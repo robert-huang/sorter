@@ -1129,6 +1129,15 @@ a {
   color: var(--danger);
 }
 
+/* Edit (✎) variant of the chip-internal icon button. Uses the same
+   compact footprint as .x but its hover stays neutral — editing is
+   non-destructive, so don't use the danger ramp. */
+.chip .x.edit:hover {
+  color: var(--text);
+  background: var(--surface-2);
+  border-radius: 3px;
+}
+
 .chip.hidden {
   opacity: 0.5;
   text-decoration: line-through;
@@ -1405,6 +1414,43 @@ a {
   gap: 8px;
   justify-content: flex-end;
   margin-top: 16px;
+}
+
+/* ---------- Edit item modal form ----------
+   Simple stacked label / url / imageUrl fields. Matches the spacing of
+   .checkbox-row above so the modal feels consistent. */
+.edit-item-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.edit-item-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.edit-item-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.edit-item-field input {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.edit-item-field input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
 }
 
 .form-row {

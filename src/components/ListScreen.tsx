@@ -6,6 +6,7 @@ import type {
   SortState,
 } from '../lib/types';
 import { AddItemsModal } from './AddItemsModal';
+import { EditItemModal } from './EditItemModal';
 
 interface Props {
   state: SortState;
@@ -40,6 +41,17 @@ interface Props {
    * via a fresh binary insertion (queued to the front of `pending`).
    */
   onReturnToPending: (id: string) => void;
+  /**
+   * Patch metadata (label / url / imageUrl) on an item in place. The
+   * item's structural position in the sort is preserved — only the
+   * display fields change. Used to fix labels mis-parsed at import
+   * time (e.g. commas inside the label being treated as the CSV
+   * column separator).
+   */
+  onEditItem: (
+    id: string,
+    patch: { label?: string; url?: string; imageUrl?: string },
+  ) => void;
 }
 
 function Thumb({ item }: { item: Item }) {
@@ -51,6 +63,37 @@ function Thumb({ item }: { item: Item }) {
         <span>{item.label.slice(0, 1).toUpperCase()}</span>
       )}
     </span>
+  );
+}
+
+/**
+ * Pencil-icon button that opens the EditItemModal for `item`. Shared
+ * between the chip variant (current merge frame, currently-inserting
+ * banner) and the full-row variant (queue sublists, unplaced, sorted,
+ * pending). The `chip` variant uses the inline `.x`-style button class
+ * already styled for chips; the `row` variant uses `.icon-btn`.
+ */
+function EditButton({
+  item,
+  onOpen,
+  variant,
+}: {
+  item: Item;
+  onOpen: (item: Item) => void;
+  variant: 'chip' | 'row';
+}) {
+  return (
+    <button
+      className={variant === 'chip' ? 'x edit' : 'icon-btn'}
+      onClick={(e) => {
+        e.stopPropagation();
+        onOpen(item);
+      }}
+      title={`Edit "${item.label}"`}
+      aria-label={`Edit ${item.label}`}
+    >
+      ✎
+    </button>
   );
 }
 
@@ -77,8 +120,17 @@ function MergeListView({
   onAppendPreRanked,
   onManualInsert,
   onForget,
+  onEditItem,
 }: Props & { state: MergeState }) {
   const [addOpen, setAddOpen] = useState(false);
+  // The item currently open in the EditItemModal. We track by id (not
+  // by Item reference) so the modal re-reads from state.items[id] on
+  // any external update — keeps the form in sync if the user has an
+  // edit open and another autosave/restore changes the underlying
+  // dict.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const editingItem = editingId ? state.items[editingId] ?? null : null;
+  const openEdit = (it: Item) => setEditingId(it.id);
   const hidden = useMemo(() => new Set(state.hidden), [state.hidden]);
   const existingIds = useMemo(
     () => new Set(Object.keys(state.items)),
@@ -97,6 +149,7 @@ function MergeListView({
             hidden={hidden}
             onHide={onHide}
             onUnhide={onUnhide}
+            onEdit={openEdit}
           />
           <CurrentMergeRow
             label="Left remaining"
@@ -105,6 +158,7 @@ function MergeListView({
             hidden={hidden}
             onHide={onHide}
             onUnhide={onUnhide}
+            onEdit={openEdit}
           />
           <CurrentMergeRow
             label="Right remaining"
@@ -113,6 +167,7 @@ function MergeListView({
             hidden={hidden}
             onHide={onHide}
             onUnhide={onUnhide}
+            onEdit={openEdit}
           />
           <div
             style={{
@@ -148,6 +203,7 @@ function MergeListView({
           onUnhide={onUnhide}
           onReorder={onReorder}
           onBreakApart={onBreakApart}
+          onEdit={openEdit}
         />
       ))}
 
@@ -193,6 +249,7 @@ function MergeListView({
                   )}
                 </span>
                 <span className="actions">
+                  <EditButton item={item} onOpen={openEdit} variant="row" />
                   <button
                     className="icon-btn"
                     onClick={() => onManualInsert(id)}
@@ -240,6 +297,17 @@ function MergeListView({
           }}
         />
       )}
+
+      {editingItem && (
+        <EditItemModal
+          item={editingItem}
+          onCancel={() => setEditingId(null)}
+          onSave={(patch) => {
+            onEditItem(editingItem.id, patch);
+            setEditingId(null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -251,6 +319,7 @@ function CurrentMergeRow({
   hidden,
   onHide,
   onUnhide,
+  onEdit,
 }: {
   label: string;
   ids: string[];
@@ -258,6 +327,7 @@ function CurrentMergeRow({
   hidden: Set<string>;
   onHide: (id: string) => void;
   onUnhide: (id: string) => void;
+  onEdit: (item: Item) => void;
 }) {
   return (
     <div className="list-merge-row">
@@ -280,6 +350,7 @@ function CurrentMergeRow({
             >
               <Thumb item={item} />
               {item.label}
+              <EditButton item={item} onOpen={onEdit} variant="chip" />
               {isHidden ? (
                 <button
                   className="x"
@@ -316,6 +387,7 @@ function SublistView({
   onUnhide,
   onReorder,
   onBreakApart,
+  onEdit,
 }: {
   sub: string[];
   queueIndex: number;
@@ -325,6 +397,7 @@ function SublistView({
   onUnhide: (id: string) => void;
   onReorder: (queueIndex: number, itemIndex: number, dir: -1 | 1) => void;
   onBreakApart: (queueIndex: number) => void;
+  onEdit: (item: Item) => void;
 }) {
   const isFront = queueIndex < 2;
   return (
@@ -386,6 +459,7 @@ function SublistView({
                 )}
               </span>
               <span className="actions">
+                <EditButton item={item} onOpen={onEdit} variant="row" />
                 {isHidden ? (
                   <button
                     className="icon-btn"
@@ -425,8 +499,14 @@ function InsertionListView({
   onAddItems,
   onReorderInSorted,
   onReturnToPending,
+  onEditItem,
 }: Props & { state: InsertionState }) {
   const [addOpen, setAddOpen] = useState(false);
+  // See MergeListView's editingId comment — we track by id so the modal
+  // re-reads from the (potentially-updated) items dict.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const editingItem = editingId ? state.items[editingId] ?? null : null;
+  const openEdit = (it: Item) => setEditingId(it.id);
   const hidden = useMemo(() => new Set(state.hidden), [state.hidden]);
   const existingIds = useMemo(
     () => new Set(Object.keys(state.items)),
@@ -444,6 +524,13 @@ function InsertionListView({
             <span className="chip">
               <Thumb item={state.items[insertingId]} />
               {state.items[insertingId]?.label ?? insertingId}
+              {state.items[insertingId] && (
+                <EditButton
+                  item={state.items[insertingId]}
+                  onOpen={openEdit}
+                  variant="chip"
+                />
+              )}
             </span>
           </div>
           <div
@@ -519,6 +606,7 @@ function InsertionListView({
                   </span>
                 )}
                 <span className="actions">
+                  <EditButton item={item} onOpen={openEdit} variant="row" />
                   {isHidden ? (
                     <button
                       className="icon-btn"
@@ -565,6 +653,11 @@ function InsertionListView({
                       {item.label}
                     </span>
                     <span className="actions">
+                      <EditButton
+                        item={item}
+                        onOpen={openEdit}
+                        variant="row"
+                      />
                       <button
                         className="icon-btn danger"
                         onClick={() => onHide(id)}
@@ -599,6 +692,17 @@ function InsertionListView({
           onAddMany={(items) => {
             onAddItems(items);
             setAddOpen(false);
+          }}
+        />
+      )}
+
+      {editingItem && (
+        <EditItemModal
+          item={editingItem}
+          onCancel={() => setEditingId(null)}
+          onSave={(patch) => {
+            onEditItem(editingItem.id, patch);
+            setEditingId(null);
           }}
         />
       )}
