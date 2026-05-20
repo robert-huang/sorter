@@ -100,6 +100,193 @@ a {
   text-align: center;
 }
 
+/* Loud variant for actionable failures (storage full, etc.). Uses the
+   danger ramp instead of the warn ramp so a user glance distinguishes
+   "FYI" from "your save just failed". */
+.app-banner.danger {
+  background: var(--danger-soft);
+  border-bottom-color: var(--danger);
+  color: var(--danger);
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Warn variant for non-critical-but-actionable banners (multi-tab
+   coordination, etc.). Yellow ramp so it's louder than informational
+   gray but quieter than the danger red used for save failures. */
+.app-banner.warn {
+  background: var(--warn-bg);
+  border-bottom-color: var(--warn-border);
+  color: var(--warn-text);
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+}
+
+.app-banner .banner-dismiss {
+  background: transparent;
+  border: 1px solid currentColor;
+  color: inherit;
+  border-radius: 4px;
+  width: 22px;
+  height: 22px;
+  line-height: 1;
+  font-size: 16px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.app-banner.danger .banner-dismiss:hover {
+  background: var(--danger);
+  color: var(--surface);
+}
+
+.app-banner.warn .banner-dismiss:hover {
+  background: var(--warn-text);
+  color: var(--surface);
+}
+
+/* Primary action inside a banner (e.g. "Reload" in the multi-tab warn).
+   Filled style to invite the click over Dismiss. */
+.app-banner .banner-action {
+  background: currentColor;
+  color: var(--surface);
+  border: none;
+  border-radius: 4px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.app-banner .banner-action:hover {
+  opacity: 0.85;
+}
+
+/* ---------- share-link + recipient-overlay styling ---------- */
+
+.share-url-textarea {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-alt);
+  color: var(--text);
+  resize: vertical;
+  word-break: break-all;
+}
+
+.share-info-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.share-info-stat {
+  color: var(--text-muted);
+}
+
+.share-info-warn {
+  color: var(--warn-text);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.share-kind-fieldset {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px 10px;
+  margin: 0 0 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.share-kind-legend {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 0 6px;
+}
+
+.share-kind-radio {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.share-kind-radio input[type='radio'] {
+  margin-top: 3px;
+  flex: 0 0 auto;
+}
+
+.shared-import-name {
+  margin: 8px 0;
+  font-size: 14px;
+}
+
+/* Recipient preview list: capped height so a 100-item share doesn't
+   blow past the viewport. Trailing "… and N more" line keeps the
+   count visible even when the list overflows. */
+.shared-import-preview {
+  max-height: 280px;
+  overflow-y: auto;
+  margin: 8px 0 0;
+  padding: 8px 12px 8px 28px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-alt);
+}
+
+/* Template variant: unnumbered list. The bullet markers in the default
+   ul style would be misleading (template items have no order), so we
+   suppress them and reuse the same padding the <ol> uses (so numbered
+   and unnumbered previews don't shift width on kind toggle). */
+.shared-import-preview-template {
+  list-style: none;
+  padding-left: 12px;
+}
+
+.shared-import-preview li {
+  padding: 4px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.shared-import-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shared-import-link {
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.shared-import-more {
+  color: var(--text-muted);
+  font-style: italic;
+  list-style: none;
+  margin-left: -16px;
+}
+
 .app-main {
   flex: 1;
   display: flex;
@@ -323,6 +510,23 @@ a {
   font-size: 13px;
   color: var(--text-muted);
   text-align: center;
+}
+
+.slot-search {
+  width: 100%;
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  box-sizing: border-box;
+}
+
+.slot-search:focus {
+  outline: none;
+  border-color: var(--accent, var(--text));
 }
 
 .settings-item {
@@ -695,6 +899,17 @@ a {
 .icon-button:hover {
   background: var(--surface-2);
   color: var(--text);
+}
+
+/* Pinned-state visual cue for the slot list pin button — uses the
+   accent color so a quick glance at the gear menu picks out which
+   slots are protected from auto-eviction. */
+.icon-button.pinned {
+  color: var(--accent);
+}
+
+.icon-button.pinned:hover {
+  background: var(--accent-soft);
 }
 
 /* ---------- Preview ---------- */

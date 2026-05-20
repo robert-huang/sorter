@@ -7,6 +7,7 @@ import type {
 } from '../lib/types';
 import { AddItemsModal } from './AddItemsModal';
 import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
+import { ItemThumb } from './ItemThumb';
 
 interface Props {
   state: SortState;
@@ -58,15 +59,10 @@ interface Props {
 }
 
 function Thumb({ item }: { item: Item }) {
-  return (
-    <span className="thumb">
-      {item.imageUrl ? (
-        <img src={item.imageUrl} alt="" />
-      ) : (
-        <span>{item.label.slice(0, 1).toUpperCase()}</span>
-      )}
-    </span>
-  );
+  // Pass placeholderClass="" so the placeholder inherits the parent
+  // .thumb font styling — matches the prior single-character look but
+  // now shows initials and adds onError fallback for broken URLs.
+  return <ItemThumb item={item} className="thumb" placeholderClass="" />;
 }
 
 /**

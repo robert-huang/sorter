@@ -1,5 +1,6 @@
 import type { SlotMeta } from '../lib/types';
 import { SLOT_CAP } from '../lib/storage';
+import { Modal } from './Modal';
 
 interface Props {
   /** The slot that will be silently evicted to make room. */
@@ -44,38 +45,36 @@ export function SlotCapConfirmModal({
   onContinue,
 }: Props) {
   return (
-    <div className="modal-backdrop" onClick={onCancel}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h3>Slot storage is full</h3>
-        <p style={{ color: 'var(--text-muted)' }}>
-          Your browser is holding the maximum of <strong>{SLOT_CAP} saved
-          sorts</strong>. To make room for a new one, the least-recently-used
-          slot will be deleted:
-        </p>
-        <p style={{ color: 'var(--text)', fontWeight: 500 }}>
-          &ldquo;{victim.name}&rdquo;{' '}
-          <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>
-            &mdash; {victim.totalItems} item{victim.totalItems === 1 ? '' : 's'},
-            last touched {relativeTime(victim.updatedAt)}
-          </span>
-        </p>
-        <p style={{ color: 'var(--text-muted)' }}>
-          Once deleted, the slot&rsquo;s sort and undo history are gone &mdash;
-          but any JSON file you downloaded for it is unaffected. Tip: open the
-          gear menu beforehand to download a backup of any slot.
-        </p>
-        <div className="modal-actions">
-          <button className="btn" onClick={onCancel}>
-            Cancel
-          </button>
-          <button className="btn" onClick={onDownloadThenContinue}>
-            Download oldest first
-          </button>
-          <button className="btn danger" onClick={onContinue}>
-            Delete oldest &amp; continue
-          </button>
-        </div>
+    <Modal label="Slot storage full confirmation" onClose={onCancel}>
+      <h3>Slot storage is full</h3>
+      <p style={{ color: 'var(--text-muted)' }}>
+        Your browser is holding the maximum of <strong>{SLOT_CAP} saved
+        sorts</strong>. To make room for a new one, the least-recently-used
+        slot will be deleted:
+      </p>
+      <p style={{ color: 'var(--text)', fontWeight: 500 }}>
+        &ldquo;{victim.name}&rdquo;{' '}
+        <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>
+          &mdash; {victim.totalItems} item{victim.totalItems === 1 ? '' : 's'},
+          last touched {relativeTime(victim.updatedAt)}
+        </span>
+      </p>
+      <p style={{ color: 'var(--text-muted)' }}>
+        Once deleted, the slot&rsquo;s sort and undo history are gone &mdash;
+        but any JSON file you downloaded for it is unaffected. Tip: open the
+        gear menu beforehand to download a backup of any slot.
+      </p>
+      <div className="modal-actions">
+        <button className="btn" onClick={onCancel}>
+          Cancel
+        </button>
+        <button className="btn" onClick={onDownloadThenContinue}>
+          Download oldest first
+        </button>
+        <button className="btn danger" onClick={onContinue}>
+          Delete oldest &amp; continue
+        </button>
       </div>
-    </div>
+    </Modal>
   );
 }

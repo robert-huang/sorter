@@ -190,6 +190,14 @@ function emptyManifest(): SlotsManifest {
 /**
  * Read the manifest. Returns an empty manifest on miss or corrupt JSON.
  * Never throws.
+ *
+ * Note: corruption is normally handled at boot by
+ * `repairManifestIfCorrupt()`, which scans the slot-blob keys directly
+ * and rebuilds a fresh manifest. This function is the defensive last
+ * resort — by the time we get here, the repair has either succeeded
+ * (so the manifest is valid) or there are no slot blobs to recover.
+ * Returning empty is safe either way; the App will just show "No
+ * saved sorts yet" instead of crashing.
  */
 export function readManifest(): SlotsManifest {
   if (!isAutosaveAvailable()) return emptyManifest();
@@ -204,6 +212,117 @@ export function readManifest(): SlotsManifest {
   } catch {
     return emptyManifest();
   }
+}
+
+// ---------- manifest repair (corruption recovery) ----------
+
+/**
+ * One-shot notice for the App layer: how many slots were rebuilt by the
+ * last `repairManifestIfCorrupt()` call, or null if no repair happened
+ * since the last consume. Read + cleared via `consumeManifestRepairNotice`.
+ */
+let lastRepairCount: number | null = null;
+
+/**
+ * True when the manifest blob is present but unparseable or has the
+ * wrong shape. A MISSING manifest (first boot, post-clear) is NOT
+ * corrupt — it just means we're starting fresh and don't need repair.
+ */
+function isManifestCorrupt(): boolean {
+  if (!isAutosaveAvailable()) return false;
+  const raw = window.localStorage.getItem(MANIFEST_KEY);
+  if (!raw) return false;
+  try {
+    const parsed = JSON.parse(raw) as Partial<SlotsManifest> | null;
+    if (!parsed || typeof parsed !== 'object') return true;
+    if (parsed.version !== 1 || !Array.isArray(parsed.slots)) return true;
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Enumerate ids of all slot-blob keys currently in localStorage. Used
+ * by `repairManifestIfCorrupt` to discover orphans after the manifest
+ * goes bad — those blob bytes are the source of truth for what the
+ * user actually had.
+ */
+function listSlotBlobIds(): string[] {
+  if (!isAutosaveAvailable()) return [];
+  const out: string[] = [];
+  for (let i = 0; i < window.localStorage.length; i++) {
+    const k = window.localStorage.key(i);
+    if (!k) continue;
+    const m = k.match(/^sorter:slot:([^:]+):v1$/);
+    if (m) out.push(m[1]);
+  }
+  return out;
+}
+
+/**
+ * Synthesize a SlotMeta from a blob's contents. Used only by the repair
+ * path — slots minted through the normal `createSlot` flow carry their
+ * own (more accurate) timestamps. Sets createdAt = updatedAt = now since
+ * the original timestamps were lost with the manifest.
+ */
+function synthesizeMetaFromBlob(id: string, blob: AutosaveBlob): SlotMeta {
+  const now = new Date().toISOString();
+  return {
+    id,
+    name: autoNameFromBlob(blob),
+    createdAt: now,
+    updatedAt: now,
+    totalItems: Object.keys(blob.items).length,
+    comparisons: blob.progress.comparisons,
+    done: blob.progress.done,
+  };
+}
+
+/**
+ * If the manifest is unparseable or shape-broken, walk all
+ * `sorter:slot:*:v1` keys and rebuild a fresh manifest from each blob's
+ * contents. Idempotent: no-op when the manifest is already valid.
+ *
+ * Sets a one-shot repair notice (`lastRepairCount`) that App.tsx
+ * consumes after boot to flash a banner. The activeId is cleared since
+ * we don't know which slot the user was on before the corruption.
+ *
+ * Why this matters: without repair, a corrupted manifest makes ALL
+ * slot blobs invisible to the LIST tab even though the bytes are still
+ * on disk — the user's only recourse would be DevTools. Even a
+ * best-effort rebuild with synthesized timestamps is dramatically
+ * better than "your saves all vanished".
+ */
+export function repairManifestIfCorrupt(): void {
+  if (!isAutosaveAvailable()) return;
+  if (!isManifestCorrupt()) return;
+  const ids = listSlotBlobIds();
+  const slots: SlotMeta[] = [];
+  for (const id of ids) {
+    const blob = readSlotBlob(id);
+    if (!blob) continue;
+    slots.push(synthesizeMetaFromBlob(id, blob));
+  }
+  const repaired: SlotsManifest = {
+    version: 1,
+    activeId: null,
+    slots,
+  };
+  writeManifest(repaired);
+  lastRepairCount = slots.length;
+}
+
+/**
+ * Read and clear the one-shot repair notice. Returns the number of
+ * rebuilt slots from the most recent repair, or null if no repair has
+ * happened since the last consume. App.tsx calls this once at boot to
+ * decide whether to flash the recovery banner.
+ */
+export function consumeManifestRepairNotice(): number | null {
+  const out = lastRepairCount;
+  lastRepairCount = null;
+  return out;
 }
 
 export function writeManifest(m: SlotsManifest): void {
@@ -331,8 +450,18 @@ export interface CreateSlotResult {
 
 /**
  * Persist a brand-new slot, prepend its meta, evict the oldest if we'd
- * exceed `SLOT_CAP`, and activate it. Returns the new meta plus any
- * evicted metas.
+ * exceed `SLOT_CAP`, and activate it.
+ *
+ * Returns `{ meta, evicted }` on success; `null` if the durable blob
+ * write fails (typically quota exhaustion). On failure we DO NOT
+ * register the meta in the manifest — that prevents the "ghost slot"
+ * bug where a meta points at a missing blob and the LIST tab shows an
+ * un-openable row. Any slots evicted before the failed write are
+ * persisted in the manifest because their blobs are gone regardless.
+ *
+ * In-memory-only environments (file://, private mode where
+ * isAutosaveAvailable() is false) skip persistence entirely and return
+ * a successful result so the app stays usable within the session.
  *
  * Note: the App layer should pre-flight the cap with a confirm modal
  * (see `SlotCapConfirmModal`) so the user knows what's about to be
@@ -340,7 +469,10 @@ export interface CreateSlotResult {
  * unconditional safety net — e.g. if a future code path skips the
  * pre-flight, we still won't grow storage unbounded.
  */
-export function createSlot(blob: AutosaveBlob, name: string): CreateSlotResult {
+export function createSlot(
+  blob: AutosaveBlob,
+  name: string,
+): CreateSlotResult | null {
   // Flush any pending writes to the OUTGOING active slot before switching.
   flushAutosave();
   const id = newSlotId();
@@ -354,30 +486,53 @@ export function createSlot(blob: AutosaveBlob, name: string): CreateSlotResult {
     comparisons: blob.progress.comparisons,
     done: blob.progress.done,
   };
-  if (isAutosaveAvailable()) {
-    try {
-      window.localStorage.setItem(
-        slotBlobKey(id),
-        JSON.stringify(buildSaveFile(blob)),
-      );
-    } catch (err) {
-      console.warn('createSlot blob write failed', err);
-    }
+
+  // In-memory-only environments: skip persistence; activate so the
+  // session is usable but warn the caller's UI via isAutosaveAvailable().
+  if (!isAutosaveAvailable()) {
+    currentActiveId = id;
+    resetAutosaveBookkeeping(blob.progress.comparisons);
+    return { meta, evicted: [] };
   }
+
+  // Pre-evict to cap BEFORE the blob write so we free quota first; the
+  // just-minted blob has a better chance of fitting. Eviction skips
+  // pinned slots (see SlotMeta.pinned) — if every existing slot is
+  // pinned we can still proceed (the blob write will fail loudly via
+  // the quota path below rather than silently dropping a pinned slot).
   const m = readManifest();
-  m.slots.unshift(meta);
-  // Evict oldest-updated entries past the cap. The just-created slot has
-  // `now` as its updatedAt so it's safe even if everything is recent.
   const evicted: SlotMeta[] = [];
-  while (m.slots.length > SLOT_CAP) {
+  // We want at most SLOT_CAP entries AFTER we unshift the new meta, so
+  // pre-evict down to (SLOT_CAP - 1).
+  while (m.slots.filter((s) => !s.pinned).length > 0 && m.slots.length >= SLOT_CAP) {
     const oldest = m.slots
+      .filter((s) => !s.pinned)
       .slice()
       .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt))[0];
-    if (!oldest || oldest.id === id) break; // never evict the slot we just made
+    if (!oldest) break;
     deleteSlotBlob(oldest.id);
     m.slots = m.slots.filter((s) => s.id !== oldest.id);
     evicted.push(oldest);
   }
+
+  // Attempt the durable blob write. On failure we abort the mint and
+  // leave the manifest WITHOUT the new meta. If we already evicted
+  // slots above (their blobs are gone), persist the trimmed manifest
+  // so the meta state matches reality — otherwise stale metas would
+  // point at deleted blobs.
+  try {
+    window.localStorage.setItem(
+      slotBlobKey(id),
+      JSON.stringify(buildSaveFile(blob)),
+    );
+  } catch (err) {
+    console.warn('createSlot blob write failed', err);
+    if (evicted.length > 0) writeManifest(m);
+    return null;
+  }
+
+  // Blob is durable; safe to register the meta and activate.
+  m.slots.unshift(meta);
   m.activeId = id;
   writeManifest(m);
   currentActiveId = id;
@@ -389,16 +544,54 @@ export function createSlot(blob: AutosaveBlob, name: string): CreateSlotResult {
 
 /**
  * Inspect the slot that *would* be evicted if a new slot were minted right
- * now. Returns null when we're below the cap. Used by the pre-flight
- * cap-confirm modal so the user sees the name + timestamp of what they're
- * about to lose before they click Continue. Always reads a fresh manifest
- * since slot writes can happen between renders.
+ * now. Returns null when we're below the cap OR when every existing slot
+ * is pinned (in which case eviction can't free anything and the next
+ * mint will likely fail at the blob-write step — caller should warn).
+ * Used by the pre-flight cap-confirm modal so the user sees the name +
+ * timestamp of what they're about to lose before they click Continue.
+ * Always reads a fresh manifest since slot writes can happen between
+ * renders.
  */
 export function peekEvictionTarget(): SlotMeta | null {
   const m = readManifest();
   if (m.slots.length < SLOT_CAP) return null;
-  const sorted = m.slots.slice().sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
+  const evictable = m.slots.filter((s) => !s.pinned);
+  if (evictable.length === 0) return null;
+  const sorted = evictable.slice().sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
   return sorted[0] ?? null;
+}
+
+/**
+ * Returns true when the slot list is at cap AND every slot is pinned —
+ * i.e. the next `createSlot` call will not be able to free room and the
+ * caller should warn the user rather than letting the blob write fail
+ * silently. Distinct from `peekEvictionTarget()` returning null (which
+ * is also the below-cap case).
+ */
+export function isAtCapAndAllPinned(): boolean {
+  const m = readManifest();
+  if (m.slots.length < SLOT_CAP) return false;
+  return m.slots.every((s) => s.pinned);
+}
+
+/**
+ * Toggle a slot's pinned flag. Pinning excludes the slot from eviction
+ * when the cap is hit. No-op for unknown id. Bumps `updatedAt` so the
+ * sort order in the LIST tab moves the just-pinned slot to the top of
+ * its updated-recent group (matches the user's mental model of "I just
+ * touched this slot").
+ */
+export function pinSlot(id: string, pinned: boolean): SlotsManifest {
+  const m = readManifest();
+  let changed = false;
+  m.slots = m.slots.map((s) => {
+    if (s.id !== id) return s;
+    if ((s.pinned ?? false) === pinned) return s;
+    changed = true;
+    return { ...s, pinned, updatedAt: new Date().toISOString() };
+  });
+  if (changed) writeManifest(m);
+  return m;
 }
 
 /**
@@ -510,6 +703,91 @@ let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let lastFlushTime = 0;
 let comparisonsAtLastFlush = 0;
 
+// ---------- autosave error surfacing ----------
+
+/**
+ * Describes the last terminal autosave failure (i.e. one that recovery
+ * could not fix). Surfaced via `subscribeAutosaveError` so the UI can
+ * render a banner. Cleared automatically on the next successful write.
+ */
+export interface AutosaveError {
+  reason: 'quota' | 'other';
+  attemptedAt: string; // ISO timestamp
+  /** Number of localStorage slot keys present when the failure happened —
+   *  surfaces "you have N saves; try deleting old ones" in the banner. */
+  slotCount: number;
+}
+
+/**
+ * Describes a successful auto-recovery during autosave. Surfaced via the
+ * same subscriber so the UI can prompt the user about a side effect
+ * (e.g. the in-memory undo ring being trimmed to match the on-disk one,
+ * or an old slot being evicted). Distinct from `AutosaveError` because
+ * recovery means the write SUCCEEDED — no banner is needed, just a
+ * one-shot toast.
+ */
+export interface AutosaveRecovery {
+  kind: 'trimmed-undo' | 'evicted-slot';
+  /** Updated undoRing length when kind = 'trimmed-undo'; the App should
+   *  truncate its in-memory ring to this length so future writes don't
+   *  re-grow the on-disk ring back to its bloated size. */
+  newUndoRingLen?: number;
+  /** Evicted slot's meta when kind = 'evicted-slot'. */
+  evicted?: SlotMeta;
+}
+
+export type AutosaveErrorListener = (
+  err: AutosaveError | null,
+  recovery?: AutosaveRecovery,
+) => void;
+
+let errorListener: AutosaveErrorListener | null = null;
+let lastError: AutosaveError | null = null;
+
+/**
+ * Subscribe to autosave failure / recovery events. The listener fires
+ *  - on terminal failure (passes `AutosaveError`, no recovery)
+ *  - on successful auto-recovery (passes `null` error + `AutosaveRecovery`)
+ *  - on first successful write after a prior error (passes `null` to clear)
+ * Returns an unsubscribe function. Only one listener is supported — the
+ * App registers it once at boot.
+ */
+export function subscribeAutosaveError(listener: AutosaveErrorListener): () => void {
+  errorListener = listener;
+  return () => {
+    if (errorListener === listener) errorListener = null;
+  };
+}
+
+export function getLastAutosaveError(): AutosaveError | null {
+  return lastError;
+}
+
+function notifyError(
+  err: AutosaveError | null,
+  recovery?: AutosaveRecovery,
+): void {
+  lastError = err;
+  if (errorListener) errorListener(err, recovery);
+}
+
+/**
+ * Attempt to write the given slot blob to localStorage. Returns true on
+ * success, false on any failure (quota, security policy, or anything
+ * else localStorage may surface). We treat ALL failures as recoverable
+ * — the recovery path in `performWrite` does the same fallbacks
+ * regardless of the underlying browser-specific error name. The caller
+ * is responsible for retry / recovery / error surfacing.
+ */
+function tryWriteSlotBlob(id: string, blob: AutosaveBlob): boolean {
+  try {
+    window.localStorage.setItem(slotBlobKey(id), JSON.stringify(buildSaveFile(blob)));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Reset the debounced-write bookkeeping. After creating or switching to a
  * slot, the slot's persisted state IS already current (createSlot writes
@@ -537,23 +815,135 @@ function cancelPendingAutosave(): void {
   pendingBlob = null;
 }
 
+/**
+ * Public alias for `cancelPendingAutosave`. Used by the multi-tab
+ * coordination path: when another tab writes to the active slot's blob,
+ * this tab must drop its in-flight autosave WITHOUT writing it —
+ * otherwise the pending flush would clobber the other tab's changes.
+ * Caller should follow with `readSlotBlob` to re-sync in-memory state
+ * to the now-canonical disk state.
+ */
+export function discardPendingAutosave(): void {
+  cancelPendingAutosave();
+}
+
+/**
+ * Trimmed undo-ring length used by the quota-recovery fallback. Chosen
+ * to keep enough history that a casual mid-comparison undo still works
+ * (5 entries ≈ 5 clicks back), while being small enough to materially
+ * shrink the on-disk blob when storage is full. Surfaced via the
+ * `AutosaveRecovery.newUndoRingLen` notification so App.tsx can mirror
+ * the trim in memory (otherwise the next autosave just re-grows the
+ * ring and we hit quota again).
+ */
+const QUOTA_RECOVERY_UNDO_KEEP = 5;
+
+/**
+ * Commit a successful write's side effects: bump the slot's meta,
+ * reset the in-flight bookkeeping, and clear any prior quota error.
+ * Pulled out of performWrite so the recovery paths share the same
+ * post-write housekeeping.
+ */
+function commitWriteSuccess(blob: AutosaveBlob, recovery?: AutosaveRecovery): void {
+  if (currentActiveId === null) return;
+  const now = new Date().toISOString();
+  updateSlotMeta(currentActiveId, {
+    updatedAt: now,
+    totalItems: Object.keys(blob.items).length,
+    comparisons: blob.progress.comparisons,
+    done: blob.progress.done,
+  });
+  lastFlushTime = Date.now();
+  comparisonsAtLastFlush = blob.progress.comparisons;
+  // Always notify on success: clears any banner the UI was showing,
+  // and if a recovery happened, fires the toast on the same edge.
+  notifyError(null, recovery);
+}
+
+/**
+ * Persist the given autosave blob to the active slot.
+ *
+ * On quota exhaustion we attempt two-stage recovery before giving up:
+ *  1. Trim the on-disk undoRing to the last `QUOTA_RECOVERY_UNDO_KEEP`
+ *     entries and retry. The UI mirrors the trim so subsequent writes
+ *     don't re-bloat back to quota.
+ *  2. Evict the oldest non-pinned non-active slot and retry. The UI
+ *     receives a `kind: 'evicted-slot'` recovery notification so it
+ *     can flash a toast naming what was deleted.
+ * If both recoveries fail, surface a terminal AutosaveError so the
+ * banner appears.
+ *
+ * Always clears `pendingBlob` on entry so a follow-up `flushAutosave`
+ * doesn't re-run the same write (this was a latent duplicate-write bug
+ * in the force-flush + flushAutosave sequence — the force-flush path
+ * in `scheduleAutosave` wrote synchronously but left `pendingBlob`
+ * set, so the next `flushAutosave` from the caller re-issued the same
+ * blob to localStorage).
+ */
 function performWrite(blob: AutosaveBlob): void {
   if (!isAutosaveAvailable()) return;
   if (currentActiveId === null) return;
-  try {
-    const file = buildSaveFile(blob);
-    window.localStorage.setItem(slotBlobKey(currentActiveId), JSON.stringify(file));
-    updateSlotMeta(currentActiveId, {
-      updatedAt: file.createdAt,
-      totalItems: Object.keys(blob.items).length,
-      comparisons: blob.progress.comparisons,
-      done: blob.progress.done,
-    });
-    lastFlushTime = Date.now();
-    comparisonsAtLastFlush = blob.progress.comparisons;
-  } catch (err) {
-    console.warn('autosave write failed', err);
+  pendingBlob = null;
+
+  if (tryWriteSlotBlob(currentActiveId, blob)) {
+    commitWriteSuccess(blob);
+    return;
   }
+
+  // First retry: trim the undoRing (only useful if it actually has
+  // surplus entries — otherwise skip straight to eviction).
+  if (blob.undoRing.length > QUOTA_RECOVERY_UNDO_KEEP) {
+    const trimmed: AutosaveBlob = {
+      ...blob,
+      undoRing: blob.undoRing.slice(-QUOTA_RECOVERY_UNDO_KEEP),
+    };
+    if (tryWriteSlotBlob(currentActiveId, trimmed)) {
+      commitWriteSuccess(trimmed, {
+        kind: 'trimmed-undo',
+        newUndoRingLen: trimmed.undoRing.length,
+      });
+      return;
+    }
+  }
+
+  // Second retry: evict the oldest non-pinned non-active slot.
+  const m = readManifest();
+  const evictable = m.slots
+    .filter((s) => !s.pinned && s.id !== currentActiveId)
+    .slice()
+    .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
+  if (evictable.length > 0) {
+    const victim = evictable[0];
+    deleteSlotBlob(victim.id);
+    m.slots = m.slots.filter((s) => s.id !== victim.id);
+    writeManifest(m);
+    // After eviction, try the trimmed blob first (if we trimmed above)
+    // — it's strictly smaller so it has a better chance of fitting.
+    const candidateBlob: AutosaveBlob =
+      blob.undoRing.length > QUOTA_RECOVERY_UNDO_KEEP
+        ? { ...blob, undoRing: blob.undoRing.slice(-QUOTA_RECOVERY_UNDO_KEEP) }
+        : blob;
+    if (tryWriteSlotBlob(currentActiveId, candidateBlob)) {
+      commitWriteSuccess(candidateBlob, {
+        kind: 'evicted-slot',
+        evicted: victim,
+        newUndoRingLen:
+          candidateBlob.undoRing.length === blob.undoRing.length
+            ? undefined
+            : candidateBlob.undoRing.length,
+      });
+      return;
+    }
+  }
+
+  // All recovery exhausted — surface a terminal error so the UI banner
+  // appears and the user can pin / delete slots to free room manually.
+  console.warn('autosave write failed; all recovery exhausted');
+  notifyError({
+    reason: 'quota',
+    attemptedAt: new Date().toISOString(),
+    slotCount: m.slots.length,
+  });
 }
 
 function scheduleFlush(): void {
@@ -654,6 +1044,359 @@ export async function loadSaveFromFile(file: File): Promise<AutosaveBlob> {
     items: parsed.items,
     progress: upgradeProgress(parsed.progress),
     undoRing: (parsed.undoRing ?? []).map(upgradeProgress),
+  };
+}
+
+// ---------- bulk archive (all slots in one file) ----------
+
+/**
+ * Bundled archive shape for "Backup all slots" / "Restore from backup".
+ * A single JSON envelope holding the manifest + every slot blob, so the
+ * user can save their entire sorter state to one file before clearing
+ * browser data or migrating to a new machine.
+ *
+ * `archiveVersion` is independent of the per-slot `SaveFile.version` —
+ * archive shape can evolve without breaking individual slot loads, and
+ * individual slots remain importable as standalone `.json` files via
+ * `loadSaveFromFile` regardless of what archive version produced them.
+ */
+export interface SlotArchive {
+  archiveVersion: 1;
+  exportedAt: string;
+  manifest: SlotsManifest;
+  /** id -> blob. Keys must match `manifest.slots[i].id`. */
+  blobs: Record<string, AutosaveBlob>;
+}
+
+export interface ImportAllResult {
+  imported: number;
+  skipped: number;
+  /**
+   * When a merge-mode import collided with an existing slot id, the
+   * imported blob was reassigned a fresh id. This array reports the
+   * rename so the UI can fold the rename count into the import toast.
+   */
+  renamedIds: Array<{ from: string; to: string }>;
+  /** Populated on terminal failure; on-disk state was NOT touched. */
+  error?: string;
+}
+
+/**
+ * Bundle every slot into a single JSON archive string. Reads the
+ * manifest, then each slot's blob; slots whose blob is missing from
+ * disk are silently dropped from the archive (the resulting manifest
+ * inside the archive is trimmed to match, so the importer never sees
+ * a "ghost meta" pointing at a non-existent blob).
+ *
+ * Returns the JSON string; the caller is responsible for triggering
+ * the actual file download. Returns a valid (but empty-payload)
+ * archive when there are no slots to back up — the caller decides
+ * whether to disable the button or download an empty file.
+ */
+export function exportAllSlots(): string {
+  const manifest = readManifest();
+  const blobs: Record<string, AutosaveBlob> = {};
+  const survivingSlots: SlotMeta[] = [];
+  for (const meta of manifest.slots) {
+    const blob = readSlotBlob(meta.id);
+    if (!blob) continue;
+    blobs[meta.id] = blob;
+    survivingSlots.push(meta);
+  }
+  const trimmedManifest: SlotsManifest = {
+    version: 1,
+    activeId:
+      manifest.activeId && blobs[manifest.activeId] ? manifest.activeId : null,
+    slots: survivingSlots,
+  };
+  const archive: SlotArchive = {
+    archiveVersion: 1,
+    exportedAt: new Date().toISOString(),
+    manifest: trimmedManifest,
+    blobs,
+  };
+  return JSON.stringify(archive, null, 2);
+}
+
+/**
+ * Trigger a browser download of the bundled archive. Filename embeds the
+ * timestamp so successive backups don't overwrite each other. Sibling of
+ * `downloadSave` (single slot) — split so callers can drive the byte
+ * generation separately from the DOM side effect (useful in tests).
+ */
+export function downloadAllSlots(): void {
+  const json = exportAllSlots();
+  const blobObj = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blobObj);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `sorter-backup-${timestampForFilename()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/**
+ * Import every slot from a `SlotArchive` JSON string. Two modes:
+ *
+ * - `'merge'`: add archive slots to the existing set. If an archive
+ *   slot's id collides with an existing slot id, mint a fresh id for
+ *   the import (the existing slot keeps its id) and report the rename
+ *   in `renamedIds`. Respects `SLOT_CAP` — returns an error without
+ *   touching disk if the merged total would exceed cap. Active-slot
+ *   pointer is NOT touched (user keeps their current working slot).
+ *   The `pinned` flag from archive metas is preserved verbatim.
+ *
+ * - `'replace'`: wipe every existing slot blob + the manifest, then
+ *   write archive blobs + manifest. Destructive — caller is responsible
+ *   for a confirm-modal pre-flight. Active-slot pointer adopts the
+ *   archive's `activeId` when its blob made it through validation;
+ *   otherwise null. Hard-caps at `SLOT_CAP` so an oversized archive
+ *   can't corrupt the manifest (excess slots are skipped, not silently
+ *   dropped — the count appears in `skipped`).
+ *
+ * Crash safety: the manifest write is the FINAL durable step in both
+ * modes. A mid-import crash leaves on-disk slot blobs partially
+ * populated but the manifest reflects either the pre-import state
+ * (merge, since we don't write manifest until everything succeeds) or
+ * an empty state (replace, after the wipe). `repairManifestIfCorrupt`
+ * on the next boot rebuilds a coherent view from whatever blobs
+ * survived.
+ *
+ * In-memory-only environments (file:// / private mode) return an error
+ * — there's no persistence to import into.
+ */
+export function importAllSlots(
+  json: string,
+  mode: 'merge' | 'replace' = 'merge',
+): ImportAllResult {
+  if (!isAutosaveAvailable()) {
+    return {
+      imported: 0,
+      skipped: 0,
+      renamedIds: [],
+      error: 'Storage is unavailable in this context.',
+    };
+  }
+
+  // -------- parse + envelope validation --------
+  let archive: SlotArchive;
+  try {
+    const parsed = JSON.parse(json) as Partial<SlotArchive>;
+    if (parsed.archiveVersion !== 1) {
+      return {
+        imported: 0,
+        skipped: 0,
+        renamedIds: [],
+        error: `Unsupported archive version: ${String(parsed.archiveVersion)}`,
+      };
+    }
+    if (
+      !parsed.manifest ||
+      typeof parsed.manifest !== 'object' ||
+      !Array.isArray(parsed.manifest.slots) ||
+      !parsed.blobs ||
+      typeof parsed.blobs !== 'object'
+    ) {
+      return {
+        imported: 0,
+        skipped: 0,
+        renamedIds: [],
+        error: 'Archive is missing required fields.',
+      };
+    }
+    archive = parsed as SlotArchive;
+  } catch {
+    return {
+      imported: 0,
+      skipped: 0,
+      renamedIds: [],
+      error: 'Archive is not valid JSON.',
+    };
+  }
+
+  // -------- per-blob validation (lenient: bad ones are skipped) --------
+  // Validate every blob in the archive UP FRONT so we know the real
+  // import size before mutating any on-disk state. This is what lets
+  // the merge cap check be accurate (`existing + valid <= SLOT_CAP`)
+  // rather than counting bad blobs that would never make it.
+  const validImports: Array<{ meta: SlotMeta; blob: AutosaveBlob }> = [];
+  let skipped = 0;
+  for (const meta of archive.manifest.slots) {
+    const raw = archive.blobs[meta.id] as Partial<AutosaveBlob> | undefined;
+    if (!raw || typeof raw !== 'object' || !raw.items || !raw.progress) {
+      skipped++;
+      continue;
+    }
+    // Normalize through upgradeProgress so any v1/v2 progress in the
+    // archive becomes v3 on import. (The export side serializes the
+    // current in-memory blob, which is always v3, but archives from
+    // older builds — or hand-edited ones — might carry older shapes.)
+    let normalized: AutosaveBlob;
+    try {
+      normalized = {
+        items: raw.items,
+        progress: upgradeProgress(raw.progress),
+        undoRing: Array.isArray(raw.undoRing)
+          ? raw.undoRing.map(upgradeProgress)
+          : [],
+      };
+    } catch {
+      skipped++;
+      continue;
+    }
+    validImports.push({ meta, blob: normalized });
+  }
+
+  if (mode === 'replace') {
+    return applyReplaceImport(archive, validImports, skipped);
+  }
+  return applyMergeImport(validImports, skipped);
+}
+
+/**
+ * Replace-mode import: wipe everything, then write archive contents.
+ * Hard-caps at SLOT_CAP so an oversized archive can't corrupt the
+ * manifest — extra slots are dropped from the END of the archive's
+ * slot list (preserving the order the archive was exported in).
+ */
+function applyReplaceImport(
+  archive: SlotArchive,
+  validImports: Array<{ meta: SlotMeta; blob: AutosaveBlob }>,
+  initialSkipped: number,
+): ImportAllResult {
+  let skipped = initialSkipped;
+  const accepted = validImports.slice(0, SLOT_CAP);
+  skipped += validImports.length - accepted.length;
+
+  // Wipe phase: cancel any in-flight autosave for the OUTGOING active
+  // slot (we're about to delete its blob), then delete every existing
+  // slot blob. We do this before writing new blobs so storage quota
+  // is freed first — important when the archive is large.
+  cancelPendingAutosave();
+  const existing = readManifest();
+  for (const s of existing.slots) {
+    deleteSlotBlob(s.id);
+  }
+
+  // Write blobs first, then the manifest. As elsewhere, manifest LAST
+  // so a partial crash leaves orphans (recoverable via boot repair)
+  // rather than ghost metas pointing at blobs that never made it.
+  const survivedMetas: SlotMeta[] = [];
+  for (const { meta, blob } of accepted) {
+    try {
+      window.localStorage.setItem(
+        slotBlobKey(meta.id),
+        JSON.stringify(buildSaveFile(blob)),
+      );
+      survivedMetas.push(meta);
+    } catch (err) {
+      console.warn('importAllSlots replace: blob write failed', err);
+      skipped++;
+    }
+  }
+  const activeId =
+    archive.manifest.activeId &&
+    survivedMetas.some((s) => s.id === archive.manifest.activeId)
+      ? archive.manifest.activeId
+      : null;
+  const newManifest: SlotsManifest = {
+    version: 1,
+    activeId,
+    slots: survivedMetas,
+  };
+  writeManifest(newManifest);
+  currentActiveId = activeId;
+  // Bookkeeping for autosave: the active slot (if any) just got its
+  // blob written fresh from the archive, so treat that as "the last
+  // flush" — the next scheduleAutosave shouldn't immediately force-write.
+  const adoptedComparisons =
+    activeId !== null
+      ? (accepted.find((a) => a.meta.id === activeId)?.blob.progress
+          .comparisons ?? 0)
+      : 0;
+  resetAutosaveBookkeeping(adoptedComparisons);
+  return {
+    imported: survivedMetas.length,
+    skipped,
+    renamedIds: [],
+  };
+}
+
+/**
+ * Merge-mode import: add archive slots to the existing set, renaming
+ * any colliding ids. Aborts BEFORE touching disk if the merged total
+ * would exceed `SLOT_CAP` — caller can either delete some slots and
+ * retry, or switch to replace mode.
+ */
+function applyMergeImport(
+  validImports: Array<{ meta: SlotMeta; blob: AutosaveBlob }>,
+  initialSkipped: number,
+): ImportAllResult {
+  let skipped = initialSkipped;
+  const existing = readManifest();
+  if (existing.slots.length + validImports.length > SLOT_CAP) {
+    return {
+      imported: 0,
+      skipped: 0,
+      renamedIds: [],
+      error:
+        `Cannot import — would exceed the ${SLOT_CAP}-slot cap ` +
+        `(have ${existing.slots.length}, archive adds ${validImports.length}). ` +
+        `Delete some slots first or use Replace instead.`,
+    };
+  }
+
+  const existingIds = new Set(existing.slots.map((s) => s.id));
+  const renamedIds: Array<{ from: string; to: string }> = [];
+  const importedMetas: SlotMeta[] = [];
+  for (const { meta, blob } of validImports) {
+    let targetId = meta.id;
+    if (existingIds.has(targetId)) {
+      // Mint a fresh id so we don't clobber the existing slot's blob.
+      // Loop guards against the (vanishingly rare) case where the new
+      // id collides with something already taken.
+      do {
+        targetId = newSlotId();
+      } while (existingIds.has(targetId));
+      renamedIds.push({ from: meta.id, to: targetId });
+    }
+    existingIds.add(targetId);
+    try {
+      window.localStorage.setItem(
+        slotBlobKey(targetId),
+        JSON.stringify(buildSaveFile(blob)),
+      );
+    } catch (err) {
+      console.warn('importAllSlots merge: blob write failed', err);
+      skipped++;
+      continue;
+    }
+    // Preserve every meta field except the (possibly-renamed) id —
+    // including `pinned`, `updatedAt`, `createdAt`, etc. updatedAt is
+    // kept verbatim so the imported slots don't artificially bubble
+    // to the top of the LIST tab (the list sorts pinned-first then by
+    // updatedAt, so imported slots slot into their natural recency
+    // position alongside the user's existing slots).
+    importedMetas.push({ ...meta, id: targetId });
+  }
+
+  // Prepend imported slots in the manifest. SlotList sorts pinned-first
+  // then by updatedAt at render time, so the visual order is driven by
+  // recency — but if anything ever iterates `manifest.slots` directly
+  // for "most-recent-import" semantics, the prepend gives a sensible
+  // default ordering.
+  const newManifest: SlotsManifest = {
+    version: 1,
+    activeId: existing.activeId, // keep user's current working slot
+    slots: [...importedMetas, ...existing.slots],
+  };
+  writeManifest(newManifest);
+  return {
+    imported: importedMetas.length,
+    skipped,
+    renamedIds,
   };
 }
 

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Item } from '../lib/types';
+import { Modal } from './Modal';
 
 /**
  * Save payload. All four fields are optional:
@@ -131,13 +132,12 @@ export function EditItemModal({
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
     // Enter on any field commits the form so the user doesn't have to
-    // reach for the mouse on a single-field fix.
+    // reach for the mouse on a single-field fix. Escape is handled by
+    // the Modal wrapper (focus is inside the panel so the wrapper's
+    // keydown still fires).
     if (e.key === 'Enter') {
       e.preventDefault();
       commit();
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      onCancel();
     }
   }
 
@@ -150,131 +150,129 @@ export function EditItemModal({
       : 'Rename this row so it no longer collides with another row in the import preview.';
 
   return (
-    <div className="modal-backdrop" onClick={onCancel}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h3>Edit item</h3>
-        <p style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 0 }}>
-          {helpText}
-        </p>
-        <div className="edit-item-form">
+    <Modal label="Edit item" onClose={onCancel}>
+      <h3>Edit item</h3>
+      <p style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 0 }}>
+        {helpText}
+      </p>
+      <div className="edit-item-form">
+        <label className="edit-item-field">
+          <span className="edit-item-label">Label</span>
+          <input
+            ref={labelRef}
+            type="text"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            onKeyDown={onKeyDown}
+            placeholder="Item name"
+          />
+        </label>
+        {showUrl && (
           <label className="edit-item-field">
-            <span className="edit-item-label">Label</span>
+            <span className="edit-item-label">URL</span>
             <input
-              ref={labelRef}
               type="text"
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
               onKeyDown={onKeyDown}
-              placeholder="Item name"
+              placeholder="https://… (optional)"
             />
           </label>
-          {showUrl && (
-            <label className="edit-item-field">
-              <span className="edit-item-label">URL</span>
-              <input
-                type="text"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                onKeyDown={onKeyDown}
-                placeholder="https://… (optional)"
-              />
-            </label>
-          )}
-          {showImageUrl && (
-            <label className="edit-item-field">
-              <span className="edit-item-label">Image URL</span>
-              <input
-                type="text"
-                value={imageUrl}
-                onChange={(e) => setImageUrl(e.target.value)}
-                onKeyDown={onKeyDown}
-                placeholder="https://… (optional)"
-              />
-            </label>
-          )}
-        </div>
-        {allowEditId && (
-          <div className="edit-item-advanced">
-            {!showAdvanced ? (
-              <button
-                type="button"
-                className="link-btn"
-                onClick={() => setShowAdvanced(true)}
-              >
-                Show advanced
-              </button>
-            ) : (
-              <>
-                <div className="edit-item-advanced-header">
-                  <span className="edit-item-advanced-title">Advanced</span>
-                  <button
-                    type="button"
-                    className="link-btn"
-                    onClick={() => {
-                      setShowAdvanced(false);
-                      // Reset draft to the current id so reopening
-                      // starts fresh instead of carrying stale typed
-                      // text that the user implicitly abandoned.
-                      setIdDraft(currentId ?? item.id);
-                    }}
-                  >
-                    Hide
-                  </button>
-                </div>
-                <label className="edit-item-field">
-                  <span className="edit-item-label">Logical ID</span>
-                  <input
-                    type="text"
-                    value={idDraft}
-                    onChange={(e) => setIdDraft(e.target.value)}
-                    onKeyDown={onKeyDown}
-                    placeholder="internal identifier (no spaces recommended)"
-                    aria-invalid={idError !== null}
-                  />
-                </label>
-                {idError !== null && (
-                  <div className="edit-item-id-error" role="alert">
-                    {idError}
-                  </div>
-                )}
-                <p
-                  style={{
-                    fontSize: 12,
-                    color: 'var(--text-muted)',
-                    margin: '4px 0 0',
+        )}
+        {showImageUrl && (
+          <label className="edit-item-field">
+            <span className="edit-item-label">Image URL</span>
+            <input
+              type="text"
+              value={imageUrl}
+              onChange={(e) => setImageUrl(e.target.value)}
+              onKeyDown={onKeyDown}
+              placeholder="https://… (optional)"
+            />
+          </label>
+        )}
+      </div>
+      {allowEditId && (
+        <div className="edit-item-advanced">
+          {!showAdvanced ? (
+            <button
+              type="button"
+              className="link-btn"
+              onClick={() => setShowAdvanced(true)}
+            >
+              Show advanced
+            </button>
+          ) : (
+            <>
+              <div className="edit-item-advanced-header">
+                <span className="edit-item-advanced-title">Advanced</span>
+                <button
+                  type="button"
+                  className="link-btn"
+                  onClick={() => {
+                    setShowAdvanced(false);
+                    // Reset draft to the current id so reopening
+                    // starts fresh instead of carrying stale typed
+                    // text that the user implicitly abandoned.
+                    setIdDraft(currentId ?? item.id);
                   }}
                 >
-                  The id is the item&rsquo;s internal handle. Change it
-                  only when you need two differently-spelled labels to
-                  stay distinct from one whose label collapses to the
-                  same canonical form.
-                </p>
-              </>
-            )}
-          </div>
-        )}
-        <div className="modal-actions">
-          <button className="btn" onClick={onCancel}>
-            Cancel
-          </button>
-          <button
-            className="btn primary"
-            onClick={commit}
-            disabled={!canSave}
-            title={
-              !canSave
-                ? trimmedLabel.length === 0
-                  ? 'Label cannot be blank'
-                  : idError !== null
-                    ? idError
-                    : 'No changes to save'
-                : 'Save changes'
-            }
-          >
-            Save
-          </button>
+                  Hide
+                </button>
+              </div>
+              <label className="edit-item-field">
+                <span className="edit-item-label">Logical ID</span>
+                <input
+                  type="text"
+                  value={idDraft}
+                  onChange={(e) => setIdDraft(e.target.value)}
+                  onKeyDown={onKeyDown}
+                  placeholder="internal identifier (no spaces recommended)"
+                  aria-invalid={idError !== null}
+                />
+              </label>
+              {idError !== null && (
+                <div className="edit-item-id-error" role="alert">
+                  {idError}
+                </div>
+              )}
+              <p
+                style={{
+                  fontSize: 12,
+                  color: 'var(--text-muted)',
+                  margin: '4px 0 0',
+                }}
+              >
+                The id is the item&rsquo;s internal handle. Change it
+                only when you need two differently-spelled labels to
+                stay distinct from one whose label collapses to the
+                same canonical form.
+              </p>
+            </>
+          )}
         </div>
+      )}
+      <div className="modal-actions">
+        <button className="btn" onClick={onCancel}>
+          Cancel
+        </button>
+        <button
+          className="btn primary"
+          onClick={commit}
+          disabled={!canSave}
+          title={
+            !canSave
+              ? trimmedLabel.length === 0
+                ? 'Label cannot be blank'
+                : idError !== null
+                  ? idError
+                  : 'No changes to save'
+              : 'Save changes'
+          }
+        >
+          Save
+        </button>
       </div>
-    </div>
+    </Modal>
   );
 }

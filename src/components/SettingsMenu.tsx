@@ -6,6 +6,15 @@ interface Props {
   autosaveAvailable: boolean;
   onLoadFromFile: (file: File) => void;
   onReset: () => void;
+  /** Trigger a JSON download of every slot in one archive file. */
+  onBackupAll: () => void;
+  /**
+   * Hand a SlotArchive JSON file to the App for parsing + confirm modal.
+   * Distinct from onLoadFromFile (which expects a single-slot SaveFile).
+   * The App branches on archive vs single-slot shape itself; this prop
+   * is just the upload trigger.
+   */
+  onRestoreFromBackup: (file: File) => void;
   /** Disable the "Delete this slot" entry when there is no active slot. */
   hasActiveSlot: boolean;
   /** Slots manifest, rendered inline at the top of the menu. */
@@ -18,6 +27,9 @@ interface Props {
   /** Download a JSON copy of a slot's on-disk blob from the per-row
    *  button in the slot list. */
   onDownloadSlot: (id: string) => void;
+  /** Pin/unpin a slot. Pinned slots are excluded from the auto-eviction
+   *  loop when `createSlot` hits the cap. */
+  onTogglePinSlot: (id: string, pinned: boolean) => void;
   showEstimatedRemaining: boolean;
   onToggleShowEstimatedRemaining: () => void;
   /**
@@ -33,6 +45,8 @@ export function SettingsMenu({
   autosaveAvailable,
   onLoadFromFile,
   onReset,
+  onBackupAll,
+  onRestoreFromBackup,
   hasActiveSlot,
   manifest,
   loadedSlotId,
@@ -40,6 +54,7 @@ export function SettingsMenu({
   onDeleteSlot,
   onRenameSlot,
   onDownloadSlot,
+  onTogglePinSlot,
   showEstimatedRemaining,
   onToggleShowEstimatedRemaining,
   autoInsertEnabled,
@@ -47,6 +62,10 @@ export function SettingsMenu({
 }: Props) {
   const [open, setOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
+  // Separate hidden input for archive restore so we can scope its
+  // change handler to "this is an archive" rather than "this is a
+  // single-slot save". Keeps the two pickers' UX independent.
+  const archiveFileRef = useRef<HTMLInputElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -74,6 +93,22 @@ export function SettingsMenu({
   function onFileChange(e: React.ChangeEvent<HTMLInputElement>): void {
     const file = e.target.files?.[0];
     if (file) onLoadFromFile(file);
+    e.target.value = '';
+  }
+
+  function onBackupAllClick(): void {
+    setOpen(false);
+    onBackupAll();
+  }
+
+  function onRestoreClick(): void {
+    setOpen(false);
+    archiveFileRef.current?.click();
+  }
+
+  function onArchiveFileChange(e: React.ChangeEvent<HTMLInputElement>): void {
+    const file = e.target.files?.[0];
+    if (file) onRestoreFromBackup(file);
     e.target.value = '';
   }
 
@@ -109,11 +144,31 @@ export function SettingsMenu({
               onDelete={onDeleteSlot}
               onRename={onRenameSlot}
               onDownload={onDownloadSlot}
+              onTogglePin={onTogglePinSlot}
             />
           </div>
           <div className="settings-divider" />
           <button className="settings-item" onClick={onLoadClick}>
             Load save file…
+          </button>
+          <button
+            className="settings-item"
+            onClick={onBackupAllClick}
+            disabled={manifest.slots.length === 0}
+            title={
+              manifest.slots.length === 0
+                ? 'No slots to back up yet'
+                : 'Download every slot in a single JSON archive'
+            }
+          >
+            Backup all slots…
+          </button>
+          <button
+            className="settings-item"
+            onClick={onRestoreClick}
+            title="Import a previously-saved archive file"
+          >
+            Restore from backup…
           </button>
           <button
             className="settings-item danger"
@@ -159,6 +214,13 @@ export function SettingsMenu({
         accept="application/json,.json"
         style={{ display: 'none' }}
         onChange={onFileChange}
+      />
+      <input
+        ref={archiveFileRef}
+        type="file"
+        accept="application/json,.json"
+        style={{ display: 'none' }}
+        onChange={onArchiveFileChange}
       />
     </div>
   );
