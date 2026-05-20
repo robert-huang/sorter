@@ -15,6 +15,9 @@ interface Props {
   onSwitch: (id: string) => void;
   onDelete: (id: string) => void;
   onRename: (id: string, name: string) => void;
+  /** Download a JSON copy of this slot's on-disk blob — for backup
+   *  before deleting / starting over / hitting the cap. */
+  onDownload: (id: string) => void;
 }
 
 /**
@@ -47,6 +50,7 @@ export function SlotList({
   onSwitch,
   onDelete,
   onRename,
+  onDownload,
 }: Props) {
   if (slots.length === 0) {
     return (
@@ -73,6 +77,7 @@ export function SlotList({
           onSwitch={onSwitch}
           onDelete={onDelete}
           onRename={onRename}
+          onDownload={onDownload}
         />
       ))}
     </div>
@@ -86,9 +91,17 @@ interface RowProps {
   onSwitch: (id: string) => void;
   onDelete: (id: string) => void;
   onRename: (id: string, name: string) => void;
+  onDownload: (id: string) => void;
 }
 
-function SlotRow({ slot, isLoaded, onSwitch, onDelete, onRename }: RowProps) {
+function SlotRow({
+  slot,
+  isLoaded,
+  onSwitch,
+  onDelete,
+  onRename,
+  onDownload,
+}: RowProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(slot.name);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -175,6 +188,17 @@ function SlotRow({ slot, isLoaded, onSwitch, onDelete, onRename }: RowProps) {
             Resume
           </button>
         )}
+        <button
+          className="icon-button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDownload(slot.id);
+          }}
+          title={`Download "${slot.name}" as JSON`}
+          aria-label={`Download ${slot.name}`}
+        >
+          ⬇
+        </button>
         <button
           className="x-button"
           onClick={(e) => {

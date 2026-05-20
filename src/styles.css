@@ -673,6 +673,25 @@ a {
   color: var(--danger);
 }
 
+/* Generic icon-only button used in the slot-list row for the per-slot
+   download action. Mirrors .x-button's compact footprint but uses the
+   neutral accent on hover instead of the danger ramp — downloading a
+   slot is non-destructive. */
+.icon-button {
+  background: transparent;
+  border: none;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--text-faint);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.icon-button:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
 /* ---------- Preview ---------- */
 
 .preview {
@@ -785,6 +804,41 @@ a {
   font-size: 13px;
   color: var(--text-muted);
   margin-bottom: 12px;
+}
+
+/* Banner shown above the compare grid to identify the current mode
+   (manual or auto insert on the merge engine, or full-session insertion
+   on the insertion engine). The Cancel button is right-aligned via a
+   flex spacer on the label so the label flows to the left even when
+   long. */
+.compare-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  margin: 0 auto 12px;
+  max-width: 720px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 14px;
+}
+.compare-banner-label {
+  flex: 1;
+}
+
+/* ---------- List screen: "To be inserted" section ----------
+   Class name `.list-unplaced` is retained for stylesheet stability —
+   the underlying data field is still `unplaced` (the holding area).
+   Only the visible heading changed to "To be inserted (N)". */
+
+.list-unplaced {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-2);
 }
 
 /* ---------- Compare-screen pair transitions ---------- */
@@ -1243,16 +1297,32 @@ a {
   font-weight: 600;
 }
 
+/* Header row of the Final ranking section: title on the left, export
+   buttons on the right. Wraps onto two lines on narrow viewports so
+   the buttons drop below the h2 instead of overflowing. */
+.result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.result-header h2 {
+  margin: 0;
+}
+
 .result-export {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  margin-top: 16px;
 }
 
 .result-bottom {
   margin-top: 24px;
-  text-align: center;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
 }
 
 .result-hidden-toggle {
@@ -1289,6 +1359,45 @@ a {
 
 .modal h3 {
   margin: 0 0 8px;
+}
+
+/* Wider variant for the unified add-items modal: the Multiple tab has a
+ * textarea + dedup hints + checkboxes that read better with more room. */
+.modal-wide {
+  width: min(680px, calc(100% - 32px));
+}
+
+/* Tab strip inside a modal — used by AddItemsModal to switch between
+ * the Single-item form and the Multiple-items CSV pane. Visually
+ * understated (no card-shaped pills) so it doesn't compete with the
+ * modal's own actions. */
+.modal-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+  margin: 4px 0 14px;
+}
+
+.modal-tab {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  margin-bottom: -1px; /* overlap the strip so .active aligns flush */
+}
+
+.modal-tab:hover:not(.active) {
+  color: var(--text);
+}
+
+.modal-tab.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
 }
 
 .modal-actions {

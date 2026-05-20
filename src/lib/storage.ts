@@ -1,6 +1,7 @@
 import type {
   Item,
   ItemId,
+  MergeProgress,
   SaveFile,
   SlotMeta,
   SlotsManifest,
@@ -22,9 +23,13 @@ export function slotBlobKey(id: string): string {
 
 export const SETTINGS_KEY = 'sorter:settings:v1';
 
-/** Maximum number of slots kept in browser storage. Creating an N+1th slot
- *  evicts the slot with the oldest `updatedAt`. */
-export const SLOT_CAP = 10;
+/** Maximum number of slots kept in browser storage. When a mint would
+ *  push us over the cap, `createSlot` evicts the oldest-`updatedAt` slot
+ *  to make room and returns the evicted meta(s) so the UI can surface a
+ *  toast / pre-flight confirm. The App layer is expected to prompt the
+ *  user *before* calling createSlot at the cap so eviction is not a
+ *  surprise; the eviction loop here is the unconditional safety net. */
+export const SLOT_CAP = 30;
 
 export const AUTOSAVE_DEBOUNCE_MS = 500;
 export const AUTOSAVE_MAX_WAIT_MS = 10_000;
@@ -75,11 +80,104 @@ export interface AutosaveBlob {
 
 function buildSaveFile(blob: AutosaveBlob): SaveFile {
   return {
-    version: 1,
+    version: 3,
     createdAt: new Date().toISOString(),
     items: blob.items,
     progress: blob.progress,
     undoRing: blob.undoRing,
+  };
+}
+
+/**
+ * Upgrade a parsed save's progress slice to the v3 shape.
+ *  - v1 (no engine tag, no exile/Place fields) → engine='merge' with
+ *    defaults for the exile/insert fields.
+ *  - v2 (engine + old `currentPlacement` / `pendingPlacements`) → rename
+ *    those fields to `currentManualInsert` / `pendingManualInserts`
+ *    and add `currentAutoInsert: null`.
+ *  - v3 (current shape) passes through.
+ *
+ * Lenient: works on arbitrary JSON shapes because the on-disk schema
+ * predates strict typing. Returns a fresh object — caller may mutate.
+ */
+function upgradeProgress(progress: unknown): SortProgress {
+  if (!progress || typeof progress !== 'object') {
+    // Fallback: a fresh empty merge state. Callers handle invalid data
+    // upstream so this branch should be unreachable in practice.
+    return defaultMergeProgress();
+  }
+  // Cast to a permissive shape: the on-disk schema is JSON, and we may
+  // encounter any of v1/v2/v3 field-name conventions. The runtime checks
+  // below disambiguate which shape we're holding.
+  const p = progress as {
+    engine?: string;
+    queue?: unknown;
+    current?: unknown;
+    comparisons?: unknown;
+    done?: unknown;
+    hidden?: unknown;
+    totalComparisonsEverNeeded?: unknown;
+    unplaced?: unknown;
+    // v2 (legacy) field names:
+    pendingPlacements?: unknown;
+    currentPlacement?: unknown;
+    // v3 field names:
+    pendingManualInserts?: unknown;
+    currentManualInsert?: unknown;
+    currentAutoInsert?: unknown;
+  };
+  // Insertion-engine progress shape is unchanged across v2 → v3.
+  if (p.engine === 'insertion') return progress as SortProgress;
+  // Detect a fully-v3 merge blob: it has the new field names present.
+  if (
+    p.engine === 'merge' &&
+    Array.isArray(p.unplaced) &&
+    Array.isArray(p.pendingManualInserts) &&
+    'currentAutoInsert' in p
+  ) {
+    return progress as SortProgress;
+  }
+  // v2 merge blob: has engine='merge' + old Place field names.
+  // v1 merge blob: missing engine and/or old Place fields.
+  // Both upgrade through the same path — rename old → new where
+  // present, default-fill where missing.
+  const upgraded: MergeProgress = {
+    engine: 'merge',
+    queue: (Array.isArray(p.queue) ? p.queue : []) as MergeProgress['queue'],
+    current: (p.current ?? null) as MergeProgress['current'],
+    comparisons: typeof p.comparisons === 'number' ? p.comparisons : 0,
+    done: !!p.done,
+    hidden: (Array.isArray(p.hidden) ? p.hidden : []) as MergeProgress['hidden'],
+    totalComparisonsEverNeeded:
+      typeof p.totalComparisonsEverNeeded === 'number'
+        ? p.totalComparisonsEverNeeded
+        : 0,
+    unplaced: (Array.isArray(p.unplaced) ? p.unplaced : []) as MergeProgress['unplaced'],
+    pendingManualInserts: (Array.isArray(p.pendingManualInserts)
+      ? p.pendingManualInserts
+      : Array.isArray(p.pendingPlacements)
+        ? p.pendingPlacements
+        : []) as MergeProgress['pendingManualInserts'],
+    currentManualInsert: (p.currentManualInsert ?? p.currentPlacement ?? null) as MergeProgress['currentManualInsert'],
+    // v3 adds currentAutoInsert; v1/v2 didn't have it.
+    currentAutoInsert: (p.currentAutoInsert ?? null) as MergeProgress['currentAutoInsert'],
+  };
+  return upgraded;
+}
+
+function defaultMergeProgress(): MergeProgress {
+  return {
+    engine: 'merge',
+    queue: [],
+    current: null,
+    comparisons: 0,
+    done: true,
+    hidden: [],
+    totalComparisonsEverNeeded: 0,
+    unplaced: [],
+    pendingManualInserts: [],
+    currentManualInsert: null,
+    currentAutoInsert: null,
   };
 }
 
@@ -160,7 +258,11 @@ export function migrateLegacyIfNeeded(): SlotsManifest {
   }
   try {
     const file = JSON.parse(legacy) as SaveFile;
-    if (file.version !== 1 || !file.items || !file.progress) {
+    if (
+      (file.version !== 1 && file.version !== 2 && file.version !== 3) ||
+      !file.items ||
+      !file.progress
+    ) {
       // Corrupt legacy data — discard it cleanly.
       window.localStorage.removeItem(LEGACY_LOCAL_KEY);
       const m = emptyManifest();
@@ -170,8 +272,8 @@ export function migrateLegacyIfNeeded(): SlotsManifest {
     const id = newSlotId();
     const blob: AutosaveBlob = {
       items: file.items,
-      progress: file.progress,
-      undoRing: file.undoRing ?? [],
+      progress: upgradeProgress(file.progress),
+      undoRing: (file.undoRing ?? []).map(upgradeProgress),
     };
     const now = new Date().toISOString();
     const meta: SlotMeta = {
@@ -215,10 +317,30 @@ export function autoNameFromBlob(blob: AutosaveBlob): string {
 }
 
 /**
- * Persist a brand-new slot, prepend its meta, evict the oldest if we'd
- * exceed `SLOT_CAP`, and activate it. Returns the new meta (with id).
+ * Result of a slot mint. `evicted` is empty in the common case (we're
+ * below cap) and lists the slot(s) the eviction loop removed when we
+ * pushed past `SLOT_CAP`. The UI uses this to flash a "deleted X to
+ * make room" toast — so that even if the pre-flight confirm was
+ * suppressed (or skipped because we were exactly at cap), the user
+ * still gets explicit feedback about the deletion.
  */
-export function createSlot(blob: AutosaveBlob, name: string): SlotMeta {
+export interface CreateSlotResult {
+  meta: SlotMeta;
+  evicted: SlotMeta[];
+}
+
+/**
+ * Persist a brand-new slot, prepend its meta, evict the oldest if we'd
+ * exceed `SLOT_CAP`, and activate it. Returns the new meta plus any
+ * evicted metas.
+ *
+ * Note: the App layer should pre-flight the cap with a confirm modal
+ * (see `SlotCapConfirmModal`) so the user knows what's about to be
+ * deleted *before* we mint. The eviction loop here remains the
+ * unconditional safety net — e.g. if a future code path skips the
+ * pre-flight, we still won't grow storage unbounded.
+ */
+export function createSlot(blob: AutosaveBlob, name: string): CreateSlotResult {
   // Flush any pending writes to the OUTGOING active slot before switching.
   flushAutosave();
   const id = newSlotId();
@@ -246,6 +368,7 @@ export function createSlot(blob: AutosaveBlob, name: string): SlotMeta {
   m.slots.unshift(meta);
   // Evict oldest-updated entries past the cap. The just-created slot has
   // `now` as its updatedAt so it's safe even if everything is recent.
+  const evicted: SlotMeta[] = [];
   while (m.slots.length > SLOT_CAP) {
     const oldest = m.slots
       .slice()
@@ -253,6 +376,7 @@ export function createSlot(blob: AutosaveBlob, name: string): SlotMeta {
     if (!oldest || oldest.id === id) break; // never evict the slot we just made
     deleteSlotBlob(oldest.id);
     m.slots = m.slots.filter((s) => s.id !== oldest.id);
+    evicted.push(oldest);
   }
   m.activeId = id;
   writeManifest(m);
@@ -260,7 +384,21 @@ export function createSlot(blob: AutosaveBlob, name: string): SlotMeta {
   // Reset the in-flight autosave bookkeeping so the next scheduleAutosave
   // call is treated as the first write for the new slot.
   resetAutosaveBookkeeping(blob.progress.comparisons);
-  return meta;
+  return { meta, evicted };
+}
+
+/**
+ * Inspect the slot that *would* be evicted if a new slot were minted right
+ * now. Returns null when we're below the cap. Used by the pre-flight
+ * cap-confirm modal so the user sees the name + timestamp of what they're
+ * about to lose before they click Continue. Always reads a fresh manifest
+ * since slot writes can happen between renders.
+ */
+export function peekEvictionTarget(): SlotMeta | null {
+  const m = readManifest();
+  if (m.slots.length < SLOT_CAP) return null;
+  const sorted = m.slots.slice().sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
+  return sorted[0] ?? null;
 }
 
 /**
@@ -272,11 +410,11 @@ export function readSlotBlob(id: string): AutosaveBlob | null {
     const raw = window.localStorage.getItem(slotBlobKey(id));
     if (!raw) return null;
     const file = JSON.parse(raw) as SaveFile;
-    if (file.version !== 1) return null;
+    if (file.version !== 1 && file.version !== 2 && file.version !== 3) return null;
     return {
       items: file.items,
-      progress: file.progress,
-      undoRing: file.undoRing ?? [],
+      progress: upgradeProgress(file.progress),
+      undoRing: (file.undoRing ?? []).map(upgradeProgress),
     };
   } catch {
     return null;
@@ -506,7 +644,7 @@ export function downloadSave(blob: AutosaveBlob): void {
 export async function loadSaveFromFile(file: File): Promise<AutosaveBlob> {
   const text = await file.text();
   const parsed = JSON.parse(text) as SaveFile;
-  if (parsed.version !== 1) {
+  if (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== 3) {
     throw new Error(`Unsupported save file version: ${parsed.version}`);
   }
   if (!parsed.items || !parsed.progress) {
@@ -514,8 +652,8 @@ export async function loadSaveFromFile(file: File): Promise<AutosaveBlob> {
   }
   return {
     items: parsed.items,
-    progress: parsed.progress,
-    undoRing: parsed.undoRing ?? [],
+    progress: upgradeProgress(parsed.progress),
+    undoRing: (parsed.undoRing ?? []).map(upgradeProgress),
   };
 }
 
@@ -524,10 +662,32 @@ export async function loadSaveFromFile(file: File): Promise<AutosaveBlob> {
 export type ThemeName = 'light' | 'dark';
 
 export interface Settings {
+  /**
+   * "Don't ask again" for the SlotDeleteConfirmModal (per-row trashcan +
+   * toolbar "Delete this slot"). Kept under its legacy name for
+   * backward-compat — older builds wrote this key when the modal was
+   * still called the "reset" confirm.
+   */
   suppressResetConfirm?: boolean;
+  /**
+   * "Don't ask again" for the RESULT-tab "Start over" confirm. Distinct
+   * from suppressResetConfirm because the two actions are independent
+   * (start-over keeps items + the slot; delete-slot wipes both).
+   */
+  suppressStartOverConfirm?: boolean;
   theme?: ThemeName;
   /** When true, header shows "· ~M left" after the "Comparison #N" stat. */
   showEstimatedRemaining?: boolean;
+  /**
+   * When true (default), the merge engine may swap a popped queue pair
+   * for binary insertion when the pair is skewed enough that insertion
+   * beats the full merge (see `shouldAutoInsert` in queueMergeSort.ts).
+   *
+   * Stored as `undefined` until the user explicitly toggles, so existing
+   * saves keep the new behavior on. Set to `false` to force classic
+   * merge on every pair.
+   */
+  autoInsertEnabled?: boolean;
 }
 
 export function readSettings(): Settings {
