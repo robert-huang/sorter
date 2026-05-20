@@ -236,6 +236,19 @@ export interface SourceParse {
 }
 
 /**
+ * One row in the per-source preview list. We keep the originating
+ * `sourceRow` alongside the deduped Item so the START-tab Edit
+ * button can open the EditItemModal against the correct RawRow even
+ * for rows that are NOT in any dedup warning. `sourceRow` is the
+ * 1-indexed row number (post-header-skip) of the FIRST occurrence of
+ * this id within the source.
+ */
+export interface PreviewItem {
+  item: Item;
+  sourceRow: number;
+}
+
+/**
  * Per-source-then-global parse. Each source contributes its rawRows; we then
  * dedup across all sources in input order (so the first source has placement
  * priority).
@@ -245,26 +258,29 @@ export function parseSources(sources: SourceParse[]): {
   warnings: DedupWarning[];
   perSource: Array<{
     sourceName: string;
-    items: Item[]; // ordered, deduped within this source's own rows
+    items: PreviewItem[]; // ordered, deduped within this source's own rows
   }>;
 } {
-  const perSource: Array<{ sourceName: string; items: Item[] }> = [];
+  const perSource: Array<{ sourceName: string; items: PreviewItem[] }> = [];
   const flat: RawRow[] = [];
   for (const s of sources) {
     flat.push(...s.rawRows);
     // Pre-compute per-source deduped item list (in the original row order)
     // so the preview shows what we'd produce for that file alone.
     const seen = new Set<ItemId>();
-    const localItems: Item[] = [];
+    const localItems: PreviewItem[] = [];
     for (const r of s.rawRows) {
       const id = r.idOverride ?? canonicalKey(r.label);
       if (seen.has(id)) continue;
       seen.add(id);
       localItems.push({
-        id,
-        label: r.label,
-        url: r.url,
-        imageUrl: r.imageUrl,
+        item: {
+          id,
+          label: r.label,
+          url: r.url,
+          imageUrl: r.imageUrl,
+        },
+        sourceRow: r.sourceRow,
       });
     }
     perSource.push({ sourceName: s.sourceName, items: localItems });

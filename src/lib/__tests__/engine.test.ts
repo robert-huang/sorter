@@ -13,7 +13,14 @@ import {
   updateItem,
   updateItemId,
 } from '../engine';
-import { initSort, pickLeft, pickRight } from '../queueMergeSort';
+import {
+  hideItem as mergeHideItem,
+  initSort,
+  manualInsert,
+  pickLeft,
+  pickRight,
+  seedFromSublists,
+} from '../queueMergeSort';
 import { seedAsSorted, addItems as insertionAddItems } from '../insertionSort';
 import type { InsertionState, Item, MergeState } from '../types';
 
@@ -383,6 +390,85 @@ describe('updateItemId', () => {
     if (!next) return;
     expect(next.items['かぐや-s1']).toBeDefined();
     expect(next.items['かぐや-s1'].id).toBe('かぐや-s1');
+  });
+
+  it('rewrites refs inside currentManualInsert (insertingId + frame.insertingId)', () => {
+    // Set up an unplaced item, then click Insert to populate
+    // currentManualInsert. The setup follows queueMergeSort's own
+    // "drainManualInserts installs the frame immediately when no
+    // merge is running" test: hide X mid-merge → X exiled to
+    // unplaced → done → manualInsert(s, 'x') installs the frame.
+    const X: Item = { id: 'x', label: 'X' };
+    let s: MergeState = initSort([A, B, X]);
+    s = mergeHideItem(s, 'x') as MergeState;
+    // Drive the merge to completion via the alphabetic oracle.
+    while (!s.done) {
+      const p = getPair(s);
+      if (!p) break;
+      s = (p.leftId <= p.rightId ? pickLeft(s) : pickRight(s)) as MergeState;
+    }
+    expect(s.unplaced).toEqual(['x']);
+    s = manualInsert(s, 'x') as MergeState;
+    expect(s.currentManualInsert?.insertingId).toBe('x');
+    expect(s.currentManualInsert?.frame.insertingId).toBe('x');
+
+    // Rename 'x' → 'xenon'. Both insertingId fields on the frame
+    // must rewrite, AND the items dict must rekey so the in-flight
+    // pair shown by getPair resolves to a non-null item.
+    const renamed = updateItemId(s, 'x', 'xenon');
+    expect(renamed).not.toBeNull();
+    if (!renamed || renamed.engine !== 'merge') {
+      throw new Error('expected merge state');
+    }
+    expect(renamed.currentManualInsert?.insertingId).toBe('xenon');
+    expect(renamed.currentManualInsert?.frame.insertingId).toBe('xenon');
+    expect(renamed.items.xenon).toBeDefined();
+    expect(renamed.items.x).toBeUndefined();
+    // The in-flight pair must point at the renamed item — otherwise
+    // the RANK tab would render a blank chip after the rename.
+    const pair = getPair(renamed);
+    expect(pair?.leftId).toBe('xenon');
+    expect(renamed.items[pair!.leftId]).toBeDefined();
+  });
+
+  it('rewrites refs inside currentAutoInsert (target + pendingInserts + frame.insertingId)', () => {
+    // 2-into-8 triggers auto-insert (insert cost 2·⌈log₂10⌉=8 < merge
+    // cost 2+8-1=9), and 2 items on the smaller side means one lands
+    // in `frame.insertingId` and the other queues into
+    // `pendingInserts`. So this single setup exercises all three
+    // ItemId-referencing fields on currentAutoInsert in one go.
+    const items: Item[] = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map(
+      (id) => ({ id, label: id.toUpperCase() }),
+    );
+    const X: Item = { id: 'x', label: 'X' };
+    const Y2: Item = { id: 'y', label: 'Y' };
+    const s = seedFromSublists({
+      sublists: [items, [X, Y2]],
+      extras: [],
+    }) as MergeState;
+    expect(s.currentAutoInsert).not.toBeNull();
+    expect(s.currentAutoInsert!.target).toEqual([
+      'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h',
+    ]);
+    expect(s.currentAutoInsert!.frame?.insertingId).toBe('x');
+    expect(s.currentAutoInsert!.pendingInserts).toEqual(['y']);
+
+    // Rename one id from EACH of the three reference sites so a single
+    // pass would miss at least one if the rewriter dropped any field.
+    let r = updateItemId(s, 'c', 'gamma') as MergeState;
+    r = updateItemId(r, 'x', 'xenon') as MergeState;
+    r = updateItemId(r, 'y', 'yttrium') as MergeState;
+    expect(r.currentAutoInsert!.target).toEqual([
+      'a', 'b', 'gamma', 'd', 'e', 'f', 'g', 'h',
+    ]);
+    expect(r.currentAutoInsert!.frame?.insertingId).toBe('xenon');
+    expect(r.currentAutoInsert!.pendingInserts).toEqual(['yttrium']);
+    expect(r.items.gamma).toBeDefined();
+    expect(r.items.xenon).toBeDefined();
+    expect(r.items.yttrium).toBeDefined();
+    expect(r.items.c).toBeUndefined();
+    expect(r.items.x).toBeUndefined();
+    expect(r.items.y).toBeUndefined();
   });
 });
 

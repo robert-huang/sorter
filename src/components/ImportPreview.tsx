@@ -1,9 +1,16 @@
 import { useMemo, useState } from 'react';
-import type { DedupWarning, Item } from '../lib/types';
+import type { DedupWarning } from '../lib/types';
+import type { PreviewItem } from '../lib/csv';
 
 export interface PreviewSource {
   sourceName: string;
-  items: Item[];
+  /**
+   * Deduped items for this source, in the original row order. Each
+   * entry also carries the originating `sourceRow` so the per-row
+   * Edit button can call back with a row identifier the parent can
+   * resolve to a RawRow.
+   */
+  items: PreviewItem[];
 }
 
 interface Props {
@@ -17,14 +24,13 @@ interface Props {
   sublistCount?: number;
   singletonCount?: number;
   /**
-   * Optional callback for the per-occurrence Edit button rendered
-   * inside each dedup warning. When wired, each occurrence row in a
-   * warning gets a small `[Edit]` button that calls back with the
-   * source + row + label of that specific occurrence so the parent
-   * can open EditItemModal against the right RawRow. The current
-   * label is the *post-override* label (i.e. what dedup actually
-   * saw), so the modal pre-fills with whatever the user has typed in
-   * a previous edit pass.
+   * Optional callback for the Edit buttons in the preview. The same
+   * handler powers BOTH the per-row pencil in `SourceBlock` (rename
+   * any row) AND the per-occurrence Edit button inside a dedup
+   * warning (disambiguate a collision). Called with the source name
+   * + 1-indexed row number of the originating RawRow + the
+   * post-override label so the modal can pre-fill with the user's
+   * current state, not the original source text.
    */
   onEditOccurrence?: (
     sourceName: string,
@@ -55,7 +61,11 @@ export function ImportPreview({
   return (
     <div className="preview">
       {sources.map((src) => (
-        <SourceBlock key={src.sourceName} source={src} />
+        <SourceBlock
+          key={src.sourceName}
+          source={src}
+          onEditRow={onEditOccurrence}
+        />
       ))}
       <div className="preview-totals">{totalsText}</div>
       {warnings.length > 0 && (
@@ -157,7 +167,22 @@ function WarningItem({
   );
 }
 
-function SourceBlock({ source }: { source: PreviewSource }) {
+function SourceBlock({
+  source,
+  onEditRow,
+}: {
+  source: PreviewSource;
+  /**
+   * Optional click handler for the per-row pencil button. When
+   * undefined the pencil is hidden — keeps the preview read-only in
+   * contexts that don't wire an edit overlay.
+   */
+  onEditRow?: (
+    sourceName: string,
+    rowNumber: number,
+    currentLabel: string,
+  ) => void;
+}) {
   const initiallyOpen = source.items.length <= 10;
   const [open, setOpen] = useState(initiallyOpen);
   return (
@@ -175,16 +200,34 @@ function SourceBlock({ source }: { source: PreviewSource }) {
       </button>
       {open && (
         <ul className="preview-items">
-          {source.items.map((it, i) => (
-            <li key={it.id}>
-              <span className="rank">{i + 1}.</span>
-              <span title={it.label}>{it.label}</span>
-              <span className="icons">
-                {it.url && <span title={it.url}>🔗</span>}{' '}
-                {it.imageUrl && <span title={it.imageUrl}>🖼</span>}
-              </span>
-            </li>
-          ))}
+          {source.items.map((pi, i) => {
+            const it = pi.item;
+            return (
+              <li key={it.id}>
+                <span className="rank">{i + 1}.</span>
+                <span className="preview-item-label" title={it.label}>
+                  {it.label}
+                </span>
+                <span className="icons">
+                  {it.url && <span title={it.url}>🔗</span>}{' '}
+                  {it.imageUrl && <span title={it.imageUrl}>🖼</span>}
+                </span>
+                {onEditRow && (
+                  <button
+                    type="button"
+                    className="preview-item-edit"
+                    onClick={() =>
+                      onEditRow(source.sourceName, pi.sourceRow, it.label)
+                    }
+                    title={`Edit "${it.label}" (row ${pi.sourceRow})`}
+                    aria-label={`Edit ${it.label}`}
+                  >
+                    ✎
+                  </button>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
