@@ -1,0 +1,1326 @@
+:root {
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --surface-2: #f9fafb;
+  --border: #e2e4e8;
+  --border-strong: #cdd0d6;
+  --text: #1f2328;
+  --text-muted: #6b7280;
+  --text-faint: #9aa0a6;
+  --accent: #3b5bff;
+  --accent-hover: #2a48e6;
+  --accent-soft: #e6ecff;
+  --danger: #c93636;
+  --danger-soft: #fde8e8;
+  --warn-bg: #fff7d6;
+  --warn-border: #f0d97a;
+  --warn-text: #6e5b00;
+  --header-bg: #3c4961;
+  --header-text: #ffffff;
+  --header-active-border: #ffffff;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --radius: 10px;
+  --radius-sm: 6px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
+    Ubuntu, Cantarell, 'Helvetica Neue', sans-serif;
+  color: var(--text);
+}
+
+[data-theme='dark'] {
+  /* Material-style neutral gray dark theme — a clear "soft dark" rather
+     than near-black. #121212 is Material's recommended dark baseline; the
+     surface ladder is built around it (elev~1dp / ~4-6dp). */
+  --bg: #121212;
+  --surface: #1e1e1e;
+  --surface-2: #2a2a2a;
+  --border: #333333;
+  --border-strong: #424242;
+  --text: #ffffff;
+  --text-muted: #c5c9d4;
+  --text-faint: #8e94a1;
+  --accent: #6b8aff;
+  --accent-hover: #8ea4ff;
+  --accent-soft: #1a2156;
+  --danger: #ff7a7a;
+  --danger-soft: #4a1f1f;
+  --warn-bg: #4a4017;
+  --warn-border: #b39830;
+  --warn-text: #ffe082;
+  --header-bg: var(--surface);
+  --header-text: var(--text);
+  --header-active-border: var(--accent);
+  /* Softer shadows — heavy black halos read as artifacts now that the bg
+     is no longer near-black. */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.5);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg);
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+a {
+  color: var(--accent);
+}
+
+/* ---------- App shell ---------- */
+
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-banner {
+  background: var(--warn-bg);
+  border-bottom: 1px solid var(--warn-border);
+  color: var(--warn-text);
+  padding: 8px 16px;
+  font-size: 13px;
+  text-align: center;
+}
+
+.app-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- Header ---------- */
+
+.header {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Floating tabs card — only the tab strip is floating; everything else below
+   is full-width normal flow. Sticky so it stays visible while scrolling. */
+.tabs-card-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 12px 16px 8px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: transparent;
+  pointer-events: none;
+}
+
+.tabs-card {
+  background: var(--header-bg);
+  color: var(--header-text);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--border);
+  display: inline-flex;
+  gap: 4px;
+  padding: 6px;
+  max-width: calc(100% - 32px);
+  pointer-events: auto;
+  position: relative;
+}
+
+.tab-pill {
+  background: transparent;
+  border: none;
+  color: var(--header-text);
+  padding: 10px 22px;
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.6px;
+  border-radius: var(--radius-sm);
+  opacity: 0.65;
+  transition: opacity 0.12s ease, color 0.18s ease;
+  position: relative;
+  z-index: 1;
+}
+
+.tab-pill:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.tab-pill.active {
+  opacity: 1;
+  /* Background is painted by .tab-indicator (which slides beneath the pills);
+     keep the pill itself transparent so the indicator can show through. */
+  color: white;
+}
+
+.tab-pill:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* Single accent pill that slides between active tabs. Sized + positioned
+   from JS in Header.tsx (measureActive in a useLayoutEffect + ResizeObserver). */
+.tab-indicator {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 0;
+  width: 0;
+  background: var(--accent);
+  border-radius: var(--radius-sm);
+  transition: transform 220ms cubic-bezier(.2, .7, .2, 1),
+              width 220ms cubic-bezier(.2, .7, .2, 1);
+  will-change: transform, width;
+  pointer-events: none;
+  z-index: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab-indicator { transition: none; }
+}
+
+/* Progress bar lives inside the rank screen now (CompareScreen). The
+   negative horizontal margin pulls it out of .page's 16px padding so it
+   spans .page's full 960px width — visibly wider than the two-card span
+   (~928px) without being edge-to-edge. */
+.compare-progress {
+  position: relative;
+  height: 4px;
+  background: var(--surface-2);
+  border-radius: 2px;
+  overflow: hidden;
+  margin: 0 -16px 12px;
+}
+
+.compare-progress-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.2s ease;
+}
+
+.header-toolbar {
+  /* 3-col grid pins the stats to the true midline regardless of how many
+     buttons live on each side. */
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.header-toolbar-left {
+  justify-self: start;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.header-toolbar-right {
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.header-toolbar-stats {
+  justify-self: center;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.toolbar-button {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 6px 14px;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.toolbar-button:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.toolbar-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.toolbar-button.gear {
+  padding: 6px 8px;
+}
+
+.toolbar-button.saved {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ---------- Settings popover ---------- */
+
+.settings-wrap {
+  position: relative;
+}
+
+.settings-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  width: 340px;
+  max-width: calc(100vw - 24px);
+  padding: 8px;
+  z-index: 30;
+}
+
+/* Embedded slot list inside the gear popover. Cap height so a fat slot
+   list scrolls instead of stretching off-screen, but don't add an internal
+   border — the popover already has one. */
+.settings-slots {
+  max-height: 280px;
+  overflow-y: auto;
+  margin: -8px -8px 0;
+  padding: 8px;
+}
+
+.settings-slots .slot-list {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  margin-bottom: 0;
+}
+
+.slot-list.empty {
+  padding: 12px;
+}
+
+.slot-list-empty {
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.settings-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  color: var(--text);
+}
+
+.settings-item:hover {
+  background: var(--surface-2);
+}
+
+.settings-item.danger {
+  color: var(--danger);
+}
+
+.settings-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.settings-item:disabled:hover {
+  background: transparent;
+}
+
+.settings-item.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.settings-item.checkbox input {
+  margin: 0;
+}
+
+.settings-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 6px 0;
+}
+
+.settings-status {
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ---------- Page content ---------- */
+
+.page {
+  flex: 1;
+  padding: 20px 16px 48px;
+  max-width: 960px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.page h2 {
+  margin: 0 0 12px;
+  font-size: 18px;
+}
+
+.page-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+/* ---------- StartScreen ---------- */
+
+.start-mode-toggle {
+  display: inline-flex;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 4px;
+  margin-bottom: 16px;
+}
+
+.start-mode-toggle button {
+  background: transparent;
+  border: none;
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.start-mode-toggle button.active {
+  background: var(--accent);
+  color: white;
+}
+
+.resume-cta {
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.resume-cta .grow {
+  flex: 1;
+  min-width: 200px;
+}
+
+.resume-cta .title {
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.resume-cta-slot-name {
+  color: var(--accent);
+}
+
+.resume-cta .sub {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* ---------- SlotList (save slots picker on START tab) ---------- */
+
+.slot-list {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px 12px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-sm);
+}
+
+.slot-list-header {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.slot-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+}
+
+.slot-row + .slot-row {
+  margin-top: 2px;
+}
+
+.slot-row:hover {
+  background: var(--surface-2);
+}
+
+.slot-row.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.slot-row-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.slot-name {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text);
+  text-align: left;
+  display: block;
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: text;
+}
+
+.slot-name:hover {
+  text-decoration: underline dotted var(--text-faint);
+  text-underline-offset: 3px;
+}
+
+.slot-name-input {
+  font: inherit;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 2px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  width: 100%;
+}
+
+.slot-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.slot-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.slot-active-tag {
+  background: var(--accent);
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 100px;
+}
+
+.btn {
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.btn.primary {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+.btn.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.btn.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.csv-textarea {
+  width: 100%;
+  min-height: 180px;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 13px;
+  padding: 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  resize: vertical;
+  background: var(--surface-2);
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 13px;
+}
+
+.csv-hint {
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-top: 4px;
+}
+
+.header-hint {
+  color: var(--accent);
+  font-size: 12px;
+  margin-left: 8px;
+}
+
+.file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.file-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  background: var(--surface-2);
+}
+
+.file-row .info {
+  font-size: 13px;
+}
+
+.file-row .name {
+  font-weight: 600;
+}
+
+.file-row .meta {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.file-row .checkbox-row {
+  margin-top: 4px;
+}
+
+.x-button {
+  background: transparent;
+  border: none;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text-faint);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.x-button:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+/* ---------- Preview ---------- */
+
+.preview {
+  margin-top: 16px;
+}
+
+.preview-source {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+
+.preview-source-header {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  background: transparent;
+  border: none;
+  padding: 10px 12px;
+  font-weight: 600;
+  font-size: 13px;
+  text-align: left;
+}
+
+.preview-source-header .caret {
+  margin-right: 8px;
+  color: var(--text-muted);
+  width: 12px;
+  display: inline-block;
+}
+
+.preview-source-header .count {
+  color: var(--text-muted);
+  font-weight: 400;
+  margin-left: auto;
+}
+
+.preview-items {
+  list-style: none;
+  margin: 0;
+  padding: 0 12px 10px;
+}
+
+.preview-items li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 13px;
+}
+
+.preview-items li .rank {
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  width: 28px;
+  text-align: right;
+}
+
+.preview-items li .icons {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.preview-totals {
+  font-size: 14px;
+  font-weight: 600;
+  margin-top: 14px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.preview-warnings {
+  margin-top: 12px;
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  color: var(--warn-text);
+  font-size: 13px;
+}
+
+.preview-warnings ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.preview-start-row {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ---------- CompareScreen ---------- */
+
+.compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  /* For the absolutely-positioned exit overlay layer. */
+  position: relative;
+}
+
+.compare-help {
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+/* ---------- Compare-screen pair transitions ---------- */
+
+/* In-grid slot. Pops in *within its own slot* on every pair change
+   (the key on the wrapper div is bumped so the animation replays).
+   Slightly longer + clean ease-out (no overshoot) so the fade-in actually
+   reads — see cardPopIn keyframes for the smaller starting scale. */
+.compare-slot {
+  --anim-duration: 380ms;
+  transform-origin: center center;
+  animation: cardPopIn var(--anim-duration) cubic-bezier(.2, .8, .2, 1) both;
+  will-change: transform, opacity;
+}
+
+/* Section 9 (stage-enter-after-exit): during a leisurely exit overlay the
+   in-grid slots are mounted but suppressed, so the user only sees them
+   after the previous pair has fully faded. The next reveal bumps the key
+   so the pop-in animation replays from frame 0. */
+.compare-slot--hidden {
+  animation: none !important;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Out-of-grid overlay covering the same 2-column area while the previous
+   pair slides off-screen. The incoming pair underneath is already at full
+   size so the pop-in really is "in this slot, not from page-center". */
+.compare-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  /* Both children inherit --anim-duration; JS overrides this on the
+     wrapper to rush the exit when a new pick interrupts. */
+}
+
+.compare-overlay-slot {
+  /* Default leisurely exit. CompareScreen overrides this to RUSH_DURATION_MS
+     (70ms) via an inline --anim-duration on the overlay container when a
+     follow-up pick interrupts. Only the side(s) actually being replaced
+     get an exit-class + content; the retained side renders an empty cell
+     here so its in-grid card behind shows through unobscured. */
+  --anim-duration: 280ms;
+  will-change: transform, opacity;
+}
+
+.compare-overlay-slot.exiting-left {
+  animation: cardSlideOutLeft var(--anim-duration) cubic-bezier(.4, 0, .6, 1) forwards;
+}
+
+.compare-overlay-slot.exiting-right {
+  animation: cardSlideOutRight var(--anim-duration) cubic-bezier(.4, 0, .6, 1) forwards;
+}
+
+/* Subtle accent ring on the side the user picked — communicates "you
+   chose this one" before it slides away. */
+.compare-overlay-slot.picked .item-card {
+  box-shadow: 0 0 0 3px var(--accent), var(--shadow-md);
+}
+
+@keyframes cardPopIn {
+  /* Smaller starting scale + no overshoot — the .compare-slot easing is
+     cubic-bezier(.2,.8,.2,1) so the fade-in feels gentle and clearly
+     "appears" rather than snapping in. */
+  from { opacity: 0; transform: scale(.35); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes cardSlideOutLeft {
+  to { opacity: 0; transform: translateX(-40%); }
+}
+
+@keyframes cardSlideOutRight {
+  to { opacity: 0; transform: translateX(40%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .compare-slot,
+  .compare-overlay-slot {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+.item-card {
+  background: var(--surface);
+  border: 2px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: relative;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.12s ease, transform 0.05s ease;
+  min-height: 240px;
+}
+
+.item-card:hover {
+  border-color: var(--accent);
+}
+
+.item-card:active {
+  transform: scale(0.99);
+}
+
+.item-card.disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.item-card.disabled:hover {
+  border-color: var(--border-strong);
+}
+
+.item-card .image-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  min-height: 140px;
+}
+
+.item-card .image-wrap img {
+  max-width: 100%;
+  max-height: 240px;
+  object-fit: contain;
+}
+
+.item-card .label {
+  font-weight: 700;
+  font-size: 17px;
+  line-height: 1.2;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* When the item has no image (and no failed image to fall back from), the
+   .image-wrap is omitted entirely and the label fills the card, centered.
+   No initials placeholder. */
+.item-card.text-only .label {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 22px;
+  line-height: 1.3;
+  word-break: break-word;
+  /* Flex centering overrides the base rule's -webkit-box line-clamp; the
+     base `overflow: hidden` keeps long labels from spilling out the card. */
+  -webkit-line-clamp: unset;
+  -webkit-box-orient: unset;
+}
+
+.item-card .link-icon {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  color: var(--text-faint);
+  font-size: 14px;
+}
+
+.item-card .remove-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* SVG icon inside inherits color via currentColor and is sized by the
+     `size` prop on <TrashIcon /> — no font-size needed. */
+  color: var(--text-muted);
+}
+
+.item-card .remove-btn:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+@media (max-width: 640px) {
+  .compare,
+  .compare-overlay {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- ListScreen ---------- */
+
+.list-section-label {
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.list-merging {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  margin-bottom: 16px;
+}
+
+.list-merge-row {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.list-merge-row .row-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.list-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  padding: 4px 10px 4px 6px;
+  font-size: 13px;
+}
+
+.chip .thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-faint);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.chip .thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.chip .x {
+  background: transparent;
+  border: none;
+  color: var(--text-faint);
+  font-size: 14px;
+  padding: 0 0 0 4px;
+  margin-left: 2px;
+  line-height: 1;
+}
+
+.chip .x:hover {
+  color: var(--danger);
+}
+
+.chip.hidden {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
+.queue-sublist {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px;
+  margin-bottom: 10px;
+}
+
+.queue-sublist-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.queue-sublist-header .index {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.queue-sublist-header .break-btn {
+  margin-left: auto;
+}
+
+.queue-sublist-items {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.queue-item-row {
+  display: grid;
+  grid-template-columns: 32px auto 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+}
+
+.queue-item-row:hover {
+  background: var(--surface-2);
+}
+
+.queue-item-row .rank {
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  text-align: right;
+}
+
+.queue-item-row .thumb {
+  width: 28px;
+  height: 28px;
+}
+
+.queue-item-row .label-cell {
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.queue-item-row.hidden .label-cell {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+.queue-item-row .actions {
+  display: flex;
+  gap: 2px;
+}
+
+.icon-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1;
+}
+
+.icon-btn:hover:not(:disabled) {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.icon-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.icon-btn.danger:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.add-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* ---------- ResultScreen ---------- */
+
+.result-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.result-row {
+  display: grid;
+  grid-template-columns: 56px 80px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.result-row:last-child {
+  border-bottom: none;
+}
+
+.result-row .rank-num {
+  font-weight: 800;
+  font-size: 20px;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.result-row .image-wrap {
+  width: 80px;
+  height: 80px;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.result-row .image-wrap img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.result-row .placeholder {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-faint);
+}
+
+.result-row .label-cell {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.result-export {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+
+.result-bottom {
+  margin-top: 24px;
+  text-align: center;
+}
+
+.result-hidden-toggle {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  margin-top: 16px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* ---------- Modal ---------- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 20px;
+  width: min(560px, calc(100% - 32px));
+  max-height: calc(100% - 64px);
+  overflow: auto;
+  box-shadow: var(--shadow-md);
+}
+
+.modal h3 {
+  margin: 0 0 8px;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.form-row label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.form-row input {
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 14px;
+}
+
+.form-error {
+  color: var(--danger);
+  font-size: 13px;
+  margin-top: 4px;
+}

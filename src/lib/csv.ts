@@ -1,0 +1,289 @@
+import Papa from 'papaparse';
+import type { DedupWarning, Item, ItemId } from './types';
+
+// ---------- canonical key ----------
+
+/**
+ * Slug a label down to a stable canonical key for dedup + id purposes.
+ * trim, lowercase, replace any run of non-alphanumerics with a single `-`,
+ * strip leading/trailing `-`. Empty result becomes 'item' as a fallback.
+ */
+export function canonicalKey(label: string): ItemId {
+  const slug = label
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug || 'item';
+}
+
+// ---------- header detection (advisory only; UI defaults the checkbox to OFF) ----------
+
+const COL1_HEADERS = new Set(['item', 'label', 'name', 'title']);
+const COL2_HEADERS = new Set(['', 'url', 'link', 'href']);
+const COL3_HEADERS = new Set([
+  '',
+  'image',
+  'img',
+  'picture',
+  'imageurl',
+  'image_url',
+  'image url',
+]);
+
+/**
+ * Returns true if the first row looks header-like by our strict rule (all
+ * present columns must match). Used to display a soft hint next to the
+ * "First row is a header" checkbox.
+ */
+export function looksLikeHeader(firstRow: string[]): boolean {
+  if (firstRow.length === 0) return false;
+  const c1 = (firstRow[0] ?? '').trim().toLowerCase();
+  if (!COL1_HEADERS.has(c1)) return false;
+  if (firstRow.length > 1) {
+    const c2 = (firstRow[1] ?? '').trim().toLowerCase();
+    if (!COL2_HEADERS.has(c2)) return false;
+  }
+  if (firstRow.length > 2) {
+    const c3 = (firstRow[2] ?? '').trim().toLowerCase();
+    if (!COL3_HEADERS.has(c3)) return false;
+  }
+  return true;
+}
+
+// ---------- parsing ----------
+
+export interface RawRow {
+  label: string;
+  url?: string;
+  imageUrl?: string;
+  sourceName: string;
+  sourceRow: number; // 1-indexed within source, AFTER header skip
+}
+
+export interface ParseResult {
+  items: Item[]; // deduped within this source
+  warnings: DedupWarning[];
+  detectedHeader: boolean; // result of `looksLikeHeader` on the parsed first row
+}
+
+/**
+ * Parse a single CSV text into RawRows. Returns the rows BEFORE dedup so
+ * dedup can be done in a unified pass across multiple sources.
+ */
+export function parseCsvRows(
+  text: string,
+  sourceName: string,
+  skipHeader: boolean,
+): { rows: RawRow[]; detectedHeader: boolean } {
+  const parsed = Papa.parse<string[]>(text, {
+    skipEmptyLines: 'greedy',
+  });
+  const allRows = (parsed.data ?? []).filter(
+    (r) => Array.isArray(r) && r.some((cell) => (cell ?? '').trim() !== ''),
+  );
+  if (allRows.length === 0) {
+    return { rows: [], detectedHeader: false };
+  }
+  const detected = looksLikeHeader(allRows[0]);
+  const dataRows = skipHeader ? allRows.slice(1) : allRows;
+  const rows: RawRow[] = [];
+  for (let i = 0; i < dataRows.length; i++) {
+    const row = dataRows[i];
+    const label = (row[0] ?? '').trim();
+    if (!label) continue;
+    const url = ((row[1] ?? '').trim() || undefined) as string | undefined;
+    const imageUrl = ((row[2] ?? '').trim() || undefined) as string | undefined;
+    rows.push({
+      label,
+      url,
+      imageUrl,
+      sourceName,
+      sourceRow: i + 1,
+    });
+  }
+  return { rows, detectedHeader: detected };
+}
+
+/**
+ * Parse plain-text "extras" — one label per line, no commas. Returns RawRows
+ * with sourceName 'extras'. Used for the unranked-singletons textarea on the
+ * START tab.
+ */
+export function parseExtrasText(text: string, sourceName = 'extras'): RawRow[] {
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+  return lines.map((label, i) => ({
+    label,
+    sourceName,
+    sourceRow: i + 1,
+  }));
+}
+
+/**
+ * Dedup a flat list of RawRows. First occurrence wins for position; later
+ * occurrences fill in missing URL/IMAGE on the first.
+ *
+ * Returns deduped items AND a list of warnings, one per canonical key that
+ * had more than one occurrence.
+ */
+export function dedupRows(rows: RawRow[]): {
+  items: Item[];
+  warnings: DedupWarning[];
+} {
+  const byKey = new Map<
+    ItemId,
+    {
+      item: Item;
+      occurrences: RawRow[];
+      mergedUrlFrom?: string;
+      mergedImageFrom?: string;
+    }
+  >();
+
+  for (const row of rows) {
+    const id = canonicalKey(row.label);
+    const existing = byKey.get(id);
+    if (!existing) {
+      byKey.set(id, {
+        item: {
+          id,
+          label: row.label,
+          url: row.url,
+          imageUrl: row.imageUrl,
+        },
+        occurrences: [row],
+      });
+      continue;
+    }
+    existing.occurrences.push(row);
+    if (!existing.item.url && row.url) {
+      existing.item = { ...existing.item, url: row.url };
+      existing.mergedUrlFrom = row.sourceName;
+    }
+    if (!existing.item.imageUrl && row.imageUrl) {
+      existing.item = { ...existing.item, imageUrl: row.imageUrl };
+      existing.mergedImageFrom = row.sourceName;
+    }
+  }
+
+  const items: Item[] = [];
+  const warnings: DedupWarning[] = [];
+  for (const entry of byKey.values()) {
+    items.push(entry.item);
+    if (entry.occurrences.length <= 1) continue;
+    const first = entry.occurrences[0];
+    const sources = new Set(entry.occurrences.map((o) => o.sourceName));
+    warnings.push({
+      canonicalKey: entry.item.id,
+      displayLabel: entry.item.label,
+      occurrences: entry.occurrences.map((o) => ({
+        sourceName: o.sourceName,
+        rowNumber: o.sourceRow,
+        hadUrl: !!o.url,
+        hadImage: !!o.imageUrl,
+      })),
+      winningSource: first.sourceName,
+      winningRow: first.sourceRow,
+      mergedFromSources: {
+        url: entry.mergedUrlFrom,
+        image: entry.mergedImageFrom,
+      },
+      reason: sources.size > 1 ? 'duplicate-across-sources' : 'duplicate-in-source',
+    });
+  }
+  return { items, warnings };
+}
+
+// ---------- high-level entry points ----------
+
+export interface SourceParse {
+  sourceName: string;
+  /** Raw rows BEFORE the cross-source dedup pass. */
+  rawRows: RawRow[];
+  detectedHeader: boolean;
+}
+
+/**
+ * Per-source-then-global parse. Each source contributes its rawRows; we then
+ * dedup across all sources in input order (so the first source has placement
+ * priority).
+ */
+export function parseSources(sources: SourceParse[]): {
+  items: Item[];
+  warnings: DedupWarning[];
+  perSource: Array<{
+    sourceName: string;
+    items: Item[]; // ordered, deduped within this source's own rows
+  }>;
+} {
+  const perSource: Array<{ sourceName: string; items: Item[] }> = [];
+  const flat: RawRow[] = [];
+  for (const s of sources) {
+    flat.push(...s.rawRows);
+    // Pre-compute per-source deduped item list (in the original row order)
+    // so the preview shows what we'd produce for that file alone.
+    const seen = new Set<ItemId>();
+    const localItems: Item[] = [];
+    for (const r of s.rawRows) {
+      const id = canonicalKey(r.label);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      localItems.push({
+        id,
+        label: r.label,
+        url: r.url,
+        imageUrl: r.imageUrl,
+      });
+    }
+    perSource.push({ sourceName: s.sourceName, items: localItems });
+  }
+  const { items, warnings } = dedupRows(flat);
+  return { items, warnings, perSource };
+}
+
+/**
+ * Convenience helper: dedup-merge two sets of items, returning the merged
+ * items dict in the order of `a` then any net-new items from `b`. Used by
+ * mid-sort appendPreRankedSublist (caller still owns the queue insertion).
+ *
+ * Items in `b` whose id matches an item in `a` are dropped (caller can read
+ * `skipped` to know which ones); URL/IMAGE on the corresponding `a` item is
+ * filled in if missing.
+ */
+export function mergeIntoExisting(
+  existing: Record<ItemId, Item>,
+  newItems: Item[],
+): {
+  mergedDict: Record<ItemId, Item>;
+  netNew: Item[];
+  skipped: Item[];
+  metadataFills: Array<{ id: ItemId; field: 'url' | 'imageUrl' }>;
+} {
+  const mergedDict = { ...existing };
+  const netNew: Item[] = [];
+  const skipped: Item[] = [];
+  const metadataFills: Array<{ id: ItemId; field: 'url' | 'imageUrl' }> = [];
+  for (const it of newItems) {
+    const ex = mergedDict[it.id];
+    if (!ex) {
+      mergedDict[it.id] = it;
+      netNew.push(it);
+      continue;
+    }
+    skipped.push(it);
+    let updated = ex;
+    if (!ex.url && it.url) {
+      updated = { ...updated, url: it.url };
+      metadataFills.push({ id: it.id, field: 'url' });
+    }
+    if (!ex.imageUrl && it.imageUrl) {
+      updated = { ...updated, imageUrl: it.imageUrl };
+      metadataFills.push({ id: it.id, field: 'imageUrl' });
+    }
+    mergedDict[it.id] = updated;
+  }
+  return { mergedDict, netNew, skipped, metadataFills };
+}
