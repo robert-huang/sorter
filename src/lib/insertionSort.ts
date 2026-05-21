@@ -1,6 +1,7 @@
 import {
   applyInsertPick,
   getInsertPair as getInsertPairPrimitive,
+  getInsertPeekRightIds,
   insertComparisonsRemaining,
   startInsert,
   worstCaseInsertCost,
@@ -58,6 +59,30 @@ export function getPair(
   const skipped = skipHiddenProbes(state.current, state.sorted, hidden);
   if ('done' in skipped) return null;
   return getInsertPairPrimitive(skipped, state.sorted);
+}
+
+/**
+ * Up to `n` rank-adjacent visible ids in `sorted` immediately after the
+ * current probe (the right card in the compare UI). Drives the peek
+ * deck rendered behind B. Returns [] when there's no current frame or
+ * all probes in the active range are hidden.
+ */
+export function getPeekRightIds(state: InsertionState, n = 3): ItemId[] {
+  if (!state.current) return [];
+  const hidden = new Set(state.hidden);
+  if (hidden.has(state.current.insertingId)) return [];
+  const skipped = skipHiddenProbes(state.current, state.sorted, hidden);
+  if ('done' in skipped) return [];
+  return getInsertPeekRightIds(skipped, state.sorted, hidden, n);
+}
+
+/**
+ * Insertion engine: the left card is the single inserting item, which
+ * has no rank-adjacent neighbor. Always [] — CompareScreen uses this
+ * to skip rendering a left-side peek deck in insert modes.
+ */
+export function getPeekLeftIds(_state: InsertionState, _n = 3): ItemId[] {
+  return [];
 }
 
 /**

@@ -1,6 +1,7 @@
 import {
   applyInsertPick,
   getInsertPair,
+  getInsertPeekRightIds,
   insertComparisonsRemaining,
   startInsert,
 } from './binaryInsertion';
@@ -128,6 +129,70 @@ export function getPair(state: MergeState): { leftId: ItemId; rightId: ItemId } 
   const ri = firstVisibleIndex(state.current.right, hidden);
   if (li < 0 || ri < 0) return null;
   return { leftId: state.current.left[li], rightId: state.current.right[ri] };
+}
+
+/**
+ * Up to `n` rank-adjacent visible ids on the RIGHT card's side. Dispatch
+ * priority matches `getPair`: manual-insert > auto-insert > merge.
+ *
+ *  - manual-insert: walk `queue[targetQueueIndex]` after the active probe
+ *    (rank-adjacent in the target sublist's existing order).
+ *  - auto-insert: walk `currentAutoInsert.target` after the active probe.
+ *  - merging: walk `current.right` after its first visible head.
+ *
+ * Returns [] when no compare is active or all candidates are hidden.
+ */
+export function getPeekRightIds(state: MergeState, n = 3): ItemId[] {
+  const hidden = new Set(state.hidden);
+  if (state.currentManualInsert) {
+    const target = state.queue[state.currentManualInsert.targetQueueIndex];
+    if (!target) return [];
+    return getInsertPeekRightIds(state.currentManualInsert.frame, target, hidden, n);
+  }
+  if (state.currentAutoInsert?.frame) {
+    return getInsertPeekRightIds(
+      state.currentAutoInsert.frame,
+      state.currentAutoInsert.target,
+      hidden,
+      n,
+    );
+  }
+  if (!state.current) return [];
+  return peekAfterHead(state.current.right, hidden, n);
+}
+
+/**
+ * Up to `n` rank-adjacent visible ids on the LEFT card's side. Only
+ * meaningful in normal merge mode where the left card is itself the
+ * head of a sublist — manual-insert and auto-insert have a single
+ * inserting id on the left with no rank-adjacent neighbor, so they
+ * always return []. CompareScreen uses [] as the signal to skip
+ * rendering a left-side peek deck entirely.
+ */
+export function getPeekLeftIds(state: MergeState, n = 3): ItemId[] {
+  if (state.currentManualInsert || state.currentAutoInsert?.frame) return [];
+  if (!state.current) return [];
+  const hidden = new Set(state.hidden);
+  return peekAfterHead(state.current.left, hidden, n);
+}
+
+/**
+ * Walk past the first visible (the head shown as A or B) and collect
+ * up to `n` more visible ids in queue order. Shared between left and
+ * right merge-mode peeks.
+ */
+function peekAfterHead(
+  ids: ReadonlyArray<ItemId>,
+  hidden: ReadonlySet<ItemId>,
+  n: number,
+): ItemId[] {
+  const headIdx = firstVisibleIndex(ids as ItemId[], hidden);
+  if (headIdx < 0) return [];
+  const out: ItemId[] = [];
+  for (let i = headIdx + 1; i < ids.length && out.length < n; i++) {
+    if (!hidden.has(ids[i])) out.push(ids[i]);
+  }
+  return out;
 }
 
 /**

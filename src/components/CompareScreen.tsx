@@ -1,7 +1,13 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Item, ItemId, SortState } from '../lib/types';
-import { comparisonsRemaining, getPair } from '../lib/engine';
+import {
+  comparisonsRemaining,
+  getPair,
+  getPeekLeftIds,
+  getPeekRightIds,
+} from '../lib/engine';
 import { ItemCard } from './ItemCard';
+import { PeekCard } from './PeekCard';
 
 /**
  * The last user action that *can change the current pair*. Surfaced from
@@ -62,7 +68,46 @@ interface OutgoingPair {
   leftExiting: Item | null;
   rightExiting: Item | null;
   pickedSide: 'left' | 'right';
+  /**
+   * How the exiting cards should animate off-screen.
+   *  - 'slide' — classic side-ward slide (`cardSlideOutLeft/Right`). Used
+   *    in normal merge mode where the picked card visually goes to the
+   *    "merged pile" on its side.
+   *  - 'fade' — vertical fade-out (`cardFadeOut`). Used whenever EITHER
+   *    side of the transition is in an insert mode (insertion engine,
+   *    auto-insert, or manual-insert). Sliding sideways would imply
+   *    "this card got picked into the merged stream", which is a lie
+   *    when the user is actually narrowing a binary search and the next
+   *    probe could land anywhere in the active range.
+   */
+  exitKind: 'slide' | 'fade';
+  /** Whether the in-grid left slot was hidden while this exit played.
+   *  False for 'deck' transitions — the slot stays visible so the user
+   *  can see the peek deck shift and the new live card rise in parallel
+   *  with the overlay exit. */
+  leftHidden: boolean;
+  rightHidden: boolean;
 }
+
+/**
+ * What animation drives a side's *incoming* live card on the next render.
+ * Decided per pick from the previous → new pair diff and the engine mode.
+ *  - 'pop'  — classic dramatic scale-up (`cardPopIn`). Cold start, sublist
+ *    boundary in merge (both ids changed), and any transition into/out
+ *    of an insert mode.
+ *  - 'deck' — slide up from the depth-1 peek transform into the live
+ *    position (`cardSlideUpFromDeck`). Used when exactly one side's id
+ *    changed in normal merge mode — visually, the next-up card the user
+ *    was just shown at depth-1 rises into the live slot.
+ *  - 'fade' — opacity-only crossfade (`cardFadeIn`). Used while we stay
+ *    inside an insert mode probe-to-probe; binary search jumps so the
+ *    new probe wasn't necessarily in the prior peek deck and a deck
+ *    slide-up would lie about the rank relationship.
+ *  - 'none' — no animation. Set on the side that didn't change (its
+ *    `popInKey` doesn't bump anyway, so the live card doesn't remount
+ *    and stays exactly where it was through the partner's exit).
+ */
+type SlotAnimKind = 'pop' | 'deck' | 'fade' | 'none';
 
 /** When a new pick lands while an exit is in flight, we re-pace the live
  *  overlay's CSS animation to this duration via the --anim-duration custom
@@ -70,8 +115,13 @@ interface OutgoingPair {
 const RUSH_DURATION_MS = 70;
 
 /** Animation names we listen for to know an exit cycle finished. Fires
- *  once per exiting side (so 1 or 2 per outgoing pair). */
-const EXIT_ANIM_NAMES = new Set(['cardSlideOutLeft', 'cardSlideOutRight']);
+ *  once per exiting side (so 1 or 2 per outgoing pair). Includes the
+ *  insert-mode fade-out so the same drain logic handles both kinds. */
+const EXIT_ANIM_NAMES = new Set([
+  'cardSlideOutLeft',
+  'cardSlideOutRight',
+  'cardFadeOut',
+]);
 
 export function CompareScreen({
   state,
@@ -103,6 +153,12 @@ export function CompareScreen({
   // -------- pair-change animation pipeline --------
   // The pair just rendered on the previous render (for change detection).
   const prevPairRef = useRef<{ leftId: ItemId; rightId: ItemId } | null>(null);
+  // The mode (merging / manual-insert / auto-insert / inserting) on the
+  // previous render. Read alongside the pair to decide whether the
+  // outgoing pair should slide off (merge) or fade out (insert), and to
+  // detect transitions in/out of insert modes that always warrant a
+  // fresh full pop-in on both sides.
+  const prevModeRef = useRef<CompareMode | null>(null);
   // The overlay currently being animated off-screen. There is at most one
   // visible at a time; backed-up exits queue on queueRef.
   const [outgoing, setOutgoing] = useState<OutgoingPair | null>(null);
@@ -122,6 +178,62 @@ export function CompareScreen({
   // card doesn't re-mount or animate).
   const [popInKeyLeft, setPopInKeyLeft] = useState(0);
   const [popInKeyRight, setPopInKeyRight] = useState(0);
+  // Per-side incoming-animation kind. Drives which keyframe the live
+  // ItemCard runs on its next remount via `data-anim` on the slot,
+  // AND is passed as `mountAnim` to each PeekCard so the card freezes
+  // it on its initial mount (so persisted peek cards don't re-fire
+  // their entry animation when the slot's kind flips on a later pick).
+  //
+  // Computed at render time via useMemo (NOT in the layout effect) for
+  // a critical timing reason: peek cards that mount on this commit
+  // freeze their `data-mount-anim` from this prop *during this
+  // render*. If we waited until the effect to update animKind state,
+  // newly-mounted peek cards on render N would freeze the OLD kind
+  // (e.g., 'pop' from the cold start) and only render N+1 would have
+  // the right value — but by then the cards are already mounted and
+  // their attribute is locked in. By deriving from the refs at render
+  // time we get the right kind on the same commit the new pair
+  // appears. The refs are updated by the layout effect AFTER this
+  // render commits, so the next render with an unchanged pair
+  // (deps-equal) returns the cached useMemo value, and the next
+  // render with a new pair re-derives against the now-updated refs.
+  const { left: leftAnimKind, right: rightAnimKind } = useMemo<{
+    left: SlotAnimKind;
+    right: SlotAnimKind;
+  }>(() => {
+    const prev = prevPairRef.current;
+    const prevMode = prevModeRef.current;
+    if (!pair || !prev || prevMode === null) {
+      // Cold start (no prior pair) — both sides do the dramatic
+      // pop-in, which is what the old single-animation behavior did
+      // and matches the user's "all 4 cards pop in" feel.
+      return { left: 'pop', right: 'pop' };
+    }
+    const sameLeft = prev.leftId === pair.leftId;
+    const sameRight = prev.rightId === pair.rightId;
+    if (sameLeft && sameRight) {
+      // Pair didn't change since last commit — neither side animates.
+      return { left: 'none', right: 'none' };
+    }
+    const newIsInsert = mode !== 'merging';
+    const prevIsInsert = prevMode !== 'merging';
+    const modeBoundary = newIsInsert !== prevIsInsert;
+    if (newIsInsert) {
+      // Insert mode (now): fade out + fade in both sides regardless
+      // of which id technically changed — the inserting id stays put
+      // but we treat the pair as a unit visually.
+      return { left: 'fade', right: 'fade' };
+    }
+    if (modeBoundary || (!sameLeft && !sameRight)) {
+      // Just left an insert mode, OR a sublist boundary in pure merge.
+      // Pop both sides (and their peek decks) for the "all 4 at once"
+      // effect.
+      return { left: 'pop', right: 'pop' };
+    }
+    if (!sameLeft) return { left: 'deck', right: 'none' };
+    return { left: 'none', right: 'deck' };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pair?.leftId, pair?.rightId, mode]);
   // Per-side revealed flag. When a pick starts a leisurely exit on a given
   // side, that side's new card is mounted into the slot but suppressed via
   // .compare-slot--hidden so the user only sees it after the previous card
@@ -143,35 +255,64 @@ export function CompareScreen({
   useLayoutEffect(() => {
     if (!pair) {
       prevPairRef.current = null;
+      prevModeRef.current = null;
       return;
     }
     const prev = prevPairRef.current;
+    const prevMode = prevModeRef.current;
     prevPairRef.current = { leftId: pair.leftId, rightId: pair.rightId };
-    if (!prev) return; // first mount — first pair pops in via the CSS rule itself
+    prevModeRef.current = mode;
+    if (!prev) return; // first mount — initial 'pop' state covers it
     const sameLeft = prev.leftId === pair.leftId;
     const sameRight = prev.rightId === pair.rightId;
     if (sameLeft && sameRight) return;
 
+    // The animKind for each side has already been decided at render
+    // time via the useMemo above (so PeekCards mounting on this commit
+    // freeze the right value). Here we only need to know which sides
+    // should *bump their popInKey* (i.e., remount their live ItemCard
+    // so it replays the keyframe driven by the slot's `data-anim`).
+    //
+    // In normal merge that's exactly the changed side(s). In insert
+    // modes — or when crossing the merge ↔ insert mode boundary — we
+    // force both sides to remount so the visual swap covers both cards
+    // even when one technically retained its id.
+    const newIsInsert = mode !== 'merging';
+    const prevIsInsert = prevMode !== 'merging';
+    const modeBoundary = newIsInsert !== prevIsInsert;
+    const bumpLeft = !sameLeft || newIsInsert || modeBoundary;
+    const bumpRight = !sameRight || newIsInsert || modeBoundary;
+
     // Non-pick pair changes (undo, slot switch, etc.) skip the slide-out
-    // overlay entirely — the changed side(s) just pop in fresh.
+    // overlay entirely — the changed side(s) just remount fresh and
+    // their slot's data-anim picks the right keyframe.
     if (lastInteraction?.kind !== 'pick') {
-      if (!sameLeft) setPopInKeyLeft((k) => k + 1);
-      if (!sameRight) setPopInKeyRight((k) => k + 1);
+      if (bumpLeft) setPopInKeyLeft((k) => k + 1);
+      if (bumpRight) setPopInKeyRight((k) => k + 1);
       return;
     }
 
-    // Build the outgoing pair — only sides that actually changed are
-    // included. In merge sort picking left advances left (oldLeft slides
-    // off, oldRight retains), and vice versa. The retained side gets
-    // nothing here so it never animates and stays visible the whole time.
-    const oldLeft = sameLeft ? null : state.items[prev.leftId] ?? null;
-    const oldRight = sameRight ? null : state.items[prev.rightId] ?? null;
+    // Exit kind: insert mode (now or just left) → fade out vertically
+    // (the picked side's card didn't actually go anywhere physical).
+    // Pure merge → classic side-ward slide.
+    const exitKind: 'slide' | 'fade' = newIsInsert || prevIsInsert ? 'fade' : 'slide';
+
+    // Build the outgoing pair. In insert / mode-boundary cases include
+    // BOTH sides as exiting (even the side whose id didn't change), so
+    // the user sees both fade out in unison before the new probe lands.
+    let oldLeft = sameLeft && !newIsInsert && !modeBoundary
+      ? null
+      : state.items[prev.leftId] ?? null;
+    let oldRight = sameRight && !newIsInsert && !modeBoundary
+      ? null
+      : state.items[prev.rightId] ?? null;
 
     if (!oldLeft && !oldRight) {
-      // Both sides changed but neither old item is available (rare —
-      // e.g. previous items hidden mid-sort). Fall back to plain pop-in.
-      if (!sameLeft) setPopInKeyLeft((k) => k + 1);
-      if (!sameRight) setPopInKeyRight((k) => k + 1);
+      // Old items missing (rare — e.g. previous items hidden mid-sort).
+      // Fall back to plain remount — the data-anim already drives the
+      // right keyframe on the incoming live card.
+      if (bumpLeft) setPopInKeyLeft((k) => k + 1);
+      if (bumpRight) setPopInKeyRight((k) => k + 1);
       return;
     }
 
@@ -180,26 +321,35 @@ export function CompareScreen({
       leftExiting: oldLeft,
       rightExiting: oldRight,
       pickedSide: lastInteraction.side,
+      exitKind,
+      // 'deck' transitions keep the slot visible so the user sees the
+      // peek depth shift and the live card rise in parallel with the
+      // overlay exit. Pop/fade still hide until the overlay drains.
+      leftHidden: !!oldLeft && leftAnimKind !== 'deck',
+      rightHidden: !!oldRight && rightAnimKind !== 'deck',
     };
 
     if (outgoingRef.current === null) {
-      // LEISURELY: start the exit and hide the *entering* side(s). The
-      // reveal + pop-in fire from handleOverlayAnimationEnd when the
-      // queue drains. Sides that changed but couldn't get an exit overlay
-      // (old item missing) still pop in immediately.
+      // LEISURELY: start the exit. For pop/fade, hide the entering side(s)
+      // until the overlay drains. For deck, keep the slot visible and
+      // bump popInKey now so cardSlideUpFromDeck + peek depth shifts
+      // play in parallel with the overlay slide-off.
       setOutgoing(newOutgoing);
-      if (oldLeft) setLeftRevealed(false);
-      else if (!sameLeft) setPopInKeyLeft((k) => k + 1);
-      if (oldRight) setRightRevealed(false);
-      else if (!sameRight) setPopInKeyRight((k) => k + 1);
+      if (oldLeft) {
+        if (newOutgoing.leftHidden) setLeftRevealed(false);
+        else if (bumpLeft) setPopInKeyLeft((k) => k + 1);
+      } else if (bumpLeft) setPopInKeyLeft((k) => k + 1);
+      if (oldRight) {
+        if (newOutgoing.rightHidden) setRightRevealed(false);
+        else if (bumpRight) setPopInKeyRight((k) => k + 1);
+      } else if (bumpRight) setPopInKeyRight((k) => k + 1);
     } else {
       // INTERRUPT: rush the in-flight exit by re-pacing its CSS animation
       // duration to RUSH_DURATION_MS (via a CSS variable on the overlay
       // container, which children inherit), queue this pair to start as
       // soon as the rushed pair ends, AND reveal the new cards now — the
       // snappy "pick again immediately and the next pair is already
-      // there" feel. Only sides that just changed get a fresh pop-in;
-      // the retained side keeps its current mount.
+      // there" feel.
       if (overlayContainerRef.current) {
         overlayContainerRef.current.style.setProperty(
           '--anim-duration',
@@ -209,11 +359,11 @@ export function CompareScreen({
       queueRef.current.push(newOutgoing);
       setLeftRevealed(true);
       setRightRevealed(true);
-      if (!sameLeft) setPopInKeyLeft((k) => k + 1);
-      if (!sameRight) setPopInKeyRight((k) => k + 1);
+      if (bumpLeft) setPopInKeyLeft((k) => k + 1);
+      if (bumpRight) setPopInKeyRight((k) => k + 1);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pair?.leftId, pair?.rightId, lastInteraction]);
+  }, [pair?.leftId, pair?.rightId, mode, lastInteraction]);
 
   function handleOverlayAnimationEnd(
     e: React.AnimationEvent<HTMLDivElement>,
@@ -232,18 +382,24 @@ export function CompareScreen({
     const next = queueRef.current.shift() ?? null;
     setOutgoing(next);
     if (!next) {
-      // Queue drained — leisurely tail. Reveal the side(s) this exit was
-      // covering and replay their pop-in. When `next` is non-null we were
-      // interrupted, in which case the interrupt branch above already
-      // revealed + re-keyed the slots and we leave them alone while the
-      // queued exit plays on top.
+      // Queue drained — leisurely tail. Reveal any side that was hidden
+      // and replay its incoming animation. Deck sides were never hidden
+      // and already got their popInKey bump on pick, so skip them here.
       if (leftWasExiting) {
-        setLeftRevealed(true);
-        setPopInKeyLeft((k) => k + 1);
+        if (cur?.leftHidden) {
+          setLeftRevealed(true);
+          setPopInKeyLeft((k) => k + 1);
+        } else {
+          setLeftRevealed(true);
+        }
       }
       if (rightWasExiting) {
-        setRightRevealed(true);
-        setPopInKeyRight((k) => k + 1);
+        if (cur?.rightHidden) {
+          setRightRevealed(true);
+          setPopInKeyRight((k) => k + 1);
+        } else {
+          setRightRevealed(true);
+        }
       }
     }
   }
@@ -289,8 +445,32 @@ export function CompareScreen({
   const completed = Math.max(0, total - remaining);
   const pct = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0;
 
-  const leftSlotClass = `compare-slot${leftRevealed ? '' : ' compare-slot--hidden'}`;
-  const rightSlotClass = `compare-slot${rightRevealed ? '' : ' compare-slot--hidden'}`;
+  // The slot itself is a *stable* DOM node across picks (no key on the
+  // wrapper), so the peek deck inside can persist its child elements
+  // across renders — that's what makes the depth-2 → depth-1 CSS
+  // transition smooth on a 'deck' transition. The only thing that
+  // remounts on a pick is the live ItemCard (keyed by popInKey). Anim
+  // selection happens via `data-anim` on the slot, read by CSS rules
+  // targeting the live card and the peek-card inner wrappers.
+  const leftSlotClass = `compare-slot compare-slot--left${
+    leftRevealed ? '' : ' compare-slot--hidden'
+  }`;
+  const rightSlotClass = `compare-slot compare-slot--right${
+    rightRevealed ? '' : ' compare-slot--hidden'
+  }`;
+
+  // Rank-adjacent peek decks rendered behind the live cards. Right side
+  // applies in every mode; left side is non-empty only in normal merge
+  // mode (the engine helpers return [] in insert modes so the left
+  // stack is skipped entirely). Filtered through the items dict so any
+  // id missing a backing record (shouldn't happen, but be defensive)
+  // doesn't crash the render.
+  const peekRightItems = getPeekRightIds(state, 3)
+    .map((id) => state.items[id])
+    .filter((it): it is Item => !!it);
+  const peekLeftItems = getPeekLeftIds(state, 3)
+    .map((id) => state.items[id])
+    .filter((it): it is Item => !!it);
 
   // Banner shown above the compare grid identifying the current mode.
   // Drives both UI clarity (user knows whether this is "the merge", a
@@ -344,15 +524,57 @@ export function CompareScreen({
         Which do you prefer? Click a card or use ← / → · ↑ to undo · middle-click to open link
       </div>
       <div className="compare">
-        <div key={`pop-${popInKeyLeft}-l`} className={leftSlotClass}>
+        <div className={leftSlotClass} data-anim={leftAnimKind}>
+          {peekLeftItems.length > 0 && (
+            <div
+              className="compare-peek-stack compare-peek-stack--left"
+              aria-hidden="true"
+            >
+              {/* Render deepest first so DOM order matches paint order
+                  for the same z-index — depth 1 (closest) ends up on
+                  top of the stack but still under the live card via
+                  the .compare-slot > .item-card { z-index: 1 } rule. */}
+              {peekLeftItems
+                .map((item, i) => ({ item, depth: i + 1 }))
+                .reverse()
+                .map(({ item, depth }) => (
+                  <PeekCard
+                    key={item.id}
+                    item={item}
+                    depth={depth}
+                    mountAnim={leftAnimKind}
+                  />
+                ))}
+            </div>
+          )}
           <ItemCard
+            key={popInKeyLeft}
             item={left}
             onPick={onPickLeft}
             onRemove={hideRemoveOnLeft ? undefined : () => onHide(left.id)}
           />
         </div>
-        <div key={`pop-${popInKeyRight}-r`} className={rightSlotClass}>
+        <div className={rightSlotClass} data-anim={rightAnimKind}>
+          {peekRightItems.length > 0 && (
+            <div
+              className="compare-peek-stack compare-peek-stack--right"
+              aria-hidden="true"
+            >
+              {peekRightItems
+                .map((item, i) => ({ item, depth: i + 1 }))
+                .reverse()
+                .map(({ item, depth }) => (
+                  <PeekCard
+                    key={item.id}
+                    item={item}
+                    depth={depth}
+                    mountAnim={rightAnimKind}
+                  />
+                ))}
+            </div>
+          )}
           <ItemCard
+            key={popInKeyRight}
             item={right}
             onPick={onPickRight}
             onRemove={() => onHide(right.id)}
@@ -361,14 +583,16 @@ export function CompareScreen({
         {outgoing && (
           <div
             ref={overlayContainerRef}
-            className="compare-overlay"
+            className={`compare-overlay compare-overlay--exit-${outgoing.exitKind}`}
             onAnimationEnd={handleOverlayAnimationEnd}
             key={`overlay-${outgoing.id}`}
           >
             {/* Both slot cells are always rendered to preserve the grid
                 columns, but only the side(s) actually exiting get the
                 exit-class + card content. The retained side is left empty
-                so the in-grid card behind shows through unobscured. */}
+                so the in-grid card behind shows through unobscured. The
+                container's `--exit-{slide,fade}` modifier picks the
+                keyframe via CSS — slide for merge, fade for insert. */}
             <div
               className={
                 outgoing.leftExiting

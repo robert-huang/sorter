@@ -5,6 +5,8 @@ import {
   buildInsertionState,
   comparisonsRemaining,
   getPair,
+  getPeekLeftIds,
+  getPeekRightIds,
   getRanking,
   hideItem,
   pickLeft,
@@ -544,5 +546,84 @@ describe('save / load roundtrip', () => {
     expect(restored.pending).toEqual(s1.pending);
     expect(restored.current).toEqual(s1.current);
     expect(restored.comparisons).toBe(s1.comparisons);
+  });
+});
+
+describe('getPeekRightIds', () => {
+  it('returns rank-adjacent visible ids in (probe, hi]', () => {
+    // sorted=[A..E], pending=[X] → frame: probe=2 (C), hi=4. The peek
+    // is the user-facing "between" preview: items D and E sit
+    // immediately after the current right card C in rank order.
+    const s = build({ sorted: [A, B, C, D, E], pending: [X] });
+    expect(s.current?.probe).toBe(2);
+    expect(s.current?.hi).toBe(4);
+    expect(getPeekRightIds(s)).toEqual(['d', 'e']);
+  });
+
+  it('caps at n when the active range has more candidates', () => {
+    // Larger sorted so the (probe, hi] window has 4+ candidates;
+    // verify the n parameter actually trims output.
+    const F: Item = { id: 'f', label: 'F' };
+    const G: Item = { id: 'g', label: 'G' };
+    const H: Item = { id: 'h', label: 'H' };
+    const s = build({
+      sorted: [A, B, C, D, E, F, G, H],
+      pending: [X],
+    });
+    // probe = floor(7/2) = 3 (D), hi = 7. Window (3, 7] = [E,F,G,H].
+    expect(getPeekRightIds(s, 3)).toEqual(['e', 'f', 'g']);
+    expect(getPeekRightIds(s, 1)).toEqual(['e']);
+    expect(getPeekRightIds(s, 10)).toEqual(['e', 'f', 'g', 'h']);
+  });
+
+  it('respects hi after a pickLeft narrows the active range', () => {
+    // pickLeft means inserting < probe, so hi collapses to probe-1.
+    // The peek must NOT keep showing items past the new hi.
+    const s0 = build({ sorted: [A, B, C, D, E], pending: [X] });
+    const s1 = pickLeft(s0); // X < C → hi = 1, new probe = 0 (A)
+    expect(s1.current?.probe).toBe(0);
+    expect(s1.current?.hi).toBe(1);
+    expect(getPeekRightIds(s1)).toEqual(['b']);
+  });
+
+  it('skips hidden ids inside the (probe, hi] window', () => {
+    // Hide D — peek should be just [E], not [D, E].
+    const s0 = build({ sorted: [A, B, C, D, E], pending: [X] });
+    const s1 = hideItem(s0, 'd');
+    expect(getPeekRightIds(s1)).toEqual(['e']);
+  });
+
+  it('returns [] when there is no current frame (done state)', () => {
+    expect(getPeekRightIds(seedAsSorted([A, B, C]))).toEqual([]);
+    expect(getPeekRightIds(seedAsSorted([]))).toEqual([]);
+  });
+
+  it('returns [] when every probe in the active range is hidden', () => {
+    // Construct a case where the live frame has lo<=hi but every
+    // candidate in [lo, hi] is hidden — skipHiddenProbes signals
+    // "done" and the helper bails out cleanly. We do this by hiding
+    // sorted items in an order that doesn't trigger the auto-splice
+    // path: sorted=[A,B,C], hide A then B; the still-visible C would
+    // normally get probed first. Hide C → triggers splice and clears
+    // the frame. Verify [] either way.
+    const s0 = build({ sorted: [A, B, C], pending: [X] });
+    let s = hideItem(s0, 'a');
+    s = hideItem(s, 'b');
+    s = hideItem(s, 'c');
+    // Frame collapsed → current should be null. Peek is [].
+    expect(s.current).toBeNull();
+    expect(getPeekRightIds(s)).toEqual([]);
+  });
+});
+
+describe('getPeekLeftIds (insertion engine)', () => {
+  it('always returns [] regardless of frame state', () => {
+    // The insertion engine has a single inserting id on the left
+    // (no rank-adjacent neighbour), so the left peek is meaningless.
+    // CompareScreen reads [] as the signal to skip rendering a left
+    // peek deck entirely in insert modes.
+    expect(getPeekLeftIds(build({ sorted: [A, B, C], pending: [X] }))).toEqual([]);
+    expect(getPeekLeftIds(seedAsSorted([A, B, C]))).toEqual([]);
+    expect(getPeekLeftIds(seedAsSorted([]))).toEqual([]);
   });
 });
