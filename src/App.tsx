@@ -2128,6 +2128,7 @@ export function App() {
         dbSyncRevision={dbSyncRevision}
         onDbPushSource={onDbPushSource}
         onDbPullSource={onDbPullSource}
+        onNewSort={() => setActiveTab('start')}
       />
       <main className="app-main">{body}</main>
       {slotPendingDelete && (

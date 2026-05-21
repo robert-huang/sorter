@@ -381,6 +381,38 @@ describe('scheduleAutosave', () => {
     expect(after.updatedAt >= beforeUpdatedAt).toBe(true);
   });
 
+  it('does NOT bump updatedAt when the scheduled blob is identical to on-disk content', async () => {
+    // Reproduces the bug where clicking a slot to activate it (which
+    // re-binds the same state/undoRing into App's autosave-on-change
+    // effect) caused a no-op write that bumped updatedAt and pushed the
+    // cloud-sync indicator into "pending" — even though the user made
+    // no edits. performWrite now compares the in-memory blob against
+    // the on-disk content and skips the setItem + meta bump when they
+    // match.
+    const slot = mintSlot(makeBlob(3), 'A');
+    const beforeUpdatedAt = readManifest().slots.find((s) => s.id === slot.id)!.updatedAt;
+    // Wait long enough that an actual setItem would produce a strictly
+    // greater ISO timestamp (Date.now() resolution is 1ms, but ISO
+    // strings can collide within the same ms). Anything >=2ms is safe.
+    await new Promise((r) => setTimeout(r, 5));
+    scheduleAutosave(makeBlob(3));
+    flushAutosave();
+    const afterUpdatedAt = readManifest().slots.find((s) => s.id === slot.id)!.updatedAt;
+    expect(afterUpdatedAt).toBe(beforeUpdatedAt);
+  });
+
+  it('still bumps updatedAt when even a single field of the blob differs', async () => {
+    // Sanity check: the no-op skip must NOT swallow real changes —
+    // a one-comparison delta is still a write.
+    const slot = mintSlot(makeBlob(3), 'A');
+    const beforeUpdatedAt = readManifest().slots.find((s) => s.id === slot.id)!.updatedAt;
+    await new Promise((r) => setTimeout(r, 5));
+    scheduleAutosave(makeBlob(4));
+    flushAutosave();
+    const afterUpdatedAt = readManifest().slots.find((s) => s.id === slot.id)!.updatedAt;
+    expect(afterUpdatedAt > beforeUpdatedAt).toBe(true);
+  });
+
   it('is a no-op when there is no active slot', () => {
     // No slot created → activeId is null.
     scheduleAutosave(makeBlob(1));

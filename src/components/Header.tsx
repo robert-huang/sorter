@@ -70,6 +70,10 @@ interface Props {
   dbSyncRevision: number;
   onDbPushSource: (sourceId: string) => void;
   onDbPullSource: (sourceId: string) => void;
+  /** Click handler for the "[NEW]" button at the right edge of the
+   *  gear-menu Saved-sorts header. Wired in App to "navigate to the
+   *  START tab"; the START screen owns the actual mint flow. */
+  onNewSort: () => void;
 }
 
 
@@ -117,6 +121,7 @@ export function Header({
   dbSyncRevision,
   onDbPushSource,
   onDbPullSource,
+  onNewSort,
 }: Props) {
   // `remaining` feeds the optional "~K left" suffix on the toolbar stats
   // label. The progress bar that used to live in the header has moved into
@@ -171,8 +176,23 @@ export function Header({
   const [savedTick, setSavedTick] = useState(false);
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
+    // Background tabs get setTimeout throttled (Chrome / Firefox can stall
+    // timers indefinitely on hidden pages), so the SAVED_TICK_MS reset
+    // never fires and the user comes back to a stuck "Saved ✓". Resetting
+    // on visibilitychange snaps the button back to "💾 Save" the moment
+    // the tab regains focus, regardless of how long it was hidden.
+    function onVisibility(): void {
+      if (document.visibilityState !== 'visible') return;
+      if (savedTimer.current) {
+        clearTimeout(savedTimer.current);
+        savedTimer.current = null;
+      }
+      setSavedTick(false);
+    }
+    document.addEventListener('visibilitychange', onVisibility);
     return () => {
       if (savedTimer.current) clearTimeout(savedTimer.current);
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, []);
 
@@ -330,6 +350,7 @@ export function Header({
             dbSyncRevision={dbSyncRevision}
             onDbPushSource={onDbPushSource}
             onDbPullSource={onDbPullSource}
+            onNewSort={onNewSort}
           />
         </div>
       </div>

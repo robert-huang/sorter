@@ -92,6 +92,14 @@ interface Props {
   dbSyncRevision: number;
   onDbPushSource: (sourceId: string) => void;
   onDbPullSource: (sourceId: string) => void;
+  /**
+   * Click handler for the "[NEW]" button rendered on the right edge of
+   * the SlotList "Saved sorts" header. App-side wiring just navigates
+   * to the START tab; this prop only propagates that intent. We close
+   * the popover here too so the menu doesn't sit overtop the START
+   * screen the user is about to interact with.
+   */
+  onNewSort: () => void;
 }
 
 export function SettingsMenu({
@@ -129,6 +137,7 @@ export function SettingsMenu({
   dbSyncRevision,
   onDbPushSource,
   onDbPullSource,
+  onNewSort,
 }: Props) {
   const [open, setOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -194,6 +203,14 @@ export function SettingsMenu({
     onSwitchSlot(id);
   }
 
+  // Same close-then-act pattern as `handleSwitch`. The START tab is
+  // a full-bleed view; leaving the gear popover open over it would
+  // partially obscure the very screen the click was meant to surface.
+  function handleNewSort(): void {
+    setOpen(false);
+    onNewSort();
+  }
+
   return (
     <div className="settings-wrap" ref={wrapRef}>
       <button
@@ -221,6 +238,7 @@ export function SettingsMenu({
               onCloudPull={onCloudPullSlot}
               cloudPushingIds={cloudPushingIds}
               cloudPullingIds={cloudPullingIds}
+              onNewSort={handleNewSort}
             />
           </div>
           <div className="settings-divider" />

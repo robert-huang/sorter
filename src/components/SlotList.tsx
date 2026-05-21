@@ -39,6 +39,17 @@ interface Props {
   cloudPushingIds: ReadonlySet<string>;
   /** Same as cloudPushingIds, but for Pull. */
   cloudPullingIds: ReadonlySet<string>;
+  /**
+   * Click handler for the small "[NEW]" affordance on the right edge
+   * of the "Saved sorts" header row. Wired to "navigate to the START
+   * tab" — the START screen owns the actual mint flow, so creating a
+   * list there will flush any pending autosave on the previously
+   * active slot before adopting the new session (the standard
+   * `createSlot` ordering already takes care of that). Optional so
+   * the SlotList can still render outside of the gear menu without
+   * forcing every consumer to wire a handler.
+   */
+  onNewSort?: () => void;
 }
 
 /**
@@ -89,6 +100,7 @@ export function SlotList({
   onCloudPull,
   cloudPushingIds,
   cloudPullingIds,
+  onNewSort,
 }: Props) {
   // Local-only state — search is a render filter, never persisted.
   // Reset is implicit (close + reopen the gear menu remounts SlotList).
@@ -128,7 +140,19 @@ export function SlotList({
 
   return (
     <div className="slot-list">
-      <div className="slot-list-header">Saved sorts</div>
+      <div className="slot-list-header">
+        <span className="slot-list-header-title">Saved sorts</span>
+        {onNewSort && (
+          <button
+            type="button"
+            className="slot-list-new-btn"
+            onClick={onNewSort}
+            title="Start a new sort (returns to the START tab; any in-progress slot is autosaved first)"
+          >
+            [NEW]
+          </button>
+        )}
+      </div>
       {showSearch && (
         <input
           type="search"
@@ -353,7 +377,7 @@ function SlotRow({
           />
         )}
         <button
-          className="icon-button"
+          className="icon-button download-icon"
           onClick={(e) => {
             e.stopPropagation();
             onDownload(slot.id);
@@ -361,7 +385,14 @@ function SlotRow({
           title={`Download "${slot.name}" as JSON`}
           aria-label={`Download ${slot.name}`}
         >
-          ⬇
+          {/* "Down arrow above bar" (U+2913) — visually distinct from the
+              cloud Pull glyph "⇣" (U+21E3) on the same row, since both
+              were just "down arrows" before and the only difference was
+              line weight, which read as a render glitch rather than two
+              distinct affordances. The companion `.download-icon` class
+              boosts font-weight so the bar stays visible at icon-button
+              sizes. */}
+          ⤓
         </button>
         <button
           className="x-button"
@@ -454,7 +485,7 @@ function CloudRowControls({
 
   // Per-button glyph swap during in-flight calls. The spinner is a
   // simple text glyph rather than an SVG/Lottie so it stays in the
-  // monochrome icon-button column (matches ★ / ⇡ / ⇣ / ⬇ / ×) and
+  // monochrome icon-button column (matches ★ / ⇡ / ⇣ / ⤓ / ×) and
   // doesn't require any asset pipeline work. Rotation comes from the
   // `.spinning` CSS class — see `styles.css`.
   const SPINNER_GLYPH = '↻';
