@@ -69,7 +69,6 @@ import {
   setCloudPushed,
   clearCloudBinding,
   getLastAutosaveError,
-  hasPendingAutosave,
   scheduleAutosave,
   subscribeAfterWrite,
   subscribeAutosaveError,
@@ -356,28 +355,9 @@ export function App() {
   }, [theme]);
 
   // -------- autosave: schedule on every state change, flush on tab close --------
-  // `isDirty` tracks whether the in-memory state has diverged from
-  // disk: true while a debounced write is queued (or the autosave
-  // is otherwise pending), false after the write lands. Drives the
-  // toolbar Save button's "💾 Save" (dirty) vs "✓ Saved" (clean)
-  // label — explicit signal instead of the old transient "Saved"
-  // flash that fired only on manual Save clicks.
-  //
-  // Why we read hasPendingAutosave() right after scheduleAutosave:
-  // scheduleAutosave may force-flush synchronously when the
-  // AUTOSAVE_MAX_* thresholds are crossed; in that case pendingBlob
-  // is already cleared by the time we check, and dirty should
-  // remain false. The two-step (call + immediately re-read) gets
-  // both the queued and force-flushed cases right without
-  // duplicating the threshold logic up here.
-  const [isDirty, setIsDirty] = useState(false);
   useEffect(() => {
-    if (!autosaveOn || !state) {
-      setIsDirty(false);
-      return;
-    }
+    if (!autosaveOn || !state) return;
     scheduleAutosave(buildBlob(state, undoRing));
-    setIsDirty(hasPendingAutosave());
   }, [state, undoRing, autosaveOn]);
 
   useEffect(() => {
@@ -409,18 +389,21 @@ export function App() {
   // We deliberately reuse the `subscribeAfterWrite` seam that was
   // built for the eventual Tier 1 autosave-to-cloud subscriber; a
   // UI-refresh subscriber is a valid second client.
+  // -------- keep React manifest in sync with autosave writes --------
+  // Each successful autosave bumps the slot's `updatedAt` (and
+  // counters) in localStorage but NOT in React state. Without this
+  // subscription the slot-row meta in the gear menu would render
+  // stale values — most visibly, the cloud-sync indicator would
+  // stay on "synced" (✓) forever because `slot.updatedAt >
+  // slot.cloudPushedAt` never becomes true from React's point of
+  // view. Re-reading the whole manifest is cheap (small JSON parse
+  // on a handful of metas) and runs at most once per autosave
+  // debounce cycle.
   useEffect(() => {
     if (!autosaveOn) return;
-    const unsubscribe = subscribeAfterWrite(() => {
+    return subscribeAfterWrite(() => {
       setManifest(readManifest());
-      // Successful write means in-memory now matches disk. Re-reading
-      // from storage (vs. naively `setIsDirty(false)`) keeps the
-      // signal correct even if a brand-new schedule landed between
-      // the write completing and this listener firing — rare in
-      // practice but cheap to be precise about.
-      setIsDirty(hasPendingAutosave());
     });
-    return unsubscribe;
   }, [autosaveOn]);
 
   // -------- document.title --------
@@ -2021,7 +2004,6 @@ export function App() {
         onSaveNow={onSaveNow}
         onDownload={onDownload}
         autosaveAvailable={autosaveOn}
-        isDirty={isDirty}
         onLoadFromFile={onLoadFile}
         onReset={onResetRequest}
         onBackupAll={onBackupAll}

@@ -1138,31 +1138,6 @@ export function scheduleAutosave(blob: AutosaveBlob): void {
 }
 
 /**
- * True iff a debounced autosave write is queued — i.e. the in-memory
- * state of the active slot has diverged from what's on disk and a
- * write hasn't landed yet. Used by the UI to drive the toolbar Save
- * button's "💾 Save" (dirty) vs "✓ Saved" (clean) state.
- *
- * Note: this flips back to false the moment `performWrite` succeeds
- * (whether via the debounce timer firing, a force-flush from the
- * AUTOSAVE_MAX_WAIT_MS / AUTOSAVE_MAX_COMPARISONS thresholds, or
- * `flushAutosave()`). Pair with `subscribeAfterWrite` to drive a
- * dirty-tracking UI state from React.
- *
- * Edge case worth knowing about: when a slot is resumed from disk,
- * the App-side `scheduleAutosave` effect runs and queues a write
- * with the just-loaded blob. That redundant write resolves within
- * one debounce cycle (~500ms), so the dirty signal briefly reports
- * true after Resume. Cleaner alternatives (no-op detection via deep
- * compare, marking the loaded blob as "already written" in
- * bookkeeping) were considered and rejected as not worth the
- * complexity for a 500ms cosmetic blip.
- */
-export function hasPendingAutosave(): boolean {
-  return pendingBlob !== null;
-}
-
-/**
  * Synchronously flush any pending autosave to the active slot's blob key.
  * Safe to call when nothing is pending or when there is no active slot.
  */

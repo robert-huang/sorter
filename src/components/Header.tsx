@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { SettingsMenu, type CloudMenuStatus } from './SettingsMenu';
 import { CheckIcon, FloppyIcon } from './icons';
 import type { SlotsManifest, SortState } from '../lib/types';
@@ -18,13 +18,6 @@ interface Props {
   /** Download the active slot's session as a JSON file. */
   onDownload: () => void;
   autosaveAvailable: boolean;
-  /** Whether the in-memory state has diverged from what's on disk.
-   *  Drives the toolbar save button: when true, "💾 Save" prompts
-   *  the user to flush; when false, "✓ Saved" surfaces that the
-   *  autosave has caught up. Source of truth is App.tsx — see the
-   *  `setIsDirty` calls around the autosave-schedule effect and
-   *  the subscribeAfterWrite listener. */
-  isDirty: boolean;
   onLoadFromFile: (file: File) => void;
   /** Confirm + delete the active slot. */
   onReset: () => void;
@@ -83,7 +76,6 @@ export function Header({
   onSaveNow,
   onDownload,
   autosaveAvailable,
-  isDirty,
   onLoadFromFile,
   onReset,
   onBackupAll,
@@ -146,33 +138,43 @@ export function Header({
     theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
   const themeBtnGlyph = theme === 'dark' ? '☾' : '☀';
 
-  // Save button label/icon are driven by `isDirty` directly: it
-  // already covers the autosave path (debounced writes flip it back
-  // to false within ~500ms of the last change) AND the manual-Save
-  // path (flushAutosave inside onSaveNow lands a synchronous write
-  // that fires subscribeAfterWrite, which clears isDirty in App).
-  // No more transient timeout — the button's appearance is now a
-  // truthful, persistent reflection of "in-memory matches disk".
+  // Transient "Saved" tick shown only after the user clicks Save.
   //
-  // We still call onSaveNow on click when dirty (forces an immediate
-  // write instead of waiting for the debounce). When clean, the
-  // click is a no-op visually, but we keep the click-through wired
-  // up so a user who clicks "Saved" to "re-save" gets the expected
-  // (idempotent) write rather than a frustrating dead button.
+  // Why we don't show "Saved" as a persistent status reflecting
+  // the real autosave dirty signal: in practice every state change
+  // is written within ~500ms (debounce) or instantaneously (force-
+  // flush at the ≥10s / ≥20-comparison thresholds), so a faithful
+  // dirty indicator barely flashes "💾 Save" at all — the user
+  // sees "Saved" 99% of the time and the flip becomes visual
+  // noise rather than useful feedback.
+  //
+  // Instead the button is a stable "💾 Save" affordance, and the
+  // click produces an explicit "Saved ✓" tick for ~1.2s as a
+  // morale-boost / "your action was acknowledged" signal. The
+  // underlying save was probably already done by autosave; the
+  // click still calls flushAutosave so any in-flight debounce is
+  // committed synchronously, which makes the feedback truthful
+  // in the technical sense too.
+  const SAVED_TICK_MS = 1200;
+  const [savedTick, setSavedTick] = useState(false);
+  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (savedTimer.current) clearTimeout(savedTimer.current);
+    };
+  }, []);
+
   function handleSaveClick(): void {
     onSaveNow();
+    setSavedTick(true);
+    if (savedTimer.current) clearTimeout(savedTimer.current);
+    savedTimer.current = setTimeout(() => setSavedTick(false), SAVED_TICK_MS);
   }
 
-  // Disable only when there's nothing meaningful to save (no slot
-  // loaded, or autosave unavailable in this environment). Don't
-  // disable on `!isDirty` — see the comment above about preserving
-  // the click-through.
   const saveDisabled = !hasState || !autosaveAvailable;
   const saveTitle = !autosaveAvailable
     ? 'Autosave unavailable on file:// — use Download'
-    : isDirty
-      ? 'Unsaved changes — click to save to in-browser storage now'
-      : 'Saved to in-browser storage. Click to force-save anyway.';
+    : 'Save now to in-browser storage';
 
   // -------- sliding tab indicator --------
   // Refs to each pill so we can measure the active one's offsetLeft + width
@@ -249,19 +251,19 @@ export function Header({
         <div className="header-toolbar-stats">{statText}</div>
         <div className="header-toolbar-right">
           <button
-            className={`toolbar-button${!isDirty ? ' saved' : ''}`}
+            className={`toolbar-button${savedTick ? ' saved' : ''}`}
             onClick={handleSaveClick}
             disabled={saveDisabled}
             title={saveTitle}
-            aria-label={isDirty ? 'Save now' : 'Saved'}
+            aria-label={savedTick ? 'Saved' : 'Save now'}
           >
-            {isDirty ? (
+            {savedTick ? (
               <>
-                <FloppyIcon size={14} /> Save
+                <CheckIcon size={14} /> Saved
               </>
             ) : (
               <>
-                <CheckIcon size={14} /> Saved
+                <FloppyIcon size={14} /> Save
               </>
             )}
           </button>
