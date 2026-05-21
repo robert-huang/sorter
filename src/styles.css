@@ -142,6 +142,13 @@ a {
   border-radius: 4px;
   width: 22px;
   height: 22px;
+  /* Centering: the default UA <button> applies padding + line-height that
+     shifts the `×` glyph off-axis. Force a 0-padding flex centering so the
+     glyph sits in the middle regardless of font metrics / browser. */
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   line-height: 1;
   font-size: 16px;
   cursor: pointer;
@@ -159,9 +166,14 @@ a {
 }
 
 /* Primary action inside a banner (e.g. "Reload" in the multi-tab warn).
-   Filled style to invite the click over Dismiss. */
+   Filled style to invite the click over Dismiss.
+
+   Background is set per-variant (see `.app-banner.danger` / `.app-banner.warn`
+   overrides below). Earlier this rule used `background: currentColor`, but
+   `currentColor` resolves to the element's OWN `color` (which is set to
+   `--surface` on the next line), so both bg and fg ended up as `--surface`
+   — producing an invisible-text button. Per-variant fixes that. */
 .app-banner .banner-action {
-  background: currentColor;
   color: var(--surface);
   border: none;
   border-radius: 4px;
@@ -170,6 +182,14 @@ a {
   font-weight: 600;
   cursor: pointer;
   flex-shrink: 0;
+}
+
+.app-banner.danger .banner-action {
+  background: var(--danger);
+}
+
+.app-banner.warn .banner-action {
+  background: var(--warn-text);
 }
 
 .app-banner .banner-action:hover {
@@ -744,12 +764,127 @@ a {
 }
 
 .slot-list-header {
+  /* Was a plain block before adding the inline "NEW" + bulk
+     push/pull affordances. Flex with space-between keeps the
+     left-side cluster (title + bulk push/pull glyphs) flush left
+     and pushes the primary "NEW" button to the right edge without
+     bumping the row height; we only need to vertically center the
+     two flex children since the title is short text. */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 1px;
   text-transform: uppercase;
   color: var(--text-muted);
   margin-bottom: 8px;
+}
+
+.slot-list-header-title {
+  /* Stable selector for the title span — using `.slot-list-header` text
+     directly when the header has children would force every consumer
+     to know the structure. */
+}
+
+.slot-list-header-left {
+  /* Left-side cluster: the "Saved sorts" title plus the bulk
+     push/pull glyph buttons sitting inline next to it. Baseline
+     alignment so the slightly-larger arrow glyphs share a baseline
+     with the small uppercase title text instead of floating
+     mid-line. */
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.slot-list-bulk-icon {
+  /* Minimal "no box" treatment for the bulk push (\u21E1) and bulk
+     pull (\u21E3) buttons — sit inline next to the "Saved sorts"
+     title and look like part of the header text rather than discrete
+     buttons. Letter-spacing is reset because the parent header sets
+     1px tracking that would visually offset the single glyph from
+     its hover hit area. */
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+.slot-list-bulk-icon:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.slot-list-bulk-icon:disabled {
+  /* "Disabled but discoverable" — keeps the button visible so the
+     user learns about bulk push/pull, but the lower opacity + the
+     tooltip explain why clicking would be a no-op (e.g. no slots
+     are opted in for cloud yet). */
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.slot-list-header-btn {
+  /* Shared style for the compact buttons on the "Saved sorts"
+     header row. Tuned to fit on the same row as the header without
+     expanding it: 10px font is slightly smaller than the 11px
+     header, vertical padding is 0 so the row keeps the existing
+     baseline, horizontal padding is small. Letter-spacing is reset
+     because the inherited `.slot-list-header` 1px tracking would
+     space the glyphs apart and turn "NEW" into "N E W". */
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 4px;
+  padding: 0 6px;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.6;
+  cursor: pointer;
+}
+
+.slot-list-header-btn:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+
+.slot-list-header-btn:disabled {
+  /* "Disabled but discoverable" — the button stays visible so the
+     user learns about bulk push/pull, but the muted look + the
+     tooltip explain why clicking it would be a no-op (e.g. no slots
+     are opted in for cloud yet). */
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.slot-list-header-btn.primary {
+  /* Accent treatment for the "NEW" affordance — visually echoes the
+     blue Resume button on each slot row so "start a new sort" reads
+     as the parallel positive action to "resume an existing sort".
+     Mirrors the color tokens used by `.btn.primary` while keeping
+     the compact-header sizing. */
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.slot-list-header-btn.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  /* Override the base hover rule's color flip — primary already has
+     enough contrast against accent-hover that we want the white text
+     to stay white instead of dropping to var(--text). */
+  color: white;
 }
 
 .slot-row {
@@ -1005,6 +1140,18 @@ a {
   background: var(--accent-soft);
 }
 
+/* Per-slot Download glyph (⤓ — "down arrow above bar"). The base
+   character has thin strokes that read as faint compared to the cloud
+   ⇡/⇣ neighbors, and the bar at the bottom can disappear at icon-button
+   font sizes; bolding it brings the stroke weight up to roughly match
+   the double-line cloud arrows so the column doesn't look like a
+   render glitch. Picked over "⬇" because that glyph rendered nearly
+   identical to the cloud-Pull arrow ⇣ — distinct meanings shouldn't
+   share a near-identical pixel-level shape. */
+.icon-button.download-icon {
+  font-weight: 700;
+}
+
 /* Cloud sync indicator on the per-slot row. Three-state color coding
    so the user can tell at a glance which slots are backed up and
    whether the local copy is ahead of the cloud:
@@ -1216,6 +1363,15 @@ a {
 .warning-winner-tag {
   color: var(--text-faint);
   font-style: italic;
+}
+
+/* Inline metadata for an `ExtraColumnsWarning` entry — rendered next
+   to the row's parsed label, explaining why we flagged it (column
+   count + likely cause). Muted so the row's own label stays the
+   visual anchor. */
+.extra-cols-meta {
+  color: var(--text-muted);
+  font-size: 12px;
 }
 
 .preview-start-row {
@@ -1887,6 +2043,66 @@ a {
 
 .edit-item-field input[aria-invalid='true'] {
   border-color: var(--danger);
+}
+
+/* "Original row" panel inside EditItemModal. Only rendered when the
+   modal opens for a CSV row that tripped an ExtraColumnsWarning,
+   i.e. the parser found more than 3 non-empty cells (almost always
+   an unquoted comma in the label). Shows each parsed cell verbatim
+   in a monospace block with per-cell "→ Label / → URL / → Image"
+   buttons that copy the cell into the corresponding form field. The
+   panel is read-only — the user fixes the row by clicking the
+   buttons (or by typing the corrected text into the form fields
+   directly) and then Save. */
+.edit-item-rawrow {
+  margin-top: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius-sm);
+  background: var(--warn-bg);
+  color: var(--warn-text);
+  font-size: 12px;
+}
+
+.edit-item-rawrow-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 6px;
+}
+
+.edit-item-rawrow-hint {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+/* Single selectable text element showing the verbatim parsed cells
+   joined with commas (mirroring the original CSV row, since the
+   warning only fires on unquoted-comma rows). The user highlights
+   any contiguous substring and clicks one of the apply buttons; the
+   buttons preventDefault their mousedown to keep the selection alive
+   across the focus transition. */
+.edit-item-rawrow-text {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 6px 8px;
+  /* Long URLs / labels can be wider than the modal — wrap on
+     whitespace and break long unbreakable strings so the row stays
+     inside the panel. white-space: pre-wrap preserves any leading
+     whitespace papaparse left on cells that came after a comma. */
+  word-break: break-word;
+  white-space: pre-wrap;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+.edit-item-rawrow-text:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 /* Advanced panel inside the EditItemModal — hidden behind a "Show

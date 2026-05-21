@@ -119,6 +119,145 @@ describe('parseCsvRows', () => {
   });
 });
 
+describe('parseCsvRows extra-columns warning', () => {
+  // Motivating case: a label like `Foo, Bar, Baz` *without* enclosing
+  // quotes parses into 4 cells and silently misaligns columns. The
+  // warning lets the user spot it before the rawCells are dropped at
+  // session start.
+  it('flags rows with more than 3 non-empty cells', () => {
+    const r = parseCsvRows('Foo, Bar, Baz,https://x,https://img', 'test', false);
+    expect(r.extraColumns.length).toBe(1);
+    const w = r.extraColumns[0];
+    expect(w.sourceName).toBe('test');
+    expect(w.rowNumber).toBe(1);
+    expect(w.cellCount).toBe(5);
+    expect(w.parsedAs.label).toBe('Foo');
+    // Best-effort: the URL/IMAGE columns get hijacked by the comma
+    // fragments. The warning's job is to surface that to the user.
+    expect(w.parsedAs.url).toBe('Bar');
+    expect(w.parsedAs.imageUrl).toBe('Baz');
+  });
+
+  it('attaches rawCells to BOTH the warning and the corresponding RawRow', () => {
+    // The modal pulls rawCells off the RawRow via the StartScreen
+    // overlay, while the preview surfaces it via the warning entry —
+    // both must agree, and both must contain the verbatim parsed
+    // cells so the user can copy substrings out.
+    const r = parseCsvRows('Foo, Bar,https://x,https://img', 'test', false);
+    expect(r.extraColumns.length).toBe(1);
+    expect(r.extraColumns[0].rawCells).toEqual([
+      'Foo',
+      ' Bar',
+      'https://x',
+      'https://img',
+    ]);
+    expect(r.rows[0].rawCells).toEqual(r.extraColumns[0].rawCells);
+  });
+
+  it('does NOT flag a row with trailing empty cells (uniform-width CSV)', () => {
+    // A CSV with one row that has trailing empties — `A,,,,` — is
+    // syntactically 5 cells but only 1 is non-empty. The user clearly
+    // didn't intend any data in those columns; warning here would
+    // be noise.
+    const r = parseCsvRows('A,,,,\nB,,,,', 'test', false);
+    expect(r.extraColumns).toEqual([]);
+    expect(r.rows.map((x) => x.label)).toEqual(['A', 'B']);
+    expect(r.rows[0].rawCells).toBeUndefined();
+  });
+
+  it('does NOT flag quoted-comma rows (papaparse collapses to 3 cells)', () => {
+    // The whole point of CSV quoting: `"Foo, Bar"` is one cell, not
+    // two. parseCsvRows trusts papaparse here, so well-formed quoted
+    // labels never trip the warning.
+    const r = parseCsvRows(
+      '"Foo, Bar",https://x,https://img',
+      'test',
+      false,
+    );
+    expect(r.extraColumns).toEqual([]);
+    expect(r.rows[0].label).toBe('Foo, Bar');
+    expect(r.rows[0].url).toBe('https://x');
+    expect(r.rows[0].imageUrl).toBe('https://img');
+    expect(r.rows[0].rawCells).toBeUndefined();
+  });
+
+  it('row numbering is post-header-skip', () => {
+    // The user-facing rowNumber must match what we render in the UI
+    // ("source, row N") which is 1-indexed from the FIRST DATA row,
+    // not the file's first physical line.
+    const r = parseCsvRows(
+      'ITEM,URL,IMAGE\nA, B, C,https://x,https://img',
+      'test',
+      true,
+    );
+    expect(r.rows.length).toBe(1);
+    expect(r.extraColumns.length).toBe(1);
+    expect(r.extraColumns[0].rowNumber).toBe(1);
+  });
+
+  it('a >3-cell row that ALSO collides with another row dedups normally and warns on both axes', () => {
+    // Belt-and-suspenders: an unquoted-comma row can ALSO happen to
+    // dedup against another row with the same first-cell label.
+    // Both signals are independent and must both fire — extraColumns
+    // is per-row, dedupRows operates on the post-parse RawRow stream.
+    const parsed = parseCsvRows('Foo, Bar,https://x,https://img\nFoo,,', 'test', false);
+    expect(parsed.extraColumns.length).toBe(1); // only the first row has >3 cells
+    const { warnings } = dedupRows(parsed.rows);
+    expect(warnings.length).toBe(1);
+    expect(warnings[0].canonicalKey).toBe('foo');
+    expect(warnings[0].occurrences.map((o) => o.rowNumber)).toEqual([1, 2]);
+  });
+});
+
+describe('parseSources extra-columns flow', () => {
+  it('concatenates extraColumns across sources in input order', () => {
+    const r = parseSources([
+      {
+        sourceName: 'list-a',
+        rawRows: [{ label: 'A', sourceName: 'list-a', sourceRow: 1 }],
+        detectedHeader: false,
+        extraColumns: [
+          {
+            sourceName: 'list-a',
+            rowNumber: 3,
+            cellCount: 4,
+            rawCells: ['A', 'b', 'c', 'd'],
+            parsedAs: { label: 'A', url: 'b', imageUrl: 'c' },
+          },
+        ],
+      },
+      {
+        sourceName: 'list-b',
+        rawRows: [{ label: 'B', sourceName: 'list-b', sourceRow: 1 }],
+        detectedHeader: false,
+        extraColumns: [
+          {
+            sourceName: 'list-b',
+            rowNumber: 1,
+            cellCount: 5,
+            rawCells: ['B', 'b', 'c', 'd', 'e'],
+            parsedAs: { label: 'B', url: 'b', imageUrl: 'c' },
+          },
+        ],
+      },
+    ]);
+    expect(r.extraColumns.map((w) => w.sourceName)).toEqual(['list-a', 'list-b']);
+  });
+
+  it('omitted extraColumns on a SourceParse counts as zero (no fabrication required)', () => {
+    // SourceParse.extraColumns is optional — hand-built test fixtures
+    // and legacy paths shouldn't have to fabricate an empty array.
+    const r = parseSources([
+      {
+        sourceName: 'list-a',
+        rawRows: [{ label: 'A', sourceName: 'list-a', sourceRow: 1 }],
+        detectedHeader: false,
+      },
+    ]);
+    expect(r.extraColumns).toEqual([]);
+  });
+});
+
 describe('parseExtrasText', () => {
   it('one label per line, no parsing of commas', () => {
     const rows = parseExtrasText('A\n  B  \n\nC,with,commas');

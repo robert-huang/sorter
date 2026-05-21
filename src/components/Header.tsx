@@ -64,6 +64,16 @@ interface Props {
    *  chain stays the single source of truth for the gear menu. */
   cloudPushingIds: ReadonlySet<string>;
   cloudPullingIds: ReadonlySet<string>;
+  /** Bulk push every opted-in slot to the cloud. Wired App-side and
+   *  passed straight through to SettingsMenu → SlotList. */
+  onCloudPushAllSlots: () => void;
+  /** Bulk pull every opted-in slot whose cloud binding is established
+   *  (cloudId set). Same pass-through chain as `onCloudPushAllSlots`. */
+  onCloudPullAllSlots: () => void;
+  /** Click handler for the "[NEW]" button at the right edge of the
+   *  gear-menu Saved-sorts header. Wired in App to "navigate to the
+   *  START tab"; the START screen owns the actual mint flow. */
+  onNewSort: () => void;
 }
 
 
@@ -105,6 +115,9 @@ export function Header({
   onCloudPullSlot,
   cloudPushingIds,
   cloudPullingIds,
+  onCloudPushAllSlots,
+  onCloudPullAllSlots,
+  onNewSort,
 }: Props) {
   // `remaining` feeds the optional "~K left" suffix on the toolbar stats
   // label. The progress bar that used to live in the header has moved into
@@ -159,8 +172,23 @@ export function Header({
   const [savedTick, setSavedTick] = useState(false);
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
+    // Background tabs get setTimeout throttled (Chrome / Firefox can stall
+    // timers indefinitely on hidden pages), so the SAVED_TICK_MS reset
+    // never fires and the user comes back to a stuck "Saved ✓". Resetting
+    // on visibilitychange snaps the button back to "💾 Save" the moment
+    // the tab regains focus, regardless of how long it was hidden.
+    function onVisibility(): void {
+      if (document.visibilityState !== 'visible') return;
+      if (savedTimer.current) {
+        clearTimeout(savedTimer.current);
+        savedTimer.current = null;
+      }
+      setSavedTick(false);
+    }
+    document.addEventListener('visibilitychange', onVisibility);
     return () => {
       if (savedTimer.current) clearTimeout(savedTimer.current);
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, []);
 
@@ -312,6 +340,9 @@ export function Header({
             onCloudPullSlot={onCloudPullSlot}
             cloudPushingIds={cloudPushingIds}
             cloudPullingIds={cloudPullingIds}
+            onCloudPushAllSlots={onCloudPushAllSlots}
+            onCloudPullAllSlots={onCloudPullAllSlots}
+            onNewSort={onNewSort}
           />
         </div>
       </div>

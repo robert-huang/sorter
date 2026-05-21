@@ -44,6 +44,17 @@ interface Props {
    * without touching the id never trips the validator).
    */
   otherIds?: Map<string, string>;
+  /**
+   * Verbatim parsed cells for the originating CSV row. When present,
+   * the modal renders a read-only "Original row" panel above the
+   * form so the user can manually copy the right substrings into the
+   * label / url / image fields when an unquoted comma broke the parse.
+   *
+   * Provided by the START tab when opening the modal for a row that
+   * tripped an `ExtraColumnsWarning`. Undefined for normal edit flows
+   * (no warning, no need to surface the row text).
+   */
+  rawRow?: string[];
 }
 
 /**
@@ -71,6 +82,7 @@ export function EditItemModal({
   allowEditId,
   currentId,
   otherIds,
+  rawRow,
 }: Props) {
   const showUrl = fieldsToShow?.url ?? true;
   const showImageUrl = fieldsToShow?.imageUrl ?? true;
@@ -81,7 +93,15 @@ export function EditItemModal({
   // Default-hidden advanced panel. Once opened we keep it open for
   // the rest of the modal's lifetime (re-mount resets to closed).
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [idDraft, setIdDraft] = useState(currentId ?? item.id);
+  // Logical ID draft starts EMPTY rather than prefilled with the
+  // current id. The current id is shown as the input's placeholder so
+  // the user can see it for reference, but clicking into the field
+  // doesn't dump prefilled text into their selection — they can just
+  // start typing the new id. An empty draft on Save is treated as
+  // "no rename intended" (idDirty stays false), so the user can open
+  // the advanced panel, look at the current id, and back out without
+  // any save-blocking validation noise.
+  const [idDraft, setIdDraft] = useState('');
   const labelRef = useRef<HTMLInputElement | null>(null);
 
   // Autofocus the label and select its contents so the most common edit
@@ -99,7 +119,9 @@ export function EditItemModal({
   // (error message to render inline + block Save).
   const idError = useMemo<string | null>(() => {
     if (!allowEditId || !showAdvanced) return null;
-    if (trimmedId.length === 0) return 'ID cannot be empty';
+    // Empty draft = user has not entered a new id; the current id is
+    // shown as a placeholder. Treat as no-op, not an error.
+    if (trimmedId.length === 0) return null;
     // No-op id (same as current) is valid; we just won't include it
     // in the save payload.
     if (trimmedId === (currentId ?? item.id)) return null;
@@ -113,8 +135,14 @@ export function EditItemModal({
   const labelDirty = trimmedLabel !== item.label;
   const urlDirty = showUrl && url.trim() !== (item.url ?? '');
   const imageUrlDirty = showImageUrl && imageUrl.trim() !== (item.imageUrl ?? '');
+  // Empty draft means the user didn't enter a new id, so we leave the
+  // existing one alone — only flag dirty when a non-empty draft
+  // differs from the current id.
   const idDirty =
-    allowEditId && showAdvanced && trimmedId !== (currentId ?? item.id);
+    allowEditId &&
+    showAdvanced &&
+    trimmedId.length > 0 &&
+    trimmedId !== (currentId ?? item.id);
 
   const canSave =
     trimmedLabel.length > 0 &&
@@ -155,6 +183,7 @@ export function EditItemModal({
       <p style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 0 }}>
         {helpText}
       </p>
+      {rawRow && rawRow.length > 0 && <OriginalRowPanel rawRow={rawRow} />}
       <div className="edit-item-form">
         <label className="edit-item-field">
           <span className="edit-item-label">Label</span>
@@ -211,10 +240,11 @@ export function EditItemModal({
                   className="link-btn"
                   onClick={() => {
                     setShowAdvanced(false);
-                    // Reset draft to the current id so reopening
-                    // starts fresh instead of carrying stale typed
-                    // text that the user implicitly abandoned.
-                    setIdDraft(currentId ?? item.id);
+                    // Reset draft to empty so reopening the panel
+                    // shows the current id as a placeholder again
+                    // rather than carrying stale typed text the user
+                    // implicitly abandoned.
+                    setIdDraft('');
                   }}
                 >
                   Hide
@@ -227,7 +257,11 @@ export function EditItemModal({
                   value={idDraft}
                   onChange={(e) => setIdDraft(e.target.value)}
                   onKeyDown={onKeyDown}
-                  placeholder="internal identifier (no spaces recommended)"
+                  // Show the current id as a faded placeholder rather
+                  // than as a prefilled value — clicking into the
+                  // field gives the user a clean slate, and leaving
+                  // it blank means "keep the existing id."
+                  placeholder={currentId ?? item.id}
                   aria-invalid={idError !== null}
                 />
               </label>
@@ -274,5 +308,52 @@ export function EditItemModal({
         </button>
       </div>
     </Modal>
+  );
+}
+
+/**
+ * Read-only panel that renders the verbatim parsed cells for a row
+ * that tripped an `ExtraColumnsWarning`, joined with commas so the
+ * user sees the row exactly as it appeared in the source CSV (the
+ * warning only fires on unquoted-comma rows, so `cells.join(',')`
+ * faithfully reconstructs the original line — papaparse preserves
+ * the literal cell text including any leading whitespace from after
+ * a comma).
+ *
+ * The user repairs the row by selecting any contiguous substring of
+ * the panel and either dragging it into the form field below or
+ * copy-pasting. Both are native browser behaviors for text-selectable
+ * elements + `<input>` drop targets, so the panel itself doesn't need
+ * any apply buttons or selection-mirroring state — that earlier
+ * implementation made the common case (drop the whole row into the
+ * label) finicky around Cmd+A / triple-click selection extension.
+ */
+function OriginalRowPanel({ rawRow }: { rawRow: string[] }) {
+  // papaparse keeps leading whitespace on cells after a comma, so the
+  // `,`-join reconstructs the user's original line for any row that
+  // tripped the >3-cells warning (which by definition was unquoted).
+  const text = useMemo(() => rawRow.join(','), [rawRow]);
+
+  return (
+    <div className="edit-item-rawrow">
+      <div className="edit-item-rawrow-header">
+        <strong>Original row</strong>
+        <span className="edit-item-rawrow-hint">
+          Parsed {rawRow.length} columns. Select any part of the row
+          below (you can span across commas) and drag it into a field,
+          or copy-paste. Or fix the source CSV by adding {'"quotes"'}{' '}
+          around fields that contain commas.
+        </span>
+      </div>
+      <div
+        className="edit-item-rawrow-text"
+        // tabIndex makes the text element keyboard-focusable so the
+        // user can Tab into it and use Shift+Arrow to select without
+        // touching the mouse. user-select is set in CSS.
+        tabIndex={0}
+      >
+        {text}
+      </div>
+    </div>
   );
 }

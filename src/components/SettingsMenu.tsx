@@ -84,6 +84,21 @@ interface Props {
   cloudPushingIds: ReadonlySet<string>;
   /** Same as cloudPushingIds, but for Pull. */
   cloudPullingIds: ReadonlySet<string>;
+  /** Bulk push every opted-in slot to the cloud. Triggered by the
+   *  "[⇡ ALL]" affordance in the SlotList header. App-side handler
+   *  fans out to per-slot push; we just pipe the click through. */
+  onCloudPushAllSlots: () => void;
+  /** Bulk pull every opted-in slot with an established cloud binding.
+   *  Triggered by the "[⇣ ALL]" affordance. */
+  onCloudPullAllSlots: () => void;
+  /**
+   * Click handler for the "[NEW]" button rendered on the right edge of
+   * the SlotList "Saved sorts" header. App-side wiring just navigates
+   * to the START tab; this prop only propagates that intent. We close
+   * the popover here too so the menu doesn't sit overtop the START
+   * screen the user is about to interact with.
+   */
+  onNewSort: () => void;
 }
 
 export function SettingsMenu({
@@ -115,6 +130,9 @@ export function SettingsMenu({
   onCloudPullSlot,
   cloudPushingIds,
   cloudPullingIds,
+  onCloudPushAllSlots,
+  onCloudPullAllSlots,
+  onNewSort,
 }: Props) {
   const [open, setOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -180,6 +198,14 @@ export function SettingsMenu({
     onSwitchSlot(id);
   }
 
+  // Same close-then-act pattern as `handleSwitch`. The START tab is
+  // a full-bleed view; leaving the gear popover open over it would
+  // partially obscure the very screen the click was meant to surface.
+  function handleNewSort(): void {
+    setOpen(false);
+    onNewSort();
+  }
+
   return (
     <div className="settings-wrap" ref={wrapRef}>
       <button
@@ -207,6 +233,9 @@ export function SettingsMenu({
               onCloudPull={onCloudPullSlot}
               cloudPushingIds={cloudPushingIds}
               cloudPullingIds={cloudPullingIds}
+              onCloudPushAll={onCloudPushAllSlots}
+              onCloudPullAll={onCloudPullAllSlots}
+              onNewSort={handleNewSort}
             />
           </div>
           <div className="settings-divider" />
