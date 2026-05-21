@@ -12,7 +12,7 @@ import {
   getPeekRightIds,
   getRanking,
   hideItem,
-  initSort,
+  initSort as mergeInitSort,
   manualInsert,
   mergesRemaining,
   pickLeft,
@@ -23,8 +23,14 @@ import {
   shouldAutoInsert,
   snapshotProgress,
   unhideItem,
+  type MergeOptions,
 } from '../queueMergeSort';
 import type { Item, MergeState } from '../types';
+
+/** Test helper: deterministic item order (startup shuffle disabled). */
+function initSort(items: Item[], options?: MergeOptions): MergeState {
+  return mergeInitSort(items, { shuffleAtStart: false, ...options });
+}
 
 const A: Item = { id: 'a', label: 'A' };
 const B: Item = { id: 'b', label: 'B' };
@@ -74,6 +80,15 @@ describe('initSort', () => {
     expect(s.done).toBe(true);
     expect(s.current).toBeNull();
     expect(getRanking(s)).toEqual(['a']);
+  });
+
+  it('shuffles item order once at startup when shuffleAtStart is true', () => {
+    // random() always 0 → Fisher–Yates swaps index 0 each step → [B,C,A]
+    const s = mergeInitSort([A, B, C], {
+      shuffleAtStart: true,
+      random: () => 0,
+    });
+    expect(getPair(s)).toEqual({ leftId: 'b', rightId: 'c' });
   });
 });
 
