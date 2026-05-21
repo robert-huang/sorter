@@ -50,6 +50,19 @@ interface Props {
    * forcing every consumer to wire a handler.
    */
   onNewSort?: () => void;
+  /**
+   * Optional bulk-push handler. When provided AND `cloudControlsVisible`
+   * is true, the header gains a "[⇡ ALL]" button that pushes every
+   * opted-in slot to the cloud (App-side handler does the filter and
+   * fans out to per-slot push). Hidden when no slot is opted in so we
+   * don't dangle a no-op affordance in front of users who haven't
+   * enabled cloud sync on anything yet.
+   */
+  onCloudPushAll?: () => void;
+  /** Same shape as `onCloudPushAll`, but for bulk pull. Renders only
+   *  when at least one slot is BOTH opted-in and has a cloud binding
+   *  (cloudId set) — otherwise there's nothing to pull. */
+  onCloudPullAll?: () => void;
 }
 
 /**
@@ -101,6 +114,8 @@ export function SlotList({
   cloudPushingIds,
   cloudPullingIds,
   onNewSort,
+  onCloudPushAll,
+  onCloudPullAll,
 }: Props) {
   // Local-only state — search is a render filter, never persisted.
   // Reset is implicit (close + reopen the gear menu remounts SlotList).
@@ -138,18 +153,70 @@ export function SlotList({
       )
     : ordered;
 
+  // Bulk cloud actions are only meaningful when (a) cloud is wired up
+  // (`cloudControlsVisible` mirrors the App-level 'ready' gate) AND
+  // (b) there's at least one eligible slot. Push needs `cloudOptIn`;
+  // pull additionally needs an established `cloudId` binding (a slot
+  // opted in but never pushed has nothing to pull). Counted up front
+  // because both the visibility test and the tooltip need the
+  // numbers — folding into a single pass avoids reiterating `slots`.
+  let pushAllEligible = 0;
+  let pullAllEligible = 0;
+  for (const s of slots) {
+    if (s.cloudOptIn) {
+      pushAllEligible++;
+      if (s.cloudId) pullAllEligible++;
+    }
+  }
+  const showPushAll = cloudControlsVisible && !!onCloudPushAll;
+  const showPullAll = cloudControlsVisible && !!onCloudPullAll;
+
   return (
     <div className="slot-list">
       <div className="slot-list-header">
-        <span className="slot-list-header-title">Saved sorts</span>
+        <div className="slot-list-header-left">
+          <span className="slot-list-header-title">Saved sorts</span>
+          {showPushAll && (
+            <button
+              type="button"
+              className="slot-list-bulk-icon"
+              onClick={onCloudPushAll}
+              disabled={pushAllEligible === 0}
+              aria-label="Push all opted-in slots to cloud"
+              title={
+                pushAllEligible === 0
+                  ? 'No slots opted in for cloud — toggle the cloud icon on a row first'
+                  : `Push ${pushAllEligible} opted-in slot${pushAllEligible === 1 ? '' : 's'} to cloud`
+              }
+            >
+              ⇡
+            </button>
+          )}
+          {showPullAll && (
+            <button
+              type="button"
+              className="slot-list-bulk-icon"
+              onClick={onCloudPullAll}
+              disabled={pullAllEligible === 0}
+              aria-label="Pull all opted-in slots from cloud"
+              title={
+                pullAllEligible === 0
+                  ? 'No opted-in slots have a cloud copy yet — push at least once first'
+                  : `Pull ${pullAllEligible} opted-in slot${pullAllEligible === 1 ? '' : 's'} from cloud (overwrites local)`
+              }
+            >
+              ⇣
+            </button>
+          )}
+        </div>
         {onNewSort && (
           <button
             type="button"
-            className="slot-list-new-btn"
+            className="slot-list-header-btn primary"
             onClick={onNewSort}
             title="Start a new sort (returns to the START tab; any in-progress slot is autosaved first)"
           >
-            [NEW]
+            NEW
           </button>
         )}
       </div>

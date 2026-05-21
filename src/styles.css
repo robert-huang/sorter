@@ -825,11 +825,12 @@ a {
 }
 
 .slot-list-header {
-  /* Was a plain block before adding the inline "[NEW]" affordance.
-     Flex with space-between keeps the existing uppercase title flush
-     left and pushes the small NEW button to the right edge without
+  /* Was a plain block before adding the inline "NEW" + bulk
+     push/pull affordances. Flex with space-between keeps the
+     left-side cluster (title + bulk push/pull glyphs) flush left
+     and pushes the primary "NEW" button to the right edge without
      bumping the row height; we only need to vertically center the
-     two children since the title is short text. */
+     two flex children since the title is short text. */
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -848,13 +849,57 @@ a {
      to know the structure. */
 }
 
-.slot-list-new-btn {
-  /* Compact "[NEW]" button. Tuned to fit on the same row as the
-     "Saved sorts" header without expanding it: 11px font matches the
+.slot-list-header-left {
+  /* Left-side cluster: the "Saved sorts" title plus the bulk
+     push/pull glyph buttons sitting inline next to it. Baseline
+     alignment so the slightly-larger arrow glyphs share a baseline
+     with the small uppercase title text instead of floating
+     mid-line. */
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.slot-list-bulk-icon {
+  /* Minimal "no box" treatment for the bulk push (\u21E1) and bulk
+     pull (\u21E3) buttons — sit inline next to the "Saved sorts"
+     title and look like part of the header text rather than discrete
+     buttons. Letter-spacing is reset because the parent header sets
+     1px tracking that would visually offset the single glyph from
+     its hover hit area. */
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+.slot-list-bulk-icon:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.slot-list-bulk-icon:disabled {
+  /* "Disabled but discoverable" — keeps the button visible so the
+     user learns about bulk push/pull, but the lower opacity + the
+     tooltip explain why clicking would be a no-op (e.g. no slots
+     are opted in for cloud yet). */
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.slot-list-header-btn {
+  /* Shared style for the compact buttons on the "Saved sorts"
+     header row. Tuned to fit on the same row as the header without
+     expanding it: 10px font is slightly smaller than the 11px
      header, vertical padding is 0 so the row keeps the existing
      baseline, horizontal padding is small. Letter-spacing is reset
      because the inherited `.slot-list-header` 1px tracking would
-     turn "[NEW]" into "[ N E W ]" which reads as a different word. */
+     space the glyphs apart and turn "NEW" into "N E W". */
   background: transparent;
   border: 1px solid var(--border);
   color: var(--text-muted);
@@ -868,10 +913,39 @@ a {
   cursor: pointer;
 }
 
-.slot-list-new-btn:hover {
+.slot-list-header-btn:hover:not(:disabled) {
   background: var(--surface-2);
   color: var(--text);
   border-color: var(--text-muted);
+}
+
+.slot-list-header-btn:disabled {
+  /* "Disabled but discoverable" — the button stays visible so the
+     user learns about bulk push/pull, but the muted look + the
+     tooltip explain why clicking it would be a no-op (e.g. no slots
+     are opted in for cloud yet). */
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.slot-list-header-btn.primary {
+  /* Accent treatment for the "NEW" affordance — visually echoes the
+     blue Resume button on each slot row so "start a new sort" reads
+     as the parallel positive action to "resume an existing sort".
+     Mirrors the color tokens used by `.btn.primary` while keeping
+     the compact-header sizing. */
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.slot-list-header-btn.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  /* Override the base hover rule's color flip — primary already has
+     enough contrast against accent-hover that we want the white text
+     to stay white instead of dropping to var(--text). */
+  color: white;
 }
 
 .slot-row {

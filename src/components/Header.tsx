@@ -70,6 +70,12 @@ interface Props {
   dbSyncRevision: number;
   onDbPushSource: (sourceId: string) => void;
   onDbPullSource: (sourceId: string) => void;
+  /** Bulk push every opted-in slot to the cloud. Wired App-side and
+   *  passed straight through to SettingsMenu → SlotList. */
+  onCloudPushAllSlots: () => void;
+  /** Bulk pull every opted-in slot whose cloud binding is established
+   *  (cloudId set). Same pass-through chain as `onCloudPushAllSlots`. */
+  onCloudPullAllSlots: () => void;
   /** Click handler for the "[NEW]" button at the right edge of the
    *  gear-menu Saved-sorts header. Wired in App to "navigate to the
    *  START tab"; the START screen owns the actual mint flow. */
@@ -121,6 +127,8 @@ export function Header({
   dbSyncRevision,
   onDbPushSource,
   onDbPullSource,
+  onCloudPushAllSlots,
+  onCloudPullAllSlots,
   onNewSort,
 }: Props) {
   // `remaining` feeds the optional "~K left" suffix on the toolbar stats
@@ -350,6 +358,8 @@ export function Header({
             dbSyncRevision={dbSyncRevision}
             onDbPushSource={onDbPushSource}
             onDbPullSource={onDbPullSource}
+            onCloudPushAllSlots={onCloudPushAllSlots}
+            onCloudPullAllSlots={onCloudPullAllSlots}
             onNewSort={onNewSort}
           />
         </div>

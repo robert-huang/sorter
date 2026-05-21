@@ -1471,6 +1471,60 @@ export function App() {
     [autosaveOn],
   );
 
+  /**
+   * Bulk push every opted-in slot to the cloud. Reads the manifest at
+   * call time (rather than closing over a stale `manifest` snapshot)
+   * and fans out to the per-slot `onCloudPushSlot` handler — that
+   * means every slot inherits the same re-entrancy guard, conflict
+   * modal flow, and spinner UI as a single-row Push. Slots that are
+   * not opted in are skipped (we don't want bulk to silently auto-
+   * opt-in slots the user hasn't explicitly chosen to back up).
+   *
+   * Concurrency note: per-slot calls are fired without awaiting, so
+   * they run in parallel. Drive's quota is per-user so a handful of
+   * parallel pushes is fine; if a user has hundreds of opted-in
+   * slots they'll hit rate limits and individual rows will surface
+   * the failures via `flashSkipped`. The InFlightTracker prevents
+   * the same slot from being pushed twice if the user mashes the
+   * bulk button.
+   *
+   * Conflict-modal stacking is a known soft limitation: a single
+   * `cloudConflict` slot is rendered at a time, so if multiple
+   * slots' pushes simultaneously hit etag mismatches only the last
+   * one's modal is visible. The earlier conflicts' in-flight gates
+   * are leaked until refresh. Acceptable for v1 — conflict on bulk
+   * push is rare in practice (the user is the one who just clicked
+   * "push all", so it usually means their local is the freshest
+   * anyway).
+   */
+  const onCloudPushAllSlots = useCallback(() => {
+    const m = readManifest();
+    for (const slot of m.slots) {
+      if (slot.cloudOptIn) onCloudPushSlot(slot.id);
+    }
+  }, [onCloudPushSlot]);
+
+  /**
+   * Bulk pull every opted-in slot that has an established cloud
+   * binding (`cloudId`). Slots that are opted in but never pushed
+   * (no cloudId yet) are skipped — there's nothing to pull, so
+   * including them would just no-op. Slots that are not opted in
+   * are also skipped (matching the bulk-push policy: bulk operations
+   * never silently auto-opt-in).
+   *
+   * Use the per-slot handler so each row gets the same
+   * re-entrancy guard + spinner UI + quota-recovery (undo-ring
+   * strip) as a single-row Pull. The active slot, if any, has its
+   * in-memory state swapped to the pulled blob automatically by the
+   * per-slot handler — no special-case here.
+   */
+  const onCloudPullAllSlots = useCallback(() => {
+    const m = readManifest();
+    for (const slot of m.slots) {
+      if (slot.cloudOptIn && slot.cloudId) onCloudPullSlot(slot.id);
+    }
+  }, [onCloudPullSlot]);
+
   // Derive the gear-menu's cloud tier from the live auth state. Pulled
   // out as a useMemo so SettingsMenu's prop identity is stable across
   // renders that don't change auth state.
@@ -2128,6 +2182,8 @@ export function App() {
         dbSyncRevision={dbSyncRevision}
         onDbPushSource={onDbPushSource}
         onDbPullSource={onDbPullSource}
+        onCloudPushAllSlots={onCloudPushAllSlots}
+        onCloudPullAllSlots={onCloudPullAllSlots}
         onNewSort={() => setActiveTab('start')}
       />
       <main className="app-main">{body}</main>

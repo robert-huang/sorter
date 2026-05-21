@@ -92,6 +92,13 @@ interface Props {
   dbSyncRevision: number;
   onDbPushSource: (sourceId: string) => void;
   onDbPullSource: (sourceId: string) => void;
+  /** Bulk push every opted-in slot to the cloud. Triggered by the
+   *  "[⇡ ALL]" affordance in the SlotList header. App-side handler
+   *  fans out to per-slot push; we just pipe the click through. */
+  onCloudPushAllSlots: () => void;
+  /** Bulk pull every opted-in slot with an established cloud binding.
+   *  Triggered by the "[⇣ ALL]" affordance. */
+  onCloudPullAllSlots: () => void;
   /**
    * Click handler for the "[NEW]" button rendered on the right edge of
    * the SlotList "Saved sorts" header. App-side wiring just navigates
@@ -137,6 +144,8 @@ export function SettingsMenu({
   dbSyncRevision,
   onDbPushSource,
   onDbPullSource,
+  onCloudPushAllSlots,
+  onCloudPullAllSlots,
   onNewSort,
 }: Props) {
   const [open, setOpen] = useState(false);
@@ -238,6 +247,8 @@ export function SettingsMenu({
               onCloudPull={onCloudPullSlot}
               cloudPushingIds={cloudPushingIds}
               cloudPullingIds={cloudPullingIds}
+              onCloudPushAll={onCloudPushAllSlots}
+              onCloudPullAll={onCloudPullAllSlots}
               onNewSort={handleNewSort}
             />
           </div>
