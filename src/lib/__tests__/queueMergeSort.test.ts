@@ -6,7 +6,7 @@ import {
   breakApartSublist,
   cancelManualInsert,
   comparisonsRemaining,
-  forgetUnplaced,
+  forgetItem,
   getPair,
   getRanking,
   hideItem,
@@ -538,7 +538,7 @@ describe('snapshot/restore round-trip', () => {
 
 // ============================================================================
 // Exile on merge close (new) — when a merge closes with items hidden, the
-// hidden ids land in `state.unplaced` instead of riding along inside the
+// hidden ids land in `state.toBeInserted` instead of riding along inside the
 // closed sublist. See plan §5b.
 // ============================================================================
 
@@ -577,7 +577,7 @@ function runUntil(
 }
 
 describe('exile on merge close (plan §5b)', () => {
-  it('hidden mid-merge ids land in `unplaced`, not in the closed sublist', () => {
+  it('hidden mid-merge ids land in `toBeInserted`, not in the closed sublist', () => {
     // Construct the chat-time example via seedFromSublists so we have
     // a deterministic initial merge of [A,B,C,D,E] vs [F,G,H].
     const F: Item = { id: 'f', label: 'F' };
@@ -599,10 +599,10 @@ describe('exile on merge close (plan §5b)', () => {
     // Drive: ABC over F, F over D (so F goes in merged after a/b/c),
     // D, E land. Order in `merged` ends up [a,b,c,f,d,e]; right side
     // tail is [h] (g is hidden). Closing: visible = [a,b,c,f,d,e,h],
-    // exiled = [g] → queue gets [a,b,c,f,d,e,h]; unplaced=['g'].
+    // exiled = [g] → queue gets [a,b,c,f,d,e,h]; toBeInserted=['g'].
     s = runUntil(s, ['a', 'b', 'c', 'f', 'd', 'e', 'g', 'h']);
     expect(s.done).toBe(true);
-    expect(s.unplaced).toEqual(['g']);
+    expect(s.toBeInserted).toEqual(['g']);
     expect(s.queue).toEqual([['a', 'b', 'c', 'f', 'd', 'e', 'h']]);
   });
 
@@ -618,16 +618,16 @@ describe('exile on merge close (plan §5b)', () => {
       extras: [],
     });
     // Hide G, then unhide G before the merge reaches it. Then run to
-    // completion: G should appear in the final ranking, no unplaced.
+    // completion: G should appear in the final ranking, no toBeInserted.
     let s = hideItem(s0, 'g');
     s = unhideItem(s, 'g');
     s = runUntil(s, ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']);
     expect(s.done).toBe(true);
-    expect(s.unplaced).toEqual([]);
+    expect(s.toBeInserted).toEqual([]);
     expect(getRanking(s)).toEqual(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']);
   });
 
-  it('undo across exile restores the pre-close snapshot (hidden, unplaced empty)', () => {
+  it('undo across exile restores the pre-close snapshot (hidden, toBeInserted empty)', () => {
     // 5-vs-3 merge so hiding one right-side item doesn't auto-close.
     // Snapshot mid-merge (G hidden, no exile yet), drive to close
     // (exile happens), restore — should be back to mid-merge / no exile.
@@ -642,24 +642,24 @@ describe('exile on merge close (plan §5b)', () => {
       extras: [],
     });
     let s = hideItem(s0, 'g');
-    expect(s.unplaced).toEqual([]);
+    expect(s.toBeInserted).toEqual([]);
     expect(s.current).not.toBeNull();
     const snap = snapshotProgress(s);
 
     s = runUntil(s, ['a', 'b', 'c', 'f', 'd', 'e', 'g', 'h']);
-    expect(s.unplaced).toEqual(['g']);
+    expect(s.toBeInserted).toEqual(['g']);
     expect(s.done).toBe(true);
 
     const restored = restoreProgress(s, snap);
-    expect(restored.unplaced).toEqual([]);
+    expect(restored.toBeInserted).toEqual([]);
     expect(restored.hidden).toContain('g');
     expect(restored.done).toBe(false);
     expect(restored.current).not.toBeNull();
   });
 
-  it('done is gated by pending manual inserts (not by unplaced)', () => {
+  it('done is gated by pending manual inserts (not by toBeInserted)', () => {
     // After exile, queue has one sublist and current is null; the
-    // sort IS done — unplaced does NOT block done. The user chose
+    // sort IS done — toBeInserted does NOT block done. The user chose
     // (by hiding) to leave those items out.
     const F: Item = { id: 'f', label: 'F' };
     const G: Item = { id: 'g', label: 'G' };
@@ -674,7 +674,7 @@ describe('exile on merge close (plan §5b)', () => {
     let s = hideItem(s0, 'g');
     s = runUntil(s, ['a', 'b', 'c', 'f', 'd', 'e', 'g', 'h']);
     expect(s.done).toBe(true);
-    expect(s.unplaced).toEqual(['g']);
+    expect(s.toBeInserted).toEqual(['g']);
 
     // But if we click Insert on G, done flips back to false until G
     // resolves.
@@ -698,7 +698,7 @@ describe('manualInsert + drainManualInserts (plan §5c)', () => {
     });
     let s = hideItem(s0, 'g');
     s = runUntil(s, ['a', 'b', 'c', 'f', 'd', 'e', 'g', 'h']);
-    expect(s.unplaced).toEqual(['g']);
+    expect(s.toBeInserted).toEqual(['g']);
 
     // Click Insert on G; manual-insert frame should appear with G against
     // some probe from the [a,b,c,f,d,e,h] sublist.
@@ -710,7 +710,7 @@ describe('manualInsert + drainManualInserts (plan §5c)', () => {
     // Resolve with oracle: G ranks between F and H.
     s = runUntil(s, ['a', 'b', 'c', 'f', 'd', 'e', 'g', 'h']);
     expect(s.done).toBe(true);
-    expect(s.unplaced).toEqual([]);
+    expect(s.toBeInserted).toEqual([]);
     expect(s.currentManualInsert).toBeNull();
     // G is somewhere between F (index 3) and H (last) in the final
     // sublist, depending on probe order. With MVP full-range bounds,
@@ -741,19 +741,19 @@ describe('manualInsert + drainManualInserts (plan §5c)', () => {
     // visible=[A,C,D], exile=[B]. Done.
     s = runUntil(s, ['a', 'c', 'b', 'd'], { autoInsertEnabled: false });
     expect(s.done).toBe(true);
-    expect(s.unplaced).toEqual(['b']);
+    expect(s.toBeInserted).toEqual(['b']);
     expect(s.queue).toEqual([['a', 'c', 'd']]);
   });
 
   it('drainManualInserts installs the manual-insert frame immediately when no merge is running', () => {
-    // s.done with unplaced=['x']; insert X → frame installed at once.
+    // s.done with toBeInserted=['x']; insert X → frame installed at once.
     const X: Item = { id: 'x', label: 'X' };
     const s0 = initSort([A, B, X]);
     // Hide X mid-merge, then drive to close. X gets exiled.
     let s = hideItem(s0, 'x');
     s = runUntil(s, ['a', 'b', 'x']);
     expect(s.done).toBe(true);
-    expect(s.unplaced).toEqual(['x']);
+    expect(s.toBeInserted).toEqual(['x']);
     expect(s.currentManualInsert).toBeNull();
 
     s = manualInsert(s, 'x');
@@ -761,7 +761,7 @@ describe('manualInsert + drainManualInserts (plan §5c)', () => {
     expect(s.currentManualInsert!.insertingId).toBe('x');
   });
 
-  it('forgetUnplaced drops the id permanently', () => {
+  it('forgetItem drops the id permanently', () => {
     const F: Item = { id: 'f', label: 'F' };
     const G: Item = { id: 'g', label: 'G' };
     const H: Item = { id: 'h', label: 'H' };
@@ -774,13 +774,13 @@ describe('manualInsert + drainManualInserts (plan §5c)', () => {
     });
     let s = hideItem(s0, 'g');
     s = runUntil(s, ['a', 'b', 'c', 'f', 'd', 'e', 'g', 'h']);
-    expect(s.unplaced).toEqual(['g']);
-    s = forgetUnplaced(s, 'g');
-    expect(s.unplaced).toEqual([]);
+    expect(s.toBeInserted).toEqual(['g']);
+    s = forgetItem(s, 'g');
+    expect(s.toBeInserted).toEqual([]);
     expect(getRanking(s)).not.toContain('g');
   });
 
-  it('cancelManualInsert bounces the inserting id back to unplaced', () => {
+  it('cancelManualInsert bounces the inserting id back to toBeInserted', () => {
     const F: Item = { id: 'f', label: 'F' };
     const G: Item = { id: 'g', label: 'G' };
     const H: Item = { id: 'h', label: 'H' };
@@ -797,7 +797,7 @@ describe('manualInsert + drainManualInserts (plan §5c)', () => {
     expect(s.currentManualInsert?.insertingId).toBe('g');
     s = cancelManualInsert(s);
     expect(s.currentManualInsert).toBeNull();
-    expect(s.unplaced).toContain('g');
+    expect(s.toBeInserted).toContain('g');
   });
 });
 
@@ -925,7 +925,7 @@ describe('drainAutoInsert rank-aware bound tightening', () => {
   it('exiles hidden target ids when the auto-insert closes', () => {
     // 1-into-5, hide one of the target ids mid-auto-insert. The
     // probe-skip path keeps the auto-insert running; the exile rule
-    // applies at close time so the hidden id ends up in `unplaced`
+    // applies at close time so the hidden id ends up in `toBeInserted`
     // instead of riding along in the closed sublist at a stale slot.
     const F: Item = { id: 'f', label: 'F' };
     const seed = seedFromSublists({
@@ -937,9 +937,9 @@ describe('drainAutoInsert rank-aware bound tightening', () => {
     // Drive: oracle says F should land between B and C.
     s = runUntil(s, ['a', 'b', 'f', 'c', 'e']);
     expect(s.done).toBe(true);
-    // D should be exiled to unplaced (the exile rule on merge close
+    // D should be exiled to toBeInserted (the exile rule on merge close
     // applies equally to auto-insert close).
-    expect(s.unplaced).toContain('d');
+    expect(s.toBeInserted).toContain('d');
     // D should NOT be in the final queue.
     expect(s.queue[0]).not.toContain('d');
   });

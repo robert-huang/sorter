@@ -28,9 +28,9 @@ interface Props {
    * only, with the "Treat as pre-ranked sublist" checkbox checked).
    */
   onAppendPreRanked: (items: Item[]) => void;
-  /** Merge-only: queue an unplaced id for binary-insertion. */
+  /** Merge-only: queue a to-be-inserted id for binary-insertion. */
   onManualInsert: (id: string) => void;
-  /** Merge-only: drop an unplaced id permanently. */
+  /** Merge-only: drop a to-be-inserted id permanently. */
   onForget: (id: string) => void;
   /**
    * Insertion-only: nudge an item up (-1) or down (+1) in `sorted[]`.
@@ -68,7 +68,7 @@ function Thumb({ item }: { item: Item }) {
 /**
  * Pencil-icon button that opens the EditItemModal for `item`. Shared
  * between the chip variant (current merge frame, currently-inserting
- * banner) and the full-row variant (queue sublists, unplaced, sorted,
+ * banner) and the full-row variant (queue sublists, to-be-inserted, sorted,
  * pending). The `chip` variant uses the inline `.x`-style button class
  * already styled for chips; the `row` variant uses `.icon-btn`.
  */
@@ -104,8 +104,8 @@ export function ListScreen(props: Props) {
 }
 
 // ============================================================================
-// MERGE VIEW — original list screen + Unplaced (N) section (renamed
-// "To be inserted (N)" since the user-facing action is now "Insert")
+// MERGE VIEW — original list screen + "To be inserted (N)" section
+// (items exiled from a merge close, awaiting an explicit Insert or Forget)
 // ============================================================================
 
 function MergeListView({
@@ -218,10 +218,10 @@ function MergeListView({
         />
       ))}
 
-      {state.unplaced.length > 0 && (
-        <div className="list-unplaced">
+      {state.toBeInserted.length > 0 && (
+        <div className="list-to-be-inserted">
           <div className="list-section-label">
-            To be inserted ({state.unplaced.length})
+            To be inserted ({state.toBeInserted.length})
           </div>
           <p
             style={{
@@ -235,7 +235,7 @@ function MergeListView({
             binary-search them into a queue sublist, or{' '}
             <strong>× Forget</strong> to drop them from the rank.
           </p>
-          {state.unplaced.map((id) => {
+          {state.toBeInserted.map((id) => {
             const item = state.items[id];
             if (!item) return null;
             const queued = state.pendingManualInserts.includes(id);

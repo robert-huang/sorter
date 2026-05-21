@@ -30,7 +30,7 @@ import {
   appendPreRankedSublist,
   breakApartSublist,
   cancelManualInsert,
-  forgetUnplaced,
+  forgetItem,
   initSort,
   manualInsert,
   reorderInSublist,
@@ -804,7 +804,7 @@ export function App() {
       setState((cur) => {
         if (!cur || cur.engine !== 'merge') return cur;
         pushUndo(cur);
-        return forgetUnplaced(cur, id, engineOptions);
+        return forgetItem(cur, id, engineOptions);
       });
     },
     [pushUndo, engineOptions],
@@ -1773,7 +1773,7 @@ export function App() {
   // Item set = `getRanking(state)` (the visible final ranking), which:
   //   - EXCLUDES hidden items — they were deliberately removed and stay
   //     out of the new sort.
-  //   - EXCLUDES `unplaced[]` — items that were exiled but never
+  //   - EXCLUDES `toBeInserted[]` — items that were exiled but never
   //     re-inserted are likewise dropped.
   //   - For insertion mode, this is just the frozen `sorted[]` minus
   //     hidden, so insertion-mode items get treated like any other

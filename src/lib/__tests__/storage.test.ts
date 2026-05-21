@@ -58,7 +58,7 @@ function makeProgress(comparisons = 0, done = false): MergeProgress {
     done,
     hidden: [],
     totalComparisonsEverNeeded: 0,
-    unplaced: [],
+    toBeInserted: [],
     pendingManualInserts: [],
     currentManualInsert: null,
     currentAutoInsert: null,
@@ -743,7 +743,7 @@ describe('readActiveSlot', () => {
 // ============================================================================
 
 describe('upgradeProgress (via loaders)', () => {
-  it('legacy v1 blob with no engine field is upgraded to engine=merge with v3 defaults', () => {
+  it('legacy v1 blob with no engine field is upgraded to engine=merge with current defaults', () => {
     // Write a v1-shaped legacy save (no engine, no exile/Insert fields).
     const legacyV1 = {
       version: 1 as const,
@@ -756,7 +756,7 @@ describe('upgradeProgress (via loaders)', () => {
         done: false,
         hidden: [],
         totalComparisonsEverNeeded: 7,
-        // No engine, no unplaced, no Place/Insert fields.
+        // No engine, no toBeInserted, no Place/Insert fields.
       },
       undoRing: [],
     };
@@ -767,7 +767,7 @@ describe('upgradeProgress (via loaders)', () => {
 
     expect(blob.progress.engine).toBe('merge');
     if (blob.progress.engine === 'merge') {
-      expect(blob.progress.unplaced).toEqual([]);
+      expect(blob.progress.toBeInserted).toEqual([]);
       expect(blob.progress.pendingManualInserts).toEqual([]);
       expect(blob.progress.currentManualInsert).toBeNull();
       expect(blob.progress.currentAutoInsert).toBeNull();
@@ -776,60 +776,7 @@ describe('upgradeProgress (via loaders)', () => {
     }
   });
 
-  it('v2 merge blob with legacy field names is upgraded to v3 (renames fields, adds currentAutoInsert)', () => {
-    // Persist a v2-shaped blob directly via localStorage so we can
-    // observe the read-time upgrade. Don't go through createSlot —
-    // that would always write the new v3 shape.
-    const slotId = 'manualv2slotxx';
-    const v2OnDisk = {
-      version: 2 as const,
-      createdAt: '2026-05-19T00:00:00.000Z',
-      items: {
-        a: { id: 'a', label: 'Alpha' },
-        g: { id: 'g', label: 'Gamma' },
-      },
-      progress: {
-        engine: 'merge',
-        queue: [['a', 'g']],
-        current: null,
-        comparisons: 3,
-        done: false,
-        hidden: ['g'],
-        totalComparisonsEverNeeded: 3,
-        unplaced: ['g'],
-        // v2 legacy field names:
-        pendingPlacements: ['g'],
-        currentPlacement: null,
-      },
-      undoRing: [],
-    };
-    window.localStorage.setItem(slotBlobKey(slotId), JSON.stringify(v2OnDisk));
-
-    const read = readSlotBlob(slotId)!;
-    expect(read.progress.engine).toBe('merge');
-    if (read.progress.engine === 'merge') {
-      // Old field names translated to new ones.
-      expect(read.progress.pendingManualInserts).toEqual(['g']);
-      expect(read.progress.currentManualInsert).toBeNull();
-      // New v3 field defaulted in.
-      expect(read.progress.currentAutoInsert).toBeNull();
-      // Other fields preserved.
-      expect(read.progress.unplaced).toEqual(['g']);
-      expect(read.progress.hidden).toEqual(['g']);
-      // Old field names are stripped from the read shape (TS won't
-      // surface them, but ensure we're not double-storing).
-      expect(
-        (read.progress as unknown as { pendingPlacements?: unknown })
-          .pendingPlacements,
-      ).toBeUndefined();
-      expect(
-        (read.progress as unknown as { currentPlacement?: unknown })
-          .currentPlacement,
-      ).toBeUndefined();
-    }
-  });
-
-  it('v3 merge blob round-trips through readSlotBlob unchanged', () => {
+  it('current merge blob round-trips through readSlotBlob unchanged', () => {
     const v3Merge: AutosaveBlob = {
       items: { a: { id: 'a', label: 'Alpha' }, b: { id: 'b', label: 'Bravo' } },
       progress: {
@@ -840,7 +787,7 @@ describe('upgradeProgress (via loaders)', () => {
         done: true,
         hidden: ['b'],
         totalComparisonsEverNeeded: 1,
-        unplaced: ['b'],
+        toBeInserted: ['b'],
         pendingManualInserts: [],
         currentManualInsert: null,
         currentAutoInsert: null,
@@ -851,13 +798,13 @@ describe('upgradeProgress (via loaders)', () => {
     const read = readSlotBlob(meta.id)!;
     expect(read.progress.engine).toBe('merge');
     if (read.progress.engine === 'merge') {
-      expect(read.progress.unplaced).toEqual(['b']);
+      expect(read.progress.toBeInserted).toEqual(['b']);
       expect(read.progress.hidden).toEqual(['b']);
       expect(read.progress.currentAutoInsert).toBeNull();
     }
   });
 
-  it('v2/v3 insertion blob round-trips and preserves all fields', () => {
+  it('insertion blob round-trips and preserves all fields', () => {
     const insBlob: AutosaveBlob = {
       items: {
         a: { id: 'a', label: 'Alpha' },
@@ -891,7 +838,7 @@ describe('upgradeProgress (via loaders)', () => {
 // ============================================================================
 
 describe('loadSaveFromFile', () => {
-  it('accepts a v1 file and upgrades progress to engine=merge with v3 defaults', async () => {
+  it('accepts a v1 file and upgrades progress to engine=merge with current defaults', async () => {
     const v1: SaveFile = {
       version: 1,
       createdAt: '2026-05-19T00:00:00.000Z',
@@ -899,7 +846,7 @@ describe('loadSaveFromFile', () => {
         a: { id: 'a', label: 'Alpha' },
         b: { id: 'b', label: 'Bravo' },
       },
-      // intentionally typed loose — v1 didn't have engine/unplaced/etc.
+      // intentionally typed loose — v1 didn't have engine/toBeInserted/etc.
       // The cast goes through `unknown` to mirror a real on-disk read.
       progress: {
         queue: [['a'], ['b']],
@@ -917,42 +864,11 @@ describe('loadSaveFromFile', () => {
 
     expect(blob.progress.engine).toBe('merge');
     if (blob.progress.engine === 'merge') {
-      expect(blob.progress.unplaced).toEqual([]);
+      expect(blob.progress.toBeInserted).toEqual([]);
       expect(blob.progress.pendingManualInserts).toEqual([]);
       expect(blob.progress.currentManualInsert).toBeNull();
       expect(blob.progress.currentAutoInsert).toBeNull();
       expect(blob.progress.queue).toEqual([['a'], ['b']]);
-    }
-  });
-
-  it('accepts a v2 file with legacy Place field names and upgrades to v3 vocabulary', async () => {
-    const v2 = {
-      version: 2 as const,
-      createdAt: '2026-05-19T00:00:00.000Z',
-      items: {
-        a: { id: 'a', label: 'Alpha' },
-        g: { id: 'g', label: 'Gamma' },
-      },
-      progress: {
-        engine: 'merge',
-        queue: [['a', 'g']],
-        current: null,
-        comparisons: 0,
-        done: false,
-        hidden: ['g'],
-        totalComparisonsEverNeeded: 1,
-        unplaced: ['g'],
-        pendingPlacements: ['g'],
-        currentPlacement: null,
-      },
-      undoRing: [],
-    };
-    const blob = await loadSaveFromFile(makeFakeFile(JSON.stringify(v2)));
-    expect(blob.progress.engine).toBe('merge');
-    if (blob.progress.engine === 'merge') {
-      expect(blob.progress.pendingManualInserts).toEqual(['g']);
-      expect(blob.progress.currentManualInsert).toBeNull();
-      expect(blob.progress.currentAutoInsert).toBeNull();
     }
   });
 
@@ -984,7 +900,7 @@ describe('loadSaveFromFile', () => {
     }
   });
 
-  it('upgrades each undoRing entry to v3 shape too', async () => {
+  it('upgrades each undoRing entry to current shape too', async () => {
     const v1: SaveFile = {
       version: 1,
       createdAt: '2026-05-19T00:00:00.000Z',
@@ -1023,7 +939,7 @@ describe('loadSaveFromFile', () => {
     for (const u of blob.undoRing) {
       expect(u.engine).toBe('merge');
       if (u.engine === 'merge') {
-        expect(u.unplaced).toEqual([]);
+        expect(u.toBeInserted).toEqual([]);
         expect(u.pendingManualInserts).toEqual([]);
         expect(u.currentManualInsert).toBeNull();
         expect(u.currentAutoInsert).toBeNull();

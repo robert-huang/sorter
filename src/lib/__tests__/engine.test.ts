@@ -263,7 +263,7 @@ describe('updateItem (metadata edit)', () => {
     expect(next).toBe(m);
   });
 
-  it('does not affect ids referenced by hidden / unplaced / sorted arrays', () => {
+  it('does not affect ids referenced by hidden / toBeInserted / sorted arrays', () => {
     // Hide A so it lives in hidden[]; then rename — hidden[] must still
     // contain 'a' (the id), not the label.
     const m0 = initSort([withMeta, B, C]) as MergeState;
@@ -335,7 +335,7 @@ describe('updateItemId', () => {
       ...(renamed.current?.right ?? []),
       ...(renamed.current?.merged ?? []),
       ...renamed.hidden,
-      ...renamed.unplaced,
+      ...renamed.toBeInserted,
       ...renamed.pendingManualInserts,
     ];
     expect(allMerge).not.toContain('a');
@@ -393,11 +393,11 @@ describe('updateItemId', () => {
   });
 
   it('rewrites refs inside currentManualInsert (insertingId + frame.insertingId)', () => {
-    // Set up an unplaced item, then click Insert to populate
+    // Set up an toBeInserted item, then click Insert to populate
     // currentManualInsert. The setup follows queueMergeSort's own
     // "drainManualInserts installs the frame immediately when no
     // merge is running" test: hide X mid-merge → X exiled to
-    // unplaced → done → manualInsert(s, 'x') installs the frame.
+    // toBeInserted → done → manualInsert(s, 'x') installs the frame.
     const X: Item = { id: 'x', label: 'X' };
     let s: MergeState = initSort([A, B, X]);
     s = mergeHideItem(s, 'x') as MergeState;
@@ -407,7 +407,7 @@ describe('updateItemId', () => {
       if (!p) break;
       s = (p.leftId <= p.rightId ? pickLeft(s) : pickRight(s)) as MergeState;
     }
-    expect(s.unplaced).toEqual(['x']);
+    expect(s.toBeInserted).toEqual(['x']);
     s = manualInsert(s, 'x') as MergeState;
     expect(s.currentManualInsert?.insertingId).toBe('x');
     expect(s.currentManualInsert?.frame.insertingId).toBe('x');

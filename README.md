@@ -141,10 +141,10 @@ On the **insertion engine** the checkbox is hidden — `pending[]` is FIFO eithe
 
 ## Exile + Insert (merge engine)
 
-When a merge or auto-insert closes and one or both sides have **hidden** items at that moment, those items are **exiled** into a separate `unplaced[]` bucket rather than positioned silently at the tail of the closed sublist (which was the old behavior; it could land hidden items at arbitrary slots if the user later unhid them).
+When a merge or auto-insert closes and one or both sides have **hidden** items at that moment, those items are **exiled** into a separate `toBeInserted[]` bucket rather than positioned silently at the tail of the closed sublist (which was the old behavior; it could land hidden items at arbitrary slots if the user later unhid them).
 
-- The user is free to `done` the sort while items sit in `unplaced[]` — exile does not block completion. RESULT just doesn't show those items in the ranking (they appear under "removed during sorting").
-- Clicking **↺ Insert** on an unplaced item opens a binary-insertion mini-session ("manual insert") that searches the largest queue sublist (or, when `done`, the single result sublist) for the right position, then splices the item in.
+- The user is free to `done` the sort while items sit in `toBeInserted[]` — exile does not block completion. RESULT just doesn't show those items in the ranking (they appear under "removed during sorting").
+- Clicking **↺ Insert** on a to-be-inserted item opens a binary-insertion mini-session ("manual insert") that searches the largest queue sublist (or, when `done`, the single result sublist) for the right position, then splices the item in.
 - Multiple Inserts queue up: if you click Insert mid-merge, the request waits until the merge closes, then drains. While one manual insert is running you'll see an **"Inserting X into queue sublist"** banner on the RANK tab.
 - Cancel an in-flight manual insert with the **Cancel insertion** button on the RANK tab — the item bounces back to the To-be-inserted bucket (comparisons already made for that insert remain "spent"; use Undo to back them out).
 - Forget drops the item permanently.
@@ -168,8 +168,8 @@ Examples:
 Behavior notes:
 
 - The banner on the RANK tab reads **"Inserting X into queue sublist"** for both manual and auto inserts. Auto-insert has **no Cancel button** — it's engine-driven, not a user request, and it always runs to completion. To opt out of auto-insert *as a sort strategy*, turn off **Auto-insert skewed pairs** in the gear menu (see below). To opt out of an individual item, hide it: the engine cancels the in-flight insert (if on that id) or drops it from `pendingInserts`.
-- Hidden ids in the popped pair are **exiled to `unplaced[]` at install time** (same rule as the merge close), since auto-insert doesn't probe them.
-- Hidden ids inside the popped `target` ride along until the auto-insert closes; then the **exile rule** applies (they end up in `unplaced[]`, not at arbitrary positions in the closed sublist).
+- Hidden ids in the popped pair are **exiled to `toBeInserted[]` at install time** (same rule as the merge close), since auto-insert doesn't probe them.
+- Hidden ids inside the popped `target` ride along until the auto-insert closes; then the **exile rule** applies (they end up in `toBeInserted[]`, not at arbitrary positions in the closed sublist).
 
 ### "Auto-insert skewed pairs" toggle
 
@@ -391,14 +391,16 @@ Save files (both the in-browser `localStorage` blob and downloaded JSON) are ver
 - **v1** — original single-engine schema (no `engine` field on `progress`).
 - **v2** — adds the `engine: 'merge' | 'insertion'` discriminator plus the merge engine's `unplaced / pendingPlacements / currentPlacement` fields (the original "Place" vocabulary).
 - **v3** — renames the placement fields to **insert** vocabulary (`pendingManualInserts / currentManualInsert`) and adds **`currentAutoInsert`** for the auto-insert frame.
+- **v4** — renames `unplaced → toBeInserted` on merge progress for vocabulary consistency with the rest of the Insert-flavored API.
 
-Loaders accept all three versions and upgrade in-memory to v3:
+Loaders accept any version 1–4. The upgrade path is deliberately minimal and shape-driven: missing fields default-fill rather than being translated from legacy names. The per-version acceptable losses are:
 
-- v1 → v2: default `engine='merge'`, default the three new fields to `[] / [] / null`.
-- v2 → v3: translate `pendingPlacements → pendingManualInserts`, `currentPlacement → currentManualInsert`, add `currentAutoInsert: null`.
+- **v1 → current**: no exile/insert fields existed, so all defaults are zero/empty/null. No data lost.
+- **v2 → current**: `pendingPlacements` and `currentPlacement` are dropped on load; a save paused mid-Place silently loses its in-flight frame and any queued-to-be-Placed items.
+- **v3 → current**: `unplaced` is dropped on load; any items sitting in the "to be inserted" bucket disappear.
 - The undo ring is upgraded entry-by-entry the same way.
 
-The next write persists the blob as v3. Older builds that only understand v1 / v2 will **not** be able to read v3 blobs (the version check is strict — download a JSON copy first if you need to roll back).
+The next write persists the blob as v4. Older builds that only understand v1 / v2 / v3 will **not** be able to read v4 blobs (the version check is strict — download a JSON copy first if you need to roll back). Rationale for the lossy upgrades: this is a personal-scale app; the simplification was worth more than per-version translation shims.
 
 ## Project layout
 
@@ -408,14 +410,14 @@ src/
   lib/
     types.ts            # SortState / SortProgress (discriminated union: MergeProgress
                         # | InsertionProgress) / Item / MergeFrame / InsertFrame /
-                        # ManualInsertFrame / AutoInsertFrame / SaveFile (v1|v2|v3) /
+                        # ManualInsertFrame / AutoInsertFrame / SaveFile (v1|v2|v3|v4) /
                         # SlotMeta / SlotsManifest
     binaryInsertion.ts  # pure primitive: startInsert / applyInsertPick / getInsertPair /
                         # worstCaseInsertCost
     queueMergeSort.ts   # merge engine: initSort, seedFromSublists, pickLeft, pickRight,
                         # hideItem, unhideItem, addItem, addItems (batch singletons),
                         # appendPreRankedSublist, reorderInSublist, breakApartSublist,
-                        # manualInsert, forgetUnplaced, cancelManualInsert,
+                        # manualInsert, forgetItem, cancelManualInsert,
                         # shouldAutoInsert (heuristic), MergeOptions,
                         # mergesRemaining, comparisonsRemaining, getRanking
     insertionSort.ts    # insertion engine: buildInsertionState, seedAsSorted, pickLeft,
@@ -426,7 +428,7 @@ src/
                         # snapshotProgress, restoreProgress, pickLeft/Right, hide/unhide,
                         # addItem, addItems, transitionMergeDoneToInsertion)
     csv.ts              # canonical key, header detection, parse, dedup
-    storage.ts          # isAutosaveAvailable, slot CRUD, v1→v2 upgradeProgress,
+    storage.ts          # isAutosaveAvailable, slot CRUD, upgradeProgress (v1/v2/v3 → v4),
                         # migrateLegacyIfNeeded, repairManifestIfCorrupt,
                         # scheduleAutosave/flushAutosave/discardPendingAutosave,
                         # pinSlot, peekEvictionTarget, isAtCapAndAllPinned,

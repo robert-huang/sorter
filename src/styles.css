@@ -1263,12 +1263,9 @@ a {
   flex: 1;
 }
 
-/* ---------- List screen: "To be inserted" section ----------
-   Class name `.list-unplaced` is retained for stylesheet stability —
-   the underlying data field is still `unplaced` (the holding area).
-   Only the visible heading changed to "To be inserted (N)". */
+/* ---------- List screen: "To be inserted" section ---------- */
 
-.list-unplaced {
+.list-to-be-inserted {
   margin-top: 16px;
   padding: 12px 14px;
   border: 1px dashed var(--border-strong);
