@@ -11,6 +11,7 @@ import type {
 import {
   addItem as engineAddItem,
   addItems as engineAddItems,
+  comparisonsRemaining as engineComparisonsRemaining,
   type EngineOptions,
   getRanking as engineGetRanking,
   hideItem as engineHideItem,
@@ -424,13 +425,17 @@ export function App() {
   }, [autosaveOn]);
 
   // -------- document.title --------
-  // Title format: "<slot name> — Sorter" (with " ✓" suffix when done),
-  // or just "Sorter" when no slot is loaded. The slot name beats the
-  // comparisons-remaining counter because users running multiple
-  // sorter tabs in parallel need to tell them apart at a glance, and
-  // the in-app header already shows "Comparison #N" / "~M left".
-  // `manifest` is in the deps so a rename via the gear menu re-titles
-  // the tab immediately.
+  // Title format: "<slot name> (NN%) — Sorter" while sorting,
+  //               "<slot name> ✓ — Sorter" when done,
+  //               "<slot name> — Sorter" when there's no work yet
+  //                                       (total === 0; no meaningful pct),
+  //               "Sorter" when no slot is loaded.
+  // Slot name comes first so users running multiple sorter tabs in
+  // parallel can tell them apart at a glance — the percent is a
+  // secondary signal in parens. The pct uses the SAME formula as the
+  // CompareScreen progress bar so the tab and bar always agree.
+  // `autoInsertEnabled` is in deps because comparisonsRemaining's
+  // forecast depends on it; `manifest` so renames re-title immediately.
   useEffect(() => {
     if (!state) {
       document.title = 'Sorter';
@@ -438,8 +443,20 @@ export function App() {
     }
     const slotName = manifest.slots.find((s) => s.id === manifest.activeId)?.name;
     const base = slotName ?? 'Untitled sort';
-    document.title = state.done ? `${base} ✓ — Sorter` : `${base} — Sorter`;
-  }, [state, manifest]);
+    if (state.done) {
+      document.title = `${base} ✓ — Sorter`;
+      return;
+    }
+    const total = state.totalComparisonsEverNeeded ?? 0;
+    if (total === 0) {
+      document.title = `${base} — Sorter`;
+      return;
+    }
+    const remaining = engineComparisonsRemaining(state, { autoInsertEnabled });
+    const completed = Math.max(0, total - remaining);
+    const pct = Math.min(100, Math.round((completed / total) * 100));
+    document.title = `${base} (${pct}%) — Sorter`;
+  }, [state, manifest, autoInsertEnabled]);
 
   // -------- theme + settings toggles --------
   const toggleTheme = useCallback(() => {

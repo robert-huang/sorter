@@ -1492,30 +1492,78 @@ a {
 
 /* ---------- Compare-screen pair transitions ---------- */
 
-/* In-grid slot. Pops in *within its own slot* on every pair change
-   (the key on the wrapper div is bumped so the animation replays).
-   Slightly longer + clean ease-out (no overshoot) so the fade-in actually
-   reads — see cardPopIn keyframes for the smaller starting scale. */
+/* In-grid slot. The slot itself is a *stable* DOM node across picks
+   (no key on the wrapper) so the peek deck inside it can persist its
+   children — that's what makes the depth-2 → depth-1 CSS transition
+   smooth on a deck-style transition. The thing that remounts on each
+   pick is the live ItemCard inside (keyed by popInKey), and its
+   incoming animation is selected by `data-anim` on the slot below. */
 .compare-slot {
   --anim-duration: 380ms;
   transform-origin: center center;
-  animation: cardPopIn var(--anim-duration) cubic-bezier(.2, .8, .2, 1) both;
   will-change: transform, opacity;
+  /* Anchor for the absolutely-positioned peek deck (.compare-peek-stack)
+     and to host stacking context for `.compare-slot > .item-card` so the
+     live card sits above its peeks. overflow stays at the default
+     (visible) so the deck's translate offsets can extend slightly past
+     the slot's box. */
+  position: relative;
 }
+
+/* Direction tokens for the deck splay (left fans toward the page-left
+   edge; right fans toward the page-right edge). Set on the slot so
+   both the peek deck (descendants) AND the live card can read --peek-dx
+   for its slide-up-from-deck animation, which has to start at the
+   depth-1 X offset. */
+.compare-slot--left  { --peek-dx: -1; }
+.compare-slot--right { --peek-dx:  1; }
+
+/* Live ItemCard inside the slot sits above the peek deck. The deck
+   uses z-index: 0 on the stack wrapper; bumping the live card to 1
+   keeps it interactive and visually on top regardless of DOM order. */
+.compare-slot > .item-card {
+  position: relative;
+  z-index: 1;
+}
+
+/* Per-side incoming animation. Driven by the `data-anim` attribute on
+   the slot, which CompareScreen sets per pick to one of pop / deck /
+   fade / none. The keyframe runs on each ItemCard *mount* — the
+   ItemCard is keyed by popInKey, so bumping that key remounts and
+   replays the animation from frame 0. The stable slot (no key) keeps
+   the peek deck mounted across the pick. */
+.compare-slot[data-anim="pop"]  > .item-card {
+  animation: cardPopIn         var(--anim-duration) cubic-bezier(.2, .8, .2, 1) both;
+}
+.compare-slot[data-anim="deck"] > .item-card {
+  animation: cardSlideUpFromDeck var(--anim-duration) cubic-bezier(.2, .8, .2, 1) both;
+}
+.compare-slot[data-anim="fade"] > .item-card {
+  animation: cardFadeIn          280ms cubic-bezier(.2, .8, .2, 1) both;
+}
+/* data-anim="none" or unset → no incoming animation (the retained side
+   keeps its current ItemCard mount untouched). */
 
 /* Section 9 (stage-enter-after-exit): during a leisurely exit overlay the
    in-grid slots are mounted but suppressed, so the user only sees them
-   after the previous pair has fully faded. The next reveal bumps the key
-   so the pop-in animation replays from frame 0. */
+   after the previous pair has fully faded. The next reveal bumps the
+   ItemCard's key so its animation replays from frame 0; the suppression
+   below short-circuits any animation that would otherwise have played
+   *while hidden* (purely defensive — prevents a finished animation
+   from "spending its budget" before the user can see it). */
 .compare-slot--hidden {
-  animation: none !important;
   opacity: 0;
   pointer-events: none;
 }
+.compare-slot--hidden > .item-card,
+.compare-slot--hidden .compare-peek-card,
+.compare-slot--hidden .compare-peek-card-inner {
+  animation: none !important;
+}
 
 /* Out-of-grid overlay covering the same 2-column area while the previous
-   pair slides off-screen. The incoming pair underneath is already at full
-   size so the pop-in really is "in this slot, not from page-center". */
+   pair leaves. The incoming pair underneath is already at full size so
+   any pop-in really is "in this slot, not from page-center". */
 .compare-overlay {
   position: absolute;
   inset: 0;
@@ -1537,26 +1585,57 @@ a {
   will-change: transform, opacity;
 }
 
-.compare-overlay-slot.exiting-left {
+/* Slide kind: classic side-ward exit. Used in normal merge mode where
+   the picked card visually goes to "the merged pile" on its side. */
+.compare-overlay--exit-slide .compare-overlay-slot.exiting-left {
   animation: cardSlideOutLeft var(--anim-duration) cubic-bezier(.4, 0, .6, 1) forwards;
 }
-
-.compare-overlay-slot.exiting-right {
+.compare-overlay--exit-slide .compare-overlay-slot.exiting-right {
   animation: cardSlideOutRight var(--anim-duration) cubic-bezier(.4, 0, .6, 1) forwards;
 }
 
+/* Fade kind: vertical fade-out, no side-ward translate. Used whenever
+   either side of the transition is in an insert mode — the picked
+   card didn't visually go anywhere physical (binary search just
+   narrowed the range), so sliding it sideways would lie. */
+.compare-overlay--exit-fade .compare-overlay-slot.exiting-left,
+.compare-overlay--exit-fade .compare-overlay-slot.exiting-right {
+  animation: cardFadeOut var(--anim-duration) cubic-bezier(.4, 0, .6, 1) forwards;
+}
+
 /* Subtle accent ring on the side the user picked — communicates "you
-   chose this one" before it slides away. */
+   chose this one" before it leaves. */
 .compare-overlay-slot.picked .item-card {
   box-shadow: 0 0 0 3px var(--accent), var(--shadow-md);
 }
 
 @keyframes cardPopIn {
-  /* Smaller starting scale + no overshoot — the .compare-slot easing is
+  /* Smaller starting scale + no overshoot — the slot easing is
      cubic-bezier(.2,.8,.2,1) so the fade-in feels gentle and clearly
      "appears" rather than snapping in. */
   from { opacity: 0; transform: scale(.35); }
   to   { opacity: 1; transform: scale(1); }
+}
+
+/* Slide-up from the depth-1 peek transform into the live position.
+   Mirrors the depth-1 rule on .compare-peek-card[data-depth="1"] —
+   keep these in sync if the depth-1 numbers change. The user just
+   saw the next-up card sitting at depth-1 in the deck; the new live
+   card visibly rises out of that exact spot. */
+@keyframes cardSlideUpFromDeck {
+  from {
+    opacity: 0.6;
+    transform: translate(calc(48px * var(--peek-dx, 1)), 44px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+}
+
+@keyframes cardFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 @keyframes cardSlideOutLeft {
@@ -1567,12 +1646,175 @@ a {
   to { opacity: 0; transform: translateX(40%); }
 }
 
+@keyframes cardFadeOut {
+  to { opacity: 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .compare-slot,
-  .compare-overlay-slot {
+  .compare-slot[data-anim] > .item-card,
+  .compare-overlay-slot,
+  .compare-peek-card-inner {
     animation: none !important;
     opacity: 1 !important;
     transform: none !important;
+  }
+}
+
+/* ---------- CompareScreen peek deck ---------- */
+
+/* Absolutely positioned wrapper inside each .compare-slot. Holds 1-3
+   .compare-peek-card siblings that splay out from behind the live
+   card. Direction is controlled by --peek-dx (-1 left, 1 right) so
+   the same depth rules work for both sides — left deck splays toward
+   the page edge, right deck splays toward the page edge on the right.
+   pointer-events: none on the wrapper means hovers/clicks fall through
+   to the live card; individual peek cards re-enable pointer-events on
+   themselves so the native title= tooltip surfaces the label on hover. */
+.compare-peek-stack {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  --peek-dx: 1;
+}
+.compare-peek-stack--left  { --peek-dx: -1; }
+.compare-peek-stack--right { --peek-dx:  1; }
+
+.compare-peek-card {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 2px solid var(--border-strong);
+  pointer-events: auto;
+  transform-origin: center center;
+  transition: transform var(--anim-duration, 380ms) cubic-bezier(.2, .8, .2, 1),
+    background var(--anim-duration, 380ms) ease,
+    border-color var(--anim-duration, 380ms) ease;
+  cursor: default;
+}
+
+/* Depth 1 = closest to the live card (largest, most opaque); 2/3 are
+   progressively smaller and more faded. --peek-dx flips the X offset
+   sign so the left deck splays leftward and the right deck rightward.
+
+   Side splay is large enough to read as separate stacked cards while
+   the bottom offset gives each peek a comfortable strip below the live
+   card for its label. We fade the body via `color-mix` on background
+   and border (instead of `opacity`) so the label inside stays fully
+   opaque even at depth 3 — CSS `opacity` on a parent unconditionally
+   fades children. */
+.compare-peek-card[data-depth="1"] {
+  transform: translate(calc(48px * var(--peek-dx)), 44px) scale(0.92);
+  background: color-mix(in srgb, var(--surface) 65%, transparent);
+  border-color: color-mix(in srgb, var(--border-strong) 65%, transparent);
+}
+.compare-peek-card[data-depth="2"] {
+  transform: translate(calc(80px * var(--peek-dx)), 80px) scale(0.84);
+  background: color-mix(in srgb, var(--surface) 45%, transparent);
+  border-color: color-mix(in srgb, var(--border-strong) 45%, transparent);
+}
+.compare-peek-card[data-depth="3"] {
+  transform: translate(calc(108px * var(--peek-dx)), 116px) scale(0.78);
+  background: color-mix(in srgb, var(--surface) 30%, transparent);
+  border-color: color-mix(in srgb, var(--border-strong) 30%, transparent);
+}
+
+/* Inner wrapper around each peek card's content. Exists solely to host
+   the *mount-time* entry animation — putting that animation on the
+   outer .compare-peek-card would conflict with the depth-positioning
+   transform and clobber the smooth depth-2 → depth-1 transition that
+   runs when an existing peek card shifts up during a 'deck'-kind pick.
+   The composition is:
+     outer: translate + scale-by-depth (smooth transition on depth change)
+     inner: scale 0.92|0.35 → 1 + opacity 0 → 1 (one-shot on mount). */
+.compare-peek-card-inner {
+  position: absolute;
+  inset: 0;
+  transform-origin: center center;
+}
+
+/* Per-mount-kind peek-card entry animation. Crucially keyed off
+   `data-mount-anim` ON THE PEEK CARD (frozen by PeekCard's useState
+   on initial mount) — NOT off the parent slot's `data-anim`. If the
+   rule were keyed off the slot, then on a 'deck' transition the slot's
+   `data-anim` would flip from 'pop' → 'deck' on the persisted depth-2
+   peek card too, the browser would see `animation-name` change on a
+   still-alive `.compare-peek-card-inner` and replay the keyframe from
+   frame 0, snapping its transform back to scale(0.92) — completely
+   defeating the smooth depth-2 → depth-1 transform interpolation
+   we *want* on the persisted card. With `data-mount-anim` frozen on
+   the peek-card outer, the rule stops changing once the card is
+   mounted, so the keyframe runs exactly once and then yields to the
+   transition for subsequent depth shifts.
+
+   Kinds:
+   - pop  → dramatic "card materializes from a tiny version of itself"
+            (matches cardPopIn's feel, applied to peek-cards too so the
+            "all 4 cards at once" boundary effect reads as a unit).
+   - deck → subtle "slid in from a slightly deeper position", used for
+            the NEW depth-3 peek that mounts when depth-2 just shifted
+            up to depth-1. Persisted cards (same item.id across the
+            pick) don't re-mount, so don't re-fire this animation.
+   - fade → opacity-only, matches the live card's cardFadeIn for insert
+            modes where the new probe could be anywhere in the active
+            range.
+   - none → no rule applies, no animation. */
+.compare-peek-card[data-mount-anim="pop"]  .compare-peek-card-inner {
+  animation: peekCardPopEnter    var(--anim-duration, 380ms) cubic-bezier(.2, .8, .2, 1) both;
+}
+.compare-peek-card[data-mount-anim="deck"] .compare-peek-card-inner {
+  animation: peekCardSubtleEnter var(--anim-duration, 380ms) cubic-bezier(.2, .8, .2, 1) both;
+}
+.compare-peek-card[data-mount-anim="fade"] .compare-peek-card-inner {
+  animation: peekCardFadeEnter   280ms cubic-bezier(.2, .8, .2, 1) both;
+}
+
+@keyframes peekCardPopEnter {
+  from { opacity: 0; transform: scale(0.35); }
+  to   { opacity: 1; transform: scale(1);    }
+}
+@keyframes peekCardSubtleEnter {
+  from { opacity: 0; transform: scale(0.92); }
+  to   { opacity: 1; transform: scale(1);    }
+}
+@keyframes peekCardFadeEnter {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Hover affordance: blue accent border only (matches the live ItemCard).
+   No scale transform — scaling the inner made the label text hop, and
+   scaling the outer would fight the per-depth transform. The full label
+   is still available via the native `title=` tooltip. */
+.compare-peek-card:hover {
+  border-color: var(--accent);
+}
+
+/* Plain centered text label sitting at the bottom of each peek card.
+   Absolute-positioned so it lands at the bottom edge regardless of the
+   peek card's box height; single-line + ellipsis so very long item
+   names don't wrap up into the (occluded) middle of the card. The full
+   text is still available via the parent's native `title=` tooltip. */
+.peek-label-strip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 8px;
+  padding: 0 12px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .compare-peek-card {
+    transition: none;
   }
 }
 
@@ -1714,8 +1956,19 @@ a {
   display: grid;
   grid-template-columns: 160px 1fr;
   gap: 12px;
+  /* Center-align the label vertically — the hairline separator below
+     handles the section-boundary disambiguation, so the label can
+     sit visually centred against the chip block without ambiguity. */
   align-items: center;
-  margin-bottom: 6px;
+  padding: 8px 0;
+  /* Hairline separator between rows so the section boundary is
+     unambiguous regardless of how many chips a row contains. */
+  border-top: 1px solid var(--border);
+}
+
+.list-merge-row:first-child {
+  border-top: none;
+  padding-top: 0;
 }
 
 .list-merge-row .row-label {

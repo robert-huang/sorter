@@ -90,6 +90,34 @@ export function getInsertPair(
 }
 
 /**
+ * Up to `n` rank-adjacent visible ids in `sorted` immediately after the
+ * current probe, capped at `frame.hi` (the active range's upper bound).
+ *
+ * Drives the peek-deck UI behind the right comparison card: when the
+ * user is comparing inserting=A against probe=B, these are the items
+ * that B is currently bracketing on its lower-rank side. They aren't
+ * the next binary-search probes (those bisect the new range) — picking
+ * rank-adjacent matches the user's mental model of "A goes BETWEEN B
+ * and C" where C is the next-ranked item below B.
+ *
+ * Hidden ids are skipped in place; the walk stops when either we've
+ * collected `n` visible ids or we've passed `frame.hi`.
+ */
+export function getInsertPeekRightIds(
+  frame: InsertFrame,
+  sorted: ReadonlyArray<ItemId>,
+  hidden: ReadonlySet<ItemId>,
+  n: number,
+): ItemId[] {
+  const out: ItemId[] = [];
+  for (let i = frame.probe + 1; i <= frame.hi && out.length < n; i++) {
+    const id = sorted[i];
+    if (id && !hidden.has(id)) out.push(id);
+  }
+  return out;
+}
+
+/**
  * Worst-case comparisons remaining from this frame, including the next
  * probe. Used by progress-bar denominators. `⌈log2(hi - lo + 2)⌉`.
  */

@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Peek deck visual mockups</title>
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --surface: #ffffff;
+    --surface-2: #f9fafb;
+    --border: #e2e4e8;
+    --border-strong: #cdd0d6;
+    --text: #1f2328;
+    --text-muted: #6b7280;
+    --accent: #3b5bff;
+    --radius: 10px;
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+  [data-theme='dark'] {
+    --bg: #121212;
+    --surface: #1e1e1e;
+    --surface-2: #2a2a2a;
+    --border: #333333;
+    --border-strong: #424242;
+    --text: #ffffff;
+    --text-muted: #c5c9d4;
+    --accent: #6b8aff;
+  }
+  html, body { background: var(--bg); color: var(--text); }
+  body { margin: 0; padding: 24px; }
+  .toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 8px 12px;
+    margin-bottom: 16px;
+  }
+  .toolbar button {
+    font: inherit;
+    padding: 6px 12px;
+    border: 1px solid var(--border-strong);
+    background: var(--surface);
+    color: var(--text);
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .toolbar button:hover { border-color: var(--accent); }
+  h1 { font-size: 18px; margin: 0 0 8px; }
+  h2 { font-size: 14px; margin: 24px 0 4px; }
+  p.note { color: var(--text-muted); font-size: 13px; margin: 0 0 16px; max-width: 780px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: 720px; margin-bottom: 32px; }
+  .compare-slot {
+    position: relative;
+    overflow: visible;
+  }
+  /* Live card (the same .item-card as the real app) */
+  .item-card {
+    position: relative;
+    z-index: 1;
+    background: var(--surface);
+    border: 2px solid var(--border-strong);
+    border-radius: var(--radius);
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    text-align: center;
+    min-height: 240px;
+    cursor: pointer;
+    transition: border-color 0.12s ease;
+  }
+  .item-card:hover { border-color: var(--accent); }
+  .item-card .image-wrap {
+    width: 100%;
+    aspect-ratio: 1.6 / 1;
+    background: var(--surface-2);
+    border-radius: var(--radius);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+  .item-card .label { font-weight: 600; font-size: 16px; }
+
+  /* Peek base */
+  .compare-peek-stack {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    --peek-dx: 1;
+  }
+  .compare-peek-stack--left  { --peek-dx: -1; }
+  .compare-peek-stack--right { --peek-dx:  1; }
+
+  .compare-peek-card {
+    position: absolute;
+    inset: 0;
+    background: var(--surface);
+    border: 2px solid var(--border-strong);
+    border-radius: var(--radius);
+    pointer-events: auto;
+    transform-origin: center center;
+    transition: transform 0.18s ease, opacity 0.18s ease;
+  }
+
+  /* Each variant defines its own depth offsets via CSS vars */
+  .v-A .compare-peek-card[data-depth="1"] { transform: translate(calc(8px  * var(--peek-dx)), 8px ) scale(0.96); opacity: 0.55; }
+  .v-A .compare-peek-card[data-depth="2"] { transform: translate(calc(16px * var(--peek-dx)), 16px) scale(0.92); opacity: 0.32; }
+  .v-A .compare-peek-card[data-depth="3"] { transform: translate(calc(24px * var(--peek-dx)), 24px) scale(0.88); opacity: 0.18; }
+
+  .v-B .compare-peek-card[data-depth="1"] { transform: translate(calc(28px * var(--peek-dx)), 18px) scale(0.94); opacity: 0.55; }
+  .v-B .compare-peek-card[data-depth="2"] { transform: translate(calc(48px * var(--peek-dx)), 30px) scale(0.88); opacity: 0.36; }
+  .v-B .compare-peek-card[data-depth="3"] { transform: translate(calc(64px * var(--peek-dx)), 40px) scale(0.84); opacity: 0.22; }
+
+  .v-C .compare-peek-card[data-depth="1"] { transform: translate(calc(48px * var(--peek-dx)), 24px) scale(0.92); opacity: 0.65; }
+  .v-C .compare-peek-card[data-depth="2"] { transform: translate(calc(80px * var(--peek-dx)), 40px) scale(0.84); opacity: 0.45; }
+  .v-C .compare-peek-card[data-depth="3"] { transform: translate(calc(108px* var(--peek-dx)), 54px) scale(0.78); opacity: 0.30; }
+
+  .v-D .compare-peek-card[data-depth="1"] { transform: translate(calc(70px * var(--peek-dx)), 28px) scale(0.92); opacity: 0.70; }
+  .v-D .compare-peek-card[data-depth="2"] { transform: translate(calc(120px* var(--peek-dx)), 48px) scale(0.84); opacity: 0.50; }
+  .v-D .compare-peek-card[data-depth="3"] { transform: translate(calc(160px* var(--peek-dx)), 64px) scale(0.78); opacity: 0.32; }
+
+  /* Variant E — small side, large bottom. Bottom-heavy splay so the
+     visible strip is below the live card, label lives in that strip. */
+  .v-E .compare-peek-card[data-depth="1"] { transform: translate(calc(10px * var(--peek-dx)), 60px) scale(0.95); opacity: 0.70; }
+  .v-E .compare-peek-card[data-depth="2"] { transform: translate(calc(20px * var(--peek-dx)), 100px) scale(0.90); opacity: 0.50; }
+  .v-E .compare-peek-card[data-depth="3"] { transform: translate(calc(30px * var(--peek-dx)), 140px) scale(0.85); opacity: 0.32; }
+
+  /* Variant F — no side offset, even larger bottom. Pure vertical
+     stack peeking out from below — no lateral hint of separate
+     cards beyond the depth tinting. */
+  .v-F .compare-peek-card[data-depth="1"] { transform: translate(0, 64px ) scale(0.95); opacity: 0.70; }
+  .v-F .compare-peek-card[data-depth="2"] { transform: translate(0, 110px) scale(0.90); opacity: 0.50; }
+  .v-F .compare-peek-card[data-depth="3"] { transform: translate(0, 156px) scale(0.85); opacity: 0.32; }
+
+  /* Variant G — Variant C's side splay, more vertical room. Cards
+     feel stacked (visible side edges of each depth) AND the label
+     sits in a comfortable strip below the live card.
+
+     Uses color-mix on background/border instead of `opacity` so the
+     label inside can stay fully opaque (CSS opacity on a parent
+     fades children unconditionally; color-mix on the background
+     leaves children at full alpha). */
+  .v-G .compare-peek-card[data-depth="1"] {
+    transform: translate(calc(48px * var(--peek-dx)), 44px ) scale(0.92);
+    background: color-mix(in srgb, var(--surface) 65%, transparent);
+    border-color: color-mix(in srgb, var(--border-strong) 65%, transparent);
+  }
+  .v-G .compare-peek-card[data-depth="2"] {
+    transform: translate(calc(80px * var(--peek-dx)), 80px ) scale(0.84);
+    background: color-mix(in srgb, var(--surface) 45%, transparent);
+    border-color: color-mix(in srgb, var(--border-strong) 45%, transparent);
+  }
+  .v-G .compare-peek-card[data-depth="3"] {
+    transform: translate(calc(108px* var(--peek-dx)), 116px) scale(0.78);
+    background: color-mix(in srgb, var(--surface) 30%, transparent);
+    border-color: color-mix(in srgb, var(--border-strong) 30%, transparent);
+  }
+
+  /* Plain centered text sitting at the bottom of the peek card —
+     no pill, no background, just typography. Absolute-positioned so
+     it lands at the bottom edge regardless of the card's padding. */
+  .peek-label-strip {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 8px;
+    text-align: center;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    pointer-events: none;
+  }
+
+  /* Bottom-center label tag, sized to sit in the visible bottom strip. */
+  .peek-label-bottom {
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    padding: 0 0 12px 0;
+    pointer-events: none;
+  }
+  .peek-label-bottom .stub {
+    background: var(--surface);
+    padding: 4px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--border-strong);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    pointer-events: auto;
+  }
+
+  /* "Label only" peek body — no image, label centered */
+  .peek-label-only {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 14px;
+    text-align: center;
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text);
+  }
+
+  /* "Label in corner" peek body — label aligned bottom-right (visible strip) */
+  .peek-label-corner {
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-end;
+    padding: 8px 12px;
+    font-weight: 600;
+    font-size: 12px;
+    color: var(--text);
+  }
+  .peek-label-corner .stub {
+    background: var(--surface);
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--border-strong);
+    font-size: 12px;
+    color: var(--text);
+  }
+
+  .swatch {
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    padding: 16px 16px 32px;
+    min-height: 480px;
+  }
+  .swatch h3 { margin: 0 0 12px; font-size: 14px; }
+</style>
+</head>
+<body>
+  <div class="toolbar">
+    <h1 style="margin: 0; flex: 1;">Peek-deck visual mockups</h1>
+    <button type="button" id="theme-toggle">Toggle dark mode</button>
+  </div>
+  <script>
+    const btn = document.getElementById('theme-toggle');
+    btn.addEventListener('click', () => {
+      const cur = document.documentElement.getAttribute('data-theme');
+      document.documentElement.setAttribute('data-theme', cur === 'dark' ? 'light' : 'dark');
+    });
+  </script>
+  <p class="note">
+    Each panel shows the right slot of the compare grid with depth-1/2/3 peek cards behind the live "B" card.
+    Hover the visible corners of peek cards to see the native title tooltip.
+    The live card (B) sits at z-index 1; the deck sits at 0.
+  </p>
+
+  <h2>Variant A — Current code (8/16/24 px, scale 0.96/0.92/0.88)</h2>
+  <p class="note">Conservative offsets. Labels are visible inside the cards but the visible <em>corner</em> sticking out beyond the live card is only ~2-3 px — basically a hairline. Hover-affordance is poor.</p>
+  <div class="row">
+    <div class="swatch">
+      <h3>label rendered, full opacity inside</h3>
+      <div class="compare-slot v-A">
+        <div class="compare-peek-stack compare-peek-stack--right">
+          <div class="compare-peek-card peek-label-only" data-depth="3" title="Item E">Item E</div>
+          <div class="compare-peek-card peek-label-only" data-depth="2" title="Item D">Item D</div>
+          <div class="compare-peek-card peek-label-only" data-depth="1" title="Item C">Item C</div>
+        </div>
+        <div class="item-card">
+          <div class="image-wrap">[image]</div>
+          <div class="label">B (live card)</div>
+        </div>
+      </div>
+    </div>
+    <div class="swatch">
+      <h3>label tucked into bottom-right corner</h3>
+      <div class="compare-slot v-A">
+        <div class="compare-peek-stack compare-peek-stack--right">
+          <div class="compare-peek-card peek-label-corner" data-depth="3" title="Item E"><span class="stub">E</span></div>
+          <div class="compare-peek-card peek-label-corner" data-depth="2" title="Item D"><span class="stub">D</span></div>
+          <div class="compare-peek-card peek-label-corner" data-depth="1" title="Item C"><span class="stub">C</span></div>
+        </div>
+        <div class="item-card">
+          <div class="image-wrap">[image]</div>
+          <div class="label">B (live card)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Variant B — Slightly bigger (28/48/64 px X · 18/30/40 px Y, scale 0.94/0.88/0.84)</h2>
+  <p class="note">Asymmetric: more X offset than Y, since the X gap between live cards is what's empty space. Visible corner ~12-15 px.</p>
+  <div class="row">
+    <div class="swatch">
+      <h3>label rendered, full opacity inside</h3>
+      <div class="compare-slot v-B">
+        <div class="compare-peek-stack compare-peek-stack--right">
+          <div class="compare-peek-card peek-label-only" data-depth="3" title="Item E">Item E</div>
+          <div class="compare-peek-card peek-label-only" data-depth="2" title="Item D">Item D</div>
+          <div class="compare-peek-card peek-label-only" data-depth="1" title="Item C">Item C</div>
+        </div>
+        <div class="item-card">
+          <div class="image-wrap">[image]</div>
+          <div class="label">B (live card)</div>
+        </div>
+      </div>
+    </div>
+    <div class="swatch">
+      <h3>label tucked into bottom-right corner</h3>
+      <div class="compare-slot v-B">
+        <div class="compare-peek-stack compare-peek-stack--right">
+          <div class="compare-peek-card peek-label-corner" data-depth="3" title="Item E"><span class="stub">E</span></div>
+          <div class="compare-peek-card peek-label-corner" data-depth="2" title="Item D"><span class="stub">D</span></div>
+          <div class="compare-peek-card peek-label-corner" data-depth="1" title="Item C"><span class="stub">C</span></div>
+        </div>
+        <div class="item-card">
+          <div class="image-wrap">[image]</div>
+          <div class="label">B (live card)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Variant C — Generous (48/80/108 px X · 24/40/54 px Y, scale 0.92/0.84/0.78)</h2>
+  <p class="note">Recommended starting point: a clearly visible corner (~30-40 px), label legible inside even at depth 3 because opacities are bumped (0.65 / 0.45 / 0.30).</p>
+  <div class="row">
+    <div class="swatch">
+      <h3>label rendered, full opacity inside</h3>
+      <div class="compare-slot v-C">
+        <div class="compare-peek-stack compare-peek-stack--right">
+          <div class="compare-peek-card peek-label-only" data-depth="3" title="Item E">Item E</div>
+          <div class="compare-peek-card peek-label-only" data-depth="2" title="Item D">Item D</div>
+          <div class="compare-peek-card peek-label-only" data-depth="1" title="Item C">Item C</div>
+        </div>
+        <div class="item-card">
+          <div class="image-wrap">[image]</div>
+          <div class="label">B (live card)</div>
+        </div>
+      </div>
+    </div>
+    <div class="swatch">
+      <h3>label tucked into bottom-right corner</h3>
+      <div class="compare-slot v-C">
+        <div class="compare-peek-stack compare-peek-stack--right">
+          <div class="compare-peek-card peek-label-corner" data-depth="3" title="Item E"><span class="stub">E</span></div>
+          <div class="compare-peek-card peek-label-corner" data-depth="2" title="Item D"><span class="stub">D</span></div>
+          <div class="compare-peek-card peek-label-corner" data-depth="1" title="Item C"><span class="stub">C</span></div>
+        </div>
+        <div class="item-card">
+          <div class="image-wrap">[image]</div>
+          <div class="label">B (live card)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Variant E — Small side, large bottom (10/20/30 px X · 60/100/140 px Y, scale 0.95/0.90/0.85)</h2>
+  <p class="note">Side offset is small (just enough to hint at separate cards) and the deck splays mostly DOWNWARD — the visible strip below the live card holds each peek's label. Recommended based on your description.</p>
+  <div class="row">
+    <div class="swatch">
+      <h3>label centered in the visible bottom strip (tag style)</h3>
+      <div class="compare-slot v-E">
+        <div class="compare-peek-stack compare-peek-stack--right">
+          <div class="compare-peek-card peek-label-bottom" data-depth="3" title="Item E"><span class="stub">Item E</span></div>
+          <div class="compare-peek-card peek-label-bottom" data-depth="2" title="Item D"><span class="stub">Item D</span></div>
+          <div class="compare-peek-card peek-label-bottom" data-depth="1" title="Item C"><span class="stub">Item C</span></div>
+        </div>
+        <div class="item-card">
+          <div class="image-wrap">[image]</div>
+          <div class="label">B (live card)</div>
+        </div>
+      </div>
+    </div>
+    <div class="swatch">
+      <h3>label tucked into bottom-right corner (more compact)</h3>
+      <div class="compare-slot v-E">
+        <div class="compare-peek-stack compare-peek-stack--right">
+          <div class="compare-peek-card peek-label-corner" data-depth="3" title="Item E"><span class="stub">E</span></div>
+          <div class="compare-peek-card peek-label-corner" data-depth="2" title="Item D"><span class="stub">D</span></div>
+          <div class="compare-peek-card peek-label-corner" data-depth="1" title="Item C"><span class="stub">C</span></div>
+        </div>
+        <div class="item-card">
+          <div class="image-wrap">[image]</div>
+          <div class="label">B (live card)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Variant G — Like C, shifted down (48/80/108 px X · 44/80/116 px Y, scale 0.92/0.84/0.78)</h2>
+  <p class="note">Side splay matches C (clear stacked-cards feel). Bottom offsets bumped so each peek card has a comfortable strip below the live card for a centered, plain-text label. Card body fades by depth via color-mix; label stays fully opaque so it's readable even at depth 3.</p>
+
+  <h3 style="margin: 16px 0 8px;">Both sides — merge mode (left card and right card both have a deck)</h3>
+  <p class="note">In normal merge mode the left card is also a sublist head, so it gets its own peek deck splaying LEFT (--peek-dx: -1). The right deck splays RIGHT (--peek-dx: 1). Each deck's labels still sit bottom-centered on their peek cards.</p>
+  <div class="row">
+    <div class="swatch">
+      <h3>A (left card) with deck fanning LEFT</h3>
+      <div class="compare-slot v-G">
+        <div class="compare-peek-stack compare-peek-stack--left">
+          <div class="compare-peek-card" data-depth="3" title="Item z"><span class="peek-label-strip" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 12px;">Item z</span></div>
+          <div class="compare-peek-card" data-depth="2" title="Item y"><span class="peek-label-strip" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 12px;">Item y</span></div>
+          <div class="compare-peek-card" data-depth="1" title="Item x"><span class="peek-label-strip" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 12px;">Item x</span></div>
+        </div>
+        <div class="item-card">
+          <div class="image-wrap">[image]</div>
+          <div class="label">A (live card)</div>
+        </div>
+      </div>
+    </div>
+    <div class="swatch">
+      <h3>B (right card) with deck fanning RIGHT</h3>
+      <div class="compare-slot v-G">
+        <div class="compare-peek-stack compare-peek-stack--right">
+          <div class="compare-peek-card" data-depth="3" title="Item E"><span class="peek-label-strip" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 12px;">Item E</span></div>
+          <div class="compare-peek-card" data-depth="2" title="Item D"><span class="peek-label-strip" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 12px;">Item D</span></div>
+          <div class="compare-peek-card" data-depth="1" title="Item C"><span class="peek-label-strip" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 12px;">Item C</span></div>
+        </div>
+        <div class="item-card">
+          <div class="image-wrap">[image]</div>
+          <div class="label">B (live card)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="row">
+    <div class="swatch">
+      <h3>short labels (baseline)</h3>
+      <div class="compare-slot v-G">
+        <div class="compare-peek-stack compare-peek-stack--right">
+          <div class="compare-peek-card" data-depth="3" title="Item E">
+            <span class="peek-label-strip">Item E</span>
+          </div>
+          <div class="compare-peek-card" data-depth="2" title="Item D">
+            <span class="peek-label-strip">Item D</span>
+          </div>
+          <div class="compare-peek-card" data-depth="1" title="Item C">
+            <span class="peek-label-strip">Item C</span>
+          </div>
+        </div>
+        <div class="item-card">
+          <div class="image-wrap">[image]</div>
+          <div class="label">B (live card)</div>
+        </div>
+      </div>
+    </div>
+    <div class="swatch">
+      <h3>medium labels — a few words each</h3>
+      <div class="compare-slot v-G">
+        <div class="compare-peek-stack compare-peek-stack--right">
+          <div class="compare-peek-card" data-depth="3" title="Some Long Item E"><span class="peek-label-strip">Some Long Item E</span></div>
+          <div class="compare-peek-card" data-depth="2" title="A Medium Item D"><span class="peek-label-strip">A Medium Item D</span></div>
+          <div class="compare-peek-card" data-depth="1" title="Item C"><span class="peek-label-strip">Item C</span></div>
+        </div>
+        <div class="item-card">
+          <div class="image-wrap">[image]</div>
+          <div class="label">B (live card)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Variant G — long-title stress test (current CSS, no truncation rules)</h2>
+  <p class="note">Three approaches stacked side-by-side. The current CSS lets the label wrap upward from the bottom edge unbounded — see column 1. Columns 2 and 3 add explicit truncation rules so you can see the alternative behaviors.</p>
+  <div class="row">
+    <div class="swatch">
+      <h3>1. Wrap (current — no truncation)</h3>
+      <div class="compare-slot v-G">
+        <div class="compare-peek-stack compare-peek-stack--right">
+          <div class="compare-peek-card" data-depth="3" title="The Quick Brown Fox Jumps Over The Lazy Dog Repeatedly Until Sundown">
+            <span class="peek-label-strip">The Quick Brown Fox Jumps Over The Lazy Dog Repeatedly Until Sundown</span>
+          </div>
+          <div class="compare-peek-card" data-depth="2" title="A Reasonably Long Title That Spans">
+            <span class="peek-label-strip">A Reasonably Long Title That Spans</span>
+          </div>
+          <div class="compare-peek-card" data-depth="1" title="Pretty Long Item Name Here">
+            <span class="peek-label-strip">Pretty Long Item Name Here</span>
+          </div>
+        </div>
+        <div class="item-card">
+          <div class="image-wrap">[image]</div>
+          <div class="label">B (live card)</div>
+        </div>
+      </div>
+    </div>
+    <div class="swatch">
+      <h3>2. Single line, ellipsis truncation</h3>
+      <div class="compare-slot v-G" style="--label-truncate: ellipsis;">
+        <style>
+          .v-G[style*="ellipsis"] .peek-label-strip {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            padding: 0 12px;
+          }
+        </style>
+        <div class="compare-peek-stack compare-peek-stack--right">
+          <div class="compare-peek-card" data-depth="3" title="The Quick Brown Fox Jumps Over The Lazy Dog Repeatedly Until Sundown">
+            <span class="peek-label-strip">The Quick Brown Fox Jumps Over The Lazy Dog Repeatedly Until Sundown</span>
+          </div>
+          <div class="compare-peek-card" data-depth="2" title="A Reasonably Long Title That Spans">
+            <span class="peek-label-strip">A Reasonably Long Title That Spans</span>
+          </div>
+          <div class="compare-peek-card" data-depth="1" title="Pretty Long Item Name Here">
+            <span class="peek-label-strip">Pretty Long Item Name Here</span>
+          </div>
+        </div>
+        <div class="item-card">
+          <div class="image-wrap">[image]</div>
+          <div class="label">B (live card)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="swatch">
+      <h3>3. Two-line clamp, ellipsis on overflow</h3>
+      <div class="compare-slot v-G" style="--label-truncate: clamp;">
+        <style>
+          .v-G[style*="clamp"] .peek-label-strip {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            line-height: 1.2;
+            padding: 0 12px;
+          }
+        </style>
+        <div class="compare-peek-stack compare-peek-stack--right">
+          <div class="compare-peek-card" data-depth="3" title="The Quick Brown Fox Jumps Over The Lazy Dog Repeatedly Until Sundown">
+            <span class="peek-label-strip">The Quick Brown Fox Jumps Over The Lazy Dog Repeatedly Until Sundown</span>
+          </div>
+          <div class="compare-peek-card" data-depth="2" title="A Reasonably Long Title That Spans">
+            <span class="peek-label-strip">A Reasonably Long Title That Spans</span>
+          </div>
+          <div class="compare-peek-card" data-depth="1" title="Pretty Long Item Name Here">
+            <span class="peek-label-strip">Pretty Long Item Name Here</span>
+          </div>
+        </div>
+        <div class="item-card">
+          <div class="image-wrap">[image]</div>
+          <div class="label">B (live card)</div>
+        </div>
+      </div>
+    </div>
+    <div class="swatch">
+      <h3>4. Pathological — single super-long unbreakable word</h3>
+      <div class="compare-slot v-G">
+        <div class="compare-peek-stack compare-peek-stack--right">
+          <div class="compare-peek-card" data-depth="3" title="Pneumonoultramicroscopicsilicovolcanoconiosis">
+            <span class="peek-label-strip">Pneumonoultramicroscopicsilicovolcanoconiosis</span>
+          </div>
+          <div class="compare-peek-card" data-depth="2" title="Floccinaucinihilipilification">
+            <span class="peek-label-strip">Floccinaucinihilipilification</span>
+          </div>
+          <div class="compare-peek-card" data-depth="1" title="Hippopotomonstrosesquippedaliophobia">
+            <span class="peek-label-strip">Hippopotomonstrosesquippedaliophobia</span>
+          </div>
+        </div>
+        <div class="item-card">
+          <div class="image-wrap">[image]</div>
+          <div class="label">B (live card)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Variant F — No side offset, larger bottom (0 px X · 64/110/156 px Y, scale 0.95/0.90/0.85)</h2>
+  <p class="note">Pure vertical stack — peeks splay straight down from behind the live card. No lateral edge visible; depth distinguished only by tint. Cleaner but less obvious that there are separate cards.</p>
+  <div class="row">
+    <div class="swatch">
+      <h3>label centered in the visible bottom strip (tag style)</h3>
+      <div class="compare-slot v-F">
+        <div class="compare-peek-stack compare-peek-stack--right">
+          <div class="compare-peek-card peek-label-bottom" data-depth="3" title="Item E"><span class="stub">Item E</span></div>
+          <div class="compare-peek-card peek-label-bottom" data-depth="2" title="Item D"><span class="stub">Item D</span></div>
+          <div class="compare-peek-card peek-label-bottom" data-depth="1" title="Item C"><span class="stub">Item C</span></div>
+        </div>
+        <div class="item-card">
+          <div class="image-wrap">[image]</div>
+          <div class="label">B (live card)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Variant D — Maximum side splay (70/120/160 px X · 28/48/64 px Y, scale 0.92/0.84/0.78)</h2>
+  <p class="note">Cards splay further to the side. May spill past the slot's right edge into the gap (or off-screen on narrow viewports). Useful sanity check for "is this too much?".</p>
+  <div class="row">
+    <div class="swatch">
+      <h3>label rendered, full opacity inside</h3>
+      <div class="compare-slot v-D">
+        <div class="compare-peek-stack compare-peek-stack--right">
+          <div class="compare-peek-card peek-label-only" data-depth="3" title="Item E">Item E</div>
+          <div class="compare-peek-card peek-label-only" data-depth="2" title="Item D">Item D</div>
+          <div class="compare-peek-card peek-label-only" data-depth="1" title="Item C">Item C</div>
+        </div>
+        <div class="item-card">
+          <div class="image-wrap">[image]</div>
+          <div class="label">B (live card)</div>
+        </div>
+      </div>
+    </div>
+    <div class="swatch">
+      <h3>label tucked into bottom-right corner</h3>
+      <div class="compare-slot v-D">
+        <div class="compare-peek-stack compare-peek-stack--right">
+          <div class="compare-peek-card peek-label-corner" data-depth="3" title="Item E"><span class="stub">E</span></div>
+          <div class="compare-peek-card peek-label-corner" data-depth="2" title="Item D"><span class="stub">D</span></div>
+          <div class="compare-peek-card peek-label-corner" data-depth="1" title="Item C"><span class="stub">C</span></div>
+        </div>
+        <div class="item-card">
+          <div class="image-wrap">[image]</div>
+          <div class="label">B (live card)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
