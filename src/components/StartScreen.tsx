@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import type { Item, SlotMeta } from '../lib/types';
+import type { ExtraColumnsWarning, Item, SlotMeta } from '../lib/types';
 import {
   canonicalKey,
   looksLikeHeader,
@@ -139,6 +139,15 @@ export function StartScreen({
     currentImageUrl: string | undefined;
     /** All other ids in the current preview (excludes this row), for collision check. */
     otherIds: Map<string, string>;
+    /**
+     * Verbatim parsed cells when the originating row tripped an
+     * `ExtraColumnsWarning`. Forwarded to EditItemModal as `rawRow` so
+     * the user can manually copy substrings into the right fields when
+     * an unquoted comma broke the parse. Undefined for rows that
+     * parsed cleanly — the modal then renders without the
+     * "Original row" panel, same as before.
+     */
+    rawRow: string[] | undefined;
   } | null>(null);
 
   // -------- scratch mode --------
@@ -162,7 +171,11 @@ export function StartScreen({
 
   const scratchParsed = useMemo(() => {
     if (!scratchText.trim()) {
-      return { rows: [] as RawRow[], detectedHeader: false };
+      return {
+        rows: [] as RawRow[],
+        detectedHeader: false,
+        extraColumns: [] as ExtraColumnsWarning[],
+      };
     }
     return parseCsvRows(scratchText, 'pasted CSV', scratchSkipHeader);
   }, [scratchText, scratchSkipHeader]);
@@ -175,6 +188,7 @@ export function StartScreen({
               sourceName: 'pasted CSV',
               rawRows: applyOverrides(scratchParsed.rows, overrides),
               detectedHeader: scratchParsed.detectedHeader,
+              extraColumns: scratchParsed.extraColumns,
             },
           ]
         : [],
@@ -306,6 +320,7 @@ export function StartScreen({
         sourceName: f.name,
         rawRows: applyOverrides(r.rows, overrides),
         detectedHeader: r.detectedHeader,
+        extraColumns: r.extraColumns,
       };
     });
 
@@ -314,7 +329,11 @@ export function StartScreen({
     // columns we honor them; otherwise treat each line as a label only.
     const extrasParsed = extrasText.trim()
       ? parseCsvRows(extrasText, 'extras', extrasSkipHeader)
-      : { rows: [] as RawRow[], detectedHeader: false };
+      : {
+          rows: [] as RawRow[],
+          detectedHeader: false,
+          extraColumns: [] as ExtraColumnsWarning[],
+        };
     if (extrasParsed.rows.length === 0 && extrasText.trim()) {
       const plain = parseExtrasText(extrasText);
       if (plain.length > 0) {
@@ -329,6 +348,7 @@ export function StartScreen({
         sourceName: 'extras',
         rawRows: applyOverrides(extrasParsed.rows, overrides),
         detectedHeader: extrasParsed.detectedHeader,
+        extraColumns: extrasParsed.extraColumns,
       });
     }
 
@@ -361,6 +381,7 @@ export function StartScreen({
     return {
       items: result.items,
       warnings: result.warnings,
+      extraColumns: result.extraColumns,
       perSource: result.perSource,
       sublists,
       extras,
@@ -425,6 +446,7 @@ export function StartScreen({
           currentUrl: row.url,
           currentImageUrl: row.imageUrl,
           otherIds,
+          rawRow: row.rawCells,
         });
       },
     [overrides],
@@ -630,6 +652,7 @@ export function StartScreen({
             sources={scratchPreviewSources}
             totalItems={scratchResult.items.length}
             warnings={scratchResult.warnings}
+            extraColumns={scratchResult.extraColumns}
             startLabel={
               scratchAlreadySorted
                 ? `Use as ranking (${scratchResult.items.length} item${scratchResult.items.length === 1 ? '' : 's'})`
@@ -742,6 +765,7 @@ export function StartScreen({
             sources={prerankedResult.perSource}
             totalItems={prerankedResult.items.length}
             warnings={prerankedResult.warnings}
+            extraColumns={prerankedResult.extraColumns}
             sublistCount={prerankedResult.sublists.length}
             singletonCount={prerankedResult.extras.length}
             startLabel={`Start sorting (${prerankedResult.items.length} item${prerankedResult.items.length === 1 ? '' : 's'})`}
@@ -760,6 +784,7 @@ export function StartScreen({
           allowEditId
           currentId={editTarget.currentId}
           otherIds={editTarget.otherIds}
+          rawRow={editTarget.rawRow}
         />
       )}
     </div>

@@ -165,6 +165,41 @@ export interface DedupWarning {
 }
 
 /**
+ * Soft warning emitted by the CSV parser when a row has more than the
+ * expected 3 non-empty cells. Almost always indicates an unquoted
+ * comma inside one of the fields — e.g. a label like `"Foo, Bar, Baz"`
+ * that was written without surrounding quotes parses as 3 cells, so
+ * the URL slot ends up holding what should have been part of the
+ * label and the image slot ends up holding what should have been the
+ * URL. We deliberately do NOT block the import: the parsed columns
+ * may still be a usable best-effort. ImportPreview surfaces these
+ * warnings inline so the user can spot them and either:
+ *  - re-export the source CSV with proper quoting, or
+ *  - open the row in EditItemModal and copy the right substrings
+ *    out of the original-row panel into the right fields.
+ *
+ * Carrying the full `rawCells` (not just the count) lets the modal
+ * show the original row verbatim — once the session starts and the
+ * RawRow is dropped, the user has no way to recover the lost data.
+ */
+export interface ExtraColumnsWarning {
+  sourceName: string;
+  /** 1-indexed row number within the source, AFTER any header skip — same
+   *  numbering as `RawRow.sourceRow` so the user can correlate. */
+  rowNumber: number;
+  /** Number of NON-EMPTY cells parsed (always > 3 when this warning fires). */
+  cellCount: number;
+  /** All cells from the parsed row, including empty ones, in their
+   *  original order. Used by EditItemModal to render the "Original row"
+   *  panel for manual-fix copy/paste. */
+  rawCells: string[];
+  /** The cells that landed in the `label`/`url`/`imageUrl` slots,
+   *  pre-split for the warning text. (Just `rawCells.slice(0,3)`,
+   *  duplicated here for callers that don't want to re-derive.) */
+  parsedAs: { label: string; url?: string; imageUrl?: string };
+}
+
+/**
  * v1: original single-engine merge schema (no `engine` field on progress).
  * v2: engine-discriminated progress; introduced the original "Place"
  *     vocabulary (`pendingPlacements`, `currentPlacement`).
@@ -218,9 +253,12 @@ export interface SlotMeta {
    * cloudId:         provider-specific id of the cloud-side blob (Drive
    *                  file id). Slot↔file binding is by id, not by
    *                  filename, so a Drive-side rename doesn't break it.
-   * cloudPushedAt:   local ISO timestamp of the most-recent successful
-   *                  Push from this device. Compared against `updatedAt`
-   *                  to drive the 3-state sync indicator.
+   * cloudPushedAt:   local ISO timestamp of the most-recent local↔cloud
+   *                  sync from this device — bumped on Push (we just
+   *                  uploaded our copy) AND on Pull (we just downloaded
+   *                  the cloud's copy, so local now matches cloud).
+   *                  Compared against `updatedAt` to drive the 3-state
+   *                  sync indicator: `updatedAt > cloudPushedAt` ⇒ pending.
    * cloudUpdatedAt:  ISO timestamp the cloud copy reports as its own
    *                  last-modified time (from Drive's `modifiedTime`).
    * cloudEtag:       opaque etag the provider returned with the last

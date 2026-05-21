@@ -330,7 +330,12 @@ describe('cloud-meta helpers', () => {
     expect(slot?.cloudUpdatedAt).toBe('2026-05-20T01:00:00.000Z');
   });
 
-  it('setCloudPulled stamps id + etag + cloudUpdatedAt but leaves cloudPushedAt untouched', () => {
+  it('setCloudPulled stamps id + etag + cloudUpdatedAt AND advances cloudPushedAt to now', () => {
+    // Pull means "the bytes on disk now match the cloud copy", so the
+    // local↔cloud sync timestamp (cloudPushedAt) should advance — the
+    // 3-state indicator is keyed off `updatedAt > cloudPushedAt`, and
+    // a stale cloudPushedAt would leave the slot rendered as "pending"
+    // immediately after a successful pull.
     const r = createSlot(makeBlob(), 'A');
     setCloudPushed(r!.meta.id, {
       cloudId: 'F1F1F1',
@@ -338,15 +343,21 @@ describe('cloud-meta helpers', () => {
       cloudPushedAt: '2026-05-20T00:00:00.000Z',
       cloudUpdatedAt: '2026-05-20T00:00:00.000Z',
     });
+    const beforePull = Date.now();
     setCloudPulled(r!.meta.id, {
       cloudId: 'F1F1F1',
       cloudEtag: '7',
       cloudUpdatedAt: '2026-05-20T02:00:00.000Z',
     });
+    const afterPull = Date.now();
     const slot = readManifest().slots.find((s) => s.id === r!.meta.id);
-    expect(slot?.cloudPushedAt).toBe('2026-05-20T00:00:00.000Z');
     expect(slot?.cloudUpdatedAt).toBe('2026-05-20T02:00:00.000Z');
     expect(slot?.cloudEtag).toBe('7');
+    expect(slot?.cloudPushedAt).toBeDefined();
+    expect(slot?.cloudPushedAt).not.toBe('2026-05-20T00:00:00.000Z');
+    const stampedAt = Date.parse(slot!.cloudPushedAt!);
+    expect(stampedAt).toBeGreaterThanOrEqual(beforePull);
+    expect(stampedAt).toBeLessThanOrEqual(afterPull);
   });
 
   it('clearCloudBinding wipes id/etag/timestamps but keeps cloudOptIn', () => {

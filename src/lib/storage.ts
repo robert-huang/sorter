@@ -746,14 +746,25 @@ export function setCloudPushed(
 /**
  * Stamp the post-Pull metadata in one call. Distinct from
  * setCloudPushed because Pull updates `cloudUpdatedAt` from the
- * server-reported timestamp but does NOT touch `cloudPushedAt` (the
- * local push time is unchanged by a pull).
+ * server-reported timestamp; we ALSO stamp `cloudPushedAt` to "now"
+ * because the slot is now in sync with the cloud — the just-pulled
+ * bytes ARE the cloud bytes — and the sync indicator derives state
+ * from `updatedAt > cloudPushedAt`. Without this stamp a fresh pull
+ * would render as "pending" until the user manually Pushed.
+ *
+ * `cloudPushedAt` is therefore better thought of as "last local↔cloud
+ * sync timestamp" — it advances on Push (we just uploaded) AND Pull
+ * (we just downloaded an authoritative copy). See `SlotMeta.cloudPushedAt`
+ * docs in `types.ts`.
  */
 export function setCloudPulled(
   id: string,
   patch: { cloudId: string; cloudEtag: string; cloudUpdatedAt: string },
 ): SlotsManifest {
-  return updateSlotMeta(id, patch);
+  return updateSlotMeta(id, {
+    ...patch,
+    cloudPushedAt: new Date().toISOString(),
+  });
 }
 
 /**
@@ -1051,6 +1062,40 @@ function performWrite(blob: AutosaveBlob): void {
   if (!isAutosaveAvailable()) return;
   if (currentActiveId === null) return;
   pendingBlob = null;
+
+  // No-op write skip: when the autosave-on-state-change effect fires
+  // because state/undoRing got rebound to identical content (e.g. the
+  // user clicked a slot to load it, or a Pull just replaced the blob
+  // and the inbound bytes match the in-memory state), the blob is
+  // bit-identical to what's already on disk. Without this check, we
+  // would still go through `tryWriteSlotBlob` + `commitWriteSuccess`,
+  // which bumps `updatedAt` to "now" and makes the cloud-sync indicator
+  // flip from green to yellow even though nothing changed. Skipping
+  // both the setItem and the meta bump keeps `updatedAt` stable and
+  // avoids a phantom "pending" state.
+  //
+  // We compare on the AutosaveBlob shape, not on the SaveFile wrapper
+  // string, because `buildSaveFile` stamps a fresh `createdAt` on every
+  // call — raw-string comparison would never match. `readSlotBlob`
+  // parses the on-disk blob back into the same AutosaveBlob shape, so
+  // JSON-stringifying both sides compares only the user-visible content
+  // (items + progress + undoRing) which is what `updatedAt` semantics
+  // actually represent.
+  //
+  // Bookkeeping: we still update `lastFlushTime` and
+  // `comparisonsAtLastFlush` so subsequent scheduleAutosave calls treat
+  // this moment as "the last successful flush" — otherwise they'd
+  // immediately force-write again on the 10s / 20-comparison threshold
+  // and re-run this same no-op check at high cadence. We do NOT call
+  // `notifyAfterWrite` (no write happened, no subscriber needs to
+  // refresh) and we do NOT call `notifyError(null, ...)` because there
+  // was nothing to clear/recover from.
+  const existing = readSlotBlob(currentActiveId);
+  if (existing && JSON.stringify(existing) === JSON.stringify(blob)) {
+    lastFlushTime = Date.now();
+    comparisonsAtLastFlush = blob.progress.comparisons;
+    return;
+  }
 
   if (tryWriteSlotBlob(currentActiveId, blob)) {
     commitWriteSuccess(blob);

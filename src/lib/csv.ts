@@ -1,5 +1,5 @@
 import Papa from 'papaparse';
-import type { DedupWarning, Item, ItemId } from './types';
+import type { DedupWarning, ExtraColumnsWarning, Item, ItemId } from './types';
 
 // ---------- canonical key ----------
 
@@ -88,6 +88,21 @@ export interface RawRow {
    * unset, dedup behavior is unchanged.
    */
   idOverride?: ItemId;
+  /**
+   * Full parsed cell list, attached only when this row had MORE than
+   * the expected 3 non-empty cells (i.e. an `ExtraColumnsWarning`
+   * was emitted for it). Lets `EditItemModal` render the original
+   * verbatim row so the user can manually copy substrings into the
+   * label/url/image fields when an unquoted comma broke the parse.
+   *
+   * Off the hot path on purpose — small, well-formed imports don't
+   * carry a duplicate string array per row. Lives only in memory
+   * during the import-preview phase; never persisted to the
+   * autosave blob (the user said they're OK losing it once the
+   * session starts, the warning + edit affordance is enough to
+   * catch issues up-front).
+   */
+  rawCells?: string[];
 }
 
 export interface ParseResult {
@@ -99,12 +114,27 @@ export interface ParseResult {
 /**
  * Parse a single CSV text into RawRows. Returns the rows BEFORE dedup so
  * dedup can be done in a unified pass across multiple sources.
+ *
+ * Also emits `extraColumns` warnings for rows that had MORE than the
+ * expected 3 non-empty cells. This is almost always an unquoted comma
+ * inside one of the fields (e.g. a label like `Foo, Bar, Baz` not
+ * surrounded by `"` quotes parses into 3 cells, so `Foo` becomes the
+ * label, `Bar` becomes the URL, and `Baz` becomes the image URL —
+ * misaligning columns and silently dropping data). The warning is
+ * advisory: we still produce a RawRow with our best-effort
+ * label/url/imageUrl so the user can either (a) re-export the source
+ * with proper quoting or (b) manually fix the row in the
+ * EditItemModal using the attached `rawCells`.
  */
 export function parseCsvRows(
   text: string,
   sourceName: string,
   skipHeader: boolean,
-): { rows: RawRow[]; detectedHeader: boolean } {
+): {
+  rows: RawRow[];
+  detectedHeader: boolean;
+  extraColumns: ExtraColumnsWarning[];
+} {
   const parsed = Papa.parse<string[]>(text, {
     skipEmptyLines: 'greedy',
   });
@@ -112,26 +142,54 @@ export function parseCsvRows(
     (r) => Array.isArray(r) && r.some((cell) => (cell ?? '').trim() !== ''),
   );
   if (allRows.length === 0) {
-    return { rows: [], detectedHeader: false };
+    return { rows: [], detectedHeader: false, extraColumns: [] };
   }
   const detected = looksLikeHeader(allRows[0]);
   const dataRows = skipHeader ? allRows.slice(1) : allRows;
   const rows: RawRow[] = [];
+  const extraColumns: ExtraColumnsWarning[] = [];
   for (let i = 0; i < dataRows.length; i++) {
     const row = dataRows[i];
     const label = (row[0] ?? '').trim();
     if (!label) continue;
     const url = ((row[1] ?? '').trim() || undefined) as string | undefined;
     const imageUrl = ((row[2] ?? '').trim() || undefined) as string | undefined;
+    // Count NON-EMPTY cells (post-trim). Trailing empty columns from a
+    // CSV with a uniform width on one bad row (e.g. `A,,,,`) shouldn't
+    // trip the warning — those are syntactically extra cells but the
+    // user clearly didn't intend any data in them. Quoted commas
+    // (`"Foo, Bar",url,img`) collapse into a single cell at the
+    // papaparse layer so they don't trip this either.
+    const nonEmptyCells = row.reduce(
+      (acc, c) => acc + ((c ?? '').trim() !== '' ? 1 : 0),
+      0,
+    );
+    let rawCells: string[] | undefined;
+    if (nonEmptyCells > 3) {
+      // Snapshot the row verbatim so EditItemModal can show it to the
+      // user. We DO want to keep trailing-empty cells here for fidelity
+      // — the user might have a legit empty trailing field they want
+      // to inspect — but we trim each cell so leading/trailing
+      // whitespace doesn't leak into the modal display.
+      rawCells = row.map((c) => (c ?? '').toString());
+      extraColumns.push({
+        sourceName,
+        rowNumber: i + 1,
+        cellCount: nonEmptyCells,
+        rawCells,
+        parsedAs: { label, url, imageUrl },
+      });
+    }
     rows.push({
       label,
       url,
       imageUrl,
       sourceName,
       sourceRow: i + 1,
+      rawCells,
     });
   }
-  return { rows, detectedHeader: detected };
+  return { rows, detectedHeader: detected, extraColumns };
 }
 
 /**
@@ -233,6 +291,15 @@ export interface SourceParse {
   /** Raw rows BEFORE the cross-source dedup pass. */
   rawRows: RawRow[];
   detectedHeader: boolean;
+  /**
+   * >3-non-empty-cell warnings for this source, mirrored from
+   * `parseCsvRows`. Optional so callers that don't run through
+   * `parseCsvRows` (e.g. the legacy/test paths that hand-build a
+   * SourceParse) don't have to fabricate an empty array. `parseSources`
+   * concatenates these across all sources into the top-level
+   * `extraColumns` field of its return value.
+   */
+  extraColumns?: ExtraColumnsWarning[];
 }
 
 /**
@@ -252,10 +319,17 @@ export interface PreviewItem {
  * Per-source-then-global parse. Each source contributes its rawRows; we then
  * dedup across all sources in input order (so the first source has placement
  * priority).
+ *
+ * The returned `extraColumns` is the concatenation of every source's own
+ * extraColumns array (or empty if a source didn't supply any). ImportPreview
+ * surfaces these as soft warnings inline with the dedup warnings — the user
+ * can still proceed, but is nudged to spot rows where an unquoted comma
+ * silently misaligned columns.
  */
 export function parseSources(sources: SourceParse[]): {
   items: Item[];
   warnings: DedupWarning[];
+  extraColumns: ExtraColumnsWarning[];
   perSource: Array<{
     sourceName: string;
     items: PreviewItem[]; // ordered, deduped within this source's own rows
@@ -263,8 +337,12 @@ export function parseSources(sources: SourceParse[]): {
 } {
   const perSource: Array<{ sourceName: string; items: PreviewItem[] }> = [];
   const flat: RawRow[] = [];
+  const extraColumns: ExtraColumnsWarning[] = [];
   for (const s of sources) {
     flat.push(...s.rawRows);
+    if (s.extraColumns && s.extraColumns.length > 0) {
+      extraColumns.push(...s.extraColumns);
+    }
     // Pre-compute per-source deduped item list (in the original row order)
     // so the preview shows what we'd produce for that file alone.
     const seen = new Set<ItemId>();
@@ -286,7 +364,7 @@ export function parseSources(sources: SourceParse[]): {
     perSource.push({ sourceName: s.sourceName, items: localItems });
   }
   const { items, warnings } = dedupRows(flat);
-  return { items, warnings, perSource };
+  return { items, warnings, extraColumns, perSource };
 }
 
 /**
