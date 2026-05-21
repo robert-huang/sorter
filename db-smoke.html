@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DB smoke test</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 1.5rem;
+        max-width: 48rem;
+      }
+      pre {
+        background: #f4f4f5;
+        padding: 1rem;
+        overflow: auto;
+      }
+      .err {
+        color: #b91c1c;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>SQLite-WASM smoke test</h1>
+    <p id="status">Running…</p>
+    <pre id="log"></pre>
+    <script type="module" src="/src/lib/db/__smoke__/main.ts"></script>
+  </body>
+</html>

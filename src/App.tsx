@@ -111,6 +111,13 @@ import {
 } from './lib/cloud';
 import { GoogleDriveProvider } from './lib/cloud/googleDrive';
 import { InFlightTracker } from './lib/inFlightTracker';
+import {
+  NO_REMOTE,
+  REMOTE_DRIFTED,
+  REMOTE_SCHEMA_NEWER,
+  pullDbFromDrive,
+  pushDbToDrive,
+} from './lib/db/sync';
 import { useKeyboard } from './hooks/useKeyboard';
 
 // Register the default cloud provider exactly once at module load.
@@ -311,6 +318,16 @@ export function App() {
   const [pullingIds, setPullingIds] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
+  const dbPushTrackerRef = useRef(new InFlightTracker());
+  const dbPullTrackerRef = useRef(new InFlightTracker());
+  const [dbPushingIds, setDbPushingIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const [dbPullingIds, setDbPullingIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const [sourceDbErrors, setSourceDbErrors] = useState<Record<string, string>>({});
+  const [dbSyncRevision, setDbSyncRevision] = useState(0);
   // ITP / refresh-token-rejected banner gate. When the auth state
   // transitions to 'expired', we surface a one-shot banner pointing
   // the user back to Sign in. Dismissable; resets when the auth state
@@ -1465,6 +1482,78 @@ export function App() {
     return 'ready';
   }, [cloudAvailable, cloudAuth]);
 
+  function dbSyncErrorMessage(err: unknown): string {
+    const e = err as Error & { code?: string };
+    if (e.code === REMOTE_DRIFTED) {
+      return 'Remote has new changes — pull first.';
+    }
+    if (e.code === REMOTE_SCHEMA_NEWER) {
+      return 'App is out of date — please reload.';
+    }
+    if (e.code === NO_REMOTE) {
+      return 'No cloud copy yet — push first.';
+    }
+    return e.message || 'Sync failed.';
+  }
+
+  const onDbPushSource = useCallback(
+    (sourceId: string) => {
+      if (!autosaveOn || cloudStatus !== 'ready') return;
+      if (!dbPushTrackerRef.current.tryAcquire(sourceId)) return;
+      setDbPushingIds(dbPushTrackerRef.current.snapshot());
+      setSourceDbErrors((prev) => {
+        const next = { ...prev };
+        delete next[sourceId];
+        return next;
+      });
+      void (async () => {
+        try {
+          await pushDbToDrive(sourceId);
+          setDbSyncRevision((r) => r + 1);
+        } catch (err) {
+          setSourceDbErrors((prev) => ({
+            ...prev,
+            [sourceId]: dbSyncErrorMessage(err),
+          }));
+          setDbSyncRevision((r) => r + 1);
+        } finally {
+          dbPushTrackerRef.current.release(sourceId);
+          setDbPushingIds(dbPushTrackerRef.current.snapshot());
+        }
+      })();
+    },
+    [autosaveOn, cloudStatus],
+  );
+
+  const onDbPullSource = useCallback(
+    (sourceId: string) => {
+      if (!autosaveOn || cloudStatus !== 'ready') return;
+      if (!dbPullTrackerRef.current.tryAcquire(sourceId)) return;
+      setDbPullingIds(dbPullTrackerRef.current.snapshot());
+      setSourceDbErrors((prev) => {
+        const next = { ...prev };
+        delete next[sourceId];
+        return next;
+      });
+      void (async () => {
+        try {
+          await pullDbFromDrive(sourceId);
+          setDbSyncRevision((r) => r + 1);
+        } catch (err) {
+          setSourceDbErrors((prev) => ({
+            ...prev,
+            [sourceId]: dbSyncErrorMessage(err),
+          }));
+          setDbSyncRevision((r) => r + 1);
+        } finally {
+          dbPullTrackerRef.current.release(sourceId);
+          setDbPullingIds(dbPullTrackerRef.current.snapshot());
+        }
+      })();
+    },
+    [autosaveOn, cloudStatus],
+  );
+
   // -------- start --------
   const onStartScratch = useCallback(
     (items: Item[]) => {
@@ -2033,6 +2122,12 @@ export function App() {
         onCloudPullSlot={onCloudPullSlot}
         cloudPushingIds={pushingIds}
         cloudPullingIds={pullingIds}
+        dbPushingIds={dbPushingIds}
+        dbPullingIds={dbPullingIds}
+        sourceDbErrors={sourceDbErrors}
+        dbSyncRevision={dbSyncRevision}
+        onDbPushSource={onDbPushSource}
+        onDbPullSource={onDbPullSource}
       />
       <main className="app-main">{body}</main>
       {slotPendingDelete && (

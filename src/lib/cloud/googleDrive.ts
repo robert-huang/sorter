@@ -79,6 +79,14 @@ const DRIVE_API = 'https://www.googleapis.com/drive/v3';
 const DRIVE_UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3';
 const PICKER_API_SCRIPT = 'https://apis.google.com/js/api.js';
 
+/** Subfolder under the user-picked backup folder for per-source SQLite files. */
+export const SOURCE_DB_SUBFOLDER = 'db';
+
+export function buildSourceDbFilename(sourceId: string): string {
+  const safe = sourceId.replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 64);
+  return `${safe || 'source'}.sqlite`;
+}
+
 // ---------- storage keys ----------
 
 const TOKEN_KEY = 'sorter:cloud:tokens:v1';
@@ -881,6 +889,223 @@ export class GoogleDriveProvider implements CloudProvider {
     return data.md5Checksum ?? data.version ?? data.modifiedTime ?? null;
   }
 
+  // ----- per-source SQLite blobs (Phase B) -----
+
+  private async resolveDbFolderId(): Promise<string> {
+    const folder = readFolder();
+    if (!folder) {
+      throw new Error('Pick a cloud folder first.');
+    }
+    await this.refreshTokenIfNeeded();
+    const q = `'${folder.folderId}' in parents and name = '${SOURCE_DB_SUBFOLDER}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+    const listParams = new URLSearchParams({
+      q,
+      fields: 'files(id)',
+      pageSize: '1',
+    });
+    const listResp = await this.authedFetch(`${DRIVE_API}/files?${listParams.toString()}`);
+    if (!listResp.ok) {
+      throw new Error(`resolveDbFolderId list failed: ${listResp.status}`);
+    }
+    const listData = (await listResp.json()) as { files?: Array<{ id: string }> };
+    const existing = listData.files?.[0]?.id;
+    if (existing) {
+      return existing;
+    }
+    const createResp = await this.authedFetch(`${DRIVE_API}/files`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json; charset=UTF-8' },
+      body: JSON.stringify({
+        name: SOURCE_DB_SUBFOLDER,
+        mimeType: 'application/vnd.google-apps.folder',
+        parents: [folder.folderId],
+      }),
+    });
+    if (!createResp.ok) {
+      throw new Error(`resolveDbFolderId create failed: ${createResp.status}`);
+    }
+    const created = (await createResp.json()) as { id?: string };
+    if (!created.id) {
+      throw new Error('resolveDbFolderId create response missing id.');
+    }
+    return created.id;
+  }
+
+  async findSourceDbFile(sourceId: string): Promise<{ id: string; etag: string } | null> {
+    const dbFolderId = await this.resolveDbFolderId();
+    const filename = buildSourceDbFilename(sourceId);
+    const q = `'${dbFolderId}' in parents and name = '${filename}' and trashed = false`;
+    const params = new URLSearchParams({
+      q,
+      fields: 'files(id,md5Checksum,version,modifiedTime)',
+      pageSize: '1',
+    });
+    const resp = await this.authedFetch(`${DRIVE_API}/files?${params.toString()}`);
+    if (!resp.ok) {
+      throw new Error(`findSourceDbFile failed: ${resp.status}`);
+    }
+    const data = (await resp.json()) as {
+      files?: Array<{
+        id: string;
+        md5Checksum?: string;
+        version?: string;
+        modifiedTime?: string;
+      }>;
+    };
+    const file = data.files?.[0];
+    if (!file) {
+      return null;
+    }
+    const etag = file.md5Checksum ?? file.version ?? file.modifiedTime;
+    if (!etag) {
+      throw new Error('findSourceDbFile: remote file has no etag fields.');
+    }
+    return { id: file.id, etag };
+  }
+
+  async headSourceDb(fileId: string): Promise<{ etag: string; size: number } | null> {
+    await this.refreshTokenIfNeeded();
+    const resp = await this.authedFetch(
+      `${DRIVE_API}/files/${encodeURIComponent(fileId)}?fields=md5Checksum,version,modifiedTime,size`,
+    );
+    if (resp.status === 404) {
+      return null;
+    }
+    if (!resp.ok) {
+      throw new Error(`headSourceDb failed: ${resp.status}`);
+    }
+    const data = (await resp.json()) as {
+      md5Checksum?: string;
+      version?: string;
+      modifiedTime?: string;
+      size?: string;
+    };
+    const etag = data.md5Checksum ?? data.version ?? data.modifiedTime;
+    if (!etag) {
+      return null;
+    }
+    return { etag, size: data.size ? Number(data.size) : 0 };
+  }
+
+  async downloadSourceDb(fileId: string): Promise<{ bytes: Uint8Array; etag: string }> {
+    await this.refreshTokenIfNeeded();
+    const metaResp = await this.authedFetch(
+      `${DRIVE_API}/files/${encodeURIComponent(fileId)}?fields=md5Checksum,version,modifiedTime`,
+    );
+    if (!metaResp.ok) {
+      throw new Error(`downloadSourceDb meta failed: ${metaResp.status}`);
+    }
+    const meta = (await metaResp.json()) as {
+      md5Checksum?: string;
+      version?: string;
+      modifiedTime?: string;
+    };
+    const etag = meta.md5Checksum ?? meta.version ?? meta.modifiedTime;
+    if (!etag) {
+      throw new Error('downloadSourceDb: remote file has no etag fields.');
+    }
+    const bodyResp = await this.authedFetch(
+      `${DRIVE_API}/files/${encodeURIComponent(fileId)}?alt=media`,
+    );
+    if (!bodyResp.ok) {
+      throw new Error(`downloadSourceDb body failed: ${bodyResp.status}`);
+    }
+    const buf = await bodyResp.arrayBuffer();
+    return { bytes: new Uint8Array(buf), etag };
+  }
+
+  async uploadSourceDb(
+    sourceId: string,
+    bytes: Uint8Array,
+    fileId: string | null,
+    ifMatchEtag?: string,
+  ): Promise<{ id: string; newEtag: string }> {
+    await this.refreshTokenIfNeeded();
+    const dbFolderId = await this.resolveDbFolderId();
+    const filename = buildSourceDbFilename(sourceId);
+
+    if (fileId && ifMatchEtag) {
+      const current = await this.headSourceDb(fileId);
+      if (current === null) {
+        fileId = null;
+      } else if (current.etag !== ifMatchEtag) {
+        throw new CloudEtagMismatchError(current.etag, ifMatchEtag);
+      }
+    }
+
+    const metadata: Record<string, unknown> = {
+      name: filename,
+      mimeType: 'application/x-sqlite3',
+      appProperties: { sorterSourceId: sourceId },
+    };
+    if (fileId === null) {
+      metadata.parents = [dbFolderId];
+    }
+
+    const initUrl = fileId
+      ? `${DRIVE_UPLOAD_API}/files/${encodeURIComponent(fileId)}?uploadType=resumable&fields=id,modifiedTime,version,md5Checksum`
+      : `${DRIVE_UPLOAD_API}/files?uploadType=resumable&fields=id,modifiedTime,version,md5Checksum`;
+    const initMethod = fileId ? 'PATCH' : 'POST';
+    const initHeaders: Record<string, string> = {
+      'Content-Type': 'application/json; charset=UTF-8',
+      'X-Upload-Content-Type': 'application/x-sqlite3',
+      'X-Upload-Content-Length': String(bytes.byteLength),
+    };
+    if (fileId && ifMatchEtag) {
+      initHeaders['If-Match'] = ifMatchEtag;
+    }
+
+    const initResp = await this.authedFetch(initUrl, {
+      method: initMethod,
+      headers: initHeaders,
+      body: JSON.stringify(metadata),
+    });
+    if (initResp.status === 404 && fileId !== null) {
+      return this.uploadSourceDb(sourceId, bytes, null);
+    }
+    if (initResp.status === 412) {
+      const current = fileId ? await this.headSourceDb(fileId) : null;
+      throw new CloudEtagMismatchError(
+        current?.etag ?? 'unknown',
+        ifMatchEtag ?? 'unknown',
+      );
+    }
+    if (!initResp.ok) {
+      throw new Error(
+        `uploadSourceDb init failed: ${initResp.status} ${await safeText(initResp)}`,
+      );
+    }
+    const uploadUrl = initResp.headers.get('location');
+    if (!uploadUrl) {
+      throw new Error('uploadSourceDb init response missing Location header.');
+    }
+
+    const contentResp = await this.authedFetch(uploadUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/x-sqlite3' },
+      body: new Blob([Uint8Array.from(bytes)]),
+    });
+    if (!contentResp.ok) {
+      throw new Error(
+        `uploadSourceDb content failed: ${contentResp.status} ${await safeText(contentResp)}`,
+      );
+    }
+    const data = (await contentResp.json()) as {
+      id?: string;
+      md5Checksum?: string;
+      version?: string;
+      modifiedTime?: string;
+    };
+    if (!data.id) {
+      throw new Error('uploadSourceDb response missing id.');
+    }
+    const newEtag = data.md5Checksum ?? data.version ?? data.modifiedTime;
+    if (!newEtag) {
+      throw new Error('uploadSourceDb response missing etag fields.');
+    }
+    return { id: data.id, newEtag };
+  }
+
   // ----- internal -----
 
   private async authedFetch(url: string, init?: RequestInit): Promise<Response> {
@@ -1015,5 +1240,43 @@ interface PickerBuilder {
 
 interface PickerInstance {
   setVisible(visible: boolean): void;
+}
+
+// ---------- Phase B: module-level Drive helpers for source DB sync ----------
+
+let driveOps: GoogleDriveProvider | null = null;
+
+function getDriveOps(): GoogleDriveProvider {
+  if (!driveOps) {
+    driveOps = new GoogleDriveProvider();
+  }
+  return driveOps;
+}
+
+export async function findSourceDbFile(
+  sourceId: string,
+): Promise<{ id: string; etag: string } | null> {
+  return getDriveOps().findSourceDbFile(sourceId);
+}
+
+export async function headSourceDb(
+  fileId: string,
+): Promise<{ etag: string; size: number } | null> {
+  return getDriveOps().headSourceDb(fileId);
+}
+
+export async function downloadSourceDb(
+  fileId: string,
+): Promise<{ bytes: Uint8Array; etag: string }> {
+  return getDriveOps().downloadSourceDb(fileId);
+}
+
+export async function uploadSourceDb(
+  sourceId: string,
+  bytes: Uint8Array,
+  fileId: string | null,
+  ifMatchEtag?: string,
+): Promise<{ id: string; newEtag: string }> {
+  return getDriveOps().uploadSourceDb(sourceId, bytes, fileId, ifMatchEtag);
 }
 

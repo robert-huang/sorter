@@ -64,6 +64,12 @@ interface Props {
    *  chain stays the single source of truth for the gear menu. */
   cloudPushingIds: ReadonlySet<string>;
   cloudPullingIds: ReadonlySet<string>;
+  dbPushingIds: ReadonlySet<string>;
+  dbPullingIds: ReadonlySet<string>;
+  sourceDbErrors: Record<string, string>;
+  dbSyncRevision: number;
+  onDbPushSource: (sourceId: string) => void;
+  onDbPullSource: (sourceId: string) => void;
 }
 
 
@@ -105,6 +111,12 @@ export function Header({
   onCloudPullSlot,
   cloudPushingIds,
   cloudPullingIds,
+  dbPushingIds,
+  dbPullingIds,
+  sourceDbErrors,
+  dbSyncRevision,
+  onDbPushSource,
+  onDbPullSource,
 }: Props) {
   // `remaining` feeds the optional "~K left" suffix on the toolbar stats
   // label. The progress bar that used to live in the header has moved into
@@ -312,6 +324,12 @@ export function Header({
             onCloudPullSlot={onCloudPullSlot}
             cloudPushingIds={cloudPushingIds}
             cloudPullingIds={cloudPullingIds}
+            dbPushingIds={dbPushingIds}
+            dbPullingIds={dbPullingIds}
+            sourceDbErrors={sourceDbErrors}
+            dbSyncRevision={dbSyncRevision}
+            onDbPushSource={onDbPushSource}
+            onDbPullSource={onDbPullSource}
           />
         </div>
       </div>

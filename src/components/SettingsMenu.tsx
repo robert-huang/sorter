@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { SlotList } from './SlotList';
+import { SourceDatabasesSection } from './sourceDatabasesSection';
 import type { SlotsManifest } from '../lib/types';
 
 /**
@@ -84,6 +85,13 @@ interface Props {
   cloudPushingIds: ReadonlySet<string>;
   /** Same as cloudPushingIds, but for Pull. */
   cloudPullingIds: ReadonlySet<string>;
+  /** Per-source SQLite DB sync (Phase B). */
+  dbPushingIds: ReadonlySet<string>;
+  dbPullingIds: ReadonlySet<string>;
+  sourceDbErrors: Record<string, string>;
+  dbSyncRevision: number;
+  onDbPushSource: (sourceId: string) => void;
+  onDbPullSource: (sourceId: string) => void;
 }
 
 export function SettingsMenu({
@@ -115,6 +123,12 @@ export function SettingsMenu({
   onCloudPullSlot,
   cloudPushingIds,
   cloudPullingIds,
+  dbPushingIds,
+  dbPullingIds,
+  sourceDbErrors,
+  dbSyncRevision,
+  onDbPushSource,
+  onDbPullSource,
 }: Props) {
   const [open, setOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -266,6 +280,15 @@ export function SettingsMenu({
                   setOpen(false);
                   onCloudSignOut();
                 }}
+              />
+              <SourceDatabasesSection
+                cloudStatus={cloudStatus}
+                pushingIds={dbPushingIds}
+                pullingIds={dbPullingIds}
+                sourceDbErrors={sourceDbErrors}
+                syncRevision={dbSyncRevision}
+                onPushSource={onDbPushSource}
+                onPullSource={onDbPullSource}
               />
             </>
           )}
