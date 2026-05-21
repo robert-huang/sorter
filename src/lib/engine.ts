@@ -59,6 +59,32 @@ export function getRanking(state: SortState): ItemId[] {
     : merge.getRanking(state);
 }
 
+/**
+ * Up to `n` rank-adjacent visible ids on the RIGHT card's side. Drives
+ * the peek deck rendered behind B in CompareScreen. Returns [] when no
+ * compare is active or none of the candidates are visible. See the
+ * per-engine implementations for dispatch details (insertion uses the
+ * active probe; merge dispatches manual-insert > auto-insert > merge).
+ */
+export function getPeekRightIds(state: SortState, n = 3): ItemId[] {
+  return state.engine === 'insertion'
+    ? insertion.getPeekRightIds(state, n)
+    : merge.getPeekRightIds(state, n);
+}
+
+/**
+ * Up to `n` rank-adjacent visible ids on the LEFT card's side. Only
+ * non-empty in normal merge mode (left is also a sublist head). All
+ * insert modes return [] because the left card is the single inserting
+ * item with no rank-adjacent neighbor. CompareScreen uses [] to skip
+ * rendering the left deck entirely.
+ */
+export function getPeekLeftIds(state: SortState, n = 3): ItemId[] {
+  return state.engine === 'insertion'
+    ? insertion.getPeekLeftIds(state, n)
+    : merge.getPeekLeftIds(state, n);
+}
+
 // ---------- snapshot / restore ----------
 
 export function snapshotProgress(state: SortState): SortProgress {

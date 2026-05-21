@@ -8,6 +8,8 @@ import {
   comparisonsRemaining,
   forgetItem,
   getPair,
+  getPeekLeftIds,
+  getPeekRightIds,
   getRanking,
   hideItem,
   initSort,
@@ -1030,5 +1032,227 @@ describe('comparisonsRemaining auto-insert forecast', () => {
     const onCost = comparisonsRemaining(sOn, { autoInsertEnabled: true });
     const offCost = comparisonsRemaining(sOff, { autoInsertEnabled: false });
     expect(onCost).toBeLessThan(offCost);
+  });
+});
+
+// ============================================================================
+// Peek-deck helpers
+//
+// `getPeekRightIds` and `getPeekLeftIds` drive the rank-adjacent preview
+// cards rendered behind the live A/B comparison cards. Three modes:
+//
+//   - manual-insert: peek = sorted candidates after the current probe in
+//     the active sublist. Left peek is empty (single inserting id, no
+//     rank-adjacent neighbour).
+//   - auto-insert: same as manual-insert, but driven by the auto-insert
+//     frame against currentAutoInsert.target.
+//   - merge: peek = next visible ids in current.left / current.right
+//     after each side's head.
+//
+// Dispatch priority is manual > auto > merge so a hidden-item cleanup
+// that happens to leave a manual-insert frame in flight doesn't fall
+// through to the merge branch.
+// ============================================================================
+
+describe('getPeekRightIds (merge engine)', () => {
+  it('walks current.right after the head in normal merge mode', () => {
+    // K=2, N=3 — auto-insert heuristic does NOT trip (insert=6 > merge=4),
+    // so the popped pair stays in classic merge mode with current set.
+    const s = seedFromSublists({
+      sublists: [[A, B, C], [D, E]],
+      extras: [],
+    });
+    expect(s.currentManualInsert).toBeNull();
+    expect(s.currentAutoInsert).toBeNull();
+    expect(s.current).not.toBeNull();
+    const pair = getPair(s);
+    // The merge frame's left/right ordering is implementation-defined;
+    // pick the assertion based on whichever sublist landed on the right.
+    if (pair?.rightId === 'd') {
+      // current.right = [d, e] → peek after head d = [e]
+      expect(getPeekRightIds(s)).toEqual(['e']);
+    } else if (pair?.rightId === 'a') {
+      // current.right = [a, b, c] → peek after head a = [b, c]
+      expect(getPeekRightIds(s)).toEqual(['b', 'c']);
+    } else {
+      throw new Error(`unexpected merge pair: ${JSON.stringify(pair)}`);
+    }
+  });
+
+  it('caps at n and skips hidden ids on the right side', () => {
+    const F: Item = { id: 'f', label: 'F' };
+    const s0 = seedFromSublists({
+      sublists: [[A, B, C], [D, E, F]],
+      extras: [],
+    });
+    const pair = getPair(s0);
+    // Pick the side with the longer tail so n actually trims something.
+    if (pair?.rightId === 'd') {
+      // current.right = [d, e, f]. Hide e — peek after d = [f].
+      const s1 = hideItem(s0, 'e');
+      expect(getPeekRightIds(s1, 3)).toEqual(['f']);
+      // n=1 from the unmodified state still respects the cap.
+      expect(getPeekRightIds(s0, 1)).toEqual(['e']);
+    } else {
+      const s1 = hideItem(s0, 'b');
+      expect(getPeekRightIds(s1, 3)).toEqual(['c']);
+      expect(getPeekRightIds(s0, 1)).toEqual(['b']);
+    }
+  });
+
+  it('returns [] when there is no current merge frame', () => {
+    // Singleton list: initSort is done immediately with current=null.
+    expect(getPeekRightIds(initSort([A]))).toEqual([]);
+    expect(getPeekRightIds(initSort([]))).toEqual([]);
+  });
+
+  it('dispatches to auto-insert frame when one is active', () => {
+    // K=1, N=5 → auto-insert installs with target=[a..e], frame on f.
+    // Right peek must come from the insert frame's (probe, hi] window
+    // in the target sublist — NOT from current.left/right (which are
+    // null in auto-insert mode).
+    const F: Item = { id: 'f', label: 'F' };
+    const s = seedFromSublists({
+      sublists: [[A, B, C, D, E], [F]],
+      extras: [],
+    });
+    expect(s.current).toBeNull();
+    expect(s.currentAutoInsert).not.toBeNull();
+    // Initial probe = floor(4/2) = 2 (c), hi = 4. Peek = [d, e].
+    expect(s.currentAutoInsert!.frame!.probe).toBe(2);
+    expect(s.currentAutoInsert!.frame!.hi).toBe(4);
+    expect(getPeekRightIds(s)).toEqual(['d', 'e']);
+  });
+
+  it('dispatches to manual-insert frame, ignoring any merge state', () => {
+    // Hide an item, drive the sort to done so it lands in toBeInserted,
+    // then click Insert. The state now has currentManualInsert set with
+    // a frame against the closed sublist; getPeekRightIds must follow
+    // that frame, not any stale current.right.
+    const F: Item = { id: 'f', label: 'F' };
+    const G: Item = { id: 'g', label: 'G' };
+    const H: Item = { id: 'h', label: 'H' };
+    let s: MergeState = seedFromSublists({
+      sublists: [
+        [A, B, C, D, E],
+        [F, G, H],
+      ],
+      extras: [],
+    });
+    s = hideItem(s, 'g', { autoInsertEnabled: false });
+    // Drive to close so g exiles to toBeInserted.
+    const order = ['a', 'b', 'c', 'f', 'd', 'e', 'g', 'h'];
+    const rank = new Map(order.map((id, i) => [id, i]));
+    let safety = 200;
+    while (!s.done && safety-- > 0) {
+      const p = getPair(s);
+      if (!p) break;
+      const lr = rank.get(p.leftId) ?? Number.MAX_SAFE_INTEGER;
+      const rr = rank.get(p.rightId) ?? Number.MAX_SAFE_INTEGER;
+      s = lr <= rr
+        ? pickLeft(s, { autoInsertEnabled: false })
+        : pickRight(s, { autoInsertEnabled: false });
+    }
+    expect(s.done).toBe(true);
+    expect(s.toBeInserted).toContain('g');
+    s = manualInsert(s, 'g');
+    expect(s.currentManualInsert).not.toBeNull();
+    expect(s.currentManualInsert!.insertingId).toBe('g');
+    // The peek is the visible (probe, hi] window inside the target
+    // sublist — must be a non-empty subset of that sublist.
+    const target = s.queue[s.currentManualInsert!.targetQueueIndex];
+    const peek = getPeekRightIds(s);
+    expect(peek.length).toBeGreaterThan(0);
+    for (const id of peek) {
+      expect(target).toContain(id);
+      expect(id).not.toBe('g'); // never includes the inserting id
+    }
+  });
+});
+
+describe('getPeekLeftIds (merge engine, merge-mode-only)', () => {
+  it('walks current.left after the head in normal merge mode', () => {
+    const s = seedFromSublists({
+      sublists: [[A, B, C], [D, E]],
+      extras: [],
+    });
+    const pair = getPair(s);
+    if (pair?.leftId === 'a') {
+      // current.left = [a, b, c] → peek after a = [b, c]
+      expect(getPeekLeftIds(s)).toEqual(['b', 'c']);
+    } else if (pair?.leftId === 'd') {
+      // current.left = [d, e] → peek after d = [e]
+      expect(getPeekLeftIds(s)).toEqual(['e']);
+    } else {
+      throw new Error(`unexpected merge pair: ${JSON.stringify(pair)}`);
+    }
+  });
+
+  it('skips hidden ids and caps at n on the left side', () => {
+    const F: Item = { id: 'f', label: 'F' };
+    const s0 = seedFromSublists({
+      sublists: [[A, B, C, D], [E, F]],
+      extras: [],
+    });
+    const pair = getPair(s0);
+    if (pair?.leftId === 'a') {
+      // current.left = [a, b, c, d]. Hide c — peek after a = [b, d] (n=3).
+      const s1 = hideItem(s0, 'c');
+      expect(getPeekLeftIds(s1, 3)).toEqual(['b', 'd']);
+      expect(getPeekLeftIds(s0, 1)).toEqual(['b']);
+    } else if (pair?.leftId === 'e') {
+      const s1 = hideItem(s0, 'f');
+      expect(getPeekLeftIds(s1, 3)).toEqual([]);
+      expect(getPeekLeftIds(s0, 1)).toEqual(['f']);
+    } else {
+      throw new Error(`unexpected merge pair: ${JSON.stringify(pair)}`);
+    }
+  });
+
+  it('returns [] when there is no current merge frame', () => {
+    expect(getPeekLeftIds(initSort([A]))).toEqual([]);
+    expect(getPeekLeftIds(initSort([]))).toEqual([]);
+  });
+
+  it('returns [] in auto-insert mode (single inserting id, no neighbour)', () => {
+    // K=1, N=5 → auto-insert installs. The left card is the inserting
+    // id alone; there's no rank-adjacent neighbour to fan out, so the
+    // helper short-circuits to [] regardless of any stale merge state.
+    const F: Item = { id: 'f', label: 'F' };
+    const s = seedFromSublists({
+      sublists: [[A, B, C, D, E], [F]],
+      extras: [],
+    });
+    expect(s.currentAutoInsert).not.toBeNull();
+    expect(getPeekLeftIds(s)).toEqual([]);
+  });
+
+  it('returns [] in manual-insert mode (single inserting id, no neighbour)', () => {
+    const F: Item = { id: 'f', label: 'F' };
+    const G: Item = { id: 'g', label: 'G' };
+    const H: Item = { id: 'h', label: 'H' };
+    let s: MergeState = seedFromSublists({
+      sublists: [
+        [A, B, C, D, E],
+        [F, G, H],
+      ],
+      extras: [],
+    });
+    s = hideItem(s, 'g', { autoInsertEnabled: false });
+    const order = ['a', 'b', 'c', 'f', 'd', 'e', 'g', 'h'];
+    const rank = new Map(order.map((id, i) => [id, i]));
+    let safety = 200;
+    while (!s.done && safety-- > 0) {
+      const p = getPair(s);
+      if (!p) break;
+      const lr = rank.get(p.leftId) ?? Number.MAX_SAFE_INTEGER;
+      const rr = rank.get(p.rightId) ?? Number.MAX_SAFE_INTEGER;
+      s = lr <= rr
+        ? pickLeft(s, { autoInsertEnabled: false })
+        : pickRight(s, { autoInsertEnabled: false });
+    }
+    s = manualInsert(s, 'g');
+    expect(s.currentManualInsert).not.toBeNull();
+    expect(getPeekLeftIds(s)).toEqual([]);
   });
 });
