@@ -2,7 +2,7 @@ import type { InsertFrame, ItemId } from './types';
 
 /**
  * Pure binary-insertion state machine. Shared between the insertion
- * engine (in `insertionSort.ts`) and the deferred-Place mini-sessions
+ * engine (in `insertionSort.ts`) and the deferred manual-insert mini-sessions
  * on the merge engine (in `queueMergeSort.ts`).
  *
  * The caller maintains the `sorted` array externally. This module only

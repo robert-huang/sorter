@@ -51,7 +51,7 @@ function makeProgress(comparisons = 0, done = false): MergeProgress {
     done,
     hidden: [],
     totalComparisonsEverNeeded: 0,
-    unplaced: [],
+    toBeInserted: [],
     pendingManualInserts: [],
     currentManualInsert: null,
     currentAutoInsert: null,

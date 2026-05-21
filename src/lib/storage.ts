@@ -80,7 +80,7 @@ export interface AutosaveBlob {
 
 function buildSaveFile(blob: AutosaveBlob): SaveFile {
   return {
-    version: 3,
+    version: 4,
     createdAt: new Date().toISOString(),
     items: blob.items,
     progress: blob.progress,
@@ -89,16 +89,28 @@ function buildSaveFile(blob: AutosaveBlob): SaveFile {
 }
 
 /**
- * Upgrade a parsed save's progress slice to the v3 shape.
- *  - v1 (no engine tag, no exile/Place fields) → engine='merge' with
- *    defaults for the exile/insert fields.
- *  - v2 (engine + old `currentPlacement` / `pendingPlacements`) → rename
- *    those fields to `currentManualInsert` / `pendingManualInserts`
- *    and add `currentAutoInsert: null`.
- *  - v3 (current shape) passes through.
+ * Upgrade a parsed save's progress slice to the current merge shape.
  *
- * Lenient: works on arbitrary JSON shapes because the on-disk schema
- * predates strict typing. Returns a fresh object — caller may mutate.
+ * Strategy: shape-driven, not version-driven. Any merge blob missing a
+ * field gets it default-filled. Insertion blobs pass through verbatim
+ * (the insertion shape has been stable since v3).
+ *
+ * Legacy back-compat is deliberately minimal — older blobs (v1 with no
+ * engine tag, v2 with the original "Place" vocabulary, v3 with the
+ * `unplaced` field name) all get default-filled rather than translated.
+ * Per-field consequences:
+ *  - v1: no exile/insert fields at all → all default to empty/null. No
+ *    data loss because v1 didn't have the concepts.
+ *  - v2: legacy `pendingPlacements` / `currentPlacement` are dropped on
+ *    load (mid-Place sessions silently lose their in-flight frame and
+ *    queued items).
+ *  - v3: legacy `unplaced` is dropped on load (any items sitting in the
+ *    "to be inserted" bucket disappear).
+ *
+ * Acceptable losses for a personal-scale app — see the v4 schema notes
+ * in types.ts. Lenient: works on arbitrary JSON shapes because the
+ * on-disk schema predates strict typing. Returns a fresh object —
+ * caller may mutate.
  */
 function upgradeProgress(progress: unknown): SortProgress {
   if (!progress || typeof progress !== 'object') {
@@ -106,9 +118,7 @@ function upgradeProgress(progress: unknown): SortProgress {
     // upstream so this branch should be unreachable in practice.
     return defaultMergeProgress();
   }
-  // Cast to a permissive shape: the on-disk schema is JSON, and we may
-  // encounter any of v1/v2/v3 field-name conventions. The runtime checks
-  // below disambiguate which shape we're holding.
+  // Cast to a permissive shape: the on-disk schema is JSON.
   const p = progress as {
     engine?: string;
     queue?: unknown;
@@ -117,30 +127,25 @@ function upgradeProgress(progress: unknown): SortProgress {
     done?: unknown;
     hidden?: unknown;
     totalComparisonsEverNeeded?: unknown;
-    unplaced?: unknown;
-    // v2 (legacy) field names:
-    pendingPlacements?: unknown;
-    currentPlacement?: unknown;
-    // v3 field names:
+    toBeInserted?: unknown;
     pendingManualInserts?: unknown;
     currentManualInsert?: unknown;
     currentAutoInsert?: unknown;
   };
-  // Insertion-engine progress shape is unchanged across v2 → v3.
   if (p.engine === 'insertion') return progress as SortProgress;
-  // Detect a fully-v3 merge blob: it has the new field names present.
+  // Current merge blob: engine + v4 field names.
   if (
     p.engine === 'merge' &&
-    Array.isArray(p.unplaced) &&
+    Array.isArray(p.toBeInserted) &&
     Array.isArray(p.pendingManualInserts) &&
     'currentAutoInsert' in p
   ) {
     return progress as SortProgress;
   }
-  // v2 merge blob: has engine='merge' + old Place field names.
-  // v1 merge blob: missing engine and/or old Place fields.
-  // Both upgrade through the same path — rename old → new where
-  // present, default-fill where missing.
+  // Legacy fall-through: v1 (no engine), v2 (Place vocabulary), or
+  // pre-v4 v3 (with `unplaced` instead of `toBeInserted`). All three
+  // default-fill missing fields rather than translating; see the
+  // function comment above for the acceptable-loss rationale.
   const upgraded: MergeProgress = {
     engine: 'merge',
     queue: (Array.isArray(p.queue) ? p.queue : []) as MergeProgress['queue'],
@@ -152,14 +157,13 @@ function upgradeProgress(progress: unknown): SortProgress {
       typeof p.totalComparisonsEverNeeded === 'number'
         ? p.totalComparisonsEverNeeded
         : 0,
-    unplaced: (Array.isArray(p.unplaced) ? p.unplaced : []) as MergeProgress['unplaced'],
+    toBeInserted: (Array.isArray(p.toBeInserted)
+      ? p.toBeInserted
+      : []) as MergeProgress['toBeInserted'],
     pendingManualInserts: (Array.isArray(p.pendingManualInserts)
       ? p.pendingManualInserts
-      : Array.isArray(p.pendingPlacements)
-        ? p.pendingPlacements
-        : []) as MergeProgress['pendingManualInserts'],
-    currentManualInsert: (p.currentManualInsert ?? p.currentPlacement ?? null) as MergeProgress['currentManualInsert'],
-    // v3 adds currentAutoInsert; v1/v2 didn't have it.
+      : []) as MergeProgress['pendingManualInserts'],
+    currentManualInsert: (p.currentManualInsert ?? null) as MergeProgress['currentManualInsert'],
     currentAutoInsert: (p.currentAutoInsert ?? null) as MergeProgress['currentAutoInsert'],
   };
   return upgraded;
@@ -174,7 +178,7 @@ function defaultMergeProgress(): MergeProgress {
     done: true,
     hidden: [],
     totalComparisonsEverNeeded: 0,
-    unplaced: [],
+    toBeInserted: [],
     pendingManualInserts: [],
     currentManualInsert: null,
     currentAutoInsert: null,
@@ -378,7 +382,10 @@ export function migrateLegacyIfNeeded(): SlotsManifest {
   try {
     const file = JSON.parse(legacy) as SaveFile;
     if (
-      (file.version !== 1 && file.version !== 2 && file.version !== 3) ||
+      (file.version !== 1 &&
+        file.version !== 2 &&
+        file.version !== 3 &&
+        file.version !== 4) ||
       !file.items ||
       !file.progress
     ) {
@@ -603,7 +610,14 @@ export function readSlotBlob(id: string): AutosaveBlob | null {
     const raw = window.localStorage.getItem(slotBlobKey(id));
     if (!raw) return null;
     const file = JSON.parse(raw) as SaveFile;
-    if (file.version !== 1 && file.version !== 2 && file.version !== 3) return null;
+    if (
+      file.version !== 1 &&
+      file.version !== 2 &&
+      file.version !== 3 &&
+      file.version !== 4
+    ) {
+      return null;
+    }
     return {
       items: file.items,
       progress: upgradeProgress(file.progress),
@@ -1187,7 +1201,12 @@ export function downloadSave(blob: AutosaveBlob): void {
 export async function loadSaveFromFile(file: File): Promise<AutosaveBlob> {
   const text = await file.text();
   const parsed = JSON.parse(text) as SaveFile;
-  if (parsed.version !== 1 && parsed.version !== 2 && parsed.version !== 3) {
+  if (
+    parsed.version !== 1 &&
+    parsed.version !== 2 &&
+    parsed.version !== 3 &&
+    parsed.version !== 4
+  ) {
     throw new Error(`Unsupported save file version: ${parsed.version}`);
   }
   if (!parsed.items || !parsed.progress) {

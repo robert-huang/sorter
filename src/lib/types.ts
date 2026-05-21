@@ -16,7 +16,7 @@ export interface MergeFrame {
 
 /**
  * Binary-insertion primitive frame. Shared between the insertion engine
- * (in `insertionSort.ts`) and the deferred-Place mini-sessions on the
+ * (in `insertionSort.ts`) and the deferred manual-insert mini-sessions on the
  * merge engine (in `queueMergeSort.ts`). lo/hi are inclusive bounds into
  * the target `sorted[]` array; probe = `(lo+hi) >> 1`.
  */
@@ -98,13 +98,9 @@ export interface MergeProgress extends SortProgressBase {
    * Items that were hidden during an in-flight merge and got swept up
    * at merge-close time. They live here until the user explicitly
    * inserts them (or Forgets them) — see queueMergeSort.manualInsert
-   * and queueMergeSort.forgetUnplaced.
-   *
-   * (The bucket is still called `unplaced` in the data shape — it's the
-   * holding area, not the action — so the field name stays stable
-   * across the rename.)
+   * and queueMergeSort.forgetItem.
    */
-  unplaced: ItemId[];
+  toBeInserted: ItemId[];
   /**
    * FIFO of items the user clicked Insert on while a merge was still
    * running. Drain between merge boundaries.
@@ -170,19 +166,21 @@ export interface DedupWarning {
 
 /**
  * v1: original single-engine merge schema (no `engine` field on progress).
- * v2: engine-discriminated progress shape with the original Place vocabulary
- *     (`currentPlacement` / `pendingPlacements`).
- * v3: rename pass to "Insert" vocabulary
- *     (`currentManualInsert` / `pendingManualInserts`) plus the new
- *     `currentAutoInsert` field for the auto-insert mechanic.
+ * v2: engine-discriminated progress; introduced the original "Place"
+ *     vocabulary (`pendingPlacements`, `currentPlacement`).
+ * v3: renamed Place→ManualInsert on the wire (`pendingManualInserts`,
+ *     `currentManualInsert`) and added `currentAutoInsert`.
+ * v4: renamed `unplaced` → `toBeInserted` on merge progress for vocabulary
+ *     consistency with the rest of the Insert-flavored API.
  *
- * Loaders accept all three; v1 blobs are upgraded through v2 to v3 in
- * memory at read time (defaults engine='merge', adds the new fields,
- * renames old field names). On the next write the blob is persisted
- * as v3.
+ * Loaders accept any version 1–4 but the upgrade path is shape-driven
+ * and minimal: missing fields default-fill rather than getting
+ * translated from their legacy names. See `upgradeProgress` in
+ * storage.ts for the per-version acceptable-loss summary. On the next
+ * write the blob is persisted as v4.
  */
 export interface SaveFile {
-  version: 1 | 2 | 3;
+  version: 1 | 2 | 3 | 4;
   createdAt: string;
   items: Record<ItemId, Item>;
   progress: SortProgress;

@@ -5,7 +5,7 @@
  *
  * App.tsx and screen components use these helpers so they don't have to
  * narrow at every call site. Engine-specific operations (queue
- * reorder/break-apart, placement Place/Forget, insertion addItems) still
+ * reorder/break-apart, manual-insert Insert/Forget, insertion addItems) still
  * live on the engine modules and are wired up only on the screens that
  * make sense for them.
  *
@@ -135,7 +135,7 @@ export function unhideItem(state: SortState, id: ItemId): SortState {
  * Patch the metadata of a single item (label / url / imageUrl) without
  * touching the sort structure. Engine-agnostic because both engines
  * share the same `items` dict and the item's `id` is the only thing
- * the queue/sorted/pending/unplaced/etc. arrays actually reference.
+ * the queue/sorted/pending/toBeInserted/etc. arrays actually reference.
  *
  * Driving use-case: pasted lists whose labels contain a comma get
  * mis-parsed (comma is treated as the CSV column separator, so the
@@ -153,7 +153,7 @@ export function unhideItem(state: SortState, id: ItemId): SortState {
  *
  * The item `id` is intentionally NOT recomputed from the new label.
  * The id is referenced by every collection in the sort state
- * (queue, sublists, hidden[], unplaced[], pending[], sorted[],
+ * (queue, sublists, hidden[], toBeInserted[], pending[], sorted[],
  * pendingManualInserts[], currentManualInsert.insertingId, etc.) and
  * is internal — the user never sees it. Keeping it stable means a
  * label edit is a strict in-place patch with no structural risk.
@@ -242,7 +242,7 @@ export function rewriteIdInProgress(
     ...progress,
     queue: progress.queue.map(mapArr),
     hidden: mapArr(progress.hidden),
-    unplaced: mapArr(progress.unplaced),
+    toBeInserted: mapArr(progress.toBeInserted),
     pendingManualInserts: mapArr(progress.pendingManualInserts),
     current:
       progress.current === null

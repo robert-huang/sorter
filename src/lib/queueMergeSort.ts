@@ -248,14 +248,15 @@ function comparisonsRemainingFromProgress(
 
 /**
  * Final ranking when done. Filters out hidden ids and any items that
- * landed in the `unplaced` bucket (those were deliberately left
- * unplaced by the user — they shouldn't appear in the final rank).
+ * landed in the `toBeInserted` bucket (those were deliberately set
+ * aside by the user — they shouldn't appear in the final rank until
+ * the user explicitly inserts them).
  */
 export function getRanking(state: MergeState): ItemId[] {
   if (!state.done || state.queue.length === 0) return [];
   const hidden = new Set(state.hidden);
-  const unplaced = new Set(state.unplaced);
-  return state.queue[0].filter((id) => !hidden.has(id) && !unplaced.has(id));
+  const toBeInserted = new Set(state.toBeInserted);
+  return state.queue[0].filter((id) => !hidden.has(id) && !toBeInserted.has(id));
 }
 
 // ---------- snapshot ----------
@@ -279,7 +280,7 @@ export function snapshotProgress(state: MergeState): MergeProgress {
     done: state.done,
     hidden: state.hidden.slice(),
     totalComparisonsEverNeeded: state.totalComparisonsEverNeeded,
-    unplaced: state.unplaced.slice(),
+    toBeInserted: state.toBeInserted.slice(),
     pendingManualInserts: state.pendingManualInserts.slice(),
     currentManualInsert: cloneManualInsert(state.currentManualInsert),
     currentAutoInsert: cloneAutoInsert(state.currentAutoInsert),
@@ -304,7 +305,7 @@ export function restoreProgress(
         }
       : null,
     hidden: progress.hidden.slice(),
-    unplaced: progress.unplaced.slice(),
+    toBeInserted: progress.toBeInserted.slice(),
     pendingManualInserts: progress.pendingManualInserts.slice(),
     currentManualInsert: cloneManualInsert(progress.currentManualInsert),
     currentAutoInsert: cloneAutoInsert(progress.currentAutoInsert),
@@ -356,7 +357,7 @@ function advance(
       // Only proceed to done if there are no pending manual inserts either —
       // those still need to drain. If we have pending manual inserts but no
       // queue to drain into, leave them be (they'll surface as an
-      // "unplaced, no target" warning at UI level).
+      // "pending insert, no target sublist" warning at UI level).
       if (
         progress.pendingManualInserts.length === 0 &&
         progress.currentManualInsert === null
@@ -410,7 +411,7 @@ function advance(
  * — which is also the rank order from the pre-ranked seed if any — for
  * rank-aware bound tightening in `drainAutoInsert`). The larger side's
  * visible ids become `target`. Hidden ids from BOTH sides go straight
- * to `unplaced` (same exile rule as merge close), since auto-insert
+ * to `toBeInserted` (same exile rule as merge close), since auto-insert
  * doesn't probe hidden ids — keeping them inside the frame would have
  * no useful effect.
  */
@@ -437,7 +438,7 @@ function installAutoInsert(
     if (hidden.has(id)) exiled.push(id);
     else pendingInserts.push(id);
   }
-  if (exiled.length > 0) progress.unplaced.push(...exiled);
+  if (exiled.length > 0) progress.toBeInserted.push(...exiled);
   progress.currentAutoInsert = {
     target,
     pendingInserts,
@@ -450,7 +451,7 @@ function installAutoInsert(
 
 /**
  * Push a closed-sublist's visible portion onto the queue, exile its
- * hidden portion into `unplaced`. Shared helper used by both `advance`
+ * hidden portion into `toBeInserted`. Shared helper used by both `advance`
  * (degenerate-frame collapse) and `flushIfMergeComplete` (normal close).
  */
 function exileAndPush(
@@ -465,7 +466,7 @@ function exileAndPush(
     else visible.push(id);
   }
   if (visible.length > 0) progress.queue.push(visible);
-  if (exiled.length > 0) progress.unplaced.push(...exiled);
+  if (exiled.length > 0) progress.toBeInserted.push(...exiled);
 }
 
 /**
@@ -473,7 +474,7 @@ function exileAndPush(
  * candidates, close the merge.
  *
  * Exile rule: items that are currently hidden when the merge closes are
- * moved into `unplaced` rather than ride along inside the closed
+ * moved into `toBeInserted` rather than ride along inside the closed
  * sublist. This avoids silently positioning a hidden item at an
  * arbitrary slot (`{leftover concat}` tail position) — the user
  * inserting them later can use binary insertion to put them where
@@ -492,7 +493,7 @@ function flushIfMergeComplete(
   const leftVisible = countVisible(left, hidden);
   const rightVisible = countVisible(right, hidden);
   if (leftVisible > 0 && rightVisible > 0) return;
-  // Visible portion → back of queue; hidden portion → unplaced bucket.
+  // Visible portion → back of queue; hidden portion → toBeInserted bucket.
   // (The exile rule, plan §5b: don't silently position hidden ids.)
   exileAndPush(progress, merged.concat(left, right), hidden);
   progress.current = null;
@@ -575,7 +576,7 @@ function drainManualInserts(
         insertingId,
         ...sub.slice(res.position),
       ];
-      progress.unplaced = progress.unplaced.filter((x) => x !== insertingId);
+      progress.toBeInserted = progress.toBeInserted.filter((x) => x !== insertingId);
       continue;
     }
     progress.currentManualInsert = {
@@ -598,7 +599,7 @@ function freshMergeProgress(queue: ItemId[][]): MergeProgress {
     done: false,
     hidden: [],
     totalComparisonsEverNeeded: 0,
-    unplaced: [],
+    toBeInserted: [],
     pendingManualInserts: [],
     currentManualInsert: null,
     currentAutoInsert: null,
@@ -743,7 +744,7 @@ function applyManualInsertPick(
         ...sub.slice(res.position),
       ];
     }
-    next.unplaced = next.unplaced.filter((x) => x !== mi.insertingId);
+    next.toBeInserted = next.toBeInserted.filter((x) => x !== mi.insertingId);
     next.currentManualInsert = null;
     drainManualInserts(next, hidden);
     if (!next.currentManualInsert) advance(next, hidden, opts);
@@ -835,7 +836,7 @@ function drainAutoInsert(
   if (ai.frame === null && ai.pendingInserts.length === 0) {
     // All items landed — push the grown target back to the queue.
     // Any ids hidden mid-auto-insert (probe-skipped target items) are
-    // exiled to `unplaced` rather than riding along into the merged
+    // exiled to `toBeInserted` rather than riding along into the merged
     // sublist, mirroring the merge-close exile rule. Otherwise hidden
     // items would land at arbitrary positions in the closed sublist.
     exileAndPush(progress, ai.target, hidden);
@@ -860,10 +861,10 @@ export function pickRight(
 /**
  * Hide an item (remove from contention). Reversible via undo. If hiding
  * empties one side of the current merge, the merge auto-closes — and
- * the hidden item(s) get exiled into `unplaced` (see exile rule above).
+ * the hidden item(s) get exiled into `toBeInserted` (see exile rule above).
  *
  * Hiding the currently-inserting manual-insert item cancels its frame
- * and removes the id from `unplaced` (hiding signals "I don't want it
+ * and removes the id from `toBeInserted` (hiding signals "I don't want it
  * at all" — distinct from cancelling, which leaves the id Insert-able
  * again).
  *
@@ -901,7 +902,7 @@ export function hideItem(
     const hiddenSet = new Set(next.hidden);
     drainAutoInsert(next, hiddenSet, opts);
   }
-  next.unplaced = next.unplaced.filter((x) => x !== id);
+  next.toBeInserted = next.toBeInserted.filter((x) => x !== id);
   next.pendingManualInserts = next.pendingManualInserts.filter((x) => x !== id);
   const hiddenSet = new Set(next.hidden);
   flushIfMergeComplete(next, hiddenSet, opts);
@@ -925,8 +926,8 @@ export function hideItem(
  * order so no further work. (No new comparisons are introduced by unhiding;
  * we don't re-sort the item against others.)
  *
- * Important: unhide does NOT touch the `unplaced` bucket. Items in
- * `unplaced` are not in `state.hidden`; the user explicitly inserts
+ * Important: unhide does NOT touch the `toBeInserted` bucket. Items in
+ * `toBeInserted` are not in `state.hidden`; the user explicitly inserts
  * them via `manualInsert` instead.
  */
 export function unhideItem(state: MergeState, id: ItemId): MergeState {
@@ -938,17 +939,17 @@ export function unhideItem(state: MergeState, id: ItemId): MergeState {
 }
 
 /**
- * Queue an unplaced id for the binary-insertion drain — user-triggered
+ * Queue an id from the `toBeInserted` bucket for the binary-insertion drain — user-triggered
  * "I want this item put back into the ranking." Drains immediately if
  * no merge is in flight, otherwise waits for `flushIfMergeComplete`.
- * The item must be in `state.unplaced`.
+ * The item must be in `state.toBeInserted`.
  */
 export function manualInsert(
   state: MergeState,
   id: ItemId,
   options?: MergeOptions,
 ): MergeState {
-  if (!state.unplaced.includes(id)) return state;
+  if (!state.toBeInserted.includes(id)) return state;
   if (state.pendingManualInserts.includes(id)) return state;
   const opts = resolveOptions(options);
 
@@ -970,19 +971,19 @@ export function manualInsert(
 }
 
 /**
- * Permanently drop an unplaced id from the rank. Used by the "Forget"
+ * Permanently drop a to-be-inserted id from the rank. Used by the "Forget"
  * affordance — the item still exists in `state.items` (so the id is
  * meaningful for UI labels), but it doesn't appear in any ranking.
  */
-export function forgetUnplaced(
+export function forgetItem(
   state: MergeState,
   id: ItemId,
   options?: MergeOptions,
 ): MergeState {
-  if (!state.unplaced.includes(id)) return state;
+  if (!state.toBeInserted.includes(id)) return state;
   const opts = resolveOptions(options);
   const next = snapshotProgress(state);
-  next.unplaced = next.unplaced.filter((x) => x !== id);
+  next.toBeInserted = next.toBeInserted.filter((x) => x !== id);
   next.pendingManualInserts = next.pendingManualInserts.filter((x) => x !== id);
   // If a manual insert was about to start for this id (drained but not
   // yet resolved), cancel it.
@@ -1007,7 +1008,7 @@ export function forgetUnplaced(
 
 /**
  * Cancel the currently-running manual insert, bouncing the inserting
- * item back into `unplaced` and clearing `currentManualInsert`. The
+ * item back into `toBeInserted` and clearing `currentManualInsert`. The
  * user can either Forget it from there or click Insert again later.
  *
  * Doesn't unwind the comparisons already made for this insert — they
@@ -1024,7 +1025,7 @@ export function cancelManualInsert(
   if (!state.currentManualInsert) return state;
   const opts = resolveOptions(options);
   const next = snapshotProgress(state);
-  // insertingId is still in `unplaced` (we only remove on resolve, not
+  // insertingId is still in `toBeInserted` (we only remove on resolve, not
   // on drain). No bouncing needed; just clear the frame.
   next.currentManualInsert = null;
   // Drain the next pending manual insert, if any; otherwise advance.
