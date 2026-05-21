@@ -50,6 +50,14 @@ function upsertTable(
   `);
 }
 
+/**
+ * Writes `bytes` to a posix path in the WASM "unix" VFS and ATTACHes it onto
+ * `localDb`. Only safe when `localDb` is itself on the unix VFS (e.g. `:memory:`
+ * via `openDbFromBytes`). ATTACH from an OPFS-SAH-Pool connection would look
+ * up the path inside the sahpool VFS — a different filesystem — and silently
+ * create an empty DB, which is the bug that motivated the bytes-in/bytes-out
+ * contract on `pullMerge`.
+ */
 function attachBytesDb(
   sqlite3: Sqlite3Static,
   localDb: Database,
@@ -61,34 +69,55 @@ function attachBytesDb(
   return path;
 }
 
-function detachRemote(localDb: Database, path: string): void {
+function detachRemote(
+  sqlite3: Sqlite3Static,
+  localDb: Database,
+  path: string,
+): void {
   localDb.exec('DETACH DATABASE remote');
+  // Free the temp file in the unix VFS so repeated merges don't leak storage
+  // for the worker's lifetime. `0` selects the default VFS (where
+  // sqlite3_js_posix_create_file wrote the file). Best-effort: if the export
+  // is missing in some future sqlite-wasm build, silently no-op.
   try {
-    localDb.exec(`PRAGMA main.vfs_list`);
+    const wasmUnlink = (
+      sqlite3.wasm as unknown as {
+        sqlite3__wasm_vfs_unlink?: (pVfs: number, filename: string) => number;
+      }
+    ).sqlite3__wasm_vfs_unlink;
+    if (typeof wasmUnlink === 'function') {
+      wasmUnlink(0, path);
+    }
   } catch {
-    // best-effort cleanup; temp file lives in wasm vfs
+    /* unlink is best-effort */
   }
-  void path;
 }
 
 /**
- * Merges remote serialized bytes into localDb (newer timestamp wins per row).
- * Returns serialized bytes of the merged local database.
+ * Merges `remoteBytes` into `localBytes` (newer timestamp wins per row),
+ * returning the merged serialized bytes. Operates entirely on in-memory
+ * (unix VFS) connections so callers can pass DBs backed by any VFS — they
+ * just round-trip the bytes.
+ *
+ * Throws an Error with `code: REMOTE_SCHEMA_NEWER` if the remote's
+ * `_meta.schema_version` is ahead of local's (caller must surface an
+ * "update the app" path; cross-version merge is not safe).
  */
 export function pullMerge(
   sqlite3: Sqlite3Static,
-  localDb: Database,
+  localBytes: Uint8Array,
   sourceId: string,
   remoteBytes: Uint8Array,
 ): Uint8Array {
   const source = getSource(sourceId);
-  const localVersion = currentVersion(localDb);
 
+  const localDb = openDbFromBytes(sqlite3, localBytes);
   const remoteDb = openDbFromBytes(sqlite3, remoteBytes);
   let attachPath: string | null = null;
   let remoteClosed = false;
 
   try {
+    const localVersion = currentVersion(localDb);
     const remoteVersion = currentVersion(remoteDb);
 
     if (remoteVersion > localVersion) {
@@ -115,16 +144,17 @@ export function pullMerge(
         upsertTable(localDb, t, 'remote');
       }
     });
+
+    return serializeDb(sqlite3, localDb);
   } finally {
     if (attachPath) {
-      detachRemote(localDb, attachPath);
+      detachRemote(sqlite3, localDb, attachPath);
     }
     if (!remoteClosed) {
       remoteDb.close();
     }
+    localDb.close();
   }
-
-  return serializeDb(sqlite3, localDb);
 }
 
 /** Reads schema_version from serialized DB bytes without touching the local store. */

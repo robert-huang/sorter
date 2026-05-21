@@ -72,17 +72,16 @@ vi.mock('../client', () => ({
     localBytesBySource.set(sourceId, bytes);
   }),
   pullMerge: vi.fn(async (sourceId: string, remoteBytes: Uint8Array) => {
+    // Mirrors what the real worker does (worker.ts 'pullMerge' case):
+    // serialize the local DB to bytes, run the in-memory merge, write the
+    // merged bytes back to the per-source slot (the worker uses replaceDb;
+    // here we just overwrite the map entry).
     const sqlite3 = await getTestSqlite();
     const localBytes =
       localBytesBySource.get(sourceId) ?? (await freshLocalBytes());
-    const localDb = openDbFromBytes(sqlite3, localBytes);
-    try {
-      const merged = pullMerge(sqlite3, localDb, sourceId, remoteBytes);
-      localBytesBySource.set(sourceId, merged);
-      return merged;
-    } finally {
-      localDb.close();
-    }
+    const merged = pullMerge(sqlite3, localBytes, sourceId, remoteBytes);
+    localBytesBySource.set(sourceId, merged);
+    return merged;
   }),
 }));
 

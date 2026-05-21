@@ -1,3 +1,16 @@
+// TODO: "Remove this source's local data" UX is not implemented. When added,
+// it needs:
+//   1. sahPool.unlink(`/${sourceId}.sqlite`) in the worker to free the OPFS
+//      slot (memory mode: closeDb + the in-memory file is GC'd).
+//   2. A removeSourceSyncMeta(sourceId) helper here that deletes the manifest
+//      entry so a future sync starts clean (hasLocalDb=false,
+//      remoteEtag=null, etc.).
+//   3. Optional: deleteSourceDb(sourceId) in cloud/googleDrive.ts to remove
+//      the Drive blob (the user should be asked separately whether to also
+//      delete the cloud copy).
+// Surface as a destructive "Remove" button in sourceDatabasesSection.tsx with
+// a confirm.
+
 /** Per-source Drive sync metadata (separate from slot autosave manifest). */
 export type SourceSyncMeta = {
   remoteEtag: string | null;

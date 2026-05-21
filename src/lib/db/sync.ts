@@ -178,8 +178,9 @@ export async function pullDbFromDrive(sourceId: string): Promise<PullResult> {
   if (!meta.hasLocalDb) {
     await importBytes(sourceId, bytes);
   } else {
-    const mergedBytes = await pullMerge(sourceId, bytes);
-    await importBytes(sourceId, mergedBytes);
+    // pullMerge writes the merged bytes back to the OPFS/memory slot itself
+    // (via replaceDb in the worker), so no follow-up importBytes call here.
+    await pullMerge(sourceId, bytes);
     merged = true;
   }
 

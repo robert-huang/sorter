@@ -190,8 +190,20 @@ async function handleRpc(req: RpcRequest): Promise<unknown> {
       handleExecBatch(req.args.sourceId, req.args.statements);
       return undefined;
     case 'pullMerge': {
-      const db = getOrOpenDb(req.args.sourceId);
-      return pullMerge(s3, db, req.args.sourceId, req.args.remoteBytes);
+      // pullMerge requires both DBs on the unix VFS (see merge.ts), so we
+      // export the OPFS-backed local to bytes, run the merge purely in
+      // memory, and route the merged bytes back through replaceDb (which
+      // knows how to import into the sahpool slot in OPFS mode).
+      const local = getOrOpenDb(req.args.sourceId);
+      const localBytes = serializeDb(s3, local);
+      const mergedBytes = pullMerge(
+        s3,
+        localBytes,
+        req.args.sourceId,
+        req.args.remoteBytes,
+      );
+      await replaceDb(req.args.sourceId, mergedBytes);
+      return mergedBytes;
     }
     case 'exportBytes': {
       const db = getOrOpenDb(req.args.sourceId);

@@ -1,6 +1,7 @@
 import type { CloudMenuStatus } from './SettingsMenu';
 import { listSources } from '../lib/db/source-registry';
 import { getSyncState, type SyncStatus } from '../lib/db/sync';
+import { getSourceIcon } from './sourceIcons';
 
 function formatTs(ms: number | null): string {
   if (ms === null) {
@@ -58,11 +59,18 @@ export function SourceDatabasesSection({
         const pushing = pushingIds.has(source.id);
         const pulling = pullingIds.has(source.id);
         const busy = pushing || pulling;
+        const SourceIcon = getSourceIcon(source.id);
 
         return (
           <div key={source.id} className="settings-source-db-row">
             <div className="settings-source-db-head">
-              <span className="settings-source-db-name">{source.id}</span>
+              <span className="settings-source-db-name">
+                <SourceIcon
+                  size={16}
+                  className="settings-source-db-icon"
+                />
+                <span>{source.id}</span>
+              </span>
               <span className="settings-source-db-status" title="Sync status">
                 {statusLabel(sync.status)}
               </span>

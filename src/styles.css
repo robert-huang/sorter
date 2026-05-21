@@ -621,10 +621,22 @@ a {
 .settings-source-db-head {
   display: flex;
   justify-content: space-between;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   font-size: 13px;
   font-weight: 600;
+}
+
+.settings-source-db-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.settings-source-db-icon {
+  flex-shrink: 0;
+  color: var(--text-muted);
 }
 
 .settings-source-db-meta {
