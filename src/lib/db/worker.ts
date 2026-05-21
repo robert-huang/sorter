@@ -36,7 +36,15 @@ function postReply(reply: RpcReply): void {
   self.postMessage(reply);
 }
 
+/** RPCs received before WASM/OPFS init finishes; drained once `sqlite3` is set. */
+const pendingRpc: RpcRequest[] = [];
+
 async function initSqlite(): Promise<void> {
+  // Vitest runs WASM init quickly; a short delay makes init-race tests deterministic.
+  if (import.meta.env.VITEST) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
   sqlite3 = await (sqlite3InitModule as (config?: object) => ReturnType<typeof sqlite3InitModule>)({
     print: () => {},
     printErr: console.error,
@@ -59,6 +67,14 @@ async function initSqlite(): Promise<void> {
   }
 
   postReady();
+  drainPendingRpc();
+}
+
+function drainPendingRpc(): void {
+  const queued = pendingRpc.splice(0, pendingRpc.length);
+  for (const req of queued) {
+    void dispatchRpc(req);
+  }
 }
 
 function requireSqlite(): Sqlite3Static {
@@ -226,30 +242,35 @@ async function handleRpc(req: RpcRequest): Promise<unknown> {
   }
 }
 
-void initSqlite();
-
-self.addEventListener('message', (event: MessageEvent<RpcRequest>) => {
-  const { id } = event.data;
-  if (!sqlite3) {
+async function dispatchRpc(req: RpcRequest): Promise<void> {
+  const { id } = req;
+  try {
+    const result = await handleRpc(req);
+    postReply({ id, ok: true, result });
+  } catch (err) {
+    const e = err as Error & { code?: string };
     postReply({
       id,
       ok: false,
-      error: { message: 'SQLite worker not initialized yet' },
+      error: { message: e.message, code: e.code },
     });
+  }
+}
+
+void initSqlite().catch((err: unknown) => {
+  const e = err as Error;
+  const message = e.message || 'SQLite worker init failed';
+  const queued = pendingRpc.splice(0, pendingRpc.length);
+  for (const req of queued) {
+    postReply({ id: req.id, ok: false, error: { message } });
+  }
+});
+
+self.addEventListener('message', (event: MessageEvent<RpcRequest>) => {
+  const req = event.data;
+  if (!sqlite3) {
+    pendingRpc.push(req);
     return;
   }
-
-  void (async () => {
-    try {
-      const result = await handleRpc(event.data);
-      postReply({ id, ok: true, result });
-    } catch (err) {
-      const e = err as Error & { code?: string };
-      postReply({
-        id,
-        ok: false,
-        error: { message: e.message, code: e.code },
-      });
-    }
-  })();
+  void dispatchRpc(req);
 });

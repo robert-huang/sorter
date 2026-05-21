@@ -12,7 +12,8 @@ const pending = new Map<
   number,
   { resolve: (v: unknown) => void; reject: (e: Error) => void }
 >();
-let storageModePromise: Promise<'opfs' | 'memory'> | null = null;
+/** Resolves when the worker posts `{ type: 'ready' }` after WASM/OPFS init. */
+let workerReady: Promise<'opfs' | 'memory'> | null = null;
 let nonPersistentEventSent = false;
 
 function rejectAllPending(reason: Error): void {
@@ -24,7 +25,7 @@ function rejectAllPending(reason: Error): void {
 
 function onWorkerDeath(): void {
   worker = null;
-  storageModePromise = null;
+  workerReady = null;
   rejectAllPending(new Error(WORKER_DIED_MESSAGE));
 }
 
@@ -58,29 +59,39 @@ function attachWorkerLifecycle(w: Worker): void {
   w.addEventListener('messageerror', onWorkerDeath);
 }
 
+function bindWorkerReady(w: Worker): void {
+  workerReady = new Promise<'opfs' | 'memory'>((resolve) => {
+    const onReady = (e: MessageEvent<RpcReply | WorkerReadyMessage>) => {
+      if (e.data && typeof e.data === 'object' && 'type' in e.data && e.data.type === 'ready') {
+        w.removeEventListener('message', onReady);
+        resolve(e.data.storageMode);
+      }
+    };
+    w.addEventListener('message', onReady);
+  });
+}
+
 function spawnWorker(): Worker {
   const w = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
   attachWorkerLifecycle(w);
+  bindWorkerReady(w);
   return w;
 }
 
 function getWorker(): Worker {
   if (!worker) {
     worker = spawnWorker();
-    storageModePromise = new Promise<'opfs' | 'memory'>((resolve) => {
-      const onReady = (e: MessageEvent<RpcReply | WorkerReadyMessage>) => {
-        if (e.data && typeof e.data === 'object' && 'type' in e.data && e.data.type === 'ready') {
-          worker?.removeEventListener('message', onReady);
-          resolve(e.data.storageMode);
-        }
-      };
-      worker!.addEventListener('message', onReady);
-    });
   }
   return worker;
 }
 
+async function waitForWorkerReady(): Promise<'opfs' | 'memory'> {
+  getWorker();
+  return workerReady!;
+}
+
 async function rpc<T>(req: Omit<RpcRequest, 'id'>): Promise<T> {
+  await waitForWorkerReady();
   const id = ++nextId;
   return new Promise<T>((resolve, reject) => {
     pending.set(id, {
@@ -89,11 +100,6 @@ async function rpc<T>(req: Omit<RpcRequest, 'id'>): Promise<T> {
     });
     getWorker().postMessage({ ...req, id } as RpcRequest);
   });
-}
-
-async function getStorageMode(): Promise<'opfs' | 'memory'> {
-  getWorker();
-  return storageModePromise!;
 }
 
 function maybeEmitNonPersistent(mode: 'opfs' | 'memory'): void {
@@ -106,10 +112,8 @@ function maybeEmitNonPersistent(mode: 'opfs' | 'memory'): void {
 export async function openSourceDb(
   sourceId: string,
 ): Promise<{ schemaVersion: number; storageMode: 'opfs' | 'memory' }> {
-  const [schemaVersion, storageMode] = await Promise.all([
-    rpc<number>({ type: 'open', args: { sourceId } }),
-    getStorageMode(),
-  ]);
+  const storageMode = await waitForWorkerReady();
+  const schemaVersion = await rpc<number>({ type: 'open', args: { sourceId } });
   maybeEmitNonPersistent(storageMode);
   return { schemaVersion, storageMode };
 }
