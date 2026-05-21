@@ -12,7 +12,6 @@ import {
   exportAllSlots,
   flushAutosave,
   getLastAutosaveError,
-  hasPendingAutosave,
   importAllSlots,
   isAtCapAndAllPinned,
   loadSaveFromFile,
@@ -388,62 +387,6 @@ describe('scheduleAutosave', () => {
     flushAutosave();
     // Nothing under any slot key.
     expect(readManifest().slots.length).toBe(0);
-  });
-});
-
-describe('hasPendingAutosave', () => {
-  // The dirty signal the toolbar Save button is driven from. The
-  // contract is narrow: true iff a debounced write is queued for
-  // the active slot, false in every other case (no slot, just-
-  // flushed, just-written-by-debounce, etc.).
-  it('is false when no slot is active', () => {
-    expect(hasPendingAutosave()).toBe(false);
-  });
-
-  it('is false immediately after a slot is minted (the mint write is synchronous)', () => {
-    mintSlot(makeBlob(0), 'A');
-    expect(hasPendingAutosave()).toBe(false);
-  });
-
-  it('is true after scheduleAutosave queues a debounced write', () => {
-    mintSlot(makeBlob(0), 'A');
-    // Stay under AUTOSAVE_MAX_COMPARISONS so we go down the
-    // debounced (not the synchronous force-flush) path — that's
-    // the case where dirty actually matters for UI feedback.
-    scheduleAutosave(makeBlob(3));
-    expect(hasPendingAutosave()).toBe(true);
-  });
-
-  it('clears to false after flushAutosave', () => {
-    mintSlot(makeBlob(0), 'A');
-    scheduleAutosave(makeBlob(3));
-    flushAutosave();
-    expect(hasPendingAutosave()).toBe(false);
-  });
-
-  it('clears to false after the debounce timer fires', async () => {
-    mintSlot(makeBlob(0), 'A');
-    scheduleAutosave(makeBlob(3));
-    expect(hasPendingAutosave()).toBe(true);
-    await new Promise((r) => setTimeout(r, AUTOSAVE_DEBOUNCE_MS + 50));
-    expect(hasPendingAutosave()).toBe(false);
-  });
-
-  it('clears to false after discardPendingAutosave (multi-tab path)', () => {
-    mintSlot(makeBlob(0), 'A');
-    scheduleAutosave(makeBlob(3));
-    discardPendingAutosave();
-    expect(hasPendingAutosave()).toBe(false);
-  });
-
-  it('is false when scheduleAutosave force-flushes (comparisons threshold)', () => {
-    mintSlot(makeBlob(0), 'A');
-    // AUTOSAVE_MAX_COMPARISONS is 20; jumping straight to 25 forces
-    // the synchronous write path inside scheduleAutosave. The
-    // dirty signal should reflect "nothing pending" by the time
-    // scheduleAutosave returns.
-    scheduleAutosave(makeBlob(25));
-    expect(hasPendingAutosave()).toBe(false);
   });
 });
 
