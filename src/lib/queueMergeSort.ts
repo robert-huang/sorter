@@ -5,6 +5,7 @@ import {
   insertComparisonsRemaining,
   startInsert,
 } from './binaryInsertion';
+import { shuffledCopy } from './shuffle';
 import type {
   AutoInsertFrame,
   Item,
@@ -39,13 +40,34 @@ export interface MergeOptions {
    * conservative behavior.
    */
   autoInsertEnabled?: boolean;
+  /**
+   * When true (default), randomize item order once before building the
+   * initial singleton queue in `initSort` (and the extras list in
+   * `seedFromSublists`). CSV paste order is often alphabetical, which
+   * would otherwise make the first several comparisons feel like "is
+   * A before B?", "is C before D?", etc. One startup shuffle breaks
+   * that pattern without affecting merge correctness.
+   */
+  shuffleAtStart?: boolean;
+  /** Injectable RNG (tests only). Defaults to `Math.random`. */
+  random?: () => number;
 }
 
-const DEFAULT_OPTIONS: Required<MergeOptions> = { autoInsertEnabled: true };
+const DEFAULT_OPTIONS: Required<Omit<MergeOptions, 'random'>> & {
+  random: () => number;
+} = {
+  autoInsertEnabled: true,
+  shuffleAtStart: true,
+  random: Math.random,
+};
 
-function resolveOptions(opts?: MergeOptions): Required<MergeOptions> {
+function resolveOptions(opts?: MergeOptions): Required<Omit<MergeOptions, 'random'>> & {
+  random: () => number;
+} {
   return {
     autoInsertEnabled: opts?.autoInsertEnabled ?? DEFAULT_OPTIONS.autoInsertEnabled,
+    shuffleAtStart: opts?.shuffleAtStart ?? DEFAULT_OPTIONS.shuffleAtStart,
+    random: opts?.random ?? DEFAULT_OPTIONS.random,
   };
 }
 
@@ -672,14 +694,20 @@ function freshMergeProgress(queue: ItemId[][]): MergeProgress {
 }
 
 /**
- * Sort-from-scratch entry point. Initial queue = N singletons in input order.
+ * Sort-from-scratch entry point. Initial queue = N singletons. Item order
+ * is shuffled once at startup (see `shuffleAtStart`) so CSV paste order
+ * does not dominate the first comparisons.
  */
 export function initSort(items: Item[], options?: MergeOptions): MergeState {
   const opts = resolveOptions(options);
   const itemsDict: Record<ItemId, Item> = {};
   for (const it of items) itemsDict[it.id] = it;
 
-  const queue = items.map((it) => [it.id]);
+  const ordered =
+    opts.shuffleAtStart && items.length > 1
+      ? shuffledCopy(items, opts.random)
+      : items;
+  const queue = ordered.map((it) => [it.id]);
   const progress = freshMergeProgress(queue);
   advance(progress, new Set(), opts);
   progress.totalComparisonsEverNeeded = comparisonsRemainingFromProgress(
@@ -708,7 +736,11 @@ export function seedFromSublists(
   for (const sub of sublists) for (const it of sub) itemsDict[it.id] = it;
 
   const queue: ItemId[][] = [];
-  for (const it of extras) queue.push([it.id]);
+  const orderedExtras =
+    opts.shuffleAtStart && extras.length > 1
+      ? shuffledCopy(extras, opts.random)
+      : extras;
+  for (const it of orderedExtras) queue.push([it.id]);
   for (const sub of sublists) queue.push(sub.map((it) => it.id));
 
   const progress = freshMergeProgress(queue);
