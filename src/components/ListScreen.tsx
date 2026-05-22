@@ -1,4 +1,8 @@
 import { useMemo, useState } from 'react';
+import {
+  canReorderInCurrentMerge,
+  type CurrentMergeSlice,
+} from '../lib/queueMergeSort';
 import type {
   InsertionState,
   Item,
@@ -14,6 +18,15 @@ interface Props {
   onHide: (id: string) => void;
   onUnhide: (id: string) => void;
   onReorder: (queueIndex: number, itemIndex: number, dir: -1 | 1) => void;
+  /**
+   * Merge-only: nudge an item within one slice of the in-flight merge frame.
+   * Visible heads on left/right remainders are locked.
+   */
+  onReorderInCurrentMerge: (
+    slice: CurrentMergeSlice,
+    itemIndex: number,
+    dir: -1 | 1,
+  ) => void;
   onBreakApart: (queueIndex: number) => void;
   /** Add a single item (Single tab). */
   onAddItem: (item: Item) => void;
@@ -113,6 +126,7 @@ function MergeListView({
   onHide,
   onUnhide,
   onReorder,
+  onReorderInCurrentMerge,
   onBreakApart,
   onAddItem,
   onAddItems,
@@ -155,29 +169,35 @@ function MergeListView({
           <div className="list-section-label">Current sublist</div>
           <CurrentMergeRow
             label="Merged so far"
+            slice="merged"
             ids={state.current.merged}
             state={state}
             hidden={hidden}
             onHide={onHide}
             onUnhide={onUnhide}
+            onReorder={onReorderInCurrentMerge}
             onEdit={openEdit}
           />
           <CurrentMergeRow
             label="Left remaining"
+            slice="left"
             ids={state.current.left}
             state={state}
             hidden={hidden}
             onHide={onHide}
             onUnhide={onUnhide}
+            onReorder={onReorderInCurrentMerge}
             onEdit={openEdit}
           />
           <CurrentMergeRow
             label="Right remaining"
+            slice="right"
             ids={state.current.right}
             state={state}
             hidden={hidden}
             onHide={onHide}
             onUnhide={onUnhide}
+            onReorder={onReorderInCurrentMerge}
             onEdit={openEdit}
           />
           <div
@@ -328,19 +348,23 @@ function MergeListView({
 
 function CurrentMergeRow({
   label,
+  slice,
   ids,
   state,
   hidden,
   onHide,
   onUnhide,
+  onReorder,
   onEdit,
 }: {
   label: string;
+  slice: CurrentMergeSlice;
   ids: string[];
   state: MergeState;
   hidden: Set<string>;
   onHide: (id: string) => void;
   onUnhide: (id: string) => void;
+  onReorder: (slice: CurrentMergeSlice, itemIndex: number, dir: -1 | 1) => void;
   onEdit: (item: Item) => void;
 }) {
   return (
@@ -352,10 +376,12 @@ function CurrentMergeRow({
             (empty)
           </span>
         )}
-        {ids.map((id) => {
+        {ids.map((id, ii) => {
           const item = state.items[id];
           if (!item) return null;
           const isHidden = hidden.has(id);
+          const canUp = canReorderInCurrentMerge(state, slice, ii, -1);
+          const canDown = canReorderInCurrentMerge(state, slice, ii, 1);
           return (
             <span
               key={id}
@@ -364,6 +390,28 @@ function CurrentMergeRow({
             >
               <Thumb item={item} />
               {item.label}
+              {ids.length > 1 && (
+                <>
+                  <button
+                    className="x"
+                    onClick={() => onReorder(slice, ii, -1)}
+                    disabled={!canUp}
+                    title="Move up"
+                    aria-label={`Move ${item.label} up`}
+                  >
+                    ↑
+                  </button>
+                  <button
+                    className="x"
+                    onClick={() => onReorder(slice, ii, 1)}
+                    disabled={!canDown}
+                    title="Move down"
+                    aria-label={`Move ${item.label} down`}
+                  >
+                    ↓
+                  </button>
+                </>
+              )}
               <EditButton item={item} onOpen={onEdit} variant="chip" />
               {isHidden ? (
                 <button

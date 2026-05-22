@@ -35,6 +35,7 @@ import {
   initSort,
   manualInsert,
   reorderInSublist,
+  reorderInCurrentMerge,
   seedFromSublists,
 } from './lib/queueMergeSort';
 import { seedAsSorted } from './lib/insertionSort';
@@ -755,6 +756,19 @@ export function App() {
         if (!cur || cur.engine !== 'merge') return cur;
         pushUndo(cur);
         return reorderInSublist(cur, queueIndex, itemIndex, dir);
+      });
+    },
+    [pushUndo],
+  );
+
+  const doReorderInCurrentMerge = useCallback(
+    (slice: 'merged' | 'left' | 'right', itemIndex: number, dir: -1 | 1) => {
+      setState((cur) => {
+        if (!cur || cur.engine !== 'merge') return cur;
+        const next = reorderInCurrentMerge(cur, slice, itemIndex, dir);
+        if (next === cur) return cur;
+        pushUndo(cur);
+        return next;
       });
     },
     [pushUndo],
@@ -1924,6 +1938,7 @@ export function App() {
         onHide={doHide}
         onUnhide={doUnhide}
         onReorder={doReorder}
+        onReorderInCurrentMerge={doReorderInCurrentMerge}
         onBreakApart={doBreak}
         onAddItem={doAddItem}
         onAddItems={doAddItemsList}
