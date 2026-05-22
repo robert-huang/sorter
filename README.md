@@ -111,12 +111,12 @@ The LIST tab is a live, editable view of the engine state — unlike Pub Meeple,
 - See the queue and the currently-merging frame (merged + left + right slices).
 - **Remove** items (reversible).
 - **Restore** previously hidden items.
-- **Reorder ↑ / ↓** items within any queued sublist.
+- **Reorder ↑ / ↓** items within any queued sublist, or within the in-flight merge frame (merged / left remaining / right remaining). Swaps never cross those slices; the visible compare heads on left/right remainders are locked so LIST edits don't change the RANK pair.
 - **Break apart** a queued sublist into singletons appended to the end of the queue (useful when you decide an inferred ordering is wrong).
 - **+ Add item(s)** — see *Add items modal* below.
 - **To be inserted (N) section** — items that were hidden mid-merge and then exiled when the merge (or auto-insert) closed live here. Click **↺ Insert** to binary-search them back into a queue sublist via a manual-insert mini-session, or **× Forget** to drop them from the rank permanently. See *Exile + Insert* below.
 
-Currently-merging sublists are read-only here (only Remove is allowed) — to fix something inside an active merge, undo back past its start.
+To fix order inside an active merge without using ↑/↓, undo back past the merge start.
 
 ### On the insertion engine
 
@@ -416,7 +416,8 @@ src/
                         # worstCaseInsertCost
     queueMergeSort.ts   # merge engine: initSort, seedFromSublists, pickLeft, pickRight,
                         # hideItem, unhideItem, addItem, addItems (batch singletons),
-                        # appendPreRankedSublist, reorderInSublist, breakApartSublist,
+                        # appendPreRankedSublist, reorderInSublist, reorderInCurrentMerge,
+                        # breakApartSublist,
                         # manualInsert, forgetItem, cancelManualInsert,
                         # shouldAutoInsert (heuristic), MergeOptions,
                         # mergesRemaining, comparisonsRemaining, getRanking
