@@ -104,6 +104,8 @@ interface StagedFile {
   text: string;
   skipHeader: boolean;
   detectedHeader: boolean;
+  /** Staged from the paste textarea (vs an uploaded file). */
+  pasted?: boolean;
 }
 
 function uid(): string {
@@ -239,9 +241,77 @@ export function StartScreen({
 
   // -------- pre-ranked mode --------
   const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([]);
+  const [pasteText, setPasteText] = useState('');
+  const [pasteSkipHeader, setPasteSkipHeader] = useState(false);
+  const [pasteError, setPasteError] = useState<string | null>(null);
+  const prerankedFilesRef = useRef<HTMLInputElement | null>(null);
+  const pasteTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const pasteDetectedHeader = useMemo(() => {
+    if (!pasteText.trim()) return false;
+    const parsed = Papa.parse<string[]>(pasteText, {
+      skipEmptyLines: 'greedy',
+      preview: 1,
+    });
+    const first = parsed.data?.[0];
+    return Array.isArray(first) ? looksLikeHeader(first) : false;
+  }, [pasteText]);
+
+  function nextPastedListName(existing: StagedFile[]): string {
+    let n = 1;
+    while (existing.some((f) => f.name === `pasted list ${n}`)) n++;
+    return `pasted list ${n}`;
+  }
+
+  function addPastedList(): void {
+    if (!pasteText.trim()) return;
+    setPasteError(null);
+    setStagedFiles((prev) => [
+      ...prev,
+      {
+        id: uid(),
+        name: nextPastedListName(prev),
+        text: pasteText,
+        skipHeader: pasteSkipHeader,
+        detectedHeader: pasteDetectedHeader,
+        pasted: true,
+      },
+    ]);
+    setPasteText('');
+    setPasteSkipHeader(false);
+  }
+
+  function restorePastedListToEditor(id: string): void {
+    const target = stagedFiles.find((f) => f.id === id);
+    if (!target?.pasted) return;
+    setPasteText(target.text);
+    setPasteSkipHeader(target.skipHeader);
+    setPasteError(null);
+    setOverrides((cur) => dropSourceFromOverrides(cur, target.name));
+    setStagedFiles((prev) => prev.filter((f) => f.id !== id));
+    requestAnimationFrame(() => {
+      pasteTextareaRef.current?.focus();
+      pasteTextareaRef.current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      });
+    });
+  }
+
+  async function pasteFromClipboard(): Promise<void> {
+    setPasteError(null);
+    try {
+      const text = await navigator.clipboard.readText();
+      setPasteText(text);
+    } catch {
+      setPasteError(
+        'Could not read clipboard. Paste into the box with ⌘V / Ctrl+V instead.',
+      );
+    }
+  }
+
   const [extrasText, setExtrasText] = useState('');
   const [extrasSkipHeader, setExtrasSkipHeader] = useState(false);
-  const prerankedFilesRef = useRef<HTMLInputElement | null>(null);
 
   const extrasDetectedHeader = useMemo(() => {
     if (!extrasText.trim()) return false;
@@ -673,15 +743,36 @@ export function StartScreen({
         <div className="page-section">
           <h2>Merge pre-ranked lists</h2>
           <p className="csv-hint">
-            Upload one or more CSVs. Each file is treated as a sorted list; the
-            row order is the user's expressed ranking within that file.
+            Paste or upload one or more CSVs. Each list is treated as a sorted
+            sublist; the row order is the user's expressed ranking within that
+            list.
           </p>
-          <div>
+          <textarea
+            ref={pasteTextareaRef}
+            className="csv-textarea"
+            placeholder={`Pit, https://example.com/pit\nThe Mind\nCodenames`}
+            value={pasteText}
+            onChange={(e) => {
+              setPasteText(e.target.value);
+              setPasteError(null);
+            }}
+          />
+          <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+            <button
+              className="btn"
+              onClick={addPastedList}
+              disabled={!pasteText.trim()}
+            >
+              Add pasted list
+            </button>
+            <button className="btn" onClick={() => void pasteFromClipboard()}>
+              Paste from clipboard
+            </button>
             <button
               className="btn"
               onClick={() => prerankedFilesRef.current?.click()}
             >
-              Add CSV file(s)…
+              Load CSV file(s)…
             </button>
             <input
               ref={prerankedFilesRef}
@@ -691,6 +782,25 @@ export function StartScreen({
               style={{ display: 'none' }}
               onChange={onPrerankedFiles}
             />
+          </div>
+          {pasteError && (
+            <p style={{ marginTop: 8, color: 'var(--warning)', fontSize: 13 }}>
+              {pasteError}
+            </p>
+          )}
+          <div className="checkbox-row">
+            <input
+              id="paste-header"
+              type="checkbox"
+              checked={pasteSkipHeader}
+              onChange={(e) => setPasteSkipHeader(e.target.checked)}
+            />
+            <label htmlFor="paste-header">First row is a header (pasted list)</label>
+            {pasteDetectedHeader && !pasteSkipHeader && (
+              <span className="header-hint">
+                ⓘ Your first row looks like a header. Check the box to skip it.
+              </span>
+            )}
           </div>
           {stagedFiles.length > 0 && (
             <div className="file-list">
@@ -718,13 +828,25 @@ export function StartScreen({
                       )}
                     </div>
                   </div>
-                  <button
-                    className="x-button"
-                    onClick={() => removeStaged(f.id)}
-                    aria-label={`Remove ${f.name}`}
-                  >
-                    ×
-                  </button>
+                  <div className="file-row-actions">
+                    {f.pasted && (
+                      <button
+                        type="button"
+                        className="btn small"
+                        onClick={() => restorePastedListToEditor(f.id)}
+                        title="Remove this list and put its CSV back in the paste box to edit"
+                      >
+                        Edit in paste box
+                      </button>
+                    )}
+                    <button
+                      className="x-button"
+                      onClick={() => removeStaged(f.id)}
+                      aria-label={`Remove ${f.name}`}
+                    >
+                      ×
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

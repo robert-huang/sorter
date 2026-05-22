@@ -393,7 +393,7 @@ function CurrentMergeRow({
               {ids.length > 1 && (
                 <>
                   <button
-                    className="x"
+                    className="x reorder"
                     onClick={() => onReorder(slice, ii, -1)}
                     disabled={!canUp}
                     title="Move up"
@@ -402,7 +402,7 @@ function CurrentMergeRow({
                     ↑
                   </button>
                   <button
-                    className="x"
+                    className="x reorder"
                     onClick={() => onReorder(slice, ii, 1)}
                     disabled={!canDown}
                     title="Move down"
