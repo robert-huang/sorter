@@ -1978,10 +1978,19 @@ export function App() {
     );
   }
 
-  // Auto-switch to RESULT when sort completes.
+  // Auto-switch tabs when the sort crosses the done boundary:
+  //   in-progress on RANK → RESULT when complete
+  //   undo (or any restore) leaving completed → RANK when no longer done
+  const prevDoneRef = useRef<boolean | undefined>(undefined);
   useEffect(() => {
-    if (state?.done && activeTab === 'rank') {
+    const wasDone = prevDoneRef.current;
+    const isDone = state?.done ?? false;
+    prevDoneRef.current = isDone;
+
+    if (isDone && activeTab === 'rank') {
       setActiveTab('result');
+    } else if (wasDone && state && !isDone) {
+      setActiveTab('rank');
     }
   }, [state, activeTab]);
 

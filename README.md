@@ -80,7 +80,7 @@ One CSV (paste or file). Items become N singleton sublists in CSV order. The mer
 Same CSV input as "sort from scratch", but with the **"These items are already in ranking order (skip the sort)"** checkbox enabled. Items become the frozen `sorted[]` of a brand-new insertion-mode slot; the slot opens straight on RESULT in a `done` state with 0 comparisons. You can then "+ Add items" later to binary-insert new items into the ranking.
 
 ### Merge pre-ranked lists
-Upload multiple CSVs at once. Each file is treated as a sorted sublist (row order = your expressed ranking within that file). Optional "extras" textarea for unranked singletons that get prepended to the front of the queue (they merge with each other first, then meet the pre-ranked sublists). This always uses the **merge engine** — pre-ranked lists still need to be merged against each other.
+Paste or upload multiple CSVs. Each list is treated as a sorted sublist (row order = your expressed ranking within that list). Optional "extras" textarea for unranked singletons that get prepended to the front of the queue (they merge with each other first, then meet the pre-ranked sublists). This always uses the **merge engine** — pre-ranked lists still need to be merged against each other.
 
 ### Dedup behavior (applies everywhere CSVs are parsed)
 
