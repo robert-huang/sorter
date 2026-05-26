@@ -3,6 +3,7 @@ import { SettingsMenu, type CloudMenuStatus } from './SettingsMenu';
 import { CheckIcon, FloppyIcon } from './icons';
 import type { SlotsManifest, SortState } from '../lib/types';
 import { comparisonsRemaining } from '../lib/engine';
+import type { StartDraftCapabilities } from './StartScreen';
 import type { ThemeName } from '../lib/storage';
 
 export type TabId = 'start' | 'list' | 'rank' | 'result';
@@ -41,6 +42,8 @@ interface Props {
   onDownloadSlot: (id: string) => void;
   /** When in 'start' mode with no items yet, RANK / LIST / RESULT tabs are disabled. */
   hasState: boolean;
+  /** START-tab draft readiness — enables tabs before a slot is minted. */
+  draftCaps: StartDraftCapabilities;
   theme: ThemeName;
   onToggleTheme: () => void;
   showEstimatedRemaining: boolean;
@@ -104,6 +107,7 @@ export function Header({
   onTogglePinSlot,
   onDownloadSlot,
   hasState,
+  draftCaps,
   theme,
   onToggleTheme,
   showEstimatedRemaining,
@@ -152,11 +156,15 @@ export function Header({
       : `Comparison #${n}`;
   })();
 
+  const canList = hasState || draftCaps.canList;
+  const canRank = hasState || draftCaps.canRank;
+  const canResult = hasState || draftCaps.canResult;
+
   const tabs: Array<{ id: TabId; label: string; disabled?: boolean }> = [
     { id: 'start', label: 'START' },
-    { id: 'list', label: 'LIST', disabled: !hasState },
-    { id: 'rank', label: 'RANK', disabled: !hasState || !!state?.done },
-    { id: 'result', label: 'RESULT', disabled: !hasState },
+    { id: 'list', label: 'LIST', disabled: !canList },
+    { id: 'rank', label: 'RANK', disabled: !canRank || !!state?.done },
+    { id: 'result', label: 'RESULT', disabled: !canResult },
   ];
 
   const themeBtnTitle =

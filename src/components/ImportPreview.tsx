@@ -49,6 +49,8 @@ interface Props {
     rowNumber: number,
     currentLabel: string,
   ) => void;
+  /** Drop a previewed row (and same-id duplicates in that source) from import. */
+  onRemoveRow?: (sourceName: string, rowNumber: number) => void;
 }
 
 export function ImportPreview({
@@ -62,6 +64,7 @@ export function ImportPreview({
   sublistCount,
   singletonCount,
   onEditOccurrence,
+  onRemoveRow,
 }: Props) {
   if (sources.length === 0) return null;
   const totalsText = useMemo(() => {
@@ -81,6 +84,7 @@ export function ImportPreview({
           key={src.sourceName}
           source={src}
           onEditRow={onEditOccurrence}
+          onRemoveRow={onRemoveRow}
         />
       ))}
       <div className="preview-totals">{totalsText}</div>
@@ -251,6 +255,7 @@ function WarningItem({
 function SourceBlock({
   source,
   onEditRow,
+  onRemoveRow,
 }: {
   source: PreviewSource;
   /**
@@ -263,6 +268,7 @@ function SourceBlock({
     rowNumber: number,
     currentLabel: string,
   ) => void;
+  onRemoveRow?: (sourceName: string, rowNumber: number) => void;
 }) {
   const initiallyOpen = source.items.length <= 10;
   const [open, setOpen] = useState(initiallyOpen);
@@ -293,18 +299,35 @@ function SourceBlock({
                   {it.url && <span title={it.url}>🔗</span>}{' '}
                   {it.imageUrl && <span title={it.imageUrl}>🖼</span>}
                 </span>
-                {onEditRow && (
-                  <button
-                    type="button"
-                    className="preview-item-edit"
-                    onClick={() =>
-                      onEditRow(source.sourceName, pi.sourceRow, it.label)
-                    }
-                    title={`Edit "${it.label}" (row ${pi.sourceRow})`}
-                    aria-label={`Edit ${it.label}`}
-                  >
-                    ✎
-                  </button>
+                {(onEditRow || onRemoveRow) && (
+                  <span className="preview-item-actions">
+                    {onEditRow && (
+                      <button
+                        type="button"
+                        className="icon-btn"
+                        onClick={() =>
+                          onEditRow(source.sourceName, pi.sourceRow, it.label)
+                        }
+                        title={`Edit "${it.label}" (row ${pi.sourceRow})`}
+                        aria-label={`Edit ${it.label}`}
+                      >
+                        ✎
+                      </button>
+                    )}
+                    {onRemoveRow && (
+                      <button
+                        type="button"
+                        className="icon-btn danger"
+                        onClick={() =>
+                          onRemoveRow(source.sourceName, pi.sourceRow)
+                        }
+                        title={`Remove "${it.label}" from import`}
+                        aria-label={`Remove ${it.label}`}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </span>
                 )}
               </li>
             );
