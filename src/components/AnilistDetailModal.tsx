@@ -3,7 +3,9 @@ import {
   type MediaDetail,
   productionReads,
 } from '../lib/importers/anilist/readQueries';
+import type { AnilistProgressEvent } from '../lib/importers/anilist/progress';
 import { runAnilistMediaLazyExpansion } from '../lib/importers/anilist/runners';
+import { formatAnilistProgress } from './anilistProgressLabel';
 
 /**
  * Detail modal for a single AniList media id. Opens from LIST or
@@ -67,6 +69,10 @@ export function AnilistDetailModal({
   const [loading, setLoading] = useState(true);
   const [expanding, setExpanding] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Latest progress event from the in-flight lazy expansion. Drives
+  // the "Cast (refreshing…)" subtitle so a slow character-page fetch
+  // doesn't look like a dead spinner. Null when not expanding.
+  const [progress, setProgress] = useState<AnilistProgressEvent | null>(null);
   // Bump on every successful expansion so the load effect re-runs and
   // re-reads cached rows. Distinct from `loading` because the initial
   // load and a Refresh-triggered re-load are conceptually different
@@ -94,8 +100,11 @@ export function AnilistDetailModal({
         // tick after it completes, so we'd otherwise expand twice.
         if (loadTick === 0 && d && d.characters.length === 0) {
           setExpanding(true);
+          setProgress(null);
           try {
-            await runAnilistMediaLazyExpansion(mediaId);
+            await runAnilistMediaLazyExpansion(mediaId, (e) => {
+              if (!cancelled) setProgress(e);
+            });
             if (cancelled) return;
             const d2 = await productionReads.getMediaDetail(mediaId);
             if (cancelled) return;
@@ -108,7 +117,10 @@ export function AnilistDetailModal({
             // the error inline so the user can retry.
             setError(err instanceof Error ? err.message : 'Refresh failed.');
           } finally {
-            if (!cancelled) setExpanding(false);
+            if (!cancelled) {
+              setExpanding(false);
+              setProgress(null);
+            }
           }
         }
       } catch (err) {
@@ -126,13 +138,15 @@ export function AnilistDetailModal({
     if (expanding) return;
     setExpanding(true);
     setError(null);
+    setProgress(null);
     try {
-      await runAnilistMediaLazyExpansion(mediaId);
+      await runAnilistMediaLazyExpansion(mediaId, (e) => setProgress(e));
       setLoadTick((t) => t + 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Refresh failed.');
     } finally {
       setExpanding(false);
+      setProgress(null);
     }
   }, [mediaId, expanding]);
 
@@ -307,7 +321,17 @@ export function AnilistDetailModal({
               )}
 
               <div className="anilist-detail-section">
-                <h4>Cast {expanding ? '(refreshing…)' : ''}</h4>
+                <h4>
+                  Cast{' '}
+                  {expanding && (
+                    <span
+                      style={{ color: 'var(--text-muted)', fontSize: 12, fontWeight: 'normal' }}
+                      aria-live="polite"
+                    >
+                      ({progress ? formatAnilistProgress(progress) : 'refreshing…'})
+                    </span>
+                  )}
+                </h4>
                 {detail.characters.length === 0 && !expanding && (
                   <p
                     style={{ color: 'var(--text-muted)', fontSize: 12, margin: 0 }}

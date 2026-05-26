@@ -519,6 +519,59 @@ a {
   z-index: 30;
 }
 
+/* Tabbed gear menu: Slots vs Databases. Tabs sit pinned at the top of
+   the popover; the persistent settings + autosave-status footer sits
+   at the bottom. The body in between scrolls so a giant slot list
+   doesn't push the footer (or tabs) off-screen. */
+.settings-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  margin: -4px -4px 6px;
+  background: var(--surface-2, transparent);
+  border-radius: var(--radius-sm);
+}
+
+.settings-tab {
+  flex: 1 1 0;
+  appearance: none;
+  background: transparent;
+  border: none;
+  border-radius: calc(var(--radius-sm) - 2px);
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.settings-tab:hover {
+  color: var(--text);
+}
+
+.settings-tab.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.06));
+}
+
+.settings-tab-body {
+  /* Cap height so the persistent footer (toggles + autosave status)
+     stays visible even when a tab's content is long. Per-tab inner
+     scrolling sits inside .settings-slots / etc; this is the outer
+     hatch. */
+  max-height: 480px;
+  overflow-y: auto;
+  margin: 0 -2px;
+  padding: 0 2px;
+}
+
+.settings-footer {
+  /* Footer is sticky-ish — kept outside .settings-tab-body so the
+     scroll never hides the toggles or autosave status. */
+}
+
 /* Embedded slot list inside the gear popover. Cap height so a fat slot
    list scrolls instead of stretching off-screen, but don't add an internal
    border — the popover already has one. */
@@ -700,56 +753,9 @@ a {
   font-size: 12px;
 }
 
-/* ---------- AniList source panel (Phase D) ---------- */
+/* ---------- Pending-changes affordance on a source row ---------- */
 
-.settings-anilist-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.settings-anilist-username-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 4px;
-}
-
-.settings-anilist-action-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.settings-anilist-label {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-muted);
-  min-width: 64px;
-}
-
-.settings-anilist-input,
-.settings-anilist-select {
-  font: inherit;
-  font-size: 12px;
-  padding: 4px 6px;
-  border: 1px solid var(--border, #d4d4d4);
-  border-radius: 4px;
-  background: var(--bg, #fff);
-  color: inherit;
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.settings-anilist-sub {
-  font-size: 11px;
-  color: var(--text-muted);
-  flex: 1 1 auto;
-  text-align: right;
-}
-
-.settings-anilist-pending {
+.settings-source-db-pending {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -760,7 +766,7 @@ a {
   color: var(--text);
 }
 
-.settings-anilist-pending .settings-item {
+.settings-source-db-pending .settings-item {
   margin-left: auto;
   padding: 4px 8px;
   font-size: 12px;
@@ -2843,6 +2849,18 @@ a {
 .btn.small {
   padding: 2px 8px;
   font-size: 12px;
+  border-radius: var(--radius-sm);
+}
+
+/* Square icon-only .btn for refresh/expand-style controls. Locks the
+   button to a font-square so it doesn't smear horizontally when the
+   surrounding row stretches. Kept narrow so it doesn't compete
+   visually with the primary "Import" button next to it. */
+.btn.icon-only {
+  padding: 4px 8px;
+  font-size: 14px;
+  line-height: 1;
+  min-width: 28px;
   border-radius: var(--radius-sm);
 }
 

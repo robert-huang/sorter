@@ -72,6 +72,7 @@ import {
 import { ANILIST_SOURCE_ID } from './anilistSource';
 import type { AnilistImportContext, SqlBindable } from './context';
 import { buildSetMetaStmt, lastFullRefreshKey } from './meta';
+import { emitProgress } from './progress';
 import {
   collectCustomListIdentities,
   mapAnilistUserRow,
@@ -454,6 +455,7 @@ export async function importAnilistList(
   // request. The transport has its own rate-limit handling, so this
   // single request can't go faster than AniList allows even outside
   // the lock.
+  emitProgress(ctx.onProgress, { kind: 'resolving-user', username });
   const resolveResponse = await ctx.executeQuery<AnilistUserResolveResponse>(
     RESOLVE_USER_QUERY,
     { username },
@@ -489,6 +491,12 @@ export async function importAnilistList(
       const pageData = response?.Page;
       const entries = pageData?.mediaList ?? [];
       accumulated.push(...entries);
+      emitProgress(ctx.onProgress, {
+        kind: 'fetching-page',
+        what: 'list',
+        page,
+        itemsSoFar: accumulated.length,
+      });
 
       refreshScrapeLock(ANILIST_SOURCE_ID, lockToken, ctx.now());
 
@@ -500,12 +508,14 @@ export async function importAnilistList(
 
     const now = ctx.now();
     const stmts = buildListImportStatements(accumulated, anilistUserRow, type, now);
+    emitProgress(ctx.onProgress, { kind: 'writing', statements: stmts.length });
     await ctx.db.execBatch(stmts);
 
     if (ctx.onAutoPushRequested) {
       await ctx.onAutoPushRequested();
     }
 
+    emitProgress(ctx.onProgress, { kind: 'done' });
     return {
       type,
       anilistUserId: anilistUserRow.id,

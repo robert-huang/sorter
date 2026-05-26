@@ -5,12 +5,18 @@ import {
   AnilistScrapeLockHeldError,
   AnilistUnknownUserError,
 } from '../lib/importers/anilist/importer';
+import type { AnilistProgressEvent } from '../lib/importers/anilist/progress';
 import { productionReads } from '../lib/importers/anilist/readQueries';
-import { runAnilistImport } from '../lib/importers/anilist/runners';
+import {
+  runAnilistFavourites,
+  runAnilistImport,
+} from '../lib/importers/anilist/runners';
 import type {
+  AnilistFavouriteType,
   AnilistMediaType,
   MediaRow,
 } from '../lib/importers/anilist/types';
+import { formatAnilistProgress } from './anilistProgressLabel';
 
 /**
  * StartScreen "anilist" tab content. Owns the full import-and-pick
@@ -32,6 +38,45 @@ import type {
  */
 
 const ANILIST_USERNAME_LS_KEY = 'anilist:lastUsername';
+
+const FAVOURITE_TYPES: AnilistFavouriteType[] = [
+  'CHARACTERS',
+  'STAFF',
+  'STUDIOS',
+  'ANIME',
+  'MANGA',
+];
+
+function favouriteLabel(t: AnilistFavouriteType): string {
+  switch (t) {
+    case 'CHARACTERS':
+      return 'Characters';
+    case 'STAFF':
+      return 'Staff';
+    case 'STUDIOS':
+      return 'Studios';
+    case 'ANIME':
+      return 'Anime';
+    case 'MANGA':
+      return 'Manga';
+  }
+}
+
+/** Short relative-time label for "refreshed Xm ago" hints. Single source
+ *  of truth between the import row and the favourites row so the
+ *  formatting stays consistent. */
+function timeAgo(ms: number | null): string {
+  if (ms === null) return 'never';
+  const delta = Math.max(0, Date.now() - ms);
+  const SECOND = 1000;
+  const MINUTE = 60 * SECOND;
+  const HOUR = 60 * MINUTE;
+  const DAY = 24 * HOUR;
+  if (delta < MINUTE) return 'just now';
+  if (delta < HOUR) return `${Math.floor(delta / MINUTE)}m ago`;
+  if (delta < DAY) return `${Math.floor(delta / HOUR)}h ago`;
+  return `${Math.floor(delta / DAY)}d ago`;
+}
 
 interface Props {
   /** Called when the user confirms a selection. Items carry
@@ -81,7 +126,38 @@ export function AnilistStartMode({ onStartScratch, onDraftActivity }: Props) {
   const [type, setType] = useState<AnilistMediaType>('ANIME');
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Latest progress event from the in-flight import OR favourites
+  // refresh. They share one slot because the scrape lock serializes
+  // them at the importer layer, so only one can be in-flight at a
+  // time. Null when idle — the bar collapses back to "Importing…"
+  // when an event hasn't been emitted yet (brief window before
+  // resolve-user fires).
+  const [progress, setProgress] = useState<AnilistProgressEvent | null>(null);
   const [media, setMedia] = useState<MediaRow[]>([]);
+  // Favourites refresh state. Lives next to the import flow because
+  // it shares the scrape lock and uses the same username from the
+  // input above. Refreshing favourites doesn't produce items to sort
+  // — it just enriches the cache so the favourite filter chip and
+  // detail modal can render rich data.
+  const [favType, setFavType] = useState<AnilistFavouriteType>('CHARACTERS');
+  const [refreshingFavs, setRefreshingFavs] = useState(false);
+  // Per-favourite-type last-refresh timestamp (null when never
+  // refreshed locally). Reloaded after every successful refresh so
+  // the "refreshed Xm ago" hint stays current.
+  const [favouriteRefreshTs, setFavouriteRefreshTs] = useState<
+    Record<AnilistFavouriteType, number | null>
+  >({
+    CHARACTERS: null,
+    STAFF: null,
+    STUDIOS: null,
+    ANIME: null,
+    MANGA: null,
+  });
+  // Bumped to re-trigger the per-favourite-type timestamp load
+  // (after a successful favourites refresh). Separate from
+  // `importTick` so a media import doesn't also re-read favourites
+  // timestamps (cheap but pointless).
+  const [favTick, setFavTick] = useState(0);
   // Per-row selection. Drives the "Sort N selected items" CTA's count
   // and the final items[] handed to onStartScratch. Defaults to "all
   // checked" after each import — the most common intent is "sort
@@ -118,6 +194,39 @@ export function AnilistStartMode({ onStartScratch, onDraftActivity }: Props) {
       cancelled = true;
     };
   }, [importTick, type]);
+
+  // Load per-favourite-type last-refresh timestamps. Runs on mount
+  // (so the "refreshed Xm ago" hint shows correctly the first time
+  // the start screen opens) and after every successful refresh
+  // (bumping favTick). Skipped when no user has been imported yet —
+  // there's nothing to show timestamps against.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const latest = await productionReads.getLatestAnilistUser();
+      if (!latest || cancelled) return;
+      const results = await Promise.all(
+        FAVOURITE_TYPES.map((t) =>
+          productionReads.getLastFavouritesRefresh(latest.id, t),
+        ),
+      );
+      if (cancelled) return;
+      const next: Record<AnilistFavouriteType, number | null> = {
+        CHARACTERS: null,
+        STAFF: null,
+        STUDIOS: null,
+        ANIME: null,
+        MANGA: null,
+      };
+      for (let i = 0; i < FAVOURITE_TYPES.length; i++) {
+        next[FAVOURITE_TYPES[i]] = results[i];
+      }
+      setFavouriteRefreshTs(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [favTick, importTick]);
 
   // Convert media rows to Items once — both the FilterBar and the
   // preview list iterate this. Memoed so a re-render from chip-state
@@ -167,9 +276,10 @@ export function AnilistStartMode({ onStartScratch, onDraftActivity }: Props) {
     if (!name || importing) return;
     onDraftActivity();
     setError(null);
+    setProgress(null);
     setImporting(true);
     try {
-      await runAnilistImport(name, type);
+      await runAnilistImport(name, type, (e) => setProgress(e));
       try {
         localStorage.setItem(ANILIST_USERNAME_LS_KEY, name);
       } catch {
@@ -186,8 +296,37 @@ export function AnilistStartMode({ onStartScratch, onDraftActivity }: Props) {
       }
     } finally {
       setImporting(false);
+      setProgress(null);
     }
   }, [username, type, importing, onDraftActivity]);
+
+  const onRefreshFavourites = useCallback(async () => {
+    const name = username.trim();
+    if (!name || refreshingFavs || importing) return;
+    setError(null);
+    setProgress(null);
+    setRefreshingFavs(true);
+    try {
+      await runAnilistFavourites(name, favType, (e) => setProgress(e));
+      try {
+        localStorage.setItem(ANILIST_USERNAME_LS_KEY, name);
+      } catch {
+        /* ignore */
+      }
+      setFavTick((t) => t + 1);
+    } catch (err) {
+      if (err instanceof AnilistUnknownUserError) {
+        setError(`AniList username "${err.username}" not found.`);
+      } else if (err instanceof AnilistScrapeLockHeldError) {
+        setError('An import is already running — wait for it to finish.');
+      } else {
+        setError(err instanceof Error ? err.message : 'Favourites refresh failed.');
+      }
+    } finally {
+      setRefreshingFavs(false);
+      setProgress(null);
+    }
+  }, [username, favType, refreshingFavs, importing]);
 
   const onStartSelected = useCallback(() => {
     const out: Item[] = [];
@@ -243,12 +382,61 @@ export function AnilistStartMode({ onStartScratch, onDraftActivity }: Props) {
         </label>
         <button
           className="btn primary"
-          disabled={importing || username.trim() === ''}
+          disabled={importing || refreshingFavs || username.trim() === ''}
           onClick={() => void onRunImport()}
         >
           {importing ? 'Importing…' : `Import ${type === 'ANIME' ? 'anime' : 'manga'}`}
         </button>
       </div>
+
+      <div
+        className="anilist-start-bar"
+        style={{ marginTop: 4 }}
+        title="Favourites populate the favourites filter chip and the detail modal's character/staff/studio rows. Refreshing them doesn't seed items to sort — for that, use Import above."
+      >
+        <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+          Favourites cache:
+        </span>
+        <select
+          className="anilist-start-input"
+          style={{ flex: '0 0 auto' }}
+          value={favType}
+          onChange={(e) => setFavType(e.target.value as AnilistFavouriteType)}
+          aria-label="Favourites connection to refresh"
+          disabled={refreshingFavs || importing}
+        >
+          {FAVOURITE_TYPES.map((t) => (
+            <option key={t} value={t}>
+              {favouriteLabel(t)}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          className="btn icon-only"
+          disabled={refreshingFavs || importing || username.trim() === ''}
+          onClick={() => void onRefreshFavourites()}
+          title={`Refresh ${favouriteLabel(favType).toLowerCase()} favourites cache (refreshed ${timeAgo(
+            favouriteRefreshTs[favType],
+          )})`}
+          aria-label={`Refresh ${favouriteLabel(favType)} favourites cache`}
+        >
+          ↻
+        </button>
+        <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+          refreshed {timeAgo(favouriteRefreshTs[favType])}
+        </span>
+      </div>
+
+      {(importing || refreshingFavs) && (
+        <p
+          className="anilist-progress"
+          aria-live="polite"
+          style={{ marginTop: 8, color: 'var(--text-muted)', fontSize: 13 }}
+        >
+          {progress ? formatAnilistProgress(progress) : 'Connecting to AniList…'}
+        </p>
+      )}
 
       {error && (
         <p style={{ marginTop: 8, color: 'var(--warning)', fontSize: 13 }}>

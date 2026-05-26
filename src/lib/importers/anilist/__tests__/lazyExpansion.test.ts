@@ -317,3 +317,42 @@ describe('expandAnilistMediaDetail — voiceActorLanguage single source of truth
     h.db.close();
   });
 });
+
+describe('expandAnilistMediaDetail — progress events', () => {
+  it('fires fetching-page (characters) → writing → done in order', async () => {
+    const h = await makeHarness();
+    h.executeQuery
+      .mockResolvedValueOnce(
+        makeDetailResponse([makeCharEdge(1, [9001])], [makeStaffEdge(9100)], true),
+      )
+      .mockResolvedValueOnce(
+        makeDetailResponse([makeCharEdge(2, [9002])], [], false),
+      );
+
+    const events: import('../progress').AnilistProgressEvent[] = [];
+    await expandAnilistMediaDetail(
+      { ...h.ctx, onProgress: (e) => events.push(e) },
+      100,
+    );
+
+    expect(events.map((e) => e.kind)).toEqual([
+      'fetching-page',
+      'fetching-page',
+      'writing',
+      'done',
+    ]);
+    expect(events[0]).toMatchObject({
+      kind: 'fetching-page',
+      what: 'characters',
+      page: 1,
+      itemsSoFar: 1,
+    });
+    expect(events[1]).toMatchObject({
+      kind: 'fetching-page',
+      what: 'characters',
+      page: 2,
+      itemsSoFar: 2,
+    });
+    h.db.close();
+  });
+});

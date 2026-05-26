@@ -32,6 +32,7 @@ import {
   expandAnilistMediaDetail,
   type ExpandAnilistMediaDetailResult,
 } from './lazyExpansion';
+import type { AnilistProgressReporter } from './progress';
 import type {
   AnilistFavouriteType,
   AnilistMediaType,
@@ -68,8 +69,11 @@ export function configureAnilistRunnerHooks(next: AnilistRunnerHooks): void {
 }
 
 /** Build a fresh import context with hooks bound at call-time so a
- *  hook change between import start and completion is honoured. */
-function buildContext() {
+ *  hook change between import start and completion is honoured. The
+ *  per-call `onProgress` is passed in by the UI caller — runner
+ *  hooks deliberately don't carry it because progress is highly
+ *  caller-scoped (one input box / one button needs the labels). */
+function buildContext(onProgress?: AnilistProgressReporter) {
   return makeAnilistImportContext({
     onAutoPushRequested: async () => {
       if (hooks.onAutoPushRequested) await hooks.onAutoPushRequested();
@@ -82,25 +86,29 @@ function buildContext() {
       const next = bumpPendingChanges(ANILIST_SOURCE_ID);
       if (hooks.onDirtyBumped) hooks.onDirtyBumped(next);
     },
+    onProgress,
   });
 }
 
 export async function runAnilistImport(
   username: string,
   type: AnilistMediaType,
+  onProgress?: AnilistProgressReporter,
 ): Promise<ImportAnilistListResult> {
-  return importAnilistList(buildContext(), { username, type });
+  return importAnilistList(buildContext(onProgress), { username, type });
 }
 
 export async function runAnilistFavourites(
   username: string,
   type: AnilistFavouriteType,
+  onProgress?: AnilistProgressReporter,
 ): Promise<ImportAnilistFavouritesResult> {
-  return importAnilistFavourites(buildContext(), { username, type });
+  return importAnilistFavourites(buildContext(onProgress), { username, type });
 }
 
 export async function runAnilistMediaLazyExpansion(
   mediaId: number,
+  onProgress?: AnilistProgressReporter,
 ): Promise<ExpandAnilistMediaDetailResult | null> {
-  return expandAnilistMediaDetail(buildContext(), mediaId);
+  return expandAnilistMediaDetail(buildContext(onProgress), mediaId);
 }

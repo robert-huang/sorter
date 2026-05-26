@@ -39,6 +39,7 @@ import {
   mapMediaCharacterRows,
   mapStaffRow,
 } from './mappers';
+import { emitProgress } from './progress';
 import { buildMediaDetailQuery } from './queries';
 import type {
   AnilistMediaCharacterEdgeGql,
@@ -208,6 +209,13 @@ export async function expandAnilistMediaDetail(
       staffEdges = response.Media.staff?.edges ?? [];
     }
 
+    emitProgress(ctx.onProgress, {
+      kind: 'fetching-page',
+      what: 'characters',
+      page: nextCharPage,
+      itemsSoFar: allCharacterEdges.length,
+    });
+
     nextCharPage += 1;
   }
 
@@ -270,12 +278,14 @@ export async function expandAnilistMediaDetail(
     });
   }
 
+  emitProgress(ctx.onProgress, { kind: 'writing', statements: stmts.length });
   await ctx.db.execBatch(stmts);
 
   if (ctx.onDirtyIncrement) {
     await ctx.onDirtyIncrement();
   }
 
+  emitProgress(ctx.onProgress, { kind: 'done' });
   return {
     mediaId,
     characterPagesFetched,

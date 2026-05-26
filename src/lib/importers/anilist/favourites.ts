@@ -66,6 +66,7 @@ import {
   mapTagRows,
 } from './mappers';
 import { buildSetMetaStmt, lastFavouritesRefreshKey } from './meta';
+import { emitProgress } from './progress';
 import {
   FAVOURITE_ANIME_QUERY,
   FAVOURITE_CHARACTERS_QUERY,
@@ -355,6 +356,7 @@ export async function importAnilistFavourites(
 
   // Resolve username → User.id BEFORE acquiring the scrape lock so a
   // typo doesn't tie up the lock. Same pattern as the list importer.
+  emitProgress(ctx.onProgress, { kind: 'resolving-user', username });
   const resolveResponse = await ctx.executeQuery<AnilistUserResolveResponse>(
     RESOLVE_USER_QUERY,
     { username },
@@ -389,6 +391,12 @@ export async function importAnilistFavourites(
         dispatch as FavouritesQueryDispatch<unknown>
       ).selectEdges(response);
       accumulated.push(...edges);
+      emitProgress(ctx.onProgress, {
+        kind: 'fetching-page',
+        what: 'favourites',
+        page,
+        itemsSoFar: accumulated.length,
+      });
       refreshScrapeLock(ANILIST_SOURCE_ID, lockToken, ctx.now());
 
       const hasNext = (
@@ -443,12 +451,14 @@ export async function importAnilistFavourites(
     const stampStmt = buildSetMetaStmt(lastFavouritesRefreshKey(anilistUserRow.id, type), now);
     stmts.push({ sql: stampStmt.sql, params: stampStmt.params ?? [] });
 
+    emitProgress(ctx.onProgress, { kind: 'writing', statements: stmts.length });
     await ctx.db.execBatch(stmts);
 
     if (ctx.onAutoPushRequested) {
       await ctx.onAutoPushRequested();
     }
 
+    emitProgress(ctx.onProgress, { kind: 'done' });
     return {
       type,
       anilistUserId: anilistUserRow.id,

@@ -606,3 +606,68 @@ describe('importAnilistList — mid-import failure leaves DB untouched', () => {
     h.db.close();
   });
 });
+
+describe('importAnilistList — progress events', () => {
+  it('fires resolving-user → per-page fetching-page → writing → done in order', async () => {
+    const h = await makeHarness();
+    h.enqueueListPages(
+      makeListPage([makeEntry(1), makeEntry(2)], { currentPage: 1, hasNextPage: true }),
+      makeListPage([makeEntry(3)], { currentPage: 2, hasNextPage: false }),
+    );
+
+    const events: import('../progress').AnilistProgressEvent[] = [];
+    await importAnilistList(
+      { ...h.ctx, onProgress: (e) => events.push(e) },
+      { username: USER_NAME, type: 'ANIME' },
+    );
+
+    // Ordering must be exact so the UI can drive a deterministic
+    // label flip between stages. `itemsSoFar` is cumulative across
+    // pages (not per-page) so the UI can show "412 items so far"
+    // without holding its own running total.
+    expect(events.map((e) => e.kind)).toEqual([
+      'resolving-user',
+      'fetching-page',
+      'fetching-page',
+      'writing',
+      'done',
+    ]);
+    expect(events[0]).toMatchObject({
+      kind: 'resolving-user',
+      username: USER_NAME,
+    });
+    expect(events[1]).toMatchObject({
+      kind: 'fetching-page',
+      what: 'list',
+      page: 1,
+      itemsSoFar: 2,
+    });
+    expect(events[2]).toMatchObject({
+      kind: 'fetching-page',
+      what: 'list',
+      page: 2,
+      itemsSoFar: 3,
+    });
+    expect(events[3].kind).toBe('writing');
+    expect((events[3] as { statements: number }).statements).toBeGreaterThan(0);
+    h.db.close();
+  });
+
+  it('still fires resolving-user but no fetching/writing events when the user resolution fails', async () => {
+    const h = await makeHarness();
+    h.executeQuery.mockResolvedValueOnce({ User: null });
+    const events: import('../progress').AnilistProgressEvent[] = [];
+
+    await expect(
+      importAnilistList(
+        { ...h.ctx, onProgress: (e) => events.push(e) },
+        { username: 'no-such-user', type: 'ANIME' },
+      ),
+    ).rejects.toThrow();
+
+    expect(events).toEqual([
+      { kind: 'resolving-user', username: 'no-such-user' },
+    ]);
+    h.db.close();
+  });
+});

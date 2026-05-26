@@ -142,7 +142,10 @@ describe('AnilistDetailModal — lazy expansion', () => {
     await flushPromises();
 
     expect(mockedExpand).toHaveBeenCalledTimes(1);
-    expect(mockedExpand).toHaveBeenCalledWith(42);
+    // Second arg is the per-call onProgress callback wired by the
+    // modal so the "Cast (refreshing…)" label can humanize stage
+    // events while the expansion runs.
+    expect(mockedExpand).toHaveBeenCalledWith(42, expect.any(Function));
     // Two reads: initial fetch + post-expansion refetch.
     expect(mockedGetMediaDetail).toHaveBeenCalledTimes(2);
   });
@@ -193,7 +196,7 @@ describe('AnilistDetailModal — lazy expansion', () => {
     });
     await flushPromises();
 
-    expect(mockedExpand).toHaveBeenCalledWith(9);
+    expect(mockedExpand).toHaveBeenCalledWith(9, expect.any(Function));
     // Initial read + post-refresh read.
     expect(mockedGetMediaDetail).toHaveBeenCalledTimes(2);
   });

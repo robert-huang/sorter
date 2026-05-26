@@ -22,6 +22,7 @@
 import * as client from '../../db/client';
 import type { DbRow, SqlParam } from '../../db/rpc';
 import { ANILIST_SOURCE_ID } from './anilistSource';
+import type { AnilistProgressReporter } from './progress';
 import { executeAnilistQuery } from './transport';
 
 export type SqlBindable = SqlParam;
@@ -55,6 +56,13 @@ export interface AnilistImportContext {
    * increments a "N pending changes" counter from here.
    */
   onDirtyIncrement?: () => Promise<void> | void;
+  /**
+   * Synchronous progress callback fired by importers so the UI can
+   * surface "fetching page 3…" / "writing 412 rows…" instead of a
+   * dead spinner. Optional — importers behave identically when unset.
+   * Per-event semantics live in {@link AnilistProgressEvent}.
+   */
+  onProgress?: AnilistProgressReporter;
 }
 
 /**
