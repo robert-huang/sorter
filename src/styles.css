@@ -1887,6 +1887,97 @@ a {
 
 /* ---------- ListScreen ---------- */
 
+.list-slot-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.list-slot-title-row {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Title + edit icon shrink-wrap together so ✎ sits at the end of the
+   label, not at the far edge of the row. Long titles truncate before
+   the icon; the icon stays visible at the ellipsis boundary. */
+.list-slot-title-group {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.list-slot-title {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--text);
+  text-align: left;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.list-slot-title:hover {
+  color: var(--text-muted);
+}
+
+.list-slot-edit {
+  background: transparent;
+  border: none;
+  padding: 0 2px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-faint);
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.list-slot-edit:hover {
+  color: var(--text);
+}
+
+.list-slot-title-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-weight: 600;
+  font-size: 16px;
+  padding: 0 4px;
+  margin: 0;
+  border: none;
+  border-bottom: 1px solid var(--border-strong);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+}
+
+.list-slot-title-input:focus {
+  outline: none;
+  border-bottom-color: var(--accent);
+}
+
+.list-slot-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .list-section-label {
   font-weight: 700;
   font-size: 12px;
@@ -2178,7 +2269,7 @@ a {
 }
 
 .result-row .label-cell {
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
 }
 

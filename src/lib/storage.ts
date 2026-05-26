@@ -78,6 +78,11 @@ export interface AutosaveBlob {
   undoRing: SortProgress[];
 }
 
+/** Non-hidden items still in the sort — used for slot-meta `totalItems`. */
+function visibleItemCount(blob: Pick<AutosaveBlob, 'items' | 'progress'>): number {
+  return Math.max(0, Object.keys(blob.items).length - blob.progress.hidden.length);
+}
+
 function buildSaveFile(blob: AutosaveBlob): SaveFile {
   return {
     version: 4,
@@ -277,7 +282,7 @@ function synthesizeMetaFromBlob(id: string, blob: AutosaveBlob): SlotMeta {
     name: autoNameFromBlob(blob),
     createdAt: now,
     updatedAt: now,
-    totalItems: Object.keys(blob.items).length,
+    totalItems: visibleItemCount(blob),
     comparisons: blob.progress.comparisons,
     done: blob.progress.done,
   };
@@ -407,7 +412,7 @@ export function migrateLegacyIfNeeded(): SlotsManifest {
       name: autoNameFromBlob(blob),
       createdAt: file.createdAt ?? now,
       updatedAt: now,
-      totalItems: Object.keys(blob.items).length,
+      totalItems: visibleItemCount(blob),
       comparisons: blob.progress.comparisons,
       done: blob.progress.done,
     };
@@ -489,7 +494,7 @@ export function createSlot(
     name,
     createdAt: now,
     updatedAt: now,
-    totalItems: Object.keys(blob.items).length,
+    totalItems: visibleItemCount(blob),
     comparisons: blob.progress.comparisons,
     done: blob.progress.done,
   };
@@ -794,7 +799,7 @@ export function replaceSlotBlob(id: string, blob: AutosaveBlob): boolean {
   if (!tryWriteSlotBlob(id, blob)) return false;
   updateSlotMeta(id, {
     updatedAt: new Date().toISOString(),
-    totalItems: Object.keys(blob.items).length,
+    totalItems: visibleItemCount(blob),
     comparisons: blob.progress.comparisons,
     done: blob.progress.done,
   });
@@ -1024,7 +1029,7 @@ function commitWriteSuccess(blob: AutosaveBlob, recovery?: AutosaveRecovery): vo
   const now = new Date().toISOString();
   updateSlotMeta(writtenId, {
     updatedAt: now,
-    totalItems: Object.keys(blob.items).length,
+    totalItems: visibleItemCount(blob),
     comparisons: blob.progress.comparisons,
     done: blob.progress.done,
   });
