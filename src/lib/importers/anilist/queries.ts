@@ -65,11 +65,19 @@ const MEDIA_FIELD_SELECTION = `
  *     front of each page so partial failures still surface recent work.
  *   - `score(format: POINT_100)` forces server-side normalization so we
  *     don't need to track the user's MediaListOptions.scoreFormat.
- *   - `customLists(asArray: true)` returns a `string[]` of bucket
- *     names; AniList's default `customLists` field is a
- *     `{name: bool}` map which is awkward to consume. The importer
- *     normalises this list into the local `custom_list` +
- *     `media_custom_list_membership` tables.
+ *   - `customLists(asArray: true)` returns
+ *     `Array<{name: string, enabled: boolean}>` — one element per
+ *     list the user has defined for this media type, with `enabled`
+ *     indicating whether THIS entry is in that list. The default
+ *     `customLists` field is a `{name: bool}` map carrying the same
+ *     information but in a shape that's awkward to consume from
+ *     strict GraphQL clients. The importer extracts the names with
+ *     `enabled === true` and normalises into the local `custom_list`
+ *     + `media_custom_list_membership` tables. (Earlier code here
+ *     assumed asArray:true returned a bare `string[]` of enabled
+ *     names — it does not, and that mistake caused SQLite bind
+ *     failures the moment a real user with non-empty custom lists
+ *     ran an import.)
  *   - `createdAt` / `updatedAt` are AniList's server-side MediaList
  *     timestamps in SECONDS; the mapper multiplies by 1000 before
  *     persisting. Distinct from the row's local `fetched_at` /

@@ -139,6 +139,14 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
   // when an event hasn't been emitted yet (brief window before
   // resolve-user fires).
   const [progress, setProgress] = useState<AnilistProgressEvent | null>(null);
+  // Soft confirmation surface for "happy but unusual" outcomes. The
+  // primary case is "import succeeded but the AniList list/favourites
+  // were empty" — that's a legitimate refresh result (brand-new user,
+  // user unfavourited everything, hidden list) and silently doing
+  // nothing would feel like the import failed. We show it next to
+  // `error` and clear it at the start of the next action so it never
+  // out-lives the user's attention.
+  const [notice, setNotice] = useState<string | null>(null);
   const [media, setMedia] = useState<MediaRow[]>([]);
   // Favourites refresh state. Lives next to the import flow because
   // it shares the scrape lock and uses the same username from the
@@ -282,14 +290,28 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
     if (!name || importing) return;
     onDraftActivity();
     setError(null);
+    setNotice(null);
     setProgress(null);
     setImporting(true);
     try {
-      await runAnilistImport(name, type, (e) => setProgress(e));
+      const result = await runAnilistImport(name, type, (e) => setProgress(e));
       try {
         localStorage.setItem(ANILIST_USERNAME_LS_KEY, name);
       } catch {
         /* ignore */
+      }
+      // Empty-list outcome: the import succeeded, the cache was
+      // wiped/refreshed and the timestamp stamped — but there's
+      // nothing for the FilterBar/preview to render. Surface a
+      // confirmation so the user doesn't think the click did nothing.
+      // We still bump importTick so the post-import effect clears any
+      // stale media from a previous (non-empty) import of a different
+      // user/type.
+      if (result.entriesWritten === 0) {
+        const typeLabel = type === 'ANIME' ? 'anime' : 'manga';
+        setNotice(
+          `${name}'s AniList ${typeLabel} list has no entries. The local cache was refreshed.`,
+        );
       }
       setImportTick((t) => t + 1);
     } catch (err) {
@@ -310,14 +332,28 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
     const name = username.trim();
     if (!name || refreshingFavs || importing) return;
     setError(null);
+    setNotice(null);
     setProgress(null);
     setRefreshingFavs(true);
     try {
-      await runAnilistFavourites(name, favType, (e) => setProgress(e));
+      const result = await runAnilistFavourites(name, favType, (e) =>
+        setProgress(e),
+      );
       try {
         localStorage.setItem(ANILIST_USERNAME_LS_KEY, name);
       } catch {
         /* ignore */
+      }
+      // Empty-favourites outcome — same intent as the empty-list
+      // notice in onRunImport: the user just clicked refresh and
+      // their <type> favourites really are empty on AniList. Without
+      // this surface they'd see no change anywhere (favourites don't
+      // produce items, only enrich the detail modal + filter chip)
+      // and wonder if the request even ran.
+      if (result.favouritesWritten === 0) {
+        setNotice(
+          `${name} has no ${favouriteLabel(favType).toLowerCase()} favourites on AniList. The local cache was refreshed.`,
+        );
       }
       setFavTick((t) => t + 1);
     } catch (err) {
@@ -362,10 +398,36 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
         folder.
       </p>
 
-      <div className="anilist-start-bar">
+      {/*
+        Real <form> so the browser registers an Import click (or Enter
+        in the username field) as a value-commit and persists the typed
+        username in its autofill history. The user sees the usual
+        suggestion dropdown on focus and can Shift+Delete (or
+        Fn+Shift+Delete on macOS) to remove individual entries. Three
+        things need to line up for browsers to record + offer:
+          1. A stable `name` on the input (history is keyed on
+             name + origin).
+          2. autoComplete that is NOT "off". `nickname` semantically
+             fits an AniList handle, and unlike `username` it does not
+             entangle the field with password-manager flows (so you do
+             not get a "save password?" prompt on import).
+          3. An honest form submit — click on a submit-typed button or
+             Enter inside the text field. preventDefault keeps the page
+             from navigating; onRunImport is the same path the old
+             click handler took.
+      */}
+      <form
+        className="anilist-start-bar"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (importing || refreshingFavs || username.trim() === '') return;
+          void onRunImport();
+        }}
+      >
         <input
           className="anilist-start-input"
           type="text"
+          name="anilist-username"
           value={username}
           placeholder="AniList username"
           onChange={(e) => {
@@ -373,7 +435,7 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
             if (e.target.value.trim()) onDraftActivity();
           }}
           spellCheck={false}
-          autoComplete="off"
+          autoComplete="nickname"
         />
         <label>
           <input
@@ -394,13 +456,13 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
           Manga
         </label>
         <button
+          type="submit"
           className="btn primary"
           disabled={importing || refreshingFavs || username.trim() === ''}
-          onClick={() => void onRunImport()}
         >
           {importing ? 'Importing…' : `Import ${type === 'ANIME' ? 'anime' : 'manga'}`}
         </button>
-      </div>
+      </form>
 
       <div
         className="anilist-start-bar"
@@ -454,6 +516,24 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
       {error && (
         <p style={{ marginTop: 8, color: 'var(--warning)', fontSize: 13 }}>
           {error}
+        </p>
+      )}
+
+      {notice && !error && (
+        <p
+          // role=status + aria-live=polite so screen readers announce
+          // the empty-import confirmation without interrupting; matches
+          // how a brief toast would behave but stays in-flow so the
+          // user can also see it visually after the spinner clears.
+          role="status"
+          aria-live="polite"
+          style={{
+            marginTop: 8,
+            color: 'var(--accent)',
+            fontSize: 13,
+          }}
+        >
+          {notice}
         </p>
       )}
 

@@ -426,14 +426,25 @@ function buildListImportStatements(
   //    custom_list (added in step 6) resolves because we just upserted
   //    every name we're about to reference.
   //
-  //    `customLists` is dedupped per-entry — the AniList field is
-  //    user-curated so duplicate names within one entry shouldn't
-  //    happen, but the `media_custom_list_membership` PK is
+  //    `customLists` is the `asArray: true` form: one entry per
+  //    custom list the user has DEFINED for this media type, with
+  //    `enabled` telling us whether THIS media is actually in it. We
+  //    only emit a membership row when enabled — otherwise a list
+  //    the user defined but never put this entry in would surface as
+  //    a stale chip on the detail panel. See
+  //    {@link AnilistCustomListMembership} for the shape.
+  //
+  //    Dedupping per-entry — the AniList field is user-curated so
+  //    duplicate names within one entry shouldn't happen, but the
+  //    `media_custom_list_membership` PK is
   //    (anilist_user_id, media_id, custom_list_name, media_type) and
-  //    a duplicate would blow the whole transaction.
+  //    a duplicate would blow the whole transaction with a UNIQUE
+  //    constraint failure.
   for (const entry of entries) {
     const seenNames = new Set<string>();
-    for (const name of entry.customLists ?? []) {
+    for (const membership of entry.customLists ?? []) {
+      if (!membership?.enabled) continue;
+      const name = membership.name;
       if (seenNames.has(name)) continue;
       seenNames.add(name);
       stmts.push({

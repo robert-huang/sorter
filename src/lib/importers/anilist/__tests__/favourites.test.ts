@@ -459,6 +459,128 @@ describe('importAnilistFavourites — STUDIOS', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
+// Empty result regressions — mirrors importer.test.ts's empty-list case.
+//
+// AniList legitimately returns a connection with zero edges in two
+// common cases: a brand-new user, or a user who has never favourited
+// anything of this type. The importer must:
+//
+//   - upsert the anilist_user row (so per-(user, type) meta keys
+//     resolve later — otherwise the "refreshed Xm ago" hint stays
+//     "never" forever after a successful empty refresh)
+//   - wipe the corresponding <type>_favourite table for this user
+//     (handles "user unfavourited every entry since last refresh")
+//   - stamp the per-(user, type) _meta key (proof the refresh ran)
+//   - fire autopush so the empty-state delta hits the cloud
+//   - emit `favouritesWritten: 0` so the UI can tell apart "we
+//     successfully refreshed an empty list" from "an error happened
+//     and we have nothing"
+//   - NOT emit any IN(?, ?, ?) statement with zero placeholders
+//     (that would be a SQL syntax error blowing the whole batch)
+// ──────────────────────────────────────────────────────────────────────
+
+describe('importAnilistFavourites — empty result handling', () => {
+  it('ANIME empty: upserts user, wipes, stamps, autopushes — no error, 0 written', async () => {
+    const h = await makeHarness();
+    h.enqueueFavPages(makeMediaFavPage([], 'anime', false));
+    const result = await importAnilistFavourites(h.ctx, {
+      username: USER_NAME,
+      type: 'ANIME',
+    });
+    expect(result).toMatchObject({ favouritesWritten: 0, pagesFetched: 1 });
+    expect(countRows(h.db, 'media_favourite')).toBe(0);
+    expect(countRows(h.db, 'anilist_user', `WHERE id = ${USER_ID}`)).toBe(1);
+    expect(selectMetaValue(h.db, lastFavouritesRefreshKey(USER_ID, 'ANIME'))).toBe(String(NOW));
+    expect(h.autoPush).toHaveBeenCalledTimes(1);
+    h.db.close();
+  });
+
+  it('MANGA empty: same shape as ANIME, scoped to the MANGA meta key', async () => {
+    const h = await makeHarness();
+    h.enqueueFavPages(makeMediaFavPage([], 'manga', false));
+    const result = await importAnilistFavourites(h.ctx, {
+      username: USER_NAME,
+      type: 'MANGA',
+    });
+    expect(result).toMatchObject({ favouritesWritten: 0 });
+    expect(countRows(h.db, 'media_favourite')).toBe(0);
+    expect(selectMetaValue(h.db, lastFavouritesRefreshKey(USER_ID, 'MANGA'))).toBe(String(NOW));
+    expect(selectMetaValue(h.db, lastFavouritesRefreshKey(USER_ID, 'ANIME'))).toBeNull();
+    h.db.close();
+  });
+
+  it('CHARACTERS empty: wipes character_favourite for this user, stamps, autopushes', async () => {
+    const h = await makeHarness();
+    h.enqueueFavPages(makeCharFavPage([], false));
+    const result = await importAnilistFavourites(h.ctx, {
+      username: USER_NAME,
+      type: 'CHARACTERS',
+    });
+    expect(result).toMatchObject({ favouritesWritten: 0 });
+    expect(countRows(h.db, 'character_favourite')).toBe(0);
+    expect(selectMetaValue(h.db, lastFavouritesRefreshKey(USER_ID, 'CHARACTERS'))).toBe(String(NOW));
+    expect(h.autoPush).toHaveBeenCalledTimes(1);
+    h.db.close();
+  });
+
+  it('STAFF empty: wipes staff_favourite for this user, stamps, autopushes', async () => {
+    const h = await makeHarness();
+    h.enqueueFavPages(makeStaffFavPage([], false));
+    const result = await importAnilistFavourites(h.ctx, {
+      username: USER_NAME,
+      type: 'STAFF',
+    });
+    expect(result).toMatchObject({ favouritesWritten: 0 });
+    expect(countRows(h.db, 'staff_favourite')).toBe(0);
+    expect(selectMetaValue(h.db, lastFavouritesRefreshKey(USER_ID, 'STAFF'))).toBe(String(NOW));
+    h.db.close();
+  });
+
+  it('STUDIOS empty: wipes studio_favourite for this user, stamps, autopushes', async () => {
+    const h = await makeHarness();
+    h.enqueueFavPages(makeStudioFavPage([], false));
+    const result = await importAnilistFavourites(h.ctx, {
+      username: USER_NAME,
+      type: 'STUDIOS',
+    });
+    expect(result).toMatchObject({ favouritesWritten: 0 });
+    expect(countRows(h.db, 'studio_favourite')).toBe(0);
+    expect(selectMetaValue(h.db, lastFavouritesRefreshKey(USER_ID, 'STUDIOS'))).toBe(String(NOW));
+    h.db.close();
+  });
+
+  it('empty wipe still scrubs stale rows — refreshing into 0 edges clears the user\'s existing favourites', async () => {
+    // The wipe-on-empty contract: if the user unfavourited everything
+    // since the last refresh, the local cache must reflect that. A
+    // bug where the importer short-circuited on empty edges and
+    // skipped the wipe would silently keep stale favourites around.
+    const h = await makeHarness();
+    h.db.exec(
+      `INSERT INTO anilist_user (id, name, fetched_at, updated_at) VALUES (${USER_ID}, '${USER_NAME}', 0, 0)`,
+    );
+    h.db.exec(
+      'INSERT INTO character (id, name_full, fetched_at, updated_at) VALUES (?, ?, ?, ?)',
+      { bind: [999, 'Stale Fav', NOW - 1000, NOW - 1000] },
+    );
+    h.db.exec(
+      'INSERT INTO character_favourite (anilist_user_id, character_id, sort_order, fetched_at) VALUES (?, ?, ?, ?)',
+      { bind: [USER_ID, 999, 0, NOW - 1000] },
+    );
+    expect(countRows(h.db, 'character_favourite')).toBe(1);
+
+    h.enqueueFavPages(makeCharFavPage([], false));
+    await importAnilistFavourites(h.ctx, { username: USER_NAME, type: 'CHARACTERS' });
+
+    expect(countRows(h.db, 'character_favourite')).toBe(0);
+    // Parent character row survives — that's by design (no upward
+    // cascade) since it may still be referenced by media_character
+    // junctions or another user's favourites.
+    expect(countRows(h.db, 'character', 'WHERE id = 999')).toBe(1);
+    h.db.close();
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
 // Lifecycle
 // ──────────────────────────────────────────────────────────────────────
 

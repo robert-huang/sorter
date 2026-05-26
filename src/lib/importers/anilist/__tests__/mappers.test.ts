@@ -315,13 +315,24 @@ describe('mapMediaListEntryRow', () => {
 });
 
 describe('collectCustomListIdentities', () => {
+  /**
+   * Small helper to spell `Array<{name, enabled: true}>` more
+   * concisely in test fixtures. The full `customLists(asArray: true)`
+   * shape that AniList returns is `Array<{name, enabled}>` (one entry
+   * per list the user has DEFINED), but most tests only care about the
+   * enabled-true case. Tests that exercise the disabled-flag handling
+   * build the array literally below.
+   */
+  const enabled = (...names: string[]) =>
+    names.map((name) => ({ name, enabled: true }));
+
   it('returns one identity per unique (name, type) across the page', () => {
     const entries = [
-      fullEntry({ customLists: ['Top 2023', 'Currently Watching'] }),
-      fullEntry({ customLists: ['Top 2023'], media: fullMedia({ id: 101 }) }),
+      fullEntry({ customLists: enabled('Top 2023', 'Currently Watching') }),
+      fullEntry({ customLists: enabled('Top 2023'), media: fullMedia({ id: 101 }) }),
       // Same name, different type — distinct identity per AniList's model.
       fullEntry({
-        customLists: ['Top 2023'],
+        customLists: enabled('Top 2023'),
         media: fullMedia({ id: 200, type: 'MANGA' }),
       }),
     ];
@@ -335,6 +346,48 @@ describe('collectCustomListIdentities', () => {
 
   it('returns [] when no entry references any custom list', () => {
     expect(collectCustomListIdentities([fullEntry()], USER_ID)).toEqual([]);
+  });
+
+  it('skips {enabled: false} elements — the list exists for the user but this entry is not in it', () => {
+    // Regression for the SQLite bind failure caused by the wrong
+    // assumption that `customLists(asArray: true)` returned a bare
+    // `string[]`. The real shape is `Array<{name, enabled}>` where
+    // AniList includes one element per user-defined list with
+    // `enabled` indicating membership. A user reported the bug after
+    // creating a list named "★" — every entry not in the ★ list
+    // surfaced as `{name: "★", enabled: false}`, which the importer
+    // had been blindly serialising into the `name` column.
+    const entries = [
+      fullEntry({
+        customLists: [
+          { name: 'Top 2023', enabled: true },
+          { name: '★', enabled: false },
+        ],
+      }),
+      fullEntry({
+        customLists: [
+          { name: 'Top 2023', enabled: false },
+          { name: '★', enabled: false },
+        ],
+        media: fullMedia({ id: 101 }),
+      }),
+    ];
+    const ids = collectCustomListIdentities(entries, USER_ID);
+    expect(ids).toEqual([
+      { anilist_user_id: USER_ID, name: 'Top 2023', media_type: 'ANIME' },
+    ]);
+  });
+
+  it('returns [] when every element is enabled: false (disabled-only user)', () => {
+    const entries = [
+      fullEntry({
+        customLists: [
+          { name: 'Top 2023', enabled: false },
+          { name: '★', enabled: false },
+        ],
+      }),
+    ];
+    expect(collectCustomListIdentities(entries, USER_ID)).toEqual([]);
   });
 });
 

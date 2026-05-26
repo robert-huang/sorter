@@ -395,6 +395,17 @@ export type CustomListIdentity = {
  * entries. Returns a de-duplicated array in iteration order. Pure —
  * does no DB I/O; the importer dedupes again across pages and feeds
  * the result into the custom_list upsert.
+ *
+ * Only emits identities for `{enabled: true}` flags: AniList's
+ * `customLists(asArray: true)` returns one element per list the user
+ * has DEFINED (regardless of whether the entry is in it), so
+ * `enabled: false` is a meaningful "list exists, this entry isn't in
+ * it" signal — promoting those to identities would create a
+ * `custom_list` row that no `media_custom_list_membership` row ever
+ * references, and the importer's GC step (8) would prune it again on
+ * the next refresh anyway. Filtering here keeps the upsert batch
+ * small and makes the (custom_list ↔ membership) relationship total
+ * by construction.
  */
 export function collectCustomListIdentities(
   entries: AnilistMediaListEntryGql[],
@@ -404,7 +415,9 @@ export function collectCustomListIdentities(
   const out: CustomListIdentity[] = [];
   for (const entry of entries) {
     const type = entry.media.type;
-    for (const name of entry.customLists ?? []) {
+    for (const membership of entry.customLists ?? []) {
+      if (!membership?.enabled) continue;
+      const name = membership.name;
       const key = `${type}\u0000${name}`;
       if (seen.has(key)) continue;
       seen.add(key);

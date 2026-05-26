@@ -130,14 +130,37 @@ export type AnilistPageInfo = {
 };
 
 /**
+ * One element of `MediaList.customLists(asArray: true)`. AniList
+ * returns an array with one entry per CUSTOM LIST THE USER HAS
+ * DEFINED for this media type — NOT one entry per list the media is
+ * actually in. `enabled: true` means this MediaListEntry is in that
+ * list; `enabled: false` means the list exists for the user but
+ * doesn't contain this entry.
+ *
+ * NB: the AniList docs describe `MediaList.customLists` as `Json`
+ * "Map of booleans for which custom lists the entry are in"; the
+ * `asArray: true` argument changes the structure to this array of
+ * `{name, enabled}` objects (it does NOT collapse to just the enabled
+ * names — earlier code in this repo assumed it did, which was a bug
+ * that only surfaced once a user with non-empty custom lists ran an
+ * import).
+ */
+export type AnilistCustomListMembership = {
+  name: string;
+  enabled: boolean;
+};
+
+/**
  * A single user-list-entry edge in a `Page(...) { mediaList(...) }`
  * response.
  *
  * `customLists` is AniList's per-user named buckets (returned as
- * `MediaList.customLists(asArray: true)` — the array form gives a
- * stable string[] of names instead of a `{name: bool}` map). The
+ * `MediaList.customLists(asArray: true)` — see
+ * {@link AnilistCustomListMembership} for the per-element shape). The
  * importer normalises this into the local `custom_list` +
- * `media_custom_list_membership` tables.
+ * `media_custom_list_membership` tables, filtering to enabled=true
+ * before recording memberships (disabled flags mean "the list exists
+ * but this entry isn't in it" — they must not become memberships).
  *
  * `repeat`, `createdAt`, `updatedAt` come from the underlying
  * `MediaList` fields. `createdAt` / `updatedAt` are SECONDS-since-epoch
@@ -158,8 +181,12 @@ export type AnilistMediaListEntryGql = {
   createdAt: number | null;
   /** AniList `MediaList.updatedAt`; SECONDS since epoch, nullable. */
   updatedAt: number | null;
-  /** Names of the user's customLists this entry belongs to; empty array when unaffiliated. */
-  customLists: string[];
+  /**
+   * One `{name, enabled}` entry per custom list the user has defined
+   * for this media type. Empty array when the user has no custom
+   * lists defined at all. See {@link AnilistCustomListMembership}.
+   */
+  customLists: AnilistCustomListMembership[];
   media: AnilistMediaGql;
 };
 

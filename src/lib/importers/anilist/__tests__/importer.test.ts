@@ -117,6 +117,24 @@ function makeEntry(
   };
 }
 
+/**
+ * Build an `asArray: true` customLists payload from a list of names
+ * that should all be marked enabled. Mirrors the common case where a
+ * test cares about "this entry IS in lists X and Y" — the AniList
+ * wire shape is awkward to spell out per-entry, but the importer
+ * only differentiates by the `enabled` flag.
+ *
+ * For tests that need to exercise the disabled-flag handling (entries
+ * where AniList returns `{name, enabled: false}` because the user has
+ * defined the list but not added the entry to it), build the array
+ * literally with explicit `{name, enabled}` objects.
+ */
+function customLists(
+  ...names: string[]
+): AnilistMediaListEntryGql['customLists'] {
+  return names.map((name) => ({ name, enabled: true }));
+}
+
 function makeListPage(
   entries: AnilistMediaListEntryGql[],
   pageInfo: { currentPage: number; hasNextPage: boolean; lastPage?: number; total?: number },
@@ -361,8 +379,8 @@ describe('importAnilistList — custom lists', () => {
     h.enqueueListPages(
       makeListPage(
         [
-          makeEntry(1, { customLists: ['Top 2023', 'Currently Watching'] }),
-          makeEntry(2, { customLists: ['Top 2023'] }),
+          makeEntry(1, { customLists: customLists('Top 2023', 'Currently Watching') }),
+          makeEntry(2, { customLists: customLists('Top 2023') }),
           makeEntry(3, {}),
         ],
         { currentPage: 1, hasNextPage: false },
@@ -389,7 +407,7 @@ describe('importAnilistList — custom lists', () => {
     const h = await makeHarness();
     h.enqueueListPages(
       makeListPage(
-        [makeEntry(1, { customLists: ['Top 2023'] })],
+        [makeEntry(1, { customLists: customLists('Top 2023') })],
         { currentPage: 1, hasNextPage: false },
       ),
     );
@@ -398,7 +416,7 @@ describe('importAnilistList — custom lists', () => {
     h.executeQuery.mockResolvedValueOnce(resolveResponse());
     h.executeQuery.mockResolvedValueOnce(
       makeListPage(
-        [makeEntry(50, { customLists: ['Top 2023'] }, { type: 'MANGA' })],
+        [makeEntry(50, { customLists: customLists('Top 2023') }, { type: 'MANGA' })],
         { currentPage: 1, hasNextPage: false },
       ),
     );
@@ -414,7 +432,7 @@ describe('importAnilistList — custom lists', () => {
     const h = await makeHarness();
     h.enqueueListPages(
       makeListPage(
-        [makeEntry(1, { customLists: ['Old Name'] })],
+        [makeEntry(1, { customLists: customLists('Old Name') })],
         { currentPage: 1, hasNextPage: false },
       ),
     );
@@ -425,7 +443,7 @@ describe('importAnilistList — custom lists', () => {
     h.executeQuery.mockResolvedValueOnce(resolveResponse());
     h.executeQuery.mockResolvedValueOnce(
       makeListPage(
-        [makeEntry(1, { customLists: ['New Name'] })],
+        [makeEntry(1, { customLists: customLists('New Name') })],
         { currentPage: 1, hasNextPage: false },
       ),
     );
@@ -433,6 +451,120 @@ describe('importAnilistList — custom lists', () => {
 
     expect(countRows(h.db, 'custom_list', `WHERE name = 'Old Name'`)).toBe(0);
     expect(countRows(h.db, 'custom_list', `WHERE name = 'New Name'`)).toBe(1);
+    h.db.close();
+  });
+
+  // ────────────────────────────────────────────────────────────────────
+  // Regression: AniList's `customLists(asArray: true)` actually returns
+  // `Array<{name, enabled}>`, NOT `string[]` — the importer originally
+  // assumed strings, which silently worked while every code path that
+  // hit the importer only ever had empty customLists. The first user
+  // with a real custom list defined (e.g. one called "★") tripped a
+  // SQLite bind failure because the object was being passed straight
+  // through as the `name` column value.
+  //
+  // The fix:
+  //   - extract `.name` from each `{name, enabled}` element
+  //   - only record memberships where enabled === true (false means
+  //     "the user has the list but this entry isn't in it" — promoting
+  //     those would create false-positive chips on the detail panel)
+  //
+  // These tests pin both halves of the contract.
+  // ────────────────────────────────────────────────────────────────────
+  it('asArray:true shape — extracts .name from {name, enabled} objects and binds it as a string', async () => {
+    const h = await makeHarness();
+    h.enqueueListPages(
+      makeListPage(
+        [
+          makeEntry(1, {
+            customLists: [
+              { name: '★', enabled: true },
+              { name: 'Top 2023', enabled: true },
+            ],
+          }),
+        ],
+        { currentPage: 1, hasNextPage: false },
+      ),
+    );
+    await importAnilistList(h.ctx, { username: USER_NAME, type: 'ANIME' });
+
+    expect(countRows(h.db, 'custom_list')).toBe(2);
+    expect(countRows(h.db, 'custom_list', `WHERE name = '★'`)).toBe(1);
+    expect(countRows(h.db, 'custom_list', `WHERE name = 'Top 2023'`)).toBe(1);
+    expect(
+      countRows(
+        h.db,
+        'media_custom_list_membership',
+        `WHERE custom_list_name = '★'`,
+      ),
+    ).toBe(1);
+    h.db.close();
+  });
+
+  it('asArray:true shape — disabled entries do NOT become memberships, even when mixed with enabled ones', async () => {
+    // The realistic shape AniList returns for a user with custom
+    // lists defined: one entry per list, with `enabled` telling us
+    // which lists THIS media is actually in. The user's reported bug
+    // had `customLists: [{name: "★", enabled: false}]` for an entry
+    // not in the ★ list — that must not produce a membership row.
+    const h = await makeHarness();
+    h.enqueueListPages(
+      makeListPage(
+        [
+          // Entry 1: in 'Top 2023' only.
+          makeEntry(1, {
+            customLists: [
+              { name: 'Top 2023', enabled: true },
+              { name: '★', enabled: false },
+              { name: 'Rewatch Queue', enabled: false },
+            ],
+          }),
+          // Entry 2: in '★' only (user finally added something to it).
+          makeEntry(2, {
+            customLists: [
+              { name: 'Top 2023', enabled: false },
+              { name: '★', enabled: true },
+              { name: 'Rewatch Queue', enabled: false },
+            ],
+          }),
+          // Entry 3: in none of the user's lists. Disabled-only.
+          makeEntry(3, {
+            customLists: [
+              { name: 'Top 2023', enabled: false },
+              { name: '★', enabled: false },
+              { name: 'Rewatch Queue', enabled: false },
+            ],
+          }),
+        ],
+        { currentPage: 1, hasNextPage: false },
+      ),
+    );
+    await importAnilistList(h.ctx, { username: USER_NAME, type: 'ANIME' });
+
+    // Two named lists actually have at least one member; the third
+    // ('Rewatch Queue') is defined but empty → GC step (8) prunes it.
+    expect(countRows(h.db, 'custom_list')).toBe(2);
+    expect(countRows(h.db, 'custom_list', `WHERE name = 'Rewatch Queue'`)).toBe(0);
+    // Exactly the enabled-true (entry, list) pairs become memberships.
+    expect(countRows(h.db, 'media_custom_list_membership')).toBe(2);
+    expect(
+      countRows(
+        h.db,
+        'media_custom_list_membership',
+        `WHERE media_id = 1 AND custom_list_name = 'Top 2023'`,
+      ),
+    ).toBe(1);
+    expect(
+      countRows(
+        h.db,
+        'media_custom_list_membership',
+        `WHERE media_id = 2 AND custom_list_name = '★'`,
+      ),
+    ).toBe(1);
+    // Entry 3 contributes zero memberships and zero custom_list rows.
+    expect(
+      countRows(h.db, 'media_custom_list_membership', `WHERE media_id = 3`),
+    ).toBe(0);
     h.db.close();
   });
 });
