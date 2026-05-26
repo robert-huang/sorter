@@ -5,6 +5,7 @@ import {
   insertComparisonsRemaining,
   startInsert,
 } from './binaryInsertion';
+import { shuffledCopy } from './shuffle';
 import type {
   AutoInsertFrame,
   Item,
@@ -39,13 +40,34 @@ export interface MergeOptions {
    * conservative behavior.
    */
   autoInsertEnabled?: boolean;
+  /**
+   * When true (default), randomize item order once before building the
+   * initial singleton queue in `initSort` (and the extras list in
+   * `seedFromSublists`). CSV paste order is often alphabetical, which
+   * would otherwise make the first several comparisons feel like "is
+   * A before B?", "is C before D?", etc. One startup shuffle breaks
+   * that pattern without affecting merge correctness.
+   */
+  shuffleAtStart?: boolean;
+  /** Injectable RNG (tests only). Defaults to `Math.random`. */
+  random?: () => number;
 }
 
-const DEFAULT_OPTIONS: Required<MergeOptions> = { autoInsertEnabled: true };
+const DEFAULT_OPTIONS: Required<Omit<MergeOptions, 'random'>> & {
+  random: () => number;
+} = {
+  autoInsertEnabled: true,
+  shuffleAtStart: true,
+  random: Math.random,
+};
 
-function resolveOptions(opts?: MergeOptions): Required<MergeOptions> {
+function resolveOptions(opts?: MergeOptions): Required<Omit<MergeOptions, 'random'>> & {
+  random: () => number;
+} {
   return {
     autoInsertEnabled: opts?.autoInsertEnabled ?? DEFAULT_OPTIONS.autoInsertEnabled,
+    shuffleAtStart: opts?.shuffleAtStart ?? DEFAULT_OPTIONS.shuffleAtStart,
+    random: opts?.random ?? DEFAULT_OPTIONS.random,
   };
 }
 
@@ -672,14 +694,20 @@ function freshMergeProgress(queue: ItemId[][]): MergeProgress {
 }
 
 /**
- * Sort-from-scratch entry point. Initial queue = N singletons in input order.
+ * Sort-from-scratch entry point. Initial queue = N singletons. Item order
+ * is shuffled once at startup (see `shuffleAtStart`) so CSV paste order
+ * does not dominate the first comparisons.
  */
 export function initSort(items: Item[], options?: MergeOptions): MergeState {
   const opts = resolveOptions(options);
   const itemsDict: Record<ItemId, Item> = {};
   for (const it of items) itemsDict[it.id] = it;
 
-  const queue = items.map((it) => [it.id]);
+  const ordered =
+    opts.shuffleAtStart && items.length > 1
+      ? shuffledCopy(items, opts.random)
+      : items;
+  const queue = ordered.map((it) => [it.id]);
   const progress = freshMergeProgress(queue);
   advance(progress, new Set(), opts);
   progress.totalComparisonsEverNeeded = comparisonsRemainingFromProgress(
@@ -708,7 +736,11 @@ export function seedFromSublists(
   for (const sub of sublists) for (const it of sub) itemsDict[it.id] = it;
 
   const queue: ItemId[][] = [];
-  for (const it of extras) queue.push([it.id]);
+  const orderedExtras =
+    opts.shuffleAtStart && extras.length > 1
+      ? shuffledCopy(extras, opts.random)
+      : extras;
+  for (const it of orderedExtras) queue.push([it.id]);
   for (const sub of sublists) queue.push(sub.map((it) => it.id));
 
   const progress = freshMergeProgress(queue);
@@ -1254,6 +1286,87 @@ export function reorderInSublist(
   const newSub = next.queue[queueIndex].slice();
   [newSub[itemIndex], newSub[target]] = [newSub[target], newSub[itemIndex]];
   next.queue[queueIndex] = newSub;
+  return { ...next, items: state.items };
+}
+
+/** Which slice of the in-flight merge frame to reorder within. */
+export type CurrentMergeSlice = 'merged' | 'left' | 'right';
+
+function currentMergeSliceArray(
+  frame: { left: ItemId[]; right: ItemId[]; merged: ItemId[] },
+  slice: CurrentMergeSlice,
+): ItemId[] {
+  if (slice === 'merged') return frame.merged;
+  if (slice === 'left') return frame.left;
+  return frame.right;
+}
+
+/** Visible-head index for left/right remainders; merged has no lock (-1). */
+function currentMergeHeadLockIndex(
+  slice: CurrentMergeSlice,
+  frame: { left: ItemId[]; right: ItemId[]; merged: ItemId[] },
+  hidden: ReadonlySet<ItemId>,
+): number {
+  if (slice === 'merged') return -1;
+  return firstVisibleIndex(currentMergeSliceArray(frame, slice), hidden);
+}
+
+function wouldSwapInvolveIndex(
+  itemIndex: number,
+  direction: -1 | 1,
+  lockIndex: number,
+): boolean {
+  if (lockIndex < 0) return false;
+  const target = itemIndex + direction;
+  return itemIndex === lockIndex || target === lockIndex;
+}
+
+/**
+ * Whether an adjacent swap is allowed within one slice of the active merge
+ * frame. Left/right swaps that would move the visible compare head are
+ * blocked so LIST edits don't silently change the RANK pair.
+ */
+export function canReorderInCurrentMerge(
+  state: MergeState,
+  slice: CurrentMergeSlice,
+  itemIndex: number,
+  direction: -1 | 1,
+): boolean {
+  if (!state.current) return false;
+  const arr = currentMergeSliceArray(state.current, slice);
+  const target = itemIndex + direction;
+  if (itemIndex < 0 || itemIndex >= arr.length) return false;
+  if (target < 0 || target >= arr.length) return false;
+  if (arr.length <= 1) return false;
+  const hidden = new Set(state.hidden);
+  const lockIdx = currentMergeHeadLockIndex(slice, state.current, hidden);
+  return !wouldSwapInvolveIndex(itemIndex, direction, lockIdx);
+}
+
+/**
+ * Move an item up or down within one slice of the in-flight merge frame
+ * (`merged`, `left`, or `right`). Swaps never cross slice boundaries.
+ * Visible heads on left/right remainders are locked — see
+ * `canReorderInCurrentMerge`.
+ */
+export function reorderInCurrentMerge(
+  state: MergeState,
+  slice: CurrentMergeSlice,
+  itemIndex: number,
+  direction: -1 | 1,
+): MergeState {
+  if (!canReorderInCurrentMerge(state, slice, itemIndex, direction)) {
+    return state;
+  }
+
+  const next = snapshotProgress(state);
+  const frame = next.current!;
+  const arr = currentMergeSliceArray(frame, slice).slice();
+  const target = itemIndex + direction;
+  [arr[itemIndex], arr[target]] = [arr[target], arr[itemIndex]];
+  if (slice === 'merged') frame.merged = arr;
+  else if (slice === 'left') frame.left = arr;
+  else frame.right = arr;
   return { ...next, items: state.items };
 }
 

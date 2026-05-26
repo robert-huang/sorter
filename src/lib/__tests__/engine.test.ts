@@ -15,14 +15,20 @@ import {
 } from '../engine';
 import {
   hideItem as mergeHideItem,
-  initSort,
+  initSort as mergeInitSort,
   manualInsert,
   pickLeft,
   pickRight,
   seedFromSublists,
+  type MergeOptions,
 } from '../queueMergeSort';
 import { seedAsSorted, addItems as insertionAddItems } from '../insertionSort';
 import type { InsertionState, Item, MergeState } from '../types';
+
+/** Test helper: deterministic item order (startup shuffle disabled). */
+function initSort(items: Item[], options?: MergeOptions): MergeState {
+  return mergeInitSort(items, { shuffleAtStart: false, ...options });
+}
 
 const A: Item = { id: 'a', label: 'A' };
 const B: Item = { id: 'b', label: 'B' };

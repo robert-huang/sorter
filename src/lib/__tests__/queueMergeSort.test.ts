@@ -12,25 +12,35 @@ import {
   getPeekRightIds,
   getRanking,
   hideItem,
-  initSort,
+  initSort as mergeInitSort,
   manualInsert,
   mergesRemaining,
   pickLeft,
   pickRight,
   reorderInSublist,
+  reorderInCurrentMerge,
   restoreProgress,
   seedFromSublists,
   shouldAutoInsert,
   snapshotProgress,
   unhideItem,
+  type MergeOptions,
 } from '../queueMergeSort';
 import type { Item, MergeState } from '../types';
+
+/** Test helper: deterministic item order (startup shuffle disabled). */
+function initSort(items: Item[], options?: MergeOptions): MergeState {
+  return mergeInitSort(items, { shuffleAtStart: false, ...options });
+}
 
 const A: Item = { id: 'a', label: 'A' };
 const B: Item = { id: 'b', label: 'B' };
 const C: Item = { id: 'c', label: 'C' };
 const D: Item = { id: 'd', label: 'D' };
 const E: Item = { id: 'e', label: 'E' };
+const F: Item = { id: 'f', label: 'F' };
+const G: Item = { id: 'g', label: 'G' };
+const H: Item = { id: 'h', label: 'H' };
 
 /**
  * Convenience: drive a sort by always picking the side whose head id has the
@@ -74,6 +84,15 @@ describe('initSort', () => {
     expect(s.done).toBe(true);
     expect(s.current).toBeNull();
     expect(getRanking(s)).toEqual(['a']);
+  });
+
+  it('shuffles item order once at startup when shuffleAtStart is true', () => {
+    // random() always 0 → Fisher–Yates swaps index 0 each step → [B,C,A]
+    const s = mergeInitSort([A, B, C], {
+      shuffleAtStart: true,
+      random: () => 0,
+    });
+    expect(getPair(s)).toEqual({ leftId: 'b', rightId: 'c' });
   });
 });
 
@@ -428,6 +447,56 @@ describe('reorderInSublist', () => {
     const s0 = seedFromSublists({ sublists: [[A, B]], extras: [] });
     const s1 = reorderInSublist(s0, 0, 0, -1); // can't move the head up
     expect(s1.queue[0]).toEqual(['a', 'b']);
+  });
+});
+
+describe('reorderInCurrentMerge', () => {
+  function activeMergeState(): MergeState {
+    return seedFromSublists(
+      { sublists: [[A, B, C, D], [E, F, G, H]], extras: [] },
+      { shuffleAtStart: false },
+    );
+  }
+
+  it('swaps within merged without changing the live compare pair', () => {
+    let s = activeMergeState();
+    expect(s.current!.left).toEqual(['a', 'b', 'c', 'd']);
+    expect(s.current!.right).toEqual(['e', 'f', 'g', 'h']);
+    s = pickLeft(s);
+    s = pickRight(s);
+    expect(s.current!.merged).toEqual(['a', 'e']);
+    expect(getPair(s)).toEqual({ leftId: 'b', rightId: 'f' });
+
+    const s1 = reorderInCurrentMerge(s, 'merged', 0, 1);
+    expect(s1.current!.merged).toEqual(['e', 'a']);
+    expect(getPair(s1)).toEqual({ leftId: 'b', rightId: 'f' });
+  });
+
+  it('swaps non-head items in a remainder tail', () => {
+    const s0 = activeMergeState();
+    expect(getPair(s0)).toEqual({ leftId: 'a', rightId: 'e' });
+
+    const s1 = reorderInCurrentMerge(s0, 'left', 2, 1);
+    expect(s1.current!.left).toEqual(['a', 'b', 'd', 'c']);
+    expect(getPair(s1)).toEqual({ leftId: 'a', rightId: 'e' });
+
+    const s2 = reorderInCurrentMerge(s1, 'right', 2, 1);
+    expect(s2.current!.right).toEqual(['e', 'f', 'h', 'g']);
+    expect(getPair(s2)).toEqual({ leftId: 'a', rightId: 'e' });
+  });
+
+  it('blocks swaps involving the visible left or right head', () => {
+    const s0 = activeMergeState();
+    expect(reorderInCurrentMerge(s0, 'left', 0, 1)).toBe(s0);
+    expect(reorderInCurrentMerge(s0, 'left', 1, -1)).toBe(s0);
+    expect(reorderInCurrentMerge(s0, 'right', 0, 1)).toBe(s0);
+    expect(reorderInCurrentMerge(s0, 'right', 1, -1)).toBe(s0);
+  });
+
+  it('is a no-op without an active merge frame', () => {
+    const s0 = seedFromSublists({ sublists: [[A, B, C, D]], extras: [] });
+    expect(s0.current).toBeNull();
+    expect(reorderInCurrentMerge(s0, 'merged', 0, 1)).toBe(s0);
   });
 });
 

@@ -7,6 +7,9 @@
   --text: #1f2328;
   --text-muted: #6b7280;
   --text-faint: #9aa0a6;
+  /* Barely-there ink for disabled icon buttons — distinct from --text-faint
+     so opacity hacks aren't needed on light surfaces. */
+  --text-disabled: #c4c8ce;
   --accent: #3b5bff;
   --accent-hover: #2a48e6;
   --accent-soft: #e6ecff;
@@ -50,6 +53,9 @@
   --text: #ffffff;
   --text-muted: #c5c9d4;
   --text-faint: #8e94a1;
+  /* Much dimmer than --text-faint — disabled arrows must read as off, not
+     merely muted, against #1e1e1e chip surfaces. */
+  --text-disabled: #434750;
   --accent: #6b8aff;
   --accent-hover: #8ea4ff;
   --accent-soft: #1a2156;
@@ -1156,6 +1162,13 @@ a {
   margin-top: 4px;
 }
 
+.file-row-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
 .x-button {
   background: transparent;
   border: none;
@@ -2027,8 +2040,28 @@ a {
   line-height: 1;
 }
 
-.chip .x:hover {
+.chip .x:hover:not(:disabled):not(.reorder) {
   color: var(--danger);
+}
+
+/* Reorder (↑/↓) arrows on merge chips. Separate from delete/edit so
+   disabled state can use an explicit ink color instead of opacity alone
+   (opacity on dark theme still reads too bright). */
+.chip .x.reorder {
+  color: var(--text-muted);
+}
+
+.chip .x.reorder:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-2);
+  border-radius: 3px;
+}
+
+.chip .x.reorder:disabled {
+  opacity: 1;
+  color: var(--text-disabled);
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 /* Edit (✎) variant of the chip-internal icon button. Uses the same
@@ -2137,8 +2170,10 @@ a {
 }
 
 .icon-btn:disabled {
-  opacity: 0.3;
+  opacity: 1;
+  color: var(--text-disabled);
   cursor: not-allowed;
+  pointer-events: none;
 }
 
 .icon-btn.danger:hover {
