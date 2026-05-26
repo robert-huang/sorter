@@ -152,6 +152,20 @@ export function FilterBar({ items, onVisibleChange }: FilterBarProps) {
   // against stale resolutions clobbering newer ones via a request
   // counter (classic "drop response if not the latest request" pattern).
   const requestSeqRef = useRef(0);
+  // A chip-state is "inactive" (a.k.a. passthrough) if the module
+  // explicitly says so via isPassthrough, otherwise we fall back to
+  // shallow-equal vs the module's initialChipState. The override
+  // exists because some modules ship a non-trivial default — e.g.
+  // AniList's list-status chip pre-selects WATCHING/COMPLETED/
+  // REPEATING — and a shallow-equal check against that same default
+  // would incorrectly call the chip "inactive" and skip the filter.
+  function isInactive(
+    state: FilterChipState,
+    module: SourceFilterModule,
+  ): boolean {
+    if (module.isPassthrough) return module.isPassthrough(state);
+    return shallowEqual(state, module.initialChipState());
+  }
   useEffect(() => {
     const seq = ++requestSeqRef.current;
     // Fast path: no active chip state across any source -> emit null
@@ -160,8 +174,7 @@ export function FilterBar({ items, onVisibleChange }: FilterBarProps) {
     for (const [kind, bucket] of buckets) {
       const state = chipStates[kind];
       if (!state) continue;
-      const initial = bucket.module.initialChipState();
-      if (!shallowEqual(state, initial)) {
+      if (!isInactive(state, bucket.module)) {
         anyActive = true;
         break;
       }
@@ -184,8 +197,7 @@ export function FilterBar({ items, onVisibleChange }: FilterBarProps) {
           for (const item of bucket.items) visible.add(item.id);
           continue;
         }
-        const initial = bucket.module.initialChipState();
-        if (shallowEqual(state, initial)) {
+        if (isInactive(state, bucket.module)) {
           for (const item of bucket.items) visible.add(item.id);
           continue;
         }

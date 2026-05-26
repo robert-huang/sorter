@@ -517,11 +517,12 @@ a {
   max-width: calc(100vw - 24px);
   padding: 8px;
   z-index: 30;
-  /* Cap to viewport so the popover itself is the SINGLE scroll
-     container — the inner body absorbs all overflow via flex sizing.
-     Avoids the macOS-only-overlay vs Windows-always-visible scrollbar
-     collision we used to get from nesting .settings-tab-body and
-     .settings-slots scrollers. */
+  /* Cap to viewport so the popover never grows past the window. The
+     popover itself doesn't scroll — each tab panel owns its own
+     scroll region (.settings-slots-scroll for the slots tab,
+     .settings-tab-scroll for the databases tab) so per-tab pinned
+     regions (e.g. the slot action buttons) sit outside the scroll
+     thumb. */
   display: flex;
   flex-direction: column;
   max-height: calc(100vh - 64px);
@@ -566,19 +567,42 @@ a {
 }
 
 .settings-tab-body {
-  /* Single source of vertical scroll inside the popover. Flexes to
-     fill the space between the (sticky) tabs above and the (sticky)
-     footer below; scrolls only when the body's natural height exceeds
-     that space. The popover's outer max-height does the actual
-     capping — we never want a separate scrollbar on .settings-slots
-     fighting this one. min-height:0 is required so the flex item can
-     shrink below its content size. overflow-x:hidden defuses sub-pixel
-     bleed (slot rows, the old negative-margin .settings-slots, etc.)
-     from triggering a horizontal scrollbar. */
+  /* Container for the active tab's panel. Itself never scrolls —
+     each tab owns its own scroller so we can pin per-tab regions
+     (e.g. the slot action buttons under the slot list) outside the
+     scroll thumb's reach. Flexes to fill the space between the
+     (sticky) tabs above and the (sticky) footer below. min-height:0
+     is required so the flex item can shrink below its content size.
+     overflow:hidden defuses sub-pixel bleed (slot rows, the old
+     negative-margin .settings-slots, etc.) from triggering a popover
+     scrollbar. */
+  display: flex;
+  flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
+  overflow: hidden;
+}
+
+/* Scroll regions inside the tab panel. The slots tab uses
+   .settings-slots-scroll for just the SlotList, so the scrollbar
+   does NOT extend down through Load save file…/Backup/Delete/Cloud
+   (those live in .settings-tab-actions below it). The databases tab
+   uses .settings-tab-scroll across its whole body since it has no
+   pinned action region. min-height:80px keeps at least one slot row
+   visible if the action stack ever fills the popover on a very
+   short viewport. */
+.settings-slots-scroll,
+.settings-tab-scroll {
+  flex: 1 1 auto;
+  min-height: 80px;
   overflow-y: auto;
   overflow-x: hidden;
+}
+
+/* Pinned action region beneath the scrollable slot list. Hugs its
+   content so the scrollbar above stops exactly at the divider. */
+.settings-tab-actions {
+  flex: 0 0 auto;
 }
 
 .settings-footer {
@@ -589,11 +613,11 @@ a {
 }
 
 /* Embedded slot list inside the gear popover. No internal scroller —
-   the outer .settings-tab-body owns vertical scrolling now, and a
-   second scroller here would stack with it and produce two parallel
-   scrollbars. Also drop the old negative horizontal margins; they
-   bled past the popover padding and were the reason the body grew a
-   horizontal scrollbar. */
+   .settings-slots-scroll (the parent) owns vertical scrolling for the
+   slot list region, and a second scroller here would stack with it
+   and produce two parallel scrollbars. Also drop the old negative
+   horizontal margins; they bled past the popover padding and were
+   the reason the body used to grow a horizontal scrollbar. */
 .settings-slots {
   margin: 0;
   padding: 0;
@@ -873,6 +897,121 @@ a {
   font-style: italic;
 }
 
+/* Voice-actor chip extensions: an inline search input, a thin
+   divider between selected and unselected blocks, and a sticky
+   footer carrying the cast-coverage status + bulk-expand button.
+   The footer uses position:sticky so it stays visible while the
+   user scrolls a long VA list. */
+.filter-chip-search {
+  width: 100%;
+  margin-bottom: 4px;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.filter-chip-divider {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}
+
+.filter-chip-footer {
+  position: sticky;
+  bottom: -6px;
+  margin: 6px -6px -6px;
+  padding: 6px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.filter-chip-footer-status {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.filter-chip-action {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.filter-chip-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.filter-chip-error {
+  color: var(--danger, #b91c1c);
+}
+
+/* Range chips (seasonYear / score) + tag-options chip share a
+   two-column "label : control" popover row. Keeps the label tight
+   against the input rather than stretching across the menu width. */
+.filter-chip-range-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  font-size: 0.85rem;
+}
+
+.filter-chip-range-row > span {
+  flex: 0 0 auto;
+  min-width: 40px;
+  color: var(--text-muted);
+}
+
+.filter-chip-range-row select,
+.filter-chip-range-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 3px 5px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+/* Segmented button group for the tag-options chip's OR/AND toggle.
+   The .active class is what the popover sets on the currently
+   selected mode. */
+.filter-chip-segmented {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.filter-chip-segmented button {
+  padding: 3px 8px;
+  border: none;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.filter-chip-segmented button + button {
+  border-left: 1px solid var(--border);
+}
+
+.filter-chip-segmented button.active {
+  background: var(--accent, #2563eb);
+  color: var(--accent-fg, white);
+}
+
 /* Clickable thumb wrapper — preserves the inner thumb's sizing while
    adding hover affordance. Used by ItemThumb when an
    ItemDetailContext opener is set + item.source.kind === 'anilist'. */
@@ -1020,6 +1159,18 @@ a {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+/* Cached-list hint row: shown when the typed username already has
+ * locally cached entries of the chosen type, offering a one-click
+ * "Use cached list" shortcut. Visually distinct from the form
+ * itself (faint border + tinted background) so it reads as a
+ * helpful nudge rather than a second form to fill in. */
+.anilist-cache-hint {
+  padding: 6px 10px;
+  border: 1px solid var(--border, #e5e5e5);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 
 .anilist-start-input {
@@ -2382,7 +2533,22 @@ a {
   flex-shrink: 0;
 }
 
-.chip .thumb img {
+/* All `.thumb` sites (chips, queue rows, anything future) expect the
+ * `<img>` rendered by ItemThumb to fill the wrapper instead of
+ * bursting out at its natural pixel size. AniList covers can be
+ * 230x320 or larger, and without this constraint they overflow the
+ * 22x22 chip thumbs and the 28x28 queue thumbs — visually a "full
+ * sized cover next to a tiny chip icon" mismatch between the queue
+ * and the merge frame's REMAINING rows.
+ *
+ * Was previously scoped to `.chip .thumb img` only, which left the
+ * queue's `<img>` unconstrained. Hoisting the selector to plain
+ * `.thumb img` keeps the chip behaviour unchanged AND fixes the
+ * queue without per-site duplication. Safe because every current
+ * `.thumb` container has explicit width+height set by its parent
+ * context (`.chip .thumb`, `.queue-item-row .thumb`), so the img
+ * always has a deterministic box to cover. */
+.thumb img {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -2492,6 +2658,15 @@ a {
 .queue-item-row .thumb {
   width: 28px;
   height: 28px;
+  /* overflow:hidden + the small radius mirror `.chip .thumb`'s polish
+   * so cover artwork lands flush inside the 28x28 box rather than
+   * with a hard edge poking out. flex-shrink:0 stops the grid track
+   * sizer from squishing the thumb to 0 when a label is unusually
+   * long (was visible with full anime titles like "JoJo's Bizarre
+   * Adventure: Stone Ocean Part 3"). */
+  overflow: hidden;
+  border-radius: 4px;
+  flex-shrink: 0;
 }
 
 .queue-item-row .label-cell {

@@ -20,15 +20,21 @@ import {
 } from '../meta';
 import {
   getAnilistUserById,
+  getAnilistUserByName,
   getFavouritedMediaIds,
+  getFavouritesAsItems,
   getLastFavouritesRefresh,
   getLastFullRefresh,
   getLatestAnilistUser,
   getListEntriesByMediaIds,
   getListedMedia,
+  getListedMediaCount,
   getMediaByIds,
   getMediaDetail,
+  getMediaIdsWithCachedCast,
+  getMediaIdsWithDisallowedListStatus,
   getMeta,
+  getVoiceActorsForCandidates,
   hasMediaCharacters,
 } from '../readQueries';
 
@@ -154,6 +160,7 @@ function seedListEntry(
   userId: number,
   mediaId: number,
   anilistUpdatedAt: number,
+  status: string = 'COMPLETED',
 ): void {
   db.exec(
     `INSERT INTO media_list_entry (
@@ -161,10 +168,33 @@ function seedListEntry(
       started_year, started_month, started_day,
       completed_year, completed_month, completed_day,
       anilist_created_at, anilist_updated_at, fetched_at, updated_at
-    ) VALUES (?, ?, 88, 'COMPLETED', NULL,
+    ) VALUES (?, ?, 88, ?, NULL,
               NULL, NULL, NULL, NULL, NULL, NULL,
               NULL, ?, ?, ?)`,
-    { bind: [userId, mediaId, anilistUpdatedAt, anilistUpdatedAt, anilistUpdatedAt] } as never,
+    {
+      bind: [
+        userId,
+        mediaId,
+        status,
+        anilistUpdatedAt,
+        anilistUpdatedAt,
+        anilistUpdatedAt,
+      ],
+    } as never,
+  );
+}
+
+function seedCharacterVoiceActor(
+  db: Database,
+  mediaId: number,
+  characterId: number,
+  staffId: number,
+  language: string = 'JAPANESE',
+): void {
+  db.exec(
+    `INSERT INTO character_voice_actor (media_id, character_id, staff_id, language)
+     VALUES (?, ?, ?, ?)`,
+    { bind: [mediaId, characterId, staffId, language] } as never,
   );
 }
 
@@ -195,6 +225,65 @@ function seedFavouriteMedia(db: Database, userId: number, mediaId: number, order
     `INSERT INTO media_favourite (anilist_user_id, media_id, sort_order, fetched_at)
      VALUES (?, ?, ?, ?)`,
     { bind: [userId, mediaId, order, 1_700_000_000_000] } as never,
+  );
+}
+
+function seedFavouriteCharacter(
+  db: Database,
+  userId: number,
+  charId: number,
+  order: number,
+): void {
+  db.exec(
+    `INSERT INTO character_favourite (anilist_user_id, character_id, sort_order, fetched_at)
+     VALUES (?, ?, ?, ?)`,
+    { bind: [userId, charId, order, 1_700_000_000_000] } as never,
+  );
+}
+
+function seedStaff(
+  db: Database,
+  id: number,
+  nameFull: string | null,
+  image: string | null = null,
+): void {
+  db.exec(
+    `INSERT INTO staff (id, name_full, name_native, image, age, gender, language_v2, favourites, fetched_at, updated_at)
+     VALUES (?, ?, NULL, ?, NULL, NULL, NULL, NULL, ?, ?)`,
+    { bind: [id, nameFull, image, 1_700_000_000_000, 1_700_000_000_000] } as never,
+  );
+}
+
+function seedFavouriteStaff(
+  db: Database,
+  userId: number,
+  staffId: number,
+  order: number,
+): void {
+  db.exec(
+    `INSERT INTO staff_favourite (anilist_user_id, staff_id, sort_order, fetched_at)
+     VALUES (?, ?, ?, ?)`,
+    { bind: [userId, staffId, order, 1_700_000_000_000] } as never,
+  );
+}
+
+function seedStudio(db: Database, id: number, name: string): void {
+  db.exec(
+    `INSERT INTO studio (id, name, fetched_at) VALUES (?, ?, ?)`,
+    { bind: [id, name, 1_700_000_000_000] } as never,
+  );
+}
+
+function seedFavouriteStudio(
+  db: Database,
+  userId: number,
+  studioId: number,
+  order: number,
+): void {
+  db.exec(
+    `INSERT INTO studio_favourite (anilist_user_id, studio_id, sort_order, fetched_at)
+     VALUES (?, ?, ?, ?)`,
+    { bind: [userId, studioId, order, 1_700_000_000_000] } as never,
   );
 }
 
@@ -387,5 +476,353 @@ describe('getFavouritedMediaIds', () => {
     seedMedia(db, 1);
     const favs = await getFavouritedMediaIds(exec, user.id, [1]);
     expect(favs.size).toBe(0);
+  });
+});
+
+describe('getAnilistUserByName', () => {
+  it('returns the user row matching the typed name', async () => {
+    seedUser(db, { userId: 7, userName: 'Alice', userFetchedAt: 1 });
+    const found = await getAnilistUserByName(exec, 'Alice');
+    expect(found?.id).toBe(7);
+    expect(found?.name).toBe('Alice');
+  });
+
+  it('matches case-insensitively so "alice", "ALICE", and "Alice" all resolve', async () => {
+    // AniList itself is case-insensitive for username resolution
+    // — keeping the local cache lookup parity prevents the
+    // "cached: N items" hint from disappearing when the user
+    // types the same name with different casing than they
+    // originally imported under.
+    seedUser(db, { userId: 8, userName: 'Bob', userFetchedAt: 1 });
+    expect((await getAnilistUserByName(exec, 'bob'))?.id).toBe(8);
+    expect((await getAnilistUserByName(exec, 'BOB'))?.id).toBe(8);
+    expect((await getAnilistUserByName(exec, 'Bob'))?.id).toBe(8);
+  });
+
+  it('trims whitespace before matching (paste-from-clipboard friendly)', async () => {
+    seedUser(db, { userId: 9, userName: 'carol', userFetchedAt: 1 });
+    expect((await getAnilistUserByName(exec, '  carol  '))?.id).toBe(9);
+  });
+
+  it('returns null for an unknown username AND for empty input (no SQL round-trip on empty)', async () => {
+    seedUser(db, { userId: 10, userName: 'dave', userFetchedAt: 1 });
+    expect(await getAnilistUserByName(exec, 'unknown')).toBeNull();
+    expect(await getAnilistUserByName(exec, '')).toBeNull();
+    expect(await getAnilistUserByName(exec, '   ')).toBeNull();
+  });
+});
+
+describe('getListedMediaCount', () => {
+  it('returns the count of media_list_entry rows joined to media of the given type', async () => {
+    const user = seedUser(db);
+    seedMedia(db, 1);
+    seedMedia(db, 2);
+    seedMedia(db, 3, { type: 'MANGA' });
+    seedListEntry(db, user.id, 1, 100);
+    seedListEntry(db, user.id, 2, 200);
+    seedListEntry(db, user.id, 3, 300); // MANGA — not counted for ANIME
+
+    expect(await getListedMediaCount(exec, user.id, 'ANIME')).toBe(2);
+    expect(await getListedMediaCount(exec, user.id, 'MANGA')).toBe(1);
+  });
+
+  it('returns 0 for a user with no entries and 0 for a user that does not exist', async () => {
+    const user = seedUser(db, { userId: 1, userName: 'a', userFetchedAt: 1 });
+    seedMedia(db, 1);
+    expect(await getListedMediaCount(exec, user.id, 'ANIME')).toBe(0);
+    expect(await getListedMediaCount(exec, 9999, 'ANIME')).toBe(0);
+  });
+
+  it('does not count entries whose media row was somehow evicted (cache-eviction edge case)', async () => {
+    // Importer doesn't currently evict media rows but tests should
+    // pin the JOIN-not-LEFT-JOIN contract so a future refactor
+    // can't accidentally inflate the count.
+    const user = seedUser(db);
+    seedMedia(db, 1);
+    seedListEntry(db, user.id, 1, 100);
+    // Now drop the media row without dropping the list entry (only
+    // possible by hand-rolling — FKs are ON, but we use PRAGMA
+    // defer_foreign_keys-style staged inserts in the seed helpers
+    // and the schema's ON DELETE CASCADE would normally clean up
+    // dependents). Disable FKs briefly to construct the bad state.
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec('DELETE FROM media WHERE id = 1');
+    db.exec('PRAGMA foreign_keys = ON');
+    expect(await getListedMediaCount(exec, user.id, 'ANIME')).toBe(0);
+  });
+});
+
+describe('getFavouritesAsItems', () => {
+  it('returns ANIME favourites with title-romaji→english→native waterfall and cover_image', async () => {
+    const user = seedUser(db);
+    seedMedia(db, 1, { title_english: 'EN-1' });
+    seedMedia(db, 2, { title_english: null });
+    seedFavouriteMedia(db, user.id, 1, 0);
+    seedFavouriteMedia(db, user.id, 2, 1);
+
+    const items = await getFavouritesAsItems(exec, user.id, 'ANIME');
+    expect(items).toHaveLength(2);
+    expect(items.map((it) => it.externalId)).toEqual([1, 2]);
+    expect(items[0].label).toBe('EN-1');
+    // Untitled fallback when every title column is null.
+    expect(items[1].label).toBe('Untitled (2)');
+  });
+
+  it('ANIME favourites are ordered by sort_order ascending (preserving user-asserted order)', async () => {
+    const user = seedUser(db);
+    seedMedia(db, 1, { title_english: 'first' });
+    seedMedia(db, 2, { title_english: 'second' });
+    seedMedia(db, 3, { title_english: 'third' });
+    seedFavouriteMedia(db, user.id, 1, 2);
+    seedFavouriteMedia(db, user.id, 2, 0);
+    seedFavouriteMedia(db, user.id, 3, 1);
+
+    const items = await getFavouritesAsItems(exec, user.id, 'ANIME');
+    // Sort orders 0, 1, 2 -> ids 2, 3, 1
+    expect(items.map((it) => it.externalId)).toEqual([2, 3, 1]);
+  });
+
+  it('ANIME and MANGA favourites are partitioned by media.type (no cross-type leakage)', async () => {
+    const user = seedUser(db);
+    seedMedia(db, 1, { title_english: 'anime-1' });
+    seedMedia(db, 2, { title_english: 'manga-1', type: 'MANGA' });
+    seedFavouriteMedia(db, user.id, 1, 0);
+    seedFavouriteMedia(db, user.id, 2, 0);
+
+    const animeItems = await getFavouritesAsItems(exec, user.id, 'ANIME');
+    expect(animeItems.map((it) => it.externalId)).toEqual([1]);
+
+    const mangaItems = await getFavouritesAsItems(exec, user.id, 'MANGA');
+    expect(mangaItems.map((it) => it.externalId)).toEqual([2]);
+  });
+
+  it('CHARACTERS favourites read name_full and fall back to name_native', async () => {
+    const user = seedUser(db);
+    db.exec(
+      `INSERT INTO character (id, name_full, name_native, image, fetched_at, updated_at)
+       VALUES (1, 'Spike Spiegel', 'スパイク', 'http://img/1', ?, ?)`,
+      { bind: [1_700_000_000_000, 1_700_000_000_000] } as never,
+    );
+    db.exec(
+      `INSERT INTO character (id, name_full, name_native, image, fetched_at, updated_at)
+       VALUES (2, NULL, 'フェイ', NULL, ?, ?)`,
+      { bind: [1_700_000_000_000, 1_700_000_000_000] } as never,
+    );
+    seedFavouriteCharacter(db, user.id, 1, 0);
+    seedFavouriteCharacter(db, user.id, 2, 1);
+
+    const items = await getFavouritesAsItems(exec, user.id, 'CHARACTERS');
+    expect(items).toEqual([
+      { externalId: 1, label: 'Spike Spiegel', imageUrl: 'http://img/1' },
+      { externalId: 2, label: 'フェイ', imageUrl: null },
+    ]);
+  });
+
+  it('CHARACTERS favourites synthesise a "Character #N" label when every name column is null', async () => {
+    const user = seedUser(db);
+    db.exec(
+      `INSERT INTO character (id, name_full, name_native, image, fetched_at, updated_at)
+       VALUES (99, NULL, NULL, NULL, ?, ?)`,
+      { bind: [1_700_000_000_000, 1_700_000_000_000] } as never,
+    );
+    seedFavouriteCharacter(db, user.id, 99, 0);
+    const items = await getFavouritesAsItems(exec, user.id, 'CHARACTERS');
+    expect(items[0].label).toBe('Character #99');
+  });
+
+  it('STAFF favourites resolve via staff.name_full and pull staff.image', async () => {
+    const user = seedUser(db);
+    seedStaff(db, 10, 'Shinichiro Watanabe', 'http://img/staff/10');
+    seedStaff(db, 11, null, null);
+    seedFavouriteStaff(db, user.id, 10, 0);
+    seedFavouriteStaff(db, user.id, 11, 1);
+    const items = await getFavouritesAsItems(exec, user.id, 'STAFF');
+    expect(items).toEqual([
+      { externalId: 10, label: 'Shinichiro Watanabe', imageUrl: 'http://img/staff/10' },
+      { externalId: 11, label: 'Staff #11', imageUrl: null },
+    ]);
+  });
+
+  it('STUDIOS favourites use studio.name (no image column in schema)', async () => {
+    const user = seedUser(db);
+    seedStudio(db, 100, 'Sunrise');
+    seedStudio(db, 101, 'Madhouse');
+    seedFavouriteStudio(db, user.id, 101, 0);
+    seedFavouriteStudio(db, user.id, 100, 1);
+    const items = await getFavouritesAsItems(exec, user.id, 'STUDIOS');
+    expect(items).toEqual([
+      { externalId: 101, label: 'Madhouse', imageUrl: null },
+      { externalId: 100, label: 'Sunrise', imageUrl: null },
+    ]);
+  });
+
+  it('returns an empty array when the user has no favourites of the requested type', async () => {
+    const user = seedUser(db);
+    expect(await getFavouritesAsItems(exec, user.id, 'ANIME')).toEqual([]);
+    expect(await getFavouritesAsItems(exec, user.id, 'CHARACTERS')).toEqual([]);
+    expect(await getFavouritesAsItems(exec, user.id, 'STAFF')).toEqual([]);
+    expect(await getFavouritesAsItems(exec, user.id, 'STUDIOS')).toEqual([]);
+  });
+});
+
+describe('getMediaIdsWithDisallowedListStatus', () => {
+  it('returns ids whose list entry has a status NOT in the allowed set', async () => {
+    const user = seedUser(db);
+    seedMedia(db, 1);
+    seedMedia(db, 2);
+    seedMedia(db, 3);
+    seedListEntry(db, user.id, 1, 100, 'CURRENT');
+    seedListEntry(db, user.id, 2, 200, 'PLANNING');
+    seedListEntry(db, user.id, 3, 300, 'DROPPED');
+
+    const disallowed = await getMediaIdsWithDisallowedListStatus(
+      exec,
+      user.id,
+      ['CURRENT', 'COMPLETED', 'REPEATING'],
+      [1, 2, 3],
+    );
+    // 2 (PLANNING) and 3 (DROPPED) fail the allowed-status set; 1
+    // (CURRENT) passes. Caller subtracts this from the candidate set.
+    expect(Array.from(disallowed).sort((a, b) => a - b)).toEqual([2, 3]);
+  });
+
+  it('does NOT include ids missing a list entry entirely (favourites-only items still pass through)', async () => {
+    const user = seedUser(db);
+    seedMedia(db, 1);
+    seedMedia(db, 2);
+    // Only id 1 has a list entry — id 2 represents a favourite the
+    // user never added to their list.
+    seedListEntry(db, user.id, 1, 100, 'DROPPED');
+
+    const disallowed = await getMediaIdsWithDisallowedListStatus(
+      exec,
+      user.id,
+      ['CURRENT', 'COMPLETED', 'REPEATING'],
+      [1, 2],
+    );
+    // 2 isn't returned even though it doesn't match the allowed
+    // statuses — it has no list entry at all, and the chip semantics
+    // is "exclude wrong status", not "require a list entry".
+    expect(Array.from(disallowed)).toEqual([1]);
+  });
+
+  it('scopes by anilist_user_id (other users\u2019 entries do not leak)', async () => {
+    const alice = seedUser(db, { userId: 1, userName: 'alice' });
+    const bob = seedUser(db, { userId: 2, userName: 'bob' });
+    seedMedia(db, 1);
+    // Alice has it as PLANNING (disallowed), Bob has it as CURRENT
+    // (allowed). Querying with alice's id should flag the media;
+    // querying with bob's should not.
+    seedListEntry(db, alice.id, 1, 100, 'PLANNING');
+    seedListEntry(db, bob.id, 1, 100, 'CURRENT');
+
+    const aliceDisallowed = await getMediaIdsWithDisallowedListStatus(
+      exec,
+      alice.id,
+      ['CURRENT'],
+      [1],
+    );
+    expect(Array.from(aliceDisallowed)).toEqual([1]);
+
+    const bobDisallowed = await getMediaIdsWithDisallowedListStatus(
+      exec,
+      bob.id,
+      ['CURRENT'],
+      [1],
+    );
+    expect(Array.from(bobDisallowed)).toEqual([]);
+  });
+
+  it('returns an empty set for empty inputs (no SQL round-trip)', async () => {
+    const user = seedUser(db);
+    expect(
+      (await getMediaIdsWithDisallowedListStatus(exec, user.id, [], [1, 2]))
+        .size,
+    ).toBe(0);
+    expect(
+      (
+        await getMediaIdsWithDisallowedListStatus(
+          exec,
+          user.id,
+          ['CURRENT'],
+          [],
+        )
+      ).size,
+    ).toBe(0);
+  });
+});
+
+describe('getVoiceActorsForCandidates', () => {
+  function seedCast(
+    db: Database,
+    mediaId: number,
+    characterId: number,
+    staffId: number,
+  ): void {
+    seedMedia(db, mediaId);
+    seedCharacter(db, characterId, `Char ${characterId}`);
+    seedMediaCharacter(db, mediaId, characterId, 0);
+    seedStaff(db, staffId, `Staff ${staffId}`);
+    seedCharacterVoiceActor(db, mediaId, characterId, staffId);
+  }
+
+  it('returns the distinct VAs whose cast row joins one of the candidate media ids', async () => {
+    seedCast(db, 1, 100, 1000);
+    seedCast(db, 2, 101, 1001);
+    // A different media not in the candidate set — its VA must not
+    // surface in the chip's options.
+    seedCast(db, 999, 102, 1002);
+
+    const vas = await getVoiceActorsForCandidates(exec, [1, 2]);
+    const ids = vas.map((v) => v.id).sort((a, b) => a - b);
+    expect(ids).toEqual([1000, 1001]);
+  });
+
+  it('dedupes a VA that voices the same character across multiple cached shows', async () => {
+    // Same staff in two different shows (e.g. recurring character).
+    seedCast(db, 1, 100, 1000);
+    seedMedia(db, 2);
+    seedCharacter(db, 200, 'Char in Show 2');
+    seedMediaCharacter(db, 2, 200, 0);
+    seedCharacterVoiceActor(db, 2, 200, 1000);
+
+    const vas = await getVoiceActorsForCandidates(exec, [1, 2]);
+    expect(vas.map((v) => v.id)).toEqual([1000]);
+  });
+
+  it('returns an empty array when no candidates have cached cast yet', async () => {
+    seedMedia(db, 1);
+    // Media exists but no character_voice_actor rows -> nothing to
+    // surface. Drives the chip's empty state.
+    expect(await getVoiceActorsForCandidates(exec, [1])).toEqual([]);
+  });
+
+  it('returns an empty array for empty inputs (no SQL round-trip)', async () => {
+    expect(await getVoiceActorsForCandidates(exec, [])).toEqual([]);
+  });
+});
+
+describe('getMediaIdsWithCachedCast', () => {
+  it('returns only candidate ids that have at least one character_voice_actor row', async () => {
+    seedMedia(db, 1);
+    seedMedia(db, 2);
+    seedMedia(db, 3);
+    seedCharacter(db, 10, 'Char 10');
+    seedMediaCharacter(db, 1, 10, 0);
+    seedStaff(db, 100, 'VA 100');
+    seedCharacterVoiceActor(db, 1, 10, 100);
+    // Media 2 has a character but no VA row (e.g. AniList returned
+    // no voice actors for the requested language).
+    seedCharacter(db, 20, 'Char 20');
+    seedMediaCharacter(db, 2, 20, 0);
+
+    const cached = await getMediaIdsWithCachedCast(exec, [1, 2, 3]);
+    // 1 has a VA row -> cached. 2 has a character but no VA -> NOT
+    // cached. 3 has nothing -> not cached.
+    expect(Array.from(cached).sort((a, b) => a - b)).toEqual([1]);
+  });
+
+  it('returns an empty set for empty inputs', async () => {
+    expect((await getMediaIdsWithCachedCast(exec, [])).size).toBe(0);
   });
 });

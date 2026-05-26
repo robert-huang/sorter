@@ -287,91 +287,102 @@ export function SettingsMenu({
           <div className="settings-tab-body" role="tabpanel">
             {tab === 'slots' && (
               <>
-                <div className="settings-slots">
-                  <SlotList
-                    slots={manifest.slots}
-                    loadedSlotId={loadedSlotId}
-                    onSwitch={handleSwitch}
-                    onDelete={onDeleteSlot}
-                    onRename={onRenameSlot}
-                    onDownload={onDownloadSlot}
-                    onTogglePin={onTogglePinSlot}
-                    cloudControlsVisible={cloudStatus === 'ready'}
-                    onCloudToggleOptIn={onCloudToggleOptIn}
-                    onCloudPush={onCloudPushSlot}
-                    onCloudPull={onCloudPullSlot}
-                    cloudPushingIds={cloudPushingIds}
-                    cloudPullingIds={cloudPullingIds}
-                    onCloudPushAll={onCloudPushAllSlots}
-                    onCloudPullAll={onCloudPullAllSlots}
-                    onNewSort={handleNewSort}
-                  />
-                </div>
-                <div className="settings-divider" />
-                <button className="settings-item" onClick={onLoadClick}>
-                  Load save file…
-                </button>
-                <button
-                  className="settings-item"
-                  onClick={onBackupAllClick}
-                  disabled={manifest.slots.length === 0}
-                  title={
-                    manifest.slots.length === 0
-                      ? 'No slots to back up yet'
-                      : 'Download every slot in a single JSON archive'
-                  }
-                >
-                  Backup all slots…
-                </button>
-                <button
-                  className="settings-item"
-                  onClick={onRestoreClick}
-                  title="Import a previously-saved archive file"
-                >
-                  Restore from backup…
-                </button>
-                <button
-                  className="settings-item danger"
-                  onClick={onResetClick}
-                  disabled={!hasActiveSlot}
-                  title={
-                    hasActiveSlot
-                      ? 'Delete the slot you are currently sorting in'
-                      : 'No active slot to delete'
-                  }
-                >
-                  Delete this slot
-                </button>
-                {cloudStatus !== 'unavailable' && (
-                  <>
-                    <div className="settings-divider" />
-                    <CloudSection
-                      status={cloudStatus}
-                      folderName={cloudFolderName}
-                      onSignIn={() => {
-                        setOpen(false);
-                        onCloudSignIn();
-                      }}
-                      onPickFolder={() => {
-                        setOpen(false);
-                        onCloudPickFolder();
-                      }}
-                      onBrowse={() => {
-                        setOpen(false);
-                        onCloudBrowse();
-                      }}
-                      onSignOut={() => {
-                        setOpen(false);
-                        onCloudSignOut();
-                      }}
+                {/* Only the slot list scrolls. The action buttons and
+                    cloud section below sit in a pinned region so the
+                    scroll thumb stops at the bottom of the slot list
+                    instead of extending past "Load save file…" etc. */}
+                <div className="settings-slots-scroll">
+                  <div className="settings-slots">
+                    <SlotList
+                      slots={manifest.slots}
+                      loadedSlotId={loadedSlotId}
+                      onSwitch={handleSwitch}
+                      onDelete={onDeleteSlot}
+                      onRename={onRenameSlot}
+                      onDownload={onDownloadSlot}
+                      onTogglePin={onTogglePinSlot}
+                      cloudControlsVisible={cloudStatus === 'ready'}
+                      onCloudToggleOptIn={onCloudToggleOptIn}
+                      onCloudPush={onCloudPushSlot}
+                      onCloudPull={onCloudPullSlot}
+                      cloudPushingIds={cloudPushingIds}
+                      cloudPullingIds={cloudPullingIds}
+                      onCloudPushAll={onCloudPushAllSlots}
+                      onCloudPullAll={onCloudPullAllSlots}
+                      onNewSort={handleNewSort}
                     />
-                  </>
-                )}
+                  </div>
+                </div>
+                <div className="settings-tab-actions">
+                  <div className="settings-divider" />
+                  <button className="settings-item" onClick={onLoadClick}>
+                    Load save file…
+                  </button>
+                  <button
+                    className="settings-item"
+                    onClick={onBackupAllClick}
+                    disabled={manifest.slots.length === 0}
+                    title={
+                      manifest.slots.length === 0
+                        ? 'No slots to back up yet'
+                        : 'Download every slot in a single JSON archive'
+                    }
+                  >
+                    Backup all slots…
+                  </button>
+                  <button
+                    className="settings-item"
+                    onClick={onRestoreClick}
+                    title="Import a previously-saved archive file"
+                  >
+                    Restore from backup…
+                  </button>
+                  <button
+                    className="settings-item danger"
+                    onClick={onResetClick}
+                    disabled={!hasActiveSlot}
+                    title={
+                      hasActiveSlot
+                        ? 'Delete the slot you are currently sorting in'
+                        : 'No active slot to delete'
+                    }
+                  >
+                    Delete this slot
+                  </button>
+                  {cloudStatus !== 'unavailable' && (
+                    <>
+                      <div className="settings-divider" />
+                      <CloudSection
+                        status={cloudStatus}
+                        folderName={cloudFolderName}
+                        onSignIn={() => {
+                          setOpen(false);
+                          onCloudSignIn();
+                        }}
+                        onPickFolder={() => {
+                          setOpen(false);
+                          onCloudPickFolder();
+                        }}
+                        onBrowse={() => {
+                          setOpen(false);
+                          onCloudBrowse();
+                        }}
+                        onSignOut={() => {
+                          setOpen(false);
+                          onCloudSignOut();
+                        }}
+                      />
+                    </>
+                  )}
+                </div>
               </>
             )}
 
             {tab === 'databases' && (
-              <>
+              // Databases tab keeps a single scroller across its body —
+              // there's no pinned action region here, so the whole
+              // panel is free to scroll when the database list grows.
+              <div className="settings-tab-scroll">
                 {cloudStatus === 'unavailable' ? (
                   <div className="settings-status">
                     Database sync needs autosave enabled. Open the app from
@@ -392,7 +403,7 @@ export function SettingsMenu({
                   To refresh a source's data, open the Start tab and pick
                   the source's import mode.
                 </div>
-              </>
+              </div>
             )}
           </div>
 

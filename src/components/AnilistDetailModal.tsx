@@ -40,10 +40,20 @@ interface Props {
   onClose: () => void;
 }
 
+/**
+ * Resolve the modal header title. Falls through
+ *   romaji → english → native → caller-supplied fallback
+ * to match what the AniList tab's chip pipeline shows (pickTitle in
+ * AnilistStartMode + the romaji-first SELECT in
+ * getFavouritesAsItems). Keeping the modal's preferred order in sync
+ * with the chip's label avoids a visible flicker / mismatch when the
+ * user clicks a chip whose label is the romaji title and the modal
+ * resolves a different one once the detail row loads.
+ */
 function pickTitle(d: MediaDetail | null, fallback: string): string {
   if (!d) return fallback;
   const m = d.media;
-  return m.title_english ?? m.title_romaji ?? m.title_native ?? fallback;
+  return m.title_romaji ?? m.title_english ?? m.title_native ?? fallback;
 }
 
 /** Render a fuzzy date as YYYY-MM-DD with `?` placeholders for the

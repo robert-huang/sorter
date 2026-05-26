@@ -387,6 +387,62 @@ export async function getAnilistUserById(
 }
 
 /**
+ * Lookup a previously-imported user by their AniList handle. Used by
+ * the start screen to decide whether the username typed into the
+ * input already has a cached list — if it does, the UI can offer
+ * "use cached" instead of forcing a full re-scrape.
+ *
+ * Uses COLLATE NOCASE on the comparison so 'Robert', 'robert', and
+ * 'ROBERT' all resolve to the same DB row. AniList itself is
+ * case-insensitive for username lookup (the resolveUser GraphQL
+ * normalises), so the local index should match that behaviour —
+ * otherwise typing 'robert' in lower-case wouldn't surface a
+ * cache that was imported as 'Robert'.
+ */
+export async function getAnilistUserByName(
+  db: AnilistDbExecutor,
+  name: string,
+): Promise<AnilistUserSummary | null> {
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+  const rows = await db.exec(
+    'SELECT id, name, fetched_at FROM anilist_user WHERE name = ? COLLATE NOCASE LIMIT 1',
+    [trimmed],
+  );
+  if (rows.length === 0) return null;
+  return {
+    id: reqN(rows[0].id),
+    name: reqS(rows[0].name),
+    fetched_at: reqN(rows[0].fetched_at),
+  };
+}
+
+/**
+ * Count of media_list_entry rows for a (user, type) combo. Cheaper
+ * than `getListedMedia(...).length` because the UI only needs the
+ * number for the "cached: N items, refreshed X ago" hint — we don't
+ * want to drag all the rows over the worker boundary just to count
+ * them on the main thread. The matching `JOIN media` lives here too
+ * so a user with stale entries pointing at media rows that no longer
+ * exist (cache eviction edge case) doesn't get an inflated count.
+ */
+export async function getListedMediaCount(
+  db: AnilistDbExecutor,
+  anilistUserId: number,
+  type: AnilistMediaType,
+): Promise<number> {
+  const rows = await db.exec(
+    `SELECT COUNT(*) AS n
+       FROM media_list_entry mle
+       JOIN media m ON m.id = mle.media_id
+      WHERE mle.anilist_user_id = ? AND m.type = ?`,
+    [anilistUserId, type],
+  );
+  if (rows.length === 0) return 0;
+  return reqN(rows[0].n);
+}
+
+/**
  * Latest AniList user known to the local DB, ordered by `fetched_at`
  * descending. Used as the StartScreen + source-panel default-fill so
  * a returning user sees their most-recent username without retyping
@@ -454,6 +510,139 @@ export async function getLastFavouritesRefresh(
 }
 
 /**
+ * Lightweight, source-agnostic record of one favourited entity ready
+ * to be turned into an `Item` by the UI. Returned by
+ * `getFavouritesAsItems` so the AniList tab can ship favourites to
+ * the staged-items panel as a sortable batch without re-deriving the
+ * per-type column shape (image vs cover_image, name_full vs name) on
+ * every render.
+ *
+ * `externalId` is the AniList stable id so the AniList LIST filter
+ * chips and detail modal can opportunistically attach when the favourite
+ * is a media entity (ANIME/MANGA). For CHARACTERS/STAFF/STUDIOS the
+ * caller materialises a manual-source Item — the AniList chip module
+ * is media-only — and the externalId stays in the synthetic Item id
+ * so future cross-source modules can still navigate back to the
+ * underlying row.
+ */
+export interface FavouriteAsItem {
+  externalId: number;
+  label: string;
+  imageUrl: string | null;
+}
+
+/**
+ * Read one user's favourites of `type` as a flat, sort-order-ranked
+ * list of `(externalId, label, imageUrl)` rows. Drives the "+ Add N
+ * favourites to staged" action on the start screen — the favourites
+ * cache is updated by `runAnilistFavourites`, and this is the only
+ * way the UI surfaces that data as sortable items.
+ *
+ * Ordered by AniList's `sort_order` so the user's preferred
+ * favourite order is preserved (favourite #1 lands at index 0). The
+ * receiving sort engine doesn't currently treat favourites as a
+ * pre-ranked sublist (a favourites batch is added as `kind: 'flat'`
+ * by the AniList tab), but keeping the order stable means a future
+ * "use favourite order as ranking" CTA can lean on it without
+ * another schema change.
+ *
+ * For ANIME/MANGA the label falls through romaji → english → native
+ * → "Untitled (id)" — same waterfall the StartScreen import preview
+ * uses, so labels stay consistent whether the user added the item
+ * via list-import or via favourites.
+ */
+export async function getFavouritesAsItems(
+  db: AnilistDbExecutor,
+  anilistUserId: number,
+  type: AnilistFavouriteType,
+): Promise<FavouriteAsItem[]> {
+  switch (type) {
+    case 'ANIME':
+    case 'MANGA': {
+      const rows = await db.exec(
+        `SELECT m.id          AS id,
+                m.title_romaji  AS title_romaji,
+                m.title_english AS title_english,
+                m.title_native  AS title_native,
+                m.cover_image   AS cover_image
+           FROM media_favourite mf
+           JOIN media m ON m.id = mf.media_id
+          WHERE mf.anilist_user_id = ? AND m.type = ?
+          ORDER BY mf.sort_order ASC`,
+        [anilistUserId, type],
+      );
+      return rows.map((r) => {
+        const id = reqN(r.id);
+        const label =
+          s(r.title_romaji) ??
+          s(r.title_english) ??
+          s(r.title_native) ??
+          `Untitled (${id})`;
+        return {
+          externalId: id,
+          label,
+          imageUrl: s(r.cover_image),
+        };
+      });
+    }
+    case 'CHARACTERS': {
+      const rows = await db.exec(
+        `SELECT c.id          AS id,
+                c.name_full   AS name_full,
+                c.name_native AS name_native,
+                c.image       AS image
+           FROM character_favourite cf
+           JOIN character c ON c.id = cf.character_id
+          WHERE cf.anilist_user_id = ?
+          ORDER BY cf.sort_order ASC`,
+        [anilistUserId],
+      );
+      return rows.map((r) => {
+        const id = reqN(r.id);
+        const label = s(r.name_full) ?? s(r.name_native) ?? `Character #${id}`;
+        return { externalId: id, label, imageUrl: s(r.image) };
+      });
+    }
+    case 'STAFF': {
+      const rows = await db.exec(
+        `SELECT s.id          AS id,
+                s.name_full   AS name_full,
+                s.name_native AS name_native,
+                s.image       AS image
+           FROM staff_favourite sf
+           JOIN staff s ON s.id = sf.staff_id
+          WHERE sf.anilist_user_id = ?
+          ORDER BY sf.sort_order ASC`,
+        [anilistUserId],
+      );
+      return rows.map((r) => {
+        const id = reqN(r.id);
+        const label = s(r.name_full) ?? s(r.name_native) ?? `Staff #${id}`;
+        return { externalId: id, label, imageUrl: s(r.image) };
+      });
+    }
+    case 'STUDIOS': {
+      // Studios have no image column in the AniList schema — the
+      // staged-items panel renders a placeholder cover for items
+      // without imageUrl, so returning null here is correct.
+      const rows = await db.exec(
+        `SELECT st.id   AS id,
+                st.name AS name
+           FROM studio_favourite sf
+           JOIN studio st ON st.id = sf.studio_id
+          WHERE sf.anilist_user_id = ?
+          ORDER BY sf.sort_order ASC`,
+        [anilistUserId],
+      );
+      return rows.map((r) => {
+        const id = reqN(r.id);
+        return { externalId: id, label: reqS(r.name), imageUrl: null };
+      });
+    }
+  }
+}
+
+/**
  * Convenience subset: the AniList ids the user has favourited at the
  * media level. Used by the LIST filter chip "favourited?". Scoped by
  * user so a shared DB doesn't mix Alice's and Bob's favourites.
@@ -473,6 +662,116 @@ export async function getFavouritedMediaIds(
     anilistUserId,
     ...mediaIds,
   ] as readonly SqlBindable[]);
+  for (const r of rows) out.add(reqN(r.media_id));
+  return out;
+}
+
+/**
+ * Inverse-set lookup used by the LIST tab's "list status" filter
+ * chip. Returns the subset of `candidateMediaIds` that DO have a
+ * media_list_entry for `anilistUserId` whose `status` is NOT in
+ * `allowedStatuses`. The caller subtracts this from the candidate
+ * set so items missing a list entry entirely (e.g. favourites-only
+ * imports without a corresponding list row) still pass through —
+ * the chip's UX is "exclude entries with the wrong status", not
+ * "require a list entry".
+ *
+ * Returns an empty Set if either input is empty, so callers don't
+ * have to short-circuit.
+ */
+export async function getMediaIdsWithDisallowedListStatus(
+  db: AnilistDbExecutor,
+  anilistUserId: number,
+  allowedStatuses: readonly string[],
+  candidateMediaIds: readonly number[],
+): Promise<Set<number>> {
+  const out = new Set<number>();
+  if (candidateMediaIds.length === 0) return out;
+  if (allowedStatuses.length === 0) return out;
+  const sql = `
+    SELECT media_id FROM media_list_entry
+    WHERE anilist_user_id = ?
+      AND media_id IN (${placeholders(candidateMediaIds.length)})
+      AND status NOT IN (${placeholders(allowedStatuses.length)})
+  `;
+  const rows = await db.exec(sql, [
+    anilistUserId,
+    ...candidateMediaIds,
+    ...allowedStatuses,
+  ] as readonly SqlBindable[]);
+  for (const r of rows) out.add(reqN(r.media_id));
+  return out;
+}
+
+/**
+ * Universe of voice actors whose `character_voice_actor` rows
+ * intersect the given candidate media set. Powers the VA chip's
+ * picker: instead of listing every staff row in the DB (often
+ * tens of thousands), we only surface VAs that could actually
+ * filter the current slot. Sorted by name for stable display.
+ *
+ * Empty input -> empty result (no rows, no SQL). The chip's "fetch
+ * cast for all N shows" affordance is responsible for *expanding*
+ * the cached cast set when the user wants more VAs to choose from.
+ */
+export interface VoiceActorOption {
+  id: number;
+  name: string;
+  language: string | null;
+}
+
+export async function getVoiceActorsForCandidates(
+  db: AnilistDbExecutor,
+  candidateMediaIds: readonly number[],
+): Promise<VoiceActorOption[]> {
+  if (candidateMediaIds.length === 0) return [];
+  const sql = `
+    SELECT DISTINCT s.id        AS id,
+                    s.name_full AS name_full,
+                    s.name_native AS name_native,
+                    s.language_v2 AS language_v2
+      FROM character_voice_actor cva
+      JOIN staff s ON s.id = cva.staff_id
+     WHERE cva.media_id IN (${placeholders(candidateMediaIds.length)})
+     ORDER BY COALESCE(s.name_full, s.name_native, '') COLLATE NOCASE
+  `;
+  const rows = await db.exec(
+    sql,
+    candidateMediaIds as readonly SqlBindable[],
+  );
+  return rows.map((r) => ({
+    id: reqN(r.id),
+    name:
+      s(r.name_full) ?? s(r.name_native) ?? `Staff #${Number(r.id)}`,
+    language: s(r.language_v2),
+  }));
+}
+
+/**
+ * Partition `candidateMediaIds` into those that already have at
+ * least one cached `character_voice_actor` row (cast cached) and
+ * those that don't. Drives the VA chip's "Fetch cast for all N
+ * shows" affordance: we only re-run lazy expansion against the
+ * uncached side.
+ */
+export async function getMediaIdsWithCachedCast(
+  db: AnilistDbExecutor,
+  candidateMediaIds: readonly number[],
+): Promise<Set<number>> {
+  const out = new Set<number>();
+  if (candidateMediaIds.length === 0) return out;
+  // EXISTS is cheaper than DISTINCT on the junction — the (media_id,
+  // character_id, …) PK already lets the planner stop at the first
+  // matching row per media_id.
+  const sql = `
+    SELECT DISTINCT cva.media_id AS media_id
+      FROM character_voice_actor cva
+     WHERE cva.media_id IN (${placeholders(candidateMediaIds.length)})
+  `;
+  const rows = await db.exec(
+    sql,
+    candidateMediaIds as readonly SqlBindable[],
+  );
   for (const r of rows) out.add(reqN(r.media_id));
   return out;
 }
@@ -504,6 +803,8 @@ export const productionReads = {
   getMediaByIds: (ids: readonly number[]) => getMediaByIds(defaultDb(), ids),
   getListedMedia: (anilistUserId: number, type: AnilistMediaType) =>
     getListedMedia(defaultDb(), anilistUserId, type),
+  getListedMediaCount: (anilistUserId: number, type: AnilistMediaType) =>
+    getListedMediaCount(defaultDb(), anilistUserId, type),
   getListEntriesByMediaIds: (
     anilistUserId: number,
     mediaIds: readonly number[],
@@ -513,6 +814,8 @@ export const productionReads = {
     hasMediaCharacters(defaultDb(), mediaId),
   getAnilistUserById: (anilistUserId: number) =>
     getAnilistUserById(defaultDb(), anilistUserId),
+  getAnilistUserByName: (name: string) =>
+    getAnilistUserByName(defaultDb(), name),
   getLatestAnilistUser: () => getLatestAnilistUser(defaultDb()),
   getLastFullRefresh: (anilistUserId: number, type: AnilistMediaType) =>
     getLastFullRefresh(defaultDb(), anilistUserId, type),
@@ -524,4 +827,23 @@ export const productionReads = {
     anilistUserId: number,
     mediaIds: readonly number[],
   ) => getFavouritedMediaIds(defaultDb(), anilistUserId, mediaIds),
+  getFavouritesAsItems: (
+    anilistUserId: number,
+    type: AnilistFavouriteType,
+  ) => getFavouritesAsItems(defaultDb(), anilistUserId, type),
+  getMediaIdsWithDisallowedListStatus: (
+    anilistUserId: number,
+    allowedStatuses: readonly string[],
+    candidateMediaIds: readonly number[],
+  ) =>
+    getMediaIdsWithDisallowedListStatus(
+      defaultDb(),
+      anilistUserId,
+      allowedStatuses,
+      candidateMediaIds,
+    ),
+  getVoiceActorsForCandidates: (candidateMediaIds: readonly number[]) =>
+    getVoiceActorsForCandidates(defaultDb(), candidateMediaIds),
+  getMediaIdsWithCachedCast: (candidateMediaIds: readonly number[]) =>
+    getMediaIdsWithCachedCast(defaultDb(), candidateMediaIds),
 };

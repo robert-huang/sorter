@@ -1,7 +1,66 @@
 import { registerSource, type SourceDescriptor } from '../../db/source-registry';
 import migration001 from './migrations/001-init.sql?raw';
+import type { AnilistFavouriteType, AnilistMediaType } from './types';
 
 export const ANILIST_SOURCE_ID = 'anilist';
+
+/**
+ * Origin used to build canonical AniList entity URLs. Centralised so
+ * a future move to a localised mirror or a self-hosted reverse proxy
+ * (unlikely but cheap to support) only needs one edit.
+ */
+export const ANILIST_SITE_ORIGIN = 'https://anilist.co';
+
+/**
+ * Path segment AniList uses for each entity kind. Public so per-kind
+ * URL builders (and tests covering them) don't hardcode the mapping
+ * twice. AniList accepts `/<kind>/<id>` and silently 30x-redirects
+ * to `/<kind>/<id>/<title-slug>` when missing the slug, so we never
+ * need to fetch + URL-encode a title to produce a working link.
+ */
+export const ANILIST_ENTITY_PATH: Record<
+  'ANIME' | 'MANGA' | 'CHARACTERS' | 'STAFF' | 'STUDIOS',
+  string
+> = {
+  ANIME: 'anime',
+  MANGA: 'manga',
+  CHARACTERS: 'character',
+  STAFF: 'staff',
+  STUDIOS: 'studio',
+};
+
+/**
+ * Build the canonical AniList URL for a media entry. Accepts the
+ * MediaRow's `type` column directly so callers can stay shape-light
+ * (no need to plumb a discriminator). Returns the bare `/anime/<id>`
+ * or `/manga/<id>` form — AniList canonicalises the trailing slug
+ * server-side, so no need to derive one client-side.
+ *
+ * Used by the start-screen item materialisers (list import,
+ * favourites import) so every AniList item gets a clickable `url`
+ * that opens the original entry — matches the behaviour the staged-
+ * items panel + result rows expect from CSV / clipboard items.
+ */
+export function buildAnilistMediaUrl(
+  type: AnilistMediaType,
+  id: number,
+): string {
+  return `${ANILIST_SITE_ORIGIN}/${ANILIST_ENTITY_PATH[type]}/${id}`;
+}
+
+/**
+ * Build the canonical AniList URL for any favourite-kind entity. The
+ * CHARACTERS/STAFF/STUDIOS branches reuse this so a sorted list of
+ * fav characters lets you click through to their AniList page —
+ * critical for tie-breaking via portraits / VA credits the way the
+ * sorter UI doesn't surface.
+ */
+export function buildAnilistFavouriteUrl(
+  type: AnilistFavouriteType,
+  id: number,
+): string {
+  return `${ANILIST_SITE_ORIGIN}/${ANILIST_ENTITY_PATH[type]}/${id}`;
+}
 
 /**
  * AniList source descriptor — migrations + the row-level merge spec consumed

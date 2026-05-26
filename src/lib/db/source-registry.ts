@@ -92,6 +92,19 @@ export interface SourceFilterModule {
     externalIds: ReadonlySet<string | number>,
     chipState: FilterChipState,
   ): Promise<Set<string | number>>;
+  /** Optional fast-path check: returns true iff applying `chipState`
+   *  would let every externalId through (i.e. the chip group is a
+   *  no-op). FilterBar uses this to skip the async `computeAllowed`
+   *  round-trip when no chip is "active".
+   *
+   *  The default fallback (if a module doesn't implement this) is
+   *  `shallowEqual(state, initialChipState())` — which is correct
+   *  when the initial state itself is the "off" state. Modules that
+   *  ship a non-trivial default (e.g. AniList's list_status chip
+   *  pre-selecting 3 of 6 statuses) MUST implement this so the
+   *  pre-selected default doesn't get treated as "no filter active"
+   *  and silently bypass the actual filtering work. */
+  isPassthrough?(chipState: FilterChipState): boolean;
 }
 
 const filterModules = new Map<string, SourceFilterModule>();

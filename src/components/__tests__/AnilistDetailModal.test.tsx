@@ -231,4 +231,61 @@ describe('AnilistDetailModal — lazy expansion', () => {
     await flushPromises();
     expect(container.textContent).toMatch(/boom/);
   });
+
+  // The chip pipeline (pickTitle in AnilistStartMode + the SELECT in
+  // getFavouritesAsItems) labels media as romaji → english → native.
+  // The detail modal's header is what the user sees right after they
+  // click a chip, so it MUST resolve to the same title — otherwise
+  // the header flickers from the chip's romaji label to a different
+  // language once detail loads. These two tests pin the waterfall.
+  it('prefers romaji over english when both are present (matches chip waterfall)', async () => {
+    mockedGetMediaDetail.mockResolvedValueOnce({
+      ...makeDetail(50, true),
+      media: makeMedia(50, {
+        title_romaji: 'Sousou no Frieren',
+        title_english: 'Frieren: Beyond Journey\u2019s End',
+        title_native: '\u846C\u9001\u306E\u30D5\u30EA\u30FC\u30EC\u30F3',
+      }),
+    });
+
+    await act(async () => {
+      root.render(
+        <AnilistDetailModal
+          mediaId={50}
+          fallbackTitle="Sousou no Frieren"
+          onClose={() => {}}
+        />,
+      );
+    });
+    await flushPromises();
+
+    const heading = container.querySelector('h2,h3,.anilist-detail-title');
+    const text = (heading?.textContent ?? container.textContent ?? '').toString();
+    expect(text).toContain('Sousou no Frieren');
+    expect(text).not.toContain('Beyond Journey');
+  });
+
+  it('falls back to english when romaji is missing', async () => {
+    mockedGetMediaDetail.mockResolvedValueOnce({
+      ...makeDetail(51, true),
+      media: makeMedia(51, {
+        title_romaji: null,
+        title_english: 'English Only',
+        title_native: null,
+      }),
+    });
+
+    await act(async () => {
+      root.render(
+        <AnilistDetailModal
+          mediaId={51}
+          fallbackTitle="English Only"
+          onClose={() => {}}
+        />,
+      );
+    });
+    await flushPromises();
+
+    expect(container.textContent).toContain('English Only');
+  });
 });
