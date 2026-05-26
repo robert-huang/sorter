@@ -180,7 +180,7 @@ describe('mapMediaRow', () => {
 });
 
 describe('studio/tag mappers', () => {
-  it('mapStudioRows returns one row per studio node, deduplicated by the importer not here', () => {
+  it('mapStudioRows returns one row per unique studio node', () => {
     const rows = mapStudioRows(fullMedia(), NOW);
     expect(rows).toEqual([
       { id: 10, name: 'A-1 Pictures', fetched_at: NOW },
@@ -215,6 +215,51 @@ describe('studio/tag mappers', () => {
     expect(mapMediaStudioRows(media)).toEqual([]);
     expect(mapTagRows(media, NOW)).toEqual([]);
     expect(mapMediaTagRows(media)).toEqual([]);
+  });
+
+  // Regression: AniList's `studios.nodes` is a one-per-edge view, so a
+  // studio that appears in two StudioEdge entries for the same media
+  // (e.g. once as main and once as a secondary producer credit) leaks
+  // through as duplicate nodes. Inserting both into media_studio would
+  // blow the (media_id, studio_id) PK and abort the whole import.
+  it('mapMediaStudioRows dedups duplicate studio ids within one media', () => {
+    const media = fullMedia({
+      studios: {
+        nodes: [
+          { id: 10, name: 'A-1 Pictures' },
+          { id: 11, name: 'CloverWorks' },
+          { id: 10, name: 'A-1 Pictures' }, // duplicate
+        ],
+      },
+    });
+    expect(mapMediaStudioRows(media)).toEqual([
+      { media_id: 100, studio_id: 10, sort_order: 0 },
+      { media_id: 100, studio_id: 11, sort_order: 1 },
+    ]);
+    // The parent metadata mapper applies the same dedup — keeps a
+    // consistent count and avoids redundant UPSERTs in the batch.
+    expect(mapStudioRows(media, NOW)).toEqual([
+      { id: 10, name: 'A-1 Pictures', fetched_at: NOW },
+      { id: 11, name: 'CloverWorks', fetched_at: NOW },
+    ]);
+  });
+
+  it('mapMediaTagRows dedups duplicate tag names within one media', () => {
+    const media = fullMedia({
+      tags: [
+        { name: 'Romance', rank: 90 },
+        { name: 'School', rank: 70 },
+        { name: 'Romance', rank: 50 }, // duplicate (lower rank ignored, first wins)
+      ],
+    });
+    expect(mapMediaTagRows(media)).toEqual([
+      { media_id: 100, tag_name: 'Romance', rank: 90 },
+      { media_id: 100, tag_name: 'School', rank: 70 },
+    ]);
+    expect(mapTagRows(media, NOW)).toEqual([
+      { name: 'Romance', fetched_at: NOW },
+      { name: 'School', fetched_at: NOW },
+    ]);
   });
 });
 

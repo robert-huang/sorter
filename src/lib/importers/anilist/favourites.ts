@@ -160,6 +160,30 @@ function dispatchFor(
 type Statement = { sql: string; params: readonly SqlBindable[] };
 
 /**
+ * Dedup favourite edges by their node's stable id, keeping the FIRST
+ * occurrence. Used by every per-type favourites transaction to keep
+ * the various <type>_favourite PK constraints intact even when
+ * AniList pagination overlaps (which it can do if the user
+ * favourites/unfavourites mid-import).
+ *
+ * Generic over node type because all four favourite kinds (media,
+ * character, staff, studio) carry a numeric `id` on the node.
+ */
+function dedupFavouriteEdgesByNodeId<N extends { id: number }>(
+  edges: AnilistFavouriteEdge<N>[],
+): AnilistFavouriteEdge<N>[] {
+  if (edges.length < 2) return edges;
+  const seen = new Set<number>();
+  const out: AnilistFavouriteEdge<N>[] = [];
+  for (const e of edges) {
+    if (seen.has(e.node.id)) continue;
+    seen.add(e.node.id);
+    out.push(e);
+  }
+  return out;
+}
+
+/**
  * Statement that upserts the anilist_user row. Always the first
  * statement in every favourites transaction so the FK on the
  * <type>_favourite tables resolves on a fresh DB.
@@ -177,6 +201,14 @@ function buildMediaFavouritesTransaction(
   mediaType: 'ANIME' | 'MANGA',
   now: number,
 ): Statement[] {
+  // Dedup edges by node.id BEFORE anything else. Same reasoning as
+  // the list importer: pagination overlap during AniList mutations
+  // can yield two edges with the same favourite node, which would
+  // blow PK constraints on `media_favourite`, `media_studio` /
+  // `media_tag` (per-media junctions inserted twice). Favourites
+  // can't legitimately appear twice on a user's list.
+  edges = dedupFavouriteEdgesByNodeId(edges);
+
   const stmts: Statement[] = [];
 
   stmts.push(anilistUserUpsertStmt(anilistUser));
@@ -264,6 +296,7 @@ function buildCharacterFavouritesTransaction(
   anilistUser: AnilistUserRow,
   now: number,
 ): Statement[] {
+  edges = dedupFavouriteEdgesByNodeId(edges);
   const stmts: Statement[] = [];
   stmts.push(anilistUserUpsertStmt(anilistUser));
   stmts.push({
@@ -294,6 +327,7 @@ function buildStaffFavouritesTransaction(
   anilistUser: AnilistUserRow,
   now: number,
 ): Statement[] {
+  edges = dedupFavouriteEdgesByNodeId(edges);
   const stmts: Statement[] = [];
   stmts.push(anilistUserUpsertStmt(anilistUser));
   stmts.push({
@@ -319,6 +353,7 @@ function buildStudioFavouritesTransaction(
   anilistUser: AnilistUserRow,
   now: number,
 ): Statement[] {
+  edges = dedupFavouriteEdgesByNodeId(edges);
   const stmts: Statement[] = [];
   stmts.push(anilistUserUpsertStmt(anilistUser));
   stmts.push({

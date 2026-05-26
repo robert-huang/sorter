@@ -27,9 +27,11 @@ import { formatAnilistProgress } from './anilistProgressLabel';
  *   3. On success: pull every imported media row out of anilist.sqlite,
  *      hand them to the cross-source FilterBar, render a preview list
  *      with per-row checkboxes (default all-checked).
- *   4. "Sort N selected items" CTA → calls onStartScratch with each
+ *   4. "Add N to staged" CTA → calls onAddToStaged with each
  *      selected media materialised as an Item carrying
- *      `source: { kind: 'anilist', externalId: media.id }`.
+ *      `source: { kind: 'anilist', externalId: media.id }` and a
+ *      `<username>/<type>` source label so the staged-items panel
+ *      can identify the AniList group amongst other inputs.
  *
  * Username is captured per-action and not persisted as a setting,
  * matching the Phase D locked decision. localStorage holds the
@@ -163,7 +165,7 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
   // timestamps (cheap but pointless).
   const [favTick, setFavTick] = useState(0);
   // Per-row selection. Drives the "Sort N selected items" CTA's count
-  // and the final items[] handed to onStartScratch. Defaults to "all
+  // and the final items[] handed to onAddToStaged. Defaults to "all
   // checked" after each import — the most common intent is "sort
   // everything I just refreshed", and unchecking is easier than
   // checking 600 boxes.

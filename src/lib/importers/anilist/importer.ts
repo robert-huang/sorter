@@ -260,6 +260,25 @@ function anilistUserRowToParams(row: AnilistUserRow): SqlBindable[] {
 type Statement = { sql: string; params: readonly SqlBindable[] };
 
 /**
+ * Dedup a list of `mediaList` entries by `media.id` keeping the FIRST
+ * occurrence. See callers for why duplicates can happen (AniList
+ * pagination-during-mutation) and why first-wins is the right tie-break.
+ */
+function dedupEntriesByMediaId(
+  entries: AnilistMediaListEntryGql[],
+): AnilistMediaListEntryGql[] {
+  if (entries.length < 2) return entries;
+  const seen = new Set<number>();
+  const out: AnilistMediaListEntryGql[] = [];
+  for (const e of entries) {
+    if (seen.has(e.media.id)) continue;
+    seen.add(e.media.id);
+    out.push(e);
+  }
+  return out;
+}
+
+/**
  * Build the single transactional batch that wipes (user, type)'s list
  * entries and rewrites every row from the accumulated entries. Returns
  * statements in the order they must execute:
@@ -282,6 +301,20 @@ function buildListImportStatements(
   type: AnilistMediaType,
   now: number,
 ): Statement[] {
+  // Dedup by media.id BEFORE anything else. Every downstream loop
+  // (parent metadata, junctions, list entries, custom-list memberships)
+  // assumes one row per media; a duplicate would blow PK / UNIQUE
+  // constraints on `media_list_entry`, `media_studio`, `media_tag`,
+  // and `media_custom_list_membership` simultaneously.
+  //
+  // Duplicates can arrive from:
+  //   - Pagination overlap during AniList list mutations (UPDATED_TIME_DESC
+  //     re-orders entries between pages while the importer is mid-fetch).
+  //   - A retry path that re-injected an in-flight page.
+  // Keep FIRST occurrence — earlier pages are the most recently updated
+  // snapshot in AniList's UPDATED_TIME_DESC ordering.
+  entries = dedupEntriesByMediaId(entries);
+
   const stmts: Statement[] = [];
 
   // 1. Upsert the user row first so the FK on media_list_entry resolves
@@ -392,8 +425,17 @@ function buildListImportStatements(
   //    media_list_entry), so we INSERT fresh. The FK back to
   //    custom_list (added in step 6) resolves because we just upserted
   //    every name we're about to reference.
+  //
+  //    `customLists` is dedupped per-entry — the AniList field is
+  //    user-curated so duplicate names within one entry shouldn't
+  //    happen, but the `media_custom_list_membership` PK is
+  //    (anilist_user_id, media_id, custom_list_name, media_type) and
+  //    a duplicate would blow the whole transaction.
   for (const entry of entries) {
+    const seenNames = new Set<string>();
     for (const name of entry.customLists ?? []) {
+      if (seenNames.has(name)) continue;
+      seenNames.add(name);
       stmts.push({
         sql:
           'INSERT INTO media_custom_list_membership ' +
@@ -507,7 +549,14 @@ export async function importAnilistList(
     }
 
     const now = ctx.now();
-    const stmts = buildListImportStatements(accumulated, anilistUserRow, type, now);
+    // Dedup at the import boundary so `entriesWritten` reflects the
+    // true row count after dedup (pagination overlap can yield the same
+    // media id on two pages — see `dedupEntriesByMediaId`). The same
+    // dedup is applied again inside `buildListImportStatements` as a
+    // defensive measure for any direct callers, but here it's a no-op
+    // since `dedupedEntries` is already unique.
+    const dedupedEntries = dedupEntriesByMediaId(accumulated);
+    const stmts = buildListImportStatements(dedupedEntries, anilistUserRow, type, now);
     emitProgress(ctx.onProgress, { kind: 'writing', statements: stmts.length });
     await ctx.db.execBatch(stmts);
 
@@ -521,7 +570,7 @@ export async function importAnilistList(
       anilistUserId: anilistUserRow.id,
       username,
       pagesFetched,
-      entriesWritten: accumulated.length,
+      entriesWritten: dedupedEntries.length,
     };
   } finally {
     releaseScrapeLock(ANILIST_SOURCE_ID, lockToken);

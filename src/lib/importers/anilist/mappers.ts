@@ -125,36 +125,88 @@ export function mapMediaRow(media: AnilistMediaGql, now: number): MediaRow {
   };
 }
 
-/** Returns one StudioRow per unique studio referenced by the media. */
+/**
+ * Returns one StudioRow per unique studio referenced by the media.
+ *
+ * AniList's `studios.nodes` connection occasionally returns the same
+ * studio more than once for a single media — typically when the
+ * underlying `StudioEdge` array has two edges for the same studio
+ * (e.g. one with `isMain: true` plus a secondary producer credit).
+ * The `nodes` view flattens edges one-to-one, so duplicates leak
+ * through. Dedupe by studio id keeping the FIRST occurrence so the
+ * `sort_order` in the matching `mapMediaStudioRows` call agrees
+ * (both walk nodes in the same order).
+ */
 export function mapStudioRows(media: AnilistMediaGql, now: number): StudioRow[] {
   const nodes = media.studios?.nodes ?? [];
-  return nodes.map((s) => ({ id: s.id, name: s.name, fetched_at: now }));
+  const seen = new Set<number>();
+  const rows: StudioRow[] = [];
+  for (const s of nodes) {
+    if (seen.has(s.id)) continue;
+    seen.add(s.id);
+    rows.push({ id: s.id, name: s.name, fetched_at: now });
+  }
+  return rows;
 }
 
-/** Junction rows for media → studio with 0-based sort_order. */
+/**
+ * Junction rows for media → studio with 0-based sort_order.
+ *
+ * Deduped by studio id — the `media_studio` PK is (media_id,
+ * studio_id), so an AniList duplicate in `studios.nodes` would
+ * otherwise blow the import with a UNIQUE constraint failure.
+ * sort_order is assigned by the FILTERED iteration so the surviving
+ * studios get contiguous 0..N-1 values.
+ */
 export function mapMediaStudioRows(media: AnilistMediaGql): MediaStudioRow[] {
   const nodes = media.studios?.nodes ?? [];
-  return nodes.map((s, idx) => ({
-    media_id: media.id,
-    studio_id: s.id,
-    sort_order: idx,
-  }));
+  const seen = new Set<number>();
+  const rows: MediaStudioRow[] = [];
+  for (const s of nodes) {
+    if (seen.has(s.id)) continue;
+    seen.add(s.id);
+    rows.push({
+      media_id: media.id,
+      studio_id: s.id,
+      sort_order: rows.length,
+    });
+  }
+  return rows;
 }
 
-/** Returns one TagRow per unique tag referenced by the media. */
+/**
+ * Returns one TagRow per unique tag referenced by the media. AniList
+ * normalises tag names so duplicates are rare, but the dedup is
+ * cheap insurance against the same UNIQUE-constraint failure mode as
+ * studios (the `media_tag` PK is (media_id, tag_name)).
+ */
 export function mapTagRows(media: AnilistMediaGql, now: number): TagRow[] {
   const tags = media.tags ?? [];
-  return tags.map((t) => ({ name: t.name, fetched_at: now }));
+  const seen = new Set<string>();
+  const rows: TagRow[] = [];
+  for (const t of tags) {
+    if (seen.has(t.name)) continue;
+    seen.add(t.name);
+    rows.push({ name: t.name, fetched_at: now });
+  }
+  return rows;
 }
 
-/** Junction rows for media → tag with per-media rank. */
+/** Junction rows for media → tag with per-media rank, deduped by tag name. */
 export function mapMediaTagRows(media: AnilistMediaGql): MediaTagRow[] {
   const tags = media.tags ?? [];
-  return tags.map((t) => ({
-    media_id: media.id,
-    tag_name: t.name,
-    rank: t.rank,
-  }));
+  const seen = new Set<string>();
+  const rows: MediaTagRow[] = [];
+  for (const t of tags) {
+    if (seen.has(t.name)) continue;
+    seen.add(t.name);
+    rows.push({
+      media_id: media.id,
+      tag_name: t.name,
+      rank: t.rank,
+    });
+  }
+  return rows;
 }
 
 /**

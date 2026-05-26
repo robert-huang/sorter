@@ -532,6 +532,75 @@ describe('importAnilistList — wipe-and-rebuild semantics', () => {
     expect(countRows(h.db, 'studio', 'WHERE id = 10')).toBe(1);
     h.db.close();
   });
+
+  // Regression: a media whose `studios.nodes` contains the same studio
+  // twice (AniList edge-collapsing leak) used to blow the import with
+  // `UNIQUE constraint failed: media_studio.media_id, media_studio.studio_id`.
+  // The mapper now dedups within one media, so the import completes and
+  // the junction holds exactly one row.
+  it('survives AniList returning a duplicate studio in studios.nodes for one media', async () => {
+    const h = await makeHarness();
+    h.enqueueListPages(
+      makeListPage(
+        [
+          makeEntry(
+            1,
+            {},
+            {
+              studios: {
+                nodes: [
+                  { id: 10, name: 'Studio-X' },
+                  { id: 10, name: 'Studio-X' }, // duplicate edge
+                ],
+              },
+              tags: [
+                { name: 'A', rank: 90 },
+                { name: 'A', rank: 50 }, // duplicate tag
+              ],
+            },
+          ),
+        ],
+        { currentPage: 1, hasNextPage: false },
+      ),
+    );
+
+    await importAnilistList(h.ctx, { username: USER_NAME, type: 'ANIME' });
+
+    expect(countRows(h.db, 'media_studio', 'WHERE media_id = 1')).toBe(1);
+    expect(countRows(h.db, 'media_tag', 'WHERE media_id = 1')).toBe(1);
+    expect(
+      h.db.selectValue(
+        "SELECT rank FROM media_tag WHERE media_id = 1 AND tag_name = 'A'",
+      ),
+    ).toBe(90); // first wins — higher rank from the original edge
+    h.db.close();
+  });
+
+  // Regression: a duplicate `media_list_entry` (e.g. AniList pagination
+  // returned the same entry twice because the user mutated the list
+  // mid-import) used to blow the run with PK conflicts on
+  // media_list_entry / media_studio / media_tag. The importer now
+  // dedups entries by `media.id` at the top of the batch builder.
+  it('survives the same entry appearing on two pages (pagination overlap)', async () => {
+    const h = await makeHarness();
+    h.enqueueListPages(
+      makeListPage([makeEntry(1), makeEntry(2)], { currentPage: 1, hasNextPage: true }),
+      // Page 2 includes entry 2 a second time — simulates list mutation
+      // shifting the row backwards under UPDATED_TIME_DESC.
+      makeListPage([makeEntry(2), makeEntry(3)], { currentPage: 2, hasNextPage: false }),
+    );
+
+    const result = await importAnilistList(h.ctx, { username: USER_NAME, type: 'ANIME' });
+
+    // pagesFetched still counts both pages; entriesWritten counts the
+    // unique rows that actually landed in the DB (post-dedup).
+    expect(result.pagesFetched).toBe(2);
+    expect(result.entriesWritten).toBe(3);
+    expect(countRows(h.db, 'media_list_entry')).toBe(3);
+    expect(countRows(h.db, 'media_studio', 'WHERE media_id = 2')).toBe(1);
+    expect(countRows(h.db, 'media_tag', 'WHERE media_id = 2')).toBe(1);
+    h.db.close();
+  });
 });
 
 describe('importAnilistList — scrape lock', () => {
