@@ -517,6 +517,15 @@ a {
   max-width: calc(100vw - 24px);
   padding: 8px;
   z-index: 30;
+  /* Cap to viewport so the popover itself is the SINGLE scroll
+     container — the inner body absorbs all overflow via flex sizing.
+     Avoids the macOS-only-overlay vs Windows-always-visible scrollbar
+     collision we used to get from nesting .settings-tab-body and
+     .settings-slots scrollers. */
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 64px);
+  overflow: hidden;
 }
 
 /* Tabbed gear menu: Slots vs Databases. Tabs sit pinned at the top of
@@ -557,29 +566,37 @@ a {
 }
 
 .settings-tab-body {
-  /* Cap height so the persistent footer (toggles + autosave status)
-     stays visible even when a tab's content is long. Per-tab inner
-     scrolling sits inside .settings-slots / etc; this is the outer
-     hatch. */
-  max-height: 480px;
+  /* Single source of vertical scroll inside the popover. Flexes to
+     fill the space between the (sticky) tabs above and the (sticky)
+     footer below; scrolls only when the body's natural height exceeds
+     that space. The popover's outer max-height does the actual
+     capping — we never want a separate scrollbar on .settings-slots
+     fighting this one. min-height:0 is required so the flex item can
+     shrink below its content size. overflow-x:hidden defuses sub-pixel
+     bleed (slot rows, the old negative-margin .settings-slots, etc.)
+     from triggering a horizontal scrollbar. */
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
-  margin: 0 -2px;
-  padding: 0 2px;
+  overflow-x: hidden;
 }
 
 .settings-footer {
   /* Footer is sticky-ish — kept outside .settings-tab-body so the
-     scroll never hides the toggles or autosave status. */
+     scroll never hides the toggles or autosave status. flex-shrink:0
+     so a tall body never compresses it. */
+  flex: 0 0 auto;
 }
 
-/* Embedded slot list inside the gear popover. Cap height so a fat slot
-   list scrolls instead of stretching off-screen, but don't add an internal
-   border — the popover already has one. */
+/* Embedded slot list inside the gear popover. No internal scroller —
+   the outer .settings-tab-body owns vertical scrolling now, and a
+   second scroller here would stack with it and produce two parallel
+   scrollbars. Also drop the old negative horizontal margins; they
+   bled past the popover padding and were the reason the body grew a
+   horizontal scrollbar. */
 .settings-slots {
-  max-height: 280px;
-  overflow-y: auto;
-  margin: -8px -8px 0;
-  padding: 8px;
+  margin: 0;
+  padding: 0;
 }
 
 .settings-slots .slot-list {
