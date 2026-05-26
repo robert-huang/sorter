@@ -710,11 +710,96 @@ function MultiSelectChip<T extends string | number>({
 }
 
 /**
- * Range chip for the season-year filter. The min/max bounds snap to
- * the discrete (season, year) tuples discovered in the candidate
- * set — there's no point letting the user pick "Summer 1997" if no
- * candidate has that season-year. Both selects include an
- * "(any)" option so either bound can be cleared independently.
+ * Dual-handle range slider. Two `<input type="range">` are absolutely
+ * positioned over a shared track + fill bar; each onChange clamps the
+ * value against the other handle so the pair never crosses. Pure
+ * presentation — the caller owns the [lo, hi] state and decides
+ * what (if anything) to do when a handle is at the slider's edge.
+ *
+ * The pointer-events trick: the range inputs cover the whole width
+ * but only the thumb pseudo-elements re-enable pointer events, so
+ * clicks land on whichever thumb the cursor is over (the underlying
+ * fill/track are decoration only).
+ */
+function DualRangeSlider({
+  min,
+  max,
+  step = 1,
+  value,
+  onChange,
+  ariaLabelMin,
+  ariaLabelMax,
+}: {
+  min: number;
+  max: number;
+  step?: number;
+  value: [number, number];
+  onChange: (next: [number, number]) => void;
+  ariaLabelMin?: string;
+  ariaLabelMax?: string;
+}): ReactNode {
+  const [lo, hi] = value;
+  // Clamp into [min, max] for display — a stale chip state (e.g.
+  // candidates changed and the stored bound is now outside the new
+  // slider universe) shouldn't crash, just pin to the nearest edge.
+  const safeLo = Math.min(Math.max(lo, min), max);
+  const safeHi = Math.min(Math.max(hi, min), max);
+  const span = Math.max(0, max - min);
+  const loPct = span === 0 ? 0 : ((safeLo - min) / span) * 100;
+  const hiPct = span === 0 ? 100 : ((safeHi - min) / span) * 100;
+  const disabled = span === 0;
+
+  return (
+    <div className={`dual-range-slider ${disabled ? 'disabled' : ''}`}>
+      <div className="dual-range-track" />
+      <div
+        className="dual-range-fill"
+        style={{ left: `${loPct}%`, right: `${100 - hiPct}%` }}
+      />
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={safeLo}
+        disabled={disabled}
+        onChange={(e) => {
+          const v = Number(e.target.value);
+          onChange([Math.min(v, safeHi), safeHi]);
+        }}
+        aria-label={ariaLabelMin ?? 'range minimum'}
+      />
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={safeHi}
+        disabled={disabled}
+        onChange={(e) => {
+          const v = Number(e.target.value);
+          onChange([safeLo, Math.max(v, safeLo)]);
+        }}
+        aria-label={ariaLabelMax ?? 'range maximum'}
+      />
+    </div>
+  );
+}
+
+/**
+ * Range chip for the season-year filter. The slider runs from the
+ * lowest to the highest discovered (season, year) tuple in the
+ * candidate set with season-level precision (step = 1 on the encoded
+ * year*4 + season_idx integer). Year-only number inputs flank the
+ * slider for "jump to a specific year" — typing in the min input
+ * snaps to WINTER of that year; the max input snaps to FALL. Drag
+ * the slider afterwards to fine-tune to a specific season.
+ *
+ * Edge collapse: any time a handle is dragged or a year is typed
+ * that puts the bound at the slider's extreme, the corresponding
+ * chip-state field becomes `null` so the chip naturally toggles
+ * back to "off" — keeps the UI's active vs inactive feel
+ * symmetrical between slider drags and explicit clears.
  */
 function SeasonYearChip({
   options,
@@ -734,7 +819,84 @@ function SeasonYearChip({
   const rootRef = useRef<HTMLDivElement>(null);
   useClickOutside(rootRef, open, () => setOpen(false));
   const active = min !== null || max !== null;
-  const label = active ? `seasonYear · ${rangeLabel(min, max, formatSeasonYear)}` : 'seasonYear';
+  const label = active
+    ? `seasonYear · ${rangeLabel(min, max, formatSeasonYear)}`
+    : 'seasonYear';
+
+  const hasOptions = options.length > 0;
+  const sliderMin = hasOptions ? options[0]! : 0;
+  const sliderMax = hasOptions ? options[options.length - 1]! : 0;
+  const lo = min ?? sliderMin;
+  const hi = max ?? sliderMax;
+  const sliderMinYear = Math.floor(sliderMin / 4);
+  const sliderMaxYear = Math.floor(sliderMax / 4);
+
+  // Year-only text state: the slider exposes season-level precision,
+  // but the inputs deal in whole years to keep typing fast. Sync from
+  // chip state via useEffect so external changes (slider drag, clear)
+  // flow back to the inputs.
+  const [minText, setMinText] = useState<string>(
+    min === null ? '' : String(Math.floor(lo / 4)),
+  );
+  const [maxText, setMaxText] = useState<string>(
+    max === null ? '' : String(Math.floor(hi / 4)),
+  );
+  useEffect(() => {
+    setMinText(min === null ? '' : String(Math.floor((min ?? sliderMin) / 4)));
+  }, [min, sliderMin]);
+  useEffect(() => {
+    setMaxText(max === null ? '' : String(Math.floor((max ?? sliderMax) / 4)));
+  }, [max, sliderMax]);
+
+  function parseYear(text: string): number | null | undefined {
+    if (text === '') return null;
+    const n = Number(text);
+    if (!Number.isInteger(n)) return undefined; // reject
+    return n;
+  }
+
+  function commitMin(): void {
+    const parsed = parseYear(minText);
+    if (parsed === undefined) {
+      setMinText(min === null ? '' : String(Math.floor(lo / 4)));
+      return;
+    }
+    if (parsed === null) {
+      onChange({ seasonYearMin: null, seasonYearMax: max });
+      return;
+    }
+    // Snap to WINTER (year*4), clamp into the slider universe, then
+    // collapse to null when at the edge so the chip can turn off.
+    const encoded = Math.min(sliderMax, Math.max(sliderMin, parsed * 4));
+    const nextMin = encoded === sliderMin ? null : encoded;
+    // Keep max >= min by pushing max up if the typed min outranges it.
+    const nextMax = max !== null && nextMin !== null && max < nextMin ? nextMin : max;
+    onChange({ seasonYearMin: nextMin, seasonYearMax: nextMax });
+  }
+
+  function commitMax(): void {
+    const parsed = parseYear(maxText);
+    if (parsed === undefined) {
+      setMaxText(max === null ? '' : String(Math.floor(hi / 4)));
+      return;
+    }
+    if (parsed === null) {
+      onChange({ seasonYearMin: min, seasonYearMax: null });
+      return;
+    }
+    // Snap to FALL (year*4 + 3), clamp, then collapse-on-edge.
+    const encoded = Math.min(sliderMax, Math.max(sliderMin, parsed * 4 + 3));
+    const nextMax = encoded === sliderMax ? null : encoded;
+    const nextMin = min !== null && nextMax !== null && min > nextMax ? nextMax : min;
+    onChange({ seasonYearMin: nextMin, seasonYearMax: nextMax });
+  }
+
+  function onSliderChange([newLo, newHi]: [number, number]): void {
+    onChange({
+      seasonYearMin: newLo === sliderMin ? null : newLo,
+      seasonYearMax: newHi === sliderMax ? null : newHi,
+    });
+  }
 
   return (
     <div ref={rootRef} className={`filter-chip ${active ? 'active' : ''}`}>
@@ -748,51 +910,60 @@ function SeasonYearChip({
         {label}
       </button>
       {open && (
-        <div className="filter-chip-menu" role="menu">
-          {options.length === 0 ? (
+        <div className="filter-chip-menu filter-chip-menu-wide" role="menu">
+          {!hasOptions ? (
             <div className="filter-chip-empty">
               (no candidates have a known season + year)
             </div>
           ) : (
             <>
-              <label className="filter-chip-range-row">
-                <span>from</span>
-                <select
-                  value={min ?? ''}
-                  onChange={(e) =>
-                    onChange({
-                      seasonYearMin: e.target.value === '' ? null : Number(e.target.value),
-                      seasonYearMax: max,
-                    })
-                  }
-                >
-                  <option value="">(any)</option>
-                  {options.map((enc) => (
-                    <option key={`min-${enc}`} value={enc}>
-                      {formatSeasonYear(enc)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="filter-chip-range-row">
-                <span>to</span>
-                <select
-                  value={max ?? ''}
-                  onChange={(e) =>
-                    onChange({
-                      seasonYearMin: min,
-                      seasonYearMax: e.target.value === '' ? null : Number(e.target.value),
-                    })
-                  }
-                >
-                  <option value="">(any)</option>
-                  {options.map((enc) => (
-                    <option key={`max-${enc}`} value={enc}>
-                      {formatSeasonYear(enc)}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <div className="filter-chip-slider-row">
+                <input
+                  type="number"
+                  min={sliderMinYear}
+                  max={sliderMaxYear}
+                  step={1}
+                  value={minText}
+                  onChange={(e) => setMinText(e.target.value)}
+                  onBlur={commitMin}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                  }}
+                  className="filter-chip-slider-input"
+                  placeholder={String(sliderMinYear)}
+                  aria-label="season-year minimum (year)"
+                />
+                <DualRangeSlider
+                  min={sliderMin}
+                  max={sliderMax}
+                  value={[lo, hi]}
+                  onChange={onSliderChange}
+                  ariaLabelMin="season-year range minimum"
+                  ariaLabelMax="season-year range maximum"
+                />
+                <input
+                  type="number"
+                  min={sliderMinYear}
+                  max={sliderMaxYear}
+                  step={1}
+                  value={maxText}
+                  onChange={(e) => setMaxText(e.target.value)}
+                  onBlur={commitMax}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                  }}
+                  className="filter-chip-slider-input"
+                  placeholder={String(sliderMaxYear)}
+                  aria-label="season-year maximum (year)"
+                />
+              </div>
+              {/* Decoded season+year labels under the slider — the
+                  year-only inputs hide the season precision available
+                  via the slider drag, so surface it explicitly. */}
+              <div className="filter-chip-slider-labels">
+                <span>{formatSeasonYear(lo)}</span>
+                <span>{formatSeasonYear(hi)}</span>
+              </div>
               {active && (
                 <button
                   type="button"
@@ -813,10 +984,12 @@ function SeasonYearChip({
 }
 
 /**
- * Range chip for `mean_score`. Pair of number inputs (0..100); either
- * bound can be left blank. Treats blank as "unbounded" — clamping to
- * 0 / 100 would silently widen the user's intended range when they
- * actually wanted "open on this side".
+ * Range chip for `mean_score` (0..100). Dual-handle slider flanked by
+ * number inputs at each end; typing in an input updates the slider
+ * and dragging the slider updates the input. Either bound at its
+ * extreme (0 for min, 100 for max) collapses to `null` so the chip
+ * naturally toggles off — semantically equivalent to "no bound on
+ * this side".
  */
 function ScoreRangeChip({
   min,
@@ -827,15 +1000,20 @@ function ScoreRangeChip({
   max: number | null;
   onChange: (patch: { scoreMin: number | null; scoreMax: number | null }) => void;
 }): ReactNode {
+  const SLIDER_MIN = 0;
+  const SLIDER_MAX = 100;
+
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   useClickOutside(rootRef, open, () => setOpen(false));
   const active = min !== null || max !== null;
   const label = active ? `score · ${rangeLabel(min, max, String)}` : 'score';
+  const lo = min ?? SLIDER_MIN;
+  const hi = max ?? SLIDER_MAX;
 
   // Local string state for the inputs so users can type freely
   // (e.g. clear the field, type "65") without us coercing "" to 0
-  // on every keystroke. Only sync to chip state on blur / Enter or
+  // on every keystroke. Sync to chip state only on blur / Enter or
   // when the value is a valid integer in range.
   const [minText, setMinText] = useState<string>(min === null ? '' : String(min));
   const [maxText, setMaxText] = useState<string>(max === null ? '' : String(max));
@@ -849,7 +1027,7 @@ function ScoreRangeChip({
   function parseBound(text: string): number | null | undefined {
     if (text === '') return null;
     const n = Number(text);
-    if (!Number.isFinite(n) || n < 0 || n > 100) return undefined; // reject
+    if (!Number.isFinite(n) || n < SLIDER_MIN || n > SLIDER_MAX) return undefined;
     return Math.round(n);
   }
 
@@ -859,15 +1037,31 @@ function ScoreRangeChip({
       setMinText(min === null ? '' : String(min));
       return;
     }
-    onChange({ scoreMin: parsed, scoreMax: max });
+    // Collapse the slider edge (0) to null so the chip naturally
+    // turns off — `>= 0` is a no-op filter on a 0..100 range.
+    const collapsed = parsed === SLIDER_MIN ? null : parsed;
+    // Don't let a typed min silently overshoot the current max — push
+    // max up to match so the user's range is still self-consistent.
+    const nextMax = max !== null && collapsed !== null && max < collapsed ? collapsed : max;
+    onChange({ scoreMin: collapsed, scoreMax: nextMax });
   }
+
   function commitMax(): void {
     const parsed = parseBound(maxText);
     if (parsed === undefined) {
       setMaxText(max === null ? '' : String(max));
       return;
     }
-    onChange({ scoreMin: min, scoreMax: parsed });
+    const collapsed = parsed === SLIDER_MAX ? null : parsed;
+    const nextMin = min !== null && collapsed !== null && min > collapsed ? collapsed : min;
+    onChange({ scoreMin: nextMin, scoreMax: collapsed });
+  }
+
+  function onSliderChange([newLo, newHi]: [number, number]): void {
+    onChange({
+      scoreMin: newLo === SLIDER_MIN ? null : newLo,
+      scoreMax: newHi === SLIDER_MAX ? null : newHi,
+    });
   }
 
   return (
@@ -882,37 +1076,47 @@ function ScoreRangeChip({
         {label}
       </button>
       {open && (
-        <div className="filter-chip-menu" role="menu">
-          <label className="filter-chip-range-row">
-            <span>min</span>
+        <div className="filter-chip-menu filter-chip-menu-wide" role="menu">
+          <div className="filter-chip-slider-row">
             <input
               type="number"
-              min={0}
-              max={100}
+              min={SLIDER_MIN}
+              max={SLIDER_MAX}
+              step={1}
               value={minText}
               onChange={(e) => setMinText(e.target.value)}
               onBlur={commitMin}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
               }}
-              className="filter-chip-number"
+              className="filter-chip-slider-input"
+              placeholder="0"
+              aria-label="score minimum"
             />
-          </label>
-          <label className="filter-chip-range-row">
-            <span>max</span>
+            <DualRangeSlider
+              min={SLIDER_MIN}
+              max={SLIDER_MAX}
+              value={[lo, hi]}
+              onChange={onSliderChange}
+              ariaLabelMin="score range minimum"
+              ariaLabelMax="score range maximum"
+            />
             <input
               type="number"
-              min={0}
-              max={100}
+              min={SLIDER_MIN}
+              max={SLIDER_MAX}
+              step={1}
               value={maxText}
               onChange={(e) => setMaxText(e.target.value)}
               onBlur={commitMax}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
               }}
-              className="filter-chip-number"
+              className="filter-chip-slider-input"
+              placeholder="100"
+              aria-label="score maximum"
             />
-          </label>
+          </div>
           {active && (
             <button
               type="button"

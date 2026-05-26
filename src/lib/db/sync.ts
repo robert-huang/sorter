@@ -15,11 +15,7 @@ import {
 import { REMOTE_SCHEMA_NEWER } from './merge';
 
 export { REMOTE_SCHEMA_NEWER };
-import {
-  clearPendingChanges,
-  getSourceSyncMeta,
-  patchSourceSyncMeta,
-} from './syncManifest';
+import { getSourceSyncMeta, patchSourceSyncMeta } from './syncManifest';
 
 export const REMOTE_DRIFTED = 'REMOTE_DRIFTED';
 export const NO_REMOTE = 'NO_REMOTE';
@@ -154,11 +150,6 @@ export async function pushDbToDrive(sourceId: string): Promise<PushResult> {
     hasLocalDb: true,
     driftDetected: false,
   });
-  // Successful push absorbs every ad-hoc write that was accumulated
-  // via bumpPendingChanges (Phase D per-entry refresh). Reset here
-  // rather than at every call site so the contract is "push ==
-  // pending-changes is zero again", not negotiated per-caller.
-  clearPendingChanges(sourceId);
 
   return {
     remoteFileId: upload.id,

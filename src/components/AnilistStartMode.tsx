@@ -23,11 +23,6 @@ import type {
   AnilistMediaType,
   MediaRow,
 } from '../lib/importers/anilist/types';
-import {
-  addUsernameToHistory,
-  clearUsernameHistory,
-  loadUsernameHistory,
-} from '../lib/usernameHistory';
 import { formatAnilistProgress } from './anilistProgressLabel';
 
 /**
@@ -52,14 +47,6 @@ import { formatAnilistProgress } from './anilistProgressLabel';
  */
 
 const ANILIST_USERNAME_LS_KEY = 'anilist:lastUsername';
-/**
- * Storage key for the most-recently-used usernames list. Backs the
- * `<datalist>` dropdown wired to the username input — separate from
- * `ANILIST_USERNAME_LS_KEY` (which holds the single last-typed value
- * for default-fill) so that wiping the history doesn't also clobber
- * the default-fill prefill.
- */
-const ANILIST_USERNAME_HISTORY_KEY = 'anilist:usernameHistory';
 
 const FAVOURITE_TYPES: AnilistFavouriteType[] = [
   'CHARACTERS',
@@ -221,20 +208,22 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
   // so the preview never opens already-filtered behind the user's
   // back.
   const [search, setSearch] = useState<string>('');
-  // localStorage-backed history for the username field. Drives the
-  // `<datalist>` dropdown wired to the input so the user gets a
-  // reliable suggestion list regardless of browser autofill quirks.
-  // Initialised lazily from storage so a re-mount picks up additions
-  // from a prior session immediately.
-  const [usernameHistory, setUsernameHistory] = useState<string[]>(() =>
-    loadUsernameHistory(ANILIST_USERNAME_HISTORY_KEY),
-  );
   // Cache-aware hint for the typed (username, type) pair. Populated by
   // the debounced effect below. Null means "we haven't found a cached
   // list for this combo" — UI hides the "Use cached" button and shows
   // a plain "Import" CTA. Non-null lets the user skip the API round
   // trip and load the previously-imported items directly.
   const [cachedListInfo, setCachedListInfo] = useState<{
+    /**
+     * The exact (trimmed) username + type the lookup ran for. Stored
+     * alongside the result so the effect can synchronously clear a
+     * stale hint when either the input or the ANIME/MANGA radio
+     * changes — without this the previous (`alice`, ANIME) hint
+     * would linger on screen for ~300ms while the new (`bob`, ANIME)
+     * debounce timer counts down.
+     */
+    lookupName: string;
+    lookupType: AnilistMediaType;
     userId: number;
     canonicalName: string;
     count: number;
@@ -349,10 +338,22 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
   // updates without the user needing to re-type the name.
   useEffect(() => {
     const trimmed = username.trim();
-    if (!trimmed) {
-      setCachedListInfo(null);
-      return;
-    }
+    // Synchronously invalidate a stale hint BEFORE the 300ms debounce
+    // schedules the next DB lookup. Without this, typing a new name
+    // leaves the previous user's "Cached: N anime for alice" hint on
+    // screen for ~300ms (and the "Reimport"/"Use cached" CTAs still
+    // act on the previous lookup). The lookupName/lookupType stamps
+    // on cachedListInfo are what let us tell "result is still
+    // current" from "result is for a different query". An
+    // importTick-only re-run (same name + type) preserves the hint
+    // so the count updates in place after a successful import,
+    // rather than blinking out and back in.
+    setCachedListInfo((prev) => {
+      if (!prev) return prev;
+      if (prev.lookupName === trimmed && prev.lookupType === type) return prev;
+      return null;
+    });
+    if (!trimmed) return;
     let cancelled = false;
     const timer = setTimeout(() => {
       void (async () => {
@@ -377,6 +378,8 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
           return;
         }
         setCachedListInfo({
+          lookupName: trimmed,
+          lookupType: type,
           userId: user.id,
           canonicalName: user.name,
           count,
@@ -443,12 +446,9 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
   }, [visibleItems]);
 
   /**
-   * Persist `name` as the "most recently used" prefill AND push it
-   * onto the dropdown-history list. Both writes share the same
-   * trigger (successful import / successful favourites refresh) so
-   * a typo never enters either store. The history setter updates
-   * local state too so the next render shows the addition in the
-   * `<datalist>` without remounting.
+   * Persist `name` as the "most recently used" prefill. Called from
+   * `onRunImport` / `onRefreshFavourites` so a typo never overwrites
+   * the last good value — only successful actions write here.
    */
   const rememberUsername = useCallback((name: string) => {
     try {
@@ -456,13 +456,6 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
     } catch {
       /* ignore */
     }
-    const next = addUsernameToHistory(ANILIST_USERNAME_HISTORY_KEY, name);
-    setUsernameHistory(next);
-  }, []);
-
-  const onClearUsernameHistory = useCallback(() => {
-    clearUsernameHistory(ANILIST_USERNAME_HISTORY_KEY);
-    setUsernameHistory([]);
   }, []);
 
   const onRunImport = useCallback(async () => {
@@ -673,35 +666,10 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
         folder.
       </p>
 
-      {/*
-        Real <form> so the browser AT LEAST has a chance to register
-        an Import click (or Enter in the username field) as a
-        value-commit for its own autofill history. Three things need
-        to line up for native autofill to record + offer:
-          1. A stable `name` on the input.
-          2. autoComplete that is NOT "off".
-          3. An honest form submit — submit-typed button or Enter.
-        Even with all three, Chrome's heuristics for recording
-        non-password fields are notoriously inconsistent (controlled
-        inputs, preventDefault submits, dev URLs all hit edge cases),
-        so the input is ALSO wired to a `<datalist>` backed by our
-        own localStorage history. That dropdown ALWAYS appears on
-        focus and is updated by `rememberUsername` on every
-        successful import or favourites refresh — users get a
-        predictable suggestion list regardless of browser quirks.
-      */}
-      <form
-        className="anilist-start-bar"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (importing || refreshingFavs || username.trim() === '') return;
-          void onRunImport();
-        }}
-      >
+      <div className="anilist-start-bar">
         <input
           className="anilist-start-input"
           type="text"
-          name="anilist-username"
           value={username}
           placeholder="AniList username"
           onChange={(e) => {
@@ -709,23 +677,18 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
             if (e.target.value.trim()) onDraftActivity();
           }}
           spellCheck={false}
-          autoComplete="username"
-          list="anilist-username-history"
+          autoComplete="off"
+          onKeyDown={(e) => {
+            // Enter still commits the Import action so muscle memory
+            // works the same as when this was wrapped in a <form>
+            // submit. Guard against the disabled-state combinations
+            // for the same reasons the button is disabled.
+            if (e.key !== 'Enter') return;
+            if (importing || refreshingFavs || username.trim() === '') return;
+            e.preventDefault();
+            void onRunImport();
+          }}
         />
-        {/*
-          Local-history dropdown. Populated from localStorage so
-          previously-imported usernames suggest on focus even if
-          Chrome's native autofill never recorded the form
-          submission. <datalist> options can't be individually
-          deleted from the popup (no Shift+Delete in this fallback
-          path), so a separate "Clear history" link below the form
-          handles bulk removal.
-        */}
-        <datalist id="anilist-username-history">
-          {usernameHistory.map((name) => (
-            <option key={name} value={name} />
-          ))}
-        </datalist>
         <label>
           <input
             type="radio"
@@ -745,9 +708,10 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
           Manga
         </label>
         <button
-          type="submit"
+          type="button"
           className="btn primary"
           disabled={importing || refreshingFavs || username.trim() === ''}
+          onClick={() => void onRunImport()}
           title={
             cachedListInfo
               ? `Hit AniList again and overwrite the local cache for ${cachedListInfo.canonicalName}/${type.toLowerCase()}`
@@ -758,7 +722,7 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
             ? 'Importing…'
             : `${cachedListInfo ? 'Reimport' : 'Import'} ${type === 'ANIME' ? 'anime' : 'manga'}`}
         </button>
-      </form>
+      </div>
 
       {/*
         Cache-aware hint row: shown ONLY when the typed username
@@ -793,33 +757,6 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
             title="Load the previously-imported items from the local cache without hitting AniList"
           >
             Use cached list
-          </button>
-        </div>
-      )}
-
-      {/*
-        "Clear history" affordance for the local datalist. Only
-        rendered when there's something to clear so a fresh install
-        doesn't show a dangling link. Sits below the form so it
-        doesn't compete visually with the Import CTA.
-      */}
-      {usernameHistory.length > 0 && (
-        <div
-          className="anilist-start-bar"
-          style={{ marginTop: 2, gap: 6 }}
-        >
-          <span style={{ color: 'var(--text-faint)', fontSize: 11 }}>
-            {usernameHistory.length} recent username
-            {usernameHistory.length === 1 ? '' : 's'} remembered locally.
-          </span>
-          <button
-            type="button"
-            className="btn small"
-            onClick={onClearUsernameHistory}
-            title="Forget every username suggested by the local dropdown (does not affect AniList itself)"
-            style={{ fontSize: 11, padding: '2px 6px' }}
-          >
-            Clear history
           </button>
         </div>
       )}

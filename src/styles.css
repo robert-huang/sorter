@@ -1012,6 +1012,164 @@ a {
   color: var(--accent-fg, white);
 }
 
+/* Wider variant of the chip menu — used by the seasonYear and score
+   chips so the dual-handle slider has room to breathe between its
+   two end inputs. The regular 160px width would crush the slider
+   handles together. */
+.filter-chip-menu-wide {
+  min-width: 280px;
+}
+
+/* Layout for "input ┼ slider ┼ input" used by range chips. The two
+   inputs stay a fixed width; the slider greedily fills the middle. */
+.filter-chip-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+}
+
+.filter-chip-slider-input {
+  flex: 0 0 60px;
+  width: 60px;
+  padding: 3px 5px;
+  border: 1px solid var(--border, #d4d4d4);
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.85rem;
+  text-align: center;
+  /* Hide the spinner arrows on number inputs — they fight the
+     slider for attention and don't add anything the slider doesn't
+     already give the user. */
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.filter-chip-slider-input::-webkit-outer-spin-button,
+.filter-chip-slider-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Decoded labels under the seasonYear slider — surfaces the season
+   precision available via drag that the year-only inputs hide. */
+.filter-chip-slider-labels {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 6px 4px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* Dual-handle range slider: two `<input type="range">` are stacked
+   over a shared track + fill bar. Pointer events are stripped from
+   the strip and re-enabled on each thumb pseudo-element so both
+   handles remain independently draggable; when they overlap, the
+   topmost (later-in-DOM) thumb wins clicks — the user drags it
+   away to separate them. */
+.dual-range-slider {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 24px;
+  display: flex;
+  align-items: center;
+}
+
+.dual-range-slider .dual-range-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 4px;
+  background: var(--border, #d4d4d4);
+  border-radius: 2px;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.dual-range-slider .dual-range-fill {
+  position: absolute;
+  top: 50%;
+  height: 4px;
+  background: var(--accent, #2563eb);
+  border-radius: 2px;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.dual-range-slider input[type='range'] {
+  position: absolute;
+  left: 0;
+  right: 0;
+  width: 100%;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  pointer-events: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.dual-range-slider input[type='range']::-webkit-slider-runnable-track {
+  height: 4px;
+  background: transparent;
+  border: none;
+}
+
+.dual-range-slider input[type='range']::-moz-range-track {
+  height: 4px;
+  background: transparent;
+  border: none;
+}
+
+.dual-range-slider input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent, #2563eb);
+  border: 2px solid var(--bg, #fff);
+  box-shadow: 0 0 0 1px var(--border, #d4d4d4);
+  cursor: pointer;
+  pointer-events: auto;
+  /* Centre the 14px thumb on the 4px runnable track */
+  margin-top: -5px;
+}
+
+.dual-range-slider input[type='range']::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent, #2563eb);
+  border: 2px solid var(--bg, #fff);
+  box-shadow: 0 0 0 1px var(--border, #d4d4d4);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.dual-range-slider input[type='range']:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 1px var(--border, #d4d4d4),
+    0 0 0 3px var(--accent, #2563eb);
+}
+
+.dual-range-slider input[type='range']:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 1px var(--border, #d4d4d4),
+    0 0 0 3px var(--accent, #2563eb);
+}
+
+.dual-range-slider.disabled {
+  opacity: 0.5;
+}
+
+.dual-range-slider.disabled input[type='range']::-webkit-slider-thumb,
+.dual-range-slider.disabled input[type='range']::-moz-range-thumb {
+  cursor: not-allowed;
+}
+
 /* Clickable thumb wrapper — preserves the inner thumb's sizing while
    adding hover affordance. Used by ItemThumb when an
    ItemDetailContext opener is set + item.source.kind === 'anilist'. */

@@ -7,7 +7,6 @@ import sqlite3InitModule, {
 } from '@sqlite.org/sqlite-wasm';
 import wasmUrl from '@sqlite.org/sqlite-wasm/sqlite3.wasm?url';
 import { ensureAnilistSourceRegistered } from '../importers/anilist/anilistSource';
-import { execWithBinds } from './dbExec';
 import { openDbFromBytes, serializeDb } from './dbBytes';
 import {
   assertDbSchemaSupported,
@@ -184,7 +183,11 @@ function handleExec(
       : (db.selectObjects(sql) as DbRow[]);
   }
 
-  execWithBinds(db, sql, params);
+  if (params !== undefined) {
+    (db as { exec: (s: string, b?: unknown) => void }).exec(sql, params);
+  } else {
+    db.exec(sql);
+  }
   return [];
 }
 
@@ -195,7 +198,11 @@ function handleExecBatch(
   const db = getOrOpenDb(sourceId);
   db.transaction(() => {
     for (const { sql, params } of statements) {
-      execWithBinds(db, sql, params);
+      if (params !== undefined) {
+        (db as { exec: (s: string, b?: unknown) => void }).exec(sql, params);
+      } else {
+        db.exec(sql);
+      }
     }
   });
 }
