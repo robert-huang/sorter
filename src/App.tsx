@@ -80,7 +80,11 @@ import {
 } from './lib/storage';
 import type { SlotMeta } from './lib/types';
 import { Header, type TabId } from './components/Header';
-import { StartScreen } from './components/StartScreen';
+import {
+  StartScreen,
+  type StartDraftCapabilities,
+  type StartScreenHandle,
+} from './components/StartScreen';
 import { CompareScreen, type LastInteraction } from './components/CompareScreen';
 import { ListScreen } from './components/ListScreen';
 import { ResultScreen } from './components/ResultScreen';
@@ -1551,20 +1555,50 @@ export function App() {
   }, [cloudAvailable, cloudAuth]);
 
   // -------- start --------
+  const startScreenRef = useRef<StartScreenHandle>(null);
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  const [draftCaps, setDraftCaps] = useState<StartDraftCapabilities>({
+    canList: false,
+    canRank: false,
+    canResult: false,
+  });
+
+  /** Park the in-memory session so START draft work begins a fresh slot. */
+  const parkActiveSession = useCallback(() => {
+    if (!stateRef.current) return;
+    flushAutosave();
+    setState(null);
+    setUndoRing([]);
+    setManifest(readManifest());
+  }, []);
+
+  const handleTabChange = useCallback(
+    (tab: TabId) => {
+      if (activeTab === 'start' && tab !== 'start') {
+        const adopted = startScreenRef.current?.tryAdoptDraft(tab);
+        if (adopted) return;
+      }
+      setActiveTab(tab);
+    },
+    [activeTab],
+  );
+
   const onStartScratch = useCallback(
-    (items: Item[]) => {
+    (items: Item[], initialTab?: TabId) => {
       const next = initSort(items, engineOptions);
       const session: SavedSession = { state: next, undoRing: [] };
-      adoptNewSession(session, autoNameFromBlob(buildBlob(next, [])));
+      adoptNewSession(session, autoNameFromBlob(buildBlob(next, [])), initialTab);
     },
     [adoptNewSession, engineOptions],
   );
 
   const onStartPreranked = useCallback(
-    (args: { sublists: Item[][]; extras: Item[] }) => {
+    (args: { sublists: Item[][]; extras: Item[] }, initialTab?: TabId) => {
       const next = seedFromSublists(args, engineOptions);
       const session: SavedSession = { state: next, undoRing: [] };
-      adoptNewSession(session, autoNameFromBlob(buildBlob(next, [])));
+      adoptNewSession(session, autoNameFromBlob(buildBlob(next, [])), initialTab);
     },
     [adoptNewSession, engineOptions],
   );
@@ -1576,10 +1610,10 @@ export function App() {
    * binary-insert new items.
    */
   const onStartAlreadySorted = useCallback(
-    (items: Item[]) => {
+    (items: Item[], initialTab?: TabId) => {
       const next = seedAsSorted(items);
       const session: SavedSession = { state: next, undoRing: [] };
-      adoptNewSession(session, autoNameFromBlob(buildBlob(next, [])));
+      adoptNewSession(session, autoNameFromBlob(buildBlob(next, [])), initialTab);
     },
     [adoptNewSession],
   );
@@ -1924,11 +1958,15 @@ export function App() {
   if (activeTab === 'start' || !state) {
     body = (
       <StartScreen
+        ref={startScreenRef}
         resumeMeta={resumeMeta}
         onResumeActive={onResumeActive}
         onStartScratch={onStartScratch}
         onStartPreranked={onStartPreranked}
         onStartAlreadySorted={onStartAlreadySorted}
+        hasLoadedSession={hasState}
+        onDraftActivity={parkActiveSession}
+        onDraftCapabilitiesChange={setDraftCaps}
       />
     );
   } else if (activeTab === 'list') {
@@ -2098,7 +2136,7 @@ export function App() {
       {skippedMessage && <div className="app-banner">{skippedMessage}</div>}
       <Header
         activeTab={activeTab}
-        onTabChange={setActiveTab}
+        onTabChange={handleTabChange}
         state={state}
         canUndo={canUndo}
         onUndo={doUndo}
@@ -2117,6 +2155,7 @@ export function App() {
         onDownloadSlot={onDownloadSlot}
         onTogglePinSlot={onTogglePinSlot}
         hasState={hasState}
+        draftCaps={draftCaps}
         theme={theme}
         onToggleTheme={toggleTheme}
         showEstimatedRemaining={showEstimatedRemaining}
@@ -2136,7 +2175,7 @@ export function App() {
         cloudPullingIds={pullingIds}
         onCloudPushAllSlots={onCloudPushAllSlots}
         onCloudPullAllSlots={onCloudPullAllSlots}
-        onNewSort={() => setActiveTab('start')}
+        onNewSort={() => handleTabChange('start')}
       />
       <main className="app-main">{body}</main>
       {slotPendingDelete && (
