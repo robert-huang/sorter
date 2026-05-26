@@ -2890,3 +2890,118 @@ a {
   font-size: 13px;
   margin-top: 4px;
 }
+
+/* -----------------------------------------------------------------
+   Staged items panel
+   -----------------------------------------------------------------
+   Sits at the bottom of the START page, always visible. Rolls up
+   the per-tab "Add to staged" submissions and the current tab's
+   pending content into one place; the Start sort CTA lives here so
+   the user only sorts what they can see.
+   ----------------------------------------------------------------- */
+.staged-panel {
+  margin-top: 20px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md, 8px);
+  background: var(--surface-2);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.staged-panel.empty {
+  padding: 10px 14px;
+  background: var(--surface-1, transparent);
+  border-style: dashed;
+  border-color: var(--border);
+}
+
+.staged-panel-empty-hint {
+  color: var(--text-muted);
+  font-size: 13px;
+  font-style: italic;
+}
+
+.staged-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.staged-panel-summary {
+  font-size: 14px;
+  color: var(--text);
+}
+
+.staged-panel-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.staged-panel-groups {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.staged-panel-group {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  font-size: 13px;
+}
+
+.staged-panel-group.pending {
+  border-style: dashed;
+  background: transparent;
+  opacity: 0.78;
+}
+
+.staged-panel-kind {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--surface-3, var(--border));
+  color: var(--text-muted);
+}
+
+.staged-panel-kind.kind-sublist {
+  background: var(--accent-soft, var(--surface-3, var(--border)));
+  color: var(--accent, var(--text));
+}
+
+.staged-panel-source {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.staged-panel-count {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.staged-panel-pending-marker {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  font-weight: 600;
+  padding: 2px 6px;
+}

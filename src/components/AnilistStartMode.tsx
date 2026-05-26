@@ -79,10 +79,14 @@ function timeAgo(ms: number | null): string {
 }
 
 interface Props {
-  /** Called when the user confirms a selection. Items carry
-   *  `source: { kind: 'anilist', externalId }` so the LIST tab can
-   *  open the detail modal + the FilterBar can render chips. */
-  onStartScratch: (items: Item[]) => void;
+  /**
+   * Called when the user confirms a selection via "Add to staged".
+   * Items carry `source: { kind: 'anilist', externalId }` so the
+   * LIST tab can open the detail modal + the FilterBar can render
+   * chips. `sourceLabel` is shown verbatim in the staged-items panel
+   * (e.g. `AniList: robert/anime`).
+   */
+  onAddToStaged: (items: Item[], sourceLabel: string) => void;
   /** Fired when the user types into the input — used by the parent
    *  to park any loaded session so the import lands in a fresh slot. */
   onDraftActivity: () => void;
@@ -115,7 +119,7 @@ function mediaRowToItem(m: MediaRow): Item {
   };
 }
 
-export function AnilistStartMode({ onStartScratch, onDraftActivity }: Props) {
+export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
   const [username, setUsername] = useState<string>(() => {
     try {
       return localStorage.getItem(ANILIST_USERNAME_LS_KEY) ?? '';
@@ -328,7 +332,7 @@ export function AnilistStartMode({ onStartScratch, onDraftActivity }: Props) {
     }
   }, [username, favType, refreshingFavs, importing]);
 
-  const onStartSelected = useCallback(() => {
+  const onAddSelectedToStaged = useCallback(() => {
     const out: Item[] = [];
     for (const it of items) {
       if (!visibleIds || visibleIds.has(it.id)) {
@@ -336,8 +340,15 @@ export function AnilistStartMode({ onStartScratch, onDraftActivity }: Props) {
       }
     }
     if (out.length === 0) return;
-    onStartScratch(out);
-  }, [items, visibleIds, selectedIds, onStartScratch]);
+    const name = username.trim() || 'unknown user';
+    const typeLabel = type === 'ANIME' ? 'anime' : 'manga';
+    const sourceLabel = `AniList: ${name}/${typeLabel}`;
+    onAddToStaged(out, sourceLabel);
+    // Clear the selection so the user explicitly opts into the next
+    // batch — protects against accidentally re-adding the same items
+    // (which would dedup anyway, but is visually confusing).
+    setSelectedIds(new Set());
+  }, [items, visibleIds, selectedIds, onAddToStaged, username, type]);
 
   return (
     <div className="page-section anilist-start">
@@ -490,11 +501,10 @@ export function AnilistStartMode({ onStartScratch, onDraftActivity }: Props) {
             <button
               className="btn primary"
               disabled={selectedCount < 1}
-              onClick={onStartSelected}
+              onClick={onAddSelectedToStaged}
+              title="Append these to the staged items panel below — combine with clipboard, pre-ranked lists, or other AniList batches before sorting"
             >
-              {selectedCount < 2
-                ? `Use as ranking (${selectedCount})`
-                : `Sort ${selectedCount} selected item${selectedCount === 1 ? '' : 's'}`}
+              Add {selectedCount} selected to staged
             </button>
           </div>
         </>
