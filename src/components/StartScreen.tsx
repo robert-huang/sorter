@@ -1,4 +1,15 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from 'react';
+import type { TabId } from './Header';
 import type { ExtraColumnsWarning, Item, SlotMeta } from '../lib/types';
 import {
   canonicalKey,
@@ -82,20 +93,114 @@ function dropSourceFromOverrides(
   return touched ? next : overrides;
 }
 
+/** Rows the user removed from the import preview (keyed like overrides). */
+type ExcludedRows = Set<string>;
+
+function dropSourceFromExclusions(
+  excluded: ExcludedRows,
+  sourceName: string,
+): ExcludedRows {
+  if (excluded.size === 0) return excluded;
+  const prefix = `${sourceName}:`;
+  const next = new Set<string>();
+  let touched = false;
+  for (const k of excluded) {
+    if (k.startsWith(prefix)) touched = true;
+    else next.add(k);
+  }
+  return touched ? next : excluded;
+}
+
+function applyImportEdits(
+  rows: RawRow[],
+  overrides: OverlayMap,
+  excluded: ExcludedRows,
+): RawRow[] {
+  const overridden = applyOverrides(rows, overrides);
+  if (excluded.size === 0) return overridden;
+  return overridden.filter(
+    (r) => !excluded.has(overlayKey(r.sourceName, r.sourceRow)),
+  );
+}
+
+function filterExtraColumnsForExcluded(
+  warnings: ExtraColumnsWarning[],
+  excluded: ExcludedRows,
+): ExtraColumnsWarning[] {
+  if (excluded.size === 0) return warnings;
+  return warnings.filter(
+    (w) => !excluded.has(overlayKey(w.sourceName, w.rowNumber)),
+  );
+}
+
+/** Exclude every row in `sourceName` that dedups to the same id as `rowNumber`. */
+function excludePreviewItemFromSource(
+  rows: RawRow[],
+  overrides: OverlayMap,
+  excluded: ExcludedRows,
+  sourceName: string,
+  rowNumber: number,
+): ExcludedRows {
+  const overridden = applyOverrides(rows, overrides);
+  const target = overridden.find(
+    (r) => r.sourceName === sourceName && r.sourceRow === rowNumber,
+  );
+  if (!target) return excluded;
+  const targetId = target.idOverride ?? canonicalKey(target.label);
+  const next = new Set(excluded);
+  for (const r of overridden) {
+    if (r.sourceName !== sourceName) continue;
+    const id = r.idOverride ?? canonicalKey(r.label);
+    if (id === targetId) next.add(overlayKey(r.sourceName, r.sourceRow));
+  }
+  return next;
+}
+
+function dropSourceEdits(
+  sourceName: string,
+  setOverrides: Dispatch<SetStateAction<OverlayMap>>,
+  setExcludedRows: Dispatch<SetStateAction<ExcludedRows>>,
+): void {
+  setOverrides((prev) => dropSourceFromOverrides(prev, sourceName));
+  setExcludedRows((prev) => dropSourceFromExclusions(prev, sourceName));
+}
+
 type Mode = 'scratch' | 'preranked';
+
+/** Which main tabs the current START draft can adopt into. */
+export interface StartDraftCapabilities {
+  canList: boolean;
+  canRank: boolean;
+  canResult: boolean;
+}
+
+export type StartDraftAdoptTab = Exclude<TabId, 'start'>;
+
+export interface StartScreenHandle {
+  /** Mint a new slot from the in-progress START draft and land on `tab`. */
+  tryAdoptDraft: (tab: StartDraftAdoptTab) => boolean;
+}
 
 interface Props {
   /** Meta of the last-used slot we can resume; null when nothing to resume. */
   resumeMeta: SlotMeta | null;
   onResumeActive: () => void;
-  onStartScratch: (items: Item[]) => void;
-  onStartPreranked: (args: { sublists: Item[][]; extras: Item[] }) => void;
+  onStartScratch: (items: Item[], initialTab?: TabId) => void;
+  onStartPreranked: (
+    args: { sublists: Item[][]; extras: Item[] },
+    initialTab?: TabId,
+  ) => void;
   /**
    * CSV-as-sorted entry point. Skips the sort entirely; items become the
    * frozen `sorted[]` of an insertion-mode slot. The user can later
    * "+ Add items" on RESULT to binary-insert new items.
    */
-  onStartAlreadySorted: (items: Item[]) => void;
+  onStartAlreadySorted: (items: Item[], initialTab?: TabId) => void;
+  /** True while a prior slot is loaded in memory — editing START should park it. */
+  hasLoadedSession: boolean;
+  /** Called on first meaningful START input while `hasLoadedSession` is true. */
+  onDraftActivity: () => void;
+  onDraftCapabilitiesChange: (caps: StartDraftCapabilities) => void;
 }
 
 interface StagedFile {
@@ -112,19 +217,32 @@ function uid(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
-export function StartScreen({
-  resumeMeta,
-  onResumeActive,
-  onStartScratch,
-  onStartPreranked,
-  onStartAlreadySorted,
-}: Props) {
+export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartScreen(
+  {
+    resumeMeta,
+    onResumeActive,
+    onStartScratch,
+    onStartPreranked,
+    onStartAlreadySorted,
+    hasLoadedSession,
+    onDraftActivity,
+    onDraftCapabilitiesChange,
+  },
+  ref,
+) {
   const [mode, setMode] = useState<Mode>('scratch');
+
+  const prevLoadedSessionRef = useRef(hasLoadedSession);
+
+  const notifyDraftActivity = useCallback(() => {
+    if (hasLoadedSession) onDraftActivity();
+  }, [hasLoadedSession, onDraftActivity]);
 
   // Shared overlay across both modes. Entries are keyed by
   // `${sourceName}:${rowNumber}`, so the scratch source ('pasted CSV')
   // and any pre-ranked file or 'extras' use distinct keys naturally.
   const [overrides, setOverrides] = useState<OverlayMap>(new Map());
+  const [excludedRows, setExcludedRows] = useState<ExcludedRows>(new Set());
 
   // The dedup-warning row the user clicked Edit on. Drives the
   // EditItemModal. Stored as a transient object containing everything
@@ -188,13 +306,16 @@ export function StartScreen({
         ? [
             {
               sourceName: 'pasted CSV',
-              rawRows: applyOverrides(scratchParsed.rows, overrides),
+              rawRows: applyImportEdits(scratchParsed.rows, overrides, excludedRows),
               detectedHeader: scratchParsed.detectedHeader,
-              extraColumns: scratchParsed.extraColumns,
+              extraColumns: filterExtraColumnsForExcluded(
+                scratchParsed.extraColumns,
+                excludedRows,
+              ),
             },
           ]
         : [],
-    [scratchParsed, overrides],
+    [scratchParsed, overrides, excludedRows],
   );
 
   const scratchResult = useMemo(
@@ -206,18 +327,26 @@ export function StartScreen({
   // tied to the 'pasted CSV' source. Necessary because edits to the
   // raw text typically shift row numbers and stale overrides would
   // then apply to unrelated rows.
-  const updateScratchText = useCallback((next: string) => {
-    setScratchText(next);
-    setOverrides((prev) => dropSourceFromOverrides(prev, 'pasted CSV'));
-  }, []);
+  const updateScratchText = useCallback(
+    (next: string) => {
+      setScratchText(next);
+      dropSourceEdits('pasted CSV', setOverrides, setExcludedRows);
+      if (next.trim()) notifyDraftActivity();
+    },
+    [notifyDraftActivity],
+  );
 
   // Same reason: toggling the header-skip checkbox shifts every row's
   // sourceRow by ±1, so any existing overlay entry for 'pasted CSV'
   // would point at the wrong row after the toggle.
-  const updateScratchSkipHeader = useCallback((next: boolean) => {
-    setScratchSkipHeader(next);
-    setOverrides((prev) => dropSourceFromOverrides(prev, 'pasted CSV'));
-  }, []);
+  const updateScratchSkipHeader = useCallback(
+    (next: boolean) => {
+      setScratchSkipHeader(next);
+      dropSourceEdits('pasted CSV', setOverrides, setExcludedRows);
+      notifyDraftActivity();
+    },
+    [notifyDraftActivity],
+  );
 
   function onScratchFile(e: React.ChangeEvent<HTMLInputElement>): void {
     const file = e.target.files?.[0];
@@ -279,6 +408,7 @@ export function StartScreen({
     ]);
     setPasteText('');
     setPasteSkipHeader(false);
+    notifyDraftActivity();
   }
 
   function restorePastedListToEditor(id: string): void {
@@ -287,7 +417,7 @@ export function StartScreen({
     setPasteText(target.text);
     setPasteSkipHeader(target.skipHeader);
     setPasteError(null);
-    setOverrides((cur) => dropSourceFromOverrides(cur, target.name));
+    dropSourceEdits(target.name, setOverrides, setExcludedRows);
     setStagedFiles((prev) => prev.filter((f) => f.id !== id));
     requestAnimationFrame(() => {
       pasteTextareaRef.current?.focus();
@@ -303,6 +433,7 @@ export function StartScreen({
     try {
       const text = await navigator.clipboard.readText();
       setPasteText(text);
+      if (text.trim()) notifyDraftActivity();
     } catch {
       setPasteError(
         'Could not read clipboard. Paste into the box with ⌘V / Ctrl+V instead.',
@@ -345,6 +476,7 @@ export function StartScreen({
     );
     Promise.all(promises).then((arr) => {
       setStagedFiles((prev) => [...prev, ...arr]);
+      if (arr.length > 0) notifyDraftActivity();
     });
     e.target.value = '';
   }
@@ -355,7 +487,7 @@ export function StartScreen({
       if (target) {
         // Header toggle shifts every row's sourceRow by ±1, so any
         // existing override for this file would land on the wrong row.
-        setOverrides((cur) => dropSourceFromOverrides(cur, target.name));
+        dropSourceEdits(target.name, setOverrides, setExcludedRows);
       }
       return prev.map((f) => (f.id === id ? { ...f, skipHeader: skip } : f));
     });
@@ -365,7 +497,7 @@ export function StartScreen({
     setStagedFiles((prev) => {
       const target = prev.find((f) => f.id === id);
       if (target) {
-        setOverrides((cur) => dropSourceFromOverrides(cur, target.name));
+        dropSourceEdits(target.name, setOverrides, setExcludedRows);
       }
       return prev.filter((f) => f.id !== id);
     });
@@ -373,24 +505,32 @@ export function StartScreen({
 
   // Same invalidation rule for extras: any text/header change shifts
   // rows, so the 'extras' source's overrides are dropped.
-  const updateExtrasText = useCallback((next: string) => {
-    setExtrasText(next);
-    setOverrides((prev) => dropSourceFromOverrides(prev, 'extras'));
-  }, []);
+  const updateExtrasText = useCallback(
+    (next: string) => {
+      setExtrasText(next);
+      dropSourceEdits('extras', setOverrides, setExcludedRows);
+      if (next.trim()) notifyDraftActivity();
+    },
+    [notifyDraftActivity],
+  );
 
-  const updateExtrasSkipHeader = useCallback((next: boolean) => {
-    setExtrasSkipHeader(next);
-    setOverrides((prev) => dropSourceFromOverrides(prev, 'extras'));
-  }, []);
+  const updateExtrasSkipHeader = useCallback(
+    (next: boolean) => {
+      setExtrasSkipHeader(next);
+      dropSourceEdits('extras', setOverrides, setExcludedRows);
+      notifyDraftActivity();
+    },
+    [notifyDraftActivity],
+  );
 
   const prerankedResult = useMemo(() => {
     const sources: SourceParse[] = stagedFiles.map((f) => {
       const r = parseCsvRows(f.text, f.name, f.skipHeader);
       return {
         sourceName: f.name,
-        rawRows: applyOverrides(r.rows, overrides),
+        rawRows: applyImportEdits(r.rows, overrides, excludedRows),
         detectedHeader: r.detectedHeader,
-        extraColumns: r.extraColumns,
+        extraColumns: filterExtraColumnsForExcluded(r.extraColumns, excludedRows),
       };
     });
 
@@ -409,16 +549,19 @@ export function StartScreen({
       if (plain.length > 0) {
         sources.push({
           sourceName: 'extras',
-          rawRows: applyOverrides(plain, overrides),
+          rawRows: applyImportEdits(plain, overrides, excludedRows),
           detectedHeader: false,
         });
       }
     } else if (extrasParsed.rows.length > 0) {
       sources.push({
         sourceName: 'extras',
-        rawRows: applyOverrides(extrasParsed.rows, overrides),
+        rawRows: applyImportEdits(extrasParsed.rows, overrides, excludedRows),
         detectedHeader: extrasParsed.detectedHeader,
-        extraColumns: extrasParsed.extraColumns,
+        extraColumns: filterExtraColumnsForExcluded(
+          extrasParsed.extraColumns,
+          excludedRows,
+        ),
       });
     }
 
@@ -456,7 +599,133 @@ export function StartScreen({
       sublists,
       extras,
     };
-  }, [stagedFiles, extrasText, extrasSkipHeader, overrides]);
+  }, [stagedFiles, extrasText, extrasSkipHeader, overrides, excludedRows]);
+
+  function clearDraftState(): void {
+    setMode('scratch');
+    setOverrides(new Map());
+    setExcludedRows(new Set());
+    setScratchText('');
+    setScratchSkipHeader(false);
+    setScratchAlreadySorted(false);
+    setStagedFiles([]);
+    setPasteText('');
+    setPasteSkipHeader(false);
+    setPasteError(null);
+    setExtrasText('');
+    setExtrasSkipHeader(false);
+    setEditTarget(null);
+  }
+
+  function draftHasContent(): boolean {
+    if (mode === 'scratch') return scratchText.trim().length > 0;
+    return stagedFiles.length > 0 || extrasText.trim().length > 0;
+  }
+
+  // Resume loads the previous slot — discard any in-progress START draft so
+  // the user isn't looking at stale import text for a different session.
+  useEffect(() => {
+    if (!prevLoadedSessionRef.current && hasLoadedSession) {
+      clearDraftState();
+    }
+    prevLoadedSessionRef.current = hasLoadedSession;
+  }, [hasLoadedSession]);
+
+  useEffect(() => {
+    onDraftCapabilitiesChange({
+      canList:
+        mode === 'scratch'
+          ? scratchResult.items.length >= 1
+          : prerankedResult.items.length >= 1,
+      canRank:
+        mode === 'scratch'
+          ? !scratchAlreadySorted && scratchResult.items.length >= 2
+          : prerankedResult.items.length >= 2,
+      canResult:
+        mode === 'scratch' &&
+        scratchAlreadySorted &&
+        scratchResult.items.length >= 1,
+    });
+  }, [
+    mode,
+    scratchResult.items.length,
+    prerankedResult.items.length,
+    scratchAlreadySorted,
+    onDraftCapabilitiesChange,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      onDraftCapabilitiesChange({
+        canList: false,
+        canRank: false,
+        canResult: false,
+      });
+    };
+  }, [onDraftCapabilitiesChange]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      tryAdoptDraft(tab: StartDraftAdoptTab): boolean {
+        if (!draftHasContent()) return false;
+
+        if (mode === 'scratch') {
+          if (scratchAlreadySorted) {
+            if (scratchResult.items.length < 1) return false;
+            if (tab === 'result' || tab === 'list') {
+              onStartAlreadySorted(scratchResult.items, tab);
+              return true;
+            }
+            return false;
+          }
+          if (tab === 'list' && scratchResult.items.length >= 1) {
+            onStartScratch(scratchResult.items, 'list');
+            return true;
+          }
+          if (tab === 'rank' && scratchResult.items.length >= 2) {
+            onStartScratch(scratchResult.items, 'rank');
+            return true;
+          }
+          return false;
+        }
+
+        if (tab === 'list' && prerankedResult.items.length >= 1) {
+          onStartPreranked(
+            {
+              sublists: prerankedResult.sublists,
+              extras: prerankedResult.extras,
+            },
+            'list',
+          );
+          return true;
+        }
+        if (tab === 'rank' && prerankedResult.items.length >= 2) {
+          onStartPreranked(
+            {
+              sublists: prerankedResult.sublists,
+              extras: prerankedResult.extras,
+            },
+            'rank',
+          );
+          return true;
+        }
+        return false;
+      },
+    }),
+    [
+      mode,
+      scratchText,
+      stagedFiles,
+      extrasText,
+      scratchAlreadySorted,
+      scratchResult,
+      prerankedResult,
+      onStartScratch,
+      onStartPreranked,
+      onStartAlreadySorted,
+    ],
+  );
 
   function onStartPrerankedClick(): void {
     onStartPreranked({
@@ -549,10 +818,55 @@ export function StartScreen({
     [buildOpenEdit, stagedFiles, extrasText, extrasSkipHeader, prerankedResult],
   );
 
+  const onRemovePreviewRowScratch = useCallback(
+    (sourceName: string, rowNumber: number) => {
+      setExcludedRows((prev) =>
+        excludePreviewItemFromSource(
+          scratchParsed.rows,
+          overrides,
+          prev,
+          sourceName,
+          rowNumber,
+        ),
+      );
+    },
+    [scratchParsed.rows, overrides],
+  );
+
+  const onRemovePreviewRowPreranked = useCallback(
+    (sourceName: string, rowNumber: number) => {
+      const allRawRows: RawRow[] = [];
+      for (const f of stagedFiles) {
+        allRawRows.push(...parseCsvRows(f.text, f.name, f.skipHeader).rows);
+      }
+      if (extrasText.trim()) {
+        const ex = parseCsvRows(extrasText, 'extras', extrasSkipHeader);
+        if (ex.rows.length > 0) allRawRows.push(...ex.rows);
+        else allRawRows.push(...parseExtrasText(extrasText));
+      }
+      setExcludedRows((prev) =>
+        excludePreviewItemFromSource(
+          allRawRows,
+          overrides,
+          prev,
+          sourceName,
+          rowNumber,
+        ),
+      );
+    },
+    [stagedFiles, extrasText, extrasSkipHeader, overrides],
+  );
+
   const onEditSave = useCallback(
     (payload: EditItemSavePayload) => {
       if (!editTarget) return;
       const key = overlayKey(editTarget.sourceName, editTarget.rowNumber);
+      const hasChange =
+        (payload.label !== undefined && payload.label !== editTarget.currentLabel) ||
+        (payload.id !== undefined && payload.id !== editTarget.currentId) ||
+        (payload.url !== undefined && payload.url !== (editTarget.currentUrl ?? '')) ||
+        (payload.imageUrl !== undefined &&
+          payload.imageUrl !== (editTarget.currentImageUrl ?? ''));
       setOverrides((prev) => {
         const next = new Map(prev);
         const cur = next.get(key) ?? {};
@@ -598,9 +912,10 @@ export function StartScreen({
         }
         return next;
       });
+      if (hasChange) notifyDraftActivity();
       setEditTarget(null);
     },
-    [editTarget],
+    [editTarget, notifyDraftActivity],
   );
 
   // Stub item passed into EditItemModal — we don't have a real
@@ -706,7 +1021,10 @@ export function StartScreen({
               id="scratch-already-sorted"
               type="checkbox"
               checked={scratchAlreadySorted}
-              onChange={(e) => setScratchAlreadySorted(e.target.checked)}
+              onChange={(e) => {
+                setScratchAlreadySorted(e.target.checked);
+                notifyDraftActivity();
+              }}
             />
             <label htmlFor="scratch-already-sorted">
               These items are already in ranking order (skip the sort)
@@ -735,6 +1053,7 @@ export function StartScreen({
             }
             onStart={onStartScratchClick}
             onEditOccurrence={onEditOccurrenceScratch}
+            onRemoveRow={onRemovePreviewRowScratch}
           />
         </div>
       )}
@@ -755,6 +1074,7 @@ export function StartScreen({
             onChange={(e) => {
               setPasteText(e.target.value);
               setPasteError(null);
+              if (e.target.value.trim()) notifyDraftActivity();
             }}
           />
           <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
@@ -894,6 +1214,7 @@ export function StartScreen({
             startDisabled={prerankedResult.items.length < 2}
             onStart={onStartPrerankedClick}
             onEditOccurrence={onEditOccurrencePreranked}
+            onRemoveRow={onRemovePreviewRowPreranked}
           />
         </div>
       )}
@@ -911,4 +1232,4 @@ export function StartScreen({
       )}
     </div>
   );
-}
+});
