@@ -280,8 +280,19 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
     [notifyDraftActivity],
   );
 
-  const removeStagedGroup = useCallback((id: string) => {
-    setStaged((prev) => prev.filter((g) => g.id !== id));
+  /**
+   * Toggle the soft-removal flag on a staged group. Marked groups
+   * stay in the panel struck-through with a ↺ undo handle; Start
+   * Sort drops them for real (they're filtered by
+   * `buildSortInputFromStaged`, never reach the engine). Different
+   * from `clearAllStaged` which is a hard delete with no undo.
+   */
+  const toggleStagedGroupRemoval = useCallback((id: string) => {
+    setStaged((prev) =>
+      prev.map((g) =>
+        g.id === id ? { ...g, markedForRemoval: !g.markedForRemoval } : g,
+      ),
+    );
   }, []);
 
   const clearAllStaged = useCallback(() => {
@@ -289,53 +300,37 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
   }, []);
 
   /**
-   * Remove ONE item from a staged group. When the removal empties
-   * the group, drop the whole group rather than leaving an empty
-   * husk in the panel — the summary "N items across M sources" must
-   * stay consistent with what the user sees in the list, and an
-   * empty group would also confuse `buildSortInputFromStaged`'s
-   * "skipped sublist" path.
+   * Toggle the soft-removal mark on a single item inside a staged
+   * group. The item stays visible in the panel struck-through with a
+   * ↺ undo handle; Start Sort excludes it. The mark lives on the
+   * group as a Set of item ids — keeping it per-group (rather than a
+   * single flat Set across the whole panel) means the same item id
+   * can be marked in one source and kept in another.
    *
    * Acts only on `staged`. Pending groups are materialised from the
    * source the user is currently editing — the StagedItemsPanel
-   * hides per-item × buttons for pending rows so this callback is
-   * never invoked with a pending id, but the .filter() makes that
-   * defence cheap if a future caller forgets.
+   * hides per-item action buttons for pending rows so this callback
+   * is never invoked with a pending id, but the early-return makes
+   * that defence cheap if a future caller forgets.
    */
-  const removeItemFromStagedGroup = useCallback(
+  const toggleStagedItemRemoval = useCallback(
     (groupId: string, itemId: ItemId) => {
-      setStaged((prev) => {
-        let touched = false;
-        const next: StagedGroup[] = [];
-        for (const g of prev) {
-          if (g.id !== groupId) {
-            next.push(g);
-            continue;
+      setStaged((prev) =>
+        prev.map((g) => {
+          if (g.id !== groupId) return g;
+          const cur = g.markedItemIds;
+          const next = new Set(cur ?? []);
+          if (next.has(itemId)) next.delete(itemId);
+          else next.add(itemId);
+          // Drop the field entirely when empty so the group's JSON
+          // shape stays trim — no { markedItemIds: Set(0) } artifacts.
+          if (next.size === 0) {
+            const { markedItemIds: _omit, ...rest } = g;
+            return rest as StagedGroup;
           }
-          const remaining = g.items.filter((it) => it.id !== itemId);
-          if (remaining.length === g.items.length) {
-            // No matching item — leave the group untouched.
-            next.push(g);
-            continue;
-          }
-          touched = true;
-          if (remaining.length === 0) {
-            // Last item gone → drop the whole group. The merge sort
-            // would skip an empty sublist anyway, but the panel
-            // would still render an empty row which looks broken.
-            continue;
-          }
-          // Preserve the group's kind/seedAsSortedHint by spreading
-          // the original — important for sublist groups where the
-          // hint controls the "Use as ranking" CTA.
-          if (g.kind === 'sublist') {
-            next.push({ ...g, items: remaining });
-          } else {
-            next.push({ ...g, items: remaining });
-          }
-        }
-        return touched ? next : prev;
-      });
+          return { ...g, markedItemIds: next };
+        }),
+      );
     },
     [],
   );
@@ -371,6 +366,80 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
      */
     rawRow: string[] | undefined;
   } | null>(null);
+
+  /**
+   * Staged-item edit target. Separate from `editTarget` (which is
+   * scoped to the CSV preview's row-numbered overlay) because staged
+   * groups don't have a stable `(sourceName, rowNumber)` handle —
+   * the source is the synthetic group id and the row index would
+   * shift on any reordering. Patches from the modal mutate the
+   * staged group's `items[]` in place (well, immutably — via
+   * setStaged) so the changes survive into Start Sort.
+   *
+   * The id field is intentionally NOT editable here — re-keying a
+   * staged item by id would invalidate dedup rules, marked-removal
+   * sets, and any cross-group references. Label / URL / image only.
+   */
+  const [editStagedTarget, setEditStagedTarget] = useState<{
+    groupId: string;
+    itemId: ItemId;
+  } | null>(null);
+
+  /**
+   * Look up the live Item for the staged edit target. Returns null
+   * if the group or item disappeared between the click that opened
+   * the modal and this render (concurrent re-import, etc.) — the
+   * modal then renders nothing and the user can re-open it.
+   */
+  const editStagedItem: Item | null = useMemo(() => {
+    if (!editStagedTarget) return null;
+    const g = staged.find((x) => x.id === editStagedTarget.groupId);
+    if (!g) return null;
+    return g.items.find((it) => it.id === editStagedTarget.itemId) ?? null;
+  }, [editStagedTarget, staged]);
+
+  const openStagedEdit = useCallback(
+    (groupId: string, itemId: ItemId) => {
+      setEditStagedTarget({ groupId, itemId });
+    },
+    [],
+  );
+
+  /**
+   * Apply an EditItemModal patch to the targeted staged item. Only
+   * `label / url / imageUrl` are honoured — see comment on
+   * `editStagedTarget` above for why `id` is locked. Empty-string
+   * url / imageUrl is treated as "clear it" to match the CSV-edit
+   * flow's semantics (see `EditItemModal` JSDoc).
+   */
+  const saveStagedEdit = useCallback(
+    (patch: EditItemSavePayload) => {
+      if (!editStagedTarget) return;
+      const { groupId, itemId } = editStagedTarget;
+      setStaged((prev) =>
+        prev.map((g) => {
+          if (g.id !== groupId) return g;
+          const nextItems = g.items.map((it) => {
+            if (it.id !== itemId) return it;
+            const updated: Item = { ...it };
+            if (patch.label !== undefined) updated.label = patch.label;
+            if (patch.url !== undefined) {
+              updated.url = patch.url === '' ? undefined : patch.url;
+            }
+            if (patch.imageUrl !== undefined) {
+              updated.imageUrl =
+                patch.imageUrl === '' ? undefined : patch.imageUrl;
+            }
+            return updated;
+          });
+          return { ...g, items: nextItems };
+        }),
+      );
+      setEditStagedTarget(null);
+      notifyDraftActivity();
+    },
+    [editStagedTarget, notifyDraftActivity],
+  );
 
   // -------- scratch mode --------
   const [scratchText, setScratchText] = useState('');
@@ -871,10 +940,15 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
    * no flat groups — that's the only shape that maps to the
    * `seedAsSorted` (skip-the-sort) path.
    */
+  // A soft-removed sublist must NOT trip the "Use as ranking" CTA —
+  // Start Sort would then route through the seed-as-sorted path with
+  // a sublist that's about to be excluded. Mirrors the panel's
+  // `isAlreadySortedReady` so the CTA decision stays in sync.
   const combinedAlreadySortedReady =
     combinedGroups.length === 1 &&
     combinedGroups[0].kind === 'sublist' &&
-    combinedGroups[0].seedAsSortedHint === true;
+    combinedGroups[0].seedAsSortedHint === true &&
+    !combinedGroups[0].markedForRemoval;
 
   const startFromCombined = useCallback(
     (initialTab?: TabId) => {
@@ -1478,8 +1552,9 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
       <StagedItemsPanel
         staged={staged}
         pending={pendingGroupsForPanel}
-        onRemoveGroup={removeStagedGroup}
-        onRemoveItemFromGroup={removeItemFromStagedGroup}
+        onToggleRemoveGroup={toggleStagedGroupRemoval}
+        onToggleRemoveItem={toggleStagedItemRemoval}
+        onEditItem={openStagedEdit}
         onClearAll={clearAllStaged}
         onStartSort={() => startFromCombined()}
         onStartAlreadySorted={() => startFromCombined()}
@@ -1494,6 +1569,20 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
           currentId={editTarget.currentId}
           otherIds={editTarget.otherIds}
           rawRow={editTarget.rawRow}
+        />
+      )}
+
+      {/* Staged-item edit modal. Same component as the CSV preview's
+          edit flow but `allowEditId` is OFF — renaming a staged
+          item's id would break dedup, marked-removal sets, and any
+          cross-group references built up in the panel state. The
+          user can still edit label / url / imageUrl which covers the
+          common typo-fix use case the modal was designed for. */}
+      {editStagedItem && editStagedTarget && (
+        <EditItemModal
+          item={editStagedItem}
+          onCancel={() => setEditStagedTarget(null)}
+          onSave={saveStagedEdit}
         />
       )}
     </div>

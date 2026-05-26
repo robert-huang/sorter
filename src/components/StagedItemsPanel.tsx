@@ -2,6 +2,35 @@ import { useMemo, useState } from 'react';
 import type { Item, ItemId } from '../lib/types';
 
 /**
+ * Soft-removal markers shared by both group variants. Splitting them
+ * out keeps `StagedGroup` readable and lets the distributive
+ * `StagedGroupInput` carry the flags too without re-listing them in
+ * each variant.
+ *
+ * Why a Set (not an array) for items? The panel hot-paths a
+ * per-render `markedItemIds.has(it.id)` lookup; arrays would force
+ * `.includes` which is O(n) per item — fine for 10 items, painful
+ * for a 500-item AniList sublist with overlapping marks. `StagedGroup`
+ * is transient React state (never serialised to OPFS) so the Set is
+ * fine. Read-only because callers shouldn't mutate in-place — the
+ * parent always replaces the whole group on toggle, which keeps React
+ * change detection honest.
+ */
+export interface StagedRemovalMarkers {
+  /** When true the whole group is "staged to remove" — visually
+   *  struck-through and excluded by `buildSortInputFromStaged`. The
+   *  per-item marks are PRESERVED while the group is marked so undoing
+   *  the group restores the previous per-item state. */
+  markedForRemoval?: boolean;
+  /** Per-item soft-removal set. Items in this set are visually
+   *  struck-through (same as a marked group) and excluded by the sort
+   *  builder. Ignored when `markedForRemoval` is true at the group
+   *  level since the whole group is gone anyway — but kept so undoing
+   *  the group brings the per-item state back. */
+  markedItemIds?: ReadonlySet<ItemId>;
+}
+
+/**
  * One bucket of items the user has added on the START screen from
  * one specific source (a pasted CSV, a pre-ranked file, an AniList
  * selection, …). Groups stack: the user can keep adding from any tab
@@ -18,8 +47,13 @@ import type { Item, ItemId } from '../lib/types';
  * button; it isn't persisted anywhere.
  */
 export type StagedGroup =
-  | { kind: 'flat'; id: string; source: string; items: Item[] }
-  | {
+  | ({
+      kind: 'flat';
+      id: string;
+      source: string;
+      items: Item[];
+    } & StagedRemovalMarkers)
+  | ({
       kind: 'sublist';
       id: string;
       source: string;
@@ -36,7 +70,7 @@ export type StagedGroup =
        * sublist participates in a normal merge instead.
        */
       seedAsSortedHint?: boolean;
-    };
+    } & StagedRemovalMarkers);
 
 /**
  * `StagedGroup` minus the synthetic `id`, distributed across the
@@ -58,6 +92,11 @@ export type StagedGroupInput = StagedGroup extends infer T
  * also mentioning the same item, and a flat-then-sublist ordering
  * keeps the sublist-position too (because the flat one wins).
  *
+ * Soft-removed content (groups with `markedForRemoval` or items in
+ * `markedItemIds`) is dropped BEFORE dedup, so the sort engine never
+ * sees them — they are gone for real on Start Sort, not added as
+ * pre-hidden items.
+ *
  * Note: this is deterministic on group iteration order, which is
  * insertion order in the staged array. That means "later additions
  * don't displace earlier ones" — matches the user's mental model of
@@ -73,8 +112,11 @@ export function buildSortInputFromStaged(groups: StagedGroup[]): {
   const sublists: Item[][] = [];
   const extras: Item[] = [];
   for (const g of groups) {
+    if (g.markedForRemoval) continue;
+    const itemMarks = g.markedItemIds;
     const taken: Item[] = [];
     for (const it of g.items) {
+      if (itemMarks?.has(it.id)) continue;
       if (seen.has(it.id)) continue;
       seen.add(it.id);
       taken.push(it);
@@ -115,6 +157,11 @@ export interface DuplicateOccurrence {
  * and the user has no idea their carefully-uploaded second sublist
  * was effectively a no-op.
  *
+ * Soft-removed content is skipped — if the user has already marked
+ * a duplicate for removal there's nothing to warn about. This also
+ * has the nice property that if a "winner" gets marked, the next
+ * remaining occurrence is what the badges talk about.
+ *
  * Pure derivation from `groups`; intentionally separate from
  * `buildSortInputFromStaged` so a UI-only re-render doesn't pay the
  * cost of re-collapsing every item into sublists/extras.
@@ -124,7 +171,10 @@ export function findDuplicateOccurrences(
 ): Map<ItemId, DuplicateOccurrence[]> {
   const all = new Map<ItemId, DuplicateOccurrence[]>();
   for (const g of groups) {
+    if (g.markedForRemoval) continue;
+    const itemMarks = g.markedItemIds;
     g.items.forEach((it, idx) => {
+      if (itemMarks?.has(it.id)) return;
       let arr = all.get(it.id);
       if (!arr) {
         arr = [];
@@ -146,58 +196,107 @@ export function findDuplicateOccurrences(
   return all;
 }
 
+/** Total count of items soft-removed across all groups (both
+ *  whole-group marks and per-item marks). Used by the panel header
+ *  to surface "N marked for removal" so the user is never surprised
+ *  about what Start Sort will skip. */
+export function countMarkedForRemoval(groups: readonly StagedGroup[]): number {
+  let n = 0;
+  for (const g of groups) {
+    if (g.markedForRemoval) {
+      n += g.items.length;
+      continue;
+    }
+    if (g.markedItemIds && g.markedItemIds.size > 0) {
+      // Counting unique items in the group that match the mark set —
+      // group.items can have intra-group duplicates (same id twice),
+      // and we only want to count one per id so the header total
+      // matches the "items that disappear" the user actually sees.
+      const seen = new Set<ItemId>();
+      for (const it of g.items) {
+        if (g.markedItemIds.has(it.id) && !seen.has(it.id)) {
+          seen.add(it.id);
+          n += 1;
+        }
+      }
+    }
+  }
+  return n;
+}
+
 interface Props {
   /** Groups the user has explicitly added via "Add to staged". */
   staged: StagedGroup[];
   /**
    * Groups the CURRENT START tab would add if the user hit its
    * per-tab "Add to staged" CTA right now. Rendered in the same
-   * list but visually subdued and without an × button — to remove
-   * pending content, the user edits the source textarea/files
-   * directly. Start uses staged + pending combined so there's no
-   * surprise about what gets sorted.
+   * list but visually subdued and without × / edit handles — to
+   * remove pending content, the user edits the source textarea /
+   * files directly. Start uses staged + pending combined so there's
+   * no surprise about what gets sorted.
    */
   pending: StagedGroup[];
-  onRemoveGroup: (id: string) => void;
+  /**
+   * Soft-toggle a whole group's `markedForRemoval` flag. The group
+   * stays in the panel struck-through so the user can ↺ it; only
+   * Start Sort and "Clear staged" actually drop content.
+   */
+  onToggleRemoveGroup: (id: string) => void;
+  /**
+   * Hard clear-all: drops every staged group immediately (no undo).
+   * Different from the per-row × — the user has to opt-in by name
+   * via the "Clear staged" button in the header.
+   */
   onClearAll: () => void;
   onStartSort: () => void;
   onStartAlreadySorted: () => void;
   /**
-   * Remove a single item from a STAGED group (no-op for pending).
-   * If the removal empties the group, the parent should drop the
-   * whole group rather than leaving an empty husk in the panel —
-   * `StartScreen`'s implementation does exactly that.
-   *
-   * Optional so other call sites (tests, future hosts) can omit it;
-   * when missing, item rows just don't render their × button.
+   * Soft-toggle a single item's removal state inside a STAGED group
+   * (no-op for pending — those rows render without action handles).
+   * The item stays in the panel struck-through; Start Sort drops it
+   * for real and the sort engine never sees it. Optional so other
+   * call sites (tests, future hosts) can omit it; when missing,
+   * item-level × buttons aren't rendered.
    */
-  onRemoveItemFromGroup?: (groupId: string, itemId: ItemId) => void;
+  onToggleRemoveItem?: (groupId: string, itemId: ItemId) => void;
+  /**
+   * Open the per-item edit modal. Mirrors the CSV-preview's edit
+   * flow but targets a staged item by (group, itemId) instead of
+   * (sourceName, rowNumber). Optional for the same reason as the
+   * toggle handlers above.
+   */
+  onEditItem?: (groupId: string, itemId: ItemId) => void;
 }
 
 /**
  * The combined list is in "already sorted" mode iff there's exactly
- * one group, it's a sublist, and it carries the seed-as-sorted hint.
- * Anything else (a second group, a flat group, a sublist without the
- * hint) demotes the CTA back to the normal merge-sort path.
+ * one group, it's a sublist, carries the seed-as-sorted hint, and is
+ * not marked for removal. Anything else (a second group, a flat
+ * group, a sublist without the hint, or a marked-for-removal sublist)
+ * demotes the CTA back to the normal merge-sort path — or, in the
+ * marked-for-removal case, disables Start Sort entirely.
  */
 function isAlreadySortedReady(combined: StagedGroup[]): boolean {
   if (combined.length !== 1) return false;
   const g = combined[0];
+  if (g.markedForRemoval) return false;
   return g.kind === 'sublist' && g.seedAsSortedHint === true;
 }
 
 export function StagedItemsPanel({
   staged,
   pending,
-  onRemoveGroup,
+  onToggleRemoveGroup,
   onClearAll,
   onStartSort,
   onStartAlreadySorted,
-  onRemoveItemFromGroup,
+  onToggleRemoveItem,
+  onEditItem,
 }: Props) {
   const combined = useMemo(() => [...staged, ...pending], [staged, pending]);
   const summary = useMemo(() => buildSortInputFromStaged(combined), [combined]);
   const duplicates = useMemo(() => findDuplicateOccurrences(combined), [combined]);
+  const markedCount = useMemo(() => countMarkedForRemoval(combined), [combined]);
   const alreadySortedReady = isAlreadySortedReady(combined);
   // Per-group expansion state. Lives here (not as a single
   // currently-expanded id) so the user can fan multiple groups open
@@ -253,6 +352,14 @@ export function StagedItemsPanel({
             <>
               {' '}
               — including {pending.length} unstaged
+            </>
+          )}
+          {markedCount > 0 && (
+            <>
+              {' '}
+              · <span className="staged-panel-marked-count">
+                {markedCount} marked for removal
+              </span>
             </>
           )}
         </div>
@@ -316,6 +423,8 @@ export function StagedItemsPanel({
         {combined.map((g) => {
           const isPending = pending.some((p) => p.id === g.id);
           const isOpen = expanded.has(g.id);
+          const groupMarked = g.markedForRemoval === true;
+          const itemMarks = g.markedItemIds;
           // Duplicates affecting THIS group: count the rows that
           // will be silently dropped by `buildSortInputFromStaged`.
           // A row at position `idx+1` is a loser whenever the
@@ -323,7 +432,10 @@ export function StagedItemsPanel({
           // different group or an earlier row in this same group
           // (intra-group dupes count too). The per-group "N dup"
           // badge shows this so the user knows at a glance which
-          // sources are losing entries to dedup.
+          // sources are losing entries to dedup. Marked groups
+          // contribute zero because `findDuplicateOccurrences`
+          // already excluded them; same for marked items inside an
+          // unmarked group.
           let groupLosingCount = 0;
           g.items.forEach((it, idx) => {
             const occs = duplicates.get(it.id);
@@ -335,7 +447,12 @@ export function StagedItemsPanel({
           });
           return (
             <li
-              className={`staged-panel-group${isPending ? ' pending' : ''}${isOpen ? ' expanded' : ''}`}
+              className={
+                'staged-panel-group' +
+                (isPending ? ' pending' : '') +
+                (isOpen ? ' expanded' : '') +
+                (groupMarked ? ' marked-for-removal' : '')
+              }
               key={g.id}
             >
               <button
@@ -388,16 +505,32 @@ export function StagedItemsPanel({
                 pending groups — those are materialised from the
                 source the user is currently editing, so the
                 "remove" handle there is the source itself.
+
+                When the group is already marked for removal the
+                × flips to ↺ (undo) so a second click restores it.
+                Start Sort drops every marked group for real — the
+                soft-remove only lives until then.
               */}
               {!isPending && (
                 <button
                   type="button"
-                  className="x-button staged-panel-group-remove"
-                  onClick={() => onRemoveGroup(g.id)}
-                  aria-label={`Remove ${g.source} from staged items`}
-                  title="Remove this whole source from staged"
+                  className={
+                    'x-button staged-panel-group-remove' +
+                    (groupMarked ? ' staged-panel-group-undo' : '')
+                  }
+                  onClick={() => onToggleRemoveGroup(g.id)}
+                  aria-label={
+                    groupMarked
+                      ? `Undo remove ${g.source} from staged items`
+                      : `Mark ${g.source} for removal from staged items`
+                  }
+                  title={
+                    groupMarked
+                      ? 'Undo — bring this source back into the sort'
+                      : 'Mark this whole source for removal (undo with ↺ before Start Sort)'
+                  }
                 >
-                  ×
+                  {groupMarked ? '↺' : '×'}
                 </button>
               )}
 
@@ -433,9 +566,22 @@ export function StagedItemsPanel({
                         (o) =>
                           !(o.groupId === g.id && o.positionInGroup === positionInGroup),
                       ) ?? [];
+                    const itemMarked = itemMarks?.has(it.id) === true;
                     return (
                       <li
-                        className={`staged-panel-item${isDuplicate && !isWinner ? ' duplicate-loser' : ''}${isDuplicate && isWinner ? ' duplicate-winner' : ''}`}
+                        className={
+                          'staged-panel-item' +
+                          (isDuplicate && !isWinner ? ' duplicate-loser' : '') +
+                          (isDuplicate && isWinner ? ' duplicate-winner' : '') +
+                          // Cascade the group-level mark visually so
+                          // every row reads as "going away" even
+                          // though the actual mark lives at the
+                          // group level. The data layer keeps these
+                          // separate (`itemMarks` is untouched) so
+                          // undoing the group restores any prior
+                          // per-item marks intact.
+                          (itemMarked || groupMarked ? ' marked-for-removal' : '')
+                        }
                         key={`${it.id}-${idx}`}
                       >
                         {g.kind === 'sublist' && (
@@ -484,15 +630,53 @@ export function StagedItemsPanel({
                             {otherOccurrences.length === 1 ? '' : 's'}
                           </span>
                         )}
-                        {!isPending && onRemoveItemFromGroup && (
+                        {/* Edit (pencil) — opens EditItemModal in the
+                            parent. Hidden when the group is marked
+                            for removal: there's no point editing a
+                            row that's about to be dropped, and the
+                            pencil sitting next to a strikethrough
+                            row reads as "still active" which is
+                            misleading. The item-level mark alone
+                            does NOT hide the pencil — the user might
+                            want to edit before deciding to keep. */}
+                        {!isPending && onEditItem && !groupMarked && (
                           <button
                             type="button"
-                            className="x-button staged-panel-item-remove"
-                            onClick={() => onRemoveItemFromGroup(g.id, it.id)}
-                            aria-label={`Remove ${it.label} from ${g.source}`}
-                            title="Remove this entry from the group"
+                            className="x-button staged-panel-item-edit"
+                            onClick={() => onEditItem(g.id, it.id)}
+                            aria-label={`Edit ${it.label}`}
+                            title="Edit label / URL / image for this entry"
                           >
-                            ×
+                            ✎
+                          </button>
+                        )}
+                        {/* × ↔ ↺ on the per-item handle. The handle
+                            is hidden whenever the group itself is
+                            marked for removal — the group-level ↺
+                            is what restores everything, and surfacing
+                            the per-item handles inside a struck-
+                            through group encourages the user to fight
+                            two pieces of state at once. */}
+                        {!isPending && onToggleRemoveItem && !groupMarked && (
+                          <button
+                            type="button"
+                            className={
+                              'x-button staged-panel-item-remove' +
+                              (itemMarked ? ' staged-panel-item-undo' : '')
+                            }
+                            onClick={() => onToggleRemoveItem(g.id, it.id)}
+                            aria-label={
+                              itemMarked
+                                ? `Undo remove ${it.label}`
+                                : `Mark ${it.label} for removal`
+                            }
+                            title={
+                              itemMarked
+                                ? 'Undo — bring this entry back into the sort'
+                                : 'Mark this entry for removal (undo with ↺ before Start Sort)'
+                            }
+                          >
+                            {itemMarked ? '↺' : '×'}
                           </button>
                         )}
                       </li>

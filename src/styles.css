@@ -3363,6 +3363,75 @@ a {
   flex-shrink: 0;
 }
 
+/* Edit-pencil button on each staged item. Sized + spaced to match
+   .x-button (the × / ↺ control) so the pair sits as a tight unit at
+   the row's trailing edge rather than reading as two unrelated
+   actions. */
+.staged-panel-item-edit {
+  flex-shrink: 0;
+}
+
+/* ---------------------------------------------------------------
+ * Soft-removal (× → ↺ toggle).
+ *
+ * Marked rows stay in the panel struck-through + dimmed so the user
+ * can ↺ before Start Sort. The "marked-for-removal" class is set on:
+ *   - the group <li> when `markedForRemoval` is true on the group
+ *     (cascades to every child via inheritance / descendant rules)
+ *   - the item <li> when it's individually marked OR its parent
+ *     group is marked (the item-level class is applied unconditionally
+ *     in either case so the row reads consistently regardless of
+ *     whether the parent or the item drove the mark)
+ *
+ * The ↺ button reuses .x-button geometry (so it doesn't reflow vs.
+ * the × it replaces) with an accent color to telegraph "this is a
+ * non-destructive undo, not another remove".
+ * --------------------------------------------------------------- */
+.staged-panel-item.marked-for-removal {
+  opacity: 0.5;
+}
+
+.staged-panel-item.marked-for-removal .staged-panel-item-label {
+  text-decoration: line-through;
+  text-decoration-color: var(--text-faint);
+}
+
+/* When the WHOLE group is marked, fade the source row + cascade the
+   strikethrough to the source name. The expanded item rows already
+   carry .marked-for-removal individually (the panel cascades the
+   parent's mark onto each child), so no extra descendant rule is
+   needed here. */
+.staged-panel-group.marked-for-removal .staged-panel-group-row {
+  opacity: 0.5;
+}
+
+.staged-panel-group.marked-for-removal .staged-panel-source {
+  text-decoration: line-through;
+  text-decoration-color: var(--text-faint);
+}
+
+.staged-panel-item-undo,
+.staged-panel-group-undo {
+  /* Same footprint as the × variant so the row doesn't reflow when
+     it flips state. Color shift signals "undo" without screaming
+     for attention — it's a fast-path the user is supposed to find
+     when they overshoot, not a primary action. */
+  color: var(--accent, #2563eb);
+}
+
+.staged-panel-item-undo:hover,
+.staged-panel-group-undo:hover {
+  background: color-mix(in srgb, var(--accent, #2563eb) 12%, transparent);
+}
+
+/* Header tally for "N marked for removal". Subdued tone so it
+   reads as informational, not alarming — the items aren't lost yet
+   and the user controls when (or whether) they go away. */
+.staged-panel-marked-count {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 /* AniList preview search input — width-capped so it doesn't push
    the select-all/clear-visible buttons offscreen on narrow viewports
    and visually grouped via `marginLeft: auto` (set inline) to sit
