@@ -2062,12 +2062,6 @@ export function App() {
     body = (
       <ListScreen
         state={state}
-        slotId={manifest.activeId ?? ''}
-        slotName={
-          manifest.slots.find((s) => s.id === manifest.activeId)?.name ??
-          'Untitled sort'
-        }
-        onRenameSlot={onRenameSlot}
         onHide={doHide}
         onUnhide={doUnhide}
         onReorder={doReorder}

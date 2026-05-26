@@ -6,6 +6,7 @@ import sqlite3InitModule, {
   type Sqlite3Static,
 } from '@sqlite.org/sqlite-wasm';
 import wasmUrl from '@sqlite.org/sqlite-wasm/sqlite3.wasm?url';
+import { ensureAnilistSourceRegistered } from '../importers/anilist/anilistSource';
 import { openDbFromBytes, serializeDb } from './dbBytes';
 import {
   assertDbSchemaSupported,
@@ -19,6 +20,7 @@ import { getSource } from './source-registry';
 import { ensureTestSourceRegistered } from './testSource';
 
 ensureTestSourceRegistered();
+ensureAnilistSourceRegistered();
 
 const OPFS_SAH_POOL_VFS = 'opfs-sahpool';
 
@@ -101,13 +103,22 @@ function openOpfsDb(filename: string): Database {
   return new s3.oo1.DB(filename, 'c', OPFS_SAH_POOL_VFS);
 }
 
+// FK enforcement is a per-connection PRAGMA in SQLite — not persisted in the
+// file — so every newly opened connection must turn it on, or `ON DELETE
+// CASCADE` clauses (e.g. anilist's media → media_list_entry / media_studio /
+// media_tag junctions) silently fail to fire. Kept here next to every open
+// path so a future source that adds another open site can't accidentally
+// skip it.
+function enableForeignKeys(db: Database): void {
+  db.exec('PRAGMA foreign_keys = ON');
+}
+
 function openDb(sourceId: string): Database {
   const s3 = requireSqlite();
   const filename = dbFilename(sourceId);
-  if (storageMode === 'opfs') {
-    return openOpfsDb(filename);
-  }
-  return new s3.oo1.DB(filename, 'c');
+  const db = storageMode === 'opfs' ? openOpfsDb(filename) : new s3.oo1.DB(filename, 'c');
+  enableForeignKeys(db);
+  return db;
 }
 
 function getOrOpenDb(sourceId: string): Database {
@@ -136,12 +147,14 @@ async function replaceDb(sourceId: string, bytes: Uint8Array): Promise<Database>
     const filename = opfsFilename(sourceId);
     await sahPool.importDb(filename, bytes);
     const db = openOpfsDb(filename);
+    enableForeignKeys(db);
     assertDbSchemaSupported(db, source);
     dbs.set(sourceId, db);
     return db;
   }
 
   const db = openDbFromBytes(s3, bytes);
+  enableForeignKeys(db);
   assertDbSchemaSupported(db, source);
   dbs.set(sourceId, db);
   return db;

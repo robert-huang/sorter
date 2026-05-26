@@ -21,6 +21,10 @@ export function openDbFromBytes(sqlite3: Sqlite3Static, bytes: Uint8Array): Data
       `sqlite3_deserialize failed: ${capi.sqlite3_js_rc_str(rc)}`,
     );
   }
+  // FK enforcement is per-connection in SQLite; mirror worker.ts so merge
+  // (which runs entirely on these in-memory connections) honors cascades for
+  // sources whose schema declares them (e.g. anilist).
+  db.exec('PRAGMA foreign_keys = ON');
   return db;
 }
 

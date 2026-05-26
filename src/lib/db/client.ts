@@ -1,8 +1,10 @@
+import { ensureAnilistSourceRegistered } from '../importers/anilist/anilistSource';
 import { emitNonPersistentEvent } from './opfs';
 import type { DbRow, RpcReply, RpcRequest, SqlParam, WorkerReadyMessage } from './rpc';
 import { ensureTestSourceRegistered } from './testSource';
 
 ensureTestSourceRegistered();
+ensureAnilistSourceRegistered();
 
 const WORKER_DIED_MESSAGE = 'Worker died; retry your operation';
 
