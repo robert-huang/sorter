@@ -10,7 +10,7 @@ import {
   type SetStateAction,
 } from 'react';
 import type { TabId } from './Header';
-import type { ExtraColumnsWarning, Item, SlotMeta } from '../lib/types';
+import type { ExtraColumnsWarning, Item, ItemId, SlotMeta } from '../lib/types';
 import {
   canonicalKey,
   looksLikeHeader,
@@ -287,6 +287,58 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
   const clearAllStaged = useCallback(() => {
     setStaged([]);
   }, []);
+
+  /**
+   * Remove ONE item from a staged group. When the removal empties
+   * the group, drop the whole group rather than leaving an empty
+   * husk in the panel — the summary "N items across M sources" must
+   * stay consistent with what the user sees in the list, and an
+   * empty group would also confuse `buildSortInputFromStaged`'s
+   * "skipped sublist" path.
+   *
+   * Acts only on `staged`. Pending groups are materialised from the
+   * source the user is currently editing — the StagedItemsPanel
+   * hides per-item × buttons for pending rows so this callback is
+   * never invoked with a pending id, but the .filter() makes that
+   * defence cheap if a future caller forgets.
+   */
+  const removeItemFromStagedGroup = useCallback(
+    (groupId: string, itemId: ItemId) => {
+      setStaged((prev) => {
+        let touched = false;
+        const next: StagedGroup[] = [];
+        for (const g of prev) {
+          if (g.id !== groupId) {
+            next.push(g);
+            continue;
+          }
+          const remaining = g.items.filter((it) => it.id !== itemId);
+          if (remaining.length === g.items.length) {
+            // No matching item — leave the group untouched.
+            next.push(g);
+            continue;
+          }
+          touched = true;
+          if (remaining.length === 0) {
+            // Last item gone → drop the whole group. The merge sort
+            // would skip an empty sublist anyway, but the panel
+            // would still render an empty row which looks broken.
+            continue;
+          }
+          // Preserve the group's kind/seedAsSortedHint by spreading
+          // the original — important for sublist groups where the
+          // hint controls the "Use as ranking" CTA.
+          if (g.kind === 'sublist') {
+            next.push({ ...g, items: remaining });
+          } else {
+            next.push({ ...g, items: remaining });
+          }
+        }
+        return touched ? next : prev;
+      });
+    },
+    [],
+  );
 
   // Shared overlay across both modes. Entries are keyed by
   // `${sourceName}:${rowNumber}`, so the scratch source ('pasted CSV')
@@ -1427,6 +1479,7 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
         staged={staged}
         pending={pendingGroupsForPanel}
         onRemoveGroup={removeStagedGroup}
+        onRemoveItemFromGroup={removeItemFromStagedGroup}
         onClearAll={clearAllStaged}
         onStartSort={() => startFromCombined()}
         onStartAlreadySorted={() => startFromCombined()}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildSortInputFromStaged,
+  findDuplicateOccurrences,
   type StagedGroup,
 } from '../StagedItemsPanel';
 import type { Item } from '../../lib/types';
@@ -138,5 +139,101 @@ describe('buildSortInputFromStaged', () => {
       }),
     ]);
     expect(withHint).toEqual(without);
+  });
+});
+
+describe('findDuplicateOccurrences', () => {
+  it('returns an empty map when nothing is staged', () => {
+    expect(findDuplicateOccurrences([])).toEqual(new Map());
+  });
+
+  it('returns an empty map when every item appears in exactly one group', () => {
+    const out = findDuplicateOccurrences([
+      flat('g1', 'clipboard', [item('a'), item('b')]),
+      sublist('g2', 'ranked.csv', [item('c'), item('d')]),
+    ]);
+    expect(out.size).toBe(0);
+  });
+
+  it('finds an item that appears in two groups and orders occurrences by group iteration order', () => {
+    // This mirrors `buildSortInputFromStaged`'s dedup contract:
+    // the FIRST occurrence is the one that gets kept, so the panel
+    // can rely on `occurrences[0]` being the "winner" to badge the
+    // others as "will be skipped".
+    const out = findDuplicateOccurrences([
+      flat('g1', 'clipboard', [item('a'), item('b')]),
+      sublist('g2', 'ranked.csv', [item('a'), item('c')]),
+    ]);
+    expect(out.size).toBe(1);
+    const occs = out.get('a');
+    expect(occs).toEqual([
+      { groupId: 'g1', groupSource: 'clipboard', positionInGroup: 1 },
+      { groupId: 'g2', groupSource: 'ranked.csv', positionInGroup: 1 },
+    ]);
+  });
+
+  it('captures every group an item appears in (3+ duplicates)', () => {
+    const out = findDuplicateOccurrences([
+      flat('g1', 'clipboard', [item('shared')]),
+      sublist('g2', 'top5.csv', [item('shared'), item('alone')]),
+      flat('g3', 'AniList: me/anime', [item('shared')]),
+    ]);
+    // 'shared' is in all three; 'alone' is in only g2 → excluded.
+    expect(out.size).toBe(1);
+    const occs = out.get('shared');
+    expect(occs).toHaveLength(3);
+    expect(occs?.map((o) => o.groupId)).toEqual(['g1', 'g2', 'g3']);
+  });
+
+  it('reports the within-group position so the panel can show "#3 of ranked.csv"', () => {
+    // The panel uses positionInGroup in the tooltip so the user can
+    // find a duplicate inside a long sublist without scrolling. It
+    // is 1-indexed for display (matches "row 1 is the top" feel).
+    const out = findDuplicateOccurrences([
+      sublist('g1', 'top.csv', [item('a'), item('b'), item('c')]),
+      sublist('g2', 'alt.csv', [item('x'), item('b'), item('y')]),
+    ]);
+    const occs = out.get('b');
+    expect(occs).toEqual([
+      { groupId: 'g1', groupSource: 'top.csv', positionInGroup: 2 },
+      { groupId: 'g2', groupSource: 'alt.csv', positionInGroup: 2 },
+    ]);
+  });
+
+  it('reports intra-group duplicates so the panel can mark the second copy as "will be skipped"', () => {
+    // Same id twice in one source is silently dedup'd by
+    // `buildSortInputFromStaged`. We MUST surface that to the user
+    // — otherwise a CSV with an accidentally-repeated row would
+    // produce a "Sort N items" count that's lower than the count
+    // the user sees in the panel, with no explanation. Both
+    // occurrences are recorded with their position so the panel
+    // can resolve which one is the winner (the first).
+    const out = findDuplicateOccurrences([
+      flat('g1', 'clipboard', [item('a'), item('a'), item('b')]),
+    ]);
+    expect(out.size).toBe(1);
+    const occs = out.get('a');
+    expect(occs).toEqual([
+      { groupId: 'g1', groupSource: 'clipboard', positionInGroup: 1 },
+      { groupId: 'g1', groupSource: 'clipboard', positionInGroup: 2 },
+    ]);
+  });
+
+  it('records both intra-group AND cross-group occurrences in one map for the same id', () => {
+    // The hairy case: an item that's duplicated within one source
+    // AND also shows up in another source. The hook should
+    // enumerate every occurrence so the panel can render whichever
+    // is most useful in context — e.g. for the cross-source row
+    // the tooltip can say "also at #1 and #2 of clipboard".
+    const out = findDuplicateOccurrences([
+      flat('g1', 'clipboard', [item('a'), item('a')]),
+      sublist('g2', 'ranked.csv', [item('a')]),
+    ]);
+    const occs = out.get('a');
+    expect(occs).toEqual([
+      { groupId: 'g1', groupSource: 'clipboard', positionInGroup: 1 },
+      { groupId: 'g1', groupSource: 'clipboard', positionInGroup: 2 },
+      { groupId: 'g2', groupSource: 'ranked.csv', positionInGroup: 1 },
+    ]);
   });
 });

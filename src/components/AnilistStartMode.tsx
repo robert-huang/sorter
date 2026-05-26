@@ -184,6 +184,15 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
   const [visibleIds, setVisibleIds] = useState<ReadonlySet<ItemId> | null>(
     null,
   );
+  // Live label search — narrows the preview AFTER the FilterBar's
+  // chip-driven filter (substring, case-insensitive). Kept local to
+  // this component because it's a per-render quick filter that has
+  // nothing to do with the source-registry SQL chips; sliding it
+  // through the FilterBar's `computeAllowed` would force every chip
+  // module to re-run on every keystroke. Cleared after a new import
+  // so the preview never opens already-filtered behind the user's
+  // back.
+  const [search, setSearch] = useState<string>('');
 
   // After an import: load the user's media of the chosen type from
   // anilist.sqlite. Driven by an import-counter rather than directly
@@ -203,6 +212,11 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
       if (cancelled) return;
       setMedia(rows);
       setSelectedIds(new Set(rows.map((r) => `anilist:${r.id}`)));
+      // Fresh import wipes the previous preview — clear search too
+      // so the new preview opens with everything visible. Otherwise
+      // a stale "Cowboy" search from an anime import would silently
+      // hide every manga that doesn't contain "Cowboy".
+      setSearch('');
     })();
     return () => {
       cancelled = true;
@@ -247,10 +261,19 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
   // changes doesn't re-walk the rows.
   const items = useMemo<Item[]>(() => media.map(mediaRowToItem), [media]);
 
+  // `visibleItems` reflects BOTH the FilterBar chip set AND the local
+  // search box — they compose: the search narrows what the chips
+  // already passed through. Empty search is a no-op (toLowerCase a
+  // trimmed empty string short-circuits trivially), so users who
+  // never touch the search bar see exactly the chip-filtered set.
   const visibleItems = useMemo<Item[]>(() => {
-    if (visibleIds === null) return items;
-    return items.filter((it) => visibleIds.has(it.id));
-  }, [items, visibleIds]);
+    const needle = search.trim().toLowerCase();
+    const chipPassed = visibleIds === null
+      ? items
+      : items.filter((it) => visibleIds.has(it.id));
+    if (needle === '') return chipPassed;
+    return chipPassed.filter((it) => it.label.toLowerCase().includes(needle));
+  }, [items, visibleIds, search]);
 
   const selectedCount = useMemo(() => {
     let n = 0;
@@ -541,7 +564,7 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
         <>
           <FilterBar items={items} onVisibleChange={setVisibleIds} />
 
-          <div className="anilist-start-bar" style={{ marginTop: 4 }}>
+          <div className="anilist-start-bar anilist-preview-actions" style={{ marginTop: 4 }}>
             <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
               {visibleItems.length} of {items.length} shown · {selectedCount} selected
             </span>
@@ -551,6 +574,24 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
             <button className="btn" onClick={clearVisible}>
               Clear visible
             </button>
+            {/*
+              Search box pushed to the right edge by `marginLeft: auto`
+              — visually pairs with "Clear visible" so the user reads
+              "narrow the preview" + "act on what's narrowed" as one
+              cluster. type="search" gives Webkit/Blink a built-in
+              clear (×) affordance for free without us shipping a
+              clear button. Live-narrows via the visibleItems memo.
+            */}
+            <input
+              type="search"
+              className="anilist-start-input anilist-preview-search"
+              style={{ marginLeft: 'auto' }}
+              placeholder="Search…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              aria-label="Search preview by title"
+              spellCheck={false}
+            />
           </div>
 
           <div className="anilist-start-preview">

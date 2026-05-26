@@ -2969,21 +2969,68 @@ a {
 }
 
 .staged-panel-group {
+  /* Two-column outer layout: the expand-button row stretches across
+     col 1 and the group-level × button sits in col 2. When expanded,
+     the items <ol> spans both columns underneath. */
   display: grid;
-  grid-template-columns: auto 1fr auto auto;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 10px;
+  grid-template-columns: 1fr auto;
+  align-items: stretch;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--surface-1);
   font-size: 13px;
+  overflow: hidden;
 }
 
 .staged-panel-group.pending {
   border-style: dashed;
   background: transparent;
   opacity: 0.78;
+}
+
+.staged-panel-group.expanded {
+  /* When open, lift slightly so the boundary against the items list
+     reads as one block visually. */
+  background: var(--surface-1);
+}
+
+/* Click target for expand/collapse — uses `all: unset` to drop the
+   browser's native <button> chrome so the entire header row looks
+   like the (previously flat) staged row, then re-applies the flex
+   layout for the chips/source/count children. */
+.staged-panel-group-row {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  min-width: 0;
+}
+
+.staged-panel-group-row:hover,
+.staged-panel-group-row:focus-visible {
+  background: color-mix(in srgb, var(--accent, #2563eb) 6%, transparent);
+}
+
+.staged-panel-group-row:focus-visible {
+  outline: 2px solid var(--accent, #2563eb);
+  outline-offset: -2px;
+}
+
+.staged-panel-caret {
+  color: var(--text-muted);
+  font-size: 12px;
+  width: 12px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.staged-panel-group-remove {
+  /* x-button base class supplies the visual; this just controls
+     placement so the × sits flush with the right edge of the row. */
+  align-self: center;
+  margin: 0 8px;
 }
 
 .staged-panel-kind {
@@ -2995,6 +3042,7 @@ a {
   border-radius: 999px;
   background: var(--surface-3, var(--border));
   color: var(--text-muted);
+  flex-shrink: 0;
 }
 
 .staged-panel-kind.kind-sublist {
@@ -3007,11 +3055,14 @@ a {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .staged-panel-count {
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
 }
 
 .staged-panel-pending-marker {
@@ -3021,4 +3072,127 @@ a {
   color: var(--text-faint);
   font-weight: 600;
   padding: 2px 6px;
+  flex-shrink: 0;
+}
+
+.staged-panel-group-dup {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warning, #d97706) 18%, transparent);
+  color: var(--warning, #d97706);
+  flex-shrink: 0;
+}
+
+.staged-panel-dup-warning {
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--warning, #d97706) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warning, #d97706) 35%, transparent);
+  color: var(--text);
+  font-size: 13px;
+}
+
+/* Items list opened beneath a group header. Spans both outer
+   columns so the rows align with the FULL width of the group card,
+   not just the expand-button area. */
+.staged-panel-items {
+  grid-column: 1 / -1;
+  list-style: none;
+  margin: 0;
+  padding: 4px 10px 8px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-1, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.staged-panel-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  min-width: 0;
+}
+
+.staged-panel-item:hover {
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+}
+
+.staged-panel-item.duplicate-loser {
+  /* Loser rows will be silently skipped on sort — fade them so the
+     user can see at a glance which entries don't contribute. */
+  opacity: 0.62;
+}
+
+.staged-panel-item.duplicate-loser .staged-panel-item-label {
+  text-decoration: line-through;
+  text-decoration-color: var(--text-faint);
+}
+
+.staged-panel-item-rank {
+  width: 24px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.staged-panel-item-cover {
+  width: 28px;
+  height: 38px;
+  object-fit: cover;
+  border-radius: 3px;
+  background: var(--bg-subtle, var(--surface-3, #f3f4f6));
+  flex-shrink: 0;
+}
+
+.staged-panel-item-cover-placeholder {
+  border: 1px dashed var(--border);
+  background: transparent;
+}
+
+.staged-panel-item-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.staged-panel-item-dup-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warning, #d97706) 16%, transparent);
+  color: var(--warning, #d97706);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.staged-panel-item-dup-badge.winner {
+  /* The "kept" duplicate — mention parity with the others but in
+     accent tone, not warning, since this row IS contributing. */
+  background: color-mix(in srgb, var(--accent, #2563eb) 14%, transparent);
+  color: var(--accent, #2563eb);
+}
+
+.staged-panel-item-remove {
+  flex-shrink: 0;
+}
+
+/* AniList preview search input — width-capped so it doesn't push
+   the select-all/clear-visible buttons offscreen on narrow viewports
+   and visually grouped via `marginLeft: auto` (set inline) to sit
+   on the right edge of the action row. */
+.anilist-preview-search {
+  max-width: 240px;
+  width: 100%;
 }

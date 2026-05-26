@@ -26,7 +26,8 @@
  */
 
 import type { ReactNode } from 'react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useClickOutside } from '../../hooks/useClickOutside';
 import * as client from '../../db/client';
 import type { DbRow } from '../../db/rpc';
 import {
@@ -461,9 +462,18 @@ function MultiSelectChip<T extends string | number>({
   formatOption?: (value: T) => string;
 }): ReactNode {
   const [open, setOpen] = useState(false);
+  // Ref wraps the whole chip (trigger + menu) so the outside-click
+  // hook recognises a click on the trigger as "inside" — otherwise
+  // the same mousedown that opens the menu would also fire the
+  // outside-click handler and immediately close it again.
+  const rootRef = useRef<HTMLDivElement>(null);
+  useClickOutside(rootRef, open, () => setOpen(false));
   const count = selected.length;
   return (
-    <div className={`filter-chip ${count > 0 ? 'active' : ''}`}>
+    <div
+      ref={rootRef}
+      className={`filter-chip ${count > 0 ? 'active' : ''}`}
+    >
       <button
         type="button"
         className="filter-chip-button"

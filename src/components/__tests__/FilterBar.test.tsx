@@ -9,7 +9,7 @@
  * filters.test.ts).
  */
 
-import { act } from 'react';
+import { act, useRef, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -18,6 +18,7 @@ import {
   type FilterChipState,
   type SourceFilterModule,
 } from '../../lib/db/source-registry';
+import { useClickOutside } from '../../lib/hooks/useClickOutside';
 import type { Item, ItemId } from '../../lib/types';
 import { FilterBar } from '../FilterBar';
 
@@ -95,6 +96,48 @@ function makeStubModule(computeAllowed: SourceFilterModule['computeAllowed']) {
     },
     computeAllowed,
   } satisfies SourceFilterModule;
+}
+
+/**
+ * Module variant that renders a real toggle-able popover so the
+ * tests can exercise the click-outside-closes behaviour. Mirrors
+ * the shape of `MultiSelectChip` (which uses `useClickOutside`)
+ * without pulling in the AniList SQLite dependencies.
+ */
+function makeDropdownStubModule(): SourceFilterModule {
+  return {
+    initialChipState: (): StubChipState => INITIAL_STUB_STATE,
+    renderChips: () => {
+      // Dynamic import avoids hoisting React state into the module
+      // scope; this still runs inside a real component because
+      // FilterBar invokes the function during render.
+      return <DropdownChipStub />;
+    },
+    computeAllowed: async () => new Set<string | number>([1, 2, 3]),
+  };
+}
+
+function DropdownChipStub() {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  useClickOutside(rootRef, open, () => setOpen(false));
+  return (
+    <div ref={rootRef} data-testid="dropdown-chip-root">
+      <button
+        data-testid="dropdown-chip-trigger"
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        toggle
+      </button>
+      {open && (
+        <div data-testid="dropdown-chip-menu" role="menu">
+          inside
+        </div>
+      )}
+    </div>
+  );
 }
 
 function makeItem(
@@ -221,5 +264,109 @@ describe('FilterBar', () => {
     await flush();
     expect(container.querySelector('.filter-bar')).toBeNull();
     expect(onVisible).toHaveBeenCalledWith(null);
+  });
+
+  // ──────────────────────────────────────────────────────────────
+  // Outside-click + ESC dismissal contract for popover-style chips.
+  //
+  // The real `MultiSelectChip` in filters.tsx uses `useClickOutside`
+  // to close its menu when the user clicks anywhere else in the
+  // page; without it, dropdowns stayed open until the trigger was
+  // clicked again, which was the original bug. These tests verify
+  // the shared hook against a minimal stand-in module so a future
+  // regression (e.g. someone strips the ref or forgets to pass
+  // `open`) is caught by the suite that tracks the filter bar
+  // shell, not buried in the AniList-specific filters test.
+  // ──────────────────────────────────────────────────────────────
+  it('closes a dropdown chip menu when the user clicks outside the chip', async () => {
+    registerSourceFilters('anilist', makeDropdownStubModule());
+    const items = [makeItem('A' as ItemId, { kind: 'anilist', externalId: 1 })];
+    await act(async () => {
+      root.render(<FilterBar items={items} onVisibleChange={vi.fn()} />);
+    });
+    await flush();
+
+    // Open the menu via the trigger inside the chip.
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[data-testid="dropdown-chip-trigger"]',
+    );
+    expect(trigger).not.toBeNull();
+    await act(async () => {
+      trigger!.click();
+    });
+    expect(
+      container.querySelector('[data-testid="dropdown-chip-menu"]'),
+    ).not.toBeNull();
+
+    // Click outside (on the document body, NOT inside the chip
+    // root). The hook listens on `mousedown`, so dispatching a
+    // synthetic mousedown is what actually triggers the close —
+    // a plain HTMLElement.click() fires `click` only.
+    await act(async () => {
+      document.body.dispatchEvent(
+        new MouseEvent('mousedown', { bubbles: true, cancelable: true }),
+      );
+    });
+    expect(
+      container.querySelector('[data-testid="dropdown-chip-menu"]'),
+    ).toBeNull();
+  });
+
+  it('does NOT close when the user clicks inside the chip menu (so checkbox toggles stay alive)', async () => {
+    registerSourceFilters('anilist', makeDropdownStubModule());
+    const items = [makeItem('A' as ItemId, { kind: 'anilist', externalId: 1 })];
+    await act(async () => {
+      root.render(<FilterBar items={items} onVisibleChange={vi.fn()} />);
+    });
+    await flush();
+
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[data-testid="dropdown-chip-trigger"]',
+    );
+    await act(async () => {
+      trigger!.click();
+    });
+    const menu = container.querySelector('[data-testid="dropdown-chip-menu"]');
+    expect(menu).not.toBeNull();
+
+    // Mousedown on the menu itself — must NOT close. Otherwise a
+    // user clicking a checkbox inside the dropdown would see the
+    // dropdown vanish before the click could register.
+    await act(async () => {
+      menu!.dispatchEvent(
+        new MouseEvent('mousedown', { bubbles: true, cancelable: true }),
+      );
+    });
+    expect(
+      container.querySelector('[data-testid="dropdown-chip-menu"]'),
+    ).not.toBeNull();
+  });
+
+  it('closes a dropdown chip menu on ESC (keyboard parity with click-outside)', async () => {
+    registerSourceFilters('anilist', makeDropdownStubModule());
+    const items = [makeItem('A' as ItemId, { kind: 'anilist', externalId: 1 })];
+    await act(async () => {
+      root.render(<FilterBar items={items} onVisibleChange={vi.fn()} />);
+    });
+    await flush();
+
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[data-testid="dropdown-chip-trigger"]',
+    );
+    await act(async () => {
+      trigger!.click();
+    });
+    expect(
+      container.querySelector('[data-testid="dropdown-chip-menu"]'),
+    ).not.toBeNull();
+
+    await act(async () => {
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      );
+    });
+    expect(
+      container.querySelector('[data-testid="dropdown-chip-menu"]'),
+    ).toBeNull();
   });
 });
