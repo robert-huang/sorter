@@ -20,6 +20,7 @@ import {
   type RawRow,
   type SourceParse,
 } from '../lib/csv';
+import { AnilistStartMode } from './AnilistStartMode';
 import { ImportPreview, type PreviewSource } from './ImportPreview';
 import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
 import Papa from 'papaparse';
@@ -165,7 +166,7 @@ function dropSourceEdits(
   setExcludedRows((prev) => dropSourceFromExclusions(prev, sourceName));
 }
 
-type Mode = 'scratch' | 'preranked';
+type Mode = 'scratch' | 'preranked' | 'anilist';
 
 /** Which main tabs the current START draft can adopt into. */
 export interface StartDraftCapabilities {
@@ -632,6 +633,19 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
   }, [hasLoadedSession]);
 
   useEffect(() => {
+    // AniList mode owns its own "Sort N selected items" CTA and reads
+    // its selection state internally; we don't surface it up to the
+    // capabilities API. Tab adoption while in anilist mode is therefore
+    // always disabled — the user moves forward via the dedicated CTA,
+    // not by clicking the header's RANK / LIST tabs.
+    if (mode === 'anilist') {
+      onDraftCapabilitiesChange({
+        canList: false,
+        canRank: false,
+        canResult: false,
+      });
+      return;
+    }
     onDraftCapabilitiesChange({
       canList:
         mode === 'scratch'
@@ -973,6 +987,14 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
         >
           Merge pre-ranked lists
         </button>
+        <button
+          role="tab"
+          aria-selected={mode === 'anilist'}
+          className={mode === 'anilist' ? 'active' : ''}
+          onClick={() => setMode('anilist')}
+        >
+          Import from AniList
+        </button>
       </div>
 
       {mode === 'scratch' && (
@@ -1217,6 +1239,13 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
             onRemoveRow={onRemovePreviewRowPreranked}
           />
         </div>
+      )}
+
+      {mode === 'anilist' && (
+        <AnilistStartMode
+          onStartScratch={(items) => onStartScratch(items)}
+          onDraftActivity={notifyDraftActivity}
+        />
       )}
 
       {editStubItem && editTarget && (

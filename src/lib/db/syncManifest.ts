@@ -51,6 +51,21 @@ export type SourceSyncMeta = {
    * {@link acquireScrapeLock} so a crashed-tab lock never wedges the source.
    */
   scrapeLock: ScrapeLock | null;
+  /**
+   * Count of ad-hoc DB writes since the last successful push — bumped by
+   * surfaces that bypass the full-refresh auto-push (e.g. per-entry
+   * lazy expansion from the AniList detail modal). The cloud panel
+   * surfaces this as an "N pending changes" + "Push now" affordance.
+   *
+   * Cleared by {@link clearPendingChanges} on successful push. Persisted
+   * here (not in the source's own _meta) so the indicator survives
+   * reloads — the user's mental model is "this device has unpushed
+   * work", which is a device-local fact.
+   *
+   * Older manifests are missing this field; {@link getSourceSyncMeta}
+   * default-fills it to 0 via `emptyMeta`.
+   */
+  pendingChanges: number;
 };
 
 export type DbSyncManifest = {
@@ -68,6 +83,7 @@ function emptyMeta(): SourceSyncMeta {
     hasLocalDb: false,
     driftDetected: false,
     scrapeLock: null,
+    pendingChanges: 0,
   };
 }
 
@@ -126,6 +142,48 @@ export function _clearDbSyncManifestForTesting(): void {
   } catch {
     /* ignore */
   }
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Pending-changes counter
+//
+// Bumped by ad-hoc per-source writes that *bypass* the full-refresh
+// auto-push contract — most notably the AniList detail modal's
+// per-entry refresh button, which re-fetches one media's characters
+// and staff but explicitly does NOT auto-push (per Phase D plan,
+// pushing is a deliberate user action via "Push now"). Cleared on
+// every successful pushDbToDrive so the counter only reflects work
+// actually waiting to be pushed.
+// ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Increment the pending-changes counter for `sourceId`. Returns the
+ * new count so callers can drive a single re-render off the result
+ * instead of re-reading the manifest.
+ */
+export function bumpPendingChanges(sourceId: string): number {
+  const prev = getSourceSyncMeta(sourceId);
+  const next = prev.pendingChanges + 1;
+  patchSourceSyncMeta(sourceId, { pendingChanges: next });
+  return next;
+}
+
+/**
+ * Reset the pending-changes counter for `sourceId` to 0. Called by
+ * the push path on successful upload. Idempotent — calling on a
+ * counter already at 0 is a no-op write.
+ */
+export function clearPendingChanges(sourceId: string): void {
+  patchSourceSyncMeta(sourceId, { pendingChanges: 0 });
+}
+
+/**
+ * Read just the pending-changes count for `sourceId` without forcing
+ * callers to deal with the rest of the meta shape. Default-fills to 0
+ * for sources that have never had a sync manifest entry written.
+ */
+export function getPendingChanges(sourceId: string): number {
+  return getSourceSyncMeta(sourceId).pendingChanges;
 }
 
 // ──────────────────────────────────────────────────────────────────────

@@ -11,6 +11,8 @@
  */
 import type { ComponentType, SVGProps } from 'react';
 import { DatabaseIcon } from './icons';
+import { AnilistIcon } from '../lib/importers/anilist/icon';
+import { ANILIST_SOURCE_ID } from '../lib/importers/anilist/anilistSource';
 
 export interface SourceIconProps
   extends Omit<SVGProps<SVGSVGElement>, 'width' | 'height'> {
@@ -20,9 +22,9 @@ export interface SourceIconProps
 export type SourceIcon = ComponentType<SourceIconProps>;
 
 const SOURCE_ICONS: Record<string, SourceIcon> = {
-  // The `test` source is a developer-only fixture; show the generic cylinder
-  // until a "real" source (e.g. anilist) registers its own glyph.
+  // The `test` source is a developer-only fixture; show the generic cylinder.
   test: DatabaseIcon,
+  [ANILIST_SOURCE_ID]: AnilistIcon,
 };
 
 export function getSourceIcon(sourceId: string): SourceIcon {

@@ -1,6 +1,8 @@
 import type { CloudMenuStatus } from './SettingsMenu';
 import { listSources } from '../lib/db/source-registry';
 import { getSyncState, type SyncStatus } from '../lib/db/sync';
+import { ANILIST_SOURCE_ID } from '../lib/importers/anilist/anilistSource';
+import { AnilistSourcePanel } from './AnilistSourcePanel';
 import { getSourceIcon } from './sourceIcons';
 
 function formatTs(ms: number | null): string {
@@ -45,11 +47,15 @@ export function SourceDatabasesSection({
 }: Props) {
   const sources = listSources();
 
-  if (cloudStatus !== 'ready' || sources.length === 0) {
-    return null;
-  }
+  if (sources.length === 0) return null;
 
+  // Re-reading getSyncState() inside the map is the actual dependency
+  // on syncRevision; the void here keeps the prop in the closure's
+  // dependency graph for linters even when the JSX layer doesn't read
+  // it directly.
   void syncRevision;
+
+  const cloudReady = cloudStatus === 'ready';
 
   return (
     <>
@@ -60,6 +66,48 @@ export function SourceDatabasesSection({
         const pulling = pullingIds.has(source.id);
         const busy = pushing || pulling;
         const SourceIcon = getSourceIcon(source.id);
+
+        if (source.id === ANILIST_SOURCE_ID) {
+          // AniList gets its own richer panel: username + per-type
+          // refresh + favourites dropdown + pending-changes indicator +
+          // Push-now. The generic push/pull row is folded inside the
+          // panel so the gear menu still only renders one card per
+          // source.
+          return (
+            <AnilistSourcePanel
+              key={source.id}
+              cloudReady={cloudReady}
+              pushing={pushing}
+              pulling={pulling}
+              error={sourceDbErrors[source.id]}
+              syncRevision={syncRevision}
+              onPushSource={() => onPushSource(source.id)}
+              onPullSource={() => onPullSource(source.id)}
+            />
+          );
+        }
+
+        // Generic source row: when cloud isn't ready, fold the
+        // push/pull controls down to a status-only hint so the row
+        // still tells the user the source is registered, just inert.
+        if (!cloudReady) {
+          return (
+            <div key={source.id} className="settings-source-db-row">
+              <div className="settings-source-db-head">
+                <span className="settings-source-db-name">
+                  <SourceIcon
+                    size={16}
+                    className="settings-source-db-icon"
+                  />
+                  <span>{source.id}</span>
+                </span>
+                <span className="settings-source-db-status">
+                  cloud not connected
+                </span>
+              </div>
+            </div>
+          );
+        }
 
         return (
           <div key={source.id} className="settings-source-db-row">

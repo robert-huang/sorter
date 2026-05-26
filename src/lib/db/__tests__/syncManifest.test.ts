@@ -3,6 +3,9 @@ import {
   SCRAPE_LOCK_STALE_MS,
   _clearDbSyncManifestForTesting,
   acquireScrapeLock,
+  bumpPendingChanges,
+  clearPendingChanges,
+  getPendingChanges,
   getSourceSyncMeta,
   patchSourceSyncMeta,
   refreshScrapeLock,
@@ -139,5 +142,72 @@ describe('releaseScrapeLock', () => {
     releaseScrapeLock(SOURCE, 'wrong-token');
     expect(getSourceSyncMeta(SOURCE).scrapeLock).not.toBeNull();
     expect(getSourceSyncMeta(SOURCE).scrapeLock!.token).toBe(first.token);
+  });
+});
+
+// Phase D: per-source pendingChanges counter. Bumped by ad-hoc writes
+// (e.g. per-entry detail-modal refresh) that skip the auto-push path,
+// cleared by the push-success path. The counter is persisted in the
+// same localStorage entry as the rest of the meta.
+describe('pendingChanges counter', () => {
+  it('defaults to 0 for a never-touched source', () => {
+    expect(getPendingChanges('never-touched')).toBe(0);
+    expect(getSourceSyncMeta('never-touched').pendingChanges).toBe(0);
+  });
+
+  it('bumpPendingChanges increments + returns the new value', () => {
+    expect(bumpPendingChanges(SOURCE)).toBe(1);
+    expect(bumpPendingChanges(SOURCE)).toBe(2);
+    expect(bumpPendingChanges(SOURCE)).toBe(3);
+    expect(getPendingChanges(SOURCE)).toBe(3);
+  });
+
+  it('clearPendingChanges resets to 0 and is idempotent', () => {
+    bumpPendingChanges(SOURCE);
+    bumpPendingChanges(SOURCE);
+    expect(getPendingChanges(SOURCE)).toBe(2);
+
+    clearPendingChanges(SOURCE);
+    expect(getPendingChanges(SOURCE)).toBe(0);
+    // Re-clearing a 0-counter must not throw or flip to a negative.
+    clearPendingChanges(SOURCE);
+    expect(getPendingChanges(SOURCE)).toBe(0);
+  });
+
+  it('counters are scoped per source (bumping A does not affect B)', () => {
+    bumpPendingChanges('source-a');
+    bumpPendingChanges('source-a');
+    bumpPendingChanges('source-b');
+    expect(getPendingChanges('source-a')).toBe(2);
+    expect(getPendingChanges('source-b')).toBe(1);
+    clearPendingChanges('source-a');
+    expect(getPendingChanges('source-a')).toBe(0);
+    // Clearing A must leave B untouched.
+    expect(getPendingChanges('source-b')).toBe(1);
+  });
+
+  it('persists across module re-reads (writes to the manifest, not memory)', () => {
+    bumpPendingChanges(SOURCE);
+    bumpPendingChanges(SOURCE);
+    // Round-trip through localStorage to prove it isn't held only in
+    // a module-local cache. getSourceSyncMeta always re-reads.
+    const raw = localStorage.getItem('sorter:db-sync:v1');
+    expect(raw).not.toBeNull();
+    const parsed = JSON.parse(raw!) as { sources: Record<string, { pendingChanges: number }> };
+    expect(parsed.sources[SOURCE].pendingChanges).toBe(2);
+  });
+
+  it('legacy manifest entry (missing pendingChanges field) reads as 0', () => {
+    // Build a SourceSyncMeta with everything except pendingChanges.
+    patchSourceSyncMeta(SOURCE, { remoteEtag: 'etag-1', hasLocalDb: true });
+    const raw = JSON.parse(localStorage.getItem('sorter:db-sync:v1') ?? '{}') as {
+      sources: Record<string, Record<string, unknown>>;
+    };
+    delete raw.sources[SOURCE].pendingChanges;
+    localStorage.setItem('sorter:db-sync:v1', JSON.stringify(raw));
+
+    expect(getPendingChanges(SOURCE)).toBe(0);
+    // First bump after default-fill should land at 1, not NaN.
+    expect(bumpPendingChanges(SOURCE)).toBe(1);
   });
 });

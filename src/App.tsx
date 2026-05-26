@@ -124,6 +124,11 @@ import {
   pullDbFromDrive,
   pushDbToDrive,
 } from './lib/db/sync';
+import { ANILIST_SOURCE_ID } from './lib/importers/anilist/anilistSource';
+import { ensureAnilistFiltersRegistered } from './lib/importers/anilist/filters';
+import { configureAnilistRunnerHooks } from './lib/importers/anilist/runners';
+import { AnilistDetailModal } from './components/AnilistDetailModal';
+import { ItemDetailContext } from './components/itemDetailContext';
 import { useKeyboard } from './hooks/useKeyboard';
 
 // Register the default cloud provider exactly once at module load.
@@ -334,6 +339,22 @@ export function App() {
   );
   const [sourceDbErrors, setSourceDbErrors] = useState<Record<string, string>>({});
   const [dbSyncRevision, setDbSyncRevision] = useState(0);
+  // Per-item detail modal target (Phase D). Set when the user clicks
+  // an AniList thumb anywhere in the tree — the ItemDetailContext
+  // provider below routes those clicks here. Keyed by media id +
+  // fallback title so a click on a stale list item still shows the
+  // user something while the cached row loads.
+  const [itemDetailTarget, setItemDetailTarget] = useState<
+    { mediaId: number; fallbackTitle: string } | null
+  >(null);
+  const openItemDetail = useCallback((item: Item) => {
+    if (!item.source || item.source.kind !== 'anilist') return;
+    setItemDetailTarget({
+      mediaId: item.source.externalId,
+      fallbackTitle: item.label,
+    });
+  }, []);
+
   // ITP / refresh-token-rejected banner gate. When the auth state
   // transitions to 'expired', we surface a one-shot banner pointing
   // the user back to Sign in. Dismissable; resets when the auth state
@@ -1643,6 +1664,34 @@ export function App() {
     [autosaveOn, cloudStatus],
   );
 
+  // -------- AniList runner hook wiring + filter module registration --------
+  //
+  // The AniList importer modules sit on the data-layer side of the
+  // codebase and don't know about React. Wire them into the App here
+  // so:
+  //   - Full-import autopush -> the existing per-source push button
+  //     code path (gated on cloud-ready by `onDbPushSource`).
+  //   - Per-entry refresh dirty-bumps -> a dbSyncRevision tick so the
+  //     source panel re-reads its pending-changes counter.
+  //
+  // The filter module also lives on the UI side (registers chip
+  // components + the SQL builder) and is registered exactly once at
+  // App mount so the FilterBar can find it for any item with
+  // `source.kind === 'anilist'`.
+  useEffect(() => {
+    ensureAnilistFiltersRegistered();
+    configureAnilistRunnerHooks({
+      onAutoPushRequested: () => onDbPushSource(ANILIST_SOURCE_ID),
+      onDirtyBumped: () => setDbSyncRevision((r) => r + 1),
+    });
+    return () => {
+      // Idle reset on unmount so a future re-mount (HMR) rebinds
+      // cleanly against the new closure rather than calling into a
+      // stale one.
+      configureAnilistRunnerHooks({});
+    };
+  }, [onDbPushSource]);
+
   // -------- start --------
   const startScreenRef = useRef<StartScreenHandle>(null);
   const stateRef = useRef(state);
@@ -2122,6 +2171,7 @@ export function App() {
   }, [state, activeTab]);
 
   return (
+    <ItemDetailContext.Provider value={openItemDetail}>
     <div className="app-shell">
       {!autosaveOn && (
         <div className="app-banner">
@@ -2375,7 +2425,15 @@ export function App() {
           onReplace={() => performRestore('replace')}
         />
       )}
+      {itemDetailTarget && (
+        <AnilistDetailModal
+          mediaId={itemDetailTarget.mediaId}
+          fallbackTitle={itemDetailTarget.fallbackTitle}
+          onClose={() => setItemDetailTarget(null)}
+        />
+      )}
     </div>
+    </ItemDetailContext.Provider>
   );
 }
 

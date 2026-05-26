@@ -1,10 +1,42 @@
 export type ItemId = string;
 
+/**
+ * Pointer to the upstream source an Item originated from. Absent on items
+ * born via manual CSV / paste — those are implicitly `{ kind: 'manual' }`.
+ *
+ * The slot blob is the ranking authority; `source` is just a lookup key
+ * into the per-source SQLite cache (e.g. `anilist.sqlite`) for richer
+ * metadata at render time (cast, studios, tags) and for source-specific
+ * filter chips on the LIST tab. Removing the cache file does NOT break
+ * the slot — items still render via their denormalized `label` /
+ * `imageUrl`; only the bonus metadata disappears.
+ *
+ * `kind` is the discriminator and is forward-extensible: future sources
+ * (spotify / steam / igdb / ...) add their own variant + externalId
+ * type without touching existing slots. The field is OPTIONAL so old
+ * slots persisted before this type existed remain valid; readers
+ * default `source === undefined` to `{ kind: 'manual' }` via
+ * {@link getItemSourceKind}.
+ */
+export type ItemSource =
+  | { kind: 'manual' }
+  | { kind: 'anilist'; externalId: number };
+
 export interface Item {
   id: ItemId;
   label: string;
   url?: string;
   imageUrl?: string;
+  source?: ItemSource;
+}
+
+/**
+ * Discriminator helper: treat missing `source` as manual. Use this at
+ * every read site so callers don't have to keep the "absent === manual"
+ * convention in their head.
+ */
+export function getItemSourceKind(item: Item): ItemSource['kind'] {
+  return item.source?.kind ?? 'manual';
 }
 
 /** Merge-engine in-flight merge frame: two sublists being interleaved into `merged`. */

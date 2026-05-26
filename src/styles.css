@@ -700,6 +700,354 @@ a {
   font-size: 12px;
 }
 
+/* ---------- AniList source panel (Phase D) ---------- */
+
+.settings-anilist-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-anilist-username-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.settings-anilist-action-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.settings-anilist-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  min-width: 64px;
+}
+
+.settings-anilist-input,
+.settings-anilist-select {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 6px;
+  border: 1px solid var(--border, #d4d4d4);
+  border-radius: 4px;
+  background: var(--bg, #fff);
+  color: inherit;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.settings-anilist-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex: 1 1 auto;
+  text-align: right;
+}
+
+.settings-anilist-pending {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--warn, #b08800) 8%, transparent);
+  color: var(--text);
+}
+
+.settings-anilist-pending .settings-item {
+  margin-left: auto;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+/* ---------- LIST filter bar (Phase D) ---------- */
+
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 0 10px;
+  border-bottom: 1px solid var(--border, #e5e5e5);
+  margin-bottom: 10px;
+}
+
+.filter-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid var(--border, #d4d4d4);
+  border-radius: 999px;
+  background: var(--bg-subtle, transparent);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.filter-chip.active {
+  border-color: var(--accent, #2563eb);
+  background: color-mix(in srgb, var(--accent, #2563eb) 12%, transparent);
+}
+
+.filter-chip-button {
+  all: unset;
+  cursor: pointer;
+  font: inherit;
+}
+
+.filter-chip-number {
+  width: 48px;
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 4px;
+  border: 1px solid var(--border, #d4d4d4);
+  border-radius: 3px;
+}
+
+.filter-chip-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 50;
+  min-width: 160px;
+  max-height: 280px;
+  overflow-y: auto;
+  margin-top: 4px;
+  padding: 6px;
+  border: 1px solid var(--border, #d4d4d4);
+  border-radius: 6px;
+  background: var(--bg, #fff);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.filter-chip-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.filter-chip-option:hover {
+  background: var(--bg-hover, #f3f4f6);
+}
+
+.filter-chip-empty {
+  padding: 6px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* Clickable thumb wrapper — preserves the inner thumb's sizing while
+   adding hover affordance. Used by ItemThumb when an
+   ItemDetailContext opener is set + item.source.kind === 'anilist'. */
+.item-thumb-button {
+  all: unset;
+  cursor: pointer;
+  display: inline-block;
+  border-radius: inherit;
+}
+
+.item-thumb-button > img,
+.item-thumb-button > span {
+  pointer-events: none;
+}
+
+.item-thumb-button:focus-visible {
+  outline: 2px solid var(--accent, #2563eb);
+  outline-offset: 2px;
+}
+
+/* ---------- AniList detail modal (Phase D) ---------- */
+
+.anilist-detail-modal {
+  max-width: 760px;
+  width: 92vw;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.anilist-detail-body {
+  display: flex;
+  gap: 18px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.anilist-detail-cover {
+  flex-shrink: 0;
+  width: 180px;
+  border-radius: 6px;
+  background: var(--bg-subtle, #f3f4f6);
+  object-fit: cover;
+  align-self: flex-start;
+}
+
+.anilist-detail-meta {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.anilist-detail-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.anilist-detail-section {
+  margin-top: 14px;
+}
+
+.anilist-detail-section h4 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.anilist-detail-cast-list,
+.anilist-detail-tag-list,
+.anilist-detail-staff-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.anilist-detail-cast-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border, #e5e5e5);
+  padding: 4px 6px 4px 4px;
+  border-radius: 6px;
+  font-size: 12px;
+  min-width: 200px;
+}
+
+.anilist-detail-cast-image {
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  object-fit: cover;
+  background: var(--bg-subtle, #f3f4f6);
+  flex-shrink: 0;
+}
+
+.anilist-detail-cast-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.anilist-detail-tag-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border, #e5e5e5);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+.anilist-detail-tag-rank {
+  color: var(--text-muted);
+}
+
+.anilist-detail-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+/* ---------- StartScreen anilist mode (Phase D) ---------- */
+
+.anilist-start {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.anilist-start-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.anilist-start-input {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 8px;
+  border: 1px solid var(--border, #d4d4d4);
+  border-radius: 4px;
+  background: var(--bg, #fff);
+  color: inherit;
+  min-width: 200px;
+}
+
+.anilist-start-preview {
+  margin-top: 6px;
+  border: 1px solid var(--border, #e5e5e5);
+  border-radius: 6px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.anilist-start-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border, #f3f4f6);
+  font-size: 13px;
+}
+
+.anilist-start-preview-row:last-child {
+  border-bottom: none;
+}
+
+.anilist-start-preview-cover {
+  width: 32px;
+  height: 44px;
+  object-fit: cover;
+  border-radius: 3px;
+  background: var(--bg-subtle, #f3f4f6);
+  flex-shrink: 0;
+}
+
+.anilist-start-preview-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 /* ---------- Cloud library modal ---------- */
 
 .cloud-library-list {
