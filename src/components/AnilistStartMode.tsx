@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FilterBar } from './FilterBar';
 import type { Item, ItemId } from '../lib/types';
 import {
@@ -136,6 +136,58 @@ function mediaRowToItem(m: MediaRow): Item {
   };
 }
 
+/**
+ * Materialise an AniList favourite into a sorter Item. ANIME/MANGA
+ * favourites get the same id scheme + AniList `source` binding as
+ * list-imported media so the LIST tab's filter chips + detail modal
+ * keep working — and the dedup set collapses a media that's BOTH on
+ * the user's list AND in their favourites down to one item. CHARACTERS
+ * / STAFF / STUDIOS use a kind-prefixed id (`anilist-staff:42`) so a
+ * character #100 and a staff #100 don't accidentally collide, and
+ * they ship as source-less items (no chip module discovers them — the
+ * AniList chips are media-only). They still sort fine and still get
+ * a clickable anilist.co url so the user can disambiguate by portrait
+ * during sorting.
+ */
+function favouriteAsItemToItem(
+  fa: FavouriteAsItem,
+  type: AnilistFavouriteType,
+): Item {
+  const url = buildAnilistFavouriteUrl(type, fa.externalId);
+  if (type === 'ANIME' || type === 'MANGA') {
+    return {
+      id: `anilist:${fa.externalId}`,
+      label: fa.label,
+      url,
+      imageUrl: fa.imageUrl ?? undefined,
+      source: { kind: 'anilist', externalId: fa.externalId },
+    };
+  }
+  const kindSlug = type.toLowerCase();
+  return {
+    id: `anilist-${kindSlug}:${fa.externalId}`,
+    label: fa.label,
+    url,
+    imageUrl: fa.imageUrl ?? undefined,
+  };
+}
+
+/**
+ * Identity of the data currently rendered in the candidate preview.
+ * Drives the source-label on `onAddSelectedToStaged` (`AniList:
+ * alice/anime` vs `AniList favourites: alice/staff`) and disambiguates
+ * the "what cache are we showing?" question when both list + favourites
+ * cache hints are visible. Null when nothing has been loaded yet.
+ */
+type CandidateSource =
+  | { kind: 'list'; userId: number; canonicalName: string; type: AnilistMediaType }
+  | {
+      kind: 'favourites';
+      userId: number;
+      canonicalName: string;
+      type: AnilistFavouriteType;
+    };
+
 export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
   const [username, setUsername] = useState<string>(() => {
     try {
@@ -162,7 +214,19 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
   // `error` and clear it at the start of the next action so it never
   // out-lives the user's attention.
   const [notice, setNotice] = useState<string | null>(null);
-  const [media, setMedia] = useState<MediaRow[]>([]);
+  // The candidate preview's underlying item set. Replaces the previous
+  // `media: MediaRow[]` shape so a single state slot can hold EITHER
+  // list-imported media OR favourites-as-items — both flow through the
+  // same FilterBar + checkbox preview + "Add N selected to staged"
+  // pipeline. `candidateSource` carries the identity of what was
+  // loaded so `onAddSelectedToStaged` can build the right sourceLabel
+  // (`AniList: alice/anime` vs `AniList favourites: alice/staff`) and
+  // a future enhancement could surface "currently showing: X" in the
+  // preview header.
+  const [candidates, setCandidates] = useState<Item[]>([]);
+  const [candidateSource, setCandidateSource] = useState<CandidateSource | null>(
+    null,
+  );
   // Favourites refresh state. Lives next to the import flow because
   // it shares the scrape lock and uses the same username from the
   // input above. Refreshing favourites doesn't produce items to sort
@@ -194,8 +258,9 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
   // checking 600 boxes.
   const [selectedIds, setSelectedIds] = useState<Set<ItemId>>(new Set());
   // Output of the FilterBar — null means "no filter active" (all
-  // visible). Computed downstream of `media`, so a fresh import
-  // resets it implicitly via the FilterBar's own state.
+  // visible). Computed downstream of `candidates`, so a fresh import
+  // or favourites refresh resets it implicitly via the FilterBar's
+  // own state.
   const [visibleIds, setVisibleIds] = useState<ReadonlySet<ItemId> | null>(
     null,
   );
@@ -242,7 +307,18 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
     ANIME: 0,
     MANGA: 0,
   });
-  const [loadingFavouritesAdd, setLoadingFavouritesAdd] = useState(false);
+  // Identity stamp for the user that the favourites cache effect
+  // last resolved. Lets us derive the "Cached: N favourites · Use
+  // cached" hint synchronously in render — the hint shows iff the
+  // currently-typed username matches what the effect resolved (or is
+  // empty and we're using the latest-imported fallback). Mirrors the
+  // `lookupName/lookupType` stamps on `cachedListInfo` for the same
+  // reason: stale prevention without a separate dedicated state slot.
+  const [cachedFavUser, setCachedFavUser] = useState<{
+    lookupName: string;
+    id: number;
+    name: string;
+  } | null>(null);
 
   // After an import: load the user's media of the chosen type from
   // anilist.sqlite. Driven by an import-counter rather than directly
@@ -255,13 +331,23 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
     void (async () => {
       const latest = await productionReads.getLatestAnilistUser();
       if (!latest) {
-        if (!cancelled) setMedia([]);
+        if (!cancelled) {
+          setCandidates([]);
+          setCandidateSource(null);
+        }
         return;
       }
       const rows = await productionReads.getListedMedia(latest.id, type);
       if (cancelled) return;
-      setMedia(rows);
-      setSelectedIds(new Set(rows.map((r) => `anilist:${r.id}`)));
+      const next = rows.map(mediaRowToItem);
+      setCandidates(next);
+      setCandidateSource({
+        kind: 'list',
+        userId: latest.id,
+        canonicalName: latest.name,
+        type,
+      });
+      setSelectedIds(new Set(next.map((it) => it.id)));
       // Fresh import wipes the previous preview — clear search too
       // so the new preview opens with everything visible. Otherwise
       // a stale "Cowboy" search from an anime import would silently
@@ -273,27 +359,82 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
     };
   }, [importTick, type]);
 
-  // Load per-favourite-type last-refresh timestamps + cached counts.
-  // Runs on mount (so the "refreshed Xm ago" hint + "+ Add N to
-  // staged" button counts show correctly the first time the start
-  // screen opens) and after every successful refresh/import. Both
-  // queries are keyed on the LATEST imported user — that's the same
-  // user the [↻] favourites button resolves against, so the
-  // displayed counts and what gets added to staged stay in sync.
+  // Load per-favourite-type last-refresh timestamps + cached counts
+  // for the user the typed `username` resolves to. Mirrors the
+  // precedence used by `onUseCachedFavourites` (typed user → latest
+  // imported fallback when the input is empty) so the displayed counts
+  // always match what the "Use cached favourites" affordance loads.
+  //
+  // Runs on:
+  //   - mount: initial load using latest-imported user (so the start
+  //     screen opens with a useful hint, no input needed)
+  //   - `username` change: debounced 300ms (mirrors `cachedListInfo`'s
+  //     keystroke-friendly behaviour), with a synchronous clear of
+  //     stale counts so the previous user's "12 cached characters"
+  //     doesn't linger while bob's lookup is in flight
+  //   - `favTick` bump: after a favourites refresh, immediate reload
+  //   - `importTick` bump: after a media import, immediate reload
+  //
+  // The synchronous-clear is gated by a ref that tracks which
+  // (trimmed) username we last loaded for. Without it, a `favTick`
+  // bump while the user is still typing would also blank the cache
+  // for 300ms even though the active query is unchanged.
+  const lastFavLookupRef = useRef<string | undefined>(undefined);
   useEffect(() => {
+    const trimmed = username.trim();
+    const lookupChanged =
+      lastFavLookupRef.current !== undefined &&
+      lastFavLookupRef.current !== trimmed;
+    lastFavLookupRef.current = trimmed;
+
+    if (lookupChanged) {
+      setFavouriteRefreshTs({
+        CHARACTERS: null,
+        STAFF: null,
+        STUDIOS: null,
+        ANIME: null,
+        MANGA: null,
+      });
+      setFavouriteCounts({
+        CHARACTERS: 0,
+        STAFF: 0,
+        STUDIOS: 0,
+        ANIME: 0,
+        MANGA: 0,
+      });
+      // Cached-favourites hint shares the same staleness window —
+      // clear it now so the previous user's "Use cached favourites"
+      // button can't load alice's data while the screen says bob.
+      setCachedFavUser(null);
+    }
+
     let cancelled = false;
-    void (async () => {
-      const latest = await productionReads.getLatestAnilistUser();
-      if (!latest || cancelled) return;
+    const load = async (): Promise<void> => {
+      const user = trimmed
+        ? (await productionReads.getAnilistUserByName(trimmed)) ??
+          (await productionReads.getLatestAnilistUser())
+        : await productionReads.getLatestAnilistUser();
+      if (cancelled) return;
+      if (!user) {
+        // No imported users at all — keep the cleared/initial state.
+        setCachedFavUser(null);
+        return;
+      }
+      // Stamp the lookup name alongside the resolved user so the
+      // cached-favourites hint stays in sync with what the user
+      // currently has typed — without this, switching from alice
+      // → bob would show bob's hint immediately even though we're
+      // still rendering alice's counts until the effect re-runs.
+      setCachedFavUser({ lookupName: trimmed, id: user.id, name: user.name });
       const [tsResults, countResults] = await Promise.all([
         Promise.all(
           FAVOURITE_TYPES.map((t) =>
-            productionReads.getLastFavouritesRefresh(latest.id, t),
+            productionReads.getLastFavouritesRefresh(user.id, t),
           ),
         ),
         Promise.all(
           FAVOURITE_TYPES.map(async (t) => {
-            const items = await productionReads.getFavouritesAsItems(latest.id, t);
+            const items = await productionReads.getFavouritesAsItems(user.id, t);
             return items.length;
           }),
         ),
@@ -319,11 +460,26 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
       }
       setFavouriteRefreshTs(nextTs);
       setFavouriteCounts(nextCounts);
-    })();
+    };
+
+    // Debounce only when the user is actively typing — favTick /
+    // importTick bumps come from explicit actions (refresh succeeded,
+    // import succeeded) and the caller expects the new values to
+    // appear without a 300ms delay.
+    if (lookupChanged) {
+      const timer = setTimeout(() => {
+        void load();
+      }, 300);
+      return () => {
+        cancelled = true;
+        clearTimeout(timer);
+      };
+    }
+    void load();
     return () => {
       cancelled = true;
     };
-  }, [favTick, importTick]);
+  }, [username, favTick, importTick]);
 
   // Cache-aware lookup for the (username, type) pair. Debounced ~300ms
   // so a user typing their handle doesn't trigger a SQL round-trip
@@ -393,10 +549,13 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
     };
   }, [username, type, importTick]);
 
-  // Convert media rows to Items once — both the FilterBar and the
-  // preview list iterate this. Memoed so a re-render from chip-state
-  // changes doesn't re-walk the rows.
-  const items = useMemo<Item[]>(() => media.map(mediaRowToItem), [media]);
+  // The candidate set IS the items array (post the state refactor:
+  // both list-imported media + favourites materialise straight into
+  // Item[] before being stored in `candidates`). Aliased for backward
+  // compat with the rest of this component which still talks in
+  // terms of `items` — keeps the FilterBar / preview / selection
+  // code below untouched by the source-agnostic change.
+  const items = candidates;
 
   // `visibleItems` reflects BOTH the FilterBar chip set AND the local
   // search box — they compose: the search narrows what the chips
@@ -447,8 +606,12 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
 
   /**
    * Persist `name` as the "most recently used" prefill. Called from
-   * `onRunImport` / `onRefreshFavourites` so a typo never overwrites
-   * the last good value — only successful actions write here.
+   * `onRunImport` / `onRefreshFavourites` / `onUseCachedList` /
+   * `onUseCachedFavourites` so a typo never overwrites the last good
+   * value — only successful actions (or explicit cache-load clicks
+   * that necessarily target an existing user) write here. The cache
+   * paths persist the canonical AniList name when available so the
+   * prefill normalises case across sessions ("alice" → "Alice").
    */
   const rememberUsername = useCallback((name: string) => {
     try {
@@ -497,9 +660,46 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
     }
   }, [username, type, importing, onDraftActivity, rememberUsername]);
 
+  /**
+   * Load the cached favourites of `favTypeArg` for `name` (must be
+   * a previously-imported user) into the candidate preview, replacing
+   * whatever was there. Shared between:
+   *   - `onRefreshFavourites` (after a successful refresh — auto-load
+   *     so the user immediately sees what to pick from)
+   *   - `onUseCachedFavourites` (skip the API round-trip, load from
+   *     cache for the same UX as `onUseCachedList`)
+   *
+   * Returns the loaded item count so callers can suppress the
+   * "Use cached" hint refresh when there's nothing to show.
+   */
+  const loadFavouritesIntoCandidates = useCallback(
+    async (name: string, favTypeArg: AnilistFavouriteType): Promise<number> => {
+      const user = await productionReads.getAnilistUserByName(name);
+      if (!user) {
+        setCandidates([]);
+        setCandidateSource(null);
+        return 0;
+      }
+      const favs = await productionReads.getFavouritesAsItems(user.id, favTypeArg);
+      const next = favs.map((fa) => favouriteAsItemToItem(fa, favTypeArg));
+      setCandidates(next);
+      setCandidateSource({
+        kind: 'favourites',
+        userId: user.id,
+        canonicalName: user.name,
+        type: favTypeArg,
+      });
+      setSelectedIds(new Set(next.map((it) => it.id)));
+      setSearch('');
+      return next.length;
+    },
+    [],
+  );
+
   const onRefreshFavourites = useCallback(async () => {
     const name = username.trim();
     if (!name || refreshingFavs || importing) return;
+    onDraftActivity();
     setError(null);
     setNotice(null);
     setProgress(null);
@@ -521,6 +721,12 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
         );
       }
       setFavTick((t) => t + 1);
+      // Auto-populate the candidate preview with the just-refreshed
+      // favourites. Mirrors how `importTick` triggers a media reload
+      // — a successful refresh implicitly means "show me these so I
+      // can pick which to stage" instead of forcing the user to also
+      // click "Use cached favourites" to see them.
+      await loadFavouritesIntoCandidates(name, favType);
     } catch (err) {
       if (err instanceof AnilistUnknownUserError) {
         setError(`AniList username "${err.username}" not found.`);
@@ -533,7 +739,15 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
       setRefreshingFavs(false);
       setProgress(null);
     }
-  }, [username, favType, refreshingFavs, importing, rememberUsername]);
+  }, [
+    username,
+    favType,
+    refreshingFavs,
+    importing,
+    onDraftActivity,
+    rememberUsername,
+    loadFavouritesIntoCandidates,
+  ]);
 
   /**
    * Load `cachedListInfo`'s media rows from the local DB straight
@@ -551,91 +765,66 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
     onDraftActivity();
     setError(null);
     setNotice(null);
+    // Persist the canonical AniList name as the last-used prefill —
+    // explicit cache-load click confirms "this is the user I want",
+    // and the canonical capitalization is more useful next session
+    // than whatever the user happened to type. Matches the import
+    // path's intent of "only write on successful, meaningful actions".
+    rememberUsername(cachedListInfo.canonicalName);
     const rows = await productionReads.getListedMedia(
       cachedListInfo.userId,
       type,
     );
-    setMedia(rows);
-    setSelectedIds(new Set(rows.map((r) => `anilist:${r.id}`)));
+    const next = rows.map(mediaRowToItem);
+    setCandidates(next);
+    setCandidateSource({
+      kind: 'list',
+      userId: cachedListInfo.userId,
+      canonicalName: cachedListInfo.canonicalName,
+      type,
+    });
+    setSelectedIds(new Set(next.map((it) => it.id)));
     setSearch('');
-  }, [cachedListInfo, importing, type, onDraftActivity]);
+  }, [cachedListInfo, importing, type, onDraftActivity, rememberUsername]);
 
   /**
-   * Materialise the currently-selected favourites type as Items and
-   * push them to the staged-items panel as a single flat group. Lets
-   * the user sort "my favourite anime" / "my favourite characters"
-   * etc. directly from the favourites cache without having to import
-   * a full list first.
+   * Skip-the-API counterpart to `onRefreshFavourites`. Pulls the
+   * already-cached favourites of `favType` for the typed user (or
+   * latest-imported fallback) straight into the candidate preview,
+   * matching the "Use cached list" affordance on the media side.
    *
-   * Source binding only applies to ANIME/MANGA — those map cleanly
-   * onto the existing AniList Item.source kind so the LIST tab's
-   * filter chips + detail modal still attach. CHARACTERS/STAFF/
-   * STUDIOS don't have a source kind in the type system (the AniList
-   * chip module is media-only), so they ship as manual-source Items
-   * with a `anilist-<kind>:<id>` id prefix that's unique vs media
-   * ids — they sort just fine, they just don't get rich filter chips.
+   * The user picks WHICH favourites to stage via the standard preview
+   * checkboxes + "Add N selected to staged" CTA below — the bulk
+   * "add everything" path that previously lived on this row is gone,
+   * because the candidate-list flow handles that case (Select all
+   * visible → Add to staged) AND supports filtering down to a subset.
    */
-  const onAddFavouritesToStaged = useCallback(async () => {
-    if (loadingFavouritesAdd) return;
-    const count = favouriteCounts[favType];
-    if (count === 0) return;
-    setLoadingFavouritesAdd(true);
-    try {
-      // Prefer the typed user when it matches a cached row, otherwise
-      // fall back to the latest imported user — same precedence the
-      // count display uses, so the button never adds different rows
-      // than the count promises.
-      const typed = username.trim();
-      const user =
-        (typed ? await productionReads.getAnilistUserByName(typed) : null) ??
-        (await productionReads.getLatestAnilistUser());
-      if (!user) return;
-      const favs: FavouriteAsItem[] = await productionReads.getFavouritesAsItems(
-        user.id,
-        favType,
-      );
-      if (favs.length === 0) return;
-      const items: Item[] = favs.map((fa) => {
-        // Single URL builder for all 5 favourite kinds — keeps the
-        // ANIME/MANGA path consistent with the list-import URL and
-        // gives CHARACTERS/STAFF/STUDIOS a clickable anilist.co link
-        // too (lets the user pop the entry open while sorting to
-        // disambiguate by portrait / VA credits).
-        const url = buildAnilistFavouriteUrl(favType, fa.externalId);
-        if (favType === 'ANIME' || favType === 'MANGA') {
-          // Same id scheme as the list-import path so deduping
-          // across favourites + list ends up collapsing correctly
-          // when the user pulls both into one sort.
-          return {
-            id: `anilist:${fa.externalId}`,
-            label: fa.label,
-            url,
-            imageUrl: fa.imageUrl ?? undefined,
-            source: { kind: 'anilist', externalId: fa.externalId },
-          };
-        }
-        // Non-media favourites — prefix the id with the kind so a
-        // character #100 and a staff #100 don't collide in the
-        // dedup set if the user happens to favourite both.
-        const kindSlug = favType.toLowerCase();
-        return {
-          id: `anilist-${kindSlug}:${fa.externalId}`,
-          label: fa.label,
-          url,
-          imageUrl: fa.imageUrl ?? undefined,
-        };
-      });
-      const sourceLabel = `AniList favourites: ${user.name}/${favouriteLabel(favType).toLowerCase()}`;
-      onAddToStaged(items, sourceLabel);
-    } finally {
-      setLoadingFavouritesAdd(false);
-    }
+  const onUseCachedFavourites = useCallback(async () => {
+    if (!cachedFavUser || importing || refreshingFavs) return;
+    if (favouriteCounts[favType] === 0) return;
+    onDraftActivity();
+    setError(null);
+    setNotice(null);
+    // Use the typed-name fallback the favourites cache effect already
+    // applied (latest-imported when input is empty). cachedFavUser
+    // carries that resolved identity stamp, so the loaded items
+    // always match what the "Cached: N" hint just promised.
+    const name = cachedFavUser.name;
+    // Persist the canonical name as the last-used prefill — same
+    // rationale as onUseCachedList. Also covers the empty-typed-input
+    // case: clicking the cached affordance with no typed name is
+    // still an explicit "I want this user" signal worth remembering.
+    rememberUsername(name);
+    await loadFavouritesIntoCandidates(name, favType);
   }, [
-    loadingFavouritesAdd,
+    cachedFavUser,
     favouriteCounts,
     favType,
-    username,
-    onAddToStaged,
+    importing,
+    refreshingFavs,
+    onDraftActivity,
+    rememberUsername,
+    loadFavouritesIntoCandidates,
   ]);
 
   const onAddSelectedToStaged = useCallback(() => {
@@ -646,15 +835,68 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
       }
     }
     if (out.length === 0) return;
-    const name = username.trim() || 'unknown user';
-    const typeLabel = type === 'ANIME' ? 'anime' : 'manga';
-    const sourceLabel = `AniList: ${name}/${typeLabel}`;
+    // Source label reflects what the user actually loaded into the
+    // candidate preview — list-imported media gets the original
+    // `AniList: name/type` label; favourites get `AniList favourites:
+    // name/<kind>` so a "favourite anime" group in the staged panel
+    // is distinguishable from a "list anime" group from the same
+    // user. Falls back to a generic label when nothing has been
+    // loaded yet (shouldn't happen because the button is disabled
+    // when items.length === 0, but the typeguard keeps it safe).
+    let sourceLabel: string;
+    if (candidateSource?.kind === 'list') {
+      const typeLabel = candidateSource.type === 'ANIME' ? 'anime' : 'manga';
+      sourceLabel = `AniList: ${candidateSource.canonicalName}/${typeLabel}`;
+    } else if (candidateSource?.kind === 'favourites') {
+      const kindLabel = favouriteLabel(candidateSource.type).toLowerCase();
+      sourceLabel = `AniList favourites: ${candidateSource.canonicalName}/${kindLabel}`;
+    } else {
+      const name = username.trim() || 'unknown user';
+      sourceLabel = `AniList: ${name}`;
+    }
     onAddToStaged(out, sourceLabel);
     // Clear the selection so the user explicitly opts into the next
     // batch — protects against accidentally re-adding the same items
     // (which would dedup anyway, but is visually confusing).
     setSelectedIds(new Set());
-  }, [items, visibleIds, selectedIds, onAddToStaged, username, type]);
+  }, [
+    items,
+    visibleIds,
+    selectedIds,
+    onAddToStaged,
+    candidateSource,
+    username,
+  ]);
+
+  // Derived: cached-favourites hint info for the currently-selected
+  // favType + typed user. Mirrors `cachedListInfo`'s shape so the
+  // hint row JSX is structurally identical. Shows iff:
+  //   - the favourites cache effect resolved a user (cachedFavUser)
+  //   - that resolution matches the typed input (or input is empty
+  //     and we're on the latest-imported fallback — same precedence
+  //     as the favouriteCounts/refreshTs the row already displays)
+  //   - the cache actually has entries of `favType` (zero would
+  //     promise nothing and the "Use cached favourites" click would
+  //     no-op)
+  const trimmedUsername = username.trim();
+  const cachedFavInfo: {
+    userId: number;
+    canonicalName: string;
+    count: number;
+    refreshedAt: number | null;
+  } | null = (() => {
+    if (!cachedFavUser) return null;
+    if (trimmedUsername !== '' && cachedFavUser.lookupName !== trimmedUsername) {
+      return null;
+    }
+    if (favouriteCounts[favType] === 0) return null;
+    return {
+      userId: cachedFavUser.id,
+      canonicalName: cachedFavUser.name,
+      count: favouriteCounts[favType],
+      refreshedAt: favouriteRefreshTs[favType],
+    };
+  })();
 
   return (
     <div className="page-section anilist-start">
@@ -767,7 +1009,7 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
       >
         <span
           style={{ color: 'var(--text-muted)', fontSize: 12 }}
-          title="Refreshing populates the favourites filter chip and the detail modal's character/staff/studio rows. Use the green button on the right to also stage them as items to sort."
+          title="Refreshing populates the favourites filter chip and the detail modal's character/staff/studio rows, and loads the favourites into the candidate preview so you can pick which to sort (Select all visible + Add N selected to staged)."
         >
           Favourites cache:
         </span>
@@ -786,50 +1028,65 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
             </option>
           ))}
         </select>
-        <button
-          type="button"
-          className="btn icon-only"
-          disabled={refreshingFavs || importing || username.trim() === ''}
-          onClick={() => void onRefreshFavourites()}
-          title={`Refresh ${favouriteLabel(favType).toLowerCase()} favourites cache from AniList (last refreshed ${timeAgo(
-            favouriteRefreshTs[favType],
-          )})`}
-          aria-label={`Refresh ${favouriteLabel(favType)} favourites cache`}
-        >
-          ↻
-        </button>
-        <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-          {favouriteCounts[favType]} cached · refreshed{' '}
-          {timeAgo(favouriteRefreshTs[favType])}
-        </span>
         {/*
-          The bread-and-butter "+ Add N to staged" action — gives the
-          favourites cache a sortable outlet that previously didn't
-          exist. Disabled when the cache is empty so the user gets a
-          visible-but-inert button explaining the state rather than
-          a silent missing affordance.
+          Refresh button is the favourites-bar equivalent of the
+          "Import" button on the media bar. After a successful
+          refresh, the favourites auto-populate the candidate preview
+          (matching the post-import UX) so the user can immediately
+          filter + select + stage without a second click.
         */}
         <button
           type="button"
           className="btn primary"
-          style={{ marginLeft: 'auto' }}
-          disabled={
-            loadingFavouritesAdd ||
-            refreshingFavs ||
-            importing ||
-            favouriteCounts[favType] === 0
-          }
-          onClick={() => void onAddFavouritesToStaged()}
+          disabled={refreshingFavs || importing || username.trim() === ''}
+          onClick={() => void onRefreshFavourites()}
           title={
-            favouriteCounts[favType] === 0
-              ? `No ${favouriteLabel(favType).toLowerCase()} favourites in the local cache yet — click ↻ first to fetch them from AniList.`
-              : `Add the cached ${favouriteCounts[favType]} ${favouriteLabel(favType).toLowerCase()} favourites to the staged-items panel so you can sort them.`
+            cachedFavInfo
+              ? `Hit AniList again and overwrite the local cache for ${cachedFavInfo.canonicalName}/${favouriteLabel(favType).toLowerCase()} favourites`
+              : `Refresh ${favouriteLabel(favType).toLowerCase()} favourites cache from AniList`
           }
         >
-          + Add {favouriteCounts[favType] || ''}{' '}
-          {favouriteLabel(favType).toLowerCase()} to staged
+          {refreshingFavs
+            ? 'Refreshing…'
+            : `Refresh ${favouriteLabel(favType).toLowerCase()}`}
         </button>
       </div>
+
+      {/*
+        Cache-aware hint row for favourites — structurally identical
+        to the cached-list hint above. Shown ONLY when the typed
+        username already has cached favourites of the selected
+        favType. The "Use cached favourites" button loads them into
+        the candidate preview without an API round-trip — same
+        Select/Filter/Add flow as a list import, just sourced from
+        the favourites cache.
+      */}
+      {cachedFavInfo && !refreshingFavs && !importing && (
+        <div
+          className="anilist-start-bar anilist-cache-hint"
+          style={{ marginTop: 4 }}
+          role="status"
+          aria-live="polite"
+        >
+          <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+            Cached: <strong>{cachedFavInfo.count}</strong>{' '}
+            {favouriteLabel(favType).toLowerCase()} favourites for{' '}
+            <strong>{cachedFavInfo.canonicalName}</strong>
+            {cachedFavInfo.refreshedAt !== null && (
+              <> · refreshed {timeAgo(cachedFavInfo.refreshedAt)}</>
+            )}
+          </span>
+          <button
+            type="button"
+            className="btn"
+            onClick={() => void onUseCachedFavourites()}
+            disabled={importing || refreshingFavs}
+            title="Load the previously-refreshed favourites from the local cache without hitting AniList"
+          >
+            Use cached favourites
+          </button>
+        </div>
+      )}
 
       {(importing || refreshingFavs) && (
         <p

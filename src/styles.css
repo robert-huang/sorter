@@ -951,6 +951,22 @@ a {
   opacity: 0.6;
 }
 
+/* Inline button row at the top of a multi-select chip's menu —
+   used for "Select all" + "Clear" bulk actions. Keeps both buttons
+   on one line so the option list below isn't pushed down twice. */
+.filter-chip-toolbar {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.filter-chip-toolbar .filter-chip-action {
+  flex: 1 1 auto;
+  padding: 3px 6px;
+  font-size: 0.8rem;
+  text-align: center;
+}
+
 .filter-chip-error {
   color: var(--danger, #b91c1c);
 }

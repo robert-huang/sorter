@@ -121,14 +121,23 @@ export const DEFAULT_ALLOWED_LIST_STATUSES: AnilistMediaListStatus[] = [
 
 /** Full universe of AniList MediaListStatus values. Used for both
  *  the chip's dropdown options and the "all 6 selected = passthrough"
- *  check (functionally equivalent to no filter). */
+ *  check (functionally equivalent to no filter).
+ *
+ *  Order mirrors the user's typical engagement funnel —
+ *  currently-watching first, then the historical-positive bucket
+ *  (REPEATING + COMPLETED), then the on-deck bucket (PLANNING +
+ *  PAUSED), then the dropped tail. Matches how the chip dropdown
+ *  visually groups "stuff you're sorting by default" vs "stuff you
+ *  might also include". The default selection
+ *  ({@link DEFAULT_ALLOWED_LIST_STATUSES}) sits in the top three
+ *  rows so it reads as a contiguous block. */
 export const ALL_LIST_STATUSES: AnilistMediaListStatus[] = [
   'CURRENT',
-  'PLANNING',
-  'COMPLETED',
-  'DROPPED',
-  'PAUSED',
   'REPEATING',
+  'COMPLETED',
+  'PLANNING',
+  'PAUSED',
+  'DROPPED',
 ];
 
 /** AniList seasons in chronological order within a year. The index
@@ -659,14 +668,30 @@ function MultiSelectChip<T extends string | number>({
   selected,
   onToggle,
   formatOption,
+  onReplaceAll,
+  searchable = false,
+  searchPlaceholder,
 }: {
   label: string;
   options: readonly T[];
   selected: readonly T[];
   onToggle: (value: T) => void;
   formatOption?: (value: T) => string;
+  /** Optional bulk-set callback. When provided, the popover renders
+   *  "Select all" + "Clear" buttons in a toolbar at the top. Selecting
+   *  all replaces the current selection with the full options array;
+   *  clearing replaces it with []. Each button is disabled when its
+   *  action would be a no-op (already all selected / already empty). */
+  onReplaceAll?: (values: readonly T[]) => void;
+  /** When true, render a search input at the top of the menu (mirrors
+   *  the voice-actor chip). Selected options always render above the
+   *  search-filtered unselected list so toggling a selection off after
+   *  a search doesn't make it disappear from view. */
+  searchable?: boolean;
+  searchPlaceholder?: string;
 }): ReactNode {
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
   // Ref wraps the whole chip (trigger + menu) so the outside-click
   // hook recognises a click on the trigger as "inside" — otherwise
   // the same mousedown that opens the menu would also fire the
@@ -674,6 +699,29 @@ function MultiSelectChip<T extends string | number>({
   const rootRef = useRef<HTMLDivElement>(null);
   useClickOutside(rootRef, open, () => setOpen(false));
   const count = selected.length;
+
+  // Format-or-stringify helper, used both for rendering and for the
+  // search needle match so what the user types matches what they see.
+  const formatOpt = (opt: T): string =>
+    formatOption ? formatOption(opt) : String(opt);
+
+  // Split + filter only when we're actually rendering the menu — the
+  // chip might never be opened in a session, no point doing work
+  // upfront. Selected-on-top mirrors VoiceActorChip's contract.
+  let selectedOptions: readonly T[] = options;
+  let unselectedOptions: readonly T[] = [];
+  if (searchable) {
+    const selectedSet = new Set<T>(selected);
+    selectedOptions = options.filter((o) => selectedSet.has(o));
+    const restOptions = options.filter((o) => !selectedSet.has(o));
+    const needle = search.trim().toLowerCase();
+    unselectedOptions = needle
+      ? restOptions.filter((o) => formatOpt(o).toLowerCase().includes(needle))
+      : restOptions;
+  }
+
+  const allSelected = options.length > 0 && selected.length === options.length;
+
   return (
     <div
       ref={rootRef}
@@ -690,19 +738,82 @@ function MultiSelectChip<T extends string | number>({
       </button>
       {open && (
         <div className="filter-chip-menu" role="menu">
+          {searchable && options.length > 0 && (
+            <input
+              type="search"
+              className="filter-chip-search"
+              placeholder={searchPlaceholder ?? `Search ${label}…`}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              autoFocus
+            />
+          )}
+          {onReplaceAll && options.length > 0 && (
+            <div className="filter-chip-toolbar">
+              <button
+                type="button"
+                className="filter-chip-action"
+                disabled={allSelected}
+                onClick={() => onReplaceAll(options)}
+                title="Select every option"
+              >
+                Select all
+              </button>
+              <button
+                type="button"
+                className="filter-chip-action"
+                disabled={count === 0}
+                onClick={() => onReplaceAll([])}
+                title="Clear the current selection"
+              >
+                Clear
+              </button>
+            </div>
+          )}
           {options.length === 0 && (
             <div className="filter-chip-empty">(no options)</div>
           )}
-          {options.map((opt) => (
-            <label key={String(opt)} className="filter-chip-option">
-              <input
-                type="checkbox"
-                checked={selected.includes(opt)}
-                onChange={() => onToggle(opt)}
-              />
-              <span>{formatOption ? formatOption(opt) : String(opt)}</span>
-            </label>
-          ))}
+          {searchable ? (
+            <>
+              {selectedOptions.map((opt) => (
+                <label key={`sel-${String(opt)}`} className="filter-chip-option">
+                  <input
+                    type="checkbox"
+                    checked
+                    onChange={() => onToggle(opt)}
+                  />
+                  <span>{formatOpt(opt)}</span>
+                </label>
+              ))}
+              {selectedOptions.length > 0 && unselectedOptions.length > 0 && (
+                <div className="filter-chip-divider" />
+              )}
+              {options.length > 0 && unselectedOptions.length === 0 && search && (
+                <div className="filter-chip-empty">(no matches)</div>
+              )}
+              {unselectedOptions.map((opt) => (
+                <label key={String(opt)} className="filter-chip-option">
+                  <input
+                    type="checkbox"
+                    checked={false}
+                    onChange={() => onToggle(opt)}
+                  />
+                  <span>{formatOpt(opt)}</span>
+                </label>
+              ))}
+            </>
+          ) : (
+            options.map((opt) => (
+              <label key={String(opt)} className="filter-chip-option">
+                <input
+                  type="checkbox"
+                  checked={selected.includes(opt)}
+                  onChange={() => onToggle(opt)}
+                />
+                <span>{formatOpt(opt)}</span>
+              </label>
+            ))
+          )}
         </div>
       )}
     </div>
@@ -1480,6 +1591,7 @@ function AnilistChips({
         onToggle={(v) =>
           set({ listStatuses: toggleInArray(state.listStatuses, v) })
         }
+        onReplaceAll={(vals) => set({ listStatuses: [...vals] })}
       />
       <MultiSelectChip
         label="status"
@@ -1526,6 +1638,9 @@ function AnilistChips({
         formatOption={(id) =>
           options.studios.find((s) => s.id === id)?.name ?? String(id)
         }
+        onReplaceAll={(vals) => set({ studioIds: [...vals] })}
+        searchable
+        searchPlaceholder="Search studios…"
       />
       <VoiceActorChip
         options={options.voiceActors}
@@ -1547,6 +1662,9 @@ function AnilistChips({
         onToggle={(v) =>
           set({ tagNames: toggleInArray(state.tagNames, v) })
         }
+        onReplaceAll={(vals) => set({ tagNames: [...vals] })}
+        searchable
+        searchPlaceholder="Search tags…"
       />
       <TagOptionsChip
         mode={state.tagMode}
@@ -1560,6 +1678,9 @@ function AnilistChips({
         onToggle={(v) =>
           set({ tagExclude: toggleInArray(state.tagExclude, v) })
         }
+        onReplaceAll={(vals) => set({ tagExclude: [...vals] })}
+        searchable
+        searchPlaceholder="Search tags to exclude…"
       />
     </>
   );
