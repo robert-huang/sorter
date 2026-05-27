@@ -26,6 +26,15 @@ ensureAnilistSourceRegistered();
 const OPFS_SAH_POOL_VFS = 'opfs-sahpool';
 
 const dbs = new Map<string, Database>();
+/**
+ * Source ids whose DBs have already been migrated in this worker session.
+ * Bumped here (rather than relying on callers to hit the `open` RPC first)
+ * so the read-only RPCs (`exec` SELECT, `currentSchemaVersion`, etc.)
+ * cannot observe a pre-migration DB if a UI surface skips `openSourceDb`
+ * and goes straight to a read — see `getOrOpenDb` for the lazy-migrate
+ * call.
+ */
+const migratedSources = new Set<string>();
 let sqlite3: Sqlite3Static | null = null;
 let sahPool: SAHPoolUtil | null = null;
 let storageMode: 'opfs' | 'memory' = 'memory';
@@ -128,6 +137,18 @@ function getOrOpenDb(sourceId: string): Database {
     db = openDb(sourceId);
     dbs.set(sourceId, db);
   }
+  // First touch of this source in this worker process: run pending
+  // migrations exactly once. Previously this only happened in the `open`
+  // RPC, which meant a read-only entry point (e.g. an `exec` SELECT
+  // issued before openSourceDb had a chance to run) could observe a
+  // fresh OPFS DB at version 0 and throw "no such table". Doing it here
+  // closes that gap without re-running migrations on every call.
+  if (!migratedSources.has(sourceId)) {
+    const source = getSource(sourceId);
+    assertDbSchemaSupported(db, source);
+    migrate(db, source);
+    migratedSources.add(sourceId);
+  }
   return db;
 }
 
@@ -137,6 +158,9 @@ function closeDb(sourceId: string): void {
     db.close();
   }
   dbs.delete(sourceId);
+  // A fresh DB replaces the old one — drop the "already migrated" flag so
+  // the next getOrOpenDb re-asserts schema support against the replacement.
+  migratedSources.delete(sourceId);
 }
 
 async function replaceDb(sourceId: string, bytes: Uint8Array): Promise<Database> {
@@ -151,6 +175,10 @@ async function replaceDb(sourceId: string, bytes: Uint8Array): Promise<Database>
     enableForeignKeys(db);
     assertDbSchemaSupported(db, source);
     dbs.set(sourceId, db);
+    // The incoming bytes already carry their own schema_version row, so
+    // re-running migrate() here would be a no-op. Mark as migrated so
+    // the next getOrOpenDb skip path matches reality.
+    migratedSources.add(sourceId);
     return db;
   }
 
@@ -158,15 +186,15 @@ async function replaceDb(sourceId: string, bytes: Uint8Array): Promise<Database>
   enableForeignKeys(db);
   assertDbSchemaSupported(db, source);
   dbs.set(sourceId, db);
+  migratedSources.add(sourceId);
   return db;
 }
 
 function handleOpen(sourceId: string): number {
-  getSource(sourceId);
+  // getOrOpenDb now runs assertDbSchemaSupported + migrate on first
+  // touch, so handleOpen just returns the resolved schema version.
   const db = getOrOpenDb(sourceId);
-  const source = getSource(sourceId);
-  assertDbSchemaSupported(db, source);
-  return migrate(db, source);
+  return currentVersion(db);
 }
 
 function handleExec(

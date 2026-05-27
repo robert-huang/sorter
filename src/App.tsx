@@ -124,6 +124,7 @@ import {
   pullDbFromDrive,
   pushDbToDrive,
 } from './lib/db/sync';
+import { DB_NON_PERSISTENT_EVENT } from './lib/db/opfs';
 import { ANILIST_SOURCE_ID } from './lib/importers/anilist/anilistSource';
 import { ensureAnilistFiltersRegistered } from './lib/importers/anilist/filters';
 import { ensureCharacterStaffFiltersRegistered } from './lib/importers/anilist/characterStaffFilters';
@@ -340,6 +341,17 @@ export function App() {
   );
   const [sourceDbErrors, setSourceDbErrors] = useState<Record<string, string>>({});
   const [dbSyncRevision, setDbSyncRevision] = useState(0);
+  // Surfaces the "this tab fell back to in-memory SQLite" warning.
+  // Fired exactly once by the db/client when the worker reports
+  // `storageMode === 'memory'`. The two realistic causes are
+  //   (a) another tab of the same origin already holds the OPFS SAH
+  //       pool's exclusive lock (the common case — every new tab spins
+  //       up its own dedicated SQLite worker), or
+  //   (b) OPFS install genuinely failed (private window, quota refused).
+  // In either case the user's cached data isn't reachable from this
+  // tab's DB until they Pull from Drive — the banner CTA reflects that.
+  const [dbNonPersistent, setDbNonPersistent] = useState(false);
+  const [dbNonPersistentDismissed, setDbNonPersistentDismissed] = useState(false);
   // Per-item detail modal target (Phase D). Set when the user clicks
   // an AniList thumb anywhere in the tree — the ItemDetailContext
   // provider below routes those clicks here. Keyed by media id +
@@ -1593,6 +1605,19 @@ export function App() {
     return 'ready';
   }, [cloudAvailable, cloudAuth]);
 
+  // -------- memory-mode banner --------
+  // The worker reports `storageMode === 'memory'` when it can't acquire
+  // the OPFS SAH pool. The dominant cause is "another tab of this
+  // origin already holds OPFS"; the user needs to know that this tab
+  // has zero cached data until they Pull from Drive.
+  useEffect(() => {
+    const handler = (): void => setDbNonPersistent(true);
+    window.addEventListener(DB_NON_PERSISTENT_EVENT, handler);
+    return () => {
+      window.removeEventListener(DB_NON_PERSISTENT_EVENT, handler);
+    };
+  }, []);
+
   function dbSyncErrorMessage(err: unknown): string {
     const e = err as Error & { code?: string };
     if (e.code === REMOTE_DRIFTED) {
@@ -2212,6 +2237,33 @@ export function App() {
             title="Dismiss"
           >
             ×
+          </button>
+        </div>
+      )}
+      {dbNonPersistent && !dbNonPersistentDismissed && (
+        // Non-persistent storage banner. The worker fell back to an
+        // in-memory SQLite DB — almost always because another tab of
+        // the same origin already holds the OPFS SAH pool (browsers
+        // grant OPFS access exclusively to one realm at a time). The
+        // user's cached data sits in OPFS but this tab can't reach it;
+        // pulling from Drive into this tab's memory DB is the only way
+        // to populate it for this session. Closing the other tab and
+        // reloading is the long-term fix.
+        <div className="app-banner warn">
+          <span>
+            This tab can&rsquo;t access the local database (another tab is
+            holding it). Cached data won&rsquo;t appear here until you Pull
+            from Drive (gear menu &rarr; Source databases &rarr; Pull),
+            or close the other tab and reload.
+          </span>
+          <button
+            type="button"
+            className="banner-dismiss"
+            onClick={() => setDbNonPersistentDismissed(true)}
+            aria-label="Dismiss non-persistent storage warning"
+            title="Dismiss"
+          >
+            &times;
           </button>
         </div>
       )}

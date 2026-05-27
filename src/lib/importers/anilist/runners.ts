@@ -23,6 +23,8 @@
 
 import {
   bumpPendingChanges,
+  getSourceSyncMeta,
+  patchSourceSyncMeta,
 } from '../../db/syncManifest';
 import { ANILIST_SOURCE_ID } from './anilistSource';
 import { makeAnilistImportContext } from './context';
@@ -90,12 +92,29 @@ function buildContext(onProgress?: AnilistProgressReporter) {
   });
 }
 
+/**
+ * Mark the source as having a local DB once any successful write
+ * completes. This is what tells boot-time `pullDbFromDrive` whether the
+ * tab already has data (skip the pull) or is empty (pull from Drive so
+ * the user doesn't have to click anything). Previously `hasLocalDb` was
+ * only set by push/pull — so a first-ever import on a device left it
+ * `false` and the next tab open would trigger an unwanted pull-and-merge.
+ * Idempotent: a noop write when the flag is already true.
+ */
+function markLocalDbPresent(): void {
+  const meta = getSourceSyncMeta(ANILIST_SOURCE_ID);
+  if (meta.hasLocalDb) return;
+  patchSourceSyncMeta(ANILIST_SOURCE_ID, { hasLocalDb: true });
+}
+
 export async function runAnilistImport(
   username: string,
   type: AnilistMediaType,
   onProgress?: AnilistProgressReporter,
 ): Promise<ImportAnilistListResult> {
-  return importAnilistList(buildContext(onProgress), { username, type });
+  const result = await importAnilistList(buildContext(onProgress), { username, type });
+  markLocalDbPresent();
+  return result;
 }
 
 export async function runAnilistFavourites(
@@ -103,12 +122,18 @@ export async function runAnilistFavourites(
   type: AnilistFavouriteType,
   onProgress?: AnilistProgressReporter,
 ): Promise<ImportAnilistFavouritesResult> {
-  return importAnilistFavourites(buildContext(onProgress), { username, type });
+  const result = await importAnilistFavourites(buildContext(onProgress), { username, type });
+  markLocalDbPresent();
+  return result;
 }
 
 export async function runAnilistMediaLazyExpansion(
   mediaId: number,
   onProgress?: AnilistProgressReporter,
 ): Promise<ExpandAnilistMediaDetailResult | null> {
-  return expandAnilistMediaDetail(buildContext(onProgress), mediaId);
+  const result = await expandAnilistMediaDetail(buildContext(onProgress), mediaId);
+  // Lazy expansion may complete with `result === null` (no media row, no
+  // write performed). Only flip hasLocalDb when we actually wrote.
+  if (result) markLocalDbPresent();
+  return result;
 }
