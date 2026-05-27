@@ -17,9 +17,10 @@ import {
 } from '../importer';
 import { lastFullRefreshKey } from '../meta';
 import type {
-  AnilistListPageResponse,
+  AnilistListCollectionResponse,
   AnilistMediaGql,
   AnilistMediaListEntryGql,
+  AnilistMediaListGroupGql,
   AnilistUserResolveResponse,
 } from '../types';
 
@@ -135,31 +136,53 @@ function customLists(
   return names.map((name) => ({ name, enabled: true }));
 }
 
-function makeListPage(
+/**
+ * Build a `MediaListCollection` chunk response. The importer flattens
+ * all groups before doing anything with them, so the default fixture
+ * just bundles everything into a single status group — callers that
+ * specifically want to exercise the cross-group dedup path can pass
+ * an explicit `groups` array instead via {@link makeListChunkGroups}.
+ */
+function makeListChunk(
   entries: AnilistMediaListEntryGql[],
-  pageInfo: { currentPage: number; hasNextPage: boolean; lastPage?: number; total?: number },
-): AnilistListPageResponse {
+  opts: { hasNextChunk: boolean },
+): AnilistListCollectionResponse {
   return {
-    Page: {
-      pageInfo: {
-        hasNextPage: pageInfo.hasNextPage,
-        currentPage: pageInfo.currentPage,
-        lastPage: pageInfo.lastPage ?? null,
-        total: pageInfo.total ?? null,
-      },
-      mediaList: entries,
+    MediaListCollection: {
+      hasNextChunk: opts.hasNextChunk,
+      lists: [
+        {
+          name: 'Completed',
+          isCustomList: false,
+          status: 'COMPLETED',
+          entries,
+        },
+      ],
     },
   };
 }
 
 /**
+ * Build a `MediaListCollection` chunk with caller-controlled groups —
+ * used when a test needs to verify that the same entry appearing in
+ * multiple groups (status + custom list) collapses to one DB row.
+ */
+function makeListChunkGroups(
+  groups: AnilistMediaListGroupGql[],
+  opts: { hasNextChunk: boolean },
+): AnilistListCollectionResponse {
+  return {
+    MediaListCollection: { hasNextChunk: opts.hasNextChunk, lists: groups },
+  };
+}
+
+/**
  * Test harness uses a single `executeQuery` mock for both the user-
- * resolution request (`query ResolveUser`) and every subsequent list
- * page. Tests previously enqueued only list-page mocks; to keep them
- * concise the harness pre-installs a default for the resolve request
- * that returns `(id: USER_ID, name: username)` so the per-test
- * pageInfo `mockResolvedValueOnce(...)` calls don't have to interleave
- * a resolve mock first.
+ * resolution request (`query ResolveUser`) and every subsequent
+ * `MediaListCollection` chunk. The harness pre-installs a default
+ * resolve response that returns `(id: USER_ID, name: username)` so
+ * the per-test `mockResolvedValueOnce(...)` calls don't have to
+ * interleave a resolve mock first.
  *
  * Stable per-test USER_ID matches the safe-character ID convention
  * (mostly — AniList ids are integers, so we use a recognizable
@@ -186,15 +209,16 @@ type Harness = {
   autoPush: ReturnType<typeof vi.fn>;
   nowSpy: ReturnType<typeof vi.fn>;
   /**
-   * Enqueue: a successful user-resolve, then each list page in order.
-   * The importer's transport calls ResolveUser first then paginates,
-   * so this is the natural call sequence for happy-path tests.
+   * Enqueue: a successful user-resolve, then each list chunk in order.
+   * The importer's transport calls ResolveUser first then fetches one
+   * `MediaListCollection` chunk per iteration, so this is the natural
+   * call sequence for happy-path tests.
    *
    * Tests that need to exercise the resolve failure path should NOT
    * call this and should instead use `executeQuery.mockResolvedValueOnce`
    * directly with `{ User: null }`.
    */
-  enqueueListPages(...pages: AnilistListPageResponse[]): void;
+  enqueueListChunks(...chunks: AnilistListCollectionResponse[]): void;
 };
 
 const T0 = 1_700_000_000_000;
@@ -217,10 +241,10 @@ async function makeHarness(): Promise<Harness> {
     executeQuery,
     autoPush,
     nowSpy,
-    enqueueListPages(...pages) {
+    enqueueListChunks(...chunks) {
       executeQuery.mockResolvedValueOnce(resolveResponse());
-      for (const page of pages) {
-        executeQuery.mockResolvedValueOnce(page);
+      for (const chunk of chunks) {
+        executeQuery.mockResolvedValueOnce(chunk);
       }
     },
   };
@@ -250,11 +274,11 @@ afterEach(() => {
 // ──────────────────────────────────────────────────────────────────────
 
 describe('importAnilistList — happy path', () => {
-  it('paginates every page, writes rows in a single end-of-import transaction, stamps last_full_refresh, fires autopush', async () => {
+  it('fetches every chunk, writes rows in a single end-of-import transaction, stamps last_full_refresh, fires autopush', async () => {
     const h = await makeHarness();
-    h.enqueueListPages(
-      makeListPage([makeEntry(1), makeEntry(2)], { currentPage: 1, hasNextPage: true }),
-      makeListPage([makeEntry(3)], { currentPage: 2, hasNextPage: false }),
+    h.enqueueListChunks(
+      makeListChunk([makeEntry(1), makeEntry(2)], { hasNextChunk: true }),
+      makeListChunk([makeEntry(3)], { hasNextChunk: false }),
     );
 
     const result = await importAnilistList(h.ctx, { username: USER_NAME, type: 'ANIME' });
@@ -263,14 +287,14 @@ describe('importAnilistList — happy path', () => {
       type: 'ANIME',
       anilistUserId: USER_ID,
       username: USER_NAME,
-      pagesFetched: 2,
+      chunksFetched: 2,
       entriesWritten: 3,
     });
-    // 1 resolve + 2 list pages = 3 GraphQL calls.
+    // 1 resolve + 2 list chunks = 3 GraphQL calls.
     expect(h.executeQuery).toHaveBeenCalledTimes(3);
     expect(h.executeQuery.mock.calls[0][0]).toContain('query ResolveUser');
-    expect(h.executeQuery.mock.calls[1][1]).toMatchObject({ page: 1, type: 'ANIME' });
-    expect(h.executeQuery.mock.calls[2][1]).toMatchObject({ page: 2, type: 'ANIME' });
+    expect(h.executeQuery.mock.calls[1][1]).toMatchObject({ chunk: 1, type: 'ANIME' });
+    expect(h.executeQuery.mock.calls[2][1]).toMatchObject({ chunk: 2, type: 'ANIME' });
 
     expect(countRows(h.db, 'media')).toBe(3);
     expect(countRows(h.db, 'media_list_entry')).toBe(3);
@@ -287,22 +311,27 @@ describe('importAnilistList — happy path', () => {
     h.db.close();
   });
 
-  it('passes through username + perPage in the GraphQL variables', async () => {
+  it('passes through username + perChunk in the GraphQL variables', async () => {
     const h = await makeHarness();
-    h.enqueueListPages(makeListPage([], { currentPage: 1, hasNextPage: false }));
-    await importAnilistList(h.ctx, { username: 'evas', type: 'MANGA', perPage: 25 });
+    h.enqueueListChunks(makeListChunk([], { hasNextChunk: false }));
+    await importAnilistList(h.ctx, { username: 'evas', type: 'MANGA', perChunk: 25 });
     expect(h.executeQuery).toHaveBeenCalledWith(
-      expect.stringContaining('query ListPage'),
-      expect.objectContaining({ username: 'evas', type: 'MANGA', perPage: 25 }),
+      expect.stringContaining('query ListCollection'),
+      expect.objectContaining({
+        username: 'evas',
+        type: 'MANGA',
+        perChunk: 25,
+        chunk: 1,
+      }),
     );
     h.db.close();
   });
 
   it('handles a user with an empty list (no entries written, still stamps refresh + fires autopush)', async () => {
     const h = await makeHarness();
-    h.enqueueListPages(makeListPage([], { currentPage: 1, hasNextPage: false }));
+    h.enqueueListChunks(makeListChunk([], { hasNextChunk: false }));
     const result = await importAnilistList(h.ctx, { username: USER_NAME, type: 'ANIME' });
-    expect(result).toMatchObject({ pagesFetched: 1, entriesWritten: 0 });
+    expect(result).toMatchObject({ chunksFetched: 1, entriesWritten: 0 });
     expect(countRows(h.db, 'media_list_entry')).toBe(0);
     // anilist_user row was still upserted so per-user meta key resolves.
     expect(countRows(h.db, 'anilist_user', `WHERE id = ${USER_ID}`)).toBe(1);
@@ -328,8 +357,8 @@ describe('importAnilistList — user resolution', () => {
   it('isolates two users in the same DB — second import does not wipe the first', async () => {
     const h = await makeHarness();
     // First user imports their list.
-    h.enqueueListPages(
-      makeListPage([makeEntry(1), makeEntry(2)], { currentPage: 1, hasNextPage: false }),
+    h.enqueueListChunks(
+      makeListChunk([makeEntry(1), makeEntry(2)], { hasNextChunk: false }),
     );
     await importAnilistList(h.ctx, { username: 'userA', type: 'ANIME' });
     expect(countRows(h.db, 'media_list_entry', `WHERE anilist_user_id = ${USER_ID}`)).toBe(2);
@@ -339,7 +368,7 @@ describe('importAnilistList — user resolution', () => {
     const SECOND_ID = 67890;
     h.executeQuery.mockResolvedValueOnce(resolveResponse('userB', SECOND_ID));
     h.executeQuery.mockResolvedValueOnce(
-      makeListPage([makeEntry(3)], { currentPage: 1, hasNextPage: false }),
+      makeListChunk([makeEntry(3)], { hasNextChunk: false }),
     );
     await importAnilistList(h.ctx, { username: 'userB', type: 'ANIME' });
 
@@ -356,7 +385,7 @@ describe('importAnilistList — user resolution', () => {
     // mock uses USER_NAME, so mock manually to thread the right
     // username through the resolve response.
     h.executeQuery.mockResolvedValueOnce(resolveResponse('oldname', USER_ID));
-    h.executeQuery.mockResolvedValueOnce(makeListPage([], { currentPage: 1, hasNextPage: false }));
+    h.executeQuery.mockResolvedValueOnce(makeListChunk([], { hasNextChunk: false }));
     await importAnilistList(h.ctx, { username: 'oldname', type: 'ANIME' });
     expect(h.db.selectValue(`SELECT name FROM anilist_user WHERE id = ${USER_ID}`)).toBe(
       'oldname',
@@ -364,7 +393,7 @@ describe('importAnilistList — user resolution', () => {
 
     // Second import: same user id, renamed.
     h.executeQuery.mockResolvedValueOnce(resolveResponse('newname', USER_ID));
-    h.executeQuery.mockResolvedValueOnce(makeListPage([], { currentPage: 1, hasNextPage: false }));
+    h.executeQuery.mockResolvedValueOnce(makeListChunk([], { hasNextChunk: false }));
     await importAnilistList(h.ctx, { username: 'newname', type: 'ANIME' });
     expect(h.db.selectValue(`SELECT name FROM anilist_user WHERE id = ${USER_ID}`)).toBe(
       'newname',
@@ -376,14 +405,14 @@ describe('importAnilistList — user resolution', () => {
 describe('importAnilistList — custom lists', () => {
   it('upserts custom_list + membership rows for entries with customLists', async () => {
     const h = await makeHarness();
-    h.enqueueListPages(
-      makeListPage(
+    h.enqueueListChunks(
+      makeListChunk(
         [
           makeEntry(1, { customLists: customLists('Top 2023', 'Currently Watching') }),
           makeEntry(2, { customLists: customLists('Top 2023') }),
           makeEntry(3, {}),
         ],
-        { currentPage: 1, hasNextPage: false },
+        { hasNextChunk: false },
       ),
     );
     await importAnilistList(h.ctx, { username: USER_NAME, type: 'ANIME' });
@@ -405,19 +434,19 @@ describe('importAnilistList — custom lists', () => {
     // BOTH ANIME and MANGA should end up with two distinct custom_list
     // rows even though the name collides.
     const h = await makeHarness();
-    h.enqueueListPages(
-      makeListPage(
+    h.enqueueListChunks(
+      makeListChunk(
         [makeEntry(1, { customLists: customLists('Top 2023') })],
-        { currentPage: 1, hasNextPage: false },
+        { hasNextChunk: false },
       ),
     );
     await importAnilistList(h.ctx, { username: USER_NAME, type: 'ANIME' });
 
     h.executeQuery.mockResolvedValueOnce(resolveResponse());
     h.executeQuery.mockResolvedValueOnce(
-      makeListPage(
+      makeListChunk(
         [makeEntry(50, { customLists: customLists('Top 2023') }, { type: 'MANGA' })],
-        { currentPage: 1, hasNextPage: false },
+        { hasNextChunk: false },
       ),
     );
     await importAnilistList(h.ctx, { username: USER_NAME, type: 'MANGA' });
@@ -430,10 +459,10 @@ describe('importAnilistList — custom lists', () => {
 
   it('GCs orphan custom_list rows when a list is renamed or deleted on AniList', async () => {
     const h = await makeHarness();
-    h.enqueueListPages(
-      makeListPage(
+    h.enqueueListChunks(
+      makeListChunk(
         [makeEntry(1, { customLists: customLists('Old Name') })],
-        { currentPage: 1, hasNextPage: false },
+        { hasNextChunk: false },
       ),
     );
     await importAnilistList(h.ctx, { username: USER_NAME, type: 'ANIME' });
@@ -442,9 +471,9 @@ describe('importAnilistList — custom lists', () => {
     // Second import: user renamed the list. Old Name should be GC'd.
     h.executeQuery.mockResolvedValueOnce(resolveResponse());
     h.executeQuery.mockResolvedValueOnce(
-      makeListPage(
+      makeListChunk(
         [makeEntry(1, { customLists: customLists('New Name') })],
-        { currentPage: 1, hasNextPage: false },
+        { hasNextChunk: false },
       ),
     );
     await importAnilistList(h.ctx, { username: USER_NAME, type: 'ANIME' });
@@ -473,8 +502,8 @@ describe('importAnilistList — custom lists', () => {
   // ────────────────────────────────────────────────────────────────────
   it('asArray:true shape — extracts .name from {name, enabled} objects and binds it as a string', async () => {
     const h = await makeHarness();
-    h.enqueueListPages(
-      makeListPage(
+    h.enqueueListChunks(
+      makeListChunk(
         [
           makeEntry(1, {
             customLists: [
@@ -483,7 +512,7 @@ describe('importAnilistList — custom lists', () => {
             ],
           }),
         ],
-        { currentPage: 1, hasNextPage: false },
+        { hasNextChunk: false },
       ),
     );
     await importAnilistList(h.ctx, { username: USER_NAME, type: 'ANIME' });
@@ -508,8 +537,8 @@ describe('importAnilistList — custom lists', () => {
     // had `customLists: [{name: "★", enabled: false}]` for an entry
     // not in the ★ list — that must not produce a membership row.
     const h = await makeHarness();
-    h.enqueueListPages(
-      makeListPage(
+    h.enqueueListChunks(
+      makeListChunk(
         [
           // Entry 1: in 'Top 2023' only.
           makeEntry(1, {
@@ -536,7 +565,7 @@ describe('importAnilistList — custom lists', () => {
             ],
           }),
         ],
-        { currentPage: 1, hasNextPage: false },
+        { hasNextChunk: false },
       ),
     );
     await importAnilistList(h.ctx, { username: USER_NAME, type: 'ANIME' });
@@ -573,8 +602,8 @@ describe('importAnilistList — wipe-and-rebuild semantics', () => {
   it('removes a list entry that no longer appears on AniList', async () => {
     // First import: user has anime 1 and 2 on their list.
     const h = await makeHarness();
-    h.enqueueListPages(
-      makeListPage([makeEntry(1), makeEntry(2)], { currentPage: 1, hasNextPage: false }),
+    h.enqueueListChunks(
+      makeListChunk([makeEntry(1), makeEntry(2)], { hasNextChunk: false }),
     );
     await importAnilistList(h.ctx, { username: USER_NAME, type: 'ANIME' });
     expect(countRows(h.db, 'media_list_entry')).toBe(2);
@@ -584,7 +613,7 @@ describe('importAnilistList — wipe-and-rebuild semantics', () => {
     // buildListImportStatements drops it before reinsert.
     h.executeQuery.mockResolvedValueOnce(resolveResponse());
     h.executeQuery.mockResolvedValueOnce(
-      makeListPage([makeEntry(1)], { currentPage: 1, hasNextPage: false }),
+      makeListChunk([makeEntry(1)], { hasNextChunk: false }),
     );
     await importAnilistList(h.ctx, { username: USER_NAME, type: 'ANIME' });
 
@@ -608,8 +637,8 @@ describe('importAnilistList — wipe-and-rebuild semantics', () => {
     expect(countRows(h.db, 'media_list_entry', 'WHERE media_id = 500')).toBe(1);
 
     // Run an anime refresh — should not delete the manga entry.
-    h.enqueueListPages(
-      makeListPage([makeEntry(1)], { currentPage: 1, hasNextPage: false }),
+    h.enqueueListChunks(
+      makeListChunk([makeEntry(1)], { hasNextChunk: false }),
     );
     await importAnilistList(h.ctx, { username: USER_NAME, type: 'ANIME' });
 
@@ -620,8 +649,8 @@ describe('importAnilistList — wipe-and-rebuild semantics', () => {
 
   it('removes a studio/tag junction that no longer appears on AniList for a given media', async () => {
     const h = await makeHarness();
-    h.enqueueListPages(
-      makeListPage(
+    h.enqueueListChunks(
+      makeListChunk(
         [
           makeEntry(
             1,
@@ -632,7 +661,7 @@ describe('importAnilistList — wipe-and-rebuild semantics', () => {
             },
           ),
         ],
-        { currentPage: 1, hasNextPage: false },
+        { hasNextChunk: false },
       ),
     );
     await importAnilistList(h.ctx, { username: USER_NAME, type: 'ANIME' });
@@ -640,7 +669,7 @@ describe('importAnilistList — wipe-and-rebuild semantics', () => {
 
     h.executeQuery.mockResolvedValueOnce(resolveResponse());
     h.executeQuery.mockResolvedValueOnce(
-      makeListPage(
+      makeListChunk(
         [
           makeEntry(
             1,
@@ -651,7 +680,7 @@ describe('importAnilistList — wipe-and-rebuild semantics', () => {
             },
           ),
         ],
-        { currentPage: 1, hasNextPage: false },
+        { hasNextChunk: false },
       ),
     );
     await importAnilistList(h.ctx, { username: USER_NAME, type: 'ANIME' });
@@ -672,8 +701,8 @@ describe('importAnilistList — wipe-and-rebuild semantics', () => {
   // the junction holds exactly one row.
   it('survives AniList returning a duplicate studio in studios.nodes for one media', async () => {
     const h = await makeHarness();
-    h.enqueueListPages(
-      makeListPage(
+    h.enqueueListChunks(
+      makeListChunk(
         [
           makeEntry(
             1,
@@ -692,7 +721,7 @@ describe('importAnilistList — wipe-and-rebuild semantics', () => {
             },
           ),
         ],
-        { currentPage: 1, hasNextPage: false },
+        { hasNextChunk: false },
       ),
     );
 
@@ -708,29 +737,60 @@ describe('importAnilistList — wipe-and-rebuild semantics', () => {
     h.db.close();
   });
 
-  // Regression: a duplicate `media_list_entry` (e.g. AniList pagination
-  // returned the same entry twice because the user mutated the list
-  // mid-import) used to blow the run with PK conflicts on
-  // media_list_entry / media_studio / media_tag. The importer now
-  // dedups entries by `media.id` at the top of the batch builder.
-  it('survives the same entry appearing on two pages (pagination overlap)', async () => {
+  // Regression: `MediaListCollection.lists` returns the same entry once
+  // per group it belongs to (one row in the "Completed" status group,
+  // one row in every custom list it's in). The importer flattens all
+  // groups and dedups by media.id — without that dedup an entry on two
+  // lists would blow the PK on media_list_entry / media_studio / media_tag.
+  it('dedups an entry that appears in multiple lists within one chunk (status + custom list)', async () => {
     const h = await makeHarness();
-    h.enqueueListPages(
-      makeListPage([makeEntry(1), makeEntry(2)], { currentPage: 1, hasNextPage: true }),
-      // Page 2 includes entry 2 a second time — simulates list mutation
-      // shifting the row backwards under UPDATED_TIME_DESC.
-      makeListPage([makeEntry(2), makeEntry(3)], { currentPage: 2, hasNextPage: false }),
+    h.enqueueListChunks(
+      makeListChunkGroups(
+        [
+          {
+            name: 'Completed',
+            isCustomList: false,
+            status: 'COMPLETED',
+            entries: [makeEntry(1), makeEntry(2), makeEntry(3)],
+          },
+          // Entry 2 is ALSO in the user's "Top 10" custom list — comes
+          // back as a second row in this group with identical media.id.
+          {
+            name: 'Top 10',
+            isCustomList: true,
+            status: null,
+            entries: [makeEntry(2, { customLists: customLists('Top 10') })],
+          },
+        ],
+        { hasNextChunk: false },
+      ),
     );
 
     const result = await importAnilistList(h.ctx, { username: USER_NAME, type: 'ANIME' });
 
-    // pagesFetched still counts both pages; entriesWritten counts the
-    // unique rows that actually landed in the DB (post-dedup).
-    expect(result.pagesFetched).toBe(2);
     expect(result.entriesWritten).toBe(3);
     expect(countRows(h.db, 'media_list_entry')).toBe(3);
     expect(countRows(h.db, 'media_studio', 'WHERE media_id = 2')).toBe(1);
     expect(countRows(h.db, 'media_tag', 'WHERE media_id = 2')).toBe(1);
+    h.db.close();
+  });
+
+  // Belt-and-braces: even though `MediaListCollection` chunks rarely
+  // overlap (slicing happens in entry order, not by status), if
+  // AniList ever returns the same entry on two chunks the importer
+  // must still dedup. Covers `dedupEntriesByMediaId` running across
+  // the chunk boundary, not just within a single chunk's groups.
+  it('dedups across chunks too', async () => {
+    const h = await makeHarness();
+    h.enqueueListChunks(
+      makeListChunk([makeEntry(1), makeEntry(2)], { hasNextChunk: true }),
+      makeListChunk([makeEntry(2), makeEntry(3)], { hasNextChunk: false }),
+    );
+
+    const result = await importAnilistList(h.ctx, { username: USER_NAME, type: 'ANIME' });
+    expect(result.chunksFetched).toBe(2);
+    expect(result.entriesWritten).toBe(3);
+    expect(countRows(h.db, 'media_list_entry')).toBe(3);
     h.db.close();
   });
 });
@@ -766,16 +826,16 @@ describe('importAnilistList — scrape lock', () => {
   it('takes over a stale lock left behind by a crashed tab', async () => {
     const h = await makeHarness();
     acquireScrapeLock(ANILIST_SOURCE_ID, T0 - SCRAPE_LOCK_STALE_MS - 1000);
-    h.enqueueListPages(makeListPage([], { currentPage: 1, hasNextPage: false }));
+    h.enqueueListChunks(makeListChunk([], { hasNextChunk: false }));
     await expect(
       importAnilistList(h.ctx, { username: USER_NAME, type: 'ANIME' }),
-    ).resolves.toMatchObject({ pagesFetched: 1 });
+    ).resolves.toMatchObject({ chunksFetched: 1 });
     h.db.close();
   });
 });
 
 describe('importAnilistList — mid-import failure leaves DB untouched', () => {
-  it('a page-fetch error before the final commit means zero rows are written and no refresh stamp is set', async () => {
+  it('a chunk-fetch error before the final commit means zero rows are written and no refresh stamp is set', async () => {
     const h = await makeHarness();
     // Pre-seed an existing list entry for the same user so we can
     // verify the wipe DIDN'T happen (errors before the batch run
@@ -790,7 +850,7 @@ describe('importAnilistList — mid-import failure leaves DB untouched', () => {
     h.executeQuery.mockResolvedValueOnce(resolveResponse());
     h.executeQuery
       .mockResolvedValueOnce(
-        makeListPage([makeEntry(1)], { currentPage: 1, hasNextPage: true }),
+        makeListChunk([makeEntry(1)], { hasNextChunk: true }),
       )
       .mockRejectedValueOnce(new Error('429 cap reached'));
 
@@ -809,11 +869,11 @@ describe('importAnilistList — mid-import failure leaves DB untouched', () => {
 });
 
 describe('importAnilistList — progress events', () => {
-  it('fires resolving-user → per-page fetching-page → writing → done in order', async () => {
+  it('fires resolving-user → per-chunk fetching-page → writing → done in order', async () => {
     const h = await makeHarness();
-    h.enqueueListPages(
-      makeListPage([makeEntry(1), makeEntry(2)], { currentPage: 1, hasNextPage: true }),
-      makeListPage([makeEntry(3)], { currentPage: 2, hasNextPage: false }),
+    h.enqueueListChunks(
+      makeListChunk([makeEntry(1), makeEntry(2)], { hasNextChunk: true }),
+      makeListChunk([makeEntry(3)], { hasNextChunk: false }),
     );
 
     const events: import('../progress').AnilistProgressEvent[] = [];
@@ -824,8 +884,10 @@ describe('importAnilistList — progress events', () => {
 
     // Ordering must be exact so the UI can drive a deterministic
     // label flip between stages. `itemsSoFar` is cumulative across
-    // pages (not per-page) so the UI can show "412 items so far"
-    // without holding its own running total.
+    // chunks so the UI can show "412 items so far" without holding
+    // its own running total. The `page` slot on `fetching-page` doubles
+    // as the chunk index here — the event kind/shape is shared with
+    // the favourites and characters importers that still page.
     expect(events.map((e) => e.kind)).toEqual([
       'resolving-user',
       'fetching-page',

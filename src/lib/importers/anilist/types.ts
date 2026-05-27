@@ -190,11 +190,37 @@ export type AnilistMediaListEntryGql = {
   media: AnilistMediaGql;
 };
 
-/** `Page.mediaList` response, paginated by username + type. */
-export type AnilistListPageResponse = {
-  Page: {
-    pageInfo: AnilistPageInfo;
-    mediaList: AnilistMediaListEntryGql[];
+/**
+ * One group inside a `MediaListCollection` response — corresponds to a
+ * status section ("Watching", "Completed", …) or a custom list
+ * ("Top 10", …). The same `MediaList` entry appears in every group it
+ * belongs to, so the importer dedupes across groups by `media.id`.
+ *
+ * `status` is the AniList list status for status groups and `null` for
+ * custom lists. `isCustomList` lets us tell them apart when we care
+ * (the importer currently doesn't — every membership goes through the
+ * per-entry `customLists` field instead).
+ */
+export type AnilistMediaListGroupGql = {
+  name: string;
+  isCustomList: boolean;
+  status: AnilistMediaListStatus | null;
+  entries: AnilistMediaListEntryGql[];
+};
+
+/**
+ * `MediaListCollection` chunk response. AniList paginates a user's
+ * full list in `perChunk`-sized slices (max 500); `hasNextChunk` is
+ * the only reliable signal for whether to keep fetching.
+ *
+ * Replaces the older `AnilistListPageResponse` (`Page.mediaList`)
+ * shape we used to scrape one page at a time — see the docstring on
+ * `LIST_COLLECTION_QUERY` for why that path was abandoned.
+ */
+export type AnilistListCollectionResponse = {
+  MediaListCollection: {
+    hasNextChunk: boolean;
+    lists: AnilistMediaListGroupGql[];
   };
 };
 

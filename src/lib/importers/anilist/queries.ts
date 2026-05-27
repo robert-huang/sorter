@@ -55,14 +55,38 @@ const MEDIA_FIELD_SELECTION = `
 `.trim();
 
 /**
- * One page of a user's anime / manga list.
+ * One chunk of a user's full anime / manga list, fetched via the
+ * `MediaListCollection` query.
  *
  *   - Variables: `$username: String!`, `$type: MediaType!` (`ANIME` | `MANGA`),
- *     `$page: Int!` (1-indexed), `$perPage: Int!` (importer passes 50).
- *   - `sort: UPDATED_TIME_DESC` matches anilisttools convention; even
- *     though the importer now does wipe-and-rebuild (no checkpoint),
- *     this ordering keeps the most-recently-changed entries at the
- *     front of each page so partial failures still surface recent work.
+ *     `$chunk: Int!` (1-indexed), `$perChunk: Int!` (importer passes 500,
+ *     AniList's documented max).
+ *
+ * **Why MediaListCollection instead of `Page.mediaList`.** The AniList
+ * docs explicitly say `Page.mediaList` is for "a portion" of a list and
+ * `MediaListCollection` is the correct query "when you really do need
+ * the user's complete list." We learned this the hard way:
+ *
+ *   1. **`UPDATED_TIME_DESC` is unstable on ties.** Bulk-edited entries
+ *      that share a timestamp get shuffled into a different order on
+ *      every page request, causing massive duplication between adjacent
+ *      pages. One real user (916 entries, with a chunk of ~825 that
+ *      shared an updatedAt second from a mass status migration) imported
+ *      as 474 unique rows because dedup ate the overlap.
+ *   2. **`pageInfo.total`/`lastPage` are deprecated** per AniList's
+ *      pagination docs — only `hasNextPage` is reliable. Same warning
+ *      applies to `Page.mediaList`'s pagination signal.
+ *   3. **Hidden custom-list entries.** Users can toggle "hide from
+ *      status lists" on a custom list; those entries don't appear in
+ *      `Page.mediaList` at all but DO appear in `MediaListCollection`.
+ *      Not our user's case but a future-proof reason to switch.
+ *   4. **Fewer requests = less rate-limit risk.** `MediaListCollection`
+ *      defaults to 500 entries per chunk, so a 1000-entry list is
+ *      1-2 requests vs ~20 for `Page.mediaList`. Each request shares
+ *      the same 90 req/min (currently 30 req/min, degraded) bucket, so
+ *      fewer requests = far smaller blast radius if a 429 lands.
+ *
+ * **Field selection notes** (mostly inherited from the old query):
  *   - `score(format: POINT_100)` forces server-side normalization so we
  *     don't need to track the user's MediaListOptions.scoreFormat.
  *   - `customLists(asArray: true)` returns
@@ -73,32 +97,40 @@ const MEDIA_FIELD_SELECTION = `
  *     information but in a shape that's awkward to consume from
  *     strict GraphQL clients. The importer extracts the names with
  *     `enabled === true` and normalises into the local `custom_list`
- *     + `media_custom_list_membership` tables. (Earlier code here
- *     assumed asArray:true returned a bare `string[]` of enabled
- *     names — it does not, and that mistake caused SQLite bind
- *     failures the moment a real user with non-empty custom lists
- *     ran an import.)
+ *     + `media_custom_list_membership` tables.
  *   - `createdAt` / `updatedAt` are AniList's server-side MediaList
  *     timestamps in SECONDS; the mapper multiplies by 1000 before
  *     persisting. Distinct from the row's local `fetched_at` /
  *     `updated_at` (when WE last touched the row).
  *   - `repeat` is rewatch/reread count.
+ *
+ * **Response shape.** `MediaListCollection.lists` is grouped by status
+ * AND custom list. The same `MediaList` row appears in every group it
+ * belongs to, so the importer flattens `lists[*].entries[*]` and
+ * dedupes by `media.id` (first wins). This is the documented intended
+ * usage — see the `customLists` field on each entry for the canonical
+ * "which custom lists is this in" data.
  */
-export const LIST_PAGE_QUERY = `
-query ListPage($username: String!, $type: MediaType!, $page: Int!, $perPage: Int!) {
-  Page(page: $page, perPage: $perPage) {
-    pageInfo { hasNextPage currentPage lastPage total }
-    mediaList(userName: $username, type: $type, sort: UPDATED_TIME_DESC) {
-      score(format: POINT_100)
+export const LIST_COLLECTION_QUERY = `
+query ListCollection($username: String!, $type: MediaType!, $chunk: Int!, $perChunk: Int!) {
+  MediaListCollection(userName: $username, type: $type, chunk: $chunk, perChunk: $perChunk) {
+    hasNextChunk
+    lists {
+      name
+      isCustomList
       status
-      repeat
-      startedAt { year month day }
-      completedAt { year month day }
-      createdAt
-      updatedAt
-      customLists(asArray: true)
-      media {
-        ${MEDIA_FIELD_SELECTION}
+      entries {
+        score(format: POINT_100)
+        status
+        repeat
+        startedAt { year month day }
+        completedAt { year month day }
+        createdAt
+        updatedAt
+        customLists(asArray: true)
+        media {
+          ${MEDIA_FIELD_SELECTION}
+        }
       }
     }
   }

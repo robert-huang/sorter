@@ -14,9 +14,14 @@
  *   2. Acquires the per-source scrape lock (NOT per-user — AniList rate
  *      limits by IP, so two users importing simultaneously would just
  *      throttle each other anyway).
- *   3. Paginates every page of the user's list into memory (no DB writes
- *      yet). Refreshes the scrape lock between pages so a long import
- *      doesn't go stale.
+ *   3. Fetches every chunk of the user's list via
+ *      {@link LIST_COLLECTION_QUERY} (MediaListCollection, max 500
+ *      entries per chunk) into memory. No DB writes yet. Refreshes the
+ *      scrape lock between chunks so a long import doesn't go stale.
+ *      For nearly all users this is 1-2 requests total. See the query
+ *      docstring for why we abandoned the per-page `Page.mediaList`
+ *      path (TL;DR: `UPDATED_TIME_DESC` pagination was unstable on
+ *      bulk-edited tie-timestamps, dropping ~half of one user's list).
  *   4. Single transactional batch at the end (all writes scoped to
  *      `(anilist_user_id, type)`):
  *        a. DELETE every `media_list_entry` row for this user where the
@@ -83,9 +88,9 @@ import {
   mapStudioRows,
   mapTagRows,
 } from './mappers';
-import { LIST_PAGE_QUERY, RESOLVE_USER_QUERY } from './queries';
+import { LIST_COLLECTION_QUERY, RESOLVE_USER_QUERY } from './queries';
 import type {
-  AnilistListPageResponse,
+  AnilistListCollectionResponse,
   AnilistMediaListEntryGql,
   AnilistMediaType,
   AnilistUserResolveResponse,
@@ -96,7 +101,12 @@ import type {
   TagRow,
 } from './types';
 
-export const DEFAULT_LIST_PAGE_SIZE = 50;
+/**
+ * Default chunk size for `MediaListCollection`. AniList's documented
+ * max is 500 entries per chunk. We always request the max because
+ * fewer requests = fewer chances of 429 within an import.
+ */
+export const DEFAULT_LIST_CHUNK_SIZE = 500;
 
 /** Thrown when another tab / call already holds the scrape lock for this source. */
 export class AnilistScrapeLockHeldError extends Error {
@@ -128,8 +138,11 @@ export class AnilistUnknownUserError extends Error {
 export type ImportAnilistListOptions = {
   username: string;
   type: AnilistMediaType;
-  /** Page size for the GraphQL query. Defaults to {@link DEFAULT_LIST_PAGE_SIZE}. */
-  perPage?: number;
+  /**
+   * `perChunk` argument forwarded to `MediaListCollection`. Defaults to
+   * {@link DEFAULT_LIST_CHUNK_SIZE} (AniList's documented max).
+   */
+  perChunk?: number;
 };
 
 export type ImportAnilistListResult = {
@@ -138,8 +151,12 @@ export type ImportAnilistListResult = {
   anilistUserId: number;
   /** Username the importer ran against (echoed for caller bookkeeping). */
   username: string;
-  /** Pages fetched during this import session. */
-  pagesFetched: number;
+  /**
+   * Number of `MediaListCollection` chunks fetched. Usually 1, sometimes
+   * 2 for users with >500 entries. Caller bookkeeping; not used by the
+   * importer itself.
+   */
+  chunksFetched: number;
   /** Total list entries written in the final wipe-and-rebuild batch. */
   entriesWritten: number;
 };
@@ -501,7 +518,7 @@ export async function importAnilistList(
   options: ImportAnilistListOptions,
 ): Promise<ImportAnilistListResult> {
   const { username, type } = options;
-  const perPage = options.perPage ?? DEFAULT_LIST_PAGE_SIZE;
+  const perChunk = options.perChunk ?? DEFAULT_LIST_CHUNK_SIZE;
 
   // Resolve username → User.id BEFORE acquiring the scrape lock so a
   // typo doesn't tie up the lock for the duration of the GraphQL
@@ -525,47 +542,58 @@ export async function importAnilistList(
   const lockToken = acquired.token;
 
   try {
-    // Accumulate every page in memory. Per the wipe-and-rebuild
-    // contract, no DB writes happen until every page has been fetched
+    // Accumulate every chunk in memory. Per the wipe-and-rebuild
+    // contract, no DB writes happen until every chunk has been fetched
     // successfully — a mid-import error leaves the local DB untouched.
+    //
+    // `MediaListCollection.lists` returns one group per (status section
+    // OR custom list), so the same MediaList entry appears in every
+    // group it belongs to. We flatten everything into one array here
+    // and let `dedupEntriesByMediaId` collapse the cross-group dupes
+    // below.
     const accumulated: AnilistMediaListEntryGql[] = [];
-    let page = 1;
-    let pagesFetched = 0;
+    let chunk = 1;
+    let chunksFetched = 0;
 
     while (true) {
-      const response = await ctx.executeQuery<AnilistListPageResponse>(LIST_PAGE_QUERY, {
-        username,
-        type,
-        page,
-        perPage,
-      });
-      pagesFetched += 1;
+      const response = await ctx.executeQuery<AnilistListCollectionResponse>(
+        LIST_COLLECTION_QUERY,
+        { username, type, chunk, perChunk },
+      );
+      chunksFetched += 1;
 
-      const pageData = response?.Page;
-      const entries = pageData?.mediaList ?? [];
-      accumulated.push(...entries);
+      const collection = response?.MediaListCollection;
+      const lists = collection?.lists ?? [];
+      for (const group of lists) {
+        if (group?.entries) accumulated.push(...group.entries);
+      }
+      // The progress event still uses the `fetching-page` kind so the
+      // UI subscriber doesn't need a new branch — for the list
+      // importer the `page` slot carries the chunk index, which is
+      // monotonic and 1-indexed just like the old page number was.
       emitProgress(ctx.onProgress, {
         kind: 'fetching-page',
         what: 'list',
-        page,
+        page: chunk,
         itemsSoFar: accumulated.length,
       });
 
       refreshScrapeLock(ANILIST_SOURCE_ID, lockToken, ctx.now());
 
-      if (!pageData?.pageInfo?.hasNextPage) {
+      if (!collection?.hasNextChunk) {
         break;
       }
-      page += 1;
+      chunk += 1;
     }
 
     const now = ctx.now();
     // Dedup at the import boundary so `entriesWritten` reflects the
-    // true row count after dedup (pagination overlap can yield the same
-    // media id on two pages — see `dedupEntriesByMediaId`). The same
-    // dedup is applied again inside `buildListImportStatements` as a
-    // defensive measure for any direct callers, but here it's a no-op
-    // since `dedupedEntries` is already unique.
+    // true row count after collapsing the per-group duplication that
+    // `MediaListCollection` returns by design (one row per group the
+    // entry belongs to). The same dedup is applied again inside
+    // `buildListImportStatements` as a defensive measure for any
+    // direct callers, but here it's a no-op since `dedupedEntries`
+    // is already unique.
     const dedupedEntries = dedupEntriesByMediaId(accumulated);
     const stmts = buildListImportStatements(dedupedEntries, anilistUserRow, type, now);
     emitProgress(ctx.onProgress, { kind: 'writing', statements: stmts.length });
@@ -580,7 +608,7 @@ export async function importAnilistList(
       type,
       anilistUserId: anilistUserRow.id,
       username,
-      pagesFetched,
+      chunksFetched,
       entriesWritten: dedupedEntries.length,
     };
   } finally {
