@@ -770,8 +770,17 @@ async function loadChipOptions(
   // ids with cached cast (so the chip can show "X/Y shows have cast
   // cached" + offer to expand the rest).
   const voiceActors = await getVoiceActorsForCandidates(db, externalIds);
+  // "Cast cached" must mean "we've TRIED to fetch cast for this media",
+  // not "this media has VAs in our DB". The latter is wrong because
+  // lazy expansion legitimately produces zero CVA rows for manga,
+  // shows with no Japanese voice actors (Korean/Chinese productions),
+  // and shows with empty AniList character data. Querying CVA presence
+  // would treat all of those as forever-uncached, so the "Fetch cast
+  // for N shows" button would loop indefinitely on the same set.
+  // media_cast_expansion is the per-attempt marker maintained by the
+  // lazy expander (see migration 002 + lazyExpansion.ts).
   const cachedCastRows = await defaultExec(
-    `SELECT DISTINCT media_id FROM character_voice_actor
+    `SELECT media_id FROM media_cast_expansion
        WHERE media_id IN (${ph})`,
     externalIds,
   );

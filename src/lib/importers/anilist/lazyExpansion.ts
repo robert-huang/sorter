@@ -278,6 +278,19 @@ export async function expandAnilistMediaDetail(
     });
   }
 
+  // Mark the attempt regardless of whether the response had any
+  // characters or VAs. This is what the VoiceActorChip's "X/Y cast
+  // cached" counter + the bulk-expand button read — without it, media
+  // with empty cast (manga, non-Japanese VAs, etc.) would stay
+  // "uncached" forever and the bulk-expand button would re-fetch the
+  // same shows on every click. See migration 002 for the contract.
+  // OR REPLACE so a future re-expansion (e.g. language refresh) bumps
+  // fetched_at + language without erroring on the PK.
+  stmts.push({
+    sql: 'INSERT OR REPLACE INTO media_cast_expansion (media_id, language, fetched_at) VALUES (?, ?, ?)',
+    params: [mediaId, language, now],
+  });
+
   emitProgress(ctx.onProgress, { kind: 'writing', statements: stmts.length });
   await ctx.db.execBatch(stmts);
 

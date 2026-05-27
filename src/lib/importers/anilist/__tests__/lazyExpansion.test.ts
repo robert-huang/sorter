@@ -288,6 +288,81 @@ describe('expandAnilistMediaDetail — 404', () => {
   });
 });
 
+describe('expandAnilistMediaDetail — media_cast_expansion marker', () => {
+  // Regression: v1 used character_voice_actor row presence as the
+  // "cast cached" signal. Media with no VAs in the requested language
+  // (manga, Korean / Chinese productions, AniList entries with empty
+  // character data) would produce zero CVA rows and so stay
+  // permanently "uncached" — the chip's bulk-expand button would loop
+  // forever, fetching the same shows on every click. The marker must
+  // be written on EVERY successful expansion, regardless of how many
+  // CVA rows the response yielded.
+  it('writes a media_cast_expansion row even when the response has zero voice actors', async () => {
+    const h = await makeHarness();
+    h.executeQuery.mockResolvedValueOnce(
+      makeDetailResponse(
+        // Characters exist but no VAs for the requested language —
+        // common for non-Japanese productions.
+        [makeCharEdge(1000, []), makeCharEdge(1001, [])],
+        [],
+        false,
+      ),
+    );
+
+    const result = await expandAnilistMediaDetail(h.ctx, 100);
+
+    expect(result?.voiceActorsWritten).toBe(0);
+    expect(countRows(h.db, 'character_voice_actor', 'WHERE media_id = 100')).toBe(0);
+    expect(countRows(h.db, 'media_cast_expansion', 'WHERE media_id = 100')).toBe(1);
+
+    const row = h.db.selectObject(
+      'SELECT language, fetched_at FROM media_cast_expansion WHERE media_id = 100',
+    );
+    expect(row).toEqual({ language: 'JAPANESE', fetched_at: NOW });
+    h.db.close();
+  });
+
+  it('writes a media_cast_expansion row even when the response has zero characters', async () => {
+    const h = await makeHarness();
+    h.executeQuery.mockResolvedValueOnce(makeDetailResponse([], [], false));
+
+    const result = await expandAnilistMediaDetail(h.ctx, 100);
+
+    expect(result?.charactersWritten).toBe(0);
+    expect(countRows(h.db, 'media_character', 'WHERE media_id = 100')).toBe(0);
+    // The marker still gets written — the attempt succeeded, AniList
+    // just had nothing to return. Otherwise the bulk-expand loop sees
+    // this media as forever-uncached.
+    expect(countRows(h.db, 'media_cast_expansion', 'WHERE media_id = 100')).toBe(1);
+    h.db.close();
+  });
+
+  // Reuse-on-refresh: OR REPLACE so a second expansion (e.g. when the
+  // user re-opens the detail panel weeks later, or a future language
+  // switch) bumps fetched_at + language without erroring on the PK.
+  it('overwrites the marker (bumping fetched_at) on a subsequent expansion', async () => {
+    const h = await makeHarness();
+    h.executeQuery
+      .mockResolvedValueOnce(
+        makeDetailResponse([makeCharEdge(1000, [9001])], [], false),
+      )
+      .mockResolvedValueOnce(
+        makeDetailResponse([makeCharEdge(1000, [9001])], [], false),
+      );
+
+    await expandAnilistMediaDetail(h.ctx, 100, { voiceActorLanguage: 'JAPANESE' });
+    await expandAnilistMediaDetail(h.ctx, 100, { voiceActorLanguage: 'ENGLISH' });
+
+    const row = h.db.selectObject(
+      'SELECT language, fetched_at FROM media_cast_expansion WHERE media_id = 100',
+    );
+    expect(row).toEqual({ language: 'ENGLISH', fetched_at: NOW });
+    // Exactly one marker per media — re-expansion overwrites, not appends.
+    expect(countRows(h.db, 'media_cast_expansion', 'WHERE media_id = 100')).toBe(1);
+    h.db.close();
+  });
+});
+
 describe('expandAnilistMediaDetail — voiceActorLanguage single source of truth', () => {
   it('threads the configured language into BOTH the GraphQL filter and the DB row', async () => {
     const h = await makeHarness();
