@@ -4,6 +4,7 @@ dist
 *.log
 .vite
 coverage
+.cursor
 
 # Vite env files. Vite auto-loads `.env`, `.env.local`, and the
 # `.env.<mode>` variants at build time. `*.local` is the recommended

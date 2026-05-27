@@ -469,6 +469,10 @@ src/
                         # CloudPushConflictModal (etag-mismatch confirm)
 ```
 
+## Roadmap
+
+- API integrations with per-source SQLite cache in OPFS (in progress — see `.cursor/plans/` for design notes)
+
 ## License
 
 Personal project. Do whatever you want with it.

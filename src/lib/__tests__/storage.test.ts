@@ -880,6 +880,32 @@ describe('upgradeProgress (via loaders)', () => {
       expect(read.progress.current?.insertingId).toBe('x');
     }
   });
+
+  // Phase D: Item.source is optional + additive, so we keep readSlotBlob /
+  // writeSlotBlob blind to its presence (forward+backward compat). These
+  // tests pin the contract that an AniList-tagged item flows through the
+  // autosave blob untouched and an absent .source stays absent (defaults
+  // to manual at the helper layer, not at the persistence layer).
+  it('preserves an Item.source = anilist tag through the autosave blob', () => {
+    const blob: AutosaveBlob = {
+      items: {
+        a: {
+          id: 'a',
+          label: 'Cowboy Bebop',
+          imageUrl: 'https://cdn.example/c.jpg',
+          source: { kind: 'anilist', externalId: 12345 },
+        },
+        b: { id: 'b', label: 'Manual entry' },
+      },
+      progress: makeProgress(),
+      undoRing: [],
+    };
+    const meta = mintSlot(blob, 'AniList round-trip');
+    const read = readSlotBlob(meta.id)!;
+    expect(read.items.a.source).toEqual({ kind: 'anilist', externalId: 12345 });
+    // Manual items round-trip with `.source` undefined (not added at write).
+    expect(read.items.b.source).toBeUndefined();
+  });
 });
 
 // ============================================================================

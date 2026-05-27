@@ -10,7 +10,7 @@ import {
   type SetStateAction,
 } from 'react';
 import type { TabId } from './Header';
-import type { ExtraColumnsWarning, Item, SlotMeta } from '../lib/types';
+import type { ExtraColumnsWarning, Item, ItemId, SlotMeta } from '../lib/types';
 import {
   canonicalKey,
   looksLikeHeader,
@@ -20,8 +20,15 @@ import {
   type RawRow,
   type SourceParse,
 } from '../lib/csv';
+import { AnilistStartMode } from './AnilistStartMode';
 import { ImportPreview, type PreviewSource } from './ImportPreview';
 import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
+import {
+  StagedItemsPanel,
+  buildSortInputFromStaged,
+  type StagedGroup,
+  type StagedGroupInput,
+} from './StagedItemsPanel';
 import Papa from 'papaparse';
 
 /**
@@ -165,7 +172,7 @@ function dropSourceEdits(
   setExcludedRows((prev) => dropSourceFromExclusions(prev, sourceName));
 }
 
-type Mode = 'scratch' | 'preranked';
+type Mode = 'scratch' | 'preranked' | 'anilist';
 
 /** Which main tabs the current START draft can adopt into. */
 export interface StartDraftCapabilities {
@@ -201,6 +208,14 @@ interface Props {
   /** Called on first meaningful START input while `hasLoadedSession` is true. */
   onDraftActivity: () => void;
   onDraftCapabilitiesChange: (caps: StartDraftCapabilities) => void;
+  /**
+   * Bumped by App.tsx after any push / pull / dirty-bump on the source
+   * DB. Forwarded to `AnilistStartMode` so its cache-hint lookups
+   * re-run after the user pulls fresh data in (the in-memory cache
+   * effects are otherwise keyed only on username / type / import +
+   * fav ticks, which a Drive pull doesn't touch).
+   */
+  dbSyncRevision: number;
 }
 
 interface StagedFile {
@@ -221,12 +236,18 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
   {
     resumeMeta,
     onResumeActive,
-    onStartScratch,
+    // onStartScratch is kept on the Props interface for backwards
+    // compatibility with App.tsx, but with the staging refactor all
+    // single-tab starts now route through onStartPreranked (which
+    // handles `sublists: [], extras: items` identically to the old
+    // initSort path — see seedFromSublists).
+    onStartScratch: _onStartScratch,
     onStartPreranked,
     onStartAlreadySorted,
     hasLoadedSession,
     onDraftActivity,
     onDraftCapabilitiesChange,
+    dbSyncRevision,
   },
   ref,
 ) {
@@ -237,6 +258,91 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
   const notifyDraftActivity = useCallback(() => {
     if (hasLoadedSession) onDraftActivity();
   }, [hasLoadedSession, onDraftActivity]);
+
+  // -------- shared staging --------
+  //
+  // Each tab (scratch / pre-ranked / anilist) appends to this list
+  // via its own "Add to staged" CTA. The Start sort button at the
+  // bottom of the page collapses these into the (sublists, extras)
+  // shape the sort engine consumes — see `buildSortInputFromStaged`
+  // in StagedItemsPanel.
+  //
+  // The semantics are deliberately additive — the user can clipboard
+  // a list, then upload a ranked CSV, then filter and add AniList
+  // items, and the merge sort sees the union. Per-group dedup keeps
+  // first-occurrence order so a sublist that's later re-introduced
+  // as flat doesn't lose its rank.
+  const [staged, setStaged] = useState<StagedGroup[]>([]);
+
+  const appendStagedGroups = useCallback(
+    (groups: StagedGroupInput[]) => {
+      if (groups.length === 0) return;
+      setStaged((prev) => {
+        const next = [...prev];
+        for (const g of groups) {
+          next.push({ ...g, id: uid() } as StagedGroup);
+        }
+        return next;
+      });
+      notifyDraftActivity();
+    },
+    [notifyDraftActivity],
+  );
+
+  /**
+   * Toggle the soft-removal flag on a staged group. Marked groups
+   * stay in the panel struck-through with a ↺ undo handle; Start
+   * Sort drops them for real (they're filtered by
+   * `buildSortInputFromStaged`, never reach the engine). Different
+   * from `clearAllStaged` which is a hard delete with no undo.
+   */
+  const toggleStagedGroupRemoval = useCallback((id: string) => {
+    setStaged((prev) =>
+      prev.map((g) =>
+        g.id === id ? { ...g, markedForRemoval: !g.markedForRemoval } : g,
+      ),
+    );
+  }, []);
+
+  const clearAllStaged = useCallback(() => {
+    setStaged([]);
+  }, []);
+
+  /**
+   * Toggle the soft-removal mark on a single item inside a staged
+   * group. The item stays visible in the panel struck-through with a
+   * ↺ undo handle; Start Sort excludes it. The mark lives on the
+   * group as a Set of item ids — keeping it per-group (rather than a
+   * single flat Set across the whole panel) means the same item id
+   * can be marked in one source and kept in another.
+   *
+   * Acts only on `staged`. Pending groups are materialised from the
+   * source the user is currently editing — the StagedItemsPanel
+   * hides per-item action buttons for pending rows so this callback
+   * is never invoked with a pending id, but the early-return makes
+   * that defence cheap if a future caller forgets.
+   */
+  const toggleStagedItemRemoval = useCallback(
+    (groupId: string, itemId: ItemId) => {
+      setStaged((prev) =>
+        prev.map((g) => {
+          if (g.id !== groupId) return g;
+          const cur = g.markedItemIds;
+          const next = new Set(cur ?? []);
+          if (next.has(itemId)) next.delete(itemId);
+          else next.add(itemId);
+          // Drop the field entirely when empty so the group's JSON
+          // shape stays trim — no { markedItemIds: Set(0) } artifacts.
+          if (next.size === 0) {
+            const { markedItemIds: _omit, ...rest } = g;
+            return rest as StagedGroup;
+          }
+          return { ...g, markedItemIds: next };
+        }),
+      );
+    },
+    [],
+  );
 
   // Shared overlay across both modes. Entries are keyed by
   // `${sourceName}:${rowNumber}`, so the scratch source ('pasted CSV')
@@ -269,6 +375,80 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
      */
     rawRow: string[] | undefined;
   } | null>(null);
+
+  /**
+   * Staged-item edit target. Separate from `editTarget` (which is
+   * scoped to the CSV preview's row-numbered overlay) because staged
+   * groups don't have a stable `(sourceName, rowNumber)` handle —
+   * the source is the synthetic group id and the row index would
+   * shift on any reordering. Patches from the modal mutate the
+   * staged group's `items[]` in place (well, immutably — via
+   * setStaged) so the changes survive into Start Sort.
+   *
+   * The id field is intentionally NOT editable here — re-keying a
+   * staged item by id would invalidate dedup rules, marked-removal
+   * sets, and any cross-group references. Label / URL / image only.
+   */
+  const [editStagedTarget, setEditStagedTarget] = useState<{
+    groupId: string;
+    itemId: ItemId;
+  } | null>(null);
+
+  /**
+   * Look up the live Item for the staged edit target. Returns null
+   * if the group or item disappeared between the click that opened
+   * the modal and this render (concurrent re-import, etc.) — the
+   * modal then renders nothing and the user can re-open it.
+   */
+  const editStagedItem: Item | null = useMemo(() => {
+    if (!editStagedTarget) return null;
+    const g = staged.find((x) => x.id === editStagedTarget.groupId);
+    if (!g) return null;
+    return g.items.find((it) => it.id === editStagedTarget.itemId) ?? null;
+  }, [editStagedTarget, staged]);
+
+  const openStagedEdit = useCallback(
+    (groupId: string, itemId: ItemId) => {
+      setEditStagedTarget({ groupId, itemId });
+    },
+    [],
+  );
+
+  /**
+   * Apply an EditItemModal patch to the targeted staged item. Only
+   * `label / url / imageUrl` are honoured — see comment on
+   * `editStagedTarget` above for why `id` is locked. Empty-string
+   * url / imageUrl is treated as "clear it" to match the CSV-edit
+   * flow's semantics (see `EditItemModal` JSDoc).
+   */
+  const saveStagedEdit = useCallback(
+    (patch: EditItemSavePayload) => {
+      if (!editStagedTarget) return;
+      const { groupId, itemId } = editStagedTarget;
+      setStaged((prev) =>
+        prev.map((g) => {
+          if (g.id !== groupId) return g;
+          const nextItems = g.items.map((it) => {
+            if (it.id !== itemId) return it;
+            const updated: Item = { ...it };
+            if (patch.label !== undefined) updated.label = patch.label;
+            if (patch.url !== undefined) {
+              updated.url = patch.url === '' ? undefined : patch.url;
+            }
+            if (patch.imageUrl !== undefined) {
+              updated.imageUrl =
+                patch.imageUrl === '' ? undefined : patch.imageUrl;
+            }
+            return updated;
+          });
+          return { ...g, items: nextItems };
+        }),
+      );
+      setEditStagedTarget(null);
+      notifyDraftActivity();
+    },
+    [editStagedTarget, notifyDraftActivity],
+  );
 
   // -------- scratch mode --------
   const [scratchText, setScratchText] = useState('');
@@ -355,12 +535,28 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
     e.target.value = '';
   }
 
-  function onStartScratchClick(): void {
-    if (scratchAlreadySorted) {
-      onStartAlreadySorted(scratchResult.items);
-    } else {
-      onStartScratch(scratchResult.items);
-    }
+  function addScratchToStaged(): void {
+    if (scratchResult.items.length === 0) return;
+    const sourceLabel = scratchAlreadySorted
+      ? 'pasted CSV (ranked)'
+      : 'pasted CSV';
+    const group: StagedGroupInput = scratchAlreadySorted
+      ? {
+          kind: 'sublist',
+          source: sourceLabel,
+          items: scratchResult.items,
+          seedAsSortedHint: true,
+        }
+      : { kind: 'flat', source: sourceLabel, items: scratchResult.items };
+    appendStagedGroups([group]);
+    // Clear the scratch tab so the user gets a fresh slate — the
+    // staged group preserves a copy of `items`. Overrides for the
+    // 'pasted CSV' source are dropped too (row numbers no longer
+    // mean anything once the textarea empties).
+    setScratchText('');
+    setScratchSkipHeader(false);
+    setScratchAlreadySorted(false);
+    dropSourceEdits('pasted CSV', setOverrides, setExcludedRows);
   }
 
   const scratchPreviewSources: PreviewSource[] = useMemo(() => {
@@ -615,11 +811,19 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
     setExtrasText('');
     setExtrasSkipHeader(false);
     setEditTarget(null);
+    setStaged([]);
   }
 
   function draftHasContent(): boolean {
+    if (staged.length > 0) return true;
     if (mode === 'scratch') return scratchText.trim().length > 0;
-    return stagedFiles.length > 0 || extrasText.trim().length > 0;
+    if (mode === 'preranked') {
+      return stagedFiles.length > 0 || extrasText.trim().length > 0;
+    }
+    // anilist mode contributes through "Add to staged" only — when
+    // staged is empty there's no draft to adopt regardless of what's
+    // in the AniList view.
+    return false;
   }
 
   // Resume loads the previous slot — discard any in-progress START draft so
@@ -632,29 +836,6 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
   }, [hasLoadedSession]);
 
   useEffect(() => {
-    onDraftCapabilitiesChange({
-      canList:
-        mode === 'scratch'
-          ? scratchResult.items.length >= 1
-          : prerankedResult.items.length >= 1,
-      canRank:
-        mode === 'scratch'
-          ? !scratchAlreadySorted && scratchResult.items.length >= 2
-          : prerankedResult.items.length >= 2,
-      canResult:
-        mode === 'scratch' &&
-        scratchAlreadySorted &&
-        scratchResult.items.length >= 1,
-    });
-  }, [
-    mode,
-    scratchResult.items.length,
-    prerankedResult.items.length,
-    scratchAlreadySorted,
-    onDraftCapabilitiesChange,
-  ]);
-
-  useEffect(() => {
     return () => {
       onDraftCapabilitiesChange({
         canList: false,
@@ -664,75 +845,226 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
     };
   }, [onDraftCapabilitiesChange]);
 
+  // --- combined adoption (staged + current tab pending content) ---
+  //
+  // The header tabs (LIST/RANK/RESULT) and the panel's "Start sort"
+  // both consume a single unified item set: whatever's already in
+  // `staged`, plus whatever the CURRENT tab would add if the user
+  // had pressed "Add to staged". This way the user can paste a CSV
+  // and hit RANK directly without clicking through Add → Start.
+  //
+  // anilist mode's pending selection is NOT pulled in here — that
+  // tab is staged-only by design (the explicit selection flow makes
+  // the "what gets added" promise unambiguous when chips and
+  // filters are involved).
+
+  const currentTabPendingGroups = useCallback((): StagedGroup[] => {
+    if (mode === 'scratch') {
+      if (scratchResult.items.length === 0) return [];
+      const sourceLabel = scratchAlreadySorted
+        ? 'pasted CSV (ranked)'
+        : 'pasted CSV';
+      if (scratchAlreadySorted) {
+        return [
+          {
+            kind: 'sublist',
+            id: '__pending_scratch__',
+            source: sourceLabel,
+            items: scratchResult.items,
+            seedAsSortedHint: true,
+          },
+        ];
+      }
+      return [
+        {
+          kind: 'flat',
+          id: '__pending_scratch__',
+          source: sourceLabel,
+          items: scratchResult.items,
+        },
+      ];
+    }
+    if (mode === 'preranked') {
+      const groups: StagedGroup[] = [];
+      // Iterate perSource so each staged file keeps its own group +
+      // source name, and we pick up the FULLY-MERGED Item (URL/image
+      // backfilled from later sources) by looking it up in the
+      // global dedup result.
+      const mergedById = new Map<string, Item>(
+        prerankedResult.items.map((it) => [it.id, it]),
+      );
+      for (const ps of prerankedResult.perSource) {
+        const isExtras = ps.sourceName === 'extras';
+        const items: Item[] = [];
+        const seen = new Set<string>();
+        for (const pi of ps.items) {
+          if (seen.has(pi.item.id)) continue;
+          seen.add(pi.item.id);
+          items.push(mergedById.get(pi.item.id) ?? pi.item);
+        }
+        if (items.length === 0) continue;
+        groups.push(
+          isExtras
+            ? {
+                kind: 'flat',
+                id: `__pending_preranked_${ps.sourceName}__`,
+                source: ps.sourceName,
+                items,
+              }
+            : {
+                kind: 'sublist',
+                id: `__pending_preranked_${ps.sourceName}__`,
+                source: ps.sourceName,
+                items,
+              },
+        );
+      }
+      return groups;
+    }
+    return [];
+  }, [
+    mode,
+    scratchAlreadySorted,
+    scratchResult,
+    prerankedResult,
+  ]);
+
+  const pendingGroupsForPanel = useMemo<StagedGroup[]>(
+    () => currentTabPendingGroups(),
+    [currentTabPendingGroups],
+  );
+
+  const combinedGroups = useMemo<StagedGroup[]>(
+    () => [...staged, ...pendingGroupsForPanel],
+    [staged, pendingGroupsForPanel],
+  );
+
+  const combinedSortInput = useMemo(
+    () => buildSortInputFromStaged(combinedGroups),
+    [combinedGroups],
+  );
+
+  /**
+   * True iff the combined draft is one already-sorted sublist with
+   * no flat groups — that's the only shape that maps to the
+   * `seedAsSorted` (skip-the-sort) path.
+   */
+  // A soft-removed sublist must NOT trip the "Use as ranking" CTA —
+  // Start Sort would then route through the seed-as-sorted path with
+  // a sublist that's about to be excluded. Mirrors the panel's
+  // `isAlreadySortedReady` so the CTA decision stays in sync.
+  const combinedAlreadySortedReady =
+    combinedGroups.length === 1 &&
+    combinedGroups[0].kind === 'sublist' &&
+    combinedGroups[0].seedAsSortedHint === true &&
+    !combinedGroups[0].markedForRemoval;
+
+  const startFromCombined = useCallback(
+    (initialTab?: TabId) => {
+      if (combinedAlreadySortedReady) {
+        onStartAlreadySorted(combinedSortInput.sublists[0], initialTab);
+        return;
+      }
+      onStartPreranked(
+        {
+          sublists: combinedSortInput.sublists,
+          extras: combinedSortInput.extras,
+        },
+        initialTab,
+      );
+    },
+    [
+      combinedAlreadySortedReady,
+      combinedSortInput,
+      onStartAlreadySorted,
+      onStartPreranked,
+    ],
+  );
+
+  // Capabilities reflect the COMBINED draft (staged + current tab
+  // pending). AniList mode's pending selection is NOT pulled in —
+  // adoption while in anilist mode is staged-only. The user adds via
+  // "Add to staged" inside the AniList view, then header tabs work.
+  useEffect(() => {
+    if (combinedAlreadySortedReady) {
+      // Single already-sorted sublist: RANK is meaningless (no
+      // comparisons to schedule), only LIST and RESULT make sense.
+      onDraftCapabilitiesChange({
+        canList: combinedSortInput.uniqueCount >= 1,
+        canRank: false,
+        canResult: combinedSortInput.uniqueCount >= 1,
+      });
+      return;
+    }
+    onDraftCapabilitiesChange({
+      canList: combinedSortInput.uniqueCount >= 1,
+      canRank: combinedSortInput.uniqueCount >= 2,
+      canResult: false,
+    });
+  }, [
+    combinedAlreadySortedReady,
+    combinedSortInput.uniqueCount,
+    onDraftCapabilitiesChange,
+  ]);
+
   useImperativeHandle(
     ref,
     () => ({
       tryAdoptDraft(tab: StartDraftAdoptTab): boolean {
         if (!draftHasContent()) return false;
-
-        if (mode === 'scratch') {
-          if (scratchAlreadySorted) {
-            if (scratchResult.items.length < 1) return false;
-            if (tab === 'result' || tab === 'list') {
-              onStartAlreadySorted(scratchResult.items, tab);
-              return true;
-            }
-            return false;
-          }
-          if (tab === 'list' && scratchResult.items.length >= 1) {
-            onStartScratch(scratchResult.items, 'list');
-            return true;
-          }
-          if (tab === 'rank' && scratchResult.items.length >= 2) {
-            onStartScratch(scratchResult.items, 'rank');
-            return true;
-          }
-          return false;
-        }
-
-        if (tab === 'list' && prerankedResult.items.length >= 1) {
-          onStartPreranked(
-            {
-              sublists: prerankedResult.sublists,
-              extras: prerankedResult.extras,
-            },
-            'list',
-          );
+        if (combinedAlreadySortedReady) {
+          if (tab !== 'result' && tab !== 'list') return false;
+          if (combinedSortInput.uniqueCount < 1) return false;
+          startFromCombined(tab);
           return true;
         }
-        if (tab === 'rank' && prerankedResult.items.length >= 2) {
-          onStartPreranked(
-            {
-              sublists: prerankedResult.sublists,
-              extras: prerankedResult.extras,
-            },
-            'rank',
-          );
+        if (tab === 'list' && combinedSortInput.uniqueCount >= 1) {
+          startFromCombined('list');
+          return true;
+        }
+        if (tab === 'rank' && combinedSortInput.uniqueCount >= 2) {
+          startFromCombined('rank');
           return true;
         }
         return false;
       },
     }),
-    [
-      mode,
-      scratchText,
-      stagedFiles,
-      extrasText,
-      scratchAlreadySorted,
-      scratchResult,
-      prerankedResult,
-      onStartScratch,
-      onStartPreranked,
-      onStartAlreadySorted,
-    ],
+    [combinedAlreadySortedReady, combinedSortInput, startFromCombined],
   );
 
-  function onStartPrerankedClick(): void {
-    onStartPreranked({
-      sublists: prerankedResult.sublists,
-      extras: prerankedResult.extras,
+  function addPrerankedToStaged(): void {
+    const groups = currentTabPendingGroups();
+    if (groups.length === 0) return;
+    // Strip the synthetic '__pending_*__' ids so appendStagedGroups
+    // mints fresh ones (those ids only exist so combinedGroups can
+    // key the pending preview without clashing with real staged ids).
+    const toAppend = groups.map((g) => {
+      const { id: _omit, ...rest } = g;
+      return rest as StagedGroupInput;
     });
+    appendStagedGroups(toAppend);
+    // Clear the preranked tab — staged files + extras textarea + any
+    // overrides tied to those sources.
+    for (const f of stagedFiles) {
+      dropSourceEdits(f.name, setOverrides, setExcludedRows);
+    }
+    dropSourceEdits('extras', setOverrides, setExcludedRows);
+    setStagedFiles([]);
+    setExtrasText('');
+    setExtrasSkipHeader(false);
+    setPasteText('');
+    setPasteSkipHeader(false);
   }
+
+  const onAddAnilistToStaged = useCallback(
+    (items: Item[], sourceLabel: string) => {
+      if (items.length === 0) return;
+      appendStagedGroups([
+        { kind: 'flat', source: sourceLabel, items },
+      ]);
+    },
+    [appendStagedGroups],
+  );
 
   // -------- edit-modal wiring (per-occurrence Edit in dedup warnings) --------
   //
@@ -973,6 +1305,14 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
         >
           Merge pre-ranked lists
         </button>
+        <button
+          role="tab"
+          aria-selected={mode === 'anilist'}
+          className={mode === 'anilist' ? 'active' : ''}
+          onClick={() => setMode('anilist')}
+        >
+          Import from AniList
+        </button>
       </div>
 
       {mode === 'scratch' && (
@@ -1041,17 +1381,9 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
             totalItems={scratchResult.items.length}
             warnings={scratchResult.warnings}
             extraColumns={scratchResult.extraColumns}
-            startLabel={
-              scratchAlreadySorted
-                ? `Use as ranking (${scratchResult.items.length} item${scratchResult.items.length === 1 ? '' : 's'})`
-                : `Start sorting (${scratchResult.items.length} item${scratchResult.items.length === 1 ? '' : 's'})`
-            }
-            startDisabled={
-              scratchAlreadySorted
-                ? scratchResult.items.length < 1
-                : scratchResult.items.length < 2
-            }
-            onStart={onStartScratchClick}
+            startLabel={`Add to staged (${scratchResult.items.length} item${scratchResult.items.length === 1 ? '' : 's'})`}
+            startDisabled={scratchResult.items.length < 1}
+            onStart={addScratchToStaged}
             onEditOccurrence={onEditOccurrenceScratch}
             onRemoveRow={onRemovePreviewRowScratch}
           />
@@ -1210,14 +1542,33 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
             extraColumns={prerankedResult.extraColumns}
             sublistCount={prerankedResult.sublists.length}
             singletonCount={prerankedResult.extras.length}
-            startLabel={`Start sorting (${prerankedResult.items.length} item${prerankedResult.items.length === 1 ? '' : 's'})`}
-            startDisabled={prerankedResult.items.length < 2}
-            onStart={onStartPrerankedClick}
+            startLabel={`Add to staged (${prerankedResult.items.length} item${prerankedResult.items.length === 1 ? '' : 's'})`}
+            startDisabled={prerankedResult.items.length < 1}
+            onStart={addPrerankedToStaged}
             onEditOccurrence={onEditOccurrencePreranked}
             onRemoveRow={onRemovePreviewRowPreranked}
           />
         </div>
       )}
+
+      {mode === 'anilist' && (
+        <AnilistStartMode
+          onAddToStaged={onAddAnilistToStaged}
+          onDraftActivity={notifyDraftActivity}
+          dbSyncRevision={dbSyncRevision}
+        />
+      )}
+
+      <StagedItemsPanel
+        staged={staged}
+        pending={pendingGroupsForPanel}
+        onToggleRemoveGroup={toggleStagedGroupRemoval}
+        onToggleRemoveItem={toggleStagedItemRemoval}
+        onEditItem={openStagedEdit}
+        onClearAll={clearAllStaged}
+        onStartSort={() => startFromCombined()}
+        onStartAlreadySorted={() => startFromCombined()}
+      />
 
       {editStubItem && editTarget && (
         <EditItemModal
@@ -1228,6 +1579,20 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
           currentId={editTarget.currentId}
           otherIds={editTarget.otherIds}
           rawRow={editTarget.rawRow}
+        />
+      )}
+
+      {/* Staged-item edit modal. Same component as the CSV preview's
+          edit flow but `allowEditId` is OFF — renaming a staged
+          item's id would break dedup, marked-removal sets, and any
+          cross-group references built up in the panel state. The
+          user can still edit label / url / imageUrl which covers the
+          common typo-fix use case the modal was designed for. */}
+      {editStagedItem && editStagedTarget && (
+        <EditItemModal
+          item={editStagedItem}
+          onCancel={() => setEditStagedTarget(null)}
+          onSave={saveStagedEdit}
         />
       )}
     </div>
