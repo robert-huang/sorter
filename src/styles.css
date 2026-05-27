@@ -897,6 +897,18 @@ a {
   font-style: italic;
 }
 
+/* Module-level note rendered at the bottom of a chip group. flex-basis
+ * 100% forces it to its own line so it visually sits beneath the chip
+ * row regardless of how many chips wrap above it. */
+.filter-bar-note {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 2px 2px 0;
+  line-height: 1.4;
+}
+
 /* Voice-actor chip extensions: an inline search input, a thin
    divider between selected and unselected blocks, and a sticky
    footer carrying the cast-coverage status + bulk-expand button.

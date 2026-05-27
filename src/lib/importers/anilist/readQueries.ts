@@ -984,35 +984,6 @@ export async function getCharacterIdsAppearingInMedia(
 }
 
 /**
- * Subset of `characterIds` whose `media_character.role` falls in one
- * of `roles`. A character can have different roles in different shows
- * (the same character may be MAIN in one media and BACKGROUND in
- * another) — this returns characters that have AT LEAST ONE matching
- * role anywhere in the junction, which matches user intent ("show me
- * MAIN characters" should keep characters who are MAIN somewhere).
- */
-export async function getCharacterIdsWithRoles(
-  db: AnilistDbExecutor,
-  characterIds: readonly number[],
-  roles: readonly string[],
-): Promise<Set<number>> {
-  const out = new Set<number>();
-  if (characterIds.length === 0 || roles.length === 0) return out;
-  const sql = `
-    SELECT DISTINCT character_id
-      FROM media_character
-     WHERE character_id IN (${placeholders(characterIds.length)})
-       AND role IN (${placeholders(roles.length)})
-  `;
-  const rows = await db.exec(sql, [
-    ...characterIds,
-    ...roles,
-  ] as readonly SqlBindable[]);
-  for (const r of rows) out.add(reqN(r.character_id));
-  return out;
-}
-
-/**
  * Subset of `characterIds` voiced by at least one of `staffIds` across
  * any cached character_voice_actor row. Powers the character chip's
  * voice-actor filter.

@@ -53,7 +53,6 @@ import {
 import {
   getCharacterIdsAppearingInMedia,
   getCharacterIdsVoicedByStaff,
-  getCharacterIdsWithRoles,
   getCharactersByIds,
   getFavouriteCount,
   getFavouriteRanksForIds,
@@ -354,9 +353,6 @@ interface CharacterFilterChipState extends FilterChipState {
   /** Phase 2: media-ids the candidate character must appear in
    *  (via `media_character`). Empty = no filter. */
   appearsInMediaIds: number[];
-  /** Phase 2: AniList role values
-   *  (any of MAIN / SUPPORTING / BACKGROUND). Empty = no filter. */
-  roles: string[];
   /** Phase 2: voice-actor staff-ids the character must be voiced by
    *  in at least one cached `character_voice_actor` row. Empty = no
    *  filter. */
@@ -370,11 +366,8 @@ const CHARACTER_INITIAL_CHIP_STATE: CharacterFilterChipState = {
   favouriteRankMin: null,
   favouriteRankMax: null,
   appearsInMediaIds: [],
-  roles: [],
   voiceActorIds: [],
 };
-
-const CHARACTER_ROLES = ['MAIN', 'SUPPORTING', 'BACKGROUND'];
 
 function characterIsInitialState(state: CharacterFilterChipState): boolean {
   return (
@@ -384,7 +377,6 @@ function characterIsInitialState(state: CharacterFilterChipState): boolean {
     state.favouriteRankMin === null &&
     state.favouriteRankMax === null &&
     state.appearsInMediaIds.length === 0 &&
-    state.roles.length === 0 &&
     state.voiceActorIds.length === 0
   );
 }
@@ -496,22 +488,13 @@ async function computeAllowedCharacterIds(
   }
 
   if (allowed.size === 0) return allowed;
-  const allowedArr = Array.from(allowed);
 
   // Stage 2: junction filters. Each runs only when active; an active
   // chip with NO matching junction rows drops everything (correct
   // semantics: "show only characters who appear in [media X]" must
   // produce 0 results when the cache has no media_character rows for
   // X, not silently pass through).
-  if (state.roles.length > 0) {
-    const matched = await getCharacterIdsWithRoles(
-      db,
-      allowedArr,
-      state.roles,
-    );
-    allowed = intersect(allowed, matched);
-  }
-  if (allowed.size > 0 && state.appearsInMediaIds.length > 0) {
+  if (state.appearsInMediaIds.length > 0) {
     const matched = await getCharacterIdsAppearingInMedia(
       db,
       Array.from(allowed),
@@ -583,6 +566,14 @@ function CharacterChips({
   const set = (patch: Partial<CharacterFilterChipState>) =>
     onChipStateChange({ ...state, ...patch });
 
+  // Chip order is deliberate:
+  //   1. gender         — fast attribute filter, narrows quickly
+  //   2. rank           — user's main slicing tool ("top X favourites")
+  //   3. appears in     — phase 2 relational; empty until media is cached
+  //   4. voice actor    — phase 2 relational; same caveat
+  //   5. favourites     — community popularity count; least common,
+  //                       parked at the end so the more useful chips
+  //                       are reachable without scanning past it
   return (
     <>
       <MultiSelectChip<string>
@@ -591,17 +582,6 @@ function CharacterChips({
         selected={state.genders}
         onToggle={(v) => set({ genders: toggleInArray(state.genders, v) })}
         onReplaceAll={(vals) => set({ genders: [...vals] })}
-      />
-      <NumericRangeChip
-        label="favourites"
-        title="Filter by AniList favourites count"
-        sliderMin={0}
-        sliderMax={options.favouritesMax}
-        min={state.favouritesMin}
-        max={state.favouritesMax}
-        onChange={(patch) =>
-          set({ favouritesMin: patch.min, favouritesMax: patch.max })
-        }
       />
       <NumericRangeChip
         label="rank"
@@ -614,13 +594,6 @@ function CharacterChips({
           set({ favouriteRankMin: patch.min, favouriteRankMax: patch.max })
         }
         emptyMessage="(no favourites cached — load your AniList favourites first)"
-      />
-      <MultiSelectChip<string>
-        label="role"
-        options={CHARACTER_ROLES}
-        selected={state.roles}
-        onToggle={(v) => set({ roles: toggleInArray(state.roles, v) })}
-        onReplaceAll={(vals) => set({ roles: [...vals] })}
       />
       <MultiSelectChip<number>
         label="appears in"
@@ -650,6 +623,31 @@ function CharacterChips({
         searchable
         searchPlaceholder="Search voice actors…"
       />
+      <NumericRangeChip
+        label="favourites"
+        title="Filter by AniList community favourites count"
+        sliderMin={0}
+        sliderMax={options.favouritesMax}
+        min={state.favouritesMin}
+        max={state.favouritesMax}
+        onChange={(patch) =>
+          set({ favouritesMin: patch.min, favouritesMax: patch.max })
+        }
+      />
+      {/* Footnote about the Phase-2 cache limitation. The chips above
+       *  ('appears in', 'voice actor') only know about junctions that
+       *  the media-side lazy expansion has already populated. The
+       *  only two trigger sites for that today are (a) opening a
+       *  media item in AnilistDetailModal, and (b) the media filter
+       *  module's voice-actor chip bulk-expand — both require MEDIA
+       *  in the candidate set. From a character-only view neither is
+       *  reachable, so we describe the actual constraint instead of
+       *  suggesting an in-context workaround that doesn't exist. */}
+      <div className="filter-bar-note">
+        Note: <strong>appears in</strong> and <strong>voice actor</strong> only
+        list shows you've already opened in the detail panel or fetched from
+        the voice actor filter dropdown.
+      </div>
     </>
   );
 }
@@ -874,6 +872,8 @@ function StaffChips({
   const set = (patch: Partial<StaffFilterChipState>) =>
     onChipStateChange({ ...state, ...patch });
 
+  // Same chip-ordering rationale as CharacterChips above:
+  // most-useful first, community-favourites count parked at the end.
   return (
     <>
       <MultiSelectChip<string>
@@ -882,17 +882,6 @@ function StaffChips({
         selected={state.genders}
         onToggle={(v) => set({ genders: toggleInArray(state.genders, v) })}
         onReplaceAll={(vals) => set({ genders: [...vals] })}
-      />
-      <NumericRangeChip
-        label="favourites"
-        title="Filter by AniList favourites count"
-        sliderMin={0}
-        sliderMax={options.favouritesMax}
-        min={state.favouritesMin}
-        max={state.favouritesMax}
-        onChange={(patch) =>
-          set({ favouritesMin: patch.min, favouritesMax: patch.max })
-        }
       />
       <NumericRangeChip
         label="rank"
@@ -929,6 +918,22 @@ function StaffChips({
         searchable
         searchPlaceholder="Search media…"
       />
+      <NumericRangeChip
+        label="favourites"
+        title="Filter by AniList community favourites count"
+        sliderMin={0}
+        sliderMax={options.favouritesMax}
+        min={state.favouritesMin}
+        max={state.favouritesMax}
+        onChange={(patch) =>
+          set({ favouritesMin: patch.min, favouritesMax: patch.max })
+        }
+      />
+      {/* Same cache-limitation note as on the character module. */}
+      <div className="filter-bar-note">
+        Note: <strong>voiced in</strong> only lists shows you've already opened
+        in the detail panel or fetched from the voice actor filter dropdown.
+      </div>
     </>
   );
 }

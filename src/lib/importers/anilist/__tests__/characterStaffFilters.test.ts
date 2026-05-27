@@ -256,7 +256,6 @@ describe('characterIsInitialState', () => {
     expect(characterIsInitialState(charChips({ favouritesMax: 1000 }))).toBe(false);
     expect(characterIsInitialState(charChips({ favouriteRankMin: 1 }))).toBe(false);
     expect(characterIsInitialState(charChips({ favouriteRankMax: 50 }))).toBe(false);
-    expect(characterIsInitialState(charChips({ roles: ['MAIN'] }))).toBe(false);
     expect(characterIsInitialState(charChips({ appearsInMediaIds: [1] }))).toBe(false);
     expect(characterIsInitialState(charChips({ voiceActorIds: [1] }))).toBe(false);
   });
@@ -373,33 +372,6 @@ describe('computeAllowedCharacterIds', () => {
     expect(Array.from(allowed)).toEqual([1]);
   });
 
-  // --- role chip (junction-driven, phase 2) ---
-
-  it('roles chip keeps characters whose junction has at least one matching role', async () => {
-    seedCharacter(db, 1);
-    seedCharacter(db, 2);
-    seedCharacter(db, 3);
-    seedMedia(db, 100);
-    seedMediaCharacter(db, 100, 1, 'MAIN');
-    seedMediaCharacter(db, 100, 2, 'BACKGROUND');
-    // id 3 has no media_character rows → no role → dropped
-    const allowed = await computeAllowedCharacterIds(
-      [1, 2, 3],
-      charChips({ roles: ['MAIN'] }),
-    );
-    expect(Array.from(allowed)).toEqual([1]);
-  });
-
-  it('roles chip with no cached media drops everything (no fallback to passthrough)', async () => {
-    seedCharacter(db, 1);
-    seedCharacter(db, 2);
-    const allowed = await computeAllowedCharacterIds(
-      [1, 2],
-      charChips({ roles: ['MAIN'] }),
-    );
-    expect(allowed.size).toBe(0);
-  });
-
   // --- appears-in-media chip (junction-driven, phase 2) ---
 
   it('appearsInMediaIds keeps characters appearing in at least one selected media', async () => {
@@ -414,6 +386,16 @@ describe('computeAllowedCharacterIds', () => {
       charChips({ appearsInMediaIds: [100] }),
     );
     expect(Array.from(allowed)).toEqual([1]);
+  });
+
+  it('appearsInMediaIds with no cached junction drops everything (no fallback to passthrough)', async () => {
+    seedCharacter(db, 1);
+    seedCharacter(db, 2);
+    const allowed = await computeAllowedCharacterIds(
+      [1, 2],
+      charChips({ appearsInMediaIds: [100] }),
+    );
+    expect(allowed.size).toBe(0);
   });
 
   // --- voice-actor chip (junction-driven, phase 2) ---
@@ -437,17 +419,18 @@ describe('computeAllowedCharacterIds', () => {
 
   // --- combinations ---
 
-  it('multiple active chips intersect (gender AND role)', async () => {
+  it('multiple active chips intersect (gender AND appearsInMediaIds)', async () => {
     seedCharacter(db, 1, { gender: 'Female' });
     seedCharacter(db, 2, { gender: 'Female' });
     seedCharacter(db, 3, { gender: 'Male' });
     seedMedia(db, 100);
+    seedMedia(db, 200);
     seedMediaCharacter(db, 100, 1, 'MAIN');
-    seedMediaCharacter(db, 100, 2, 'BACKGROUND');
-    seedMediaCharacter(db, 100, 3, 'MAIN');
+    seedMediaCharacter(db, 200, 2, 'MAIN'); // wrong media
+    seedMediaCharacter(db, 100, 3, 'MAIN'); // wrong gender
     const allowed = await computeAllowedCharacterIds(
       [1, 2, 3],
-      charChips({ genders: ['Female'], roles: ['MAIN'] }),
+      charChips({ genders: ['Female'], appearsInMediaIds: [100] }),
     );
     expect(Array.from(allowed)).toEqual([1]);
   });
