@@ -117,6 +117,22 @@ import {
 } from './lib/cloud';
 import { GoogleDriveProvider } from './lib/cloud/googleDrive';
 import { InFlightTracker } from './lib/inFlightTracker';
+import {
+  MEMORY_MODE_PUSH_BLOCKED,
+  NO_REMOTE,
+  REMOTE_DRIFTED,
+  REMOTE_SCHEMA_NEWER,
+  pullDbFromDrive,
+  pushDbToDrive,
+} from './lib/db/sync';
+import { openSourceDb } from './lib/db/client';
+import { DB_NON_PERSISTENT_EVENT } from './lib/db/opfs';
+import { ANILIST_SOURCE_ID } from './lib/importers/anilist/anilistSource';
+import { ensureAnilistFiltersRegistered } from './lib/importers/anilist/filters';
+import { ensureCharacterStaffFiltersRegistered } from './lib/importers/anilist/characterStaffFilters';
+import { configureAnilistRunnerHooks } from './lib/importers/anilist/runners';
+import { AnilistDetailModal } from './components/AnilistDetailModal';
+import { ItemDetailContext } from './components/itemDetailContext';
 import { useKeyboard } from './hooks/useKeyboard';
 
 // Register the default cloud provider exactly once at module load.
@@ -317,6 +333,43 @@ export function App() {
   const [pullingIds, setPullingIds] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
+  const dbPushTrackerRef = useRef(new InFlightTracker());
+  const dbPullTrackerRef = useRef(new InFlightTracker());
+  const [dbPushingIds, setDbPushingIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const [dbPullingIds, setDbPullingIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const [sourceDbErrors, setSourceDbErrors] = useState<Record<string, string>>({});
+  const [dbSyncRevision, setDbSyncRevision] = useState(0);
+  // Surfaces the "this tab fell back to in-memory SQLite" warning.
+  // Fired exactly once by the db/client when the worker reports
+  // `storageMode === 'memory'`. The two realistic causes are
+  //   (a) another tab of the same origin already holds the OPFS SAH
+  //       pool's exclusive lock (the common case — every new tab spins
+  //       up its own dedicated SQLite worker), or
+  //   (b) OPFS install genuinely failed (private window, quota refused).
+  // In either case the user's cached data isn't reachable from this
+  // tab's DB until they Pull from Drive — the banner CTA reflects that.
+  const [dbNonPersistent, setDbNonPersistent] = useState(false);
+  const [dbNonPersistentDismissed, setDbNonPersistentDismissed] = useState(false);
+  // Per-item detail modal target (Phase D). Set when the user clicks
+  // an AniList thumb anywhere in the tree — the ItemDetailContext
+  // provider below routes those clicks here. Keyed by media id +
+  // fallback title so a click on a stale list item still shows the
+  // user something while the cached row loads.
+  const [itemDetailTarget, setItemDetailTarget] = useState<
+    { mediaId: number; fallbackTitle: string } | null
+  >(null);
+  const openItemDetail = useCallback((item: Item) => {
+    if (!item.source || item.source.kind !== 'anilist') return;
+    setItemDetailTarget({
+      mediaId: item.source.externalId,
+      fallbackTitle: item.label,
+    });
+  }, []);
+
   // ITP / refresh-token-rejected banner gate. When the auth state
   // transitions to 'expired', we surface a one-shot banner pointing
   // the user back to Sign in. Dismissable; resets when the auth state
@@ -1554,6 +1607,136 @@ export function App() {
     return 'ready';
   }, [cloudAvailable, cloudAuth]);
 
+  // -------- memory-mode banner --------
+  // The worker reports `storageMode === 'memory'` when it can't acquire
+  // the OPFS SAH pool. The dominant cause is "another tab of this
+  // origin already holds OPFS"; the user needs to know that this tab
+  // is running on volatile storage so they can Pull from Drive (or
+  // close the other tab and reload) to make their cache reachable.
+  //
+  // We also kick the worker boot here with a lightweight openSourceDb
+  // call so the banner-detection path runs even when the user lands on
+  // a tab (LIST / RESULT / etc.) that doesn't issue any AniList reads.
+  // Without this, a fresh second tab opened directly into LIST would
+  // never spawn the worker and the user would have zero indication that
+  // anything was wrong.
+  useEffect(() => {
+    const handler = (): void => setDbNonPersistent(true);
+    window.addEventListener(DB_NON_PERSISTENT_EVENT, handler);
+    void openSourceDb(ANILIST_SOURCE_ID).catch(() => {});
+    return () => {
+      window.removeEventListener(DB_NON_PERSISTENT_EVENT, handler);
+    };
+  }, []);
+
+  function dbSyncErrorMessage(err: unknown): string {
+    const e = err as Error & { code?: string };
+    if (e.code === REMOTE_DRIFTED) {
+      return 'Remote has new changes — pull first.';
+    }
+    if (e.code === REMOTE_SCHEMA_NEWER) {
+      return 'App is out of date — please reload.';
+    }
+    if (e.code === NO_REMOTE) {
+      return 'No cloud copy yet — push first.';
+    }
+    if (e.code === MEMORY_MODE_PUSH_BLOCKED) {
+      return 'Push blocked: non-persistent tab. Close other tabs of this app and reload, then push.';
+    }
+    return e.message || 'Sync failed.';
+  }
+
+  const onDbPushSource = useCallback(
+    (sourceId: string) => {
+      if (!autosaveOn || cloudStatus !== 'ready') return;
+      if (!dbPushTrackerRef.current.tryAcquire(sourceId)) return;
+      setDbPushingIds(dbPushTrackerRef.current.snapshot());
+      setSourceDbErrors((prev) => {
+        const next = { ...prev };
+        delete next[sourceId];
+        return next;
+      });
+      void (async () => {
+        try {
+          await pushDbToDrive(sourceId);
+          setDbSyncRevision((r) => r + 1);
+        } catch (err) {
+          setSourceDbErrors((prev) => ({
+            ...prev,
+            [sourceId]: dbSyncErrorMessage(err),
+          }));
+          setDbSyncRevision((r) => r + 1);
+        } finally {
+          dbPushTrackerRef.current.release(sourceId);
+          setDbPushingIds(dbPushTrackerRef.current.snapshot());
+        }
+      })();
+    },
+    [autosaveOn, cloudStatus],
+  );
+
+  const onDbPullSource = useCallback(
+    (sourceId: string) => {
+      if (!autosaveOn || cloudStatus !== 'ready') return;
+      if (!dbPullTrackerRef.current.tryAcquire(sourceId)) return;
+      setDbPullingIds(dbPullTrackerRef.current.snapshot());
+      setSourceDbErrors((prev) => {
+        const next = { ...prev };
+        delete next[sourceId];
+        return next;
+      });
+      void (async () => {
+        try {
+          await pullDbFromDrive(sourceId);
+          setDbSyncRevision((r) => r + 1);
+        } catch (err) {
+          setSourceDbErrors((prev) => ({
+            ...prev,
+            [sourceId]: dbSyncErrorMessage(err),
+          }));
+          setDbSyncRevision((r) => r + 1);
+        } finally {
+          dbPullTrackerRef.current.release(sourceId);
+          setDbPullingIds(dbPullTrackerRef.current.snapshot());
+        }
+      })();
+    },
+    [autosaveOn, cloudStatus],
+  );
+
+  // -------- AniList runner hook wiring + filter module registration --------
+  //
+  // The AniList importer modules sit on the data-layer side of the
+  // codebase and don't know about React. Wire them into the App here
+  // so:
+  //   - Full-import autopush -> the existing per-source push button
+  //     code path (gated on cloud-ready by `onDbPushSource`).
+  //   - Per-entry refresh dirty-bumps -> a dbSyncRevision tick so the
+  //     source panel re-reads its pending-changes counter.
+  //
+  // The filter module also lives on the UI side (registers chip
+  // components + the SQL builder) and is registered exactly once at
+  // App mount so the FilterBar can find it for any item with
+  // `source.kind === 'anilist'`.
+  useEffect(() => {
+    ensureAnilistFiltersRegistered();
+    // Phase 1 + phase 2 chips for character / staff favourites. Routed
+    // under separate source.kind values (`anilist-character` /
+    // `anilist-staff`) so they get distinct chip groups instead of
+    // sharing the media chip module's state.
+    ensureCharacterStaffFiltersRegistered();
+    configureAnilistRunnerHooks({
+      onAutoPushRequested: () => onDbPushSource(ANILIST_SOURCE_ID),
+      onDirtyBumped: () => setDbSyncRevision((r) => r + 1),
+    });
+    return () => {
+      // Idle reset on unmount so a future re-mount (HMR) rebinds
+      // cleanly against the new closure rather than calling into a
+      // stale one.
+      configureAnilistRunnerHooks({});
+    };
+  }, [onDbPushSource]);
+
   // -------- start --------
   const startScreenRef = useRef<StartScreenHandle>(null);
   const stateRef = useRef(state);
@@ -1967,6 +2150,7 @@ export function App() {
         hasLoadedSession={hasState}
         onDraftActivity={parkActiveSession}
         onDraftCapabilitiesChange={setDraftCaps}
+        dbSyncRevision={dbSyncRevision}
       />
     );
   } else if (activeTab === 'list') {
@@ -2039,6 +2223,7 @@ export function App() {
   }, [state, activeTab]);
 
   return (
+    <ItemDetailContext.Provider value={openItemDetail}>
     <div className="app-shell">
       {!autosaveOn && (
         <div className="app-banner">
@@ -2067,6 +2252,34 @@ export function App() {
             title="Dismiss"
           >
             ×
+          </button>
+        </div>
+      )}
+      {dbNonPersistent && !dbNonPersistentDismissed && (
+        // Non-persistent storage banner. The worker fell back to an
+        // in-memory SQLite DB — almost always because another tab of
+        // the same origin already holds the OPFS SAH pool (browsers
+        // grant OPFS access exclusively to one realm at a time). The
+        // user's persisted data sits in OPFS but this tab can't reach
+        // it. We tell them what's wrong, how to load data for this
+        // session (Pull from Drive), and how to make it persistent
+        // again (close the other tab, reload).
+        <div className="app-banner warn">
+          <span>
+            This tab is using non-persistent storage — another tab is
+            holding the local database. Anything imported or pulled here
+            stays only in this tab until you close the other tab and
+            reload. Pull from Drive (gear menu &rarr; Source databases
+            &rarr; Pull) to load your cached data for this session.
+          </span>
+          <button
+            type="button"
+            className="banner-dismiss"
+            onClick={() => setDbNonPersistentDismissed(true)}
+            aria-label="Dismiss non-persistent storage warning"
+            title="Dismiss"
+          >
+            &times;
           </button>
         </div>
       )}
@@ -2173,6 +2386,12 @@ export function App() {
         onCloudPullSlot={onCloudPullSlot}
         cloudPushingIds={pushingIds}
         cloudPullingIds={pullingIds}
+        dbPushingIds={dbPushingIds}
+        dbPullingIds={dbPullingIds}
+        sourceDbErrors={sourceDbErrors}
+        dbSyncRevision={dbSyncRevision}
+        onDbPushSource={onDbPushSource}
+        onDbPullSource={onDbPullSource}
         onCloudPushAllSlots={onCloudPushAllSlots}
         onCloudPullAllSlots={onCloudPullAllSlots}
         onNewSort={() => handleTabChange('start')}
@@ -2286,7 +2505,15 @@ export function App() {
           onReplace={() => performRestore('replace')}
         />
       )}
+      {itemDetailTarget && (
+        <AnilistDetailModal
+          mediaId={itemDetailTarget.mediaId}
+          fallbackTitle={itemDetailTarget.fallbackTitle}
+          onClose={() => setItemDetailTarget(null)}
+        />
+      )}
     </div>
+    </ItemDetailContext.Provider>
   );
 }
 

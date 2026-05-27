@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { SlotList } from './SlotList';
+import { SourceDatabasesSection } from './sourceDatabasesSection';
 import type { SlotsManifest } from '../lib/types';
 
 /**
@@ -84,6 +85,13 @@ interface Props {
   cloudPushingIds: ReadonlySet<string>;
   /** Same as cloudPushingIds, but for Pull. */
   cloudPullingIds: ReadonlySet<string>;
+  /** Per-source SQLite DB sync (Phase B). */
+  dbPushingIds: ReadonlySet<string>;
+  dbPullingIds: ReadonlySet<string>;
+  sourceDbErrors: Record<string, string>;
+  dbSyncRevision: number;
+  onDbPushSource: (sourceId: string) => void;
+  onDbPullSource: (sourceId: string) => void;
   /** Bulk push every opted-in slot to the cloud. Triggered by the
    *  "[⇡ ALL]" affordance in the SlotList header. App-side handler
    *  fans out to per-slot push; we just pipe the click through. */
@@ -99,6 +107,31 @@ interface Props {
    * screen the user is about to interact with.
    */
   onNewSort: () => void;
+}
+
+/** Persisted tab selection key so reopening the gear menu lands on
+ *  the same tab the user last used. Lives in localStorage rather
+ *  than React state across mounts so a hard reload doesn't reset
+ *  it. */
+const GEAR_TAB_LS_KEY = 'settings:lastTab';
+type GearTab = 'slots' | 'databases';
+
+function readPersistedTab(): GearTab {
+  try {
+    const v = localStorage.getItem(GEAR_TAB_LS_KEY);
+    if (v === 'slots' || v === 'databases') return v;
+  } catch {
+    /* private mode / quota — fall through */
+  }
+  return 'slots';
+}
+
+function writePersistedTab(tab: GearTab): void {
+  try {
+    localStorage.setItem(GEAR_TAB_LS_KEY, tab);
+  } catch {
+    /* ignore */
+  }
 }
 
 export function SettingsMenu({
@@ -130,17 +163,29 @@ export function SettingsMenu({
   onCloudPullSlot,
   cloudPushingIds,
   cloudPullingIds,
+  dbPushingIds,
+  dbPullingIds,
+  sourceDbErrors,
+  dbSyncRevision,
+  onDbPushSource,
+  onDbPullSource,
   onCloudPushAllSlots,
   onCloudPullAllSlots,
   onNewSort,
 }: Props) {
   const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState<GearTab>(() => readPersistedTab());
   const fileRef = useRef<HTMLInputElement | null>(null);
   // Separate hidden input for archive restore so we can scope its
   // change handler to "this is an archive" rather than "this is a
   // single-slot save". Keeps the two pickers' UX independent.
   const archiveFileRef = useRef<HTMLInputElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  function selectTab(next: GearTab): void {
+    setTab(next);
+    writePersistedTab(next);
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -218,109 +263,178 @@ export function SettingsMenu({
       </button>
       {open && (
         <div className="settings-popover">
-          <div className="settings-slots">
-            <SlotList
-              slots={manifest.slots}
-              loadedSlotId={loadedSlotId}
-              onSwitch={handleSwitch}
-              onDelete={onDeleteSlot}
-              onRename={onRenameSlot}
-              onDownload={onDownloadSlot}
-              onTogglePin={onTogglePinSlot}
-              cloudControlsVisible={cloudStatus === 'ready'}
-              onCloudToggleOptIn={onCloudToggleOptIn}
-              onCloudPush={onCloudPushSlot}
-              onCloudPull={onCloudPullSlot}
-              cloudPushingIds={cloudPushingIds}
-              cloudPullingIds={cloudPullingIds}
-              onCloudPushAll={onCloudPushAllSlots}
-              onCloudPullAll={onCloudPullAllSlots}
-              onNewSort={handleNewSort}
-            />
+          <div className="settings-tabs" role="tablist" aria-label="Settings tabs">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'slots'}
+              className={`settings-tab${tab === 'slots' ? ' active' : ''}`}
+              onClick={() => selectTab('slots')}
+            >
+              Slots
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'databases'}
+              className={`settings-tab${tab === 'databases' ? ' active' : ''}`}
+              onClick={() => selectTab('databases')}
+            >
+              Databases
+            </button>
           </div>
-          <div className="settings-divider" />
-          <button className="settings-item" onClick={onLoadClick}>
-            Load save file…
-          </button>
-          <button
-            className="settings-item"
-            onClick={onBackupAllClick}
-            disabled={manifest.slots.length === 0}
-            title={
-              manifest.slots.length === 0
-                ? 'No slots to back up yet'
-                : 'Download every slot in a single JSON archive'
-            }
-          >
-            Backup all slots…
-          </button>
-          <button
-            className="settings-item"
-            onClick={onRestoreClick}
-            title="Import a previously-saved archive file"
-          >
-            Restore from backup…
-          </button>
-          <button
-            className="settings-item danger"
-            onClick={onResetClick}
-            disabled={!hasActiveSlot}
-            title={
-              hasActiveSlot
-                ? 'Delete the slot you are currently sorting in'
-                : 'No active slot to delete'
-            }
-          >
-            Delete this slot
-          </button>
-          {cloudStatus !== 'unavailable' && (
-            <>
-              <div className="settings-divider" />
-              <CloudSection
-                status={cloudStatus}
-                folderName={cloudFolderName}
-                onSignIn={() => {
-                  setOpen(false);
-                  onCloudSignIn();
-                }}
-                onPickFolder={() => {
-                  setOpen(false);
-                  onCloudPickFolder();
-                }}
-                onBrowse={() => {
-                  setOpen(false);
-                  onCloudBrowse();
-                }}
-                onSignOut={() => {
-                  setOpen(false);
-                  onCloudSignOut();
-                }}
-              />
-            </>
-          )}
-          <div className="settings-divider" />
-          <label className="settings-item checkbox">
-            <input
-              type="checkbox"
-              checked={showEstimatedRemaining}
-              onChange={onToggleShowEstimatedRemaining}
-            />{' '}
-            Show estimated comparisons left
-          </label>
-          <label
-            className="settings-item checkbox"
-            title="When on, the sort can swap a popped queue pair for binary insertion when the smaller side is small enough that insertion beats the full merge. Turn off to force classic merge on every pair."
-          >
-            <input
-              type="checkbox"
-              checked={autoInsertEnabled}
-              onChange={onToggleAutoInsertEnabled}
-            />{' '}
-            Auto-insert skewed pairs
-          </label>
-          <div className="settings-divider" />
-          <div className="settings-status">
-            Autosave: {autosaveAvailable ? 'on' : 'disabled (file:// origin)'}
+
+          <div className="settings-tab-body" role="tabpanel">
+            {tab === 'slots' && (
+              <>
+                {/* Only the slot list scrolls. The action buttons and
+                    cloud section below sit in a pinned region so the
+                    scroll thumb stops at the bottom of the slot list
+                    instead of extending past "Load save file…" etc. */}
+                <div className="settings-slots-scroll">
+                  <div className="settings-slots">
+                    <SlotList
+                      slots={manifest.slots}
+                      loadedSlotId={loadedSlotId}
+                      onSwitch={handleSwitch}
+                      onDelete={onDeleteSlot}
+                      onRename={onRenameSlot}
+                      onDownload={onDownloadSlot}
+                      onTogglePin={onTogglePinSlot}
+                      cloudControlsVisible={cloudStatus === 'ready'}
+                      onCloudToggleOptIn={onCloudToggleOptIn}
+                      onCloudPush={onCloudPushSlot}
+                      onCloudPull={onCloudPullSlot}
+                      cloudPushingIds={cloudPushingIds}
+                      cloudPullingIds={cloudPullingIds}
+                      onCloudPushAll={onCloudPushAllSlots}
+                      onCloudPullAll={onCloudPullAllSlots}
+                      onNewSort={handleNewSort}
+                    />
+                  </div>
+                </div>
+                <div className="settings-tab-actions">
+                  <div className="settings-divider" />
+                  <button className="settings-item" onClick={onLoadClick}>
+                    Load save file…
+                  </button>
+                  <button
+                    className="settings-item"
+                    onClick={onBackupAllClick}
+                    disabled={manifest.slots.length === 0}
+                    title={
+                      manifest.slots.length === 0
+                        ? 'No slots to back up yet'
+                        : 'Download every slot in a single JSON archive'
+                    }
+                  >
+                    Backup all slots…
+                  </button>
+                  <button
+                    className="settings-item"
+                    onClick={onRestoreClick}
+                    title="Import a previously-saved archive file"
+                  >
+                    Restore from backup…
+                  </button>
+                  <button
+                    className="settings-item danger"
+                    onClick={onResetClick}
+                    disabled={!hasActiveSlot}
+                    title={
+                      hasActiveSlot
+                        ? 'Delete the slot you are currently sorting in'
+                        : 'No active slot to delete'
+                    }
+                  >
+                    Delete this slot
+                  </button>
+                  {cloudStatus !== 'unavailable' && (
+                    <>
+                      <div className="settings-divider" />
+                      <CloudSection
+                        status={cloudStatus}
+                        folderName={cloudFolderName}
+                        onSignIn={() => {
+                          setOpen(false);
+                          onCloudSignIn();
+                        }}
+                        onPickFolder={() => {
+                          setOpen(false);
+                          onCloudPickFolder();
+                        }}
+                        onBrowse={() => {
+                          setOpen(false);
+                          onCloudBrowse();
+                        }}
+                        onSignOut={() => {
+                          setOpen(false);
+                          onCloudSignOut();
+                        }}
+                      />
+                    </>
+                  )}
+                </div>
+              </>
+            )}
+
+            {tab === 'databases' && (
+              // Databases tab keeps a single scroller across its body —
+              // there's no pinned action region here, so the whole
+              // panel is free to scroll when the database list grows.
+              <div className="settings-tab-scroll">
+                {cloudStatus === 'unavailable' ? (
+                  <div className="settings-status">
+                    Database sync needs autosave enabled. Open the app from
+                    a http(s) origin to enable it.
+                  </div>
+                ) : (
+                  <SourceDatabasesSection
+                    cloudStatus={cloudStatus}
+                    pushingIds={dbPushingIds}
+                    pullingIds={dbPullingIds}
+                    sourceDbErrors={sourceDbErrors}
+                    syncRevision={dbSyncRevision}
+                    onPushSource={onDbPushSource}
+                    onPullSource={onDbPullSource}
+                  />
+                )}
+                <div className="settings-status">
+                  To refresh a source's data, open the Start tab and pick
+                  the source's import mode.
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Persistent footer — sort-engine toggles + autosave status
+              live below the tabs because they apply globally, not
+              per-tab, and the user expects them in a stable location. */}
+          <div className="settings-footer">
+            <div className="settings-divider" />
+            <label className="settings-item checkbox">
+              <input
+                type="checkbox"
+                checked={showEstimatedRemaining}
+                onChange={onToggleShowEstimatedRemaining}
+              />{' '}
+              Show estimated comparisons left
+            </label>
+            <label
+              className="settings-item checkbox"
+              title="When on, the sort can swap a popped queue pair for binary insertion when the smaller side is small enough that insertion beats the full merge. Turn off to force classic merge on every pair."
+            >
+              <input
+                type="checkbox"
+                checked={autoInsertEnabled}
+                onChange={onToggleAutoInsertEnabled}
+              />{' '}
+              Auto-insert skewed pairs
+            </label>
+            <div className="settings-divider" />
+            <div className="settings-status">
+              Autosave: {autosaveAvailable ? 'on' : 'disabled (file:// origin)'}
+            </div>
           </div>
         </div>
       )}

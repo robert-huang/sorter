@@ -67,3 +67,16 @@ export function CheckIcon({ size = 16, ...rest }: IconProps) {
     </svg>
   );
 }
+
+export function DatabaseIcon({ size = 16, ...rest }: IconProps) {
+  // Classic cylinder/database: a perspective ellipse on top + two parallel
+  // arcs below for the side walls. Kept generic so it works as the fallback
+  // icon when a source doesn't ship its own brand mark.
+  return (
+    <svg {...baseProps(size)} {...rest}>
+      <ellipse cx="12" cy="5" rx="9" ry="3" />
+      <path d="M3 5v6c0 1.66 4.03 3 9 3s9-1.34 9-3V5" />
+      <path d="M3 11v6c0 1.66 4.03 3 9 3s9-1.34 9-3v-6" />
+    </svg>
+  );
+}

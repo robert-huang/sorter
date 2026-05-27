@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useContext, useState } from 'react';
 import type { Item } from '../lib/types';
+import { getItemSourceKind } from '../lib/types';
+import { ItemDetailContext } from './itemDetailContext';
 
 /**
  * `initials` derives a short visual label from `label`. Used as the
@@ -63,18 +65,44 @@ export function ItemThumb({
   const [failed, setFailed] = useState(false);
   const showImage = item.imageUrl && !failed;
   const Tag = as;
-  return (
-    <Tag className={className}>
-      {showImage ? (
-        <img
-          src={item.imageUrl}
-          alt=""
-          onError={() => setFailed(true)}
-          draggable={false}
-        />
-      ) : (
-        <span className={placeholderClass}>{initials(item.label)}</span>
-      )}
-    </Tag>
+  // App-level opt-in for "click thumb to open detail panel". Currently
+  // only AniList items have a panel to show; other source kinds fall
+  // back to the non-interactive thumb. The opener may be null (e.g. in
+  // tests that don't wrap the tree with ItemDetailContext.Provider).
+  const opener = useContext(ItemDetailContext);
+  const clickable = opener && getItemSourceKind(item) === 'anilist';
+  const inner = showImage ? (
+    <img
+      src={item.imageUrl}
+      alt=""
+      onError={() => setFailed(true)}
+      draggable={false}
+    />
+  ) : (
+    <span className={placeholderClass}>{initials(item.label)}</span>
   );
+  if (clickable) {
+    // Render as a transparent button so keyboard focus + native
+    // click-handling work without extra ARIA wiring. Keep the
+    // caller's className so layout sizing stays intact; the button
+    // resets default chrome via CSS.
+    return (
+      <button
+        type="button"
+        className={`${className ?? ''} item-thumb-button`.trim()}
+        onClick={(e) => {
+          // stopPropagation so a parent row's click handler doesn't
+          // also fire (none today, but defensively the modal-open
+          // shouldn't double up with hide/select/drag elsewhere).
+          e.stopPropagation();
+          opener!(item);
+        }}
+        aria-label={`Details for ${item.label}`}
+        title={`Details for ${item.label}`}
+      >
+        {inner}
+      </button>
+    );
+  }
+  return <Tag className={className}>{inner}</Tag>;
 }
