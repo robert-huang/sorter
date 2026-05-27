@@ -208,6 +208,14 @@ interface Props {
   /** Called on first meaningful START input while `hasLoadedSession` is true. */
   onDraftActivity: () => void;
   onDraftCapabilitiesChange: (caps: StartDraftCapabilities) => void;
+  /**
+   * Bumped by App.tsx after any push / pull / dirty-bump on the source
+   * DB. Forwarded to `AnilistStartMode` so its cache-hint lookups
+   * re-run after the user pulls fresh data in (the in-memory cache
+   * effects are otherwise keyed only on username / type / import +
+   * fav ticks, which a Drive pull doesn't touch).
+   */
+  dbSyncRevision: number;
 }
 
 interface StagedFile {
@@ -239,6 +247,7 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
     hasLoadedSession,
     onDraftActivity,
     onDraftCapabilitiesChange,
+    dbSyncRevision,
   },
   ref,
 ) {
@@ -1546,6 +1555,7 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
         <AnilistStartMode
           onAddToStaged={onAddAnilistToStaged}
           onDraftActivity={notifyDraftActivity}
+          dbSyncRevision={dbSyncRevision}
         />
       )}
 

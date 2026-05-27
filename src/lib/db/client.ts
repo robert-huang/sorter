@@ -66,6 +66,14 @@ function bindWorkerReady(w: Worker): void {
     const onReady = (e: MessageEvent<RpcReply | WorkerReadyMessage>) => {
       if (e.data && typeof e.data === 'object' && 'type' in e.data && e.data.type === 'ready') {
         w.removeEventListener('message', onReady);
+        // Fire the memory-mode banner event the instant the worker
+        // reports it couldn't claim OPFS — independent of whether the
+        // caller went through openSourceDb. Without this, a tab that
+        // only ever issues raw `exec` reads (which is the case for
+        // AnilistStartMode's cache-hint lookups) would silently use
+        // an empty memory DB and the user would have no idea why
+        // their cache is missing.
+        maybeEmitNonPersistent(e.data.storageMode);
         resolve(e.data.storageMode);
       }
     };

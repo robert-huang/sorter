@@ -99,6 +99,16 @@ interface Props {
   /** Fired when the user types into the input — used by the parent
    *  to park any loaded session so the import lands in a fresh slot. */
   onDraftActivity: () => void;
+  /**
+   * Bumped by App.tsx after any push / pull / dirty-bump on the source
+   * DB. Folded into the two cache-hint lookup effects' dep arrays so a
+   * Drive pull (which replaces the DB but doesn't touch importTick /
+   * favTick) still refreshes the "Cached: N items" hint + the
+   * favourites counts. Without this, a second tab in memory-mode that
+   * pulls from Drive would have data in the DB but the UI would
+   * continue to render "no cache".
+   */
+  dbSyncRevision: number;
 }
 
 /** Best-available title from a media row, defaulting through romaji
@@ -215,7 +225,11 @@ type CandidateSource =
       type: AnilistFavouriteType;
     };
 
-export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
+export function AnilistStartMode({
+  onAddToStaged,
+  onDraftActivity,
+  dbSyncRevision,
+}: Props) {
   const [username, setUsername] = useState<string>(() => {
     try {
       return localStorage.getItem(ANILIST_USERNAME_LS_KEY) ?? '';
@@ -506,7 +520,11 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [username, favTick, importTick]);
+    // dbSyncRevision: a Drive pull replaces the entire source DB but
+    // doesn't bump favTick/importTick. Including it here re-runs the
+    // favourite-timestamps + counts lookup so the UI catches up with
+    // freshly pulled rows.
+  }, [username, favTick, importTick, dbSyncRevision]);
 
   // Cache-aware lookup for the (username, type) pair. Debounced ~300ms
   // so a user typing their handle doesn't trigger a SQL round-trip
@@ -574,7 +592,10 @@ export function AnilistStartMode({ onAddToStaged, onDraftActivity }: Props) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [username, type, importTick]);
+    // dbSyncRevision: same reasoning as the favourites effect above —
+    // a pull from Drive needs to re-run this lookup so the
+    // "Cached: N items refreshed X ago" hint reflects the new data.
+  }, [username, type, importTick, dbSyncRevision]);
 
   // The candidate set IS the items array (post the state refactor:
   // both list-imported media + favourites materialise straight into

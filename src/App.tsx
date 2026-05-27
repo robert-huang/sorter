@@ -124,6 +124,7 @@ import {
   pullDbFromDrive,
   pushDbToDrive,
 } from './lib/db/sync';
+import { openSourceDb } from './lib/db/client';
 import { DB_NON_PERSISTENT_EVENT } from './lib/db/opfs';
 import { ANILIST_SOURCE_ID } from './lib/importers/anilist/anilistSource';
 import { ensureAnilistFiltersRegistered } from './lib/importers/anilist/filters';
@@ -1609,10 +1610,19 @@ export function App() {
   // The worker reports `storageMode === 'memory'` when it can't acquire
   // the OPFS SAH pool. The dominant cause is "another tab of this
   // origin already holds OPFS"; the user needs to know that this tab
-  // has zero cached data until they Pull from Drive.
+  // is running on volatile storage so they can Pull from Drive (or
+  // close the other tab and reload) to make their cache reachable.
+  //
+  // We also kick the worker boot here with a lightweight openSourceDb
+  // call so the banner-detection path runs even when the user lands on
+  // a tab (LIST / RESULT / etc.) that doesn't issue any AniList reads.
+  // Without this, a fresh second tab opened directly into LIST would
+  // never spawn the worker and the user would have zero indication that
+  // anything was wrong.
   useEffect(() => {
     const handler = (): void => setDbNonPersistent(true);
     window.addEventListener(DB_NON_PERSISTENT_EVENT, handler);
+    void openSourceDb(ANILIST_SOURCE_ID).catch(() => {});
     return () => {
       window.removeEventListener(DB_NON_PERSISTENT_EVENT, handler);
     };
@@ -2136,6 +2146,7 @@ export function App() {
         hasLoadedSession={hasState}
         onDraftActivity={parkActiveSession}
         onDraftCapabilitiesChange={setDraftCaps}
+        dbSyncRevision={dbSyncRevision}
       />
     );
   } else if (activeTab === 'list') {
@@ -2245,16 +2256,17 @@ export function App() {
         // in-memory SQLite DB — almost always because another tab of
         // the same origin already holds the OPFS SAH pool (browsers
         // grant OPFS access exclusively to one realm at a time). The
-        // user's cached data sits in OPFS but this tab can't reach it;
-        // pulling from Drive into this tab's memory DB is the only way
-        // to populate it for this session. Closing the other tab and
-        // reloading is the long-term fix.
+        // user's persisted data sits in OPFS but this tab can't reach
+        // it. We tell them what's wrong, how to load data for this
+        // session (Pull from Drive), and how to make it persistent
+        // again (close the other tab, reload).
         <div className="app-banner warn">
           <span>
-            This tab can&rsquo;t access the local database (another tab is
-            holding it). Cached data won&rsquo;t appear here until you Pull
-            from Drive (gear menu &rarr; Source databases &rarr; Pull),
-            or close the other tab and reload.
+            This tab is using non-persistent storage — another tab is
+            holding the local database. Anything imported or pulled here
+            stays only in this tab until you close the other tab and
+            reload. Pull from Drive (gear menu &rarr; Source databases
+            &rarr; Pull) to load your cached data for this session.
           </span>
           <button
             type="button"
