@@ -126,6 +126,7 @@ import {
 } from './lib/db/sync';
 import { ANILIST_SOURCE_ID } from './lib/importers/anilist/anilistSource';
 import { ensureAnilistFiltersRegistered } from './lib/importers/anilist/filters';
+import { ensureCharacterStaffFiltersRegistered } from './lib/importers/anilist/characterStaffFilters';
 import { configureAnilistRunnerHooks } from './lib/importers/anilist/runners';
 import { AnilistDetailModal } from './components/AnilistDetailModal';
 import { ItemDetailContext } from './components/itemDetailContext';
@@ -1680,6 +1681,11 @@ export function App() {
   // `source.kind === 'anilist'`.
   useEffect(() => {
     ensureAnilistFiltersRegistered();
+    // Phase 1 + phase 2 chips for character / staff favourites. Routed
+    // under separate source.kind values (`anilist-character` /
+    // `anilist-staff`) so they get distinct chip groups instead of
+    // sharing the media chip module's state.
+    ensureCharacterStaffFiltersRegistered();
     configureAnilistRunnerHooks({
       onAutoPushRequested: () => onDbPushSource(ANILIST_SOURCE_ID),
       onDirtyBumped: () => setDbSyncRevision((r) => r + 1),

@@ -1045,6 +1045,14 @@ a {
   padding: 6px;
 }
 
+/* Visual cue when a sub-control is inactive due to a higher-level
+   pill (e.g. score-range slider greyed out when the rated/unrated
+   pill is set to "Only unrated"). Pointer events stay on so the
+   browser still surfaces the row's `title` tooltip. */
+.filter-chip-disabled {
+  opacity: 0.5;
+}
+
 .filter-chip-slider-input {
   flex: 0 0 60px;
   width: 60px;

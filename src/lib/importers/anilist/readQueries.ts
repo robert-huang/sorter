@@ -777,6 +777,366 @@ export async function getMediaIdsWithCachedCast(
 }
 
 // ---------------------------------------------------------------------
+// Character / staff helpers (powers the per-entity filter chip modules).
+//
+// All of these are pure reads over already-cached rows (favourites
+// import populates `character` / `staff` directly; `media_character`
+// + `character_voice_actor` are populated by media imports + lazy
+// detail expansions). Nothing here triggers a network fetch — chips
+// that need richer data than the cache holds surface that to the user
+// instead of silently fetching.
+// ---------------------------------------------------------------------
+
+/**
+ * Fetch character rows by AniList id. Empty input → empty output.
+ * Order is not guaranteed; callers reorder when they need a deterministic
+ * sort (most chip discovery sorts client-side anyway).
+ */
+export async function getCharactersByIds(
+  db: AnilistDbExecutor,
+  ids: readonly number[],
+): Promise<
+  Array<{
+    id: number;
+    name_full: string | null;
+    name_native: string | null;
+    gender: string | null;
+    favourites: number | null;
+  }>
+> {
+  if (ids.length === 0) return [];
+  const sql = `
+    SELECT id, name_full, name_native, gender, favourites
+      FROM character
+     WHERE id IN (${placeholders(ids.length)})
+  `;
+  const rows = await db.exec(sql, ids as readonly SqlBindable[]);
+  return rows.map((r) => ({
+    id: reqN(r.id),
+    name_full: s(r.name_full),
+    name_native: s(r.name_native),
+    gender: s(r.gender),
+    favourites: r.favourites === null || r.favourites === undefined ? null : reqN(r.favourites),
+  }));
+}
+
+/**
+ * Fetch staff rows by AniList id. Mirrors `getCharactersByIds` but
+ * also surfaces `language_v2` since staff filter chips include a
+ * language picker.
+ */
+export async function getStaffByIds(
+  db: AnilistDbExecutor,
+  ids: readonly number[],
+): Promise<
+  Array<{
+    id: number;
+    name_full: string | null;
+    name_native: string | null;
+    gender: string | null;
+    language_v2: string | null;
+    favourites: number | null;
+  }>
+> {
+  if (ids.length === 0) return [];
+  const sql = `
+    SELECT id, name_full, name_native, gender, language_v2, favourites
+      FROM staff
+     WHERE id IN (${placeholders(ids.length)})
+  `;
+  const rows = await db.exec(sql, ids as readonly SqlBindable[]);
+  return rows.map((r) => ({
+    id: reqN(r.id),
+    name_full: s(r.name_full),
+    name_native: s(r.name_native),
+    gender: s(r.gender),
+    language_v2: s(r.language_v2),
+    favourites: r.favourites === null || r.favourites === undefined ? null : reqN(r.favourites),
+  }));
+}
+
+/**
+ * Lightweight `{id, title}` projection used by character-/staff-side
+ * "appears in media" chips. Title falls back through romaji → english
+ * → native (matching the StartScreen waterfall) so the chip dropdown
+ * shows what the user expects to see.
+ */
+export interface MediaOption {
+  id: number;
+  title: string;
+}
+
+function rowToMediaOption(r: DbRow): MediaOption {
+  const id = reqN(r.id);
+  const title =
+    s(r.title_romaji) ??
+    s(r.title_english) ??
+    s(r.title_native) ??
+    `Untitled (${id})`;
+  return { id, title };
+}
+
+/**
+ * Distinct media that any of `characterIds` appears in, across the
+ * cached `media_character` junction. Powers the character chip's
+ * "appears in media" dropdown. Empty input or no junction rows → [].
+ * Sorted by title (NOCASE) so the chip menu is browseable.
+ */
+export async function getMediaAppearancesForCharacters(
+  db: AnilistDbExecutor,
+  characterIds: readonly number[],
+): Promise<MediaOption[]> {
+  if (characterIds.length === 0) return [];
+  const sql = `
+    SELECT DISTINCT m.id          AS id,
+                    m.title_romaji  AS title_romaji,
+                    m.title_english AS title_english,
+                    m.title_native  AS title_native
+      FROM media_character mc
+      JOIN media m ON m.id = mc.media_id
+     WHERE mc.character_id IN (${placeholders(characterIds.length)})
+     ORDER BY COALESCE(m.title_romaji, m.title_english, m.title_native, '')
+              COLLATE NOCASE
+  `;
+  const rows = await db.exec(sql, characterIds as readonly SqlBindable[]);
+  return rows.map(rowToMediaOption);
+}
+
+/**
+ * Distinct voice actors who voice ANY of `characterIds`, across all
+ * cached `character_voice_actor` rows (any language). Used by the
+ * character chip's voice-actor picker. Returns staff id + a display
+ * name (full → native → "Staff #id").
+ */
+export async function getVoiceActorsByCharacterIds(
+  db: AnilistDbExecutor,
+  characterIds: readonly number[],
+): Promise<VoiceActorOption[]> {
+  if (characterIds.length === 0) return [];
+  const sql = `
+    SELECT DISTINCT s.id          AS id,
+                    s.name_full   AS name_full,
+                    s.name_native AS name_native,
+                    s.language_v2 AS language_v2
+      FROM character_voice_actor cva
+      JOIN staff s ON s.id = cva.staff_id
+     WHERE cva.character_id IN (${placeholders(characterIds.length)})
+     ORDER BY COALESCE(s.name_full, s.name_native, '') COLLATE NOCASE
+  `;
+  const rows = await db.exec(sql, characterIds as readonly SqlBindable[]);
+  return rows.map((r) => ({
+    id: reqN(r.id),
+    name:
+      s(r.name_full) ?? s(r.name_native) ?? `Staff #${Number(r.id)}`,
+    language: s(r.language_v2),
+  }));
+}
+
+/**
+ * Distinct media that any of `staffIds` has voiced a character in,
+ * across cached `character_voice_actor` rows. Powers the staff chip's
+ * "voiced in media" dropdown.
+ */
+export async function getMediaVoicedByStaff(
+  db: AnilistDbExecutor,
+  staffIds: readonly number[],
+): Promise<MediaOption[]> {
+  if (staffIds.length === 0) return [];
+  const sql = `
+    SELECT DISTINCT m.id          AS id,
+                    m.title_romaji  AS title_romaji,
+                    m.title_english AS title_english,
+                    m.title_native  AS title_native
+      FROM character_voice_actor cva
+      JOIN media m ON m.id = cva.media_id
+     WHERE cva.staff_id IN (${placeholders(staffIds.length)})
+     ORDER BY COALESCE(m.title_romaji, m.title_english, m.title_native, '')
+              COLLATE NOCASE
+  `;
+  const rows = await db.exec(sql, staffIds as readonly SqlBindable[]);
+  return rows.map(rowToMediaOption);
+}
+
+/**
+ * Subset of `characterIds` that appear in at least one of `mediaIds`
+ * via `media_character`. Used by the character chip's appears-in
+ * filter at compute time. Returns Set for O(1) membership.
+ */
+export async function getCharacterIdsAppearingInMedia(
+  db: AnilistDbExecutor,
+  characterIds: readonly number[],
+  mediaIds: readonly number[],
+): Promise<Set<number>> {
+  const out = new Set<number>();
+  if (characterIds.length === 0 || mediaIds.length === 0) return out;
+  const sql = `
+    SELECT DISTINCT character_id
+      FROM media_character
+     WHERE character_id IN (${placeholders(characterIds.length)})
+       AND media_id IN (${placeholders(mediaIds.length)})
+  `;
+  const rows = await db.exec(sql, [
+    ...characterIds,
+    ...mediaIds,
+  ] as readonly SqlBindable[]);
+  for (const r of rows) out.add(reqN(r.character_id));
+  return out;
+}
+
+/**
+ * Subset of `characterIds` whose `media_character.role` falls in one
+ * of `roles`. A character can have different roles in different shows
+ * (the same character may be MAIN in one media and BACKGROUND in
+ * another) — this returns characters that have AT LEAST ONE matching
+ * role anywhere in the junction, which matches user intent ("show me
+ * MAIN characters" should keep characters who are MAIN somewhere).
+ */
+export async function getCharacterIdsWithRoles(
+  db: AnilistDbExecutor,
+  characterIds: readonly number[],
+  roles: readonly string[],
+): Promise<Set<number>> {
+  const out = new Set<number>();
+  if (characterIds.length === 0 || roles.length === 0) return out;
+  const sql = `
+    SELECT DISTINCT character_id
+      FROM media_character
+     WHERE character_id IN (${placeholders(characterIds.length)})
+       AND role IN (${placeholders(roles.length)})
+  `;
+  const rows = await db.exec(sql, [
+    ...characterIds,
+    ...roles,
+  ] as readonly SqlBindable[]);
+  for (const r of rows) out.add(reqN(r.character_id));
+  return out;
+}
+
+/**
+ * Subset of `characterIds` voiced by at least one of `staffIds` across
+ * any cached character_voice_actor row. Powers the character chip's
+ * voice-actor filter.
+ */
+export async function getCharacterIdsVoicedByStaff(
+  db: AnilistDbExecutor,
+  characterIds: readonly number[],
+  staffIds: readonly number[],
+): Promise<Set<number>> {
+  const out = new Set<number>();
+  if (characterIds.length === 0 || staffIds.length === 0) return out;
+  const sql = `
+    SELECT DISTINCT character_id
+      FROM character_voice_actor
+     WHERE character_id IN (${placeholders(characterIds.length)})
+       AND staff_id IN (${placeholders(staffIds.length)})
+  `;
+  const rows = await db.exec(sql, [
+    ...characterIds,
+    ...staffIds,
+  ] as readonly SqlBindable[]);
+  for (const r of rows) out.add(reqN(r.character_id));
+  return out;
+}
+
+/**
+ * Discriminator for the favourites-table helpers below. Avoids passing
+ * a raw table name around (which would invite a SQL injection footgun
+ * and decouple the helper from the static schema).
+ */
+export type FavouriteRankEntity = 'CHARACTERS' | 'STAFF';
+
+function favouriteTableFor(
+  entity: FavouriteRankEntity,
+): { table: string; entityIdCol: string } {
+  if (entity === 'CHARACTERS') {
+    return { table: 'character_favourite', entityIdCol: 'character_id' };
+  }
+  return { table: 'staff_favourite', entityIdCol: 'staff_id' };
+}
+
+/**
+ * Total number of favourites of `entity` for `anilistUserId`. Drives
+ * the favourite-rank chip's slider universe: "you have N favourites,
+ * pick a range from 1 to N". 0 when the user has none cached (or no
+ * user exists) — the chip surfaces that as a "(no favourites cached)"
+ * empty state.
+ */
+export async function getFavouriteCount(
+  db: AnilistDbExecutor,
+  anilistUserId: number,
+  entity: FavouriteRankEntity,
+): Promise<number> {
+  const { table } = favouriteTableFor(entity);
+  const rows = await db.exec(
+    `SELECT COUNT(*) AS n FROM ${table} WHERE anilist_user_id = ?`,
+    [anilistUserId],
+  );
+  if (rows.length === 0) return 0;
+  return reqN(rows[0]!.n);
+}
+
+/**
+ * Look up each id's favourite rank for `anilistUserId`. Returned as
+ * 1-INDEXED ranks (matching what users see in the chip: "top 50" =
+ * ranks 1..50, not 0..49). Ids not in the favourites table are
+ * omitted from the Map — callers treat absence as "not a favourite".
+ *
+ * AniList stores `favouriteOrder` 0-indexed and we cache it verbatim
+ * in `sort_order`. The +1 happens once here so chip code never has to
+ * remember which convention is which.
+ */
+export async function getFavouriteRanksForIds(
+  db: AnilistDbExecutor,
+  anilistUserId: number,
+  entity: FavouriteRankEntity,
+  ids: readonly number[],
+): Promise<Map<number, number>> {
+  const out = new Map<number, number>();
+  if (ids.length === 0) return out;
+  const { table, entityIdCol } = favouriteTableFor(entity);
+  const sql = `
+    SELECT ${entityIdCol} AS entity_id, sort_order
+      FROM ${table}
+     WHERE anilist_user_id = ?
+       AND ${entityIdCol} IN (${placeholders(ids.length)})
+  `;
+  const rows = await db.exec(sql, [
+    anilistUserId,
+    ...ids,
+  ] as readonly SqlBindable[]);
+  for (const r of rows) {
+    out.set(reqN(r.entity_id), reqN(r.sort_order) + 1);
+  }
+  return out;
+}
+
+/**
+ * Subset of `staffIds` that have voiced any character in at least one
+ * of `mediaIds`. Mirror of `getCharacterIdsAppearingInMedia` for the
+ * staff filter module.
+ */
+export async function getStaffIdsVoicedInMedia(
+  db: AnilistDbExecutor,
+  staffIds: readonly number[],
+  mediaIds: readonly number[],
+): Promise<Set<number>> {
+  const out = new Set<number>();
+  if (staffIds.length === 0 || mediaIds.length === 0) return out;
+  const sql = `
+    SELECT DISTINCT staff_id
+      FROM character_voice_actor
+     WHERE staff_id IN (${placeholders(staffIds.length)})
+       AND media_id IN (${placeholders(mediaIds.length)})
+  `;
+  const rows = await db.exec(sql, [
+    ...staffIds,
+    ...mediaIds,
+  ] as readonly SqlBindable[]);
+  for (const r of rows) out.add(reqN(r.staff_id));
+  return out;
+}
+
+// ---------------------------------------------------------------------
 // Production-default helpers
 //
 // Wrap the worker-mediated client so UI surfaces don't need to thread
@@ -846,4 +1206,11 @@ export const productionReads = {
     getVoiceActorsForCandidates(defaultDb(), candidateMediaIds),
   getMediaIdsWithCachedCast: (candidateMediaIds: readonly number[]) =>
     getMediaIdsWithCachedCast(defaultDb(), candidateMediaIds),
+  getFavouriteCount: (anilistUserId: number, entity: FavouriteRankEntity) =>
+    getFavouriteCount(defaultDb(), anilistUserId, entity),
+  getFavouriteRanksForIds: (
+    anilistUserId: number,
+    entity: FavouriteRankEntity,
+    ids: readonly number[],
+  ) => getFavouriteRanksForIds(defaultDb(), anilistUserId, entity, ids),
 };

@@ -142,12 +142,19 @@ function mediaRowToItem(m: MediaRow): Item {
  * list-imported media so the LIST tab's filter chips + detail modal
  * keep working — and the dedup set collapses a media that's BOTH on
  * the user's list AND in their favourites down to one item. CHARACTERS
- * / STAFF / STUDIOS use a kind-prefixed id (`anilist-staff:42`) so a
- * character #100 and a staff #100 don't accidentally collide, and
- * they ship as source-less items (no chip module discovers them — the
- * AniList chips are media-only). They still sort fine and still get
- * a clickable anilist.co url so the user can disambiguate by portrait
- * during sorting.
+ * / STAFF get their own `source.kind` (`anilist-character` / `anilist-
+ * staff`) so the FilterBar partitions them into separate buckets and
+ * routes them to character-/staff-specific filter modules (gender,
+ * favourites, language, etc.) rather than the media chip module
+ * which has no schema overlap. The kind-prefixed id (`anilist-staff:42`)
+ * keeps a character #100 and a staff #100 from colliding in the
+ * staged-items panel.
+ *
+ * STUDIOS stay source-less for now: there's no studio filter module
+ * registered, and `getItemSourceKind` returns 'manual' for items
+ * without a `source` field — so studio favourites just pass through
+ * the filter bar untouched, which is the correct behaviour for an
+ * entity type we don't filter on.
  */
 function favouriteAsItemToItem(
   fa: FavouriteAsItem,
@@ -163,6 +170,26 @@ function favouriteAsItemToItem(
       source: { kind: 'anilist', externalId: fa.externalId },
     };
   }
+  if (type === 'CHARACTERS') {
+    return {
+      id: `anilist-character:${fa.externalId}`,
+      label: fa.label,
+      url,
+      imageUrl: fa.imageUrl ?? undefined,
+      source: { kind: 'anilist-character', externalId: fa.externalId },
+    };
+  }
+  if (type === 'STAFF') {
+    return {
+      id: `anilist-staff:${fa.externalId}`,
+      label: fa.label,
+      url,
+      imageUrl: fa.imageUrl ?? undefined,
+      source: { kind: 'anilist-staff', externalId: fa.externalId },
+    };
+  }
+  // STUDIOS — no filter module registered; ship as source-less so the
+  // FilterBar treats it as manual passthrough.
   const kindSlug = type.toLowerCase();
   return {
     id: `anilist-${kindSlug}:${fa.externalId}`,

@@ -13,7 +13,14 @@
  *   - format          multi-select OR
  *   - year            multi-select OR (media.start_year)
  *   - seasonYear      range slider over (season, season_year) tuples
- *   - score           range slider over mean_score (0..100)
+ *   - score           per-user score on `media_list_entry`. Three-way
+ *                     pill (Any / Only rated / Only unrated) combined
+ *                     with a 1..100 range slider that sub-filters the
+ *                     rated subset. Unrated = no list entry OR
+ *                     `media_list_entry.score = 0` (AniList convention:
+ *                     POINT_100 score of 0 means "not rated"). Chip
+ *                     button label stays "score" — tooltip clarifies
+ *                     it's the USER's score, not community mean_score.
  *   - studio          multi-select OR (matches if media has ANY selected)
  *   - voice actor     multi-select OR (matches if cached cast joins ANY
  *                     selected staff; lazy-loaded — chip exposes a
@@ -46,6 +53,7 @@ import { ANILIST_SOURCE_ID } from './anilistSource';
 import type { AnilistDbExecutor, SqlBindable } from './context';
 import {
   getLatestAnilistUser,
+  getListEntriesByMediaIds,
   getMediaByIds,
   getMediaIdsWithDisallowedListStatus,
   getVoiceActorsForCandidates,
@@ -91,8 +99,24 @@ export interface AnilistFilterChipState extends FilterChipState {
   // this chip — semantics is "exclude entries whose status is NOT
   // in this set", not "require a list entry of this status".
   listStatuses: AnilistMediaListStatus[];
-  // Score range on media.mean_score (0..100). Null bound = unbounded
-  // on that side. Both null = chip off.
+  // Per-user score on `media_list_entry`. Three orthogonal knobs:
+  //   - userScoreInclude:
+  //       'any'     — no rated/unrated filter (default)
+  //       'rated'   — only items with score > 0 pass (drops unrated +
+  //                   items without a list entry at all)
+  //       'unrated' — only items with score === 0 OR no list entry
+  //                   pass (sub-slider is ignored in this bucket)
+  //   - scoreMin / scoreMax: 1..100 inclusive range within the RATED
+  //     subset. Null bound = unbounded on that side. Slider edge (1
+  //     for min, 100 for max) collapses to null so the chip turns
+  //     off naturally. The range never applies to unrated items —
+  //     they're routed by the pill, not the slider.
+  // Items WITHOUT a media_list_entry row (e.g. favourites-only
+  // imports for a different user) are treated as unrated by the pill
+  // — same convention the user would expect ("I haven't scored
+  // this"), and parallel to how the listStatuses chip lets entry-less
+  // items pass through.
+  userScoreInclude: 'any' | 'rated' | 'unrated';
   scoreMin: number | null;
   scoreMax: number | null;
   // Season-year range over (season, season_year) tuples, encoded as
@@ -203,6 +227,7 @@ export const ANILIST_INITIAL_CHIP_STATE: AnilistFilterChipState = {
   tagMinRank: 0,
   tagExclude: [],
   listStatuses: DEFAULT_ALLOWED_LIST_STATUSES,
+  userScoreInclude: 'any',
   scoreMin: null,
   scoreMax: null,
   seasonYearMin: null,
@@ -275,16 +300,10 @@ export function buildAnilistFilterSql(
     params.push(...state.statuses);
   }
 
-  // Score range. Each bound is emitted independently so a one-sided
-  // range (only min OR only max set) doesn't require a magic sentinel.
-  if (state.scoreMin !== null) {
-    clauses.push(`m.mean_score >= ?`);
-    params.push(state.scoreMin);
-  }
-  if (state.scoreMax !== null) {
-    clauses.push(`m.mean_score <= ?`);
-    params.push(state.scoreMax);
-  }
+  // User-score range + rated/unrated pill: per-user, applied post-SQL
+  // by `computeAllowedMediaIds` (it needs a user id from
+  // getLatestAnilistUser, same precedence as the listStatuses chip).
+  // Intentionally NOT emitted here so the builder stays pure.
 
   // Season-year range. Both bounds compare against the encoded
   // (year*4 + season_idx) expression; rows missing season or
@@ -392,6 +411,11 @@ export function buildAnilistFilterSql(
  * For range chips (`scoreMin/Max`, `seasonYearMin/Max`): both bounds
  * null ⇒ passthrough. Either bound set ⇒ active.
  *
+ * For the user-score chip: passthrough iff `userScoreInclude === 'any'`
+ * AND the slider bounds are both null. `'rated'` / `'unrated'` are
+ * active by themselves even with a null range — the pill is the
+ * dominant control.
+ *
  * For `voiceActorIds`: empty array ⇒ passthrough. Any non-empty
  * selection is active even if every cached VA is selected — there's
  * no "universe size" we can compare against because the cast cache
@@ -401,7 +425,10 @@ export function isInitialState(state: AnilistFilterChipState): boolean {
   const listStatusActive =
     state.listStatuses.length > 0 &&
     state.listStatuses.length < ALL_LIST_STATUSES.length;
-  const scoreActive = state.scoreMin !== null || state.scoreMax !== null;
+  const userScoreActive =
+    state.userScoreInclude !== 'any' ||
+    state.scoreMin !== null ||
+    state.scoreMax !== null;
   const seasonYearActive =
     state.seasonYearMin !== null || state.seasonYearMax !== null;
   return (
@@ -414,7 +441,7 @@ export function isInitialState(state: AnilistFilterChipState): boolean {
     state.tagExclude.length === 0 &&
     state.voiceActorIds.length === 0 &&
     !listStatusActive &&
-    !scoreActive &&
+    !userScoreActive &&
     !seasonYearActive
   );
 }
@@ -456,13 +483,32 @@ export async function computeAllowedMediaIds(
   const listStatusActive =
     state.listStatuses.length > 0 &&
     state.listStatuses.length < ALL_LIST_STATUSES.length;
+  const userScoreActive =
+    state.userScoreInclude !== 'any' ||
+    state.scoreMin !== null ||
+    state.scoreMax !== null;
+
+  // Both per-user filters need the latest user id — fetch once and
+  // share across stages. If there's no anilist_user row at all (stale
+  // shared DB, new install, etc.) we fail OPEN for the list-status
+  // chip and the user-score chip alike: better to show too much than
+  // to silently render "0 items" when the real cause is missing user
+  // context, not a real filter mismatch.
+  let cachedUserId: number | null | undefined;
+  async function getUserId(): Promise<number | null> {
+    if (cachedUserId !== undefined) return cachedUserId;
+    const user = await getLatestAnilistUser(defaultDbForFilters());
+    cachedUserId = user ? user.id : null;
+    return cachedUserId;
+  }
+
   if (listStatusActive) {
     const db = defaultDbForFilters();
-    const user = await getLatestAnilistUser(db);
-    if (user) {
+    const userId = await getUserId();
+    if (userId !== null) {
       const disallowed = await getMediaIdsWithDisallowedListStatus(
         db,
-        user.id,
+        userId,
         state.listStatuses,
         candidateMediaIds,
       );
@@ -474,10 +520,47 @@ export async function computeAllowedMediaIds(
         allowed = filtered;
       }
     }
-    // No user -> can't evaluate per-user list_entry; leave `allowed`
-    // alone (fail open — better to show too much than to show "0
-    // items" when the real cause is a stale shared DB with no
-    // anilist_user rows).
+  }
+
+  // Stage 3: per-user score filter (rated/unrated pill + 1..100 range
+  // within the rated subset). Items without a media_list_entry row
+  // are treated as unrated — that mirrors what the user perceives
+  // ("I haven't scored this") and is symmetric with how listStatuses
+  // lets entry-less items pass through.
+  if (userScoreActive && allowed.size > 0) {
+    const userId = await getUserId();
+    if (userId !== null) {
+      // Only query for the ids still in the allowed set after stage 2
+      // — no point asking about ids the listStatuses chip already
+      // dropped. (Empty allowed set returns Map() immediately.)
+      const allowedIds = Array.from(allowed);
+      const entries = await getListEntriesByMediaIds(
+        defaultDbForFilters(),
+        userId,
+        allowedIds,
+      );
+      const filtered = new Set<number>();
+      for (const id of allowed) {
+        const entry = entries.get(id);
+        // AniList POINT_100 convention: 0 means "unrated"; an entry
+        // with score > 0 is "rated". An entirely absent entry is
+        // also "unrated" per the favourites-only convention above.
+        const score = entry?.score ?? 0;
+        const isRated = score > 0;
+
+        if (state.userScoreInclude === 'rated' && !isRated) continue;
+        if (state.userScoreInclude === 'unrated' && isRated) continue;
+
+        // Range only applies inside the rated bucket; unrated items
+        // that survive the pill always pass the range stage.
+        if (isRated) {
+          if (state.scoreMin !== null && score < state.scoreMin) continue;
+          if (state.scoreMax !== null && score > state.scoreMax) continue;
+        }
+        filtered.add(id);
+      }
+      allowed = filtered;
+    }
   }
 
   return allowed;
@@ -529,7 +612,7 @@ function patchState(
   return { ...current, ...patch };
 }
 
-function toggleInArray<T>(arr: readonly T[], value: T): T[] {
+export function toggleInArray<T>(arr: readonly T[], value: T): T[] {
   return arr.includes(value)
     ? arr.filter((x) => x !== value)
     : [...arr, value];
@@ -662,7 +745,7 @@ async function loadChipOptions(
   };
 }
 
-function MultiSelectChip<T extends string | number>({
+export function MultiSelectChip<T extends string | number>({
   label,
   options,
   selected,
@@ -832,7 +915,7 @@ function MultiSelectChip<T extends string | number>({
  * clicks land on whichever thumb the cursor is over (the underlying
  * fill/track are decoration only).
  */
-function DualRangeSlider({
+export function DualRangeSlider({
   min,
   max,
   step = 1,
@@ -1095,30 +1178,64 @@ function SeasonYearChip({
 }
 
 /**
- * Range chip for `mean_score` (0..100). Dual-handle slider flanked by
- * number inputs at each end; typing in an input updates the slider
- * and dragging the slider updates the input. Either bound at its
- * extreme (0 for min, 100 for max) collapses to `null` so the chip
- * naturally toggles off — semantically equivalent to "no bound on
- * this side".
+ * Per-user-score chip. The label stays "score" (the user has it
+ * memorised) but the underlying semantics filter on the USER's own
+ * AniList score, not the community `mean_score`. A tooltip on the
+ * chip button clarifies this when the user hovers.
+ *
+ * Two layered controls:
+ *   1. Tri-state pill: Any / Only rated / Only unrated. This is the
+ *      dominant control — it routes items into the rated vs unrated
+ *      bucket BEFORE the slider is evaluated. "Only unrated" disables
+ *      the slider (it'd be meaningless — unrated items have score 0
+ *      by definition).
+ *   2. Dual-handle range slider (1..100) flanked by typed inputs.
+ *      Only filters the rated bucket. The slider universe starts at 1
+ *      because score=0 means "unrated" — that case is handled by the
+ *      pill, not the range. Slider edges (1 for min, 100 for max)
+ *      collapse to null so the chip naturally turns off when dragged
+ *      to the extreme.
  */
 function ScoreRangeChip({
+  pill,
   min,
   max,
   onChange,
 }: {
+  pill: AnilistFilterChipState['userScoreInclude'];
   min: number | null;
   max: number | null;
-  onChange: (patch: { scoreMin: number | null; scoreMax: number | null }) => void;
+  onChange: (
+    patch: Partial<
+      Pick<AnilistFilterChipState, 'userScoreInclude' | 'scoreMin' | 'scoreMax'>
+    >,
+  ) => void;
 }): ReactNode {
-  const SLIDER_MIN = 0;
+  const SLIDER_MIN = 1;
   const SLIDER_MAX = 100;
 
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   useClickOutside(rootRef, open, () => setOpen(false));
-  const active = min !== null || max !== null;
-  const label = active ? `score · ${rangeLabel(min, max, String)}` : 'score';
+  const rangeActive = min !== null || max !== null;
+  const pillActive = pill !== 'any';
+  const active = pillActive || rangeActive;
+
+  // Pill takes precedence in the chip's short label: "score · rated"
+  // is more informative than "score · 60–80" when both are set, and
+  // the user can see the range expanded in the menu anyway.
+  let label = 'score';
+  if (pill === 'rated') {
+    label = rangeActive
+      ? `score · rated, ${rangeLabel(min, max, String)}`
+      : 'score · rated';
+  } else if (pill === 'unrated') {
+    label = 'score · unrated';
+  } else if (rangeActive) {
+    label = `score · ${rangeLabel(min, max, String)}`;
+  }
+
+  const sliderDisabled = pill === 'unrated';
   const lo = min ?? SLIDER_MIN;
   const hi = max ?? SLIDER_MAX;
 
@@ -1148,8 +1265,8 @@ function ScoreRangeChip({
       setMinText(min === null ? '' : String(min));
       return;
     }
-    // Collapse the slider edge (0) to null so the chip naturally
-    // turns off — `>= 0` is a no-op filter on a 0..100 range.
+    // Collapse the slider edge (1) to null so the chip naturally
+    // turns off — `>= 1` is a no-op filter on a 1..100 range.
     const collapsed = parsed === SLIDER_MIN ? null : parsed;
     // Don't let a typed min silently overshoot the current max — push
     // max up to match so the user's range is still self-consistent.
@@ -1182,13 +1299,62 @@ function ScoreRangeChip({
         className="filter-chip-button"
         aria-expanded={open}
         onClick={() => setOpen((x) => !x)}
-        title="Filter by mean_score range (0–100)"
+        title={'user score — your personal score from your AniList list (1–100). Items with score 0 or no list entry are unrated.'}
       >
         {label}
       </button>
       {open && (
         <div className="filter-chip-menu filter-chip-menu-wide" role="menu">
-          <div className="filter-chip-slider-row">
+          {/* Pill: Any / Only rated / Only unrated. The dominant
+              control — narrows or excludes the rated/unrated buckets
+              before the slider applies. */}
+          <div className="filter-chip-range-row">
+            <span>show</span>
+            <div className="filter-chip-segmented">
+              <button
+                type="button"
+                className={pill === 'any' ? 'active' : ''}
+                onClick={() => onChange({ userScoreInclude: 'any' })}
+                title="Don't filter by rated / unrated"
+              >
+                Any
+              </button>
+              <button
+                type="button"
+                className={pill === 'rated' ? 'active' : ''}
+                onClick={() => onChange({ userScoreInclude: 'rated' })}
+                title="Only items with a score > 0 in your AniList list"
+              >
+                Only rated
+              </button>
+              <button
+                type="button"
+                className={pill === 'unrated' ? 'active' : ''}
+                onClick={() =>
+                  // Going to "unrated" zeros the range — the slider is
+                  // meaningless for unrated items, so persisting stale
+                  // bounds would create a confusing "score · unrated,
+                  // 60–80" label.
+                  onChange({
+                    userScoreInclude: 'unrated',
+                    scoreMin: null,
+                    scoreMax: null,
+                  })
+                }
+                title="Only items you haven't scored yet (or that aren't on your list)"
+              >
+                Only unrated
+              </button>
+            </div>
+          </div>
+          <div
+            className={`filter-chip-slider-row ${sliderDisabled ? 'filter-chip-disabled' : ''}`}
+            title={
+              sliderDisabled
+                ? 'Range is ignored when showing only unrated items'
+                : undefined
+            }
+          >
             <input
               type="number"
               min={SLIDER_MIN}
@@ -1201,8 +1367,9 @@ function ScoreRangeChip({
                 if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
               }}
               className="filter-chip-slider-input"
-              placeholder="0"
+              placeholder={String(SLIDER_MIN)}
               aria-label="score minimum"
+              disabled={sliderDisabled}
             />
             <DualRangeSlider
               min={SLIDER_MIN}
@@ -1224,17 +1391,24 @@ function ScoreRangeChip({
                 if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
               }}
               className="filter-chip-slider-input"
-              placeholder="100"
+              placeholder={String(SLIDER_MAX)}
               aria-label="score maximum"
+              disabled={sliderDisabled}
             />
           </div>
           {active && (
             <button
               type="button"
               className="filter-chip-action"
-              onClick={() => onChange({ scoreMin: null, scoreMax: null })}
+              onClick={() =>
+                onChange({
+                  userScoreInclude: 'any',
+                  scoreMin: null,
+                  scoreMax: null,
+                })
+              }
             >
-              Clear range
+              Clear
             </button>
           )}
         </div>
@@ -1245,7 +1419,7 @@ function ScoreRangeChip({
 
 /** "60-90" / "≥ 60" / "≤ 90" depending on which bounds are present.
  *  Assumes the caller has already filtered out the both-null case. */
-function rangeLabel<T>(
+export function rangeLabel<T>(
   min: T | null,
   max: T | null,
   format: (v: T) => string,
@@ -1624,6 +1798,7 @@ function AnilistChips({
         onChange={(patch) => set(patch)}
       />
       <ScoreRangeChip
+        pill={state.userScoreInclude}
         min={state.scoreMin}
         max={state.scoreMax}
         onChange={(patch) => set(patch)}

@@ -20,7 +20,16 @@ export type ItemId = string;
  */
 export type ItemSource =
   | { kind: 'manual' }
-  | { kind: 'anilist'; externalId: number };
+  | { kind: 'anilist'; externalId: number }
+  // Character + staff favourites from AniList are tracked as their own
+  // source kinds so the FilterBar can register distinct chip modules
+  // for them — character-vs-media filters share no schema (genre /
+  // mean_score / studio don't exist for characters), and routing
+  // through the same 'anilist' module would force one giant union
+  // chip-state instead of two focused ones. externalId is the
+  // AniList CHARACTER.id / STAFF.id respectively.
+  | { kind: 'anilist-character'; externalId: number }
+  | { kind: 'anilist-staff'; externalId: number };
 
 export interface Item {
   id: ItemId;

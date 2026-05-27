@@ -255,33 +255,28 @@ describe('buildAnilistFilterSql', () => {
     expect(out!.params).toEqual([1, 2020, 2021, 'TV', 'MOVIE', 'FINISHED']);
   });
 
-  // --- score range ---
+  // --- user-score chip is post-SQL ---
+  //
+  // Score now filters the USER's own media_list_entry.score (and the
+  // rated/unrated pill), not media.mean_score. That's per-user and
+  // applied in computeAllowedMediaIds — the builder must stay silent
+  // about it, exactly like listStatuses.
 
-  it('scoreMin alone emits m.mean_score >= ? with just the min bound', () => {
-    const out = buildAnilistFilterSql([1], chips({ scoreMin: 60 }));
-    expect(out).not.toBeNull();
-    expect(out!.sql).toMatch(/m\.mean_score >= \?/);
-    expect(out!.sql).not.toMatch(/m\.mean_score <=/);
-    expect(out!.params).toEqual([1, 60]);
-  });
-
-  it('scoreMax alone emits m.mean_score <= ? with just the max bound', () => {
-    const out = buildAnilistFilterSql([1], chips({ scoreMax: 90 }));
-    expect(out).not.toBeNull();
-    expect(out!.sql).toMatch(/m\.mean_score <= \?/);
-    expect(out!.sql).not.toMatch(/m\.mean_score >=/);
-    expect(out!.params).toEqual([1, 90]);
-  });
-
-  it('scoreMin and scoreMax emit BOTH bound clauses (acts as BETWEEN)', () => {
+  it('scoreMin / scoreMax are NOT emitted by the SQL builder (handled post-SQL)', () => {
     const out = buildAnilistFilterSql(
-      [1],
+      [1, 2],
       chips({ scoreMin: 60, scoreMax: 90 }),
     );
-    expect(out).not.toBeNull();
-    expect(out!.sql).toMatch(/m\.mean_score >= \?/);
-    expect(out!.sql).toMatch(/m\.mean_score <= \?/);
-    expect(out!.params).toEqual([1, 60, 90]);
+    expect(out).toBeNull();
+  });
+
+  it('userScoreInclude is NOT emitted by the SQL builder (handled post-SQL)', () => {
+    expect(
+      buildAnilistFilterSql([1], chips({ userScoreInclude: 'rated' })),
+    ).toBeNull();
+    expect(
+      buildAnilistFilterSql([1], chips({ userScoreInclude: 'unrated' })),
+    ).toBeNull();
   });
 
   // --- seasonYear range ---
@@ -392,6 +387,15 @@ describe('isInitialState (passthrough)', () => {
   it('treats a non-null score bound as active', () => {
     expect(isInitialState(chips({ listStatuses: [], scoreMin: 60 }))).toBe(false);
     expect(isInitialState(chips({ listStatuses: [], scoreMax: 90 }))).toBe(false);
+  });
+
+  it('treats a non-"any" userScoreInclude pill as active even without a range', () => {
+    expect(
+      isInitialState(chips({ listStatuses: [], userScoreInclude: 'rated' })),
+    ).toBe(false);
+    expect(
+      isInitialState(chips({ listStatuses: [], userScoreInclude: 'unrated' })),
+    ).toBe(false);
   });
 
   it('treats a non-null seasonYear bound as active', () => {
@@ -543,23 +547,54 @@ describe('computeAllowedMediaIds', () => {
     expect(Array.from(allowed)).toEqual([2]);
   });
 
-  // --- score range ---
+  // --- user-score range + rated/unrated pill (per-user, post-SQL) ---
+  //
+  // Score now filters on the latest anilist_user's media_list_entry.score
+  // (not media.mean_score). 0-score and absent list entries are treated
+  // as "unrated". A few helper seeds are inlined here so each test is
+  // self-contained.
 
-  it('scoreMin filters out rows whose mean_score is below the lower bound', async () => {
-    seedMedia(db, 1, { mean_score: 50 });
-    seedMedia(db, 2, { mean_score: 75 });
-    seedMedia(db, 3, { mean_score: 90 });
+  function seedUserScore(
+    userId: number,
+    mediaId: number,
+    score: number,
+  ): void {
+    db.exec(
+      `INSERT INTO media_list_entry (
+        anilist_user_id, media_id, score, status, repeat,
+        started_year, started_month, started_day,
+        completed_year, completed_month, completed_day,
+        anilist_created_at, anilist_updated_at, fetched_at, updated_at
+      ) VALUES (?, ?, ?, 'COMPLETED', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, 0, 0)`,
+      { bind: [userId, mediaId, score] } as never,
+    );
+  }
+
+  it('scoreMin filters out rated entries whose user score is below the lower bound', async () => {
+    seedMedia(db, 1);
+    seedMedia(db, 2);
+    seedMedia(db, 3);
+    seedUser(db, 999, 'me');
+    seedUserScore(999, 1, 50);
+    seedUserScore(999, 2, 75);
+    seedUserScore(999, 3, 90);
     const allowed = await computeAllowedMediaIds(
       [1, 2, 3],
+      // userScoreInclude:'any' + range — items in range pass, but
+      // unrated items would ALSO pass (none here, all three are rated).
       chips({ scoreMin: 70 }),
     );
     expect(Array.from(allowed).sort((a, b) => a - b)).toEqual([2, 3]);
   });
 
-  it('scoreMax filters out rows above the upper bound', async () => {
-    seedMedia(db, 1, { mean_score: 50 });
-    seedMedia(db, 2, { mean_score: 75 });
-    seedMedia(db, 3, { mean_score: 90 });
+  it('scoreMax filters out rated entries above the upper bound', async () => {
+    seedMedia(db, 1);
+    seedMedia(db, 2);
+    seedMedia(db, 3);
+    seedUser(db, 999, 'me');
+    seedUserScore(999, 1, 50);
+    seedUserScore(999, 2, 75);
+    seedUserScore(999, 3, 90);
     const allowed = await computeAllowedMediaIds(
       [1, 2, 3],
       chips({ scoreMax: 80 }),
@@ -567,13 +602,78 @@ describe('computeAllowedMediaIds', () => {
     expect(Array.from(allowed).sort((a, b) => a - b)).toEqual([1, 2]);
   });
 
-  it('scoreMin AND scoreMax act as inclusive BETWEEN (drops rows w/ NULL mean_score)', async () => {
-    seedMedia(db, 1, { mean_score: 65 });
-    seedMedia(db, 2, { mean_score: 80 });
-    seedMedia(db, 3, { mean_score: null }); // unrated -> excluded by either bound
+  it('scoreMin+scoreMax acts as BETWEEN on rated entries; unrated entries pass when pill="any"', async () => {
+    seedMedia(db, 1);
+    seedMedia(db, 2);
+    seedMedia(db, 3); // no list entry → unrated
+    seedMedia(db, 4);
+    seedUser(db, 999, 'me');
+    seedUserScore(999, 1, 65);
+    seedUserScore(999, 2, 80);
+    seedUserScore(999, 4, 0); // explicit 0 → also unrated
+    const allowed = await computeAllowedMediaIds(
+      [1, 2, 3, 4],
+      chips({ scoreMin: 60, scoreMax: 90 }),
+    );
+    // 1+2 pass via range; 3+4 pass because pill is "any" (unrated
+    // items aren't affected by the range filter).
+    expect(Array.from(allowed).sort((a, b) => a - b)).toEqual([1, 2, 3, 4]);
+  });
+
+  it('pill="rated" drops unrated AND entry-less items', async () => {
+    seedMedia(db, 1);
+    seedMedia(db, 2); // no list entry → unrated
+    seedMedia(db, 3);
+    seedUser(db, 999, 'me');
+    seedUserScore(999, 1, 70);
+    seedUserScore(999, 3, 0); // explicit 0 → unrated
     const allowed = await computeAllowedMediaIds(
       [1, 2, 3],
-      chips({ scoreMin: 60, scoreMax: 90 }),
+      chips({ userScoreInclude: 'rated' }),
+    );
+    expect(Array.from(allowed)).toEqual([1]);
+  });
+
+  it('pill="rated" combines with the range slider (BETWEEN on rated subset)', async () => {
+    seedMedia(db, 1);
+    seedMedia(db, 2);
+    seedMedia(db, 3);
+    seedUser(db, 999, 'me');
+    seedUserScore(999, 1, 65);
+    seedUserScore(999, 2, 80);
+    seedUserScore(999, 3, 95);
+    const allowed = await computeAllowedMediaIds(
+      [1, 2, 3],
+      chips({ userScoreInclude: 'rated', scoreMin: 70, scoreMax: 90 }),
+    );
+    expect(Array.from(allowed)).toEqual([2]);
+  });
+
+  it('pill="unrated" keeps ONLY items with no list entry or score === 0', async () => {
+    seedMedia(db, 1);
+    seedMedia(db, 2);
+    seedMedia(db, 3);
+    seedMedia(db, 4);
+    seedUser(db, 999, 'me');
+    seedUserScore(999, 1, 80); // rated → dropped
+    // id 2: no entry → unrated → keep
+    seedUserScore(999, 3, 0); // explicit 0 → unrated → keep
+    seedUserScore(999, 4, 1); // rated → dropped (edge: score=1 is rated)
+    const allowed = await computeAllowedMediaIds(
+      [1, 2, 3, 4],
+      chips({ userScoreInclude: 'unrated' }),
+    );
+    expect(Array.from(allowed).sort((a, b) => a - b)).toEqual([2, 3]);
+  });
+
+  it('user-score filter with no anilist_user known degrades to passthrough (no false zeros)', async () => {
+    seedMedia(db, 1);
+    seedMedia(db, 2);
+    // No user seeded. The chip can't be evaluated; fail open so we
+    // don't show "0 items" when the real cause is a stale DB.
+    const allowed = await computeAllowedMediaIds(
+      [1, 2],
+      chips({ userScoreInclude: 'rated', scoreMin: 60 }),
     );
     expect(Array.from(allowed).sort((a, b) => a - b)).toEqual([1, 2]);
   });
@@ -649,32 +749,34 @@ describe('computeAllowedMediaIds', () => {
     seedMedia(db, 1, { mean_score: 80 });
     seedUser(db, 999, 'me');
     seedListEntry(db, 999, 1, 'PLANNING');
-    // Empty listStatuses must NOT filter. Combine with a non-default
-    // bound on another chip so isInitialState() returns false and
-    // computeAllowedMediaIds doesn't take the all-passthrough
-    // early-return for unrelated reasons — this isolates the
-    // listStatuses=[] semantics from the early-exit.
+    // Empty listStatuses must NOT filter. Pair with a non-default
+    // genre so isInitialState() returns false and we exercise the
+    // real filtering path (not the all-passthrough early-return).
+    seedMedia(db, 2, { genres_json: '["Action"]' });
     const allowed = await computeAllowedMediaIds(
-      [1],
-      chips({ listStatuses: [], scoreMin: 0 }),
+      [1, 2],
+      chips({ listStatuses: [], genres: ['Action'] }),
     );
-    expect(Array.from(allowed)).toEqual([1]);
+    // Only id 2 matches the genre; id 1 is dropped by the genre
+    // filter, not by listStatuses (which is intentionally inactive).
+    expect(Array.from(allowed)).toEqual([2]);
   });
 
   it('listStatuses with all 6 selected is passthrough (no filtering)', async () => {
     seedMedia(db, 1, { mean_score: 80 });
     seedUser(db, 999, 'me');
     seedListEntry(db, 999, 1, 'PLANNING');
-    // All 6 = "let everything through". Pair with another active
-    // chip for the same isolation reason as the previous test.
+    seedMedia(db, 2, { genres_json: '["Action"]' });
+    // All 6 = "let everything through". Pair with a genre filter for
+    // the same isolation reason as the previous test.
     const allowed = await computeAllowedMediaIds(
-      [1],
+      [1, 2],
       chips({
         listStatuses: [...ALL_LIST_STATUSES],
-        scoreMin: 0,
+        genres: ['Action'],
       }),
     );
-    expect(Array.from(allowed)).toEqual([1]);
+    expect(Array.from(allowed)).toEqual([2]);
   });
 
   it('listStatuses with no anilist_user known degrades to passthrough (no false zeros)', async () => {
