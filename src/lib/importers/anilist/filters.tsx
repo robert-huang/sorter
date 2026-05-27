@@ -61,6 +61,7 @@ import {
 } from './readQueries';
 import { runAnilistMediaLazyExpansion } from './runners';
 import type {
+  AnilistCharacterRole,
   AnilistMediaFormat,
   AnilistMediaListStatus,
   AnilistMediaSeason,
@@ -133,6 +134,16 @@ export interface AnilistFilterChipState extends FilterChipState {
   // "Fetch cast for all N shows" button) — see anilist plan §A for
   // the lazy-expansion contract.
   voiceActorIds: number[];
+  // Optional character-role refinement on the VA chip. Empty = no
+  // role restriction (any role passes). Non-empty = the VA must
+  // appear in a character whose `media_character.role` is in this
+  // set. Characters with `role IS NULL` are EXCLUDED when this is
+  // non-empty (SQL `IN (...)` naturally drops nulls, which matches
+  // the desired UX: roleless rows are too ambiguous to honor a
+  // role filter for). Only meaningful alongside `voiceActorIds`;
+  // setting roles without selecting any VA is a no-op (the chip's
+  // EXISTS clause doesn't fire at all in that case).
+  voiceActorRoles: AnilistCharacterRole[];
 }
 
 /** Default `listStatuses` selection. Exported so the chip UI and
@@ -233,7 +244,17 @@ export const ANILIST_INITIAL_CHIP_STATE: AnilistFilterChipState = {
   seasonYearMin: null,
   seasonYearMax: null,
   voiceActorIds: [],
+  voiceActorRoles: [],
 };
+
+/** Full universe of AniList CharacterRole enum values. Exported so
+ *  the chip UI and tests share one source of truth. Order mirrors
+ *  AniList's own "primary cast first" presentation. */
+export const ALL_CHARACTER_ROLES: AnilistCharacterRole[] = [
+  'MAIN',
+  'SUPPORTING',
+  'BACKGROUND',
+];
 
 // ---------------------------------------------------------------------
 // SQL builder
@@ -367,15 +388,40 @@ export function buildAnilistFilterSql(
   // expand button) won't have character_voice_actor rows yet, so
   // they correctly NOT match. The chip UI surfaces the count of
   // uncached candidates so this isn't a silent footgun.
+  //
+  // Defensive `?? []`: `voiceActorRoles` was added after the chip
+  // shipped, so an older persisted slot state may omit it. Treating
+  // it as empty preserves the v1 behaviour (any role passes).
   if (state.voiceActorIds.length > 0) {
-    clauses.push(
-      `EXISTS (
-        SELECT 1 FROM character_voice_actor cva
-        WHERE cva.media_id = m.id
-          AND cva.staff_id IN (${placeholders(state.voiceActorIds.length)})
-      )`,
-    );
-    params.push(...state.voiceActorIds);
+    const roles = state.voiceActorRoles ?? [];
+    if (roles.length > 0) {
+      // Role refinement: JOIN media_character to constrain the
+      // matched character's role. `mc.role IN (...)` naturally
+      // drops `role IS NULL` rows because SQL `NULL` never equals
+      // any literal — that's the intended UX (roleless characters
+      // don't honor a role filter when one is set).
+      clauses.push(
+        `EXISTS (
+          SELECT 1 FROM character_voice_actor cva
+          JOIN media_character mc
+            ON mc.media_id = cva.media_id
+           AND mc.character_id = cva.character_id
+          WHERE cva.media_id = m.id
+            AND cva.staff_id IN (${placeholders(state.voiceActorIds.length)})
+            AND mc.role IN (${placeholders(roles.length)})
+        )`,
+      );
+      params.push(...state.voiceActorIds, ...roles);
+    } else {
+      clauses.push(
+        `EXISTS (
+          SELECT 1 FROM character_voice_actor cva
+          WHERE cva.media_id = m.id
+            AND cva.staff_id IN (${placeholders(state.voiceActorIds.length)})
+        )`,
+      );
+      params.push(...state.voiceActorIds);
+    }
   }
 
   if (clauses.length === 0) return null;
@@ -1531,6 +1577,8 @@ function VoiceActorChip({
   options,
   selected,
   onToggle,
+  selectedRoles,
+  onToggleRole,
   cachedCount,
   totalCount,
   onBulkExpand,
@@ -1539,6 +1587,9 @@ function VoiceActorChip({
   options: readonly VoiceActorOption[];
   selected: readonly number[];
   onToggle: (id: number) => void;
+  /** Active role refinement. Empty = "any role". */
+  selectedRoles: readonly AnilistCharacterRole[];
+  onToggleRole: (role: AnilistCharacterRole) => void;
   cachedCount: number;
   totalCount: number;
   onBulkExpand: () => void;
@@ -1558,6 +1609,17 @@ function VoiceActorChip({
     : unselectedOptions;
 
   const count = selected.length;
+  const roleSet = new Set(selectedRoles);
+  // Chip-summary suffix mirrors the popover state: VA count plus,
+  // when role refinement is active, a compact tag like "·MAIN".
+  // Showing it on the button (not just in the menu) prevents the
+  // user from forgetting an active role filter after closing.
+  const roleSummary =
+    selectedRoles.length === 0
+      ? ''
+      : ` · ${selectedRoles
+          .map((r) => r.slice(0, 3).toUpperCase())
+          .join('+')}`;
   const uncachedCount = Math.max(0, totalCount - cachedCount);
   return (
     <div
@@ -1573,9 +1635,37 @@ function VoiceActorChip({
       >
         voice actor
         {count > 0 ? ` · ${count}` : ''}
+        {roleSummary}
       </button>
       {open && (
         <div className="filter-chip-menu" role="menu">
+          {/* Role refinement: a 3-button pill row that scopes the
+              VA filter to only characters of the selected roles.
+              Empty selection = "any role" passthrough. Always
+              visible (even with zero VAs selected) so the user can
+              pre-arm a role filter before picking VAs without it
+              feeling like a hidden control. */}
+          <div className="filter-chip-role-row">
+            {ALL_CHARACTER_ROLES.map((role) => {
+              const isOn = roleSet.has(role);
+              return (
+                <button
+                  key={role}
+                  type="button"
+                  className={`filter-chip-role-pill ${isOn ? 'on' : ''}`}
+                  aria-pressed={isOn}
+                  onClick={() => onToggleRole(role)}
+                  title={
+                    isOn
+                      ? `Remove ${role} from role filter`
+                      : `Only count this VA's ${role} characters`
+                  }
+                >
+                  {role}
+                </button>
+              );
+            })}
+          </div>
           <input
             type="search"
             className="filter-chip-search"
@@ -1822,6 +1912,16 @@ function AnilistChips({
         selected={state.voiceActorIds}
         onToggle={(id) =>
           set({ voiceActorIds: toggleInArray(state.voiceActorIds, id) })
+        }
+        // Defensive `?? []`: persisted slot state from before this
+        // field shipped will be missing `voiceActorRoles`. Reading
+        // through a fallback keeps the chip working until the next
+        // patch overwrites it with a real array.
+        selectedRoles={state.voiceActorRoles ?? []}
+        onToggleRole={(role) =>
+          set({
+            voiceActorRoles: toggleInArray(state.voiceActorRoles ?? [], role),
+          })
         }
         cachedCount={options.cachedCastMediaIds.size}
         totalCount={externalIdsArray.length}

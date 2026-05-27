@@ -282,16 +282,40 @@ export function mapStaffRow(s: AnilistStaffGql, now: number): StaffRow {
  * connection ordering (which already encodes ROLE → RELEVANCE → ID per
  * the sort argument).
  */
+/**
+ * Junction rows for media → character. PK is (media_id, character_id),
+ * so the mapper must emit at most one row per character_id even when
+ * the upstream `edges` array repeats one.
+ *
+ * AniList's `Media.characters` connection paginates with a non-stable
+ * sort under ties (role + favourites), so the same character edge can
+ * legitimately appear across two pages — fetched contiguously by
+ * `lazyExpansion.ts`, then handed here as one merged array. Without
+ * dedup the rebuild transaction would fail with SQLITE_CONSTRAINT_PRIMARYKEY
+ * on the first repeat and roll the whole expansion back.
+ *
+ * Keep the FIRST occurrence (and its sort_order) so the order on screen
+ * matches the order AniList showed first — later pages re-show the same
+ * character later in the merged list, which would push primary cast to
+ * the bottom if "last wins" were used instead.
+ */
 export function mapMediaCharacterRows(
   mediaId: number,
   edges: AnilistMediaCharacterEdgeGql[],
 ): MediaCharacterRow[] {
-  return edges.map((e, idx) => ({
-    media_id: mediaId,
-    character_id: e.node.id,
-    role: e.role ?? null,
-    sort_order: idx,
-  }));
+  const seen = new Set<number>();
+  const rows: MediaCharacterRow[] = [];
+  for (const [idx, e] of edges.entries()) {
+    if (seen.has(e.node.id)) continue;
+    seen.add(e.node.id);
+    rows.push({
+      media_id: mediaId,
+      character_id: e.node.id,
+      role: e.role ?? null,
+      sort_order: idx,
+    });
+  }
+  return rows;
 }
 
 /**
@@ -302,6 +326,24 @@ export function mapMediaCharacterRows(
  * derive from one resolved value, so the DB row label can't drift from
  * what the server actually returned. Edges with empty `voiceActors`
  * arrays are simply skipped — no junction row for them.
+ *
+ * PK is (media_id, character_id, staff_id, language); the mapper must
+ * emit a unique row per (character_id, staff_id) within a single call
+ * (the `language` argument is fixed, and `mediaId` is fixed). Two known
+ * sources of duplicates:
+ *   1. AniList returning the same VA twice inside ONE character's
+ *      `voiceActors` array. A real API quirk we've hit in the wild
+ *      (e.g. a VA credited under multiple staff aliases that resolve
+ *      to the same id).
+ *   2. The same character edge appearing across paginated `characters`
+ *      connection pages (see `mapMediaCharacterRows` for the upstream
+ *      detail) — that re-emits the character's full VA list, so each
+ *      (character_id, staff_id) tuple repeats.
+ *
+ * Without dedup either case fails the rebuild transaction with
+ * SQLITE_CONSTRAINT_PRIMARYKEY and rolls the whole lazy expansion back.
+ * Keep the first occurrence so order of arrival is preserved (matches
+ * how AniList first presented the VA — primary credit first).
  */
 export function mapCharacterVoiceActorRows(
   mediaId: number,
@@ -309,8 +351,14 @@ export function mapCharacterVoiceActorRows(
   language: AnilistStaffLanguage,
 ): CharacterVoiceActorRow[] {
   const rows: CharacterVoiceActorRow[] = [];
+  // Composite-key set: `${character_id}:${staff_id}` is sufficient
+  // because mediaId + language are both fixed for the whole call.
+  const seen = new Set<string>();
   for (const edge of edges) {
     for (const va of edge.voiceActors ?? []) {
+      const key = `${edge.node.id}:${va.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
       rows.push({
         media_id: mediaId,
         character_id: edge.node.id,

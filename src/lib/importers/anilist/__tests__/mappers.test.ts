@@ -489,6 +489,62 @@ describe('character / staff mappers', () => {
       { media_id: 100, character_id: 3, staff_id: 9001, language: 'JAPANESE' },
     ]);
   });
+
+  // Regression: AniList sometimes returns the same VA twice inside one
+  // character's `voiceActors` (e.g. a VA credited under multiple staff
+  // aliases that resolve to the same id). Without dedup the rebuild
+  // transaction crashes with SQLITE_CONSTRAINT_PRIMARYKEY on
+  // (media_id, character_id, staff_id, language) and rolls back the
+  // whole lazy expansion.
+  it('mapCharacterVoiceActorRows dedups repeated VAs within one character edge', () => {
+    const edges: AnilistMediaCharacterEdgeGql[] = [
+      {
+        role: 'MAIN',
+        node: { ...character, id: 1 },
+        voiceActors: [staff, staff, { ...staff, id: 9001 }],
+      },
+    ];
+    const rows = mapCharacterVoiceActorRows(100, edges, 'JAPANESE');
+    expect(rows).toEqual([
+      { media_id: 100, character_id: 1, staff_id: 9000, language: 'JAPANESE' },
+      { media_id: 100, character_id: 1, staff_id: 9001, language: 'JAPANESE' },
+    ]);
+  });
+
+  // Regression: AniList's `Media.characters` connection paginates with
+  // a non-stable sort under ties, so the same character edge can show
+  // up on two pages. After the lazy expander concatenates pages and
+  // passes the merged array here, both (character_id) and
+  // (character_id, staff_id) repeat — the mapper must squash both.
+  it('mapCharacterVoiceActorRows dedups VAs across repeated character edges (paginated dup)', () => {
+    const edges: AnilistMediaCharacterEdgeGql[] = [
+      { role: 'MAIN', node: { ...character, id: 1 }, voiceActors: [staff] },
+      { role: 'MAIN', node: { ...character, id: 1 }, voiceActors: [staff] },
+    ];
+    const rows = mapCharacterVoiceActorRows(100, edges, 'JAPANESE');
+    expect(rows).toEqual([
+      { media_id: 100, character_id: 1, staff_id: 9000, language: 'JAPANESE' },
+    ]);
+  });
+
+  // Same paginated-dup quirk hits media_character first (PK =
+  // media_id, character_id). Keep the FIRST occurrence's sort_order so
+  // characters that AniList ranked highly on page 1 don't get pushed
+  // to the bottom when they repeat on a later page.
+  it('mapMediaCharacterRows dedups repeated character edges and keeps the first sort_order', () => {
+    const edges: AnilistMediaCharacterEdgeGql[] = [
+      { role: 'MAIN', node: { ...character, id: 1 }, voiceActors: [] },
+      { role: 'SUPPORTING', node: { ...character, id: 2 }, voiceActors: [] },
+      // Repeat of id=1 from a later page — must be dropped.
+      { role: 'MAIN', node: { ...character, id: 1 }, voiceActors: [] },
+      { role: 'BACKGROUND', node: { ...character, id: 3 }, voiceActors: [] },
+    ];
+    expect(mapMediaCharacterRows(100, edges)).toEqual([
+      { media_id: 100, character_id: 1, role: 'MAIN', sort_order: 0 },
+      { media_id: 100, character_id: 2, role: 'SUPPORTING', sort_order: 1 },
+      { media_id: 100, character_id: 3, role: 'BACKGROUND', sort_order: 3 },
+    ]);
+  });
 });
 
 describe('favourite-edge mappers', () => {

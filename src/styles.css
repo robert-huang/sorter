@@ -983,6 +983,36 @@ a {
   color: var(--danger, #b91c1c);
 }
 
+/* Role-refinement pill row at the top of the VA chip's popover.
+   Three small toggles (MAIN / SUPPORTING / BACKGROUND) sit on one
+   line; an unselected pill is the muted "tab" treatment and the
+   active pill uses the accent border so the on/off state reads
+   without checkbox glyphs. */
+.filter-chip-role-row {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.filter-chip-role-pill {
+  flex: 1 1 auto;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  text-align: center;
+}
+
+.filter-chip-role-pill.on {
+  border-color: var(--accent, #2563eb);
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent, #2563eb) 12%, var(--surface));
+}
+
 /* Range chips (seasonYear / score) + tag-options chip share a
    two-column "label : control" popover row. Keeps the label tight
    against the input rather than stretching across the menu width. */

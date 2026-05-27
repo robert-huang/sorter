@@ -38,7 +38,10 @@ vi.mock('../client', () => ({
     if (!localBytesBySource.has(sourceId)) {
       localBytesBySource.set(sourceId, await freshLocalBytes());
     }
-    return { schemaVersion: 2, storageMode: 'memory' as const };
+    // Default to OPFS — the happy path for every existing test.
+    // Memory-mode tests override this with mockResolvedValueOnce so the
+    // MEMORY_MODE_PUSH_BLOCKED behaviour can be exercised in isolation.
+    return { schemaVersion: 2, storageMode: 'opfs' as const };
   }),
   currentSchemaVersion: vi.fn(async (sourceId: string) => {
     const sqlite3 = await getTestSqlite();
@@ -86,6 +89,7 @@ vi.mock('../client', () => ({
 }));
 
 import {
+  MEMORY_MODE_PUSH_BLOCKED,
   NO_REMOTE,
   REMOTE_DRIFTED,
   REMOTE_SCHEMA_NEWER,
@@ -235,6 +239,32 @@ describe('pushDbToDrive', () => {
     expect(result.remoteEtag).toBe('etag-2');
     expect(result.lastPushAt).toBeGreaterThan(1000);
     expect(getSyncState(TEST_SOURCE_ID).status).toBe('in-sync');
+  });
+
+  // Multi-tab safety: the second tab of an origin falls back to
+  // in-memory SQLite (another tab holds the OPFS SAH pool). Pushing
+  // those bytes is unsafe because `meta.remoteEtag` is in shared
+  // localStorage, so the optimistic-concurrency check passes even
+  // when the memory tab's view is strictly older than the OPFS tab's.
+  // pushDbToDrive must refuse with MEMORY_MODE_PUSH_BLOCKED before
+  // contacting Drive at all — no findSourceDbFile, no uploadSourceDb.
+  it('throws MEMORY_MODE_PUSH_BLOCKED when the worker is in memory mode', async () => {
+    await seedThing('x', 'one', 10);
+    patchSourceSyncMeta(TEST_SOURCE_ID, {
+      remoteEtag: 'etag-1',
+      remoteFileId: 'file-1',
+      hasLocalDb: true,
+    });
+    vi.mocked(openSourceDb).mockResolvedValueOnce({
+      schemaVersion: 2,
+      storageMode: 'memory',
+    });
+
+    await expect(pushDbToDrive(TEST_SOURCE_ID)).rejects.toMatchObject({
+      code: MEMORY_MODE_PUSH_BLOCKED,
+    });
+    expect(findSourceDbFile).not.toHaveBeenCalled();
+    expect(uploadSourceDb).not.toHaveBeenCalled();
   });
 });
 

@@ -185,11 +185,12 @@ function seedMediaCharacter(
   db: Database,
   mediaId: number,
   characterId: number,
+  role: 'MAIN' | 'SUPPORTING' | 'BACKGROUND' | null = 'MAIN',
 ): void {
   db.exec(
     `INSERT INTO media_character (media_id, character_id, role, sort_order)
-     VALUES (?, ?, 'MAIN', 0)`,
-    { bind: [mediaId, characterId] } as never,
+     VALUES (?, ?, ?, 0)`,
+    { bind: [mediaId, characterId, role] } as never,
   );
 }
 
@@ -833,5 +834,115 @@ describe('computeAllowedMediaIds', () => {
       chips({ voiceActorIds: [1000, 1001] }),
     );
     expect(Array.from(allowed).sort((a, b) => a - b)).toEqual([1, 2]);
+  });
+
+  // --- voice actor role refinement ---
+
+  it('voiceActorRoles empty is a passthrough — same SQL as before the refinement existed', () => {
+    const out = buildAnilistFilterSql(
+      [1],
+      chips({ voiceActorIds: [1000], voiceActorRoles: [] }),
+    );
+    expect(out).not.toBeNull();
+    // No media_character JOIN when the role array is empty — keeps
+    // the plan identical to v1.
+    expect(out!.sql).not.toMatch(/media_character/);
+    expect(out!.sql).toMatch(/cva\.staff_id IN \(\?\)/);
+  });
+
+  it('voiceActorRoles non-empty adds a media_character JOIN + role IN binding after the staff ids', () => {
+    const out = buildAnilistFilterSql(
+      [1],
+      chips({
+        voiceActorIds: [1000, 1001],
+        voiceActorRoles: ['MAIN', 'SUPPORTING'],
+      }),
+    );
+    expect(out).not.toBeNull();
+    expect(out!.sql).toMatch(/JOIN media_character mc/);
+    expect(out!.sql).toMatch(/mc\.role IN \(\?, \?\)/);
+    // Param order contract: candidate ids, then staff ids, then roles.
+    expect(out!.params).toEqual([1, 1000, 1001, 'MAIN', 'SUPPORTING']);
+  });
+
+  it('voiceActorRoles=[MAIN] excludes shows whose only VA hit is a SUPPORTING character', async () => {
+    seedMedia(db, 1);
+    seedMedia(db, 2);
+    seedCharacter(db, 10);
+    seedCharacter(db, 11);
+    // Show 1: VA voices a MAIN character → passes a MAIN filter.
+    seedMediaCharacter(db, 1, 10, 'MAIN');
+    // Show 2: same VA, but only voices a SUPPORTING character →
+    // must be excluded when MAIN is the only allowed role.
+    seedMediaCharacter(db, 2, 11, 'SUPPORTING');
+    seedStaff(db, 1000, 'VA A');
+    seedVoiceActor(db, 1, 10, 1000);
+    seedVoiceActor(db, 2, 11, 1000);
+
+    const allowed = await computeAllowedMediaIds(
+      [1, 2],
+      chips({ voiceActorIds: [1000], voiceActorRoles: ['MAIN'] }),
+    );
+    expect(Array.from(allowed)).toEqual([1]);
+  });
+
+  it('voiceActorRoles multi-select admits any of the selected roles', async () => {
+    seedMedia(db, 1);
+    seedMedia(db, 2);
+    seedMedia(db, 3);
+    seedCharacter(db, 10);
+    seedCharacter(db, 11);
+    seedCharacter(db, 12);
+    seedMediaCharacter(db, 1, 10, 'MAIN');
+    seedMediaCharacter(db, 2, 11, 'SUPPORTING');
+    seedMediaCharacter(db, 3, 12, 'BACKGROUND');
+    seedStaff(db, 1000, 'VA A');
+    seedVoiceActor(db, 1, 10, 1000);
+    seedVoiceActor(db, 2, 11, 1000);
+    seedVoiceActor(db, 3, 12, 1000);
+
+    const allowed = await computeAllowedMediaIds(
+      [1, 2, 3],
+      chips({
+        voiceActorIds: [1000],
+        voiceActorRoles: ['MAIN', 'SUPPORTING'],
+      }),
+    );
+    // MAIN + SUPPORTING pass; BACKGROUND-only show is dropped.
+    expect(Array.from(allowed).sort((a, b) => a - b)).toEqual([1, 2]);
+  });
+
+  // NULL is intentionally excluded when any role is selected — older
+  // imports with role=NULL are too ambiguous to honor a role filter.
+  // SQL `IN (...)` naturally drops nulls; this test pins that
+  // behaviour against accidental future regressions (e.g. someone
+  // coercing nulls to 'SUPPORTING' in a "be helpful" patch).
+  it('voiceActorRoles excludes characters whose media_character.role IS NULL when active', async () => {
+    seedMedia(db, 1);
+    seedMedia(db, 2);
+    seedCharacter(db, 10);
+    seedCharacter(db, 11);
+    seedMediaCharacter(db, 1, 10, 'MAIN');
+    seedMediaCharacter(db, 2, 11, null);
+    seedStaff(db, 1000, 'VA A');
+    seedVoiceActor(db, 1, 10, 1000);
+    seedVoiceActor(db, 2, 11, 1000);
+
+    const allowed = await computeAllowedMediaIds(
+      [1, 2],
+      chips({ voiceActorIds: [1000], voiceActorRoles: ['MAIN'] }),
+    );
+    expect(Array.from(allowed)).toEqual([1]);
+  });
+
+  it('voiceActorRoles is a no-op when voiceActorIds is empty (no EXISTS clause emitted)', () => {
+    const out = buildAnilistFilterSql(
+      [1],
+      chips({ voiceActorIds: [], voiceActorRoles: ['MAIN'] }),
+    );
+    // The whole VA chip stays inactive — no character_voice_actor
+    // subquery, no media_character JOIN, just whatever other chips
+    // contributed (here: nothing → null).
+    expect(out?.sql ?? '').not.toMatch(/character_voice_actor/);
   });
 });

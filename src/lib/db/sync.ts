@@ -23,6 +23,22 @@ import {
 
 export const REMOTE_DRIFTED = 'REMOTE_DRIFTED';
 export const NO_REMOTE = 'NO_REMOTE';
+/**
+ * Push refused because this tab's SQLite worker fell back to in-memory
+ * storage (another tab of the same origin holds the OPFS SAH pool, or
+ * OPFS install failed). Pushing memory-mode bytes is unsafe because:
+ *   - `meta.remoteEtag` lives in localStorage and is shared across
+ *     tabs, so the optimistic-concurrency check passes even when the
+ *     OPFS-holding tab's bytes are strictly newer than what this tab
+ *     last pulled.
+ *   - A fresh second tab that never pulled would push an empty DB on
+ *     top of the canonical Drive copy — recoverable from the
+ *     OPFS-holding tab as long as it stays open, but permanent data
+ *     loss if that tab closes first.
+ * Pull is intentionally NOT blocked: it only writes to this tab's
+ * memory worker and can't corrupt anything else.
+ */
+export const MEMORY_MODE_PUSH_BLOCKED = 'MEMORY_MODE_PUSH_BLOCKED';
 
 export type SyncStatus = 'unsynced' | 'in-sync' | 'drifted' | 'unknown';
 
@@ -104,7 +120,18 @@ async function assertRemoteSchemaNotNewer(
 
 export async function pushDbToDrive(sourceId: string): Promise<PushResult> {
   getSourceSyncMeta(sourceId);
-  await openSourceDb(sourceId);
+  const { storageMode } = await openSourceDb(sourceId);
+
+  // Defense-in-depth: blocking push here (rather than only at the UI)
+  // means any future caller that bypasses the SettingsMenu button can't
+  // accidentally overwrite Drive with stale/empty memory-mode bytes.
+  // See the MEMORY_MODE_PUSH_BLOCKED comment for the full rationale.
+  if (storageMode === 'memory') {
+    throw codedError(
+      MEMORY_MODE_PUSH_BLOCKED,
+      'Push refused: this tab is using non-persistent storage. Close any other tabs of this app and reload, then push from the persistent tab.',
+    );
+  }
 
   const remote = await findSourceDbFile(sourceId);
   const meta = getSourceSyncMeta(sourceId);

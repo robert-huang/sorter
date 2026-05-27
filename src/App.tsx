@@ -118,6 +118,7 @@ import {
 import { GoogleDriveProvider } from './lib/cloud/googleDrive';
 import { InFlightTracker } from './lib/inFlightTracker';
 import {
+  MEMORY_MODE_PUSH_BLOCKED,
   NO_REMOTE,
   REMOTE_DRIFTED,
   REMOTE_SCHEMA_NEWER,
@@ -1638,6 +1639,9 @@ export function App() {
     }
     if (e.code === NO_REMOTE) {
       return 'No cloud copy yet — push first.';
+    }
+    if (e.code === MEMORY_MODE_PUSH_BLOCKED) {
+      return 'Push blocked: non-persistent tab. Close other tabs of this app and reload, then push.';
     }
     return e.message || 'Sync failed.';
   }
