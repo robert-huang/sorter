@@ -175,9 +175,15 @@ async function replaceDb(sourceId: string, bytes: Uint8Array): Promise<Database>
     enableForeignKeys(db);
     assertDbSchemaSupported(db, source);
     dbs.set(sourceId, db);
-    // The incoming bytes already carry their own schema_version row, so
-    // re-running migrate() here would be a no-op. Mark as migrated so
-    // the next getOrOpenDb skip path matches reality.
+    // The incoming bytes carry their own schema_version row, so when
+    // they're already at the app's max version this is a no-op. When
+    // they're behind (e.g. user upgrades the app, then pulls a Drive
+    // blob that was last pushed from a not-yet-upgraded device), the
+    // local DB needs to run any pending migrations before the next
+    // query touches a column the new code expects. Without this the
+    // chip / readQueries would explode on first use because we'd have
+    // already marked the source as "migrated".
+    migrate(db, source);
     migratedSources.add(sourceId);
     return db;
   }
@@ -186,6 +192,7 @@ async function replaceDb(sourceId: string, bytes: Uint8Array): Promise<Database>
   enableForeignKeys(db);
   assertDbSchemaSupported(db, source);
   dbs.set(sourceId, db);
+  migrate(db, source);
   migratedSources.add(sourceId);
   return db;
 }

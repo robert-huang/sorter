@@ -1,13 +1,18 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { Database } from '@sqlite.org/sqlite-wasm';
 import { openMemoryDb } from '../../../db/__tests__/testSqlite';
-import { currentVersion, migrate } from '../../../db/migration-runner';
+import { currentVersion, migrate, migrateTo } from '../../../db/migration-runner';
 import { getSource } from '../../../db/source-registry';
 import {
   ANILIST_SOURCE_ID,
   anilistSourceDescriptor,
   ensureAnilistSourceRegistered,
 } from '../anilistSource';
+
+// Bump this in lock-step with the highest version in
+// anilistSourceDescriptor.migrations so the "applies cleanly" sanity
+// check fails loudly when someone forgets to register a new migration.
+const LATEST_SCHEMA_VERSION = 2;
 
 const EXPECTED_TABLES = [
   'anilist_user',
@@ -20,6 +25,7 @@ const EXPECTED_TABLES = [
   'media_tag',
   'media_character',
   'character_voice_actor',
+  'media_cast_expansion',
   'media_list_entry',
   'custom_list',
   'media_custom_list_membership',
@@ -142,9 +148,9 @@ describe('anilist migration', () => {
     ensureAnilistSourceRegistered();
   });
 
-  it('applies cleanly to a fresh in-memory DB and sets schema_version to 1', async () => {
+  it('applies cleanly to a fresh in-memory DB and sets schema_version to the latest', async () => {
     const db = await freshAnilistDb();
-    expect(currentVersion(db)).toBe(1);
+    expect(currentVersion(db)).toBe(LATEST_SCHEMA_VERSION);
     db.close();
   });
 
@@ -196,6 +202,11 @@ describe('anilist migration', () => {
          VALUES (?, ?, 'MAIN', 0)`,
       { bind: [100, 1000] },
     );
+    db.exec(
+      `INSERT INTO media_cast_expansion (media_id, language, fetched_at)
+         VALUES (?, 'JAPANESE', ?)`,
+      { bind: [100, NOW] },
+    );
 
     db.exec('DELETE FROM media WHERE id = ?', { bind: [100] });
 
@@ -205,10 +216,74 @@ describe('anilist migration', () => {
     expect(countRows(db, 'media_list_entry')).toBe(0);
     expect(countRows(db, 'media_favourite')).toBe(0);
     expect(countRows(db, 'media_character')).toBe(0);
+    expect(countRows(db, 'media_cast_expansion')).toBe(0);
     // Parent metadata rows are independent and stay alive
     expect(countRows(db, 'studio')).toBe(1);
     expect(countRows(db, 'tag')).toBe(1);
     expect(countRows(db, 'character')).toBe(1);
+
+    db.close();
+  });
+
+  // Regression — without backfill the chip's "cast cached" counter
+  // would drop to 0 for every user upgrading from v1, even though their
+  // already-expanded shows still have character_voice_actor rows.
+  // Migration 002 must hoist those into the new media_cast_expansion
+  // tracking table so the chip stays accurate across the upgrade.
+  it('migration 002 backfills media_cast_expansion from existing character_voice_actor rows', async () => {
+    const db = await openMemoryDb();
+    db.exec('PRAGMA foreign_keys = ON');
+    // Bring DB up to v1 ONLY so we can seed v1-shaped data before the
+    // 002 backfill runs.
+    migrateTo(db, anilistSourceDescriptor, 1);
+    expect(currentVersion(db)).toBe(1);
+
+    seedMedia(db, 100);
+    seedMedia(db, 200);
+    // Media 300 has NO cast data — it must NOT get a backfilled row
+    // (we have no evidence it was ever expanded under v1).
+    seedMedia(db, 300);
+    seedCharacter(db, 1000);
+    seedStaff(db, 5000);
+    seedStaff(db, 5001);
+    db.exec(
+      `INSERT INTO media_character (media_id, character_id, role, sort_order)
+         VALUES (?, ?, 'MAIN', 0)`,
+      { bind: [100, 1000] },
+    );
+    db.exec(
+      `INSERT INTO media_character (media_id, character_id, role, sort_order)
+         VALUES (?, ?, 'MAIN', 0)`,
+      { bind: [200, 1000] },
+    );
+    // Two VA rows on media 100 — backfill must collapse them to a
+    // single media_cast_expansion row (PK is media_id only).
+    db.exec(
+      `INSERT INTO character_voice_actor (media_id, character_id, staff_id, language)
+         VALUES (?, ?, ?, 'JAPANESE')`,
+      { bind: [100, 1000, 5000] },
+    );
+    db.exec(
+      `INSERT INTO character_voice_actor (media_id, character_id, staff_id, language)
+         VALUES (?, ?, ?, 'JAPANESE')`,
+      { bind: [100, 1000, 5001] },
+    );
+    db.exec(
+      `INSERT INTO character_voice_actor (media_id, character_id, staff_id, language)
+         VALUES (?, ?, ?, 'JAPANESE')`,
+      { bind: [200, 1000, 5000] },
+    );
+
+    migrate(db, anilistSourceDescriptor);
+    expect(currentVersion(db)).toBe(LATEST_SCHEMA_VERSION);
+
+    const backfilled = db.selectObjects(
+      'SELECT media_id, language, fetched_at FROM media_cast_expansion ORDER BY media_id',
+    );
+    expect(backfilled).toEqual([
+      { media_id: 100, language: 'JAPANESE', fetched_at: 0 },
+      { media_id: 200, language: 'JAPANESE', fetched_at: 0 },
+    ]);
 
     db.close();
   });
@@ -389,12 +464,28 @@ describe('anilist source descriptor', () => {
     const user = anilistSourceDescriptor.merge.userDataTables.map((t) => t.name);
     // anilist_user is metadata (source-authoritative), media_list_entry
     // is user-data (PK now includes anilist_user_id for multi-user).
-    expect(meta).toEqual(['anilist_user', 'media', 'studio', 'tag', 'character', 'staff']);
+    // media_cast_expansion is metadata: it's NOT a junction (has its
+    // own fetched_at), so devices that have expanded a media converge
+    // on the latest attempt via row-level merge.
+    expect(meta).toEqual([
+      'anilist_user',
+      'media',
+      'studio',
+      'tag',
+      'character',
+      'staff',
+      'media_cast_expansion',
+    ]);
     expect(user).toEqual(['media_list_entry']);
     const listEntry = anilistSourceDescriptor.merge.userDataTables.find(
       (t) => t.name === 'media_list_entry',
     );
     expect(listEntry?.pk).toEqual(['anilist_user_id', 'media_id']);
+    const castExpansion = anilistSourceDescriptor.merge.metadataTables.find(
+      (t) => t.name === 'media_cast_expansion',
+    );
+    expect(castExpansion?.pk).toEqual(['media_id']);
+    expect(castExpansion?.timestampCol).toBe('fetched_at');
   });
 
   it('intentionally excludes junctions and wipe-and-rebuild tables from the merge spec', () => {
@@ -427,7 +518,7 @@ describe('anilist source descriptor', () => {
     ensureAnilistSourceRegistered();
     const registered = getSource(ANILIST_SOURCE_ID);
     expect(registered.id).toBe(ANILIST_SOURCE_ID);
-    expect(registered.migrations).toHaveLength(1);
-    expect(registered.migrations[0].version).toBe(1);
+    expect(registered.migrations).toHaveLength(LATEST_SCHEMA_VERSION);
+    expect(registered.migrations.map((m) => m.version)).toEqual([1, 2]);
   });
 });
