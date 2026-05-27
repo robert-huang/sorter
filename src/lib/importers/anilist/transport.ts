@@ -14,6 +14,15 @@
  *     response headers and we can't read it from JS unless AniList opts
  *     it into `Access-Control-Expose-Headers`, which they don't. Hard
  *     cap at 5 retries → `RateLimitExceededError`.
+ *   - **Network-layer retries.** `fetch()` rejections (TypeError
+ *     "Failed to fetch" — Cloudflare RST after a 429, CORS preflight
+ *     failure, mid-stream body drop) share the same retry budget and
+ *     backoff ladder as 429. If we exhaust the budget on network
+ *     failures, the original `TypeError` propagates so the UI shows the
+ *     real cause. The shared budget is intentional: a request that
+ *     gets a 429 then a connection drop has already burned at least 60s
+ *     of wait time, and stacking another full ladder on top would let
+ *     a single transient outage hang the import for many minutes.
  *   - **Fail-fast** on other 4xx (except 404), 5xx, and GraphQL `errors[]`.
  *     404 returns `null` (AniList convention on `Media(id:)` not found).
  *   - **No proactive throttling.** Pacing is purely reactive on 429.
@@ -163,14 +172,33 @@ async function runOnce<T>(
 ): Promise<T | null> {
   let attempt = 0;
   while (true) {
-    const response = await fetch(ANILIST_GRAPHQL_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      body: JSON.stringify({ query, variables }),
-    });
+    // Network-layer attempt. `fetch()` can reject with a TypeError
+    // ("Failed to fetch") when the browser refuses or the upstream
+    // (Cloudflare, in AniList's case) drops the TCP connection — which
+    // we've observed happening on the retry that immediately follows a
+    // 429, presumably because Cloudflare keeps the throttle active a
+    // little past AniList's own 60s window. Same thing can happen when
+    // the response body parses partially and then the connection drops
+    // mid-stream — `response.json()` rejects with a TypeError too. Both
+    // of those should be treated as retryable on the SAME backoff
+    // ladder we use for 429, otherwise a single transient drop kills
+    // the entire import even though the next attempt would succeed.
+    let response: Response;
+    try {
+      response = await fetch(ANILIST_GRAPHQL_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({ query, variables }),
+      });
+    } catch (cause) {
+      const shouldRetry = await handleTransientFailure(attempt + 1);
+      if (!shouldRetry) throw cause;
+      attempt += 1;
+      continue;
+    }
 
     if (response.status === 429) {
       attempt += 1;
@@ -195,10 +223,18 @@ async function runOnce<T>(
       throw new HttpError(response.status, response.statusText);
     }
 
-    const body = (await response.json()) as {
-      data?: T;
-      errors?: AnilistGraphQLErrorEntry[];
-    };
+    let body: { data?: T; errors?: AnilistGraphQLErrorEntry[] };
+    try {
+      body = (await response.json()) as {
+        data?: T;
+        errors?: AnilistGraphQLErrorEntry[];
+      };
+    } catch (cause) {
+      const shouldRetry = await handleTransientFailure(attempt + 1);
+      if (!shouldRetry) throw cause;
+      attempt += 1;
+      continue;
+    }
 
     if (body.errors && body.errors.length > 0) {
       throw new GraphQLError(body.errors);
@@ -206,6 +242,26 @@ async function runOnce<T>(
 
     return (body.data ?? null) as T | null;
   }
+}
+
+/**
+ * Shared backoff for network-layer failures (fetch/json rejections).
+ * Returns `true` if the caller should continue the retry loop, or
+ * `false` if the retry budget is exhausted and the original error
+ * should propagate. Always uses the no-header backoff branch since a
+ * fetch rejection means we never got a response, so no `Retry-After`
+ * is available.
+ */
+async function handleTransientFailure(nextAttempt: number): Promise<boolean> {
+  if (nextAttempt > ANILIST_MAX_RETRIES) return false;
+  const waitMs = computeBackoffMs(null, nextAttempt);
+  notifyWait({ kind: 'rate-limited', retryInMs: waitMs, attempt: nextAttempt });
+  try {
+    await delay(waitMs);
+  } finally {
+    notifyWait(null);
+  }
+  return true;
 }
 
 /**

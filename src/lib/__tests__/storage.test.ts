@@ -164,6 +164,23 @@ describe('createSlot', () => {
     expect(evicted).toEqual([]);
   });
 
+  it('totalItems excludes hidden items', () => {
+    const blob: AutosaveBlob = {
+      items: {
+        a: { id: 'a', label: 'Alpha' },
+        b: { id: 'b', label: 'Bravo' },
+        c: { id: 'c', label: 'Charlie' },
+      },
+      progress: {
+        ...makeProgress(),
+        hidden: ['b', 'c'],
+      },
+      undoRing: [],
+    };
+    const meta = mintSlot(blob, 'With hidden');
+    expect(meta.totalItems).toBe(1);
+  });
+
   it('evicts the oldest-updatedAt slot when SLOT_CAP would be exceeded and reports it in `evicted`', () => {
     // Create SLOT_CAP slots, then create one more.
     const created: string[] = [];

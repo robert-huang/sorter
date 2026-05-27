@@ -202,6 +202,101 @@ describe('executeAnilistQuery — 429 backoff', () => {
   });
 });
 
+describe('executeAnilistQuery — network-layer retries', () => {
+  // Simulate `fetch()` itself rejecting (TypeError "Failed to fetch")
+  // the way it does when Cloudflare drops the connection right after a
+  // 429, or when CORS preflight fails. These should be retried on the
+  // same backoff ladder as 429.
+
+  function makeMixedFetchMock(
+    plan: Array<{ kind: 'throw'; error: unknown } | { kind: 'response'; response: Response }>,
+  ): ReturnType<typeof vi.fn> {
+    const queue = [...plan];
+    return vi.fn(async () => {
+      const next = queue.shift();
+      if (!next) throw new Error('fetch mock exhausted');
+      if (next.kind === 'throw') throw next.error;
+      return next.response;
+    });
+  }
+
+  it('retries a fetch() rejection on the same 61s-floor ladder', async () => {
+    vi.useFakeTimers();
+    const fetchMock = makeMixedFetchMock([
+      { kind: 'throw', error: new TypeError('Failed to fetch') },
+      { kind: 'response', response: jsonResponse(200, { data: { ok: 1 } }) },
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const promise = executeAnilistQuery('q', {});
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(60_999);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await expect(promise).resolves.toEqual({ ok: 1 });
+  });
+
+  it('shares the retry budget with 429: 429 → fetch-throw → 200 succeeds within the cap', async () => {
+    vi.useFakeTimers();
+    const fetchMock = makeMixedFetchMock([
+      { kind: 'response', response: jsonResponse(429, { errors: [{ message: 'rl' }] }) },
+      { kind: 'throw', error: new TypeError('Failed to fetch') },
+      { kind: 'response', response: jsonResponse(200, { data: { ok: 1 } }) },
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const promise = executeAnilistQuery('q', {});
+    // 429 → wait 61s (attempt 1)
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(61_000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // fetch-throw → wait 2s (attempt 2)
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    await expect(promise).resolves.toEqual({ ok: 1 });
+  });
+
+  it('propagates the original TypeError after exhausting retries on network failures', async () => {
+    vi.useFakeTimers();
+    const originalError = new TypeError('Failed to fetch');
+    const plan = Array.from({ length: ANILIST_MAX_RETRIES + 1 }, () => ({
+      kind: 'throw' as const,
+      error: originalError,
+    }));
+    vi.stubGlobal('fetch', makeMixedFetchMock(plan));
+
+    const promise = executeAnilistQuery('q', {});
+    // Total wait across 5 retries (all fetch-throws) is still 91s.
+    await vi.advanceTimersByTimeAsync(120_000);
+
+    await expect(promise).rejects.toBe(originalError);
+  });
+
+  it('retries a response.json() rejection (body drops mid-stream) on the same ladder', async () => {
+    vi.useFakeTimers();
+    // First call returns a 200 with a malformed body that throws on
+    // .json(). Second call returns valid data.
+    const badBodyResponse = new Response('not-json-at-all{', {
+      status: 200,
+      statusText: 'OK',
+      headers: { 'content-type': 'application/json' },
+    });
+    const fetchMock = makeMixedFetchMock([
+      { kind: 'response', response: badBodyResponse },
+      { kind: 'response', response: jsonResponse(200, { data: { ok: 1 } }) },
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const promise = executeAnilistQuery('q', {});
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(61_000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await expect(promise).resolves.toEqual({ ok: 1 });
+  });
+});
+
 describe('executeAnilistQuery — fail-fast paths', () => {
   it('throws HttpError on non-429 4xx without retry', async () => {
     const fetchMock = makeFetchMock([jsonResponse(403, { errors: [{ message: 'denied' }] })]);

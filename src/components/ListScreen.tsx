@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   canReorderInCurrentMerge,
   type CurrentMergeSlice,
@@ -15,6 +15,10 @@ import { ItemThumb } from './ItemThumb';
 
 interface Props {
   state: SortState;
+  /** Active save-slot id — used when renaming from the LIST header. */
+  slotId: string;
+  slotName: string;
+  onRenameSlot: (id: string, name: string) => void;
   onHide: (id: string) => void;
   onUnhide: (id: string) => void;
   onReorder: (queueIndex: number, itemIndex: number, dir: -1 | 1) => void;
@@ -109,11 +113,128 @@ function EditButton({
   );
 }
 
-export function ListScreen(props: Props) {
-  if (props.state.engine === 'insertion') {
-    return <InsertionListView {...props} state={props.state} />;
+function formatItemCount(total: number, hidden: number): string {
+  const base = `${total} item${total === 1 ? '' : 's'}`;
+  if (hidden === 0) return base;
+  return `${base} (${hidden} hidden)`;
+}
+
+function ListSlotHeader({
+  slotId,
+  slotName,
+  itemCount,
+  hiddenCount,
+  onRename,
+}: {
+  slotId: string;
+  slotName: string;
+  itemCount: number;
+  hiddenCount: number;
+  onRename: (id: string, name: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(slotName);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!editing) setDraft(slotName);
+  }, [slotName, editing]);
+
+  useEffect(() => {
+    if (editing) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [editing]);
+
+  function commitRename(): void {
+    setEditing(false);
+    const trimmed = draft.trim();
+    if (trimmed && trimmed !== slotName) {
+      onRename(slotId, trimmed);
+    } else {
+      setDraft(slotName);
+    }
   }
-  return <MergeListView {...props} state={props.state} />;
+
+  function cancelRename(): void {
+    setEditing(false);
+    setDraft(slotName);
+  }
+
+  return (
+    <div className="list-slot-header">
+      <div className="list-slot-title-row">
+        {editing ? (
+          <input
+            ref={inputRef}
+            className="list-slot-title-input"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commitRename}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                commitRename();
+              } else if (e.key === 'Escape') {
+                e.preventDefault();
+                cancelRename();
+              }
+            }}
+            aria-label="Sort title"
+          />
+        ) : (
+          <div className="list-slot-title-group">
+            <button
+              type="button"
+              className="list-slot-title"
+              title={slotName}
+              onClick={() => setEditing(true)}
+            >
+              {slotName}
+            </button>
+            <button
+              type="button"
+              className="list-slot-edit"
+              onClick={() => setEditing(true)}
+              title="Rename sort"
+              aria-label="Rename sort"
+            >
+              ✎
+            </button>
+          </div>
+        )}
+      </div>
+      <span className="list-slot-meta">
+        {formatItemCount(itemCount, hiddenCount)}
+      </span>
+    </div>
+  );
+}
+
+export function ListScreen(props: Props) {
+  const itemCount = useMemo(
+    () => Object.keys(props.state.items).length,
+    [props.state.items],
+  );
+  const hiddenCount = props.state.hidden.length;
+
+  return (
+    <div className="page">
+      <ListSlotHeader
+        slotId={props.slotId}
+        slotName={props.slotName}
+        itemCount={itemCount}
+        hiddenCount={hiddenCount}
+        onRename={props.onRenameSlot}
+      />
+      {props.state.engine === 'insertion' ? (
+        <InsertionListView {...props} state={props.state} />
+      ) : (
+        <MergeListView {...props} state={props.state} />
+      )}
+    </div>
+  );
 }
 
 // ============================================================================
@@ -163,7 +284,7 @@ function MergeListView({
   }, [state.items, editingId]);
 
   return (
-    <div className="page">
+    <>
       {state.current && (
         <div className="list-merging">
           <div className="list-section-label">Current sublist</div>
@@ -342,7 +463,7 @@ function MergeListView({
           otherIds={otherIds}
         />
       )}
-    </div>
+    </>
   );
 }
 
@@ -586,7 +707,7 @@ function InsertionListView({
   const insertingId = state.current?.insertingId;
 
   return (
-    <div className="page">
+    <>
       {insertingId && (
         <div className="list-merging">
           <div className="list-section-label">Currently inserting</div>
@@ -779,6 +900,6 @@ function InsertionListView({
           otherIds={otherIds}
         />
       )}
-    </div>
+    </>
   );
 }

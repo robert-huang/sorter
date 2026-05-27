@@ -273,6 +273,7 @@ export interface SlotMeta {
   name: string;
   createdAt: string;   // ISO timestamp
   updatedAt: string;   // ISO timestamp; bumped on every autosave write
+  /** Visible (non-hidden) item count — excludes removed/hidden items. */
   totalItems: number;
   comparisons: number;
   done: boolean;
