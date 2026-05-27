@@ -145,7 +145,7 @@ describe('executeAnilistQuery — 429 backoff', () => {
     await expect(promise).resolves.toEqual({ ok: 1 });
   });
 
-  it('falls back to exponential backoff when Retry-After is missing (1s on first retry)', async () => {
+  it('uses a 61s floor on the first retry when Retry-After is missing (browser-CORS-friendly default)', async () => {
     vi.useFakeTimers();
     const fetchMock = makeFetchMock([
       jsonResponse(429, { errors: [{ message: 'rl' }] }),
@@ -155,7 +155,11 @@ describe('executeAnilistQuery — 429 backoff', () => {
 
     const promise = executeAnilistQuery('q', {});
     await vi.advanceTimersByTimeAsync(0);
-    await vi.advanceTimersByTimeAsync(999);
+    // First-retry floor is 61_000ms — AniList's 60s rate-limit window
+    // plus 1s padding. `Retry-After` is unreadable from browser JS
+    // (CORS), so we conservatively wait out the window on the first
+    // retry; subsequent retries drop back to short exponential.
+    await vi.advanceTimersByTimeAsync(60_999);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(1);
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -163,7 +167,7 @@ describe('executeAnilistQuery — 429 backoff', () => {
     await expect(promise).resolves.toEqual({ ok: 1 });
   });
 
-  it('uses an unparseable Retry-After as a missing header (exponential fallback)', async () => {
+  it('uses an unparseable Retry-After as a missing header (61s floor on first retry)', async () => {
     vi.useFakeTimers();
     const fetchMock = makeFetchMock([
       jsonResponse(429, { errors: [] }, { 'Retry-After': 'tomorrow' }),
@@ -173,7 +177,7 @@ describe('executeAnilistQuery — 429 backoff', () => {
 
     const promise = executeAnilistQuery('q', {});
     await vi.advanceTimersByTimeAsync(0);
-    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(61_000);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     await expect(promise).resolves.toEqual({ ok: 1 });
   });
@@ -188,10 +192,11 @@ describe('executeAnilistQuery — 429 backoff', () => {
 
     const promise = executeAnilistQuery('q', {});
 
-    // Drive the timers far enough to cover every exponential backoff slot
-    // (1 + 2 + 4 + 8 + 16 = 31 seconds). Advancing well past that is fine —
-    // the promise rejects synchronously after the 6th 429.
-    await vi.advanceTimersByTimeAsync(60_000);
+    // Drive the timers past every fallback backoff slot. Total wait
+    // across 5 retries is 61 + 2 + 4 + 8 + 16 = 91_000ms. Advance well
+    // past that so the 6th 429 has fired and the cap rejection is
+    // queued.
+    await vi.advanceTimersByTimeAsync(120_000);
 
     await expect(promise).rejects.toBeInstanceOf(RateLimitExceededError);
   });
@@ -282,13 +287,18 @@ describe('computeBackoffMs (unit)', () => {
     expect(computeBackoffMs('30', 5)).toBe(31_000);
   });
 
-  it('falls back to exponential 2^(attempt-1) * 1000 when the header is missing or invalid', () => {
-    expect(computeBackoffMs(null, 1)).toBe(1000);
-    expect(computeBackoffMs(null, 2)).toBe(2000);
-    expect(computeBackoffMs(null, 3)).toBe(4000);
-    expect(computeBackoffMs(null, 4)).toBe(8000);
+  it('uses a 61s floor on the first retry and short exponential after', () => {
+    // First retry: 60s window (per AniList's documented rate-limit) + 1s
+    // padding. The actual Retry-After header is hidden from browser JS by
+    // CORS, hence the floor. Subsequent retries assume the window already
+    // rolled over and use the short 2^(attempt-1) ladder to keep total
+    // wall-clock bounded (~91s across 5 retries).
+    expect(computeBackoffMs(null, 1)).toBe(61_000);
+    expect(computeBackoffMs(null, 2)).toBe(2_000);
+    expect(computeBackoffMs(null, 3)).toBe(4_000);
+    expect(computeBackoffMs(null, 4)).toBe(8_000);
     expect(computeBackoffMs(null, 5)).toBe(16_000);
-    expect(computeBackoffMs('not-a-number', 2)).toBe(2000);
-    expect(computeBackoffMs('-5', 1)).toBe(1000);
+    expect(computeBackoffMs('not-a-number', 2)).toBe(2_000);
+    expect(computeBackoffMs('-5', 1)).toBe(61_000);
   });
 });

@@ -7,8 +7,13 @@
  *     request per click.
  *   - **Reactive 429 backoff.** Honor `Retry-After` when present
  *     (`(parseInt + 1) * 1000` ms — `+1` is defensive padding inherited
- *     from anilisttools). Else exponential fallback: 1s, 2s, 4s, 8s, 16s.
- *     Hard cap at 5 retries → `RateLimitExceededError`.
+ *     from anilisttools). Else fall back to 61s on the first retry
+ *     (AniList's 60s window + 1s pad) then short exponential 2s, 4s,
+ *     8s, 16s — total wall-clock ≈ 91s. The first-retry floor exists
+ *     because browser CORS strips `Retry-After` from cross-origin
+ *     response headers and we can't read it from JS unless AniList opts
+ *     it into `Access-Control-Expose-Headers`, which they don't. Hard
+ *     cap at 5 retries → `RateLimitExceededError`.
  *   - **Fail-fast** on other 4xx (except 404), 5xx, and GraphQL `errors[]`.
  *     404 returns `null` (AniList convention on `Media(id:)` not found).
  *   - **No proactive throttling.** Pacing is purely reactive on 429.
@@ -209,8 +214,30 @@ async function runOnce<T>(
  *   - If `Retry-After` is a valid integer (seconds), use `(N + 1) * 1000`.
  *     The `+1` is defensive padding inherited from anilisttools — accounts
  *     for clock skew and AniList rounding down their bucket reset.
- *   - Else fall back to exponential: `2^(attempt - 1)` seconds
- *     → 1s, 2s, 4s, 8s, 16s for attempts 1..5.
+ *   - Else (the common case in a browser — see below) the first retry
+ *     uses a 61-second floor and subsequent retries use the short
+ *     exponential `2^(attempt-1)` seconds: 61s, 2s, 4s, 8s, 16s (≈91s
+ *     total across the 5-retry cap).
+ *
+ * **Why 61s on the first retry.** AniList's documented rate-limit window
+ * is 60 seconds, and they DO send a `Retry-After: <seconds>` header on a
+ * 429. But the browser's CORS layer hides response headers from
+ * JavaScript unless they're either CORS-safelisted (Cache-Control,
+ * Content-Language, Content-Type, Expires, Last-Modified, Pragma) or
+ * explicitly listed in the server's `Access-Control-Expose-Headers`.
+ * AniList does not expose `Retry-After`, so `response.headers.get(...)`
+ * returns null in a browser even though DevTools sees the header on the
+ * wire. Without that signal, the safe first-retry wait is the documented
+ * 60s window plus a 1s padding for clock skew. A short 1s/2s/4s ladder
+ * would have fired entirely inside that window and earned another 429
+ * every time, which is exactly what we were seeing.
+ *
+ * **Why short exponential after that.** Once the first 61s wait has
+ * elapsed the rate-limit window has rolled over. Any remaining 429s are
+ * either transient noise or a sign that AniList is genuinely capping us
+ * (in which case more waiting won't help). Short retries keep the total
+ * wall-clock bounded (~91s) so the user fails fast instead of staring at
+ * a 5-minute frozen UI.
  */
 export function computeBackoffMs(retryAfterHeader: string | null, attempt: number): number {
   if (retryAfterHeader !== null) {
@@ -219,6 +246,7 @@ export function computeBackoffMs(retryAfterHeader: string | null, attempt: numbe
       return (seconds + 1) * 1000;
     }
   }
+  if (attempt === 1) return 61_000;
   return Math.pow(2, attempt - 1) * 1000;
 }
 
