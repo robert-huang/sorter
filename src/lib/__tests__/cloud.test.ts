@@ -622,6 +622,134 @@ describe('GoogleDriveProvider.listCloudSlots', () => {
   });
 });
 
+describe('GoogleDriveProvider.authedFetch 401 recovery', () => {
+  // Regression: a server-side token rejection used to bubble up as a
+  // generic "listCloudSlots failed: 401" error while the UI kept
+  // showing "signed in" — because `getAuthState()` only inspects the
+  // local `expiresAt`, not whether Google still honours the token.
+  // The recovery contract is: refresh + retry once. If the refresh
+  // fails or the retry also 401s, wipe local tokens so the UI flips
+  // to expired and the user gets the please-sign-in-again banner.
+
+  function setSignedInWithFolder(expiresInMs = 30 * 60_000): void {
+    localStorage.setItem(
+      'sorter:cloud:tokens:v1',
+      JSON.stringify({
+        accessToken: 'OLD',
+        refreshToken: 'R',
+        expiresAt: Date.now() + expiresInMs,
+      }),
+    );
+    localStorage.setItem(
+      'sorter:cloud:folder:v1',
+      JSON.stringify({ folderId: 'FOLDER', folderName: 'Backups' }),
+    );
+  }
+
+  it('refreshes once and retries when Drive returns 401 (token revoked but refresh still valid)', async () => {
+    setSignedInWithFolder();
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      // 1) First listCloudSlots call: server-side token rejection
+      .mockResolvedValueOnce(new Response('unauthorized', { status: 401 }))
+      // 2) Refresh-token exchange succeeds with a fresh access token
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ access_token: 'NEW', expires_in: 3600 }),
+          { status: 200 },
+        ),
+      )
+      // 3) Retry of listCloudSlots with the new token succeeds
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ files: [] }), { status: 200 }),
+      );
+    const p = new GoogleDriveProvider();
+    const list = await p.listCloudSlots();
+    expect(list).toEqual([]);
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    // Token was rotated to the newly-minted access token.
+    const stored = JSON.parse(localStorage.getItem('sorter:cloud:tokens:v1') ?? '{}') as {
+      accessToken: string;
+    };
+    expect(stored.accessToken).toBe('NEW');
+    // Local auth state stayed signed-in throughout — the recovery
+    // is transparent to the UI.
+    expect(p.getAuthState().status).toBe('signed-in');
+    // Retry sent the new bearer.
+    const retryHeaders = new Headers(fetchSpy.mock.calls[2][1]?.headers);
+    expect(retryHeaders.get('authorization')).toBe('Bearer NEW');
+  });
+
+  it('clears tokens and transitions to expired when the refresh-token is also rejected', async () => {
+    setSignedInWithFolder();
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      // listCloudSlots → 401
+      .mockResolvedValueOnce(new Response('unauthorized', { status: 401 }))
+      // refresh-token exchange → invalid_grant
+      .mockResolvedValueOnce(new Response('invalid_grant', { status: 400 }));
+    const p = new GoogleDriveProvider();
+    const states: AuthState[] = [];
+    p.subscribeAuthChange((s) => states.push(s));
+
+    await expect(p.listCloudSlots()).rejects.toThrow(/not signed in/i);
+
+    // Exactly two fetches — the data call + the failed refresh. No
+    // retry because the refresh wiped the tokens.
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(localStorage.getItem('sorter:cloud:tokens:v1')).toBeNull();
+    expect(p.getAuthState().status).toBe('signed-out');
+    // The UI was notified of the transition.
+    expect(states.length).toBeGreaterThanOrEqual(1);
+    expect(states[states.length - 1].status).toBe('signed-out');
+  });
+
+  it('clears tokens after a second 401 even when the refresh itself succeeded (grant revoked at resource level)', async () => {
+    setSignedInWithFolder();
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      // listCloudSlots → 401
+      .mockResolvedValueOnce(new Response('unauthorized', { status: 401 }))
+      // refresh returns a fresh access token...
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ access_token: 'NEW', expires_in: 3600 }),
+          { status: 200 },
+        ),
+      )
+      // ...but Drive rejects that one too (e.g. user revoked the
+      // app's grant entirely; refresh-token endpoint hasn't caught
+      // up yet, or scope was downgraded). Forces a hard transition.
+      .mockResolvedValueOnce(new Response('unauthorized', { status: 401 }));
+    const p = new GoogleDriveProvider();
+    const states: AuthState[] = [];
+    p.subscribeAuthChange((s) => states.push(s));
+
+    await expect(p.listCloudSlots()).rejects.toThrow(/listCloudSlots failed: 401/);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    // Hard expire: tokens gone, UI surfaces signed-out so the user
+    // can re-auth instead of looping forever.
+    expect(localStorage.getItem('sorter:cloud:tokens:v1')).toBeNull();
+    expect(p.getAuthState().status).toBe('signed-out');
+    expect(states[states.length - 1].status).toBe('signed-out');
+  });
+
+  it('does not intercept non-401 errors (e.g. 403/404 stay as-is, no spurious wipe)', async () => {
+    setSignedInWithFolder();
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('forbidden', { status: 403 }));
+    const p = new GoogleDriveProvider();
+    await expect(p.listCloudSlots()).rejects.toThrow(/listCloudSlots failed: 403/);
+    // Single fetch — no refresh attempt, no retry. Local tokens
+    // remain intact because 403 isn't an auth-token problem.
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem('sorter:cloud:tokens:v1')).not.toBeNull();
+    expect(p.getAuthState().status).toBe('signed-in');
+  });
+});
+
 describe('GoogleDriveProvider.pullSlot', () => {
   it('does two round-trips (meta + body) and assembles the result', async () => {
     localStorage.setItem(
