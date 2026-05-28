@@ -1108,12 +1108,79 @@ export class GoogleDriveProvider implements CloudProvider {
 
   // ----- internal -----
 
-  private async authedFetch(url: string, init?: RequestInit): Promise<Response> {
+  /**
+   * Make a Drive call with the current access token, transparently
+   * recovering from server-side token rejection (`401`).
+   *
+   * Why this matters: the preflight `refreshTokenIfNeeded()` only
+   * refreshes when *our* `expiresAt` says we're near expiry. But
+   * Google can invalidate a still-locally-valid token at any time —
+   * the user revoked the app at myaccount.google.com/permissions,
+   * the password was changed, Google's risk engine flagged the
+   * session, the user signed out everywhere, etc. In those cases the
+   * preflight no-ops, the request goes out with a server-rejected
+   * Bearer, Drive returns 401, and (pre-fix) the error just bubbled
+   * up as "listCloudSlots failed: 401" while the UI kept showing
+   * "signed in" because `getAuthState()` is purely local.
+   *
+   * Recovery contract:
+   *   1. On first 401: force a refresh (by neutralising the cached
+   *      `expiresAt` so `refreshTokenIfNeeded`'s near-expiry guard
+   *      doesn't short-circuit), then retry exactly once.
+   *   2. If the refresh itself failed (refresh-token revoked too),
+   *      `refreshTokenIfNeeded` has already wiped tokens + fired the
+   *      auth change. Surface `Not signed in.` so the caller's
+   *      try/catch can route the user to the re-auth banner instead
+   *      of trying to read the cancelled response body.
+   *   3. If the retry STILL returns 401, the freshly-minted access
+   *      token was also rejected — that means the underlying grant
+   *      is gone (or scoped away). Wipe local tokens + fire the
+   *      auth-change so the UI transitions to `expired`. Bubble the
+   *      401 up so the caller can render an error.
+   *
+   * The `_retried` parameter is a private re-entry guard, never set
+   * by external callers.
+   */
+  private async authedFetch(
+    url: string,
+    init?: RequestInit,
+    _retried = false,
+  ): Promise<Response> {
     const tokens = readTokens();
     if (!tokens) throw new Error('Not signed in.');
     const headers = new Headers(init?.headers);
     headers.set('authorization', `Bearer ${tokens.accessToken}`);
-    return fetch(url, { ...init, headers });
+    const resp = await fetch(url, { ...init, headers });
+    if (resp.status !== 401) return resp;
+
+    if (_retried) {
+      // Even the just-refreshed access token was rejected. The
+      // underlying grant is gone — only a full re-auth fixes this.
+      // Transition local state so the UI stops showing "signed in"
+      // and surfaces the please-sign-in-again banner.
+      clearTokens();
+      this.fireAuthChange();
+      return resp;
+    }
+
+    // Drop the rejected response's body so the connection releases
+    // before we open a refresh + retry pair on top of it.
+    await resp.body?.cancel();
+
+    // Force the refresh path: writing expiresAt=0 bypasses
+    // refreshTokenIfNeeded's 60-second-before-expiry early return.
+    // Preserves the refreshToken so the refresh can actually run.
+    writeTokens({ ...tokens, expiresAt: 0 });
+    await this.refreshTokenIfNeeded();
+
+    if (!readTokens()) {
+      // Refresh failed and tokens were wiped — auth state already
+      // transitioned to expired. Don't retry with no auth header;
+      // surface a typed-enough error for the caller.
+      throw new Error('Not signed in.');
+    }
+
+    return this.authedFetch(url, init, true);
   }
 }
 
