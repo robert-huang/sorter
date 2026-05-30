@@ -2281,7 +2281,9 @@ a {
   z-index: 1;
   flex: 1 1 auto;
   width: 100%;
-  min-height: 0;
+  /* Keep .item-card's 240px floor for text-only pairs; min-height: 0 was
+     overriding it and shrinking no-image cards to label height only. */
+  min-height: 240px;
 }
 
 /* Per-side incoming animation. Driven by the `data-anim` attribute on
@@ -2348,7 +2350,7 @@ a {
 .compare-overlay-slot .item-card {
   flex: 1 1 auto;
   width: 100%;
-  min-height: 0;
+  min-height: 240px;
 }
 
 /* Slide kind: classic side-ward exit. Used in normal merge mode where
