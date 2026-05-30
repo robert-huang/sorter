@@ -4,8 +4,11 @@ import {
   comparisonsRemaining,
   getPair,
   getPeekLeftIds,
+  getPeekLeftOverflowCount,
   getPeekRightIds,
+  getPeekRightOverflowCount,
 } from '../lib/engine';
+import { COMPARE_PEEK_DEPTH, peekOverflowLabel } from './compareScreenH';
 import { ItemCard } from './ItemCard';
 import { PeekCard } from './PeekCard';
 
@@ -465,12 +468,14 @@ export function CompareScreen({
   // stack is skipped entirely). Filtered through the items dict so any
   // id missing a backing record (shouldn't happen, but be defensive)
   // doesn't crash the render.
-  const peekRightItems = getPeekRightIds(state, 3)
+  const peekRightItems = getPeekRightIds(state, COMPARE_PEEK_DEPTH)
     .map((id) => state.items[id])
     .filter((it): it is Item => !!it);
-  const peekLeftItems = getPeekLeftIds(state, 3)
+  const peekRightOverflow = getPeekRightOverflowCount(state, COMPARE_PEEK_DEPTH);
+  const peekLeftItems = getPeekLeftIds(state, COMPARE_PEEK_DEPTH)
     .map((id) => state.items[id])
     .filter((it): it is Item => !!it);
+  const peekLeftOverflow = getPeekLeftOverflowCount(state, COMPARE_PEEK_DEPTH);
 
   // Banner shown above the compare grid identifying the current mode.
   // Drives both UI clarity (user knows whether this is "the merge", a
@@ -525,7 +530,7 @@ export function CompareScreen({
       </div>
       <div className="compare">
         <div className={leftSlotClass} data-anim={leftAnimKind}>
-          {peekLeftItems.length > 0 && (
+          {(peekLeftItems.length > 0 || peekLeftOverflow > 0) && (
             <div
               className="compare-peek-stack compare-peek-stack--left"
               aria-hidden="true"
@@ -534,17 +539,42 @@ export function CompareScreen({
                   for the same z-index — depth 1 (closest) ends up on
                   top of the stack but still under the live card via
                   the .compare-slot > .item-card { z-index: 1 } rule. */}
-              {peekLeftItems
-                .map((item, i) => ({ item, depth: i + 1 }))
+              {[
+                ...peekLeftItems.map((item, i) => ({
+                  kind: 'item' as const,
+                  item,
+                  depth: i + 1,
+                })),
+                ...(peekLeftOverflow > 0
+                  ? [
+                      {
+                        kind: 'overflow' as const,
+                        depth: peekLeftItems.length + 1,
+                        count: peekLeftOverflow,
+                      },
+                    ]
+                  : []),
+              ]
                 .reverse()
-                .map(({ item, depth }) => (
-                  <PeekCard
-                    key={item.id}
-                    item={item}
-                    depth={depth}
-                    mountAnim={leftAnimKind}
-                  />
-                ))}
+                .map((layer) =>
+                  layer.kind === 'item' ? (
+                    <PeekCard
+                      key={layer.item.id}
+                      item={layer.item}
+                      depth={layer.depth}
+                      mountAnim={leftAnimKind}
+                    />
+                  ) : (
+                    <PeekCard
+                      key="peek-overflow-left"
+                      item={left}
+                      labelOverride={peekOverflowLabel(layer.count)}
+                      isOverflow
+                      depth={layer.depth}
+                      mountAnim={leftAnimKind}
+                    />
+                  ),
+                )}
             </div>
           )}
           <ItemCard
@@ -555,22 +585,47 @@ export function CompareScreen({
           />
         </div>
         <div className={rightSlotClass} data-anim={rightAnimKind}>
-          {peekRightItems.length > 0 && (
+          {(peekRightItems.length > 0 || peekRightOverflow > 0) && (
             <div
               className="compare-peek-stack compare-peek-stack--right"
               aria-hidden="true"
             >
-              {peekRightItems
-                .map((item, i) => ({ item, depth: i + 1 }))
+              {[
+                ...peekRightItems.map((item, i) => ({
+                  kind: 'item' as const,
+                  item,
+                  depth: i + 1,
+                })),
+                ...(peekRightOverflow > 0
+                  ? [
+                      {
+                        kind: 'overflow' as const,
+                        depth: peekRightItems.length + 1,
+                        count: peekRightOverflow,
+                      },
+                    ]
+                  : []),
+              ]
                 .reverse()
-                .map(({ item, depth }) => (
-                  <PeekCard
-                    key={item.id}
-                    item={item}
-                    depth={depth}
-                    mountAnim={rightAnimKind}
-                  />
-                ))}
+                .map((layer) =>
+                  layer.kind === 'item' ? (
+                    <PeekCard
+                      key={layer.item.id}
+                      item={layer.item}
+                      depth={layer.depth}
+                      mountAnim={rightAnimKind}
+                    />
+                  ) : (
+                    <PeekCard
+                      key="peek-overflow-right"
+                      item={right}
+                      labelOverride={peekOverflowLabel(layer.count)}
+                      isOverflow
+                      depth={layer.depth}
+                      mountAnim={rightAnimKind}
+                    />
+                  ),
+                )}
             </div>
           )}
           <ItemCard

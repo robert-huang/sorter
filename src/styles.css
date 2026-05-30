@@ -2252,8 +2252,15 @@ a {
      and to host stacking context for `.compare-slot > .item-card` so the
      live card sits above its peeks. overflow stays at the default
      (visible) so the deck's translate offsets can extend slightly past
-     the slot's box. */
+     the slot's box.
+
+     Flex column + a growing live card: the compare grid stretches both
+     columns to the taller row height, but a short label used to leave
+     the live card shorter than its slot while peek cards still filled
+     `inset: 0` — peek background showed through above the card. */
   position: relative;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Direction tokens for the deck splay (left fans toward the page-left
@@ -2266,10 +2273,15 @@ a {
 
 /* Live ItemCard inside the slot sits above the peek deck. The deck
    uses z-index: 0 on the stack wrapper; bumping the live card to 1
-   keeps it interactive and visually on top regardless of DOM order. */
+   keeps it interactive and visually on top regardless of DOM order.
+   flex:1 stretches the card to the slot's grid row height so it fully
+   occludes the peek behind it (extra height goes into .image-wrap). */
 .compare-slot > .item-card {
   position: relative;
   z-index: 1;
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
 }
 
 /* Per-side incoming animation. Driven by the `data-anim` attribute on
@@ -2329,6 +2341,14 @@ a {
      here so its in-grid card behind shows through unobscured. */
   --anim-duration: 280ms;
   will-change: transform, opacity;
+  display: flex;
+  flex-direction: column;
+}
+
+.compare-overlay-slot .item-card {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
 }
 
 /* Slide kind: classic side-ward exit. Used in normal merge mode where
@@ -2440,30 +2460,57 @@ a {
   cursor: default;
 }
 
-/* Depth 1 = closest to the live card (largest, most opaque); 2/3 are
-   progressively smaller and more faded. --peek-dx flips the X offset
-   sign so the left deck splays leftward and the right deck rightward.
+/* Depth 1 = closest to the live card (largest, most opaque); deeper
+   depths step down in X/Y/scale/label size. --peek-dx flips the X sign
+   so the left deck splays leftward and the right deck rightward.
 
-   Side splay is large enough to read as separate stacked cards while
-   the bottom offset gives each peek a comfortable strip below the live
-   card for its label. We fade the body via `color-mix` on background
-   and border (instead of `opacity`) so the label inside stays fully
-   opaque even at depth 3 — CSS `opacity` on a parent unconditionally
-   fades children. */
+   Monotonic deck rhythm (each step ≤ the one before it):
+     ΔX:  32 → 28 → 24 → 20 px
+     ΔY:  38 → 34 → 30 → 28 px
+     scale & font-size also non-increasing toward the back.
+
+   We fade the body via `color-mix` on background and border (instead of
+   `opacity`) so labels stay fully opaque — parent opacity would fade
+   children unconditionally. */
 .compare-peek-card[data-depth="1"] {
   transform: translate(calc(48px * var(--peek-dx)), 44px) scale(0.92);
   background: color-mix(in srgb, var(--surface) 65%, transparent);
   border-color: color-mix(in srgb, var(--border-strong) 65%, transparent);
 }
+.compare-peek-card[data-depth="1"] .peek-label-strip {
+  font-size: 14px;
+}
 .compare-peek-card[data-depth="2"] {
-  transform: translate(calc(80px * var(--peek-dx)), 80px) scale(0.84);
+  transform: translate(calc(80px * var(--peek-dx)), 82px) scale(0.84);
   background: color-mix(in srgb, var(--surface) 45%, transparent);
   border-color: color-mix(in srgb, var(--border-strong) 45%, transparent);
+}
+.compare-peek-card[data-depth="2"] .peek-label-strip {
+  font-size: 13px;
 }
 .compare-peek-card[data-depth="3"] {
   transform: translate(calc(108px * var(--peek-dx)), 116px) scale(0.78);
   background: color-mix(in srgb, var(--surface) 30%, transparent);
   border-color: color-mix(in srgb, var(--border-strong) 30%, transparent);
+}
+.compare-peek-card[data-depth="3"] .peek-label-strip {
+  font-size: 13px;
+}
+.compare-peek-card[data-depth="4"] {
+  transform: translate(calc(132px * var(--peek-dx)), 146px) scale(0.74);
+  background: color-mix(in srgb, var(--surface) 22%, transparent);
+  border-color: color-mix(in srgb, var(--border-strong) 22%, transparent);
+}
+.compare-peek-card[data-depth="4"] .peek-label-strip {
+  font-size: 13px;
+}
+.compare-peek-card[data-depth="5"] {
+  transform: translate(calc(152px * var(--peek-dx)), 174px) scale(0.70);
+  background: color-mix(in srgb, var(--surface) 18%, transparent);
+  border-color: color-mix(in srgb, var(--border-strong) 18%, transparent);
+}
+.compare-peek-card[data-depth="5"] .peek-label-strip {
+  font-size: 12px;
 }
 
 /* Inner wrapper around each peek card's content. Exists solely to host
@@ -2499,8 +2546,8 @@ a {
             (matches cardPopIn's feel, applied to peek-cards too so the
             "all 4 cards at once" boundary effect reads as a unit).
    - deck → subtle "slid in from a slightly deeper position", used for
-            the NEW depth-3 peek that mounts when depth-2 just shifted
-            up to depth-1. Persisted cards (same item.id across the
+            the NEW deepest peek that mounts when the deck shifts up.
+            Persisted cards (same item.id across the
             pick) don't re-mount, so don't re-fire this animation.
    - fade → opacity-only, matches the live card's cardFadeIn for insert
             modes where the new probe could be anywhere in the active
@@ -2549,13 +2596,33 @@ a {
   bottom: 8px;
   padding: 0 12px;
   text-align: center;
-  font-size: 13px;
+  /* Per-depth font-size is set on `.compare-peek-card[data-depth="n"]`
+     so label size decreases monotonically toward the back of the deck. */
   font-weight: 600;
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   pointer-events: none;
+}
+
+/* Overflow tail (`...n items`) on the deepest peek — align to the
+   outer splay edge. */
+.compare-peek-stack--left .compare-peek-card[data-peek-overflow] .peek-label-strip {
+  left: 22px;
+  right: auto;
+  width: auto;
+  max-width: calc(100% - 32px);
+  padding: 0;
+  text-align: left;
+}
+.compare-peek-stack--right .compare-peek-card[data-peek-overflow] .peek-label-strip {
+  left: auto;
+  right: 22px;
+  width: auto;
+  max-width: calc(100% - 32px);
+  padding: 0;
+  text-align: right;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2917,6 +2984,8 @@ a {
   text-decoration: line-through;
 }
 
+/* Overflow tail on merge-frame rows: replaces the 5th+ chip with a
+   compact count so long slices stay scannable in the LIST tab. */
 .queue-sublist {
   background: var(--surface);
   border: 1px solid var(--border);

@@ -12,6 +12,7 @@ import type {
 import { AddItemsModal } from './AddItemsModal';
 import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
 import { ItemThumb } from './ItemThumb';
+import { mergeSliceLabel } from './listScreenH';
 
 interface Props {
   state: SortState;
@@ -289,7 +290,7 @@ function MergeListView({
         <div className="list-merging">
           <div className="list-section-label">Current sublist</div>
           <CurrentMergeRow
-            label="Merged so far"
+            label={mergeSliceLabel('Merged so far', state.current.merged.length)}
             slice="merged"
             ids={state.current.merged}
             state={state}
@@ -300,7 +301,7 @@ function MergeListView({
             onEdit={openEdit}
           />
           <CurrentMergeRow
-            label="Left remaining"
+            label={mergeSliceLabel('Left remaining', state.current.left.length)}
             slice="left"
             ids={state.current.left}
             state={state}
@@ -311,7 +312,7 @@ function MergeListView({
             onEdit={openEdit}
           />
           <CurrentMergeRow
-            label="Right remaining"
+            label={mergeSliceLabel('Right remaining', state.current.right.length)}
             slice="right"
             ids={state.current.right}
             state={state}

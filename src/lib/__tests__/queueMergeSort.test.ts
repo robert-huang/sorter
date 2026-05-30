@@ -10,6 +10,7 @@ import {
   getPair,
   getPeekLeftIds,
   getPeekRightIds,
+  getPeekRightOverflowCount,
   getRanking,
   hideItem,
   initSort as mergeInitSort,
@@ -1236,6 +1237,23 @@ describe('getPeekRightIds (merge engine)', () => {
       expect(target).toContain(id);
       expect(id).not.toBe('g'); // never includes the inserting id
     }
+  });
+});
+
+describe('getPeekRightOverflowCount (merge engine)', () => {
+  it('is max(0, visible tail length minus labeledDepth)', () => {
+    const s = seedFromSublists({
+      sublists: [[A, B, C, D, E], [F, G, H]],
+      extras: [],
+    });
+    const tailLen = getPeekRightIds(s, 100).length;
+    const labeledDepth = 4;
+    expect(getPeekRightOverflowCount(s, labeledDepth)).toBe(
+      Math.max(0, tailLen - labeledDepth),
+    );
+    expect(getPeekRightIds(s, labeledDepth).length).toBe(
+      Math.min(labeledDepth, tailLen),
+    );
   });
 });
 
