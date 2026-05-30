@@ -85,6 +85,25 @@ export function getPeekLeftIds(state: SortState, n = 3): ItemId[] {
     : merge.getPeekLeftIds(state, n);
 }
 
+/** Count of rank-adjacent ids not shown as named peek cards (`...n` tail). */
+export function getPeekRightOverflowCount(
+  state: SortState,
+  labeledDepth: number,
+): number {
+  return state.engine === 'insertion'
+    ? insertion.getPeekRightOverflowCount(state, labeledDepth)
+    : merge.getPeekRightOverflowCount(state, labeledDepth);
+}
+
+export function getPeekLeftOverflowCount(
+  state: SortState,
+  labeledDepth: number,
+): number {
+  return state.engine === 'insertion'
+    ? insertion.getPeekLeftOverflowCount(state, labeledDepth)
+    : merge.getPeekLeftOverflowCount(state, labeledDepth);
+}
+
 // ---------- snapshot / restore ----------
 
 export function snapshotProgress(state: SortState): SortProgress {

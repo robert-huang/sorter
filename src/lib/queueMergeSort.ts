@@ -1,6 +1,7 @@
 import {
   applyInsertPick,
   getInsertPair,
+  countInsertPeekRightOverflow,
   getInsertPeekRightIds,
   insertComparisonsRemaining,
   startInsert,
@@ -199,6 +200,56 @@ export function getPeekLeftIds(state: MergeState, n = 3): ItemId[] {
 }
 
 /**
+ * How many visible ids on the right remain after the `labeledDepth`
+ * named peek cards (drives the `...n` overflow tail on CompareScreen).
+ */
+export function getPeekRightOverflowCount(
+  state: MergeState,
+  labeledDepth: number,
+): number {
+  const hidden = new Set(state.hidden);
+  if (state.currentManualInsert) {
+    const target = state.queue[state.currentManualInsert.targetQueueIndex];
+    if (!target) return 0;
+    return countInsertPeekRightOverflow(
+      state.currentManualInsert.frame,
+      target,
+      hidden,
+      labeledDepth,
+    );
+  }
+  if (state.currentAutoInsert?.frame) {
+    return countInsertPeekRightOverflow(
+      state.currentAutoInsert.frame,
+      state.currentAutoInsert.target,
+      hidden,
+      labeledDepth,
+    );
+  }
+  if (!state.current) return 0;
+  return Math.max(
+    0,
+    countVisibleAfterHead(state.current.right, hidden) - labeledDepth,
+  );
+}
+
+/**
+ * Merge-mode left deck overflow count. [] left peek in insert modes.
+ */
+export function getPeekLeftOverflowCount(
+  state: MergeState,
+  labeledDepth: number,
+): number {
+  if (state.currentManualInsert || state.currentAutoInsert?.frame) return 0;
+  if (!state.current) return 0;
+  const hidden = new Set(state.hidden);
+  return Math.max(
+    0,
+    countVisibleAfterHead(state.current.left, hidden) - labeledDepth,
+  );
+}
+
+/**
  * Walk past the first visible (the head shown as A or B) and collect
  * up to `n` more visible ids in queue order. Shared between left and
  * right merge-mode peeks.
@@ -215,6 +266,19 @@ function peekAfterHead(
     if (!hidden.has(ids[i])) out.push(ids[i]);
   }
   return out;
+}
+
+function countVisibleAfterHead(
+  ids: ReadonlyArray<ItemId>,
+  hidden: ReadonlySet<ItemId>,
+): number {
+  const headIdx = firstVisibleIndex(ids as ItemId[], hidden);
+  if (headIdx < 0) return 0;
+  let count = 0;
+  for (let i = headIdx + 1; i < ids.length; i++) {
+    if (!hidden.has(ids[i])) count++;
+  }
+  return count;
 }
 
 /**

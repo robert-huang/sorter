@@ -10,6 +10,10 @@ type MountAnim = 'pop' | 'deck' | 'fade' | 'none';
 
 interface Props {
   item: Item;
+  /** When set, replaces `item.label` (used for the `...n` overflow tail). */
+  labelOverride?: string;
+  /** Overflow tail only: align the label toward the deck splay edge. */
+  isOverflow?: boolean;
   /**
    * Stack depth, 1-indexed. 1 = closest to the live card (largest, most
    * opaque); higher numbers are progressively smaller and more faded.
@@ -40,7 +44,7 @@ interface Props {
  *
  * Deliberately does NOT render the item's image: the image area is
  * fully hidden behind the live card anyway, and dropping it keeps the
- * peek cheap and avoids loading three extra images per pair just to
+ * peek cheap and avoids loading extra images per pair just to
  * not render them. The full label is surfaced via the native browser
  * tooltip on hover (`title`).
  *
@@ -49,7 +53,14 @@ interface Props {
  * announced through `ItemCard` and don't need the rank-adjacent
  * preview re-read.
  */
-export function PeekCard({ item, depth, mountAnim }: Props) {
+export function PeekCard({
+  item,
+  labelOverride,
+  isOverflow = false,
+  depth,
+  mountAnim,
+}: Props) {
+  const label = labelOverride ?? item.label;
   // Capture the mount animation kind exactly once on initial mount.
   // Subsequent prop changes are intentionally ignored — see the
   // mountAnim prop docs above for why.
@@ -67,11 +78,12 @@ export function PeekCard({ item, depth, mountAnim }: Props) {
       className="compare-peek-card"
       data-depth={depth}
       data-mount-anim={frozenMountAnim}
+      data-peek-overflow={isOverflow ? '' : undefined}
       aria-hidden="true"
-      title={item.label}
+      title={label}
     >
       <div className="compare-peek-card-inner">
-        <span className="peek-label-strip">{item.label}</span>
+        <span className="peek-label-strip">{label}</span>
       </div>
     </div>
   );

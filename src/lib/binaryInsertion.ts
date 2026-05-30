@@ -117,6 +117,21 @@ export function getInsertPeekRightIds(
   return out;
 }
 
+/** Visible rank-adjacent ids after the probe minus the `labeledDepth` shown as named peek cards. */
+export function countInsertPeekRightOverflow(
+  frame: InsertFrame,
+  sorted: ReadonlyArray<ItemId>,
+  hidden: ReadonlySet<ItemId>,
+  labeledDepth: number,
+): number {
+  let total = 0;
+  for (let i = frame.probe + 1; i <= frame.hi; i++) {
+    const id = sorted[i];
+    if (id && !hidden.has(id)) total++;
+  }
+  return Math.max(0, total - labeledDepth);
+}
+
 /**
  * Worst-case comparisons remaining from this frame, including the next
  * probe. Used by progress-bar denominators. `⌈log2(hi - lo + 2)⌉`.

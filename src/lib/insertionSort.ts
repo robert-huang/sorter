@@ -1,6 +1,7 @@
 import {
   applyInsertPick,
   getInsertPair as getInsertPairPrimitive,
+  countInsertPeekRightOverflow,
   getInsertPeekRightIds,
   insertComparisonsRemaining,
   startInsert,
@@ -83,6 +84,30 @@ export function getPeekRightIds(state: InsertionState, n = 3): ItemId[] {
  */
 export function getPeekLeftIds(_state: InsertionState, _n = 3): ItemId[] {
   return [];
+}
+
+export function getPeekRightOverflowCount(
+  state: InsertionState,
+  labeledDepth: number,
+): number {
+  if (!state.current) return 0;
+  const hidden = new Set(state.hidden);
+  if (hidden.has(state.current.insertingId)) return 0;
+  const skipped = skipHiddenProbes(state.current, state.sorted, hidden);
+  if ('done' in skipped) return 0;
+  return countInsertPeekRightOverflow(
+    skipped,
+    state.sorted,
+    hidden,
+    labeledDepth,
+  );
+}
+
+export function getPeekLeftOverflowCount(
+  _state: InsertionState,
+  _labeledDepth: number,
+): number {
+  return 0;
 }
 
 /**
