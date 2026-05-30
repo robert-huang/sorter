@@ -1365,30 +1365,11 @@ function currentMergeSliceArray(
   return frame.right;
 }
 
-/** Visible-head index for left/right remainders; merged has no lock (-1). */
-function currentMergeHeadLockIndex(
-  slice: CurrentMergeSlice,
-  frame: { left: ItemId[]; right: ItemId[]; merged: ItemId[] },
-  hidden: ReadonlySet<ItemId>,
-): number {
-  if (slice === 'merged') return -1;
-  return firstVisibleIndex(currentMergeSliceArray(frame, slice), hidden);
-}
-
-function wouldSwapInvolveIndex(
-  itemIndex: number,
-  direction: -1 | 1,
-  lockIndex: number,
-): boolean {
-  if (lockIndex < 0) return false;
-  const target = itemIndex + direction;
-  return itemIndex === lockIndex || target === lockIndex;
-}
-
 /**
  * Whether an adjacent swap is allowed within one slice of the active merge
- * frame. Left/right swaps that would move the visible compare head are
- * blocked so LIST edits don't silently change the RANK pair.
+ * frame (bounds and slice presence only). Reordering the visible compare
+ * head is allowed — LIST shows the slice being edited; RANK picks up the
+ * new pair when the user returns (CompareScreen remounts on tab switch).
  */
 export function canReorderInCurrentMerge(
   state: MergeState,
@@ -1401,17 +1382,12 @@ export function canReorderInCurrentMerge(
   const target = itemIndex + direction;
   if (itemIndex < 0 || itemIndex >= arr.length) return false;
   if (target < 0 || target >= arr.length) return false;
-  if (arr.length <= 1) return false;
-  const hidden = new Set(state.hidden);
-  const lockIdx = currentMergeHeadLockIndex(slice, state.current, hidden);
-  return !wouldSwapInvolveIndex(itemIndex, direction, lockIdx);
+  return arr.length > 1;
 }
 
 /**
  * Move an item up or down within one slice of the in-flight merge frame
  * (`merged`, `left`, or `right`). Swaps never cross slice boundaries.
- * Visible heads on left/right remainders are locked — see
- * `canReorderInCurrentMerge`.
  */
 export function reorderInCurrentMerge(
   state: MergeState,
