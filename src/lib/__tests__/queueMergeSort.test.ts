@@ -430,6 +430,23 @@ describe('appendPreRankedSublist', () => {
     ]);
     expect(s1.items.a.url).toBe('https://orig');
   });
+
+  it('flips done back to false and queues one pre-ranked sublist', () => {
+    let s: MergeState = initSort([A, B]);
+    while (!s.done) {
+      const p = getPair(s);
+      if (!p) break;
+      s = p.leftId <= p.rightId ? pickLeft(s) : pickRight(s);
+    }
+    expect(s.done).toBe(true);
+    const { state: next } = appendPreRankedSublist(s, [C, D, E]);
+    expect(next.done).toBe(false);
+    expect(next.engine).toBe('merge');
+    expect(next.items.c).toBeDefined();
+    expect(next.items.d).toBeDefined();
+    expect(next.items.e).toBeDefined();
+    expect(next.current || next.queue.length > 0).toBeTruthy();
+  });
 });
 
 describe('reorderInSublist', () => {

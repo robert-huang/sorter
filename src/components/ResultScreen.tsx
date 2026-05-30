@@ -30,13 +30,14 @@ interface Props {
   /**
    * Add many items via the Multiple tab (pre-ranked checkbox unchecked).
    * Merge → N singleton sublists; insertion → push to pending FIFO;
-   * merge-done → engine-transition confirm modal.
+   * completed sort → modify-vs-new-slot confirm (merge-done switches to
+   * insertion mode when modifying the current slot).
    */
   onAddMany: (items: Item[]) => void;
   /**
    * Add many items via the Multiple tab with the "Treat as one
    * pre-ranked sublist" checkbox checked. Merge → appendPreRankedSublist
-   * as one sublist; merge-done → engine-transition confirm modal.
+   * as one sublist; completed sort → modify-vs-new-slot confirm.
    * Undefined / hidden checkbox on insertion engine since pending is
    * FIFO either way.
    */
