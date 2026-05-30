@@ -1640,6 +1640,12 @@ export interface Settings {
    * (start-over keeps items + the slot; delete-slot wipes both).
    */
   suppressStartOverConfirm?: boolean;
+  /**
+   * "Don't ask again" for edits to a completed sort (add items, pre-ranked
+   * append, etc.). When set, skip the modal and always mint a new slot
+   * (the completed slot stays untouched).
+   */
+  suppressCompletedSortEditConfirm?: boolean;
   theme?: ThemeName;
   /** When true, header shows "· ~M left" after the "Comparison #N" stat. */
   showEstimatedRemaining?: boolean;

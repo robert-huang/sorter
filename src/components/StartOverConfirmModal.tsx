@@ -1,47 +1,45 @@
 import { useState } from 'react';
+import { derivedSlotName } from '../lib/completedSortEditH';
 import { Modal } from './Modal';
 
 interface Props {
   itemCount: number;
+  slotName: string;
   onConfirm: (dontAskAgain: boolean) => void;
   onCancel: () => void;
 }
 
 /**
- * Confirm for the RESULT-tab "Start over" button. Distinct from
- * SlotDeleteConfirmModal because the action is *not* destructive — it
- * mints a brand-new slot seeded from the current sort's final ranking
- * and switches to it. The current slot is preserved untouched in the
- * gear-menu slot list.
- *
- * Sharing the modal shell + the "Don't ask again" mechanic keeps the
- * UX consistent with the slot-delete confirm; the suppression key
- * (`suppressStartOverConfirm`) is its own setting so opting out of one
- * confirm doesn't silently opt out of the other.
+ * Confirm for the RESULT-tab "Start over" button. Always mints a new slot;
+ * the current completed slot is left untouched.
  */
-export function StartOverConfirmModal({ itemCount, onConfirm, onCancel }: Props) {
+export function StartOverConfirmModal({
+  itemCount,
+  slotName,
+  onConfirm,
+  onCancel,
+}: Props) {
   const [dontAsk, setDontAsk] = useState(false);
+  const newSlotName = derivedSlotName(slotName, 'redo');
+
   return (
     <Modal label="Start over confirmation" onClose={onCancel}>
-      <h3>Start over from scratch?</h3>
+      <h3>Start over in a new slot?</h3>
       <p style={{ color: 'var(--text-muted)' }}>
-        This mints a <strong>new slot</strong> seeded with your{' '}
-        {itemCount} ranked item{itemCount === 1 ? '' : 's'} as singletons
-        and runs a fresh merge sort from the top. Items keep their cards
-        (labels, links, images); only the comparison history starts
-        empty.
+        Creates <strong>&ldquo;{newSlotName}&rdquo;</strong> with your{' '}
+        {itemCount} ranked item{itemCount === 1 ? '' : 's'} as singletons and
+        runs a fresh merge from the top. Items keep their cards (labels, links,
+        images); only the comparison history starts empty.
       </p>
       <p style={{ color: 'var(--text-muted)' }}>
-        <strong>Your current slot is preserved.</strong> It stays in the
-        gear-menu slot list with its full sort and undo history &mdash;
-        you can resume it any time. To remove it, use &ldquo;Delete this
-        slot&rdquo; in the gear menu.
+        <strong>&ldquo;{slotName}&rdquo; stays finished.</strong> It remains in
+        the gear-menu list with its full sort and undo history — you can open it
+        any time. To remove it, use &ldquo;Delete this slot&rdquo; in the gear menu.
       </p>
       <p style={{ color: 'var(--text-muted)' }}>
-        <strong>Removed items don&rsquo;t come along.</strong> Anything
-        you hid during the previous sort (or left in the To-be-inserted
-        bucket) stays in the old slot and isn&rsquo;t seeded into the
-        new one.
+        <strong>Removed items don&rsquo;t come along.</strong> Anything you hid
+        during the previous sort (or left in the To-be-inserted bucket) stays in
+        the old slot and isn&rsquo;t seeded into the new one.
       </p>
       <div className="checkbox-row">
         <input
@@ -56,11 +54,8 @@ export function StartOverConfirmModal({ itemCount, onConfirm, onCancel }: Props)
         <button className="btn" onClick={onCancel}>
           Cancel
         </button>
-        <button
-          className="btn danger"
-          onClick={() => onConfirm(dontAsk)}
-        >
-          Start over
+        <button className="btn primary" onClick={() => onConfirm(dontAsk)}>
+          Create new slot
         </button>
       </div>
     </Modal>

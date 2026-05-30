@@ -22,7 +22,6 @@ import {
   returnToPending as engineReturnToPending,
   rewriteIdInProgress as engineRewriteIdInProgress,
   snapshotProgress as engineSnapshotProgress,
-  transitionMergeDoneToInsertion,
   unhideItem as engineUnhideItem,
   updateItem as engineUpdateItem,
   updateItemId as engineUpdateItemId,
@@ -39,6 +38,12 @@ import {
   seedFromSublists,
 } from './lib/queueMergeSort';
 import { seedAsSorted } from './lib/insertionSort';
+import {
+  applyCompletedSortEdit,
+  cloneSortState,
+  derivedSlotName,
+  type CompletedSortEditAction,
+} from './lib/completedSortEditH';
 import {
   type AutosaveBlob,
   type AutosaveError,
@@ -94,6 +99,7 @@ import { BackupRestoreConfirmModal } from './components/BackupRestoreConfirmModa
 import { SlotCapConfirmModal } from './components/SlotCapConfirmModal';
 import { SlotDeleteConfirmModal } from './components/SlotDeleteConfirmModal';
 import { StartOverConfirmModal } from './components/StartOverConfirmModal';
+import { CompletedSortEditConfirmModal } from './components/CompletedSortEditConfirmModal';
 import { CloudLibraryModal } from './components/CloudLibraryModal';
 import { CloudPushConflictModal } from './components/CloudPushConflictModal';
 import { CloudUnlinkConfirmModal } from './components/CloudUnlinkConfirmModal';
@@ -210,9 +216,10 @@ export function App() {
   >(null);
   // A pending "Start over" confirmation on the RESULT tab. When non-null,
   // StartOverConfirmModal is shown. itemCount feeds the modal copy.
-  const [startOverPending, setStartOverPending] = useState<
-    { itemCount: number } | null
-  >(null);
+  const [startOverPending, setStartOverPending] = useState<{
+    itemCount: number;
+    slotName: string;
+  } | null>(null);
   // Pre-flight at the slot-cap. When non-null, SlotCapConfirmModal is
   // shown listing the slot that will be silently evicted by the next
   // createSlot call. The `commit` callback runs the real mint; `cancel`
@@ -249,10 +256,11 @@ export function App() {
     () => ({ autoInsertEnabled }),
     [autoInsertEnabled],
   );
-  // Pending merge→insertion transition for the "+ Add items" flow on the
-  // RESULT screen. Non-null while the confirm modal is shown.
-  const [pendingTransition, setPendingTransition] = useState<{
-    items: Item[];
+  // Pending edit to a completed sort (add items, pre-ranked append, etc.).
+  // Non-null while the modify-vs-new-slot confirm modal is shown.
+  const [completedEditPending, setCompletedEditPending] = useState<{
+    action: CompletedSortEditAction;
+    slotName: string;
   } | null>(null);
   // Latest terminal autosave failure (or null once cleared). When non-null
   // we render a sticky banner above the app shell explaining that the last
@@ -842,37 +850,15 @@ export function App() {
     [pushUndo, engineOptions],
   );
 
-  // doAppendPreRanked is merge-only by definition; on a merge-done state
-  // we route through the engine-transition confirm modal instead of
-  // appending more sublist work that would re-merge against the frozen
-  // ranking. Same routing pattern is mirrored in doAddItem / doAddItemsList
-  // so RESULTS' "Add items" behaves identically no matter which add path
-  // the user takes.
-  const doAppendPreRanked = useCallback(
-    (items: Item[]) => {
-      if (!state || items.length === 0) return;
-      if (state.engine !== 'merge') return;
-      if (state.done) {
-        setPendingTransition({ items });
-        return;
-      }
-      setState((cur) => {
-        if (!cur || cur.engine !== 'merge') return cur;
-        pushUndo(cur);
-        const { state: next, skipped } = appendPreRankedSublist(
-          cur,
-          items,
-          engineOptions,
+  const reportSkippedItems = useCallback(
+    (skipped: ItemId[]) => {
+      if (skipped.length > 0) {
+        flashSkipped(
+          `Skipped ${skipped.length} item${skipped.length === 1 ? '' : 's'} already in the sort.`,
         );
-        if (skipped.length > 0) {
-          flashSkipped(
-            `Skipped ${skipped.length} item${skipped.length === 1 ? '' : 's'} already in the sort.`,
-          );
-        }
-        return next;
-      });
+      }
     },
-    [state, pushUndo, flashSkipped, engineOptions],
+    [flashSkipped],
   );
 
   // ---- manual insert (merge-only) ----
@@ -944,80 +930,6 @@ export function App() {
     },
     [pushUndo, flashSkipped],
   );
-
-  // ---- single-item add: engine-aware, mutates current slot ----
-  // On merge-engine-done we route to the engine-transition confirm modal
-  // instead of appending a singleton sublist that would force the user
-  // to re-merge it against the frozen ranking — same pattern as the
-  // multi-item paths.
-  const doAddItem = useCallback(
-    (item: Item) => {
-      if (!state) return;
-      if (state.engine === 'merge' && state.done) {
-        setPendingTransition({ items: [item] });
-        return;
-      }
-      setState((cur) => {
-        if (!cur) return cur;
-        const next = engineAddItem(cur, item, engineOptions);
-        if (next === null) return cur;
-        pushUndo(cur);
-        return next;
-      });
-    },
-    [state, pushUndo, engineOptions],
-  );
-
-  // ---- multi-item add (LIST tab "Multiple" tab unchecked): engine-aware ----
-  // Insertion → appends each to pending FIFO. Merge (not done) → appends
-  // N singleton sublists. Merge (done) → engine-transition confirm modal.
-  // For "merge a pre-ranked sublist" semantics, see `doAppendPreRanked`.
-  const doAddItemsList = useCallback(
-    (items: Item[]) => {
-      if (!state || items.length === 0) return;
-      if (state.engine === 'merge' && state.done) {
-        setPendingTransition({ items });
-        return;
-      }
-      setState((cur) => {
-        if (!cur) return cur;
-        const { state: next, skipped } = engineAddItems(cur, items, engineOptions);
-        if (skipped.length > 0) {
-          flashSkipped(
-            `Skipped ${skipped.length} item${skipped.length === 1 ? '' : 's'} already in the sort.`,
-          );
-        }
-        // engineAddItems always returns a new state object; push the
-        // pre-add state onto undo unless nothing actually changed.
-        if (next === cur) return cur;
-        pushUndo(cur);
-        return next;
-      });
-    },
-    [state, pushUndo, flashSkipped, engineOptions],
-  );
-
-  const confirmTransition = useCallback(() => {
-    if (!state || state.engine !== 'merge' || !pendingTransition) return;
-    pushUndo(state);
-    const { state: next, skipped } = transitionMergeDoneToInsertion(
-      state,
-      pendingTransition.items,
-    );
-    if (skipped.length > 0) {
-      flashSkipped(
-        `Skipped ${skipped.length} item${skipped.length === 1 ? '' : 's'} already in the sort.`,
-      );
-    }
-    setState(next);
-    setUndoRing((ring) => ring); // ring already pushed via pushUndo
-    setActiveTab('rank');
-    setPendingTransition(null);
-  }, [state, pendingTransition, pushUndo, flashSkipped]);
-
-  const cancelTransition = useCallback(() => {
-    setPendingTransition(null);
-  }, []);
 
   const doUndo = useCallback(() => {
     setUndoRing((ring) => {
@@ -1141,6 +1053,132 @@ export function App() {
       performSlotMint(session, name, initialTab, cloudBinding);
     },
     [performSlotMint],
+  );
+
+  const executeCompletedSortEdit = useCallback(
+    (
+      action: CompletedSortEditAction,
+      target: 'current' | 'new',
+      sourceSlotName: string,
+    ) => {
+      if (!state) return;
+
+      const base = target === 'new' ? cloneSortState(state) : state;
+      const { state: next, skipped, resumed } = applyCompletedSortEdit(
+        base,
+        action,
+        engineOptions,
+      );
+      reportSkippedItems(skipped);
+
+      if (next.done && !resumed) {
+        return;
+      }
+
+      if (target === 'new') {
+        const session: SavedSession = { state: next, undoRing: [] };
+        adoptNewSession(
+          session,
+          derivedSlotName(sourceSlotName, 'branch'),
+          resumed ? 'rank' : undefined,
+        );
+        return;
+      }
+
+      pushUndo(state);
+      setState(next);
+      if (resumed) {
+        setActiveTab('rank');
+      }
+    },
+    [state, pushUndo, engineOptions, reportSkippedItems, adoptNewSession],
+  );
+
+  const requestCompletedSortEdit = useCallback(
+    (action: CompletedSortEditAction) => {
+      if (!state || !state.done) return;
+      const slotName =
+        manifest.slots.find((s) => s.id === manifest.activeId)?.name ??
+        'Untitled sort';
+      if (readSettings().suppressCompletedSortEditConfirm) {
+        executeCompletedSortEdit(action, 'new', slotName);
+        return;
+      }
+      setCompletedEditPending({ action, slotName });
+    },
+    [state, manifest.slots, manifest.activeId, executeCompletedSortEdit],
+  );
+
+  // doAppendPreRanked is merge-only. A pre-ranked sublist appends to the
+  // merge queue even when the sort is done — appendPreRankedSublist clears
+  // `done` and resumes FIFO merges (auto-insert only when the size heuristic
+  // fires).
+  const doAppendPreRanked = useCallback(
+    (items: Item[]) => {
+      if (!state || items.length === 0) return;
+      if (state.engine !== 'merge') return;
+      if (state.done) {
+        requestCompletedSortEdit({ kind: 'appendPreRanked', items });
+        return;
+      }
+      setState((cur) => {
+        if (!cur || cur.engine !== 'merge') return cur;
+        pushUndo(cur);
+        const { state: next, skipped } = appendPreRankedSublist(
+          cur,
+          items,
+          engineOptions,
+        );
+        reportSkippedItems(skipped);
+        return next;
+      });
+    },
+    [state, pushUndo, reportSkippedItems, engineOptions, requestCompletedSortEdit],
+  );
+
+  const doAddItem = useCallback(
+    (item: Item) => {
+      if (!state) return;
+      if (state.done) {
+        const action: CompletedSortEditAction =
+          state.engine === 'merge'
+            ? { kind: 'mergeToInsertion', items: [item] }
+            : { kind: 'addOne', item };
+        requestCompletedSortEdit(action);
+        return;
+      }
+      setState((cur) => {
+        if (!cur) return cur;
+        const next = engineAddItem(cur, item, engineOptions);
+        if (next === null) return cur;
+        pushUndo(cur);
+        return next;
+      });
+    },
+    [state, pushUndo, engineOptions, requestCompletedSortEdit],
+  );
+
+  const doAddItemsList = useCallback(
+    (items: Item[]) => {
+      if (!state || items.length === 0) return;
+      if (state.done) {
+        const action: CompletedSortEditAction =
+          state.engine === 'merge'
+            ? { kind: 'mergeToInsertion', items }
+            : { kind: 'addMany', items };
+        requestCompletedSortEdit(action);
+        return;
+      }
+      setState((cur) => {
+        if (!cur) return cur;
+        const { state: next, skipped } = engineAddItems(cur, items, engineOptions);
+        reportSkippedItems(skipped);
+        if (next === cur) return cur;
+        pushUndo(cur);
+        return next;
+      });
+    },
+    [state, pushUndo, reportSkippedItems, engineOptions, requestCompletedSortEdit],
   );
 
   // Import a shared payload as a new slot. Branches on payload.kind:
@@ -2094,19 +2132,25 @@ export function App() {
     const session: SavedSession = { state: next, undoRing: [] };
     // Land on LIST so the user can preview / tweak the seeded queue
     // before committing to the first comparison.
-    adoptNewSession(session, autoNameFromBlob(buildBlob(next, [])), 'list');
-  }, [state, adoptNewSession, engineOptions]);
+    const slotName =
+      manifest.slots.find((s) => s.id === manifest.activeId)?.name ??
+      'Untitled sort';
+    adoptNewSession(session, derivedSlotName(slotName, 'redo'), 'list');
+  }, [state, manifest.slots, manifest.activeId, adoptNewSession, engineOptions]);
 
   const requestStartOver = useCallback(() => {
     if (!state) return;
     const itemCount = engineGetRanking(state).length;
     if (itemCount === 0) return;
+    const slotName =
+      manifest.slots.find((s) => s.id === manifest.activeId)?.name ??
+      'Untitled sort';
     if (readSettings().suppressStartOverConfirm) {
       performStartOver();
       return;
     }
-    setStartOverPending({ itemCount });
-  }, [state, performStartOver]);
+    setStartOverPending({ itemCount, slotName });
+  }, [state, manifest.slots, manifest.activeId, performStartOver]);
 
   // -------- keyboard --------
   useKeyboard(
@@ -2420,16 +2464,30 @@ export function App() {
           }}
         />
       )}
-      {pendingTransition && (
-        <TransitionConfirmModal
-          itemCount={pendingTransition.items.length}
-          onCancel={cancelTransition}
-          onConfirm={confirmTransition}
+      {completedEditPending && (
+        <CompletedSortEditConfirmModal
+          slotName={completedEditPending.slotName}
+          action={completedEditPending.action}
+          onCancel={() => setCompletedEditPending(null)}
+          onModifyCurrent={() => {
+            const { action, slotName } = completedEditPending;
+            setCompletedEditPending(null);
+            executeCompletedSortEdit(action, 'current', slotName);
+          }}
+          onCreateNewSlot={(dontAsk) => {
+            if (dontAsk) {
+              updateSettings({ suppressCompletedSortEditConfirm: true });
+            }
+            const { action, slotName } = completedEditPending;
+            setCompletedEditPending(null);
+            executeCompletedSortEdit(action, 'new', slotName);
+          }}
         />
       )}
       {startOverPending && (
         <StartOverConfirmModal
           itemCount={startOverPending.itemCount}
+          slotName={startOverPending.slotName}
           onCancel={() => setStartOverPending(null)}
           onConfirm={(dontAsk) => {
             if (dontAsk) updateSettings({ suppressStartOverConfirm: true });
@@ -2517,48 +2575,3 @@ export function App() {
   );
 }
 
-/**
- * Inline confirm modal for the merge→insertion engine transition.
- * Shown when the user clicks "+ Add items" on the RESULT screen of a
- * completed merge sort. Warns that this morphs the slot in-place; the
- * one-step undo can back it out, but they should consider downloading
- * a JSON copy first if they want a long-term safety net.
- */
-function TransitionConfirmModal({
-  itemCount,
-  onCancel,
-  onConfirm,
-}: {
-  itemCount: number;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <div className="modal-backdrop" onClick={onCancel}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h3>Switch to insertion mode?</h3>
-        <p style={{ color: 'var(--text-muted)' }}>
-          Adding {itemCount} item{itemCount === 1 ? '' : 's'} to a completed
-          sort will switch this slot to <strong>insertion mode</strong>: new
-          items get binary-inserted into the existing ranking. You can still
-          nudge items up/down or pull them back to re-insert via the
-          per-row controls — but those mutations cancel-and-restart the
-          current insert (~⌈log₂(N+1)⌉ extra comparisons each).
-        </p>
-        <p style={{ color: 'var(--text-muted)' }}>
-          The previous merge state goes onto the undo ring so a single ↶
-          Undo will back this out. If you want a long-term safety net,
-          consider downloading a JSON copy first.
-        </p>
-        <div className="modal-actions">
-          <button className="btn" onClick={onCancel}>
-            Cancel
-          </button>
-          <button className="btn primary" onClick={onConfirm}>
-            Switch to insertion mode
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
