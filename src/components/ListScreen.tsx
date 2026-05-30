@@ -23,10 +23,7 @@ interface Props {
   onHide: (id: string) => void;
   onUnhide: (id: string) => void;
   onReorder: (queueIndex: number, itemIndex: number, dir: -1 | 1) => void;
-  /**
-   * Merge-only: nudge an item within one slice of the in-flight merge frame.
-   * Visible heads on left/right remainders are locked.
-   */
+  /** Merge-only: nudge an item within one slice of the in-flight merge frame. */
   onReorderInCurrentMerge: (
     slice: CurrentMergeSlice,
     itemIndex: number,

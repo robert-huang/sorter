@@ -503,12 +503,13 @@ describe('reorderInCurrentMerge', () => {
     expect(getPair(s2)).toEqual({ leftId: 'a', rightId: 'e' });
   });
 
-  it('blocks swaps involving the visible left or right head', () => {
+  it('swaps the visible compare head on a remainder slice', () => {
     const s0 = activeMergeState();
-    expect(reorderInCurrentMerge(s0, 'left', 0, 1)).toBe(s0);
-    expect(reorderInCurrentMerge(s0, 'left', 1, -1)).toBe(s0);
-    expect(reorderInCurrentMerge(s0, 'right', 0, 1)).toBe(s0);
-    expect(reorderInCurrentMerge(s0, 'right', 1, -1)).toBe(s0);
+    expect(getPair(s0)).toEqual({ leftId: 'a', rightId: 'e' });
+
+    const s1 = reorderInCurrentMerge(s0, 'left', 0, 1);
+    expect(s1.current!.left).toEqual(['b', 'a', 'c', 'd']);
+    expect(getPair(s1)).toEqual({ leftId: 'b', rightId: 'e' });
   });
 
   it('is a no-op without an active merge frame', () => {
