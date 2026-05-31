@@ -5,6 +5,7 @@ import {
   buildAnilistFavouriteUrl,
   buildAnilistMediaUrl,
 } from '../lib/importers/anilist/anilistSource';
+import { formatMediaDisplayLabel } from '../lib/importers/anilist/mediaDisplayLabel';
 import {
   AnilistScrapeLockHeldError,
   AnilistUnknownUserError,
@@ -47,6 +48,21 @@ import { formatAnilistProgress } from './anilistProgressLabel';
  */
 
 const ANILIST_USERNAME_LS_KEY = 'anilist:lastUsername';
+const ANILIST_FORMAT_IN_LABEL_LS_KEY = 'anilist:includeFormatInLabel';
+
+function readIncludeFormatInLabel(): boolean {
+  try {
+    return localStorage.getItem(ANILIST_FORMAT_IN_LABEL_LS_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function isMediaFavouriteType(
+  t: AnilistFavouriteType,
+): t is 'ANIME' | 'MANGA' {
+  return t === 'ANIME' || t === 'MANGA';
+}
 
 const FAVOURITE_TYPES: AnilistFavouriteType[] = [
   'CHARACTERS',
@@ -111,28 +127,16 @@ interface Props {
   dbSyncRevision: number;
 }
 
-/** Best-available title from a media row, defaulting through romaji
- *  → english → native → "Untitled". Matches what most AniList UIs
- *  render as the canonical display title. */
-function pickTitle(m: MediaRow): string {
-  return (
-    m.title_romaji ??
-    m.title_english ??
-    m.title_native ??
-    `Untitled (${m.id})`
-  );
-}
-
 /**
  * Materialise a MediaRow into an Item ready to seed the sorter. The
  * Item id is the AniList media id stringified — stable, collision-
  * proof across sources because of the source discriminator, and
  * compact in the autosave blob.
  */
-function mediaRowToItem(m: MediaRow): Item {
+function mediaRowToItem(m: MediaRow, includeFormatInLabel: boolean): Item {
   return {
     id: `anilist:${m.id}`,
-    label: pickTitle(m),
+    label: formatMediaDisplayLabel(m, m.format, includeFormatInLabel),
     // Auto-populate the canonical AniList entry URL so the staged-
     // items panel + result rows can render a clickable link to the
     // original page (matches how CSV / clipboard items carry a url).
@@ -166,15 +170,24 @@ function mediaRowToItem(m: MediaRow): Item {
  * the filter bar untouched, which is the correct behaviour for an
  * entity type we don't filter on.
  */
+function favouriteMediaLabel(
+  fa: FavouriteAsItem,
+  includeFormatInLabel: boolean,
+): string {
+  if (!includeFormatInLabel || !fa.format) return fa.label;
+  return `${fa.label} (${fa.format})`;
+}
+
 function favouriteAsItemToItem(
   fa: FavouriteAsItem,
   type: AnilistFavouriteType,
+  includeFormatInLabel: boolean,
 ): Item {
   const url = buildAnilistFavouriteUrl(type, fa.externalId);
   if (type === 'ANIME' || type === 'MANGA') {
     return {
       id: `anilist:${fa.externalId}`,
-      label: fa.label,
+      label: favouriteMediaLabel(fa, includeFormatInLabel),
       url,
       imageUrl: fa.imageUrl ?? undefined,
       source: { kind: 'anilist', externalId: fa.externalId },
@@ -238,6 +251,9 @@ export function AnilistStartMode({
     }
   });
   const [type, setType] = useState<AnilistMediaType>('ANIME');
+  const [includeFormatInLabel, setIncludeFormatInLabel] = useState<boolean>(
+    readIncludeFormatInLabel,
+  );
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Latest progress event from the in-flight import OR favourites
@@ -380,7 +396,9 @@ export function AnilistStartMode({
       }
       const rows = await productionReads.getListedMedia(latest.id, type);
       if (cancelled) return;
-      const next = rows.map(mediaRowToItem);
+      const next = rows.map((m) =>
+        mediaRowToItem(m, includeFormatInLabel),
+      );
       setCandidates(next);
       setCandidateSource({
         kind: 'list',
@@ -399,6 +417,51 @@ export function AnilistStartMode({
       cancelled = true;
     };
   }, [importTick, type]);
+
+  // Re-label loaded anime/manga candidates when the format toggle flips.
+  useEffect(() => {
+    if (candidates.length === 0 || !candidateSource) return;
+    const isMediaList = candidateSource.kind === 'list';
+    const isMediaFavs =
+      candidateSource.kind === 'favourites' &&
+      isMediaFavouriteType(candidateSource.type);
+    if (!isMediaList && !isMediaFavs) return;
+
+    let cancelled = false;
+    void (async () => {
+      let next: Item[];
+      if (candidateSource.kind === 'list') {
+        const rows = await productionReads.getListedMedia(
+          candidateSource.userId,
+          candidateSource.type,
+        );
+        next = rows.map((m) => mediaRowToItem(m, includeFormatInLabel));
+      } else {
+        const favs = await productionReads.getFavouritesAsItems(
+          candidateSource.userId,
+          candidateSource.type,
+        );
+        next = favs.map((fa) =>
+          favouriteAsItemToItem(fa, candidateSource.type, includeFormatInLabel),
+        );
+      }
+      if (cancelled) return;
+      setCandidates(next);
+      setSelectedIds((prev) => {
+        const kept = new Set<ItemId>();
+        for (const it of next) {
+          if (prev.has(it.id)) kept.add(it.id);
+        }
+        return kept;
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Only re-fetch when the toggle changes — import/favourites paths
+    // already map with the current includeFormatInLabel value.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- candidateSource/candidates intentionally omitted
+  }, [includeFormatInLabel]);
 
   // Load per-favourite-type last-refresh timestamps + cached counts
   // for the user the typed `username` resolves to. Mirrors the
@@ -729,7 +792,9 @@ export function AnilistStartMode({
         return 0;
       }
       const favs = await productionReads.getFavouritesAsItems(user.id, favTypeArg);
-      const next = favs.map((fa) => favouriteAsItemToItem(fa, favTypeArg));
+      const next = favs.map((fa) =>
+        favouriteAsItemToItem(fa, favTypeArg, includeFormatInLabel),
+      );
       setCandidates(next);
       setCandidateSource({
         kind: 'favourites',
@@ -741,7 +806,7 @@ export function AnilistStartMode({
       setSearch('');
       return next.length;
     },
-    [],
+    [includeFormatInLabel],
   );
 
   const onRefreshFavourites = useCallback(async () => {
@@ -823,7 +888,7 @@ export function AnilistStartMode({
       cachedListInfo.userId,
       type,
     );
-    const next = rows.map(mediaRowToItem);
+    const next = rows.map((m) => mediaRowToItem(m, includeFormatInLabel));
     setCandidates(next);
     setCandidateSource({
       kind: 'list',
@@ -833,7 +898,14 @@ export function AnilistStartMode({
     });
     setSelectedIds(new Set(next.map((it) => it.id)));
     setSearch('');
-  }, [cachedListInfo, importing, type, onDraftActivity, rememberUsername]);
+  }, [
+    cachedListInfo,
+    importing,
+    type,
+    includeFormatInLabel,
+    onDraftActivity,
+    rememberUsername,
+  ]);
 
   /**
    * Skip-the-API counterpart to `onRefreshFavourites`. Pulls the
@@ -1012,6 +1084,31 @@ export function AnilistStartMode({
             ? 'Importing…'
             : `${cachedListInfo ? 'Reimport' : 'Import'} ${type === 'ANIME' ? 'anime' : 'manga'}`}
         </button>
+      </div>
+
+      <div className="anilist-start-bar" style={{ marginTop: 4 }}>
+        <label
+          style={{ fontSize: 12, color: 'var(--text-muted)', cursor: 'pointer' }}
+          title="Use romaji title plus AniList format, e.g. Shinryaku! Ika Musume (TV)"
+        >
+          <input
+            type="checkbox"
+            checked={includeFormatInLabel}
+            onChange={(e) => {
+              const next = e.target.checked;
+              setIncludeFormatInLabel(next);
+              try {
+                localStorage.setItem(
+                  ANILIST_FORMAT_IN_LABEL_LS_KEY,
+                  next ? '1' : '0',
+                );
+              } catch {
+                /* ignore */
+              }
+            }}
+          />{' '}
+          Append format to title (e.g. Title (TV))
+        </label>
       </div>
 
       {/*

@@ -24,6 +24,7 @@ import {
 } from './meta';
 import type {
   AnilistFavouriteType,
+  AnilistMediaFormat,
   AnilistMediaType,
   CharacterRow,
   MediaListEntryRow,
@@ -529,6 +530,8 @@ export interface FavouriteAsItem {
   externalId: number;
   label: string;
   imageUrl: string | null;
+  /** Set for ANIME/MANGA favourites so the UI can append `(FORMAT)`. */
+  format?: AnilistMediaFormat | null;
 }
 
 /**
@@ -564,7 +567,8 @@ export async function getFavouritesAsItems(
                 m.title_romaji  AS title_romaji,
                 m.title_english AS title_english,
                 m.title_native  AS title_native,
-                m.cover_image   AS cover_image
+                m.cover_image   AS cover_image,
+                m.format        AS format
            FROM media_favourite mf
            JOIN media m ON m.id = mf.media_id
           WHERE mf.anilist_user_id = ? AND m.type = ?
@@ -582,6 +586,7 @@ export async function getFavouritesAsItems(
           externalId: id,
           label,
           imageUrl: s(r.cover_image),
+          format: s(r.format) as AnilistMediaFormat | null,
         };
       });
     }
