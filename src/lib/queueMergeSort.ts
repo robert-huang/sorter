@@ -832,6 +832,25 @@ function bumpTotalComparisons(
 }
 
 /**
+ * When minting a new slot from a completed merge, comparison stats should
+ * count only work in that slot — not inherit the parent's tally.
+ */
+export function resetBranchedComparisonProgress(
+  state: MergeState,
+  options?: MergeOptions,
+): MergeState {
+  const opts = resolveOptions(options);
+  const progress = snapshotProgress(state);
+  progress.comparisons = 0;
+  progress.totalComparisonsEverNeeded = comparisonsRemainingFromProgress(
+    progress,
+    new Set(progress.hidden),
+    opts,
+  );
+  return restoreProgress(state, progress);
+}
+
+/**
  * Pick the visible head of `left` or `right`. Three-stage dispatch:
  *  - when a manual-insert frame is active (user-triggered), route to
  *    the binary-insert path with cancel semantics.

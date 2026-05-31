@@ -42,6 +42,7 @@ import {
   applyCompletedSortEdit,
   cloneSortState,
   derivedSlotName,
+  resetBranchedSlotComparisonProgress,
   type CompletedSortEditAction,
 } from './lib/completedSortEditH';
 import {
@@ -1076,7 +1077,8 @@ export function App() {
       }
 
       if (target === 'new') {
-        const session: SavedSession = { state: next, undoRing: [] };
+        const branched = resetBranchedSlotComparisonProgress(next, engineOptions);
+        const session: SavedSession = { state: branched, undoRing: [] };
         adoptNewSession(
           session,
           derivedSlotName(sourceSlotName, 'branch'),
