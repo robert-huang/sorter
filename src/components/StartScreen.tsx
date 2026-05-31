@@ -963,15 +963,18 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
     (initialTab?: TabId) => {
       if (combinedAlreadySortedReady) {
         onStartAlreadySorted(combinedSortInput.sublists[0], initialTab);
-        return;
+      } else {
+        onStartPreranked(
+          {
+            sublists: combinedSortInput.sublists,
+            extras: combinedSortInput.extras,
+          },
+          initialTab,
+        );
       }
-      onStartPreranked(
-        {
-          sublists: combinedSortInput.sublists,
-          extras: combinedSortInput.extras,
-        },
-        initialTab,
-      );
+      // Draft was consumed into a new slot — drop staged/pending so a
+      // return to START doesn't show a stale import queue.
+      clearDraftState();
     },
     [
       combinedAlreadySortedReady,
