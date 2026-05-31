@@ -452,6 +452,20 @@ export function returnToPending(
   return { ...next, items: state.items };
 }
 
+/**
+ * When minting a new slot from a completed insertion sort, comparison stats
+ * should count only work in that slot — not inherit the parent's tally.
+ */
+export function resetBranchedComparisonProgress(
+  state: InsertionState,
+): InsertionState {
+  const progress = snapshotProgress(state);
+  progress.comparisons = 0;
+  progress.totalComparisonsEverNeeded =
+    comparisonsRemainingFromProgress(progress);
+  return restoreProgress(state, progress);
+}
+
 function bumpTotalComparisons(progress: InsertionProgress): void {
   // Convention shared with queueMergeSort.bumpTotalComparisons: the
   // field tracks the all-time-high of `remaining`. Bar position is

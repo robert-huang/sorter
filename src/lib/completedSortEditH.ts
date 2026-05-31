@@ -4,7 +4,13 @@ import {
   transitionMergeDoneToInsertion,
   type EngineOptions,
 } from './engine';
-import { appendPreRankedSublist } from './queueMergeSort';
+import {
+  resetBranchedComparisonProgress as resetInsertionBranchedComparisonProgress,
+} from './insertionSort';
+import {
+  appendPreRankedSublist,
+  resetBranchedComparisonProgress as resetMergeBranchedComparisonProgress,
+} from './queueMergeSort';
 import type { Item, ItemId, SortState } from './types';
 
 /** What the user is trying to do to a completed (`done`) sort. */
@@ -128,4 +134,21 @@ export function applyCompletedSortEdit(
 
   const resumed = wasDone && !next.done;
   return { state: next, skipped, resumed };
+}
+
+/**
+ * Reset comparison counter / budget for a slot minted from a completed sort.
+ * In-place edits on the same slot must not call this.
+ */
+export function resetBranchedSlotComparisonProgress(
+  state: SortState,
+  options: EngineOptions,
+): SortState {
+  if (state.engine === 'merge') {
+    return resetMergeBranchedComparisonProgress(state, options);
+  }
+  if (state.engine === 'insertion') {
+    return resetInsertionBranchedComparisonProgress(state);
+  }
+  return state;
 }
