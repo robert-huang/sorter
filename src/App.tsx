@@ -2183,9 +2183,16 @@ export function App() {
       : manifest.slots.find((s) => s.id === manifest.activeId) ?? null;
 
   // -------- render --------
-  let body: JSX.Element;
-  if (activeTab === 'start' || !state) {
-    body = (
+  // Keep StartScreen mounted while LIST/RANK/RESULT are visible so staged
+  // draft state (useState inside StartScreen) survives START ↔ sort tabs.
+  const showStartScreen = activeTab === 'start' || !state;
+
+  const startScreenEl = (
+    <div
+      className="start-screen-host"
+      hidden={!showStartScreen}
+      aria-hidden={!showStartScreen}
+    >
       <StartScreen
         ref={startScreenRef}
         resumeMeta={resumeMeta}
@@ -2198,10 +2205,17 @@ export function App() {
         onDraftCapabilitiesChange={setDraftCaps}
         dbSyncRevision={dbSyncRevision}
       />
-    );
+    </div>
+  );
+
+  let body: JSX.Element;
+  if (showStartScreen) {
+    body = startScreenEl;
   } else if (activeTab === 'list') {
     body = (
-      <ListScreen
+      <>
+        {startScreenEl}
+        <ListScreen
         state={state}
         slotId={manifest.activeId ?? ''}
         slotName={
@@ -2223,10 +2237,13 @@ export function App() {
         onReturnToPending={doReturnToPending}
         onEditItem={doEditItem}
       />
+      </>
     );
   } else if (activeTab === 'rank') {
     body = (
-      <CompareScreen
+      <>
+        {startScreenEl}
+        <CompareScreen
         state={state}
         lastInteraction={lastInteraction}
         onPickLeft={() => doPick('left')}
@@ -2235,10 +2252,13 @@ export function App() {
         onCancelManualInsert={doCancelManualInsert}
         autoInsertEnabled={autoInsertEnabled}
       />
+      </>
     );
   } else {
     body = (
-      <ResultScreen
+      <>
+        {startScreenEl}
+        <ResultScreen
         state={state}
         slotName={
           manifest.slots.find((s) => s.id === manifest.activeId)?.name
@@ -2249,6 +2269,7 @@ export function App() {
         onAddMany={doAddItemsList}
         onAddPreRanked={doAppendPreRanked}
       />
+      </>
     );
   }
 
