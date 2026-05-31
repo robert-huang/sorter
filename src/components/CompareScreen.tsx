@@ -247,6 +247,14 @@ export function CompareScreen({
   const [leftRevealed, setLeftRevealed] = useState(true);
   const [rightRevealed, setRightRevealed] = useState(true);
   const overlayContainerRef = useRef<HTMLDivElement | null>(null);
+  /**
+   * Tracks which sides already got a popInKey bump for the current incoming
+   * pair. An INTERRUPT pick bumps immediately (snappy reveal); without this
+   * flag the leisurely overlay tail would bump again when the exit finishes —
+   * especially visible at merge-queue boundaries (both sides `pop`) where the
+   * new queue's cards appear to flash twice.
+   */
+  const incomingAnimatedRef = useRef({ left: false, right: false });
 
   useEffect(() => {
     outgoingRef.current = outgoing;
@@ -337,15 +345,28 @@ export function CompareScreen({
       // until the overlay drains. For deck, keep the slot visible and
       // bump popInKey now so cardSlideUpFromDeck + peek depth shifts
       // play in parallel with the overlay slide-off.
+      incomingAnimatedRef.current = { left: false, right: false };
       setOutgoing(newOutgoing);
       if (oldLeft) {
         if (newOutgoing.leftHidden) setLeftRevealed(false);
-        else if (bumpLeft) setPopInKeyLeft((k) => k + 1);
-      } else if (bumpLeft) setPopInKeyLeft((k) => k + 1);
+        else if (bumpLeft) {
+          setPopInKeyLeft((k) => k + 1);
+          incomingAnimatedRef.current.left = true;
+        }
+      } else if (bumpLeft) {
+        setPopInKeyLeft((k) => k + 1);
+        incomingAnimatedRef.current.left = true;
+      }
       if (oldRight) {
         if (newOutgoing.rightHidden) setRightRevealed(false);
-        else if (bumpRight) setPopInKeyRight((k) => k + 1);
-      } else if (bumpRight) setPopInKeyRight((k) => k + 1);
+        else if (bumpRight) {
+          setPopInKeyRight((k) => k + 1);
+          incomingAnimatedRef.current.right = true;
+        }
+      } else if (bumpRight) {
+        setPopInKeyRight((k) => k + 1);
+        incomingAnimatedRef.current.right = true;
+      }
     } else {
       // INTERRUPT: rush the in-flight exit by re-pacing its CSS animation
       // duration to RUSH_DURATION_MS (via a CSS variable on the overlay
@@ -362,8 +383,14 @@ export function CompareScreen({
       queueRef.current.push(newOutgoing);
       setLeftRevealed(true);
       setRightRevealed(true);
-      if (bumpLeft) setPopInKeyLeft((k) => k + 1);
-      if (bumpRight) setPopInKeyRight((k) => k + 1);
+      if (bumpLeft) {
+        setPopInKeyLeft((k) => k + 1);
+        incomingAnimatedRef.current.left = true;
+      }
+      if (bumpRight) {
+        setPopInKeyRight((k) => k + 1);
+        incomingAnimatedRef.current.right = true;
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pair?.leftId, pair?.rightId, mode, lastInteraction]);
@@ -388,22 +415,20 @@ export function CompareScreen({
       // Queue drained — leisurely tail. Reveal any side that was hidden
       // and replay its incoming animation. Deck sides were never hidden
       // and already got their popInKey bump on pick, so skip them here.
+      // Skip sides that already bumped on an INTERRUPT pick too.
       if (leftWasExiting) {
-        if (cur?.leftHidden) {
-          setLeftRevealed(true);
+        setLeftRevealed(true);
+        if (cur?.leftHidden && !incomingAnimatedRef.current.left) {
           setPopInKeyLeft((k) => k + 1);
-        } else {
-          setLeftRevealed(true);
         }
       }
       if (rightWasExiting) {
-        if (cur?.rightHidden) {
-          setRightRevealed(true);
+        setRightRevealed(true);
+        if (cur?.rightHidden && !incomingAnimatedRef.current.right) {
           setPopInKeyRight((k) => k + 1);
-        } else {
-          setRightRevealed(true);
         }
       }
+      incomingAnimatedRef.current = { left: false, right: false };
     }
   }
 
