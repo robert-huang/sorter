@@ -287,31 +287,29 @@ export function SettingsMenu({
           <div className="settings-tab-body" role="tabpanel">
             {tab === 'slots' && (
               <>
-                {/* Only the slot list scrolls. The action buttons and
-                    cloud section below sit in a pinned region so the
-                    scroll thumb stops at the bottom of the slot list
-                    instead of extending past "Load save file…" etc. */}
-                <div className="settings-slots-scroll">
-                  <div className="settings-slots">
-                    <SlotList
-                      slots={manifest.slots}
-                      loadedSlotId={loadedSlotId}
-                      onSwitch={handleSwitch}
-                      onDelete={onDeleteSlot}
-                      onRename={onRenameSlot}
-                      onDownload={onDownloadSlot}
-                      onTogglePin={onTogglePinSlot}
-                      cloudControlsVisible={cloudStatus === 'ready'}
-                      onCloudToggleOptIn={onCloudToggleOptIn}
-                      onCloudPush={onCloudPushSlot}
-                      onCloudPull={onCloudPullSlot}
-                      cloudPushingIds={cloudPushingIds}
-                      cloudPullingIds={cloudPullingIds}
-                      onCloudPushAll={onCloudPushAllSlots}
-                      onCloudPullAll={onCloudPullAllSlots}
-                      onNewSort={handleNewSort}
-                    />
-                  </div>
+                {/* SlotList pins header + search; only rows scroll
+                    (.settings-slots-scroll on the list body). Action
+                    buttons below stay outside the thumb. */}
+                <div className="settings-slots">
+                  <SlotList
+                    slots={manifest.slots}
+                    loadedSlotId={loadedSlotId}
+                    onSwitch={handleSwitch}
+                    onDelete={onDeleteSlot}
+                    onRename={onRenameSlot}
+                    onDownload={onDownloadSlot}
+                    onTogglePin={onTogglePinSlot}
+                    cloudControlsVisible={cloudStatus === 'ready'}
+                    onCloudToggleOptIn={onCloudToggleOptIn}
+                    onCloudPush={onCloudPushSlot}
+                    onCloudPull={onCloudPullSlot}
+                    cloudPushingIds={cloudPushingIds}
+                    cloudPullingIds={cloudPullingIds}
+                    onCloudPushAll={onCloudPushAllSlots}
+                    onCloudPullAll={onCloudPullAllSlots}
+                    onNewSort={handleNewSort}
+                    listScrollClassName="settings-slots-scroll"
+                  />
                 </div>
                 <div className="settings-tab-actions">
                   <div className="settings-divider" />
