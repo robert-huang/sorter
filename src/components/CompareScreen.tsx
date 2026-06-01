@@ -255,6 +255,32 @@ export function CompareScreen({
    * new queue's cards appear to flash twice.
    */
   const incomingAnimatedRef = useRef({ left: false, right: false });
+  const deckBumpRafRef = useRef<{ left?: number; right?: number }>({});
+
+  function cancelDeferredDeckBumps(): void {
+    const raf = deckBumpRafRef.current;
+    if (raf.left !== undefined) {
+      cancelAnimationFrame(raf.left);
+      raf.left = undefined;
+    }
+    if (raf.right !== undefined) {
+      cancelAnimationFrame(raf.right);
+      raf.right = undefined;
+    }
+  }
+
+  function scheduleDeferredDeckBump(
+    side: 'left' | 'right',
+    bump: () => void,
+  ): void {
+    const raf = deckBumpRafRef.current;
+    const prev = raf[side];
+    if (prev !== undefined) cancelAnimationFrame(prev);
+    raf[side] = requestAnimationFrame(() => {
+      raf[side] = undefined;
+      bump();
+    });
+  }
 
   useEffect(() => {
     outgoingRef.current = outgoing;
@@ -346,12 +372,15 @@ export function CompareScreen({
       // bump popInKey now so cardSlideUpFromDeck + peek depth shifts
       // play in parallel with the overlay slide-off.
       incomingAnimatedRef.current = { left: false, right: false };
+      cancelDeferredDeckBumps();
       setOutgoing(newOutgoing);
       if (oldLeft) {
         if (newOutgoing.leftHidden) setLeftRevealed(false);
         else if (bumpLeft) {
-          setPopInKeyLeft((k) => k + 1);
-          incomingAnimatedRef.current.left = true;
+          scheduleDeferredDeckBump('left', () => {
+            setPopInKeyLeft((k) => k + 1);
+            incomingAnimatedRef.current.left = true;
+          });
         }
       } else if (bumpLeft) {
         setPopInKeyLeft((k) => k + 1);
@@ -360,36 +389,63 @@ export function CompareScreen({
       if (oldRight) {
         if (newOutgoing.rightHidden) setRightRevealed(false);
         else if (bumpRight) {
-          setPopInKeyRight((k) => k + 1);
-          incomingAnimatedRef.current.right = true;
+          scheduleDeferredDeckBump('right', () => {
+            setPopInKeyRight((k) => k + 1);
+            incomingAnimatedRef.current.right = true;
+          });
         }
       } else if (bumpRight) {
         setPopInKeyRight((k) => k + 1);
         incomingAnimatedRef.current.right = true;
       }
     } else {
-      // INTERRUPT: rush the in-flight exit by re-pacing its CSS animation
-      // duration to RUSH_DURATION_MS (via a CSS variable on the overlay
-      // container, which children inherit), queue this pair to start as
-      // soon as the rushed pair ends, AND reveal the new cards now — the
-      // snappy "pick again immediately and the next pair is already
-      // there" feel.
-      if (overlayContainerRef.current) {
-        overlayContainerRef.current.style.setProperty(
-          '--anim-duration',
-          `${RUSH_DURATION_MS}ms`,
-        );
-      }
-      queueRef.current.push(newOutgoing);
-      setLeftRevealed(true);
-      setRightRevealed(true);
-      if (bumpLeft) {
-        setPopInKeyLeft((k) => k + 1);
-        incomingAnimatedRef.current.left = true;
-      }
-      if (bumpRight) {
-        setPopInKeyRight((k) => k + 1);
-        incomingAnimatedRef.current.right = true;
+      const isMergeQueueBoundary =
+        !newIsInsert &&
+        !prevIsInsert &&
+        !modeBoundary &&
+        bumpLeft &&
+        bumpRight &&
+        leftAnimKind === 'pop' &&
+        rightAnimKind === 'pop';
+
+      if (isMergeQueueBoundary) {
+        // Merge queue advanced (fresh sublists on both sides). Play the full
+        // leisurely boundary exit instead of the 70ms interrupt so a fast
+        // second click feels like two separate picks, not a rushed snap.
+        cancelDeferredDeckBumps();
+        queueRef.current = [];
+        if (overlayContainerRef.current) {
+          overlayContainerRef.current.style.removeProperty('--anim-duration');
+        }
+        incomingAnimatedRef.current = { left: false, right: false };
+        setOutgoing(newOutgoing);
+        setLeftRevealed(false);
+        setRightRevealed(false);
+      } else {
+        // INTERRUPT: rush the in-flight exit by re-pacing its CSS animation
+        // duration to RUSH_DURATION_MS (via a CSS variable on the overlay
+        // container, which children inherit), reveal the new cards now, and
+        // do NOT queue another exit overlay — the incoming pair is already
+        // on screen; playing a chained exit on top is what caused the
+        // double-flash when double-clicking through a short sublist.
+        cancelDeferredDeckBumps();
+        if (overlayContainerRef.current) {
+          overlayContainerRef.current.style.setProperty(
+            '--anim-duration',
+            `${RUSH_DURATION_MS}ms`,
+          );
+        }
+        queueRef.current = [];
+        setLeftRevealed(true);
+        setRightRevealed(true);
+        if (bumpLeft) {
+          setPopInKeyLeft((k) => k + 1);
+          incomingAnimatedRef.current.left = true;
+        }
+        if (bumpRight) {
+          setPopInKeyRight((k) => k + 1);
+          incomingAnimatedRef.current.right = true;
+        }
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -486,6 +542,12 @@ export function CompareScreen({
   const rightSlotClass = `compare-slot compare-slot--right${
     rightRevealed ? '' : ' compare-slot--hidden'
   }`;
+  // Peek entry animations are frozen on mount — skip pop/deck on cards that
+  // mount while the slot is hidden, or they replay when the slot unhides.
+  const leftPeekMountAnim: SlotAnimKind = leftRevealed ? leftAnimKind : 'none';
+  const rightPeekMountAnim: SlotAnimKind = rightRevealed
+    ? rightAnimKind
+    : 'none';
 
   // Rank-adjacent peek decks rendered behind the live cards. Right side
   // applies in every mode; left side is non-empty only in normal merge
@@ -587,7 +649,7 @@ export function CompareScreen({
                       key={layer.item.id}
                       item={layer.item}
                       depth={layer.depth}
-                      mountAnim={leftAnimKind}
+                      mountAnim={leftPeekMountAnim}
                     />
                   ) : (
                     <PeekCard
@@ -596,7 +658,7 @@ export function CompareScreen({
                       labelOverride={peekOverflowLabel(layer.count)}
                       isOverflow
                       depth={layer.depth}
-                      mountAnim={leftAnimKind}
+                      mountAnim={leftPeekMountAnim}
                     />
                   ),
                 )}
@@ -638,7 +700,7 @@ export function CompareScreen({
                       key={layer.item.id}
                       item={layer.item}
                       depth={layer.depth}
-                      mountAnim={rightAnimKind}
+                      mountAnim={rightPeekMountAnim}
                     />
                   ) : (
                     <PeekCard
@@ -647,7 +709,7 @@ export function CompareScreen({
                       labelOverride={peekOverflowLabel(layer.count)}
                       isOverflow
                       depth={layer.depth}
-                      mountAnim={rightAnimKind}
+                      mountAnim={rightPeekMountAnim}
                     />
                   ),
                 )}
