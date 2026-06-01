@@ -584,15 +584,15 @@ a {
 }
 
 /* Scroll regions inside the tab panel. The slots tab uses
-   .settings-slots-scroll for just the SlotList, so the scrollbar
-   does NOT extend down through Load save file…/Backup/Delete/Cloud
-   (those live in .settings-tab-actions below it). The databases tab
-   uses .settings-tab-scroll across its whole body since it has no
-   pinned action region. min-height:80px keeps at least one slot row
-   visible if the action stack ever fills the popover on a very
-   short viewport. */
+   .settings-slots-scroll on SlotList's row list only (header +
+   search stay pinned above the thumb). Load save file…/Backup/etc.
+   live in .settings-tab-actions below. The databases tab uses
+   .settings-tab-scroll across its whole body since it has no pinned
+   action region. min-height:80px keeps at least one slot row visible
+   on a very short viewport. */
 .settings-slots-scroll,
-.settings-tab-scroll {
+.settings-tab-scroll,
+.slot-list-scroll {
   flex: 1 1 auto;
   min-height: 80px;
   overflow-y: auto;
@@ -612,23 +612,37 @@ a {
   flex: 0 0 auto;
 }
 
-/* Embedded slot list inside the gear popover. No internal scroller —
-   .settings-slots-scroll (the parent) owns vertical scrolling for the
-   slot list region, and a second scroller here would stack with it
-   and produce two parallel scrollbars. Also drop the old negative
-   horizontal margins; they bled past the popover padding and were
-   the reason the body used to grow a horizontal scrollbar. */
+/* Embedded slot list inside the gear popover. SlotList owns a single
+   scroller on .settings-slots-scroll (rows only). Flex column so the
+   scroll region can shrink between pinned header/search and the tab
+   actions below. */
 .settings-slots {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
   margin: 0;
   padding: 0;
 }
 
 .settings-slots .slot-list {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
   border: none;
   background: transparent;
   box-shadow: none;
   padding: 0;
   margin-bottom: 0;
+}
+
+.settings-slots .slot-list-header {
+  flex-shrink: 0;
+}
+
+.settings-slots .slot-search {
+  flex-shrink: 0;
 }
 
 .slot-list.empty {
@@ -643,7 +657,8 @@ a {
 
 .slot-search {
   width: 100%;
-  margin: 0 0 8px;
+  margin: 0 0 6px;
+  flex-shrink: 0;
   padding: 6px 8px;
   font-size: 13px;
   border: 1px solid var(--border);

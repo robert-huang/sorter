@@ -63,6 +63,12 @@ interface Props {
    *  when at least one slot is BOTH opted-in and has a cloud binding
    *  (cloudId set) — otherwise there's nothing to pull. */
   onCloudPullAll?: () => void;
+  /**
+   * Class on the scrollable rows region only (header + search stay
+   * pinned above). Gear menu passes `.settings-slots-scroll` so the
+   * thumb starts below the search field.
+   */
+  listScrollClassName?: string;
 }
 
 /**
@@ -116,6 +122,7 @@ export function SlotList({
   onNewSort,
   onCloudPushAll,
   onCloudPullAll,
+  listScrollClassName = 'slot-list-scroll',
 }: Props) {
   // Local-only state — search is a render filter, never persisted.
   // Reset is implicit (close + reopen the gear menu remounts SlotList).
@@ -230,30 +237,34 @@ export function SlotList({
           aria-label="Filter saved sorts by name"
         />
       )}
-      {filtered.length === 0 ? (
-        <div className="slot-list-empty">
-          No slots match &ldquo;{trimmedQuery}&rdquo;.
-        </div>
-      ) : (
-        filtered.map((s) => (
-          <SlotRow
-            key={s.id}
-            slot={s}
-            isLoaded={loadedSlotId === s.id}
-            onSwitch={onSwitch}
-            onDelete={onDelete}
-            onRename={onRename}
-            onDownload={onDownload}
-            onTogglePin={onTogglePin}
-            cloudControlsVisible={cloudControlsVisible}
-            onCloudToggleOptIn={onCloudToggleOptIn}
-            onCloudPush={onCloudPush}
-            onCloudPull={onCloudPull}
-            cloudPushing={cloudPushingIds.has(s.id)}
-            cloudPulling={cloudPullingIds.has(s.id)}
-          />
-        ))
-      )}
+      <div className={listScrollClassName}>
+        {filtered.length === 0 ? (
+          <div className="slot-list-empty">
+            {trimmedQuery
+              ? <>No slots match &ldquo;{trimmedQuery}&rdquo;.</>
+              : 'No saved sorts yet.'}
+          </div>
+        ) : (
+          filtered.map((s) => (
+            <SlotRow
+              key={s.id}
+              slot={s}
+              isLoaded={loadedSlotId === s.id}
+              onSwitch={onSwitch}
+              onDelete={onDelete}
+              onRename={onRename}
+              onDownload={onDownload}
+              onTogglePin={onTogglePin}
+              cloudControlsVisible={cloudControlsVisible}
+              onCloudToggleOptIn={onCloudToggleOptIn}
+              onCloudPush={onCloudPush}
+              onCloudPull={onCloudPull}
+              cloudPushing={cloudPushingIds.has(s.id)}
+              cloudPulling={cloudPullingIds.has(s.id)}
+            />
+          ))
+        )}
+      </div>
     </div>
   );
 }
