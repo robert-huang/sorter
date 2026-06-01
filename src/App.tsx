@@ -708,20 +708,58 @@ export function App() {
     window.history.replaceState(null, '', `${origin}${pathname}${search}`);
   }
 
-  const doPick = useCallback(
+  // Batch rapid same-side picks into one microtask chain, but apply them one
+  // engine step per commit so CompareScreen can play deck → boundary pop like
+  // separate clicks. When the side changes (peek preview → LEFT then RIGHT),
+  // flush pending first so each direction gets its own animation.
+  const pendingPicksRef = useRef<Array<'left' | 'right'>>([]);
+  const pickFlushQueuedRef = useRef(false);
+
+  const applyPendingPick = useCallback(
     (side: 'left' | 'right') => {
       setState((cur) => {
         if (!cur) return cur;
-        pushUndo(cur);
+        setUndoRing((ring) => {
+          const snap = engineSnapshotProgress(cur);
+          let merged = ring.concat(snap);
+          while (merged.length > UNDO_CAP) merged.shift();
+          return merged;
+        });
         return side === 'left'
           ? enginePickLeft(cur, engineOptions)
           : enginePickRight(cur, engineOptions);
       });
-      // Stamp the interaction *after* the state change so the CompareScreen
-      // effect (which fires on pair change) reads the freshest side.
       setLastInteraction({ kind: 'pick', side });
     },
-    [pushUndo, engineOptions],
+    [engineOptions],
+  );
+
+  const flushPendingPicks = useCallback(() => {
+    pickFlushQueuedRef.current = false;
+    const picks = pendingPicksRef.current.splice(0);
+    if (picks.length === 0) return;
+    const [head, ...tail] = picks;
+    applyPendingPick(head!);
+    if (tail.length > 0) {
+      pendingPicksRef.current.push(...tail);
+      pickFlushQueuedRef.current = true;
+      queueMicrotask(flushPendingPicks);
+    }
+  }, [applyPendingPick]);
+
+  const doPick = useCallback(
+    (side: 'left' | 'right') => {
+      const pending = pendingPicksRef.current;
+      if (pending.length > 0 && pending[pending.length - 1] !== side) {
+        pickFlushQueuedRef.current = false;
+        flushPendingPicks();
+      }
+      pending.push(side);
+      if (pickFlushQueuedRef.current) return;
+      pickFlushQueuedRef.current = true;
+      queueMicrotask(flushPendingPicks);
+    },
+    [flushPendingPicks],
   );
 
   const doHide = useCallback(
