@@ -2,6 +2,9 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import '../styles.css';
 import { AnimeToAnimeApp } from './AnimeToAnimeApp';
+import { applyAnimeToAnimeTheme, loadAnimeToAnimeTheme } from './theme';
+
+applyAnimeToAnimeTheme(loadAnimeToAnimeTheme());
 
 const root = document.getElementById('root');
 if (!root) {

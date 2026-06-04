@@ -1520,6 +1520,110 @@ a {
   color: var(--accent, currentColor);
 }
 
+/* ---------- Anime to Anime mini-app ---------- */
+
+.anime-to-anime-header-title {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.anime-to-anime-back-link {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.anime-to-anime-back-link:hover {
+  text-decoration: underline;
+}
+
+.anime-to-anime-page {
+  max-width: 720px;
+}
+
+.anime-to-anime-lead {
+  margin: 0 0 16px;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.anime-to-anime-section-title {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.anime-to-anime-endpoint-value {
+  margin: 0 0 10px;
+  font-weight: 600;
+}
+
+.anime-to-anime-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.anime-to-anime-primary-action {
+  margin-top: 8px;
+}
+
+.anime-to-anime-status-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.anime-to-anime-status-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.anime-to-anime-status-label {
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.anime-to-anime-hops {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.anime-to-anime-goal-reached {
+  margin-left: 8px;
+  color: var(--success);
+}
+
+.anime-to-anime-search {
+  margin-bottom: 12px;
+}
+
+.anime-to-anime-current-title {
+  margin: 0 0 12px;
+  font-size: 18px;
+}
+
+.anime-to-anime-subheading {
+  margin: 16px 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.anime-to-anime-hop-btn {
+  text-align: left;
+  width: 100%;
+}
+
+.anime-to-anime-hop-meta {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
 /* ---------- Page content ---------- */
 
 .page {

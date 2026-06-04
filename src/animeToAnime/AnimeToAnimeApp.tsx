@@ -15,6 +15,13 @@ import {
 import { productionReads } from '../lib/importers/anilist/readQueries';
 import type { MediaRow, StaffRow } from '../lib/importers/anilist/types';
 import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
+import { AnimeToAnimeHeader } from './AnimeToAnimeHeader';
+import {
+  applyAnimeToAnimeTheme,
+  loadAnimeToAnimeTheme,
+  saveAnimeToAnimeTheme,
+  type AnimeToAnimeTheme,
+} from './theme';
 
 type Node =
   | { kind: 'anime'; mediaId: number }
@@ -65,6 +72,7 @@ function defaultDb() {
 }
 
 export function AnimeToAnimeApp() {
+  const [theme, setTheme] = useState<AnimeToAnimeTheme>(loadAnimeToAnimeTheme);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [startMedia, setStartMedia] = useState<MediaRow | null>(null);
@@ -82,6 +90,18 @@ export function AnimeToAnimeApp() {
   const [filmography, setFilmography] = useState<AnimeFilmographyRow[]>([]);
   const [staffHeader, setStaffHeader] = useState<StaffRow | null>(null);
   const [currentMedia, setCurrentMedia] = useState<MediaRow | null>(null);
+
+  useEffect(() => {
+    applyAnimeToAnimeTheme(theme);
+  }, [theme]);
+
+  const onToggleTheme = useCallback(() => {
+    setTheme((prev) => {
+      const next: AnimeToAnimeTheme = prev === 'dark' ? 'light' : 'dark';
+      saveAnimeToAnimeTheme(next);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     void (async () => {
@@ -108,6 +128,7 @@ export function AnimeToAnimeApp() {
       setError('No anime in cache match filters. Import lists or broaden filters.');
       return;
     }
+    setError(null);
     if (which === 'start') {
       setStartMedia(row);
     } else {
@@ -264,175 +285,217 @@ export function AnimeToAnimeApp() {
     [goalMedia],
   );
 
-  if (!ready) {
-    return <p style={{ padding: 16 }}>{error ?? 'Opening database…'}</p>;
-  }
-
-  if (phase === 'setup') {
-    return (
-      <div style={{ padding: 16, maxWidth: 640 }}>
-        <h1>Anime to Anime</h1>
-        <p style={{ color: 'var(--text-muted)' }}>
-          Connect start → goal through voice actors and optional production staff.
-        </p>
-        {error && <p role="alert" className="settings-source-db-error">{error}</p>}
-
-        <section style={{ marginTop: 16 }}>
-          <h2>Start</h2>
-          <p>{startMedia ? pickMediaTitle(startMedia) : '—'}</p>
-          <button type="button" className="btn small" onClick={() => void randomizeEndpoint('start')}>
-            Random from cache
-          </button>
-        </section>
-
-        <section style={{ marginTop: 16 }}>
-          <h2>Goal</h2>
-          <p>{goalMedia ? pickMediaTitle(goalMedia) : '—'}</p>
-          <button type="button" className="btn small" onClick={() => void randomizeEndpoint('goal')}>
-            Random from cache
-          </button>
-          <button type="button" className="btn small" onClick={swapStartGoal} disabled={!startMedia || !goalMedia}>
-            Swap
-          </button>
-        </section>
-
-        <section style={{ marginTop: 16 }}>
-          <h2>Round options</h2>
-          <label>
-            <input
-              type="checkbox"
-              checked={roundConfig.allowProduction}
-              onChange={(e) => onRoundConfigChange({ allowProduction: e.target.checked })}
-            />{' '}
-            Production credits (off by default)
-          </label>
-          <br />
-          <label>
-            <input
-              type="checkbox"
-              checked={roundConfig.productionAllRoles}
-              onChange={(e) => onRoundConfigChange({ productionAllRoles: e.target.checked })}
-            />{' '}
-            All production roles (advanced)
-          </label>
-          <br />
-          <label>
-            <input
-              type="checkbox"
-              checked={roundConfig.allowRelations}
-              onChange={(e) => onRoundConfigChange({ allowRelations: e.target.checked })}
-            />{' '}
-            Franchise relations mode (stub — expand on play)
-          </label>
-        </section>
-
-        <button type="button" className="btn" style={{ marginTop: 16 }} onClick={beginRound}>
-          Start round
-        </button>
-      </div>
-    );
-  }
-
   const goalReached = goalMedia && current?.kind === 'anime' && current.mediaId === goalMedia.id;
 
   return (
-    <div style={{ padding: 16, maxWidth: 720 }}>
-      <header style={{ marginBottom: 12 }}>
-        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-          Start: {startMedia ? pickMediaTitle(startMedia) : '—'} · Goal:{' '}
-          {goalMedia ? pickMediaTitle(goalMedia) : '—'}
-        </div>
-        <div>
-          Anime hops: {animeHops}
-          {goalReached && (
-            <strong style={{ marginLeft: 8, color: 'var(--accent, #16a34a)' }}>
-              Goal reached!
-            </strong>
+    <div className="app-shell">
+      <AnimeToAnimeHeader theme={theme} onToggleTheme={onToggleTheme} />
+
+      {!ready ? (
+        <main className="page anime-to-anime-page">
+          <p className="settings-status">{error ?? 'Opening database…'}</p>
+        </main>
+      ) : phase === 'setup' ? (
+        <main className="page anime-to-anime-page">
+          <p className="anime-to-anime-lead">
+            Connect start → goal through voice actors and optional production staff.
+          </p>
+          {error && (
+            <p role="alert" className="settings-source-db-error">
+              {error}
+            </p>
           )}
-        </div>
-        <button type="button" className="btn small" onClick={swapStartGoal}>
-          Swap start ↔ goal
-        </button>
-        <button type="button" className="btn small" onClick={() => setPhase('setup')}>
-          Setup
-        </button>
-      </header>
 
-      {error && <p role="alert" className="settings-source-db-error">{error}</p>}
+          <section className="page-section">
+            <h2 className="anime-to-anime-section-title">Start</h2>
+            <p className="anime-to-anime-endpoint-value">
+              {startMedia ? pickMediaTitle(startMedia) : '—'}
+            </p>
+            <div className="anime-to-anime-actions">
+              <button
+                type="button"
+                className="btn small"
+                onClick={() => void randomizeEndpoint('start')}
+              >
+                Random from cache
+              </button>
+            </div>
+          </section>
 
-      <input
-        type="search"
-        placeholder="Filter list…"
-        value={filter}
-        onChange={(e) => setFilter(e.target.value)}
-        style={{ width: '100%', marginBottom: 12 }}
-      />
+          <section className="page-section">
+            <h2 className="anime-to-anime-section-title">Goal</h2>
+            <p className="anime-to-anime-endpoint-value">
+              {goalMedia ? pickMediaTitle(goalMedia) : '—'}
+            </p>
+            <div className="anime-to-anime-actions">
+              <button
+                type="button"
+                className="btn small"
+                onClick={() => void randomizeEndpoint('goal')}
+              >
+                Random from cache
+              </button>
+              <button
+                type="button"
+                className="btn small"
+                onClick={swapStartGoal}
+                disabled={!startMedia || !goalMedia}
+              >
+                Swap
+              </button>
+            </div>
+          </section>
 
-      {loading && <p>Loading…</p>}
+          <section className="page-section">
+            <h2 className="anime-to-anime-section-title">Round options</h2>
+            <label className="settings-item checkbox">
+              <input
+                type="checkbox"
+                checked={roundConfig.allowProduction}
+                onChange={(e) => onRoundConfigChange({ allowProduction: e.target.checked })}
+              />
+              Production credits (off by default)
+            </label>
+            <label className="settings-item checkbox">
+              <input
+                type="checkbox"
+                checked={roundConfig.productionAllRoles}
+                onChange={(e) => onRoundConfigChange({ productionAllRoles: e.target.checked })}
+              />
+              All production roles (advanced)
+            </label>
+            <label className="settings-item checkbox">
+              <input
+                type="checkbox"
+                checked={roundConfig.allowRelations}
+                onChange={(e) => onRoundConfigChange({ allowRelations: e.target.checked })}
+              />
+              Franchise relations mode (stub — expand on play)
+            </label>
+          </section>
 
-      {current?.kind === 'anime' && currentMedia && (
-        <>
-          <h2>{pickMediaTitle(currentMedia)}</h2>
-          <h3>Voice actors</h3>
-          <ul className="anilist-detail-cast-list">
-            {filteredVa.map((row) => (
-              <li key={`${row.staff.id}-${row.character.id}`} className="anilist-detail-cast-item">
-                <button
-                  type="button"
-                  className="btn link"
-                  style={{ textAlign: 'left', width: '100%' }}
-                  onClick={() => onHopToStaff(row.staff.id)}
-                >
-                  <strong>{row.staff.name_full ?? row.staff.name_native}</strong>
-                  <span style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)' }}>
-                    as {row.character.name_full ?? row.character.name_native}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-          {roundConfig.allowProduction && (
-            <>
-              <h3>Production</h3>
+          <div className="anime-to-anime-primary-action">
+            <button type="button" className="btn primary" onClick={beginRound}>
+              Start round
+            </button>
+          </div>
+        </main>
+      ) : (
+        <main className="page anime-to-anime-page">
+          <section className="page-section anime-to-anime-status-bar">
+            <div className="anime-to-anime-status-line">
+              <span className="anime-to-anime-status-label">Start</span>
+              <span>{startMedia ? pickMediaTitle(startMedia) : '—'}</span>
+            </div>
+            <div className="anime-to-anime-status-line">
+              <span className="anime-to-anime-status-label">Goal</span>
+              <span>{goalMedia ? pickMediaTitle(goalMedia) : '—'}</span>
+            </div>
+            <div className="anime-to-anime-hops">
+              Anime hops: {animeHops}
+              {goalReached && (
+                <strong className="anime-to-anime-goal-reached">Goal reached!</strong>
+              )}
+            </div>
+            <div className="anime-to-anime-actions">
+              <button type="button" className="btn small" onClick={swapStartGoal}>
+                Swap start ↔ goal
+              </button>
+              <button type="button" className="btn small" onClick={() => setPhase('setup')}>
+                Setup
+              </button>
+            </div>
+          </section>
+
+          {error && (
+            <p role="alert" className="settings-source-db-error">
+              {error}
+            </p>
+          )}
+
+          <input
+            type="search"
+            className="slot-search anime-to-anime-search"
+            placeholder="Filter list…"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          />
+
+          {loading && <p className="settings-status">Loading…</p>}
+
+          {current?.kind === 'anime' && currentMedia && (
+            <section className="page-section">
+              <h2 className="anime-to-anime-current-title">{pickMediaTitle(currentMedia)}</h2>
+              <h3 className="anime-to-anime-subheading">Voice actors</h3>
               <ul className="anilist-detail-cast-list">
-                {filteredProd.map((row) => (
-                  <li key={`${row.staff.id}-${row.role}`} className="anilist-detail-cast-item">
+                {filteredVa.map((row) => (
+                  <li
+                    key={`${row.staff.id}-${row.character.id}`}
+                    className="anilist-detail-cast-item"
+                  >
                     <button
                       type="button"
-                      className="btn link"
+                      className="btn link anime-to-anime-hop-btn"
                       onClick={() => onHopToStaff(row.staff.id)}
                     >
-                      {row.staff.name_full ?? row.staff.name_native} — {row.role}
+                      <strong>{row.staff.name_full ?? row.staff.name_native}</strong>
+                      <span className="anime-to-anime-hop-meta">
+                        as {row.character.name_full ?? row.character.name_native}
+                      </span>
                     </button>
                   </li>
                 ))}
               </ul>
-            </>
+              {roundConfig.allowProduction && (
+                <>
+                  <h3 className="anime-to-anime-subheading">Production</h3>
+                  <ul className="anilist-detail-cast-list">
+                    {filteredProd.map((row) => (
+                      <li
+                        key={`${row.staff.id}-${row.role}`}
+                        className="anilist-detail-cast-item"
+                      >
+                        <button
+                          type="button"
+                          className="btn link anime-to-anime-hop-btn"
+                          onClick={() => onHopToStaff(row.staff.id)}
+                        >
+                          {row.staff.name_full ?? row.staff.name_native} — {row.role}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </section>
           )}
-        </>
-      )}
 
-      {current?.kind === 'staff' && staffHeader && (
-        <>
-          <h2>{staffHeader.name_full ?? staffHeader.name_native}</h2>
-          <h3>Filmography (anime)</h3>
-          <ul className="anilist-detail-cast-list">
-            {filteredFilmography.map((row) => (
-              <li key={`${row.media.id}-${row.role}`} className="anilist-detail-cast-item">
-                <button
-                  type="button"
-                  className="btn link"
-                  onClick={() => onHopToAnime(row.media.id)}
-                >
-                  {pickMediaTitle(row.media)}
-                  <span style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)' }}>
-                    {row.role}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </>
+          {current?.kind === 'staff' && staffHeader && (
+            <section className="page-section">
+              <h2 className="anime-to-anime-current-title">
+                {staffHeader.name_full ?? staffHeader.name_native}
+              </h2>
+              <h3 className="anime-to-anime-subheading">Filmography (anime)</h3>
+              <ul className="anilist-detail-cast-list">
+                {filteredFilmography.map((row) => (
+                  <li
+                    key={`${row.media.id}-${row.role}`}
+                    className="anilist-detail-cast-item"
+                  >
+                    <button
+                      type="button"
+                      className="btn link anime-to-anime-hop-btn"
+                      onClick={() => onHopToAnime(row.media.id)}
+                    >
+                      {pickMediaTitle(row.media)}
+                      <span className="anime-to-anime-hop-meta">{row.role}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </main>
       )}
     </div>
   );

@@ -47,6 +47,8 @@ A side mini-app: connect a **start** anime to a **goal** anime by hopping throug
 - Dev: `http://localhost:5173/anime-to-anime.html`
 - After `npm run build`: `dist/anime-to-anime.html`
 - Source: `anime-to-anime.html`, `src/animeToAnime/`
+- Open from the main app: gear menu → **Anime to Anime** (footer, above Autosave)
+- Theme: separate from main Sorter (sun/moon on the Anime to Anime page); defaults to **dark**
 
 ### 3. Double-click `dist/index.html` (no terminal needed)
 

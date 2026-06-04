@@ -431,6 +431,13 @@ export function SettingsMenu({
             </label>
             <div className="settings-divider" />
             <div className="settings-status">
+              <a href={`${import.meta.env.BASE_URL}anime-to-anime.html`}>Anime to Anime</a>
+              <span className="settings-item-hint">
+                {' '}
+                — connect two shows via voice actors
+              </span>
+            </div>
+            <div className="settings-status">
               Autosave: {autosaveAvailable ? 'on' : 'disabled (file:// origin)'}
             </div>
           </div>
