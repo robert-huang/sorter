@@ -1,4 +1,6 @@
 import type { RpcReply, RpcRequest, WorkerReadyMessage } from './rpc';
+import DedicatedDbWorker from './worker.ts?worker';
+import SharedDbWorker from './sharedDbWorker.ts?sharedworker';
 
 export type WorkerMessage = RpcReply | WorkerReadyMessage;
 
@@ -13,8 +15,8 @@ export class DedicatedWorkerTransport implements DbTransport {
   readonly usesSharedWorker = false;
   private readonly worker: Worker;
 
-  constructor(scriptUrl: URL) {
-    this.worker = new Worker(scriptUrl, { type: 'module' });
+  constructor(worker: Worker) {
+    this.worker = worker;
   }
 
   start(onMessage: (data: WorkerMessage) => void): void {
@@ -39,8 +41,8 @@ export class SharedWorkerTransport implements DbTransport {
   readonly usesSharedWorker = true;
   private readonly worker: SharedWorker;
 
-  constructor(scriptUrl: URL) {
-    this.worker = new SharedWorker(scriptUrl, { type: 'module', name: 'sorter-db' });
+  constructor(worker: SharedWorker) {
+    this.worker = worker;
     this.worker.port.start();
   }
 
@@ -68,15 +70,17 @@ export type CreateDbTransportOptions = {
   forceDedicated?: boolean;
 };
 
+const SHARED_WORKER_NAME = 'sorter-db';
+
 function createDedicatedTransport(): DbTransport {
-  return new DedicatedWorkerTransport(new URL('./worker.ts', import.meta.url));
+  return new DedicatedWorkerTransport(new DedicatedDbWorker());
 }
 
 /** Prefer SharedWorker when available so all tabs share one OPFS-backed DB. */
 export function createDbTransport(options?: CreateDbTransportOptions): DbTransport {
   if (!options?.forceDedicated && typeof SharedWorker !== 'undefined') {
     try {
-      return new SharedWorkerTransport(new URL('./sharedDbWorker.ts', import.meta.url));
+      return new SharedWorkerTransport(new SharedDbWorker({ name: SHARED_WORKER_NAME }));
     } catch {
       // Safari private mode / restricted contexts may throw on construction.
     }

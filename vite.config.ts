@@ -25,5 +25,12 @@ export default defineConfig({
   },
   worker: {
     format: 'es',
+    rollupOptions: {
+      output: {
+        // Avoid .ts extension on emitted worker chunks (some servers MIME-map .ts → video/mp2t).
+        entryFileNames: 'assets/[name]-[hash].js',
+        chunkFileNames: 'assets/[name]-[hash].js',
+      },
+    },
   },
 });
