@@ -1,21 +1,20 @@
 /// <reference lib="webworker" />
 import {
+  buildReadyMessage,
   failAllPending,
-  getStorageMode,
   initDbWorker,
   isSqliteReady,
   queueRpc,
   type WorkerPost,
 } from './dbWorkerCore';
-import type { RpcRequest, WorkerReadyMessage } from './rpc';
+import type { RpcRequest } from './rpc';
 
 declare const self: SharedWorkerGlobalScope;
 
 const connectedPorts = new Set<MessagePort>();
 
 function postReady(port: MessagePort): void {
-  const msg: WorkerReadyMessage = { type: 'ready', storageMode: getStorageMode() };
-  port.postMessage(msg);
+  port.postMessage(buildReadyMessage());
 }
 
 function attachPort(port: MessagePort): void {
@@ -40,9 +39,10 @@ function attachPort(port: MessagePort): void {
 }
 
 void initDbWorker()
-  .then((storageMode) => {
+  .then(() => {
+    const ready = buildReadyMessage();
     for (const port of connectedPorts) {
-      port.postMessage({ type: 'ready', storageMode });
+      port.postMessage(ready);
     }
   })
   .catch((err: unknown) => {

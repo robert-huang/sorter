@@ -20,6 +20,11 @@ export type RpcReply =
   | { id: number; ok: true; result: unknown }
   | { id: number; ok: false; error: { message: string; code?: string } };
 
-export type WorkerReadyMessage = { type: 'ready'; storageMode: 'opfs' | 'memory' };
+export type WorkerReadyMessage = {
+  type: 'ready';
+  storageMode: 'opfs' | 'memory';
+  /** Set when `storageMode` is `memory` — surfaced in the main-thread console and UI. */
+  storageHint?: string;
+};
 
 export type WorkerInboundMessage = RpcRequest | WorkerReadyMessage;

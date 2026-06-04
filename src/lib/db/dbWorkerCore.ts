@@ -4,8 +4,8 @@
  */
 
 import sqlite3InitModule, {
+  OpfsSAHPoolDatabase,
   type Database,
-  type OpfsSAHPoolDatabase,
   type SAHPoolUtil,
   type Sqlite3Static,
 } from '@sqlite.org/sqlite-wasm';
@@ -39,6 +39,7 @@ const migratedSources = new Set<string>();
 let sqlite3: Sqlite3Static | null = null;
 let sahPool: SAHPoolUtil | null = null;
 let storageMode: StorageMode = 'memory';
+let storageHint: string | undefined;
 
 /** Serializes all RPC handlers — required when multiple tabs share one worker. */
 let rpcChain = Promise.resolve();
@@ -58,6 +59,51 @@ export function getStorageMode(): StorageMode {
   return storageMode;
 }
 
+export function getStorageHint(): string | undefined {
+  return storageHint;
+}
+
+export function buildReadyMessage(): WorkerReadyMessage {
+  return {
+    type: 'ready',
+    storageMode,
+    ...(storageHint ? { storageHint } : {}),
+  };
+}
+
+function formatError(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+async function initOpfsStorage(s3: Sqlite3Static): Promise<boolean> {
+  try {
+    sahPool = await s3.installOpfsSAHPoolVfs({
+      name: OPFS_SAH_POOL_VFS,
+      initialCapacity: 8,
+    });
+    return true;
+  } catch (err) {
+    const message = formatError(err);
+    console.warn(`[db worker] OPFS SAH pool install failed: ${message}`, err);
+
+    try {
+      const probe = new OpfsSAHPoolDatabase('/.sorter-opfs-probe.sqlite');
+      probe.exec('SELECT 1');
+      probe.close();
+      sahPool = null;
+      console.warn('[db worker] Reusing existing OPFS SAH pool VFS in this worker.');
+      return true;
+    } catch (probeErr) {
+      console.warn('[db worker] OPFS SAH pool probe failed:', probeErr);
+    }
+
+    storageHint =
+      `OPFS install failed (${message}). If another Sorter tab is open, close it and reload — ` +
+      `only one worker per tab can hold the OPFS pool when not using SharedWorker.`;
+    return false;
+  }
+}
+
 export function isSqliteReady(): boolean {
   return sqlite3 !== null;
 }
@@ -74,25 +120,25 @@ export async function initDbWorker(): Promise<StorageMode> {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
 
+  storageHint = undefined;
+
   sqlite3 = await (sqlite3InitModule as (config?: object) => ReturnType<typeof sqlite3InitModule>)({
     print: () => {},
     printErr: console.error,
-    locateFile: () => wasmUrl,
+    locateFile: (file: string) => (file.endsWith('.wasm') ? wasmUrl : file),
   });
 
-  if (isOpfsSecureContext()) {
-    try {
-      sahPool = await sqlite3.installOpfsSAHPoolVfs({
-        name: OPFS_SAH_POOL_VFS,
-        initialCapacity: 8,
-      });
-      storageMode = 'opfs';
-    } catch {
-      sahPool = null;
-      storageMode = 'memory';
-    }
-  } else {
+  if (!isOpfsSecureContext()) {
     storageMode = 'memory';
+    storageHint =
+      'This page is not a secure context. Use https:// or http://localhost (not plain http on a LAN IP).';
+    console.warn('[db worker]', storageHint);
+  } else if (await initOpfsStorage(sqlite3)) {
+    storageMode = 'opfs';
+  } else {
+    sahPool = null;
+    storageMode = 'memory';
+    console.warn('[db worker] Falling back to in-memory SQLite.', storageHint);
   }
 
   drainPendingRpc();

@@ -20,6 +20,8 @@ const pending = new Map<
 >();
 /** Resolves when the worker posts `{ type: 'ready' }` after WASM/OPFS init. */
 let workerReady: Promise<StorageMode> | null = null;
+let lastStorageHint: string | undefined;
+let transportEpoch = 0;
 let nonPersistentEventSent = false;
 
 function rejectAllPending(reason: Error): void {
@@ -82,28 +84,29 @@ function handleTransportMessage(data: RpcReply | WorkerReadyMessage): void {
   }
 }
 
+function onWorkerReady(msg: WorkerReadyMessage, resolve: (mode: StorageMode) => void): void {
+  lastStorageHint = msg.storageHint;
+  if (msg.storageMode === 'memory') {
+    console.warn(
+      '[db] Using in-memory SQLite — imports will not persist across reloads.',
+      msg.storageHint ?? '(no detail from worker; check the worker console in DevTools → Sources → workers)',
+    );
+  }
+  maybeEmitNonPersistent(msg.storageMode);
+  resolve(msg.storageMode);
+}
+
 function spawnTransport(): DbTransport {
+  const epoch = ++transportEpoch;
   const t = createDbTransport({ forceDedicated: forceDedicatedWorker });
-  let readyResolved = false;
 
   workerReady = new Promise<StorageMode>((resolve) => {
-    const readyTimeout =
-      t.usesSharedWorker && !forceDedicatedWorker
-        ? window.setTimeout(() => {
-            if (!readyResolved) {
-              fallbackFromSharedWorker();
-            }
-          }, 10_000)
-        : undefined;
-
     t.start((data) => {
+      if (epoch !== transportEpoch) {
+        return;
+      }
       if (data && typeof data === 'object' && 'type' in data && data.type === 'ready') {
-        readyResolved = true;
-        if (readyTimeout !== undefined) {
-          window.clearTimeout(readyTimeout);
-        }
-        maybeEmitNonPersistent(data.storageMode);
-        resolve(data.storageMode);
+        onWorkerReady(data, resolve);
         return;
       }
       handleTransportMessage(data);
@@ -147,13 +150,17 @@ function maybeEmitNonPersistent(mode: StorageMode): void {
   }
 }
 
+export function getLastStorageHint(): string | undefined {
+  return lastStorageHint;
+}
+
 export async function openSourceDb(
   sourceId: string,
-): Promise<{ schemaVersion: number; storageMode: StorageMode }> {
+): Promise<{ schemaVersion: number; storageMode: StorageMode; storageHint?: string }> {
   const storageMode = await waitForWorkerReady();
   const schemaVersion = await rpc<number>({ type: 'open', args: { sourceId } });
   maybeEmitNonPersistent(storageMode);
-  return { schemaVersion, storageMode };
+  return { schemaVersion, storageMode, storageHint: lastStorageHint };
 }
 
 export async function exec(

@@ -117,6 +117,7 @@ export function AnimeToAnimeApp() {
   const [vaListImageMode, setVaListImageMode] = useState<VaListImageMode>(loadVaListImageMode);
   const [ready, setReady] = useState(false);
   const [storageMode, setStorageMode] = useState<StorageMode>('opfs');
+  const [storageHint, setStorageHint] = useState<string | null>(null);
   const [cacheStats, setCacheStats] = useState<AnimeCacheStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [startMedia, setStartMedia] = useState<MediaRow | null>(null);
@@ -170,8 +171,11 @@ export function AnimeToAnimeApp() {
   useEffect(() => {
     void (async () => {
       try {
-        const { storageMode: mode } = await client.openSourceDb(ANILIST_SOURCE_ID);
+        const { storageMode: mode, storageHint: hint } = await client.openSourceDb(
+          ANILIST_SOURCE_ID,
+        );
         setStorageMode(mode);
+        setStorageHint(hint ?? null);
         const stats = await getAnimeCacheStats(importCtx.current.db);
         setCacheStats(stats);
         setReady(true);
@@ -439,9 +443,10 @@ export function AnimeToAnimeApp() {
       {ready && storageMode === 'memory' && (
         <div className="app-banner warn">
           <span>
-            This tab is using in-memory storage (OPFS unavailable or this browser cannot
-            share the database worker). Import on the main Sorter page, or reload after
-            closing other tabs if you see a non-persistent warning there.
+            This tab is using in-memory storage — your AniList cache is not available here.
+            {storageHint ? ` ${storageHint}` : ''}{' '}
+            Open DevTools → Console (main thread and worker) for details. Try closing other
+            Sorter tabs and reloading, or import on the main Sorter page first.
           </span>
         </div>
       )}

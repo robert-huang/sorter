@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
 import {
+  buildReadyMessage,
   failAllPending,
   initDbWorker,
   queueRpc,
@@ -14,8 +15,8 @@ function postMessage(msg: RpcReply | WorkerReadyMessage): void {
 const post: WorkerPost = postMessage;
 
 void initDbWorker()
-  .then((storageMode) => {
-    post({ type: 'ready', storageMode });
+  .then(() => {
+    post(buildReadyMessage());
   })
   .catch((err: unknown) => {
     const message = err instanceof Error ? err.message : 'SQLite worker init failed';
