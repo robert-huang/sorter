@@ -11,6 +11,8 @@ ensureAnilistSourceRegistered();
 const WORKER_DIED_MESSAGE = 'Worker died; retry your operation';
 
 let transport: DbTransport | null = null;
+let forceDedicatedWorker = false;
+let sharedWorkerFallbackAttempted = false;
 let nextId = 0;
 const pending = new Map<
   number,
@@ -31,6 +33,30 @@ function onWorkerDeath(): void {
   transport = null;
   workerReady = null;
   rejectAllPending(new Error(WORKER_DIED_MESSAGE));
+}
+
+function fallbackFromSharedWorker(): void {
+  if (forceDedicatedWorker || sharedWorkerFallbackAttempted) {
+    onWorkerDeath();
+    return;
+  }
+  sharedWorkerFallbackAttempted = true;
+  forceDedicatedWorker = true;
+  console.warn(
+    '[db] SharedWorker failed to load; falling back to a dedicated worker for this tab.',
+  );
+  transport = null;
+  workerReady = null;
+  rejectAllPending(new Error('Database worker reconnecting; retry your operation.'));
+  transport = spawnTransport();
+}
+
+function onTransportError(): void {
+  if (transport?.usesSharedWorker) {
+    fallbackFromSharedWorker();
+    return;
+  }
+  onWorkerDeath();
 }
 
 function handleTransportMessage(data: RpcReply | WorkerReadyMessage): void {
@@ -57,11 +83,25 @@ function handleTransportMessage(data: RpcReply | WorkerReadyMessage): void {
 }
 
 function spawnTransport(): DbTransport {
-  const t = createDbTransport();
+  const t = createDbTransport({ forceDedicated: forceDedicatedWorker });
+  let readyResolved = false;
 
   workerReady = new Promise<StorageMode>((resolve) => {
+    const readyTimeout =
+      t.usesSharedWorker && !forceDedicatedWorker
+        ? window.setTimeout(() => {
+            if (!readyResolved) {
+              fallbackFromSharedWorker();
+            }
+          }, 10_000)
+        : undefined;
+
     t.start((data) => {
       if (data && typeof data === 'object' && 'type' in data && data.type === 'ready') {
+        readyResolved = true;
+        if (readyTimeout !== undefined) {
+          window.clearTimeout(readyTimeout);
+        }
         maybeEmitNonPersistent(data.storageMode);
         resolve(data.storageMode);
         return;
@@ -70,8 +110,8 @@ function spawnTransport(): DbTransport {
     });
   });
 
-  t.addEventListener('error', onWorkerDeath);
-  t.addEventListener('messageerror', onWorkerDeath);
+  t.addEventListener('error', onTransportError);
+  t.addEventListener('messageerror', onTransportError);
 
   return t;
 }

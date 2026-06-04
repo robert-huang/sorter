@@ -19,7 +19,7 @@ import {
 import { emitProgress } from './progress';
 import { buildStaffFilmographyQuery } from './queries';
 import type {
-  AnilistStaffCharacterEdgeGql,
+  AnilistStaffCharacterMediaEdgeGql,
   AnilistStaffFilmographyResponse,
   AnilistStaffLanguage,
   AnilistStaffMediaEdgeGql,
@@ -48,9 +48,9 @@ async function fetchCharacterPages(
   staffId: number,
   perPage: number,
   maxPages: number | undefined,
-): Promise<{ edges: AnilistStaffCharacterEdgeGql[]; pagesFetched: number }> {
+): Promise<{ edges: AnilistStaffCharacterMediaEdgeGql[]; pagesFetched: number }> {
   const query = buildStaffFilmographyQuery();
-  const allEdges: AnilistStaffCharacterEdgeGql[] = [];
+  const allEdges: AnilistStaffCharacterMediaEdgeGql[] = [];
   let page = 1;
   let pagesFetched = 0;
   let hasNext = true;
@@ -69,7 +69,7 @@ async function fetchCharacterPages(
       break;
     }
     pagesFetched += 1;
-    const conn = response.Staff.characters;
+    const conn = response.Staff.characterMedia;
     if (conn) {
       allEdges.push(...conn.edges);
       hasNext = conn.pageInfo.hasNextPage;

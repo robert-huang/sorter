@@ -331,15 +331,15 @@ export function mapStaffFilmographyMediaStaffRows(
 }
 
 /**
- * VA reverse credits from `Staff.characters` — upsert media/character
+ * VA reverse credits from `Staff.characterMedia` — upsert media/character
  * junctions and a CVA row for the staff person on each appearance.
  */
 export function mapStaffCharacterAppearanceData(
   staffId: number,
   edges: readonly {
-    role: AnilistCharacterRole | null;
-    node: AnilistCharacterGql;
-    media: AnilistMediaGql;
+    characterRole: AnilistCharacterRole | null;
+    characters: readonly AnilistCharacterGql[];
+    node: AnilistMediaGql;
   }[],
   language: AnilistStaffLanguage,
   now: number,
@@ -356,33 +356,38 @@ export function mapStaffCharacterAppearanceData(
   const cvaSeen = new Set<string>();
   const cvaRows: CharacterVoiceActorRow[] = [];
 
-  for (const [idx, e] of edges.entries()) {
-    const mediaId = e.media.id;
+  let sortOrder = 0;
+  for (const e of edges) {
+    const mediaId = e.node.id;
     if (!mediaById.has(mediaId)) {
-      mediaById.set(mediaId, mapMediaRow(e.media, now));
+      mediaById.set(mediaId, mapMediaRow(e.node, now));
     }
-    if (!characterById.has(e.node.id)) {
-      characterById.set(e.node.id, mapCharacterRow(e.node, now));
-    }
-    const mcKey = `${mediaId}:${e.node.id}`;
-    if (!mediaCharacterSeen.has(mcKey)) {
-      mediaCharacterSeen.add(mcKey);
-      mediaCharacterRows.push({
-        media_id: mediaId,
-        character_id: e.node.id,
-        role: e.role ?? null,
-        sort_order: idx,
-      });
-    }
-    const cvaKey = `${mediaId}:${e.node.id}:${staffId}`;
-    if (!cvaSeen.has(cvaKey)) {
-      cvaSeen.add(cvaKey);
-      cvaRows.push({
-        media_id: mediaId,
-        character_id: e.node.id,
-        staff_id: staffId,
-        language,
-      });
+    const role = e.characterRole ?? null;
+    for (const character of e.characters) {
+      if (!characterById.has(character.id)) {
+        characterById.set(character.id, mapCharacterRow(character, now));
+      }
+      const mcKey = `${mediaId}:${character.id}`;
+      if (!mediaCharacterSeen.has(mcKey)) {
+        mediaCharacterSeen.add(mcKey);
+        mediaCharacterRows.push({
+          media_id: mediaId,
+          character_id: character.id,
+          role,
+          sort_order: sortOrder,
+        });
+        sortOrder += 1;
+      }
+      const cvaKey = `${mediaId}:${character.id}:${staffId}`;
+      if (!cvaSeen.has(cvaKey)) {
+        cvaSeen.add(cvaKey);
+        cvaRows.push({
+          media_id: mediaId,
+          character_id: character.id,
+          staff_id: staffId,
+          language,
+        });
+      }
     }
   }
 

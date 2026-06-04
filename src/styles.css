@@ -1666,9 +1666,130 @@ a {
   }
 }
 
-.anime-to-anime-goal-reached {
-  margin-left: 8px;
-  color: var(--success);
+.anime-to-anime-endpoint-search {
+  margin-top: 12px;
+}
+
+.anime-to-anime-endpoint-search-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.anime-to-anime-endpoint-results {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.anime-to-anime-endpoint-result-btn {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.anime-to-anime-endpoint-id {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.anime-to-anime-path-trail {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+  margin: 12px 0 16px;
+  padding: 8px 4px;
+  overflow-x: auto;
+}
+
+.anime-to-anime-path-segment {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.anime-to-anime-path-step {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 2px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-elevated);
+}
+
+.anime-to-anime-path-step--current {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.anime-to-anime-path-step-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.anime-to-anime-path-step-initial {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.anime-to-anime-path-edge {
+  font-size: 14px;
+  padding: 0 2px;
+  color: var(--text-muted);
+}
+
+.anime-to-anime-path-edge--anime {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.anime-to-anime-path-edge--staff {
+  opacity: 0.65;
+}
+
+.anime-to-anime-win {
+  text-align: center;
+  margin-top: 16px;
+}
+
+.anime-to-anime-win-title {
+  margin: 0 0 8px;
+  font-size: 22px;
+}
+
+.anime-to-anime-win-route {
+  margin: 0 0 8px;
+}
+
+.anime-to-anime-win-hops {
+  margin: 0 0 12px;
+}
+
+.anime-to-anime-win-path {
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: var(--text-muted);
+  word-break: break-word;
+}
+
+.anime-to-anime-win-actions {
+  justify-content: center;
 }
 
 .anime-to-anime-search {

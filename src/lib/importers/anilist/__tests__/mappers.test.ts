@@ -20,6 +20,7 @@ import {
   mapMediaRow,
   mapMediaStudioRows,
   mapMediaTagRows,
+  mapStaffCharacterAppearanceData,
   mapStaffFilmographyMediaStaffRows,
   mapStaffFavouriteRow,
   mapStaffRow,
@@ -603,6 +604,56 @@ describe('favourite-edge mappers', () => {
     expect(
       mapStudioFavouriteRow({ favouriteOrder: 9, node: { id: 99, name: 'S' } }, USER_ID, NOW),
     ).toEqual({ anilist_user_id: USER_ID, studio_id: 99, sort_order: 9, fetched_at: NOW });
+  });
+});
+
+describe('mapStaffCharacterAppearanceData', () => {
+  it('maps Staff.characterMedia edges with characterRole and nested characters', () => {
+    const media = fullMedia({ id: 300 });
+    const charA = {
+      id: 10,
+      name: { full: 'Hero', native: null, alternative: null, alternativeSpoiler: null },
+      image: { large: null },
+      age: null,
+      gender: null,
+      favourites: null,
+    };
+    const charB = {
+      id: 11,
+      name: { full: 'Sidekick', native: null, alternative: null, alternativeSpoiler: null },
+      image: { large: null },
+      age: null,
+      gender: null,
+      favourites: null,
+    };
+    const result = mapStaffCharacterAppearanceData(
+      99,
+      [
+        {
+          characterRole: 'MAIN',
+          characters: [charA, charB],
+          node: media,
+        },
+      ],
+      'JAPANESE',
+      NOW,
+    );
+    expect(result.mediaRows).toHaveLength(1);
+    expect(result.mediaRows[0]!.id).toBe(300);
+    expect(result.characterRows.map((c) => c.id).sort()).toEqual([10, 11]);
+    expect(result.mediaCharacterRows).toHaveLength(2);
+    expect(result.mediaCharacterRows[0]).toMatchObject({
+      media_id: 300,
+      character_id: 10,
+      role: 'MAIN',
+    });
+    expect(result.cvaRows).toHaveLength(2);
+    expect(result.cvaRows[0]).toMatchObject({
+      media_id: 300,
+      character_id: 10,
+      staff_id: 99,
+      language: 'JAPANESE',
+    });
   });
 });
 

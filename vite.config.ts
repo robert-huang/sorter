@@ -13,6 +13,8 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
+    // Workers must be separate files — inlining as data: URLs breaks SharedWorker.
+    assetsInlineLimit: 0,
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),

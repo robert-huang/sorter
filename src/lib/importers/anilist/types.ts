@@ -312,12 +312,15 @@ export type AnilistMediaDetailResponse = {
   } | null;
 };
 
-/** `Staff.characters` edge — VA appearance on a show. */
-export type AnilistStaffCharacterEdgeGql = {
-  role: AnilistCharacterRole | null;
-  node: AnilistCharacterGql;
-  media: AnilistMediaGql;
+/** `Staff.characterMedia` edge — VA appearance on a show (`MediaEdge`). */
+export type AnilistStaffCharacterMediaEdgeGql = {
+  characterRole: AnilistCharacterRole | null;
+  characters: AnilistCharacterGql[];
+  node: AnilistMediaGql;
 };
+
+/** @deprecated Use {@link AnilistStaffCharacterMediaEdgeGql}. */
+export type AnilistStaffCharacterEdgeGql = AnilistStaffCharacterMediaEdgeGql;
 
 /** `Staff.staffMedia` edge — production credit on a show (`MediaEdge.staffRole`). */
 export type AnilistStaffMediaEdgeGql = {
@@ -328,9 +331,9 @@ export type AnilistStaffMediaEdgeGql = {
 export type AnilistStaffFilmographyResponse = {
   Staff: {
     id: number;
-    characters: {
+    characterMedia: {
       pageInfo: Pick<AnilistPageInfo, 'hasNextPage' | 'currentPage'>;
-      edges: AnilistStaffCharacterEdgeGql[];
+      edges: AnilistStaffCharacterMediaEdgeGql[];
     } | null;
     staffMedia: {
       pageInfo: Pick<AnilistPageInfo, 'hasNextPage' | 'currentPage'>;
@@ -350,6 +353,24 @@ export type AnilistMediaRelationsResponse = {
     relations: {
       edges: AnilistMediaRelationEdgeGql[];
     } | null;
+  } | null;
+};
+
+export type AnilistAnimeSearchResponse = {
+  Page: {
+    pageInfo: Pick<AnilistPageInfo, 'hasNextPage' | 'currentPage'>;
+    media: AnilistMediaGql[] | null;
+  } | null;
+};
+
+export type AnilistAnimeByIdResponse = {
+  Media: AnilistMediaGql | null;
+};
+
+export type AnilistAnimePageCountResponse = {
+  Page: {
+    pageInfo: { total: number | null };
+    media: { id: number }[] | null;
   } | null;
 };
 

@@ -63,14 +63,23 @@ export class SharedWorkerTransport implements DbTransport {
   }
 }
 
+export type CreateDbTransportOptions = {
+  /** When true, always use a per-tab dedicated worker (SharedWorker fallback). */
+  forceDedicated?: boolean;
+};
+
+function createDedicatedTransport(): DbTransport {
+  return new DedicatedWorkerTransport(new URL('./worker.ts', import.meta.url));
+}
+
 /** Prefer SharedWorker when available so all tabs share one OPFS-backed DB. */
-export function createDbTransport(): DbTransport {
-  if (typeof SharedWorker !== 'undefined') {
+export function createDbTransport(options?: CreateDbTransportOptions): DbTransport {
+  if (!options?.forceDedicated && typeof SharedWorker !== 'undefined') {
     try {
       return new SharedWorkerTransport(new URL('./sharedDbWorker.ts', import.meta.url));
     } catch {
       // Safari private mode / restricted contexts may throw on construction.
     }
   }
-  return new DedicatedWorkerTransport(new URL('./worker.ts', import.meta.url));
+  return createDedicatedTransport();
 }

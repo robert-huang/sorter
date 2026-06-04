@@ -2340,7 +2340,7 @@ export function App() {
     <div className="app-shell">
       <AppNavFab
         href={ANIME_TO_ANIME_HREF}
-        label="Anime →"
+        label="A2A →"
         title="Open Anime to Anime"
       />
       {!autosaveOn && (

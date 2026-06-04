@@ -355,10 +355,10 @@ query FavouriteStaffPage($username: String!, $page: Int!, $perPage: Int!) {
 `.trim();
 
 /**
- * Staff filmography — paginate `characters` (VA appearances) and
+ * Staff filmography — paginate `characterMedia` (VA appearances) and
  * `staffMedia` (production credits) independently.
- * `characters.edges` use `CharacterEdge.role`; `staffMedia.edges` are
- * `MediaEdge` and use `staffRole` (not `role`).
+ * `characterMedia.edges` are `MediaEdge` (`characterRole`, not `role`);
+ * `staffMedia.edges` use `staffRole`.
  */
 export function buildStaffFilmographyQuery(): string {
   return `
@@ -370,11 +370,11 @@ query StaffFilmography(
 ) {
   Staff(id: $id) {
     id
-    characters(page: $charactersPage, perPage: $perPage) {
+    characterMedia(page: $charactersPage, perPage: $perPage) {
       pageInfo { hasNextPage currentPage }
       edges {
-        role
-        node {
+        characterRole
+        characters {
           id
           name { full native alternative alternativeSpoiler }
           image { large }
@@ -382,7 +382,7 @@ query StaffFilmography(
           gender
           favourites
         }
-        media {
+        node {
           ${MEDIA_FIELD_SELECTION}
         }
       }
@@ -414,6 +414,59 @@ query MediaRelations($id: Int!) {
           ${MEDIA_FIELD_SELECTION}
         }
       }
+    }
+  }
+}
+`.trim();
+}
+
+/** Title search for setup endpoint picker. */
+export function buildAnimeSearchQuery(): string {
+  return `
+query AnimeSearch($search: String!, $page: Int!, $perPage: Int!) {
+  Page(page: $page, perPage: $perPage) {
+    pageInfo { hasNextPage currentPage }
+    media(search: $search, type: ANIME) {
+      ${MEDIA_FIELD_SELECTION}
+    }
+  }
+}
+`.trim();
+}
+
+/** Metadata-only fetch for a single anime id (setup / ID load). */
+export function buildAnimeByIdQuery(): string {
+  return `
+query AnimeById($id: Int!) {
+  Media(id: $id) {
+    ${MEDIA_FIELD_SELECTION}
+  }
+}
+`.trim();
+}
+
+/** Total anime count for random page selection. */
+export function buildAnimePageCountQuery(): string {
+  return `
+query AnimePageCount {
+  Page(page: 1, perPage: 1) {
+    pageInfo { total }
+    media(type: ANIME) {
+      id
+    }
+  }
+}
+`.trim();
+}
+
+/** One page of anime for random-from-API picker. */
+export function buildAnimeBrowsePageQuery(): string {
+  return `
+query AnimeBrowsePage($page: Int!, $perPage: Int!) {
+  Page(page: $page, perPage: $perPage) {
+    pageInfo { hasNextPage currentPage }
+    media(type: ANIME, sort: POPULARITY_DESC) {
+      ${MEDIA_FIELD_SELECTION}
     }
   }
 }

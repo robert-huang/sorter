@@ -7,9 +7,11 @@ import type { AnilistDbExecutor } from '../context';
 import {
   describeAnimeRandomPickFailure,
   getAnimeCacheStats,
+  getMediaRelations,
   getVaCreditsAtMedia,
   hasAnimeRandomFilters,
   pickRandomAnimeFromCache,
+  searchAnimeInCache,
 } from '../graphQueries';
 
 type SqliteExecOpts = { bind?: unknown };
@@ -159,5 +161,48 @@ describe('graphQueries cache pick', () => {
     expect(rows[0].character.name_full).toBe('Hero Character');
     expect(rows[0].character.image).toBe('https://example.com/char.jpg');
     expect(rows[0].characterRole).toBe('MAIN');
+  });
+
+  it('getMediaRelations returns franchise edges for a media id', async () => {
+    seedMedia(sqlite, 50, 'ANIME');
+    seedMedia(sqlite, 51, 'ANIME');
+    sqlite.exec(
+      `INSERT INTO media_relation (from_media_id, to_media_id, relation_type)
+         VALUES (?, ?, ?)`,
+      { bind: [50, 51, 'SEQUEL'] },
+    );
+
+    const rows = await getMediaRelations(adapter, 50);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].media.id).toBe(51);
+    expect(rows[0].relationType).toBe('SEQUEL');
+  });
+
+  it('searchAnimeInCache matches romaji and synonyms', async () => {
+    sqlite.exec(
+      `INSERT INTO media (
+         id, type, title_english, title_romaji, title_native, cover_image,
+         fetched_at, updated_at, synonyms_json
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      {
+        bind: [
+          60,
+          'ANIME',
+          null,
+          'Naruto Shippuden',
+          null,
+          null,
+          NOW,
+          NOW,
+          '["NS"]',
+        ],
+      },
+    );
+
+    const byRomaji = await searchAnimeInCache(adapter, 'naruto', 10);
+    expect(byRomaji.map((r) => r.id)).toContain(60);
+
+    const bySynonym = await searchAnimeInCache(adapter, 'ns', 10);
+    expect(bySynonym.map((r) => r.id)).toContain(60);
   });
 });

@@ -232,6 +232,34 @@ export async function getAnimeFilmographyForStaff(
   return filterProductionStaffRows(mapped, 'key');
 }
 
+export async function searchAnimeInCache(
+  db: AnilistDbExecutor,
+  query: string,
+  limit = 20,
+): Promise<MediaRow[]> {
+  const trimmed = query.trim();
+  if (!trimmed) {
+    return [];
+  }
+  const needle = `%${trimmed.toLowerCase()}%`;
+  const rows = await db.exec(
+    `
+      SELECT * FROM media
+      WHERE type = 'ANIME'
+        AND (
+          lower(coalesce(title_romaji, '')) LIKE ?
+          OR lower(coalesce(title_english, '')) LIKE ?
+          OR lower(coalesce(title_native, '')) LIKE ?
+          OR lower(coalesce(synonyms_json, '')) LIKE ?
+        )
+      ORDER BY title_romaji COLLATE NOCASE ASC
+      LIMIT ?
+    `,
+    [needle, needle, needle, needle, limit],
+  );
+  return rows.map((r) => rowToMediaRow(r));
+}
+
 export async function getMediaRelations(
   db: AnilistDbExecutor,
   fromMediaId: number,
