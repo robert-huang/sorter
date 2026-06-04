@@ -16,7 +16,10 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../lib/importers/anilist/readQueries', () => ({
-  productionReads: { getMediaDetail: vi.fn() },
+  productionReads: {
+    getMediaDetail: vi.fn(),
+    getMediaCastExpansionStatus: vi.fn(),
+  },
 }));
 vi.mock('../../lib/importers/anilist/runners', () => ({
   runAnilistMediaLazyExpansion: vi.fn(),
@@ -27,6 +30,7 @@ import { runAnilistMediaLazyExpansion } from '../../lib/importers/anilist/runner
 import { AnilistDetailModal } from '../AnilistDetailModal';
 
 const mockedGetMediaDetail = vi.mocked(productionReads.getMediaDetail);
+const mockedGetExpansionStatus = vi.mocked(productionReads.getMediaCastExpansionStatus);
 const mockedExpand = vi.mocked(runAnilistMediaLazyExpansion);
 
 function makeMedia(id: number, overrides: Record<string, unknown> = {}) {
@@ -87,7 +91,7 @@ function makeDetail(id: number, hasCharacters: boolean) {
           },
         ]
       : [],
-    staff: [],
+    productionStaff: [],
   };
 }
 
@@ -100,8 +104,23 @@ beforeAll(() => {
     true;
 });
 
+function makeExpansionStatus(mediaId: number, complete: boolean) {
+  return {
+    mediaId,
+    language: 'JAPANESE',
+    charactersFetchedAt: complete ? 1_700_000_000_000 : null,
+    staffFetchedAt: complete ? 1_700_000_000_000 : null,
+    charactersComplete: complete,
+    staffComplete: complete,
+  };
+}
+
 beforeEach(() => {
   mockedGetMediaDetail.mockReset();
+  mockedGetExpansionStatus.mockReset();
+  mockedGetExpansionStatus.mockImplementation(async (mediaId: number) =>
+    makeExpansionStatus(mediaId, true),
+  );
   mockedExpand.mockReset();
   container = document.createElement('div');
   document.body.appendChild(container);
@@ -124,10 +143,13 @@ async function flushPromises(): Promise<void> {
 }
 
 describe('AnilistDetailModal — lazy expansion', () => {
-  it('triggers runAnilistMediaLazyExpansion on first open when no characters are cached', async () => {
+  it('triggers runAnilistMediaLazyExpansion on first open when cast is not fully cached', async () => {
     mockedGetMediaDetail
-      .mockResolvedValueOnce(makeDetail(42, false)) // initial: empty cast
-      .mockResolvedValueOnce(makeDetail(42, true)); // post-expansion read
+      .mockResolvedValueOnce(makeDetail(42, false))
+      .mockResolvedValueOnce(makeDetail(42, true));
+    mockedGetExpansionStatus
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(makeExpansionStatus(42, true));
     mockedExpand.mockResolvedValueOnce(null);
 
     await act(async () => {
@@ -150,8 +172,9 @@ describe('AnilistDetailModal — lazy expansion', () => {
     expect(mockedGetMediaDetail).toHaveBeenCalledTimes(2);
   });
 
-  it('does NOT trigger expansion when characters are already cached', async () => {
+  it('does NOT trigger expansion when cast and staff are marked complete', async () => {
     mockedGetMediaDetail.mockResolvedValueOnce(makeDetail(7, true));
+    mockedGetExpansionStatus.mockResolvedValueOnce(makeExpansionStatus(7, true));
 
     await act(async () => {
       root.render(
@@ -168,11 +191,13 @@ describe('AnilistDetailModal — lazy expansion', () => {
     expect(mockedGetMediaDetail).toHaveBeenCalledTimes(1);
   });
 
-  it('refresh button triggers expansion + re-read even when characters are already cached', async () => {
-    // First open: cached. Refresh: expand + re-read.
+  it('refresh button triggers expansion + re-read even when cast is already cached', async () => {
     mockedGetMediaDetail
-      .mockResolvedValueOnce(makeDetail(9, true)) // initial
-      .mockResolvedValueOnce(makeDetail(9, true)); // post-refresh
+      .mockResolvedValueOnce(makeDetail(9, true))
+      .mockResolvedValueOnce(makeDetail(9, true));
+    mockedGetExpansionStatus
+      .mockResolvedValueOnce(makeExpansionStatus(9, true))
+      .mockResolvedValueOnce(makeExpansionStatus(9, true));
     mockedExpand.mockResolvedValueOnce(null);
 
     await act(async () => {
@@ -196,7 +221,10 @@ describe('AnilistDetailModal — lazy expansion', () => {
     });
     await flushPromises();
 
-    expect(mockedExpand).toHaveBeenCalledWith(9, expect.any(Function));
+    expect(mockedExpand).toHaveBeenCalledWith(9, expect.any(Function), {
+      scope: 'all',
+      force: true,
+    });
     // Initial read + post-refresh read.
     expect(mockedGetMediaDetail).toHaveBeenCalledTimes(2);
   });

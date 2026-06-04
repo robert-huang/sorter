@@ -33,7 +33,9 @@ export function formatAnilistProgress(event: AnilistProgressEvent): string {
   }
 }
 
-function whatLabel(what: 'list' | 'favourites' | 'characters'): string {
+function whatLabel(
+  what: 'list' | 'favourites' | 'characters' | 'staff' | 'filmography' | 'relations',
+): string {
   switch (what) {
     case 'list':
       return 'list';
@@ -41,5 +43,11 @@ function whatLabel(what: 'list' | 'favourites' | 'characters'): string {
       return 'favourites';
     case 'characters':
       return 'characters';
+    case 'staff':
+      return 'staff credits';
+    case 'filmography':
+      return 'filmography';
+    case 'relations':
+      return 'relations';
   }
 }

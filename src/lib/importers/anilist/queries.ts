@@ -235,6 +235,32 @@ query MediaDetail(
 `.trim();
 }
 
+/** Staff connection only — used by the second pagination loop in lazy expansion. */
+export function buildMediaStaffOnlyQuery(): string {
+  return `
+query MediaStaffOnly($id: Int!, $staffPage: Int!, $perPage: Int!) {
+  Media(id: $id) {
+    id
+    staff(page: $staffPage, perPage: $perPage) {
+      pageInfo { hasNextPage currentPage }
+      edges {
+        role
+        node {
+          id
+          name { full native }
+          languageV2
+          image { large }
+          age
+          gender
+          favourites
+        }
+      }
+    }
+  }
+}
+`.trim();
+}
+
 /**
  * `User.favourites.anime` — paginated favourite anime media. Same body for
  * manga in {@link FAVOURITE_MANGA_QUERY}; AniList doesn't accept a
@@ -327,6 +353,70 @@ query FavouriteStaffPage($username: String!, $page: Int!, $perPage: Int!) {
   }
 }
 `.trim();
+
+/**
+ * Staff filmography — paginate `characters` (VA appearances) and
+ * `staffMedia` (production credits) independently.
+ */
+export function buildStaffFilmographyQuery(): string {
+  return `
+query StaffFilmography(
+  $id: Int!
+  $charactersPage: Int!
+  $staffMediaPage: Int!
+  $perPage: Int!
+) {
+  Staff(id: $id) {
+    id
+    characters(page: $charactersPage, perPage: $perPage) {
+      pageInfo { hasNextPage currentPage }
+      edges {
+        role
+        node {
+          id
+          name { full native alternative alternativeSpoiler }
+          image { large }
+          age
+          gender
+          favourites
+        }
+        media {
+          ${MEDIA_FIELD_SELECTION}
+        }
+      }
+    }
+    staffMedia(page: $staffMediaPage, perPage: $perPage) {
+      pageInfo { hasNextPage currentPage }
+      edges {
+        role
+        node {
+          ${MEDIA_FIELD_SELECTION}
+        }
+      }
+    }
+  }
+}
+`.trim();
+}
+
+/** Lazy franchise relations for one media id. */
+export function buildMediaRelationsQuery(): string {
+  return `
+query MediaRelations($id: Int!) {
+  Media(id: $id) {
+    id
+    relations {
+      edges {
+        relationType
+        node {
+          ${MEDIA_FIELD_SELECTION}
+        }
+      }
+    }
+  }
+}
+`.trim();
+}
 
 export const FAVOURITE_STUDIOS_QUERY = `
 query FavouriteStudiosPage($username: String!, $page: Int!, $perPage: Int!) {

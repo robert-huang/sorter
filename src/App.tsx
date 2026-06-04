@@ -66,6 +66,7 @@ import {
   repairManifestIfCorrupt,
   SLOT_CAP,
   slotBlobKey,
+  findSlotByCloudId,
   readManifest,
   readSettings,
   readSlotBlob,
@@ -1305,48 +1306,6 @@ export function App() {
     })();
   }, []);
 
-  // Routed from the library modal's Pull button. Wraps the inbound
-  // cloud blob into the `SavedSession` shape that `adoptNewSession`
-  // already speaks — keeping cap-eviction / quota-recovery / first-
-  // write-failure on the one well-tested path.
-  //
-  // The new local slot is stamped with the cloud-sync metadata (via
-  // `cloudBinding`) so future Push goes back to the SAME Drive file
-  // instead of creating a duplicate. `cloudPushedAt` is stamped to
-  // "now" because the local copy matches cloud exactly at this
-  // instant — the per-row indicator should show "synced", not the
-  // misleading "pending" you'd get if cloudPushedAt were left blank.
-  const onCloudPull = useCallback(
-    async (meta: CloudSlotMeta) => {
-      try {
-        const pulled = await cloudPullSlot(meta.cloudId);
-        const session = deserialize(pulled.blob);
-        if (!session) {
-          flashSkipped('Pulled file was not a valid sorter slot.');
-          return;
-        }
-        // Close the library before triggering the mint so a cap-confirm
-        // modal renders cleanly on top of the gear-menu region rather
-        // than on top of the library list.
-        setCloudLibraryOpen(false);
-        adoptNewSession(session, meta.displayName, undefined, {
-          cloudId: meta.cloudId,
-          cloudEtag: pulled.etag,
-          cloudPushedAt: new Date().toISOString(),
-          cloudUpdatedAt: pulled.updatedAt,
-        });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Pull failed.';
-        flashSkipped(msg);
-      }
-    },
-    // adoptNewSession isn't defined yet at this point in source order;
-    // `eslint-disable-next-line` covers the forward-reference noise.
-    // The closure resolves it at call time.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
-  );
-
   // ---------- per-slot cloud handlers (tier 0b Phase 2) ----------
 
   /**
@@ -1899,6 +1858,53 @@ export function App() {
     setUndoRing(session.undoRing);
     setActiveTab(session.state.done ? 'result' : 'rank');
   }, []);
+
+  const localCloudSlotByCloudId = useMemo(() => {
+    const index = new Map<string, string>();
+    for (const slot of manifest.slots) {
+      if (slot.cloudId && !index.has(slot.cloudId)) {
+        index.set(slot.cloudId, slot.id);
+      }
+    }
+    return index;
+  }, [manifest.slots]);
+
+  // Routed from the library modal's Pull button. Wraps the inbound
+  // cloud blob into the `SavedSession` shape that `adoptNewSession`
+  // already speaks — keeping cap-eviction / quota-recovery / first-
+  // write-failure on the one well-tested path.
+  //
+  // If this Drive file is already bound to a local slot, switch to it
+  // instead of minting a duplicate (same cloudId as LIST-tab Pull).
+  const onCloudPull = useCallback(
+    async (meta: CloudSlotMeta) => {
+      const existing = findSlotByCloudId(meta.cloudId);
+      if (existing) {
+        setCloudLibraryOpen(false);
+        onSwitchSlot(existing.id);
+        return;
+      }
+      try {
+        const pulled = await cloudPullSlot(meta.cloudId);
+        const session = deserialize(pulled.blob);
+        if (!session) {
+          flashSkipped('Pulled file was not a valid sorter slot.');
+          return;
+        }
+        setCloudLibraryOpen(false);
+        adoptNewSession(session, meta.displayName, undefined, {
+          cloudId: meta.cloudId,
+          cloudEtag: pulled.etag,
+          cloudPushedAt: new Date().toISOString(),
+          cloudUpdatedAt: pulled.updatedAt,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Pull failed.';
+        flashSkipped(msg);
+      }
+    },
+    [adoptNewSession, flashSkipped, onSwitchSlot],
+  );
 
   /**
    * Resume the most-recently-used slot — i.e. the manifest's activeId.
@@ -2582,6 +2588,8 @@ export function App() {
         <CloudLibraryModal
           onClose={() => setCloudLibraryOpen(false)}
           onPull={onCloudPull}
+          localCloudSlotByCloudId={localCloudSlotByCloudId}
+          onOpenLocalSlot={onSwitchSlot}
           onSignedOut={() => setCloudAuth(cloudGetAuthState())}
           onFolderChanged={() => setCloudAuth(cloudGetAuthState())}
         />

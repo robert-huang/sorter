@@ -17,6 +17,7 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html'),
         dbSmoke: resolve(__dirname, 'db-smoke.html'),
+        animeToAnime: resolve(__dirname, 'anime-to-anime.html'),
       },
     },
   },

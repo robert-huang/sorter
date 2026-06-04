@@ -30,9 +30,12 @@ import { ANILIST_SOURCE_ID } from './anilistSource';
 import { makeAnilistImportContext } from './context';
 import { importAnilistFavourites } from './favourites';
 import { importAnilistList } from './importer';
+import { expandStaffFilmography, type ExpandStaffFilmographyResult } from './expandStaffFilmography';
+import { expandMediaRelations, type ExpandMediaRelationsResult } from './expandMediaRelations';
 import {
   expandAnilistMediaDetail,
   type ExpandAnilistMediaDetailResult,
+  type ExpandAnilistMediaDetailOptions,
 } from './lazyExpansion';
 import type { AnilistProgressReporter } from './progress';
 import type {
@@ -130,10 +133,31 @@ export async function runAnilistFavourites(
 export async function runAnilistMediaLazyExpansion(
   mediaId: number,
   onProgress?: AnilistProgressReporter,
+  options?: ExpandAnilistMediaDetailOptions,
 ): Promise<ExpandAnilistMediaDetailResult | null> {
-  const result = await expandAnilistMediaDetail(buildContext(onProgress), mediaId);
-  // Lazy expansion may complete with `result === null` (no media row, no
-  // write performed). Only flip hasLocalDb when we actually wrote.
+  const result = await expandAnilistMediaDetail(
+    buildContext(onProgress),
+    mediaId,
+    options,
+  );
+  if (result) markLocalDbPresent();
+  return result;
+}
+
+export async function runAnilistStaffFilmographyExpansion(
+  staffId: number,
+  onProgress?: AnilistProgressReporter,
+): Promise<ExpandStaffFilmographyResult | null> {
+  const result = await expandStaffFilmography(buildContext(onProgress), staffId);
+  if (result) markLocalDbPresent();
+  return result;
+}
+
+export async function runAnilistMediaRelationsExpansion(
+  mediaId: number,
+  onProgress?: AnilistProgressReporter,
+): Promise<ExpandMediaRelationsResult | null> {
+  const result = await expandMediaRelations(buildContext(onProgress), mediaId);
   if (result) markLocalDbPresent();
   return result;
 }

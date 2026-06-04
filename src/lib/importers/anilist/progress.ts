@@ -25,7 +25,7 @@ export type AnilistProgressEvent =
   | {
       kind: 'fetching-page';
       /** Which paginated connection is being fetched. */
-      what: 'list' | 'favourites' | 'characters';
+      what: 'list' | 'favourites' | 'characters' | 'staff' | 'filmography' | 'relations';
       /** 1-based page number being fetched. */
       page: number;
       /** Total items accumulated so far INCLUDING this page's results

@@ -40,6 +40,14 @@ npm run dev
 
 Vite dev server with hot reload at `http://localhost:5173`.
 
+### Anime to Anime (separate page)
+
+A side mini-app: connect a **start** anime to a **goal** anime by hopping through shared voice actors (optional production-staff hops). It reads the same AniList SQLite cache as the main sorter — import lists on START → AniList first.
+
+- Dev: `http://localhost:5173/anime-to-anime.html`
+- After `npm run build`: `dist/anime-to-anime.html`
+- Source: `anime-to-anime.html`, `src/animeToAnime/`
+
 ### 3. Double-click `dist/index.html` (no terminal needed)
 
 ```bash
@@ -405,7 +413,10 @@ The next write persists the blob as v4. Older builds that only understand v1 / v
 ## Project layout
 
 ```
+anime-to-anime.html     # Anime to Anime entry (Vite multi-page build)
+index.html              # main sorter app
 src/
+  animeToAnime/         # Anime to Anime mini-app (AnimeToAnimeApp.tsx)
   main.tsx, App.tsx, styles.css
   lib/
     types.ts            # SortState / SortProgress (discriminated union: MergeProgress

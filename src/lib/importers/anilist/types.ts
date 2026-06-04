@@ -312,6 +312,58 @@ export type AnilistMediaDetailResponse = {
   } | null;
 };
 
+/** `Staff.characters` edge — VA appearance on a show. */
+export type AnilistStaffCharacterEdgeGql = {
+  role: AnilistCharacterRole | null;
+  node: AnilistCharacterGql;
+  media: AnilistMediaGql;
+};
+
+/** `Staff.staffMedia` edge — production credit on a show. */
+export type AnilistStaffMediaEdgeGql = {
+  role: string | null;
+  node: AnilistMediaGql;
+};
+
+export type AnilistStaffFilmographyResponse = {
+  Staff: {
+    id: number;
+    characters: {
+      pageInfo: Pick<AnilistPageInfo, 'hasNextPage' | 'currentPage'>;
+      edges: AnilistStaffCharacterEdgeGql[];
+    } | null;
+    staffMedia: {
+      pageInfo: Pick<AnilistPageInfo, 'hasNextPage' | 'currentPage'>;
+      edges: AnilistStaffMediaEdgeGql[];
+    } | null;
+  } | null;
+};
+
+export type AnilistMediaRelationEdgeGql = {
+  relationType: string;
+  node: AnilistMediaGql;
+};
+
+export type AnilistMediaRelationsResponse = {
+  Media: {
+    id: number;
+    relations: {
+      edges: AnilistMediaRelationEdgeGql[];
+    } | null;
+  } | null;
+};
+
+/** Staff-only detail fetch (second loop — no character pagination). */
+export type AnilistMediaStaffOnlyResponse = {
+  Media: {
+    id: number;
+    staff: {
+      pageInfo: Pick<AnilistPageInfo, 'hasNextPage' | 'currentPage'>;
+      edges: AnilistMediaStaffEdgeGql[];
+    } | null;
+  } | null;
+};
+
 /** Shared favourite-edge wrapper (parameterized by node type). */
 export type AnilistFavouriteEdge<TNode> = {
   /**
@@ -468,6 +520,24 @@ export type CharacterVoiceActorRow = {
   character_id: number;
   staff_id: number;
   language: AnilistStaffLanguage;
+};
+
+/** Production credit on a show (`media_staff` junction). */
+export type MediaStaffRow = {
+  media_id: number;
+  staff_id: number;
+  role: string;
+  sort_order: number;
+};
+
+export type MediaCastExpansionRow = {
+  media_id: number;
+  language: AnilistStaffLanguage;
+  fetched_at: number;
+  characters_fetched_at: number | null;
+  staff_fetched_at: number | null;
+  characters_complete: number;
+  staff_complete: number;
 };
 
 export type MediaListEntryRow = {

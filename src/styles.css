@@ -1500,6 +1500,26 @@ a {
   margin-top: 2px;
 }
 
+.cloud-library-row--local {
+  border-color: var(--accent-muted, var(--border));
+}
+
+.cloud-library-row-local-badge {
+  color: var(--accent, var(--text-muted));
+}
+
+.cloud-library-row-open-local {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.cloud-library-row-open-local-icon {
+  font-weight: 700;
+  color: var(--accent, currentColor);
+}
+
 /* ---------- Page content ---------- */
 
 .page {

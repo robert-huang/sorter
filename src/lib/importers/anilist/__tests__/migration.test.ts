@@ -12,7 +12,7 @@ import {
 // Bump this in lock-step with the highest version in
 // anilistSourceDescriptor.migrations so the "applies cleanly" sanity
 // check fails loudly when someone forgets to register a new migration.
-const LATEST_SCHEMA_VERSION = 2;
+const LATEST_SCHEMA_VERSION = 3;
 
 const EXPECTED_TABLES = [
   'anilist_user',
@@ -26,6 +26,9 @@ const EXPECTED_TABLES = [
   'media_character',
   'character_voice_actor',
   'media_cast_expansion',
+  'media_staff',
+  'staff_filmography_expansion',
+  'media_relation',
   'media_list_entry',
   'custom_list',
   'media_custom_list_membership',
@@ -48,6 +51,8 @@ const EXPECTED_INDEXES = [
   'idx_media_tag_tag',
   'idx_media_tag_rank',
   'idx_media_character_character',
+  'idx_media_staff_staff',
+  'idx_media_relation_to',
   'media_list_status',
   'media_list_score',
   'media_list_user',
@@ -474,18 +479,18 @@ describe('anilist source descriptor', () => {
       'tag',
       'character',
       'staff',
-      'media_cast_expansion',
+      'staff_filmography_expansion',
     ]);
     expect(user).toEqual(['media_list_entry']);
     const listEntry = anilistSourceDescriptor.merge.userDataTables.find(
       (t) => t.name === 'media_list_entry',
     );
     expect(listEntry?.pk).toEqual(['anilist_user_id', 'media_id']);
-    const castExpansion = anilistSourceDescriptor.merge.metadataTables.find(
-      (t) => t.name === 'media_cast_expansion',
+    const filmography = anilistSourceDescriptor.merge.metadataTables.find(
+      (t) => t.name === 'staff_filmography_expansion',
     );
-    expect(castExpansion?.pk).toEqual(['media_id']);
-    expect(castExpansion?.timestampCol).toBe('fetched_at');
+    expect(filmography?.pk).toEqual(['staff_id']);
+    expect(filmography?.timestampCol).toBe('fetched_at');
   });
 
   it('intentionally excludes junctions and wipe-and-rebuild tables from the merge spec', () => {
@@ -519,6 +524,6 @@ describe('anilist source descriptor', () => {
     const registered = getSource(ANILIST_SOURCE_ID);
     expect(registered.id).toBe(ANILIST_SOURCE_ID);
     expect(registered.migrations).toHaveLength(LATEST_SCHEMA_VERSION);
-    expect(registered.migrations.map((m) => m.version)).toEqual([1, 2]);
+    expect(registered.migrations.map((m) => m.version)).toEqual([1, 2, 3]);
   });
 });

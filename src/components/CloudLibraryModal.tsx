@@ -18,6 +18,10 @@ interface Props {
    * pulled blob, doesn't drive the adoption flow itself.
    */
   onPull: (meta: CloudSlotMeta) => void | Promise<void>;
+  /** Drive file id → local slot id for backups already on this device. */
+  localCloudSlotByCloudId: ReadonlyMap<string, string>;
+  /** Switch to an existing local slot (no download, no duplicate mint). */
+  onOpenLocalSlot: (slotId: string) => void;
   /**
    * Called after Sign out completes so the App can re-render with the
    * cleared auth state (the gear menu's entries depend on auth state).
@@ -48,7 +52,14 @@ interface ListState {
  * SlotList overlay. This component stays Pull-only — it's the "browse
  * what's in the cloud" view, not the "manage what's synced" view.
  */
-export function CloudLibraryModal({ onClose, onPull, onSignedOut, onFolderChanged }: Props) {
+export function CloudLibraryModal({
+  onClose,
+  onPull,
+  localCloudSlotByCloudId,
+  onOpenLocalSlot,
+  onSignedOut,
+  onFolderChanged,
+}: Props) {
   const auth = getAuthState();
   const [list, setList] = useState<ListState>({ status: 'idle', rows: [] });
   /** Per-row pull-in-flight flag. Disables that row's Pull button + the
@@ -178,9 +189,17 @@ export function CloudLibraryModal({ onClose, onPull, onSignedOut, onFolderChange
             <CloudLibraryRow
               key={row.cloudId}
               meta={row}
-              pullDisabled={pullingCloudId !== null}
+              localSlotId={localCloudSlotByCloudId.get(row.cloudId)}
+              actionDisabled={pullingCloudId !== null}
               isPulling={pullingCloudId === row.cloudId}
               onPull={() => handlePull(row)}
+              onOpenLocal={() => {
+                const slotId = localCloudSlotByCloudId.get(row.cloudId);
+                if (slotId) {
+                  onOpenLocalSlot(slotId);
+                  onClose();
+                }
+              }}
             />
           ))}
         </ul>
@@ -205,30 +224,60 @@ export function CloudLibraryModal({ onClose, onPull, onSignedOut, onFolderChange
 
 interface RowProps {
   meta: CloudSlotMeta;
-  pullDisabled: boolean;
+  localSlotId: string | undefined;
+  actionDisabled: boolean;
   isPulling: boolean;
   onPull: () => void;
+  onOpenLocal: () => void;
 }
 
-function CloudLibraryRow({ meta, pullDisabled, isPulling, onPull }: RowProps) {
+function CloudLibraryRow({
+  meta,
+  localSlotId,
+  actionDisabled,
+  isPulling,
+  onPull,
+  onOpenLocal,
+}: RowProps) {
+  const alreadyLocal = localSlotId !== undefined;
   return (
-    <li className="cloud-library-row">
+    <li className={`cloud-library-row${alreadyLocal ? ' cloud-library-row--local' : ''}`}>
       <div className="cloud-library-row-main">
         <div className="cloud-library-row-name" title={meta.filename}>
           {meta.displayName}
         </div>
         <div className="cloud-library-row-meta">
           {formatBytes(meta.sizeBytes)} &middot; updated {formatDate(meta.updatedAt)}
+          {alreadyLocal && (
+            <span className="cloud-library-row-local-badge"> &middot; on this device</span>
+          )}
         </div>
       </div>
-      <button
-        className="btn primary"
-        onClick={onPull}
-        disabled={pullDisabled}
-        title={isPulling ? 'Pulling…' : 'Download this slot into a new local slot'}
-      >
-        {isPulling ? 'Pulling…' : 'Pull'}
-      </button>
+      {alreadyLocal ? (
+        <button
+          type="button"
+          className="btn cloud-library-row-open-local"
+          onClick={onOpenLocal}
+          disabled={actionDisabled}
+          title="This backup is already saved locally — open that slot"
+          aria-label={`Open local copy of ${meta.displayName}`}
+        >
+          <span className="cloud-library-row-open-local-icon" aria-hidden>
+            ✓
+          </span>
+          On device
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="btn primary"
+          onClick={onPull}
+          disabled={actionDisabled}
+          title={isPulling ? 'Pulling…' : 'Download this slot into a new local slot'}
+        >
+          {isPulling ? 'Pulling…' : 'Pull'}
+        </button>
+      )}
     </li>
   );
 }

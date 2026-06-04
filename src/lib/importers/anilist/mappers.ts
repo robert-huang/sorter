@@ -11,10 +11,12 @@
 
 import type {
   AnilistCharacterGql,
+  AnilistCharacterRole,
   AnilistFavouriteEdge,
   AnilistFavouriteStudioNode,
   AnilistFuzzyDate,
   AnilistMediaCharacterEdgeGql,
+  AnilistMediaStaffEdgeGql,
   AnilistMediaGql,
   AnilistMediaListEntryGql,
   AnilistStaffGql,
@@ -25,6 +27,7 @@ import type {
   CharacterRow,
   CharacterVoiceActorRow,
   MediaCharacterRow,
+  MediaStaffRow,
   MediaFavouriteRow,
   MediaListEntryRow,
   MediaRow,
@@ -299,6 +302,121 @@ export function mapStaffRow(s: AnilistStaffGql, now: number): StaffRow {
  * character later in the merged list, which would push primary cast to
  * the bottom if "last wins" were used instead.
  */
+/**
+ * Junction rows for media → staff (production credits). PK is
+ * (media_id, staff_id, role) — dedupe by that tuple before insert.
+ */
+/** `Staff.staffMedia` → `media_staff` rows for a fixed staff person. */
+export function mapStaffFilmographyMediaStaffRows(
+  staffId: number,
+  edges: readonly { role: string | null; node: AnilistMediaGql }[],
+): MediaStaffRow[] {
+  const seen = new Set<string>();
+  const rows: MediaStaffRow[] = [];
+  for (const [idx, e] of edges.entries()) {
+    const role = (e.role ?? '').trim() || 'Unknown';
+    const key = `${e.node.id}\0${role}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    rows.push({
+      media_id: e.node.id,
+      staff_id: staffId,
+      role,
+      sort_order: idx,
+    });
+  }
+  return rows;
+}
+
+/**
+ * VA reverse credits from `Staff.characters` — upsert media/character
+ * junctions and a CVA row for the staff person on each appearance.
+ */
+export function mapStaffCharacterAppearanceData(
+  staffId: number,
+  edges: readonly {
+    role: AnilistCharacterRole | null;
+    node: AnilistCharacterGql;
+    media: AnilistMediaGql;
+  }[],
+  language: AnilistStaffLanguage,
+  now: number,
+): {
+  mediaRows: MediaRow[];
+  characterRows: CharacterRow[];
+  mediaCharacterRows: MediaCharacterRow[];
+  cvaRows: CharacterVoiceActorRow[];
+} {
+  const mediaById = new Map<number, MediaRow>();
+  const characterById = new Map<number, CharacterRow>();
+  const mediaCharacterSeen = new Set<string>();
+  const mediaCharacterRows: MediaCharacterRow[] = [];
+  const cvaSeen = new Set<string>();
+  const cvaRows: CharacterVoiceActorRow[] = [];
+
+  for (const [idx, e] of edges.entries()) {
+    const mediaId = e.media.id;
+    if (!mediaById.has(mediaId)) {
+      mediaById.set(mediaId, mapMediaRow(e.media, now));
+    }
+    if (!characterById.has(e.node.id)) {
+      characterById.set(e.node.id, mapCharacterRow(e.node, now));
+    }
+    const mcKey = `${mediaId}:${e.node.id}`;
+    if (!mediaCharacterSeen.has(mcKey)) {
+      mediaCharacterSeen.add(mcKey);
+      mediaCharacterRows.push({
+        media_id: mediaId,
+        character_id: e.node.id,
+        role: e.role ?? null,
+        sort_order: idx,
+      });
+    }
+    const cvaKey = `${mediaId}:${e.node.id}:${staffId}`;
+    if (!cvaSeen.has(cvaKey)) {
+      cvaSeen.add(cvaKey);
+      cvaRows.push({
+        media_id: mediaId,
+        character_id: e.node.id,
+        staff_id: staffId,
+        language,
+      });
+    }
+  }
+
+  return {
+    mediaRows: [...mediaById.values()],
+    characterRows: [...characterById.values()],
+    mediaCharacterRows,
+    cvaRows,
+  };
+}
+
+export function mapMediaStaffRows(
+  mediaId: number,
+  edges: AnilistMediaStaffEdgeGql[],
+): MediaStaffRow[] {
+  const seen = new Set<string>();
+  const rows: MediaStaffRow[] = [];
+  for (const [idx, e] of edges.entries()) {
+    const role = (e.role ?? '').trim() || 'Unknown';
+    const key = `${e.node.id}\0${role}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    rows.push({
+      media_id: mediaId,
+      staff_id: e.node.id,
+      role,
+      sort_order: idx,
+    });
+  }
+  return rows;
+}
+
 export function mapMediaCharacterRows(
   mediaId: number,
   edges: AnilistMediaCharacterEdgeGql[],
