@@ -1,0 +1,163 @@
+import type { Database } from '@sqlite.org/sqlite-wasm';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { openMemoryDb } from '../../../db/__tests__/testSqlite';
+import { migrate } from '../../../db/migration-runner';
+import { anilistSourceDescriptor } from '../anilistSource';
+import type { AnilistDbExecutor } from '../context';
+import {
+  describeAnimeRandomPickFailure,
+  getAnimeCacheStats,
+  getVaCreditsAtMedia,
+  hasAnimeRandomFilters,
+  pickRandomAnimeFromCache,
+} from '../graphQueries';
+
+type SqliteExecOpts = { bind?: unknown };
+type ExecCapable = { exec: (sql: string, opts?: SqliteExecOpts) => void };
+
+const NOW = 1_700_000_000_000;
+
+function makeDbAdapter(db: Database): AnilistDbExecutor {
+  return {
+    async exec(sql, params) {
+      const isQuery = /^\s*(select|pragma)/i.test(sql);
+      if (isQuery) {
+        if (params && params.length > 0) {
+          return db.selectObjects(sql, params as never) as never;
+        }
+        return db.selectObjects(sql) as never;
+      }
+      if (params && params.length > 0) {
+        (db as unknown as ExecCapable).exec(sql, { bind: params });
+      } else {
+        db.exec(sql);
+      }
+      return [];
+    },
+    async execBatch(statements) {
+      db.transaction(() => {
+        for (const { sql, params } of statements) {
+          if (params && params.length > 0) {
+            (db as unknown as ExecCapable).exec(sql, { bind: params });
+          } else {
+            db.exec(sql);
+          }
+        }
+      });
+    },
+  };
+}
+
+function seedMedia(db: Database, id: number, type: 'ANIME' | 'MANGA'): void {
+  db.exec(
+    `INSERT INTO media (id, type, title_english, fetched_at, updated_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    { bind: [id, type, `title-${id}`, NOW, NOW] },
+  );
+}
+
+function seedStaff(db: Database, id: number, name: string, image: string | null = null): void {
+  db.exec(
+    `INSERT INTO staff (id, name_full, image, fetched_at, updated_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    { bind: [id, name, image, NOW, NOW] },
+  );
+}
+
+function seedCharacter(
+  db: Database,
+  id: number,
+  name: string,
+  image: string | null = null,
+): void {
+  db.exec(
+    `INSERT INTO character (id, name_full, image, fetched_at, updated_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    { bind: [id, name, image, NOW, NOW] },
+  );
+}
+
+async function freshAnilistDb(): Promise<{ db: Database; adapter: AnilistDbExecutor }> {
+  const db = await openMemoryDb();
+  db.exec('PRAGMA foreign_keys = ON');
+  migrate(db, anilistSourceDescriptor);
+  return { db, adapter: makeDbAdapter(db) };
+}
+
+describe('graphQueries cache pick', () => {
+  let adapter: AnilistDbExecutor;
+  let sqlite: Database;
+
+  beforeEach(async () => {
+    const fresh = await freshAnilistDb();
+    adapter = fresh.adapter;
+    sqlite = fresh.db;
+  });
+
+  it('getAnimeCacheStats counts anime and manga separately', async () => {
+    seedMedia(sqlite, 1, 'ANIME');
+    seedMedia(sqlite, 2, 'ANIME');
+    seedMedia(sqlite, 3, 'MANGA');
+
+    await expect(getAnimeCacheStats(adapter)).resolves.toEqual({
+      totalMedia: 3,
+      animeCount: 2,
+      mangaCount: 1,
+    });
+  });
+
+  it('pickRandomAnimeFromCache returns only ANIME rows', async () => {
+    seedMedia(sqlite, 10, 'MANGA');
+    seedMedia(sqlite, 11, 'ANIME');
+
+    const row = await pickRandomAnimeFromCache(adapter);
+    expect(row).not.toBeNull();
+    expect(row?.id).toBe(11);
+    expect(row?.type).toBe('ANIME');
+  });
+
+  it('describeAnimeRandomPickFailure mentions non-persistent tab when in memory mode', () => {
+    const msg = describeAnimeRandomPickFailure({
+      stats: { totalMedia: 0, animeCount: 0, mangaCount: 0 },
+      storageMode: 'memory',
+    });
+    expect(msg).toMatch(/another Sorter tab/i);
+  });
+
+  it('describeAnimeRandomPickFailure does not mention filters when none are active', () => {
+    const msg = describeAnimeRandomPickFailure({
+      stats: { totalMedia: 5, animeCount: 0, mangaCount: 5 },
+      storageMode: 'opfs',
+    });
+    expect(msg).toMatch(/none are anime/i);
+    expect(msg).not.toMatch(/filter/i);
+  });
+
+  it('hasAnimeRandomFilters is false for an empty filter object', () => {
+    expect(hasAnimeRandomFilters({})).toBe(false);
+  });
+
+  it('getVaCreditsAtMedia maps staff and character names from aliased columns', async () => {
+    seedMedia(sqlite, 100, 'ANIME');
+    seedStaff(sqlite, 1, 'Voice Actor One', 'https://example.com/va.jpg');
+    seedCharacter(sqlite, 2, 'Hero Character', 'https://example.com/char.jpg');
+    sqlite.exec(
+      `INSERT INTO media_character (media_id, character_id, role, sort_order)
+         VALUES (?, ?, ?, ?)`,
+      { bind: [100, 2, 'MAIN', 0] },
+    );
+    sqlite.exec(
+      `INSERT INTO character_voice_actor (media_id, character_id, staff_id, language)
+         VALUES (?, ?, ?, ?)`,
+      { bind: [100, 2, 1, 'JAPANESE'] },
+    );
+
+    const rows = await getVaCreditsAtMedia(adapter, 100);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].staff.name_full).toBe('Voice Actor One');
+    expect(rows[0].staff.image).toBe('https://example.com/va.jpg');
+    expect(rows[0].character.name_full).toBe('Hero Character');
+    expect(rows[0].character.image).toBe('https://example.com/char.jpg');
+    expect(rows[0].characterRole).toBe('MAIN');
+  });
+});

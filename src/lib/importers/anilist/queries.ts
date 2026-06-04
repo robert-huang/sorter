@@ -357,6 +357,8 @@ query FavouriteStaffPage($username: String!, $page: Int!, $perPage: Int!) {
 /**
  * Staff filmography — paginate `characters` (VA appearances) and
  * `staffMedia` (production credits) independently.
+ * `characters.edges` use `CharacterEdge.role`; `staffMedia.edges` are
+ * `MediaEdge` and use `staffRole` (not `role`).
  */
 export function buildStaffFilmographyQuery(): string {
   return `
@@ -388,7 +390,7 @@ query StaffFilmography(
     staffMedia(page: $staffMediaPage, perPage: $perPage) {
       pageInfo { hasNextPage currentPage }
       edges {
-        role
+        staffRole
         node {
           ${MEDIA_FIELD_SELECTION}
         }

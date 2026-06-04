@@ -319,9 +319,9 @@ export type AnilistStaffCharacterEdgeGql = {
   media: AnilistMediaGql;
 };
 
-/** `Staff.staffMedia` edge — production credit on a show. */
+/** `Staff.staffMedia` edge — production credit on a show (`MediaEdge.staffRole`). */
 export type AnilistStaffMediaEdgeGql = {
-  role: string | null;
+  staffRole: string | null;
   node: AnilistMediaGql;
 };
 

@@ -1,5 +1,7 @@
 import { ensureAnilistSourceRegistered } from '../importers/anilist/anilistSource';
+import { createDbTransport, type DbTransport } from './dbTransport';
 import { emitNonPersistentEvent } from './opfs';
+import type { StorageMode } from './opfs';
 import type { DbRow, RpcReply, RpcRequest, SqlParam, WorkerReadyMessage } from './rpc';
 import { ensureTestSourceRegistered } from './testSource';
 
@@ -8,14 +10,14 @@ ensureAnilistSourceRegistered();
 
 const WORKER_DIED_MESSAGE = 'Worker died; retry your operation';
 
-let worker: Worker | null = null;
+let transport: DbTransport | null = null;
 let nextId = 0;
 const pending = new Map<
   number,
   { resolve: (v: unknown) => void; reject: (e: Error) => void }
 >();
 /** Resolves when the worker posts `{ type: 'ready' }` after WASM/OPFS init. */
-let workerReady: Promise<'opfs' | 'memory'> | null = null;
+let workerReady: Promise<StorageMode> | null = null;
 let nonPersistentEventSent = false;
 
 function rejectAllPending(reason: Error): void {
@@ -26,13 +28,12 @@ function rejectAllPending(reason: Error): void {
 }
 
 function onWorkerDeath(): void {
-  worker = null;
+  transport = null;
   workerReady = null;
   rejectAllPending(new Error(WORKER_DIED_MESSAGE));
 }
 
-function handleWorkerMessage(event: MessageEvent<RpcReply | WorkerReadyMessage>): void {
-  const data = event.data;
+function handleTransportMessage(data: RpcReply | WorkerReadyMessage): void {
   if (data && typeof data === 'object' && 'type' in data && data.type === 'ready') {
     return;
   }
@@ -55,48 +56,35 @@ function handleWorkerMessage(event: MessageEvent<RpcReply | WorkerReadyMessage>)
   }
 }
 
-function attachWorkerLifecycle(w: Worker): void {
-  w.addEventListener('message', handleWorkerMessage);
-  w.addEventListener('error', onWorkerDeath);
-  w.addEventListener('messageerror', onWorkerDeath);
-}
+function spawnTransport(): DbTransport {
+  const t = createDbTransport();
 
-function bindWorkerReady(w: Worker): void {
-  workerReady = new Promise<'opfs' | 'memory'>((resolve) => {
-    const onReady = (e: MessageEvent<RpcReply | WorkerReadyMessage>) => {
-      if (e.data && typeof e.data === 'object' && 'type' in e.data && e.data.type === 'ready') {
-        w.removeEventListener('message', onReady);
-        // Fire the memory-mode banner event the instant the worker
-        // reports it couldn't claim OPFS — independent of whether the
-        // caller went through openSourceDb. Without this, a tab that
-        // only ever issues raw `exec` reads (which is the case for
-        // AnilistStartMode's cache-hint lookups) would silently use
-        // an empty memory DB and the user would have no idea why
-        // their cache is missing.
-        maybeEmitNonPersistent(e.data.storageMode);
-        resolve(e.data.storageMode);
+  workerReady = new Promise<StorageMode>((resolve) => {
+    t.start((data) => {
+      if (data && typeof data === 'object' && 'type' in data && data.type === 'ready') {
+        maybeEmitNonPersistent(data.storageMode);
+        resolve(data.storageMode);
+        return;
       }
-    };
-    w.addEventListener('message', onReady);
+      handleTransportMessage(data);
+    });
   });
+
+  t.addEventListener('error', onWorkerDeath);
+  t.addEventListener('messageerror', onWorkerDeath);
+
+  return t;
 }
 
-function spawnWorker(): Worker {
-  const w = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
-  attachWorkerLifecycle(w);
-  bindWorkerReady(w);
-  return w;
-}
-
-function getWorker(): Worker {
-  if (!worker) {
-    worker = spawnWorker();
+function getTransport(): DbTransport {
+  if (!transport) {
+    transport = spawnTransport();
   }
-  return worker;
+  return transport;
 }
 
-async function waitForWorkerReady(): Promise<'opfs' | 'memory'> {
-  getWorker();
+async function waitForWorkerReady(): Promise<StorageMode> {
+  getTransport();
   return workerReady!;
 }
 
@@ -108,11 +96,11 @@ async function rpc<T>(req: Omit<RpcRequest, 'id'>): Promise<T> {
       resolve: resolve as (v: unknown) => void,
       reject,
     });
-    getWorker().postMessage({ ...req, id } as RpcRequest);
+    getTransport().post({ ...req, id } as RpcRequest);
   });
 }
 
-function maybeEmitNonPersistent(mode: 'opfs' | 'memory'): void {
+function maybeEmitNonPersistent(mode: StorageMode): void {
   if (mode === 'memory' && !nonPersistentEventSent) {
     nonPersistentEventSent = true;
     emitNonPersistentEvent();
@@ -121,7 +109,7 @@ function maybeEmitNonPersistent(mode: 'opfs' | 'memory'): void {
 
 export async function openSourceDb(
   sourceId: string,
-): Promise<{ schemaVersion: number; storageMode: 'opfs' | 'memory' }> {
+): Promise<{ schemaVersion: number; storageMode: StorageMode }> {
   const storageMode = await waitForWorkerReady();
   const schemaVersion = await rpc<number>({ type: 'open', args: { sourceId } });
   maybeEmitNonPersistent(storageMode);

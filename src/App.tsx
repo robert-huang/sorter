@@ -86,7 +86,9 @@ import {
   type ThemeName,
 } from './lib/storage';
 import type { SlotMeta } from './lib/types';
+import { AppNavFab } from './components/AppNavFab';
 import { Header, type TabId } from './components/Header';
+import { ANIME_TO_ANIME_HREF } from './lib/appRoutes';
 import {
   StartScreen,
   type StartDraftCapabilities,
@@ -2336,6 +2338,11 @@ export function App() {
   return (
     <ItemDetailContext.Provider value={openItemDetail}>
     <div className="app-shell">
+      <AppNavFab
+        href={ANIME_TO_ANIME_HREF}
+        label="Anime →"
+        title="Open Anime to Anime"
+      />
       {!autosaveOn && (
         <div className="app-banner">
           Autosave is disabled (this page is open from a <code>file://</code>{' '}
@@ -2377,11 +2384,11 @@ export function App() {
         // again (close the other tab, reload).
         <div className="app-banner warn">
           <span>
-            This tab is using non-persistent storage — another tab is
-            holding the local database. Anything imported or pulled here
-            stays only in this tab until you close the other tab and
-            reload. Pull from Drive (gear menu &rarr; Source databases
-            &rarr; Pull) to load your cached data for this session.
+            This tab is using non-persistent storage (OPFS unavailable, or another
+            tab holds the database on browsers without SharedWorker). Changes here
+            may not persist across reloads. Close other Sorter / Anime to Anime tabs
+            and reload, or pull from Drive (gear &rarr; Source databases &rarr; Pull)
+            to load data for this session.
           </span>
           <button
             type="button"

@@ -65,6 +65,7 @@ describe('db client worker init', () => {
   beforeEach(() => {
     vi.resetModules();
     MockWorker.instances = [];
+    vi.stubGlobal('SharedWorker', undefined);
     vi.stubGlobal('Worker', MockWorker as unknown as typeof Worker);
   });
 

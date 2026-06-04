@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { ANIME_TO_ANIME_HREF } from '../lib/appRoutes';
 import { SlotList } from './SlotList';
 import { SourceDatabasesSection } from './sourceDatabasesSection';
 import type { SlotsManifest } from '../lib/types';
@@ -431,7 +432,7 @@ export function SettingsMenu({
             </label>
             <div className="settings-divider" />
             <div className="settings-status">
-              <a href={`${import.meta.env.BASE_URL}anime-to-anime.html`}>Anime to Anime</a>
+              <a href={ANIME_TO_ANIME_HREF}>Anime to Anime</a>
               <span className="settings-item-hint">
                 {' '}
                 — connect two shows via voice actors

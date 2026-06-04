@@ -1,27 +1,40 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as client from '../lib/db/client';
 import { ANILIST_SOURCE_ID } from '../lib/importers/anilist/anilistSource';
 import { makeAnilistImportContext } from '../lib/importers/anilist/context';
 import { ensureMediaCastExpanded, ensureStaffFilmography } from '../lib/importers/anilist/ensureGraph';
 import {
+  describeAnimeRandomPickFailure,
+  getAnimeCacheStats,
   getAnimeFilmographyForStaff,
   getProductionCreditsAtMedia,
   getVaCreditsAtMedia,
   pickRandomAnimeFromCache,
+  type AnimeCacheStats,
   type AnimeFilmographyRow,
   type ProductionCreditRow,
   type VaCreditRow,
 } from '../lib/importers/anilist/graphQueries';
+import type { StorageMode } from '../lib/db/opfs';
 import { productionReads } from '../lib/importers/anilist/readQueries';
 import type { MediaRow, StaffRow } from '../lib/importers/anilist/types';
 import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
+import { AppNavFab } from '../components/AppNavFab';
+import { SORTER_HOME_HREF } from '../lib/appRoutes';
 import { AnimeToAnimeHeader } from './AnimeToAnimeHeader';
+import { RoundEndpointsRow } from './RoundEndpointsRow';
+import {
+  loadVaListImageMode,
+  saveVaListImageMode,
+  type VaListImageMode,
+} from './preferences';
 import {
   applyAnimeToAnimeTheme,
   loadAnimeToAnimeTheme,
   saveAnimeToAnimeTheme,
   type AnimeToAnimeTheme,
 } from './theme';
+import { VaCreditHopButton } from './VaCreditHopButton';
 
 type Node =
   | { kind: 'anime'; mediaId: number }
@@ -38,7 +51,7 @@ const LEGACY_ROUND_CONFIG_KEY = 'link-game-round-config';
 
 function loadRoundConfig(): RoundConfig {
   const defaults: RoundConfig = {
-    allowProduction: false,
+    allowProduction: true,
     allowRelations: false,
     productionAllRoles: false,
   };
@@ -50,7 +63,7 @@ function loadRoundConfig(): RoundConfig {
     }
     const parsed = JSON.parse(raw) as Partial<RoundConfig>;
     return {
-      allowProduction: parsed.allowProduction === true,
+      allowProduction: parsed.allowProduction !== false,
       allowRelations: parsed.allowRelations === true,
       productionAllRoles: parsed.productionAllRoles === true,
     };
@@ -67,17 +80,18 @@ function saveRoundConfig(config: RoundConfig): void {
   }
 }
 
-function defaultDb() {
-  return makeAnilistImportContext().db;
-}
-
 export function AnimeToAnimeApp() {
+  const importCtx = useRef(makeAnilistImportContext());
   const [theme, setTheme] = useState<AnimeToAnimeTheme>(loadAnimeToAnimeTheme);
+  const [vaListImageMode, setVaListImageMode] = useState<VaListImageMode>(loadVaListImageMode);
   const [ready, setReady] = useState(false);
+  const [storageMode, setStorageMode] = useState<StorageMode>('opfs');
+  const [cacheStats, setCacheStats] = useState<AnimeCacheStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [startMedia, setStartMedia] = useState<MediaRow | null>(null);
   const [goalMedia, setGoalMedia] = useState<MediaRow | null>(null);
   const [roundConfig, setRoundConfig] = useState<RoundConfig>(loadRoundConfig);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [phase, setPhase] = useState<'setup' | 'play'>('setup');
   const [current, setCurrent] = useState<Node | null>(null);
   const [animeHops, setAnimeHops] = useState(0);
@@ -95,6 +109,12 @@ export function AnimeToAnimeApp() {
     applyAnimeToAnimeTheme(theme);
   }, [theme]);
 
+  useEffect(() => {
+    if (phase === 'setup') {
+      setAdvancedOpen(false);
+    }
+  }, [phase]);
+
   const onToggleTheme = useCallback(() => {
     setTheme((prev) => {
       const next: AnimeToAnimeTheme = prev === 'dark' ? 'light' : 'dark';
@@ -103,10 +123,18 @@ export function AnimeToAnimeApp() {
     });
   }, []);
 
+  const onVaListImageModeChange = useCallback((mode: VaListImageMode) => {
+    setVaListImageMode(mode);
+    saveVaListImageMode(mode);
+  }, []);
+
   useEffect(() => {
     void (async () => {
       try {
-        await client.openSourceDb(ANILIST_SOURCE_ID);
+        const { storageMode: mode } = await client.openSourceDb(ANILIST_SOURCE_ID);
+        setStorageMode(mode);
+        const stats = await getAnimeCacheStats(importCtx.current.db);
+        setCacheStats(stats);
         setReady(true);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Could not open database.');
@@ -122,19 +150,25 @@ export function AnimeToAnimeApp() {
     });
   }, []);
 
-  const randomizeEndpoint = useCallback(async (which: 'start' | 'goal') => {
-    const row = await pickRandomAnimeFromCache(defaultDb());
-    if (!row) {
-      setError('No anime in cache match filters. Import lists or broaden filters.');
-      return;
-    }
-    setError(null);
-    if (which === 'start') {
-      setStartMedia(row);
-    } else {
-      setGoalMedia(row);
-    }
-  }, []);
+  const randomizeEndpoint = useCallback(
+    async (which: 'start' | 'goal') => {
+      const db = importCtx.current.db;
+      const row = await pickRandomAnimeFromCache(db);
+      if (!row) {
+        const stats = cacheStats ?? (await getAnimeCacheStats(db));
+        setCacheStats(stats);
+        setError(describeAnimeRandomPickFailure({ stats, storageMode }));
+        return;
+      }
+      setError(null);
+      if (which === 'start') {
+        setStartMedia(row);
+      } else {
+        setGoalMedia(row);
+      }
+    },
+    [cacheStats, storageMode],
+  );
 
   const beginRound = useCallback(() => {
     if (!startMedia || !goalMedia) {
@@ -153,9 +187,26 @@ export function AnimeToAnimeApp() {
   }, [startMedia, goalMedia]);
 
   const swapStartGoal = useCallback(() => {
-    setStartMedia(goalMedia);
-    setGoalMedia(startMedia);
-  }, [startMedia, goalMedia]);
+    if (!startMedia || !goalMedia) {
+      return;
+    }
+    const nextStart = goalMedia;
+    const nextGoal = startMedia;
+    setStartMedia(nextStart);
+    setGoalMedia(nextGoal);
+    if (phase === 'play') {
+      setError(null);
+      setFilter('');
+      setVaCredits([]);
+      setProductionCredits([]);
+      setFilmography([]);
+      setStaffHeader(null);
+      setCurrentMedia(null);
+      setCurrent({ kind: 'anime', mediaId: nextStart.id });
+      setAnimeHops(0);
+      setVisitedAnime(new Set([nextStart.id]));
+    }
+  }, [startMedia, goalMedia, phase]);
 
   useEffect(() => {
     if (phase !== 'play' || !current) {
@@ -165,7 +216,7 @@ export function AnimeToAnimeApp() {
     setLoading(true);
     setError(null);
     void (async () => {
-      const ctx = makeAnilistImportContext();
+      const ctx = importCtx.current;
       try {
         if (current.kind === 'anime') {
           await ensureMediaCastExpanded(ctx, current.mediaId);
@@ -287,9 +338,27 @@ export function AnimeToAnimeApp() {
 
   const goalReached = goalMedia && current?.kind === 'anime' && current.mediaId === goalMedia.id;
 
+  const endpointsSwapDisabled = !startMedia || !goalMedia;
+
   return (
     <div className="app-shell">
-      <AnimeToAnimeHeader theme={theme} onToggleTheme={onToggleTheme} />
+      <AppNavFab href={SORTER_HOME_HREF} label="← Sorter" title="Back to Sorter" />
+      <AnimeToAnimeHeader
+        theme={theme}
+        vaListImageMode={vaListImageMode}
+        onToggleTheme={onToggleTheme}
+        onVaListImageModeChange={onVaListImageModeChange}
+      />
+
+      {ready && storageMode === 'memory' && (
+        <div className="app-banner warn">
+          <span>
+            This tab is using in-memory storage (OPFS unavailable or this browser cannot
+            share the database worker). Import on the main Sorter page, or reload after
+            closing other tabs if you see a non-persistent warning there.
+          </span>
+        </div>
+      )}
 
       {!ready ? (
         <main className="page anime-to-anime-page">
@@ -297,8 +366,15 @@ export function AnimeToAnimeApp() {
         </main>
       ) : phase === 'setup' ? (
         <main className="page anime-to-anime-page">
+          <h1>Anime to Anime</h1>
           <p className="anime-to-anime-lead">
             Connect start → goal through voice actors and optional production staff.
+            {cacheStats && cacheStats.animeCount > 0 && (
+              <>
+                {' '}
+                {cacheStats.animeCount.toLocaleString()} anime in local cache.
+              </>
+            )}
           </p>
           {error && (
             <p role="alert" className="settings-source-db-error">
@@ -306,72 +382,65 @@ export function AnimeToAnimeApp() {
             </p>
           )}
 
-          <section className="page-section">
-            <h2 className="anime-to-anime-section-title">Start</h2>
-            <p className="anime-to-anime-endpoint-value">
-              {startMedia ? pickMediaTitle(startMedia) : '—'}
-            </p>
-            <div className="anime-to-anime-actions">
-              <button
-                type="button"
-                className="btn small"
-                onClick={() => void randomizeEndpoint('start')}
-              >
-                Random from cache
-              </button>
-            </div>
-          </section>
+          <RoundEndpointsRow
+            phase="setup"
+            startMedia={startMedia}
+            goalMedia={goalMedia}
+            swapDisabled={endpointsSwapDisabled}
+            onRandomStart={() => void randomizeEndpoint('start')}
+            onRandomGoal={() => void randomizeEndpoint('goal')}
+            onSwap={swapStartGoal}
+          />
 
-          <section className="page-section">
-            <h2 className="anime-to-anime-section-title">Goal</h2>
-            <p className="anime-to-anime-endpoint-value">
-              {goalMedia ? pickMediaTitle(goalMedia) : '—'}
-            </p>
-            <div className="anime-to-anime-actions">
+          <section className="page-section anime-to-anime-advanced">
+            {!advancedOpen ? (
               <button
                 type="button"
-                className="btn small"
-                onClick={() => void randomizeEndpoint('goal')}
+                className="link-btn"
+                onClick={() => setAdvancedOpen(true)}
               >
-                Random from cache
+                Advanced
               </button>
-              <button
-                type="button"
-                className="btn small"
-                onClick={swapStartGoal}
-                disabled={!startMedia || !goalMedia}
-              >
-                Swap
-              </button>
-            </div>
-          </section>
-
-          <section className="page-section">
-            <h2 className="anime-to-anime-section-title">Round options</h2>
-            <label className="settings-item checkbox">
-              <input
-                type="checkbox"
-                checked={roundConfig.allowProduction}
-                onChange={(e) => onRoundConfigChange({ allowProduction: e.target.checked })}
-              />
-              Production credits (off by default)
-            </label>
-            <label className="settings-item checkbox">
-              <input
-                type="checkbox"
-                checked={roundConfig.productionAllRoles}
-                onChange={(e) => onRoundConfigChange({ productionAllRoles: e.target.checked })}
-              />
-              All production roles (advanced)
-            </label>
-            <label className="settings-item checkbox">
-              <input
-                type="checkbox"
-                checked={roundConfig.allowRelations}
-                onChange={(e) => onRoundConfigChange({ allowRelations: e.target.checked })}
-              />
-              Franchise relations mode (stub — expand on play)
-            </label>
+            ) : (
+              <>
+                <div className="edit-item-advanced-header">
+                  <span className="edit-item-advanced-title">Advanced</span>
+                  <button
+                    type="button"
+                    className="link-btn"
+                    onClick={() => setAdvancedOpen(false)}
+                  >
+                    Hide
+                  </button>
+                </div>
+                <label className="settings-item checkbox">
+                  <input
+                    type="checkbox"
+                    checked={roundConfig.allowProduction}
+                    onChange={(e) => onRoundConfigChange({ allowProduction: e.target.checked })}
+                  />
+                  Production credits
+                </label>
+                <label className="settings-item checkbox">
+                  <input
+                    type="checkbox"
+                    checked={roundConfig.productionAllRoles}
+                    onChange={(e) =>
+                      onRoundConfigChange({ productionAllRoles: e.target.checked })
+                    }
+                  />
+                  All production roles
+                </label>
+                <label className="settings-item checkbox">
+                  <input
+                    type="checkbox"
+                    checked={roundConfig.allowRelations}
+                    onChange={(e) => onRoundConfigChange({ allowRelations: e.target.checked })}
+                  />
+                  Franchise relations mode (stub — expand on play)
+                </label>
+              </>
+            )}
           </section>
 
           <div className="anime-to-anime-primary-action">
@@ -382,30 +451,22 @@ export function AnimeToAnimeApp() {
         </main>
       ) : (
         <main className="page anime-to-anime-page">
-          <section className="page-section anime-to-anime-status-bar">
-            <div className="anime-to-anime-status-line">
-              <span className="anime-to-anime-status-label">Start</span>
-              <span>{startMedia ? pickMediaTitle(startMedia) : '—'}</span>
-            </div>
-            <div className="anime-to-anime-status-line">
-              <span className="anime-to-anime-status-label">Goal</span>
-              <span>{goalMedia ? pickMediaTitle(goalMedia) : '—'}</span>
-            </div>
-            <div className="anime-to-anime-hops">
-              Anime hops: {animeHops}
-              {goalReached && (
-                <strong className="anime-to-anime-goal-reached">Goal reached!</strong>
-              )}
-            </div>
-            <div className="anime-to-anime-actions">
-              <button type="button" className="btn small" onClick={swapStartGoal}>
-                Swap start ↔ goal
-              </button>
-              <button type="button" className="btn small" onClick={() => setPhase('setup')}>
-                Setup
-              </button>
-            </div>
-          </section>
+          <RoundEndpointsRow
+            phase="play"
+            startMedia={startMedia}
+            goalMedia={goalMedia}
+            animeHops={animeHops}
+            goalReached={Boolean(goalReached)}
+            swapDisabled={endpointsSwapDisabled}
+            onRandomStart={() => void randomizeEndpoint('start')}
+            onRandomGoal={() => void randomizeEndpoint('goal')}
+            onSwap={swapStartGoal}
+          />
+          <div className="anime-to-anime-play-toolbar">
+            <button type="button" className="btn small" onClick={() => setPhase('setup')}>
+              Setup
+            </button>
+          </div>
 
           {error && (
             <p role="alert" className="settings-source-db-error">
@@ -431,18 +492,13 @@ export function AnimeToAnimeApp() {
                 {filteredVa.map((row) => (
                   <li
                     key={`${row.staff.id}-${row.character.id}`}
-                    className="anilist-detail-cast-item"
+                    className="anilist-detail-cast-item anime-to-anime-va-item"
                   >
-                    <button
-                      type="button"
-                      className="btn link anime-to-anime-hop-btn"
-                      onClick={() => onHopToStaff(row.staff.id)}
-                    >
-                      <strong>{row.staff.name_full ?? row.staff.name_native}</strong>
-                      <span className="anime-to-anime-hop-meta">
-                        as {row.character.name_full ?? row.character.name_native}
-                      </span>
-                    </button>
+                    <VaCreditHopButton
+                      row={row}
+                      vaListImageMode={vaListImageMode}
+                      onHop={() => onHopToStaff(row.staff.id)}
+                    />
                   </li>
                 ))}
               </ul>

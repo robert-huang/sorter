@@ -78,19 +78,36 @@ function rowToStaffRow(r: Record<string, unknown>): StaffRow {
   };
 }
 
-function rowToCharacterRow(r: Record<string, unknown>): CharacterRow {
+/** Staff row from a JOIN that aliases staff columns with an `st_` prefix. */
+function rowToStaffRowPrefixed(r: Record<string, unknown>): StaffRow {
   return {
-    id: reqN(r.id),
-    name_full: s(r.name_full),
-    name_native: s(r.name_native),
-    name_alternatives_json: s(r.name_alternatives_json),
-    name_alternatives_spoiler_json: s(r.name_alternatives_spoiler_json),
-    image: s(r.image),
-    age: s(r.age),
-    gender: s(r.gender),
-    favourites: n(r.favourites),
-    fetched_at: reqN(r.fetched_at),
-    updated_at: reqN(r.updated_at),
+    id: reqN(r.st_id),
+    name_full: s(r.st_name_full),
+    name_native: s(r.st_name_native),
+    image: s(r.st_image),
+    age: s(r.st_age),
+    gender: s(r.st_gender),
+    language_v2: s(r.st_language_v2),
+    favourites: n(r.st_favourites),
+    fetched_at: reqN(r.st_fetched_at),
+    updated_at: reqN(r.st_updated_at),
+  };
+}
+
+/** Character row from a JOIN that aliases character columns with a `ch_` prefix. */
+function rowToCharacterRowPrefixed(r: Record<string, unknown>): CharacterRow {
+  return {
+    id: reqN(r.ch_id),
+    name_full: s(r.ch_name_full),
+    name_native: s(r.ch_name_native),
+    name_alternatives_json: s(r.ch_name_alternatives_json),
+    name_alternatives_spoiler_json: s(r.ch_name_alternatives_spoiler_json),
+    image: s(r.ch_image),
+    age: s(r.ch_age),
+    gender: s(r.ch_gender),
+    favourites: n(r.ch_favourites),
+    fetched_at: reqN(r.ch_fetched_at),
+    updated_at: reqN(r.ch_updated_at),
   };
 }
 
@@ -128,7 +145,29 @@ export async function getVaCreditsAtMedia(
   }
   const rows = await db.exec(
     `
-      SELECT st.*, c.*, mc.role AS character_role
+      SELECT
+        st.id AS st_id,
+        st.name_full AS st_name_full,
+        st.name_native AS st_name_native,
+        st.image AS st_image,
+        st.age AS st_age,
+        st.gender AS st_gender,
+        st.language_v2 AS st_language_v2,
+        st.favourites AS st_favourites,
+        st.fetched_at AS st_fetched_at,
+        st.updated_at AS st_updated_at,
+        c.id AS ch_id,
+        c.name_full AS ch_name_full,
+        c.name_native AS ch_name_native,
+        c.name_alternatives_json AS ch_name_alternatives_json,
+        c.name_alternatives_spoiler_json AS ch_name_alternatives_spoiler_json,
+        c.image AS ch_image,
+        c.age AS ch_age,
+        c.gender AS ch_gender,
+        c.favourites AS ch_favourites,
+        c.fetched_at AS ch_fetched_at,
+        c.updated_at AS ch_updated_at,
+        mc.role AS character_role
       FROM character_voice_actor cva
       JOIN staff st ON st.id = cva.staff_id
       JOIN character c ON c.id = cva.character_id
@@ -140,8 +179,8 @@ export async function getVaCreditsAtMedia(
     params,
   );
   return rows.map((r) => ({
-    staff: rowToStaffRow(r),
-    character: rowToCharacterRow(r),
+    staff: rowToStaffRowPrefixed(r),
+    character: rowToCharacterRowPrefixed(r),
     characterRole: s(r.character_role),
   }));
 }
@@ -238,16 +277,85 @@ export async function getStaffFilmographyFetchedAt(
   return n(rows[0].fetched_at);
 }
 
+export type AnimeCacheStats = {
+  totalMedia: number;
+  animeCount: number;
+  mangaCount: number;
+};
+
+export async function getAnimeCacheStats(db: AnilistDbExecutor): Promise<AnimeCacheStats> {
+  const rows = await db.exec(`
+    SELECT
+      COUNT(*) AS total_media,
+      SUM(CASE WHEN type = 'ANIME' THEN 1 ELSE 0 END) AS anime_count,
+      SUM(CASE WHEN type = 'MANGA' THEN 1 ELSE 0 END) AS manga_count
+    FROM media
+  `);
+  if (rows.length === 0) {
+    return { totalMedia: 0, animeCount: 0, mangaCount: 0 };
+  }
+  const r = rows[0];
+  return {
+    totalMedia: Number(r.total_media ?? 0),
+    animeCount: Number(r.anime_count ?? 0),
+    mangaCount: Number(r.manga_count ?? 0),
+  };
+}
+
+export type AnimeRandomPickFilters = {
+  minScore?: number;
+  seasonYearMin?: number;
+  seasonYearMax?: number;
+  formats?: readonly string[];
+  country?: string;
+};
+
+export function hasAnimeRandomFilters(filters: AnimeRandomPickFilters = {}): boolean {
+  return (
+    filters.minScore !== undefined ||
+    filters.seasonYearMin !== undefined ||
+    filters.seasonYearMax !== undefined ||
+    Boolean(filters.country) ||
+    (filters.formats !== undefined && filters.formats.length > 0)
+  );
+}
+
+/** User-facing reason when {@link pickRandomAnimeFromCache} returns null. */
+export function describeAnimeRandomPickFailure(params: {
+  stats: AnimeCacheStats;
+  storageMode: 'opfs' | 'memory';
+  filters?: AnimeRandomPickFilters;
+}): string {
+  const { stats, storageMode, filters = {} } = params;
+
+  if (storageMode === 'memory') {
+    return (
+      'This tab cannot see your saved AniList database — another Sorter tab has the local file open. ' +
+      'Close other Sorter tabs, reload this page, then try Random from cache again.'
+    );
+  }
+
+  if (stats.totalMedia === 0) {
+    return (
+      'No titles in this browser’s AniList cache. On the main Sorter page, open START → AniList and import lists or favourites.'
+    );
+  }
+
+  if (stats.animeCount === 0) {
+    return `Your cache has ${stats.totalMedia} title(s) but none are anime. Import an anime list or favourite anime on START → AniList.`;
+  }
+
+  if (hasAnimeRandomFilters(filters)) {
+    return 'No anime in cache match the current filters. Broaden filters or import more anime.';
+  }
+
+  return 'No anime found in cache. Try reloading the page.';
+}
+
 /** Random anime from local cache matching optional filters. */
 export async function pickRandomAnimeFromCache(
   db: AnilistDbExecutor,
-  filters: {
-    minScore?: number;
-    seasonYearMin?: number;
-    seasonYearMax?: number;
-    formats?: readonly string[];
-    country?: string;
-  } = {},
+  filters: AnimeRandomPickFilters = {},
 ): Promise<MediaRow | null> {
   const clauses = [`type = 'ANIME'`];
   const params: SqlBindable[] = [];

@@ -20,6 +20,7 @@ import {
   mapMediaRow,
   mapMediaStudioRows,
   mapMediaTagRows,
+  mapStaffFilmographyMediaStaffRows,
   mapStaffFavouriteRow,
   mapStaffRow,
   mapStudioFavouriteRow,
@@ -602,5 +603,18 @@ describe('favourite-edge mappers', () => {
     expect(
       mapStudioFavouriteRow({ favouriteOrder: 9, node: { id: 99, name: 'S' } }, USER_ID, NOW),
     ).toEqual({ anilist_user_id: USER_ID, studio_id: 99, sort_order: 9, fetched_at: NOW });
+  });
+});
+
+describe('mapStaffFilmographyMediaStaffRows', () => {
+  it('maps MediaEdge.staffRole from Staff.staffMedia', () => {
+    const rows = mapStaffFilmographyMediaStaffRows(42, [
+      { staffRole: 'Director', node: fullMedia({ id: 200 }) },
+      { staffRole: null, node: fullMedia({ id: 201 }) },
+    ]);
+    expect(rows).toEqual([
+      { media_id: 200, staff_id: 42, role: 'Director', sort_order: 0 },
+      { media_id: 201, staff_id: 42, role: 'Unknown', sort_order: 1 },
+    ]);
   });
 });

@@ -1520,6 +1520,31 @@ a {
   color: var(--accent, currentColor);
 }
 
+/* ---------- Cross-app nav (Sorter ↔ Anime to Anime) ---------- */
+
+.app-nav-fab {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 100;
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+}
+
+.app-nav-fab:hover {
+  border-color: var(--border-strong);
+  color: var(--accent);
+}
+
 /* ---------- Anime to Anime mini-app ---------- */
 
 .anime-to-anime-header-title {
@@ -1527,19 +1552,15 @@ a {
   color: var(--text);
 }
 
-.anime-to-anime-back-link {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--accent);
-  text-decoration: none;
-}
-
-.anime-to-anime-back-link:hover {
-  text-decoration: underline;
-}
-
 .anime-to-anime-page {
-  max-width: 720px;
+  max-width: 960px;
+}
+
+.anime-to-anime-page h1 {
+  margin: 0 0 8px;
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--text);
 }
 
 .anime-to-anime-lead {
@@ -1553,9 +1574,62 @@ a {
   font-size: 16px;
 }
 
+.anime-to-anime-endpoints-wrap {
+  margin-bottom: 16px;
+}
+
+.anime-to-anime-endpoints {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 16px;
+  align-items: stretch;
+}
+
+.anime-to-anime-endpoints-bridge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-width: 52px;
+  padding: 8px 0;
+}
+
+.anime-to-anime-endpoints-arrow {
+  font-size: 28px;
+  line-height: 1;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.anime-to-anime-endpoint-card {
+  margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.anime-to-anime-endpoint-card .anime-to-anime-actions {
+  margin-top: auto;
+}
+
+.anime-to-anime-endpoint-cover {
+  display: block;
+  width: 100%;
+  max-height: 200px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  margin-bottom: 10px;
+}
+
 .anime-to-anime-endpoint-value {
   margin: 0 0 10px;
   font-weight: 600;
+  flex: 1;
+}
+
+.anime-to-anime-play-toolbar {
+  margin-bottom: 16px;
 }
 
 .anime-to-anime-actions {
@@ -1568,27 +1642,28 @@ a {
   margin-top: 8px;
 }
 
-.anime-to-anime-status-bar {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.anime-to-anime-status-line {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  font-size: 13px;
-}
-
-.anime-to-anime-status-label {
-  font-weight: 600;
-  color: var(--text-muted);
-}
-
 .anime-to-anime-hops {
+  margin: 12px 0 0;
   font-size: 14px;
   font-weight: 600;
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .anime-to-anime-endpoints {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto;
+  }
+
+  .anime-to-anime-endpoints-bridge {
+    flex-direction: row;
+    justify-content: center;
+    padding: 4px 0;
+  }
+
+  .anime-to-anime-endpoints-arrow {
+    transform: rotate(90deg);
+  }
 }
 
 .anime-to-anime-goal-reached {
@@ -1613,8 +1688,34 @@ a {
 }
 
 .anime-to-anime-hop-btn {
-  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
+  text-align: left;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.anime-to-anime-hop-btn:hover strong {
+  color: var(--accent);
+}
+
+.anime-to-anime-va-item {
+  padding: 0;
+  overflow: hidden;
+}
+
+.anime-to-anime-va-item .anime-to-anime-hop-btn {
+  padding: 4px 6px 4px 4px;
+}
+
+.anime-to-anime-settings-popover {
+  min-width: 220px;
 }
 
 .anime-to-anime-hop-meta {
@@ -1622,6 +1723,10 @@ a {
   font-size: 11px;
   color: var(--text-muted);
   font-weight: 400;
+}
+
+.anime-to-anime-advanced .settings-item.checkbox {
+  margin-top: 8px;
 }
 
 /* ---------- Page content ---------- */

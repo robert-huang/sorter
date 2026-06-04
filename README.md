@@ -47,8 +47,9 @@ A side mini-app: connect a **start** anime to a **goal** anime by hopping throug
 - Dev: `http://localhost:5173/anime-to-anime.html`
 - After `npm run build`: `dist/anime-to-anime.html`
 - Source: `anime-to-anime.html`, `src/animeToAnime/`
-- Open from the main app: gear menu → **Anime to Anime** (footer, above Autosave)
-- Theme: separate from main Sorter (sun/moon on the Anime to Anime page); defaults to **dark**
+- Open from either page: floating **Sorter** / **Anime to Anime** button (top-left), or gear menu → **Anime to Anime** (footer, above Autosave)
+- **Local DB:** main Sorter and Anime to Anime share one `SharedWorker` (`sorter-db`) per origin so OPFS-backed `anilist.sqlite` is not duplicated across HTML entries. Browsers without SharedWorker fall back to a dedicated worker per page (close other tabs if you see a non-persistent warning).
+- **Theme:** independent from main Sorter (`anime-to-anime-theme` in localStorage); sun/moon toggle in the header; defaults to **dark**
 
 ### 3. Double-click `dist/index.html` (no terminal needed)
 

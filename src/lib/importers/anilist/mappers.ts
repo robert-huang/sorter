@@ -309,12 +309,12 @@ export function mapStaffRow(s: AnilistStaffGql, now: number): StaffRow {
 /** `Staff.staffMedia` → `media_staff` rows for a fixed staff person. */
 export function mapStaffFilmographyMediaStaffRows(
   staffId: number,
-  edges: readonly { role: string | null; node: AnilistMediaGql }[],
+  edges: readonly { staffRole: string | null; node: AnilistMediaGql }[],
 ): MediaStaffRow[] {
   const seen = new Set<string>();
   const rows: MediaStaffRow[] = [];
   for (const [idx, e] of edges.entries()) {
-    const role = (e.role ?? '').trim() || 'Unknown';
+    const role = (e.staffRole ?? '').trim() || 'Unknown';
     const key = `${e.node.id}\0${role}`;
     if (seen.has(key)) {
       continue;
