@@ -4,7 +4,6 @@
  */
 
 import sqlite3InitModule, {
-  OpfsSAHPoolDatabase,
   type Database,
   type SAHPoolUtil,
   type Sqlite3Static,
@@ -40,6 +39,9 @@ let sqlite3: Sqlite3Static | null = null;
 let sahPool: SAHPoolUtil | null = null;
 let storageMode: StorageMode = 'memory';
 let storageHint: string | undefined;
+/** False until WASM + storage backend selection finish — not merely `sqlite3 !== null`. */
+let workerInitComplete = false;
+let initPromise: Promise<StorageMode> | null = null;
 
 /** Serializes all RPC handlers — required when multiple tabs share one worker. */
 let rpcChain = Promise.resolve();
@@ -87,7 +89,7 @@ async function initOpfsStorage(s3: Sqlite3Static): Promise<boolean> {
     console.warn(`[db worker] OPFS SAH pool install failed: ${message}`, err);
 
     try {
-      const probe = new OpfsSAHPoolDatabase('/.sorter-opfs-probe.sqlite');
+      const probe = new s3.oo1.DB('/.sorter-opfs-probe.sqlite', 'c', OPFS_SAH_POOL_VFS);
       probe.exec('SELECT 1');
       probe.close();
       sahPool = null;
@@ -104,8 +106,9 @@ async function initOpfsStorage(s3: Sqlite3Static): Promise<boolean> {
   }
 }
 
+/** True when init finished (success or fallback); safe to run RPCs and post `ready`. */
 export function isSqliteReady(): boolean {
-  return sqlite3 !== null;
+  return workerInitComplete;
 }
 
 export function failAllPending(message: string): void {
@@ -116,32 +119,51 @@ export function failAllPending(message: string): void {
 }
 
 export async function initDbWorker(): Promise<StorageMode> {
-  if (import.meta.env.VITEST) {
-    await new Promise((resolve) => setTimeout(resolve, 50));
+  if (initPromise) {
+    return initPromise;
   }
+  initPromise = runInitDbWorker();
+  return initPromise;
+}
 
+async function runInitDbWorker(): Promise<StorageMode> {
   storageHint = undefined;
+  storageMode = 'memory';
+  sahPool = null;
 
-  sqlite3 = await (sqlite3InitModule as (config?: object) => ReturnType<typeof sqlite3InitModule>)({
-    print: () => {},
-    printErr: console.error,
-    locateFile: (file: string) => (file.endsWith('.wasm') ? wasmUrl : file),
-  });
+  try {
+    if (import.meta.env.VITEST) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
 
-  if (!isOpfsSecureContext()) {
-    storageMode = 'memory';
-    storageHint =
-      'This page is not a secure context. Use https:// or http://localhost (not plain http on a LAN IP).';
-    console.warn('[db worker]', storageHint);
-  } else if (await initOpfsStorage(sqlite3)) {
-    storageMode = 'opfs';
-  } else {
+    sqlite3 = await (sqlite3InitModule as (config?: object) => ReturnType<typeof sqlite3InitModule>)({
+      print: () => {},
+      printErr: console.error,
+      locateFile: (file: string) => (file.endsWith('.wasm') ? wasmUrl : file),
+    });
+
+    if (!isOpfsSecureContext()) {
+      storageHint =
+        'This page is not a secure context. Use https:// or http://localhost (not plain http on a LAN IP).';
+      console.warn('[db worker]', storageHint);
+    } else if (await initOpfsStorage(sqlite3)) {
+      storageMode = 'opfs';
+    } else {
+      sahPool = null;
+      storageMode = 'memory';
+      console.warn('[db worker] Falling back to in-memory SQLite.', storageHint);
+    }
+  } catch (err) {
+    sqlite3 = null;
     sahPool = null;
     storageMode = 'memory';
-    console.warn('[db worker] Falling back to in-memory SQLite.', storageHint);
+    storageHint = `SQLite worker init failed: ${formatError(err)}`;
+    console.error('[db worker]', storageHint, err);
+  } finally {
+    workerInitComplete = true;
+    drainPendingRpc();
   }
 
-  drainPendingRpc();
   return storageMode;
 }
 
@@ -169,7 +191,7 @@ function dbFilename(sourceId: string): string {
 
 function openOpfsDb(filename: string): Database {
   const s3 = requireSqlite();
-  const DbClass: typeof OpfsSAHPoolDatabase | undefined = sahPool?.OpfsSAHPoolDb;
+  const DbClass = sahPool?.OpfsSAHPoolDb;
   if (DbClass) {
     return new DbClass(filename);
   }
@@ -212,14 +234,45 @@ function closeDb(sourceId: string): void {
   migratedSources.delete(sourceId);
 }
 
+async function importBytesToOpfsFile(
+  s3: Sqlite3Static,
+  filename: string,
+  bytes: Uint8Array,
+): Promise<void> {
+  if (sahPool) {
+    await sahPool.importDb(filename, bytes);
+    return;
+  }
+  const db = new s3.oo1.DB(filename, 'c', OPFS_SAH_POOL_VFS);
+  try {
+    const { wasm, capi } = s3;
+    const ptr = wasm.allocFromTypedArray(bytes);
+    const flags =
+      capi.SQLITE_DESERIALIZE_RESIZEABLE | capi.SQLITE_DESERIALIZE_FREEONCLOSE;
+    const rc = capi.sqlite3_deserialize(
+      db.pointer!,
+      'main',
+      ptr,
+      bytes.length,
+      bytes.length,
+      flags,
+    );
+    if (rc !== capi.SQLITE_OK) {
+      throw new Error(`sqlite3_deserialize failed: ${capi.sqlite3_js_rc_str(rc)}`);
+    }
+  } finally {
+    db.close();
+  }
+}
+
 async function replaceDb(sourceId: string, bytes: Uint8Array): Promise<Database> {
   closeDb(sourceId);
   const s3 = requireSqlite();
   const source = getSource(sourceId);
 
-  if (storageMode === 'opfs' && sahPool) {
+  if (storageMode === 'opfs') {
     const filename = opfsFilename(sourceId);
-    await sahPool.importDb(filename, bytes);
+    await importBytesToOpfsFile(s3, filename, bytes);
     const db = openOpfsDb(filename);
     enableForeignKeys(db);
     assertDbSchemaSupported(db, source);
@@ -333,9 +386,24 @@ async function dispatchRpc(req: RpcRequest, post: WorkerPost): Promise<void> {
   }
 }
 
+function isRpcRequest(data: unknown): data is RpcRequest {
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    'id' in data &&
+    typeof (data as RpcRequest).id === 'number' &&
+    'type' in data &&
+    typeof (data as RpcRequest).type === 'string'
+  );
+}
+
 /** Queue an RPC for serialized execution on this worker session. */
 export function queueRpc(req: RpcRequest, post: WorkerPost): void {
-  if (!sqlite3) {
+  if (!isRpcRequest(req)) {
+    console.warn('[db worker] Ignoring invalid RPC message');
+    return;
+  }
+  if (!workerInitComplete) {
     pendingRpc.push({ req, post });
     return;
   }

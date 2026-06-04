@@ -1,7 +1,6 @@
 /// <reference lib="webworker" />
 import {
   buildReadyMessage,
-  failAllPending,
   initDbWorker,
   isSqliteReady,
   queueRpc,
@@ -38,17 +37,16 @@ function attachPort(port: MessagePort): void {
   });
 }
 
-void initDbWorker()
-  .then(() => {
-    const ready = buildReadyMessage();
-    for (const port of connectedPorts) {
-      port.postMessage(ready);
-    }
-  })
-  .catch((err: unknown) => {
-    const message = err instanceof Error ? err.message : 'SQLite worker init failed';
-    failAllPending(message);
-  });
+function broadcastReady(): void {
+  const ready = buildReadyMessage();
+  for (const port of connectedPorts) {
+    port.postMessage(ready);
+  }
+}
+
+void initDbWorker().then(() => {
+  broadcastReady();
+});
 
 self.onconnect = (event: MessageEvent): void => {
   const port = event.ports[0];
