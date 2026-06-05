@@ -55,9 +55,6 @@ export function AnilistDisplayPreferencesPanel() {
           ))}
         </div>
       </div>
-      <p className="settings-popover-hint settings-anilist-display-hint">
-        Search still matches every stored title and name variant.
-      </p>
     </div>
   );
 }
