@@ -37,8 +37,11 @@ import { PathHistoryTrail } from './PathHistoryTrail';
 import { WinScreen } from './WinScreen';
 import { type PathStep } from './pathHistory';
 import {
+  loadRoundConfig,
   loadVaListImageMode,
+  saveRoundConfig,
   saveVaListImageMode,
+  type RoundConfig,
   type VaListImageMode,
 } from './preferences';
 import {
@@ -47,51 +50,15 @@ import {
   saveAnimeToAnimeTheme,
   type AnimeToAnimeTheme,
 } from './theme';
+import { AnimeFilmographyHopButton } from './AnimeFilmographyHopButton';
+import { PlayListSectionHeader } from './PlayListSectionHeader';
+import { ProductionCreditHopButton } from './ProductionCreditHopButton';
 import { VaCreditHopButton } from './VaCreditHopButton';
+import { sortVaCredits, vaCreditStaffName } from './vaCreditDisplay';
 
 type Node =
   | { kind: 'anime'; mediaId: number }
   | { kind: 'staff'; staffId: number };
-
-type RoundConfig = {
-  allowProduction: boolean;
-  allowRelations: boolean;
-  productionAllRoles: boolean;
-};
-
-const ROUND_CONFIG_KEY = 'anime-to-anime-round-config';
-const LEGACY_ROUND_CONFIG_KEY = 'link-game-round-config';
-
-function loadRoundConfig(): RoundConfig {
-  const defaults: RoundConfig = {
-    allowProduction: true,
-    allowRelations: false,
-    productionAllRoles: false,
-  };
-  try {
-    const raw =
-      localStorage.getItem(ROUND_CONFIG_KEY) ?? localStorage.getItem(LEGACY_ROUND_CONFIG_KEY);
-    if (!raw) {
-      return defaults;
-    }
-    const parsed = JSON.parse(raw) as Partial<RoundConfig>;
-    return {
-      allowProduction: parsed.allowProduction !== false,
-      allowRelations: parsed.allowRelations === true,
-      productionAllRoles: parsed.productionAllRoles === true,
-    };
-  } catch {
-    return defaults;
-  }
-}
-
-function saveRoundConfig(config: RoundConfig): void {
-  try {
-    localStorage.setItem(ROUND_CONFIG_KEY, JSON.stringify(config));
-  } catch {
-    /* ignore */
-  }
-}
 
 function animePathStep(media: MediaRow): PathStep {
   return {
@@ -123,7 +90,8 @@ export function AnimeToAnimeApp() {
   const [startMedia, setStartMedia] = useState<MediaRow | null>(null);
   const [goalMedia, setGoalMedia] = useState<MediaRow | null>(null);
   const [roundConfig, setRoundConfig] = useState<RoundConfig>(loadRoundConfig);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
+  /** Snapshotted from persisted settings when a round begins (play / play again). */
+  const [activeRoundConfig, setActiveRoundConfig] = useState<RoundConfig | null>(null);
   const [phase, setPhase] = useState<'setup' | 'play' | 'won'>('setup');
   const [current, setCurrent] = useState<Node | null>(null);
   const [animeHops, setAnimeHops] = useState(0);
@@ -131,6 +99,8 @@ export function AnimeToAnimeApp() {
   const [filter, setFilter] = useState('');
   const [loading, setLoading] = useState(false);
   const [apiWait, setApiWait] = useState<AnilistWaitState | null>(null);
+  const [listRefreshEpoch, setListRefreshEpoch] = useState(0);
+  const forceListRefreshRef = useRef(false);
 
   const [vaCredits, setVaCredits] = useState<VaCreditRow[]>([]);
   const [productionCredits, setProductionCredits] = useState<ProductionCreditRow[]>([]);
@@ -142,12 +112,6 @@ export function AnimeToAnimeApp() {
   useEffect(() => {
     applyAnimeToAnimeTheme(theme);
   }, [theme]);
-
-  useEffect(() => {
-    if (phase === 'setup') {
-      setAdvancedOpen(false);
-    }
-  }, [phase]);
 
   useEffect(() => {
     return subscribeToWaitState((state) => {
@@ -226,6 +190,12 @@ export function AnimeToAnimeApp() {
     setPathHistory([animePathStep(start)]);
   }, []);
 
+  const snapshotRoundConfig = useCallback((): RoundConfig => {
+    const config = loadRoundConfig();
+    setActiveRoundConfig(config);
+    return config;
+  }, []);
+
   const beginRound = useCallback(() => {
     if (!startMedia || !goalMedia) {
       setError('Pick start and goal first.');
@@ -236,9 +206,10 @@ export function AnimeToAnimeApp() {
       return;
     }
     setError(null);
+    snapshotRoundConfig();
     setPhase('play');
     resetPlayState(startMedia);
-  }, [startMedia, goalMedia, resetPlayState]);
+  }, [startMedia, goalMedia, resetPlayState, snapshotRoundConfig]);
 
   const swapStartGoal = useCallback(() => {
     if (!startMedia || !goalMedia) {
@@ -260,22 +231,32 @@ export function AnimeToAnimeApp() {
       return;
     }
     setError(null);
+    snapshotRoundConfig();
     setPhase('play');
     resetPlayState(startMedia);
-  }, [startMedia, goalMedia, resetPlayState]);
+  }, [startMedia, goalMedia, resetPlayState, snapshotRoundConfig]);
 
   const goToSetup = useCallback(() => {
     setPhase('setup');
+    setActiveRoundConfig(null);
     setCurrent(null);
     setPathHistory([]);
     setAnimeHops(0);
     setFilter('');
   }, []);
 
+  const onRefreshPlayList = useCallback(() => {
+    forceListRefreshRef.current = true;
+    setListRefreshEpoch((epoch) => epoch + 1);
+  }, []);
+
   useEffect(() => {
-    if (phase !== 'play' || !current) {
+    if (phase !== 'play' || !current || !activeRoundConfig) {
       return;
     }
+    const rules = activeRoundConfig;
+    const forceRefresh = forceListRefreshRef.current;
+    forceListRefreshRef.current = false;
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -283,20 +264,20 @@ export function AnimeToAnimeApp() {
       const ctx = importCtx.current;
       try {
         if (current.kind === 'anime') {
-          await ensureMediaCastExpanded(ctx, current.mediaId);
-          if (roundConfig.allowRelations) {
+          await ensureMediaCastExpanded(ctx, current.mediaId, { force: forceRefresh });
+          if (rules.allowRelations) {
             await ensureMediaRelations(ctx, current.mediaId);
           }
           const mediaRows = await productionReads.getMediaByIds([current.mediaId]);
           const va = await getVaCreditsAtMedia(ctx.db, current.mediaId);
-          const prod = roundConfig.allowProduction
+          const prod = rules.allowProduction
             ? await getProductionCreditsAtMedia(
                 ctx.db,
                 current.mediaId,
-                roundConfig.productionAllRoles ? 'all' : 'key',
+                rules.productionAllRoles ? 'all' : 'key',
               )
             : [];
-          const rel = roundConfig.allowRelations
+          const rel = rules.allowRelations
             ? await getMediaRelations(ctx.db, current.mediaId)
             : [];
           if (cancelled) return;
@@ -307,14 +288,14 @@ export function AnimeToAnimeApp() {
           setFilmography([]);
           setStaffHeader(null);
         } else {
-          await ensureStaffFilmography(ctx, current.staffId);
+          await ensureStaffFilmography(ctx, current.staffId, { force: forceRefresh });
           const staffRows = await ctx.db.exec('SELECT * FROM staff WHERE id = ?', [
             current.staffId,
           ]);
           const film = await getAnimeFilmographyForStaff(
             ctx.db,
             current.staffId,
-            roundConfig.productionAllRoles ? 'all' : 'key',
+            rules.productionAllRoles ? 'all' : 'key',
           );
           if (cancelled) return;
           setStaffHeader(
@@ -355,22 +336,24 @@ export function AnimeToAnimeApp() {
     return () => {
       cancelled = true;
     };
-  }, [
-    current,
-    phase,
-    roundConfig.allowProduction,
-    roundConfig.allowRelations,
-    roundConfig.productionAllRoles,
-  ]);
+  }, [activeRoundConfig, current, listRefreshEpoch, phase]);
 
   const filterLower = filter.trim().toLowerCase();
 
   const filteredVa = useMemo(() => {
-    if (!filterLower) return vaCredits;
-    return vaCredits.filter((row) => {
-      const va = row.staff.name_full ?? row.staff.name_native ?? '';
+    const sorted = sortVaCredits(vaCredits);
+    if (!filterLower) {
+      return sorted;
+    }
+    return sorted.filter((row) => {
+      const va = vaCreditStaffName(row);
       const ch = row.character.name_full ?? row.character.name_native ?? '';
-      return va.toLowerCase().includes(filterLower) || ch.toLowerCase().includes(filterLower);
+      const role = row.characterRole ?? '';
+      return (
+        va.toLowerCase().includes(filterLower) ||
+        ch.toLowerCase().includes(filterLower) ||
+        role.toLowerCase().includes(filterLower)
+      );
     });
   }, [vaCredits, filterLower]);
 
@@ -436,8 +419,10 @@ export function AnimeToAnimeApp() {
       <AnimeToAnimeHeader
         theme={theme}
         vaListImageMode={vaListImageMode}
+        roundConfig={roundConfig}
         onToggleTheme={onToggleTheme}
         onVaListImageModeChange={onVaListImageModeChange}
+        onRoundConfigChange={onRoundConfigChange}
       />
 
       {ready && storageMode === 'memory' && (
@@ -494,57 +479,6 @@ export function AnimeToAnimeApp() {
             onRandomGoal={() => void randomizeEndpoint('goal')}
             onSwap={swapStartGoal}
           />
-
-          <section className="page-section anime-to-anime-advanced">
-            {!advancedOpen ? (
-              <button
-                type="button"
-                className="link-btn"
-                onClick={() => setAdvancedOpen(true)}
-              >
-                Advanced
-              </button>
-            ) : (
-              <>
-                <div className="edit-item-advanced-header">
-                  <span className="edit-item-advanced-title">Advanced</span>
-                  <button
-                    type="button"
-                    className="link-btn"
-                    onClick={() => setAdvancedOpen(false)}
-                  >
-                    Hide
-                  </button>
-                </div>
-                <label className="settings-item checkbox">
-                  <input
-                    type="checkbox"
-                    checked={roundConfig.allowProduction}
-                    onChange={(e) => onRoundConfigChange({ allowProduction: e.target.checked })}
-                  />
-                  Production credits
-                </label>
-                <label className="settings-item checkbox">
-                  <input
-                    type="checkbox"
-                    checked={roundConfig.productionAllRoles}
-                    onChange={(e) =>
-                      onRoundConfigChange({ productionAllRoles: e.target.checked })
-                    }
-                  />
-                  All production roles
-                </label>
-                <label className="settings-item checkbox">
-                  <input
-                    type="checkbox"
-                    checked={roundConfig.allowRelations}
-                    onChange={(e) => onRoundConfigChange({ allowRelations: e.target.checked })}
-                  />
-                  Franchise relations mode
-                </label>
-              </>
-            )}
-          </section>
 
           <div className="anime-to-anime-primary-action">
             <button type="button" className="btn primary" onClick={beginRound}>
@@ -607,9 +541,9 @@ export function AnimeToAnimeApp() {
               {loading && <p className="settings-status">Loading…</p>}
 
               {current?.kind === 'anime' && currentMedia && (
-                <section className="page-section">
+                <section className="anime-to-anime-play-panel">
                   <h2 className="anime-to-anime-current-title">{pickMediaTitle(currentMedia)}</h2>
-                  {roundConfig.allowRelations && (
+                  {activeRoundConfig?.allowRelations && (
                     <>
                       <h3 className="anime-to-anime-subheading">Related anime</h3>
                       <ul className="anilist-detail-cast-list">
@@ -628,12 +562,17 @@ export function AnimeToAnimeApp() {
                       </ul>
                     </>
                   )}
-                  <h3 className="anime-to-anime-subheading">Voice actors</h3>
-                  <ul className="anilist-detail-cast-list">
+                  <PlayListSectionHeader
+                    title="Voice actors"
+                    onRefresh={onRefreshPlayList}
+                    refreshing={loading}
+                    refreshLabel="Refresh cast from AniList"
+                  />
+                  <ul className="anime-to-anime-hop-list">
                     {filteredVa.map((row) => (
                       <li
                         key={`${row.staff.id}-${row.character.id}`}
-                        className="anilist-detail-cast-item anime-to-anime-va-item"
+                        className="anime-to-anime-hop-list-item"
                       >
                         <VaCreditHopButton
                           row={row}
@@ -643,22 +582,21 @@ export function AnimeToAnimeApp() {
                       </li>
                     ))}
                   </ul>
-                  {roundConfig.allowProduction && (
+                  {activeRoundConfig?.allowProduction && (
                     <>
-                      <h3 className="anime-to-anime-subheading">Production</h3>
-                      <ul className="anilist-detail-cast-list">
+                      <h3 className="anime-to-anime-subheading anime-to-anime-list-header-title">
+                        Production
+                      </h3>
+                      <ul className="anime-to-anime-hop-list">
                         {filteredProd.map((row) => (
                           <li
                             key={`${row.staff.id}-${row.role}`}
-                            className="anilist-detail-cast-item"
+                            className="anime-to-anime-hop-list-item"
                           >
-                            <button
-                              type="button"
-                              className="btn link anime-to-anime-hop-btn"
-                              onClick={() => onHopToStaff(row.staff)}
-                            >
-                              {row.staff.name_full ?? row.staff.name_native} — {row.role}
-                            </button>
+                            <ProductionCreditHopButton
+                              row={row}
+                              onHop={() => onHopToStaff(row.staff)}
+                            />
                           </li>
                         ))}
                       </ul>
@@ -668,25 +606,26 @@ export function AnimeToAnimeApp() {
               )}
 
               {current?.kind === 'staff' && staffHeader && (
-                <section className="page-section">
+                <section className="anime-to-anime-play-panel">
                   <h2 className="anime-to-anime-current-title">
                     {staffHeader.name_full ?? staffHeader.name_native}
                   </h2>
-                  <h3 className="anime-to-anime-subheading">Filmography (anime)</h3>
-                  <ul className="anilist-detail-cast-list">
+                  <PlayListSectionHeader
+                    title="Anime roles"
+                    onRefresh={onRefreshPlayList}
+                    refreshing={loading}
+                    refreshLabel="Refresh filmography from AniList"
+                  />
+                  <ul className="anime-to-anime-hop-list">
                     {filteredFilmography.map((row) => (
                       <li
-                        key={`${row.media.id}-${row.role}`}
-                        className="anilist-detail-cast-item"
+                        key={`${row.media.id}-${row.creditKind}-${row.role}`}
+                        className="anime-to-anime-hop-list-item"
                       >
-                        <button
-                          type="button"
-                          className="btn link anime-to-anime-hop-btn"
-                          onClick={() => onHopToAnime(row.media)}
-                        >
-                          {pickMediaTitle(row.media)}
-                          <span className="anime-to-anime-hop-meta">{row.role}</span>
-                        </button>
+                        <AnimeFilmographyHopButton
+                          row={row}
+                          onHop={() => onHopToAnime(row.media)}
+                        />
                       </li>
                     ))}
                   </ul>

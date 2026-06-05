@@ -11,7 +11,7 @@ interface Props {
   onSetup: () => void;
 }
 
-function buildShareText(
+function buildSummaryCopyText(
   startMedia: MediaRow,
   goalMedia: MediaRow,
   animeHops: number,
@@ -32,18 +32,15 @@ export function WinScreen({
   onPlayAgain,
   onSetup,
 }: Props) {
-  const shareText = buildShareText(startMedia, goalMedia, animeHops, pathHistory);
+  const summaryText = buildSummaryCopyText(
+    startMedia,
+    goalMedia,
+    animeHops,
+    pathHistory,
+  );
 
-  const onShare = async () => {
-    if (navigator.share) {
-      try {
-        await navigator.share({ text: shareText });
-        return;
-      } catch {
-        /* user cancelled or share failed — fall through to copy */
-      }
-    }
-    await navigator.clipboard.writeText(shareText);
+  const onCopySummary = () => {
+    void navigator.clipboard.writeText(summaryText);
   };
 
   return (
@@ -61,13 +58,13 @@ export function WinScreen({
         <p className="anime-to-anime-win-path">{formatPathSummary(pathHistory)}</p>
       )}
       <div className="anime-to-anime-actions anime-to-anime-win-actions">
-        <button type="button" className="btn primary" onClick={() => void onShare()}>
-          {typeof navigator.share === 'function' ? 'Share summary' : 'Copy summary'}
+        <button type="button" className="btn primary" onClick={onCopySummary}>
+          Copy summary
         </button>
         <button type="button" className="btn" onClick={onPlayAgain}>
           Play again
         </button>
-        <button type="button" className="btn small" onClick={onSetup}>
+        <button type="button" className="btn" onClick={onSetup}>
           Setup
         </button>
       </div>

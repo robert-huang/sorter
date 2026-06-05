@@ -3,6 +3,7 @@
  */
 
 import type { AnilistDbExecutor, SqlBindable } from './context';
+import { compareMediaByReleaseDateDesc } from './mediaSort';
 import { filterProductionStaffRows } from './staffRoleFilter';
 import type { CharacterRow, MediaRow, StaffRow } from './types';
 
@@ -114,18 +115,46 @@ function rowToCharacterRowPrefixed(r: Record<string, unknown>): CharacterRow {
 export type VaCreditRow = {
   staff: StaffRow;
   character: CharacterRow;
+  /** MAIN | SUPPORTING | BACKGROUND from `media_character.role`. */
   characterRole: string | null;
+  /** AniList cast edge order (`ROLE`, `RELEVANCE`, `ID`) cached at import. */
+  characterSortOrder: number;
 };
+
+/** SQL `ORDER BY` for voice credits — role bucket, then AniList edge order. */
+export const VA_CREDITS_ORDER_BY = `
+  CASE mc.role
+    WHEN 'MAIN' THEN 0
+    WHEN 'SUPPORTING' THEN 1
+    WHEN 'BACKGROUND' THEN 2
+    ELSE 3
+  END,
+  mc.sort_order ASC,
+  st.name_full COLLATE NOCASE ASC,
+  c.id ASC
+`;
 
 export type ProductionCreditRow = {
   staff: StaffRow;
   role: string;
 };
 
+export type AnimeFilmographyCreditKind = 'voice' | 'production';
+
 export type AnimeFilmographyRow = {
   media: MediaRow;
   role: string;
+  creditKind: AnimeFilmographyCreditKind;
 };
+
+function sortFilmographyByReleaseDate(
+  rows: Omit<AnimeFilmographyRow, 'creditKind'>[],
+  creditKind: AnimeFilmographyCreditKind,
+): AnimeFilmographyRow[] {
+  return [...rows]
+    .sort((a, b) => compareMediaByReleaseDateDesc(a.media, b.media))
+    .map((row) => ({ ...row, creditKind }));
+}
 
 export type MediaRelationRow = {
   media: MediaRow;
@@ -167,14 +196,15 @@ export async function getVaCreditsAtMedia(
         c.favourites AS ch_favourites,
         c.fetched_at AS ch_fetched_at,
         c.updated_at AS ch_updated_at,
-        mc.role AS character_role
+        mc.role AS character_role,
+        mc.sort_order AS character_sort_order
       FROM character_voice_actor cva
       JOIN staff st ON st.id = cva.staff_id
       JOIN character c ON c.id = cva.character_id
       JOIN media_character mc
         ON mc.media_id = cva.media_id AND mc.character_id = cva.character_id
       WHERE cva.media_id = ?${langFilter}
-      ORDER BY st.name_full COLLATE NOCASE ASC, c.name_full COLLATE NOCASE ASC
+      ORDER BY ${VA_CREDITS_ORDER_BY}
     `,
     params,
   );
@@ -182,6 +212,7 @@ export async function getVaCreditsAtMedia(
     staff: rowToStaffRowPrefixed(r),
     character: rowToCharacterRowPrefixed(r),
     characterRole: s(r.character_role),
+    characterSortOrder: Number(r.character_sort_order ?? 0),
   }));
 }
 
@@ -207,10 +238,51 @@ export async function getProductionCreditsAtMedia(
   return filterProductionStaffRows(mapped, roleMode);
 }
 
-export async function getAnimeFilmographyForStaff(
+function formatVoiceFilmographyRole(
+  characterName: string | null,
+  characterRole: string | null,
+): string {
+  const name = characterName?.trim() || 'Character';
+  if (characterRole) {
+    return `as ${name} (${characterRole})`;
+  }
+  return `as ${name}`;
+}
+
+async function getVoiceAnimeFilmographyForStaff(
   db: AnilistDbExecutor,
   staffId: number,
-  roleMode: 'key' | 'all' = 'key',
+): Promise<AnimeFilmographyRow[]> {
+  const rows = await db.exec(
+    `
+      SELECT
+        m.*,
+        c.name_full AS ch_name_full,
+        c.name_native AS ch_name_native,
+        mc.role AS character_role,
+        mc.sort_order AS character_sort_order
+      FROM character_voice_actor cva
+      JOIN media m ON m.id = cva.media_id AND m.type = 'ANIME'
+      JOIN character c ON c.id = cva.character_id
+      LEFT JOIN media_character mc
+        ON mc.media_id = cva.media_id AND mc.character_id = cva.character_id
+      WHERE cva.staff_id = ?
+    `,
+    [staffId],
+  );
+  return rows.map((r) => {
+    const characterName = s(r.ch_name_full) ?? s(r.ch_name_native);
+    return {
+      media: rowToMediaRow(r),
+      role: formatVoiceFilmographyRole(characterName, s(r.character_role)),
+    };
+  });
+}
+
+async function getProductionAnimeFilmographyForStaff(
+  db: AnilistDbExecutor,
+  staffId: number,
+  roleMode: 'key' | 'all',
 ): Promise<AnimeFilmographyRow[]> {
   const rows = await db.exec(
     `
@@ -218,7 +290,6 @@ export async function getAnimeFilmographyForStaff(
       FROM media_staff ms
       JOIN media m ON m.id = ms.media_id
       WHERE ms.staff_id = ? AND m.type = 'ANIME'
-      ORDER BY m.title_romaji COLLATE NOCASE ASC
     `,
     [staffId],
   );
@@ -226,10 +297,32 @@ export async function getAnimeFilmographyForStaff(
     media: rowToMediaRow(r),
     role: reqS(r.role),
   }));
-  if (roleMode === 'all') {
-    return mapped;
+  return filterProductionStaffRows(mapped, roleMode);
+}
+
+/**
+ * Staff anime credits — character (VA) roles first, then production/staff roles,
+ * each block sorted by show start date descending (AniList default). Pure
+ * production staff have no CVA rows; VAs can list the same show twice (acted + sang).
+ */
+export async function getAnimeFilmographyForStaff(
+  db: AnilistDbExecutor,
+  staffId: number,
+  roleMode: 'key' | 'all' = 'key',
+): Promise<AnimeFilmographyRow[]> {
+  const voice = sortFilmographyByReleaseDate(
+    await getVoiceAnimeFilmographyForStaff(db, staffId),
+    'voice',
+  );
+  const production = sortFilmographyByReleaseDate(
+    await getProductionAnimeFilmographyForStaff(db, staffId, roleMode),
+    'production',
+  );
+
+  if (voice.length === 0) {
+    return production;
   }
-  return filterProductionStaffRows(mapped, 'key');
+  return [...voice, ...production];
 }
 
 export async function searchAnimeInCache(

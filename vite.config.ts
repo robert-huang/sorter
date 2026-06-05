@@ -2,11 +2,24 @@ import { resolve } from 'node:path';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+/** Required for OPFS sync access handles (sqlite-wasm SAH pool). */
+const crossOriginIsolationHeaders = {
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  // credentialless: cross-origin isolation without breaking CDN images (AniList covers).
+  'Cross-Origin-Embedder-Policy': 'credentialless',
+};
+
 // base: './' so the built dist/ works both when served over http(s)://
 // and when opened directly as a file:// URL (double-click index.html).
 export default defineConfig({
   plugins: [react()],
   base: './',
+  server: {
+    headers: crossOriginIsolationHeaders,
+  },
+  preview: {
+    headers: crossOriginIsolationHeaders,
+  },
   optimizeDeps: {
     exclude: ['@sqlite.org/sqlite-wasm'],
   },

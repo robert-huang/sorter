@@ -8,6 +8,7 @@ import {
   describeAnimeRandomPickFailure,
   getAnimeCacheStats,
   getMediaRelations,
+  getAnimeFilmographyForStaff,
   getVaCreditsAtMedia,
   hasAnimeRandomFilters,
   pickRandomAnimeFromCache,
@@ -50,11 +51,16 @@ function makeDbAdapter(db: Database): AnilistDbExecutor {
   };
 }
 
-function seedMedia(db: Database, id: number, type: 'ANIME' | 'MANGA'): void {
+function seedMedia(
+  db: Database,
+  id: number,
+  type: 'ANIME' | 'MANGA',
+  startYear: number | null = null,
+): void {
   db.exec(
-    `INSERT INTO media (id, type, title_english, fetched_at, updated_at)
-       VALUES (?, ?, ?, ?, ?)`,
-    { bind: [id, type, `title-${id}`, NOW, NOW] },
+    `INSERT INTO media (id, type, title_english, start_year, fetched_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    { bind: [id, type, `title-${id}`, startYear, NOW, NOW] },
   );
 }
 
@@ -161,6 +167,128 @@ describe('graphQueries cache pick', () => {
     expect(rows[0].character.name_full).toBe('Hero Character');
     expect(rows[0].character.image).toBe('https://example.com/char.jpg');
     expect(rows[0].characterRole).toBe('MAIN');
+    expect(rows[0].characterSortOrder).toBe(0);
+  });
+
+  it('getAnimeFilmographyForStaff returns voice roles from CVA, not only staff credits', async () => {
+    seedMedia(sqlite, 100, 'ANIME', 2020);
+    seedMedia(sqlite, 101, 'ANIME', 2010);
+    seedStaff(sqlite, 1, 'Voice Actor');
+    seedCharacter(sqlite, 10, 'Hero');
+    sqlite.exec(
+      `INSERT INTO media_character (media_id, character_id, role, sort_order)
+         VALUES (?, ?, ?, ?)`,
+      { bind: [100, 10, 'MAIN', 0] },
+    );
+    sqlite.exec(
+      `INSERT INTO character_voice_actor (media_id, character_id, staff_id, language)
+         VALUES (?, ?, ?, ?)`,
+      { bind: [100, 10, 1, 'JAPANESE'] },
+    );
+    sqlite.exec(
+      `INSERT INTO media_staff (media_id, staff_id, role, sort_order)
+         VALUES (?, ?, ?, ?)`,
+      { bind: [101, 1, 'Theme Song Performance', 0] },
+    );
+
+    const rows = await getAnimeFilmographyForStaff(adapter, 1, 'key');
+    expect(rows).toHaveLength(2);
+    expect(rows[0].creditKind).toBe('voice');
+    expect(rows[0].media.id).toBe(100);
+    expect(rows[0].role).toBe('as Hero (MAIN)');
+    expect(rows[1].creditKind).toBe('production');
+    expect(rows[1].media.id).toBe(101);
+    expect(rows[1].role).toBe('Theme Song Performance');
+  });
+
+  it('getAnimeFilmographyForStaff sorts voice roles by release date descending', async () => {
+    seedMedia(sqlite, 100, 'ANIME', 2010);
+    seedMedia(sqlite, 101, 'ANIME', 2020);
+    seedStaff(sqlite, 1, 'Voice Actor');
+    seedCharacter(sqlite, 10, 'Old Hero');
+    seedCharacter(sqlite, 11, 'New Hero');
+    sqlite.exec(
+      `INSERT INTO media_character (media_id, character_id, role, sort_order)
+         VALUES (?, ?, ?, ?), (?, ?, ?, ?)`,
+      { bind: [100, 10, 'MAIN', 0, 101, 11, 'MAIN', 0] },
+    );
+    sqlite.exec(
+      `INSERT INTO character_voice_actor (media_id, character_id, staff_id, language)
+         VALUES (?, ?, ?, ?), (?, ?, ?, ?)`,
+      { bind: [100, 10, 1, 'JAPANESE', 101, 11, 1, 'JAPANESE'] },
+    );
+
+    const rows = await getAnimeFilmographyForStaff(adapter, 1, 'key');
+    expect(rows.map((row) => row.media.id)).toEqual([101, 100]);
+    expect(rows.every((row) => row.creditKind === 'voice')).toBe(true);
+  });
+
+  it('getAnimeFilmographyForStaff lists voice roles then production on the same show', async () => {
+    seedMedia(sqlite, 100, 'ANIME', 2020);
+    seedStaff(sqlite, 1, 'Voice Actor');
+    seedCharacter(sqlite, 10, 'Hero');
+    sqlite.exec(
+      `INSERT INTO media_character (media_id, character_id, role, sort_order)
+         VALUES (?, ?, ?, ?)`,
+      { bind: [100, 10, 'MAIN', 0] },
+    );
+    sqlite.exec(
+      `INSERT INTO character_voice_actor (media_id, character_id, staff_id, language)
+         VALUES (?, ?, ?, ?)`,
+      { bind: [100, 10, 1, 'JAPANESE'] },
+    );
+    sqlite.exec(
+      `INSERT INTO media_staff (media_id, staff_id, role, sort_order)
+         VALUES (?, ?, ?, ?)`,
+      { bind: [100, 1, 'Theme Song Performance', 0] },
+    );
+
+    const rows = await getAnimeFilmographyForStaff(adapter, 1, 'all');
+    expect(rows).toHaveLength(2);
+    expect(rows[0].creditKind).toBe('voice');
+    expect(rows[0].role).toBe('as Hero (MAIN)');
+    expect(rows[1].creditKind).toBe('production');
+    expect(rows[1].role).toBe('Theme Song Performance');
+    expect(rows[0].media.id).toBe(100);
+    expect(rows[1].media.id).toBe(100);
+  });
+
+  it('getAnimeFilmographyForStaff returns production-only credits for non-VA staff', async () => {
+    seedMedia(sqlite, 100, 'ANIME', 2015);
+    seedStaff(sqlite, 1, 'Director');
+    sqlite.exec(
+      `INSERT INTO media_staff (media_id, staff_id, role, sort_order)
+         VALUES (?, ?, ?, ?)`,
+      { bind: [100, 1, 'Director', 0] },
+    );
+
+    const rows = await getAnimeFilmographyForStaff(adapter, 1, 'key');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].creditKind).toBe('production');
+    expect(rows[0].role).toBe('Director');
+  });
+
+  it('getVaCreditsAtMedia sorts by role then AniList sort_order', async () => {
+    seedMedia(sqlite, 100, 'ANIME');
+    seedStaff(sqlite, 1, 'Zeta VA', null);
+    seedStaff(sqlite, 2, 'Alpha VA', null);
+    seedCharacter(sqlite, 10, 'Main Char', null);
+    seedCharacter(sqlite, 11, 'Supporting Char', null);
+    sqlite.exec(
+      `INSERT INTO media_character (media_id, character_id, role, sort_order)
+         VALUES (?, ?, ?, ?), (?, ?, ?, ?)`,
+      { bind: [100, 10, 'MAIN', 1, 100, 11, 'SUPPORTING', 0] },
+    );
+    sqlite.exec(
+      `INSERT INTO character_voice_actor (media_id, character_id, staff_id, language)
+         VALUES (?, ?, ?, ?), (?, ?, ?, ?)`,
+      { bind: [100, 10, 1, 'JAPANESE', 100, 11, 2, 'JAPANESE'] },
+    );
+
+    const rows = await getVaCreditsAtMedia(adapter, 100);
+    expect(rows.map((r) => r.characterRole)).toEqual(['MAIN', 'SUPPORTING']);
+    expect(rows[0].staff.name_full).toBe('Zeta VA');
+    expect(rows[1].staff.name_full).toBe('Alpha VA');
   });
 
   it('getMediaRelations returns franchise edges for a media id', async () => {

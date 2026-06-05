@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "start": "npm run build && npx --yes serve dist -p 3000",
+    "start": "npm run build && npx --yes serve dist -p 3000 --config serve.json",
     "test": "vitest run",
     "test:watch": "vitest"
   },

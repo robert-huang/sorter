@@ -1,19 +1,23 @@
 import { AnimeToAnimeSettingsMenu } from './AnimeToAnimeSettingsMenu';
-import type { VaListImageMode } from './preferences';
+import type { RoundConfig, VaListImageMode } from './preferences';
 import type { AnimeToAnimeTheme } from './theme';
 
 interface Props {
   theme: AnimeToAnimeTheme;
   vaListImageMode: VaListImageMode;
+  roundConfig: RoundConfig;
   onToggleTheme: () => void;
   onVaListImageModeChange: (mode: VaListImageMode) => void;
+  onRoundConfigChange: (patch: Partial<RoundConfig>) => void;
 }
 
 export function AnimeToAnimeHeader({
   theme,
   vaListImageMode,
+  roundConfig,
   onToggleTheme,
   onVaListImageModeChange,
+  onRoundConfigChange,
 }: Props) {
   const themeBtnTitle =
     theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
@@ -36,6 +40,8 @@ export function AnimeToAnimeHeader({
         <AnimeToAnimeSettingsMenu
           vaListImageMode={vaListImageMode}
           onVaListImageModeChange={onVaListImageModeChange}
+          roundConfig={roundConfig}
+          onRoundConfigChange={onRoundConfigChange}
         />
       </div>
     </header>

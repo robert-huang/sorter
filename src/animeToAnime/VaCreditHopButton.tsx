@@ -19,7 +19,7 @@ export function VaCreditHopButton({ row, vaListImageMode, onHop }: Props) {
   return (
     <button type="button" className="anime-to-anime-hop-btn" onClick={onHop}>
       {image && (
-        <img className="anilist-detail-cast-image" src={image} alt="" loading="lazy" />
+        <img className="anime-to-anime-hop-image" src={image} alt="" loading="lazy" />
       )}
       <span className="anilist-detail-cast-text">
         <strong>{vaCreditStaffName(row)}</strong>

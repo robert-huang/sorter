@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { AnilistImportContext } from '../lib/importers/anilist/context';
 import type { MediaRow } from '../lib/importers/anilist/types';
 import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
@@ -16,6 +17,48 @@ interface Props {
   onRandomStart: () => void;
   onRandomGoal: () => void;
   onSwap: () => void;
+}
+
+function EndpointsSwapBridge({
+  swapDisabled,
+  onSwap,
+  interactive,
+}: {
+  swapDisabled: boolean;
+  onSwap: () => void;
+  interactive: boolean;
+}) {
+  const [flipped, setFlipped] = useState(false);
+
+  if (!interactive) {
+    return (
+      <div className="anime-to-anime-endpoints-bridge">
+        <span className="anime-to-anime-endpoints-arrow" aria-hidden="true">
+          →
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="anime-to-anime-endpoints-bridge">
+      <button
+        type="button"
+        className={`anime-to-anime-swap-btn${flipped ? ' anime-to-anime-swap-btn--flipped' : ''}`}
+        onClick={() => {
+          onSwap();
+          setFlipped((prev) => !prev);
+        }}
+        disabled={swapDisabled}
+        title="Swap start and goal"
+        aria-label="Swap start and goal"
+      >
+        <span className="anime-to-anime-endpoints-arrow" aria-hidden="true">
+          →
+        </span>
+      </button>
+    </div>
+  );
 }
 
 function PlayEndpointCard({ label, media }: { label: string; media: MediaRow | null }) {
@@ -59,20 +102,11 @@ export function RoundEndpointsRow({
               onRandomFromCache={onRandomStart}
               onError={onEndpointError}
             />
-            <div className="anime-to-anime-endpoints-bridge">
-              <span className="anime-to-anime-endpoints-arrow" aria-hidden="true">
-                →
-              </span>
-              <button
-                type="button"
-                className="btn small"
-                onClick={onSwap}
-                disabled={swapDisabled}
-                title="Swap start and goal"
-              >
-                Swap
-              </button>
-            </div>
+            <EndpointsSwapBridge
+              swapDisabled={swapDisabled}
+              onSwap={onSwap}
+              interactive
+            />
             <EndpointPicker
               label="Goal"
               media={goalMedia}
@@ -85,22 +119,11 @@ export function RoundEndpointsRow({
         ) : (
           <>
             <PlayEndpointCard label="Start" media={startMedia} />
-            <div className="anime-to-anime-endpoints-bridge">
-              <span className="anime-to-anime-endpoints-arrow" aria-hidden="true">
-                →
-              </span>
-              {phase === 'play' && (
-                <button
-                  type="button"
-                  className="btn small"
-                  onClick={onSwap}
-                  disabled={swapDisabled}
-                  title="Swap start and goal"
-                >
-                  Swap
-                </button>
-              )}
-            </div>
+            <EndpointsSwapBridge
+              swapDisabled={swapDisabled}
+              onSwap={onSwap}
+              interactive={phase === 'play'}
+            />
             <PlayEndpointCard label="Goal" media={goalMedia} />
           </>
         )}

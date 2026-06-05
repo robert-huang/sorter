@@ -8,7 +8,6 @@ import sqlite3InitModule, {
   type SAHPoolUtil,
   type Sqlite3Static,
 } from '@sqlite.org/sqlite-wasm';
-import wasmUrl from '@sqlite.org/sqlite-wasm/sqlite3.wasm?url';
 import { ensureAnilistSourceRegistered } from '../importers/anilist/anilistSource';
 import { execWithBinds } from './dbExec';
 import { openDbFromBytes, serializeDb } from './dbBytes';
@@ -18,8 +17,9 @@ import {
   migrate,
 } from './migration-runner';
 import { pullMerge, peekRemoteSchemaVersion } from './merge';
-import { isOpfsSecureContext } from './opfs';
+import { canUseOpfsSahPool, describeOpfsBlockedReason } from './opfs';
 import type { StorageMode } from './opfs';
+import { locateSqliteFile } from './sqliteLocateFile';
 import type { DbRow, RpcReply, RpcRequest, WorkerReadyMessage } from './rpc';
 import { getSource } from './source-registry';
 import { ensureTestSourceRegistered } from './testSource';
@@ -78,6 +78,12 @@ function formatError(err: unknown): string {
 }
 
 async function initOpfsStorage(s3: Sqlite3Static): Promise<boolean> {
+  if (!canUseOpfsSahPool()) {
+    storageHint = describeOpfsBlockedReason();
+    console.warn('[db worker]', storageHint);
+    return false;
+  }
+
   try {
     sahPool = await s3.installOpfsSAHPoolVfs({
       name: OPFS_SAH_POOL_VFS,
@@ -139,14 +145,10 @@ async function runInitDbWorker(): Promise<StorageMode> {
     sqlite3 = await (sqlite3InitModule as (config?: object) => ReturnType<typeof sqlite3InitModule>)({
       print: () => {},
       printErr: console.error,
-      locateFile: (file: string) => (file.endsWith('.wasm') ? wasmUrl : file),
+      locateFile: locateSqliteFile,
     });
 
-    if (!isOpfsSecureContext()) {
-      storageHint =
-        'This page is not a secure context. Use https:// or http://localhost (not plain http on a LAN IP).';
-      console.warn('[db worker]', storageHint);
-    } else if (await initOpfsStorage(sqlite3)) {
+    if (await initOpfsStorage(sqlite3)) {
       storageMode = 'opfs';
     } else {
       sahPool = null;
