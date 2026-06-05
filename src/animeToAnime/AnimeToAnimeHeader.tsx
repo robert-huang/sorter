@@ -1,3 +1,5 @@
+import { AppNavFab } from '../components/AppNavFab';
+import { SORTER_HOME_HREF } from '../lib/appRoutes';
 import { AnimeToAnimeSettingsMenu } from './AnimeToAnimeSettingsMenu';
 import type { SourceDbSyncControls } from '../hooks/useSourceDbSync';
 import type { RoundConfig, VaListImageMode } from './preferences';
@@ -32,7 +34,9 @@ export function AnimeToAnimeHeader({
 
   return (
     <header className="anime-to-anime-header header-toolbar">
-      <div className="header-toolbar-left" />
+      <div className="header-toolbar-left">
+        <AppNavFab href={SORTER_HOME_HREF} label="← Sorter" title="Back to Sorter" />
+      </div>
       {titleInteractive && onTitleClick ? (
         <button
           type="button"

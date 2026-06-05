@@ -29,9 +29,7 @@ import {
   subscribeToWaitState,
   type AnilistWaitState,
 } from '../lib/importers/anilist/transport';
-import { AppNavFab } from '../components/AppNavFab';
 import { AppBannerStack } from '../components/AppBannerStack';
-import { SORTER_HOME_HREF } from '../lib/appRoutes';
 import { useAnilistWaitCountdown } from '../hooks/useAnilistWaitCountdown';
 import { useSourceDbSync } from '../hooks/useSourceDbSync';
 import { AnimeToAnimeHeader } from './AnimeToAnimeHeader';
@@ -459,7 +457,6 @@ export function AnimeToAnimeApp() {
           onCancel={onExitRoundCancel}
         />
       )}
-      <AppNavFab href={SORTER_HOME_HREF} label="← Sorter" title="Back to Sorter" />
       <AppBannerStack>
         {ready && storageMode === 'memory' && (
           <div className="app-banner warn">

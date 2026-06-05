@@ -86,10 +86,8 @@ import {
   type ThemeName,
 } from './lib/storage';
 import type { SlotMeta } from './lib/types';
-import { AppNavFab } from './components/AppNavFab';
 import { AppBannerStack } from './components/AppBannerStack';
 import { Header, type TabId } from './components/Header';
-import { ANIME_TO_ANIME_HREF } from './lib/appRoutes';
 import {
   StartScreen,
   type StartDraftCapabilities,
@@ -2339,11 +2337,6 @@ export function App() {
   return (
     <ItemDetailContext.Provider value={openItemDetail}>
     <div className="app-shell">
-      <AppNavFab
-        href={ANIME_TO_ANIME_HREF}
-        label="A2A →"
-        title="Open Anime to Anime"
-      />
       <AppBannerStack>
       {!autosaveOn && (
         <div className="app-banner">

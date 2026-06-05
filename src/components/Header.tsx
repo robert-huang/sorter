@@ -1,4 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { ANIME_TO_ANIME_HREF } from '../lib/appRoutes';
+import { AppNavFab } from './AppNavFab';
 import { SettingsMenu, type CloudMenuStatus } from './SettingsMenu';
 import { CheckIcon, FloppyIcon } from './icons';
 import type { SlotsManifest, SortState } from '../lib/types';
@@ -260,6 +262,12 @@ export function Header({
   return (
     <header className="header">
       <div className="tabs-card-wrap">
+        <AppNavFab
+          className="app-nav-link--tabs-row"
+          href={ANIME_TO_ANIME_HREF}
+          label="A2A →"
+          title="Open Anime to Anime"
+        />
         <div className="tabs-card" role="tablist" ref={tabsCardRef}>
           <div
             className="tab-indicator"
