@@ -9,6 +9,7 @@ import {
   getAnimeCacheStats,
   getMediaRelations,
   getAnimeFilmographyForStaff,
+  getProductionCreditsAtMedia,
   getVaCreditsAtMedia,
   hasAnimeRandomFilters,
   pickRandomAnimeFromCache,
@@ -272,8 +273,8 @@ describe('graphQueries cache pick', () => {
     expect(rows[0].creditKind).toBe('production');
     expect(rows[0].media.id).toBe(100);
     expect(rows[0].roles).toEqual([
-      'Theme Song Composition (ED)',
       'Theme Song Performance (ED)',
+      'Theme Song Composition (ED)',
     ]);
   });
 
@@ -312,6 +313,42 @@ describe('graphQueries cache pick', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].creditKind).toBe('voice');
     expect(rows[0].roles).toEqual(['Main Hero (MAIN)', 'Sidekick (SUPPORTING)']);
+  });
+
+  it('getProductionCreditsAtMedia sorts staff by AniList sort_order not name', async () => {
+    seedMedia(sqlite, 100, 'ANIME');
+    seedStaff(sqlite, 1, 'Zeta Staff');
+    seedStaff(sqlite, 2, 'Alpha Staff');
+    sqlite.exec(
+      `INSERT INTO media_staff (media_id, staff_id, role, sort_order)
+         VALUES (?, ?, ?, ?), (?, ?, ?, ?)`,
+      { bind: [100, 1, 'Director', 0, 100, 2, 'Producer', 1] },
+    );
+
+    const rows = await getProductionCreditsAtMedia(adapter, 100, 'all');
+    expect(rows.map((r) => r.staff.name_full)).toEqual(['Zeta Staff', 'Alpha Staff']);
+  });
+
+  it('getProductionCreditsAtMedia groups roles in sort_order', async () => {
+    seedMedia(sqlite, 100, 'ANIME');
+    seedStaff(sqlite, 1, 'Person');
+    sqlite.exec(
+      `INSERT INTO media_staff (media_id, staff_id, role, sort_order)
+         VALUES (?, ?, ?, ?), (?, ?, ?, ?)`,
+      {
+        bind: [
+          100, 1, 'Theme Song Performance (ED)', 0,
+          100, 1, 'Theme Song Composition (ED)', 1,
+        ],
+      },
+    );
+
+    const rows = await getProductionCreditsAtMedia(adapter, 100, 'all');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].roles).toEqual([
+      'Theme Song Performance (ED)',
+      'Theme Song Composition (ED)',
+    ]);
   });
 
   it('getVaCreditsAtMedia sorts by role then AniList sort_order', async () => {

@@ -140,6 +140,13 @@ export type ProductionCreditRow = {
   roles: readonly string[];
 };
 
+/** SQL `ORDER BY` for production credits on a show — AniList edge order. */
+export const PRODUCTION_CREDITS_ORDER_BY = `
+  ms.sort_order ASC,
+  ms.role COLLATE NOCASE ASC,
+  st.id ASC
+`;
+
 export type AnimeFilmographyCreditKind = 'voice' | 'production';
 
 export type AnimeFilmographyRow = {
@@ -161,29 +168,40 @@ function sortFilmographyByReleaseDate(
 }
 
 function groupProductionCreditsByStaff(
-  rows: readonly { staff: StaffRow; role: string }[],
+  rows: readonly { staff: StaffRow; role: string; sortOrder: number }[],
 ): ProductionCreditRow[] {
   const order: number[] = [];
-  const byId = new Map<number, { staff: StaffRow; roles: string[] }>();
+  const byId = new Map<
+    number,
+    { staff: StaffRow; roles: string[]; minSortOrder: number }
+  >();
 
   for (const row of rows) {
     let entry = byId.get(row.staff.id);
     if (!entry) {
-      entry = { staff: row.staff, roles: [] };
+      entry = { staff: row.staff, roles: [], minSortOrder: row.sortOrder };
       byId.set(row.staff.id, entry);
       order.push(row.staff.id);
+    } else {
+      entry.minSortOrder = Math.min(entry.minSortOrder, row.sortOrder);
     }
     if (!entry.roles.includes(row.role)) {
       entry.roles.push(row.role);
     }
   }
 
+  order.sort((a, b) => {
+    const ao = byId.get(a)!.minSortOrder;
+    const bo = byId.get(b)!.minSortOrder;
+    if (ao !== bo) {
+      return ao - bo;
+    }
+    return a - b;
+  });
+
   return order.map((id) => {
     const entry = byId.get(id)!;
-    return {
-      staff: entry.staff,
-      roles: [...entry.roles].sort((a, b) => a.localeCompare(b)),
-    };
+    return { staff: entry.staff, roles: entry.roles };
   });
 }
 
@@ -214,29 +232,40 @@ function groupVoiceFilmographyByMedia(
 }
 
 function groupProductionFilmographyByMedia(
-  rows: readonly { media: MediaRow; role: string }[],
+  rows: readonly { media: MediaRow; role: string; sortOrder: number }[],
 ): AnimeFilmographyRowCore[] {
   const order: number[] = [];
-  const byId = new Map<number, { media: MediaRow; roles: string[] }>();
+  const byId = new Map<
+    number,
+    { media: MediaRow; roles: string[]; minSortOrder: number }
+  >();
 
   for (const row of rows) {
     let entry = byId.get(row.media.id);
     if (!entry) {
-      entry = { media: row.media, roles: [] };
+      entry = { media: row.media, roles: [], minSortOrder: row.sortOrder };
       byId.set(row.media.id, entry);
       order.push(row.media.id);
+    } else {
+      entry.minSortOrder = Math.min(entry.minSortOrder, row.sortOrder);
     }
     if (!entry.roles.includes(row.role)) {
       entry.roles.push(row.role);
     }
   }
 
+  order.sort((a, b) => {
+    const ao = byId.get(a)!.minSortOrder;
+    const bo = byId.get(b)!.minSortOrder;
+    if (ao !== bo) {
+      return ao - bo;
+    }
+    return a - b;
+  });
+
   return order.map((id) => {
     const entry = byId.get(id)!;
-    return {
-      media: entry.media,
-      roles: [...entry.roles].sort((a, b) => a.localeCompare(b)),
-    };
+    return { media: entry.media, roles: entry.roles };
   });
 }
 
@@ -307,17 +336,18 @@ export async function getProductionCreditsAtMedia(
 ): Promise<ProductionCreditRow[]> {
   const rows = await db.exec(
     `
-      SELECT st.*, ms.role
+      SELECT st.*, ms.role, ms.sort_order
       FROM media_staff ms
       JOIN staff st ON st.id = ms.staff_id
       WHERE ms.media_id = ?
-      ORDER BY st.name_full COLLATE NOCASE ASC
+      ORDER BY ${PRODUCTION_CREDITS_ORDER_BY}
     `,
     [mediaId],
   );
   const mapped = rows.map((r) => ({
     staff: rowToStaffRow(r),
     role: reqS(r.role),
+    sortOrder: Number(r.sort_order ?? 0),
   }));
   return groupProductionCreditsByStaff(filterProductionStaffRows(mapped, roleMode));
 }
@@ -391,6 +421,7 @@ async function getProductionAnimeFilmographyForStaff(
   const mapped = rows.map((r) => ({
     media: rowToMediaRow(r),
     role: reqS(r.role),
+    sortOrder: Number(r.sort_order ?? 0),
   }));
   return groupProductionFilmographyByMedia(filterProductionStaffRows(mapped, roleMode));
 }
