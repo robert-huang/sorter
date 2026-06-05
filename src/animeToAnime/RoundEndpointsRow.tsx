@@ -7,6 +7,7 @@ import {
   mergeAnilistLinkClass,
 } from './anilistMiddleClick';
 import { EndpointPicker } from './EndpointPicker';
+import { EndpointsSwapArrow } from './endpointsSwapArrow';
 
 interface Props {
   phase: 'setup' | 'play' | 'won';
@@ -33,8 +34,8 @@ function EndpointsSwapBridge({
   interactive: boolean;
 }) {
   const arrow = (
-    <span className="anime-to-anime-swap-arrow-wrap" aria-hidden="true">
-      <span className="anime-to-anime-endpoints-arrow">→</span>
+    <span className="anime-to-anime-swap-arrow-wrap">
+      <EndpointsSwapArrow />
     </span>
   );
 
