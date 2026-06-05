@@ -32,10 +32,10 @@ export function describeNonPersistentStorageBanner(options: {
   }
 
   return (
-    'This tab is using non-persistent storage (OPFS unavailable in this browser or environment). ' +
-    'Changes here may not persist across reloads.' +
+    'This tab is using non-persistent storage (another tab may hold the database, or OPFS is unavailable here). ' +
+    'Changes may not persist across reloads.' +
     (storageHint ? ` ${storageHint}` : '') +
-    ' Pull from Drive (gear → Source databases → Pull) to load data for this session.'
+    ' Close other Sorter / Anime to Anime tabs and reload, or pull from Drive (gear → Source databases → Pull) to load data for this session.'
   );
 }
 

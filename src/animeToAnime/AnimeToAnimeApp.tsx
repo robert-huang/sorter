@@ -171,6 +171,9 @@ export function AnimeToAnimeApp() {
   useEffect(() => {
     void (async () => {
       try {
+        if (await client.probeOpfsLockContended()) {
+          setOpfsLockContendedByOtherTab(true);
+        }
         const {
           storageMode: mode,
           storageHint: hint,
@@ -179,9 +182,9 @@ export function AnimeToAnimeApp() {
         setStorageMode(mode);
         setStorageHint(hint ?? null);
         setOpfsLockContendedByOtherTab(lockContended);
+        setReady(true);
         const stats = await getAnimeCacheStats(importCtx.current.db);
         setCacheStats(stats);
-        setReady(true);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Could not open database.');
       }
@@ -517,7 +520,7 @@ export function AnimeToAnimeApp() {
         <GiveUpConfirmModal onConfirm={onGiveUpConfirm} onCancel={onGiveUpCancel} />
       )}
       <AppBannerStack>
-        {ready && storageMode === 'memory' && (
+        {(opfsLockContendedByOtherTab || (ready && storageMode === 'memory')) && (
           <div className="app-banner warn">
             <span>
               {describeNonPersistentStorageBanner({

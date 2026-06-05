@@ -52,4 +52,31 @@ describe('db transport', () => {
       ),
     ).toBe(true);
   });
+
+  it('buffers worker messages emitted before start installs the handler', async () => {
+    const { DedicatedWorkerTransport } = await import('../dbTransport');
+    const listeners = new Set<(event: MessageEvent) => void>();
+    const worker = {
+      addEventListener: (type: string, listener: (event: MessageEvent) => void) => {
+        if (type === 'message') {
+          listeners.add(listener);
+          listener(
+            new MessageEvent('message', {
+              data: { type: 'ready', storageMode: 'opfs' },
+            }),
+          );
+        }
+      },
+      postMessage: vi.fn(),
+      terminate: vi.fn(),
+    } as unknown as Worker;
+
+    const transport = new DedicatedWorkerTransport(worker);
+    const onMessage = vi.fn();
+
+    transport.start(onMessage);
+
+    expect(listeners.size).toBe(1);
+    expect(onMessage).toHaveBeenCalledWith({ type: 'ready', storageMode: 'opfs' });
+  });
 });

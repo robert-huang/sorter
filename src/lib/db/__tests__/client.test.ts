@@ -12,6 +12,7 @@ describe('db client worker init', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     vi.resetModules();
   });
@@ -68,5 +69,33 @@ describe('db client worker init', () => {
       expect.objectContaining({ opfsLockContendedByOtherTab: false }),
     );
     expect(isOpfsLockContendedByOtherTab()).toBe(false);
+  });
+
+  it('continues when navigator.locks.request throws (no ifAvailable support)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const request = vi.fn(() => {
+      throw new TypeError('callback is not a function');
+    });
+    vi.stubGlobal('navigator', {
+      locks: {
+        query: async () => ({ held: [], pending: [] }),
+        request,
+      },
+    });
+    const { openSourceDb } = await import('../client');
+
+    await expect(
+      Promise.race([
+        openSourceDb(TEST_SOURCE_ID),
+        new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('timed out waiting for openSourceDb')), 500);
+        }),
+      ]),
+    ).resolves.toEqual(expect.objectContaining({ schemaVersion: 2 }));
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      '[db] OPFS lock request threw; continuing without lock',
+      expect.any(TypeError),
+    );
   });
 });

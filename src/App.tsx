@@ -1674,7 +1674,17 @@ export function App() {
       }
     };
     window.addEventListener(DB_NON_PERSISTENT_EVENT, handler);
-    void openSourceDb(ANILIST_SOURCE_ID).catch(() => {});
+    void openSourceDb(ANILIST_SOURCE_ID)
+      .then((result) => {
+        if (result.storageMode !== 'memory') {
+          return;
+        }
+        setDbNonPersistent(true);
+        setDbNonPersistentReason(
+          result.opfsLockContendedByOtherTab ? 'other_tab' : 'opfs_unavailable',
+        );
+      })
+      .catch(() => {});
     return () => {
       window.removeEventListener(DB_NON_PERSISTENT_EVENT, handler);
     };

@@ -66,6 +66,10 @@ export function stubNavigatorLocks(options?: { lockHeld?: boolean }): void {
   navigatorLockHeld = options?.lockHeld ?? false;
   vi.stubGlobal('navigator', {
     locks: {
+      query: async () => ({
+        held: navigatorLockHeld ? [{ name: 'sorter-opfs' }] : [],
+        pending: [],
+      }),
       request: (
         _name: string,
         optionsOrCallback:

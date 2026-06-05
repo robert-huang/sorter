@@ -258,6 +258,7 @@ describe('pushDbToDrive', () => {
     vi.mocked(openSourceDb).mockResolvedValueOnce({
       schemaVersion: 2,
       storageMode: 'memory',
+      opfsLockContendedByOtherTab: true,
     });
 
     await expect(pushDbToDrive(TEST_SOURCE_ID)).rejects.toMatchObject({

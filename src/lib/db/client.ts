@@ -2,6 +2,11 @@ import { ensureAnilistSourceRegistered } from '../importers/anilist/anilistSourc
 import { createDbTransport, type DbTransport } from './dbTransport';
 import { emitNonPersistentEvent } from './opfs';
 import type { DbNonPersistentReason, StorageMode } from './opfs';
+import {
+  OPFS_LOCK_ACQUIRE_TIMEOUT_MS,
+  OPFS_LOCK_NAME,
+  queryIsOpfsLockHeld,
+} from './opfsLock';
 import type { DbRow, RpcReply, RpcRequest, RpcRequestBody, SqlParam, WorkerReadyMessage } from './rpc';
 import { ensureTestSourceRegistered } from './testSource';
 
@@ -9,7 +14,6 @@ ensureTestSourceRegistered();
 ensureAnilistSourceRegistered();
 
 const WORKER_DIED_MESSAGE = 'Worker died; retry your operation';
-const OPFS_LOCK_NAME = 'sorter-opfs';
 
 let transport: DbTransport | null = null;
 let nextId = 0;
@@ -26,6 +30,7 @@ let nonPersistentEventSent = false;
 let releaseOpfsLock: (() => void) | undefined;
 let opfsLockAcquired = false;
 let opfsLockAcquiredPromise: Promise<void> | null = null;
+let opfsLockUnavailableForSession = false;
 /** True when `navigator.locks` reports another tab holds `sorter-opfs`. */
 let opfsLockContendedByOtherTab = false;
 
@@ -41,11 +46,35 @@ function releaseOpfsLockIfHeld(): void {
   releaseOpfsLock = undefined;
   opfsLockAcquired = false;
   opfsLockAcquiredPromise = null;
+  opfsLockUnavailableForSession = false;
   opfsLockContendedByOtherTab = false;
 }
 
 export function isOpfsLockContendedByOtherTab(): boolean {
   return opfsLockContendedByOtherTab;
+}
+
+/** Probe whether another tab holds the OPFS lock (safe before worker boot). */
+export async function probeOpfsLockContended(): Promise<boolean> {
+  return queryIsOpfsLockHeld();
+}
+
+function markOpfsLockContended(): void {
+  opfsLockContendedByOtherTab = true;
+}
+
+function clearOpfsLockAcquirePromiseIfNotHeld(): void {
+  if (!opfsLockAcquired) {
+    opfsLockAcquiredPromise = null;
+  }
+}
+
+function continueWithoutOpfsLock(contendedByOtherTab: boolean): void {
+  if (contendedByOtherTab) {
+    markOpfsLockContended();
+  }
+  opfsLockUnavailableForSession = true;
+  clearOpfsLockAcquirePromiseIfNotHeld();
 }
 
 /**
@@ -57,6 +86,9 @@ async function acquireOpfsLock(): Promise<void> {
   if (opfsLockAcquired) {
     return;
   }
+  if (opfsLockUnavailableForSession) {
+    return;
+  }
   if (opfsLockAcquiredPromise) {
     return opfsLockAcquiredPromise;
   }
@@ -66,28 +98,75 @@ async function acquireOpfsLock(): Promise<void> {
     return;
   }
 
-  opfsLockAcquiredPromise = new Promise<void>((resolveAcquired) => {
-    void navigator.locks.request(
-      OPFS_LOCK_NAME,
-      { ifAvailable: true },
-      (lock) => {
-        if (lock === null) {
-          opfsLockContendedByOtherTab = true;
-          opfsLockAcquiredPromise = null;
-          resolveAcquired();
-          return;
-        }
-        opfsLockContendedByOtherTab = false;
-        return new Promise<void>((release) => {
-          releaseOpfsLock = release;
-          opfsLockAcquired = true;
-          resolveAcquired();
-        });
-      },
-    );
-  });
-
+  opfsLockAcquiredPromise = acquireOpfsLockOnce();
   return opfsLockAcquiredPromise;
+}
+
+async function acquireOpfsLockOnce(): Promise<void> {
+  if (await queryIsOpfsLockHeld()) {
+    continueWithoutOpfsLock(true);
+    return;
+  }
+
+  await new Promise<void>((resolveAcquired) => {
+    let settled = false;
+    const finish = (lockAcquired: boolean): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      if (!lockAcquired) {
+        continueWithoutOpfsLock(false);
+      }
+      resolveAcquired();
+    };
+
+    const timer = setTimeout(() => {
+      console.warn(
+        '[db] OPFS lock acquire timed out; another tab may hold the database',
+      );
+      finish(false);
+    }, OPFS_LOCK_ACQUIRE_TIMEOUT_MS);
+
+    const onLock = (lock: unknown): void | Promise<void> => {
+      if (settled) {
+        return;
+      }
+      clearTimeout(timer);
+      if (lock === null || lock === undefined) {
+        continueWithoutOpfsLock(true);
+        finish(false);
+        return;
+      }
+      opfsLockContendedByOtherTab = false;
+      opfsLockAcquired = true;
+      finish(true);
+      return new Promise<void>((release) => {
+        releaseOpfsLock = () => {
+          release();
+          opfsLockAcquired = false;
+          opfsLockAcquiredPromise = null;
+          opfsLockUnavailableForSession = false;
+        };
+      });
+    };
+
+    try {
+      const requestReturn = navigator.locks.request(
+        OPFS_LOCK_NAME,
+        { ifAvailable: true },
+        onLock,
+      );
+      void Promise.resolve(requestReturn).catch((err: unknown) => {
+        console.warn('[db] OPFS lock request failed; continuing without lock', err);
+        finish(false);
+      });
+    } catch (err) {
+      console.warn('[db] OPFS lock request threw; continuing without lock', err);
+      finish(false);
+    }
+  });
 }
 
 function onWorkerDeath(): void {

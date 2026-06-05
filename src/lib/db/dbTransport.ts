@@ -12,15 +12,25 @@ export interface DbTransport {
 
 export class DedicatedWorkerTransport implements DbTransport {
   private readonly worker: Worker;
+  private onMessage: ((data: WorkerMessage) => void) | null = null;
+  private readonly earlyMessages: WorkerMessage[] = [];
 
   constructor(worker: Worker) {
     this.worker = worker;
+    this.worker.addEventListener('message', (event: MessageEvent<WorkerMessage>) => {
+      if (this.onMessage) {
+        this.onMessage(event.data);
+      } else {
+        this.earlyMessages.push(event.data);
+      }
+    });
   }
 
   start(onMessage: (data: WorkerMessage) => void): void {
-    this.worker.addEventListener('message', (event: MessageEvent<WorkerMessage>) => {
-      onMessage(event.data);
-    });
+    this.onMessage = onMessage;
+    for (const data of this.earlyMessages.splice(0)) {
+      onMessage(data);
+    }
   }
 
   post(req: RpcRequest): void {
