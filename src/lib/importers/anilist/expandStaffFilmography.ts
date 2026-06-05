@@ -175,8 +175,13 @@ export async function expandStaffFilmography(
     mediaById.set(m.id, m);
   }
   for (const e of staffMediaEdges) {
-    if (!mediaById.has(e.node.id)) {
-      mediaById.set(e.node.id, mapMediaRow(e.node, now));
+    const node = e.node;
+    const mediaId = node?.id;
+    if (mediaId === null || mediaId === undefined || !node) {
+      continue;
+    }
+    if (!mediaById.has(mediaId)) {
+      mediaById.set(mediaId, mapMediaRow(node, now));
     }
   }
 

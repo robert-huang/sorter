@@ -87,6 +87,7 @@ import {
 } from './lib/storage';
 import type { SlotMeta } from './lib/types';
 import { AppNavFab } from './components/AppNavFab';
+import { AppBannerStack } from './components/AppBannerStack';
 import { Header, type TabId } from './components/Header';
 import { ANIME_TO_ANIME_HREF } from './lib/appRoutes';
 import {
@@ -2343,6 +2344,7 @@ export function App() {
         label="A2A →"
         title="Open Anime to Anime"
       />
+      <AppBannerStack>
       {!autosaveOn && (
         <div className="app-banner">
           Autosave is disabled (this page is open from a <code>file://</code>{' '}
@@ -2465,6 +2467,7 @@ export function App() {
         </div>
       )}
       {skippedMessage && <div className="app-banner">{skippedMessage}</div>}
+      </AppBannerStack>
       <Header
         activeTab={activeTab}
         onTabChange={handleTabChange}

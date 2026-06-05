@@ -281,11 +281,6 @@ export function mapStaffRow(s: AnilistStaffGql, now: number): StaffRow {
 }
 
 /**
- * Junction rows for media → character. `sort_order` preserves AniList's
- * connection ordering (which already encodes ROLE → RELEVANCE → ID per
- * the sort argument).
- */
-/**
  * Junction rows for media → character. PK is (media_id, character_id),
  * so the mapper must emit at most one row per character_id even when
  * the upstream `edges` array repeats one.
@@ -302,6 +297,20 @@ export function mapStaffRow(s: AnilistStaffGql, now: number): StaffRow {
  * character later in the merged list, which would push primary cast to
  * the bottom if "last wins" were used instead.
  */
+/** Skip AniList edges whose `node` was nulled (deleted/blocked media). */
+function mediaNodeId(node: AnilistMediaGql | null | undefined): number | null {
+  const id = node?.id;
+  return id === null || id === undefined ? null : id;
+}
+
+/** Skip null slots in nested character lists. */
+function characterNodeId(
+  character: AnilistCharacterGql | null | undefined,
+): number | null {
+  const id = character?.id;
+  return id === null || id === undefined ? null : id;
+}
+
 /**
  * Junction rows for media → staff (production credits). PK is
  * (media_id, staff_id, role) — dedupe by that tuple before insert.
@@ -309,19 +318,23 @@ export function mapStaffRow(s: AnilistStaffGql, now: number): StaffRow {
 /** `Staff.staffMedia` → `media_staff` rows for a fixed staff person. */
 export function mapStaffFilmographyMediaStaffRows(
   staffId: number,
-  edges: readonly { staffRole: string | null; node: AnilistMediaGql }[],
+  edges: readonly { staffRole: string | null; node: AnilistMediaGql | null }[],
 ): MediaStaffRow[] {
   const seen = new Set<string>();
   const rows: MediaStaffRow[] = [];
   for (const [idx, e] of edges.entries()) {
+    const mediaId = mediaNodeId(e.node);
+    if (mediaId === null) {
+      continue;
+    }
     const role = (e.staffRole ?? '').trim() || 'Unknown';
-    const key = `${e.node.id}\0${role}`;
+    const key = `${mediaId}\0${role}`;
     if (seen.has(key)) {
       continue;
     }
     seen.add(key);
     rows.push({
-      media_id: e.node.id,
+      media_id: mediaId,
       staff_id: staffId,
       role,
       sort_order: idx,
@@ -338,8 +351,8 @@ export function mapStaffCharacterAppearanceData(
   staffId: number,
   edges: readonly {
     characterRole: AnilistCharacterRole | null;
-    characters: readonly AnilistCharacterGql[];
-    node: AnilistMediaGql;
+    characters: readonly (AnilistCharacterGql | null)[];
+    node: AnilistMediaGql | null;
   }[],
   language: AnilistStaffLanguage,
   now: number,
@@ -358,32 +371,39 @@ export function mapStaffCharacterAppearanceData(
 
   let sortOrder = 0;
   for (const e of edges) {
-    const mediaId = e.node.id;
+    const mediaId = mediaNodeId(e.node);
+    if (mediaId === null || !e.node) {
+      continue;
+    }
     if (!mediaById.has(mediaId)) {
       mediaById.set(mediaId, mapMediaRow(e.node, now));
     }
     const role = e.characterRole ?? null;
-    for (const character of e.characters) {
-      if (!characterById.has(character.id)) {
-        characterById.set(character.id, mapCharacterRow(character, now));
+    for (const character of e.characters ?? []) {
+      const characterId = characterNodeId(character);
+      if (characterId === null || !character) {
+        continue;
       }
-      const mcKey = `${mediaId}:${character.id}`;
+      if (!characterById.has(characterId)) {
+        characterById.set(characterId, mapCharacterRow(character, now));
+      }
+      const mcKey = `${mediaId}:${characterId}`;
       if (!mediaCharacterSeen.has(mcKey)) {
         mediaCharacterSeen.add(mcKey);
         mediaCharacterRows.push({
           media_id: mediaId,
-          character_id: character.id,
+          character_id: characterId,
           role,
           sort_order: sortOrder,
         });
         sortOrder += 1;
       }
-      const cvaKey = `${mediaId}:${character.id}:${staffId}`;
+      const cvaKey = `${mediaId}:${characterId}:${staffId}`;
       if (!cvaSeen.has(cvaKey)) {
         cvaSeen.add(cvaKey);
         cvaRows.push({
           media_id: mediaId,
-          character_id: character.id,
+          character_id: characterId,
           staff_id: staffId,
           language,
         });

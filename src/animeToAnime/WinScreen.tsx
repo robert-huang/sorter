@@ -1,5 +1,6 @@
 import type { MediaRow } from '../lib/importers/anilist/types';
 import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
+import { currentPageUrl } from '../lib/appRoutes';
 import { formatPathSummary, type PathStep } from './pathHistory';
 
 interface Props {
@@ -8,7 +9,6 @@ interface Props {
   animeHops: number;
   pathHistory: readonly PathStep[];
   onPlayAgain: () => void;
-  onSetup: () => void;
 }
 
 function buildSummaryCopyText(
@@ -16,12 +16,14 @@ function buildSummaryCopyText(
   goalMedia: MediaRow,
   animeHops: number,
   pathHistory: readonly PathStep[],
+  pageUrl: string,
 ): string {
   const start = pickMediaTitle(startMedia);
   const goal = pickMediaTitle(goalMedia);
   const pathLine =
     pathHistory.length > 1 ? `\n${formatPathSummary(pathHistory)}` : '';
-  return `Anime to Anime: ${start} → ${goal} in ${animeHops} anime hop${animeHops === 1 ? '' : 's'}${pathLine}`;
+  const urlLine = pageUrl ? `\n${pageUrl}` : '';
+  return `Anime to Anime: ${start} → ${goal} in ${animeHops} anime hop${animeHops === 1 ? '' : 's'}${pathLine}${urlLine}`;
 }
 
 export function WinScreen({
@@ -30,16 +32,15 @@ export function WinScreen({
   animeHops,
   pathHistory,
   onPlayAgain,
-  onSetup,
 }: Props) {
-  const summaryText = buildSummaryCopyText(
-    startMedia,
-    goalMedia,
-    animeHops,
-    pathHistory,
-  );
-
   const onCopySummary = () => {
+    const summaryText = buildSummaryCopyText(
+      startMedia,
+      goalMedia,
+      animeHops,
+      pathHistory,
+      currentPageUrl(),
+    );
     void navigator.clipboard.writeText(summaryText);
   };
 
@@ -63,9 +64,6 @@ export function WinScreen({
         </button>
         <button type="button" className="btn" onClick={onPlayAgain}>
           Play again
-        </button>
-        <button type="button" className="btn" onClick={onSetup}>
-          Setup
         </button>
       </div>
     </section>

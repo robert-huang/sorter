@@ -655,6 +655,38 @@ describe('mapStaffCharacterAppearanceData', () => {
       language: 'JAPANESE',
     });
   });
+
+  it('skips null media nodes and null character slots in characterMedia edges', () => {
+    const media = fullMedia({ id: 300 });
+    const charA = {
+      id: 10,
+      name: { full: 'Hero', native: null, alternative: null, alternativeSpoiler: null },
+      image: { large: null },
+      age: null,
+      gender: null,
+      favourites: null,
+    };
+    const result = mapStaffCharacterAppearanceData(
+      99,
+      [
+        {
+          characterRole: 'MAIN',
+          characters: [charA, null],
+          node: media,
+        },
+        {
+          characterRole: 'SUPPORTING',
+          characters: [charA],
+          node: null,
+        },
+      ],
+      'JAPANESE',
+      NOW,
+    );
+    expect(result.mediaRows).toHaveLength(1);
+    expect(result.characterRows).toHaveLength(1);
+    expect(result.cvaRows).toHaveLength(1);
+  });
 });
 
 describe('mapStaffFilmographyMediaStaffRows', () => {
@@ -667,5 +699,13 @@ describe('mapStaffFilmographyMediaStaffRows', () => {
       { media_id: 200, staff_id: 42, role: 'Director', sort_order: 0 },
       { media_id: 201, staff_id: 42, role: 'Unknown', sort_order: 1 },
     ]);
+  });
+
+  it('skips Staff.staffMedia edges with null media nodes', () => {
+    const rows = mapStaffFilmographyMediaStaffRows(42, [
+      { staffRole: 'Director', node: fullMedia({ id: 200 }) },
+      { staffRole: 'Theme Song Performance', node: null },
+    ]);
+    expect(rows).toEqual([{ media_id: 200, staff_id: 42, role: 'Director', sort_order: 0 }]);
   });
 });

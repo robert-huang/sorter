@@ -315,8 +315,8 @@ export type AnilistMediaDetailResponse = {
 /** `Staff.characterMedia` edge — VA appearance on a show (`MediaEdge`). */
 export type AnilistStaffCharacterMediaEdgeGql = {
   characterRole: AnilistCharacterRole | null;
-  characters: AnilistCharacterGql[];
-  node: AnilistMediaGql;
+  characters: Array<AnilistCharacterGql | null>;
+  node: AnilistMediaGql | null;
 };
 
 /** @deprecated Use {@link AnilistStaffCharacterMediaEdgeGql}. */
@@ -325,7 +325,7 @@ export type AnilistStaffCharacterEdgeGql = AnilistStaffCharacterMediaEdgeGql;
 /** `Staff.staffMedia` edge — production credit on a show (`MediaEdge.staffRole`). */
 export type AnilistStaffMediaEdgeGql = {
   staffRole: string | null;
-  node: AnilistMediaGql;
+  node: AnilistMediaGql | null;
 };
 
 export type AnilistStaffFilmographyResponse = {

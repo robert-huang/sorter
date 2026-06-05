@@ -17,7 +17,17 @@ export function AnimeFilmographyHopButton({ row, onHop }: Props) {
       )}
       <span className="anilist-detail-cast-text">
         <strong>{title}</strong>
-        {row.role && <span className="anime-to-anime-hop-meta">{row.role}</span>}
+        {row.creditKind === 'production' ? (
+          row.roles.length > 0 && (
+            <ul className="anime-to-anime-hop-role-list">
+              {row.roles.map((role) => (
+                <li key={role}>{role}</li>
+              ))}
+            </ul>
+          )
+        ) : (
+          row.roles[0] && <span className="anime-to-anime-hop-meta">{row.roles[0]}</span>
+        )}
       </span>
     </button>
   );

@@ -195,10 +195,10 @@ describe('graphQueries cache pick', () => {
     expect(rows).toHaveLength(2);
     expect(rows[0].creditKind).toBe('voice');
     expect(rows[0].media.id).toBe(100);
-    expect(rows[0].role).toBe('as Hero (MAIN)');
+    expect(rows[0].roles).toEqual(['as Hero (MAIN)']);
     expect(rows[1].creditKind).toBe('production');
     expect(rows[1].media.id).toBe(101);
-    expect(rows[1].role).toBe('Theme Song Performance');
+    expect(rows[1].roles).toEqual(['Theme Song Performance']);
   });
 
   it('getAnimeFilmographyForStaff sorts voice roles by release date descending', async () => {
@@ -246,11 +246,35 @@ describe('graphQueries cache pick', () => {
     const rows = await getAnimeFilmographyForStaff(adapter, 1, 'all');
     expect(rows).toHaveLength(2);
     expect(rows[0].creditKind).toBe('voice');
-    expect(rows[0].role).toBe('as Hero (MAIN)');
+    expect(rows[0].roles).toEqual(['as Hero (MAIN)']);
     expect(rows[1].creditKind).toBe('production');
-    expect(rows[1].role).toBe('Theme Song Performance');
+    expect(rows[1].roles).toEqual(['Theme Song Performance']);
     expect(rows[0].media.id).toBe(100);
     expect(rows[1].media.id).toBe(100);
+  });
+
+  it('getAnimeFilmographyForStaff groups multiple production roles on one show', async () => {
+    seedMedia(sqlite, 100, 'ANIME', 2020);
+    seedStaff(sqlite, 1, 'Singer');
+    sqlite.exec(
+      `INSERT INTO media_staff (media_id, staff_id, role, sort_order)
+         VALUES (?, ?, ?, ?), (?, ?, ?, ?)`,
+      {
+        bind: [
+          100, 1, 'Theme Song Performance (ED)', 0,
+          100, 1, 'Theme Song Composition (ED)', 1,
+        ],
+      },
+    );
+
+    const rows = await getAnimeFilmographyForStaff(adapter, 1, 'all');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].creditKind).toBe('production');
+    expect(rows[0].media.id).toBe(100);
+    expect(rows[0].roles).toEqual([
+      'Theme Song Composition (ED)',
+      'Theme Song Performance (ED)',
+    ]);
   });
 
   it('getAnimeFilmographyForStaff returns production-only credits for non-VA staff', async () => {
@@ -265,7 +289,7 @@ describe('graphQueries cache pick', () => {
     const rows = await getAnimeFilmographyForStaff(adapter, 1, 'key');
     expect(rows).toHaveLength(1);
     expect(rows[0].creditKind).toBe('production');
-    expect(rows[0].role).toBe('Director');
+    expect(rows[0].roles).toEqual(['Director']);
   });
 
   it('getVaCreditsAtMedia sorts by role then AniList sort_order', async () => {

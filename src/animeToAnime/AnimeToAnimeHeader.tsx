@@ -9,6 +9,8 @@ interface Props {
   onToggleTheme: () => void;
   onVaListImageModeChange: (mode: VaListImageMode) => void;
   onRoundConfigChange: (patch: Partial<RoundConfig>) => void;
+  titleInteractive?: boolean;
+  onTitleClick?: () => void;
 }
 
 export function AnimeToAnimeHeader({
@@ -18,6 +20,8 @@ export function AnimeToAnimeHeader({
   onToggleTheme,
   onVaListImageModeChange,
   onRoundConfigChange,
+  titleInteractive = false,
+  onTitleClick,
 }: Props) {
   const themeBtnTitle =
     theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
@@ -26,7 +30,18 @@ export function AnimeToAnimeHeader({
   return (
     <header className="anime-to-anime-header header-toolbar">
       <div className="header-toolbar-left" />
-      <div className="header-toolbar-stats anime-to-anime-header-title">Anime to Anime</div>
+      {titleInteractive && onTitleClick ? (
+        <button
+          type="button"
+          className="header-toolbar-stats anime-to-anime-header-title anime-to-anime-header-title--interactive"
+          onClick={onTitleClick}
+          title="Return to setup"
+        >
+          Anime to Anime
+        </button>
+      ) : (
+        <div className="header-toolbar-stats anime-to-anime-header-title">Anime to Anime</div>
+      )}
       <div className="header-toolbar-right">
         <button
           type="button"

@@ -30,6 +30,7 @@ import {
   type AnilistWaitState,
 } from '../lib/importers/anilist/transport';
 import { AppNavFab } from '../components/AppNavFab';
+import { AppBannerStack } from '../components/AppBannerStack';
 import { SORTER_HOME_HREF } from '../lib/appRoutes';
 import { AnimeToAnimeHeader } from './AnimeToAnimeHeader';
 import { RoundEndpointsRow } from './RoundEndpointsRow';
@@ -243,7 +244,17 @@ export function AnimeToAnimeApp() {
     setPathHistory([]);
     setAnimeHops(0);
     setFilter('');
+    setError(null);
   }, []);
+
+  const confirmExitToSetup = useCallback(() => {
+    const confirmed = window.confirm(
+      'Leave this round and return to setup? Your progress will be lost.',
+    );
+    if (confirmed) {
+      goToSetup();
+    }
+  }, [goToSetup]);
 
   const onRefreshPlayList = useCallback(() => {
     forceListRefreshRef.current = true;
@@ -380,7 +391,10 @@ export function AnimeToAnimeApp() {
     if (!filterLower) return filmography;
     return filmography.filter((row) => {
       const label = pickMediaTitle(row.media);
-      return label.toLowerCase().includes(filterLower) || row.role.toLowerCase().includes(filterLower);
+      return (
+        label.toLowerCase().includes(filterLower) ||
+        row.roles.some((role) => role.toLowerCase().includes(filterLower))
+      );
     });
   }, [filmography, filterLower]);
 
@@ -416,6 +430,19 @@ export function AnimeToAnimeApp() {
   return (
     <div className="app-shell">
       <AppNavFab href={SORTER_HOME_HREF} label="← Sorter" title="Back to Sorter" />
+      <AppBannerStack>
+        {ready && storageMode === 'memory' && (
+          <div className="app-banner warn">
+            <span>
+              This tab is using in-memory storage — your AniList cache is not available here.
+              {storageHint ? ` ${storageHint}` : ''}{' '}
+              Open DevTools → Console (main thread and worker) for details. Try closing other
+              Sorter tabs and reloading, or import on the main Sorter page first.
+            </span>
+          </div>
+        )}
+        {apiWaitBanner}
+      </AppBannerStack>
       <AnimeToAnimeHeader
         theme={theme}
         vaListImageMode={vaListImageMode}
@@ -423,20 +450,9 @@ export function AnimeToAnimeApp() {
         onToggleTheme={onToggleTheme}
         onVaListImageModeChange={onVaListImageModeChange}
         onRoundConfigChange={onRoundConfigChange}
+        titleInteractive={phase !== 'setup'}
+        onTitleClick={confirmExitToSetup}
       />
-
-      {ready && storageMode === 'memory' && (
-        <div className="app-banner warn">
-          <span>
-            This tab is using in-memory storage — your AniList cache is not available here.
-            {storageHint ? ` ${storageHint}` : ''}{' '}
-            Open DevTools → Console (main thread and worker) for details. Try closing other
-            Sorter tabs and reloading, or import on the main Sorter page first.
-          </span>
-        </div>
-      )}
-
-      {apiWaitBanner}
 
       {!ready ? (
         <main className="page anime-to-anime-page">
@@ -510,16 +526,7 @@ export function AnimeToAnimeApp() {
               animeHops={animeHops}
               pathHistory={pathHistory}
               onPlayAgain={onPlayAgain}
-              onSetup={goToSetup}
             />
-          )}
-
-          {phase === 'play' && (
-            <div className="anime-to-anime-play-toolbar">
-              <button type="button" className="btn small" onClick={goToSetup}>
-                Setup
-              </button>
-            </div>
           )}
 
           {error && (
@@ -619,7 +626,7 @@ export function AnimeToAnimeApp() {
                   <ul className="anime-to-anime-hop-list">
                     {filteredFilmography.map((row) => (
                       <li
-                        key={`${row.media.id}-${row.creditKind}-${row.role}`}
+                        key={`${row.media.id}-${row.creditKind}`}
                         className="anime-to-anime-hop-list-item"
                       >
                         <AnimeFilmographyHopButton

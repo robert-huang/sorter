@@ -143,17 +143,47 @@ export type AnimeFilmographyCreditKind = 'voice' | 'production';
 
 export type AnimeFilmographyRow = {
   media: MediaRow;
-  role: string;
+  /** Voice: one line per character. Production: all staff roles on this show. */
+  roles: readonly string[];
   creditKind: AnimeFilmographyCreditKind;
 };
 
+type AnimeFilmographyRowCore = Pick<AnimeFilmographyRow, 'media' | 'roles'>;
+
 function sortFilmographyByReleaseDate(
-  rows: Omit<AnimeFilmographyRow, 'creditKind'>[],
+  rows: AnimeFilmographyRowCore[],
   creditKind: AnimeFilmographyCreditKind,
 ): AnimeFilmographyRow[] {
   return [...rows]
     .sort((a, b) => compareMediaByReleaseDateDesc(a.media, b.media))
     .map((row) => ({ ...row, creditKind }));
+}
+
+function groupProductionFilmographyByMedia(
+  rows: readonly { media: MediaRow; role: string }[],
+): AnimeFilmographyRowCore[] {
+  const order: number[] = [];
+  const byId = new Map<number, { media: MediaRow; roles: string[] }>();
+
+  for (const row of rows) {
+    let entry = byId.get(row.media.id);
+    if (!entry) {
+      entry = { media: row.media, roles: [] };
+      byId.set(row.media.id, entry);
+      order.push(row.media.id);
+    }
+    if (!entry.roles.includes(row.role)) {
+      entry.roles.push(row.role);
+    }
+  }
+
+  return order.map((id) => {
+    const entry = byId.get(id)!;
+    return {
+      media: entry.media,
+      roles: [...entry.roles].sort((a, b) => a.localeCompare(b)),
+    };
+  });
 }
 
 export type MediaRelationRow = {
@@ -252,7 +282,7 @@ function formatVoiceFilmographyRole(
 async function getVoiceAnimeFilmographyForStaff(
   db: AnilistDbExecutor,
   staffId: number,
-): Promise<AnimeFilmographyRow[]> {
+): Promise<AnimeFilmographyRowCore[]> {
   const rows = await db.exec(
     `
       SELECT
@@ -274,7 +304,7 @@ async function getVoiceAnimeFilmographyForStaff(
     const characterName = s(r.ch_name_full) ?? s(r.ch_name_native);
     return {
       media: rowToMediaRow(r),
-      role: formatVoiceFilmographyRole(characterName, s(r.character_role)),
+      roles: [formatVoiceFilmographyRole(characterName, s(r.character_role))],
     };
   });
 }
@@ -283,13 +313,14 @@ async function getProductionAnimeFilmographyForStaff(
   db: AnilistDbExecutor,
   staffId: number,
   roleMode: 'key' | 'all',
-): Promise<AnimeFilmographyRow[]> {
+): Promise<AnimeFilmographyRowCore[]> {
   const rows = await db.exec(
     `
-      SELECT m.*, ms.role
+      SELECT m.*, ms.role, ms.sort_order
       FROM media_staff ms
       JOIN media m ON m.id = ms.media_id
       WHERE ms.staff_id = ? AND m.type = 'ANIME'
+      ORDER BY ms.sort_order ASC, ms.role COLLATE NOCASE ASC
     `,
     [staffId],
   );
@@ -297,7 +328,7 @@ async function getProductionAnimeFilmographyForStaff(
     media: rowToMediaRow(r),
     role: reqS(r.role),
   }));
-  return filterProductionStaffRows(mapped, roleMode);
+  return groupProductionFilmographyByMedia(filterProductionStaffRows(mapped, roleMode));
 }
 
 /**

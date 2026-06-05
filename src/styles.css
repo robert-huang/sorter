@@ -31,6 +31,7 @@
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
   --radius: 10px;
   --radius-sm: 6px;
+  --app-banner-height: 0px;
   /* 'Plus Jakarta Sans' is a humanist geometric sans loaded via Google Fonts
      in index.html. System fonts remain as fallbacks for FOUT and offline. */
   font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont,
@@ -106,6 +107,12 @@ a {
   flex-direction: column;
 }
 
+.app-banner-stack {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
 .app-banner {
   background: var(--warn-bg);
   border-bottom: 1px solid var(--warn-border);
@@ -146,17 +153,17 @@ a {
   border: 1px solid currentColor;
   color: inherit;
   border-radius: 4px;
-  width: 22px;
-  height: 22px;
-  /* Centering: the default UA <button> applies padding + line-height that
-     shifts the `×` glyph off-axis. Force a 0-padding flex centering so the
-     glyph sits in the middle regardless of font metrics / browser. */
+  width: 24px;
+  height: 24px;
   padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  margin: 0;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
   line-height: 1;
-  font-size: 16px;
+  font-size: 18px;
+  font-weight: 400;
+  font-family: system-ui, -apple-system, sans-serif;
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -1524,7 +1531,7 @@ a {
 
 .app-nav-fab {
   position: fixed;
-  top: 12px;
+  top: calc(var(--app-banner-height) + 12px);
   left: 12px;
   z-index: 100;
   display: inline-flex;
@@ -1552,6 +1559,19 @@ a {
   font-weight: 800;
   color: var(--text);
   letter-spacing: -0.02em;
+}
+
+.anime-to-anime-header-title--interactive {
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.anime-to-anime-header-title--interactive:hover {
+  color: var(--accent);
 }
 
 .anime-to-anime-page {
@@ -1924,6 +1944,26 @@ a {
 .anime-to-anime-hop-list-item .anime-to-anime-hop-meta {
   font-size: 13px;
   margin-top: 2px;
+}
+
+.anime-to-anime-hop-role-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
+.anime-to-anime-hop-role-list li {
+  position: relative;
+  padding-left: 12px;
+}
+
+.anime-to-anime-hop-role-list li::before {
+  content: '–';
+  position: absolute;
+  left: 0;
 }
 
 .anime-to-anime-settings-popover {
