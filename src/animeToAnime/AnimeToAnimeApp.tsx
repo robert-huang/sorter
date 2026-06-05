@@ -32,6 +32,7 @@ import {
 import { AppNavFab } from '../components/AppNavFab';
 import { AppBannerStack } from '../components/AppBannerStack';
 import { SORTER_HOME_HREF } from '../lib/appRoutes';
+import { useAnilistWaitCountdown } from '../hooks/useAnilistWaitCountdown';
 import { useSourceDbSync } from '../hooks/useSourceDbSync';
 import { AnimeToAnimeHeader } from './AnimeToAnimeHeader';
 import { RoundEndpointsRow } from './RoundEndpointsRow';
@@ -114,6 +115,7 @@ export function AnimeToAnimeApp() {
   const [filter, setFilter] = useState('');
   const [loading, setLoading] = useState(false);
   const [apiWait, setApiWait] = useState<AnilistWaitState | null>(null);
+  const apiWaitSecondsLeft = useAnilistWaitCountdown(apiWait);
   const [listRefreshEpoch, setListRefreshEpoch] = useState(0);
   const [exitRoundConfirmOpen, setExitRoundConfirmOpen] = useState(false);
   const forceListRefreshRef = useRef(false);
@@ -434,11 +436,11 @@ export function AnimeToAnimeApp() {
   const endpointsSwapDisabled = !startMedia || !goalMedia;
 
   const apiWaitBanner =
-    apiWait && (
+    apiWait &&
+    apiWaitSecondsLeft !== null && (
       <div className="app-banner warn">
         <span>
-          AniList rate limit — retrying in {Math.ceil(apiWait.retryInMs / 1000)}s (attempt{' '}
-          {apiWait.attempt})
+          AniList rate limit — retrying in {apiWaitSecondsLeft}s (attempt {apiWait.attempt})
         </span>
       </div>
     );
