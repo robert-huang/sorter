@@ -4,7 +4,6 @@ import {
   compareVaCredits,
   sortVaCredits,
   vaCreditListImage,
-  vaCreditStaffName,
   vaCreditSubtitle,
 } from '../vaCreditDisplay';
 
@@ -17,38 +16,39 @@ function row(partial: Partial<VaCreditRow> & Pick<VaCreditRow, 'staff' | 'charac
 }
 
 describe('vaCreditDisplay', () => {
-  it('vaCreditSubtitle shows character name when it differs from staff', () => {
-    const subtitle = vaCreditSubtitle(
-      row({
-        staff: {
-          id: 1,
-          name_full: 'VA Name',
-          name_native: null,
-          image: null,
-          age: null,
-          gender: null,
-          language_v2: null,
-          favourites: null,
-          fetched_at: 0,
-          updated_at: 0,
-        },
-        character: {
-          id: 2,
-          name_full: 'Char Name',
-          name_native: null,
-          name_alternatives_json: null,
-          name_alternatives_spoiler_json: null,
-          image: null,
-          age: null,
-          gender: null,
-          favourites: null,
-          fetched_at: 0,
-          updated_at: 0,
-        },
-      }),
+  it('vaCreditSubtitle shows character credit when name differs from staff', () => {
+    const credit = row({
+      staff: {
+        id: 1,
+        name_full: 'VA Name',
+        name_native: null,
+        image: null,
+        age: null,
+        gender: null,
+        language_v2: null,
+        favourites: null,
+        fetched_at: 0,
+        updated_at: 0,
+      },
+      character: {
+        id: 2,
+        name_full: 'Char Name',
+        name_native: null,
+        name_alternatives_json: null,
+        name_alternatives_spoiler_json: null,
+        image: null,
+        age: null,
+        gender: null,
+        favourites: null,
+        fetched_at: 0,
+        updated_at: 0,
+      },
+    });
+    expect(vaCreditSubtitle(credit)).toBe('Char Name');
+    expect(vaCreditSubtitle({ ...credit, characterRole: 'MAIN' })).toBe('Char Name (MAIN)');
+    expect(vaCreditSubtitle({ ...credit, character: { ...credit.character, name_full: 'VA Name' } })).toBe(
+      null,
     );
-    expect(vaCreditStaffName).toBeDefined();
-    expect(subtitle).toBe('as Char Name');
   });
 
   it('vaCreditListImage respects mode', () => {
