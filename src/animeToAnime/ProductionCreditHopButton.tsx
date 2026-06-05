@@ -1,4 +1,9 @@
 import type { ProductionCreditRow } from '../lib/importers/anilist/graphQueries';
+import {
+  anilistUrlForStaff,
+  bindAnilistMiddleClick,
+  mergeAnilistLinkClass,
+} from './anilistMiddleClick';
 
 interface Props {
   row: ProductionCreditRow;
@@ -12,9 +17,17 @@ function productionStaffName(row: ProductionCreditRow): string {
 export function ProductionCreditHopButton({ row, onHop }: Props) {
   const name = productionStaffName(row);
   const image = row.staff.image;
+  const anilistLink = bindAnilistMiddleClick(anilistUrlForStaff(row.staff));
 
   return (
-    <button type="button" className="anime-to-anime-hop-btn" onClick={onHop}>
+    <button
+      type="button"
+      className={mergeAnilistLinkClass('anime-to-anime-hop-btn', anilistLink.className)}
+      title={anilistLink.title}
+      onClick={onHop}
+      onMouseDown={anilistLink.onMouseDown}
+      onAuxClick={anilistLink.onAuxClick}
+    >
       {image && (
         <img className="anime-to-anime-hop-image" src={image} alt="" loading="lazy" />
       )}

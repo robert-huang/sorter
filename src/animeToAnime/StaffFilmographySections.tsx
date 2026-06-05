@@ -1,4 +1,5 @@
 import type { AnimeFilmographyRow } from '../lib/importers/anilist/graphQueries';
+import { anilistUrlForStaff, bindAnilistMiddleClick, mergeAnilistLinkClass } from './anilistMiddleClick';
 import { AnimeFilmographyHopButton } from './AnimeFilmographyHopButton';
 
 function partitionFilmography(rows: readonly AnimeFilmographyRow[]): {
@@ -39,6 +40,7 @@ function FilmographyList({
 }
 
 interface Props {
+  staffId: number;
   staffName: string;
   rows: readonly AnimeFilmographyRow[];
   loading: boolean;
@@ -47,6 +49,7 @@ interface Props {
 }
 
 export function StaffFilmographySections({
+  staffId,
   staffName,
   rows,
   loading,
@@ -55,11 +58,20 @@ export function StaffFilmographySections({
 }: Props) {
   const { voice, production } = partitionFilmography(rows);
   const refreshLabel = 'Refresh filmography from AniList';
+  const staffTitleLink = bindAnilistMiddleClick(anilistUrlForStaff({ id: staffId }));
 
   return (
     <>
       <div className="anime-to-anime-staff-heading">
-        <h2 className="anime-to-anime-current-title anime-to-anime-staff-heading-title">
+        <h2
+          className={mergeAnilistLinkClass(
+            'anime-to-anime-current-title anime-to-anime-staff-heading-title',
+            staffTitleLink.className,
+          )}
+          title={staffTitleLink.title}
+          onMouseDown={staffTitleLink.onMouseDown}
+          onAuxClick={staffTitleLink.onAuxClick}
+        >
           {staffName}
         </h2>
         <button

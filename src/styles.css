@@ -1625,10 +1625,10 @@ a {
   width: 68px;
   height: 44px;
   padding: 0;
-  border: 2px solid var(--text-muted);
+  border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--surface);
-  color: var(--text);
+  color: var(--text-muted);
   cursor: pointer;
   transition:
     background 0.15s ease,
@@ -1639,7 +1639,7 @@ a {
 
 .anime-to-anime-swap-btn:hover:not(:disabled) {
   background: var(--surface-hover, var(--bg));
-  border-color: var(--text);
+  border-color: var(--border-strong);
   color: var(--text);
   box-shadow: 0 1px 4px rgb(0 0 0 / 12%);
 }
@@ -1651,8 +1651,8 @@ a {
 
 .anime-to-anime-endpoints-arrow {
   display: block;
-  font-size: 34px;
-  font-weight: 700;
+  font-size: 18px;
+  font-weight: 600;
   line-height: 1;
   user-select: none;
   transition: transform 0.2s ease;
@@ -1727,6 +1727,8 @@ a {
 }
 
 .anime-to-anime-primary-action {
+  display: flex;
+  justify-content: center;
   margin-top: 8px;
 }
 
@@ -2036,6 +2038,15 @@ a {
   font: inherit;
   color: inherit;
   cursor: pointer;
+}
+
+.anime-to-anime-anilist-link {
+  cursor: pointer;
+}
+
+.anime-to-anime-current-title.anime-to-anime-anilist-link {
+  display: block;
+  width: 100%;
 }
 
 .anime-to-anime-hop-btn:hover strong {

@@ -52,6 +52,7 @@ import {
   saveAnimeToAnimeTheme,
   type AnimeToAnimeTheme,
 } from './theme';
+import { bindAnilistMiddleClick, anilistUrlForMedia, mergeAnilistLinkClass } from './anilistMiddleClick';
 import { StaffFilmographySections } from './StaffFilmographySections';
 import { PlayListSectionHeader } from './PlayListSectionHeader';
 import { ProductionCreditHopButton } from './ProductionCreditHopButton';
@@ -401,6 +402,13 @@ export function AnimeToAnimeApp() {
     );
   }, [filmography, filterLower]);
 
+  const currentAnimeAnilistLink = useMemo(() => {
+    if (current?.kind !== 'anime' || !currentMedia) {
+      return null;
+    }
+    return bindAnilistMiddleClick(anilistUrlForMedia(currentMedia));
+  }, [current, currentMedia]);
+
   const onHopToStaff = useCallback((staff: StaffRow) => {
     setPathHistory((prev) => [...prev, staffPathStep(staff)]);
     setCurrent({ kind: 'staff', staffId: staff.id });
@@ -554,25 +562,44 @@ export function AnimeToAnimeApp() {
 
               {loading && <p className="settings-status">Loading…</p>}
 
-              {current?.kind === 'anime' && currentMedia && (
+              {current?.kind === 'anime' && currentMedia && currentAnimeAnilistLink && (
                 <section className="anime-to-anime-play-panel">
-                  <h2 className="anime-to-anime-current-title">{pickMediaTitle(currentMedia)}</h2>
+                  <h2
+                    className={mergeAnilistLinkClass(
+                      'anime-to-anime-current-title',
+                      currentAnimeAnilistLink.className,
+                    )}
+                    title={currentAnimeAnilistLink.title}
+                    onMouseDown={currentAnimeAnilistLink.onMouseDown}
+                    onAuxClick={currentAnimeAnilistLink.onAuxClick}
+                  >
+                    {pickMediaTitle(currentMedia)}
+                  </h2>
                   {activeRoundConfig?.allowRelations && (
                     <>
                       <h3 className="anime-to-anime-subheading">Related anime</h3>
                       <ul className="anilist-detail-cast-list">
-                        {filteredRelations.map((row) => (
+                        {filteredRelations.map((row) => {
+                          const relationLink = bindAnilistMiddleClick(anilistUrlForMedia(row.media));
+                          return (
                           <li key={`${row.media.id}-${row.relationType}`} className="anilist-detail-cast-item">
                             <button
                               type="button"
-                              className="btn link anime-to-anime-hop-btn"
+                              className={mergeAnilistLinkClass(
+                                'btn link anime-to-anime-hop-btn',
+                                relationLink.className,
+                              )}
+                              title={relationLink.title}
                               onClick={() => onHopToAnime(row.media)}
+                              onMouseDown={relationLink.onMouseDown}
+                              onAuxClick={relationLink.onAuxClick}
                             >
                               {pickMediaTitle(row.media)}
                               <span className="anime-to-anime-hop-meta">{row.relationType}</span>
                             </button>
                           </li>
-                        ))}
+                          );
+                        })}
                       </ul>
                     </>
                   )}
@@ -622,6 +649,7 @@ export function AnimeToAnimeApp() {
               {current?.kind === 'staff' && staffHeader && (
                 <section className="anime-to-anime-play-panel">
                   <StaffFilmographySections
+                    staffId={staffHeader.id}
                     staffName={staffHeader.name_full ?? staffHeader.name_native ?? 'Staff'}
                     rows={filteredFilmography}
                     loading={loading}
