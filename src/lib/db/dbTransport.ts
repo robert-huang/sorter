@@ -7,6 +7,7 @@ export interface DbTransport {
   start(onMessage: (data: WorkerMessage) => void): void;
   post(req: RpcRequest): void;
   addEventListener(type: 'error' | 'messageerror', listener: () => void): void;
+  terminate(): void;
 }
 
 export class DedicatedWorkerTransport implements DbTransport {
@@ -31,6 +32,10 @@ export class DedicatedWorkerTransport implements DbTransport {
     listener: () => void,
   ): void {
     this.worker.addEventListener(type, listener);
+  }
+
+  terminate(): void {
+    this.worker.terminate();
   }
 }
 

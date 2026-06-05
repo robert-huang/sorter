@@ -32,6 +32,7 @@ import {
 import { AppNavFab } from '../components/AppNavFab';
 import { AppBannerStack } from '../components/AppBannerStack';
 import { SORTER_HOME_HREF } from '../lib/appRoutes';
+import { useSourceDbSync } from '../hooks/useSourceDbSync';
 import { AnimeToAnimeHeader } from './AnimeToAnimeHeader';
 import { RoundEndpointsRow } from './RoundEndpointsRow';
 import { PathHistoryTrail } from './PathHistoryTrail';
@@ -55,7 +56,17 @@ import { AnimeFilmographyHopButton } from './AnimeFilmographyHopButton';
 import { PlayListSectionHeader } from './PlayListSectionHeader';
 import { ProductionCreditHopButton } from './ProductionCreditHopButton';
 import { VaCreditHopButton } from './VaCreditHopButton';
-import { sortVaCredits, vaCreditStaffName } from './vaCreditDisplay';
+import {
+  groupSortedVaCredits,
+  type GroupedVaCreditRow,
+} from './vaCreditDisplay';
+import {
+  filmographyFilterParts,
+  groupedVaCreditFilterParts,
+  matchesListFilter,
+  mediaRelationFilterParts,
+  productionCreditFilterParts,
+} from './listFilter';
 
 type Node =
   | { kind: 'anime'; mediaId: number }
@@ -81,6 +92,7 @@ function staffPathStep(staff: StaffRow): PathStep {
 
 export function AnimeToAnimeApp() {
   const importCtx = useRef(makeAnilistImportContext());
+  const dbSync = useSourceDbSync();
   const [theme, setTheme] = useState<AnimeToAnimeTheme>(loadAnimeToAnimeTheme);
   const [vaListImageMode, setVaListImageMode] = useState<VaListImageMode>(loadVaListImageMode);
   const [ready, setReady] = useState(false);
@@ -95,7 +107,7 @@ export function AnimeToAnimeApp() {
   const [activeRoundConfig, setActiveRoundConfig] = useState<RoundConfig | null>(null);
   const [phase, setPhase] = useState<'setup' | 'play' | 'won'>('setup');
   const [current, setCurrent] = useState<Node | null>(null);
-  const [animeHops, setAnimeHops] = useState(0);
+  const [linksUsed, setLinksUsed] = useState(0);
   const [pathHistory, setPathHistory] = useState<PathStep[]>([]);
   const [filter, setFilter] = useState('');
   const [loading, setLoading] = useState(false);
@@ -187,7 +199,7 @@ export function AnimeToAnimeApp() {
     setStaffHeader(null);
     setCurrentMedia(null);
     setCurrent({ kind: 'anime', mediaId: start.id });
-    setAnimeHops(0);
+    setLinksUsed(0);
     setPathHistory([animePathStep(start)]);
   }, []);
 
@@ -242,7 +254,7 @@ export function AnimeToAnimeApp() {
     setActiveRoundConfig(null);
     setCurrent(null);
     setPathHistory([]);
-    setAnimeHops(0);
+    setLinksUsed(0);
     setFilter('');
     setError(null);
   }, []);
@@ -351,51 +363,42 @@ export function AnimeToAnimeApp() {
 
   const filterLower = filter.trim().toLowerCase();
 
+  const groupedVa = useMemo(() => groupSortedVaCredits(vaCredits), [vaCredits]);
+
   const filteredVa = useMemo(() => {
-    const sorted = sortVaCredits(vaCredits);
     if (!filterLower) {
-      return sorted;
+      return groupedVa;
     }
-    return sorted.filter((row) => {
-      const va = vaCreditStaffName(row);
-      const ch = row.character.name_full ?? row.character.name_native ?? '';
-      const role = row.characterRole ?? '';
-      return (
-        va.toLowerCase().includes(filterLower) ||
-        ch.toLowerCase().includes(filterLower) ||
-        role.toLowerCase().includes(filterLower)
-      );
-    });
-  }, [vaCredits, filterLower]);
+    return groupedVa.filter((group) =>
+      matchesListFilter(groupedVaCreditFilterParts(group), filterLower),
+    );
+  }, [groupedVa, filterLower]);
 
   const filteredProd = useMemo(() => {
-    if (!filterLower) return productionCredits;
-    return productionCredits.filter((row) => {
-      const name = row.staff.name_full ?? row.staff.name_native ?? '';
-      return name.toLowerCase().includes(filterLower) || row.role.toLowerCase().includes(filterLower);
-    });
+    if (!filterLower) {
+      return productionCredits;
+    }
+    return productionCredits.filter((row) =>
+      matchesListFilter(productionCreditFilterParts(row), filterLower),
+    );
   }, [productionCredits, filterLower]);
 
   const filteredRelations = useMemo(() => {
-    if (!filterLower) return relations;
-    return relations.filter((row) => {
-      const label = pickMediaTitle(row.media);
-      return (
-        label.toLowerCase().includes(filterLower) ||
-        row.relationType.toLowerCase().includes(filterLower)
-      );
-    });
+    if (!filterLower) {
+      return relations;
+    }
+    return relations.filter((row) =>
+      matchesListFilter(mediaRelationFilterParts(row), filterLower),
+    );
   }, [relations, filterLower]);
 
   const filteredFilmography = useMemo(() => {
-    if (!filterLower) return filmography;
-    return filmography.filter((row) => {
-      const label = pickMediaTitle(row.media);
-      return (
-        label.toLowerCase().includes(filterLower) ||
-        row.roles.some((role) => role.toLowerCase().includes(filterLower))
-      );
-    });
+    if (!filterLower) {
+      return filmography;
+    }
+    return filmography.filter((row) =>
+      matchesListFilter(filmographyFilterParts(row), filterLower),
+    );
   }, [filmography, filterLower]);
 
   const onHopToStaff = useCallback((staff: StaffRow) => {
@@ -405,10 +408,13 @@ export function AnimeToAnimeApp() {
 
   const onHopToAnime = useCallback(
     (media: MediaRow) => {
-      setAnimeHops((h) => h + 1);
+      const reachedGoal = goalMedia !== null && media.id === goalMedia.id;
+      if (!reachedGoal) {
+        setLinksUsed((count) => count + 1);
+      }
       setPathHistory((prev) => [...prev, animePathStep(media)]);
       setCurrent({ kind: 'anime', mediaId: media.id });
-      if (goalMedia && media.id === goalMedia.id) {
+      if (reachedGoal) {
         setPhase('won');
       }
     },
@@ -447,6 +453,7 @@ export function AnimeToAnimeApp() {
         theme={theme}
         vaListImageMode={vaListImageMode}
         roundConfig={roundConfig}
+        dbSync={dbSync}
         onToggleTheme={onToggleTheme}
         onVaListImageModeChange={onVaListImageModeChange}
         onRoundConfigChange={onRoundConfigChange}
@@ -508,7 +515,7 @@ export function AnimeToAnimeApp() {
             phase={phase === 'won' ? 'won' : 'play'}
             startMedia={startMedia}
             goalMedia={goalMedia}
-            animeHops={animeHops}
+            linksUsed={linksUsed}
             swapDisabled={endpointsSwapDisabled}
             onRandomStart={() => void randomizeEndpoint('start')}
             onRandomGoal={() => void randomizeEndpoint('goal')}
@@ -523,7 +530,7 @@ export function AnimeToAnimeApp() {
             <WinScreen
               startMedia={startMedia}
               goalMedia={goalMedia}
-              animeHops={animeHops}
+              linksUsed={linksUsed}
               pathHistory={pathHistory}
               onPlayAgain={onPlayAgain}
             />
@@ -576,15 +583,15 @@ export function AnimeToAnimeApp() {
                     refreshLabel="Refresh cast from AniList"
                   />
                   <ul className="anime-to-anime-hop-list">
-                    {filteredVa.map((row) => (
+                    {filteredVa.map((group: GroupedVaCreditRow) => (
                       <li
-                        key={`${row.staff.id}-${row.character.id}`}
+                        key={group.staff.id}
                         className="anime-to-anime-hop-list-item"
                       >
                         <VaCreditHopButton
-                          row={row}
+                          group={group}
                           vaListImageMode={vaListImageMode}
-                          onHop={() => onHopToStaff(row.staff)}
+                          onHop={() => onHopToStaff(group.staff)}
                         />
                       </li>
                     ))}
@@ -597,7 +604,7 @@ export function AnimeToAnimeApp() {
                       <ul className="anime-to-anime-hop-list">
                         {filteredProd.map((row) => (
                           <li
-                            key={`${row.staff.id}-${row.role}`}
+                            key={row.staff.id}
                             className="anime-to-anime-hop-list-item"
                           >
                             <ProductionCreditHopButton

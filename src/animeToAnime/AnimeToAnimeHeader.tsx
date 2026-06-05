@@ -1,4 +1,5 @@
 import { AnimeToAnimeSettingsMenu } from './AnimeToAnimeSettingsMenu';
+import type { SourceDbSyncControls } from '../hooks/useSourceDbSync';
 import type { RoundConfig, VaListImageMode } from './preferences';
 import type { AnimeToAnimeTheme } from './theme';
 
@@ -6,6 +7,7 @@ interface Props {
   theme: AnimeToAnimeTheme;
   vaListImageMode: VaListImageMode;
   roundConfig: RoundConfig;
+  dbSync: SourceDbSyncControls;
   onToggleTheme: () => void;
   onVaListImageModeChange: (mode: VaListImageMode) => void;
   onRoundConfigChange: (patch: Partial<RoundConfig>) => void;
@@ -17,6 +19,7 @@ export function AnimeToAnimeHeader({
   theme,
   vaListImageMode,
   roundConfig,
+  dbSync,
   onToggleTheme,
   onVaListImageModeChange,
   onRoundConfigChange,
@@ -57,6 +60,7 @@ export function AnimeToAnimeHeader({
           onVaListImageModeChange={onVaListImageModeChange}
           roundConfig={roundConfig}
           onRoundConfigChange={onRoundConfigChange}
+          dbSync={dbSync}
         />
       </div>
     </header>

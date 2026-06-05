@@ -20,7 +20,9 @@ export function ProductionCreditHopButton({ row, onHop }: Props) {
       )}
       <span className="anilist-detail-cast-text">
         <strong>{name}</strong>
-        {row.role && <span className="anime-to-anime-hop-meta">{row.role}</span>}
+        {row.roles.length > 0 && (
+          <span className="anime-to-anime-hop-meta">{row.roles.join(', ')}</span>
+        )}
       </span>
     </button>
   );

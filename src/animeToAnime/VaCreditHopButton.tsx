@@ -1,20 +1,21 @@
-import type { VaCreditRow } from '../lib/importers/anilist/graphQueries';
 import type { VaListImageMode } from './preferences';
 import {
+  groupedVaCreditSubtitle,
   vaCreditListImage,
-  vaCreditStaffName,
-  vaCreditSubtitle,
+  vaCreditStaffNameFromStaff,
+  type GroupedVaCreditRow,
 } from './vaCreditDisplay';
 
 interface Props {
-  row: VaCreditRow;
+  group: GroupedVaCreditRow;
   vaListImageMode: VaListImageMode;
   onHop: () => void;
 }
 
-export function VaCreditHopButton({ row, vaListImageMode, onHop }: Props) {
-  const image = vaCreditListImage(row, vaListImageMode);
-  const subtitle = vaCreditSubtitle(row);
+export function VaCreditHopButton({ group, vaListImageMode, onHop }: Props) {
+  const primaryCredit = group.credits[0];
+  const image = vaCreditListImage(primaryCredit, vaListImageMode);
+  const subtitle = groupedVaCreditSubtitle(group);
 
   return (
     <button type="button" className="anime-to-anime-hop-btn" onClick={onHop}>
@@ -22,7 +23,7 @@ export function VaCreditHopButton({ row, vaListImageMode, onHop }: Props) {
         <img className="anime-to-anime-hop-image" src={image} alt="" loading="lazy" />
       )}
       <span className="anilist-detail-cast-text">
-        <strong>{vaCreditStaffName(row)}</strong>
+        <strong>{vaCreditStaffNameFromStaff(group.staff)}</strong>
         {subtitle && <span className="anime-to-anime-hop-meta">{subtitle}</span>}
       </span>
     </button>

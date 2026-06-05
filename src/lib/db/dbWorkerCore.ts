@@ -18,6 +18,7 @@ import {
 import { pullMerge, peekRemoteSchemaVersion } from './merge';
 import { canUseOpfsSahPool, describeOpfsBlockedReason } from './opfs';
 import type { StorageMode } from './opfs';
+import { OPFS_INIT_MAX_ATTEMPTS, withOpfsInstallRetry } from './opfsInstallRetry';
 import { locateSqliteFile } from './sqliteLocateFile';
 import type { DbRow, RpcReply, RpcRequest, WorkerReadyMessage } from './rpc';
 import { getSource } from './source-registry';
@@ -76,13 +77,8 @@ function formatError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-async function initOpfsStorage(s3: Sqlite3Static): Promise<boolean> {
-  if (!canUseOpfsSahPool()) {
-    storageHint = describeOpfsBlockedReason();
-    console.warn('[db worker]', storageHint);
-    return false;
-  }
-
+async function tryInstallOpfsOnce(s3: Sqlite3Static): Promise<boolean> {
+  sahPool = null;
   try {
     sahPool = await s3.installOpfsSAHPoolVfs({
       name: OPFS_SAH_POOL_VFS,
@@ -108,6 +104,34 @@ async function initOpfsStorage(s3: Sqlite3Static): Promise<boolean> {
       `OPFS install failed (${message}). If another Sorter tab is open, close it and reload — ` +
       `only one page at a time can hold the OPFS SAH pool.`;
     return false;
+  }
+}
+
+async function initOpfsStorage(s3: Sqlite3Static): Promise<boolean> {
+  if (!canUseOpfsSahPool()) {
+    storageHint = describeOpfsBlockedReason();
+    console.warn('[db worker]', storageHint);
+    return false;
+  }
+
+  let attempt = 0;
+  const installed = await withOpfsInstallRetry(async () => {
+    attempt += 1;
+    if (attempt > 1) {
+      console.warn(
+        `[db worker] OPFS pool busy (likely another page releasing it), retry ${attempt}/${OPFS_INIT_MAX_ATTEMPTS}…`,
+      );
+    }
+    return tryInstallOpfsOnce(s3);
+  });
+
+  return installed;
+}
+
+/** Close all open DB handles so OPFS sync access handles are released before worker termination. */
+export function shutdownDbWorker(): void {
+  for (const sourceId of [...dbs.keys()]) {
+    closeDb(sourceId);
   }
 }
 
@@ -365,6 +389,9 @@ async function handleRpc(req: RpcRequest): Promise<unknown> {
     }
     case 'peekRemoteSchemaVersion':
       return peekRemoteSchemaVersion(s3, req.args.remoteBytes);
+    case 'shutdown':
+      shutdownDbWorker();
+      return undefined;
     default: {
       const _exhaustive: never = req;
       throw new Error(`Unknown RPC type: ${(_exhaustive as RpcRequest).type}`);
@@ -402,6 +429,10 @@ function isRpcRequest(data: unknown): data is RpcRequest {
 export function queueRpc(req: RpcRequest, post: WorkerPost): void {
   if (!isRpcRequest(req)) {
     console.warn('[db worker] Ignoring invalid RPC message');
+    return;
+  }
+  if (req.type === 'shutdown') {
+    shutdownDbWorker();
     return;
   }
   if (!workerInitComplete) {

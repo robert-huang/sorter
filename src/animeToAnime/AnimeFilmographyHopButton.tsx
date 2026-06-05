@@ -26,7 +26,9 @@ export function AnimeFilmographyHopButton({ row, onHop }: Props) {
             </ul>
           )
         ) : (
-          row.roles[0] && <span className="anime-to-anime-hop-meta">{row.roles[0]}</span>
+          row.roles.length > 0 && (
+            <span className="anime-to-anime-hop-meta">{row.roles.join(', ')}</span>
+          )
         )}
       </span>
     </button>

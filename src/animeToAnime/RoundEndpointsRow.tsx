@@ -8,7 +8,7 @@ interface Props {
   phase: 'setup' | 'play' | 'won';
   startMedia: MediaRow | null;
   goalMedia: MediaRow | null;
-  animeHops?: number;
+  linksUsed?: number;
   swapDisabled: boolean;
   importCtx?: AnilistImportContext;
   onSelectStart?: (media: MediaRow) => void;
@@ -77,7 +77,7 @@ export function RoundEndpointsRow({
   phase,
   startMedia,
   goalMedia,
-  animeHops,
+  linksUsed,
   swapDisabled,
   importCtx,
   onSelectStart,
@@ -129,7 +129,7 @@ export function RoundEndpointsRow({
         )}
       </div>
       {showHops && (
-        <p className="anime-to-anime-hops">Anime hops: {animeHops ?? 0}</p>
+        <p className="anime-to-anime-hops">Links used: {linksUsed ?? 0}</p>
       )}
     </div>
   );

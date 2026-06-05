@@ -2,6 +2,7 @@
  * Read paths for anime-to-anime adjacency and sorter graph UI.
  */
 
+import { formatCharacterCastCredit } from './castRoleDisplay';
 import type { AnilistDbExecutor, SqlBindable } from './context';
 import { compareMediaByReleaseDateDesc } from './mediaSort';
 import { filterProductionStaffRows } from './staffRoleFilter';
@@ -136,7 +137,7 @@ export const VA_CREDITS_ORDER_BY = `
 
 export type ProductionCreditRow = {
   staff: StaffRow;
-  role: string;
+  roles: readonly string[];
 };
 
 export type AnimeFilmographyCreditKind = 'voice' | 'production';
@@ -157,6 +158,59 @@ function sortFilmographyByReleaseDate(
   return [...rows]
     .sort((a, b) => compareMediaByReleaseDateDesc(a.media, b.media))
     .map((row) => ({ ...row, creditKind }));
+}
+
+function groupProductionCreditsByStaff(
+  rows: readonly { staff: StaffRow; role: string }[],
+): ProductionCreditRow[] {
+  const order: number[] = [];
+  const byId = new Map<number, { staff: StaffRow; roles: string[] }>();
+
+  for (const row of rows) {
+    let entry = byId.get(row.staff.id);
+    if (!entry) {
+      entry = { staff: row.staff, roles: [] };
+      byId.set(row.staff.id, entry);
+      order.push(row.staff.id);
+    }
+    if (!entry.roles.includes(row.role)) {
+      entry.roles.push(row.role);
+    }
+  }
+
+  return order.map((id) => {
+    const entry = byId.get(id)!;
+    return {
+      staff: entry.staff,
+      roles: [...entry.roles].sort((a, b) => a.localeCompare(b)),
+    };
+  });
+}
+
+function groupVoiceFilmographyByMedia(
+  rows: AnimeFilmographyRowCore[],
+): AnimeFilmographyRowCore[] {
+  const order: number[] = [];
+  const byId = new Map<number, { media: MediaRow; roles: string[] }>();
+
+  for (const row of rows) {
+    let entry = byId.get(row.media.id);
+    if (!entry) {
+      entry = { media: row.media, roles: [] };
+      byId.set(row.media.id, entry);
+      order.push(row.media.id);
+    }
+    for (const role of row.roles) {
+      if (!entry.roles.includes(role)) {
+        entry.roles.push(role);
+      }
+    }
+  }
+
+  return order.map((id) => {
+    const entry = byId.get(id)!;
+    return { media: entry.media, roles: entry.roles };
+  });
 }
 
 function groupProductionFilmographyByMedia(
@@ -265,18 +319,7 @@ export async function getProductionCreditsAtMedia(
     staff: rowToStaffRow(r),
     role: reqS(r.role),
   }));
-  return filterProductionStaffRows(mapped, roleMode);
-}
-
-function formatVoiceFilmographyRole(
-  characterName: string | null,
-  characterRole: string | null,
-): string {
-  const name = characterName?.trim() || 'Character';
-  if (characterRole) {
-    return `as ${name} (${characterRole})`;
-  }
-  return `as ${name}`;
+  return groupProductionCreditsByStaff(filterProductionStaffRows(mapped, roleMode));
 }
 
 async function getVoiceAnimeFilmographyForStaff(
@@ -300,13 +343,34 @@ async function getVoiceAnimeFilmographyForStaff(
     `,
     [staffId],
   );
-  return rows.map((r) => {
+  const perCharacter = rows.map((r) => {
     const characterName = s(r.ch_name_full) ?? s(r.ch_name_native);
     return {
       media: rowToMediaRow(r),
-      roles: [formatVoiceFilmographyRole(characterName, s(r.character_role))],
+      roles: [formatCharacterCastCredit(characterName, s(r.character_role))],
+      sortOrder: Number(r.character_sort_order ?? 0),
+      roleKey: vaCreditRoleSortKeyFromDb(s(r.character_role)),
     };
   });
+  perCharacter.sort((a, b) => {
+    if (a.roleKey !== b.roleKey) {
+      return a.roleKey - b.roleKey;
+    }
+    if (a.sortOrder !== b.sortOrder) {
+      return a.sortOrder - b.sortOrder;
+    }
+    return a.roles[0].localeCompare(b.roles[0]);
+  });
+  return groupVoiceFilmographyByMedia(
+    perCharacter.map(({ media, roles }) => ({ media, roles })),
+  );
+}
+
+function vaCreditRoleSortKeyFromDb(role: string | null): number {
+  if (role === 'MAIN') return 0;
+  if (role === 'SUPPORTING') return 1;
+  if (role === 'BACKGROUND') return 2;
+  return 3;
 }
 
 async function getProductionAnimeFilmographyForStaff(

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AnilistImportContext } from '../lib/importers/anilist/context';
+import { buildAnilistMediaUrl } from '../lib/importers/anilist/anilistSource';
 import { searchAnimeInCache } from '../lib/importers/anilist/graphQueries';
 import {
   fetchAnimeById,
@@ -121,75 +122,107 @@ export function EndpointPicker({
     }
   };
 
+  const onPreviewMouseDown = (event: React.MouseEvent) => {
+    if (event.button === 1 && media) {
+      event.preventDefault();
+    }
+  };
+
+  const onPreviewAuxClick = (event: React.MouseEvent) => {
+    if (event.button !== 1 || !media) {
+      return;
+    }
+    event.preventDefault();
+    window.open(buildAnilistMediaUrl(media.type, media.id), '_blank', 'noopener,noreferrer');
+  };
+
   const busy = disabled || apiLoading;
+  const previewTitle = media ? pickMediaTitle(media) : '—';
 
   return (
     <section className="page-section anime-to-anime-endpoint-card">
-      <h2 className="anime-to-anime-section-title">{label}</h2>
-      {media?.cover_image && (
-        <img src={media.cover_image} alt="" className="anime-to-anime-endpoint-cover" />
-      )}
-      <p className="anime-to-anime-endpoint-value">{media ? pickMediaTitle(media) : '—'}</p>
-
-      <div className="anime-to-anime-actions">
-        <button type="button" className="btn small" disabled={busy} onClick={onRandomFromCache}>
-          Random from cache
-        </button>
-        <button type="button" className="btn small" disabled={busy} onClick={() => void onRandomApi()}>
-          Random from AniList
-        </button>
+      <div className="anime-to-anime-endpoint-header">
+        <h2 className="anime-to-anime-section-title">{label}</h2>
+        <div className="anime-to-anime-endpoint-header-actions">
+          <button type="button" className="btn small" disabled={busy} onClick={onRandomFromCache}>
+            Random from cache
+          </button>
+          <button
+            type="button"
+            className="btn small"
+            disabled={busy}
+            onClick={() => void onRandomApi()}
+          >
+            Random from AniList
+          </button>
+        </div>
       </div>
 
-      <div className="anime-to-anime-endpoint-search">
-        <label className="anime-to-anime-endpoint-search-label">
-          Search
-          <input
-            type="search"
-            className="slot-search"
-            placeholder="Title in cache or AniList…"
-            value={searchQuery}
-            disabled={busy}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </label>
-        {searchLoading && <p className="settings-status">Searching…</p>}
-        {searchResults.length > 0 && (
-          <ul className="anime-to-anime-endpoint-results">
-            {searchResults.map((row) => (
-              <li key={row.id}>
-                <button
-                  type="button"
-                  className="btn link anime-to-anime-endpoint-result-btn"
-                  disabled={busy}
-                  onClick={() => {
-                    onSelect(row);
-                    setSearchQuery('');
-                    setSearchResults([]);
-                  }}
-                >
-                  {pickMediaTitle(row)}
-                </button>
-              </li>
-            ))}
-          </ul>
+      <div className="anime-to-anime-endpoint-inputs">
+        <div className="anime-to-anime-endpoint-search">
+          <label className="anime-to-anime-endpoint-search-label">
+            Search
+            <input
+              type="search"
+              className="slot-search"
+              placeholder="Title in cache or AniList…"
+              value={searchQuery}
+              disabled={busy}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </label>
+          {searchLoading && <p className="settings-status">Searching…</p>}
+          {searchResults.length > 0 && (
+            <ul className="anime-to-anime-endpoint-results">
+              {searchResults.map((row) => (
+                <li key={row.id}>
+                  <button
+                    type="button"
+                    className="btn link anime-to-anime-endpoint-result-btn"
+                    disabled={busy}
+                    onClick={() => {
+                      onSelect(row);
+                      setSearchQuery('');
+                      setSearchResults([]);
+                    }}
+                  >
+                    {pickMediaTitle(row)}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="anime-to-anime-endpoint-id">
+          <span className="anime-to-anime-endpoint-id-label">AniList ID</span>
+          <div className="anime-to-anime-endpoint-id-row">
+            <input
+              type="number"
+              className="slot-search"
+              min={1}
+              value={anilistId}
+              disabled={busy}
+              onChange={(e) => setAnilistId(e.target.value)}
+              aria-label="AniList ID"
+            />
+            <button type="button" className="btn small" disabled={busy} onClick={() => void onLoadById()}>
+              Load
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div
+        className={`anime-to-anime-endpoint-preview${media ? ' anime-to-anime-endpoint-preview--linked' : ''}`}
+        title={media ? 'Middle-click to open on AniList' : undefined}
+        onMouseDown={onPreviewMouseDown}
+        onAuxClick={onPreviewAuxClick}
+      >
+        {media?.cover_image && (
+          <img src={media.cover_image} alt="" className="anime-to-anime-endpoint-cover" />
         )}
-      </div>
-
-      <div className="anime-to-anime-endpoint-id">
-        <label className="anime-to-anime-endpoint-search-label">
-          AniList ID
-          <input
-            type="number"
-            className="slot-search"
-            min={1}
-            value={anilistId}
-            disabled={busy}
-            onChange={(e) => setAnilistId(e.target.value)}
-          />
-        </label>
-        <button type="button" className="btn small" disabled={busy} onClick={() => void onLoadById()}>
-          Load
-        </button>
+        <p className="anime-to-anime-endpoint-value">{previewTitle}</p>
       </div>
     </section>
   );

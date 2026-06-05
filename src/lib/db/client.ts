@@ -2,13 +2,14 @@ import { ensureAnilistSourceRegistered } from '../importers/anilist/anilistSourc
 import { createDbTransport, type DbTransport } from './dbTransport';
 import { emitNonPersistentEvent } from './opfs';
 import type { StorageMode } from './opfs';
-import type { DbRow, RpcReply, RpcRequest, SqlParam, WorkerReadyMessage } from './rpc';
+import type { DbRow, RpcReply, RpcRequest, RpcRequestBody, SqlParam, WorkerReadyMessage } from './rpc';
 import { ensureTestSourceRegistered } from './testSource';
 
 ensureTestSourceRegistered();
 ensureAnilistSourceRegistered();
 
 const WORKER_DIED_MESSAGE = 'Worker died; retry your operation';
+const OPFS_LOCK_NAME = 'sorter-opfs';
 
 let transport: DbTransport | null = null;
 let nextId = 0;
@@ -22,11 +23,48 @@ let lastStorageHint: string | undefined;
 let transportEpoch = 0;
 let nonPersistentEventSent = false;
 
+let releaseOpfsLock: (() => void) | undefined;
+let opfsLockAcquired = false;
+let opfsLockAcquiredPromise: Promise<void> | null = null;
+
 function rejectAllPending(reason: Error): void {
   for (const [, handlers] of pending) {
     handlers.reject(reason);
   }
   pending.clear();
+}
+
+function releaseOpfsLockIfHeld(): void {
+  releaseOpfsLock?.();
+  releaseOpfsLock = undefined;
+  opfsLockAcquired = false;
+  opfsLockAcquiredPromise = null;
+}
+
+async function acquireOpfsLock(): Promise<void> {
+  if (opfsLockAcquired) {
+    return;
+  }
+  if (opfsLockAcquiredPromise) {
+    return opfsLockAcquiredPromise;
+  }
+
+  if (typeof navigator === 'undefined' || !navigator.locks?.request) {
+    opfsLockAcquired = true;
+    return;
+  }
+
+  opfsLockAcquiredPromise = new Promise<void>((resolveAcquired) => {
+    void navigator.locks.request(OPFS_LOCK_NAME, () => {
+      return new Promise<void>((release) => {
+        releaseOpfsLock = release;
+        opfsLockAcquired = true;
+        resolveAcquired();
+      });
+    });
+  });
+
+  return opfsLockAcquiredPromise;
 }
 
 function onWorkerDeath(): void {
@@ -51,7 +89,7 @@ function handleTransportMessage(data: RpcReply | WorkerReadyMessage): void {
     handlers.resolve(reply.result);
   } else {
     const err = new Error(reply.error.message) as Error & { code?: string };
-    if (reply.error.code) {
+    if (err.code) {
       err.code = reply.error.code;
     }
     handlers.reject(err);
@@ -100,13 +138,36 @@ function getTransport(): DbTransport {
   return transport;
 }
 
-async function waitForWorkerReady(): Promise<StorageMode> {
+async function ensureTransportReady(): Promise<StorageMode> {
+  await acquireOpfsLock();
   getTransport();
   return workerReady!;
 }
 
-async function rpc<T>(req: Omit<RpcRequest, 'id'>): Promise<T> {
-  await waitForWorkerReady();
+/** Release OPFS lock and terminate the worker (call on pagehide). */
+export function shutdownDbTransport(): void {
+  if (transport) {
+    try {
+      transport.post({ id: 0, type: 'shutdown' });
+    } catch {
+      // Worker may already be gone.
+    }
+    transport.terminate();
+    transport = null;
+  }
+  workerReady = null;
+  releaseOpfsLockIfHeld();
+  rejectAllPending(new Error(WORKER_DIED_MESSAGE));
+  nonPersistentEventSent = false;
+}
+
+/** Reset after bfcache restore so the next DB call spawns a fresh worker. */
+export function resetDbTransport(): void {
+  shutdownDbTransport();
+}
+
+async function rpc<T>(req: RpcRequestBody): Promise<T> {
+  await ensureTransportReady();
   const id = ++nextId;
   return new Promise<T>((resolve, reject) => {
     pending.set(id, {
@@ -131,7 +192,7 @@ export function getLastStorageHint(): string | undefined {
 export async function openSourceDb(
   sourceId: string,
 ): Promise<{ schemaVersion: number; storageMode: StorageMode; storageHint?: string }> {
-  const storageMode = await waitForWorkerReady();
+  const storageMode = await ensureTransportReady();
   const schemaVersion = await rpc<number>({ type: 'open', args: { sourceId } });
   maybeEmitNonPersistent(storageMode);
   return { schemaVersion, storageMode, storageHint: lastStorageHint };

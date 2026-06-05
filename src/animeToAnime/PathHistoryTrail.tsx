@@ -5,7 +5,7 @@ interface Props {
 }
 
 function StepCircle({ step, isCurrent }: { step: PathStep; isCurrent: boolean }) {
-  const image = step.kind === 'anime' ? step.coverImage : step.image;
+  const imageSrc = step.kind === 'anime' ? step.coverImage : step.image;
   const label = step.kind === 'anime' ? step.title : step.name;
   const initial = label.trim().charAt(0).toUpperCase() || '?';
 
@@ -14,8 +14,8 @@ function StepCircle({ step, isCurrent }: { step: PathStep; isCurrent: boolean })
       className={`anime-to-anime-path-step${isCurrent ? ' anime-to-anime-path-step--current' : ''}`}
       title={label}
     >
-      {image ? (
-        <img src={image} alt="" className="anime-to-anime-path-step-img" />
+      {imageSrc ? (
+        <img src={imageSrc} alt="" className="anime-to-anime-path-step-img" />
       ) : (
         <span className="anime-to-anime-path-step-initial" aria-hidden="true">
           {initial}

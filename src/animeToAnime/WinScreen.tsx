@@ -6,7 +6,7 @@ import { formatPathSummary, type PathStep } from './pathHistory';
 interface Props {
   startMedia: MediaRow;
   goalMedia: MediaRow;
-  animeHops: number;
+  linksUsed: number;
   pathHistory: readonly PathStep[];
   onPlayAgain: () => void;
 }
@@ -14,7 +14,7 @@ interface Props {
 function buildSummaryCopyText(
   startMedia: MediaRow,
   goalMedia: MediaRow,
-  animeHops: number,
+  linksUsed: number,
   pathHistory: readonly PathStep[],
   pageUrl: string,
 ): string {
@@ -23,13 +23,13 @@ function buildSummaryCopyText(
   const pathLine =
     pathHistory.length > 1 ? `\n${formatPathSummary(pathHistory)}` : '';
   const urlLine = pageUrl ? `\n${pageUrl}` : '';
-  return `Anime to Anime: ${start} → ${goal} in ${animeHops} anime hop${animeHops === 1 ? '' : 's'}${pathLine}${urlLine}`;
+  return `Anime to Anime: ${start} → ${goal} in ${linksUsed} link${linksUsed === 1 ? '' : 's'} used${pathLine}${urlLine}`;
 }
 
 export function WinScreen({
   startMedia,
   goalMedia,
-  animeHops,
+  linksUsed,
   pathHistory,
   onPlayAgain,
 }: Props) {
@@ -37,7 +37,7 @@ export function WinScreen({
     const summaryText = buildSummaryCopyText(
       startMedia,
       goalMedia,
-      animeHops,
+      linksUsed,
       pathHistory,
       currentPageUrl(),
     );
@@ -53,7 +53,7 @@ export function WinScreen({
         <strong>{pickMediaTitle(goalMedia)}</strong>
       </p>
       <p className="anime-to-anime-win-hops">
-        Anime hops: <strong>{animeHops}</strong>
+        Links used: <strong>{linksUsed}</strong>
       </p>
       {pathHistory.length > 1 && (
         <p className="anime-to-anime-win-path">{formatPathSummary(pathHistory)}</p>

@@ -14,7 +14,22 @@ export type RpcRequest =
   | { id: number; type: 'exportBytes'; args: { sourceId: string } }
   | { id: number; type: 'importBytes'; args: { sourceId: string; bytes: Uint8Array } }
   | { id: number; type: 'currentSchemaVersion'; args: { sourceId: string } }
-  | { id: number; type: 'peekRemoteSchemaVersion'; args: { remoteBytes: Uint8Array } };
+  | { id: number; type: 'peekRemoteSchemaVersion'; args: { remoteBytes: Uint8Array } }
+  | { id: number; type: 'shutdown' };
+
+export type RpcRequestBody =
+  | { type: 'open'; args: { sourceId: string } }
+  | { type: 'exec'; args: { sourceId: string; sql: string; params?: SqlParam[] } }
+  | {
+      type: 'execBatch';
+      args: { sourceId: string; statements: Array<{ sql: string; params?: SqlParam[] }> };
+    }
+  | { type: 'pullMerge'; args: { sourceId: string; remoteBytes: Uint8Array } }
+  | { type: 'exportBytes'; args: { sourceId: string } }
+  | { type: 'importBytes'; args: { sourceId: string; bytes: Uint8Array } }
+  | { type: 'currentSchemaVersion'; args: { sourceId: string } }
+  | { type: 'peekRemoteSchemaVersion'; args: { remoteBytes: Uint8Array } }
+  | { type: 'shutdown' };
 
 export type RpcReply =
   | { id: number; ok: true; result: unknown }

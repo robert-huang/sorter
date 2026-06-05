@@ -1,5 +1,6 @@
 import type { VaCreditRow } from '../lib/importers/anilist/graphQueries';
 import type { AnilistCharacterRole } from '../lib/importers/anilist/types';
+import { formatCharacterCastCredit } from '../lib/importers/anilist/castRoleDisplay';
 import type { VaListImageMode } from './preferences';
 
 const CHARACTER_ROLE_ORDER: Record<AnilistCharacterRole, number> = {
@@ -38,9 +39,37 @@ export function sortVaCredits(rows: VaCreditRow[]): VaCreditRow[] {
   return [...rows].sort(compareVaCredits);
 }
 
-export function vaCreditStaffName(row: VaCreditRow): string {
-  return row.staff.name_full ?? row.staff.name_native ?? `Staff #${row.staff.id}`;
+/** One list row per voice actor; multiple characters on the same show are merged. */
+export function groupSortedVaCredits(rows: VaCreditRow[]): GroupedVaCreditRow[] {
+  const sorted = sortVaCredits(rows);
+  const order: number[] = [];
+  const byStaffId = new Map<number, GroupedVaCreditRow>();
+
+  for (const row of sorted) {
+    let group = byStaffId.get(row.staff.id);
+    if (!group) {
+      group = { staff: row.staff, credits: [] };
+      byStaffId.set(row.staff.id, group);
+      order.push(row.staff.id);
+    }
+    group.credits.push(row);
+  }
+
+  return order.map((id) => byStaffId.get(id)!);
 }
+
+export function vaCreditStaffName(row: VaCreditRow): string {
+  return vaCreditStaffNameFromStaff(row.staff);
+}
+
+export function vaCreditStaffNameFromStaff(staff: VaCreditRow['staff']): string {
+  return staff.name_full ?? staff.name_native ?? `Staff #${staff.id}`;
+}
+
+export type GroupedVaCreditRow = {
+  staff: VaCreditRow['staff'];
+  credits: VaCreditRow[];
+};
 
 export function vaCreditCharacterName(row: VaCreditRow): string {
   return row.character.name_full ?? row.character.name_native ?? `Character #${row.character.id}`;
@@ -50,14 +79,21 @@ export function vaCreditCharacterName(row: VaCreditRow): string {
 export function vaCreditSubtitle(row: VaCreditRow): string | null {
   const staffName = vaCreditStaffName(row);
   const characterName = vaCreditCharacterName(row);
-  const parts: string[] = [];
-  if (characterName !== staffName) {
-    parts.push(`as ${characterName}`);
+  if (characterName === staffName) {
+    return null;
   }
-  if (row.characterRole) {
-    parts.push(row.characterRole);
+  return formatCharacterCastCredit(characterName, row.characterRole);
+}
+
+/** Comma-separated character credits for a grouped voice-actor row. */
+export function groupedVaCreditSubtitle(group: GroupedVaCreditRow): string | null {
+  const lines = group.credits
+    .map((row) => vaCreditSubtitle(row))
+    .filter((line): line is string => line !== null);
+  if (lines.length === 0) {
+    return null;
   }
-  return parts.length > 0 ? parts.join(' · ') : null;
+  return lines.join(', ');
 }
 
 export function vaCreditListImage(row: VaCreditRow, mode: VaListImageMode): string | null {

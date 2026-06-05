@@ -195,7 +195,7 @@ describe('graphQueries cache pick', () => {
     expect(rows).toHaveLength(2);
     expect(rows[0].creditKind).toBe('voice');
     expect(rows[0].media.id).toBe(100);
-    expect(rows[0].roles).toEqual(['as Hero (MAIN)']);
+    expect(rows[0].roles).toEqual(['Hero (MAIN)']);
     expect(rows[1].creditKind).toBe('production');
     expect(rows[1].media.id).toBe(101);
     expect(rows[1].roles).toEqual(['Theme Song Performance']);
@@ -246,7 +246,7 @@ describe('graphQueries cache pick', () => {
     const rows = await getAnimeFilmographyForStaff(adapter, 1, 'all');
     expect(rows).toHaveLength(2);
     expect(rows[0].creditKind).toBe('voice');
-    expect(rows[0].roles).toEqual(['as Hero (MAIN)']);
+    expect(rows[0].roles).toEqual(['Hero (MAIN)']);
     expect(rows[1].creditKind).toBe('production');
     expect(rows[1].roles).toEqual(['Theme Song Performance']);
     expect(rows[0].media.id).toBe(100);
@@ -290,6 +290,28 @@ describe('graphQueries cache pick', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].creditKind).toBe('production');
     expect(rows[0].roles).toEqual(['Director']);
+  });
+
+  it('getAnimeFilmographyForStaff groups multiple voice characters on one show', async () => {
+    seedMedia(sqlite, 100, 'ANIME', 2020);
+    seedStaff(sqlite, 1, 'Voice Actor');
+    seedCharacter(sqlite, 10, 'Main Hero');
+    seedCharacter(sqlite, 11, 'Sidekick');
+    sqlite.exec(
+      `INSERT INTO media_character (media_id, character_id, role, sort_order)
+         VALUES (?, ?, ?, ?), (?, ?, ?, ?)`,
+      { bind: [100, 10, 'MAIN', 0, 100, 11, 'SUPPORTING', 1] },
+    );
+    sqlite.exec(
+      `INSERT INTO character_voice_actor (media_id, character_id, staff_id, language)
+         VALUES (?, ?, ?, ?), (?, ?, ?, ?)`,
+      { bind: [100, 10, 1, 'JAPANESE', 100, 11, 1, 'JAPANESE'] },
+    );
+
+    const rows = await getAnimeFilmographyForStaff(adapter, 1, 'key');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].creditKind).toBe('voice');
+    expect(rows[0].roles).toEqual(['Main Hero (MAIN)', 'Sidekick (SUPPORTING)']);
   });
 
   it('getVaCreditsAtMedia sorts by role then AniList sort_order', async () => {
