@@ -360,6 +360,17 @@ describe('getSyncState', () => {
     expect(getSyncState(TEST_SOURCE_ID).status).toBe('in-sync');
   });
 
+  it('returns unsynced when pending local changes exist after a prior push', () => {
+    patchSourceSyncMeta(TEST_SOURCE_ID, {
+      remoteEtag: 'e1',
+      lastPushAt: Date.now(),
+      remoteFileId: 'f1',
+      hasLocalDb: true,
+      pendingChanges: 2,
+    });
+    expect(getSyncState(TEST_SOURCE_ID).status).toBe('unsynced');
+  });
+
   it('returns drifted when driftDetected is set', () => {
     patchSourceSyncMeta(TEST_SOURCE_ID, { driftDetected: true });
     expect(getSyncState(TEST_SOURCE_ID).status).toBe('drifted');

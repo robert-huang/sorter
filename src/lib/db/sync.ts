@@ -85,6 +85,8 @@ export function getSyncState(sourceId: string): SyncState {
 
   if (meta.driftDetected) {
     status = 'drifted';
+  } else if (meta.pendingChanges > 0) {
+    status = 'unsynced';
   } else if (!meta.remoteFileId && !meta.lastPushAt && !meta.lastPullAt) {
     status = meta.hasLocalDb ? 'unsynced' : 'unknown';
   } else if (meta.hasLocalDb && meta.lastPushAt === null) {

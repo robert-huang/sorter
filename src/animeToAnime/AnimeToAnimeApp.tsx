@@ -94,8 +94,16 @@ function staffPathStep(staff: StaffRow): PathStep {
 }
 
 export function AnimeToAnimeApp() {
-  const importCtx = useRef(makeAnilistImportContext());
   const dbSync = useSourceDbSync();
+  const bumpSourceDbDirtyRef = useRef(dbSync.bumpSourceDbDirty);
+  bumpSourceDbDirtyRef.current = dbSync.bumpSourceDbDirty;
+  const importCtx = useRef(
+    makeAnilistImportContext({
+      onDirtyIncrement: async () => {
+        bumpSourceDbDirtyRef.current(ANILIST_SOURCE_ID);
+      },
+    }),
+  );
   const [theme, setTheme] = useState<AnimeToAnimeTheme>(loadAnimeToAnimeTheme);
   const [vaListImageMode, setVaListImageMode] = useState<VaListImageMode>(loadVaListImageMode);
   const [ready, setReady] = useState(false);

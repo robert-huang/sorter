@@ -186,6 +186,19 @@ export function getPendingChanges(sourceId: string): number {
   return getSourceSyncMeta(sourceId).pendingChanges;
 }
 
+/**
+ * Record an ad-hoc local DB write (lazy expansion, per-entry refresh).
+ * Bumps the pending-push counter and marks the source as having a local DB.
+ */
+export function recordSourceDbDirtyWrite(sourceId: string): number {
+  const next = bumpPendingChanges(sourceId);
+  const meta = getSourceSyncMeta(sourceId);
+  if (!meta.hasLocalDb) {
+    patchSourceSyncMeta(sourceId, { hasLocalDb: true });
+  }
+  return next;
+}
+
 // ──────────────────────────────────────────────────────────────────────
 // Scrape-lock primitives
 //

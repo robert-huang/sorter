@@ -59,10 +59,10 @@ export function WinScreen({
       {pathHistory.length > 1 && <WinPathTrail steps={pathHistory} />}
       <div className="anime-to-anime-actions anime-to-anime-win-actions">
         <button type="button" className="btn primary" onClick={onCopySummary}>
-          Copy summary
+          Share Results
         </button>
         <button type="button" className="btn" onClick={onPlayAgain}>
-          Play again
+          Play Again
         </button>
       </div>
     </section>

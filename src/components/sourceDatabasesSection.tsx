@@ -123,7 +123,7 @@ export function SourceDatabasesSection({
                 <span>{source.id}</span>
               </span>
               <span className="settings-source-db-status" title="Sync status">
-                {statusLabel(sync.status)}
+                {pending > 0 ? 'local changes' : statusLabel(sync.status)}
               </span>
             </div>
             <div className="settings-source-db-meta">

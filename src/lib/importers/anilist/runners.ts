@@ -22,9 +22,9 @@
  */
 
 import {
-  bumpPendingChanges,
   getSourceSyncMeta,
   patchSourceSyncMeta,
+  recordSourceDbDirtyWrite,
 } from '../../db/syncManifest';
 import { ANILIST_SOURCE_ID } from './anilistSource';
 import { makeAnilistImportContext } from './context';
@@ -84,11 +84,7 @@ function buildContext(onProgress?: AnilistProgressReporter) {
       if (hooks.onAutoPushRequested) await hooks.onAutoPushRequested();
     },
     onDirtyIncrement: async () => {
-      // bumpPendingChanges is synchronous (localStorage write); the
-      // async wrapper here keeps the hook contract uniform so the
-      // App-side hook (which schedules React state updates) can stay
-      // async if it ever needs to.
-      const next = bumpPendingChanges(ANILIST_SOURCE_ID);
+      const next = recordSourceDbDirtyWrite(ANILIST_SOURCE_ID);
       if (hooks.onDirtyBumped) hooks.onDirtyBumped(next);
     },
     onProgress,

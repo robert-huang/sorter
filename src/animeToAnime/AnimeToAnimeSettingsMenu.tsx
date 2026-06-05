@@ -154,7 +154,7 @@ export function AnimeToAnimeSettingsMenu({
                 </label>
 
                 <p className="edit-item-advanced-title settings-popover-section-title">
-                  Voice actor list
+                  Show page — voice cast
                 </p>
                 <label className="settings-item checkbox">
                   <input

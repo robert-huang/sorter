@@ -11,6 +11,7 @@ import {
 } from '../lib/cloud';
 import { dbSyncErrorMessage } from '../lib/db/dbSyncErrorMessage';
 import { pullDbFromDrive, pushDbToDrive } from '../lib/db/sync';
+import { recordSourceDbDirtyWrite } from '../lib/db/syncManifest';
 import { ANILIST_SOURCE_ID } from '../lib/importers/anilist/anilistSource';
 import { configureAnilistRunnerHooks } from '../lib/importers/anilist/runners';
 import { InFlightTracker } from '../lib/inFlightTracker';
@@ -28,6 +29,8 @@ export interface SourceDbSyncControls {
   dbPullingIds: ReadonlySet<string>;
   sourceDbErrors: Record<string, string>;
   dbSyncRevision: number;
+  /** Ad-hoc local DB write — bumps pending counter and refreshes sync UI. */
+  bumpSourceDbDirty: (sourceId: string) => void;
   onDbPushSource: (sourceId: string) => void;
   onDbPullSource: (sourceId: string) => void;
 }
@@ -94,6 +97,11 @@ export function useSourceDbSync(): SourceDbSyncControls {
       unsub();
     };
   }, [cloudAvailable]);
+
+  const bumpSourceDbDirty = useCallback((sourceId: string) => {
+    recordSourceDbDirtyWrite(sourceId);
+    setDbSyncRevision((r) => r + 1);
+  }, []);
 
   const onDbPushSource = useCallback(
     (sourceId: string) => {
@@ -205,6 +213,7 @@ export function useSourceDbSync(): SourceDbSyncControls {
     dbPullingIds,
     sourceDbErrors,
     dbSyncRevision,
+    bumpSourceDbDirty,
     onDbPushSource,
     onDbPullSource,
   };
