@@ -751,9 +751,11 @@ a {
 
 /* Display-name prefs sit inside the AniList source-db row, so no
    divider/border — they read as part of the same block, just nested
-   under the source header. */
+   under the source header. The left indent reinforces that they're a
+   sub-section of the AniList source settings. */
 .settings-anilist-display-prefs {
   margin-top: 4px;
+  padding-left: 14px;
 }
 
 .settings-anilist-display-prefs-title {
@@ -765,6 +767,12 @@ a {
 .settings-anilist-display-prefs .filter-chip-range-row > span {
   font-size: 11px;
   min-width: 34px;
+}
+
+/* Extra breathing room before the global "open the Start tab" hint so
+   it reads as a footer, separate from the per-source rows above. */
+.settings-source-refresh-hint {
+  margin-top: 14px;
 }
 
 /* Cloud-backup primary entry: the "Pick cloud folder" CTA after a
@@ -788,6 +796,16 @@ a {
   text-overflow: ellipsis;
   white-space: nowrap;
   vertical-align: bottom;
+}
+
+/* The cross-app nav line (Sorter ↔ Anime to Anime) gets a full-width
+   descriptive hint — it's on its own footer row, so let it show in full
+   (and wrap if needed) rather than ellipsis-truncate like the folder
+   name it shares the .settings-item-hint class with. */
+.settings-app-nav .settings-item-hint {
+  max-width: none;
+  overflow: visible;
+  white-space: normal;
 }
 
 .settings-source-db-row {

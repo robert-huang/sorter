@@ -356,6 +356,10 @@ export function SettingsMenu({
                       <CloudBackupSection
                         status={cloudStatus}
                         folderName={cloudFolderName}
+                        // Change folder / Sign out live in the shared
+                        // footer (visible on both tabs), so the Slots
+                        // section only surfaces Browse + onboarding.
+                        showAccountControls={false}
                         onSignIn={() => {
                           setOpen(false);
                           onCloudSignIn();
@@ -400,7 +404,7 @@ export function SettingsMenu({
                     onPullSource={onDbPullSource}
                   />
                 )}
-                <div className="settings-status">
+                <div className="settings-status settings-source-refresh-hint">
                   To refresh a source's data, open the Start tab and pick
                   the source's import mode.
                 </div>
@@ -408,32 +412,65 @@ export function SettingsMenu({
             )}
           </div>
 
-          {/* Persistent footer — sort-engine toggles + autosave status
-              live below the tabs because they apply globally, not
-              per-tab, and the user expects them in a stable location. */}
+          {/* Persistent footer — cloud-account + autosave status live
+              below the tabs because they apply globally, not per-tab,
+              and the user expects them in a stable location. The
+              sort-engine toggles only make sense for sorting, so they
+              show on the Slots tab only. */}
           <div className="settings-footer">
+            {tab === 'slots' && (
+              <>
+                <div className="settings-divider" />
+                <label className="settings-item checkbox">
+                  <input
+                    type="checkbox"
+                    checked={showEstimatedRemaining}
+                    onChange={onToggleShowEstimatedRemaining}
+                  />{' '}
+                  Show estimated comparisons left
+                </label>
+                <label
+                  className="settings-item checkbox"
+                  title="When on, the sort can swap a popped queue pair for binary insertion when the smaller side is small enough that insertion beats the full merge. Turn off to force classic merge on every pair."
+                >
+                  <input
+                    type="checkbox"
+                    checked={autoInsertEnabled}
+                    onChange={onToggleAutoInsertEnabled}
+                  />{' '}
+                  Auto-insert skewed pairs
+                </label>
+              </>
+            )}
+            {/* Cloud-account controls shared across both tabs. Only the
+                'ready' tier exposes folder change + sign out. */}
+            {cloudStatus === 'ready' && (
+              <>
+                <div className="settings-divider" />
+                <button
+                  type="button"
+                  className="settings-item"
+                  onClick={() => {
+                    setOpen(false);
+                    onCloudPickFolder();
+                  }}
+                >
+                  Change cloud folder…
+                </button>
+                <button
+                  type="button"
+                  className="settings-item"
+                  onClick={() => {
+                    setOpen(false);
+                    onCloudSignOut();
+                  }}
+                >
+                  Sign out of cloud
+                </button>
+              </>
+            )}
             <div className="settings-divider" />
-            <label className="settings-item checkbox">
-              <input
-                type="checkbox"
-                checked={showEstimatedRemaining}
-                onChange={onToggleShowEstimatedRemaining}
-              />{' '}
-              Show estimated comparisons left
-            </label>
-            <label
-              className="settings-item checkbox"
-              title="When on, the sort can swap a popped queue pair for binary insertion when the smaller side is small enough that insertion beats the full merge. Turn off to force classic merge on every pair."
-            >
-              <input
-                type="checkbox"
-                checked={autoInsertEnabled}
-                onChange={onToggleAutoInsertEnabled}
-              />{' '}
-              Auto-insert skewed pairs
-            </label>
-            <div className="settings-divider" />
-            <div className="settings-status">
+            <div className="settings-status settings-app-nav">
               <a href={ANIME_TO_ANIME_HREF}>Anime to Anime</a>
               <span className="settings-item-hint">
                 {' '}

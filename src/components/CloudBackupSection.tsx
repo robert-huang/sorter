@@ -9,6 +9,10 @@ export interface CloudBackupSectionProps {
   /** When false, hides Browse cloud library (e.g. standalone A2A page). */
   showBrowse?: boolean;
   onBrowse?: () => void;
+  /** When false, hides the 'ready'-tier account controls (Change cloud
+   *  folder / Sign out of cloud). The gear menu sets this so those two
+   *  live in the shared footer across tabs instead of the Slots tab. */
+  showAccountControls?: boolean;
 }
 
 /**
@@ -24,6 +28,7 @@ export function CloudBackupSection({
   onBrowse,
   onSignOut,
   showBrowse = true,
+  showAccountControls = true,
 }: CloudBackupSectionProps) {
   if (status === 'signed-out' || status === 'expired') {
     return (
@@ -71,12 +76,16 @@ export function CloudBackupSection({
           )}
         </button>
       )}
-      <button type="button" className="settings-item" onClick={onPickFolder}>
-        Change cloud folder&hellip;
-      </button>
-      <button type="button" className="settings-item" onClick={onSignOut}>
-        Sign out of cloud
-      </button>
+      {showAccountControls && (
+        <>
+          <button type="button" className="settings-item" onClick={onPickFolder}>
+            Change cloud folder&hellip;
+          </button>
+          <button type="button" className="settings-item" onClick={onSignOut}>
+            Sign out of cloud
+          </button>
+        </>
+      )}
     </>
   );
 }

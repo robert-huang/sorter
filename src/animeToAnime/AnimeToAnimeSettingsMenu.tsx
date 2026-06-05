@@ -243,17 +243,13 @@ export function AnimeToAnimeSettingsMenu({
                     )}
                   </>
                 )}
-                <div className="settings-status">
-                  To refresh AniList data, use the{' '}
-                  <a href={SORTER_HOME_HREF}>main Sorter app&apos;s Start screen</a>.
-                </div>
               </div>
             )}
           </div>
 
           <div className="settings-footer">
             <div className="settings-divider" />
-            <div className="settings-status">
+            <div className="settings-status settings-app-nav">
               <a href={SORTER_HOME_HREF}>Sorter</a>
               <span className="settings-item-hint">
                 {' '}
