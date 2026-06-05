@@ -10,7 +10,7 @@ import { EndpointPicker } from './EndpointPicker';
 import { EndpointsSwapArrow } from './endpointsSwapArrow';
 
 interface Props {
-  phase: 'setup' | 'play' | 'won';
+  phase: 'setup' | 'play' | 'won' | 'gave_up';
   startMedia: MediaRow | null;
   goalMedia: MediaRow | null;
   linksUsed?: number;

@@ -36,6 +36,8 @@ import { AnimeToAnimeHeader } from './AnimeToAnimeHeader';
 import { RoundEndpointsRow } from './RoundEndpointsRow';
 import { PathHistoryTrail } from './PathHistoryTrail';
 import { ExitRoundConfirmModal } from './ExitRoundConfirmModal';
+import { GiveUpConfirmModal } from './GiveUpConfirmModal';
+import { findCachedOptimalPath } from './cachedGraph';
 import { WinScreen } from './WinScreen';
 import { type PathStep } from './pathHistory';
 import {
@@ -114,7 +116,7 @@ export function AnimeToAnimeApp() {
   const [roundConfig, setRoundConfig] = useState<RoundConfig>(loadRoundConfig);
   /** Snapshotted from persisted settings when a round begins. */
   const [activeRoundConfig, setActiveRoundConfig] = useState<RoundConfig | null>(null);
-  const [phase, setPhase] = useState<'setup' | 'play' | 'won'>('setup');
+  const [phase, setPhase] = useState<'setup' | 'play' | 'won' | 'gave_up'>('setup');
   const [current, setCurrent] = useState<Node | null>(null);
   const [linksUsed, setLinksUsed] = useState(0);
   const [pathHistory, setPathHistory] = useState<PathStep[]>([]);
@@ -124,6 +126,7 @@ export function AnimeToAnimeApp() {
   const apiWaitSecondsLeft = useAnilistWaitCountdown(apiWait);
   const [listRefreshEpoch, setListRefreshEpoch] = useState(0);
   const [exitRoundConfirmOpen, setExitRoundConfirmOpen] = useState(false);
+  const [giveUpConfirmOpen, setGiveUpConfirmOpen] = useState(false);
   const forceListRefreshRef = useRef(false);
 
   const [vaCredits, setVaCredits] = useState<VaCreditRow[]>([]);
@@ -264,6 +267,34 @@ export function AnimeToAnimeApp() {
     goToSetup();
   }, [goToSetup]);
 
+  const findCachedPath = useCallback(
+    async (maxLinks?: number) => {
+      if (!startMedia || !goalMedia || !activeRoundConfig) {
+        return { status: 'not_found' as const };
+      }
+      return findCachedOptimalPath({
+        db: importCtx.current.db,
+        startMediaId: startMedia.id,
+        goalMediaId: goalMedia.id,
+        rules: activeRoundConfig,
+        maxLinks,
+      });
+    },
+    [activeRoundConfig, goalMedia, startMedia],
+  );
+
+  /** Win: prune BFS past the user's link count — can't beat a path shorter than that. */
+  const onFindCachedPathForWin = useCallback(
+    () => findCachedPath(linksUsed),
+    [findCachedPath, linksUsed],
+  );
+
+  /** Give up: search full cache — user may have stopped before any anime hops. */
+  const onFindCachedPathForGiveUp = useCallback(
+    () => findCachedPath(),
+    [findCachedPath],
+  );
+
   const confirmExitToSetup = useCallback(() => {
     setExitRoundConfirmOpen(true);
   }, []);
@@ -275,6 +306,19 @@ export function AnimeToAnimeApp() {
 
   const onExitRoundCancel = useCallback(() => {
     setExitRoundConfirmOpen(false);
+  }, []);
+
+  const onGiveUpClick = useCallback(() => {
+    setGiveUpConfirmOpen(true);
+  }, []);
+
+  const onGiveUpConfirm = useCallback(() => {
+    setGiveUpConfirmOpen(false);
+    setPhase('gave_up');
+  }, []);
+
+  const onGiveUpCancel = useCallback(() => {
+    setGiveUpConfirmOpen(false);
   }, []);
 
   const onRefreshPlayList = useCallback(() => {
@@ -457,6 +501,9 @@ export function AnimeToAnimeApp() {
           onCancel={onExitRoundCancel}
         />
       )}
+      {giveUpConfirmOpen && (
+        <GiveUpConfirmModal onConfirm={onGiveUpConfirm} onCancel={onGiveUpCancel} />
+      )}
       <AppBannerStack>
         {ready && storageMode === 'memory' && (
           <div className="app-banner warn">
@@ -533,7 +580,7 @@ export function AnimeToAnimeApp() {
       ) : (
         <main className="page anime-to-anime-page">
           <RoundEndpointsRow
-            phase={phase === 'won' ? 'won' : 'play'}
+            phase={phase === 'play' ? 'play' : 'won'}
             startMedia={startMedia}
             goalMedia={goalMedia}
             linksUsed={linksUsed}
@@ -547,12 +594,16 @@ export function AnimeToAnimeApp() {
             <PathHistoryTrail steps={pathHistory} />
           )}
 
-          {phase === 'won' && startMedia && goalMedia && (
+          {(phase === 'won' || phase === 'gave_up') && startMedia && goalMedia && (
             <WinScreen
+              outcome={phase === 'won' ? 'won' : 'gave_up'}
               startMedia={startMedia}
               goalMedia={goalMedia}
               linksUsed={linksUsed}
               pathHistory={pathHistory}
+              onFindCachedPath={
+                phase === 'won' ? onFindCachedPathForWin : onFindCachedPathForGiveUp
+              }
               onPlayAgain={onPlayAgain}
             />
           )}
@@ -565,13 +616,18 @@ export function AnimeToAnimeApp() {
 
           {phase === 'play' && (
             <>
-              <input
-                type="search"
-                className="slot-search anime-to-anime-search"
-                placeholder="Filter list…"
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-              />
+              <div className="anime-to-anime-play-toolbar">
+                <input
+                  type="search"
+                  className="slot-search anime-to-anime-search"
+                  placeholder="Filter list…"
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                />
+                <button type="button" className="btn" onClick={onGiveUpClick}>
+                  Give up
+                </button>
+              </div>
 
               {loading && <p className="settings-status">Loading…</p>}
 
