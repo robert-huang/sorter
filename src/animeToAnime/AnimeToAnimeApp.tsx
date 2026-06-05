@@ -421,9 +421,7 @@ export function AnimeToAnimeApp() {
     (media: MediaRow) => {
       setFilter('');
       const reachedGoal = goalMedia !== null && media.id === goalMedia.id;
-      if (!reachedGoal) {
-        setLinksUsed((count) => count + 1);
-      }
+      setLinksUsed((count) => count + 1);
       setPathHistory((prev) => [...prev, animePathStep(media)]);
       setCurrent({ kind: 'anime', mediaId: media.id });
       if (reachedGoal) {
