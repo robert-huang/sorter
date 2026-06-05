@@ -1,5 +1,7 @@
 # Sorter — queue merge sort + binary insertion webapp
 
+**Live demo:** [robert-huang.github.io/sorter](https://robert-huang.github.io/sorter/)
+
 A pure-client React + TypeScript app for ranking a list of items by doing repeated A-vs-B comparisons.
 
 It runs one of **two engines** per slot:

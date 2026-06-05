@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { CloudBackupSection } from '../components/CloudBackupSection';
+import { SettingsGitHubLink } from '../components/SettingsGitHubLink';
 import { SourceDatabasesSection } from '../components/sourceDatabasesSection';
 import type { CloudMenuStatus } from '../components/SettingsMenu';
 import { SORTER_HOME_HREF } from '../lib/appRoutes';
@@ -255,6 +256,7 @@ export function AnimeToAnimeSettingsMenu({
             <div className="settings-status">
               Autosave: {dbSync.autosaveAvailable ? 'on' : 'disabled (file:// origin)'}
             </div>
+            <SettingsGitHubLink />
           </div>
         </div>
       )}

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ANIME_TO_ANIME_HREF } from '../lib/appRoutes';
+import { SettingsGitHubLink } from './SettingsGitHubLink';
 import { SlotList } from './SlotList';
 import { CloudBackupSection } from './CloudBackupSection';
 import { SourceDatabasesSection } from './sourceDatabasesSection';
@@ -442,6 +443,7 @@ export function SettingsMenu({
             <div className="settings-status">
               Autosave: {autosaveAvailable ? 'on' : 'disabled (file:// origin)'}
             </div>
+            <SettingsGitHubLink />
           </div>
         </div>
       )}

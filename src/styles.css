@@ -733,6 +733,20 @@ a {
   color: var(--text-muted);
 }
 
+.settings-github-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+.settings-github-link:hover {
+  color: var(--text);
+}
+
 /* Cloud-backup primary entry: the "Pick cloud folder" CTA after a
  * fresh sign-in. Bolder so the user notices it's the obvious next
  * step before browsing or signing out. */
