@@ -1,6 +1,5 @@
 /**
- * Shared SQLite + OPFS logic for dedicated and SharedWorker DB sessions.
- * Entry points (`worker.ts`, `sharedDbWorker.ts`) wire message ports only.
+ * SQLite + OPFS logic for the dedicated DB worker (`worker.ts` wires messages only).
  */
 
 import sqlite3InitModule, {
@@ -107,7 +106,7 @@ async function initOpfsStorage(s3: Sqlite3Static): Promise<boolean> {
 
     storageHint =
       `OPFS install failed (${message}). If another Sorter tab is open, close it and reload — ` +
-      `only one worker per tab can hold the OPFS pool when not using SharedWorker.`;
+      `only one page at a time can hold the OPFS SAH pool.`;
     return false;
   }
 }

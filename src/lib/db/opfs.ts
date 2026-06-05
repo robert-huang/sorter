@@ -13,7 +13,7 @@ export function isOpfsSecureContext(): boolean {
   return globalThis.isSecureContext === true;
 }
 
-/** OPFS sync access handles (SAH pool) require cross-origin isolation. */
+/** Whether the page is cross-origin isolated (COOP/COEP). Not required for OPFS SAH pool. */
 export function isCrossOriginIsolated(): boolean {
   return globalThis.crossOriginIsolated === true;
 }
@@ -26,13 +26,12 @@ export function hasOpfsSyncAccessHandleApi(): boolean {
 }
 
 /**
- * Pre-check before calling `installOpfsSAHPoolVfs` in the worker.
- * Mirrors sqlite-wasm's required OPFS APIs plus COOP/COEP for SAH.
+ * Pre-check before calling `installOpfsSAHPoolVfs` in a dedicated worker.
+ * Requires secure context and OPFS sync-access-handle APIs (not COOP/COEP).
  */
 export function canUseOpfsSahPool(): boolean {
   return (
     isOpfsSecureContext() &&
-    isCrossOriginIsolated() &&
     hasOpfsSyncAccessHandleApi() &&
     typeof navigator?.storage?.getDirectory === 'function'
   );
@@ -42,13 +41,6 @@ export function canUseOpfsSahPool(): boolean {
 export function describeOpfsBlockedReason(): string {
   if (!isOpfsSecureContext()) {
     return 'This page is not a secure context. Use https:// or http://localhost (not plain http on a LAN IP).';
-  }
-  if (!isCrossOriginIsolated()) {
-    return (
-      'OPFS persistence needs cross-origin isolation (COOP/COEP response headers). ' +
-      'Use `npm run dev` / `npm run preview`, or serve `dist/` with COOP: same-origin and ' +
-      'COEP: credentialless (see serve.json). GitHub Pages cannot set these headers.'
-    );
   }
   if (!hasOpfsSyncAccessHandleApi()) {
     return 'This browser does not expose OPFS sync access handles (required for persistent SQLite).';

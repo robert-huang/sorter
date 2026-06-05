@@ -2,7 +2,7 @@ import { resolve } from 'node:path';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-/** Required for OPFS sync access handles (sqlite-wasm SAH pool). */
+/** Optional local dev/preview headers (cross-origin isolation; not required for OPFS SAH pool). */
 const crossOriginIsolationHeaders = {
   'Cross-Origin-Opener-Policy': 'same-origin',
   // credentialless: cross-origin isolation without breaking CDN images (AniList covers).
@@ -26,7 +26,7 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
-    // Workers must be separate files — inlining as data: URLs breaks SharedWorker.
+    // Workers must be separate files — inlining as data: URLs breaks worker loading.
     assetsInlineLimit: 0,
     rollupOptions: {
       input: {

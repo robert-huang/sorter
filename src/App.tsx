@@ -2387,7 +2387,7 @@ export function App() {
         <div className="app-banner warn">
           <span>
             This tab is using non-persistent storage (OPFS unavailable, or another
-            tab holds the database on browsers without SharedWorker). Changes here
+            tab of this app already holds the database file). Changes here
             may not persist across reloads. Close other Sorter / Anime to Anime tabs
             and reload, or pull from Drive (gear &rarr; Source databases &rarr; Pull)
             to load data for this session.

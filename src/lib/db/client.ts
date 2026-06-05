@@ -11,8 +11,6 @@ ensureAnilistSourceRegistered();
 const WORKER_DIED_MESSAGE = 'Worker died; retry your operation';
 
 let transport: DbTransport | null = null;
-let forceDedicatedWorker = false;
-let sharedWorkerFallbackAttempted = false;
 let nextId = 0;
 const pending = new Map<
   number,
@@ -35,30 +33,6 @@ function onWorkerDeath(): void {
   transport = null;
   workerReady = null;
   rejectAllPending(new Error(WORKER_DIED_MESSAGE));
-}
-
-function fallbackFromSharedWorker(): void {
-  if (forceDedicatedWorker || sharedWorkerFallbackAttempted) {
-    onWorkerDeath();
-    return;
-  }
-  sharedWorkerFallbackAttempted = true;
-  forceDedicatedWorker = true;
-  console.warn(
-    '[db] SharedWorker failed to load; falling back to a dedicated worker for this tab.',
-  );
-  transport = null;
-  workerReady = null;
-  rejectAllPending(new Error('Database worker reconnecting; retry your operation.'));
-  transport = spawnTransport();
-}
-
-function onTransportError(): void {
-  if (transport?.usesSharedWorker) {
-    fallbackFromSharedWorker();
-    return;
-  }
-  onWorkerDeath();
 }
 
 function handleTransportMessage(data: RpcReply | WorkerReadyMessage): void {
@@ -98,7 +72,7 @@ function onWorkerReady(msg: WorkerReadyMessage, resolve: (mode: StorageMode) => 
 
 function spawnTransport(): DbTransport {
   const epoch = ++transportEpoch;
-  const t = createDbTransport({ forceDedicated: forceDedicatedWorker });
+  const t = createDbTransport();
 
   workerReady = new Promise<StorageMode>((resolve) => {
     t.start((data) => {
@@ -113,8 +87,8 @@ function spawnTransport(): DbTransport {
     });
   });
 
-  t.addEventListener('error', onTransportError);
-  t.addEventListener('messageerror', onTransportError);
+  t.addEventListener('error', onWorkerDeath);
+  t.addEventListener('messageerror', onWorkerDeath);
 
   return t;
 }

@@ -2,22 +2,29 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RpcReply, RpcRequest, WorkerReadyMessage } from '../rpc';
 import { TEST_SOURCE_ID } from '../testSource';
 
+type WorkerListener = (event: MessageEvent<RpcReply | WorkerReadyMessage>) => void;
+
 const READY_DELAY_MS = 50;
 
-type PortListener = (event: MessageEvent<RpcReply | WorkerReadyMessage>) => void;
+class MockWorker {
+  static instances: MockWorker[] = [];
 
-class MockMessagePort {
-  private readonly listeners = new Set<PortListener>();
+  private readonly messageListeners = new Set<WorkerListener>();
   readonly postMessageCalls: unknown[] = [];
-  started = false;
 
-  start(): void {
-    this.started = true;
+  constructor(
+    public readonly scriptUrl: URL | string,
+    public readonly options?: WorkerOptions,
+  ) {
+    MockWorker.instances.push(this);
+    setTimeout(() => {
+      this.emitToListeners({ type: 'ready', storageMode: 'opfs' });
+    }, READY_DELAY_MS);
   }
 
-  addEventListener(type: string, listener: PortListener | null): void {
+  addEventListener(type: string, listener: WorkerListener | null): void {
     if (type === 'message' && typeof listener === 'function') {
-      this.listeners.add(listener);
+      this.messageListeners.add(listener);
     }
   }
 
@@ -26,14 +33,14 @@ class MockMessagePort {
     const req = data as RpcRequest;
     setTimeout(() => {
       if (req.type === 'open') {
-        this.emit({ id: req.id, ok: true, result: 2 });
+        this.emitToListeners({ id: req.id, ok: true, result: 2 });
       }
     }, 0);
   }
 
-  emit(data: RpcReply | WorkerReadyMessage): void {
+  private emitToListeners(data: RpcReply | WorkerReadyMessage): void {
     const event = new MessageEvent('message', { data });
-    for (const listener of this.listeners) {
+    for (const listener of this.messageListeners) {
       listener(event);
     }
   }
@@ -42,36 +49,19 @@ class MockMessagePort {
 class MockSharedWorker {
   static instances: MockSharedWorker[] = [];
 
-  readonly port: MockMessagePort;
-  readonly name: string;
-
-  constructor(
-    public readonly scriptUrl: URL | string,
-    options?: { type?: string; name?: string },
-  ) {
-    this.name = options?.name ?? '';
-    this.port = new MockMessagePort();
+  constructor() {
     MockSharedWorker.instances.push(this);
-    setTimeout(() => {
-      this.port.emit({ type: 'ready', storageMode: 'memory' });
-    }, READY_DELAY_MS);
-  }
-
-  addEventListener(): void {
-    // lifecycle hooks — no-op in mock
+    throw new Error('SharedWorker must not be used for the DB transport');
   }
 }
 
 describe('db transport', () => {
   beforeEach(() => {
     vi.resetModules();
+    MockWorker.instances = [];
     MockSharedWorker.instances = [];
+    vi.stubGlobal('Worker', MockWorker as unknown as typeof Worker);
     vi.stubGlobal('SharedWorker', MockSharedWorker as unknown as typeof SharedWorker);
-    vi.stubGlobal('Worker', class {
-      constructor() {
-        throw new Error('Dedicated Worker should not be used when SharedWorker is available');
-      }
-    });
   });
 
   afterEach(() => {
@@ -79,15 +69,14 @@ describe('db transport', () => {
     vi.resetModules();
   });
 
-  it('uses SharedWorker with name sorter-db when supported', async () => {
+  it('uses a dedicated Worker and does not construct SharedWorker', async () => {
     const { openSourceDb } = await import('../client');
 
-    await openSourceDb(TEST_SOURCE_ID);
+    const result = await openSourceDb(TEST_SOURCE_ID);
 
-    const sw = MockSharedWorker.instances[0];
-    expect(sw).toBeDefined();
-    expect(sw.name).toBe('sorter-db');
-    expect(sw.port.started).toBe(true);
-    expect(sw.port.postMessageCalls.length).toBeGreaterThan(0);
+    expect(MockWorker.instances).toHaveLength(1);
+    expect(MockSharedWorker.instances).toHaveLength(0);
+    expect(result.storageMode).toBe('opfs');
+    expect(MockWorker.instances[0].postMessageCalls.length).toBeGreaterThan(0);
   });
 });
