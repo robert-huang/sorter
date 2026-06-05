@@ -190,20 +190,6 @@ export function SlotList({
       <div className="slot-list-header">
         <div className="slot-list-header-left">
           <span className="slot-list-header-title">Saved sorts</span>
-          {onBackupAll && (
-            <button
-              type="button"
-              className="slot-list-bulk-icon download-icon"
-              onClick={onBackupAll}
-              aria-label="Back up all slots as a JSON archive"
-              title="Back up all slots — download every slot in one JSON archive"
-            >
-              {/* "Down arrow above bar" (U+2913) — same glyph as the
-                  per-row download button, signalling "save to a file"
-                  but scoped to every slot at once. */}
-              ⤓
-            </button>
-          )}
           {showPushAll && (
             <button
               type="button"
@@ -234,6 +220,24 @@ export function SlotList({
               }
             >
               ⇣
+            </button>
+          )}
+          {onBackupAll && (
+            <button
+              type="button"
+              className={`slot-list-bulk-icon download-icon${
+                showPushAll || showPullAll ? ' slot-list-backup-icon' : ''
+              }`}
+              onClick={onBackupAll}
+              aria-label="Back up all slots as a JSON archive"
+              title="Back up all slots — download every slot in one JSON archive"
+            >
+              {/* "Down arrow above bar" (U+2913) — same glyph as the
+                  per-row download button, signalling "save to a file"
+                  but scoped to every slot at once. Sits to the right of
+                  the bulk cloud push/pull glyphs with an extra gap so it
+                  reads as a separate "local file" action. */}
+              ⤓
             </button>
           )}
         </div>

@@ -530,10 +530,16 @@ a {
      scroll region (.settings-slots-scroll for the slots tab,
      .settings-tab-scroll for the databases tab) so per-tab pinned
      regions (e.g. the slot action buttons) sit outside the scroll
-     thumb. */
+     thumb.
+
+     This `calc()` is only a fallback: SettingsMenu measures the gear
+     button's real position (which the floating START/LIST tab bar and
+     any app banners above it push down by a variable amount) and sets
+     an inline `max-height` in px that overrides this. The fallback is
+     deliberately generous so it never under-sizes if JS hasn't run. */
   display: flex;
   flex-direction: column;
-  max-height: calc(100vh - 64px);
+  max-height: calc(100vh - 120px);
   overflow: hidden;
 }
 
@@ -2411,6 +2417,13 @@ a {
      are opted in for cloud yet). */
   opacity: 0.3;
   cursor: not-allowed;
+}
+
+.slot-list-backup-icon {
+  /* Extra space on top of the parent's 8px gap so the "download all
+     slots" glyph reads as a separate local-file action, set apart from
+     the bulk cloud push/pull glyphs to its left. */
+  margin-left: 8px;
 }
 
 .slot-list-header-btn {

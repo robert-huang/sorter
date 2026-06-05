@@ -850,6 +850,33 @@ export function clearCloudBinding(id: string): SlotsManifest {
   });
 }
 
+/**
+ * Compute the sync-metadata timestamps for a slot adopted from a cloud
+ * pull (the "Browse cloud library" → Pull flow, which mints a fresh slot
+ * via `createSlot`).
+ *
+ * A freshly-pulled copy IS the authoritative cloud copy, so two things
+ * must hold that `createSlot`'s default `updatedAt = now` would break:
+ *
+ *  - It should read as "synced", not "local changes pending". The slot
+ *    list derives that from `updatedAt > cloudPushedAt`, so the adopted
+ *    `updatedAt` must not be later than `cloudPushedAt`.
+ *  - It should sort by *when it was last worked on* (the Drive file's
+ *    modified time) instead of the mint moment — otherwise it propels to
+ *    the top of the list as "just now".
+ *
+ * Hence `updatedAt` = the cloud file's modified time, and `cloudPushedAt`
+ * = "now" clamped up to the cloud date so the synced invariant survives
+ * clock skew (a Drive timestamp ahead of the local clock).
+ */
+export function deriveAdoptedCloudSlotTimestamps(
+  driveUpdatedAt: string,
+  nowIso: string,
+): { updatedAt: string; cloudPushedAt: string; cloudUpdatedAt: string } {
+  const cloudPushedAt = driveUpdatedAt > nowIso ? driveUpdatedAt : nowIso;
+  return { updatedAt: driveUpdatedAt, cloudPushedAt, cloudUpdatedAt: driveUpdatedAt };
+}
+
 // ---------- post-write notification registry (tier 0b seam) ----------
 
 /**

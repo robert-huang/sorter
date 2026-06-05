@@ -8,6 +8,7 @@ import {
   consumeManifestRepairNotice,
   buildLocalCloudSlotIndex,
   createSlot,
+  deriveAdoptedCloudSlotTimestamps,
   deleteSlot,
   findSlotByCloudId,
   discardPendingAutosave,
@@ -27,6 +28,8 @@ import {
   renameSlot,
   repairManifestIfCorrupt,
   setCloudId,
+  setCloudOptIn,
+  setCloudPushed,
   scheduleAutosave,
   setActiveSlot,
   slotBlobKey,
@@ -1350,5 +1353,63 @@ describe('cloud slot index', () => {
     const winner = findSlotByCloudId('shared-drive-id')?.id;
     expect(index.get('shared-drive-id')).toBe(winner);
     expect(winner).toBe(b.id);
+  });
+});
+
+describe('deriveAdoptedCloudSlotTimestamps', () => {
+  const drivePast = '2026-01-02T03:04:05.000Z';
+
+  it('uses the cloud file date for updatedAt (not the mint moment)', () => {
+    const now = '2026-06-05T12:00:00.000Z';
+    const ts = deriveAdoptedCloudSlotTimestamps(drivePast, now);
+    expect(ts.updatedAt).toBe(drivePast);
+    expect(ts.cloudUpdatedAt).toBe(drivePast);
+    // "now" is later, so the local↔cloud sync stamp is now.
+    expect(ts.cloudPushedAt).toBe(now);
+  });
+
+  it('keeps updatedAt <= cloudPushedAt so a fresh pull reads as synced', () => {
+    const now = '2026-06-05T12:00:00.000Z';
+    const ts = deriveAdoptedCloudSlotTimestamps(drivePast, now);
+    // deriveSyncState flags "pending" when updatedAt > cloudPushedAt; the
+    // adopted slot must NOT trip that.
+    expect(ts.updatedAt > ts.cloudPushedAt).toBe(false);
+  });
+
+  it('clamps cloudPushedAt up to the cloud date under clock skew', () => {
+    // Drive timestamp ahead of the local clock (skew / a device that
+    // pushed from a faster clock). cloudPushedAt must still be >= the
+    // cloud date so the synced invariant holds.
+    const driveFuture = '2026-06-05T12:00:00.000Z';
+    const now = '2026-06-05T11:59:59.000Z';
+    const ts = deriveAdoptedCloudSlotTimestamps(driveFuture, now);
+    expect(ts.cloudPushedAt).toBe(driveFuture);
+    expect(ts.updatedAt > ts.cloudPushedAt).toBe(false);
+  });
+
+  it('produces an adopted slot that is recency-correct and synced end-to-end', () => {
+    // Replicate the performSlotMint cloud-binding sequence: mint a slot,
+    // stamp the cloud fields + opt-in, then re-stamp updatedAt from the
+    // cloud date. The resulting meta must reflect the Drive date (so it
+    // sorts by real recency, not "just now") and satisfy the synced
+    // invariant (updatedAt <= cloudPushedAt).
+    const meta = mintSlot(makeBlob(3, false), 'Pulled from cloud');
+    const ts = deriveAdoptedCloudSlotTimestamps(drivePast, new Date().toISOString());
+    setCloudPushed(meta.id, {
+      cloudId: 'drive-file-AAAA',
+      cloudEtag: 'etag-1',
+      cloudPushedAt: ts.cloudPushedAt,
+      cloudUpdatedAt: ts.cloudUpdatedAt,
+    });
+    setCloudOptIn(meta.id, true);
+    updateSlotMeta(meta.id, { updatedAt: ts.updatedAt });
+
+    const adopted = readManifest().slots.find((s) => s.id === meta.id);
+    expect(adopted).toBeDefined();
+    expect(adopted?.updatedAt).toBe(drivePast);
+    expect(adopted?.cloudOptIn).toBe(true);
+    expect(adopted?.cloudId).toBe('drive-file-AAAA');
+    // Synced, not "local changes pending".
+    expect((adopted?.updatedAt ?? '') > (adopted?.cloudPushedAt ?? '')).toBe(false);
   });
 });

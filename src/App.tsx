@@ -76,6 +76,8 @@ import {
   setCloudOptIn,
   setCloudPulled,
   setCloudPushed,
+  updateSlotMeta,
+  deriveAdoptedCloudSlotTimestamps,
   clearCloudBinding,
   getLastAutosaveError,
   scheduleAutosave,
@@ -1039,6 +1041,16 @@ export function App() {
         // refresh interrupts us between calls.
         setCloudPushed(result.meta.id, cloudBinding);
         setCloudOptIn(result.meta.id, true);
+        // A freshly-pulled cloud copy is not a local edit. `createSlot`
+        // stamps `updatedAt = now`, which (a) propels the slot to the top
+        // of the list as "just now" and (b) lands a hair *after* the
+        // `cloudPushedAt` computed before the mint, tripping the
+        // `updatedAt > cloudPushedAt` test and mislabelling it "local
+        // changes pending". Re-stamp `updatedAt` with the cloud file's own
+        // last-modified time so the slot sorts into its real recency
+        // position and reads as "synced" (cloudPushedAt is "now", which is
+        // >= the cloud copy's date).
+        updateSlotMeta(result.meta.id, { updatedAt: cloudBinding.cloudUpdatedAt });
       }
       setManifest(readManifest());
       setState(session.state);
@@ -1940,11 +1952,20 @@ export function App() {
           return;
         }
         setCloudLibraryOpen(false);
+        // Adopt with timestamps derived from the cloud file's own modified
+        // time so the new slot reads as "synced" (not "local changes
+        // pending") and sorts into its real recency position instead of
+        // jumping to the top — performSlotMint applies the `updatedAt` from
+        // `cloudUpdatedAt`. See deriveAdoptedCloudSlotTimestamps.
+        const ts = deriveAdoptedCloudSlotTimestamps(
+          pulled.updatedAt,
+          new Date().toISOString(),
+        );
         adoptNewSession(session, meta.displayName, undefined, {
           cloudId: meta.cloudId,
           cloudEtag: pulled.etag,
-          cloudPushedAt: new Date().toISOString(),
-          cloudUpdatedAt: pulled.updatedAt,
+          cloudPushedAt: ts.cloudPushedAt,
+          cloudUpdatedAt: ts.cloudUpdatedAt,
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Pull failed.';

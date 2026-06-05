@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ANIME_TO_ANIME_HREF } from '../lib/appRoutes';
 import { SettingsGitHubLink } from './SettingsGitHubLink';
 import { SlotList } from './SlotList';
@@ -180,11 +180,43 @@ export function SettingsMenu({
   // single-slot save". Keeps the two pickers' UX independent.
   const archiveFileRef = useRef<HTMLInputElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  // Pixel cap for the popover height, measured from the gear button's
+  // position down to the viewport bottom. A static `calc(100vh - Npx)`
+  // can't account for everything stacked above the gear — the floating
+  // START/LIST tab bar and any app banners push the gear (and therefore
+  // the popover's top edge) down a variable amount — so we measure the
+  // real distance and let CSS use it as the max-height.
+  const [maxHeight, setMaxHeight] = useState<number | null>(null);
 
   function selectTab(next: GearTab): void {
     setTab(next);
     writePersistedTab(next);
   }
+
+  // Recompute the popover's max-height whenever it opens (and on resize
+  // while open). useLayoutEffect so the cap is applied before paint and
+  // the popover never flashes overlapping the window edge / tab bar.
+  useLayoutEffect(() => {
+    if (!open) return;
+    function measure(): void {
+      const wrap = wrapRef.current;
+      if (!wrap) return;
+      // The popover sits `top: calc(100% + 6px)` below the wrap (gear
+      // button), so its top edge is the wrap's bottom + a 6px gap. Leave
+      // a 12px breathing margin to the viewport bottom.
+      const gapBelowGear = 6;
+      const bottomMargin = 12;
+      const available =
+        window.innerHeight - wrap.getBoundingClientRect().bottom - gapBelowGear - bottomMargin;
+      // Floor so the popover stays usable on very short viewports even if
+      // that means it overlaps the bottom slightly — better than collapsing
+      // to nothing.
+      setMaxHeight(Math.max(200, Math.round(available)));
+    }
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -251,7 +283,10 @@ export function SettingsMenu({
         ⚙
       </button>
       {open && (
-        <div className="settings-popover">
+        <div
+          className="settings-popover"
+          style={maxHeight != null ? { maxHeight: `${maxHeight}px` } : undefined}
+        >
           <div className="settings-tabs" role="tablist" aria-label="Settings tabs">
             <button
               type="button"
