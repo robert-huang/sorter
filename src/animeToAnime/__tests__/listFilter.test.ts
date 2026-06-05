@@ -118,7 +118,7 @@ describe('groupSortedVaCredits', () => {
     expect(grouped[0].credits).toHaveLength(2);
     expect(groupedVaCreditFilterParts(grouped[0])).toEqual([
       'Aoi Yuuki',
-      'as Main Role (MAIN), as Second Role (SUPPORTING)',
+      'as Main Role (MAIN), Second Role (SUPPORTING)',
     ]);
   });
 });
