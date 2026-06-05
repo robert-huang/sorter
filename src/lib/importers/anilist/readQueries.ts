@@ -16,7 +16,14 @@
 
 import * as client from '../../db/client';
 import type { DbRow } from '../../db/rpc';
+import type { AnilistItemLabelSource } from '../../types';
 import { ANILIST_SOURCE_ID } from './anilistSource';
+import { mediaTitleSearchParts, pickMediaTitle } from './mediaDisplayLabel';
+import {
+  characterNameSearchParts,
+  personNameSearchParts,
+  pickPersonName,
+} from './personDisplayLabel';
 import type { AnilistDbExecutor, SqlBindable } from './context';
 import {
   lastFavouritesRefreshKey,
@@ -577,6 +584,8 @@ export interface FavouriteAsItem {
   imageUrl: string | null;
   /** Set for ANIME/MANGA favourites so the UI can append `(FORMAT)`. */
   format?: AnilistMediaFormat | null;
+  searchTokens?: readonly string[];
+  anilistLabelSource?: AnilistItemLabelSource;
 }
 
 /**
@@ -594,10 +603,13 @@ export interface FavouriteAsItem {
  * "use favourite order as ranking" CTA can lean on it without
  * another schema change.
  *
- * For ANIME/MANGA the label falls through romaji → english → native
- * → "Untitled (id)" — same waterfall the StartScreen import preview
- * uses, so labels stay consistent whether the user added the item
- * via list-import or via favourites.
+ * Labels honour the user's AniList display preferences (media title /
+ * person name mode) via `pickMediaTitle` / `pickPersonName`, defaulting
+ * to romaji-first for titles — same resolver the StartScreen import
+ * preview uses, so labels stay consistent whether the user added the
+ * item via list-import or via favourites. `searchTokens` always carry
+ * every stored variant (all titles + synonyms, or all name variants +
+ * character alternatives) so search is independent of the chosen mode.
  */
 export async function getFavouritesAsItems(
   db: AnilistDbExecutor,
@@ -612,6 +624,7 @@ export async function getFavouritesAsItems(
                 m.title_romaji  AS title_romaji,
                 m.title_english AS title_english,
                 m.title_native  AS title_native,
+                m.synonyms_json AS synonyms_json,
                 m.cover_image   AS cover_image,
                 m.format        AS format
            FROM media_favourite mf
@@ -622,25 +635,39 @@ export async function getFavouritesAsItems(
       );
       return rows.map((r) => {
         const id = reqN(r.id);
-        const label =
-          s(r.title_romaji) ??
-          s(r.title_english) ??
-          s(r.title_native) ??
-          `Untitled (${id})`;
+        const titleFields = {
+          id,
+          title_romaji: s(r.title_romaji),
+          title_english: s(r.title_english),
+          title_native: s(r.title_native),
+        };
+        const format = s(r.format) as AnilistMediaFormat | null;
+        const anilistLabelSource: AnilistItemLabelSource = {
+          kind: 'media',
+          titleFields,
+          format,
+        };
         return {
           externalId: id,
-          label,
+          label: pickMediaTitle(titleFields),
           imageUrl: s(r.cover_image),
-          format: s(r.format) as AnilistMediaFormat | null,
+          format,
+          searchTokens: mediaTitleSearchParts({
+            ...titleFields,
+            synonyms_json: s(r.synonyms_json),
+          }),
+          anilistLabelSource,
         };
       });
     }
     case 'CHARACTERS': {
       const rows = await db.exec(
-        `SELECT c.id          AS id,
-                c.name_full   AS name_full,
-                c.name_native AS name_native,
-                c.image       AS image
+        `SELECT c.id                             AS id,
+                c.name_full                      AS name_full,
+                c.name_native                    AS name_native,
+                c.name_alternatives_json         AS name_alternatives_json,
+                c.name_alternatives_spoiler_json AS name_alternatives_spoiler_json,
+                c.image                          AS image
            FROM character_favourite cf
            JOIN character c ON c.id = cf.character_id
           WHERE cf.anilist_user_id = ?
@@ -649,8 +676,29 @@ export async function getFavouritesAsItems(
       );
       return rows.map((r) => {
         const id = reqN(r.id);
-        const label = s(r.name_full) ?? s(r.name_native) ?? `Character #${id}`;
-        return { externalId: id, label, imageUrl: s(r.image) };
+        const nameFields = {
+          id,
+          name_full: s(r.name_full),
+          name_native: s(r.name_native),
+        };
+        const anilistLabelSource: AnilistItemLabelSource = {
+          kind: 'person',
+          nameFields,
+          fallbackLabel: 'Character',
+        };
+        return {
+          externalId: id,
+          label: pickPersonName(nameFields, undefined, 'Character'),
+          imageUrl: s(r.image),
+          // Search also matches alternative spellings / nicknames so a
+          // character is findable by any alias, not just the display one.
+          searchTokens: characterNameSearchParts({
+            ...nameFields,
+            name_alternatives_json: s(r.name_alternatives_json),
+            name_alternatives_spoiler_json: s(r.name_alternatives_spoiler_json),
+          }),
+          anilistLabelSource,
+        };
       });
     }
     case 'STAFF': {
@@ -667,8 +715,23 @@ export async function getFavouritesAsItems(
       );
       return rows.map((r) => {
         const id = reqN(r.id);
-        const label = s(r.name_full) ?? s(r.name_native) ?? `Staff #${id}`;
-        return { externalId: id, label, imageUrl: s(r.image) };
+        const nameFields = {
+          id,
+          name_full: s(r.name_full),
+          name_native: s(r.name_native),
+        };
+        const anilistLabelSource: AnilistItemLabelSource = {
+          kind: 'person',
+          nameFields,
+          fallbackLabel: 'Staff',
+        };
+        return {
+          externalId: id,
+          label: pickPersonName(nameFields, undefined, 'Staff'),
+          imageUrl: s(r.image),
+          searchTokens: personNameSearchParts(nameFields),
+          anilistLabelSource,
+        };
       });
     }
     case 'STUDIOS': {
@@ -686,7 +749,13 @@ export async function getFavouritesAsItems(
       );
       return rows.map((r) => {
         const id = reqN(r.id);
-        return { externalId: id, label: reqS(r.name), imageUrl: null };
+        const label = reqS(r.name);
+        return {
+          externalId: id,
+          label,
+          imageUrl: null,
+          searchTokens: [label],
+        };
       });
     }
   }
@@ -768,6 +837,8 @@ export interface VoiceActorOption {
   id: number;
   name: string;
   language: string | null;
+  /** Every stored name variant (full + native) for mode-independent search. */
+  searchTokens: readonly string[];
 }
 
 export async function getVoiceActorsForCandidates(
@@ -789,12 +860,19 @@ export async function getVoiceActorsForCandidates(
     sql,
     candidateMediaIds as readonly SqlBindable[],
   );
-  return rows.map((r) => ({
-    id: reqN(r.id),
-    name:
-      s(r.name_full) ?? s(r.name_native) ?? `Staff #${Number(r.id)}`,
-    language: s(r.language_v2),
-  }));
+  return rows.map((r) => {
+    const nameFields = {
+      id: reqN(r.id),
+      name_full: s(r.name_full),
+      name_native: s(r.name_native),
+    };
+    return {
+      id: nameFields.id,
+      name: pickPersonName(nameFields, undefined, 'Staff'),
+      language: s(r.language_v2),
+      searchTokens: personNameSearchParts(nameFields),
+    };
+  });
 }
 
 /**
@@ -918,11 +996,12 @@ export interface MediaOption {
 
 function rowToMediaOption(r: DbRow): MediaOption {
   const id = reqN(r.id);
-  const title =
-    s(r.title_romaji) ??
-    s(r.title_english) ??
-    s(r.title_native) ??
-    `Untitled (${id})`;
+  const title = pickMediaTitle({
+    id,
+    title_romaji: s(r.title_romaji),
+    title_english: s(r.title_english),
+    title_native: s(r.title_native),
+  });
   return { id, title };
 }
 
@@ -956,7 +1035,8 @@ export async function getMediaAppearancesForCharacters(
  * Distinct voice actors who voice ANY of `characterIds`, across all
  * cached `character_voice_actor` rows (any language). Used by the
  * character chip's voice-actor picker. Returns staff id + a display
- * name (full → native → "Staff #id").
+ * name (honouring the person-name display preference, falling back to
+ * "Staff #id") plus `searchTokens` carrying every stored name variant.
  */
 export async function getVoiceActorsByCharacterIds(
   db: AnilistDbExecutor,
@@ -974,12 +1054,19 @@ export async function getVoiceActorsByCharacterIds(
      ORDER BY COALESCE(s.name_full, s.name_native, '') COLLATE NOCASE
   `;
   const rows = await db.exec(sql, characterIds as readonly SqlBindable[]);
-  return rows.map((r) => ({
-    id: reqN(r.id),
-    name:
-      s(r.name_full) ?? s(r.name_native) ?? `Staff #${Number(r.id)}`,
-    language: s(r.language_v2),
-  }));
+  return rows.map((r) => {
+    const nameFields = {
+      id: reqN(r.id),
+      name_full: s(r.name_full),
+      name_native: s(r.name_native),
+    };
+    return {
+      id: nameFields.id,
+      name: pickPersonName(nameFields, undefined, 'Staff'),
+      language: s(r.language_v2),
+      searchTokens: personNameSearchParts(nameFields),
+    };
+  });
 }
 
 /**

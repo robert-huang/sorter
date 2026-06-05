@@ -20,6 +20,8 @@ import {
   type RawRow,
   type SourceParse,
 } from '../lib/csv';
+import { subscribeAnilistDisplayPreferences } from '../lib/importers/anilist/displayPreferences';
+import { relabelAnilistItemPreservingFormat } from '../lib/importers/anilist/anilistItemLabel';
 import { AnilistStartMode } from './AnilistStartMode';
 import { ImportPreview, type PreviewSource } from './ImportPreview';
 import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
@@ -273,6 +275,29 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
   // first-occurrence order so a sublist that's later re-introduced
   // as flat doesn't lose its rank.
   const [staged, setStaged] = useState<StagedGroup[]>([]);
+
+  // Relabel staged AniList items live when the display preferences
+  // change so items added before the toggle match items added after.
+  // No-op for non-AniList groups (relabel returns the same reference).
+  useEffect(() => {
+    return subscribeAnilistDisplayPreferences(() => {
+      setStaged((prev) => {
+        let groupsChanged = false;
+        const next = prev.map((group) => {
+          let itemsChanged = false;
+          const items = group.items.map((item) => {
+            const relabelled = relabelAnilistItemPreservingFormat(item);
+            if (relabelled !== item) itemsChanged = true;
+            return relabelled;
+          });
+          if (!itemsChanged) return group;
+          groupsChanged = true;
+          return { ...group, items };
+        });
+        return groupsChanged ? next : prev;
+      });
+    });
+  }, []);
 
   const appendStagedGroups = useCallback(
     (groups: StagedGroupInput[]) => {

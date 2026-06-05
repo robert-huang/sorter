@@ -5,7 +5,17 @@ import {
   buildAnilistFavouriteUrl,
   buildAnilistMediaUrl,
 } from '../lib/importers/anilist/anilistSource';
-import { formatMediaDisplayLabel } from '../lib/importers/anilist/mediaDisplayLabel';
+import {
+  mediaLabelSourceFromRow,
+  itemMatchesSearch,
+  relabelAnilistItem,
+  resolveAnilistItemLabel,
+} from '../lib/importers/anilist/anilistItemLabel';
+import {
+  formatMediaDisplayLabel,
+  mediaTitleSearchParts,
+} from '../lib/importers/anilist/mediaDisplayLabel';
+import { useAnilistDisplayPreferences } from '../hooks/useAnilistDisplayPreferences';
 import {
   AnilistScrapeLockHeldError,
   AnilistUnknownUserError,
@@ -137,6 +147,8 @@ function mediaRowToItem(m: MediaRow, includeFormatInLabel: boolean): Item {
   return {
     id: `anilist:${m.id}`,
     label: formatMediaDisplayLabel(m, m.format, includeFormatInLabel),
+    searchTokens: mediaTitleSearchParts(m),
+    anilistLabelSource: mediaLabelSourceFromRow(m),
     // Auto-populate the canonical AniList entry URL so the staged-
     // items panel + result rows can render a clickable link to the
     // original page (matches how CSV / clipboard items carry a url).
@@ -174,7 +186,12 @@ function favouriteMediaLabel(
   fa: FavouriteAsItem,
   includeFormatInLabel: boolean,
 ): string {
-  if (!includeFormatInLabel || !fa.format) return fa.label;
+  if (fa.anilistLabelSource?.kind === 'media') {
+    return resolveAnilistItemLabel(fa.anilistLabelSource, includeFormatInLabel);
+  }
+  if (!includeFormatInLabel || !fa.format) {
+    return fa.label;
+  }
   return `${fa.label} (${fa.format})`;
 }
 
@@ -191,24 +208,34 @@ function favouriteAsItemToItem(
       url,
       imageUrl: fa.imageUrl ?? undefined,
       source: { kind: 'anilist', externalId: fa.externalId },
+      searchTokens: fa.searchTokens,
+      anilistLabelSource: fa.anilistLabelSource,
     };
   }
   if (type === 'CHARACTERS') {
     return {
       id: `anilist-character:${fa.externalId}`,
-      label: fa.label,
+      label: fa.anilistLabelSource
+        ? resolveAnilistItemLabel(fa.anilistLabelSource, false)
+        : fa.label,
       url,
       imageUrl: fa.imageUrl ?? undefined,
       source: { kind: 'anilist-character', externalId: fa.externalId },
+      searchTokens: fa.searchTokens,
+      anilistLabelSource: fa.anilistLabelSource,
     };
   }
   if (type === 'STAFF') {
     return {
       id: `anilist-staff:${fa.externalId}`,
-      label: fa.label,
+      label: fa.anilistLabelSource
+        ? resolveAnilistItemLabel(fa.anilistLabelSource, false)
+        : fa.label,
       url,
       imageUrl: fa.imageUrl ?? undefined,
       source: { kind: 'anilist-staff', externalId: fa.externalId },
+      searchTokens: fa.searchTokens,
+      anilistLabelSource: fa.anilistLabelSource,
     };
   }
   // STUDIOS — no filter module registered; ship as source-less so the
@@ -219,6 +246,7 @@ function favouriteAsItemToItem(
     label: fa.label,
     url,
     imageUrl: fa.imageUrl ?? undefined,
+    searchTokens: fa.searchTokens,
   };
 }
 
@@ -254,6 +282,7 @@ export function AnilistStartMode({
   const [includeFormatInLabel, setIncludeFormatInLabel] = useState<boolean>(
     readIncludeFormatInLabel,
   );
+  const { prefs: displayPrefs } = useAnilistDisplayPreferences();
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Latest progress event from the in-flight import OR favourites
@@ -462,6 +491,12 @@ export function AnilistStartMode({
     // already map with the current includeFormatInLabel value.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- candidateSource/candidates intentionally omitted
   }, [includeFormatInLabel]);
+
+  useEffect(() => {
+    setCandidates((prev) =>
+      prev.map((item) => relabelAnilistItem(item, includeFormatInLabel)),
+    );
+  }, [displayPrefs.mediaTitleMode, displayPrefs.personNameMode, includeFormatInLabel]);
 
   // Load per-favourite-type last-refresh timestamps + cached counts
   // for the user the typed `username` resolves to. Mirrors the
@@ -679,7 +714,7 @@ export function AnilistStartMode({
       ? items
       : items.filter((it) => visibleIds.has(it.id));
     if (needle === '') return chipPassed;
-    return chipPassed.filter((it) => it.label.toLowerCase().includes(needle));
+    return chipPassed.filter((it) => itemMatchesSearch(it, needle));
   }, [items, visibleIds, search]);
 
   const selectedCount = useMemo(() => {

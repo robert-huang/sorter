@@ -55,14 +55,14 @@ function makeVaCredit(
 }
 
 describe('matchesListFilter', () => {
-  it('matches only displayed title and role strings', () => {
+  it('matches every stored title variant and role strings', () => {
     const row: AnimeFilmographyRow = {
       media: {
         id: 1,
         type: 'ANIME',
         title_romaji: 'Yuru Yuri',
-        title_english: null,
-        title_native: null,
+        title_english: 'YuruYuri',
+        title_native: 'ゆるゆり',
         cover_image: null,
         format: null,
         status: null,
@@ -89,20 +89,26 @@ describe('matchesListFilter', () => {
     };
 
     expect(matchesListFilter(filmographyFilterParts(row), 'yuru')).toBe(true);
+    expect(matchesListFilter(filmographyFilterParts(row), 'yuruyuri')).toBe(true);
+    expect(matchesListFilter(filmographyFilterParts(row), 'ゆる')).toBe(true);
     expect(matchesListFilter(filmographyFilterParts(row), 'as yui')).toBe(true);
     expect(matchesListFilter(filmographyFilterParts(row), 'fire force')).toBe(false);
   });
 
-  it('does not match hidden character names when filtering grouped VA rows', () => {
+  it('matches non-displayed name variants when filtering grouped VA rows', () => {
     const credits = [
-      makeVaCredit(1, 'Aoi Yuuki', 10, 'Yui Funami', 'MAIN'),
-      makeVaCredit(2, 'Other VA', 20, 'Hidden Character', 'SUPPORTING'),
+      {
+        ...makeVaCredit(1, 'Aoi Yuuki', 10, 'Yui Funami', 'MAIN'),
+        staff: { ...makeStaff(1, 'Aoi Yuuki'), name_native: '悠木碧' },
+        character: { ...makeCharacter(10, 'Yui Funami'), name_native: '船見結衣' },
+      },
     ];
     const grouped = groupSortedVaCredits(credits);
-    const aoiGroup = grouped.find((g) => g.staff.id === 1)!;
+    const aoiGroup = grouped[0];
 
     expect(matchesListFilter(groupedVaCreditFilterParts(aoiGroup), 'yui')).toBe(true);
-    expect(matchesListFilter(groupedVaCreditFilterParts(aoiGroup), 'hidden')).toBe(false);
+    expect(matchesListFilter(groupedVaCreditFilterParts(aoiGroup), '悠木')).toBe(true);
+    expect(matchesListFilter(groupedVaCreditFilterParts(aoiGroup), '船見')).toBe(true);
   });
 });
 
@@ -116,10 +122,14 @@ describe('groupSortedVaCredits', () => {
     const grouped = groupSortedVaCredits(credits);
     expect(grouped).toHaveLength(1);
     expect(grouped[0].credits).toHaveLength(2);
-    expect(groupedVaCreditFilterParts(grouped[0])).toEqual([
-      'Aoi Yuuki',
-      'as Main Role (MAIN), Second Role (SUPPORTING)',
-    ]);
+    expect(groupedVaCreditFilterParts(grouped[0])).toEqual(
+      expect.arrayContaining([
+        'Aoi Yuuki',
+        'Main Role',
+        'Second Role',
+        'as Main Role (MAIN), Second Role (SUPPORTING)',
+      ]),
+    );
   });
 });
 

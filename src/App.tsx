@@ -145,6 +145,8 @@ import { ANILIST_SOURCE_ID } from './lib/importers/anilist/anilistSource';
 import { ensureAnilistFiltersRegistered } from './lib/importers/anilist/filters';
 import { ensureCharacterStaffFiltersRegistered } from './lib/importers/anilist/characterStaffFilters';
 import { configureAnilistRunnerHooks } from './lib/importers/anilist/runners';
+import { subscribeAnilistDisplayPreferences } from './lib/importers/anilist/displayPreferences';
+import { relabelAnilistItemPreservingFormat } from './lib/importers/anilist/anilistItemLabel';
 import { AnilistDetailModal } from './components/AnilistDetailModal';
 import { ItemDetailContext } from './components/itemDetailContext';
 import { useKeyboard } from './hooks/useKeyboard';
@@ -1797,6 +1799,29 @@ export function App() {
       configureAnilistRunnerHooks({});
     };
   }, [onDbPushSource]);
+
+  // Relabel the in-memory engine items whenever the AniList display
+  // preferences change (title language / name mode), so an in-progress
+  // or completed sort flips to the new language without a reload. The
+  // per-item `anilistLabelSource` carries the raw title/name fields;
+  // `relabelAnilistItemPreservingFormat` is a no-op for non-AniList
+  // items and keeps the user's `(FORMAT)`-suffix choice intact. We
+  // don't push an undo frame — this is a cosmetic relabel, not an edit.
+  useEffect(() => {
+    return subscribeAnilistDisplayPreferences(() => {
+      setState((cur) => {
+        if (!cur) return cur;
+        let changed = false;
+        const items: Record<ItemId, Item> = {};
+        for (const [id, item] of Object.entries(cur.items)) {
+          const next = relabelAnilistItemPreservingFormat(item);
+          if (next !== item) changed = true;
+          items[id] = next;
+        }
+        return changed ? ({ ...cur, items } as SortState) : cur;
+      });
+    });
+  }, []);
 
   // -------- start --------
   const startScreenRef = useRef<StartScreenHandle>(null);

@@ -1,4 +1,6 @@
 import type { CloudMenuStatus } from './SettingsMenu';
+import { AnilistDisplayPreferencesPanel } from './AnilistDisplayPreferencesPanel';
+import { ANILIST_SOURCE_ID } from '../lib/importers/anilist/anilistSource';
 import { listSources } from '../lib/db/source-registry';
 import { getSyncState, type SyncStatus } from '../lib/db/sync';
 import { getPendingChanges } from '../lib/db/syncManifest';
@@ -108,6 +110,7 @@ export function SourceDatabasesSection({
                   cloud not connected
                 </span>
               </div>
+              {source.id === ANILIST_SOURCE_ID && <AnilistDisplayPreferencesPanel />}
             </div>
           );
         }
@@ -170,6 +173,7 @@ export function SourceDatabasesSection({
                 {pulling ? 'Pulling…' : 'Pull'}
               </button>
             </div>
+            {source.id === ANILIST_SOURCE_ID && <AnilistDisplayPreferencesPanel />}
           </div>
         );
       })}

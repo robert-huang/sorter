@@ -1614,7 +1614,14 @@ function VoiceActorChip({
   const selectedOptions = options.filter((o) => selectedSet.has(o.id));
   const unselectedOptions = options.filter((o) => !selectedSet.has(o.id));
   const matchingUnselected = needle
-    ? unselectedOptions.filter((o) => o.name.toLowerCase().includes(needle))
+    ? unselectedOptions.filter((o) =>
+        // Match every stored name variant (full + native), not just the
+        // displayed label, so searching a romaji name finds a VA shown
+        // in native script and vice versa.
+        (o.searchTokens.length > 0 ? o.searchTokens : [o.name]).some((token) =>
+          token.toLowerCase().includes(needle),
+        ),
+      )
     : unselectedOptions;
 
   const count = selected.length;

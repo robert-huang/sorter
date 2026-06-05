@@ -1,4 +1,5 @@
 import type { ProductionCreditRow } from '../lib/importers/anilist/graphQueries';
+import { pickPersonName } from '../lib/importers/anilist/personDisplayLabel';
 import {
   anilistUrlForStaff,
   bindAnilistMiddleClick,
@@ -11,7 +12,7 @@ interface Props {
 }
 
 function productionStaffName(row: ProductionCreditRow): string {
-  return row.staff.name_full ?? row.staff.name_native ?? `Staff #${row.staff.id}`;
+  return pickPersonName(row.staff, undefined, 'Staff');
 }
 
 export function ProductionCreditHopButton({ row, onHop }: Props) {

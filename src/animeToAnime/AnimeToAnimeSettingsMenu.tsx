@@ -260,9 +260,11 @@ export function AnimeToAnimeSettingsMenu({
                 — queue merge sort rankings
               </span>
             </div>
-            <SettingsGitHubLink />
-            <div className="settings-status">
-              Autosave: {dbSync.autosaveAvailable ? 'on' : 'disabled (file:// origin)'}
+            <div className="settings-status settings-footer-meta">
+              <span>
+                Autosave: {dbSync.autosaveAvailable ? 'on' : 'disabled (file:// origin)'}
+              </span>
+              <SettingsGitHubLink />
             </div>
           </div>
         </div>

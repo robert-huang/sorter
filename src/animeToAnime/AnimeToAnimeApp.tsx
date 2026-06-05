@@ -24,7 +24,9 @@ import {
 import { describeNonPersistentStorageBanner, type StorageMode } from '../lib/db/opfs';
 import { productionReads } from '../lib/importers/anilist/readQueries';
 import type { MediaRow, StaffRow } from '../lib/importers/anilist/types';
+import { useAnilistDisplayPreferences } from '../hooks/useAnilistDisplayPreferences';
 import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
+import { pickPersonName } from '../lib/importers/anilist/personDisplayLabel';
 import {
   subscribeToWaitState,
   type AnilistWaitState,
@@ -82,26 +84,40 @@ type Node =
   | { kind: 'staff'; staffId: number };
 
 function animePathStep(media: MediaRow, viaLabel?: string): PathStep {
+  const titleFields = {
+    id: media.id,
+    title_romaji: media.title_romaji,
+    title_english: media.title_english,
+    title_native: media.title_native,
+  };
   return {
     kind: 'anime',
     mediaId: media.id,
-    title: pickMediaTitle(media),
+    title: pickMediaTitle(titleFields),
     coverImage: media.cover_image,
+    titleFields,
     ...(viaLabel ? { viaLabel } : {}),
   };
 }
 
 function staffPathStep(staff: StaffRow, viaLabel?: string): PathStep {
+  const nameFields = {
+    id: staff.id,
+    name_full: staff.name_full,
+    name_native: staff.name_native,
+  };
   return {
     kind: 'staff',
     staffId: staff.id,
-    name: staff.name_full ?? staff.name_native ?? 'Staff',
+    name: pickPersonName(nameFields, undefined, 'Staff'),
     image: staff.image,
+    nameFields,
     ...(viaLabel ? { viaLabel } : {}),
   };
 }
 
 export function AnimeToAnimeApp() {
+  const { prefs: anilistDisplayPrefs } = useAnilistDisplayPreferences();
   const dbSync = useSourceDbSync();
   const bumpSourceDbDirtyRef = useRef(dbSync.bumpSourceDbDirty);
   bumpSourceDbDirtyRef.current = dbSync.bumpSourceDbDirty;
@@ -131,6 +147,32 @@ export function AnimeToAnimeApp() {
   const [pathHistory, setPathHistory] = useState<PathStep[]>([]);
   const [filter, setFilter] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Relabel the trail's node titles / names in place when the display
+  // preference changes mid-round. The `viaLabel` edge tooltips embed
+  // character/role text resolved at hop time and aren't re-derived here
+  // (that would need a DB requery) — only the node labels flip.
+  useEffect(() => {
+    setPathHistory((prev) => {
+      let changed = false;
+      const next = prev.map((step) => {
+        if (step.kind === 'anime' && step.titleFields) {
+          const title = pickMediaTitle(step.titleFields);
+          if (title === step.title) return step;
+          changed = true;
+          return { ...step, title };
+        }
+        if (step.kind === 'staff' && step.nameFields) {
+          const name = pickPersonName(step.nameFields, undefined, 'Staff');
+          if (name === step.name) return step;
+          changed = true;
+          return { ...step, name };
+        }
+        return step;
+      });
+      return changed ? next : prev;
+    });
+  }, [anilistDisplayPrefs.mediaTitleMode, anilistDisplayPrefs.personNameMode]);
   const [apiWait, setApiWait] = useState<AnilistWaitState | null>(null);
   const apiWaitSecondsLeft = useAnilistWaitCountdown(apiWait);
   const [listRefreshEpoch, setListRefreshEpoch] = useState(0);
@@ -735,7 +777,7 @@ export function AnimeToAnimeApp() {
                 <section className="anime-to-anime-play-panel">
                   <StaffFilmographySections
                     staffId={staffHeader.id}
-                    staffName={staffHeader.name_full ?? staffHeader.name_native ?? 'Staff'}
+                    staffName={pickPersonName(staffHeader, undefined, 'Staff')}
                     rows={filteredFilmography}
                     loading={loading}
                     onRefresh={onRefreshPlayList}

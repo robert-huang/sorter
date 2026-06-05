@@ -440,9 +440,11 @@ export function SettingsMenu({
                 — connect two shows via voice actors
               </span>
             </div>
-            <SettingsGitHubLink />
-            <div className="settings-status">
-              Autosave: {autosaveAvailable ? 'on' : 'disabled (file:// origin)'}
+            <div className="settings-status settings-footer-meta">
+              <span>
+                Autosave: {autosaveAvailable ? 'on' : 'disabled (file:// origin)'}
+              </span>
+              <SettingsGitHubLink />
             </div>
           </div>
         </div>

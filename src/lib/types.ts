@@ -18,6 +18,15 @@ export type ItemId = string;
  * default `source === undefined` to `{ kind: 'manual' }` via
  * {@link getItemSourceKind}.
  */
+import type { MediaTitleFields } from './importers/anilist/mediaDisplayLabel';
+import type { PersonNameFields } from './importers/anilist/personDisplayLabel';
+import type { AnilistMediaFormat } from './importers/anilist/types';
+
+/** Enough metadata to re-render an AniList item label when display prefs change. */
+export type AnilistItemLabelSource =
+  | { kind: 'media'; titleFields: MediaTitleFields; format: AnilistMediaFormat | null }
+  | { kind: 'person'; nameFields: PersonNameFields; fallbackLabel?: string };
+
 export type ItemSource =
   | { kind: 'manual' }
   | { kind: 'anilist'; externalId: number }
@@ -37,6 +46,10 @@ export interface Item {
   url?: string;
   imageUrl?: string;
   source?: ItemSource;
+  /** All name/title variants for local search — independent of display mode. */
+  searchTokens?: readonly string[];
+  /** Re-label when AniList display preferences change. */
+  anilistLabelSource?: AnilistItemLabelSource;
 }
 
 /**

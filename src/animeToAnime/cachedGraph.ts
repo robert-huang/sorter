@@ -4,6 +4,7 @@
 
 import type { AnilistDbExecutor } from '../lib/importers/anilist/context';
 import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
+import { pickPersonName } from '../lib/importers/anilist/personDisplayLabel';
 import { filterProductionStaffRows } from '../lib/importers/anilist/staffRoleFilter';
 import type { RoundConfig } from './preferences';
 import type { PathStep } from './pathHistory';
@@ -238,7 +239,15 @@ async function hydratePathSteps(
       staffById.set(id, {
         kind: 'staff',
         staffId: id,
-        name: (row.name_full as string | null) ?? (row.name_native as string | null) ?? 'Staff',
+        name: pickPersonName(
+          {
+            id,
+            name_full: row.name_full as string | null,
+            name_native: row.name_native as string | null,
+          },
+          undefined,
+          'Staff',
+        ),
         image: row.image as string | null,
       });
     }

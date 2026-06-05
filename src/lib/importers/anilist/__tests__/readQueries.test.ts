@@ -552,7 +552,7 @@ describe('getListedMediaCount', () => {
 });
 
 describe('getFavouritesAsItems', () => {
-  it('returns ANIME favourites with title-romaji→english→native waterfall and cover_image', async () => {
+  it('returns ANIME favourites labelled via the display-preference waterfall, falling back to Untitled, with cover_image', async () => {
     const user = seedUser(db);
     seedMedia(db, 1, { title_english: 'EN-1' });
     seedMedia(db, 2, { title_english: null });
@@ -612,8 +612,18 @@ describe('getFavouritesAsItems', () => {
 
     const items = await getFavouritesAsItems(exec, user.id, 'CHARACTERS');
     expect(items).toEqual([
-      { externalId: 1, label: 'Spike Spiegel', imageUrl: 'http://img/1' },
-      { externalId: 2, label: 'フェイ', imageUrl: null },
+      expect.objectContaining({
+        externalId: 1,
+        label: 'Spike Spiegel',
+        imageUrl: 'http://img/1',
+        searchTokens: ['Spike Spiegel', 'スパイク'],
+      }),
+      expect.objectContaining({
+        externalId: 2,
+        label: 'フェイ',
+        imageUrl: null,
+        searchTokens: ['フェイ'],
+      }),
     ]);
   });
 
@@ -637,8 +647,18 @@ describe('getFavouritesAsItems', () => {
     seedFavouriteStaff(db, user.id, 11, 1);
     const items = await getFavouritesAsItems(exec, user.id, 'STAFF');
     expect(items).toEqual([
-      { externalId: 10, label: 'Shinichiro Watanabe', imageUrl: 'http://img/staff/10' },
-      { externalId: 11, label: 'Staff #11', imageUrl: null },
+      expect.objectContaining({
+        externalId: 10,
+        label: 'Shinichiro Watanabe',
+        imageUrl: 'http://img/staff/10',
+        searchTokens: ['Shinichiro Watanabe'],
+      }),
+      expect.objectContaining({
+        externalId: 11,
+        label: 'Staff #11',
+        imageUrl: null,
+        searchTokens: [],
+      }),
     ]);
   });
 
@@ -650,8 +670,18 @@ describe('getFavouritesAsItems', () => {
     seedFavouriteStudio(db, user.id, 100, 1);
     const items = await getFavouritesAsItems(exec, user.id, 'STUDIOS');
     expect(items).toEqual([
-      { externalId: 101, label: 'Madhouse', imageUrl: null },
-      { externalId: 100, label: 'Sunrise', imageUrl: null },
+      expect.objectContaining({
+        externalId: 101,
+        label: 'Madhouse',
+        imageUrl: null,
+        searchTokens: ['Madhouse'],
+      }),
+      expect.objectContaining({
+        externalId: 100,
+        label: 'Sunrise',
+        imageUrl: null,
+        searchTokens: ['Sunrise'],
+      }),
     ]);
   });
 

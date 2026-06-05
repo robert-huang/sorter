@@ -8,6 +8,9 @@ import {
 import type { AnilistProgressEvent } from '../lib/importers/anilist/progress';
 import { filterProductionStaffRows } from '../lib/importers/anilist/staffRoleFilter';
 import { runAnilistMediaLazyExpansion } from '../lib/importers/anilist/runners';
+import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
+import { pickPersonName } from '../lib/importers/anilist/personDisplayLabel';
+import { useAnilistDisplayPreferences } from '../hooks/useAnilistDisplayPreferences';
 import { formatAnilistProgress } from './anilistProgressLabel';
 
 const PRODUCTION_ROLE_MODE_KEY = 'anilist-detail-production-roles';
@@ -74,19 +77,15 @@ interface Props {
 }
 
 /**
- * Resolve the modal header title. Falls through
- *   romaji → english → native → caller-supplied fallback
- * to match what the AniList tab's chip pipeline shows (pickTitle in
- * AnilistStartMode + the romaji-first SELECT in
- * getFavouritesAsItems). Keeping the modal's preferred order in sync
- * with the chip's label avoids a visible flicker / mismatch when the
- * user clicks a chip whose label is the romaji title and the modal
- * resolves a different one once the detail row loads.
+ * Resolve the modal header title using the user's media-title display
+ * preference, with the caller-supplied label (the clicked Item's
+ * `label`) as the final fallback. Sharing `pickMediaTitle` with the
+ * chip pipeline keeps the modal header in sync with the chip label so
+ * there's no flicker / mismatch when the detail row loads.
  */
 function pickTitle(d: MediaDetail | null, fallback: string): string {
   if (!d) return fallback;
-  const m = d.media;
-  return m.title_romaji ?? m.title_english ?? m.title_native ?? fallback;
+  return pickMediaTitle(d.media, undefined, fallback);
 }
 
 /** Render a fuzzy date as YYYY-MM-DD with `?` placeholders for the
@@ -108,6 +107,9 @@ export function AnilistDetailModal({
   fallbackTitle,
   onClose,
 }: Props) {
+  // Re-render the modal when the display preferences change so the
+  // title / character / VA / staff names relabel live while it's open.
+  useAnilistDisplayPreferences();
   const [detail, setDetail] = useState<MediaDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [expanding, setExpanding] = useState(false);
@@ -450,7 +452,7 @@ export function AnilistDetailModal({
                             />
                           )}
                           <div className="anilist-detail-cast-text">
-                            <strong>{character.name_full ?? character.name_native ?? `Character #${character.id}`}</strong>
+                            <strong>{pickPersonName(character, undefined, 'Character')}</strong>
                             {role && (
                               <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>
                                 {role}
@@ -460,7 +462,7 @@ export function AnilistDetailModal({
                               <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>
                                 VA:{' '}
                                 {voiceActors
-                                  .map((va) => va.name_full ?? va.name_native ?? `#${va.id}`)
+                                  .map((va) => pickPersonName(va, undefined, 'Staff'))
                                   .join(', ')}
                               </span>
                             )}
@@ -516,7 +518,7 @@ export function AnilistDetailModal({
                         )}
                         <div className="anilist-detail-cast-text">
                           <strong>
-                            {staff.name_full ?? staff.name_native ?? `#${staff.id}`}
+                            {pickPersonName(staff, undefined, 'Staff')}
                           </strong>
                           <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>
                             {role}

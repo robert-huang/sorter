@@ -3,11 +3,14 @@ import type {
   MediaRelationRow,
   ProductionCreditRow,
 } from '../lib/importers/anilist/graphQueries';
-import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
+import { mediaTitleSearchParts } from '../lib/importers/anilist/mediaDisplayLabel';
+import {
+  characterNameSearchParts,
+  personNameSearchParts,
+} from '../lib/importers/anilist/personDisplayLabel';
 import {
   filmographyRolesSubtitle,
   groupedVaCreditSubtitle,
-  vaCreditStaffNameFromStaff,
   type GroupedVaCreditRow,
 } from './vaCreditDisplay';
 
@@ -19,22 +22,30 @@ export function matchesListFilter(parts: readonly (string | null | undefined)[],
 }
 
 export function groupedVaCreditFilterParts(group: GroupedVaCreditRow): readonly string[] {
-  const name = vaCreditStaffNameFromStaff(group.staff);
   const subtitle = groupedVaCreditSubtitle(group);
-  return subtitle ? [name, subtitle] : [name];
+  const parts = [
+    ...personNameSearchParts(group.staff),
+    ...group.credits.flatMap((row) => characterNameSearchParts(row.character)),
+  ];
+  if (subtitle) {
+    parts.push(subtitle);
+  }
+  return parts;
 }
 
 export function productionCreditFilterParts(row: ProductionCreditRow): readonly string[] {
-  const name = row.staff.name_full ?? row.staff.name_native ?? '';
-  return [name, ...row.roles];
+  return [...personNameSearchParts(row.staff), ...row.roles];
 }
 
 export function filmographyFilterParts(row: AnimeFilmographyRow): readonly string[] {
-  const title = pickMediaTitle(row.media);
   const roleLine = filmographyRolesSubtitle(row);
-  return roleLine ? [title, roleLine] : [title];
+  const parts = [...mediaTitleSearchParts(row.media)];
+  if (roleLine) {
+    parts.push(roleLine);
+  }
+  return parts;
 }
 
 export function mediaRelationFilterParts(row: MediaRelationRow): readonly string[] {
-  return [pickMediaTitle(row.media), row.relationType];
+  return [...mediaTitleSearchParts(row.media), row.relationType];
 }

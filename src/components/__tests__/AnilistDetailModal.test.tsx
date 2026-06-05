@@ -260,13 +260,13 @@ describe('AnilistDetailModal — lazy expansion', () => {
     expect(container.textContent).toMatch(/boom/);
   });
 
-  // The chip pipeline (pickTitle in AnilistStartMode + the SELECT in
-  // getFavouritesAsItems) labels media as romaji → english → native.
-  // The detail modal's header is what the user sees right after they
-  // click a chip, so it MUST resolve to the same title — otherwise
-  // the header flickers from the chip's romaji label to a different
-  // language once detail loads. These two tests pin the waterfall.
-  it('prefers romaji over english when both are present (matches chip waterfall)', async () => {
+  // The chip pipeline (pickTitle in AnilistStartMode + getFavouritesAsItems)
+  // and the modal header both resolve via `pickMediaTitle`, which defaults
+  // to romaji-first (romaji → english → native). The modal header is what
+  // the user sees right after clicking a chip, so it MUST resolve to the
+  // same title — otherwise the header flickers once detail loads. These
+  // two tests pin that shared waterfall.
+  it('prefers the romaji title by default when all are present (matches chip waterfall)', async () => {
     mockedGetMediaDetail.mockResolvedValueOnce({
       ...makeDetail(50, true),
       media: makeMedia(50, {
@@ -293,7 +293,7 @@ describe('AnilistDetailModal — lazy expansion', () => {
     expect(text).not.toContain('Beyond Journey');
   });
 
-  it('falls back to english when romaji is missing', async () => {
+  it('falls back to english when native and romaji are missing', async () => {
     mockedGetMediaDetail.mockResolvedValueOnce({
       ...makeDetail(51, true),
       media: makeMedia(51, {

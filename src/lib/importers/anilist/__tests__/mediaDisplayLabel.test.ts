@@ -1,21 +1,102 @@
 import { describe, expect, it } from 'vitest';
-import { formatMediaDisplayLabel, pickMediaTitle } from '../mediaDisplayLabel';
+import {
+  _clearAnilistDisplayPreferencesForTesting,
+  saveAnilistDisplayPreferences,
+} from '../displayPreferences';
+import {
+  formatMediaDisplayLabel,
+  mediaTitleSearchParts,
+  pickMediaTitle,
+} from '../mediaDisplayLabel';
+
+const FIELDS = {
+  id: 1,
+  title_romaji: 'Shinryaku! Ika Musume',
+  title_english: 'Squid Girl',
+  title_native: '侵略!',
+};
 
 describe('pickMediaTitle', () => {
-  it('prefers romaji over english and native', () => {
+  it('defaults to romaji-first when no preference is stored', () => {
+    _clearAnilistDisplayPreferencesForTesting();
+    expect(pickMediaTitle(FIELDS)).toBe('Shinryaku! Ika Musume');
+  });
+
+  it('prefers english when display mode is english', () => {
+    _clearAnilistDisplayPreferencesForTesting();
+    saveAnilistDisplayPreferences({ mediaTitleMode: 'english' });
+    expect(pickMediaTitle(FIELDS)).toBe('Squid Girl');
+  });
+
+  it('prefers native when display mode is native', () => {
+    saveAnilistDisplayPreferences({ mediaTitleMode: 'native' });
+    expect(pickMediaTitle(FIELDS)).toBe('侵略!');
+  });
+
+  it('prefers romaji when display mode is romaji', () => {
+    saveAnilistDisplayPreferences({ mediaTitleMode: 'romaji' });
+    expect(pickMediaTitle(FIELDS)).toBe('Shinryaku! Ika Musume');
+  });
+
+  it('falls back native → english → romaji in native mode', () => {
+    saveAnilistDisplayPreferences({ mediaTitleMode: 'native' });
     expect(
       pickMediaTitle({
-        id: 1,
-        title_romaji: 'Shinryaku! Ika Musume',
-        title_english: 'Squid Girl',
-        title_native: '侵略!',
+        id: 5,
+        title_romaji: 'Romaji Only',
+        title_english: 'English Only',
+        title_native: null,
       }),
-    ).toBe('Shinryaku! Ika Musume');
+    ).toBe('English Only');
+    expect(
+      pickMediaTitle({
+        id: 6,
+        title_romaji: 'Romaji Only',
+        title_english: null,
+        title_native: null,
+      }),
+    ).toBe('Romaji Only');
+  });
+
+  it('falls back through romaji when the preferred title is missing', () => {
+    saveAnilistDisplayPreferences({ mediaTitleMode: 'english' });
+    expect(
+      pickMediaTitle({
+        id: 2,
+        title_romaji: 'Romaji Only',
+        title_english: null,
+        title_native: null,
+      }),
+    ).toBe('Romaji Only');
+  });
+
+  it('uses the caller-supplied fallback over the Untitled placeholder', () => {
+    saveAnilistDisplayPreferences({ mediaTitleMode: 'native' });
+    expect(
+      pickMediaTitle(
+        { id: 7, title_romaji: null, title_english: null, title_native: null },
+        undefined,
+        'Clicked Label',
+      ),
+    ).toBe('Clicked Label');
+  });
+});
+
+describe('mediaTitleSearchParts', () => {
+  it('includes every stored title variant and synonyms', () => {
+    const parts = mediaTitleSearchParts({
+      ...FIELDS,
+      synonyms_json: '["Ikamusume"]',
+    });
+    expect(parts).toEqual(
+      expect.arrayContaining(['Shinryaku! Ika Musume', 'Squid Girl', '侵略!', 'Ikamusume']),
+    );
   });
 });
 
 describe('formatMediaDisplayLabel', () => {
   it('appends AniList format when requested', () => {
+    _clearAnilistDisplayPreferencesForTesting();
     expect(
       formatMediaDisplayLabel(
         {
