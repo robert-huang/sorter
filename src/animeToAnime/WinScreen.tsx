@@ -2,6 +2,7 @@ import type { MediaRow } from '../lib/importers/anilist/types';
 import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
 import { currentPageUrl } from '../lib/appRoutes';
 import { formatPathSummary, type PathStep } from './pathHistory';
+import { WinPathTrail } from './WinPathTrail';
 
 interface Props {
   startMedia: MediaRow;
@@ -55,9 +56,7 @@ export function WinScreen({
       <p className="anime-to-anime-win-hops">
         Links used: <strong>{linksUsed}</strong>
       </p>
-      {pathHistory.length > 1 && (
-        <p className="anime-to-anime-win-path">{formatPathSummary(pathHistory)}</p>
-      )}
+      {pathHistory.length > 1 && <WinPathTrail steps={pathHistory} />}
       <div className="anime-to-anime-actions anime-to-anime-win-actions">
         <button type="button" className="btn primary" onClick={onCopySummary}>
           Copy summary

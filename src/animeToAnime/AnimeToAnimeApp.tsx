@@ -52,7 +52,7 @@ import {
   saveAnimeToAnimeTheme,
   type AnimeToAnimeTheme,
 } from './theme';
-import { AnimeFilmographyHopButton } from './AnimeFilmographyHopButton';
+import { StaffFilmographySections } from './StaffFilmographySections';
 import { PlayListSectionHeader } from './PlayListSectionHeader';
 import { ProductionCreditHopButton } from './ProductionCreditHopButton';
 import { VaCreditHopButton } from './VaCreditHopButton';
@@ -621,28 +621,13 @@ export function AnimeToAnimeApp() {
 
               {current?.kind === 'staff' && staffHeader && (
                 <section className="anime-to-anime-play-panel">
-                  <h2 className="anime-to-anime-current-title">
-                    {staffHeader.name_full ?? staffHeader.name_native}
-                  </h2>
-                  <PlayListSectionHeader
-                    title="Anime roles"
+                  <StaffFilmographySections
+                    staffName={staffHeader.name_full ?? staffHeader.name_native ?? 'Staff'}
+                    rows={filteredFilmography}
+                    loading={loading}
                     onRefresh={onRefreshPlayList}
-                    refreshing={loading}
-                    refreshLabel="Refresh filmography from AniList"
+                    onHopToAnime={(row) => onHopToAnime(row.media)}
                   />
-                  <ul className="anime-to-anime-hop-list">
-                    {filteredFilmography.map((row) => (
-                      <li
-                        key={`${row.media.id}-${row.creditKind}`}
-                        className="anime-to-anime-hop-list-item"
-                      >
-                        <AnimeFilmographyHopButton
-                          row={row}
-                          onHop={() => onHopToAnime(row.media)}
-                        />
-                      </li>
-                    ))}
-                  </ul>
                 </section>
               )}
             </>

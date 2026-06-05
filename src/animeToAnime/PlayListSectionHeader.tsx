@@ -16,7 +16,7 @@ export function PlayListSectionHeader({
       <h3 className="anime-to-anime-subheading anime-to-anime-list-header-title">{title}</h3>
       <button
         type="button"
-        className="btn btn-icon anime-to-anime-refresh-btn"
+        className="btn icon-only anime-to-anime-refresh-btn"
         onClick={onRefresh}
         disabled={refreshing}
         title={refreshLabel}
