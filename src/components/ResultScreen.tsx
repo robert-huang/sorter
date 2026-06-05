@@ -17,7 +17,7 @@ interface Props {
   /**
    * Start over from scratch: re-init the sort with the same items but
    * no comparison history. Shows a confirm modal in App.tsx (unless the
-   * user opted out of it). Distinct from "Delete this slot" — items
+   * user opted out of it). Distinct from deleting the slot — items
    * survive, only the ranking work is discarded.
    */
   onStartOver: () => void;

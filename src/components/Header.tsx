@@ -22,8 +22,6 @@ interface Props {
   onDownload: () => void;
   autosaveAvailable: boolean;
   onLoadFromFile: (file: File) => void;
-  /** Confirm + delete the active slot. */
-  onReset: () => void;
   /** Trigger a JSON download of every slot in one archive file. */
   onBackupAll: () => void;
   /** Hand a SlotArchive JSON file to App for parsing + confirm modal. */
@@ -98,7 +96,6 @@ export function Header({
   onDownload,
   autosaveAvailable,
   onLoadFromFile,
-  onReset,
   onBackupAll,
   onRestoreFromBackup,
   manifest,
@@ -342,10 +339,8 @@ export function Header({
           <SettingsMenu
             autosaveAvailable={autosaveAvailable}
             onLoadFromFile={onLoadFromFile}
-            onReset={onReset}
             onBackupAll={onBackupAll}
             onRestoreFromBackup={onRestoreFromBackup}
-            hasActiveSlot={hasState}
             manifest={manifest}
             loadedSlotId={loadedSlotId}
             onSwitchSlot={onSwitchSlot}

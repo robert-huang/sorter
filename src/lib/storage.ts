@@ -1647,8 +1647,8 @@ export type ThemeName = 'light' | 'dark';
 
 export interface Settings {
   /**
-   * "Don't ask again" for the SlotDeleteConfirmModal (per-row trashcan +
-   * toolbar "Delete this slot"). Kept under its legacy name for
+   * "Don't ask again" for the SlotDeleteConfirmModal (the per-row trashcan
+   * in the gear-menu slot list). Kept under its legacy name for
    * backward-compat — older builds wrote this key when the modal was
    * still called the "reset" confirm.
    */

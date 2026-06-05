@@ -34,7 +34,7 @@ export function StartOverConfirmModal({
       <p style={{ color: 'var(--text-muted)' }}>
         <strong>&ldquo;{slotName}&rdquo; stays finished.</strong> It remains in
         the gear-menu list with its full sort and undo history — you can open it
-        any time. To remove it, use &ldquo;Delete this slot&rdquo; in the gear menu.
+        any time. To remove it, use the &times; next to it in the gear menu.
       </p>
       <p style={{ color: 'var(--text-muted)' }}>
         <strong>Removed items don&rsquo;t come along.</strong> Anything you hid

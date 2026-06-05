@@ -217,10 +217,9 @@ export function App() {
     slots: [],
   }));
   // A pending slot-delete confirmation. When non-null, SlotDeleteConfirmModal
-  // is shown. Used for both the toolbar "Delete this slot" flow and the
-  // per-row trashcan in the gear-popover slot list — both routes go through
-  // requestDeleteSlot so the modal and the "Don't ask again" preference are
-  // shared.
+  // is shown. Driven by the per-row trashcan in the gear-popover slot list,
+  // which goes through requestDeleteSlot so the modal and the "Don't ask
+  // again" preference are shared.
   const [slotPendingDelete, setSlotPendingDelete] = useState<
     { id: string; name: string; cloudId?: string } | null
   >(null);
@@ -2186,16 +2185,6 @@ export function App() {
     [restorePending, flashSkipped],
   );
 
-  // -------- reset (now == delete the active slot) --------
-  // The toolbar's "Delete this slot" entry just funnels into the same
-  // request-delete pipeline as the per-row trashcan, with the active slot
-  // pre-selected. Reads the manifest fresh so the right id wins even if
-  // the active slot just changed via another path.
-  const onResetRequest = useCallback(() => {
-    const activeId = readManifest().activeId;
-    if (activeId) requestDeleteSlot(activeId);
-  }, [requestDeleteSlot]);
-
   // -------- start over (RESULT tab: mint a NEW slot seeded from results)
   //
   // Semantically this is "use the previous sort's final ranking as the
@@ -2525,7 +2514,6 @@ export function App() {
         onDownload={onDownload}
         autosaveAvailable={autosaveOn}
         onLoadFromFile={onLoadFile}
-        onReset={onResetRequest}
         onBackupAll={onBackupAll}
         onRestoreFromBackup={onRestoreFromBackup}
         manifest={manifest}

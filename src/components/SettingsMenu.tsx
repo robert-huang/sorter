@@ -25,8 +25,8 @@ export type CloudMenuStatus = 'unavailable' | 'signed-out' | 'needs-folder' | 'r
 interface Props {
   autosaveAvailable: boolean;
   onLoadFromFile: (file: File) => void;
-  onReset: () => void;
-  /** Trigger a JSON download of every slot in one archive file. */
+  /** Trigger a JSON download of every slot in one archive file. Wired
+   *  to the download (⤓) icon in the slot-list header. */
   onBackupAll: () => void;
   /**
    * Hand a SlotArchive JSON file to the App for parsing + confirm modal.
@@ -35,8 +35,6 @@ interface Props {
    * is just the upload trigger.
    */
   onRestoreFromBackup: (file: File) => void;
-  /** Disable the "Delete this slot" entry when there is no active slot. */
-  hasActiveSlot: boolean;
   /** Slots manifest, rendered inline at the top of the menu. */
   manifest: SlotsManifest;
   /** Slot whose blob is loaded in memory now (null if none). */
@@ -140,10 +138,8 @@ function writePersistedTab(tab: GearTab): void {
 export function SettingsMenu({
   autosaveAvailable,
   onLoadFromFile,
-  onReset,
   onBackupAll,
   onRestoreFromBackup,
-  hasActiveSlot,
   manifest,
   loadedSlotId,
   onSwitchSlot,
@@ -218,11 +214,6 @@ export function SettingsMenu({
     e.target.value = '';
   }
 
-  function onBackupAllClick(): void {
-    setOpen(false);
-    onBackupAll();
-  }
-
   function onRestoreClick(): void {
     setOpen(false);
     archiveFileRef.current?.click();
@@ -232,11 +223,6 @@ export function SettingsMenu({
     const file = e.target.files?.[0];
     if (file) onRestoreFromBackup(file);
     e.target.value = '';
-  }
-
-  function onResetClick(): void {
-    setOpen(false);
-    onReset();
   }
 
   // Auto-close the popover after the user resumes a slot so the menu
@@ -311,6 +297,7 @@ export function SettingsMenu({
                     onCloudPushAll={onCloudPushAllSlots}
                     onCloudPullAll={onCloudPullAllSlots}
                     onNewSort={handleNewSort}
+                    onBackupAll={onBackupAll}
                     listScrollClassName="settings-slots-scroll"
                   />
                 </div>
@@ -321,34 +308,10 @@ export function SettingsMenu({
                   </button>
                   <button
                     className="settings-item"
-                    onClick={onBackupAllClick}
-                    disabled={manifest.slots.length === 0}
-                    title={
-                      manifest.slots.length === 0
-                        ? 'No slots to back up yet'
-                        : 'Download every slot in a single JSON archive'
-                    }
-                  >
-                    Backup all slots…
-                  </button>
-                  <button
-                    className="settings-item"
                     onClick={onRestoreClick}
                     title="Import a previously-saved archive file"
                   >
                     Restore from backup…
-                  </button>
-                  <button
-                    className="settings-item danger"
-                    onClick={onResetClick}
-                    disabled={!hasActiveSlot}
-                    title={
-                      hasActiveSlot
-                        ? 'Delete the slot you are currently sorting in'
-                        : 'No active slot to delete'
-                    }
-                  >
-                    Delete this slot
                   </button>
                   {cloudStatus !== 'unavailable' && (
                     <>

@@ -51,6 +51,12 @@ interface Props {
    */
   onNewSort?: () => void;
   /**
+   * Optional "back up every slot" handler. When provided, the header
+   * gains a download (⤓) icon next to "Saved sorts" that downloads all
+   * slots in one JSON archive.
+   */
+  onBackupAll?: () => void;
+  /**
    * Optional bulk-push handler. When provided AND `cloudControlsVisible`
    * is true, the header gains a "[⇡ ALL]" button that pushes every
    * opted-in slot to the cloud (App-side handler does the filter and
@@ -120,6 +126,7 @@ export function SlotList({
   cloudPushingIds,
   cloudPullingIds,
   onNewSort,
+  onBackupAll,
   onCloudPushAll,
   onCloudPullAll,
   listScrollClassName = 'slot-list-scroll',
@@ -183,6 +190,20 @@ export function SlotList({
       <div className="slot-list-header">
         <div className="slot-list-header-left">
           <span className="slot-list-header-title">Saved sorts</span>
+          {onBackupAll && (
+            <button
+              type="button"
+              className="slot-list-bulk-icon download-icon"
+              onClick={onBackupAll}
+              aria-label="Back up all slots as a JSON archive"
+              title="Back up all slots — download every slot in one JSON archive"
+            >
+              {/* "Down arrow above bar" (U+2913) — same glyph as the
+                  per-row download button, signalling "save to a file"
+                  but scoped to every slot at once. */}
+              ⤓
+            </button>
+          )}
           {showPushAll && (
             <button
               type="button"

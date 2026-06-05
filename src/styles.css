@@ -758,8 +758,11 @@ a {
   padding-left: 14px;
 }
 
+/* Spacing lives above the "Display names" title (separating it from the
+   Push/Pull row), not below it — the entry rows sit tight underneath. */
 .settings-anilist-display-prefs-title {
-  padding-bottom: 8px;
+  padding-top: 8px;
+  padding-bottom: 0;
 }
 
 /* The "entry" / "staff" labels are secondary to the toggle buttons —
