@@ -1,4 +1,20 @@
 import { useAnilistDisplayPreferences } from '../hooks/useAnilistDisplayPreferences';
+import type {
+  MediaTitleDisplayMode,
+  PersonNameDisplayMode,
+} from '../lib/importers/anilist/displayPreferences';
+
+// Romaji is the default, so it leads the segmented control.
+const TITLE_OPTIONS: { value: MediaTitleDisplayMode; label: string }[] = [
+  { value: 'romaji', label: 'Romaji' },
+  { value: 'english', label: 'English' },
+  { value: 'native', label: 'Native' },
+];
+
+const NAME_OPTIONS: { value: PersonNameDisplayMode; label: string }[] = [
+  { value: 'full', label: 'Full' },
+  { value: 'native', label: 'Native' },
+];
 
 /** Display toggles for cached AniList media/staff titles — under the anilist DB row. */
 export function AnilistDisplayPreferencesPanel() {
@@ -7,57 +23,38 @@ export function AnilistDisplayPreferencesPanel() {
   return (
     <div className="settings-anilist-display-prefs">
       <div className="settings-status settings-anilist-display-prefs-title">Display names</div>
-      <fieldset className="settings-anilist-display-fieldset">
-        <legend className="settings-anilist-display-legend">Show titles</legend>
-        <label className="settings-item checkbox">
-          <input
-            type="radio"
-            name="anilist-media-title-mode"
-            checked={prefs.mediaTitleMode === 'romaji'}
-            onChange={() => setMediaTitleMode('romaji')}
-          />
-          Romaji
-        </label>
-        <label className="settings-item checkbox">
-          <input
-            type="radio"
-            name="anilist-media-title-mode"
-            checked={prefs.mediaTitleMode === 'english'}
-            onChange={() => setMediaTitleMode('english')}
-          />
-          English
-        </label>
-        <label className="settings-item checkbox">
-          <input
-            type="radio"
-            name="anilist-media-title-mode"
-            checked={prefs.mediaTitleMode === 'native'}
-            onChange={() => setMediaTitleMode('native')}
-          />
-          Native
-        </label>
-      </fieldset>
-      <fieldset className="settings-anilist-display-fieldset">
-        <legend className="settings-anilist-display-legend">People names</legend>
-        <label className="settings-item checkbox">
-          <input
-            type="radio"
-            name="anilist-person-name-mode"
-            checked={prefs.personNameMode === 'full'}
-            onChange={() => setPersonNameMode('full')}
-          />
-          Full
-        </label>
-        <label className="settings-item checkbox">
-          <input
-            type="radio"
-            name="anilist-person-name-mode"
-            checked={prefs.personNameMode === 'native'}
-            onChange={() => setPersonNameMode('native')}
-          />
-          Native
-        </label>
-      </fieldset>
+      <div className="filter-chip-range-row">
+        <span>entry</span>
+        <div className="filter-chip-segmented" role="group" aria-label="entry">
+          {TITLE_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className={prefs.mediaTitleMode === option.value ? 'active' : ''}
+              aria-pressed={prefs.mediaTitleMode === option.value}
+              onClick={() => setMediaTitleMode(option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="filter-chip-range-row">
+        <span>staff</span>
+        <div className="filter-chip-segmented" role="group" aria-label="staff">
+          {NAME_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className={prefs.personNameMode === option.value ? 'active' : ''}
+              aria-pressed={prefs.personNameMode === option.value}
+              onClick={() => setPersonNameMode(option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
       <p className="settings-popover-hint settings-anilist-display-hint">
         Search still matches every stored title and name variant.
       </p>

@@ -66,6 +66,7 @@ import type {
   AnilistMediaListStatus,
   AnilistMediaSeason,
   AnilistMediaStatus,
+  AnilistMediaType,
 } from './types';
 
 // ---------------------------------------------------------------------
@@ -100,9 +101,11 @@ export interface AnilistFilterChipState extends FilterChipState {
   // this chip — semantics is "exclude entries whose status is NOT
   // in this set", not "require a list entry of this status".
   listStatuses: AnilistMediaListStatus[];
-  // Per-user score on `media_list_entry`. Three orthogonal knobs:
-  //   - userScoreInclude:
-  //       'any'     — no rated/unrated filter (default)
+  // Per-user score on `media_list_entry`. Two orthogonal knobs:
+  //   - userScoreInclude: canonical state behind the chip's Rated /
+  //     Unrated multi-select (see toggleScoreBucket for the mapping):
+  //       'any'     — both buckets shown, no rated/unrated filter
+  //                   (default; also the both-deselected fallback)
   //       'rated'   — only items with score > 0 pass (drops unrated +
   //                   items without a list entry at all)
   //       'unrated' — only items with score === 0 OR no list entry
@@ -670,7 +673,12 @@ interface ChipsHostProps {
   onChipStateChange: (patch: FilterChipState) => void;
 }
 
-const ALL_FORMATS: AnilistMediaFormat[] = [
+// AniList splits `format` cleanly by media type: the first group only
+// ever appears on ANIME rows, the second only on MANGA rows. The chip
+// shows just the group that matches the slot's media type so users
+// aren't offered "TV" while sorting a manga list (or "ONE_SHOT" while
+// sorting anime). Mixed/empty slots fall back to the full list.
+const ANIME_FORMATS: AnilistMediaFormat[] = [
   'TV',
   'TV_SHORT',
   'MOVIE',
@@ -678,10 +686,31 @@ const ALL_FORMATS: AnilistMediaFormat[] = [
   'OVA',
   'ONA',
   'MUSIC',
-  'MANGA',
-  'NOVEL',
-  'ONE_SHOT',
 ];
+const MANGA_FORMATS: AnilistMediaFormat[] = ['MANGA', 'NOVEL', 'ONE_SHOT'];
+const ALL_FORMATS: AnilistMediaFormat[] = [...ANIME_FORMATS, ...MANGA_FORMATS];
+
+/** Pick the format-chip options for a slot's resolved media type. */
+export function formatOptionsForType(
+  mediaType: AnilistMediaType | null,
+): AnilistMediaFormat[] {
+  if (mediaType === 'ANIME') return ANIME_FORMATS;
+  if (mediaType === 'MANGA') return MANGA_FORMATS;
+  return ALL_FORMATS;
+}
+
+// Genre that's pinned to the bottom of the chip list regardless of
+// alphabetical order, so it never sits between mainstream genres.
+const GENRE_PINNED_LAST = 'Hentai';
+
+/** Alphabetical genre order, except {@link GENRE_PINNED_LAST} always
+ *  sorts to the very bottom. */
+export function compareGenres(a: string, b: string): number {
+  if (a === b) return 0;
+  if (a === GENRE_PINNED_LAST) return 1;
+  if (b === GENRE_PINNED_LAST) return -1;
+  return a.localeCompare(b);
+}
 const ALL_STATUSES: AnilistMediaStatus[] = [
   'FINISHED',
   'RELEASING',
@@ -708,6 +737,11 @@ interface ChipOptions {
   // discovery cap is visible to the user.
   voiceActors: VoiceActorOption[];
   cachedCastMediaIds: ReadonlySet<number>;
+  // Resolved media type of the slot's candidates: 'ANIME' or 'MANGA'
+  // when every candidate agrees, else null (mixed or empty). Drives
+  // the format chip's option set and whether the VA chip shows at all
+  // (manga has no voice actors).
+  mediaType: AnilistMediaType | null;
 }
 
 async function loadChipOptions(
@@ -722,6 +756,7 @@ async function loadChipOptions(
       seasonYearEncoded: [],
       voiceActors: [],
       cachedCastMediaIds: new Set(),
+      mediaType: null,
     };
   }
   const db = defaultDbForFilters();
@@ -729,7 +764,14 @@ async function loadChipOptions(
   const genres = new Set<string>();
   const years = new Set<number>();
   const seasonYearEncoded = new Set<number>();
+  // Track which media types are present so a homogeneous slot (the
+  // common case for list imports and per-type favourites) resolves to
+  // a single type; a mixed slot stays null and keeps the full chips.
+  let sawAnime = false;
+  let sawManga = false;
   for (const m of media) {
+    if (m.type === 'ANIME') sawAnime = true;
+    else if (m.type === 'MANGA') sawManga = true;
     if (m.genres_json) {
       try {
         const arr = JSON.parse(m.genres_json) as unknown;
@@ -786,8 +828,13 @@ async function loadChipOptions(
   );
   const cachedCastMediaIds = new Set<number>();
   for (const r of cachedCastRows) cachedCastMediaIds.add(Number(r.media_id));
+  // Only resolve to a concrete type when the slot is homogeneous;
+  // a mix of anime + manga (or no rows at all) leaves it null.
+  let mediaType: AnilistMediaType | null = null;
+  if (sawAnime && !sawManga) mediaType = 'ANIME';
+  else if (sawManga && !sawAnime) mediaType = 'MANGA';
   return {
-    genres: Array.from(genres).sort((a, b) => a.localeCompare(b)),
+    genres: Array.from(genres).sort(compareGenres),
     years: Array.from(years).sort((a, b) => b - a),
     studios: studioRows.map((r) => ({
       id: Number(r.id),
@@ -797,6 +844,7 @@ async function loadChipOptions(
     seasonYearEncoded: Array.from(seasonYearEncoded).sort((a, b) => a - b),
     voiceActors,
     cachedCastMediaIds,
+    mediaType,
   };
 }
 
@@ -1239,18 +1287,64 @@ function SeasonYearChip({
  * chip button clarifies this when the user hovers.
  *
  * Two layered controls:
- *   1. Tri-state pill: Any / Only rated / Only unrated. This is the
- *      dominant control — it routes items into the rated vs unrated
- *      bucket BEFORE the slider is evaluated. "Only unrated" disables
- *      the slider (it'd be meaningless — unrated items have score 0
- *      by definition).
+ *   1. Rated / Unrated multi-select. This is the dominant control —
+ *      it routes items into the rated vs unrated bucket BEFORE the
+ *      slider is evaluated. Both selected (the default) means no
+ *      rated/unrated filter; selecting only Unrated disables the
+ *      slider (it'd be meaningless — unrated items have score 0 by
+ *      definition). Deselecting both is treated as "both selected"
+ *      (show everything), so the canonical state never lands on an
+ *      empty/no-results bucket — see {@link toggleScoreBucket}.
  *   2. Dual-handle range slider (1..100) flanked by typed inputs.
  *      Only filters the rated bucket. The slider universe starts at 1
  *      because score=0 means "unrated" — that case is handled by the
- *      pill, not the range. Slider edges (1 for min, 100 for max)
+ *      buckets, not the range. Slider edges (1 for min, 100 for max)
  *      collapse to null so the chip naturally turns off when dragged
  *      to the extreme.
  */
+/**
+ * Flip one of the two score buckets (rated / unrated) and map the
+ * resulting selection back onto the canonical `userScoreInclude`
+ * enum. The UI presents these as an independent multi-select, but the
+ * three meaningful states collapse exactly onto the existing enum:
+ *   - both selected   → 'any'  (no rated/unrated filter)
+ *   - rated only      → 'rated'
+ *   - unrated only    → 'unrated'
+ *   - neither selected→ 'any'  (treated as "show both")
+ * Keeping the enum means the filter engine, summary label, and tests
+ * are untouched — only the chip presentation changes. When the result
+ * no longer shows rated items the score range is zeroed, since the
+ * slider only applies to the rated subset.
+ */
+export function toggleScoreBucket(
+  pill: AnilistFilterChipState['userScoreInclude'],
+  bucket: 'rated' | 'unrated',
+): Partial<
+  Pick<AnilistFilterChipState, 'userScoreInclude' | 'scoreMin' | 'scoreMax'>
+> {
+  const selected = {
+    rated: pill === 'any' || pill === 'rated',
+    unrated: pill === 'any' || pill === 'unrated',
+  };
+  selected[bucket] = !selected[bucket];
+
+  let next: AnilistFilterChipState['userScoreInclude'];
+  if (selected.rated && selected.unrated) {
+    next = 'any';
+  } else if (selected.rated) {
+    next = 'rated';
+  } else if (selected.unrated) {
+    next = 'unrated';
+  } else {
+    next = 'any';
+  }
+
+  if (next === 'unrated') {
+    return { userScoreInclude: next, scoreMin: null, scoreMax: null };
+  }
+  return { userScoreInclude: next };
+}
+
 function ScoreRangeChip({
   pill,
   min,
@@ -1360,45 +1454,29 @@ function ScoreRangeChip({
       </button>
       {open && (
         <div className="filter-chip-menu filter-chip-menu-wide" role="menu">
-          {/* Pill: Any / Only rated / Only unrated. The dominant
-              control — narrows or excludes the rated/unrated buckets
-              before the slider applies. */}
+          {/* Multi-select buckets: Rated / Unrated. Both selected (the
+              default) means no rated/unrated filter; deselecting one
+              narrows to the other. Deselecting both is treated as
+              "both selected" — see toggleScoreBucket. */}
           <div className="filter-chip-range-row">
-            <span>show</span>
-            <div className="filter-chip-segmented">
+            <div className="filter-chip-segmented filter-chip-segmented-fill">
               <button
                 type="button"
-                className={pill === 'any' ? 'active' : ''}
-                onClick={() => onChange({ userScoreInclude: 'any' })}
-                title="Don't filter by rated / unrated"
+                className={pill === 'any' || pill === 'rated' ? 'active' : ''}
+                aria-pressed={pill === 'any' || pill === 'rated'}
+                onClick={() => onChange(toggleScoreBucket(pill, 'rated'))}
+                title="Items with a score > 0 in your AniList list"
               >
-                Any
+                Rated
               </button>
               <button
                 type="button"
-                className={pill === 'rated' ? 'active' : ''}
-                onClick={() => onChange({ userScoreInclude: 'rated' })}
-                title="Only items with a score > 0 in your AniList list"
+                className={pill === 'any' || pill === 'unrated' ? 'active' : ''}
+                aria-pressed={pill === 'any' || pill === 'unrated'}
+                onClick={() => onChange(toggleScoreBucket(pill, 'unrated'))}
+                title="Items you haven't scored yet (or that aren't on your list)"
               >
-                Only rated
-              </button>
-              <button
-                type="button"
-                className={pill === 'unrated' ? 'active' : ''}
-                onClick={() =>
-                  // Going to "unrated" zeros the range — the slider is
-                  // meaningless for unrated items, so persisting stale
-                  // bounds would create a confusing "score · unrated,
-                  // 60–80" label.
-                  onChange({
-                    userScoreInclude: 'unrated',
-                    scoreMin: null,
-                    scoreMax: null,
-                  })
-                }
-                title="Only items you haven't scored yet (or that aren't on your list)"
-              >
-                Only unrated
+                Unrated
               </button>
             </div>
           </div>
@@ -1794,6 +1872,7 @@ function AnilistChips({
     seasonYearEncoded: [],
     voiceActors: [],
     cachedCastMediaIds: new Set(),
+    mediaType: null,
   });
   // Bulk-expand status is local to the chip group (not persisted in
   // chipState — it's a transient job, not a filter selection). Bumps
@@ -1887,7 +1966,7 @@ function AnilistChips({
       />
       <MultiSelectChip
         label="format"
-        options={ALL_FORMATS}
+        options={formatOptionsForType(options.mediaType)}
         selected={state.formats}
         onToggle={(v) => set({ formats: toggleInArray(state.formats, v) })}
       />
@@ -1923,29 +2002,34 @@ function AnilistChips({
         searchable
         searchPlaceholder="Search studios…"
       />
-      <VoiceActorChip
-        options={options.voiceActors}
-        selected={state.voiceActorIds}
-        onToggle={(id) =>
-          set({ voiceActorIds: toggleInArray(state.voiceActorIds, id) })
-        }
-        // Defensive `?? []`: persisted slot state from before this
-        // field shipped will be missing `voiceActorRoles`. Reading
-        // through a fallback keeps the chip working until the next
-        // patch overwrites it with a real array.
-        selectedRoles={state.voiceActorRoles ?? []}
-        onToggleRole={(role) =>
-          set({
-            voiceActorRoles: toggleInArray(state.voiceActorRoles ?? [], role),
-          })
-        }
-        cachedCount={options.cachedCastMediaIds.size}
-        totalCount={externalIdsArray.length}
-        onBulkExpand={() => {
-          void bulkExpandUncached();
-        }}
-        bulkExpandStatus={bulkExpandStatus}
-      />
+      {/* Voice actors only exist for anime — hide the chip entirely on
+          a manga slot. Mixed/unknown slots keep it (some candidates may
+          be anime). */}
+      {options.mediaType !== 'MANGA' && (
+        <VoiceActorChip
+          options={options.voiceActors}
+          selected={state.voiceActorIds}
+          onToggle={(id) =>
+            set({ voiceActorIds: toggleInArray(state.voiceActorIds, id) })
+          }
+          // Defensive `?? []`: persisted slot state from before this
+          // field shipped will be missing `voiceActorRoles`. Reading
+          // through a fallback keeps the chip working until the next
+          // patch overwrites it with a real array.
+          selectedRoles={state.voiceActorRoles ?? []}
+          onToggleRole={(role) =>
+            set({
+              voiceActorRoles: toggleInArray(state.voiceActorRoles ?? [], role),
+            })
+          }
+          cachedCount={options.cachedCastMediaIds.size}
+          totalCount={externalIdsArray.length}
+          onBulkExpand={() => {
+            void bulkExpandUncached();
+          }}
+          bulkExpandStatus={bulkExpandStatus}
+        />
+      )}
       <MultiSelectChip
         label="tag"
         options={options.tagNames}

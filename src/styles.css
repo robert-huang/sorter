@@ -759,18 +759,6 @@ a {
   padding-bottom: 0;
 }
 
-.settings-anilist-display-fieldset {
-  border: none;
-  margin: 0;
-  padding: 0;
-}
-
-.settings-anilist-display-legend {
-  padding: 6px 10px 2px;
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
 .settings-anilist-display-hint {
   margin: 4px 10px 0;
 }
@@ -1133,6 +1121,20 @@ a {
 .filter-chip-segmented button.active {
   background: var(--accent, #2563eb);
   color: var(--accent-fg, white);
+}
+
+/* Full-width variant: the group stretches across the row and each
+   button shares the width equally (used by the score chip's
+   Rated / Unrated buckets, which have no leading label). */
+.filter-chip-segmented-fill {
+  display: flex;
+  flex: 1 1 auto;
+  width: 100%;
+}
+
+.filter-chip-segmented-fill button {
+  flex: 1 1 0;
+  text-align: center;
 }
 
 /* Wider variant of the chip menu — used by the seasonYear and score

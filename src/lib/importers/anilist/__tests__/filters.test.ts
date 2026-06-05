@@ -20,8 +20,11 @@ import {
   buildAnilistFilterSql,
   computeAllowedMediaIds,
   DEFAULT_ALLOWED_LIST_STATUSES,
+  compareGenres,
+  formatOptionsForType,
   isInitialState,
   setFilterDbForTesting,
+  toggleScoreBucket,
   type AnilistFilterChipState,
 } from '../filters';
 
@@ -446,6 +449,120 @@ describe('isInitialState (passthrough)', () => {
     expect(anilistFilterModule.isPassthrough!(ANILIST_INITIAL_CHIP_STATE)).toBe(
       false,
     );
+  });
+});
+
+// =====================================================================
+// toggleScoreBucket — Rated / Unrated multi-select <-> enum mapping
+// =====================================================================
+
+describe('toggleScoreBucket', () => {
+  it('deselecting one bucket from the default narrows to the other', () => {
+    // Default 'any' = both selected. Turning Rated off leaves Unrated.
+    expect(toggleScoreBucket('any', 'rated')).toEqual({
+      userScoreInclude: 'unrated',
+      scoreMin: null,
+      scoreMax: null,
+    });
+    // Turning Unrated off leaves Rated.
+    expect(toggleScoreBucket('any', 'unrated')).toEqual({
+      userScoreInclude: 'rated',
+    });
+  });
+
+  it('re-selecting the missing bucket returns to both ("any")', () => {
+    // From 'rated' (only Rated on), turning Unrated on selects both.
+    expect(toggleScoreBucket('rated', 'unrated')).toEqual({
+      userScoreInclude: 'any',
+    });
+    // From 'unrated' (only Unrated on), turning Rated on selects both.
+    expect(toggleScoreBucket('unrated', 'rated')).toEqual({
+      userScoreInclude: 'any',
+    });
+  });
+
+  it('deselecting the last selected bucket is treated as both selected', () => {
+    // 'rated' has only Rated on; turning Rated off would leave nothing,
+    // which collapses back to 'any' (show both) rather than an empty set.
+    expect(toggleScoreBucket('rated', 'rated')).toEqual({
+      userScoreInclude: 'any',
+    });
+    expect(toggleScoreBucket('unrated', 'unrated')).toEqual({
+      userScoreInclude: 'any',
+    });
+  });
+
+  it('zeros the score range whenever the result stops showing rated items', () => {
+    // Any result that lands on 'unrated' clears the slider bounds, since
+    // the range only applies to the rated subset.
+    expect(toggleScoreBucket('any', 'rated')).toHaveProperty('scoreMin', null);
+    expect(toggleScoreBucket('any', 'rated')).toHaveProperty('scoreMax', null);
+    // Results that keep rated visible leave the range untouched.
+    expect(toggleScoreBucket('any', 'unrated')).not.toHaveProperty('scoreMin');
+    expect(toggleScoreBucket('rated', 'unrated')).not.toHaveProperty('scoreMin');
+  });
+});
+
+// =====================================================================
+// compareGenres — alphabetical, except Hentai pinned to the bottom
+// =====================================================================
+
+describe('compareGenres', () => {
+  it('sorts alphabetically for ordinary genres', () => {
+    const sorted = ['Romance', 'Action', 'Comedy'].sort(compareGenres);
+    expect(sorted).toEqual(['Action', 'Comedy', 'Romance']);
+  });
+
+  it('always pushes Hentai to the bottom regardless of input order', () => {
+    expect(['Hentai', 'Action', 'Romance'].sort(compareGenres)).toEqual([
+      'Action',
+      'Romance',
+      'Hentai',
+    ]);
+    // Even when it would otherwise sort early (H < R) it stays last.
+    expect(['Romance', 'Hentai', 'Action'].sort(compareGenres)).toEqual([
+      'Action',
+      'Romance',
+      'Hentai',
+    ]);
+  });
+});
+
+// =====================================================================
+// formatOptionsForType — context-aware format chip options
+// =====================================================================
+
+describe('formatOptionsForType', () => {
+  it('offers only anime formats for an anime slot', () => {
+    expect(formatOptionsForType('ANIME')).toEqual([
+      'TV',
+      'TV_SHORT',
+      'MOVIE',
+      'SPECIAL',
+      'OVA',
+      'ONA',
+      'MUSIC',
+    ]);
+  });
+
+  it('offers only manga formats for a manga slot', () => {
+    expect(formatOptionsForType('MANGA')).toEqual(['MANGA', 'NOVEL', 'ONE_SHOT']);
+  });
+
+  it('falls back to every format for a mixed / unknown slot', () => {
+    const all = formatOptionsForType(null);
+    expect(all).toEqual([
+      'TV',
+      'TV_SHORT',
+      'MOVIE',
+      'SPECIAL',
+      'OVA',
+      'ONA',
+      'MUSIC',
+      'MANGA',
+      'NOVEL',
+      'ONE_SHOT',
+    ]);
   });
 });
 
