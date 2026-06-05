@@ -1,4 +1,4 @@
-import type { VaCreditRow } from '../lib/importers/anilist/graphQueries';
+import type { AnimeFilmographyRow, VaCreditRow } from '../lib/importers/anilist/graphQueries';
 import type { AnilistCharacterRole } from '../lib/importers/anilist/types';
 import { formatCharacterCastCredit } from '../lib/importers/anilist/castRoleDisplay';
 import type { VaListImageMode } from './preferences';
@@ -75,6 +75,15 @@ export function vaCreditCharacterName(row: VaCreditRow): string {
   return row.character.name_full ?? row.character.name_native ?? `Character #${row.character.id}`;
 }
 
+function stripLeadingAs(role: string): string {
+  return role.startsWith('as ') ? role.slice(3) : role;
+}
+
+/** One `as` prefix, then comma-separated character/role credits. */
+function voiceRolesAsSubtitle(roles: readonly string[]): string {
+  return `as ${roles.map(stripLeadingAs).join(', ')}`;
+}
+
 /** Secondary line under the voice actor (character + cast role). */
 export function vaCreditSubtitle(row: VaCreditRow): string | null {
   const staffName = vaCreditStaffName(row);
@@ -82,18 +91,43 @@ export function vaCreditSubtitle(row: VaCreditRow): string | null {
   if (characterName === staffName) {
     return null;
   }
-  return formatCharacterCastCredit(characterName, row.characterRole);
+  return voiceRolesAsSubtitle([
+    formatCharacterCastCredit(characterName, row.characterRole),
+  ]);
+}
+
+/**
+ * Subtitle under a staff filmography row. Voice credits use `as …`; production
+ * roles are comma-joined with no `as` prefix.
+ */
+export function filmographyRolesSubtitle(
+  row: Pick<AnimeFilmographyRow, 'roles' | 'creditKind'>,
+): string | null {
+  if (row.roles.length === 0) {
+    return null;
+  }
+  if (row.creditKind === 'voice') {
+    return voiceRolesAsSubtitle(row.roles);
+  }
+  return row.roles.join(', ');
 }
 
 /** Comma-separated character credits for a grouped voice-actor row. */
 export function groupedVaCreditSubtitle(group: GroupedVaCreditRow): string | null {
-  const lines = group.credits
-    .map((row) => vaCreditSubtitle(row))
-    .filter((line): line is string => line !== null);
-  if (lines.length === 0) {
+  const staffName = vaCreditStaffNameFromStaff(group.staff);
+  const roles = group.credits
+    .map((row) => {
+      const characterName = vaCreditCharacterName(row);
+      if (characterName === staffName) {
+        return null;
+      }
+      return formatCharacterCastCredit(characterName, row.characterRole);
+    })
+    .filter((role): role is string => role !== null);
+  if (roles.length === 0) {
     return null;
   }
-  return lines.join(', ');
+  return voiceRolesAsSubtitle(roles);
 }
 
 export function vaCreditListImage(row: VaCreditRow, mode: VaListImageMode): string | null {

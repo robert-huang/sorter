@@ -1,5 +1,6 @@
 import type { AnimeFilmographyRow } from '../lib/importers/anilist/graphQueries';
 import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
+import { filmographyRolesSubtitle } from './vaCreditDisplay';
 import {
   anilistUrlForMedia,
   bindAnilistMiddleClick,
@@ -14,6 +15,7 @@ interface Props {
 export function AnimeFilmographyHopButton({ row, onHop }: Props) {
   const title = pickMediaTitle(row.media);
   const cover = row.media.cover_image;
+  const rolesLine = filmographyRolesSubtitle(row);
   const anilistLink = bindAnilistMiddleClick(anilistUrlForMedia(row.media));
 
   return (
@@ -30,19 +32,7 @@ export function AnimeFilmographyHopButton({ row, onHop }: Props) {
       )}
       <span className="anilist-detail-cast-text">
         <strong>{title}</strong>
-        {row.creditKind === 'production' ? (
-          row.roles.length > 0 && (
-            <ul className="anime-to-anime-hop-role-list">
-              {row.roles.map((role) => (
-                <li key={role}>{role}</li>
-              ))}
-            </ul>
-          )
-        ) : (
-          row.roles.length > 0 && (
-            <span className="anime-to-anime-hop-meta">{row.roles.join(', ')}</span>
-          )
-        )}
+        {rolesLine && <span className="anime-to-anime-hop-meta">{rolesLine}</span>}
       </span>
     </button>
   );

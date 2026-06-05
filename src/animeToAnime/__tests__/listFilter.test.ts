@@ -89,6 +89,7 @@ describe('matchesListFilter', () => {
     };
 
     expect(matchesListFilter(filmographyFilterParts(row), 'yuru')).toBe(true);
+    expect(matchesListFilter(filmographyFilterParts(row), 'as yui')).toBe(true);
     expect(matchesListFilter(filmographyFilterParts(row), 'fire force')).toBe(false);
   });
 
@@ -117,7 +118,7 @@ describe('groupSortedVaCredits', () => {
     expect(grouped[0].credits).toHaveLength(2);
     expect(groupedVaCreditFilterParts(grouped[0])).toEqual([
       'Aoi Yuuki',
-      'Main Role (MAIN), Second Role (SUPPORTING)',
+      'as Main Role (MAIN), as Second Role (SUPPORTING)',
     ]);
   });
 });

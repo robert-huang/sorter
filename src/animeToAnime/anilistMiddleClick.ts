@@ -4,6 +4,7 @@ import {
   buildAnilistMediaUrl,
 } from '../lib/importers/anilist/anilistSource';
 import type { MediaRow, StaffRow } from '../lib/importers/anilist/types';
+import type { PathStep } from './pathHistory';
 
 const MIDDLE_CLICK_HINT = 'Middle-click to open on AniList';
 
@@ -13,6 +14,13 @@ export function anilistUrlForMedia(media: Pick<MediaRow, 'id' | 'type'>): string
 
 export function anilistUrlForStaff(staff: Pick<StaffRow, 'id'>): string {
   return buildAnilistFavouriteUrl('STAFF', staff.id);
+}
+
+export function anilistUrlForPathStep(step: PathStep): string {
+  if (step.kind === 'anime') {
+    return buildAnilistMediaUrl('ANIME', step.mediaId);
+  }
+  return buildAnilistFavouriteUrl('STAFF', step.staffId);
 }
 
 /** Middle-click opens AniList in a new tab; left-click behavior is unchanged. */

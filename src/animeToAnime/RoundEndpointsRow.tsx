@@ -2,6 +2,11 @@ import { useState } from 'react';
 import type { AnilistImportContext } from '../lib/importers/anilist/context';
 import type { MediaRow } from '../lib/importers/anilist/types';
 import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
+import {
+  anilistUrlForMedia,
+  bindAnilistMiddleClick,
+  mergeAnilistLinkClass,
+} from './anilistMiddleClick';
 import { EndpointPicker } from './EndpointPicker';
 
 interface Props {
@@ -30,14 +35,14 @@ function EndpointsSwapBridge({
 }) {
   const [flipped, setFlipped] = useState(false);
 
+  const arrow = (
+    <span className="anime-to-anime-swap-arrow-wrap" aria-hidden="true">
+      <span className="anime-to-anime-endpoints-arrow">→</span>
+    </span>
+  );
+
   if (!interactive) {
-    return (
-      <div className="anime-to-anime-endpoints-bridge">
-        <span className="anime-to-anime-endpoints-arrow" aria-hidden="true">
-          →
-        </span>
-      </div>
-    );
+    return <div className="anime-to-anime-endpoints-bridge">{arrow}</div>;
   }
 
   return (
@@ -53,22 +58,32 @@ function EndpointsSwapBridge({
         title="Swap start and goal"
         aria-label="Swap start and goal"
       >
-        <span className="anime-to-anime-endpoints-arrow" aria-hidden="true">
-          →
-        </span>
+        {arrow}
       </button>
     </div>
   );
 }
 
 function PlayEndpointCard({ label, media }: { label: string; media: MediaRow | null }) {
+  const anilistLink = bindAnilistMiddleClick(media ? anilistUrlForMedia(media) : null);
+
   return (
     <section className="page-section anime-to-anime-endpoint-card">
       <h2 className="anime-to-anime-section-title">{label}</h2>
-      {media?.cover_image && (
-        <img src={media.cover_image} alt="" className="anime-to-anime-endpoint-cover" />
-      )}
-      <p className="anime-to-anime-endpoint-value">{media ? pickMediaTitle(media) : '—'}</p>
+      <div
+        className={mergeAnilistLinkClass(
+          'anime-to-anime-endpoint-play-preview',
+          anilistLink.className,
+        )}
+        title={anilistLink.title}
+        onMouseDown={anilistLink.onMouseDown}
+        onAuxClick={anilistLink.onAuxClick}
+      >
+        {media?.cover_image && (
+          <img src={media.cover_image} alt="" className="anime-to-anime-endpoint-cover" />
+        )}
+        <p className="anime-to-anime-endpoint-value">{media ? pickMediaTitle(media) : '—'}</p>
+      </div>
     </section>
   );
 }

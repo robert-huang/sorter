@@ -5,6 +5,7 @@ import type {
 } from '../lib/importers/anilist/graphQueries';
 import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
 import {
+  filmographyRolesSubtitle,
   groupedVaCreditSubtitle,
   vaCreditStaffNameFromStaff,
   type GroupedVaCreditRow,
@@ -30,7 +31,7 @@ export function productionCreditFilterParts(row: ProductionCreditRow): readonly 
 
 export function filmographyFilterParts(row: AnimeFilmographyRow): readonly string[] {
   const title = pickMediaTitle(row.media);
-  const roleLine = row.roles.join(', ');
+  const roleLine = filmographyRolesSubtitle(row);
   return roleLine ? [title, roleLine] : [title];
 }
 

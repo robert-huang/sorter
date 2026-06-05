@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AnilistImportContext } from '../lib/importers/anilist/context';
-import { buildAnilistMediaUrl } from '../lib/importers/anilist/anilistSource';
 import { searchAnimeInCache } from '../lib/importers/anilist/graphQueries';
 import {
   fetchAnimeById,
@@ -9,6 +8,11 @@ import {
 } from '../lib/importers/anilist/setupMedia';
 import type { MediaRow } from '../lib/importers/anilist/types';
 import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
+import {
+  anilistUrlForMedia,
+  bindAnilistMiddleClick,
+  mergeAnilistLinkClass,
+} from './anilistMiddleClick';
 
 interface Props {
   label: string;
@@ -122,22 +126,9 @@ export function EndpointPicker({
     }
   };
 
-  const onPreviewMouseDown = (event: React.MouseEvent) => {
-    if (event.button === 1 && media) {
-      event.preventDefault();
-    }
-  };
-
-  const onPreviewAuxClick = (event: React.MouseEvent) => {
-    if (event.button !== 1 || !media) {
-      return;
-    }
-    event.preventDefault();
-    window.open(buildAnilistMediaUrl(media.type, media.id), '_blank', 'noopener,noreferrer');
-  };
-
   const busy = disabled || apiLoading;
   const previewTitle = media ? pickMediaTitle(media) : '—';
+  const previewAnilistLink = bindAnilistMiddleClick(media ? anilistUrlForMedia(media) : null);
 
   return (
     <section className="page-section anime-to-anime-endpoint-card">
@@ -214,10 +205,13 @@ export function EndpointPicker({
       </div>
 
       <div
-        className={`anime-to-anime-endpoint-preview${media ? ' anime-to-anime-endpoint-preview--linked' : ''}`}
-        title={media ? 'Middle-click to open on AniList' : undefined}
-        onMouseDown={onPreviewMouseDown}
-        onAuxClick={onPreviewAuxClick}
+        className={mergeAnilistLinkClass(
+          'anime-to-anime-endpoint-preview',
+          previewAnilistLink.className,
+        )}
+        title={previewAnilistLink.title}
+        onMouseDown={previewAnilistLink.onMouseDown}
+        onAuxClick={previewAnilistLink.onAuxClick}
       >
         {media?.cover_image && (
           <img src={media.cover_image} alt="" className="anime-to-anime-endpoint-cover" />

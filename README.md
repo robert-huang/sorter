@@ -52,7 +52,7 @@ A side mini-app: connect a **start** anime to a **goal** anime by hopping throug
 - **Theme:** independent from main Sorter (`anime-to-anime-theme` in localStorage); sun/moon toggle in the header; defaults to **dark**
 - **Setup:** random from cache, search (cache then AniList API), load by AniList id, or random from AniList
 - **Play:** optional franchise relations mode; path trail with anime vs staff hop styling; hop count includes revisits
-- **Win:** share/copy summary with hop count and path; play again or return to setup
+- **Win:** share/copy summary with hop count and path; play again returns to setup with the same start/goal
 - **Nav:** main Sorter FAB label is **A2A →**
 
 ### 3. Double-click `dist/index.html` (no terminal needed)

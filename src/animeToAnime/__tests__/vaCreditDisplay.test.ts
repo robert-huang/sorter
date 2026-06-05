@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { VaCreditRow } from '../../lib/importers/anilist/graphQueries';
+import type { AnimeFilmographyRow } from '../../lib/importers/anilist/graphQueries';
 import {
   compareVaCredits,
+  filmographyRolesSubtitle,
   sortVaCredits,
   vaCreditListImage,
   vaCreditSubtitle,
@@ -44,10 +46,28 @@ describe('vaCreditDisplay', () => {
         updated_at: 0,
       },
     });
-    expect(vaCreditSubtitle(credit)).toBe('Char Name');
-    expect(vaCreditSubtitle({ ...credit, characterRole: 'MAIN' })).toBe('Char Name (MAIN)');
+    expect(vaCreditSubtitle(credit)).toBe('as Char Name');
+    expect(vaCreditSubtitle({ ...credit, characterRole: 'MAIN' })).toBe('as Char Name (MAIN)');
     expect(vaCreditSubtitle({ ...credit, character: { ...credit.character, name_full: 'VA Name' } })).toBe(
       null,
+    );
+  });
+
+  it('filmographyRolesSubtitle prefixes voice roles with as and joins production roles', () => {
+    const voiceRow: Pick<AnimeFilmographyRow, 'roles' | 'creditKind'> = {
+      creditKind: 'voice',
+      roles: ['Yui Funami (MAIN)', 'Nadeshiko (SUPPORTING)'],
+    };
+    expect(filmographyRolesSubtitle(voiceRow)).toBe(
+      'as Yui Funami (MAIN), Nadeshiko (SUPPORTING)',
+    );
+
+    const productionRow: Pick<AnimeFilmographyRow, 'roles' | 'creditKind'> = {
+      creditKind: 'production',
+      roles: ['Animation Director', 'Character Design'],
+    };
+    expect(filmographyRolesSubtitle(productionRow)).toBe(
+      'Animation Director, Character Design',
     );
   });
 

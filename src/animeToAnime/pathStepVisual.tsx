@@ -1,3 +1,8 @@
+import {
+  anilistUrlForPathStep,
+  bindAnilistMiddleClick,
+  mergeAnilistLinkClass,
+} from './anilistMiddleClick';
 import type { PathStep } from './pathHistory';
 import { pathStepLabel } from './pathHistory';
 
@@ -14,16 +19,25 @@ export function PathStepBubble({
   const label = pathStepLabel(step);
   const initial = label.trim().charAt(0).toUpperCase() || '?';
 
-  const className = [
-    'anime-to-anime-path-step',
-    compact ? 'anime-to-anime-path-step--compact' : '',
-    isCurrent ? 'anime-to-anime-path-step--current' : '',
-  ]
-    .filter(Boolean)
-    .join(' ');
+  const anilistLink = bindAnilistMiddleClick(anilistUrlForPathStep(step));
+  const className = mergeAnilistLinkClass(
+    [
+      'anime-to-anime-path-step',
+      compact ? 'anime-to-anime-path-step--compact' : '',
+      isCurrent ? 'anime-to-anime-path-step--current' : '',
+    ]
+      .filter(Boolean)
+      .join(' '),
+    anilistLink.className,
+  );
 
   return (
-    <div className={className} title={label}>
+    <div
+      className={className}
+      title={anilistLink.title ?? label}
+      onMouseDown={anilistLink.onMouseDown}
+      onAuxClick={anilistLink.onAuxClick}
+    >
       {imageSrc ? (
         <img src={imageSrc} alt="" className="anime-to-anime-path-step-img" />
       ) : (

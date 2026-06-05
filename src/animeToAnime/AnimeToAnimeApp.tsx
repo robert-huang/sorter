@@ -104,7 +104,7 @@ export function AnimeToAnimeApp() {
   const [startMedia, setStartMedia] = useState<MediaRow | null>(null);
   const [goalMedia, setGoalMedia] = useState<MediaRow | null>(null);
   const [roundConfig, setRoundConfig] = useState<RoundConfig>(loadRoundConfig);
-  /** Snapshotted from persisted settings when a round begins (play / play again). */
+  /** Snapshotted from persisted settings when a round begins. */
   const [activeRoundConfig, setActiveRoundConfig] = useState<RoundConfig | null>(null);
   const [phase, setPhase] = useState<'setup' | 'play' | 'won'>('setup');
   const [current, setCurrent] = useState<Node | null>(null);
@@ -240,16 +240,6 @@ export function AnimeToAnimeApp() {
     }
   }, [startMedia, goalMedia, phase, resetPlayState]);
 
-  const onPlayAgain = useCallback(() => {
-    if (!startMedia || !goalMedia) {
-      return;
-    }
-    setError(null);
-    snapshotRoundConfig();
-    setPhase('play');
-    resetPlayState(startMedia);
-  }, [startMedia, goalMedia, resetPlayState, snapshotRoundConfig]);
-
   const goToSetup = useCallback(() => {
     setPhase('setup');
     setActiveRoundConfig(null);
@@ -259,6 +249,10 @@ export function AnimeToAnimeApp() {
     setFilter('');
     setError(null);
   }, []);
+
+  const onPlayAgain = useCallback(() => {
+    goToSetup();
+  }, [goToSetup]);
 
   const confirmExitToSetup = useCallback(() => {
     const confirmed = window.confirm(
@@ -410,12 +404,14 @@ export function AnimeToAnimeApp() {
   }, [current, currentMedia]);
 
   const onHopToStaff = useCallback((staff: StaffRow) => {
+    setFilter('');
     setPathHistory((prev) => [...prev, staffPathStep(staff)]);
     setCurrent({ kind: 'staff', staffId: staff.id });
   }, []);
 
   const onHopToAnime = useCallback(
     (media: MediaRow) => {
+      setFilter('');
       const reachedGoal = goalMedia !== null && media.id === goalMedia.id;
       if (!reachedGoal) {
         setLinksUsed((count) => count + 1);
