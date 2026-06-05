@@ -59,10 +59,39 @@ export class MockWorker {
   }
 }
 
-export function stubNavigatorLocks(): void {
+let navigatorLockHeld = false;
+
+/** Simulate another tab holding the OPFS Web Lock (non-blocking `ifAvailable`). */
+export function stubNavigatorLocks(options?: { lockHeld?: boolean }): void {
+  navigatorLockHeld = options?.lockHeld ?? false;
   vi.stubGlobal('navigator', {
     locks: {
-      request: (_name: string, callback: () => Promise<void>) => callback(),
+      request: (
+        _name: string,
+        optionsOrCallback:
+          | { ifAvailable?: boolean }
+          | ((lock: unknown) => void | Promise<void>),
+        maybeCallback?: (lock: unknown) => void | Promise<void>,
+      ) => {
+        const opts =
+          typeof optionsOrCallback === 'function'
+            ? {}
+            : (optionsOrCallback ?? {});
+        const callback =
+          typeof optionsOrCallback === 'function' ? optionsOrCallback : maybeCallback;
+        if (!callback) {
+          throw new Error('navigator.locks.request callback missing');
+        }
+
+        if (opts.ifAvailable && navigatorLockHeld) {
+          return Promise.resolve(callback(null));
+        }
+
+        navigatorLockHeld = true;
+        return Promise.resolve(callback({})).finally(() => {
+          navigatorLockHeld = false;
+        });
+      },
     },
   });
 }

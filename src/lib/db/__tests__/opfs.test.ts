@@ -1,10 +1,31 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   canUseOpfsSahPool,
+  describeNonPersistentStorageBanner,
   describeOpfsBlockedReason,
   isCrossOriginIsolated,
   isOpfsSecureContext,
 } from '../opfs';
+
+describe('describeNonPersistentStorageBanner', () => {
+  it('names another tab when the OPFS lock is contended (A2A)', () => {
+    expect(
+      describeNonPersistentStorageBanner({
+        reason: 'other_tab',
+        context: 'a2a',
+      }),
+    ).toContain('Another Sorter tab');
+  });
+
+  it('names another tab when the OPFS lock is contended (Sorter)', () => {
+    expect(
+      describeNonPersistentStorageBanner({
+        reason: 'other_tab',
+        context: 'sorter',
+      }),
+    ).toContain('Close other Sorter / Anime to Anime tabs');
+  });
+});
 
 describe('isOpfsSecureContext', () => {
   afterEach(() => {

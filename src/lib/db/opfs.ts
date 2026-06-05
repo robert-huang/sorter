@@ -1,6 +1,43 @@
 export type StorageMode = 'opfs' | 'memory';
 
+export type DbNonPersistentReason = 'other_tab' | 'opfs_unavailable';
+
+export type DbNonPersistentEventDetail = {
+  reason: DbNonPersistentReason;
+};
+
 export const DB_NON_PERSISTENT_EVENT = 'db:non-persistent';
+
+export type DbStorageBannerContext = 'sorter' | 'a2a';
+
+/** User-facing copy when this tab fell back to in-memory SQLite. */
+export function describeNonPersistentStorageBanner(options: {
+  reason: DbNonPersistentReason;
+  storageHint?: string;
+  context: DbStorageBannerContext;
+}): string {
+  const { reason, storageHint, context } = options;
+
+  if (reason === 'other_tab') {
+    return context === 'a2a'
+      ? 'Another Sorter tab has the database open. Close it and reload this page to use your AniList cache.'
+      : 'Another tab of this app has the database open. Close other Sorter / Anime to Anime tabs and reload to use your saved cache.';
+  }
+
+  if (context === 'a2a') {
+    return (
+      'This tab is using in-memory storage — your AniList cache is not available here.' +
+      (storageHint ? ` ${storageHint}` : '')
+    );
+  }
+
+  return (
+    'This tab is using non-persistent storage (OPFS unavailable in this browser or environment). ' +
+    'Changes here may not persist across reloads.' +
+    (storageHint ? ` ${storageHint}` : '') +
+    ' Pull from Drive (gear → Source databases → Pull) to load data for this session.'
+  );
+}
 
 /**
  * Whether this JS realm can use OPFS-backed persistence (secure context).
@@ -51,9 +88,10 @@ export function describeOpfsBlockedReason(): string {
   return 'OPFS is not available in this environment.';
 }
 
-export function emitNonPersistentEvent(): void {
+export function emitNonPersistentEvent(reason: DbNonPersistentReason): void {
   if (typeof window === 'undefined') {
     return;
   }
-  window.dispatchEvent(new CustomEvent(DB_NON_PERSISTENT_EVENT));
+  const detail: DbNonPersistentEventDetail = { reason };
+  window.dispatchEvent(new CustomEvent(DB_NON_PERSISTENT_EVENT, { detail }));
 }

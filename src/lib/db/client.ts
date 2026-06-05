@@ -1,7 +1,7 @@
 import { ensureAnilistSourceRegistered } from '../importers/anilist/anilistSource';
 import { createDbTransport, type DbTransport } from './dbTransport';
 import { emitNonPersistentEvent } from './opfs';
-import type { StorageMode } from './opfs';
+import type { DbNonPersistentReason, StorageMode } from './opfs';
 import type { DbRow, RpcReply, RpcRequest, RpcRequestBody, SqlParam, WorkerReadyMessage } from './rpc';
 import { ensureTestSourceRegistered } from './testSource';
 
@@ -26,6 +26,8 @@ let nonPersistentEventSent = false;
 let releaseOpfsLock: (() => void) | undefined;
 let opfsLockAcquired = false;
 let opfsLockAcquiredPromise: Promise<void> | null = null;
+/** True when `navigator.locks` reports another tab holds `sorter-opfs`. */
+let opfsLockContendedByOtherTab = false;
 
 function rejectAllPending(reason: Error): void {
   for (const [, handlers] of pending) {
@@ -39,8 +41,18 @@ function releaseOpfsLockIfHeld(): void {
   releaseOpfsLock = undefined;
   opfsLockAcquired = false;
   opfsLockAcquiredPromise = null;
+  opfsLockContendedByOtherTab = false;
 }
 
+export function isOpfsLockContendedByOtherTab(): boolean {
+  return opfsLockContendedByOtherTab;
+}
+
+/**
+ * Try to hold the cross-tab OPFS lock for this page. When another Sorter tab
+ * already owns it, return immediately so the worker can start in memory mode
+ * instead of blocking forever on "Opening database…".
+ */
 async function acquireOpfsLock(): Promise<void> {
   if (opfsLockAcquired) {
     return;
@@ -55,13 +67,24 @@ async function acquireOpfsLock(): Promise<void> {
   }
 
   opfsLockAcquiredPromise = new Promise<void>((resolveAcquired) => {
-    void navigator.locks.request(OPFS_LOCK_NAME, () => {
-      return new Promise<void>((release) => {
-        releaseOpfsLock = release;
-        opfsLockAcquired = true;
-        resolveAcquired();
-      });
-    });
+    void navigator.locks.request(
+      OPFS_LOCK_NAME,
+      { ifAvailable: true },
+      (lock) => {
+        if (lock === null) {
+          opfsLockContendedByOtherTab = true;
+          opfsLockAcquiredPromise = null;
+          resolveAcquired();
+          return;
+        }
+        opfsLockContendedByOtherTab = false;
+        return new Promise<void>((release) => {
+          releaseOpfsLock = release;
+          opfsLockAcquired = true;
+          resolveAcquired();
+        });
+      },
+    );
   });
 
   return opfsLockAcquiredPromise;
@@ -178,10 +201,14 @@ async function rpc<T>(req: RpcRequestBody): Promise<T> {
   });
 }
 
+function nonPersistentReason(): DbNonPersistentReason {
+  return opfsLockContendedByOtherTab ? 'other_tab' : 'opfs_unavailable';
+}
+
 function maybeEmitNonPersistent(mode: StorageMode): void {
   if (mode === 'memory' && !nonPersistentEventSent) {
     nonPersistentEventSent = true;
-    emitNonPersistentEvent();
+    emitNonPersistentEvent(nonPersistentReason());
   }
 }
 
@@ -189,13 +216,23 @@ export function getLastStorageHint(): string | undefined {
   return lastStorageHint;
 }
 
-export async function openSourceDb(
-  sourceId: string,
-): Promise<{ schemaVersion: number; storageMode: StorageMode; storageHint?: string }> {
+export type OpenSourceDbResult = {
+  schemaVersion: number;
+  storageMode: StorageMode;
+  storageHint?: string;
+  opfsLockContendedByOtherTab: boolean;
+};
+
+export async function openSourceDb(sourceId: string): Promise<OpenSourceDbResult> {
   const storageMode = await ensureTransportReady();
   const schemaVersion = await rpc<number>({ type: 'open', args: { sourceId } });
   maybeEmitNonPersistent(storageMode);
-  return { schemaVersion, storageMode, storageHint: lastStorageHint };
+  return {
+    schemaVersion,
+    storageMode,
+    storageHint: lastStorageHint,
+    opfsLockContendedByOtherTab,
+  };
 }
 
 export async function exec(

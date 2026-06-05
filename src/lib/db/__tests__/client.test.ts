@@ -38,4 +38,35 @@ describe('db client worker init', () => {
     expect(rows).toEqual([{ one: 1 }]);
     expect(MockWorker.instances[0].rpcPostedBeforeReady).toBe(false);
   });
+
+  it('does not block on OPFS lock when another tab holds it', async () => {
+    stubNavigatorLocks({ lockHeld: true });
+    const { isOpfsLockContendedByOtherTab, openSourceDb } = await import('../client');
+
+    await expect(
+      Promise.race([
+        openSourceDb(TEST_SOURCE_ID),
+        new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('timed out waiting for openSourceDb')), 500);
+        }),
+      ]),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        schemaVersion: 2,
+        opfsLockContendedByOtherTab: true,
+      }),
+    );
+
+    expect(MockWorker.instances[0]).toBeDefined();
+    expect(isOpfsLockContendedByOtherTab()).toBe(true);
+  });
+
+  it('reports no OPFS lock contention when this tab acquires the lock', async () => {
+    const { isOpfsLockContendedByOtherTab, openSourceDb } = await import('../client');
+
+    await expect(openSourceDb(TEST_SOURCE_ID)).resolves.toEqual(
+      expect.objectContaining({ opfsLockContendedByOtherTab: false }),
+    );
+    expect(isOpfsLockContendedByOtherTab()).toBe(false);
+  });
 });

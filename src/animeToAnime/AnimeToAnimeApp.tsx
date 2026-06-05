@@ -21,7 +21,7 @@ import {
   type ProductionCreditRow,
   type VaCreditRow,
 } from '../lib/importers/anilist/graphQueries';
-import type { StorageMode } from '../lib/db/opfs';
+import { describeNonPersistentStorageBanner, type StorageMode } from '../lib/db/opfs';
 import { productionReads } from '../lib/importers/anilist/readQueries';
 import type { MediaRow, StaffRow } from '../lib/importers/anilist/types';
 import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
@@ -117,6 +117,7 @@ export function AnimeToAnimeApp() {
   const [ready, setReady] = useState(false);
   const [storageMode, setStorageMode] = useState<StorageMode>('opfs');
   const [storageHint, setStorageHint] = useState<string | null>(null);
+  const [opfsLockContendedByOtherTab, setOpfsLockContendedByOtherTab] = useState(false);
   const [cacheStats, setCacheStats] = useState<AnimeCacheStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [startMedia, setStartMedia] = useState<MediaRow | null>(null);
@@ -170,11 +171,14 @@ export function AnimeToAnimeApp() {
   useEffect(() => {
     void (async () => {
       try {
-        const { storageMode: mode, storageHint: hint } = await client.openSourceDb(
-          ANILIST_SOURCE_ID,
-        );
+        const {
+          storageMode: mode,
+          storageHint: hint,
+          opfsLockContendedByOtherTab: lockContended,
+        } = await client.openSourceDb(ANILIST_SOURCE_ID);
         setStorageMode(mode);
         setStorageHint(hint ?? null);
+        setOpfsLockContendedByOtherTab(lockContended);
         const stats = await getAnimeCacheStats(importCtx.current.db);
         setCacheStats(stats);
         setReady(true);
@@ -516,10 +520,11 @@ export function AnimeToAnimeApp() {
         {ready && storageMode === 'memory' && (
           <div className="app-banner warn">
             <span>
-              This tab is using in-memory storage — your AniList cache is not available here.
-              {storageHint ? ` ${storageHint}` : ''}{' '}
-              Open DevTools → Console (main thread and worker) for details. Try closing other
-              Sorter tabs and reloading, or import on the main Sorter page first.
+              {describeNonPersistentStorageBanner({
+                reason: opfsLockContendedByOtherTab ? 'other_tab' : 'opfs_unavailable',
+                storageHint: storageHint ?? undefined,
+                context: 'a2a',
+              })}
             </span>
           </div>
         )}

@@ -135,7 +135,12 @@ import {
   pushDbToDrive,
 } from './lib/db/sync';
 import { openSourceDb } from './lib/db/client';
-import { DB_NON_PERSISTENT_EVENT } from './lib/db/opfs';
+import {
+  DB_NON_PERSISTENT_EVENT,
+  describeNonPersistentStorageBanner,
+  type DbNonPersistentEventDetail,
+  type DbNonPersistentReason,
+} from './lib/db/opfs';
 import { ANILIST_SOURCE_ID } from './lib/importers/anilist/anilistSource';
 import { ensureAnilistFiltersRegistered } from './lib/importers/anilist/filters';
 import { ensureCharacterStaffFiltersRegistered } from './lib/importers/anilist/characterStaffFilters';
@@ -364,6 +369,8 @@ export function App() {
   // In either case the user's cached data isn't reachable from this
   // tab's DB until they Pull from Drive — the banner CTA reflects that.
   const [dbNonPersistent, setDbNonPersistent] = useState(false);
+  const [dbNonPersistentReason, setDbNonPersistentReason] =
+    useState<DbNonPersistentReason>('opfs_unavailable');
   const [dbNonPersistentDismissed, setDbNonPersistentDismissed] = useState(false);
   // Per-item detail modal target (Phase D). Set when the user clicks
   // an AniList thumb anywhere in the tree — the ItemDetailContext
@@ -1659,7 +1666,13 @@ export function App() {
   // never spawn the worker and the user would have zero indication that
   // anything was wrong.
   useEffect(() => {
-    const handler = (): void => setDbNonPersistent(true);
+    const handler = (event: Event): void => {
+      setDbNonPersistent(true);
+      const reason = (event as CustomEvent<DbNonPersistentEventDetail>).detail?.reason;
+      if (reason) {
+        setDbNonPersistentReason(reason);
+      }
+    };
     window.addEventListener(DB_NON_PERSISTENT_EVENT, handler);
     void openSourceDb(ANILIST_SOURCE_ID).catch(() => {});
     return () => {
@@ -2379,11 +2392,17 @@ export function App() {
         // again (close the other tab, reload).
         <div className="app-banner warn">
           <span>
-            This tab is using non-persistent storage (OPFS unavailable, or another
-            tab of this app already holds the database file). Changes here
-            may not persist across reloads. Close other Sorter / Anime to Anime tabs
-            and reload, or pull from Drive (gear &rarr; Source databases &rarr; Pull)
-            to load data for this session.
+            {describeNonPersistentStorageBanner({
+              reason: dbNonPersistentReason,
+              context: 'sorter',
+            })}
+            {dbNonPersistentReason === 'other_tab' && (
+              <>
+                {' '}
+                Pull from Drive (gear &rarr; Source databases &rarr; Pull) to load data
+                for this session without closing the other tab.
+              </>
+            )}
           </span>
           <button
             type="button"
