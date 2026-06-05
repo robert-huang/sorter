@@ -52,9 +52,11 @@ export function PathStepBubble({
 export function PathTrailEdge({
   kind,
   compact = false,
+  viaLabel,
 }: {
   kind: 'anime' | 'staff';
   compact?: boolean;
+  viaLabel?: string;
 }) {
   return (
     <span
@@ -62,10 +64,12 @@ export function PathTrailEdge({
         'anime-to-anime-path-edge',
         `anime-to-anime-path-edge--${kind}`,
         compact ? 'anime-to-anime-path-edge--compact' : '',
+        viaLabel ? 'anime-to-anime-path-edge--labeled' : '',
       ]
         .filter(Boolean)
         .join(' ')}
-      aria-hidden="true"
+      title={viaLabel}
+      aria-hidden={viaLabel ? undefined : true}
     >
       →
     </span>

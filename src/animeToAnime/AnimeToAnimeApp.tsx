@@ -41,6 +41,12 @@ import { findCachedOptimalPath } from './cachedGraph';
 import { WinScreen } from './WinScreen';
 import { type PathStep } from './pathHistory';
 import {
+  viaLabelFromFilmography,
+  viaLabelFromProduction,
+  viaLabelFromRelation,
+  viaLabelFromVaGroup,
+} from './pathHopLabels';
+import {
   loadRoundConfig,
   loadVaListImageMode,
   saveRoundConfig,
@@ -75,21 +81,23 @@ type Node =
   | { kind: 'anime'; mediaId: number }
   | { kind: 'staff'; staffId: number };
 
-function animePathStep(media: MediaRow): PathStep {
+function animePathStep(media: MediaRow, viaLabel?: string): PathStep {
   return {
     kind: 'anime',
     mediaId: media.id,
     title: pickMediaTitle(media),
     coverImage: media.cover_image,
+    ...(viaLabel ? { viaLabel } : {}),
   };
 }
 
-function staffPathStep(staff: StaffRow): PathStep {
+function staffPathStep(staff: StaffRow, viaLabel?: string): PathStep {
   return {
     kind: 'staff',
     staffId: staff.id,
     name: staff.name_full ?? staff.name_native ?? 'Staff',
     image: staff.image,
+    ...(viaLabel ? { viaLabel } : {}),
   };
 }
 
@@ -461,18 +469,18 @@ export function AnimeToAnimeApp() {
     return bindAnilistMiddleClick(anilistUrlForMedia(currentMedia));
   }, [current, currentMedia]);
 
-  const onHopToStaff = useCallback((staff: StaffRow) => {
+  const onHopToStaff = useCallback((staff: StaffRow, viaLabel: string) => {
     setFilter('');
-    setPathHistory((prev) => [...prev, staffPathStep(staff)]);
+    setPathHistory((prev) => [...prev, staffPathStep(staff, viaLabel)]);
     setCurrent({ kind: 'staff', staffId: staff.id });
   }, []);
 
   const onHopToAnime = useCallback(
-    (media: MediaRow) => {
+    (media: MediaRow, viaLabel: string) => {
       setFilter('');
       const reachedGoal = goalMedia !== null && media.id === goalMedia.id;
       setLinksUsed((count) => count + 1);
-      setPathHistory((prev) => [...prev, animePathStep(media)]);
+      setPathHistory((prev) => [...prev, animePathStep(media, viaLabel)]);
       setCurrent({ kind: 'anime', mediaId: media.id });
       if (reachedGoal) {
         setPhase('won');
@@ -659,7 +667,7 @@ export function AnimeToAnimeApp() {
                                 relationLink.className,
                               )}
                               title={relationLink.title}
-                              onClick={() => onHopToAnime(row.media)}
+                              onClick={() => onHopToAnime(row.media, viaLabelFromRelation(row.relationType))}
                               onMouseDown={relationLink.onMouseDown}
                               onAuxClick={relationLink.onAuxClick}
                             >
@@ -687,7 +695,7 @@ export function AnimeToAnimeApp() {
                         <VaCreditHopButton
                           group={group}
                           vaListImageMode={vaListImageMode}
-                          onHop={() => onHopToStaff(group.staff)}
+                          onHop={() => onHopToStaff(group.staff, viaLabelFromVaGroup(group))}
                         />
                       </li>
                     ))}
@@ -705,7 +713,7 @@ export function AnimeToAnimeApp() {
                           >
                             <ProductionCreditHopButton
                               row={row}
-                              onHop={() => onHopToStaff(row.staff)}
+                              onHop={() => onHopToStaff(row.staff, viaLabelFromProduction(row))}
                             />
                           </li>
                         ))}
@@ -723,7 +731,7 @@ export function AnimeToAnimeApp() {
                     rows={filteredFilmography}
                     loading={loading}
                     onRefresh={onRefreshPlayList}
-                    onHopToAnime={(row) => onHopToAnime(row.media)}
+                    onHopToAnime={(row) => onHopToAnime(row.media, viaLabelFromFilmography(row))}
                   />
                 </section>
               )}

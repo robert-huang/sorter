@@ -7,6 +7,7 @@ import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
 import { filterProductionStaffRows } from '../lib/importers/anilist/staffRoleFilter';
 import type { RoundConfig } from './preferences';
 import type { PathStep } from './pathHistory';
+import { annotatePathViaLabels } from './pathHopLabels';
 
 export type FindCachedOptimalPathParams = {
   db: AnilistDbExecutor;
@@ -195,6 +196,7 @@ async function hasDirectFranchiseLink(
 async function hydratePathSteps(
   db: AnilistDbExecutor,
   nodes: readonly GraphNode[],
+  rules?: RoundConfig,
 ): Promise<PathStep[]> {
   const mediaIds = [...new Set(nodes.filter((n) => n.kind === 'anime').map((n) => n.id))];
   const staffIds = [...new Set(nodes.filter((n) => n.kind === 'staff').map((n) => n.id))];
@@ -242,7 +244,7 @@ async function hydratePathSteps(
     }
   }
 
-  return nodes.map((node) => {
+  const steps = nodes.map((node) => {
     if (node.kind === 'anime') {
       const step = mediaById.get(node.id);
       if (!step) {
@@ -266,6 +268,11 @@ async function hydratePathSteps(
     }
     return step;
   });
+
+  if (!rules) {
+    return steps;
+  }
+  return annotatePathViaLabels(db, nodes, steps, rules);
 }
 
 async function buildOneLinkPath(
@@ -273,13 +280,14 @@ async function buildOneLinkPath(
   startMediaId: number,
   goalMediaId: number,
   viaStaffId: number | null,
+  rules: RoundConfig,
 ): Promise<PathStep[]> {
   const nodes: GraphNode[] = [{ kind: 'anime', id: startMediaId }];
   if (viaStaffId !== null) {
     nodes.push({ kind: 'staff', id: viaStaffId });
   }
   nodes.push({ kind: 'anime', id: goalMediaId });
-  return hydratePathSteps(db, nodes);
+  return hydratePathSteps(db, nodes, rules);
 }
 
 async function tryDirectOneLinkPath(
@@ -289,19 +297,19 @@ async function tryDirectOneLinkPath(
   rules: RoundConfig,
 ): Promise<CachedOptimalPathResult | null> {
   if (await hasDirectFranchiseLink(db, startMediaId, goalMediaId, rules)) {
-    const steps = await buildOneLinkPath(db, startMediaId, goalMediaId, null);
+    const steps = await buildOneLinkPath(db, startMediaId, goalMediaId, null, rules);
     return { status: 'found', linksUsed: 1, steps };
   }
 
   const sharedVa = await findSharedVaStaff(db, startMediaId, goalMediaId);
   if (sharedVa !== null) {
-    const steps = await buildOneLinkPath(db, startMediaId, goalMediaId, sharedVa);
+    const steps = await buildOneLinkPath(db, startMediaId, goalMediaId, sharedVa, rules);
     return { status: 'found', linksUsed: 1, steps };
   }
 
   const sharedProd = await findSharedProductionStaff(db, startMediaId, goalMediaId, rules);
   if (sharedProd !== null) {
-    const steps = await buildOneLinkPath(db, startMediaId, goalMediaId, sharedProd);
+    const steps = await buildOneLinkPath(db, startMediaId, goalMediaId, sharedProd, rules);
     return { status: 'found', linksUsed: 1, steps };
   }
 
@@ -438,6 +446,6 @@ export async function findCachedOptimalPath(
   }
 
   const linksUsed = pathNodes.filter((node) => node.kind === 'anime').length - 1;
-  const steps = await hydratePathSteps(db, pathNodes);
+  const steps = await hydratePathSteps(db, pathNodes, rules);
   return { status: 'found', linksUsed, steps };
 }
