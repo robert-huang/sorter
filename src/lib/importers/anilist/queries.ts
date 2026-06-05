@@ -235,6 +235,32 @@ query MediaDetail(
 `.trim();
 }
 
+/** Staff connection only — used by the second pagination loop in lazy expansion. */
+export function buildMediaStaffOnlyQuery(): string {
+  return `
+query MediaStaffOnly($id: Int!, $staffPage: Int!, $perPage: Int!) {
+  Media(id: $id) {
+    id
+    staff(page: $staffPage, perPage: $perPage) {
+      pageInfo { hasNextPage currentPage }
+      edges {
+        role
+        node {
+          id
+          name { full native }
+          languageV2
+          image { large }
+          age
+          gender
+          favourites
+        }
+      }
+    }
+  }
+}
+`.trim();
+}
+
 /**
  * `User.favourites.anime` — paginated favourite anime media. Same body for
  * manga in {@link FAVOURITE_MANGA_QUERY}; AniList doesn't accept a
@@ -327,6 +353,125 @@ query FavouriteStaffPage($username: String!, $page: Int!, $perPage: Int!) {
   }
 }
 `.trim();
+
+/**
+ * Staff filmography — paginate `characterMedia` (VA appearances) and
+ * `staffMedia` (production credits) independently.
+ * `characterMedia.edges` are `MediaEdge` (`characterRole`, not `role`);
+ * `staffMedia.edges` use `staffRole`.
+ */
+export function buildStaffFilmographyQuery(): string {
+  return `
+query StaffFilmography(
+  $id: Int!
+  $charactersPage: Int!
+  $staffMediaPage: Int!
+  $perPage: Int!
+) {
+  Staff(id: $id) {
+    id
+    characterMedia(page: $charactersPage, perPage: $perPage) {
+      pageInfo { hasNextPage currentPage }
+      edges {
+        characterRole
+        characters {
+          id
+          name { full native alternative alternativeSpoiler }
+          image { large }
+          age
+          gender
+          favourites
+        }
+        node {
+          ${MEDIA_FIELD_SELECTION}
+        }
+      }
+    }
+    staffMedia(page: $staffMediaPage, perPage: $perPage) {
+      pageInfo { hasNextPage currentPage }
+      edges {
+        staffRole
+        node {
+          ${MEDIA_FIELD_SELECTION}
+        }
+      }
+    }
+  }
+}
+`.trim();
+}
+
+/** Lazy franchise relations for one media id. */
+export function buildMediaRelationsQuery(): string {
+  return `
+query MediaRelations($id: Int!) {
+  Media(id: $id) {
+    id
+    relations {
+      edges {
+        relationType
+        node {
+          ${MEDIA_FIELD_SELECTION}
+        }
+      }
+    }
+  }
+}
+`.trim();
+}
+
+/** Title search for setup endpoint picker. */
+export function buildAnimeSearchQuery(): string {
+  return `
+query AnimeSearch($search: String!, $page: Int!, $perPage: Int!) {
+  Page(page: $page, perPage: $perPage) {
+    pageInfo { hasNextPage currentPage }
+    media(search: $search, type: ANIME) {
+      ${MEDIA_FIELD_SELECTION}
+    }
+  }
+}
+`.trim();
+}
+
+/** Metadata-only fetch for a single anime id (setup / ID load). */
+export function buildAnimeByIdQuery(): string {
+  return `
+query AnimeById($id: Int!) {
+  Media(id: $id) {
+    ${MEDIA_FIELD_SELECTION}
+  }
+}
+`.trim();
+}
+
+/** Total anime count for random page selection. */
+export function buildAnimePageCountQuery(): string {
+  return `
+query AnimePageCount {
+  Page(page: 1, perPage: 1) {
+    pageInfo { total }
+    media(type: ANIME) {
+      id
+    }
+  }
+}
+`.trim();
+}
+
+/** One page of anime for random-from-API picker. */
+export function buildAnimeBrowsePageQuery(): string {
+  return `
+query AnimeBrowsePage($page: Int!, $perPage: Int!) {
+  Page(page: $page, perPage: $perPage) {
+    pageInfo { hasNextPage currentPage }
+    media(type: ANIME, sort: POPULARITY_DESC) {
+      ${MEDIA_FIELD_SELECTION}
+    }
+  }
+}
+`.trim();
+}
 
 export const FAVOURITE_STUDIOS_QUERY = `
 query FavouriteStudiosPage($username: String!, $page: Int!, $perPage: Int!) {

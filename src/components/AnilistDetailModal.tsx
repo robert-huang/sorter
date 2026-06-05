@@ -1,11 +1,44 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { isGraphTimestampStale } from '../lib/importers/anilist/graphConstants';
+import type { MediaCastExpansionStatus } from '../lib/importers/anilist/readQueries';
 import {
   type MediaDetail,
   productionReads,
 } from '../lib/importers/anilist/readQueries';
 import type { AnilistProgressEvent } from '../lib/importers/anilist/progress';
+import { filterProductionStaffRows } from '../lib/importers/anilist/staffRoleFilter';
 import { runAnilistMediaLazyExpansion } from '../lib/importers/anilist/runners';
 import { formatAnilistProgress } from './anilistProgressLabel';
+
+const PRODUCTION_ROLE_MODE_KEY = 'anilist-detail-production-roles';
+
+type ProductionRoleMode = 'key' | 'all';
+
+function loadProductionRoleMode(): ProductionRoleMode {
+  try {
+    const v = localStorage.getItem(PRODUCTION_ROLE_MODE_KEY);
+    return v === 'all' ? 'all' : 'key';
+  } catch {
+    return 'key';
+  }
+}
+
+function formatExpansionLine(
+  label: string,
+  fetchedAt: number | null,
+  complete: boolean,
+): string {
+  if (fetchedAt === null) {
+    return `${label}: not cached`;
+  }
+  const stale = isGraphTimestampStale(fetchedAt);
+  const date = new Date(fetchedAt).toLocaleDateString();
+  const flags = [
+    complete ? 'complete' : 'incomplete',
+    stale ? 'stale (>90d)' : 'fresh',
+  ].join(', ');
+  return `${label}: ${date} (${flags})`;
+}
 
 /**
  * Detail modal for a single AniList media id. Opens from LIST or
@@ -89,6 +122,26 @@ export function AnilistDetailModal({
   // (Refresh should not flash the whole spinner over the visible
   // panel; just spin the inline Refresh button).
   const [loadTick, setLoadTick] = useState(0);
+  const [expansionStatus, setExpansionStatus] =
+    useState<MediaCastExpansionStatus | null>(null);
+  const [productionRoleMode, setProductionRoleMode] =
+    useState<ProductionRoleMode>(loadProductionRoleMode);
+
+  const visibleProductionStaff = useMemo(() => {
+    if (!detail) {
+      return [];
+    }
+    return filterProductionStaffRows(detail.productionStaff, productionRoleMode);
+  }, [detail, productionRoleMode]);
+
+  const onProductionRoleModeChange = useCallback((mode: ProductionRoleMode) => {
+    setProductionRoleMode(mode);
+    try {
+      localStorage.setItem(PRODUCTION_ROLE_MODE_KEY, mode);
+    } catch {
+      /* private mode */
+    }
+  }, []);
 
   // Initial load + reload-on-expansion. Reads the cached rows once
   // (so the metadata sidebar paints fast) then, if no characters are
@@ -101,14 +154,16 @@ export function AnilistDetailModal({
     void (async () => {
       try {
         const d = await productionReads.getMediaDetail(mediaId);
+        const status = await productionReads.getMediaCastExpansionStatus(mediaId);
         if (cancelled) return;
         setDetail(d);
+        setExpansionStatus(status);
         setLoading(false);
-        // First-open lazy expansion: if no cast cached, fetch now.
-        // Skipped on Refresh-triggered reloads (loadTick > 0) — the
-        // refresh handler kicks off its own expansion and bumps the
-        // tick after it completes, so we'd otherwise expand twice.
-        if (loadTick === 0 && d && d.characters.length === 0) {
+        const needsExpansion =
+          !status ||
+          !status.charactersComplete ||
+          !status.staffComplete;
+        if (loadTick === 0 && d && needsExpansion) {
           setExpanding(true);
           setProgress(null);
           try {
@@ -117,8 +172,10 @@ export function AnilistDetailModal({
             });
             if (cancelled) return;
             const d2 = await productionReads.getMediaDetail(mediaId);
+            const status2 = await productionReads.getMediaCastExpansionStatus(mediaId);
             if (cancelled) return;
             setDetail(d2);
+            setExpansionStatus(status2);
           } catch (err) {
             if (cancelled) return;
             // Soft-fail: the cached metadata already rendered; the
@@ -150,7 +207,12 @@ export function AnilistDetailModal({
     setError(null);
     setProgress(null);
     try {
-      await runAnilistMediaLazyExpansion(mediaId, (e) => setProgress(e));
+      await runAnilistMediaLazyExpansion(mediaId, (e) => setProgress(e), {
+        scope: 'all',
+        force: true,
+      });
+      const status = await productionReads.getMediaCastExpansionStatus(mediaId);
+      setExpansionStatus(status);
       setLoadTick((t) => t + 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Refresh failed.');
@@ -313,6 +375,28 @@ export function AnilistDetailModal({
                 </div>
               )}
 
+              {expansionStatus && (
+                <div
+                  className="anilist-detail-meta-row"
+                  style={{ fontSize: 11, color: 'var(--text-muted)' }}
+                >
+                  <span title="Cast cache">
+                    {formatExpansionLine(
+                      'Cast',
+                      expansionStatus.charactersFetchedAt,
+                      expansionStatus.charactersComplete,
+                    )}
+                  </span>
+                  <span title="Staff credits cache">
+                    {formatExpansionLine(
+                      'Staff',
+                      expansionStatus.staffFetchedAt,
+                      expansionStatus.staffComplete,
+                    )}
+                  </span>
+                </div>
+              )}
+
               {detail.tags.length > 0 && (
                 <div className="anilist-detail-section">
                   <h4>Tags</h4>
@@ -384,6 +468,62 @@ export function AnilistDetailModal({
                         </li>
                       ),
                     )}
+                  </ul>
+                )}
+              </div>
+
+              <div className="anilist-detail-section">
+                <h4>
+                  Production{' '}
+                  <span style={{ fontSize: 11, fontWeight: 'normal' }}>
+                    <label style={{ marginRight: 8 }}>
+                      <input
+                        type="radio"
+                        name={`production-roles-${mediaId}`}
+                        checked={productionRoleMode === 'key'}
+                        onChange={() => onProductionRoleModeChange('key')}
+                      />{' '}
+                      Key roles
+                    </label>
+                    <label>
+                      <input
+                        type="radio"
+                        name={`production-roles-${mediaId}`}
+                        checked={productionRoleMode === 'all'}
+                        onChange={() => onProductionRoleModeChange('all')}
+                      />{' '}
+                      All credits
+                    </label>
+                  </span>
+                </h4>
+                {visibleProductionStaff.length === 0 && !expanding && (
+                  <p style={{ color: 'var(--text-muted)', fontSize: 12, margin: 0 }}>
+                    No production credits cached
+                    {productionRoleMode === 'key' ? ' (key roles)' : ''}. Click ↻ Refresh.
+                  </p>
+                )}
+                {visibleProductionStaff.length > 0 && (
+                  <ul className="anilist-detail-cast-list">
+                    {visibleProductionStaff.map(({ staff, role }) => (
+                      <li key={`${staff.id}-${role}`} className="anilist-detail-cast-item">
+                        {staff.image && (
+                          <img
+                            className="anilist-detail-cast-image"
+                            src={staff.image}
+                            alt=""
+                            loading="lazy"
+                          />
+                        )}
+                        <div className="anilist-detail-cast-text">
+                          <strong>
+                            {staff.name_full ?? staff.name_native ?? `#${staff.id}`}
+                          </strong>
+                          <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>
+                            {role}
+                          </span>
+                        </div>
+                      </li>
+                    ))}
                   </ul>
                 )}
               </div>

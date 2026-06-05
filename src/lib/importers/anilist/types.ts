@@ -312,6 +312,79 @@ export type AnilistMediaDetailResponse = {
   } | null;
 };
 
+/** `Staff.characterMedia` edge — VA appearance on a show (`MediaEdge`). */
+export type AnilistStaffCharacterMediaEdgeGql = {
+  characterRole: AnilistCharacterRole | null;
+  characters: Array<AnilistCharacterGql | null>;
+  node: AnilistMediaGql | null;
+};
+
+/** @deprecated Use {@link AnilistStaffCharacterMediaEdgeGql}. */
+export type AnilistStaffCharacterEdgeGql = AnilistStaffCharacterMediaEdgeGql;
+
+/** `Staff.staffMedia` edge — production credit on a show (`MediaEdge.staffRole`). */
+export type AnilistStaffMediaEdgeGql = {
+  staffRole: string | null;
+  node: AnilistMediaGql | null;
+};
+
+export type AnilistStaffFilmographyResponse = {
+  Staff: {
+    id: number;
+    characterMedia: {
+      pageInfo: Pick<AnilistPageInfo, 'hasNextPage' | 'currentPage'>;
+      edges: AnilistStaffCharacterMediaEdgeGql[];
+    } | null;
+    staffMedia: {
+      pageInfo: Pick<AnilistPageInfo, 'hasNextPage' | 'currentPage'>;
+      edges: AnilistStaffMediaEdgeGql[];
+    } | null;
+  } | null;
+};
+
+export type AnilistMediaRelationEdgeGql = {
+  relationType: string;
+  node: AnilistMediaGql;
+};
+
+export type AnilistMediaRelationsResponse = {
+  Media: {
+    id: number;
+    relations: {
+      edges: AnilistMediaRelationEdgeGql[];
+    } | null;
+  } | null;
+};
+
+export type AnilistAnimeSearchResponse = {
+  Page: {
+    pageInfo: Pick<AnilistPageInfo, 'hasNextPage' | 'currentPage'>;
+    media: AnilistMediaGql[] | null;
+  } | null;
+};
+
+export type AnilistAnimeByIdResponse = {
+  Media: AnilistMediaGql | null;
+};
+
+export type AnilistAnimePageCountResponse = {
+  Page: {
+    pageInfo: { total: number | null };
+    media: { id: number }[] | null;
+  } | null;
+};
+
+/** Staff-only detail fetch (second loop — no character pagination). */
+export type AnilistMediaStaffOnlyResponse = {
+  Media: {
+    id: number;
+    staff: {
+      pageInfo: Pick<AnilistPageInfo, 'hasNextPage' | 'currentPage'>;
+      edges: AnilistMediaStaffEdgeGql[];
+    } | null;
+  } | null;
+};
+
 /** Shared favourite-edge wrapper (parameterized by node type). */
 export type AnilistFavouriteEdge<TNode> = {
   /**
@@ -468,6 +541,24 @@ export type CharacterVoiceActorRow = {
   character_id: number;
   staff_id: number;
   language: AnilistStaffLanguage;
+};
+
+/** Production credit on a show (`media_staff` junction). */
+export type MediaStaffRow = {
+  media_id: number;
+  staff_id: number;
+  role: string;
+  sort_order: number;
+};
+
+export type MediaCastExpansionRow = {
+  media_id: number;
+  language: AnilistStaffLanguage;
+  fetched_at: number;
+  characters_fetched_at: number | null;
+  staff_fetched_at: number | null;
+  characters_complete: number;
+  staff_complete: number;
 };
 
 export type MediaListEntryRow = {

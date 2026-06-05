@@ -102,6 +102,7 @@ function makeDetailResponse(
   charactersEdges: AnilistMediaCharacterEdgeGql[],
   staffEdges: AnilistMediaStaffEdgeGql[],
   charactersHasNext: boolean,
+  staffHasNext = false,
   mediaId = 100,
 ): AnilistMediaDetailResponse {
   return {
@@ -112,7 +113,7 @@ function makeDetailResponse(
         edges: charactersEdges,
       },
       staff: {
-        pageInfo: { hasNextPage: false, currentPage: 1 },
+        pageInfo: { hasNextPage: staffHasNext, currentPage: 1 },
         edges: staffEdges,
       },
     },
@@ -163,27 +164,37 @@ afterEach(() => {
 describe('expandAnilistMediaDetail — happy path', () => {
   it('rebuilds media_character + character_voice_actor (JP) and upserts character/staff metadata', async () => {
     const h = await makeHarness();
-    h.executeQuery.mockResolvedValueOnce(
-      makeDetailResponse(
-        [
-          makeCharEdge(1000, [9001, 9002]),
-          makeCharEdge(1001, [9001]),
-          makeCharEdge(1002, []),
-        ],
-        [makeStaffEdge(9100), makeStaffEdge(9101)],
-        false,
-      ),
-    );
+    h.executeQuery
+      .mockResolvedValueOnce(
+        makeDetailResponse(
+          [
+            makeCharEdge(1000, [9001, 9002]),
+            makeCharEdge(1001, [9001]),
+            makeCharEdge(1002, []),
+          ],
+          [makeStaffEdge(9100), makeStaffEdge(9101)],
+          false,
+          false,
+        ),
+      )
+      .mockResolvedValueOnce(
+        makeDetailResponse([], [makeStaffEdge(9100), makeStaffEdge(9101)], false, false),
+      );
 
     const result = await expandAnilistMediaDetail(h.ctx, 100);
 
     expect(result).toEqual({
       mediaId: 100,
       characterPagesFetched: 1,
+      staffPagesFetched: 1,
       charactersWritten: 3,
+      staffCreditsWritten: 2,
       staffWritten: 4, // 9001, 9002, 9100, 9101 (dedup)
       voiceActorsWritten: 3,
+      charactersComplete: true,
+      staffComplete: true,
     });
+    expect(countRows(h.db, 'media_staff', 'WHERE media_id = 100')).toBe(2);
     expect(countRows(h.db, 'character')).toBe(3);
     expect(countRows(h.db, 'staff')).toBe(4);
     expect(countRows(h.db, 'media_character', 'WHERE media_id = 100')).toBe(3);
@@ -207,19 +218,25 @@ describe('expandAnilistMediaDetail — happy path', () => {
 });
 
 describe('expandAnilistMediaDetail — pagination cap', () => {
-  it('fetches at most charactersMaxPages (default 2) character pages', async () => {
+  it('fetches at most charactersMaxPages when capped', async () => {
     const h = await makeHarness();
     h.executeQuery
       .mockResolvedValueOnce(
-        makeDetailResponse([makeCharEdge(1, [9001])], [makeStaffEdge(9100)], true),
+        makeDetailResponse([makeCharEdge(1, [9001])], [], true, false),
       )
       .mockResolvedValueOnce(
-        makeDetailResponse([makeCharEdge(2, [9002])], [makeStaffEdge(9100)], true),
+        makeDetailResponse([makeCharEdge(2, [9002])], [], true, false),
+      )
+      .mockResolvedValueOnce(
+        makeDetailResponse([], [], false, false),
       );
-    const result = await expandAnilistMediaDetail(h.ctx, 100);
+    const result = await expandAnilistMediaDetail(h.ctx, 100, {
+      charactersMaxPages: 2,
+      staffMaxPages: 0,
+      scope: 'characters',
+    });
 
     expect(result?.characterPagesFetched).toBe(2);
-    // Only 2 HTTP calls — third page was within hasNextPage but cap hit
     expect(h.executeQuery).toHaveBeenCalledTimes(2);
     expect(result?.charactersWritten).toBe(2);
     h.db.close();
@@ -228,9 +245,12 @@ describe('expandAnilistMediaDetail — pagination cap', () => {
   it('stops early when hasNextPage is false even if the cap allows more', async () => {
     const h = await makeHarness();
     h.executeQuery.mockResolvedValueOnce(
-      makeDetailResponse([makeCharEdge(1)], [makeStaffEdge(9100)], false),
+      makeDetailResponse([makeCharEdge(1)], [], false, false),
     );
-    const result = await expandAnilistMediaDetail(h.ctx, 100, { charactersMaxPages: 5 });
+    const result = await expandAnilistMediaDetail(h.ctx, 100, {
+      charactersMaxPages: 5,
+      scope: 'characters',
+    });
     expect(result?.characterPagesFetched).toBe(1);
     expect(h.executeQuery).toHaveBeenCalledTimes(1);
     h.db.close();
@@ -241,21 +261,30 @@ describe('expandAnilistMediaDetail — rebuild semantics', () => {
   it('cascades character_voice_actor cleanup when a character is dropped on refresh', async () => {
     const h = await makeHarness();
     // First call: media 100 has 2 characters with VAs
-    h.executeQuery.mockResolvedValueOnce(
-      makeDetailResponse(
-        [makeCharEdge(1000, [9001]), makeCharEdge(1001, [9002])],
-        [],
-        false,
-      ),
-    );
+    h.executeQuery
+      .mockResolvedValueOnce(
+        makeDetailResponse(
+          [makeCharEdge(1000, [9001]), makeCharEdge(1001, [9002])],
+          [],
+          false,
+          false,
+        ),
+      )
+      .mockResolvedValueOnce(
+        makeDetailResponse([], [], false, false),
+      );
     await expandAnilistMediaDetail(h.ctx, 100);
     expect(countRows(h.db, 'media_character', 'WHERE media_id = 100')).toBe(2);
     expect(countRows(h.db, 'character_voice_actor', 'WHERE media_id = 100')).toBe(2);
 
     // Second call: media 100 now has 1 character with 1 VA
-    h.executeQuery.mockResolvedValueOnce(
-      makeDetailResponse([makeCharEdge(1000, [9001])], [], false),
-    );
+    h.executeQuery
+      .mockResolvedValueOnce(
+        makeDetailResponse([makeCharEdge(1000, [9001])], [], false, false),
+      )
+      .mockResolvedValueOnce(
+        makeDetailResponse([], [], false, false),
+      );
     await expandAnilistMediaDetail(h.ctx, 100);
 
     // CVA for character 1001 cascaded away via the (media_id, character_id) FK
@@ -299,15 +328,18 @@ describe('expandAnilistMediaDetail — media_cast_expansion marker', () => {
   // CVA rows the response yielded.
   it('writes a media_cast_expansion row even when the response has zero voice actors', async () => {
     const h = await makeHarness();
-    h.executeQuery.mockResolvedValueOnce(
-      makeDetailResponse(
-        // Characters exist but no VAs for the requested language —
-        // common for non-Japanese productions.
-        [makeCharEdge(1000, []), makeCharEdge(1001, [])],
-        [],
-        false,
-      ),
-    );
+    h.executeQuery
+      .mockResolvedValueOnce(
+        makeDetailResponse(
+          [makeCharEdge(1000, []), makeCharEdge(1001, [])],
+          [],
+          false,
+          false,
+        ),
+      )
+      .mockResolvedValueOnce(
+        makeDetailResponse([], [], false, false),
+      );
 
     const result = await expandAnilistMediaDetail(h.ctx, 100);
 
@@ -324,7 +356,9 @@ describe('expandAnilistMediaDetail — media_cast_expansion marker', () => {
 
   it('writes a media_cast_expansion row even when the response has zero characters', async () => {
     const h = await makeHarness();
-    h.executeQuery.mockResolvedValueOnce(makeDetailResponse([], [], false));
+    h.executeQuery
+      .mockResolvedValueOnce(makeDetailResponse([], [], false, false))
+      .mockResolvedValueOnce(makeDetailResponse([], [], false, false));
 
     const result = await expandAnilistMediaDetail(h.ctx, 100);
 
@@ -344,11 +378,13 @@ describe('expandAnilistMediaDetail — media_cast_expansion marker', () => {
     const h = await makeHarness();
     h.executeQuery
       .mockResolvedValueOnce(
-        makeDetailResponse([makeCharEdge(1000, [9001])], [], false),
+        makeDetailResponse([makeCharEdge(1000, [9001])], [], false, false),
       )
+      .mockResolvedValueOnce(makeDetailResponse([], [], false, false))
       .mockResolvedValueOnce(
-        makeDetailResponse([makeCharEdge(1000, [9001])], [], false),
-      );
+        makeDetailResponse([makeCharEdge(1000, [9001])], [], false, false),
+      )
+      .mockResolvedValueOnce(makeDetailResponse([], [], false, false));
 
     await expandAnilistMediaDetail(h.ctx, 100, { voiceActorLanguage: 'JAPANESE' });
     await expandAnilistMediaDetail(h.ctx, 100, { voiceActorLanguage: 'ENGLISH' });
@@ -366,13 +402,16 @@ describe('expandAnilistMediaDetail — media_cast_expansion marker', () => {
 describe('expandAnilistMediaDetail — voiceActorLanguage single source of truth', () => {
   it('threads the configured language into BOTH the GraphQL filter and the DB row', async () => {
     const h = await makeHarness();
-    h.executeQuery.mockResolvedValueOnce(
-      makeDetailResponse(
-        [makeCharEdge(1000, [9001]), makeCharEdge(1001, [9002])],
-        [],
-        false,
-      ),
-    );
+    h.executeQuery
+      .mockResolvedValueOnce(
+        makeDetailResponse(
+          [makeCharEdge(1000, [9001]), makeCharEdge(1001, [9002])],
+          [],
+          false,
+          false,
+        ),
+      )
+      .mockResolvedValueOnce(makeDetailResponse([], [], false, false));
     await expandAnilistMediaDetail(h.ctx, 100, { voiceActorLanguage: 'ENGLISH' });
 
     // (1) DB-side: every CVA row carries the configured language.
@@ -398,16 +437,18 @@ describe('expandAnilistMediaDetail — progress events', () => {
     const h = await makeHarness();
     h.executeQuery
       .mockResolvedValueOnce(
-        makeDetailResponse([makeCharEdge(1, [9001])], [makeStaffEdge(9100)], true),
+        makeDetailResponse([makeCharEdge(1, [9001])], [], true, false),
       )
       .mockResolvedValueOnce(
-        makeDetailResponse([makeCharEdge(2, [9002])], [], false),
-      );
+        makeDetailResponse([makeCharEdge(2, [9002])], [], false, false),
+      )
+      .mockResolvedValueOnce(makeDetailResponse([], [], false, false));
 
     const events: import('../progress').AnilistProgressEvent[] = [];
     await expandAnilistMediaDetail(
       { ...h.ctx, onProgress: (e) => events.push(e) },
       100,
+      { charactersMaxPages: 2, scope: 'characters' },
     );
 
     expect(events.map((e) => e.kind)).toEqual([

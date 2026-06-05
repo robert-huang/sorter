@@ -249,7 +249,12 @@ export interface MediaDetail {
     sortOrder: number;
     voiceActors: StaffRow[];
   }>;
-  staff: StaffRow[];
+  /** Production credits from `media_staff` (unfiltered; UI applies role filter). */
+  productionStaff: Array<{
+    staff: StaffRow;
+    role: string;
+    sortOrder: number;
+  }>;
 }
 
 export async function getMediaDetail(
@@ -329,16 +334,56 @@ export async function getMediaDetail(
     });
   }
 
-  // Staff — currently the schema doesn't have a media_staff junction
-  // (the lazy-expansion query writes character_voice_actor rows
-  // instead — see lazyExpansion.ts). For v1 we return an empty staff
-  // list here so the detail modal can still render the section with
-  // a "no staff credited yet" placeholder; a future schema addition
-  // (`media_staff(media_id, staff_id, role)`) plus an importer update
-  // can populate it without changing this function's signature.
-  const staff: StaffRow[] = [];
+  const productionStaffRows = await db.exec(
+    `
+      SELECT st.*, ms.role, ms.sort_order
+      FROM media_staff ms
+      JOIN staff st ON st.id = ms.staff_id
+      WHERE ms.media_id = ?
+      ORDER BY ms.sort_order ASC
+    `,
+    [mediaId],
+  );
+  const productionStaff = productionStaffRows.map((r) => ({
+    staff: rowToStaffRow(r),
+    role: reqS(r.role),
+    sortOrder: reqN(r.sort_order),
+  }));
 
-  return { media, studios, tags, characters, staff };
+  return { media, studios, tags, characters, productionStaff };
+}
+
+export interface MediaCastExpansionStatus {
+  mediaId: number;
+  language: string;
+  charactersFetchedAt: number | null;
+  staffFetchedAt: number | null;
+  charactersComplete: boolean;
+  staffComplete: boolean;
+}
+
+export async function getMediaCastExpansionStatus(
+  db: AnilistDbExecutor,
+  mediaId: number,
+): Promise<MediaCastExpansionStatus | null> {
+  const rows = await db.exec(
+    `SELECT media_id, language, characters_fetched_at, staff_fetched_at,
+            characters_complete, staff_complete
+       FROM media_cast_expansion WHERE media_id = ?`,
+    [mediaId],
+  );
+  if (rows.length === 0) {
+    return null;
+  }
+  const r = rows[0];
+  return {
+    mediaId: reqN(r.media_id),
+    language: reqS(r.language),
+    charactersFetchedAt: n(r.characters_fetched_at),
+    staffFetchedAt: n(r.staff_fetched_at),
+    charactersComplete: Number(r.characters_complete) === 1,
+    staffComplete: Number(r.staff_complete) === 1,
+  };
 }
 
 /**
@@ -1182,6 +1227,8 @@ export const productionReads = {
     getVoiceActorsForCandidates(defaultDb(), candidateMediaIds),
   getMediaIdsWithCachedCast: (candidateMediaIds: readonly number[]) =>
     getMediaIdsWithCachedCast(defaultDb(), candidateMediaIds),
+  getMediaCastExpansionStatus: (mediaId: number) =>
+    getMediaCastExpansionStatus(defaultDb(), mediaId),
   getFavouriteCount: (anilistUserId: number, entity: FavouriteRankEntity) =>
     getFavouriteCount(defaultDb(), anilistUserId, entity),
   getFavouriteRanksForIds: (

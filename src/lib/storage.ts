@@ -736,6 +736,25 @@ export function setCloudId(id: string, cloudId: string | undefined): SlotsManife
 }
 
 /**
+ * First local slot bound to a Drive file id (`SlotMeta.cloudId`). If
+ * duplicates exist (legacy bug), returns the first match in manifest order.
+ */
+export function findSlotByCloudId(cloudId: string): SlotMeta | undefined {
+  return readManifest().slots.find((s) => s.cloudId === cloudId);
+}
+
+/** cloudId → local slot id for every slot with a cloud binding. */
+export function buildLocalCloudSlotIndex(): Map<string, string> {
+  const index = new Map<string, string>();
+  for (const slot of readManifest().slots) {
+    if (slot.cloudId && !index.has(slot.cloudId)) {
+      index.set(slot.cloudId, slot.id);
+    }
+  }
+  return index;
+}
+
+/**
  * Stamp the post-Push metadata in one call so the manifest write is
  * atomic. Used by the push flow: on a successful upload we want to
  * record the new etag, the cloud-side updatedAt, and the local push

@@ -6,8 +6,10 @@ import {
   SLOT_CAP,
   _resetAvailabilityCache,
   consumeManifestRepairNotice,
+  buildLocalCloudSlotIndex,
   createSlot,
   deleteSlot,
+  findSlotByCloudId,
   discardPendingAutosave,
   exportAllSlots,
   flushAutosave,
@@ -24,6 +26,7 @@ import {
   readSlotBlob,
   renameSlot,
   repairManifestIfCorrupt,
+  setCloudId,
   scheduleAutosave,
   setActiveSlot,
   slotBlobKey,
@@ -1325,5 +1328,27 @@ describe('exportAllSlots / importAllSlots', () => {
     expect(result.skipped).toBe(1);
     expect(readManifest().slots.find((s) => s.id === 'real')).toBeDefined();
     expect(readManifest().slots.find((s) => s.id === 'orphan')).toBeUndefined();
+  });
+});
+
+describe('cloud slot index', () => {
+  it('findSlotByCloudId returns the bound slot', () => {
+    const meta = mintSlot(makeBlob(), 'Cloud sort');
+    setCloudId(meta.id, 'drive-file-AAA');
+    const found = findSlotByCloudId('drive-file-AAA');
+    expect(found?.id).toBe(meta.id);
+    expect(findSlotByCloudId('missing')).toBeUndefined();
+  });
+
+  it('buildLocalCloudSlotIndex keeps one entry per cloudId (manifest order wins)', () => {
+    const a = mintSlot(makeBlob(), 'A');
+    const b = mintSlot(makeBlob(), 'B');
+    setCloudId(a.id, 'shared-drive-id');
+    setCloudId(b.id, 'shared-drive-id');
+    const index = buildLocalCloudSlotIndex();
+    expect(index.size).toBe(1);
+    const winner = findSlotByCloudId('shared-drive-id')?.id;
+    expect(index.get('shared-drive-id')).toBe(winner);
+    expect(winner).toBe(b.id);
   });
 });

@@ -1,0 +1,239 @@
+/**
+ * Paginated `Staff.characters` + `Staff.staffMedia` fetch. Persists
+ * adjacency into `media`, `media_staff`, `media_character`, CVA, etc.
+ * `staff_filmography_expansion` is only a visit marker.
+ */
+
+import type { AnilistImportContext, SqlBindable } from './context';
+import {
+  mapMediaRow,
+  mapStaffCharacterAppearanceData,
+  mapStaffFilmographyMediaStaffRows,
+} from './mappers';
+import { MEDIA_UPSERT_SQL, mediaRowToParams } from './importer';
+import {
+  CHARACTER_UPSERT_SQL,
+  characterRowToParams,
+  DEFAULT_VOICE_ACTOR_LANGUAGE,
+} from './lazyExpansion';
+import { emitProgress } from './progress';
+import { buildStaffFilmographyQuery } from './queries';
+import type {
+  AnilistStaffCharacterMediaEdgeGql,
+  AnilistStaffFilmographyResponse,
+  AnilistStaffLanguage,
+  AnilistStaffMediaEdgeGql,
+} from './types';
+
+export const DEFAULT_FILMOGRAPHY_PER_PAGE = 25;
+
+export type ExpandStaffFilmographyOptions = {
+  perPage?: number;
+  charactersMaxPages?: number;
+  staffMediaMaxPages?: number;
+  voiceActorLanguage?: AnilistStaffLanguage;
+};
+
+export type ExpandStaffFilmographyResult = {
+  staffId: number;
+  characterPagesFetched: number;
+  staffMediaPagesFetched: number;
+  mediaUpserted: number;
+  mediaStaffWritten: number;
+  cvaWritten: number;
+};
+
+async function fetchCharacterPages(
+  ctx: AnilistImportContext,
+  staffId: number,
+  perPage: number,
+  maxPages: number | undefined,
+): Promise<{ edges: AnilistStaffCharacterMediaEdgeGql[]; pagesFetched: number }> {
+  const query = buildStaffFilmographyQuery();
+  const allEdges: AnilistStaffCharacterMediaEdgeGql[] = [];
+  let page = 1;
+  let pagesFetched = 0;
+  let hasNext = true;
+
+  while (hasNext && (maxPages === undefined || pagesFetched < maxPages)) {
+    const response = await ctx.executeQuery<AnilistStaffFilmographyResponse>(query, {
+      id: staffId,
+      charactersPage: page,
+      staffMediaPage: 1,
+      perPage,
+    });
+    if (!response?.Staff) {
+      if (pagesFetched === 0) {
+        return { edges: [], pagesFetched: 0 };
+      }
+      break;
+    }
+    pagesFetched += 1;
+    const conn = response.Staff.characterMedia;
+    if (conn) {
+      allEdges.push(...conn.edges);
+      hasNext = conn.pageInfo.hasNextPage;
+    } else {
+      hasNext = false;
+    }
+    emitProgress(ctx.onProgress, {
+      kind: 'fetching-page',
+      what: 'characters',
+      page,
+      itemsSoFar: allEdges.length,
+    });
+    page += 1;
+  }
+
+  return { edges: allEdges, pagesFetched };
+}
+
+async function fetchStaffMediaPages(
+  ctx: AnilistImportContext,
+  staffId: number,
+  perPage: number,
+  maxPages: number | undefined,
+): Promise<{ edges: AnilistStaffMediaEdgeGql[]; pagesFetched: number }> {
+  const query = buildStaffFilmographyQuery();
+  const allEdges: AnilistStaffMediaEdgeGql[] = [];
+  let page = 1;
+  let pagesFetched = 0;
+  let hasNext = true;
+
+  while (hasNext && (maxPages === undefined || pagesFetched < maxPages)) {
+    const response = await ctx.executeQuery<AnilistStaffFilmographyResponse>(query, {
+      id: staffId,
+      charactersPage: 1,
+      staffMediaPage: page,
+      perPage,
+    });
+    if (!response?.Staff) {
+      if (pagesFetched === 0) {
+        return { edges: [], pagesFetched: 0 };
+      }
+      break;
+    }
+    pagesFetched += 1;
+    const conn = response.Staff.staffMedia;
+    if (conn) {
+      allEdges.push(...conn.edges);
+      hasNext = conn.pageInfo.hasNextPage;
+    } else {
+      hasNext = false;
+    }
+    emitProgress(ctx.onProgress, {
+      kind: 'fetching-page',
+      what: 'staff',
+      page,
+      itemsSoFar: allEdges.length,
+    });
+    page += 1;
+  }
+
+  return { edges: allEdges, pagesFetched };
+}
+
+export async function expandStaffFilmography(
+  ctx: AnilistImportContext,
+  staffId: number,
+  options: ExpandStaffFilmographyOptions = {},
+): Promise<ExpandStaffFilmographyResult | null> {
+  const perPage = options.perPage ?? DEFAULT_FILMOGRAPHY_PER_PAGE;
+  const language = options.voiceActorLanguage ?? DEFAULT_VOICE_ACTOR_LANGUAGE;
+  const now = ctx.now();
+
+  const charResult = await fetchCharacterPages(
+    ctx,
+    staffId,
+    perPage,
+    options.charactersMaxPages,
+  );
+  const staffMediaResult = await fetchStaffMediaPages(
+    ctx,
+    staffId,
+    perPage,
+    options.staffMediaMaxPages,
+  );
+  const characterEdges = charResult.edges;
+  const staffMediaEdges = staffMediaResult.edges;
+
+  if (characterEdges.length === 0 && staffMediaEdges.length === 0) {
+    const probe = await ctx.executeQuery<AnilistStaffFilmographyResponse>(
+      buildStaffFilmographyQuery(),
+      { id: staffId, charactersPage: 1, staffMediaPage: 1, perPage },
+    );
+    if (!probe?.Staff) {
+      return null;
+    }
+  }
+
+  const appearance = mapStaffCharacterAppearanceData(staffId, characterEdges, language, now);
+  const mediaStaffRows = mapStaffFilmographyMediaStaffRows(staffId, staffMediaEdges);
+
+  const mediaById = new Map<number, (typeof appearance.mediaRows)[0]>();
+  for (const m of appearance.mediaRows) {
+    mediaById.set(m.id, m);
+  }
+  for (const e of staffMediaEdges) {
+    const node = e.node;
+    const mediaId = node?.id;
+    if (mediaId === null || mediaId === undefined || !node) {
+      continue;
+    }
+    if (!mediaById.has(mediaId)) {
+      mediaById.set(mediaId, mapMediaRow(node, now));
+    }
+  }
+
+  const stmts: Array<{ sql: string; params: readonly SqlBindable[] }> = [];
+
+  for (const row of mediaById.values()) {
+    stmts.push({ sql: MEDIA_UPSERT_SQL, params: mediaRowToParams(row) });
+  }
+  for (const row of appearance.characterRows) {
+    stmts.push({ sql: CHARACTER_UPSERT_SQL, params: characterRowToParams(row) });
+  }
+  for (const mc of appearance.mediaCharacterRows) {
+    stmts.push({
+      sql: 'INSERT OR IGNORE INTO media_character (media_id, character_id, role, sort_order) VALUES (?, ?, ?, ?)',
+      params: [mc.media_id, mc.character_id, mc.role, mc.sort_order],
+    });
+  }
+  for (const cva of appearance.cvaRows) {
+    stmts.push({
+      sql: 'INSERT OR IGNORE INTO character_voice_actor (media_id, character_id, staff_id, language) VALUES (?, ?, ?, ?)',
+      params: [cva.media_id, cva.character_id, cva.staff_id, cva.language],
+    });
+  }
+  for (const ms of mediaStaffRows) {
+    stmts.push({
+      sql: 'INSERT OR IGNORE INTO media_staff (media_id, staff_id, role, sort_order) VALUES (?, ?, ?, ?)',
+      params: [ms.media_id, ms.staff_id, ms.role, ms.sort_order],
+    });
+  }
+
+  stmts.push({
+    sql: `INSERT INTO staff_filmography_expansion (staff_id, fetched_at)
+          VALUES (?, ?)
+          ON CONFLICT(staff_id) DO UPDATE SET fetched_at = excluded.fetched_at`,
+    params: [staffId, now],
+  });
+
+  emitProgress(ctx.onProgress, { kind: 'writing', statements: stmts.length });
+  await ctx.db.execBatch(stmts);
+
+  if (ctx.onDirtyIncrement) {
+    await ctx.onDirtyIncrement();
+  }
+
+  emitProgress(ctx.onProgress, { kind: 'done' });
+
+  return {
+    staffId,
+    characterPagesFetched: charResult.pagesFetched,
+    staffMediaPagesFetched: staffMediaResult.pagesFetched,
+    mediaUpserted: mediaById.size,
+    mediaStaffWritten: mediaStaffRows.length,
+    cvaWritten: appearance.cvaRows.length,
+  };
+}

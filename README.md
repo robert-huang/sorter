@@ -40,6 +40,21 @@ npm run dev
 
 Vite dev server with hot reload at `http://localhost:5173`.
 
+### Anime to Anime (separate page)
+
+A side mini-app: connect a **start** anime to a **goal** anime by hopping through shared voice actors (optional production-staff hops). It reads the same AniList SQLite cache as the main sorter — import lists on START → AniList first.
+
+- Dev: `http://localhost:5173/anime-to-anime.html`
+- After `npm run build`: `dist/anime-to-anime.html`
+- Source: `anime-to-anime.html`, `src/animeToAnime/`
+- Open from either page: floating **Sorter** / **Anime to Anime** button (top-left), or gear menu → **Anime to Anime** (footer, above Autosave)
+- **Local DB:** each page uses one dedicated worker with OPFS-backed `anilist.sqlite` (works on GitHub Pages — no COOP/COEP headers needed). Same-tab navigation between Sorter and Anime to Anime reopens the same file; only one active tab can hold OPFS at a time (close other tabs if you see a non-persistent warning). Workers load via Vite’s `?worker` import (not raw `.ts` URLs — those get the wrong `video/mp2t` MIME type on some servers).
+- **Theme:** independent from main Sorter (`anime-to-anime-theme` in localStorage); sun/moon toggle in the header; defaults to **dark**
+- **Setup:** random from cache, search (cache then AniList API), load by AniList id, or random from AniList
+- **Play:** optional franchise relations mode; path trail with anime vs staff hop styling; hop count includes revisits
+- **Win:** share/copy summary with hop count and path; play again returns to setup with the same start/goal
+- **Nav:** main Sorter FAB label is **A2A →**
+
 ### 3. Double-click `dist/index.html` (no terminal needed)
 
 ```bash
@@ -405,7 +420,10 @@ The next write persists the blob as v4. Older builds that only understand v1 / v
 ## Project layout
 
 ```
+anime-to-anime.html     # Anime to Anime entry (Vite multi-page build)
+index.html              # main sorter app
 src/
+  animeToAnime/         # Anime to Anime mini-app (AnimeToAnimeApp.tsx)
   main.tsx, App.tsx, styles.css
   lib/
     types.ts            # SortState / SortProgress (discriminated union: MergeProgress

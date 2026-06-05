@@ -375,8 +375,7 @@ describe('getMediaDetail', () => {
     expect(detail!.studios).toEqual([]);
     expect(detail!.tags).toEqual([]);
     expect(detail!.characters).toEqual([]);
-    // staff currently unused by the schema; v1 placeholder.
-    expect(detail!.staff).toEqual([]);
+    expect(detail!.productionStaff).toEqual([]);
   });
 
   it('returns characters ordered by sort_order ASC', async () => {

@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { isOpfsSecureContext } from '../opfs';
+import {
+  canUseOpfsSahPool,
+  describeOpfsBlockedReason,
+  isCrossOriginIsolated,
+  isOpfsSecureContext,
+} from '../opfs';
 
 describe('isOpfsSecureContext', () => {
   afterEach(() => {
@@ -19,5 +24,43 @@ describe('isOpfsSecureContext', () => {
   it('returns false when isSecureContext is undefined', () => {
     vi.stubGlobal('isSecureContext', undefined);
     expect(isOpfsSecureContext()).toBe(false);
+  });
+});
+
+describe('canUseOpfsSahPool', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('does not require cross-origin isolation when OPFS APIs exist', () => {
+    vi.stubGlobal('isSecureContext', true);
+    vi.stubGlobal('crossOriginIsolated', false);
+    vi.stubGlobal('navigator', { storage: { getDirectory: () => Promise.resolve({}) } });
+    vi.stubGlobal('FileSystemFileHandle', {
+      prototype: { createSyncAccessHandle: () => ({}) },
+    });
+    expect(isCrossOriginIsolated()).toBe(false);
+    expect(canUseOpfsSahPool()).toBe(true);
+  });
+
+  it('requires secure context and sync access handle API', () => {
+    vi.stubGlobal('isSecureContext', false);
+    vi.stubGlobal('crossOriginIsolated', true);
+    vi.stubGlobal('navigator', { storage: { getDirectory: () => Promise.resolve({}) } });
+    vi.stubGlobal('FileSystemFileHandle', {
+      prototype: { createSyncAccessHandle: () => ({}) },
+    });
+    expect(canUseOpfsSahPool()).toBe(false);
+    expect(describeOpfsBlockedReason()).toContain('secure context');
+  });
+
+  it('returns true when all OPFS prerequisites are met', () => {
+    vi.stubGlobal('isSecureContext', true);
+    vi.stubGlobal('crossOriginIsolated', true);
+    vi.stubGlobal('navigator', { storage: { getDirectory: () => Promise.resolve({}) } });
+    vi.stubGlobal('FileSystemFileHandle', {
+      prototype: { createSyncAccessHandle: () => ({}) },
+    });
+    expect(canUseOpfsSahPool()).toBe(true);
   });
 });

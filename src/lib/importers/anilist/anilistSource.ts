@@ -1,6 +1,7 @@
 import { registerSource, type SourceDescriptor } from '../../db/source-registry';
 import migration001 from './migrations/001-init.sql?raw';
 import migration002 from './migrations/002-cast-expansion-tracking.sql?raw';
+import migration003 from './migrations/003-graph-expansion.sql?raw';
 import type { AnilistFavouriteType, AnilistMediaType } from './types';
 
 export const ANILIST_SOURCE_ID = 'anilist';
@@ -111,6 +112,7 @@ export const anilistSourceDescriptor: SourceDescriptor = {
   migrations: [
     { version: 1, sql: migration001 },
     { version: 2, sql: migration002 },
+    { version: 3, sql: migration003 },
   ],
   merge: {
     metadataTables: [
@@ -120,12 +122,9 @@ export const anilistSourceDescriptor: SourceDescriptor = {
       { name: 'tag', pk: ['name'], timestampCol: 'fetched_at' },
       { name: 'character', pk: ['id'], timestampCol: 'fetched_at' },
       { name: 'staff', pk: ['id'], timestampCol: 'fetched_at' },
-      // Cast-expansion marker: per-media "we've attempted to fetch the
-      // cast at least once" stamp. NOT a junction — has its own
-      // timestamp and is its own source of truth (see migration 002 +
-      // lazyExpansion.ts). Merging it across devices preserves the
-      // "no need to re-fetch" signal once any device has tried.
-      { name: 'media_cast_expansion', pk: ['media_id'], timestampCol: 'fetched_at' },
+      // media_cast_expansion: merged via mergeMediaCastExpansionSplit (split
+      // timestamps). staff_filmography_expansion: visit marker only.
+      { name: 'staff_filmography_expansion', pk: ['staff_id'], timestampCol: 'fetched_at' },
     ],
     userDataTables: [
       {
