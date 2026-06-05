@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import type { AnilistImportContext } from '../lib/importers/anilist/context';
 import type { MediaRow } from '../lib/importers/anilist/types';
 import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
@@ -33,8 +32,6 @@ function EndpointsSwapBridge({
   onSwap: () => void;
   interactive: boolean;
 }) {
-  const [flipped, setFlipped] = useState(false);
-
   const arrow = (
     <span className="anime-to-anime-swap-arrow-wrap" aria-hidden="true">
       <span className="anime-to-anime-endpoints-arrow">→</span>
@@ -49,11 +46,8 @@ function EndpointsSwapBridge({
     <div className="anime-to-anime-endpoints-bridge">
       <button
         type="button"
-        className={`anime-to-anime-swap-btn${flipped ? ' anime-to-anime-swap-btn--flipped' : ''}`}
-        onClick={() => {
-          onSwap();
-          setFlipped((prev) => !prev);
-        }}
+        className="anime-to-anime-swap-btn"
+        onClick={onSwap}
         disabled={swapDisabled}
         title="Swap start and goal"
         aria-label="Swap start and goal"

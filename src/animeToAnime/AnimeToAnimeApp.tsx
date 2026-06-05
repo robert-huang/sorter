@@ -36,6 +36,7 @@ import { useSourceDbSync } from '../hooks/useSourceDbSync';
 import { AnimeToAnimeHeader } from './AnimeToAnimeHeader';
 import { RoundEndpointsRow } from './RoundEndpointsRow';
 import { PathHistoryTrail } from './PathHistoryTrail';
+import { ExitRoundConfirmModal } from './ExitRoundConfirmModal';
 import { WinScreen } from './WinScreen';
 import { type PathStep } from './pathHistory';
 import {
@@ -114,6 +115,7 @@ export function AnimeToAnimeApp() {
   const [loading, setLoading] = useState(false);
   const [apiWait, setApiWait] = useState<AnilistWaitState | null>(null);
   const [listRefreshEpoch, setListRefreshEpoch] = useState(0);
+  const [exitRoundConfirmOpen, setExitRoundConfirmOpen] = useState(false);
   const forceListRefreshRef = useRef(false);
 
   const [vaCredits, setVaCredits] = useState<VaCreditRow[]>([]);
@@ -255,13 +257,17 @@ export function AnimeToAnimeApp() {
   }, [goToSetup]);
 
   const confirmExitToSetup = useCallback(() => {
-    const confirmed = window.confirm(
-      'Leave this round and return to setup? Your progress will be lost.',
-    );
-    if (confirmed) {
-      goToSetup();
-    }
+    setExitRoundConfirmOpen(true);
+  }, []);
+
+  const onExitRoundConfirm = useCallback(() => {
+    setExitRoundConfirmOpen(false);
+    goToSetup();
   }, [goToSetup]);
+
+  const onExitRoundCancel = useCallback(() => {
+    setExitRoundConfirmOpen(false);
+  }, []);
 
   const onRefreshPlayList = useCallback(() => {
     forceListRefreshRef.current = true;
@@ -439,6 +445,12 @@ export function AnimeToAnimeApp() {
 
   return (
     <div className="app-shell">
+      {exitRoundConfirmOpen && (
+        <ExitRoundConfirmModal
+          onConfirm={onExitRoundConfirm}
+          onCancel={onExitRoundCancel}
+        />
+      )}
       <AppNavFab href={SORTER_HOME_HREF} label="← Sorter" title="Back to Sorter" />
       <AppBannerStack>
         {ready && storageMode === 'memory' && (
