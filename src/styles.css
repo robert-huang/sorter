@@ -3448,6 +3448,10 @@ a {
 }
 
 .item-card .image-wrap {
+  /* Grows with the card; centers the poster. No fixed height — the
+     poster sizes itself (see the img rule) and the card grows to fit.
+     min-height keeps a small floor so tiny/text-fallback covers don't
+     collapse the box. */
   flex: 1;
   display: flex;
   align-items: center;
@@ -3459,8 +3463,13 @@ a {
 }
 
 .item-card .image-wrap img {
+  /* Show the FULL poster (`contain`), sized to match the A2A endpoint
+     picker (`.anime-to-anime-endpoint-cover`): up to 360px tall, capped
+     at 52vh on short viewports. No 240px cap — the compare grid stretches
+     the partner card (image or text-only) to the taller card's height,
+     so a tall poster is free to make the whole row taller. */
   max-width: 100%;
-  max-height: 240px;
+  max-height: min(360px, 52vh);
   object-fit: contain;
 }
 
@@ -3527,6 +3536,12 @@ a {
   .compare,
   .compare-overlay {
     grid-template-columns: 1fr;
+  }
+
+  /* Shrink the picker cover on narrow viewports, matching the A2A
+     endpoint cover's mobile cap. */
+  .item-card .image-wrap img {
+    max-height: min(200px, 32vh);
   }
 }
 
