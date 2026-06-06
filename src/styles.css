@@ -3463,13 +3463,15 @@ a {
 }
 
 .item-card .image-wrap img {
-  /* Show the FULL poster (`contain`), sized to match the A2A endpoint
-     picker (`.anime-to-anime-endpoint-cover`): up to 360px tall, capped
-     at 52vh on short viewports. No 240px cap — the compare grid stretches
-     the partner card (image or text-only) to the taller card's height,
-     so a tall poster is free to make the whole row taller. */
-  max-width: 100%;
-  max-height: min(360px, 52vh);
+  /* Show the FULL poster (`contain`) and EXPAND it to fill the frame.
+     A definite `height` (not `max-height`) is the key: `max-height` only
+     caps tall covers, so a low-res cover whose intrinsic height is below
+     the cap would render small with dead space. An explicit height makes
+     `contain` scale every cover — up or down — to the same frame height,
+     so a 230px cover and a 460px cover fill the frame identically.
+     360px / 52vh matches the A2A endpoint picker. */
+  width: 100%;
+  height: min(360px, 52vh);
   object-fit: contain;
 }
 
@@ -3538,10 +3540,10 @@ a {
     grid-template-columns: 1fr;
   }
 
-  /* Shrink the picker cover on narrow viewports, matching the A2A
-     endpoint cover's mobile cap. */
+  /* Shrink the picker cover frame on narrow viewports, matching the A2A
+     endpoint cover's mobile sizing. */
   .item-card .image-wrap img {
-    max-height: min(200px, 32vh);
+    height: min(200px, 32vh);
   }
 }
 
