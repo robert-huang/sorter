@@ -44,6 +44,43 @@ function formatExpansionLine(
 }
 
 /**
+ * Empty-state copy for the Cast section. A successful expansion writes a
+ * `media_cast_expansion` marker with `characters_complete = 1` even when
+ * AniList genuinely lists no cast (e.g. music videos, sparse entries) —
+ * so an empty `characters` array can mean either "never polled" or
+ * "polled, nothing there". `charactersComplete` disambiguates: when it's
+ * set we've fetched the full character list and it really is empty, so
+ * telling the user to Refresh would be misleading.
+ */
+function castEmptyMessage(status: MediaCastExpansionStatus | null): string {
+  if (status?.charactersComplete) {
+    return 'No cast listed for this entry on AniList.';
+  }
+  return 'No cast cached yet. Click ↻ Refresh to pull from AniList.';
+}
+
+/**
+ * Empty-state copy for the Production section. Mirrors
+ * {@link castEmptyMessage}, plus a distinct branch for when credits ARE
+ * cached but the "Key roles" filter hid them all — Refresh wouldn't
+ * help there; switching to "All credits" would.
+ */
+function productionEmptyMessage(
+  status: MediaCastExpansionStatus | null,
+  roleMode: ProductionRoleMode,
+  hasHiddenCredits: boolean,
+): string {
+  if (hasHiddenCredits) {
+    return 'No key-role credits for this entry. Switch to All credits to see everything.';
+  }
+  if (status?.staffComplete) {
+    return 'No production credits listed for this entry on AniList.';
+  }
+  const suffix = roleMode === 'key' ? ' (key roles)' : '';
+  return `No production credits cached${suffix}. Click ↻ Refresh.`;
+}
+
+/**
  * Detail modal for a single AniList media id. Opens from LIST or
  * RESULT when the user clicks an item whose `source.kind === 'anilist'`.
  *
@@ -432,7 +469,7 @@ export function AnilistDetailModal({
                   <p
                     style={{ color: 'var(--text-muted)', fontSize: 12, margin: 0 }}
                   >
-                    No cast cached yet. Click ↻ Refresh to pull from AniList.
+                    {castEmptyMessage(expansionStatus)}
                   </p>
                 )}
                 {detail.characters.length > 0 && (
@@ -500,8 +537,11 @@ export function AnilistDetailModal({
                 </h4>
                 {visibleProductionStaff.length === 0 && !expanding && (
                   <p style={{ color: 'var(--text-muted)', fontSize: 12, margin: 0 }}>
-                    No production credits cached
-                    {productionRoleMode === 'key' ? ' (key roles)' : ''}. Click ↻ Refresh.
+                    {productionEmptyMessage(
+                      expansionStatus,
+                      productionRoleMode,
+                      detail.productionStaff.length > 0,
+                    )}
                   </p>
                 )}
                 {visibleProductionStaff.length > 0 && (

@@ -317,3 +317,65 @@ describe('AnilistDetailModal — lazy expansion', () => {
     expect(container.textContent).toContain('English Only');
   });
 });
+
+describe('AnilistDetailModal — empty cast/staff copy', () => {
+  // Regression: an entry that genuinely has no cast still gets a
+  // media_cast_expansion marker written (characters_complete = 1), so
+  // the panel must NOT keep telling the user to Refresh once it's been
+  // polled — that copy looped forever for cast-less entries.
+  it('says "no cast listed" (not "cached yet") when a polled entry has no cast', async () => {
+    mockedGetMediaDetail.mockResolvedValueOnce(makeDetail(60, false));
+    mockedGetExpansionStatus.mockResolvedValueOnce(makeExpansionStatus(60, true));
+
+    await act(async () => {
+      root.render(
+        <AnilistDetailModal
+          mediaId={60}
+          fallbackTitle="EN-60"
+          onClose={() => {}}
+        />,
+      );
+    });
+    await flushPromises();
+
+    // Status is complete → no background expansion, and the misleading
+    // "cached yet / Refresh" copy must be gone.
+    expect(mockedExpand).not.toHaveBeenCalled();
+    expect(container.textContent).toContain(
+      'No cast listed for this entry on AniList.',
+    );
+    expect(container.textContent).not.toMatch(/No cast cached yet/);
+    // Same disambiguation for the production credits section.
+    expect(container.textContent).toContain(
+      'No production credits listed for this entry on AniList.',
+    );
+  });
+
+  it('still invites a Refresh when cast has not been fully polled', async () => {
+    // Incomplete status → the modal kicks off a background expansion.
+    // Once it settles with cast still empty AND incomplete, the copy
+    // must invite a Refresh rather than claim AniList has no cast.
+    mockedGetMediaDetail
+      .mockResolvedValueOnce(makeDetail(61, false))
+      .mockResolvedValueOnce(makeDetail(61, false));
+    mockedGetExpansionStatus
+      .mockResolvedValueOnce(makeExpansionStatus(61, false))
+      .mockResolvedValueOnce(makeExpansionStatus(61, false));
+    mockedExpand.mockResolvedValueOnce(null);
+
+    await act(async () => {
+      root.render(
+        <AnilistDetailModal
+          mediaId={61}
+          fallbackTitle="EN-61"
+          onClose={() => {}}
+        />,
+      );
+    });
+    await flushPromises();
+
+    expect(mockedExpand).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toMatch(/No cast cached yet\. Click .*Refresh/);
+    expect(container.textContent).not.toContain('No cast listed for this entry');
+  });
+});

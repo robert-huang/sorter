@@ -71,6 +71,11 @@ export function ItemThumb({
   // tests that don't wrap the tree with ItemDetailContext.Provider).
   const opener = useContext(ItemDetailContext);
   const clickable = opener && getItemSourceKind(item) === 'anilist';
+  // AniList items are materialised with `url` = their canonical AniList
+  // page (see buildAnilistMediaUrl). Middle-clicking the thumb opens it
+  // in a new tab, mirroring the middle-click affordance in the
+  // Anime-to-Anime view, while left-click still opens the detail modal.
+  const anilistUrl = item.url;
   const inner = showImage ? (
     <img
       src={item.imageUrl}
@@ -97,8 +102,24 @@ export function ItemThumb({
           e.stopPropagation();
           opener!(item);
         }}
+        onMouseDown={(e) => {
+          // Suppress the browser's middle-button autoscroll so the
+          // auxclick handler below can open the AniList page cleanly.
+          if (e.button === 1 && anilistUrl) e.preventDefault();
+        }}
+        onAuxClick={(e) => {
+          // Middle-click opens the item's AniList page in a new tab.
+          if (e.button !== 1 || !anilistUrl) return;
+          e.preventDefault();
+          e.stopPropagation();
+          window.open(anilistUrl, '_blank', 'noopener,noreferrer');
+        }}
         aria-label={`Details for ${item.label}`}
-        title={`Details for ${item.label}`}
+        title={
+          anilistUrl
+            ? `Details for ${item.label} (middle-click to open on AniList)`
+            : `Details for ${item.label}`
+        }
       >
         {inner}
       </button>
