@@ -3534,6 +3534,36 @@ a {
   border-color: var(--danger);
 }
 
+/* Details button: opens the media detail panel. Mirrors .remove-btn's
+   round chip but anchored bottom-right (bottom-left holds the link icon)
+   with a neutral accent hover instead of the danger styling. */
+.item-card .detail-btn {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.item-card .detail-btn:hover {
+  color: var(--accent, #2563eb);
+  border-color: var(--accent, #2563eb);
+}
+
+.item-card .detail-btn:focus-visible {
+  outline: 2px solid var(--accent, #2563eb);
+  outline-offset: 2px;
+}
+
 @media (max-width: 640px) {
   .compare,
   .compare-overlay {
@@ -3775,6 +3805,14 @@ a {
    compact footprint as .x but its hover stays neutral — editing is
    non-destructive, so don't use the danger ramp. */
 .chip .x.edit:hover {
+  color: var(--text);
+  background: var(--surface-2);
+  border-radius: 3px;
+}
+
+/* Details (ⓘ) variant: opens the media detail panel. Like .edit, override
+   the base .x danger hover with a neutral ramp — viewing is non-destructive. */
+.chip .x.detail:hover {
   color: var(--text);
   background: var(--surface-2);
   border-radius: 3px;

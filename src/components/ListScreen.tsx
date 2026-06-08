@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   canReorderInCurrentMerge,
   type CurrentMergeSlice,
@@ -9,8 +9,10 @@ import type {
   MergeState,
   SortState,
 } from '../lib/types';
+import { getItemSourceKind } from '../lib/types';
 import { AddItemsModal } from './AddItemsModal';
 import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
+import { ItemDetailContext } from './itemDetailContext';
 import { ItemThumb } from './ItemThumb';
 import { mergeSliceLabel } from './listScreenH';
 
@@ -81,11 +83,46 @@ function Thumb({ item }: { item: Item }) {
 }
 
 /**
- * Pencil-icon button that opens the EditItemModal for `item`. Shared
- * between the chip variant (current merge frame, currently-inserting
- * banner) and the full-row variant (queue sublists, to-be-inserted, sorted,
- * pending). The `chip` variant uses the inline `.x`-style button class
- * already styled for chips; the `row` variant uses `.icon-btn`.
+ * Info-icon button that opens the media detail panel (AnilistDetailModal)
+ * for `item`, via the app-level ItemDetailContext. Mirrors EditButton's
+ * chip/row variants so it slots in right beside it. Renders nothing for
+ * non-AniList items (no panel to show) or when no opener is wired (tests /
+ * hosts without the provider) — the same gate ItemThumb and ItemCard use.
+ * This gives the LIST chips/rows parity with the COMPARE card's detail
+ * button.
+ */
+function DetailButton({
+  item,
+  variant,
+}: {
+  item: Item;
+  variant: 'chip' | 'row';
+}) {
+  const opener = useContext(ItemDetailContext);
+  if (!opener || getItemSourceKind(item) !== 'anilist') return null;
+  return (
+    <button
+      className={variant === 'chip' ? 'x detail' : 'icon-btn'}
+      onClick={(e) => {
+        e.stopPropagation();
+        opener(item);
+      }}
+      title={`Details for "${item.label}"`}
+      aria-label={`Details for ${item.label}`}
+    >
+      ⓘ
+    </button>
+  );
+}
+
+/**
+ * Pencil-icon button that opens the EditItemModal for `item`, paired with
+ * the {@link DetailButton} so every editable item row/chip also exposes a
+ * media-details affordance (AniList items only). Shared between the chip
+ * variant (current merge frame, currently-inserting banner) and the
+ * full-row variant (queue sublists, to-be-inserted, sorted, pending). The
+ * `chip` variant uses the inline `.x`-style button class already styled
+ * for chips; the `row` variant uses `.icon-btn`.
  */
 function EditButton({
   item,
@@ -97,17 +134,20 @@ function EditButton({
   variant: 'chip' | 'row';
 }) {
   return (
-    <button
-      className={variant === 'chip' ? 'x edit' : 'icon-btn'}
-      onClick={(e) => {
-        e.stopPropagation();
-        onOpen(item);
-      }}
-      title={`Edit "${item.label}"`}
-      aria-label={`Edit ${item.label}`}
-    >
-      ✎
-    </button>
+    <>
+      <DetailButton item={item} variant={variant} />
+      <button
+        className={variant === 'chip' ? 'x edit' : 'icon-btn'}
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpen(item);
+        }}
+        title={`Edit "${item.label}"`}
+        aria-label={`Edit ${item.label}`}
+      >
+        ✎
+      </button>
+    </>
   );
 }
 
