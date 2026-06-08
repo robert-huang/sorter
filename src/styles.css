@@ -1447,6 +1447,55 @@ a {
   min-width: 0;
 }
 
+/* Inline name button used in the media modal so a cast VA / production
+   staff name opens the StaffDetailModal. Reset the native button chrome
+   so it reads as a link inside the surrounding text. */
+.anilist-detail-person-link {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: var(--accent, #2563eb);
+  cursor: pointer;
+  text-align: left;
+}
+
+.anilist-detail-person-link:hover {
+  text-decoration: underline;
+}
+
+/* Clickable filmography row in the StaffDetailModal: a full-width
+   button styled like a cast item that opens the media modal. */
+.anilist-detail-row-link {
+  width: 100%;
+  appearance: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+
+.anilist-detail-row-link:hover {
+  background: var(--bg-subtle, #f3f4f6);
+  border-color: var(--accent, #2563eb);
+}
+
+/* Trailing external-link glyph on a filmography row; nudged to the
+   right so the title/role text takes the remaining width. */
+.anilist-detail-row-external {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+.anilist-detail-row-external:hover {
+  color: var(--accent, #2563eb);
+}
+
 .anilist-detail-tag-item {
   display: inline-flex;
   align-items: center;

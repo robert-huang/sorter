@@ -9,10 +9,9 @@ import type {
   MergeState,
   SortState,
 } from '../lib/types';
-import { getItemSourceKind } from '../lib/types';
 import { AddItemsModal } from './AddItemsModal';
 import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
-import { ItemDetailContext } from './itemDetailContext';
+import { canOpenItemDetail, ItemDetailContext } from './itemDetailContext';
 import { ItemThumb } from './ItemThumb';
 import { mergeSliceLabel } from './listScreenH';
 
@@ -99,7 +98,7 @@ function DetailButton({
   variant: 'chip' | 'row';
 }) {
   const opener = useContext(ItemDetailContext);
-  if (!opener || getItemSourceKind(item) !== 'anilist') return null;
+  if (!opener || !canOpenItemDetail(item)) return null;
   return (
     <button
       className={variant === 'chip' ? 'x detail' : 'icon-btn'}

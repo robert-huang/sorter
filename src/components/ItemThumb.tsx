@@ -1,7 +1,6 @@
 import { useContext, useState } from 'react';
 import type { Item } from '../lib/types';
-import { getItemSourceKind } from '../lib/types';
-import { ItemDetailContext } from './itemDetailContext';
+import { canOpenItemDetail, ItemDetailContext } from './itemDetailContext';
 
 /**
  * `initials` derives a short visual label from `label`. Used as the
@@ -65,12 +64,13 @@ export function ItemThumb({
   const [failed, setFailed] = useState(false);
   const showImage = item.imageUrl && !failed;
   const Tag = as;
-  // App-level opt-in for "click thumb to open detail panel". Currently
-  // only AniList items have a panel to show; other source kinds fall
-  // back to the non-interactive thumb. The opener may be null (e.g. in
-  // tests that don't wrap the tree with ItemDetailContext.Provider).
+  // App-level opt-in for "click thumb to open detail panel". Only
+  // AniList media + staff items have a panel to show (see
+  // canOpenItemDetail); other source kinds fall back to the
+  // non-interactive thumb. The opener may be null (e.g. in tests that
+  // don't wrap the tree with ItemDetailContext.Provider).
   const opener = useContext(ItemDetailContext);
-  const clickable = opener && getItemSourceKind(item) === 'anilist';
+  const clickable = opener && canOpenItemDetail(item);
   // AniList items are materialised with `url` = their canonical AniList
   // page (see buildAnilistMediaUrl). Middle-clicking the thumb opens it
   // in a new tab, mirroring the middle-click affordance in the

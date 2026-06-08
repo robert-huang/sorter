@@ -379,3 +379,137 @@ describe('AnilistDetailModal — empty cast/staff copy', () => {
     expect(container.textContent).not.toContain('No cast listed for this entry');
   });
 });
+
+describe('AnilistDetailModal — clickable people (staff panel nav)', () => {
+  function makeStaffRow(id: number, nameFull: string) {
+    return {
+      id,
+      name_full: nameFull,
+      name_native: null,
+      image: null,
+      age: null,
+      gender: null,
+      language_v2: 'Japanese',
+      favourites: null,
+      fetched_at: 0,
+      updated_at: 0,
+    };
+  }
+
+  function makeCharacterRow(id: number, nameFull: string) {
+    return {
+      id,
+      name_full: nameFull,
+      name_native: null,
+      name_alternatives_json: null,
+      name_alternatives_spoiler_json: null,
+      image: null,
+      age: null,
+      gender: null,
+      favourites: null,
+      fetched_at: 0,
+      updated_at: 0,
+    };
+  }
+
+  function findPersonLink(name: string): HTMLButtonElement | undefined {
+    return Array.from(
+      container.querySelectorAll<HTMLButtonElement>('button.anilist-detail-person-link'),
+    ).find((b) => (b.textContent ?? '').includes(name));
+  }
+
+  it('opens the staff panel when a production-staff name is clicked', async () => {
+    mockedGetMediaDetail.mockResolvedValueOnce({
+      media: makeMedia(70),
+      studios: [],
+      tags: [],
+      characters: [],
+      // "Director" survives the default key-role filter.
+      productionStaff: [
+        { staff: makeStaffRow(200, 'Hayao Miyazaki'), role: 'Director', sortOrder: 0 },
+      ],
+    });
+    mockedGetExpansionStatus.mockResolvedValueOnce(makeExpansionStatus(70, true));
+    const onOpenStaff = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <AnilistDetailModal
+          mediaId={70}
+          fallbackTitle="EN-70"
+          onClose={() => {}}
+          onOpenStaff={onOpenStaff}
+        />,
+      );
+    });
+    await flushPromises();
+
+    const btn = findPersonLink('Hayao Miyazaki');
+    expect(btn).toBeDefined();
+    await act(async () => {
+      btn!.click();
+    });
+    expect(onOpenStaff).toHaveBeenCalledWith(200, 'Hayao Miyazaki');
+  });
+
+  it('opens the staff panel when a cast voice-actor name is clicked', async () => {
+    mockedGetMediaDetail.mockResolvedValueOnce({
+      media: makeMedia(71),
+      studios: [],
+      tags: [],
+      characters: [
+        {
+          character: makeCharacterRow(300, 'Faye Valentine'),
+          role: 'MAIN',
+          sortOrder: 0,
+          voiceActors: [makeStaffRow(201, 'Megumi Hayashibara')],
+        },
+      ],
+      productionStaff: [],
+    });
+    mockedGetExpansionStatus.mockResolvedValueOnce(makeExpansionStatus(71, true));
+    const onOpenStaff = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <AnilistDetailModal
+          mediaId={71}
+          fallbackTitle="EN-71"
+          onClose={() => {}}
+          onOpenStaff={onOpenStaff}
+        />,
+      );
+    });
+    await flushPromises();
+
+    const btn = findPersonLink('Megumi Hayashibara');
+    expect(btn).toBeDefined();
+    await act(async () => {
+      btn!.click();
+    });
+    expect(onOpenStaff).toHaveBeenCalledWith(201, 'Megumi Hayashibara');
+  });
+
+  it('renders staff names as plain text when onOpenStaff is not wired', async () => {
+    mockedGetMediaDetail.mockResolvedValueOnce({
+      media: makeMedia(72),
+      studios: [],
+      tags: [],
+      characters: [],
+      productionStaff: [
+        { staff: makeStaffRow(202, 'Shinichiro Watanabe'), role: 'Director', sortOrder: 0 },
+      ],
+    });
+    mockedGetExpansionStatus.mockResolvedValueOnce(makeExpansionStatus(72, true));
+
+    await act(async () => {
+      root.render(
+        <AnilistDetailModal mediaId={72} fallbackTitle="EN-72" onClose={() => {}} />,
+      );
+    });
+    await flushPromises();
+
+    expect(container.querySelector('button.anilist-detail-person-link')).toBeNull();
+    expect(container.textContent).toContain('Shinichiro Watanabe');
+  });
+});

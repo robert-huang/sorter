@@ -1,8 +1,7 @@
 import { useContext, useState } from 'react';
 import type { Item } from '../lib/types';
-import { getItemSourceKind } from '../lib/types';
 import { InfoIcon, TrashIcon } from './icons';
-import { ItemDetailContext } from './itemDetailContext';
+import { canOpenItemDetail, ItemDetailContext } from './itemDetailContext';
 
 interface Props {
   item: Item;
@@ -14,12 +13,13 @@ interface Props {
 
 export function ItemCard({ item, onPick, onRemove, disabled }: Props) {
   const [imgFailed, setImgFailed] = useState(false);
-  // App-provided opener for the media detail panel (AnilistDetailModal).
-  // Only AniList items have a panel to show, so mirror ItemThumb's gate
-  // and skip the button entirely for other source kinds (and in tests /
-  // hosts that don't wrap the tree with the provider, where opener is null).
+  // App-provided opener for the detail panel (media -> AnilistDetailModal,
+  // staff -> StaffDetailModal). Only AniList media + staff items have a
+  // panel to show (see canOpenItemDetail), so mirror ItemThumb's gate and
+  // skip the button entirely for other source kinds (and in tests / hosts
+  // that don't wrap the tree with the provider, where opener is null).
   const opener = useContext(ItemDetailContext);
-  const canOpenDetail = !!opener && getItemSourceKind(item) === 'anilist';
+  const canOpenDetail = !!opener && canOpenItemDetail(item);
 
   function onDetailClick(e: React.MouseEvent): void {
     // Stop the card's onClick (a pick) from also firing.
@@ -121,7 +121,7 @@ export function ItemCard({ item, onPick, onRemove, disabled }: Props) {
           className="detail-btn"
           onClick={onDetailClick}
           aria-label={`Details for ${item.label}`}
-          title="View media details"
+          title="View details"
         >
           <InfoIcon size={14} />
         </button>

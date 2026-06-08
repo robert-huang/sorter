@@ -28,6 +28,16 @@ function anilistItem(overrides: Partial<Item> = {}): Item {
   };
 }
 
+function staffItem(overrides: Partial<Item> = {}): Item {
+  return {
+    id: 'QQQQQQQQQQQQQg',
+    label: 'Megumi Hayashibara',
+    url: 'https://anilist.co/staff/95011',
+    source: { kind: 'anilist-staff', externalId: 95011 },
+    ...overrides,
+  };
+}
+
 function manualItem(overrides: Partial<Item> = {}): Item {
   return { id: 'BBBBBBBBBBBBBg', label: 'Manual entry', ...overrides };
 }
@@ -120,6 +130,21 @@ describe('ItemThumb interactions', () => {
     });
 
     expect(openSpy).not.toHaveBeenCalled();
+  });
+
+  it('renders AniList staff items as a button and opens the panel on left-click', () => {
+    const opener = vi.fn();
+    renderThumb(staffItem(), opener);
+
+    const button = container.querySelector('button.item-thumb-button');
+    expect(button).not.toBeNull();
+
+    act(() => {
+      button!.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
+    });
+
+    expect(opener).toHaveBeenCalledTimes(1);
+    expect(opener).toHaveBeenCalledWith(staffItem());
   });
 
   it('renders non-AniList items as a plain span with no button affordance', () => {

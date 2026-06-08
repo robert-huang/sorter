@@ -1,5 +1,22 @@
 import { createContext } from 'react';
-import type { Item } from '../lib/types';
+import { getItemSourceKind, type Item } from '../lib/types';
+
+/**
+ * True when `item` has a detail panel to open. AniList MEDIA items open
+ * the {@link AnilistDetailModal}; AniList STAFF items (favourited staff
+ * added as sortable items) open the {@link StaffDetailModal}. All other
+ * source kinds (manual, anilist-character, studios) have no panel, so
+ * the thumb / card / row affordances stay non-interactive.
+ *
+ * Single source of truth shared by ItemThumb, ItemCard, and the LIST
+ * DetailButton so the "what can open a panel" rule lives in one place —
+ * the App-level opener ({@link ItemDetailOpener}) routes by the same
+ * source kinds.
+ */
+export function canOpenItemDetail(item: Item): boolean {
+  const kind = getItemSourceKind(item);
+  return kind === 'anilist' || kind === 'anilist-staff';
+}
 
 /**
  * App-provided callback for opening a per-item detail panel. Consumed

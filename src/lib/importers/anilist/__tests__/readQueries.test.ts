@@ -31,9 +31,11 @@ import {
   getListedMediaCount,
   getMediaByIds,
   getMediaDetail,
+  getMediaIdsInUserList,
   getMediaIdsWithCachedCast,
   getMediaIdsWithDisallowedListStatus,
   getMeta,
+  getStaffFilmography,
   getVoiceActorsForCandidates,
   hasMediaCharacters,
 } from '../readQueries';
@@ -251,6 +253,67 @@ function seedStaff(
     `INSERT INTO staff (id, name_full, name_native, image, age, gender, language_v2, favourites, fetched_at, updated_at)
      VALUES (?, ?, NULL, ?, NULL, NULL, NULL, NULL, ?, ?)`,
     { bind: [id, nameFull, image, 1_700_000_000_000, 1_700_000_000_000] } as never,
+  );
+}
+
+function seedMediaStaff(
+  db: Database,
+  mediaId: number,
+  staffId: number,
+  role: string,
+  sortOrder: number,
+): void {
+  db.exec(
+    `INSERT INTO media_staff (media_id, staff_id, role, sort_order)
+     VALUES (?, ?, ?, ?)`,
+    { bind: [mediaId, staffId, role, sortOrder] } as never,
+  );
+}
+
+function seedStaffFilmographyExpansion(
+  db: Database,
+  staffId: number,
+  fetchedAt: number,
+): void {
+  db.exec(
+    `INSERT INTO staff_filmography_expansion (staff_id, fetched_at)
+     VALUES (?, ?)`,
+    { bind: [staffId, fetchedAt] } as never,
+  );
+}
+
+/**
+ * Insert a media row with explicit `start_year` + `favourites` — the
+ * basic `seedMedia` hard-codes both to NULL, but the filmography sort
+ * orders on them so the dedicated tests need to control them.
+ */
+function seedMediaWithStats(
+  db: Database,
+  id: number,
+  startYear: number | null,
+  favourites: number | null,
+  type: 'ANIME' | 'MANGA' = 'ANIME',
+): void {
+  db.exec(
+    `INSERT INTO media (
+      id, type, title_english, title_romaji, title_native, cover_image,
+      format, status, episodes, chapters, start_year, start_month, start_day,
+      end_year, end_month, end_day, season, season_year, mean_score, favourites,
+      country_of_origin, genres_json, synonyms_json, fetched_at, updated_at
+    ) VALUES (?, ?, ?, NULL, NULL, NULL, 'TV', 'FINISHED', NULL, NULL, ?, NULL, NULL,
+              NULL, NULL, NULL, NULL, NULL, NULL, ?,
+              NULL, NULL, NULL, ?, ?)`,
+    {
+      bind: [
+        id,
+        type,
+        `EN-${id}`,
+        startYear,
+        favourites,
+        1_700_000_000_000,
+        1_700_000_000_000,
+      ],
+    } as never,
   );
 }
 
@@ -778,6 +841,103 @@ describe('getMediaIdsWithDisallowedListStatus', () => {
         )
       ).size,
     ).toBe(0);
+  });
+});
+
+describe('getMediaIdsInUserList', () => {
+  it('returns the subset of candidate ids with a list entry for the user (any media type)', async () => {
+    const user = seedUser(db);
+    seedMedia(db, 1);
+    seedMedia(db, 2, { type: 'MANGA' });
+    seedMedia(db, 3);
+    seedListEntry(db, user.id, 1, 100);
+    seedListEntry(db, user.id, 2, 200); // MANGA still counts
+    // id 3 has no list entry; id 99 isn't even cached.
+    const ids = await getMediaIdsInUserList(exec, user.id, [1, 2, 3, 99]);
+    expect(Array.from(ids).sort((a, b) => a - b)).toEqual([1, 2]);
+  });
+
+  it('scopes by user and returns empty for empty input', async () => {
+    const alice = seedUser(db, { userId: 1, userName: 'alice' });
+    const bob = seedUser(db, { userId: 2, userName: 'bob' });
+    seedMedia(db, 1);
+    seedListEntry(db, alice.id, 1, 100);
+    expect(Array.from(await getMediaIdsInUserList(exec, bob.id, [1]))).toEqual([]);
+    expect((await getMediaIdsInUserList(exec, alice.id, [])).size).toBe(0);
+  });
+});
+
+describe('getStaffFilmography', () => {
+  it('returns staff: null and an empty filmography for an unknown staff id', async () => {
+    const film = await getStaffFilmography(exec, 999);
+    expect(film.staff).toBeNull();
+    expect(film.credits).toEqual([]);
+    expect(film.fetchedAt).toBeNull();
+  });
+
+  it('merges production credits + voice roles into one row per media', async () => {
+    seedStaff(db, 10, 'Hayao Person');
+    seedMediaWithStats(db, 1, 2009, 100);
+    seedCharacter(db, 50, 'Alphonse');
+    // character_voice_actor FK requires the media_character parent row.
+    seedMediaCharacter(db, 1, 50, 0);
+    // Production credit AND a voice role on the same media → one merged row.
+    seedMediaStaff(db, 1, 10, 'Director', 0);
+    seedCharacterVoiceActor(db, 1, 50, 10);
+    seedStaffFilmographyExpansion(db, 10, 1_700_000_000_000);
+
+    const film = await getStaffFilmography(exec, 10);
+    expect(film.staff?.name_full).toBe('Hayao Person');
+    expect(film.fetchedAt).toBe(1_700_000_000_000);
+    expect(film.credits).toHaveLength(1);
+    const credit = film.credits[0];
+    expect(credit.media.id).toBe(1);
+    expect(credit.productionRoles).toEqual(['Director']);
+    expect(credit.voicedCharacters).toEqual([{ id: 50, name: 'Alphonse' }]);
+  });
+
+  it('collects multiple distinct production roles for one media, ordered by sort_order', async () => {
+    seedStaff(db, 10, 'Multi Person');
+    seedMediaWithStats(db, 1, 2015, 10);
+    // Same staff, two distinct roles on one show (sort_order drives order).
+    seedMediaStaff(db, 1, 10, 'Series Composition', 1);
+    seedMediaStaff(db, 1, 10, 'Director', 0);
+
+    const film = await getStaffFilmography(exec, 10);
+    expect(film.credits[0].productionRoles).toEqual([
+      'Director',
+      'Series Composition',
+    ]);
+  });
+
+  it('dedupes a voiced character that appears across multiple languages', async () => {
+    seedStaff(db, 10, 'VA Person');
+    seedMediaWithStats(db, 1, 2000, 5);
+    seedCharacter(db, 50, 'Edward');
+    seedMediaCharacter(db, 1, 50, 0);
+    // Same staff voices the same character in two languages (two CVA rows
+    // per the (… , language) PK) — the character must list once.
+    seedCharacterVoiceActor(db, 1, 50, 10, 'JAPANESE');
+    seedCharacterVoiceActor(db, 1, 50, 10, 'ENGLISH');
+
+    const film = await getStaffFilmography(exec, 10);
+    expect(film.credits[0].voicedCharacters).toEqual([{ id: 50, name: 'Edward' }]);
+  });
+
+  it('orders credits by start_year desc, then favourites desc, nulls last', async () => {
+    seedStaff(db, 10, 'Prolific Person');
+    seedMediaWithStats(db, 1, 2010, 5);
+    seedMediaWithStats(db, 2, 2020, 5);
+    seedMediaWithStats(db, 3, 2020, 50); // same year as 2, more favourites
+    seedMediaWithStats(db, 4, null, 999); // unknown year → sinks to bottom
+    seedMediaStaff(db, 1, 10, 'Director', 0);
+    seedMediaStaff(db, 2, 10, 'Director', 0);
+    seedMediaStaff(db, 3, 10, 'Director', 0);
+    seedMediaStaff(db, 4, 10, 'Director', 0);
+
+    const film = await getStaffFilmography(exec, 10);
+    // 2020 (fav 50) → 2020 (fav 5) → 2010 → unknown-year last.
+    expect(film.credits.map((c) => c.media.id)).toEqual([3, 2, 1, 4]);
   });
 });
 

@@ -411,6 +411,177 @@ export async function hasMediaCharacters(
 }
 
 /**
+ * One media credit in a staff member's filmography, merged across the
+ * two AniList edge types `expandStaffFilmography` persists:
+ *   - production credits (`media_staff`, e.g. "Director"), and
+ *   - voice-acting roles (`character_voice_actor` → the voiced character).
+ * A single media can appear in both (e.g. a director who also voices a
+ * cameo), so the two are folded into one row per media id.
+ */
+export interface StaffFilmographyCredit {
+  media: MediaRow;
+  /** Production roles from `media_staff`, deduped, in cache sort order. */
+  productionRoles: string[];
+  /** Characters this staff voiced in this media (display-name resolved). */
+  voicedCharacters: Array<{ id: number; name: string }>;
+}
+
+export interface StaffFilmography {
+  /** The staff row itself, or null when the id isn't cached locally. */
+  staff: StaffRow | null;
+  /** All cached media credits, sorted newest-first (see ordering below). */
+  credits: StaffFilmographyCredit[];
+  /**
+   * `staff_filmography_expansion.fetched_at`, or null when the staff's
+   * filmography has never been expanded. Drives the detail modal's
+   * first-open expansion decision + the freshness line, mirroring the
+   * media modal's `media_cast_expansion` timestamps.
+   */
+  fetchedAt: number | null;
+}
+
+/**
+ * Order credits newest-first: `start_year` desc (unknown years sink to
+ * the bottom), tie-broken by popularity (`favourites` desc) then title
+ * for a stable, browseable list.
+ */
+function compareStaffFilmographyCredits(
+  a: StaffFilmographyCredit,
+  b: StaffFilmographyCredit,
+): number {
+  const ay = a.media.start_year;
+  const by = b.media.start_year;
+  if (ay !== by) {
+    if (ay === null) return 1;
+    if (by === null) return -1;
+    return by - ay;
+  }
+  const af = a.media.favourites ?? -1;
+  const bf = b.media.favourites ?? -1;
+  if (af !== bf) return bf - af;
+  return pickMediaTitle(a.media).localeCompare(pickMediaTitle(b.media));
+}
+
+/**
+ * Full filmography payload for one staff id, read from the rows
+ * `expandStaffFilmography` persists. Single function so the staff
+ * detail modal renders from one Promise resolution, mirroring
+ * {@link getMediaDetail}.
+ *
+ * Returns `staff: null` (not a null payload) when the staff row is
+ * missing so the modal can still show the fallback name + offer a
+ * Refresh — the credits/fetchedAt are independent of whether the
+ * `staff` row itself was cached.
+ */
+export async function getStaffFilmography(
+  db: AnilistDbExecutor,
+  staffId: number,
+): Promise<StaffFilmography> {
+  const staffRows = await db.exec('SELECT * FROM staff WHERE id = ?', [staffId]);
+  const staff = staffRows.length > 0 ? rowToStaffRow(staffRows[0]) : null;
+
+  // Production credits: media_staff JOIN media (role per media).
+  const prodRows = await db.exec(
+    `
+      SELECT m.*, ms.role AS staff_role
+        FROM media_staff ms
+        JOIN media m ON m.id = ms.media_id
+       WHERE ms.staff_id = ?
+       ORDER BY ms.sort_order ASC
+    `,
+    [staffId],
+  );
+
+  // Voice roles: character_voice_actor JOIN media + the voiced character.
+  const voiceRows = await db.exec(
+    `
+      SELECT m.*,
+             c.id          AS character_id,
+             c.name_full   AS character_name_full,
+             c.name_native AS character_name_native
+        FROM character_voice_actor cva
+        JOIN media m ON m.id = cva.media_id
+        JOIN character c ON c.id = cva.character_id
+       WHERE cva.staff_id = ?
+    `,
+    [staffId],
+  );
+
+  const byMedia = new Map<number, StaffFilmographyCredit>();
+  const ensureCredit = (r: DbRow): StaffFilmographyCredit => {
+    const media = rowToMediaRow(r);
+    let credit = byMedia.get(media.id);
+    if (!credit) {
+      credit = { media, productionRoles: [], voicedCharacters: [] };
+      byMedia.set(media.id, credit);
+    }
+    return credit;
+  };
+
+  for (const r of prodRows) {
+    const credit = ensureCredit(r);
+    const role = s(r.staff_role);
+    if (role && !credit.productionRoles.includes(role)) {
+      credit.productionRoles.push(role);
+    }
+  }
+  for (const r of voiceRows) {
+    const credit = ensureCredit(r);
+    const characterId = reqN(r.character_id);
+    if (!credit.voicedCharacters.some((c) => c.id === characterId)) {
+      credit.voicedCharacters.push({
+        id: characterId,
+        name: pickPersonName(
+          {
+            id: characterId,
+            name_full: s(r.character_name_full),
+            name_native: s(r.character_name_native),
+          },
+          undefined,
+          'Character',
+        ),
+      });
+    }
+  }
+
+  const credits = Array.from(byMedia.values());
+  credits.sort(compareStaffFilmographyCredits);
+
+  const statusRows = await db.exec(
+    'SELECT fetched_at FROM staff_filmography_expansion WHERE staff_id = ?',
+    [staffId],
+  );
+  const fetchedAt = statusRows.length > 0 ? n(statusRows[0].fetched_at) : null;
+
+  return { staff, credits, fetchedAt };
+}
+
+/**
+ * Subset of `mediaIds` that have a media_list_entry for `anilistUserId`,
+ * across ANY media type (anime or manga). Powers the staff detail
+ * modal's "only items on my list" toggle. Empty input → empty set.
+ */
+export async function getMediaIdsInUserList(
+  db: AnilistDbExecutor,
+  anilistUserId: number,
+  mediaIds: readonly number[],
+): Promise<Set<number>> {
+  const out = new Set<number>();
+  if (mediaIds.length === 0) return out;
+  const sql = `
+    SELECT media_id FROM media_list_entry
+    WHERE anilist_user_id = ?
+      AND media_id IN (${placeholders(mediaIds.length)})
+  `;
+  const rows = await db.exec(sql, [
+    anilistUserId,
+    ...mediaIds,
+  ] as readonly SqlBindable[]);
+  for (const r of rows) out.add(reqN(r.media_id));
+  return out;
+}
+
+/**
  * AniList user resolved by their stable id (the one the importer
  * captures via `RESOLVE_USER_QUERY`). Used by the gear-menu source
  * panel + StartScreen import preview to render the captured username
@@ -1316,6 +1487,12 @@ export const productionReads = {
     getMediaIdsWithCachedCast(defaultDb(), candidateMediaIds),
   getMediaCastExpansionStatus: (mediaId: number) =>
     getMediaCastExpansionStatus(defaultDb(), mediaId),
+  getStaffFilmography: (staffId: number) =>
+    getStaffFilmography(defaultDb(), staffId),
+  getMediaIdsInUserList: (
+    anilistUserId: number,
+    mediaIds: readonly number[],
+  ) => getMediaIdsInUserList(defaultDb(), anilistUserId, mediaIds),
   getFavouriteCount: (anilistUserId: number, entity: FavouriteRankEntity) =>
     getFavouriteCount(defaultDb(), anilistUserId, entity),
   getFavouriteRanksForIds: (
