@@ -29,6 +29,7 @@ vi.mock('../../lib/importers/anilist/runners', () => ({
 
 import { productionReads } from '../../lib/importers/anilist/readQueries';
 import { runAnilistStaffFilmographyExpansion } from '../../lib/importers/anilist/runners';
+import { buildAnilistMediaUrl } from '../../lib/importers/anilist/anilistSource';
 import { StaffDetailModal } from '../StaffDetailModal';
 
 const mockedGetFilmography = vi.mocked(productionReads.getStaffFilmography);
@@ -265,6 +266,31 @@ describe('StaffDetailModal — my-list toggle + navigation', () => {
     });
 
     expect(onOpenMedia).toHaveBeenCalledWith(1, 'EN-1');
+  });
+
+  it('opens the media AniList page on middle-click (without navigating the modal)', async () => {
+    mockedGetFilmography.mockResolvedValueOnce(makeFilmography());
+    const onOpenMedia = vi.fn();
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+    renderModal({ onOpenMedia });
+    await flushPromises();
+
+    const rowBtn = container.querySelector(
+      'button.anilist-detail-row-link',
+    ) as HTMLButtonElement | null;
+    expect(rowBtn).not.toBeNull();
+    await act(async () => {
+      rowBtn!.dispatchEvent(
+        new MouseEvent('auxclick', { bubbles: true, button: 1 }),
+      );
+    });
+
+    expect(openSpy).toHaveBeenCalledWith(
+      buildAnilistMediaUrl('ANIME', 1),
+      '_blank',
+      'noopener,noreferrer',
+    );
+    expect(onOpenMedia).not.toHaveBeenCalled();
   });
 });
 

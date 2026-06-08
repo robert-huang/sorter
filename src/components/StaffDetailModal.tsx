@@ -345,13 +345,30 @@ export function StaffDetailModal({
                       const title = pickMediaTitle(credit.media);
                       const roleLine = creditRoleLine(credit);
                       const metaLine = creditMetaLine(credit);
+                      const mediaUrl = buildAnilistMediaUrl(
+                        credit.media.type,
+                        credit.media.id,
+                      );
                       return (
                         <li key={credit.media.id}>
                           <button
                             type="button"
                             className="anilist-detail-cast-item anilist-detail-row-link"
                             onClick={() => onOpenMedia(credit.media.id, title)}
-                            title={`Open ${title}`}
+                            onMouseDown={(e) => {
+                              // Suppress the browser's middle-button autoscroll
+                              // so onAuxClick can open the AniList page cleanly.
+                              if (e.button === 1) e.preventDefault();
+                            }}
+                            onAuxClick={(e) => {
+                              // Middle-click opens the media's AniList page in a
+                              // new tab (left-click still opens the media modal).
+                              if (e.button !== 1) return;
+                              e.preventDefault();
+                              e.stopPropagation();
+                              window.open(mediaUrl, '_blank', 'noopener,noreferrer');
+                            }}
+                            title={`Open ${title} (middle-click to open on AniList)`}
                           >
                             {credit.media.cover_image && (
                               <img
@@ -374,16 +391,6 @@ export function StaffDetailModal({
                                 </span>
                               )}
                             </span>
-                            <a
-                              className="anilist-detail-row-external"
-                              href={buildAnilistMediaUrl(credit.media.type, credit.media.id)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                              title="Open on AniList"
-                            >
-                              ↗
-                            </a>
                           </button>
                         </li>
                       );

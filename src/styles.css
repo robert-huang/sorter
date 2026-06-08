@@ -1483,19 +1483,6 @@ a {
   border-color: var(--accent, #2563eb);
 }
 
-/* Trailing external-link glyph on a filmography row; nudged to the
-   right so the title/role text takes the remaining width. */
-.anilist-detail-row-external {
-  margin-left: auto;
-  flex-shrink: 0;
-  color: var(--text-muted);
-  text-decoration: none;
-}
-
-.anilist-detail-row-external:hover {
-  color: var(--accent, #2563eb);
-}
-
 .anilist-detail-tag-item {
   display: inline-flex;
   align-items: center;
@@ -3546,6 +3533,13 @@ a {
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  /* The corner controls (.link-icon bottom-left, .detail-btn bottom-right)
+     are absolutely positioned over the card's bottom band. The label is
+     centered and pinned to the bottom (the image-wrap flexes to fill), so
+     a wide last line would run under those icons. Inset the text column
+     past the ~30px each corner occupies instead of reserving vertical
+     space, keeping centered titles clear of both icons. */
+  padding: 0 32px;
 }
 
 /* When the item has no image (and no failed image to fall back from), the
