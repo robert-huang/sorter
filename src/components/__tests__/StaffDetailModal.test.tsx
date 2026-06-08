@@ -267,3 +267,34 @@ describe('StaffDetailModal — my-list toggle + navigation', () => {
     expect(onOpenMedia).toHaveBeenCalledWith(1, 'EN-1');
   });
 });
+
+describe('StaffDetailModal — stale refresh affordance', () => {
+  function findRefreshButton(): HTMLButtonElement | undefined {
+    return Array.from(container.querySelectorAll('button')).find((b) =>
+      /Refresh/.test(b.textContent ?? ''),
+    );
+  }
+
+  it('highlights the Refresh button when the cached filmography is stale (>90d)', async () => {
+    // A 2001-era timestamp is well past the 90-day staleness threshold.
+    mockedGetFilmography.mockResolvedValueOnce(
+      makeFilmography({ fetchedAt: 1_000_000_000_000 }),
+    );
+    renderModal();
+    await flushPromises();
+
+    expect(findRefreshButton()?.className).toContain('anilist-detail-refresh-stale');
+  });
+
+  it('does not highlight the Refresh button when the cache is fresh', async () => {
+    mockedGetFilmography.mockResolvedValueOnce(
+      makeFilmography({ fetchedAt: Date.now() }),
+    );
+    renderModal();
+    await flushPromises();
+
+    expect(findRefreshButton()?.className).not.toContain(
+      'anilist-detail-refresh-stale',
+    );
+  });
+});

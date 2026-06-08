@@ -191,6 +191,13 @@ export function StaffDetailModal({
 
   const name = pickName(detail, staffId, fallbackName);
   const staff = detail?.staff ?? null;
+  // Highlight the Refresh button when the cached filmography is older
+  // than the staleness threshold (>90d) — the freshness line alone is
+  // easy to miss, so the action affordance itself signals "update me".
+  const isFilmographyStale =
+    !!detail &&
+    detail.fetchedAt !== null &&
+    isGraphTimestampStale(detail.fetchedAt);
 
   return (
     <div className="modal-backdrop" onClick={onClose} role="presentation">
@@ -212,10 +219,16 @@ export function StaffDetailModal({
           <h3 style={{ margin: 0, flex: 1, minWidth: 0 }}>{name}</h3>
           <button
             type="button"
-            className="btn small"
+            className={`btn small${
+              isFilmographyStale && !expanding ? ' anilist-detail-refresh-stale' : ''
+            }`}
             onClick={() => void onRefresh()}
             disabled={expanding}
-            title="Re-fetch this person's filmography from AniList (does not auto-push)"
+            title={
+              isFilmographyStale
+                ? "This person's cached filmography is over 90 days old \u2014 click to re-fetch from AniList"
+                : "Re-fetch this person's filmography from AniList (does not auto-push)"
+            }
           >
             {expanding ? 'Refreshing\u2026' : '\u21BB Refresh'}
           </button>

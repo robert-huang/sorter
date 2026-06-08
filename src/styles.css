@@ -2667,6 +2667,20 @@ a {
   border-color: var(--danger);
 }
 
+/* Refresh button highlighted (amber) when a detail panel's cached graph
+   data is stale (>90d) — the muted freshness line is easy to miss, so
+   the action affordance itself signals "update me". */
+.btn.anilist-detail-refresh-stale {
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
+  color: var(--warn-text);
+}
+
+.btn.anilist-detail-refresh-stale:hover:not(:disabled) {
+  background: var(--warn-bg);
+  border-color: var(--warning);
+}
+
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
