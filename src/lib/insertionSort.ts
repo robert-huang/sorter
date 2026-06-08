@@ -4,9 +4,10 @@ import {
   countInsertPeekRightOverflow,
   getInsertPeekRightIds,
   insertComparisonsRemaining,
-  startInsert,
+  startRankAwareInsert,
   worstCaseInsertCost,
 } from './binaryInsertion';
+import { shuffledCopy } from './shuffle';
 import type {
   InsertFrame,
   InsertionProgress,
@@ -14,6 +15,26 @@ import type {
   Item,
   ItemId,
 } from './types';
+
+/**
+ * Smallest run id not already used by `pending` / the active run. Used
+ * when re-queuing an item as its own singleton run (cancel-and-restart,
+ * return-to-pending, add-item) so it gets a full-range insert and never
+ * accidentally shares a run with an unrelated item.
+ *
+ * Only meaningful when `pendingRunIds` is present (the pre-ranked path).
+ * The flat / add-items paths leave `pendingRunIds` undefined entirely.
+ */
+function freshRunId(progress: InsertionProgress): number {
+  let max = -1;
+  if (progress.pendingRunIds) {
+    for (const r of progress.pendingRunIds) if (r > max) max = r;
+  }
+  if (typeof progress.activeRunId === 'number' && progress.activeRunId > max) {
+    max = progress.activeRunId;
+  }
+  return max + 1;
+}
 
 // ---------- helpers ----------
 
@@ -165,6 +186,9 @@ export function snapshotProgress(state: InsertionState): InsertionProgress {
     done: state.done,
     hidden: state.hidden.slice(),
     totalComparisonsEverNeeded: state.totalComparisonsEverNeeded,
+    pendingRunIds: state.pendingRunIds ? state.pendingRunIds.slice() : undefined,
+    activeRunId: state.activeRunId ?? null,
+    activeRunAnchor: state.activeRunAnchor ?? null,
   };
 }
 
@@ -185,6 +209,9 @@ export function restoreProgress(
         }
       : null,
     hidden: progress.hidden.slice(),
+    pendingRunIds: progress.pendingRunIds
+      ? progress.pendingRunIds.slice()
+      : undefined,
     items: state.items,
   };
 }
@@ -197,6 +224,14 @@ export function restoreProgress(
  * collapsed range) — in which case we splice and re-drain, until either
  * a real frame is installed or pending is empty.
  *
+ * Rank-aware tightening: when the next pending item continues the active
+ * ranked run (`pendingRunIds[0] === activeRunId`), its binary search
+ * starts at `activeRunAnchor + 1` — the suffix after the previous
+ * same-run item landed — via the shared `startRankAwareInsert` helper.
+ * This is the same `lastInsertedPosition + 1` trick the merge engine's
+ * `drainAutoInsert` uses. When the run id changes (or there's no run
+ * info), the anchor resets and the item searches the full range.
+ *
  * Mutates the passed progress in place; caller owns the undo snapshot.
  */
 function drainPending(progress: InsertionProgress): void {
@@ -207,18 +242,37 @@ function drainPending(progress: InsertionProgress): void {
   // strictly behind `current` in the FIFO order.
   while (progress.current === null && progress.pending.length > 0) {
     const id = progress.pending[0];
-    const res = startInsert(progress.sorted, id);
+    const runId = progress.pendingRunIds ? progress.pendingRunIds[0] : undefined;
+    // New run (or no run info) ⇒ drop the anchor so this item searches
+    // the full range. Same run ⇒ keep the anchor for tightening.
+    const continuesRun = runId !== undefined && runId === progress.activeRunId;
+    if (!continuesRun) {
+      progress.activeRunId = runId ?? null;
+      progress.activeRunAnchor = null;
+    }
+    const res = startRankAwareInsert(
+      progress.sorted,
+      id,
+      progress.activeRunAnchor ?? null,
+    );
+    progress.pending.shift();
+    if (progress.pendingRunIds) progress.pendingRunIds.shift();
     if ('done' in res) {
-      // Zero-comparison case (e.g., first insert into an empty sorted).
+      // Zero-comparison case (e.g., first insert into an empty sorted,
+      // or a fully bounded run step). Record the landing as the new
+      // anchor so the next same-run item tightens against it.
       progress.sorted = [
         ...progress.sorted.slice(0, res.position),
         id,
         ...progress.sorted.slice(res.position),
       ];
-      progress.pending.shift();
+      progress.activeRunAnchor = res.position;
       continue;
     }
-    progress.pending.shift();
+    // Real frame: the in-flight item's run is `activeRunId` (already set
+    // above). `activeRunAnchor` keeps the PREVIOUS item's position (it
+    // produced this item's lo); it's overwritten with this item's
+    // landing position when the frame resolves in spliceInsertingAndDrain.
     progress.current = res;
     return;
   }
@@ -244,19 +298,30 @@ export function buildInsertionState(args: {
   sortedItems: Item[];
   pendingItems: Item[];
   hidden?: ItemId[];
+  /**
+   * OPTIONAL run partition aligned to `pendingItems` (same length): equal
+   * consecutive values mark a pre-ranked run eligible for bound
+   * tightening (see `seedInsertionFromSublists`). Entries for items
+   * skipped by dedup are dropped so the stored array stays parallel to
+   * the surviving `pending`. Omit for flat / unranked inserts.
+   */
+  pendingRunIds?: number[];
 }): { state: InsertionState; skipped: ItemId[] } {
-  const { sortedItems, pendingItems, hidden = [] } = args;
+  const { sortedItems, pendingItems, hidden = [], pendingRunIds } = args;
   const itemsDict: Record<ItemId, Item> = {};
   for (const it of sortedItems) itemsDict[it.id] = it;
   const skipped: ItemId[] = [];
   const survivingPending: Item[] = [];
-  for (const it of pendingItems) {
+  const survivingRunIds: number[] = [];
+  for (let i = 0; i < pendingItems.length; i++) {
+    const it = pendingItems[i];
     if (itemsDict[it.id]) {
       skipped.push(it.id);
       continue;
     }
     itemsDict[it.id] = it;
     survivingPending.push(it);
+    if (pendingRunIds) survivingRunIds.push(pendingRunIds[i]);
   }
   const sorted = sortedItems.map((it) => it.id);
   const pending = survivingPending.map((it) => it.id);
@@ -269,6 +334,9 @@ export function buildInsertionState(args: {
     done: false,
     hidden: hidden.slice(),
     totalComparisonsEverNeeded: 0,
+    pendingRunIds: pendingRunIds ? survivingRunIds : undefined,
+    activeRunId: null,
+    activeRunAnchor: null,
   };
   drainPending(progress);
   // Set the initial worst-case budget AFTER draining so zero-comparison
@@ -284,6 +352,102 @@ export function seedAsSorted(items: Item[]): InsertionState {
     sortedItems: items,
     pendingItems: [],
   });
+  return state;
+}
+
+/**
+ * Options for the from-scratch / pre-ranked insertion-mode START entry
+ * points. Mirrors the merge engine's `shuffleAtStart` knob.
+ */
+export interface InsertionSeedOptions {
+  /**
+   * Shuffle the unranked extras before queueing (default true) so paste
+   * order doesn't dominate the first comparisons. Pre-ranked sublists
+   * keep their asserted best→worst order (shuffling them would break the
+   * rank assertion that makes bound tightening sound). Tests pass a
+   * deterministic `random` and/or `shuffle: false`.
+   */
+  shuffle?: boolean;
+  random?: () => number;
+}
+
+/**
+ * START entry point: seed an insertion-mode sort from a mix of pre-ranked
+ * sublists and unranked extras.
+ *
+ * The LARGEST pre-ranked sublist becomes the frozen `sorted[]` seed — it
+ * reuses the most already-ordered work, so the fewest binary inserts
+ * remain. The other sublists drain into `pending[]` as rank-aware RUNS
+ * (each tightens its own search, item 2+ inserting only into the suffix
+ * after the previous same-run item landed — see `drainPending` /
+ * `startRankAwareInsert`). Extras drain as singleton runs (full-range).
+ *
+ * Run ids are only emitted when at least one non-seed sublist has 2+
+ * items (otherwise every run is a singleton and tightening is moot — we
+ * leave `pendingRunIds` undefined to keep the flat fast path).
+ *
+ * Dedup follows `buildInsertionState`: any pending id already in the seed
+ * (or earlier in pending) is skipped and reported in `skipped`.
+ */
+export function seedInsertionFromSublists(
+  args: { sublists: Item[][]; extras: Item[] },
+  options?: InsertionSeedOptions,
+): { state: InsertionState; skipped: ItemId[] } {
+  const { sublists, extras } = args;
+  const { shuffle = true, random } = options ?? {};
+
+  // Largest sublist seeds the frozen list (first-wins on ties).
+  let seedIdx = -1;
+  let seedLen = 0;
+  sublists.forEach((sub, i) => {
+    if (sub.length > seedLen) {
+      seedLen = sub.length;
+      seedIdx = i;
+    }
+  });
+  const seed = seedIdx >= 0 ? sublists[seedIdx] : [];
+  const rest = sublists.filter((_, i) => i !== seedIdx);
+
+  // Remaining sublists first (each a tightening run), then extras
+  // (singleton runs). Run ids are dense integers; equal ids = one run.
+  const pendingItems: Item[] = [];
+  const runIds: number[] = [];
+  let nextRun = 0;
+  for (const sub of rest) {
+    const rid = nextRun++;
+    for (const it of sub) {
+      pendingItems.push(it);
+      runIds.push(rid);
+    }
+  }
+  const orderedExtras =
+    shuffle && extras.length > 1 ? shuffledCopy(extras, random) : extras;
+  for (const it of orderedExtras) {
+    pendingItems.push(it);
+    runIds.push(nextRun++);
+  }
+
+  const hasMultiItemRun = rest.some((sub) => sub.length >= 2);
+  return buildInsertionState({
+    sortedItems: seed,
+    pendingItems,
+    pendingRunIds: hasMultiItemRun ? runIds : undefined,
+  });
+}
+
+/**
+ * START entry point: flat from-scratch insertion sort. Every item drains
+ * full-range one-by-one (no runs). Thin wrapper over
+ * `seedInsertionFromSublists` with everything as extras.
+ */
+export function initInsertionSort(
+  items: Item[],
+  options?: InsertionSeedOptions,
+): InsertionState {
+  const { state } = seedInsertionFromSublists(
+    { sublists: [], extras: items },
+    options,
+  );
   return state;
 }
 
@@ -334,6 +498,10 @@ function spliceInsertingAndDrain(
     insertingId,
     ...next.sorted.slice(position),
   ];
+  // The in-flight item belonged to `activeRunId`; record where it landed
+  // so the next same-run pending item tightens against it. (No-op for the
+  // flat path where activeRunId is null and nothing continues the run.)
+  next.activeRunAnchor = position;
   // No pending.shift here — drainPending already shifted when it
   // installed the frame; the inserting id lived only on `current`.
   next.current = null;
@@ -375,6 +543,14 @@ function cancelAndRestartCurrentFrame(progress: InsertionProgress): void {
   const id = progress.current.insertingId;
   progress.current = null;
   progress.pending = [id, ...progress.pending];
+  // Re-queue it as its own singleton run and drop the active run anchor:
+  // the caller mutated `sorted` (reorder), so any anchor positions are
+  // stale. Full-range re-insert is the safe, correct fallback.
+  if (progress.pendingRunIds) {
+    progress.pendingRunIds = [freshRunId(progress), ...progress.pendingRunIds];
+  }
+  progress.activeRunId = null;
+  progress.activeRunAnchor = null;
   drainPending(progress);
 }
 
@@ -446,6 +622,18 @@ export function returnToPending(
   next.pending = inFlightId === null
     ? [id, ...next.pending]
     : [id, inFlightId, ...next.pending];
+  // Re-queue the returned (and any in-flight) id as fresh singleton runs,
+  // and drop the active anchor: removing an item from `sorted` shifts the
+  // indices the anchor referenced, so a full-range re-insert is the safe
+  // fallback. The returned item was never asserted pre-ranked anyway.
+  if (next.pendingRunIds) {
+    const base = freshRunId(next);
+    next.pendingRunIds = inFlightId === null
+      ? [base, ...next.pendingRunIds]
+      : [base, base + 1, ...next.pendingRunIds];
+  }
+  next.activeRunId = null;
+  next.activeRunAnchor = null;
   if (next.done) next.done = false;
   drainPending(next);
   bumpTotalComparisons(next);
@@ -504,10 +692,13 @@ export function hideItem(
     next.current = null;
     drainPending(next);
   } else {
-    // If it was a pending item (waiting), remove it.
+    // If it was a pending item (waiting), remove it (and its run id, kept
+    // parallel). Dropping a waiting item never invalidates the active
+    // anchor — `sorted` is untouched — so run tightening is preserved.
     const pi = next.pending.indexOf(id);
     if (pi >= 0) {
       next.pending.splice(pi, 1);
+      if (next.pendingRunIds) next.pendingRunIds.splice(pi, 1);
       // pending-shrink might let us go done if nothing remains.
       if (next.current === null && next.pending.length === 0) {
         next.done = true;
@@ -528,6 +719,9 @@ export function hideItem(
           insertingId,
           ...next.sorted.slice(skipped.position),
         ];
+        // The in-flight item just force-landed; anchor the active run to
+        // it so a following same-run item still tightens correctly.
+        next.activeRunAnchor = skipped.position;
         next.current = null;
         drainPending(next);
       }
@@ -562,6 +756,12 @@ export function addItem(
   if (state.items[item.id]) return null;
   const next = snapshotProgress(state);
   next.pending = [...next.pending, item.id];
+  // Added items are never asserted pre-ranked: append as a singleton run
+  // (full-range insert) when run tracking is active; leave it off
+  // otherwise so the flat path stays run-free.
+  if (next.pendingRunIds) {
+    next.pendingRunIds = [...next.pendingRunIds, freshRunId(next)];
+  }
   if (next.done) next.done = false;
   drainPending(next);
   // bumpTotalComparisons walks the projected plan; the newly-pushed id
@@ -572,8 +772,11 @@ export function addItem(
 
 /**
  * Add a batch of items to the back of `pending` (FIFO, input order).
- * V1: ignores input rank — each item gets its own full-range insert.
- * Rank-aware bound tightening is parked for v2.
+ * Ignores input rank — each item gets its own full-range insert (a fresh
+ * singleton run when run tracking is active). Rank-aware tightening is
+ * reserved for the pre-ranked SEED path (`seedInsertionFromSublists`),
+ * where the caller asserts each sublist is in true rank order; an ad-hoc
+ * batch add carries no such guarantee.
  * Returns `{state, skipped}` like appendPreRankedSublist.
  */
 export function addItems(
@@ -590,6 +793,13 @@ export function addItems(
 
   const next = snapshotProgress(state);
   next.pending = [...next.pending, ...survivors.map((it) => it.id)];
+  if (next.pendingRunIds) {
+    let base = freshRunId(next);
+    next.pendingRunIds = [
+      ...next.pendingRunIds,
+      ...survivors.map(() => base++),
+    ];
+  }
   if (next.done) next.done = false;
   bumpTotalComparisons(next);
   drainPending(next);

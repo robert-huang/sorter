@@ -1,9 +1,21 @@
-import { describe, expect, it } from 'vitest';
+import { act, useState } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
 import {
   buildSortInputFromStaged,
   countMarkedForRemoval,
   findDuplicateOccurrences,
+  StagedItemsPanel,
   type StagedGroup,
+  type StartMode,
 } from '../StagedItemsPanel';
 import type { Item, ItemId } from '../../lib/types';
 
@@ -395,5 +407,184 @@ describe('countMarkedForRemoval', () => {
         flat('g3', 'AniList', [item('p'), item('q')]),
       ]),
     ).toBe(4);
+  });
+});
+
+// =====================================================================
+// Start Sort split-button (engine picker)
+//
+// The split-button is the ONLY place the non-persisted insertion vs
+// merge mode is chosen. These render tests pin the contract the
+// parent (StartScreen) and the routing in startFromCombined rely on:
+//   - default label is "Start sort" (merge), enabled only at 2+ items
+//   - the chevron menu surfaces both engines as radio items
+//   - picking insertion calls onStartModeChange('insertion') and the
+//     primary CTA relabels to "Insertion sort" so the user can SEE
+//     which engine the next click starts
+//   - the primary click fires onStartSort regardless of mode (the
+//     parent reads its own startMode to route — see startFromCombined)
+//
+// Uses the same bare createRoot/act harness as FilterBar.test.tsx
+// (no react-testing-library — keeps the dep surface flat).
+// =====================================================================
+
+let container: HTMLDivElement;
+let root: Root;
+
+beforeAll(() => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT =
+    true;
+});
+
+beforeEach(() => {
+  container = document.createElement('div');
+  document.body.appendChild(container);
+  root = createRoot(container);
+});
+
+afterEach(() => {
+  act(() => root.unmount());
+  container.remove();
+});
+
+/**
+ * Wraps the panel with the same local `startMode` state the real
+ * StartScreen owns, so a menu click actually re-renders the primary
+ * label (proving the round-trip), while still exposing a spy on the
+ * change so the test can assert the emitted mode.
+ */
+function SplitButtonHarness({
+  onStartSort,
+  onModeSpy,
+  staged = [flat('g1', 'clipboard', [item('a'), item('b')])],
+}: {
+  onStartSort: () => void;
+  onModeSpy: (mode: StartMode) => void;
+  staged?: StagedGroup[];
+}) {
+  const [mode, setMode] = useState<StartMode>('merge');
+  return (
+    <StagedItemsPanel
+      staged={staged}
+      pending={[]}
+      onToggleRemoveGroup={() => {}}
+      onClearAll={() => {}}
+      onStartSort={onStartSort}
+      onStartAlreadySorted={() => {}}
+      startMode={mode}
+      onStartModeChange={(m) => {
+        onModeSpy(m);
+        setMode(m);
+      }}
+    />
+  );
+}
+
+function mainBtn(): HTMLButtonElement | null {
+  return container.querySelector<HTMLButtonElement>('.staged-panel-start-main');
+}
+function caretBtn(): HTMLButtonElement | null {
+  return container.querySelector<HTMLButtonElement>('.staged-panel-start-caret');
+}
+function menuItems(): HTMLButtonElement[] {
+  return Array.from(
+    container.querySelectorAll<HTMLButtonElement>('.staged-panel-start-menu-item'),
+  );
+}
+
+describe('StagedItemsPanel · Start Sort split-button', () => {
+  it('defaults to the merge label and is enabled with 2+ unique items', () => {
+    act(() => {
+      root.render(
+        <SplitButtonHarness onStartSort={() => {}} onModeSpy={() => {}} />,
+      );
+    });
+    const main = mainBtn();
+    expect(main).not.toBeNull();
+    expect(main!.textContent).toContain('Start sort');
+    expect(main!.textContent).toContain('(2)');
+    expect(main!.disabled).toBe(false);
+  });
+
+  it('disables both halves of the split when fewer than 2 unique items remain', () => {
+    act(() => {
+      root.render(
+        <SplitButtonHarness
+          onStartSort={() => {}}
+          onModeSpy={() => {}}
+          staged={[flat('g1', 'clipboard', [item('only')])]}
+        />,
+      );
+    });
+    expect(mainBtn()!.disabled).toBe(true);
+    expect(caretBtn()!.disabled).toBe(true);
+  });
+
+  it('opens the chevron menu with both engines as radio items (merge checked by default)', () => {
+    act(() => {
+      root.render(
+        <SplitButtonHarness onStartSort={() => {}} onModeSpy={() => {}} />,
+      );
+    });
+    // Closed initially.
+    expect(container.querySelector('.staged-panel-start-menu')).toBeNull();
+    act(() => caretBtn()!.click());
+    const items = menuItems();
+    expect(items).toHaveLength(2);
+    expect(items[0].textContent).toContain('Merge sort');
+    expect(items[1].textContent).toContain('Insertion sort');
+    expect(items[0].getAttribute('aria-checked')).toBe('true');
+    expect(items[1].getAttribute('aria-checked')).toBe('false');
+  });
+
+  it('picking Insertion emits onStartModeChange, relabels the CTA, and closes the menu', () => {
+    const onModeSpy = vi.fn();
+    act(() => {
+      root.render(
+        <SplitButtonHarness onStartSort={() => {}} onModeSpy={onModeSpy} />,
+      );
+    });
+    act(() => caretBtn()!.click());
+    act(() => menuItems()[1].click());
+    expect(onModeSpy).toHaveBeenCalledWith('insertion');
+    // Menu closes on select.
+    expect(container.querySelector('.staged-panel-start-menu')).toBeNull();
+    // Primary CTA now reflects the chosen engine so the next click is
+    // unambiguous.
+    expect(mainBtn()!.textContent).toContain('Insertion sort');
+    expect(mainBtn()!.textContent).toContain('(2)');
+  });
+
+  it('the primary click fires onStartSort (the parent routes on its own startMode)', () => {
+    const onStartSort = vi.fn();
+    act(() => {
+      root.render(
+        <SplitButtonHarness onStartSort={onStartSort} onModeSpy={() => {}} />,
+      );
+    });
+    act(() => mainBtn()!.click());
+    expect(onStartSort).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the "Use as ranking" CTA instead of the split-button for a single seed-as-sorted sublist', () => {
+    act(() => {
+      root.render(
+        <SplitButtonHarness
+          onStartSort={() => {}}
+          onModeSpy={() => {}}
+          staged={[
+            sublist('g1', 'ranked.csv', [item('a'), item('b')], {
+              seedAsSortedHint: true,
+            }),
+          ]}
+        />,
+      );
+    });
+    // The split-button is replaced by the dedicated already-sorted CTA.
+    expect(container.querySelector('.staged-panel-start-split')).toBeNull();
+    const cta = container.querySelector<HTMLButtonElement>(
+      '.staged-panel-actions .btn.primary',
+    );
+    expect(cta!.textContent).toContain('Use as ranking');
   });
 });

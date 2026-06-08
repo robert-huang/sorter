@@ -37,7 +37,7 @@ import {
   reorderInCurrentMerge,
   seedFromSublists,
 } from './lib/queueMergeSort';
-import { seedAsSorted } from './lib/insertionSort';
+import { seedAsSorted, seedInsertionFromSublists } from './lib/insertionSort';
 import {
   applyCompletedSortEdit,
   cloneSortState,
@@ -1884,6 +1884,24 @@ export function App() {
   );
 
   /**
+   * Insertion-mode START entry point. Same combined `{ sublists, extras }`
+   * draft as the merge path, but seeds the binary-insertion engine: the
+   * largest pre-ranked sublist becomes the frozen `sorted[]` and
+   * everything else binary-inserts one item at a time (rank-aware
+   * tightening for the remaining sublists). Chosen via the Start Sort
+   * split-button's "Insertion sort" option — a per-draft, non-persisted
+   * mode toggle that lives in StartScreen.
+   */
+  const onStartInsertion = useCallback(
+    (args: { sublists: Item[][]; extras: Item[] }, initialTab?: TabId) => {
+      const { state: next } = seedInsertionFromSublists(args);
+      const session: SavedSession = { state: next, undoRing: [] };
+      adoptNewSession(session, autoNameFromBlob(buildBlob(next, [])), initialTab);
+    },
+    [adoptNewSession],
+  );
+
+  /**
    * CSV-as-sorted entry point: take the parsed items verbatim as a
    * frozen insertion-mode `sorted[]` with empty `pending[]` (state is
    * immediately `done`). The user can then "+ Add items" later to
@@ -2302,6 +2320,7 @@ export function App() {
         onResumeActive={onResumeActive}
         onStartScratch={onStartScratch}
         onStartPreranked={onStartPreranked}
+        onStartInsertion={onStartInsertion}
         onStartAlreadySorted={onStartAlreadySorted}
         hasLoadedSession={hasState}
         onDraftActivity={parkActiveSession}

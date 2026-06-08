@@ -720,6 +720,16 @@ function InsertionListView({
                   variant="chip"
                 />
               )}
+              {/* Drop the in-flight item without inserting it: hideItem
+                  cancels the frame and drains the next pending. */}
+              <button
+                className="icon-btn danger"
+                onClick={() => onHide(insertingId)}
+                title="Remove this item — skip inserting it and move on"
+                aria-label={`Remove ${state.items[insertingId]?.label ?? insertingId}`}
+              >
+                ×
+              </button>
             </span>
           </div>
           <div
@@ -730,7 +740,7 @@ function InsertionListView({
             }}
           >
             Use the RANK tab to binary-search this item into the sorted list,
-            or undo to back out.
+            remove it with <strong>×</strong>, or undo to back out.
           </div>
         </div>
       )}
@@ -745,11 +755,12 @@ function InsertionListView({
           marginTop: 0,
         }}
       >
-        Ranking carried over from the original sort. You can nudge an
-        item with <strong>↑ / ↓</strong> or pull it back to re-insert
-        with <strong>↻</strong> — both cancel and restart the current
-        insert, costing up to ⌈log₂(N+1)⌉ extra comparisons. Use
-        <strong> × Remove</strong> to drop an item from the rank.
+        The ranking locked in so far, best to worst — items binary-insert
+        into this list one at a time. You can nudge an item with{' '}
+        <strong>↑ / ↓</strong> or pull it back to re-insert with{' '}
+        <strong>↻</strong> — both cancel and restart the current insert,
+        costing up to ⌈log₂(N+1)⌉ extra comparisons. Use{' '}
+        <strong>× Remove</strong> to drop an item from the rank.
       </p>
       <div className="queue-sublist">
         <div className="queue-sublist-items">

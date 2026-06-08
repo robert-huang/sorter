@@ -1,5 +1,14 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { Item, ItemId } from '../lib/types';
+import { useClickOutside } from '../lib/hooks/useClickOutside';
+
+/**
+ * Which engine the current START draft will start in. Non-persisted —
+ * lives in StartScreen state, defaults to 'merge', and resets to 'merge'
+ * for every new draft. Chosen via the Start Sort split-button's chevron
+ * menu; see `seedInsertionFromSublists` for the insertion path.
+ */
+export type StartMode = 'merge' | 'insertion';
 
 /**
  * Soft-removal markers shared by both group variants. Splitting them
@@ -248,8 +257,17 @@ interface Props {
    * via the "Clear staged" button in the header.
    */
   onClearAll: () => void;
+  /** Start the sort using the currently-selected `startMode`. */
   onStartSort: () => void;
   onStartAlreadySorted: () => void;
+  /**
+   * Selected engine for the Start Sort split-button. Non-persisted; the
+   * parent (StartScreen) owns it so it can also route header-tab draft
+   * adoption (`tryAdoptDraft`) through the same mode.
+   */
+  startMode: StartMode;
+  /** Pick a different engine from the split-button's chevron menu. */
+  onStartModeChange: (mode: StartMode) => void;
   /**
    * Soft-toggle a single item's removal state inside a STAGED group
    * (no-op for pending — those rows render without action handles).
@@ -290,6 +308,8 @@ export function StagedItemsPanel({
   onClearAll,
   onStartSort,
   onStartAlreadySorted,
+  startMode,
+  onStartModeChange,
   onToggleRemoveItem,
   onEditItem,
 }: Props) {
@@ -303,6 +323,18 @@ export function StagedItemsPanel({
   // to compare them side-by-side — useful when chasing a duplicate.
   // Keyed by group id; pending groups use their own synthetic ids
   // (e.g. `__pending_scratch__`) so they don't clash with real ones.
+  // Start Sort split-button chevron menu (engine picker). Closed by
+  // outside-click / ESC via the shared popover hook. The ref wraps both
+  // the split-button group AND the menu so clicking the chevron itself
+  // doesn't count as "outside".
+  const [startMenuOpen, setStartMenuOpen] = useState(false);
+  const startSplitRef = useRef<HTMLDivElement | null>(null);
+  useClickOutside(startSplitRef, startMenuOpen, () => setStartMenuOpen(false));
+  const chooseStartMode = (mode: StartMode) => {
+    onStartModeChange(mode);
+    setStartMenuOpen(false);
+  };
+
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const toggleExpanded = (id: string) =>
     setExpanded((prev) => {
@@ -384,14 +416,73 @@ export function StagedItemsPanel({
               Use as ranking ({summary.uniqueCount})
             </button>
           ) : (
-            <button
-              type="button"
-              className="btn primary"
-              disabled={summary.uniqueCount < 2}
-              onClick={onStartSort}
-            >
-              Start sort ({summary.uniqueCount})
-            </button>
+            <div className="staged-panel-start-split" ref={startSplitRef}>
+              <button
+                type="button"
+                className="btn primary staged-panel-start-main"
+                disabled={summary.uniqueCount < 2}
+                onClick={onStartSort}
+                title={
+                  startMode === 'insertion'
+                    ? 'Binary-insert each item one at a time into a growing ranked list'
+                    : 'Classic pairwise merge sort — fewest comparisons overall'
+                }
+              >
+                {startMode === 'insertion' ? 'Insertion sort' : 'Start sort'} (
+                {summary.uniqueCount})
+              </button>
+              <button
+                type="button"
+                className="btn primary staged-panel-start-caret"
+                disabled={summary.uniqueCount < 2}
+                aria-haspopup="menu"
+                aria-expanded={startMenuOpen}
+                aria-label="Choose sort method"
+                title="Choose sort method"
+                onClick={() => setStartMenuOpen((v) => !v)}
+              >
+                ▾
+              </button>
+              {startMenuOpen && (
+                <div className="staged-panel-start-menu" role="menu">
+                  <button
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={startMode === 'merge'}
+                    className="staged-panel-start-menu-item"
+                    onClick={() => chooseStartMode('merge')}
+                  >
+                    <span className="staged-panel-start-menu-check" aria-hidden>
+                      {startMode === 'merge' ? '✓' : ''}
+                    </span>
+                    <span className="staged-panel-start-menu-text">
+                      <strong>Merge sort</strong>
+                      <span className="staged-panel-start-menu-hint">
+                        Pairwise tournament — fewest comparisons overall
+                      </span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={startMode === 'insertion'}
+                    className="staged-panel-start-menu-item"
+                    onClick={() => chooseStartMode('insertion')}
+                  >
+                    <span className="staged-panel-start-menu-check" aria-hidden>
+                      {startMode === 'insertion' ? '✓' : ''}
+                    </span>
+                    <span className="staged-panel-start-menu-text">
+                      <strong>Insertion sort</strong>
+                      <span className="staged-panel-start-menu-hint">
+                        Binary-insert items one at a time; pre-ranked lists
+                        seed the order
+                      </span>
+                    </span>
+                  </button>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>

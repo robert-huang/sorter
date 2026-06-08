@@ -5,6 +5,7 @@ import {
   getInsertPeekRightIds,
   insertComparisonsRemaining,
   startInsert,
+  startRankAwareInsert,
 } from './binaryInsertion';
 import { shuffledCopy } from './shuffle';
 import type {
@@ -995,11 +996,10 @@ function drainAutoInsert(
   if (!ai) return;
   while (ai.frame === null && ai.pendingInserts.length > 0) {
     const id = ai.pendingInserts[0];
-    const lo = ai.lastInsertedPosition === null
-      ? 0
-      : ai.lastInsertedPosition + 1;
-    const hi = ai.target.length - 1;
-    const res = startInsert(ai.target, id, lo, hi);
+    // Rank-aware lower bound via the shared helper (anchor =
+    // lastInsertedPosition). Valid because pendingInserts is FIFO in
+    // rank order — see startRankAwareInsert / drainPending.
+    const res = startRankAwareInsert(ai.target, id, ai.lastInsertedPosition);
     ai.pendingInserts.shift();
     if ('done' in res) {
       ai.target = [

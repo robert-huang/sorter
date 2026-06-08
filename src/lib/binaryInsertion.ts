@@ -52,6 +52,28 @@ export function startInsert(
 }
 
 /**
+ * Begin a rank-aware insert: a thin wrapper over `startInsert` that maps
+ * a run "anchor" (the position the previous same-run item landed at) to a
+ * tightened lower bound. `anchor === null` means "first item of the run"
+ * (or no rank info) → full range; otherwise the search starts at
+ * `anchor + 1`, because the next item in a rank-ordered run can only land
+ * at or below the previous one.
+ *
+ * Shared by both engines so the bound-tightening convention lives in ONE
+ * place: the merge engine's auto-insert drain (`drainAutoInsert`, keyed
+ * on `AutoInsertFrame.lastInsertedPosition`) and the insertion engine's
+ * per-run pending drain (`drainPending`, keyed on `activeRunAnchor`).
+ */
+export function startRankAwareInsert(
+  sorted: ReadonlyArray<ItemId>,
+  insertingId: ItemId,
+  anchor: number | null,
+): InsertResult {
+  const lo = anchor === null ? 0 : anchor + 1;
+  return startInsert(sorted, insertingId, lo, sorted.length - 1);
+}
+
+/**
  * Apply one user pick to the active frame. Returns either the next
  * frame or `{ done; position }` when bounds collapse.
  */
