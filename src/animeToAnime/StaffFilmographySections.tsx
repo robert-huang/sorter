@@ -46,6 +46,14 @@ interface Props {
   loading: boolean;
   onRefresh: () => void;
   onHopToAnime: (row: AnimeFilmographyRow) => void;
+  /** Show the "only items on my list" filter — true when a cached AniList
+   *  user list exists and this staff has filmography rows. */
+  showMyListFilter?: boolean;
+  onlyMyList?: boolean;
+  onOnlyMyListChange?: (value: boolean) => void;
+  /** True when none of this staff's filmography is on the user's list
+   *  (drives the empty message, independent of the text filter). */
+  myListEmpty?: boolean;
 }
 
 export function StaffFilmographySections({
@@ -55,6 +63,10 @@ export function StaffFilmographySections({
   loading,
   onRefresh,
   onHopToAnime,
+  showMyListFilter = false,
+  onlyMyList = false,
+  onOnlyMyListChange,
+  myListEmpty = false,
 }: Props) {
   const { voice, production } = partitionFilmography(rows);
   const refreshLabel = 'Refresh filmography from AniList';
@@ -85,6 +97,23 @@ export function StaffFilmographySections({
           ↻
         </button>
       </div>
+
+      {showMyListFilter && (
+        <label className="anime-to-anime-my-list-toggle">
+          <input
+            type="checkbox"
+            checked={onlyMyList}
+            onChange={(e) => onOnlyMyListChange?.(e.target.checked)}
+          />
+          Only items on my list
+        </label>
+      )}
+
+      {onlyMyList && myListEmpty && (
+        <p className="settings-status anime-to-anime-empty-list">
+          None of this person's works are on your list.
+        </p>
+      )}
 
       {voice.length > 0 && (
         <section className="anime-to-anime-filmography-section">

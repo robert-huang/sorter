@@ -186,6 +186,15 @@ export function AnimeToAnimeApp() {
   const [filmography, setFilmography] = useState<AnimeFilmographyRow[]>([]);
   const [staffHeader, setStaffHeader] = useState<StaffRow | null>(null);
   const [currentMedia, setCurrentMedia] = useState<MediaRow | null>(null);
+  // Latest cached AniList user id (null when no list cached) — gates the
+  // staff-list "only items on my list" toggle, mirroring StaffDetailModal.
+  const [listUserId, setListUserId] = useState<number | null>(null);
+  // Media ids from the current staff filmography that are on the cached
+  // user's list (anime or manga).
+  const [myListMediaIds, setMyListMediaIds] = useState<Set<number>>(() => new Set());
+  // When on, the staff filmography is restricted to items on the user's
+  // list. Persists across hops within a session (not reset on navigation).
+  const [onlyMyList, setOnlyMyList] = useState(false);
 
   useEffect(() => {
     applyAnimeToAnimeTheme(theme);
@@ -420,6 +429,8 @@ export function AnimeToAnimeApp() {
           setRelations(rel);
           setFilmography([]);
           setStaffHeader(null);
+          // The my-list toggle only applies to staff filmography lists.
+          setMyListMediaIds(new Set());
         } else {
           await ensureStaffFilmography(ctx, current.staffId, { force: forceRefresh });
           const staffRows = await ctx.db.exec('SELECT * FROM staff WHERE id = ?', [
@@ -430,7 +441,19 @@ export function AnimeToAnimeApp() {
             current.staffId,
             rules.productionAllRoles ? 'all' : 'key',
           );
+          // Resolve which of this staff's works are on the cached user's
+          // list so the "only items on my list" toggle can filter them.
+          const listUser = await productionReads.getLatestAnilistUser();
+          const myList =
+            listUser && film.length > 0
+              ? await productionReads.getMediaIdsInUserList(
+                  listUser.id,
+                  film.map((row) => row.media.id),
+                )
+              : new Set<number>();
           if (cancelled) return;
+          setListUserId(listUser?.id ?? null);
+          setMyListMediaIds(myList);
           setStaffHeader(
             staffRows.length > 0
               ? {
@@ -503,13 +526,17 @@ export function AnimeToAnimeApp() {
   }, [relations, filterLower]);
 
   const filteredFilmography = useMemo(() => {
-    if (!filterLower) {
-      return filmography;
+    let rows: readonly AnimeFilmographyRow[] = filmography;
+    if (onlyMyList) {
+      rows = rows.filter((row) => myListMediaIds.has(row.media.id));
     }
-    return filmography.filter((row) =>
-      matchesListFilter(filmographyFilterParts(row), filterLower),
-    );
-  }, [filmography, filterLower]);
+    if (filterLower) {
+      rows = rows.filter((row) =>
+        matchesListFilter(filmographyFilterParts(row), filterLower),
+      );
+    }
+    return rows;
+  }, [filmography, filterLower, onlyMyList, myListMediaIds]);
 
   const currentAnimeAnilistLink = useMemo(() => {
     if (current?.kind !== 'anime' || !currentMedia) {
@@ -782,6 +809,10 @@ export function AnimeToAnimeApp() {
                     loading={loading}
                     onRefresh={onRefreshPlayList}
                     onHopToAnime={(row) => onHopToAnime(row.media, viaLabelFromFilmography(row))}
+                    showMyListFilter={listUserId !== null && filmography.length > 0}
+                    onlyMyList={onlyMyList}
+                    onOnlyMyListChange={setOnlyMyList}
+                    myListEmpty={filmography.length > 0 && myListMediaIds.size === 0}
                   />
                 </section>
               )}

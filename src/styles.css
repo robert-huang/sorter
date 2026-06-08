@@ -2152,6 +2152,20 @@ a {
   min-width: 0;
 }
 
+/* "Only items on my list" filter above the staff filmography sections. */
+.anime-to-anime-my-list-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.anime-to-anime-empty-list {
+  margin: 8px 0 0;
+}
+
 .anime-to-anime-filmography-section .anime-to-anime-subheading {
   margin-top: 12px;
 }
