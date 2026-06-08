@@ -111,6 +111,42 @@ interface Props {
    *  always sees their slot's view of the title first. */
   fallbackTitle: string;
   onClose: () => void;
+  /**
+   * Open the staff detail panel for a cast VA / production-staff member.
+   * Optional so existing call sites + tests that don't wire cross-panel
+   * navigation render the names as plain text (see {@link PersonLink}).
+   */
+  onOpenStaff?: (staffId: number, fallbackName: string) => void;
+}
+
+/**
+ * Render a person's name as a button that opens their staff panel, or
+ * as plain text when no opener is wired. Used for cast VAs + production
+ * staff so the media modal can navigate into the staff filmography.
+ */
+function PersonLink({
+  name,
+  onOpen,
+}: {
+  name: string;
+  onOpen?: () => void;
+}) {
+  if (!onOpen) {
+    return <>{name}</>;
+  }
+  return (
+    <button
+      type="button"
+      className="anilist-detail-person-link"
+      onClick={(e) => {
+        e.stopPropagation();
+        onOpen();
+      }}
+      title={`View ${name}'s filmography`}
+    >
+      {name}
+    </button>
+  );
 }
 
 /**
@@ -143,6 +179,7 @@ export function AnilistDetailModal({
   mediaId,
   fallbackTitle,
   onClose,
+  onOpenStaff,
 }: Props) {
   // Re-render the modal when the display preferences change so the
   // title / character / VA / staff names relabel live while it's open.
@@ -498,9 +535,22 @@ export function AnilistDetailModal({
                             {voiceActors.length > 0 && (
                               <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>
                                 VA:{' '}
-                                {voiceActors
-                                  .map((va) => pickPersonName(va, undefined, 'Staff'))
-                                  .join(', ')}
+                                {voiceActors.map((va, i) => {
+                                  const vaName = pickPersonName(va, undefined, 'Staff');
+                                  return (
+                                    <span key={va.id}>
+                                      {i > 0 ? ', ' : ''}
+                                      <PersonLink
+                                        name={vaName}
+                                        onOpen={
+                                          onOpenStaff
+                                            ? () => onOpenStaff(va.id, vaName)
+                                            : undefined
+                                        }
+                                      />
+                                    </span>
+                                  );
+                                })}
                               </span>
                             )}
                           </div>
@@ -558,7 +608,18 @@ export function AnilistDetailModal({
                         )}
                         <div className="anilist-detail-cast-text">
                           <strong>
-                            {pickPersonName(staff, undefined, 'Staff')}
+                            <PersonLink
+                              name={pickPersonName(staff, undefined, 'Staff')}
+                              onOpen={
+                                onOpenStaff
+                                  ? () =>
+                                      onOpenStaff(
+                                        staff.id,
+                                        pickPersonName(staff, undefined, 'Staff'),
+                                      )
+                                  : undefined
+                              }
+                            />
                           </strong>
                           <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>
                             {role}

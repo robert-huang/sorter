@@ -1447,6 +1447,42 @@ a {
   min-width: 0;
 }
 
+/* Inline name button used in the media modal so a cast VA / production
+   staff name opens the StaffDetailModal. Reset the native button chrome
+   so it reads as a link inside the surrounding text. */
+.anilist-detail-person-link {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: var(--accent, #2563eb);
+  cursor: pointer;
+  text-align: left;
+}
+
+.anilist-detail-person-link:hover {
+  text-decoration: underline;
+}
+
+/* Clickable filmography row in the StaffDetailModal: a full-width
+   button styled like a cast item that opens the media modal. */
+.anilist-detail-row-link {
+  width: 100%;
+  appearance: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+
+.anilist-detail-row-link:hover {
+  background: var(--bg-subtle, #f3f4f6);
+  border-color: var(--accent, #2563eb);
+}
+
 .anilist-detail-tag-item {
   display: inline-flex;
   align-items: center;
@@ -2618,6 +2654,20 @@ a {
   border-color: var(--danger);
 }
 
+/* Refresh button highlighted (amber) when a detail panel's cached graph
+   data is stale (>90d) — the muted freshness line is easy to miss, so
+   the action affordance itself signals "update me". */
+.btn.anilist-detail-refresh-stale {
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
+  color: var(--warn-text);
+}
+
+.btn.anilist-detail-refresh-stale:hover:not(:disabled) {
+  background: var(--warn-bg);
+  border-color: var(--warning);
+}
+
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -3483,6 +3533,13 @@ a {
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  /* The corner controls (.link-icon bottom-left, .detail-btn bottom-right)
+     are absolutely positioned over the card's bottom band. The label is
+     centered and pinned to the bottom (the image-wrap flexes to fill), so
+     a wide last line would run under those icons. Inset the text column
+     past the ~30px each corner occupies instead of reserving vertical
+     space, keeping centered titles clear of both icons. */
+  padding: 0 32px;
 }
 
 /* When the item has no image (and no failed image to fall back from), the
@@ -3532,6 +3589,36 @@ a {
   background: var(--danger-soft);
   color: var(--danger);
   border-color: var(--danger);
+}
+
+/* Details button: opens the media detail panel. Mirrors .remove-btn's
+   round chip but anchored bottom-right (bottom-left holds the link icon)
+   with a neutral accent hover instead of the danger styling. */
+.item-card .detail-btn {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.item-card .detail-btn:hover {
+  color: var(--accent, #2563eb);
+  border-color: var(--accent, #2563eb);
+}
+
+.item-card .detail-btn:focus-visible {
+  outline: 2px solid var(--accent, #2563eb);
+  outline-offset: 2px;
 }
 
 @media (max-width: 640px) {
@@ -3775,6 +3862,14 @@ a {
    compact footprint as .x but its hover stays neutral — editing is
    non-destructive, so don't use the danger ramp. */
 .chip .x.edit:hover {
+  color: var(--text);
+  background: var(--surface-2);
+  border-radius: 3px;
+}
+
+/* Details (ⓘ) variant: opens the media detail panel. Like .edit, override
+   the base .x danger hover with a neutral ramp — viewing is non-destructive. */
+.chip .x.detail:hover {
   color: var(--text);
   background: var(--surface-2);
   border-radius: 3px;
@@ -4317,6 +4412,81 @@ a {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+/* Start Sort split-button: primary action + chevron menu trigger that
+   share one rounded pill, with a hairline divider between them. */
+.staged-panel-start-split {
+  position: relative;
+  display: inline-flex;
+}
+
+.staged-panel-start-main {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.staged-panel-start-caret {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: 1px solid rgba(255, 255, 255, 0.4);
+  padding-left: 10px;
+  padding-right: 10px;
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.staged-panel-start-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  min-width: 260px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.staged-panel-start-menu-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.staged-panel-start-menu-item:hover {
+  background: var(--surface-2);
+}
+
+.staged-panel-start-menu-check {
+  flex: 0 0 14px;
+  color: var(--accent);
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.staged-panel-start-menu-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.staged-panel-start-menu-hint {
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 .staged-panel-groups {

@@ -137,10 +137,16 @@ export function CompareScreen({
 }: Props) {
   const pair = getPair(state);
   const mode = currentMode(state);
-  // During any insert mode the "left" item is the one being inserted,
-  // and hiding it would cancel the mini-session in a confusing way. We
-  // hide the trash button on the left card in those modes.
-  const hideRemoveOnLeft = mode !== 'merging';
+  // The left card is the item being inserted during any insert mode.
+  //  - merge mini-sessions ('manual-insert' / 'auto-insert'): hiding it
+  //    mid-session cancels the merge sublist insert in a confusing way,
+  //    so we hide the trash there.
+  //  - full insertion mode ('inserting'): removing the in-flight item is
+  //    a first-class action — hideItem cancels the frame and drains the
+  //    next pending — so the trash IS shown (parity with the LIST tab's
+  //    "Currently inserting" × button).
+  const hideRemoveOnLeft =
+    mode === 'manual-insert' || mode === 'auto-insert';
   const insertingId = (() => {
     if (state.engine === 'insertion') return state.current?.insertingId ?? null;
     if (state.currentManualInsert) return state.currentManualInsert.insertingId;

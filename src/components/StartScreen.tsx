@@ -30,6 +30,7 @@ import {
   buildSortInputFromStaged,
   type StagedGroup,
   type StagedGroupInput,
+  type StartMode,
 } from './StagedItemsPanel';
 import Papa from 'papaparse';
 
@@ -200,6 +201,16 @@ interface Props {
     initialTab?: TabId,
   ) => void;
   /**
+   * Insertion-mode start. Same combined draft as `onStartPreranked`, but
+   * seeds the binary-insertion engine (largest pre-ranked sublist becomes
+   * the frozen `sorted[]`, everything else binary-inserts one at a time).
+   * Chosen via the Start Sort split-button's "Insertion sort" option.
+   */
+  onStartInsertion: (
+    args: { sublists: Item[][]; extras: Item[] },
+    initialTab?: TabId,
+  ) => void;
+  /**
    * CSV-as-sorted entry point. Skips the sort entirely; items become the
    * frozen `sorted[]` of an insertion-mode slot. The user can later
    * "+ Add items" on RESULT to binary-insert new items.
@@ -245,6 +256,7 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
     // initSort path — see seedFromSublists).
     onStartScratch: _onStartScratch,
     onStartPreranked,
+    onStartInsertion,
     onStartAlreadySorted,
     hasLoadedSession,
     onDraftActivity,
@@ -254,6 +266,11 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
   ref,
 ) {
   const [mode, setMode] = useState<Mode>('scratch');
+  // Engine for the Start Sort split-button. Non-persisted and per-draft:
+  // it resets to 'merge' whenever the draft is cleared (see
+  // `clearDraftState`). Routes both the panel's Start button and
+  // header-tab adoption (`tryAdoptDraft`) via `startFromCombined`.
+  const [startMode, setStartMode] = useState<StartMode>('merge');
 
   const prevLoadedSessionRef = useRef(hasLoadedSession);
 
@@ -837,6 +854,9 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
     setExtrasSkipHeader(false);
     setEditTarget(null);
     setStaged([]);
+    // The engine choice is per-draft — a fresh draft starts back on the
+    // default (merge).
+    setStartMode('merge');
   }
 
   function draftHasContent(): boolean {
@@ -987,7 +1007,18 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
   const startFromCombined = useCallback(
     (initialTab?: TabId) => {
       if (combinedAlreadySortedReady) {
+        // "Use as ranking" is its own intent (a finished ranking, no
+        // comparisons) and is always insertion-engine seedAsSorted —
+        // independent of the merge/insertion split-button choice.
         onStartAlreadySorted(combinedSortInput.sublists[0], initialTab);
+      } else if (startMode === 'insertion') {
+        onStartInsertion(
+          {
+            sublists: combinedSortInput.sublists,
+            extras: combinedSortInput.extras,
+          },
+          initialTab,
+        );
       } else {
         onStartPreranked(
           {
@@ -1006,6 +1037,8 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
       combinedSortInput,
       onStartAlreadySorted,
       onStartPreranked,
+      onStartInsertion,
+      startMode,
     ],
   );
 
@@ -1596,6 +1629,8 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
         onClearAll={clearAllStaged}
         onStartSort={() => startFromCombined()}
         onStartAlreadySorted={() => startFromCombined()}
+        startMode={startMode}
+        onStartModeChange={setStartMode}
       />
 
       {editStubItem && editTarget && (

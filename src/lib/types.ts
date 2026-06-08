@@ -188,6 +188,37 @@ export interface InsertionProgress extends SortProgressBase {
   pending: ItemId[];
   /** The currently-running binary-insertion frame, or null between items. */
   current: InsertFrame | null;
+  /**
+   * OPTIONAL rank-aware tightening metadata. Parallel array to `pending`:
+   * equal consecutive values mark a ranked RUN (e.g. items from one
+   * pre-ranked sublist seeded via `seedInsertionFromSublists`). Within a
+   * run, item 2+ binary-inserts only into the suffix after the previous
+   * same-run item landed — the same `lastInsertedPosition + 1` trick the
+   * merge engine's auto-insert uses (`drainAutoInsert`), shared via
+   * `startRankAwareInsert`.
+   *
+   * Absent ⇒ no tightening (every pending item is its own run / full
+   * range), which is exactly the pre-v4-additive behavior. This is why
+   * the field is optional and needs no SaveFile version bump: old blobs
+   * (and the flat / add-items entry points) simply omit it and fall back
+   * to full-range inserts. A missing or stale entry only ever WIDENS the
+   * search, so it can never produce a wrong ranking.
+   */
+  pendingRunIds?: number[];
+  /**
+   * Run id of the item currently in flight (`current`) or, between
+   * frames, of the most-recently-placed item — so `drainPending` can
+   * tell whether the next pending item continues the active run. Null /
+   * absent when there's no active run context.
+   */
+  activeRunId?: number | null;
+  /**
+   * Position in `sorted` where the active run's most-recent item landed.
+   * The next same-run insert starts its binary search at
+   * `activeRunAnchor + 1`. Null / absent ⇒ the active item is the first
+   * of its run (or there's no tightening) ⇒ full-range search.
+   */
+  activeRunAnchor?: number | null;
 }
 
 export type SortProgress = MergeProgress | InsertionProgress;
@@ -260,7 +291,14 @@ export interface ExtraColumnsWarning {
  * v3: renamed Place→ManualInsert on the wire (`pendingManualInserts`,
  *     `currentManualInsert`) and added `currentAutoInsert`.
  * v4: renamed `unplaced` → `toBeInserted` on merge progress for vocabulary
- *     consistency with the rest of the Insert-flavored API.
+ *     consistency with the rest of the Insert-flavored API. Insertion
+ *     progress later gained OPTIONAL rank-run fields (`pendingRunIds`,
+ *     `activeRunId`, `activeRunAnchor`) for the insertion-mode partial-sort
+ *     optimization. These are purely additive — old blobs omit them and
+ *     fall back to full-range inserts, new blobs carry them — so they
+ *     stay on v4 (no bump): a bump would make older builds reject the
+ *     blob outright, whereas additive optional fields are forward- and
+ *     backward-compatible.
  *
  * Loaders accept any version 1–4 but the upgrade path is shape-driven
  * and minimal: missing fields default-fill rather than getting

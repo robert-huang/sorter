@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   canReorderInCurrentMerge,
   type CurrentMergeSlice,
@@ -11,6 +11,7 @@ import type {
 } from '../lib/types';
 import { AddItemsModal } from './AddItemsModal';
 import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
+import { canOpenItemDetail, ItemDetailContext } from './itemDetailContext';
 import { ItemThumb } from './ItemThumb';
 import { mergeSliceLabel } from './listScreenH';
 
@@ -81,11 +82,46 @@ function Thumb({ item }: { item: Item }) {
 }
 
 /**
- * Pencil-icon button that opens the EditItemModal for `item`. Shared
- * between the chip variant (current merge frame, currently-inserting
- * banner) and the full-row variant (queue sublists, to-be-inserted, sorted,
- * pending). The `chip` variant uses the inline `.x`-style button class
- * already styled for chips; the `row` variant uses `.icon-btn`.
+ * Info-icon button that opens the media detail panel (AnilistDetailModal)
+ * for `item`, via the app-level ItemDetailContext. Mirrors EditButton's
+ * chip/row variants so it slots in right beside it. Renders nothing for
+ * non-AniList items (no panel to show) or when no opener is wired (tests /
+ * hosts without the provider) — the same gate ItemThumb and ItemCard use.
+ * This gives the LIST chips/rows parity with the COMPARE card's detail
+ * button.
+ */
+function DetailButton({
+  item,
+  variant,
+}: {
+  item: Item;
+  variant: 'chip' | 'row';
+}) {
+  const opener = useContext(ItemDetailContext);
+  if (!opener || !canOpenItemDetail(item)) return null;
+  return (
+    <button
+      className={variant === 'chip' ? 'x detail' : 'icon-btn'}
+      onClick={(e) => {
+        e.stopPropagation();
+        opener(item);
+      }}
+      title={`Details for "${item.label}"`}
+      aria-label={`Details for ${item.label}`}
+    >
+      ⓘ
+    </button>
+  );
+}
+
+/**
+ * Pencil-icon button that opens the EditItemModal for `item`, paired with
+ * the {@link DetailButton} so every editable item row/chip also exposes a
+ * media-details affordance (AniList items only). Shared between the chip
+ * variant (current merge frame, currently-inserting banner) and the
+ * full-row variant (queue sublists, to-be-inserted, sorted, pending). The
+ * `chip` variant uses the inline `.x`-style button class already styled
+ * for chips; the `row` variant uses `.icon-btn`.
  */
 function EditButton({
   item,
@@ -97,17 +133,20 @@ function EditButton({
   variant: 'chip' | 'row';
 }) {
   return (
-    <button
-      className={variant === 'chip' ? 'x edit' : 'icon-btn'}
-      onClick={(e) => {
-        e.stopPropagation();
-        onOpen(item);
-      }}
-      title={`Edit "${item.label}"`}
-      aria-label={`Edit ${item.label}`}
-    >
-      ✎
-    </button>
+    <>
+      <DetailButton item={item} variant={variant} />
+      <button
+        className={variant === 'chip' ? 'x edit' : 'icon-btn'}
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpen(item);
+        }}
+        title={`Edit "${item.label}"`}
+        aria-label={`Edit ${item.label}`}
+      >
+        ✎
+      </button>
+    </>
   );
 }
 
@@ -720,6 +759,16 @@ function InsertionListView({
                   variant="chip"
                 />
               )}
+              {/* Drop the in-flight item without inserting it: hideItem
+                  cancels the frame and drains the next pending. */}
+              <button
+                className="icon-btn danger"
+                onClick={() => onHide(insertingId)}
+                title="Remove this item — skip inserting it and move on"
+                aria-label={`Remove ${state.items[insertingId]?.label ?? insertingId}`}
+              >
+                ×
+              </button>
             </span>
           </div>
           <div
@@ -730,7 +779,7 @@ function InsertionListView({
             }}
           >
             Use the RANK tab to binary-search this item into the sorted list,
-            or undo to back out.
+            remove it with <strong>×</strong>, or undo to back out.
           </div>
         </div>
       )}
@@ -745,11 +794,12 @@ function InsertionListView({
           marginTop: 0,
         }}
       >
-        Ranking carried over from the original sort. You can nudge an
-        item with <strong>↑ / ↓</strong> or pull it back to re-insert
-        with <strong>↻</strong> — both cancel and restart the current
-        insert, costing up to ⌈log₂(N+1)⌉ extra comparisons. Use
-        <strong> × Remove</strong> to drop an item from the rank.
+        The ranking locked in so far, best to worst — items binary-insert
+        into this list one at a time. You can nudge an item with{' '}
+        <strong>↑ / ↓</strong> or pull it back to re-insert with{' '}
+        <strong>↻</strong> — both cancel and restart the current insert,
+        costing up to ⌈log₂(N+1)⌉ extra comparisons. Use{' '}
+        <strong>× Remove</strong> to drop an item from the rank.
       </p>
       <div className="queue-sublist">
         <div className="queue-sublist-items">

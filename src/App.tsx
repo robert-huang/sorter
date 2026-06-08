@@ -37,7 +37,7 @@ import {
   reorderInCurrentMerge,
   seedFromSublists,
 } from './lib/queueMergeSort';
-import { seedAsSorted } from './lib/insertionSort';
+import { seedAsSorted, seedInsertionFromSublists } from './lib/insertionSort';
 import {
   applyCompletedSortEdit,
   cloneSortState,
@@ -150,6 +150,7 @@ import { configureAnilistRunnerHooks } from './lib/importers/anilist/runners';
 import { subscribeAnilistDisplayPreferences } from './lib/importers/anilist/displayPreferences';
 import { relabelAnilistItemPreservingFormat } from './lib/importers/anilist/anilistItemLabel';
 import { AnilistDetailModal } from './components/AnilistDetailModal';
+import { StaffDetailModal } from './components/StaffDetailModal';
 import { ItemDetailContext } from './components/itemDetailContext';
 import { useKeyboard } from './hooks/useKeyboard';
 
@@ -383,12 +384,24 @@ export function App() {
   const [itemDetailTarget, setItemDetailTarget] = useState<
     { mediaId: number; fallbackTitle: string } | null
   >(null);
+  // Staff detail modal target. Set when the user opens a staff item
+  // (source.kind === 'anilist-staff') or clicks a VA / production name
+  // inside the media detail modal. Mutually exclusive with
+  // itemDetailTarget — opening one clears the other so the two panels
+  // navigate to each other (forward nav) rather than stacking.
+  const [staffDetailTarget, setStaffDetailTarget] = useState<
+    { staffId: number; fallbackName: string } | null
+  >(null);
   const openItemDetail = useCallback((item: Item) => {
-    if (!item.source || item.source.kind !== 'anilist') return;
-    setItemDetailTarget({
-      mediaId: item.source.externalId,
-      fallbackTitle: item.label,
-    });
+    const src = item.source;
+    if (!src) return;
+    if (src.kind === 'anilist') {
+      setStaffDetailTarget(null);
+      setItemDetailTarget({ mediaId: src.externalId, fallbackTitle: item.label });
+    } else if (src.kind === 'anilist-staff') {
+      setItemDetailTarget(null);
+      setStaffDetailTarget({ staffId: src.externalId, fallbackName: item.label });
+    }
   }, []);
 
   // ITP / refresh-token-rejected banner gate. When the auth state
@@ -1884,6 +1897,24 @@ export function App() {
   );
 
   /**
+   * Insertion-mode START entry point. Same combined `{ sublists, extras }`
+   * draft as the merge path, but seeds the binary-insertion engine: the
+   * largest pre-ranked sublist becomes the frozen `sorted[]` and
+   * everything else binary-inserts one item at a time (rank-aware
+   * tightening for the remaining sublists). Chosen via the Start Sort
+   * split-button's "Insertion sort" option — a per-draft, non-persisted
+   * mode toggle that lives in StartScreen.
+   */
+  const onStartInsertion = useCallback(
+    (args: { sublists: Item[][]; extras: Item[] }, initialTab?: TabId) => {
+      const { state: next } = seedInsertionFromSublists(args);
+      const session: SavedSession = { state: next, undoRing: [] };
+      adoptNewSession(session, autoNameFromBlob(buildBlob(next, [])), initialTab);
+    },
+    [adoptNewSession],
+  );
+
+  /**
    * CSV-as-sorted entry point: take the parsed items verbatim as a
    * frozen insertion-mode `sorted[]` with empty `pending[]` (state is
    * immediately `done`). The user can then "+ Add items" later to
@@ -2302,6 +2333,7 @@ export function App() {
         onResumeActive={onResumeActive}
         onStartScratch={onStartScratch}
         onStartPreranked={onStartPreranked}
+        onStartInsertion={onStartInsertion}
         onStartAlreadySorted={onStartAlreadySorted}
         hasLoadedSession={hasState}
         onDraftActivity={parkActiveSession}
@@ -2703,6 +2735,21 @@ export function App() {
           mediaId={itemDetailTarget.mediaId}
           fallbackTitle={itemDetailTarget.fallbackTitle}
           onClose={() => setItemDetailTarget(null)}
+          onOpenStaff={(staffId, fallbackName) => {
+            setItemDetailTarget(null);
+            setStaffDetailTarget({ staffId, fallbackName });
+          }}
+        />
+      )}
+      {staffDetailTarget && (
+        <StaffDetailModal
+          staffId={staffDetailTarget.staffId}
+          fallbackName={staffDetailTarget.fallbackName}
+          onClose={() => setStaffDetailTarget(null)}
+          onOpenMedia={(mediaId, fallbackTitle) => {
+            setStaffDetailTarget(null);
+            setItemDetailTarget({ mediaId, fallbackTitle });
+          }}
         />
       )}
     </div>

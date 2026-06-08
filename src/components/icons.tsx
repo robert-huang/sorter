@@ -88,3 +88,14 @@ export function DatabaseIcon({ size = 16, ...rest }: IconProps) {
     </svg>
   );
 }
+
+export function InfoIcon({ size = 16, ...rest }: IconProps) {
+  // Feather "info" circle: opens the per-item media detail panel.
+  return (
+    <svg {...baseProps(size)} {...rest}>
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="16" x2="12" y2="12" />
+      <line x1="12" y1="8" x2="12.01" y2="8" />
+    </svg>
+  );
+}
