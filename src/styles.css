@@ -1356,7 +1356,11 @@ a {
 
 /* ---------- AniList detail modal (Phase D) ---------- */
 
-.anilist-detail-modal {
+/* Compound selector (.modal.anilist-detail-modal) so this beats the generic
+   .modal rule regardless of source order — the element carries both classes
+   and .modal is defined later in the file, so a single-class selector here
+   would lose the tie and clamp the modal to .modal's narrower width. */
+.modal.anilist-detail-modal {
   max-width: 760px;
   width: 92vw;
   max-height: 88vh;
@@ -1417,8 +1421,20 @@ a {
   margin: 0;
   padding: 0;
   display: flex;
-  flex-wrap: wrap;
   gap: 8px;
+}
+
+/* Genres/tags stay as compact wrapping chips. */
+.anilist-detail-tag-list {
+  flex-wrap: wrap;
+}
+
+/* Cast, production staff, and filmography render one entry per row so long
+   names/titles get the full column width instead of wrapping into cramped
+   fixed-width cards. */
+.anilist-detail-cast-list,
+.anilist-detail-staff-list {
+  flex-direction: column;
 }
 
 .anilist-detail-cast-item {
@@ -1429,7 +1445,8 @@ a {
   padding: 4px 6px 4px 4px;
   border-radius: 6px;
   font-size: 12px;
-  min-width: 200px;
+  width: 100%;
+  min-width: 0;
 }
 
 .anilist-detail-cast-image {
