@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MediaRow } from '../lib/importers/anilist/types';
 import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
 import { currentPageUrl } from '../lib/appRoutes';
@@ -111,6 +111,29 @@ export function WinScreen({
   // Holds the live enumerator across "Find another path" clicks so the
   // adjacency/BFS work happens once, not on every click.
   const streamRef = useRef<CachedShortestPathStream | null>(null);
+  // Sentinel at the very bottom of the cached-paths block. Each appended
+  // path pushes the "Find another path" button down, so we scroll this
+  // into view after an append to keep the button under the cursor.
+  const cachedBottomRef = useRef<HTMLDivElement | null>(null);
+  // Tracks how many paths were shown on the previous render so the effect
+  // only scrolls on a genuine append, not the initial reveal (0 → 1).
+  const shownPathCountRef = useRef(0);
+
+  const shownPathCount =
+    cachedPath.phase === 'shown' ? cachedPath.paths.length : 0;
+
+  useEffect(() => {
+    const prevCount = shownPathCountRef.current;
+    shownPathCountRef.current = shownPathCount;
+    // Only auto-scroll when "Find another path" added a path on top of an
+    // already-revealed one; skip the first reveal and any reset to 0.
+    if (shownPathCount > prevCount && prevCount >= 1) {
+      cachedBottomRef.current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'end',
+      });
+    }
+  }, [shownPathCount]);
 
   const onCopySummary = async () => {
     const summaryText = buildSummaryCopyText(
@@ -290,6 +313,7 @@ export function WinScreen({
               {cachedPath.loadingMore ? 'Searching…' : 'Find another path'}
             </button>
           )}
+          <div ref={cachedBottomRef} aria-hidden="true" />
         </div>
       )}
       {cachedPath.phase === 'not_found' && (
