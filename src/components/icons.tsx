@@ -89,6 +89,18 @@ export function DatabaseIcon({ size = 16, ...rest }: IconProps) {
   );
 }
 
+export function UserIcon({ size = 16, ...rest }: IconProps) {
+  // Feather "user": a head circle over a shoulders bust. Reads as a
+  // single person (vs the two-person "users" glyph) — used for the
+  // "random from a user's list" action.
+  return (
+    <svg {...baseProps(size)} {...rest}>
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+      <circle cx="12" cy="7" r="4" />
+    </svg>
+  );
+}
+
 export function InfoIcon({ size = 16, ...rest }: IconProps) {
   // Feather "info" circle: opens the per-item media detail panel.
   return (

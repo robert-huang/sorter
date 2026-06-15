@@ -3,6 +3,7 @@
  */
 
 import type { AnilistImportContext } from './context';
+import { pickRandomAnimeFromUserListCache } from './graphQueries';
 import { MEDIA_UPSERT_SQL, mediaRowToParams } from './importer';
 import { mapMediaRow } from './mappers';
 import {
@@ -11,6 +12,12 @@ import {
   buildAnimePageCountQuery,
   buildAnimeSearchQuery,
 } from './queries';
+import {
+  getAnilistUserByName,
+  getListedMediaCount,
+  type AnilistUserSummary,
+} from './readQueries';
+import { runAnilistImport } from './runners';
 import type {
   AnilistAnimeByIdResponse,
   AnilistAnimePageCountResponse,
@@ -92,4 +99,64 @@ export async function pickRandomAnimeFromApi(
   }
   const pick = candidates[Math.floor(Math.random() * candidates.length)]!;
   return upsertMedia(ctx, pick);
+}
+
+export interface UserListRandomPick {
+  /** The chosen anime, or null when the user has no eligible entry. */
+  media: MediaRow | null;
+  /** Resolved AniList user, or null when the handle didn't resolve. */
+  user: AnilistUserSummary | null;
+  /** True when this call hit the network to (re)fetch the list. */
+  fetched: boolean;
+}
+
+export interface PickRandomAnimeFromUserListOptions {
+  /** Re-fetch the list from AniList before picking (the right-click action). */
+  forceRefresh?: boolean;
+  /** Exclude PLANNING entries so only started/finished anime are eligible. */
+  excludePlanning?: boolean;
+}
+
+/**
+ * Pick a random anime from a named user's AniList list.
+ *
+ * Cache-first: when the user already has a cached anime list and
+ * `forceRefresh` is false, this picks straight from the local DB with
+ * no network call. Otherwise (nothing cached, or an explicit refresh)
+ * it runs the same list import the START screen uses — populating
+ * `anilist_user`, `media`, and `media_list_entry` into the shared cache
+ * — then picks from the freshened rows.
+ *
+ * The importer's `AnilistUnknownUserError` / `AnilistScrapeLockHeldError`
+ * propagate so the caller can map them to friendly messages.
+ */
+export async function pickRandomAnimeFromUserList(
+  ctx: AnilistImportContext,
+  username: string,
+  options: PickRandomAnimeFromUserListOptions = {},
+): Promise<UserListRandomPick> {
+  const handle = username.trim();
+  if (!handle) {
+    return { media: null, user: null, fetched: false };
+  }
+
+  let user = await getAnilistUserByName(ctx.db, handle);
+  const cachedCount = user ? await getListedMediaCount(ctx.db, user.id, 'ANIME') : 0;
+
+  let fetched = false;
+  if (options.forceRefresh || cachedCount === 0) {
+    await runAnilistImport(handle, 'ANIME');
+    fetched = true;
+    // Re-resolve: a first-ever import is what creates the anilist_user row.
+    user = await getAnilistUserByName(ctx.db, handle);
+  }
+
+  if (!user) {
+    return { media: null, user: null, fetched };
+  }
+
+  const media = await pickRandomAnimeFromUserListCache(ctx.db, user.id, {
+    excludePlanning: options.excludePlanning,
+  });
+  return { media, user, fetched };
 }

@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AnilistImportContext } from '../lib/importers/anilist/context';
 import { searchAnimeInCache } from '../lib/importers/anilist/graphQueries';
+import { AnilistIcon } from '../lib/importers/anilist/icon';
+import { DatabaseIcon, UserIcon } from '../components/icons';
+import {
+  AnilistScrapeLockHeldError,
+  AnilistUnknownUserError,
+} from '../lib/importers/anilist/importer';
 import {
   fetchAnimeById,
   pickRandomAnimeFromApi,
+  pickRandomAnimeFromUserList,
   searchAnimeFromApi,
 } from '../lib/importers/anilist/setupMedia';
 import type { MediaRow } from '../lib/importers/anilist/types';
@@ -13,6 +20,21 @@ import {
   bindAnilistMiddleClick,
   mergeAnilistLinkClass,
 } from './anilistMiddleClick';
+
+/**
+ * Shared with the START screen's AniList tab: the last-imported handle is
+ * remembered here so the A2A "random from user list" field prefills with
+ * whatever the user last imported, anywhere in the app.
+ */
+const ANILIST_USERNAME_LS_KEY = 'anilist:lastUsername';
+
+function readLastUsername(): string {
+  try {
+    return localStorage.getItem(ANILIST_USERNAME_LS_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
 
 interface Props {
   label: string;
@@ -38,6 +60,8 @@ export function EndpointPicker({
   const [searchLoading, setSearchLoading] = useState(false);
   const [apiLoading, setApiLoading] = useState(false);
   const [anilistId, setAnilistId] = useState('');
+  const [username, setUsername] = useState(readLastUsername);
+  const [userListStatus, setUserListStatus] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const runSearch = useCallback(
@@ -126,7 +150,59 @@ export function EndpointPicker({
     }
   };
 
+  // Left-click: pick from the user's cached list (fetching it first only
+  // if nothing is cached). Right-click (forceRefresh): re-scrape the list
+  // from AniList, then pick.
+  const onRandomUserList = async (forceRefresh: boolean) => {
+    const handle = username.trim();
+    if (handle.length === 0) {
+      onError('Enter an AniList username first.');
+      return;
+    }
+    setApiLoading(true);
+    onError(null);
+    setUserListStatus(
+      forceRefresh ? `Re-fetching ${handle}’s list…` : `Loading ${handle}’s list…`,
+    );
+    try {
+      const result = await pickRandomAnimeFromUserList(importCtx, handle, {
+        forceRefresh,
+        excludePlanning: true,
+      });
+      if (!result.user) {
+        onError(`No AniList user named “${handle}”.`);
+        return;
+      }
+      // Normalise the field to AniList's stored casing and remember it.
+      setUsername(result.user.name);
+      try {
+        localStorage.setItem(ANILIST_USERNAME_LS_KEY, result.user.name);
+      } catch {
+        // Best-effort prefill — ignore storage failures (private mode, quota).
+      }
+      if (!result.media) {
+        onError(`No started or finished anime on ${result.user.name}’s list.`);
+        return;
+      }
+      onSelect(result.media);
+    } catch (err) {
+      if (err instanceof AnilistUnknownUserError) {
+        onError(`No AniList user named “${handle}”.`);
+      } else if (err instanceof AnilistScrapeLockHeldError) {
+        onError('An AniList import is already running — try again in a moment.');
+      } else {
+        onError(err instanceof Error ? err.message : 'Could not pick from that list.');
+      }
+    } finally {
+      setApiLoading(false);
+      setUserListStatus(null);
+    }
+  };
+
   const busy = disabled || apiLoading;
+  const userListButtonTitle = `Random from ${
+    username.trim() || 'a user'
+  }’s list — right-click to re-fetch first`;
   const previewTitle = media ? pickMediaTitle(media) : '—';
   const previewAnilistLink = bindAnilistMiddleClick(media ? anilistUrlForMedia(media) : null);
 
@@ -135,19 +211,61 @@ export function EndpointPicker({
       <div className="anime-to-anime-endpoint-header">
         <h2 className="anime-to-anime-section-title">{label}</h2>
         <div className="anime-to-anime-endpoint-header-actions">
-          <button type="button" className="btn small" disabled={busy} onClick={onRandomFromCache}>
-            Random from cache
+          <button
+            type="button"
+            className="btn small icon-only anime-to-anime-random-btn"
+            disabled={busy}
+            onClick={onRandomFromCache}
+            title="Random from cache"
+            aria-label="Random from cache"
+          >
+            <DatabaseIcon size={16} />
           </button>
           <button
             type="button"
-            className="btn small"
+            className="btn small icon-only anime-to-anime-random-btn"
             disabled={busy}
             onClick={() => void onRandomApi()}
+            title="Random from AniList"
+            aria-label="Random from AniList"
           >
-            Random from AniList
+            <AnilistIcon size={16} />
           </button>
+          <div className="anime-to-anime-endpoint-user">
+            <input
+              type="text"
+              className="slot-search anime-to-anime-endpoint-user-input"
+              placeholder="AniList username"
+              value={username}
+              disabled={busy}
+              onChange={(e) => setUsername(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void onRandomUserList(false);
+                }
+              }}
+              aria-label="AniList username for random pick"
+            />
+            <button
+              type="button"
+              className="btn small icon-only anime-to-anime-random-btn"
+              disabled={busy || username.trim().length === 0}
+              onClick={() => void onRandomUserList(false)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                void onRandomUserList(true);
+              }}
+              title={userListButtonTitle}
+              aria-label={userListButtonTitle}
+            >
+              <UserIcon size={16} />
+            </button>
+          </div>
         </div>
       </div>
+
+      {userListStatus && <p className="settings-status">{userListStatus}</p>}
 
       <div className="anime-to-anime-endpoint-inputs">
         <div className="anime-to-anime-endpoint-search">

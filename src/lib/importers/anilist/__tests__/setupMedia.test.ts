@@ -7,6 +7,7 @@ import type { AnilistDbExecutor, AnilistImportContext } from '../context';
 import {
   fetchAnimeById,
   pickRandomAnimeFromApi,
+  pickRandomAnimeFromUserList,
   searchAnimeFromApi,
 } from '../setupMedia';
 import type { AnilistMediaGql } from '../types';
@@ -124,5 +125,63 @@ describe('setupMedia', () => {
     const row = await pickRandomAnimeFromApi(ctx);
     expect(row).not.toBeNull();
     expect([33, 34]).toContain(row?.id);
+  });
+
+  async function seedUser(id: number, name: string): Promise<void> {
+    await adapter.exec(
+      'INSERT INTO anilist_user (id, name, fetched_at, updated_at) VALUES (?, ?, ?, ?)',
+      [id, name, 1, 1],
+    );
+  }
+  async function seedMedia(id: number, type: 'ANIME' | 'MANGA'): Promise<void> {
+    await adapter.exec(
+      'INSERT INTO media (id, type, fetched_at, updated_at) VALUES (?, ?, ?, ?)',
+      [id, type, 1, 1],
+    );
+  }
+  async function seedListEntry(
+    userId: number,
+    mediaId: number,
+    status: string,
+  ): Promise<void> {
+    await adapter.exec(
+      'INSERT INTO media_list_entry (anilist_user_id, media_id, status, fetched_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+      [userId, mediaId, status, 1, 1],
+    );
+  }
+
+  it('pickRandomAnimeFromUserList picks from cache, excluding PLANNING and non-anime', async () => {
+    await seedUser(7, 'Robert');
+    await seedMedia(101, 'ANIME');
+    await seedMedia(102, 'ANIME');
+    await seedMedia(103, 'MANGA');
+    await seedListEntry(7, 101, 'COMPLETED');
+    await seedListEntry(7, 102, 'PLANNING');
+    await seedListEntry(7, 103, 'COMPLETED');
+
+    // Case-insensitive handle resolution + cache hit (no network), and the
+    // only eligible row is the COMPLETED anime (PLANNING and manga dropped).
+    for (let i = 0; i < 10; i++) {
+      const result = await pickRandomAnimeFromUserList(ctx, 'robert', {
+        excludePlanning: true,
+      });
+      expect(result.fetched).toBe(false);
+      expect(result.user?.id).toBe(7);
+      expect(result.media?.id).toBe(101);
+    }
+    expect(executeQuery).not.toHaveBeenCalled();
+  });
+
+  it('pickRandomAnimeFromUserList returns null media when only PLANNING anime is cached', async () => {
+    await seedUser(8, 'Alice');
+    await seedMedia(201, 'ANIME');
+    await seedListEntry(8, 201, 'PLANNING');
+
+    const result = await pickRandomAnimeFromUserList(ctx, 'ALICE', {
+      excludePlanning: true,
+    });
+    expect(result.user?.name).toBe('Alice');
+    expect(result.media).toBeNull();
+    expect(result.fetched).toBe(false);
   });
 });

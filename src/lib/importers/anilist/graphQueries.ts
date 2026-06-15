@@ -638,3 +638,45 @@ export async function pickRandomAnimeFromCache(
   }
   return rowToMediaRow(rows[0]);
 }
+
+export interface UserListRandomPickOptions {
+  /**
+   * Drop `PLANNING` entries so only anime the user has actually
+   * started/finished (CURRENT / COMPLETED / PAUSED / DROPPED / REPEATING)
+   * are eligible. The A2A picker passes this on.
+   */
+  excludePlanning?: boolean;
+}
+
+/**
+ * Pick one random ANIME from a specific user's cached list, scoped to
+ * `media_list_entry` rows for `anilistUserId`. Mirrors
+ * {@link pickRandomAnimeFromCache} but joins the per-user list table so
+ * the universe is "what this user has on their AniList list" rather than
+ * "everything in the local cache". Returns null when the user has no
+ * eligible entries cached.
+ */
+export async function pickRandomAnimeFromUserListCache(
+  db: AnilistDbExecutor,
+  anilistUserId: number,
+  options: UserListRandomPickOptions = {},
+): Promise<MediaRow | null> {
+  const clauses = [`m.type = 'ANIME'`, 'mle.anilist_user_id = ?'];
+  const params: SqlBindable[] = [anilistUserId];
+  if (options.excludePlanning) {
+    clauses.push(`mle.status != 'PLANNING'`);
+  }
+  const sql = `
+    SELECT m.*
+      FROM media m
+      JOIN media_list_entry mle ON mle.media_id = m.id
+     WHERE ${clauses.join(' AND ')}
+     ORDER BY RANDOM()
+     LIMIT 1
+  `;
+  const rows = await db.exec(sql, params);
+  if (rows.length === 0) {
+    return null;
+  }
+  return rowToMediaRow(rows[0]);
+}

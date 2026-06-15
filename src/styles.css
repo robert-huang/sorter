@@ -4367,6 +4367,30 @@ a {
   border-radius: var(--radius-sm);
 }
 
+/* Icon-only "Random from …" triggers in the A2A endpoint header. Centers
+   the glyph since .btn isn't a flex container; both buttons stretch to the
+   same height via the header's flex row. */
+.anime-to-anime-random-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Username field + user button pair for "random from a user's list".
+   Stretches its children to a common height to line up with the sibling
+   random icon buttons in the header. */
+.anime-to-anime-endpoint-user {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.anime-to-anime-endpoint-user-input {
+  width: 150px;
+  min-width: 0;
+  margin: 0;
+}
+
 .form-row {
   display: flex;
   flex-direction: column;
