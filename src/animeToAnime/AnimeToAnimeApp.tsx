@@ -32,6 +32,8 @@ import {
   type AnilistWaitState,
 } from '../lib/importers/anilist/transport';
 import { AppBannerStack } from '../components/AppBannerStack';
+import { AnilistDetailModal } from '../components/AnilistDetailModal';
+import { StaffDetailModal } from '../components/StaffDetailModal';
 import { useAnilistWaitCountdown } from '../hooks/useAnilistWaitCountdown';
 import { useSourceDbSync } from '../hooks/useSourceDbSync';
 import { AnimeToAnimeHeader } from './AnimeToAnimeHeader';
@@ -195,6 +197,17 @@ export function AnimeToAnimeApp() {
   // When on, the staff filmography is restricted to items on the user's
   // list. Persists across hops within a session (not reset on navigation).
   const [onlyMyList, setOnlyMyList] = useState(false);
+  // Detail-modal targets, opened from the result-screen path trail only.
+  // Mirrors App.tsx's item/staff modal routing so a finished round can
+  // drill into any node and cross-navigate between media and staff.
+  const [itemDetailTarget, setItemDetailTarget] = useState<{
+    mediaId: number;
+    fallbackTitle: string;
+  } | null>(null);
+  const [staffDetailTarget, setStaffDetailTarget] = useState<{
+    staffId: number;
+    fallbackName: string;
+  } | null>(null);
 
   useEffect(() => {
     applyAnimeToAnimeTheme(theme);
@@ -332,6 +345,21 @@ export function AnimeToAnimeApp() {
   const onPlayAgain = useCallback(() => {
     goToSetup();
   }, [goToSetup]);
+
+  const onOpenPathStep = useCallback((step: PathStep) => {
+    if (step.kind === 'anime') {
+      setItemDetailTarget({ mediaId: step.mediaId, fallbackTitle: step.title });
+    } else {
+      setStaffDetailTarget({ staffId: step.staffId, fallbackName: step.name });
+    }
+  }, []);
+
+  const onOpenMediaDetail = useCallback(
+    (mediaId: number, fallbackTitle: string) => {
+      setItemDetailTarget({ mediaId, fallbackTitle });
+    },
+    [],
+  );
 
   const findCachedPath = useCallback(
     async (maxLinks?: number) => {
@@ -690,6 +718,8 @@ export function AnimeToAnimeApp() {
                 phase === 'won' ? onFindCachedPathForWin : onFindCachedPathForGiveUp
               }
               onPlayAgain={onPlayAgain}
+              onOpenStep={onOpenPathStep}
+              onOpenMedia={onOpenMediaDetail}
             />
           )}
 
@@ -819,6 +849,29 @@ export function AnimeToAnimeApp() {
             </>
           )}
         </main>
+      )}
+
+      {itemDetailTarget && (
+        <AnilistDetailModal
+          mediaId={itemDetailTarget.mediaId}
+          fallbackTitle={itemDetailTarget.fallbackTitle}
+          onClose={() => setItemDetailTarget(null)}
+          onOpenStaff={(staffId, fallbackName) => {
+            setItemDetailTarget(null);
+            setStaffDetailTarget({ staffId, fallbackName });
+          }}
+        />
+      )}
+      {staffDetailTarget && (
+        <StaffDetailModal
+          staffId={staffDetailTarget.staffId}
+          fallbackName={staffDetailTarget.fallbackName}
+          onClose={() => setStaffDetailTarget(null)}
+          onOpenMedia={(mediaId, fallbackTitle) => {
+            setStaffDetailTarget(null);
+            setItemDetailTarget({ mediaId, fallbackTitle });
+          }}
+        />
       )}
     </div>
   );

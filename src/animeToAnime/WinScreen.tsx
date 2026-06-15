@@ -16,6 +16,37 @@ interface Props {
   pathHistory: readonly PathStep[];
   onPlayAgain: () => void;
   onFindCachedPath?: () => Promise<CachedOptimalPathResult>;
+  /** Open the detail modal for a path node (result-screen only). */
+  onOpenStep?: (step: PathStep) => void;
+  /** Open the media detail modal for the start/goal tiles. */
+  onOpenMedia?: (mediaId: number, fallbackTitle: string) => void;
+}
+
+/**
+ * Start/goal title in the result header. Renders as a button that opens
+ * the media detail modal when an opener is wired, otherwise as plain
+ * bold text (keeps the in-game / no-opener rendering unchanged).
+ */
+function RouteTitle({
+  media,
+  onOpenMedia,
+}: {
+  media: MediaRow;
+  onOpenMedia?: (mediaId: number, fallbackTitle: string) => void;
+}) {
+  const title = pickMediaTitle(media);
+  if (!onOpenMedia) {
+    return <strong>{title}</strong>;
+  }
+  return (
+    <button
+      type="button"
+      className="anime-to-anime-win-route-link"
+      onClick={() => onOpenMedia(media.id, title)}
+    >
+      {title}
+    </button>
+  );
 }
 
 type CachedPathUiState =
@@ -59,6 +90,8 @@ export function WinScreen({
   pathHistory,
   onPlayAgain,
   onFindCachedPath,
+  onOpenStep,
+  onOpenMedia,
 }: Props) {
   const [cachedPath, setCachedPath] = useState<CachedPathUiState>({ phase: 'idle' });
   const [summaryCopied, setSummaryCopied] = useState(false);
@@ -116,14 +149,16 @@ export function WinScreen({
     <section className="page-section anime-to-anime-win">
       <h2 className="anime-to-anime-win-title">{title}</h2>
       <p className="anime-to-anime-win-route">
-        <strong>{pickMediaTitle(startMedia)}</strong>
+        <RouteTitle media={startMedia} onOpenMedia={onOpenMedia} />
         <span aria-hidden="true"> → </span>
-        <strong>{pickMediaTitle(goalMedia)}</strong>
+        <RouteTitle media={goalMedia} onOpenMedia={onOpenMedia} />
       </p>
       <p className="anime-to-anime-win-hops">
         {linksLabel}: <strong>{linksUsed}</strong>
       </p>
-      {pathHistory.length > 1 && <WinPathTrail steps={pathHistory} />}
+      {pathHistory.length > 1 && (
+        <WinPathTrail steps={pathHistory} onOpenStep={onOpenStep} />
+      )}
       <div className="anime-to-anime-actions anime-to-anime-win-actions">
         {showCachedButton && (
           <button
@@ -166,7 +201,9 @@ export function WinScreen({
               </>
             )}
           </p>
-          {cachedPath.steps.length > 1 && <WinPathTrail steps={cachedPath.steps} />}
+          {cachedPath.steps.length > 1 && (
+            <WinPathTrail steps={cachedPath.steps} onOpenStep={onOpenStep} />
+          )}
         </div>
       )}
       {cachedPath.phase === 'not_found' && (

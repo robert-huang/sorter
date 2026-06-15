@@ -3,9 +3,11 @@ import { PathStepBubble, PathTrailEdge } from './pathStepVisual';
 
 interface Props {
   steps: readonly PathStep[];
+  /** When set, each stop's bubble opens the detail modal for that step. */
+  onOpenStep?: (step: PathStep) => void;
 }
 
-export function WinPathTrail({ steps }: Props) {
+export function WinPathTrail({ steps, onOpenStep }: Props) {
   return (
     <div className="anime-to-anime-win-path-trail" aria-label="Path taken">
       {steps.flatMap((step, index) => {
@@ -17,7 +19,7 @@ export function WinPathTrail({ steps }: Props) {
 
         const stop = (
           <span key={stepKey} className="anime-to-anime-win-path-stop">
-            <PathStepBubble step={step} compact />
+            <PathStepBubble step={step} compact onOpenStep={onOpenStep} />
             <span className="anime-to-anime-win-path-label">{label}</span>
           </span>
         );
