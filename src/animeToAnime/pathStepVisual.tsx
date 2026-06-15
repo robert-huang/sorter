@@ -1,9 +1,11 @@
+import { useEffect, useRef, useState } from 'react';
 import {
   anilistUrlForCharacter,
   anilistUrlForPathStep,
   bindAnilistMiddleClick,
   mergeAnilistLinkClass,
 } from './anilistMiddleClick';
+import type { RouteSlotOption } from './cachedGraph';
 import type { PathHopCharacter, PathStep } from './pathHistory';
 import { pathStepLabel } from './pathHistory';
 
@@ -112,6 +114,121 @@ export function PathTrailEdge({
       onAuxClick={anilistLink.onAuxClick}
     >
       →
+    </span>
+  );
+}
+
+/**
+ * A collapsed-route slot: shows the currently selected option's bubble plus a
+ * `+N` caret badge. The caret (left-click) and a right-click anywhere on the
+ * slot open a dropdown of the interchangeable shows (cover + title). Picking
+ * one calls {@link onSelect}; the bubble itself behaves like any path node
+ * (left-click opens the detail modal, middle-click opens AniList).
+ */
+export function SlotBubble({
+  options,
+  selectedIndex,
+  onSelect,
+  compact = false,
+  onOpenStep,
+}: {
+  options: readonly RouteSlotOption[];
+  selectedIndex: number;
+  onSelect: (index: number) => void;
+  compact?: boolean;
+  onOpenStep?: (step: PathStep) => void;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const containerRef = useRef<HTMLSpanElement | null>(null);
+  const selected = options[selectedIndex] ?? options[0];
+  const extraCount = options.length - 1;
+
+  // Close the menu on an outside click or Escape while it's open.
+  useEffect(() => {
+    if (!menuOpen) {
+      return;
+    }
+    const onDocMouseDown = (event: MouseEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocMouseDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onDocMouseDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [menuOpen]);
+
+  return (
+    <span
+      ref={containerRef}
+      className="anime-to-anime-slot"
+      onContextMenu={
+        extraCount > 0
+          ? (event) => {
+              event.preventDefault();
+              setMenuOpen(true);
+            }
+          : undefined
+      }
+    >
+      <span className="anime-to-anime-slot-bubble">
+        <PathStepBubble step={selected.show} compact={compact} onOpenStep={onOpenStep} />
+        {extraCount > 0 && (
+          <button
+            type="button"
+            className="anime-to-anime-slot-caret"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            aria-label={`${options.length} show options`}
+            title={`${options.length} shows share this slot`}
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            +{extraCount}
+          </button>
+        )}
+      </span>
+      {menuOpen && (
+        <ul className="anime-to-anime-slot-menu" role="menu">
+          {options.map((option, index) => (
+            <li key={option.show.mediaId}>
+              <button
+                type="button"
+                role="menuitemradio"
+                aria-checked={index === selectedIndex}
+                className={
+                  index === selectedIndex
+                    ? 'anime-to-anime-slot-menu-item is-selected'
+                    : 'anime-to-anime-slot-menu-item'
+                }
+                onClick={() => {
+                  onSelect(index);
+                  setMenuOpen(false);
+                }}
+              >
+                {option.show.coverImage ? (
+                  <img
+                    className="anime-to-anime-slot-menu-cover"
+                    src={option.show.coverImage}
+                    alt=""
+                    loading="lazy"
+                  />
+                ) : (
+                  <span className="anime-to-anime-slot-menu-cover anime-to-anime-slot-menu-cover--blank" />
+                )}
+                <span className="anime-to-anime-slot-menu-title">{option.show.title}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </span>
   );
 }

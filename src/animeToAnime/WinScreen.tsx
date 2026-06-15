@@ -3,11 +3,13 @@ import type { MediaRow } from '../lib/importers/anilist/types';
 import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
 import { currentPageUrl } from '../lib/appRoutes';
 import type {
-  BuildCachedShortestPathStream,
-  CachedShortestPathStream,
+  BuildCachedRouteStream,
+  CachedRouteStream,
+  CollapsedRoute,
 } from './cachedGraph';
 import { formatPathSummary, type PathStep } from './pathHistory';
 import { WinPathTrail } from './WinPathTrail';
+import { CollapsedRouteTrail } from './CollapsedRouteTrail';
 
 export type RoundEndOutcome = 'won' | 'gave_up';
 
@@ -18,8 +20,8 @@ interface Props {
   linksUsed: number;
   pathHistory: readonly PathStep[];
   onPlayAgain: () => void;
-  /** Build a stream that lazily yields every shortest cached path. */
-  onBuildCachedPathStream?: () => Promise<BuildCachedShortestPathStream>;
+  /** Build a stream that lazily yields every shortest cached route. */
+  onBuildCachedPathStream?: () => Promise<BuildCachedRouteStream>;
   /** Open the detail modal for a path node (result-screen only). */
   onOpenStep?: (step: PathStep) => void;
   /** Open the media detail modal for the start/goal tiles. */
@@ -59,11 +61,11 @@ type CachedPathUiState =
   | {
       phase: 'shown';
       optimalLinks: number;
-      /** Distinct shortest paths shown so far, appended one per click. */
-      paths: PathStep[][];
-      /** True once the enumerator has yielded every shortest path. */
+      /** Distinct shortest routes shown so far, appended one per click. */
+      routes: CollapsedRoute[];
+      /** True once the enumerator has yielded every shortest route. */
       exhausted: boolean;
-      /** True while the next path is being pulled/hydrated. */
+      /** True while the next route is being pulled/hydrated. */
       loadingMore: boolean;
     }
   | { phase: 'not_found' };
@@ -108,29 +110,29 @@ export function WinScreen({
 }: Props) {
   const [cachedPath, setCachedPath] = useState<CachedPathUiState>({ phase: 'idle' });
   const [summaryCopied, setSummaryCopied] = useState(false);
-  // Holds the live enumerator across "Find another path" clicks so the
+  // Holds the live enumerator across "Find another route" clicks so the
   // adjacency/BFS work happens once, not on every click.
-  const streamRef = useRef<CachedShortestPathStream | null>(null);
-  // Tracks how many paths were shown on the previous render so the effect
+  const streamRef = useRef<CachedRouteStream | null>(null);
+  // Tracks how many routes were shown on the previous render so the effect
   // only scrolls on a genuine append, not the initial reveal (0 → 1).
-  const shownPathCountRef = useRef(0);
+  const shownRouteCountRef = useRef(0);
 
-  const shownPathCount =
-    cachedPath.phase === 'shown' ? cachedPath.paths.length : 0;
+  const shownRouteCount =
+    cachedPath.phase === 'shown' ? cachedPath.routes.length : 0;
 
   useEffect(() => {
-    const prevCount = shownPathCountRef.current;
-    shownPathCountRef.current = shownPathCount;
-    // Only auto-scroll when "Find another path" added a path on top of an
+    const prevCount = shownRouteCountRef.current;
+    shownRouteCountRef.current = shownRouteCount;
+    // Only auto-scroll when "Find another route" added a route on top of an
     // already-revealed one; skip the first reveal and any reset to 0.
-    if (shownPathCount > prevCount && prevCount >= 1) {
+    if (shownRouteCount > prevCount && prevCount >= 1) {
       // Scroll the whole page all the way to its bottom (not just the button
       // into the viewport edge) so it stays pinned under the cursor for
       // repeated clicks even as appended paths grow the page.
       const scroller = document.scrollingElement ?? document.documentElement;
       scroller.scrollTo({ top: scroller.scrollHeight, behavior: 'smooth' });
     }
-  }, [shownPathCount]);
+  }, [shownRouteCount]);
 
   const onCopySummary = async () => {
     const summaryText = buildSummaryCopyText(
@@ -168,13 +170,13 @@ export function WinScreen({
           setCachedPath({
             phase: 'shown',
             optimalLinks: built.stream.optimalLinks,
-            paths: [first.steps],
+            routes: [first.route],
             exhausted: false,
             loadingMore: false,
           });
           return;
         }
-        // "ready" implies at least one path; treat an empty stream as a miss.
+        // "ready" implies at least one route; treat an empty stream as a miss.
         streamRef.current = null;
         setCachedPath({ phase: 'not_found' });
       })
@@ -184,7 +186,7 @@ export function WinScreen({
       });
   }, [onBuildCachedPathStream]);
 
-  const onFindAnotherPath = useCallback(() => {
+  const onFindAnotherRoute = useCallback(() => {
     const stream = streamRef.current;
     if (!stream) {
       return;
@@ -202,7 +204,7 @@ export function WinScreen({
           if (result.status === 'found') {
             return {
               ...prev,
-              paths: [...prev.paths, result.steps],
+              routes: [...prev.routes, result.route],
               loadingMore: false,
             };
           }
@@ -281,33 +283,33 @@ export function WinScreen({
               </>
             )}
           </p>
-          {cachedPath.paths.map((steps, index) => (
+          {cachedPath.routes.map((route, index) => (
             <div
-              key={`cached-path-${index}`}
+              key={`cached-route-${index}`}
               className="anime-to-anime-win-cached-path"
             >
-              {cachedPath.paths.length > 1 && (
+              {cachedPath.routes.length > 1 && (
                 <p className="anime-to-anime-win-cached-path-label">
-                  Path {index + 1}
+                  Route {index + 1}
                 </p>
               )}
-              {steps.length > 1 && (
-                <WinPathTrail steps={steps} onOpenStep={onOpenStep} />
+              {route.items.length > 1 && (
+                <CollapsedRouteTrail route={route} onOpenStep={onOpenStep} />
               )}
             </div>
           ))}
           {cachedPath.exhausted ? (
             <p className="anime-to-anime-win-cached-hint">
-              That's every shortest path in your cache ({cachedPath.paths.length}).
+              That's every shortest route in your cache ({cachedPath.routes.length}).
             </p>
           ) : (
             <button
               type="button"
               className="btn"
               disabled={cachedPath.loadingMore}
-              onClick={onFindAnotherPath}
+              onClick={onFindAnotherRoute}
             >
-              {cachedPath.loadingMore ? 'Searching…' : 'Find another path'}
+              {cachedPath.loadingMore ? 'Searching…' : 'Find another route'}
             </button>
           )}
         </div>

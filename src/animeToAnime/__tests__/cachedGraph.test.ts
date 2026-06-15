@@ -6,9 +6,12 @@ import { anilistSourceDescriptor } from '../../lib/importers/anilist/anilistSour
 import type { AnilistDbExecutor } from '../../lib/importers/anilist/context';
 import type { RoundConfig } from '../preferences';
 import {
+  buildCachedRouteStream,
   buildCachedShortestPathStream,
   findCachedOptimalPath,
+  type CachedRouteStream,
   type CachedShortestPathStream,
+  type CollapsedRoute,
 } from '../cachedGraph';
 
 type SqliteExecOpts = { bind?: unknown };
@@ -438,6 +441,226 @@ describe('buildCachedShortestPathStream', () => {
 
     const built = await build(1, 3, 1);
     expect(built.status).toBe('not_found');
+  });
+
+  it('signals "same" when start equals goal', async () => {
+    seedMedia(sqlite, 1, 'Solo');
+    const built = await build(1, 1);
+    expect(built.status).toBe('same');
+  });
+
+  it('returns not_found for a disconnected cache', async () => {
+    seedMedia(sqlite, 1, 'Isolated A');
+    seedMedia(sqlite, 2, 'Isolated B');
+    const built = await build(1, 2);
+    expect(built.status).toBe('not_found');
+  });
+});
+
+/** Collapse a hydrated route into a comparable shape: fixed nodes become their
+ *  media/staff id; slots become their sorted set of show media ids. */
+type RouteSummaryItem = { fixed: number } | { slot: number[] };
+
+function summarizeRoute(route: CollapsedRoute): RouteSummaryItem[] {
+  return route.items.map((item) => {
+    if (item.kind === 'fixed') {
+      return {
+        fixed: item.step.kind === 'anime' ? item.step.mediaId : item.step.staffId,
+      };
+    }
+    return {
+      slot: item.options.map((option) => option.show.mediaId).sort((a, b) => a - b),
+    };
+  });
+}
+
+async function collectRoutes(
+  stream: CachedRouteStream,
+): Promise<{ routes: CollapsedRoute[]; total: number }> {
+  const routes: CollapsedRoute[] = [];
+  for (;;) {
+    const result = await stream.next();
+    if (result.status === 'exhausted') {
+      return { routes, total: result.total };
+    }
+    routes.push(result.route);
+  }
+}
+
+describe('buildCachedRouteStream', () => {
+  let adapter: AnilistDbExecutor;
+  let sqlite: Database;
+
+  beforeEach(async () => {
+    const fresh = await freshAnilistDb();
+    adapter = fresh.adapter;
+    sqlite = fresh.db;
+  });
+
+  function build(
+    startMediaId: number,
+    goalMediaId: number,
+    maxLinks?: number,
+    rules: RoundConfig = DEFAULT_RULES,
+  ) {
+    return buildCachedRouteStream({
+      db: adapter,
+      startMediaId,
+      goalMediaId,
+      rules,
+      maxLinks,
+    });
+  }
+
+  it('collapses two mids sharing both VAs into one route with a 2-option slot', async () => {
+    seedMedia(sqlite, 1, 'Start');
+    seedMedia(sqlite, 2, 'Mid A');
+    seedMedia(sqlite, 3, 'Mid B');
+    seedMedia(sqlite, 4, 'Goal');
+    seedStaff(sqlite, 10, 'VA One');
+    seedStaff(sqlite, 11, 'VA Two');
+    seedCharacter(sqlite, 100, 'C0');
+    seedCharacter(sqlite, 101, 'C1');
+    seedCharacter(sqlite, 102, 'C2');
+    seedCharacter(sqlite, 103, 'C3');
+    seedCharacter(sqlite, 104, 'C4');
+    seedCharacter(sqlite, 105, 'C5');
+    // Start—VA10, both mids carry VA10 and VA11, Goal—VA11.
+    seedVaLink(sqlite, 1, 100, 10);
+    seedVaLink(sqlite, 2, 101, 10);
+    seedVaLink(sqlite, 2, 102, 11);
+    seedVaLink(sqlite, 3, 103, 10);
+    seedVaLink(sqlite, 3, 104, 11);
+    seedVaLink(sqlite, 4, 105, 11);
+
+    const built = await build(1, 4);
+    expect(built.status).toBe('ready');
+    if (built.status !== 'ready') {
+      return;
+    }
+    expect(built.stream.optimalLinks).toBe(2);
+
+    const { routes, total } = await collectRoutes(built.stream);
+    expect(total).toBe(1);
+    expect(summarizeRoute(routes[0])).toEqual([
+      { fixed: 1 },
+      { fixed: 10 },
+      { slot: [2, 3] },
+      { fixed: 11 },
+      { fixed: 4 },
+    ]);
+  });
+
+  it('keeps distinct staff bridges as separate single-option routes', async () => {
+    seedMedia(sqlite, 1, 'Start');
+    seedMedia(sqlite, 2, 'Goal');
+    seedStaff(sqlite, 10, 'VA One');
+    seedStaff(sqlite, 11, 'VA Two');
+    seedCharacter(sqlite, 100, 'Hero A');
+    seedCharacter(sqlite, 101, 'Hero B');
+    seedVaLink(sqlite, 1, 100, 10);
+    seedVaLink(sqlite, 2, 100, 10);
+    seedVaLink(sqlite, 1, 101, 11);
+    seedVaLink(sqlite, 2, 101, 11);
+
+    const built = await build(1, 2);
+    expect(built.status).toBe('ready');
+    if (built.status !== 'ready') {
+      return;
+    }
+    const { routes, total } = await collectRoutes(built.stream);
+    expect(total).toBe(2);
+    const staffPerRoute = routes
+      .map((route) => {
+        const staff = route.items.find(
+          (item) => item.kind === 'fixed' && item.step.kind === 'staff',
+        );
+        return staff && staff.kind === 'fixed' && staff.step.kind === 'staff'
+          ? staff.step.staffId
+          : -1;
+      })
+      .sort((a, b) => a - b);
+    expect(staffPerRoute).toEqual([10, 11]);
+    // No slots — both routes are fully fixed 1-link bridges.
+    for (const route of routes) {
+      expect(route.items.every((item) => item.kind === 'fixed')).toBe(true);
+    }
+  });
+
+  it('represents two independent slots without a cartesian blowup', async () => {
+    seedMedia(sqlite, 1, 'Start');
+    seedMedia(sqlite, 2, 'Mid1 A');
+    seedMedia(sqlite, 3, 'Mid1 B');
+    seedMedia(sqlite, 4, 'Mid2 A');
+    seedMedia(sqlite, 5, 'Mid2 B');
+    seedMedia(sqlite, 6, 'Goal');
+    seedStaff(sqlite, 10, 'VA A');
+    seedStaff(sqlite, 11, 'VA B');
+    seedStaff(sqlite, 12, 'VA C');
+    for (let c = 100; c <= 112; c += 1) {
+      seedCharacter(sqlite, c, `Char ${c}`);
+    }
+    // Start—VA10; slot1 {2,3} carry VA10+VA11; slot2 {4,5} carry VA11+VA12; Goal—VA12.
+    seedVaLink(sqlite, 1, 100, 10);
+    seedVaLink(sqlite, 2, 101, 10);
+    seedVaLink(sqlite, 2, 102, 11);
+    seedVaLink(sqlite, 3, 103, 10);
+    seedVaLink(sqlite, 3, 104, 11);
+    seedVaLink(sqlite, 4, 105, 11);
+    seedVaLink(sqlite, 4, 106, 12);
+    seedVaLink(sqlite, 5, 107, 11);
+    seedVaLink(sqlite, 5, 108, 12);
+    seedVaLink(sqlite, 6, 109, 12);
+
+    const built = await build(1, 6);
+    expect(built.status).toBe('ready');
+    if (built.status !== 'ready') {
+      return;
+    }
+    expect(built.stream.optimalLinks).toBe(3);
+    const { routes, total } = await collectRoutes(built.stream);
+    // 2×2 concrete paths collapse to a single route holding two 2-option slots.
+    expect(total).toBe(1);
+    expect(summarizeRoute(routes[0])).toEqual([
+      { fixed: 1 },
+      { fixed: 10 },
+      { slot: [2, 3] },
+      { fixed: 11 },
+      { slot: [4, 5] },
+      { fixed: 12 },
+      { fixed: 6 },
+    ]);
+  });
+
+  it('keeps a franchise relation hop as a fixed node', async () => {
+    seedMedia(sqlite, 1, 'Start');
+    seedMedia(sqlite, 2, 'Bridge');
+    seedMedia(sqlite, 3, 'Goal');
+    seedStaff(sqlite, 10, 'VA One');
+    seedCharacter(sqlite, 100, 'C0');
+    seedCharacter(sqlite, 101, 'C1');
+    // Start—VA10—Bridge, then Bridge—(relation)—Goal.
+    seedVaLink(sqlite, 1, 100, 10);
+    seedVaLink(sqlite, 2, 101, 10);
+    seedRelation(sqlite, 2, 3);
+
+    const built = await build(1, 3);
+    expect(built.status).toBe('ready');
+    if (built.status !== 'ready') {
+      return;
+    }
+    expect(built.stream.optimalLinks).toBe(2);
+    const { routes, total } = await collectRoutes(built.stream);
+    expect(total).toBe(1);
+    expect(summarizeRoute(routes[0])).toEqual([
+      { fixed: 1 },
+      { fixed: 10 },
+      { fixed: 2 },
+      { fixed: 3 },
+    ]);
+    // The relation edge into the goal keeps its relation-type label.
+    const goalItem = routes[0].items[3];
+    expect(goalItem.kind === 'fixed' && goalItem.step.viaLabel).toBe('SEQUEL');
   });
 
   it('signals "same" when start equals goal', async () => {

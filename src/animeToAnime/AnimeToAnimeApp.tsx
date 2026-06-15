@@ -42,8 +42,8 @@ import { PathHistoryTrail } from './PathHistoryTrail';
 import { ExitRoundConfirmModal } from './ExitRoundConfirmModal';
 import { GiveUpConfirmModal } from './GiveUpConfirmModal';
 import {
-  buildCachedShortestPathStream,
-  type BuildCachedShortestPathStream,
+  buildCachedRouteStream,
+  type BuildCachedRouteStream,
 } from './cachedGraph';
 import { WinScreen } from './WinScreen';
 import { type PathHopCharacter, type PathStep } from './pathHistory';
@@ -376,11 +376,11 @@ export function AnimeToAnimeApp() {
   );
 
   const buildCachedPathStream = useCallback(
-    async (maxLinks?: number): Promise<BuildCachedShortestPathStream> => {
+    async (maxLinks?: number): Promise<BuildCachedRouteStream> => {
       if (!startMedia || !goalMedia || !activeRoundConfig) {
         return { status: 'not_found' };
       }
-      return buildCachedShortestPathStream({
+      return buildCachedRouteStream({
         db: importCtx.current.db,
         startMediaId: startMedia.id,
         goalMediaId: goalMedia.id,

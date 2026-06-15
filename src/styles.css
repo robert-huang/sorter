@@ -2173,6 +2173,115 @@ a {
   color: var(--text-muted);
 }
 
+/* ---------- Collapsed-route slot picker ---------- */
+/* A slot shows the currently selected show's bubble with a small +N badge;
+   clicking the badge (or right-clicking the slot) opens a dropdown of the
+   interchangeable shows that share this position in the route. */
+.anime-to-anime-slot {
+  position: relative;
+  display: inline-flex;
+}
+
+.anime-to-anime-slot-bubble {
+  position: relative;
+  display: inline-flex;
+}
+
+.anime-to-anime-slot-caret {
+  position: absolute;
+  right: -6px;
+  bottom: -4px;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  border: 1.5px solid var(--bg, #fff);
+  background: var(--accent, #2563eb);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.anime-to-anime-slot-caret:hover {
+  filter: brightness(1.08);
+}
+
+.anime-to-anime-slot-caret:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.anime-to-anime-slot-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  min-width: 180px;
+  max-width: 260px;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--bg, #fff);
+  border: 1px solid var(--border, #e5e5e5);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  text-align: left;
+}
+
+.anime-to-anime-slot-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  appearance: none;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 4px 6px;
+  cursor: pointer;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+}
+
+.anime-to-anime-slot-menu-item:hover {
+  background: var(--bg-subtle, #f3f4f6);
+}
+
+.anime-to-anime-slot-menu-item.is-selected {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.anime-to-anime-slot-menu-cover {
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: var(--bg-subtle, #f3f4f6);
+}
+
+.anime-to-anime-slot-menu-cover--blank {
+  display: inline-block;
+}
+
+.anime-to-anime-slot-menu-title {
+  font-size: 12px;
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .anime-to-anime-play-toolbar {
   display: flex;
   align-items: center;

@@ -7,8 +7,11 @@ import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
 import { pickPersonName } from '../lib/importers/anilist/personDisplayLabel';
 import { filterProductionStaffRows } from '../lib/importers/anilist/staffRoleFilter';
 import type { RoundConfig } from './preferences';
-import type { PathStep } from './pathHistory';
+import type { PathHopCharacter, PathStep } from './pathHistory';
 import { annotatePathViaLabels } from './pathHopLabels';
+
+/** A path step known to be an anime node (slots only ever hold anime). */
+type AnimeStep = Extract<PathStep, { kind: 'anime' }>;
 
 export type FindCachedOptimalPathParams = {
   db: AnilistDbExecutor;
@@ -639,6 +642,363 @@ export async function buildCachedShortestPathStream(
       const steps = await hydratePathSteps(db, result.value, rules);
       yielded += 1;
       return { status: 'found', linksUsed: optimalLinks, steps };
+    },
+  };
+
+  return { status: 'ready', stream };
+}
+
+// ---------------------------------------------------------------------------
+// Collapsed routes: group shortest paths by their staff skeleton, with each
+// intermediate show held as a selectable "slot".
+// ---------------------------------------------------------------------------
+
+/** One element of a route skeleton (start→goal order), before hydration.
+ *  Fixed nodes (start, goal, staff, relation-anime) pin the staff sequence;
+ *  a slot is the set of interchangeable intermediate shows between two staff. */
+type RouteSkeletonItem =
+  | { kind: 'fixed'; node: GraphNode }
+  | { kind: 'slot'; animeIds: number[] };
+
+type RouteSkeleton = { items: RouteSkeletonItem[] };
+
+function skeletonKey(items: readonly RouteSkeletonItem[]): string {
+  return items
+    .map((item) =>
+      item.kind === 'fixed'
+        ? `${item.node.kind}:${item.node.id}`
+        : `slot[${item.animeIds.join('.')}]`,
+    )
+    .join('>');
+}
+
+/**
+ * Lazily enumerate distinct route skeletons over the shortest-path predecessor
+ * DAG. Branches only on staff (and relation-anime fixed nodes); the
+ * intermediate shows between two consecutive staff are collected into a slot
+ * set rather than multiplied out, so a route compactly represents the whole
+ * product of slot choices without the cartesian blowup.
+ *
+ * The DAG is acyclic (predecessors have strictly smaller shortest distance),
+ * so both nested walks terminate.
+ */
+function* enumerateStaffRoutes(
+  preds: Map<string, GraphNode[]>,
+  startMediaId: number,
+  goal: GraphNode,
+): Generator<RouteSkeleton> {
+  /** Skeleton prefixes for start→…→(the node immediately before `sNext`),
+   *  i.e. ending at the slot that feeds `sNext` (or at `start` when `sNext`
+   *  sits directly on the start anime). `sNext` itself is appended by the
+   *  caller. */
+  function* enumToStaff(sNext: GraphNode): Generator<RouteSkeletonItem[]> {
+    const animePreds = preds.get(nodeKey('staff', sNext.id)) ?? [];
+    let startsDirectly = false;
+    // Group slot candidates by the staff two hops back: slot(sPrev, sNext) is
+    // every show featuring both flanking staff.
+    const slotsByPrevStaff = new Map<number, Set<number>>();
+    const relationShows: GraphNode[] = [];
+
+    for (const show of animePreds) {
+      if (show.kind !== 'anime') {
+        continue;
+      }
+      if (show.id === startMediaId) {
+        startsDirectly = true;
+        continue;
+      }
+      const showPreds = preds.get(nodeKey('anime', show.id)) ?? [];
+      for (const prev of showPreds) {
+        if (prev.kind === 'staff') {
+          let set = slotsByPrevStaff.get(prev.id);
+          if (!set) {
+            set = new Set();
+            slotsByPrevStaff.set(prev.id, set);
+          }
+          set.add(show.id);
+        }
+      }
+      if (showPreds.some((prev) => prev.kind === 'anime')) {
+        relationShows.push(show);
+      }
+    }
+
+    if (startsDirectly) {
+      yield [{ kind: 'fixed', node: { kind: 'anime', id: startMediaId } }];
+    }
+    for (const [prevStaffId, shows] of slotsByPrevStaff) {
+      const animeIds = [...shows].sort((a, b) => a - b);
+      for (const prefix of enumToStaff({ kind: 'staff', id: prevStaffId })) {
+        yield [
+          ...prefix,
+          { kind: 'fixed', node: { kind: 'staff', id: prevStaffId } },
+          { kind: 'slot', animeIds },
+        ];
+      }
+    }
+    // A show reached via a relation edge is a fixed node, not a collapsible
+    // slot — emit the full start→show prefix as-is (it ends with fixed(show)).
+    for (const show of relationShows) {
+      yield* enumToAnime(show);
+    }
+  }
+
+  /** Skeletons for start→`a`, ending with `fixed(a)`. */
+  function* enumToAnime(a: GraphNode): Generator<RouteSkeletonItem[]> {
+    if (a.kind === 'anime' && a.id === startMediaId) {
+      yield [{ kind: 'fixed', node: { kind: 'anime', id: startMediaId } }];
+      return;
+    }
+    const incoming = preds.get(nodeKey(a.kind, a.id)) ?? [];
+    for (const prev of incoming) {
+      if (prev.kind === 'staff') {
+        for (const prefix of enumToStaff(prev)) {
+          yield [...prefix, { kind: 'fixed', node: prev }, { kind: 'fixed', node: a }];
+        }
+      } else {
+        // Relation edge prev(anime)→a: the edge is implied by adjacency of two
+        // fixed anime items in the hydrated trail.
+        for (const prefix of enumToAnime(prev)) {
+          yield [...prefix, { kind: 'fixed', node: a }];
+        }
+      }
+    }
+  }
+
+  const seen = new Set<string>();
+  for (const items of enumToAnime(goal)) {
+    const key = skeletonKey(items);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    yield { items };
+  }
+}
+
+/** A selectable show in a slot, carrying both of its incident edge labels. */
+export type RouteSlotOption = {
+  /** The show, annotated with the `sPrev→show` edge (its incoming arrow). */
+  show: AnimeStep;
+  /** The `show→sNext` edge — overrides the following staff's incoming arrow. */
+  nextStaffVia: { viaLabel?: string; viaCharacters?: readonly PathHopCharacter[] };
+};
+
+/** One position in a collapsed route: a pinned node or a selectable slot. */
+export type RouteItem =
+  | { kind: 'fixed'; step: PathStep }
+  | { kind: 'slot'; options: RouteSlotOption[] };
+
+/** A shortest route grouped by staff skeleton; slots hold the show choices. */
+export type CollapsedRoute = {
+  linksUsed: number;
+  items: RouteItem[];
+};
+
+type StaffVia = { viaLabel?: string; viaCharacters?: readonly PathHopCharacter[] };
+
+function viaOf(step: PathStep): StaffVia {
+  return { viaLabel: step.viaLabel, viaCharacters: step.viaCharacters };
+}
+
+/** Resolve a single hop's edge label, returning the annotated `to` step. */
+async function resolveEdgeStep(
+  db: AnilistDbExecutor,
+  fromNode: GraphNode,
+  fromStep: PathStep,
+  toNode: GraphNode,
+  toStep: PathStep,
+  rules: RoundConfig,
+): Promise<PathStep> {
+  const annotated = await annotatePathViaLabels(
+    db,
+    [fromNode, toNode],
+    [fromStep, toStep],
+    rules,
+  );
+  return annotated[1];
+}
+
+/**
+ * Hydrate a route skeleton into a {@link CollapsedRoute}: batch the base node
+ * details once, then derive each edge label. Fixed-spine edges (start→s1,
+ * sL→goal, relation pairs) are resolved on adjacent fixed nodes; slot edges
+ * are resolved per option. Single-option slots collapse to fixed nodes so
+ * simple routes render plainly.
+ */
+async function hydrateRouteSkeleton(
+  db: AnilistDbExecutor,
+  skeleton: RouteSkeleton,
+  rules: RoundConfig,
+  linksUsed: number,
+): Promise<CollapsedRoute> {
+  const { items } = skeleton;
+
+  const nodeByKey = new Map<string, GraphNode>();
+  for (const item of items) {
+    if (item.kind === 'fixed') {
+      nodeByKey.set(nodeKey(item.node.kind, item.node.id), item.node);
+    } else {
+      for (const id of item.animeIds) {
+        nodeByKey.set(nodeKey('anime', id), { kind: 'anime', id });
+      }
+    }
+  }
+  const uniqueNodes = [...nodeByKey.values()];
+  const baseSteps = await hydratePathSteps(db, uniqueNodes);
+  const baseByKey = new Map<string, PathStep>();
+  uniqueNodes.forEach((node, index) => {
+    baseByKey.set(nodeKey(node.kind, node.id), baseSteps[index]);
+  });
+  const baseOf = (node: GraphNode): PathStep => {
+    const step = baseByKey.get(nodeKey(node.kind, node.id));
+    return step ? { ...step } : { ...baseSteps[0] };
+  };
+
+  const result: RouteItem[] = [];
+  // When a single-option slot collapses to a fixed show, its `show→sNext`
+  // edge must still flow onto the following (now fixed) staff item.
+  let carriedStaffVia: StaffVia | null = null;
+
+  for (let i = 0; i < items.length; i += 1) {
+    const item = items[i];
+    const prev = items[i - 1];
+
+    if (item.kind === 'fixed') {
+      const step = baseOf(item.node);
+      if (i === 0) {
+        // start node — no incoming edge.
+      } else if (prev.kind === 'fixed') {
+        const annotated = await resolveEdgeStep(
+          db,
+          prev.node,
+          baseOf(prev.node),
+          item.node,
+          step,
+          rules,
+        );
+        result.push({ kind: 'fixed', step: annotated });
+        continue;
+      } else if (carriedStaffVia) {
+        // Previous item was a collapsed single-option slot.
+        step.viaLabel = carriedStaffVia.viaLabel;
+        step.viaCharacters = carriedStaffVia.viaCharacters;
+        carriedStaffVia = null;
+      } else {
+        // Previous item is a multi-option slot: default to its first option's
+        // outgoing edge; the trail UI overrides this on selection.
+        const prevResult = result[result.length - 1];
+        if (prevResult?.kind === 'slot') {
+          const via = prevResult.options[0].nextStaffVia;
+          step.viaLabel = via.viaLabel;
+          step.viaCharacters = via.viaCharacters;
+        }
+      }
+      result.push({ kind: 'fixed', step });
+      continue;
+    }
+
+    // Slot: flanked by fixed staff on both sides (enumeration guarantees it).
+    const sPrev = (prev as { kind: 'fixed'; node: GraphNode }).node;
+    const sNext = (items[i + 1] as { kind: 'fixed'; node: GraphNode }).node;
+    const options: RouteSlotOption[] = [];
+    for (const id of item.animeIds) {
+      const showNode: GraphNode = { kind: 'anime', id };
+      const showStep = await resolveEdgeStep(
+        db,
+        sPrev,
+        baseOf(sPrev),
+        showNode,
+        baseOf(showNode),
+        rules,
+      );
+      const staffViaStep = await resolveEdgeStep(
+        db,
+        showNode,
+        baseOf(showNode),
+        sNext,
+        baseOf(sNext),
+        rules,
+      );
+      if (showStep.kind !== 'anime') {
+        continue;
+      }
+      options.push({ show: showStep, nextStaffVia: viaOf(staffViaStep) });
+    }
+    options.sort((a, b) => a.show.title.localeCompare(b.show.title));
+
+    if (options.length === 1) {
+      result.push({ kind: 'fixed', step: options[0].show });
+      carriedStaffVia = options[0].nextStaffVia;
+    } else {
+      result.push({ kind: 'slot', options });
+    }
+  }
+
+  return { linksUsed, items: result };
+}
+
+/** One pull from a {@link CachedRouteStream}. */
+export type CachedRouteStreamResult =
+  | { status: 'found'; route: CollapsedRoute }
+  | { status: 'exhausted'; total: number };
+
+/**
+ * Lazily yields every distinct collapsed route (grouped by staff skeleton),
+ * one per `next()` call. Mirrors {@link CachedShortestPathStream}, but each
+ * yield is a route whose intermediate shows are selectable slots.
+ */
+export type CachedRouteStream = {
+  optimalLinks: number;
+  next: () => Promise<CachedRouteStreamResult>;
+};
+
+export type BuildCachedRouteStream =
+  | { status: 'ready'; stream: CachedRouteStream }
+  | { status: 'not_found' }
+  | { status: 'same' };
+
+/**
+ * Build a stream that enumerates every distinct collapsed route between the
+ * endpoints in the cached graph. The expensive adjacency/BFS/DAG work happens
+ * once; each `stream.next()` pulls + hydrates the next route's skeleton.
+ */
+export async function buildCachedRouteStream(
+  params: FindCachedOptimalPathParams,
+): Promise<BuildCachedRouteStream> {
+  const { db, startMediaId, goalMediaId, rules, maxLinks } = params;
+
+  if (startMediaId === goalMediaId) {
+    return { status: 'same' };
+  }
+  if (maxLinks !== undefined && maxLinks <= 0) {
+    return { status: 'not_found' };
+  }
+
+  const adjacency = await loadCachedAdjacency(db, rules);
+  const dist = computeShortestDistances(adjacency, startMediaId, maxLinks);
+  const optimalLinks = dist.get(nodeKey('anime', goalMediaId));
+  if (optimalLinks === undefined) {
+    return { status: 'not_found' };
+  }
+
+  const preds = buildShortestPathPredecessors(adjacency, dist);
+  const iterator = enumerateStaffRoutes(preds, startMediaId, {
+    kind: 'anime',
+    id: goalMediaId,
+  });
+  let yielded = 0;
+
+  const stream: CachedRouteStream = {
+    optimalLinks,
+    async next() {
+      const result = iterator.next();
+      if (result.done) {
+        return { status: 'exhausted', total: yielded };
+      }
+      const route = await hydrateRouteSkeleton(db, result.value, rules, optimalLinks);
+      yielded += 1;
+      return { status: 'found', route };
     },
   };
 
