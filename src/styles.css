@@ -1483,6 +1483,13 @@ a {
   text-decoration: underline;
 }
 
+/* Inline names/characters that are only middle-clickable (open AniList) get
+   the same underline-on-hover affordance as the staff-panel link buttons. */
+.anilist-detail-person-static.anime-to-anime-anilist-link:hover,
+.anilist-detail-character-name.anime-to-anime-anilist-link:hover {
+  text-decoration: underline;
+}
+
 /* Clickable filmography row in the StaffDetailModal: a full-width
    button styled like a cast item that opens the media modal. */
 .anilist-detail-row-link {

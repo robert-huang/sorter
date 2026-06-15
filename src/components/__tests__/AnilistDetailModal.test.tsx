@@ -27,6 +27,10 @@ vi.mock('../../lib/importers/anilist/runners', () => ({
 
 import { productionReads } from '../../lib/importers/anilist/readQueries';
 import { runAnilistMediaLazyExpansion } from '../../lib/importers/anilist/runners';
+import {
+  anilistUrlForCharacter,
+  anilistUrlForStaffId,
+} from '../../lib/importers/anilist/anilistLinks';
 import { AnilistDetailModal } from '../AnilistDetailModal';
 
 const mockedGetMediaDetail = vi.mocked(productionReads.getMediaDetail);
@@ -488,6 +492,66 @@ describe('AnilistDetailModal — clickable people (staff panel nav)', () => {
       btn!.click();
     });
     expect(onOpenStaff).toHaveBeenCalledWith(201, 'Megumi Hayashibara');
+  });
+
+  it('middle-click opens the AniList page for characters and voice actors', async () => {
+    mockedGetMediaDetail.mockResolvedValueOnce({
+      media: makeMedia(73),
+      studios: [],
+      tags: [],
+      characters: [
+        {
+          character: makeCharacterRow(300, 'Faye Valentine'),
+          role: 'MAIN',
+          sortOrder: 0,
+          voiceActors: [makeStaffRow(201, 'Megumi Hayashibara')],
+        },
+      ],
+      productionStaff: [],
+    });
+    mockedGetExpansionStatus.mockResolvedValueOnce(makeExpansionStatus(73, true));
+    const onOpenStaff = vi.fn();
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+    await act(async () => {
+      root.render(
+        <AnilistDetailModal
+          mediaId={73}
+          fallbackTitle="EN-73"
+          onClose={() => {}}
+          onOpenStaff={onOpenStaff}
+        />,
+      );
+    });
+    await flushPromises();
+
+    const charName = Array.from(
+      container.querySelectorAll('.anilist-detail-character-name'),
+    ).find((el) => (el.textContent ?? '').includes('Faye Valentine'));
+    expect(charName).toBeDefined();
+    act(() => {
+      charName!.dispatchEvent(new MouseEvent('auxclick', { bubbles: true, button: 1 }));
+    });
+    expect(openSpy).toHaveBeenLastCalledWith(
+      anilistUrlForCharacter(300),
+      '_blank',
+      'noopener,noreferrer',
+    );
+
+    // Middle-clicking the VA opens their AniList page, not the staff panel.
+    const vaBtn = findPersonLink('Megumi Hayashibara');
+    expect(vaBtn).toBeDefined();
+    act(() => {
+      vaBtn!.dispatchEvent(new MouseEvent('auxclick', { bubbles: true, button: 1 }));
+    });
+    expect(openSpy).toHaveBeenLastCalledWith(
+      anilistUrlForStaffId(201),
+      '_blank',
+      'noopener,noreferrer',
+    );
+    expect(onOpenStaff).not.toHaveBeenCalled();
+
+    openSpy.mockRestore();
   });
 
   it('renders staff names as plain text when onOpenStaff is not wired', async () => {

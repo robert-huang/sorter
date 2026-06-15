@@ -13,9 +13,9 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { anilistUrlForPathStep } from '../anilistMiddleClick';
+import { anilistUrlForCharacter, anilistUrlForPathStep } from '../anilistMiddleClick';
 import type { PathStep } from '../pathHistory';
-import { PathStepBubble } from '../pathStepVisual';
+import { PathStepBubble, PathTrailEdge } from '../pathStepVisual';
 
 function animeStep(overrides: Partial<Extract<PathStep, { kind: 'anime' }>> = {}): PathStep {
   return {
@@ -127,5 +127,57 @@ describe('PathStepBubble interactions', () => {
     expect(bubble).not.toBeNull();
     expect(bubble.getAttribute('tabindex')).toBeNull();
     expect(bubble.className).not.toContain('anime-to-anime-path-step--interactive');
+  });
+});
+
+describe('PathTrailEdge character middle-click', () => {
+  it('opens every character page when a voice hop passed through several', () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+    act(() => {
+      root.render(
+        <PathTrailEdge
+          kind="staff"
+          viaLabel="as Edward Elric, Alphonse Elric"
+          viaCharacters={[
+            { id: 11, name: 'Edward Elric' },
+            { id: 22, name: 'Alphonse Elric' },
+          ]}
+        />,
+      );
+    });
+
+    const edge = container.querySelector('.anime-to-anime-path-edge')!;
+    act(() => {
+      edge.dispatchEvent(new MouseEvent('auxclick', { bubbles: true, button: 1 }));
+    });
+
+    expect(openSpy).toHaveBeenCalledTimes(2);
+    expect(openSpy).toHaveBeenNthCalledWith(
+      1,
+      anilistUrlForCharacter(11),
+      '_blank',
+      'noopener,noreferrer',
+    );
+    expect(openSpy).toHaveBeenNthCalledWith(
+      2,
+      anilistUrlForCharacter(22),
+      '_blank',
+      'noopener,noreferrer',
+    );
+  });
+
+  it('is inert on middle-click for hops with no characters (staff/relation arrows)', () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+    act(() => {
+      root.render(<PathTrailEdge kind="staff" viaLabel="Director" />);
+    });
+
+    const edge = container.querySelector('.anime-to-anime-path-edge')!;
+    act(() => {
+      edge.dispatchEvent(new MouseEvent('auxclick', { bubbles: true, button: 1 }));
+    });
+
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(edge.className).not.toContain('anime-to-anime-anilist-link');
   });
 });

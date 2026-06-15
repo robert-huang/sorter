@@ -1,9 +1,10 @@
 import {
+  anilistUrlForCharacter,
   anilistUrlForPathStep,
   bindAnilistMiddleClick,
   mergeAnilistLinkClass,
 } from './anilistMiddleClick';
-import type { PathStep } from './pathHistory';
+import type { PathHopCharacter, PathStep } from './pathHistory';
 import { pathStepLabel } from './pathHistory';
 
 export function PathStepBubble({
@@ -83,23 +84,41 @@ export function PathTrailEdge({
   kind,
   compact = false,
   viaLabel,
+  viaCharacters,
 }: {
   kind: 'anime' | 'staff';
   compact?: boolean;
   viaLabel?: string;
+  /** When set (voice hops), middle-clicking the arrow opens each character. */
+  viaCharacters?: readonly PathHopCharacter[];
 }) {
+  const characterUrls = (viaCharacters ?? []).map((character) =>
+    anilistUrlForCharacter(character.id),
+  );
+  const interactive = characterUrls.length > 0;
+  const anilistLink = bindAnilistMiddleClick(interactive ? characterUrls : null);
+  const characterNames = (viaCharacters ?? []).map((character) => character.name).join(', ');
+  const baseClass = [
+    'anime-to-anime-path-edge',
+    `anime-to-anime-path-edge--${kind}`,
+    compact ? 'anime-to-anime-path-edge--compact' : '',
+    viaLabel ? 'anime-to-anime-path-edge--labeled' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const title = interactive
+    ? `${viaLabel ? `${viaLabel} · ` : ''}middle-click opens ${
+        characterNames || 'character'
+      } on AniList`
+    : viaLabel;
+
   return (
     <span
-      className={[
-        'anime-to-anime-path-edge',
-        `anime-to-anime-path-edge--${kind}`,
-        compact ? 'anime-to-anime-path-edge--compact' : '',
-        viaLabel ? 'anime-to-anime-path-edge--labeled' : '',
-      ]
-        .filter(Boolean)
-        .join(' ')}
-      title={viaLabel}
-      aria-hidden={viaLabel ? undefined : true}
+      className={mergeAnilistLinkClass(baseClass, anilistLink.className)}
+      title={title}
+      aria-hidden={viaLabel || interactive ? undefined : true}
+      onMouseDown={anilistLink.onMouseDown}
+      onAuxClick={anilistLink.onAuxClick}
     >
       →
     </span>

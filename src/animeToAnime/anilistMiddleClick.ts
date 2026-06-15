@@ -1,4 +1,3 @@
-import type { MouseEvent } from 'react';
 import {
   buildAnilistFavouriteUrl,
   buildAnilistMediaUrl,
@@ -6,7 +5,17 @@ import {
 import type { MediaRow, StaffRow } from '../lib/importers/anilist/types';
 import type { PathStep } from './pathHistory';
 
-const MIDDLE_CLICK_HINT = 'Middle-click to open on AniList';
+// The generic middle-click binder and AniList URL helpers live in the lib
+// layer so shared components (e.g. AnilistDetailModal) can use them without
+// importing from the animeToAnime feature. Re-exported here for the many
+// existing call sites in this feature.
+export {
+  anilistUrlForCharacter,
+  anilistUrlForStaffId,
+  anilistUrlForMediaEntry,
+  bindAnilistMiddleClick,
+  mergeAnilistLinkClass,
+} from '../lib/importers/anilist/anilistLinks';
 
 export function anilistUrlForMedia(media: Pick<MediaRow, 'id' | 'type'>): string {
   return buildAnilistMediaUrl(media.type, media.id);
@@ -21,38 +30,4 @@ export function anilistUrlForPathStep(step: PathStep): string {
     return buildAnilistMediaUrl('ANIME', step.mediaId);
   }
   return buildAnilistFavouriteUrl('STAFF', step.staffId);
-}
-
-/** Middle-click opens AniList in a new tab; left-click behavior is unchanged. */
-export function bindAnilistMiddleClick(url: string | null): {
-  className: string | undefined;
-  title: string | undefined;
-  onMouseDown: (event: MouseEvent<HTMLElement>) => void;
-  onAuxClick: (event: MouseEvent<HTMLElement>) => void;
-} {
-  const enabled = Boolean(url);
-  return {
-    className: enabled ? 'anime-to-anime-anilist-link' : undefined,
-    title: enabled ? MIDDLE_CLICK_HINT : undefined,
-    onMouseDown: (event) => {
-      if (enabled && event.button === 1) {
-        event.preventDefault();
-      }
-    },
-    onAuxClick: (event) => {
-      if (!enabled || event.button !== 1) {
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      window.open(url!, '_blank', 'noopener,noreferrer');
-    },
-  };
-}
-
-export function mergeAnilistLinkClass(
-  base: string,
-  linkClass: string | undefined,
-): string {
-  return linkClass ? `${base} ${linkClass}` : base;
 }

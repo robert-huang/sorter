@@ -35,6 +35,7 @@ export function PathHistoryTrail({ steps }: Props) {
             key={`edge-${stepKey}`}
             kind={step.kind === 'anime' ? 'anime' : 'staff'}
             viaLabel={step.viaLabel}
+            viaCharacters={step.viaCharacters}
           />,
           circle,
         ];

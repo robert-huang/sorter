@@ -10,6 +10,12 @@ import { filterProductionStaffRows } from '../lib/importers/anilist/staffRoleFil
 import { runAnilistMediaLazyExpansion } from '../lib/importers/anilist/runners';
 import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
 import { pickPersonName } from '../lib/importers/anilist/personDisplayLabel';
+import {
+  anilistUrlForCharacter,
+  anilistUrlForStaffId,
+  bindAnilistMiddleClick,
+  mergeAnilistLinkClass,
+} from '../lib/importers/anilist/anilistLinks';
 import { useAnilistDisplayPreferences } from '../hooks/useAnilistDisplayPreferences';
 import { formatAnilistProgress } from './anilistProgressLabel';
 
@@ -120,29 +126,52 @@ interface Props {
 }
 
 /**
- * Render a person's name as a button that opens their staff panel, or
- * as plain text when no opener is wired. Used for cast VAs + production
- * staff so the media modal can navigate into the staff filmography.
+ * Render a person's name as a button that opens their staff panel
+ * (left-click) and their AniList page (middle-click). When no opener is
+ * wired it renders as static text — still middle-clickable when an
+ * `anilistUrl` is supplied. Used for cast VAs + production staff.
  */
 function PersonLink({
   name,
   onOpen,
+  anilistUrl,
 }: {
   name: string;
   onOpen?: () => void;
+  anilistUrl?: string;
 }) {
+  const anilistLink = bindAnilistMiddleClick(anilistUrl ?? null);
+  const middleClickHint = anilistUrl ? ' · middle-click opens AniList' : '';
+
   if (!onOpen) {
-    return <>{name}</>;
+    if (!anilistUrl) {
+      return <>{name}</>;
+    }
+    return (
+      <span
+        className={mergeAnilistLinkClass(
+          'anilist-detail-person-static',
+          anilistLink.className,
+        )}
+        title={anilistLink.title}
+        onMouseDown={anilistLink.onMouseDown}
+        onAuxClick={anilistLink.onAuxClick}
+      >
+        {name}
+      </span>
+    );
   }
   return (
     <button
       type="button"
-      className="anilist-detail-person-link"
+      className={mergeAnilistLinkClass('anilist-detail-person-link', anilistLink.className)}
       onClick={(e) => {
         e.stopPropagation();
         onOpen();
       }}
-      title={`View ${name}'s filmography`}
+      onMouseDown={anilistLink.onMouseDown}
+      onAuxClick={anilistLink.onAuxClick}
+      title={`View ${name}'s filmography${middleClickHint}`}
     >
       {name}
     </button>
@@ -512,7 +541,16 @@ export function AnilistDetailModal({
                 {detail.characters.length > 0 && (
                   <ul className="anilist-detail-cast-list">
                     {detail.characters.map(
-                      ({ character, role, voiceActors }) => (
+                      ({ character, role, voiceActors }) => {
+                        const characterName = pickPersonName(
+                          character,
+                          undefined,
+                          'Character',
+                        );
+                        const characterLink = bindAnilistMiddleClick(
+                          anilistUrlForCharacter(character.id),
+                        );
+                        return (
                         <li
                           key={character.id}
                           className="anilist-detail-cast-item"
@@ -526,7 +564,17 @@ export function AnilistDetailModal({
                             />
                           )}
                           <div className="anilist-detail-cast-text">
-                            <strong>{pickPersonName(character, undefined, 'Character')}</strong>
+                            <strong
+                              className={mergeAnilistLinkClass(
+                                'anilist-detail-character-name',
+                                characterLink.className,
+                              )}
+                              title={characterLink.title}
+                              onMouseDown={characterLink.onMouseDown}
+                              onAuxClick={characterLink.onAuxClick}
+                            >
+                              {characterName}
+                            </strong>
                             {role && (
                               <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>
                                 {role}
@@ -547,6 +595,7 @@ export function AnilistDetailModal({
                                             ? () => onOpenStaff(va.id, vaName)
                                             : undefined
                                         }
+                                        anilistUrl={anilistUrlForStaffId(va.id)}
                                       />
                                     </span>
                                   );
@@ -555,7 +604,8 @@ export function AnilistDetailModal({
                             )}
                           </div>
                         </li>
-                      ),
+                        );
+                      },
                     )}
                   </ul>
                 )}
@@ -619,6 +669,7 @@ export function AnilistDetailModal({
                                       )
                                   : undefined
                               }
+                              anilistUrl={anilistUrlForStaffId(staff.id)}
                             />
                           </strong>
                           <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>

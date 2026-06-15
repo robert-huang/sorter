@@ -7,9 +7,15 @@ import {
 } from '../lib/importers/anilist/readQueries';
 import type { AnilistProgressEvent } from '../lib/importers/anilist/progress';
 import { runAnilistStaffFilmographyExpansion } from '../lib/importers/anilist/runners';
-import { buildAnilistFavouriteUrl, buildAnilistMediaUrl } from '../lib/importers/anilist/anilistSource';
 import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
 import { pickPersonName } from '../lib/importers/anilist/personDisplayLabel';
+import {
+  anilistUrlForCharacter,
+  anilistUrlForMediaEntry,
+  anilistUrlForStaffId,
+  bindAnilistMiddleClick,
+  mergeAnilistLinkClass,
+} from '../lib/importers/anilist/anilistLinks';
 import { useAnilistDisplayPreferences } from '../hooks/useAnilistDisplayPreferences';
 import { formatAnilistProgress } from './anilistProgressLabel';
 
@@ -76,14 +82,49 @@ function creditMetaLine(credit: StaffFilmographyCredit): string {
   return parts.join(' \u00B7 ');
 }
 
-/** Human role summary for a credit: production roles ("Director") plus
- *  any voiced characters ("voiced X, Y"), joined for one compact line. */
-function creditRoleLine(credit: StaffFilmographyCredit): string {
-  const parts = [...credit.productionRoles];
-  if (credit.voicedCharacters.length > 0) {
-    parts.push(`voiced ${credit.voicedCharacters.map((c) => c.name).join(', ')}`);
+/**
+ * Role summary for a credit: production roles ("Director") plus any voiced
+ * characters ("voiced X, Y"), joined on one compact line. Each voiced
+ * character is middle-clickable to open its AniList page in a new tab.
+ */
+function CreditRoleLine({ credit }: { credit: StaffFilmographyCredit }) {
+  const hasProduction = credit.productionRoles.length > 0;
+  const hasVoiced = credit.voicedCharacters.length > 0;
+  if (!hasProduction && !hasVoiced) {
+    return null;
   }
-  return parts.join(' \u2022 ');
+  return (
+    <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>
+      {credit.productionRoles.join(' \u2022 ')}
+      {hasProduction && hasVoiced ? ' \u2022 ' : ''}
+      {hasVoiced && (
+        <>
+          voiced{' '}
+          {credit.voicedCharacters.map((character, index) => {
+            const characterLink = bindAnilistMiddleClick(
+              anilistUrlForCharacter(character.id),
+            );
+            return (
+              <span key={character.id}>
+                {index > 0 ? ', ' : ''}
+                <span
+                  className={mergeAnilistLinkClass(
+                    'anilist-detail-character-name',
+                    characterLink.className,
+                  )}
+                  title={characterLink.title}
+                  onMouseDown={characterLink.onMouseDown}
+                  onAuxClick={characterLink.onAuxClick}
+                >
+                  {character.name}
+                </span>
+              </span>
+            );
+          })}
+        </>
+      )}
+    </span>
+  );
 }
 
 export function StaffDetailModal({
@@ -191,6 +232,7 @@ export function StaffDetailModal({
 
   const name = pickName(detail, staffId, fallbackName);
   const staff = detail?.staff ?? null;
+  const staffNameLink = bindAnilistMiddleClick(anilistUrlForStaffId(staffId));
   // Highlight the Refresh button when the cached filmography is older
   // than the staleness threshold (>90d) — the freshness line alone is
   // easy to miss, so the action affordance itself signals "update me".
@@ -216,7 +258,15 @@ export function StaffDetailModal({
             marginBottom: 10,
           }}
         >
-          <h3 style={{ margin: 0, flex: 1, minWidth: 0 }}>{name}</h3>
+          <h3
+            className={staffNameLink.className}
+            style={{ margin: 0, flex: 1, minWidth: 0 }}
+            title={staffNameLink.title}
+            onMouseDown={staffNameLink.onMouseDown}
+            onAuxClick={staffNameLink.onAuxClick}
+          >
+            {name}
+          </h3>
           <button
             type="button"
             className={`btn small${
@@ -268,7 +318,7 @@ export function StaffDetailModal({
                   <span>★ {staff.favourites.toLocaleString()}</span>
                 )}
                 <a
-                  href={buildAnilistFavouriteUrl('STAFF', staffId)}
+                  href={anilistUrlForStaffId(staffId)}
                   target="_blank"
                   rel="noopener noreferrer"
                 >
@@ -343,31 +393,24 @@ export function StaffDetailModal({
                   <ul className="anilist-detail-cast-list">
                     {visibleCredits.map((credit) => {
                       const title = pickMediaTitle(credit.media);
-                      const roleLine = creditRoleLine(credit);
                       const metaLine = creditMetaLine(credit);
-                      const mediaUrl = buildAnilistMediaUrl(
-                        credit.media.type,
-                        credit.media.id,
+                      // Left-click opens the media modal; middle-click opens the
+                      // media's AniList page (voiced-character names inside the
+                      // row stop propagation to open their own pages instead).
+                      const mediaLink = bindAnilistMiddleClick(
+                        anilistUrlForMediaEntry(credit.media.type, credit.media.id),
                       );
                       return (
                         <li key={credit.media.id}>
                           <button
                             type="button"
-                            className="anilist-detail-cast-item anilist-detail-row-link"
+                            className={mergeAnilistLinkClass(
+                              'anilist-detail-cast-item anilist-detail-row-link',
+                              mediaLink.className,
+                            )}
                             onClick={() => onOpenMedia(credit.media.id, title)}
-                            onMouseDown={(e) => {
-                              // Suppress the browser's middle-button autoscroll
-                              // so onAuxClick can open the AniList page cleanly.
-                              if (e.button === 1) e.preventDefault();
-                            }}
-                            onAuxClick={(e) => {
-                              // Middle-click opens the media's AniList page in a
-                              // new tab (left-click still opens the media modal).
-                              if (e.button !== 1) return;
-                              e.preventDefault();
-                              e.stopPropagation();
-                              window.open(mediaUrl, '_blank', 'noopener,noreferrer');
-                            }}
+                            onMouseDown={mediaLink.onMouseDown}
+                            onAuxClick={mediaLink.onAuxClick}
                             title={`Open ${title} (middle-click to open on AniList)`}
                           >
                             {credit.media.cover_image && (
@@ -380,11 +423,7 @@ export function StaffDetailModal({
                             )}
                             <span className="anilist-detail-cast-text">
                               <strong>{title}</strong>
-                              {roleLine && (
-                                <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>
-                                  {roleLine}
-                                </span>
-                              )}
+                              <CreditRoleLine credit={credit} />
                               {metaLine && (
                                 <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>
                                   {metaLine}

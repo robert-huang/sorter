@@ -34,6 +34,7 @@ export function WinPathTrail({ steps, onOpenStep }: Props) {
             kind={step.kind === 'anime' ? 'anime' : 'staff'}
             compact
             viaLabel={step.viaLabel}
+            viaCharacters={step.viaCharacters}
           />,
           stop,
         ];

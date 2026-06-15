@@ -9,18 +9,39 @@ import {
   getVaCreditsAtMedia,
 } from '../lib/importers/anilist/graphQueries';
 import type { RoundConfig } from './preferences';
-import type { PathStep } from './pathHistory';
+import type { PathHopCharacter, PathStep } from './pathHistory';
 import {
   filmographyRolesSubtitle,
   groupSortedVaCredits,
   groupedVaCreditSubtitle,
+  vaCreditCharacterName,
   type GroupedVaCreditRow,
 } from './vaCreditDisplay';
 
 type GraphNode = { kind: 'anime' | 'staff'; id: number };
 
+/** Resolved hop edge: its tooltip label plus any VA characters it passed through. */
+type HopResolution = {
+  label: string;
+  characters?: PathHopCharacter[];
+};
+
 export function viaLabelFromVaGroup(group: GroupedVaCreditRow): string {
   return groupedVaCreditSubtitle(group) ?? 'Voice actor';
+}
+
+/** Distinct characters a voice actor voiced in one show (for the arrow link). */
+export function charactersFromVaGroup(group: GroupedVaCreditRow): PathHopCharacter[] {
+  const seen = new Set<number>();
+  const characters: PathHopCharacter[] = [];
+  for (const credit of group.credits) {
+    if (seen.has(credit.character.id)) {
+      continue;
+    }
+    seen.add(credit.character.id);
+    characters.push({ id: credit.character.id, name: vaCreditCharacterName(credit) });
+  }
+  return characters;
 }
 
 export function viaLabelFromProduction(row: ProductionCreditRow): string {
@@ -44,11 +65,11 @@ async function resolveAnimeToStaffViaLabel(
   mediaId: number,
   staffId: number,
   rules: RoundConfig,
-): Promise<string | null> {
+): Promise<HopResolution | null> {
   const vaRows = await getVaCreditsAtMedia(db, mediaId);
   const vaGroup = groupSortedVaCredits(vaRows).find((group) => group.staff.id === staffId);
   if (vaGroup) {
-    return viaLabelFromVaGroup(vaGroup);
+    return { label: viaLabelFromVaGroup(vaGroup), characters: charactersFromVaGroup(vaGroup) };
   }
 
   if (!rules.allowProduction) {
@@ -61,7 +82,7 @@ async function resolveAnimeToStaffViaLabel(
     productionRoleMode(rules),
   );
   const prodRow = prodRows.find((row) => row.staff.id === staffId);
-  return prodRow ? viaLabelFromProduction(prodRow) : null;
+  return prodRow ? { label: viaLabelFromProduction(prodRow) } : null;
 }
 
 async function resolveStaffToAnimeViaLabel(
@@ -69,7 +90,7 @@ async function resolveStaffToAnimeViaLabel(
   staffId: number,
   mediaId: number,
   rules: RoundConfig,
-): Promise<string | null> {
+): Promise<HopResolution | null> {
   const filmography = await getAnimeFilmographyForStaff(
     db,
     staffId,
@@ -79,20 +100,27 @@ async function resolveStaffToAnimeViaLabel(
     (row) => row.media.id === mediaId && row.creditKind === 'voice',
   );
   if (voiceRow) {
-    return viaLabelFromFilmography(voiceRow);
+    // Filmography rows carry character *names* only; resolve the VA group at
+    // the target media to capture character ids for the arrow's middle-click.
+    const vaRows = await getVaCreditsAtMedia(db, mediaId);
+    const vaGroup = groupSortedVaCredits(vaRows).find((group) => group.staff.id === staffId);
+    return {
+      label: viaLabelFromFilmography(voiceRow),
+      ...(vaGroup ? { characters: charactersFromVaGroup(vaGroup) } : {}),
+    };
   }
 
   const productionRow = filmography.find(
     (row) => row.media.id === mediaId && row.creditKind === 'production',
   );
-  return productionRow ? viaLabelFromFilmography(productionRow) : null;
+  return productionRow ? { label: viaLabelFromFilmography(productionRow) } : null;
 }
 
 async function resolveAnimeToAnimeViaLabel(
   db: AnilistDbExecutor,
   fromMediaId: number,
   toMediaId: number,
-): Promise<string | null> {
+): Promise<HopResolution | null> {
   const rows = await db.exec(
     `
       SELECT relation_type
@@ -106,7 +134,7 @@ async function resolveAnimeToAnimeViaLabel(
   if (rows.length === 0) {
     return null;
   }
-  return viaLabelFromRelation(String(rows[0].relation_type));
+  return { label: viaLabelFromRelation(String(rows[0].relation_type)) };
 }
 
 async function resolveHopViaLabel(
@@ -114,7 +142,7 @@ async function resolveHopViaLabel(
   from: GraphNode,
   to: GraphNode,
   rules: RoundConfig,
-): Promise<string | null> {
+): Promise<HopResolution | null> {
   if (from.kind === 'anime' && to.kind === 'staff') {
     return resolveAnimeToStaffViaLabel(db, from.id, to.id, rules);
   }
@@ -127,7 +155,10 @@ async function resolveHopViaLabel(
   return null;
 }
 
-/** Fill `viaLabel` on each step after the first — used for cached optimal paths. */
+/**
+ * Fill `viaLabel` (and, for voice hops, `viaCharacters`) on each step after
+ * the first — used for cached optimal paths.
+ */
 export async function annotatePathViaLabels(
   db: AnilistDbExecutor,
   nodes: readonly GraphNode[],
@@ -140,11 +171,17 @@ export async function annotatePathViaLabels(
 
   const annotated: PathStep[] = steps.map((step) => ({ ...step }));
   for (let index = 1; index < nodes.length; index += 1) {
-    const viaLabel = await resolveHopViaLabel(db, nodes[index - 1], nodes[index], rules);
-    if (!viaLabel) {
+    const resolution = await resolveHopViaLabel(db, nodes[index - 1], nodes[index], rules);
+    if (!resolution) {
       continue;
     }
-    annotated[index] = { ...annotated[index], viaLabel };
+    annotated[index] = {
+      ...annotated[index],
+      viaLabel: resolution.label,
+      ...(resolution.characters && resolution.characters.length > 0
+        ? { viaCharacters: resolution.characters }
+        : {}),
+    };
   }
   return annotated;
 }

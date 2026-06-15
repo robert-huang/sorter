@@ -46,8 +46,9 @@ import {
   type BuildCachedShortestPathStream,
 } from './cachedGraph';
 import { WinScreen } from './WinScreen';
-import { type PathStep } from './pathHistory';
+import { type PathHopCharacter, type PathStep } from './pathHistory';
 import {
+  charactersFromVaGroup,
   viaLabelFromFilmography,
   viaLabelFromProduction,
   viaLabelFromRelation,
@@ -88,7 +89,11 @@ type Node =
   | { kind: 'anime'; mediaId: number }
   | { kind: 'staff'; staffId: number };
 
-function animePathStep(media: MediaRow, viaLabel?: string): PathStep {
+function animePathStep(
+  media: MediaRow,
+  viaLabel?: string,
+  viaCharacters?: readonly PathHopCharacter[],
+): PathStep {
   const titleFields = {
     id: media.id,
     title_romaji: media.title_romaji,
@@ -102,10 +107,15 @@ function animePathStep(media: MediaRow, viaLabel?: string): PathStep {
     coverImage: media.cover_image,
     titleFields,
     ...(viaLabel ? { viaLabel } : {}),
+    ...(viaCharacters && viaCharacters.length > 0 ? { viaCharacters } : {}),
   };
 }
 
-function staffPathStep(staff: StaffRow, viaLabel?: string): PathStep {
+function staffPathStep(
+  staff: StaffRow,
+  viaLabel?: string,
+  viaCharacters?: readonly PathHopCharacter[],
+): PathStep {
   const nameFields = {
     id: staff.id,
     name_full: staff.name_full,
@@ -118,6 +128,7 @@ function staffPathStep(staff: StaffRow, viaLabel?: string): PathStep {
     image: staff.image,
     nameFields,
     ...(viaLabel ? { viaLabel } : {}),
+    ...(viaCharacters && viaCharacters.length > 0 ? { viaCharacters } : {}),
   };
 }
 
@@ -576,24 +587,52 @@ export function AnimeToAnimeApp() {
     return bindAnilistMiddleClick(anilistUrlForMedia(currentMedia));
   }, [current, currentMedia]);
 
-  const onHopToStaff = useCallback((staff: StaffRow, viaLabel: string) => {
-    setFilter('');
-    setPathHistory((prev) => [...prev, staffPathStep(staff, viaLabel)]);
-    setCurrent({ kind: 'staff', staffId: staff.id });
-  }, []);
+  const onHopToStaff = useCallback(
+    (staff: StaffRow, viaLabel: string, viaCharacters?: readonly PathHopCharacter[]) => {
+      setFilter('');
+      setPathHistory((prev) => [...prev, staffPathStep(staff, viaLabel, viaCharacters)]);
+      setCurrent({ kind: 'staff', staffId: staff.id });
+    },
+    [],
+  );
 
   const onHopToAnime = useCallback(
-    (media: MediaRow, viaLabel: string) => {
+    (media: MediaRow, viaLabel: string, viaCharacters?: readonly PathHopCharacter[]) => {
       setFilter('');
       const reachedGoal = goalMedia !== null && media.id === goalMedia.id;
       setLinksUsed((count) => count + 1);
-      setPathHistory((prev) => [...prev, animePathStep(media, viaLabel)]);
+      setPathHistory((prev) => [...prev, animePathStep(media, viaLabel, viaCharacters)]);
       setCurrent({ kind: 'anime', mediaId: media.id });
       if (reachedGoal) {
         setPhase('won');
       }
     },
     [goalMedia],
+  );
+
+  // Staff → anime voice hops: the filmography row has the character *names*
+  // but not their ids, so resolve the VA group at the target media to capture
+  // character ids for the arrow's middle-click. Falls back to a plain hop if
+  // the lookup misses or the row is a production credit.
+  const onHopToAnimeFromFilmography = useCallback(
+    async (row: AnimeFilmographyRow) => {
+      const viaLabel = viaLabelFromFilmography(row);
+      let viaCharacters: PathHopCharacter[] | undefined;
+      if (row.creditKind === 'voice' && current?.kind === 'staff') {
+        const staffId = current.staffId;
+        try {
+          const vaRows = await getVaCreditsAtMedia(importCtx.current.db, row.media.id);
+          const group = groupSortedVaCredits(vaRows).find((g) => g.staff.id === staffId);
+          if (group) {
+            viaCharacters = charactersFromVaGroup(group);
+          }
+        } catch {
+          // Best-effort: still hop without the character link on lookup failure.
+        }
+      }
+      onHopToAnime(row.media, viaLabel, viaCharacters);
+    },
+    [current, onHopToAnime],
   );
 
   const endpointsSwapDisabled = !startMedia || !goalMedia;
@@ -807,7 +846,13 @@ export function AnimeToAnimeApp() {
                         <VaCreditHopButton
                           group={group}
                           vaListImageMode={vaListImageMode}
-                          onHop={() => onHopToStaff(group.staff, viaLabelFromVaGroup(group))}
+                          onHop={() =>
+                            onHopToStaff(
+                              group.staff,
+                              viaLabelFromVaGroup(group),
+                              charactersFromVaGroup(group),
+                            )
+                          }
                         />
                       </li>
                     ))}
@@ -843,7 +888,9 @@ export function AnimeToAnimeApp() {
                     rows={filteredFilmography}
                     loading={loading}
                     onRefresh={onRefreshPlayList}
-                    onHopToAnime={(row) => onHopToAnime(row.media, viaLabelFromFilmography(row))}
+                    onHopToAnime={(row) => {
+                      void onHopToAnimeFromFilmography(row);
+                    }}
                     showMyListFilter={listUserId !== null && filmography.length > 0}
                     onlyMyList={onlyMyList}
                     onOnlyMyListChange={setOnlyMyList}

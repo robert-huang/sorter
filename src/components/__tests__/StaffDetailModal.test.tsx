@@ -30,6 +30,10 @@ vi.mock('../../lib/importers/anilist/runners', () => ({
 import { productionReads } from '../../lib/importers/anilist/readQueries';
 import { runAnilistStaffFilmographyExpansion } from '../../lib/importers/anilist/runners';
 import { buildAnilistMediaUrl } from '../../lib/importers/anilist/anilistSource';
+import {
+  anilistUrlForCharacter,
+  anilistUrlForStaffId,
+} from '../../lib/importers/anilist/anilistLinks';
 import { StaffDetailModal } from '../StaffDetailModal';
 
 const mockedGetFilmography = vi.mocked(productionReads.getStaffFilmography);
@@ -287,6 +291,49 @@ describe('StaffDetailModal — my-list toggle + navigation', () => {
 
     expect(openSpy).toHaveBeenCalledWith(
       buildAnilistMediaUrl('ANIME', 1),
+      '_blank',
+      'noopener,noreferrer',
+    );
+    expect(onOpenMedia).not.toHaveBeenCalled();
+  });
+
+  it('middle-click opens AniList for the staff header and voiced characters', async () => {
+    mockedGetFilmography.mockResolvedValueOnce(
+      makeFilmography({
+        credits: [
+          makeCredit(1, {
+            productionRoles: [],
+            voicedCharacters: [{ id: 555, name: 'Spike Spiegel' }],
+          }),
+        ],
+      }),
+    );
+    const onOpenMedia = vi.fn();
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+    renderModal({ onOpenMedia });
+    await flushPromises();
+
+    // Staff name header → the person's AniList page.
+    const header = container.querySelector('h3') as HTMLElement;
+    act(() => {
+      header.dispatchEvent(new MouseEvent('auxclick', { bubbles: true, button: 1 }));
+    });
+    expect(openSpy).toHaveBeenLastCalledWith(
+      anilistUrlForStaffId(10),
+      '_blank',
+      'noopener,noreferrer',
+    );
+
+    // Voiced character → its AniList page, without opening the row's media modal.
+    const charEl = Array.from(
+      container.querySelectorAll('.anilist-detail-character-name'),
+    ).find((el) => (el.textContent ?? '').includes('Spike Spiegel'));
+    expect(charEl).toBeDefined();
+    act(() => {
+      charEl!.dispatchEvent(new MouseEvent('auxclick', { bubbles: true, button: 1 }));
+    });
+    expect(openSpy).toHaveBeenLastCalledWith(
+      anilistUrlForCharacter(555),
       '_blank',
       'noopener,noreferrer',
     );

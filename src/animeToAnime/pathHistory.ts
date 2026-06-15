@@ -1,6 +1,16 @@
 import type { MediaTitleFields } from '../lib/importers/anilist/mediaDisplayLabel';
 import type { PersonNameFields } from '../lib/importers/anilist/personDisplayLabel';
 
+/**
+ * Character(s) that a voice-actor hop passed through, captured so the path
+ * arrow can middle-click open the character page(s) on AniList. A single hop
+ * can cover several characters (a VA voiced multiple roles in one show).
+ */
+export type PathHopCharacter = {
+  id: number;
+  name: string;
+};
+
 export type PathStep =
   | {
       kind: 'anime';
@@ -14,6 +24,8 @@ export type PathStep =
       titleFields?: MediaTitleFields;
       /** Role / relation label for the hop that arrived at this step (edge tooltip). */
       viaLabel?: string;
+      /** VA characters this hop passed through (only set for voice hops). */
+      viaCharacters?: readonly PathHopCharacter[];
     }
   | {
       kind: 'staff';
@@ -23,6 +35,8 @@ export type PathStep =
       /** Raw name fields, kept so the node can be relabelled in place. */
       nameFields?: PersonNameFields;
       viaLabel?: string;
+      /** VA characters this hop passed through (only set for voice hops). */
+      viaCharacters?: readonly PathHopCharacter[];
     };
 
 export function pathStepLabel(step: PathStep): string {
