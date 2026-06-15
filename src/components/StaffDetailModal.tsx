@@ -112,7 +112,6 @@ function CreditRoleLine({ credit }: { credit: StaffFilmographyCredit }) {
                     'anilist-detail-character-name',
                     characterLink.className,
                   )}
-                  title={characterLink.title}
                   onMouseDown={characterLink.onMouseDown}
                   onAuxClick={characterLink.onAuxClick}
                 >
@@ -261,7 +260,6 @@ export function StaffDetailModal({
           <h3
             className={staffNameLink.className}
             style={{ margin: 0, flex: 1, minWidth: 0 }}
-            title={staffNameLink.title}
             onMouseDown={staffNameLink.onMouseDown}
             onAuxClick={staffNameLink.onAuxClick}
           >
@@ -411,7 +409,7 @@ export function StaffDetailModal({
                             onClick={() => onOpenMedia(credit.media.id, title)}
                             onMouseDown={mediaLink.onMouseDown}
                             onAuxClick={mediaLink.onAuxClick}
-                            title={`Open ${title} (middle-click to open on AniList)`}
+                            title={`Open ${title}`}
                           >
                             {credit.media.cover_image && (
                               <img

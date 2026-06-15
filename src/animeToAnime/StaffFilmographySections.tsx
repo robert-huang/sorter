@@ -80,7 +80,6 @@ export function StaffFilmographySections({
             'anime-to-anime-current-title anime-to-anime-staff-heading-title',
             staffTitleLink.className,
           )}
-          title={staffTitleLink.title}
           onMouseDown={staffTitleLink.onMouseDown}
           onAuxClick={staffTitleLink.onAuxClick}
         >

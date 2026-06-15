@@ -1483,6 +1483,13 @@ a {
   text-decoration: underline;
 }
 
+/* Character names read as links (accent colour) in both the media modal
+   cast list and the staff modal's voiced-character credits so the two
+   lists match. */
+.anilist-detail-character-name {
+  color: var(--accent, #2563eb);
+}
+
 /* Inline names/characters that are only middle-clickable (open AniList) get
    the same underline-on-hover affordance as the staff-panel link buttons. */
 .anilist-detail-person-static.anime-to-anime-anilist-link:hover,

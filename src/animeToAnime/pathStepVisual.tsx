@@ -42,11 +42,7 @@ export function PathStepBubble({
     anilistLink.className,
   );
 
-  const title = interactive
-    ? `${label} — click for details${
-        anilistLink.title ? ' · middle-click opens AniList' : ''
-      }`
-    : anilistLink.title ?? label;
+  const title = interactive ? `${label} — click for details` : label;
 
   return (
     <div
@@ -97,7 +93,6 @@ export function PathTrailEdge({
   );
   const interactive = characterUrls.length > 0;
   const anilistLink = bindAnilistMiddleClick(interactive ? characterUrls : null);
-  const characterNames = (viaCharacters ?? []).map((character) => character.name).join(', ');
   const baseClass = [
     'anime-to-anime-path-edge',
     `anime-to-anime-path-edge--${kind}`,
@@ -106,11 +101,7 @@ export function PathTrailEdge({
   ]
     .filter(Boolean)
     .join(' ');
-  const title = interactive
-    ? `${viaLabel ? `${viaLabel} · ` : ''}middle-click opens ${
-        characterNames || 'character'
-      } on AniList`
-    : viaLabel;
+  const title = viaLabel;
 
   return (
     <span

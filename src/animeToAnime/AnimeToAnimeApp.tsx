@@ -797,7 +797,6 @@ export function AnimeToAnimeApp() {
                       'anime-to-anime-current-title',
                       currentAnimeAnilistLink.className,
                     )}
-                    title={currentAnimeAnilistLink.title}
                     onMouseDown={currentAnimeAnilistLink.onMouseDown}
                     onAuxClick={currentAnimeAnilistLink.onAuxClick}
                   >
@@ -817,7 +816,6 @@ export function AnimeToAnimeApp() {
                                 'btn link anime-to-anime-hop-btn',
                                 relationLink.className,
                               )}
-                              title={relationLink.title}
                               onClick={() => onHopToAnime(row.media, viaLabelFromRelation(row.relationType))}
                               onMouseDown={relationLink.onMouseDown}
                               onAuxClick={relationLink.onAuxClick}

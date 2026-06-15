@@ -141,7 +141,6 @@ function PersonLink({
   anilistUrl?: string;
 }) {
   const anilistLink = bindAnilistMiddleClick(anilistUrl ?? null);
-  const middleClickHint = anilistUrl ? ' · middle-click opens AniList' : '';
 
   if (!onOpen) {
     if (!anilistUrl) {
@@ -153,7 +152,6 @@ function PersonLink({
           'anilist-detail-person-static',
           anilistLink.className,
         )}
-        title={anilistLink.title}
         onMouseDown={anilistLink.onMouseDown}
         onAuxClick={anilistLink.onAuxClick}
       >
@@ -171,7 +169,7 @@ function PersonLink({
       }}
       onMouseDown={anilistLink.onMouseDown}
       onAuxClick={anilistLink.onAuxClick}
-      title={`View ${name}'s filmography${middleClickHint}`}
+      title={`View ${name}'s filmography`}
     >
       {name}
     </button>
@@ -569,7 +567,6 @@ export function AnilistDetailModal({
                                 'anilist-detail-character-name',
                                 characterLink.className,
                               )}
-                              title={characterLink.title}
                               onMouseDown={characterLink.onMouseDown}
                               onAuxClick={characterLink.onAuxClick}
                             >

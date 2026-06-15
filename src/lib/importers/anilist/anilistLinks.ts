@@ -2,8 +2,6 @@ import type { MouseEvent } from 'react';
 import { buildAnilistFavouriteUrl, buildAnilistMediaUrl } from './anilistSource';
 import type { AnilistMediaType } from './types';
 
-const MIDDLE_CLICK_HINT = 'Middle-click to open on AniList';
-
 /** Canonical AniList URL for a character page (`/character/<id>`). */
 export function anilistUrlForCharacter(characterId: number): string {
   return buildAnilistFavouriteUrl('CHARACTERS', characterId);
@@ -37,7 +35,6 @@ function toUrlList(url: string | readonly string[] | null): string[] {
  */
 export function bindAnilistMiddleClick(url: string | readonly string[] | null): {
   className: string | undefined;
-  title: string | undefined;
   onMouseDown: (event: MouseEvent<HTMLElement>) => void;
   onAuxClick: (event: MouseEvent<HTMLElement>) => void;
 } {
@@ -45,7 +42,6 @@ export function bindAnilistMiddleClick(url: string | readonly string[] | null): 
   const enabled = urls.length > 0;
   return {
     className: enabled ? 'anime-to-anime-anilist-link' : undefined,
-    title: enabled ? MIDDLE_CLICK_HINT : undefined,
     onMouseDown: (event) => {
       if (enabled && event.button === 1) {
         event.preventDefault();

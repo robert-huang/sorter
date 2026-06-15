@@ -70,7 +70,6 @@ function PlayEndpointCard({ label, media }: { label: string; media: MediaRow | n
           'anime-to-anime-endpoint-play-preview',
           anilistLink.className,
         )}
-        title={anilistLink.title}
         onMouseDown={anilistLink.onMouseDown}
         onAuxClick={anilistLink.onAuxClick}
       >

@@ -27,7 +27,6 @@ export function VaCreditHopButton({ group, vaListImageMode, onHop }: Props) {
     <button
       type="button"
       className={mergeAnilistLinkClass('anime-to-anime-hop-btn', anilistLink.className)}
-      title={anilistLink.title}
       onClick={onHop}
       onMouseDown={anilistLink.onMouseDown}
       onAuxClick={anilistLink.onAuxClick}

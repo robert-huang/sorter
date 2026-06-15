@@ -327,7 +327,6 @@ export function EndpointPicker({
           'anime-to-anime-endpoint-preview',
           previewAnilistLink.className,
         )}
-        title={previewAnilistLink.title}
         onMouseDown={previewAnilistLink.onMouseDown}
         onAuxClick={previewAnilistLink.onAuxClick}
       >
