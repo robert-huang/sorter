@@ -5,7 +5,11 @@ import { migrate } from '../../lib/db/migration-runner';
 import { anilistSourceDescriptor } from '../../lib/importers/anilist/anilistSource';
 import type { AnilistDbExecutor } from '../../lib/importers/anilist/context';
 import type { RoundConfig } from '../preferences';
-import { findCachedOptimalPath } from '../cachedGraph';
+import {
+  buildCachedShortestPathStream,
+  findCachedOptimalPath,
+  type CachedShortestPathStream,
+} from '../cachedGraph';
 
 type SqliteExecOpts = { bind?: unknown };
 type ExecCapable = { exec: (sql: string, opts?: SqliteExecOpts) => void };
@@ -292,5 +296,160 @@ describe('findCachedOptimalPath', () => {
     expect(result.steps.map((s) => (s.kind === 'anime' ? s.mediaId : s.staffId))).toEqual([
       1, 30, 3,
     ]);
+  });
+});
+
+/** Pull every path the stream yields, returning each as its node-id
+ *  sequence (anime media ids + staff ids interleaved) plus the final
+ *  exhaustion total. */
+async function collectStreamPaths(
+  stream: CachedShortestPathStream,
+): Promise<{ paths: number[][]; total: number }> {
+  const paths: number[][] = [];
+  for (;;) {
+    const result = await stream.next();
+    if (result.status === 'exhausted') {
+      return { paths, total: result.total };
+    }
+    paths.push(
+      result.steps.map((s) => (s.kind === 'anime' ? s.mediaId : s.staffId)),
+    );
+  }
+}
+
+describe('buildCachedShortestPathStream', () => {
+  let adapter: AnilistDbExecutor;
+  let sqlite: Database;
+
+  beforeEach(async () => {
+    const fresh = await freshAnilistDb();
+    adapter = fresh.adapter;
+    sqlite = fresh.db;
+  });
+
+  function build(
+    startMediaId: number,
+    goalMediaId: number,
+    maxLinks?: number,
+    rules: RoundConfig = DEFAULT_RULES,
+  ) {
+    return buildCachedShortestPathStream({
+      db: adapter,
+      startMediaId,
+      goalMediaId,
+      rules,
+      maxLinks,
+    });
+  }
+
+  it('enumerates both bridges to the same anime without deduping', async () => {
+    seedMedia(sqlite, 1, 'Start');
+    seedMedia(sqlite, 2, 'Goal');
+    seedStaff(sqlite, 10, 'VA One');
+    seedStaff(sqlite, 11, 'VA Two');
+    seedCharacter(sqlite, 100, 'Hero A');
+    seedCharacter(sqlite, 101, 'Hero B');
+    // Two independent shared voice actors connect Start and Goal directly.
+    seedVaLink(sqlite, 1, 100, 10);
+    seedVaLink(sqlite, 2, 100, 10);
+    seedVaLink(sqlite, 1, 101, 11);
+    seedVaLink(sqlite, 2, 101, 11);
+
+    const built = await build(1, 2);
+    expect(built.status).toBe('ready');
+    if (built.status !== 'ready') {
+      return;
+    }
+    expect(built.stream.optimalLinks).toBe(1);
+
+    const { paths, total } = await collectStreamPaths(built.stream);
+    expect(total).toBe(2);
+    // Same two anime endpoints, reached via each distinct staff member.
+    const sorted = [...paths].sort((a, b) => a[1] - b[1]);
+    expect(sorted).toEqual([
+      [1, 10, 2],
+      [1, 11, 2],
+    ]);
+  });
+
+  it('only yields optimal-length paths, never longer alternatives', async () => {
+    seedMedia(sqlite, 1, 'Start');
+    seedMedia(sqlite, 2, 'Mid');
+    seedMedia(sqlite, 3, 'Goal');
+    seedStaff(sqlite, 10, 'Direct VA');
+    seedStaff(sqlite, 11, 'Mid VA A');
+    seedStaff(sqlite, 12, 'Mid VA B');
+    seedCharacter(sqlite, 100, 'Hero Direct');
+    seedCharacter(sqlite, 101, 'Hero A');
+    seedCharacter(sqlite, 102, 'Hero B');
+    // 1-link direct bridge Start↔Goal.
+    seedVaLink(sqlite, 1, 100, 10);
+    seedVaLink(sqlite, 3, 100, 10);
+    // A longer 2-link route Start→Mid→Goal that must be excluded.
+    seedVaLink(sqlite, 1, 101, 11);
+    seedVaLink(sqlite, 2, 101, 11);
+    seedVaLink(sqlite, 2, 102, 12);
+    seedVaLink(sqlite, 3, 102, 12);
+
+    const built = await build(1, 3);
+    expect(built.status).toBe('ready');
+    if (built.status !== 'ready') {
+      return;
+    }
+    expect(built.stream.optimalLinks).toBe(1);
+
+    const { paths, total } = await collectStreamPaths(built.stream);
+    expect(total).toBe(1);
+    expect(paths).toEqual([[1, 10, 3]]);
+  });
+
+  it('reports exhaustion after the single shortest path', async () => {
+    seedMedia(sqlite, 1, 'Start');
+    seedMedia(sqlite, 2, 'Goal');
+    seedStaff(sqlite, 10, 'Shared VA');
+    seedCharacter(sqlite, 100, 'Hero');
+    seedVaLink(sqlite, 1, 100, 10);
+    seedVaLink(sqlite, 2, 100, 10);
+
+    const built = await build(1, 2);
+    expect(built.status).toBe('ready');
+    if (built.status !== 'ready') {
+      return;
+    }
+
+    const first = await built.stream.next();
+    expect(first.status).toBe('found');
+    const second = await built.stream.next();
+    expect(second).toEqual({ status: 'exhausted', total: 1 });
+  });
+
+  it('returns not_found when the optimum exceeds the maxLinks bound', async () => {
+    seedMedia(sqlite, 1, 'Start');
+    seedMedia(sqlite, 2, 'Mid');
+    seedMedia(sqlite, 3, 'Goal');
+    seedStaff(sqlite, 10, 'VA A');
+    seedStaff(sqlite, 11, 'VA B');
+    seedCharacter(sqlite, 100, 'Hero A');
+    seedCharacter(sqlite, 101, 'Hero B');
+    seedVaLink(sqlite, 1, 100, 10);
+    seedVaLink(sqlite, 2, 100, 10);
+    seedVaLink(sqlite, 2, 101, 11);
+    seedVaLink(sqlite, 3, 101, 11);
+
+    const built = await build(1, 3, 1);
+    expect(built.status).toBe('not_found');
+  });
+
+  it('signals "same" when start equals goal', async () => {
+    seedMedia(sqlite, 1, 'Solo');
+    const built = await build(1, 1);
+    expect(built.status).toBe('same');
+  });
+
+  it('returns not_found for a disconnected cache', async () => {
+    seedMedia(sqlite, 1, 'Isolated A');
+    seedMedia(sqlite, 2, 'Isolated B');
+    const built = await build(1, 2);
+    expect(built.status).toBe('not_found');
   });
 });

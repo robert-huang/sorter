@@ -41,7 +41,10 @@ import { RoundEndpointsRow } from './RoundEndpointsRow';
 import { PathHistoryTrail } from './PathHistoryTrail';
 import { ExitRoundConfirmModal } from './ExitRoundConfirmModal';
 import { GiveUpConfirmModal } from './GiveUpConfirmModal';
-import { findCachedOptimalPath } from './cachedGraph';
+import {
+  buildCachedShortestPathStream,
+  type BuildCachedShortestPathStream,
+} from './cachedGraph';
 import { WinScreen } from './WinScreen';
 import { type PathStep } from './pathHistory';
 import {
@@ -361,12 +364,12 @@ export function AnimeToAnimeApp() {
     [],
   );
 
-  const findCachedPath = useCallback(
-    async (maxLinks?: number) => {
+  const buildCachedPathStream = useCallback(
+    async (maxLinks?: number): Promise<BuildCachedShortestPathStream> => {
       if (!startMedia || !goalMedia || !activeRoundConfig) {
-        return { status: 'not_found' as const };
+        return { status: 'not_found' };
       }
-      return findCachedOptimalPath({
+      return buildCachedShortestPathStream({
         db: importCtx.current.db,
         startMediaId: startMedia.id,
         goalMediaId: goalMedia.id,
@@ -378,15 +381,15 @@ export function AnimeToAnimeApp() {
   );
 
   /** Win: prune BFS past the user's link count — can't beat a path shorter than that. */
-  const onFindCachedPathForWin = useCallback(
-    () => findCachedPath(linksUsed),
-    [findCachedPath, linksUsed],
+  const onBuildCachedPathStreamForWin = useCallback(
+    () => buildCachedPathStream(linksUsed),
+    [buildCachedPathStream, linksUsed],
   );
 
   /** Give up: search full cache — user may have stopped before any anime hops. */
-  const onFindCachedPathForGiveUp = useCallback(
-    () => findCachedPath(),
-    [findCachedPath],
+  const onBuildCachedPathStreamForGiveUp = useCallback(
+    () => buildCachedPathStream(),
+    [buildCachedPathStream],
   );
 
   const confirmExitToSetup = useCallback(() => {
@@ -714,8 +717,10 @@ export function AnimeToAnimeApp() {
               goalMedia={goalMedia}
               linksUsed={linksUsed}
               pathHistory={pathHistory}
-              onFindCachedPath={
-                phase === 'won' ? onFindCachedPathForWin : onFindCachedPathForGiveUp
+              onBuildCachedPathStream={
+                phase === 'won'
+                  ? onBuildCachedPathStreamForWin
+                  : onBuildCachedPathStreamForGiveUp
               }
               onPlayAgain={onPlayAgain}
               onOpenStep={onOpenPathStep}

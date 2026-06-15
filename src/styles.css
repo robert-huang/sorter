@@ -2140,6 +2140,18 @@ a {
   font-size: 14px;
 }
 
+/* Each appended shortest path (one per "Find another path" click). */
+.anime-to-anime-win-cached-path {
+  margin-bottom: 12px;
+}
+
+.anime-to-anime-win-cached-path-label {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
 .anime-to-anime-win-cached-hint {
   margin: 16px auto 0;
   max-width: 36rem;

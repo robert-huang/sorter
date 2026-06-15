@@ -1,8 +1,11 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import type { MediaRow } from '../lib/importers/anilist/types';
 import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
 import { currentPageUrl } from '../lib/appRoutes';
-import type { CachedOptimalPathResult } from './cachedGraph';
+import type {
+  BuildCachedShortestPathStream,
+  CachedShortestPathStream,
+} from './cachedGraph';
 import { formatPathSummary, type PathStep } from './pathHistory';
 import { WinPathTrail } from './WinPathTrail';
 
@@ -15,7 +18,8 @@ interface Props {
   linksUsed: number;
   pathHistory: readonly PathStep[];
   onPlayAgain: () => void;
-  onFindCachedPath?: () => Promise<CachedOptimalPathResult>;
+  /** Build a stream that lazily yields every shortest cached path. */
+  onBuildCachedPathStream?: () => Promise<BuildCachedShortestPathStream>;
   /** Open the detail modal for a path node (result-screen only). */
   onOpenStep?: (step: PathStep) => void;
   /** Open the media detail modal for the start/goal tiles. */
@@ -52,7 +56,16 @@ function RouteTitle({
 type CachedPathUiState =
   | { phase: 'idle' }
   | { phase: 'searching' }
-  | { phase: 'found'; linksUsed: number; steps: PathStep[] }
+  | {
+      phase: 'shown';
+      optimalLinks: number;
+      /** Distinct shortest paths shown so far, appended one per click. */
+      paths: PathStep[][];
+      /** True once the enumerator has yielded every shortest path. */
+      exhausted: boolean;
+      /** True while the next path is being pulled/hydrated. */
+      loadingMore: boolean;
+    }
   | { phase: 'not_found' };
 
 function buildSummaryCopyText(
@@ -89,12 +102,15 @@ export function WinScreen({
   linksUsed,
   pathHistory,
   onPlayAgain,
-  onFindCachedPath,
+  onBuildCachedPathStream,
   onOpenStep,
   onOpenMedia,
 }: Props) {
   const [cachedPath, setCachedPath] = useState<CachedPathUiState>({ phase: 'idle' });
   const [summaryCopied, setSummaryCopied] = useState(false);
+  // Holds the live enumerator across "Find another path" clicks so the
+  // adjacency/BFS work happens once, not on every click.
+  const streamRef = useRef<CachedShortestPathStream | null>(null);
 
   const onCopySummary = async () => {
     const summaryText = buildSummaryCopyText(
@@ -115,32 +131,76 @@ export function WinScreen({
   };
 
   const onSearchCachedPath = useCallback(() => {
-    if (!onFindCachedPath || cachedPath.phase === 'searching') {
+    if (!onBuildCachedPathStream) {
       return;
     }
     setCachedPath({ phase: 'searching' });
-    void onFindCachedPath()
-      .then((result) => {
-        if (result.status === 'found') {
+    void onBuildCachedPathStream()
+      .then(async (built) => {
+        if (built.status !== 'ready') {
+          streamRef.current = null;
+          setCachedPath({ phase: 'not_found' });
+          return;
+        }
+        streamRef.current = built.stream;
+        const first = await built.stream.next();
+        if (first.status === 'found') {
           setCachedPath({
-            phase: 'found',
-            linksUsed: result.linksUsed,
-            steps: result.steps,
+            phase: 'shown',
+            optimalLinks: built.stream.optimalLinks,
+            paths: [first.steps],
+            exhausted: false,
+            loadingMore: false,
           });
           return;
         }
+        // "ready" implies at least one path; treat an empty stream as a miss.
+        streamRef.current = null;
         setCachedPath({ phase: 'not_found' });
       })
       .catch(() => {
+        streamRef.current = null;
         setCachedPath({ phase: 'not_found' });
       });
-  }, [cachedPath.phase, onFindCachedPath]);
+  }, [onBuildCachedPathStream]);
 
-  const cachedSearchDisabled = !onFindCachedPath || cachedPath.phase === 'searching';
-  const showCachedButton =
-    onFindCachedPath &&
-    cachedPath.phase !== 'found' &&
-    cachedPath.phase !== 'not_found';
+  const onFindAnotherPath = useCallback(() => {
+    const stream = streamRef.current;
+    if (!stream) {
+      return;
+    }
+    setCachedPath((prev) =>
+      prev.phase === 'shown' ? { ...prev, loadingMore: true } : prev,
+    );
+    void stream
+      .next()
+      .then((result) => {
+        setCachedPath((prev) => {
+          if (prev.phase !== 'shown') {
+            return prev;
+          }
+          if (result.status === 'found') {
+            return {
+              ...prev,
+              paths: [...prev.paths, result.steps],
+              loadingMore: false,
+            };
+          }
+          return { ...prev, exhausted: true, loadingMore: false };
+        });
+      })
+      .catch(() => {
+        setCachedPath((prev) =>
+          prev.phase === 'shown'
+            ? { ...prev, exhausted: true, loadingMore: false }
+            : prev,
+        );
+      });
+  }, []);
+
+  const showInitialCachedButton =
+    Boolean(onBuildCachedPathStream) &&
+    (cachedPath.phase === 'idle' || cachedPath.phase === 'searching');
 
   const title = outcome === 'won' ? 'Goal reached!' : 'Round ended';
   const linksLabel = outcome === 'won' ? 'Links used' : 'Links used before giving up';
@@ -160,11 +220,11 @@ export function WinScreen({
         <WinPathTrail steps={pathHistory} onOpenStep={onOpenStep} />
       )}
       <div className="anime-to-anime-actions anime-to-anime-win-actions">
-        {showCachedButton && (
+        {showInitialCachedButton && (
           <button
             type="button"
             className="btn"
-            disabled={cachedSearchDisabled}
+            disabled={cachedPath.phase === 'searching'}
             onClick={onSearchCachedPath}
           >
             {cachedPath.phase === 'searching' ? 'Searching…' : 'Shortest path (cached)'}
@@ -177,20 +237,20 @@ export function WinScreen({
           Play Again
         </button>
       </div>
-      {cachedPath.phase === 'found' && (
+      {cachedPath.phase === 'shown' && (
         <div className="anime-to-anime-win-cached">
           <p className="anime-to-anime-win-cached-summary">
             {outcome === 'won' ? (
               <>
-                Shortest in cache: <strong>{cachedPath.linksUsed}</strong> link
-                {cachedPath.linksUsed === 1 ? '' : 's'}
+                Shortest in cache: <strong>{cachedPath.optimalLinks}</strong> link
+                {cachedPath.optimalLinks === 1 ? '' : 's'}
                 {' · '}
                 Your path: <strong>{linksUsed}</strong> link{linksUsed === 1 ? '' : 's'}
               </>
             ) : (
               <>
-                Shortest in cache: <strong>{cachedPath.linksUsed}</strong> link
-                {cachedPath.linksUsed === 1 ? '' : 's'}
+                Shortest in cache: <strong>{cachedPath.optimalLinks}</strong> link
+                {cachedPath.optimalLinks === 1 ? '' : 's'}
                 {linksUsed > 0 && (
                   <>
                     {' · '}
@@ -201,8 +261,34 @@ export function WinScreen({
               </>
             )}
           </p>
-          {cachedPath.steps.length > 1 && (
-            <WinPathTrail steps={cachedPath.steps} onOpenStep={onOpenStep} />
+          {cachedPath.paths.map((steps, index) => (
+            <div
+              key={`cached-path-${index}`}
+              className="anime-to-anime-win-cached-path"
+            >
+              {cachedPath.paths.length > 1 && (
+                <p className="anime-to-anime-win-cached-path-label">
+                  Path {index + 1}
+                </p>
+              )}
+              {steps.length > 1 && (
+                <WinPathTrail steps={steps} onOpenStep={onOpenStep} />
+              )}
+            </div>
+          ))}
+          {cachedPath.exhausted ? (
+            <p className="anime-to-anime-win-cached-hint">
+              That's every shortest path in your cache ({cachedPath.paths.length}).
+            </p>
+          ) : (
+            <button
+              type="button"
+              className="btn"
+              disabled={cachedPath.loadingMore}
+              onClick={onFindAnotherPath}
+            >
+              {cachedPath.loadingMore ? 'Searching…' : 'Find another path'}
+            </button>
           )}
         </div>
       )}

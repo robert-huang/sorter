@@ -430,6 +430,221 @@ function enqueueNode(
   }
 }
 
+/** One pull from a {@link CachedShortestPathStream}. */
+export type CachedPathStreamResult =
+  | { status: 'found'; linksUsed: number; steps: PathStep[] }
+  | { status: 'exhausted'; total: number };
+
+/**
+ * Lazily yields every distinct shortest start→goal path in the cached
+ * graph, one per `next()` call, all of length {@link optimalLinks}.
+ * Paths are NOT deduped by anime: reaching the same anime through a
+ * different staff member is a distinct path and is yielded separately.
+ * `next()` returns `exhausted` once all shortest paths have been seen.
+ */
+export type CachedShortestPathStream = {
+  /** Link count shared by every path this stream yields (the cache optimum). */
+  optimalLinks: number;
+  next: () => Promise<CachedPathStreamResult>;
+};
+
+export type BuildCachedShortestPathStream =
+  | { status: 'ready'; stream: CachedShortestPathStream }
+  | { status: 'not_found' }
+  | { status: 'same' };
+
+type WeightedNeighbor = { node: GraphNode; weight: number };
+
+/** Outgoing edges for a node, mirroring the 0-1 BFS expansion rules:
+ *  anime→staff is free (0), staff→anime and anime→anime cost 1. */
+function neighborsOf(adjacency: CachedAdjacency, node: GraphNode): WeightedNeighbor[] {
+  const out: WeightedNeighbor[] = [];
+  if (node.kind === 'anime') {
+    const staffSet = adjacency.animeToStaff.get(node.id);
+    if (staffSet) {
+      for (const staffId of staffSet) {
+        out.push({ node: { kind: 'staff', id: staffId }, weight: 0 });
+      }
+    }
+    const relatedSet = adjacency.animeToAnime.get(node.id);
+    if (relatedSet) {
+      for (const mediaId of relatedSet) {
+        out.push({ node: { kind: 'anime', id: mediaId }, weight: 1 });
+      }
+    }
+  } else {
+    const animeSet = adjacency.staffToAnime.get(node.id);
+    if (animeSet) {
+      for (const mediaId of animeSet) {
+        out.push({ node: { kind: 'anime', id: mediaId }, weight: 1 });
+      }
+    }
+  }
+  return out;
+}
+
+/** 0-1 BFS computing the shortest link-distance from the start anime to
+ *  every reachable node. `maxLinks` prunes exploration past that bound
+ *  (so a goal whose true optimum exceeds it stays unreached). */
+function computeShortestDistances(
+  adjacency: CachedAdjacency,
+  startMediaId: number,
+  maxLinks: number | undefined,
+): Map<string, number> {
+  const limit = maxLinks ?? Number.POSITIVE_INFINITY;
+  const dist = new Map<string, number>();
+  const startKey = nodeKey('anime', startMediaId);
+  dist.set(startKey, 0);
+  const deque: { node: GraphNode; d: number }[] = [
+    { node: { kind: 'anime', id: startMediaId }, d: 0 },
+  ];
+
+  while (deque.length > 0) {
+    const { node, d } = deque.shift()!;
+    const best = dist.get(nodeKey(node.kind, node.id));
+    if (best !== undefined && d > best) {
+      continue; // stale deque entry superseded by a shorter relaxation
+    }
+    for (const { node: nbr, weight } of neighborsOf(adjacency, node)) {
+      const nd = d + weight;
+      if (nd > limit) {
+        continue;
+      }
+      const nbrKey = nodeKey(nbr.kind, nbr.id);
+      const prev = dist.get(nbrKey);
+      if (prev === undefined || nd < prev) {
+        dist.set(nbrKey, nd);
+        if (weight === 0) {
+          deque.unshift({ node: nbr, d: nd });
+        } else {
+          deque.push({ node: nbr, d: nd });
+        }
+      }
+    }
+  }
+  return dist;
+}
+
+/** Shortest-path predecessor DAG: parent `u` is kept for child `v` when
+ *  the edge `u→v` lies on some shortest path (`dist[u] + w == dist[v]`). */
+function buildShortestPathPredecessors(
+  adjacency: CachedAdjacency,
+  dist: Map<string, number>,
+): Map<string, GraphNode[]> {
+  const preds = new Map<string, GraphNode[]>();
+  const consider = (from: GraphNode, to: GraphNode, weight: number): void => {
+    const fromDist = dist.get(nodeKey(from.kind, from.id));
+    const toKey = nodeKey(to.kind, to.id);
+    const toDist = dist.get(toKey);
+    if (fromDist === undefined || toDist === undefined) {
+      return;
+    }
+    if (fromDist + weight === toDist) {
+      let list = preds.get(toKey);
+      if (!list) {
+        list = [];
+        preds.set(toKey, list);
+      }
+      list.push(from);
+    }
+  };
+
+  for (const [mediaId, staffSet] of adjacency.animeToStaff) {
+    for (const staffId of staffSet) {
+      consider({ kind: 'anime', id: mediaId }, { kind: 'staff', id: staffId }, 0);
+    }
+  }
+  for (const [staffId, animeSet] of adjacency.staffToAnime) {
+    for (const mediaId of animeSet) {
+      consider({ kind: 'staff', id: staffId }, { kind: 'anime', id: mediaId }, 1);
+    }
+  }
+  for (const [fromId, toSet] of adjacency.animeToAnime) {
+    for (const toId of toSet) {
+      consider({ kind: 'anime', id: fromId }, { kind: 'anime', id: toId }, 1);
+    }
+  }
+  return preds;
+}
+
+/** Backward DFS over the predecessor DAG, lazily yielding each distinct
+ *  shortest path as a start→goal ordered node array. The DAG is acyclic
+ *  (predecessors have strictly smaller rank), so enumeration terminates. */
+function* enumerateShortestPaths(
+  preds: Map<string, GraphNode[]>,
+  startMediaId: number,
+  goal: GraphNode,
+): Generator<GraphNode[]> {
+  const startKey = nodeKey('anime', startMediaId);
+
+  function* walk(node: GraphNode): Generator<GraphNode[]> {
+    const key = nodeKey(node.kind, node.id);
+    if (key === startKey) {
+      yield [node];
+      return;
+    }
+    const parents = preds.get(key);
+    if (!parents) {
+      return;
+    }
+    for (const parent of parents) {
+      for (const sub of walk(parent)) {
+        yield [...sub, node];
+      }
+    }
+  }
+
+  yield* walk(goal);
+}
+
+/**
+ * Build a stream that enumerates every distinct shortest path between
+ * the endpoints in the cached graph. The expensive work (adjacency load,
+ * BFS, predecessor DAG) happens once here; each `stream.next()` only
+ * pulls + hydrates the next path, so multi-click browsing stays cheap.
+ */
+export async function buildCachedShortestPathStream(
+  params: FindCachedOptimalPathParams,
+): Promise<BuildCachedShortestPathStream> {
+  const { db, startMediaId, goalMediaId, rules, maxLinks } = params;
+
+  if (startMediaId === goalMediaId) {
+    return { status: 'same' };
+  }
+  if (maxLinks !== undefined && maxLinks <= 0) {
+    return { status: 'not_found' };
+  }
+
+  const adjacency = await loadCachedAdjacency(db, rules);
+  const dist = computeShortestDistances(adjacency, startMediaId, maxLinks);
+  const optimalLinks = dist.get(nodeKey('anime', goalMediaId));
+  if (optimalLinks === undefined) {
+    return { status: 'not_found' };
+  }
+
+  const preds = buildShortestPathPredecessors(adjacency, dist);
+  const iterator = enumerateShortestPaths(preds, startMediaId, {
+    kind: 'anime',
+    id: goalMediaId,
+  });
+  let yielded = 0;
+
+  const stream: CachedShortestPathStream = {
+    optimalLinks,
+    async next() {
+      const result = iterator.next();
+      if (result.done) {
+        return { status: 'exhausted', total: yielded };
+      }
+      const steps = await hydratePathSteps(db, result.value, rules);
+      yielded += 1;
+      return { status: 'found', linksUsed: optimalLinks, steps };
+    },
+  };
+
+  return { status: 'ready', stream };
+}
+
 export async function findCachedOptimalPath(
   params: FindCachedOptimalPathParams,
 ): Promise<CachedOptimalPathResult> {
