@@ -211,31 +211,11 @@ export function EndpointPicker({
       <div className="anime-to-anime-endpoint-header">
         <h2 className="anime-to-anime-section-title">{label}</h2>
         <div className="anime-to-anime-endpoint-header-actions">
-          <button
-            type="button"
-            className="btn small icon-only anime-to-anime-random-btn"
-            disabled={busy}
-            onClick={onRandomFromCache}
-            title="Random from cache"
-            aria-label="Random from cache"
-          >
-            <DatabaseIcon size={16} />
-          </button>
-          <button
-            type="button"
-            className="btn small icon-only anime-to-anime-random-btn"
-            disabled={busy}
-            onClick={() => void onRandomApi()}
-            title="Random from AniList"
-            aria-label="Random from AniList"
-          >
-            <AnilistIcon size={16} />
-          </button>
           <div className="anime-to-anime-endpoint-user">
             <input
               type="text"
               className="slot-search anime-to-anime-endpoint-user-input"
-              placeholder="AniList username"
+              placeholder="AL Username"
               value={username}
               disabled={busy}
               onChange={(e) => setUsername(e.target.value)}
@@ -262,6 +242,26 @@ export function EndpointPicker({
               <UserIcon size={16} />
             </button>
           </div>
+          <button
+            type="button"
+            className="btn small icon-only anime-to-anime-random-btn"
+            disabled={busy}
+            onClick={onRandomFromCache}
+            title="Random from cache"
+            aria-label="Random from cache"
+          >
+            <DatabaseIcon size={16} />
+          </button>
+          <button
+            type="button"
+            className="btn small icon-only anime-to-anime-random-btn"
+            disabled={busy}
+            onClick={() => void onRandomApi()}
+            title="Random from AniList"
+            aria-label="Random from AniList"
+          >
+            <AnilistIcon size={16} />
+          </button>
         </div>
       </div>
 
