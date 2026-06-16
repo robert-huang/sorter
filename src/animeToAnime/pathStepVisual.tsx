@@ -129,12 +129,15 @@ export function SlotBubble({
   options,
   selectedIndex,
   onSelect,
+  label,
   compact = false,
   onOpenStep,
 }: {
   options: readonly RouteSlotOption[];
   selectedIndex: number;
   onSelect: (index: number) => void;
+  /** Selected show's title, shown beside the bubble (right-click target). */
+  label: string;
   compact?: boolean;
   onOpenStep?: (step: PathStep) => void;
 }) {
@@ -181,6 +184,9 @@ export function SlotBubble({
     >
       <span className="anime-to-anime-slot-bubble">
         <PathStepBubble step={selected.show} compact={compact} onOpenStep={onOpenStep} />
+      </span>
+      <span className="anime-to-anime-slot-titlewrap">
+        <span className="anime-to-anime-win-path-label">{label}</span>
         {extraCount > 0 && (
           <button
             type="button"

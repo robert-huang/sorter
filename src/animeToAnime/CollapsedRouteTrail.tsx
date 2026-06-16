@@ -77,27 +77,28 @@ export function CollapsedRouteTrail({ route, onOpenStep }: Props) {
               : `staff-${step.staffId}-${index}`;
         const label = pathStepLabel(step);
 
-        const bubble =
+        // Slots own their title (so the right-click menu and +N badge cover
+        // the text too); fixed stops render the label as a sibling.
+        const stop =
           item.kind === 'slot' ? (
-            <SlotBubble
-              options={item.options}
-              selectedIndex={selectionFor(index)}
-              onSelect={(optionIndex) =>
-                selectSlot(slotOrdinalByIndex.get(index) ?? 0, optionIndex)
-              }
-              compact
-              onOpenStep={onOpenStep}
-            />
+            <span key={key} className="anime-to-anime-win-path-stop">
+              <SlotBubble
+                options={item.options}
+                selectedIndex={selectionFor(index)}
+                onSelect={(optionIndex) =>
+                  selectSlot(slotOrdinalByIndex.get(index) ?? 0, optionIndex)
+                }
+                label={label}
+                compact
+                onOpenStep={onOpenStep}
+              />
+            </span>
           ) : (
-            <PathStepBubble step={step} compact onOpenStep={onOpenStep} />
+            <span key={key} className="anime-to-anime-win-path-stop">
+              <PathStepBubble step={step} compact onOpenStep={onOpenStep} />
+              <span className="anime-to-anime-win-path-label">{label}</span>
+            </span>
           );
-
-        const stop = (
-          <span key={key} className="anime-to-anime-win-path-stop">
-            {bubble}
-            <span className="anime-to-anime-win-path-label">{label}</span>
-          </span>
-        );
 
         if (index === 0) {
           return [stop];

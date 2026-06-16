@@ -2180,6 +2180,8 @@ a {
 .anime-to-anime-slot {
   position: relative;
   display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .anime-to-anime-slot-bubble {
@@ -2187,12 +2189,20 @@ a {
   display: inline-flex;
 }
 
+/* Wraps the selected show's title; anchors the +N badge to its top-right
+   corner and is part of the slot's right-click target. */
+.anime-to-anime-slot-titlewrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
 .anime-to-anime-slot-caret {
   position: absolute;
-  right: -6px;
-  bottom: -4px;
-  min-width: 18px;
-  height: 16px;
+  top: -9px;
+  right: -8px;
+  min-width: 16px;
+  height: 15px;
   padding: 0 4px;
   border-radius: 8px;
   border: 1.5px solid var(--bg, #fff);
