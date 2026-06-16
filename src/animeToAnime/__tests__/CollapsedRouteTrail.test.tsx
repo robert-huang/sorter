@@ -106,6 +106,22 @@ describe('CollapsedRouteTrail slot selection', () => {
     expect(edgeTitles()).toEqual(['VA start', 'as Hero B', 'as Villain B', 'VA goal']);
   });
 
+  it('opens the picker from a left-click on the slot title', () => {
+    act(() => {
+      root.render(<CollapsedRouteTrail route={twoOptionRoute()} />);
+    });
+
+    expect(container.querySelector('.anime-to-anime-slot-menu')).toBeNull();
+    const title = container.querySelector('.anime-to-anime-slot-title') as HTMLElement;
+    expect(title).not.toBeNull();
+    expect(title.textContent).toBe('Show A');
+
+    act(() => {
+      title.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
+    });
+    expect(container.querySelectorAll('.anime-to-anime-slot-menu-item')).toHaveLength(2);
+  });
+
   it('renders a single-option route with no slot picker', () => {
     const route: CollapsedRoute = {
       linksUsed: 1,

@@ -169,33 +169,37 @@ export function SlotBubble({
     };
   }, [menuOpen]);
 
+  const toggleMenu = () => setMenuOpen((open) => !open);
+  const openMenuFromContext = (event: { preventDefault: () => void }) => {
+    event.preventDefault();
+    setMenuOpen(true);
+  };
+
   return (
-    <span
-      ref={containerRef}
-      className="anime-to-anime-slot"
-      onContextMenu={
-        extraCount > 0
-          ? (event) => {
-              event.preventDefault();
-              setMenuOpen(true);
-            }
-          : undefined
-      }
-    >
+    <span ref={containerRef} className="anime-to-anime-slot">
       <span className="anime-to-anime-slot-bubble">
         <PathStepBubble step={selected.show} compact={compact} onOpenStep={onOpenStep} />
       </span>
-      <span className="anime-to-anime-slot-titlewrap">
-        <span className="anime-to-anime-win-path-label">{label}</span>
+      {/* The title area is the dropdown trigger: left-click and right-click
+          both open the show picker. The bubble keeps modal / AniList. */}
+      <span className="anime-to-anime-slot-titlewrap" onContextMenu={openMenuFromContext}>
+        <button
+          type="button"
+          className="anime-to-anime-win-path-label anime-to-anime-slot-title"
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          onClick={toggleMenu}
+        >
+          {label}
+        </button>
         {extraCount > 0 && (
           <button
             type="button"
             className="anime-to-anime-slot-caret"
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-            aria-label={`${options.length} show options`}
+            aria-hidden="true"
+            tabIndex={-1}
             title={`${options.length} shows share this slot`}
-            onClick={() => setMenuOpen((open) => !open)}
+            onClick={toggleMenu}
           >
             +{extraCount}
           </button>
