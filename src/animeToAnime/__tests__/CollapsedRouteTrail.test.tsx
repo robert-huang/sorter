@@ -10,7 +10,7 @@
 
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CollapsedRoute } from '../cachedGraph';
 import { CollapsedRouteTrail } from '../CollapsedRouteTrail';
 
@@ -61,6 +61,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  vi.restoreAllMocks();
 });
 
 function edgeTitles(): (string | null)[] {
@@ -77,6 +78,8 @@ function labels(): string[] {
 
 describe('CollapsedRouteTrail slot selection', () => {
   it('swaps the slot bubble and re-derives both adjacent arrows', () => {
+    // Pin the random default to the first option for a deterministic baseline.
+    vi.spyOn(Math, 'random').mockReturnValue(0);
     act(() => {
       root.render(<CollapsedRouteTrail route={twoOptionRoute()} />);
     });
@@ -106,7 +109,20 @@ describe('CollapsedRouteTrail slot selection', () => {
     expect(edgeTitles()).toEqual(['VA start', 'as Hero B', 'as Villain B', 'VA goal']);
   });
 
+  it('defaults a slot to a random option (not the first by title)', () => {
+    // 0.99 → floor(0.99 × 2) = 1 → second option (Show B).
+    vi.spyOn(Math, 'random').mockReturnValue(0.99);
+    act(() => {
+      root.render(<CollapsedRouteTrail route={twoOptionRoute()} />);
+    });
+
+    expect(labels()).toContain('Show B');
+    expect(labels()).not.toContain('Show A');
+    expect(edgeTitles()).toEqual(['VA start', 'as Hero B', 'as Villain B', 'VA goal']);
+  });
+
   it('opens the picker from a left-click on the slot title', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
     act(() => {
       root.render(<CollapsedRouteTrail route={twoOptionRoute()} />);
     });

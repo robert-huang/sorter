@@ -30,7 +30,13 @@ export function CollapsedRouteTrail({ route, onOpenStep }: Props) {
       slotCount += 1;
     }
   });
-  const [selected, setSelected] = useState<number[]>(() => Array(slotCount).fill(0));
+  // Default each slot to a random option so repeated route reveals surface
+  // variety; the menu list itself stays alphabetical for easy scanning.
+  const [selected, setSelected] = useState<number[]>(() =>
+    items.flatMap((item) =>
+      item.kind === 'slot' ? [Math.floor(Math.random() * item.options.length)] : [],
+    ),
+  );
 
   const selectionFor = (index: number): number => {
     const ordinal = slotOrdinalByIndex.get(index);
