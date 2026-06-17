@@ -27,6 +27,7 @@ import type { MediaRow, StaffRow } from '../lib/importers/anilist/types';
 import { useAnilistDisplayPreferences } from '../hooks/useAnilistDisplayPreferences';
 import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
 import { pickPersonName } from '../lib/importers/anilist/personDisplayLabel';
+import { isGraphTimestampStale } from '../lib/importers/anilist/graphConstants';
 import {
   subscribeToWaitState,
   type AnilistWaitState,
@@ -908,6 +909,7 @@ export function AnimeToAnimeApp() {
                     staffName={pickPersonName(staffHeader, undefined, 'Staff')}
                     rows={filteredFilmography}
                     loading={loading}
+                    stale={isGraphTimestampStale(staffHeader.fetched_at)}
                     onRefresh={onRefreshPlayList}
                     onHopToAnime={(row) => {
                       void onHopToAnimeFromFilmography(row);

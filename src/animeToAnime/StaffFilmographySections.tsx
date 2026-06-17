@@ -44,6 +44,9 @@ interface Props {
   staffName: string;
   rows: readonly AnimeFilmographyRow[];
   loading: boolean;
+  /** True when the cached filmography is older than the staleness
+   *  threshold (>90d) — highlights the refresh button to prompt an update. */
+  stale?: boolean;
   onRefresh: () => void;
   onHopToAnime: (row: AnimeFilmographyRow) => void;
   /** Show the "only items on my list" filter — true when a cached AniList
@@ -61,6 +64,7 @@ export function StaffFilmographySections({
   staffName,
   rows,
   loading,
+  stale = false,
   onRefresh,
   onHopToAnime,
   showMyListFilter = false,
@@ -69,7 +73,12 @@ export function StaffFilmographySections({
   myListEmpty = false,
 }: Props) {
   const { voice, production } = partitionFilmography(rows);
-  const refreshLabel = 'Refresh filmography from AniList';
+  // When the cache is stale, swap the tooltip to call out the age and the
+  // fix, mirroring the staff detail modal's stale-refresh affordance.
+  const isStale = stale && !loading;
+  const refreshLabel = isStale
+    ? "Cached filmography >90 days old \u2014 click to refresh from AniList"
+    : 'Refresh filmography from AniList';
   const staffTitleLink = bindAnilistMiddleClick(anilistUrlForStaff({ id: staffId }));
 
   return (
@@ -87,7 +96,9 @@ export function StaffFilmographySections({
         </h2>
         <button
           type="button"
-          className="btn icon-only anime-to-anime-refresh-btn anime-to-anime-refresh-btn--compact"
+          className={`btn icon-only anime-to-anime-refresh-btn anime-to-anime-refresh-btn--compact${
+            isStale ? ' anilist-detail-refresh-stale' : ''
+          }`}
           onClick={onRefresh}
           disabled={loading}
           title={refreshLabel}
