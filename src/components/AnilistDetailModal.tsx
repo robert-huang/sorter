@@ -325,6 +325,16 @@ export function AnilistDetailModal({
     }
   }, [mediaId, expanding]);
 
+  // Highlight the Refresh button when either cached section is older than
+  // the staleness threshold (>90d) — mirrors the staff modal's affordance
+  // so the freshness text isn't the only stale signal.
+  const isCastStale =
+    !!expansionStatus &&
+    ((expansionStatus.charactersFetchedAt !== null &&
+      isGraphTimestampStale(expansionStatus.charactersFetchedAt)) ||
+      (expansionStatus.staffFetchedAt !== null &&
+        isGraphTimestampStale(expansionStatus.staffFetchedAt)));
+
   const title = pickTitle(detail, fallbackTitle);
   const m = detail?.media;
 
@@ -352,10 +362,16 @@ export function AnilistDetailModal({
           <h3 style={{ margin: 0, flex: 1, minWidth: 0 }}>{title}</h3>
           <button
             type="button"
-            className="btn small"
+            className={`btn small${
+              isCastStale && !expanding ? ' anilist-detail-refresh-stale' : ''
+            }`}
             onClick={() => void onRefresh()}
             disabled={expanding}
-            title="Re-fetch cast & staff for this entry (does not auto-push)"
+            title={
+              isCastStale
+                ? "This entry's cached cast/staff is over 90 days old — click to re-fetch from AniList"
+                : 'Re-fetch cast & staff for this entry (does not auto-push)'
+            }
           >
             {expanding ? 'Refreshing…' : '↻ Refresh'}
           </button>

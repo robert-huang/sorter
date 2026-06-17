@@ -207,6 +207,9 @@ export function AnimeToAnimeApp() {
   const [relations, setRelations] = useState<MediaRelationRow[]>([]);
   const [filmography, setFilmography] = useState<AnimeFilmographyRow[]>([]);
   const [staffHeader, setStaffHeader] = useState<StaffRow | null>(null);
+  // True when the current anime's cached cast/staff expansion is older than
+  // the staleness threshold (>90d) — highlights the cast refresh button.
+  const [currentMediaStale, setCurrentMediaStale] = useState(false);
   const [currentMedia, setCurrentMedia] = useState<MediaRow | null>(null);
   // Latest cached AniList user id (null when no list cached) — gates the
   // staff-list "only items on my list" toggle, mirroring StaffDetailModal.
@@ -476,11 +479,24 @@ export function AnimeToAnimeApp() {
           const rel = rules.allowRelations
             ? await getMediaRelations(ctx.db, current.mediaId)
             : [];
+          // Cheap single-row read of the cast/staff expansion timestamps so
+          // the play-screen refresh button can flag a >90d-old cache, the
+          // same way the media detail modal does.
+          const castStatus = await productionReads.getMediaCastExpansionStatus(
+            current.mediaId,
+          );
           if (cancelled) return;
           setCurrentMedia(mediaRows[0] ?? null);
           setVaCredits(va);
           setProductionCredits(prod);
           setRelations(rel);
+          setCurrentMediaStale(
+            !!castStatus &&
+              ((castStatus.charactersFetchedAt !== null &&
+                isGraphTimestampStale(castStatus.charactersFetchedAt)) ||
+                (castStatus.staffFetchedAt !== null &&
+                  isGraphTimestampStale(castStatus.staffFetchedAt))),
+          );
           setFilmography([]);
           setStaffHeader(null);
           // The my-list toggle only applies to staff filmography lists.
@@ -532,6 +548,7 @@ export function AnimeToAnimeApp() {
           setProductionCredits([]);
           setRelations([]);
           setCurrentMedia(null);
+          setCurrentMediaStale(false);
         }
       } catch (err) {
         if (!cancelled) {
@@ -858,6 +875,8 @@ export function AnimeToAnimeApp() {
                     onRefresh={onRefreshPlayList}
                     refreshing={loading}
                     refreshLabel="Refresh cast from AniList"
+                    stale={currentMediaStale}
+                    staleRefreshLabel="This entry's cached cast is over 90 days old — click to refresh from AniList"
                   />
                   <ul className="anime-to-anime-hop-list">
                     {filteredVa.map((group: GroupedVaCreditRow) => (
