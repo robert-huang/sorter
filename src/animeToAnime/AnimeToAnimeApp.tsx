@@ -56,10 +56,14 @@ import {
 } from './pathHopLabels';
 import {
   loadRoundConfig,
+  loadStaffGenderFilter,
   loadVaListImageMode,
+  matchesStaffGender,
   saveRoundConfig,
+  saveStaffGenderFilter,
   saveVaListImageMode,
   type RoundConfig,
+  type StaffGenderFilter,
   type VaListImageMode,
 } from './preferences';
 import {
@@ -146,6 +150,7 @@ export function AnimeToAnimeApp() {
   );
   const [theme, setTheme] = useState<AnimeToAnimeTheme>(loadAnimeToAnimeTheme);
   const [vaListImageMode, setVaListImageMode] = useState<VaListImageMode>(loadVaListImageMode);
+  const [genderFilter, setGenderFilter] = useState<StaffGenderFilter>(loadStaffGenderFilter);
   const [ready, setReady] = useState(false);
   const [storageMode, setStorageMode] = useState<StorageMode>('opfs');
   const [storageHint, setStorageHint] = useState<string | null>(null);
@@ -244,6 +249,11 @@ export function AnimeToAnimeApp() {
   const onVaListImageModeChange = useCallback((mode: VaListImageMode) => {
     setVaListImageMode(mode);
     saveVaListImageMode(mode);
+  }, []);
+
+  const onGenderFilterChange = useCallback((filter: StaffGenderFilter) => {
+    setGenderFilter(filter);
+    saveStaffGenderFilter(filter);
   }, []);
 
   useEffect(() => {
@@ -386,9 +396,10 @@ export function AnimeToAnimeApp() {
         goalMediaId: goalMedia.id,
         rules: activeRoundConfig,
         maxLinks,
+        genderFilter,
       });
     },
-    [activeRoundConfig, goalMedia, startMedia],
+    [activeRoundConfig, goalMedia, startMedia, genderFilter],
   );
 
   /** Win: prune BFS past the user's link count — can't beat a path shorter than that. */
@@ -538,7 +549,13 @@ export function AnimeToAnimeApp() {
 
   const filterLower = filter.trim().toLowerCase();
 
-  const groupedVa = useMemo(() => groupSortedVaCredits(vaCredits), [vaCredits]);
+  const groupedVa = useMemo(() => {
+    const groups = groupSortedVaCredits(vaCredits);
+    if (genderFilter === 'any') {
+      return groups;
+    }
+    return groups.filter((group) => matchesStaffGender(group.staff.gender, genderFilter));
+  }, [vaCredits, genderFilter]);
 
   const filteredVa = useMemo(() => {
     if (!filterLower) {
@@ -550,13 +567,17 @@ export function AnimeToAnimeApp() {
   }, [groupedVa, filterLower]);
 
   const filteredProd = useMemo(() => {
+    const genderMatched =
+      genderFilter === 'any'
+        ? productionCredits
+        : productionCredits.filter((row) => matchesStaffGender(row.staff.gender, genderFilter));
     if (!filterLower) {
-      return productionCredits;
+      return genderMatched;
     }
-    return productionCredits.filter((row) =>
+    return genderMatched.filter((row) =>
       matchesListFilter(productionCreditFilterParts(row), filterLower),
     );
-  }, [productionCredits, filterLower]);
+  }, [productionCredits, filterLower, genderFilter]);
 
   const filteredRelations = useMemo(() => {
     if (!filterLower) {
@@ -679,6 +700,8 @@ export function AnimeToAnimeApp() {
         dbSync={dbSync}
         onToggleTheme={onToggleTheme}
         onVaListImageModeChange={onVaListImageModeChange}
+        staffGenderFilter={genderFilter}
+        onStaffGenderFilterChange={onGenderFilterChange}
         onRoundConfigChange={onRoundConfigChange}
         titleInteractive={phase !== 'setup'}
         onTitleClick={confirmExitToSetup}

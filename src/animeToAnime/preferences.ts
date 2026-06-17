@@ -1,5 +1,13 @@
 export type VaListImageMode = 'character' | 'staff';
 
+/**
+ * Live filter restricting which staff links count, by AniList gender.
+ * `any` keeps everyone (including missing/unknown and non-binary); `male`/
+ * `female` keep only that exact gender. Unlike `RoundConfig`, this is applied
+ * live (never snapshotted at round start).
+ */
+export type StaffGenderFilter = 'any' | 'male' | 'female';
+
 /** Rules for a single play session — snapshotted when a round starts. */
 export type RoundConfig = {
   allowProduction: boolean;
@@ -8,6 +16,7 @@ export type RoundConfig = {
 };
 
 export const VA_LIST_IMAGE_MODE_KEY = 'anime-to-anime-va-image-mode';
+export const STAFF_GENDER_FILTER_KEY = 'anime-to-anime-staff-gender-filter';
 export const ROUND_CONFIG_KEY = 'anime-to-anime-round-config';
 const LEGACY_ROUND_CONFIG_KEY = 'link-game-round-config';
 
@@ -35,6 +44,44 @@ export function saveVaListImageMode(mode: VaListImageMode): void {
   } catch {
     /* ignore */
   }
+}
+
+export function loadStaffGenderFilter(): StaffGenderFilter {
+  try {
+    const raw = localStorage.getItem(STAFF_GENDER_FILTER_KEY);
+    if (raw === 'any' || raw === 'male' || raw === 'female') {
+      return raw;
+    }
+  } catch {
+    /* ignore */
+  }
+  return 'any';
+}
+
+export function saveStaffGenderFilter(filter: StaffGenderFilter): void {
+  try {
+    localStorage.setItem(STAFF_GENDER_FILTER_KEY, filter);
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Whether a staff member's AniList gender passes the active filter. `any`
+ * matches everyone; `male`/`female` match only that exact gender, so staff
+ * with missing/unknown or non-binary gender are excluded.
+ */
+export function matchesStaffGender(
+  gender: string | null | undefined,
+  filter: StaffGenderFilter,
+): boolean {
+  if (filter === 'any') {
+    return true;
+  }
+  if (gender == null) {
+    return false;
+  }
+  return gender.trim().toLowerCase() === filter;
 }
 
 export function loadRoundConfig(): RoundConfig {

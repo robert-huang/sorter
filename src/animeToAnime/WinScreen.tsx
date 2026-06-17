@@ -116,6 +116,13 @@ export function WinScreen({
   // Tracks how many routes were shown on the previous render so the effect
   // only scrolls on a genuine append, not the initial reveal (0 → 1).
   const shownRouteCountRef = useRef(0);
+  // Mirror of the latest UI state so the rebuild-on-filter-change effect can
+  // read the current phase without re-running on every cachedPath change.
+  const cachedPathRef = useRef(cachedPath);
+  cachedPathRef.current = cachedPath;
+  // Skips the first effect run (initial mount) so we only rebuild when the
+  // build callback identity actually changes (i.e. the gender filter changed).
+  const skipFirstRebuildRef = useRef(true);
 
   const shownRouteCount =
     cachedPath.phase === 'shown' ? cachedPath.routes.length : 0;
@@ -133,6 +140,61 @@ export function WinScreen({
       scroller.scrollTo({ top: scroller.scrollHeight, behavior: 'smooth' });
     }
   }, [shownRouteCount]);
+
+  // When the gender filter changes mid-results the build callback identity
+  // changes and the existing stream is stale. Keep the already-shown routes on
+  // screen, but swap in a freshly-built stream so the next "Find another route"
+  // returns routes matching the new filter. If a prior search was a miss, reset
+  // to the "Shortest path (cached)" button so it can be retried under the new
+  // filter.
+  useEffect(() => {
+    if (skipFirstRebuildRef.current) {
+      skipFirstRebuildRef.current = false;
+      return;
+    }
+    if (!onBuildCachedPathStream) {
+      return;
+    }
+    const state = cachedPathRef.current;
+    if (state.phase === 'not_found') {
+      streamRef.current = null;
+      setCachedPath({ phase: 'idle' });
+      return;
+    }
+    if (state.phase !== 'shown') {
+      return;
+    }
+    let cancelled = false;
+    void onBuildCachedPathStream()
+      .then((built) => {
+        if (cancelled) {
+          return;
+        }
+        if (built.status !== 'ready') {
+          streamRef.current = null;
+          setCachedPath((prev) =>
+            prev.phase === 'shown' ? { ...prev, exhausted: true, loadingMore: false } : prev,
+          );
+          return;
+        }
+        streamRef.current = built.stream;
+        setCachedPath((prev) =>
+          prev.phase === 'shown' ? { ...prev, exhausted: false, loadingMore: false } : prev,
+        );
+      })
+      .catch(() => {
+        if (cancelled) {
+          return;
+        }
+        streamRef.current = null;
+        setCachedPath((prev) =>
+          prev.phase === 'shown' ? { ...prev, exhausted: true, loadingMore: false } : prev,
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [onBuildCachedPathStream]);
 
   const onCopySummary = async () => {
     const summaryText = buildSummaryCopyText(

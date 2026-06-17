@@ -4,9 +4,15 @@ import { SettingsGitHubLink } from '../components/SettingsGitHubLink';
 import { SourceDatabasesSection } from '../components/sourceDatabasesSection';
 import type { CloudMenuStatus } from '../components/SettingsMenu';
 import { SORTER_HOME_HREF } from '../lib/appRoutes';
-import type { RoundConfig, VaListImageMode } from './preferences';
+import type { RoundConfig, StaffGenderFilter, VaListImageMode } from './preferences';
 
 type SettingsTab = 'settings' | 'database';
+
+const GENDER_FILTER_OPTIONS: { value: StaffGenderFilter; label: string }[] = [
+  { value: 'any', label: 'Any' },
+  { value: 'male', label: 'Male' },
+  { value: 'female', label: 'Female' },
+];
 
 const GEAR_TAB_LS_KEY = 'anime-to-anime:settings:lastTab';
 
@@ -49,6 +55,8 @@ interface DbSyncProps {
 interface Props {
   vaListImageMode: VaListImageMode;
   onVaListImageModeChange: (mode: VaListImageMode) => void;
+  staffGenderFilter: StaffGenderFilter;
+  onStaffGenderFilterChange: (filter: StaffGenderFilter) => void;
   roundConfig: RoundConfig;
   onRoundConfigChange: (patch: Partial<RoundConfig>) => void;
   dbSync: DbSyncProps;
@@ -57,6 +65,8 @@ interface Props {
 export function AnimeToAnimeSettingsMenu({
   vaListImageMode,
   onVaListImageModeChange,
+  staffGenderFilter,
+  onStaffGenderFilterChange,
   roundConfig,
   onRoundConfigChange,
   dbSync,
@@ -153,6 +163,34 @@ export function AnimeToAnimeSettingsMenu({
                   />
                   Franchise relations mode
                 </label>
+
+                <p className="edit-item-advanced-title settings-popover-section-title">
+                  Staff links — gender
+                </p>
+                <p className="settings-popover-hint">
+                  Applied live to play and the win-screen route search. Male/Female exclude
+                  missing and non-binary gender.
+                </p>
+                <div className="filter-chip-range-row">
+                  <span>gender</span>
+                  <div
+                    className="filter-chip-segmented"
+                    role="group"
+                    aria-label="Staff gender filter"
+                  >
+                    {GENDER_FILTER_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        className={staffGenderFilter === option.value ? 'active' : ''}
+                        aria-pressed={staffGenderFilter === option.value}
+                        onClick={() => onStaffGenderFilterChange(option.value)}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
                 <p className="edit-item-advanced-title settings-popover-section-title">
                   Show page — voice cast

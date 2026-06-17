@@ -6,7 +6,7 @@ import type { AnilistDbExecutor } from '../lib/importers/anilist/context';
 import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
 import { pickPersonName } from '../lib/importers/anilist/personDisplayLabel';
 import { filterProductionStaffRows } from '../lib/importers/anilist/staffRoleFilter';
-import type { RoundConfig } from './preferences';
+import { matchesStaffGender, type RoundConfig, type StaffGenderFilter } from './preferences';
 import type { PathHopCharacter, PathStep } from './pathHistory';
 import { annotatePathViaLabels } from './pathHopLabels';
 
@@ -20,6 +20,12 @@ export type FindCachedOptimalPathParams = {
   rules: RoundConfig;
   /** When set, BFS stops expanding past this link count. Omit for unbounded search. */
   maxLinks?: number;
+  /**
+   * Live gender filter: only staff matching it may bridge two anime. Defaults
+   * to `'any'` (no filtering). Missing/unknown and non-binary gender are
+   * excluded under `'male'`/`'female'`.
+   */
+  genderFilter?: StaffGenderFilter;
 };
 
 export type CachedOptimalPathResult =
@@ -56,14 +62,44 @@ function productionRoleMode(rules: RoundConfig): 'key' | 'all' {
   return rules.productionAllRoles ? 'all' : 'key';
 }
 
+/**
+ * Set of staff ids passing the gender filter, or `null` when no filtering is
+ * needed (`'any'`). Built once per adjacency load so each staff node is gated
+ * with an O(1) lookup.
+ */
+async function loadGenderAllowedStaffIds(
+  db: AnilistDbExecutor,
+  genderFilter: StaffGenderFilter,
+): Promise<Set<number> | null> {
+  if (genderFilter === 'any') {
+    return null;
+  }
+  const rows = await db.exec('SELECT id, gender FROM staff');
+  const allowed = new Set<number>();
+  for (const row of rows) {
+    const gender = row.gender === null || row.gender === undefined ? null : String(row.gender);
+    if (matchesStaffGender(gender, genderFilter)) {
+      allowed.add(Number(row.id));
+    }
+  }
+  return allowed;
+}
+
 async function loadCachedAdjacency(
   db: AnilistDbExecutor,
   rules: RoundConfig,
+  genderFilter: StaffGenderFilter = 'any',
 ): Promise<CachedAdjacency> {
   const roleMode = productionRoleMode(rules);
   const animeToStaff = new Map<number, Set<number>>();
   const staffToAnime = new Map<number, Set<number>>();
   const animeToAnime = new Map<number, Set<number>>();
+
+  // When a gender filter is active, drop any staff that doesn't match so they
+  // can never be a node on a path. `null` means no filtering ('any').
+  const allowedStaff = await loadGenderAllowedStaffIds(db, genderFilter);
+  const isStaffAllowed = (staffId: number): boolean =>
+    allowedStaff === null || allowedStaff.has(staffId);
 
   const cvaRows = await db.exec(`
     SELECT cva.media_id, cva.staff_id
@@ -74,6 +110,9 @@ async function loadCachedAdjacency(
   for (const row of cvaRows) {
     const mediaId = Number(row.media_id);
     const staffId = Number(row.staff_id);
+    if (!isStaffAllowed(staffId)) {
+      continue;
+    }
     addToAdjacency(animeToStaff, mediaId, staffId);
     addToAdjacency(staffToAnime, staffId, mediaId);
   }
@@ -94,6 +133,9 @@ async function loadCachedAdjacency(
   );
 
   for (const row of filteredProduction) {
+    if (!isStaffAllowed(row.staffId)) {
+      continue;
+    }
     if (rules.allowProduction) {
       addToAdjacency(animeToStaff, row.mediaId, row.staffId);
     }
@@ -123,21 +165,27 @@ async function findSharedVaStaff(
   db: AnilistDbExecutor,
   startMediaId: number,
   goalMediaId: number,
+  genderFilter: StaffGenderFilter = 'any',
 ): Promise<number | null> {
+  // LEFT JOIN so 'any' keeps the original behavior even if a staff row is
+  // missing; the gender match is applied in JS via the shared helper.
   const rows = await db.exec(
     `
-      SELECT cva1.staff_id AS staff_id
+      SELECT cva1.staff_id AS staff_id, st.gender AS gender
       FROM character_voice_actor cva1
       JOIN character_voice_actor cva2 ON cva1.staff_id = cva2.staff_id
+      LEFT JOIN staff st ON st.id = cva1.staff_id
       WHERE cva1.media_id = ? AND cva2.media_id = ?
-      LIMIT 1
     `,
     [startMediaId, goalMediaId],
   );
-  if (rows.length === 0) {
-    return null;
+  for (const row of rows) {
+    const gender = row.gender === null || row.gender === undefined ? null : String(row.gender);
+    if (matchesStaffGender(gender, genderFilter)) {
+      return Number(row.staff_id);
+    }
   }
-  return Number(rows[0].staff_id);
+  return null;
 }
 
 async function findSharedProductionStaff(
@@ -145,6 +193,7 @@ async function findSharedProductionStaff(
   startMediaId: number,
   goalMediaId: number,
   rules: RoundConfig,
+  genderFilter: StaffGenderFilter = 'any',
 ): Promise<number | null> {
   if (!rules.allowProduction) {
     return null;
@@ -152,13 +201,22 @@ async function findSharedProductionStaff(
 
   const rows = await db.exec(
     `
-      SELECT ms1.staff_id AS staff_id, ms1.role AS role
+      SELECT ms1.staff_id AS staff_id, ms1.role AS role, st.gender AS gender
       FROM media_staff ms1
       JOIN media_staff ms2 ON ms1.staff_id = ms2.staff_id
+      LEFT JOIN staff st ON st.id = ms1.staff_id
       WHERE ms1.media_id = ? AND ms2.media_id = ?
     `,
     [startMediaId, goalMediaId],
   );
+
+  const genderByStaffId = new Map<number, string | null>();
+  for (const row of rows) {
+    genderByStaffId.set(
+      Number(row.staff_id),
+      row.gender === null || row.gender === undefined ? null : String(row.gender),
+    );
+  }
 
   const roleMode = productionRoleMode(rules);
   const filtered = filterProductionStaffRows(
@@ -169,7 +227,12 @@ async function findSharedProductionStaff(
     roleMode,
   );
 
-  return filtered.length > 0 ? filtered[0].staffId : null;
+  for (const row of filtered) {
+    if (matchesStaffGender(genderByStaffId.get(row.staffId) ?? null, genderFilter)) {
+      return row.staffId;
+    }
+  }
+  return null;
 }
 
 async function hasDirectFranchiseLink(
@@ -307,19 +370,26 @@ async function tryDirectOneLinkPath(
   startMediaId: number,
   goalMediaId: number,
   rules: RoundConfig,
+  genderFilter: StaffGenderFilter = 'any',
 ): Promise<CachedOptimalPathResult | null> {
   if (await hasDirectFranchiseLink(db, startMediaId, goalMediaId, rules)) {
     const steps = await buildOneLinkPath(db, startMediaId, goalMediaId, null, rules);
     return { status: 'found', linksUsed: 1, steps };
   }
 
-  const sharedVa = await findSharedVaStaff(db, startMediaId, goalMediaId);
+  const sharedVa = await findSharedVaStaff(db, startMediaId, goalMediaId, genderFilter);
   if (sharedVa !== null) {
     const steps = await buildOneLinkPath(db, startMediaId, goalMediaId, sharedVa, rules);
     return { status: 'found', linksUsed: 1, steps };
   }
 
-  const sharedProd = await findSharedProductionStaff(db, startMediaId, goalMediaId, rules);
+  const sharedProd = await findSharedProductionStaff(
+    db,
+    startMediaId,
+    goalMediaId,
+    rules,
+    genderFilter,
+  );
   if (sharedProd !== null) {
     const steps = await buildOneLinkPath(db, startMediaId, goalMediaId, sharedProd, rules);
     return { status: 'found', linksUsed: 1, steps };
@@ -609,7 +679,7 @@ function* enumerateShortestPaths(
 export async function buildCachedShortestPathStream(
   params: FindCachedOptimalPathParams,
 ): Promise<BuildCachedShortestPathStream> {
-  const { db, startMediaId, goalMediaId, rules, maxLinks } = params;
+  const { db, startMediaId, goalMediaId, rules, maxLinks, genderFilter = 'any' } = params;
 
   if (startMediaId === goalMediaId) {
     return { status: 'same' };
@@ -618,7 +688,7 @@ export async function buildCachedShortestPathStream(
     return { status: 'not_found' };
   }
 
-  const adjacency = await loadCachedAdjacency(db, rules);
+  const adjacency = await loadCachedAdjacency(db, rules, genderFilter);
   const dist = computeShortestDistances(adjacency, startMediaId, maxLinks);
   const optimalLinks = dist.get(nodeKey('anime', goalMediaId));
   if (optimalLinks === undefined) {
@@ -966,7 +1036,7 @@ export type BuildCachedRouteStream =
 export async function buildCachedRouteStream(
   params: FindCachedOptimalPathParams,
 ): Promise<BuildCachedRouteStream> {
-  const { db, startMediaId, goalMediaId, rules, maxLinks } = params;
+  const { db, startMediaId, goalMediaId, rules, maxLinks, genderFilter = 'any' } = params;
 
   if (startMediaId === goalMediaId) {
     return { status: 'same' };
@@ -975,7 +1045,7 @@ export async function buildCachedRouteStream(
     return { status: 'not_found' };
   }
 
-  const adjacency = await loadCachedAdjacency(db, rules);
+  const adjacency = await loadCachedAdjacency(db, rules, genderFilter);
   const dist = computeShortestDistances(adjacency, startMediaId, maxLinks);
   const optimalLinks = dist.get(nodeKey('anime', goalMediaId));
   if (optimalLinks === undefined) {
@@ -1008,7 +1078,7 @@ export async function buildCachedRouteStream(
 export async function findCachedOptimalPath(
   params: FindCachedOptimalPathParams,
 ): Promise<CachedOptimalPathResult> {
-  const { db, startMediaId, goalMediaId, rules, maxLinks } = params;
+  const { db, startMediaId, goalMediaId, rules, maxLinks, genderFilter = 'any' } = params;
 
   if (startMediaId === goalMediaId) {
     return { status: 'same' };
@@ -1018,12 +1088,12 @@ export async function findCachedOptimalPath(
     return { status: 'not_found' };
   }
 
-  const direct = await tryDirectOneLinkPath(db, startMediaId, goalMediaId, rules);
+  const direct = await tryDirectOneLinkPath(db, startMediaId, goalMediaId, rules, genderFilter);
   if (direct) {
     return direct;
   }
 
-  const adjacency = await loadCachedAdjacency(db, rules);
+  const adjacency = await loadCachedAdjacency(db, rules, genderFilter);
   const pathNodes = runZeroOneBfs(adjacency, startMediaId, goalMediaId, maxLinks);
   if (!pathNodes) {
     return { status: 'not_found' };

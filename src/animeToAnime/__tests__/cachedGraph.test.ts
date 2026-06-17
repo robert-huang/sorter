@@ -4,7 +4,7 @@ import { openMemoryDb } from '../../lib/db/__tests__/testSqlite';
 import { migrate } from '../../lib/db/migration-runner';
 import { anilistSourceDescriptor } from '../../lib/importers/anilist/anilistSource';
 import type { AnilistDbExecutor } from '../../lib/importers/anilist/context';
-import type { RoundConfig } from '../preferences';
+import type { RoundConfig, StaffGenderFilter } from '../preferences';
 import {
   buildCachedRouteStream,
   buildCachedShortestPathStream,
@@ -674,5 +674,127 @@ describe('buildCachedRouteStream', () => {
     seedMedia(sqlite, 2, 'Isolated B');
     const built = await build(1, 2);
     expect(built.status).toBe('not_found');
+  });
+});
+
+function seedStaffWithGender(
+  db: Database,
+  id: number,
+  name: string,
+  gender: string | null,
+): void {
+  db.exec(
+    `INSERT INTO staff (id, name_full, gender, fetched_at, updated_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    { bind: [id, name, gender, NOW, NOW] },
+  );
+}
+
+describe('buildCachedRouteStream gender filter', () => {
+  let adapter: AnilistDbExecutor;
+  let sqlite: Database;
+
+  beforeEach(async () => {
+    const fresh = await freshAnilistDb();
+    adapter = fresh.adapter;
+    sqlite = fresh.db;
+  });
+
+  function build(startMediaId: number, goalMediaId: number, genderFilter: StaffGenderFilter) {
+    return buildCachedRouteStream({
+      db: adapter,
+      startMediaId,
+      goalMediaId,
+      rules: DEFAULT_RULES,
+      genderFilter,
+    });
+  }
+
+  /** Start(1) and Goal(2) joined by a Male VA (10) and a Female VA (11). */
+  function seedTwoGenderedBridges(): void {
+    seedMedia(sqlite, 1, 'Start');
+    seedMedia(sqlite, 2, 'Goal');
+    seedStaffWithGender(sqlite, 10, 'Male VA', 'Male');
+    seedStaffWithGender(sqlite, 11, 'Female VA', 'Female');
+    seedCharacter(sqlite, 100, 'Hero A');
+    seedCharacter(sqlite, 101, 'Hero B');
+    seedVaLink(sqlite, 1, 100, 10);
+    seedVaLink(sqlite, 2, 100, 10);
+    seedVaLink(sqlite, 1, 101, 11);
+    seedVaLink(sqlite, 2, 101, 11);
+  }
+
+  function bridgeStaffIds(routes: CollapsedRoute[]): number[] {
+    return routes
+      .map((route) => {
+        const staff = route.items.find(
+          (item) => item.kind === 'fixed' && item.step.kind === 'staff',
+        );
+        return staff && staff.kind === 'fixed' && staff.step.kind === 'staff'
+          ? staff.step.staffId
+          : -1;
+      })
+      .sort((a, b) => a - b);
+  }
+
+  it('keeps both bridges under "any"', async () => {
+    seedTwoGenderedBridges();
+    const built = await build(1, 2, 'any');
+    expect(built.status).toBe('ready');
+    if (built.status !== 'ready') {
+      return;
+    }
+    const { routes, total } = await collectRoutes(built.stream);
+    expect(total).toBe(2);
+    expect(bridgeStaffIds(routes)).toEqual([10, 11]);
+  });
+
+  it('keeps only the male bridge under "male"', async () => {
+    seedTwoGenderedBridges();
+    const built = await build(1, 2, 'male');
+    expect(built.status).toBe('ready');
+    if (built.status !== 'ready') {
+      return;
+    }
+    const { routes, total } = await collectRoutes(built.stream);
+    expect(total).toBe(1);
+    expect(bridgeStaffIds(routes)).toEqual([10]);
+  });
+
+  it('keeps only the female bridge under "female"', async () => {
+    seedTwoGenderedBridges();
+    const built = await build(1, 2, 'female');
+    expect(built.status).toBe('ready');
+    if (built.status !== 'ready') {
+      return;
+    }
+    const { routes, total } = await collectRoutes(built.stream);
+    expect(total).toBe(1);
+    expect(bridgeStaffIds(routes)).toEqual([11]);
+  });
+
+  it('excludes staff with missing gender unless "any"', async () => {
+    seedMedia(sqlite, 1, 'Start');
+    seedMedia(sqlite, 2, 'Goal');
+    seedStaffWithGender(sqlite, 10, 'Unknown VA', null);
+    seedCharacter(sqlite, 100, 'Hero');
+    seedVaLink(sqlite, 1, 100, 10);
+    seedVaLink(sqlite, 2, 100, 10);
+
+    expect((await build(1, 2, 'any')).status).toBe('ready');
+    expect((await build(1, 2, 'male')).status).toBe('not_found');
+    expect((await build(1, 2, 'female')).status).toBe('not_found');
+  });
+
+  it('excludes non-binary staff from male/female', async () => {
+    seedMedia(sqlite, 1, 'Start');
+    seedMedia(sqlite, 2, 'Goal');
+    seedStaffWithGender(sqlite, 10, 'NB VA', 'Non-binary');
+    seedCharacter(sqlite, 100, 'Hero');
+    seedVaLink(sqlite, 1, 100, 10);
+    seedVaLink(sqlite, 2, 100, 10);
+
+    expect((await build(1, 2, 'any')).status).toBe('ready');
+    expect((await build(1, 2, 'male')).status).toBe('not_found');
   });
 });
