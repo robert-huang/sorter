@@ -14,6 +14,7 @@ import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
 import { canOpenItemDetail, ItemDetailContext } from './itemDetailContext';
 import { ItemThumb } from './ItemThumb';
 import { mergeSliceLabel } from './listScreenH';
+import { bindAnilistMiddleClick } from '../lib/importers/anilist/anilistLinks';
 
 interface Props {
   state: SortState;
@@ -79,6 +80,28 @@ function Thumb({ item }: { item: Item }) {
   // .thumb font styling — matches the prior single-character look but
   // now shows initials and adds onError fallback for broken URLs.
   return <ItemThumb item={item} className="thumb" placeholderClass="" />;
+}
+
+/**
+ * Item label text that opens the item's AniList page in a new tab on
+ * middle-click — parity with {@link ItemThumb}, which already does this
+ * for the thumbnail. Items without a `url` (manual entries) render as
+ * plain text with no affordance.
+ */
+function ItemLabel({ item }: { item: Item }) {
+  const link = bindAnilistMiddleClick(item.url ?? null);
+  if (!link.className) {
+    return <>{item.label}</>;
+  }
+  return (
+    <span
+      className={link.className}
+      onMouseDown={link.onMouseDown}
+      onAuxClick={link.onAuxClick}
+    >
+      {item.label}
+    </span>
+  );
 }
 
 /**
@@ -423,7 +446,7 @@ function MergeListView({
               <div key={id} className="queue-item-row">
                 <Thumb item={item} />
                 <span className="label-cell" title={item.label}>
-                  {item.label}
+                  <ItemLabel item={item} />
                   {inserting && (
                     <span style={{ color: 'var(--text-faint)' }}>
                       {' '}
@@ -547,7 +570,7 @@ function CurrentMergeRow({
               title={item.label}
             >
               <Thumb item={item} />
-              {item.label}
+              <ItemLabel item={item} />
               {ids.length > 1 && (
                 <>
                   <button
@@ -654,7 +677,7 @@ function SublistView({
               <span className="rank">{ii + 1}.</span>
               <Thumb item={item} />
               <span className="label-cell" title={item.label}>
-                {item.label}
+                <ItemLabel item={item} />
               </span>
               <span className="actions">
                 {sub.length > 1 && (
@@ -751,7 +774,11 @@ function InsertionListView({
           <div className="list-chip-row">
             <span className="chip">
               <Thumb item={state.items[insertingId]} />
-              {state.items[insertingId]?.label ?? insertingId}
+              {state.items[insertingId] ? (
+                <ItemLabel item={state.items[insertingId]} />
+              ) : (
+                insertingId
+              )}
               {state.items[insertingId] && (
                 <EditButton
                   item={state.items[insertingId]}
@@ -815,7 +842,7 @@ function InsertionListView({
                 <span className="rank">{ii + 1}.</span>
                 <Thumb item={item} />
                 <span className="label-cell" title={item.label}>
-                  {item.label}
+                  <ItemLabel item={item} />
                 </span>
                 {!isHidden && state.sorted.length > 1 && (
                   <span className="actions">
@@ -889,7 +916,7 @@ function InsertionListView({
                   <div key={id} className="queue-item-row">
                     <Thumb item={item} />
                     <span className="label-cell" title={item.label}>
-                      {item.label}
+                      <ItemLabel item={item} />
                     </span>
                     <span className="actions">
                       <EditButton
