@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  formatGraphCacheDate,
   graphStaleRefreshTooltip,
   isGraphTimestampStale,
 } from '../lib/importers/anilist/graphConstants';
@@ -72,7 +73,7 @@ function formatFilmographyLine(fetchedAt: number | null): string {
     return 'Filmography: not cached';
   }
   const stale = isGraphTimestampStale(fetchedAt);
-  const date = new Date(fetchedAt).toLocaleDateString();
+  const date = formatGraphCacheDate(fetchedAt);
   return `Filmography: ${date} (${stale ? 'stale (>90d)' : 'fresh'})`;
 }
 

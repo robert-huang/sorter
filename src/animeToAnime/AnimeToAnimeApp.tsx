@@ -13,6 +13,7 @@ import {
   getAnimeFilmographyForStaff,
   getMediaRelations,
   getProductionCreditsAtMedia,
+  getStaffFilmographyFetchedAt,
   getVaCreditsAtMedia,
   pickRandomAnimeFromCache,
   type AnimeCacheStats,
@@ -217,6 +218,9 @@ export function AnimeToAnimeApp() {
   const [currentCastStaleFetchedAt, setCurrentCastStaleFetchedAt] = useState<
     number | null
   >(null);
+  const [staffFilmographyFetchedAt, setStaffFilmographyFetchedAt] = useState<
+    number | null
+  >(null);
   const [currentMedia, setCurrentMedia] = useState<MediaRow | null>(null);
   // Latest cached AniList user id (null when no list cached) — gates the
   // staff-list "only items on my list" toggle, mirroring StaffDetailModal.
@@ -333,6 +337,8 @@ export function AnimeToAnimeApp() {
     setFilmography([]);
     setStaffHeader(null);
     setCurrentMedia(null);
+    setCurrentCastStaleFetchedAt(null);
+    setStaffFilmographyFetchedAt(null);
     setCurrent({ kind: 'anime', mediaId: start.id });
     setLinksUsed(0);
     setPathHistory([animePathStep(start)]);
@@ -512,6 +518,7 @@ export function AnimeToAnimeApp() {
                 ])
               : null,
           );
+          setStaffFilmographyFetchedAt(null);
           setFilmography([]);
           setStaffHeader(null);
           // The my-list toggle only applies to staff filmography lists.
@@ -525,6 +532,10 @@ export function AnimeToAnimeApp() {
             ctx.db,
             current.staffId,
             rules.productionAllRoles ? 'all' : 'key',
+          );
+          const filmFetchedAt = await getStaffFilmographyFetchedAt(
+            ctx.db,
+            current.staffId,
           );
           // Resolve which of this staff's works are on the cached user's
           // list so the "only items on my list" toggle can filter them.
@@ -559,6 +570,7 @@ export function AnimeToAnimeApp() {
               : null,
           );
           setFilmography(film);
+          setStaffFilmographyFetchedAt(filmFetchedAt);
           setVaCredits([]);
           setProductionCredits([]);
           setRelations([]);
@@ -951,8 +963,8 @@ export function AnimeToAnimeApp() {
                     staffName={pickPersonName(staffHeader, undefined, 'Staff')}
                     rows={filteredFilmography}
                     loading={loading}
-                    stale={isGraphTimestampStale(staffHeader.fetched_at)}
-                    fetchedAt={staffHeader.fetched_at}
+                    stale={isGraphTimestampStale(staffFilmographyFetchedAt)}
+                    fetchedAt={staffFilmographyFetchedAt}
                     onRefresh={onRefreshPlayList}
                     onHopToAnime={(row) => {
                       void onHopToAnimeFromFilmography(row);

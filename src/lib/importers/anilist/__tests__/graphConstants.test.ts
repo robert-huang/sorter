@@ -3,14 +3,30 @@ import {
   formatGraphCacheDate,
   graphStaleRefreshTooltip,
   isGraphTimestampStale,
+  isUnknownGraphCacheDate,
   oldestStaleGraphTimestamp,
 } from '../graphConstants';
 
 describe('graphConstants', () => {
+  it('isUnknownGraphCacheDate detects v1 backfill sentinel', () => {
+    expect(isUnknownGraphCacheDate(0)).toBe(true);
+    expect(isUnknownGraphCacheDate(-1)).toBe(true);
+    expect(isUnknownGraphCacheDate(1_700_000_000_000)).toBe(false);
+  });
+
+  it('isGraphTimestampStale treats unknown cache dates as stale', () => {
+    expect(isGraphTimestampStale(0)).toBe(true);
+    expect(isGraphTimestampStale(null)).toBe(false);
+  });
+
   it('formatGraphCacheDate renders YYYY-MM-DD in local time', () => {
     // 2024-06-15 noon UTC — date may shift by timezone; pin a local-noon instant.
     const local = new Date(2024, 5, 15, 12, 0, 0);
     expect(formatGraphCacheDate(local.getTime())).toBe('2024-06-15');
+  });
+
+  it('formatGraphCacheDate avoids epoch for unknown cache dates', () => {
+    expect(formatGraphCacheDate(0)).toBe('unknown date');
   });
 
   it('graphStaleRefreshTooltip includes the cache date', () => {
@@ -20,6 +36,20 @@ describe('graphConstants', () => {
     ).toBe(
       "This entry's cached cast is over 90 days old (2024-01-02) — click to refresh from AniList",
     );
+  });
+
+  it('graphStaleRefreshTooltip uses unknown date for backfilled rows', () => {
+    expect(
+      graphStaleRefreshTooltip(0, "This entry's cached cast", 'refresh'),
+    ).toBe(
+      "This entry's cached cast is over 90 days old (unknown date) — click to refresh from AniList",
+    );
+  });
+
+  it('oldestStaleGraphTimestamp includes unknown cache dates', () => {
+    const now = Date.now();
+    const stale = now - 100 * 24 * 60 * 60 * 1000;
+    expect(oldestStaleGraphTimestamp([0, stale], now)).toBe(0);
   });
 
   it('oldestStaleGraphTimestamp picks the oldest stale timestamp', () => {

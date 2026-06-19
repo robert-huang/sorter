@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  formatGraphCacheDate,
   graphStaleRefreshTooltip,
   isGraphTimestampStale,
   oldestStaleGraphTimestamp,
@@ -45,7 +46,7 @@ function formatExpansionLine(
     return `${label}: not cached`;
   }
   const stale = isGraphTimestampStale(fetchedAt);
-  const date = new Date(fetchedAt).toLocaleDateString();
+  const date = formatGraphCacheDate(fetchedAt);
   const flags = [
     complete ? 'complete' : 'incomplete',
     stale ? 'stale (>90d)' : 'fresh',
