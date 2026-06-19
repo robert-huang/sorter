@@ -4,9 +4,10 @@ import { getItemSourceKind, type Item } from '../lib/types';
 /**
  * True when `item` has a detail panel to open. AniList MEDIA items open
  * the {@link AnilistDetailModal}; AniList STAFF items (favourited staff
- * added as sortable items) open the {@link StaffDetailModal}. All other
- * source kinds (manual, anilist-character, studios) have no panel, so
- * the thumb / card / row affordances stay non-interactive.
+ * added as sortable items) open the {@link StaffDetailModal}. Character
+ * and studio favourites have no detail panel — {@link ItemThumb} exposes
+ * middle-click-to-AniList only for those. Manual items with arbitrary
+ * external urls have no thumb affordance.
  *
  * Single source of truth shared by ItemThumb, ItemCard, and the LIST
  * DetailButton so the "what can open a panel" rule lives in one place —

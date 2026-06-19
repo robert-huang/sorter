@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FilterBar } from './FilterBar';
+import { ItemThumb } from './ItemThumb';
 import type { Item, ItemId } from '../lib/types';
 import {
   buildAnilistFavouriteUrl,
@@ -1346,14 +1347,11 @@ export function AnilistStartMode({
                     checked={checked}
                     onChange={() => toggleId(it.id)}
                   />
-                  {it.imageUrl && (
-                    <img
-                      className="anilist-start-preview-cover"
-                      src={it.imageUrl}
-                      alt=""
-                      loading="lazy"
-                    />
-                  )}
+                  <ItemThumb
+                    item={it}
+                    className="anilist-start-preview-cover"
+                    placeholderClass=""
+                  />
                   <span className="anilist-start-preview-label">
                     {it.label}
                   </span>

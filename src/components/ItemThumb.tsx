@@ -1,4 +1,9 @@
 import { useContext, useState } from 'react';
+import {
+  bindAnilistMiddleClick,
+  isAnilistPageUrl,
+  mergeAnilistLinkClass,
+} from '../lib/importers/anilist/anilistLinks';
 import type { Item } from '../lib/types';
 import { canOpenItemDetail, ItemDetailContext } from './itemDetailContext';
 
@@ -70,12 +75,16 @@ export function ItemThumb({
   // non-interactive thumb. The opener may be null (e.g. in tests that
   // don't wrap the tree with ItemDetailContext.Provider).
   const opener = useContext(ItemDetailContext);
-  const clickable = opener && canOpenItemDetail(item);
+  const opensDetail = Boolean(opener && canOpenItemDetail(item));
   // AniList items are materialised with `url` = their canonical AniList
-  // page (see buildAnilistMediaUrl). Middle-clicking the thumb opens it
-  // in a new tab, mirroring the middle-click affordance in the
-  // Anime-to-Anime view, while left-click still opens the detail modal.
-  const anilistUrl = item.url;
+  // page (see buildAnilistMediaUrl). Media/staff thumbs: left-click opens
+  // the detail modal, middle-click opens AniList. Character/studio
+  // favourites carry an AniList url but no detail panel — middle-click
+  // only; left-click is a no-op.
+  const anilistUrl =
+    item.url && isAnilistPageUrl(item.url) ? item.url : undefined;
+  const middleClickOnly = Boolean(anilistUrl && !opensDetail);
+  const anilistLink = bindAnilistMiddleClick(middleClickOnly ? anilistUrl! : null);
   const inner = showImage ? (
     <img
       src={item.imageUrl}
@@ -86,7 +95,7 @@ export function ItemThumb({
   ) : (
     <span className={placeholderClass}>{initials(item.label)}</span>
   );
-  if (clickable) {
+  if (opensDetail) {
     // Render as a transparent button so keyboard focus + native
     // click-handling work without extra ARIA wiring. Keep the
     // caller's className so layout sizing stays intact; the button
@@ -123,6 +132,24 @@ export function ItemThumb({
       >
         {inner}
       </button>
+    );
+  }
+  if (middleClickOnly) {
+    return (
+      <Tag
+        className={mergeAnilistLinkClass(className ?? '', anilistLink.className)}
+        onClick={(e) => {
+          // Swallow left-clicks so parent row affordances (e.g. a
+          // wrapping <label> checkbox in the start-tab preview) don't
+          // fire — there is no detail panel for these items.
+          e.stopPropagation();
+        }}
+        onMouseDown={anilistLink.onMouseDown}
+        onAuxClick={anilistLink.onAuxClick}
+        title={`${item.label} (middle-click to open on AniList)`}
+      >
+        {inner}
+      </Tag>
     );
   }
   return <Tag className={className}>{inner}</Tag>;

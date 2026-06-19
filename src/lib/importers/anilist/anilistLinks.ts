@@ -17,6 +17,11 @@ export function anilistUrlForMediaEntry(type: AnilistMediaType, id: number): str
   return buildAnilistMediaUrl(type, id);
 }
 
+/** True when `url` is a canonical AniList page (not an arbitrary external link). */
+export function isAnilistPageUrl(url: string): boolean {
+  return /^https:\/\/anilist\.co\//.test(url);
+}
+
 function toUrlList(url: string | readonly string[] | null): string[] {
   if (url == null) {
     return [];
