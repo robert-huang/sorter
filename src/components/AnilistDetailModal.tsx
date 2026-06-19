@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { isGraphTimestampStale } from '../lib/importers/anilist/graphConstants';
+import {
+  graphStaleRefreshTooltip,
+  isGraphTimestampStale,
+  oldestStaleGraphTimestamp,
+} from '../lib/importers/anilist/graphConstants';
 import type { MediaCastExpansionStatus } from '../lib/importers/anilist/readQueries';
 import {
   type MediaDetail,
@@ -334,6 +338,12 @@ export function AnilistDetailModal({
       isGraphTimestampStale(expansionStatus.charactersFetchedAt)) ||
       (expansionStatus.staffFetchedAt !== null &&
         isGraphTimestampStale(expansionStatus.staffFetchedAt)));
+  const castStaleFetchedAt = expansionStatus
+    ? oldestStaleGraphTimestamp([
+        expansionStatus.charactersFetchedAt,
+        expansionStatus.staffFetchedAt,
+      ])
+    : null;
 
   const title = pickTitle(detail, fallbackTitle);
   const m = detail?.media;
@@ -368,8 +378,11 @@ export function AnilistDetailModal({
             onClick={() => void onRefresh()}
             disabled={expanding}
             title={
-              isCastStale
-                ? "This entry's cached cast/staff is over 90 days old — click to re-fetch from AniList"
+              isCastStale && castStaleFetchedAt !== null
+                ? graphStaleRefreshTooltip(
+                    castStaleFetchedAt,
+                    "This entry's cached cast/staff",
+                  )
                 : 'Re-fetch cast & staff for this entry (does not auto-push)'
             }
           >

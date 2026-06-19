@@ -27,7 +27,11 @@ import type { MediaRow, StaffRow } from '../lib/importers/anilist/types';
 import { useAnilistDisplayPreferences } from '../hooks/useAnilistDisplayPreferences';
 import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
 import { pickPersonName } from '../lib/importers/anilist/personDisplayLabel';
-import { isGraphTimestampStale } from '../lib/importers/anilist/graphConstants';
+import {
+  graphStaleRefreshTooltip,
+  isGraphTimestampStale,
+  oldestStaleGraphTimestamp,
+} from '../lib/importers/anilist/graphConstants';
 import {
   subscribeToWaitState,
   type AnilistWaitState,
@@ -60,6 +64,7 @@ import {
   loadStaffGenderFilter,
   loadVaListImageMode,
   matchesStaffGender,
+  mergeLiveProductionRules,
   saveRoundConfig,
   saveStaffGenderFilter,
   saveVaListImageMode,
@@ -207,9 +212,11 @@ export function AnimeToAnimeApp() {
   const [relations, setRelations] = useState<MediaRelationRow[]>([]);
   const [filmography, setFilmography] = useState<AnimeFilmographyRow[]>([]);
   const [staffHeader, setStaffHeader] = useState<StaffRow | null>(null);
-  // True when the current anime's cached cast/staff expansion is older than
-  // the staleness threshold (>90d) — highlights the cast refresh button.
-  const [currentMediaStale, setCurrentMediaStale] = useState(false);
+  // When non-null, the current anime's cached cast/staff expansion is older
+  // than the staleness threshold (>90d) — highlights the cast refresh button.
+  const [currentCastStaleFetchedAt, setCurrentCastStaleFetchedAt] = useState<
+    number | null
+  >(null);
   const [currentMedia, setCurrentMedia] = useState<MediaRow | null>(null);
   // Latest cached AniList user id (null when no list cached) — gates the
   // staff-list "only items on my list" toggle, mirroring StaffDetailModal.
@@ -290,6 +297,13 @@ export function AnimeToAnimeApp() {
       return next;
     });
   }, []);
+
+  const effectiveRoundRules = useMemo((): RoundConfig | null => {
+    if (!activeRoundConfig) {
+      return null;
+    }
+    return mergeLiveProductionRules(activeRoundConfig, roundConfig);
+  }, [activeRoundConfig, roundConfig]);
 
   const randomizeEndpoint = useCallback(
     async (which: 'start' | 'goal') => {
@@ -391,19 +405,19 @@ export function AnimeToAnimeApp() {
 
   const buildCachedPathStream = useCallback(
     async (maxLinks?: number): Promise<BuildCachedRouteStream> => {
-      if (!startMedia || !goalMedia || !activeRoundConfig) {
+      if (!startMedia || !goalMedia || !effectiveRoundRules) {
         return { status: 'not_found' };
       }
       return buildCachedRouteStream({
         db: importCtx.current.db,
         startMediaId: startMedia.id,
         goalMediaId: goalMedia.id,
-        rules: activeRoundConfig,
+        rules: effectiveRoundRules,
         maxLinks,
         genderFilter,
       });
     },
-    [activeRoundConfig, goalMedia, startMedia, genderFilter],
+    [effectiveRoundRules, goalMedia, startMedia, genderFilter],
   );
 
   /** Win: prune BFS past the user's link count — can't beat a path shorter than that. */
@@ -450,10 +464,10 @@ export function AnimeToAnimeApp() {
   }, []);
 
   useEffect(() => {
-    if (phase !== 'play' || !current || !activeRoundConfig) {
+    if (phase !== 'play' || !current || !effectiveRoundRules) {
       return;
     }
-    const rules = activeRoundConfig;
+    const rules = effectiveRoundRules;
     const forceRefresh = forceListRefreshRef.current;
     forceListRefreshRef.current = false;
     let cancelled = false;
@@ -490,12 +504,13 @@ export function AnimeToAnimeApp() {
           setVaCredits(va);
           setProductionCredits(prod);
           setRelations(rel);
-          setCurrentMediaStale(
-            !!castStatus &&
-              ((castStatus.charactersFetchedAt !== null &&
-                isGraphTimestampStale(castStatus.charactersFetchedAt)) ||
-                (castStatus.staffFetchedAt !== null &&
-                  isGraphTimestampStale(castStatus.staffFetchedAt))),
+          setCurrentCastStaleFetchedAt(
+            castStatus
+              ? oldestStaleGraphTimestamp([
+                  castStatus.charactersFetchedAt,
+                  castStatus.staffFetchedAt,
+                ])
+              : null,
           );
           setFilmography([]);
           setStaffHeader(null);
@@ -548,7 +563,7 @@ export function AnimeToAnimeApp() {
           setProductionCredits([]);
           setRelations([]);
           setCurrentMedia(null);
-          setCurrentMediaStale(false);
+          setCurrentCastStaleFetchedAt(null);
         }
       } catch (err) {
         if (!cancelled) {
@@ -563,7 +578,7 @@ export function AnimeToAnimeApp() {
     return () => {
       cancelled = true;
     };
-  }, [activeRoundConfig, current, listRefreshEpoch, phase]);
+  }, [effectiveRoundRules, current, listRefreshEpoch, phase]);
 
   const filterLower = filter.trim().toLowerCase();
 
@@ -875,8 +890,16 @@ export function AnimeToAnimeApp() {
                     onRefresh={onRefreshPlayList}
                     refreshing={loading}
                     refreshLabel="Refresh cast from AniList"
-                    stale={currentMediaStale}
-                    staleRefreshLabel="This entry's cached cast is over 90 days old — click to refresh from AniList"
+                    stale={currentCastStaleFetchedAt !== null}
+                    staleRefreshLabel={
+                      currentCastStaleFetchedAt !== null
+                        ? graphStaleRefreshTooltip(
+                            currentCastStaleFetchedAt,
+                            "This entry's cached cast",
+                            'refresh',
+                          )
+                        : undefined
+                    }
                   />
                   <ul className="anime-to-anime-hop-list">
                     {filteredVa.map((group: GroupedVaCreditRow) => (
@@ -898,7 +921,7 @@ export function AnimeToAnimeApp() {
                       </li>
                     ))}
                   </ul>
-                  {activeRoundConfig?.allowProduction && (
+                  {roundConfig.allowProduction && (
                     <>
                       <h3 className="anime-to-anime-subheading anime-to-anime-list-header-title">
                         Production
@@ -929,6 +952,7 @@ export function AnimeToAnimeApp() {
                     rows={filteredFilmography}
                     loading={loading}
                     stale={isGraphTimestampStale(staffHeader.fetched_at)}
+                    fetchedAt={staffHeader.fetched_at}
                     onRefresh={onRefreshPlayList}
                     onHopToAnime={(row) => {
                       void onHopToAnimeFromFilmography(row);

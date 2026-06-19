@@ -1,4 +1,5 @@
 import type { AnimeFilmographyRow } from '../lib/importers/anilist/graphQueries';
+import { graphStaleRefreshTooltip } from '../lib/importers/anilist/graphConstants';
 import { anilistUrlForStaff, bindAnilistMiddleClick, mergeAnilistLinkClass } from './anilistMiddleClick';
 import { AnimeFilmographyHopButton } from './AnimeFilmographyHopButton';
 
@@ -47,6 +48,8 @@ interface Props {
   /** True when the cached filmography is older than the staleness
    *  threshold (>90d) — highlights the refresh button to prompt an update. */
   stale?: boolean;
+  /** Cache timestamp backing `stale` — drives the dated stale tooltip. */
+  fetchedAt?: number | null;
   onRefresh: () => void;
   onHopToAnime: (row: AnimeFilmographyRow) => void;
   /** Show the "only items on my list" filter — true when a cached AniList
@@ -65,6 +68,7 @@ export function StaffFilmographySections({
   rows,
   loading,
   stale = false,
+  fetchedAt = null,
   onRefresh,
   onHopToAnime,
   showMyListFilter = false,
@@ -76,9 +80,10 @@ export function StaffFilmographySections({
   // When the cache is stale, swap the tooltip to call out the age and the
   // fix, mirroring the staff detail modal's stale-refresh affordance.
   const isStale = stale && !loading;
-  const refreshLabel = isStale
-    ? "Cached filmography >90 days old \u2014 click to refresh from AniList"
-    : 'Refresh filmography from AniList';
+  const refreshLabel =
+    isStale && fetchedAt !== null
+      ? graphStaleRefreshTooltip(fetchedAt, 'Cached filmography', 'refresh')
+      : 'Refresh filmography from AniList';
   const staffTitleLink = bindAnilistMiddleClick(anilistUrlForStaff({ id: staffId }));
 
   return (

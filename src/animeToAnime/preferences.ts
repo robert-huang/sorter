@@ -8,7 +8,8 @@ export type VaListImageMode = 'character' | 'staff';
  */
 export type StaffGenderFilter = 'any' | 'male' | 'female';
 
-/** Rules for a single play session — snapshotted when a round starts. */
+/** Rules for a single play session. `allowRelations` is snapshotted when a
+ * round starts; production toggles follow the live settings (like gender). */
 export type RoundConfig = {
   allowProduction: boolean;
   allowRelations: boolean;
@@ -108,4 +109,16 @@ export function saveRoundConfig(config: RoundConfig): void {
   } catch {
     /* ignore */
   }
+}
+
+/** Overlay live production toggles onto the rules snapshotted at round start. */
+export function mergeLiveProductionRules(
+  snapshotted: RoundConfig,
+  live: Pick<RoundConfig, 'allowProduction' | 'productionAllRoles'>,
+): RoundConfig {
+  return {
+    ...snapshotted,
+    allowProduction: live.allowProduction,
+    productionAllRoles: live.productionAllRoles,
+  };
 }

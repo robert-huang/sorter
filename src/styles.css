@@ -1719,6 +1719,13 @@ a {
 
 /* ---------- Anime to Anime mini-app ---------- */
 
+/* Stay visible while the win screen grows (cached route search auto-scrolls). */
+.anime-to-anime-header.header-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 15;
+}
+
 .anime-to-anime-header-title {
   font-size: 20px;
   font-weight: 800;

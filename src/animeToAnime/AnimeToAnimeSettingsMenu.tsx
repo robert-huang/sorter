@@ -137,7 +137,10 @@ export function AnimeToAnimeSettingsMenu({
             {tab === 'settings' && (
               <div className="settings-tab-scroll">
                 <p className="edit-item-advanced-title">Round rules</p>
-                <p className="settings-popover-hint">Applied when you start or restart a round.</p>
+                <p className="settings-popover-hint">
+                  Production credits apply live during play and route search.
+                  Franchise relations apply when you start or restart a round.
+                </p>
                 <label className="settings-item checkbox">
                   <input
                     type="checkbox"

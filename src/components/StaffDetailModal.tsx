@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { isGraphTimestampStale } from '../lib/importers/anilist/graphConstants';
+import {
+  graphStaleRefreshTooltip,
+  isGraphTimestampStale,
+} from '../lib/importers/anilist/graphConstants';
 import {
   type StaffFilmography,
   type StaffFilmographyCredit,
@@ -273,8 +276,11 @@ export function StaffDetailModal({
             onClick={() => void onRefresh()}
             disabled={expanding}
             title={
-              isFilmographyStale
-                ? "This person's cached filmography is over 90 days old \u2014 click to re-fetch from AniList"
+              isFilmographyStale && detail.fetchedAt !== null
+                ? graphStaleRefreshTooltip(
+                    detail.fetchedAt,
+                    "This person's cached filmography",
+                  )
                 : "Re-fetch this person's filmography from AniList (does not auto-push)"
             }
           >

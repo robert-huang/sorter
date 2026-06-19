@@ -5,6 +5,7 @@ import {
   loadRoundConfig,
   loadStaffGenderFilter,
   matchesStaffGender,
+  mergeLiveProductionRules,
   saveRoundConfig,
   saveStaffGenderFilter,
 } from '../preferences';
@@ -35,6 +36,26 @@ describe('round config persistence', () => {
       productionAllRoles: true,
     });
     expect(localStorage.getItem(ROUND_CONFIG_KEY)).toBeTruthy();
+  });
+});
+
+describe('mergeLiveProductionRules', () => {
+  it('overlays live production toggles onto snapshotted round rules', () => {
+    const snapshotted = {
+      allowProduction: false,
+      allowRelations: true,
+      productionAllRoles: false,
+    };
+    expect(
+      mergeLiveProductionRules(snapshotted, {
+        allowProduction: true,
+        productionAllRoles: true,
+      }),
+    ).toEqual({
+      allowProduction: true,
+      allowRelations: true,
+      productionAllRoles: true,
+    });
   });
 });
 
