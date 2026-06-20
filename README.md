@@ -285,19 +285,37 @@ When a merge or auto-insert closes and one or both sides have **hidden** items a
 
 ## Auto-insert (merge engine)
 
-Each time `advance()` pops a new pair off the queue, it checks whether **binary-inserting the smaller side into the larger side** is cheaper than the full merge:
+Each time `advance()` pops a new pair off the queue, it checks whether **binary-inserting the smaller side into the larger side** is cheaper than the full merge. Let `K` = visible count on the **smaller** sublist and `N` = visible count on the **larger** sublist (`K ≤ N`; order does not matter).
 
-- Merge cost (visible sizes `K ≤ N`): `K + N − 1`.
-- Auto-insert cost (worst case, rank-blind): `K · ⌈log₂(N + K)⌉`.
-- When auto-insert wins **strictly**, the engine installs an `AutoInsertFrame` instead of a normal merge frame. The smaller side becomes `pendingInserts` (FIFO, in rank order); the larger side becomes the `target` they get binary-inserted into.
+**Costs**
 
-The frame uses **rank-aware bound tightening**: each subsequent insert starts its lower bound at the previously-landed position + 1, because `pendingInserts` is in rank order. That gives a `Σ ⌈log₂(N + i)⌉` bound — in practice much tighter than the rank-blind worst case. As that gap is realized, the progress bar **jumps forward**.
+| Strategy | Formula | Notes |
+|----------|---------|-------|
+| Classic merge | `merge = K + N − 1` | Exact worst case for merging two sorted lists |
+| Auto-insert | `insert = K · ⌈log₂(N + K)⌉` | Rank-blind upper bound per item on the small side |
 
-Examples:
+**Cutoff:** auto-insert runs when `insert < merge` (strictly less). Implementation: `shouldAutoInsert` in `queueMergeSort.ts`.
 
-- `[A,B,C,D,E]` + `[F]` → K=1, N=5: insert=3 < merge=5 → auto-insert.
-- `[…8 items]` + `[X, Y]` → K=2, N=8: insert=8 < merge=9 → auto-insert.
-- `[A,B,C]` + `[D,E,F]` → K=N=3: insert=9 > merge=5 → classic merge.
+When auto-insert wins, the engine installs an `AutoInsertFrame` instead of a normal merge frame. The smaller side becomes `pendingInserts` (FIFO, in rank order); the larger side becomes the `target` they get binary-inserted into.
+
+The frame uses **rank-aware bound tightening**: each subsequent insert starts its lower bound at the previously-landed position + 1, because `pendingInserts` is in rank order. That gives a `Σ ⌈log₂(N + i)⌉` bound — in practice much tighter than the rank-blind worst case above. As that gap is realized, the progress bar **jumps forward**.
+
+**Example pairs** (same numbers as the unit tests):
+
+| Smaller `K` | Larger `N` | `insert = K·⌈log₂(N+K)⌉` | `merge = K+N−1` | Result |
+|-------------|------------|---------------------------|-----------------|--------|
+| 1 | 4 | 1·⌈log₂5⌉ = **3** | **4** | auto-insert |
+| 1 | 5 | 1·⌈log₂6⌉ = **3** | **5** | auto-insert |
+| 1 | 100 | 1·⌈log₂101⌉ = **7** | **100** | auto-insert |
+| 2 | 8 | 2·⌈log₂10⌉ = **8** | **9** | auto-insert |
+| 1 | 1 | 1·⌈log₂2⌉ = **1** | **1** | merge (tie → merge) |
+| 1 | 2 | 1·⌈log₂3⌉ = **2** | **2** | merge (tie → merge) |
+| 2 | 2 | 2·⌈log₂4⌉ = **4** | **3** | merge |
+| 2 | 5 | 2·⌈log₂7⌉ = **6** | **6** | merge (tie → merge) |
+| 3 | 5 | 3·⌈log₂8⌉ = **9** | **7** | merge |
+| 4 | 4 | 4·⌈log₂8⌉ = **12** | **7** | merge |
+
+Intuition: a **long** sublist meeting a **short** one (e.g. 5 items vs 1) usually triggers auto-insert; **similar-sized** pairs (e.g. 4 vs 4, 3 vs 5) stay on the classic merge path. The heuristic is conservative — it may skip auto-insert in borderline cases where rank-aware bounds would still win, because the insert formula is a worst-case upper bound.
 
 Behavior notes:
 
