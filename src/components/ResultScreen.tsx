@@ -96,7 +96,7 @@ export function ResultScreen({
         <div className="page-section" style={{ textAlign: 'center' }}>
           <h2>Sort not finished yet</h2>
           <p style={{ color: 'var(--text-muted)' }}>
-            {comparisonsRemaining(state)} comparisons left · {state.comparisons}{' '}
+            ~{comparisonsRemaining(state)} comparisons left · {state.comparisons}{' '}
             comparison{state.comparisons === 1 ? '' : 's'} made
           </p>
         </div>

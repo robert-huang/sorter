@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { CloudBackupSection } from '../components/CloudBackupSection';
+import { HistoryBackGuardSetting } from '../components/HistoryBackGuardSetting';
 import { SettingsGitHubLink } from '../components/SettingsGitHubLink';
 import { SourceDatabasesSection } from '../components/sourceDatabasesSection';
 import type { CloudMenuStatus } from '../components/SettingsMenu';
-import { SORTER_HOME_HREF } from '../lib/appRoutes';
 import type { RoundConfig, StaffGenderFilter, VaListImageMode } from './preferences';
 
 type SettingsTab = 'settings' | 'database';
@@ -59,6 +59,8 @@ interface Props {
   onStaffGenderFilterChange: (filter: StaffGenderFilter) => void;
   roundConfig: RoundConfig;
   onRoundConfigChange: (patch: Partial<RoundConfig>) => void;
+  historyBackGuard: boolean;
+  onToggleHistoryBackGuard: () => void;
   dbSync: DbSyncProps;
 }
 
@@ -69,6 +71,8 @@ export function AnimeToAnimeSettingsMenu({
   onStaffGenderFilterChange,
   roundConfig,
   onRoundConfigChange,
+  historyBackGuard,
+  onToggleHistoryBackGuard,
   dbSync,
 }: Props) {
   const [open, setOpen] = useState(false);
@@ -290,13 +294,10 @@ export function AnimeToAnimeSettingsMenu({
 
           <div className="settings-footer">
             <div className="settings-divider" />
-            <div className="settings-status settings-app-nav">
-              <a href={SORTER_HOME_HREF}>Sorter</a>
-              <span className="settings-item-hint">
-                {' '}
-                — queue merge sort rankings
-              </span>
-            </div>
+            <HistoryBackGuardSetting
+              enabled={historyBackGuard}
+              onToggle={onToggleHistoryBackGuard}
+            />
             <div className="settings-status settings-footer-meta">
               <span>
                 Autosave: {dbSync.autosaveAvailable ? 'on' : 'disabled (file:// origin)'}

@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ANIME_TO_ANIME_HREF } from '../lib/appRoutes';
+import { HistoryBackGuardSetting } from './HistoryBackGuardSetting';
 import { SettingsGitHubLink } from './SettingsGitHubLink';
 import { SlotList } from './SlotList';
 import { CloudBackupSection } from './CloudBackupSection';
@@ -57,6 +57,8 @@ interface Props {
    */
   autoInsertEnabled: boolean;
   onToggleAutoInsertEnabled: () => void;
+  historyBackGuard: boolean;
+  onToggleHistoryBackGuard: () => void;
   // ---------- cloud backup (tier 0b) ----------
   /** Current cloud menu tier; collapses the section when 'unavailable'. */
   cloudStatus: CloudMenuStatus;
@@ -151,6 +153,8 @@ export function SettingsMenu({
   onToggleShowEstimatedRemaining,
   autoInsertEnabled,
   onToggleAutoInsertEnabled,
+  historyBackGuard,
+  onToggleHistoryBackGuard,
   cloudStatus,
   cloudFolderName,
   onCloudSignIn,
@@ -468,13 +472,10 @@ export function SettingsMenu({
               </>
             )}
             <div className="settings-divider" />
-            <div className="settings-status settings-app-nav">
-              <a href={ANIME_TO_ANIME_HREF}>Anime to Anime</a>
-              <span className="settings-item-hint">
-                {' '}
-                — connect two shows via voice actors
-              </span>
-            </div>
+            <HistoryBackGuardSetting
+              enabled={historyBackGuard}
+              onToggle={onToggleHistoryBackGuard}
+            />
             <div className="settings-status settings-footer-meta">
               <span>
                 Autosave: {autosaveAvailable ? 'on' : 'disabled (file:// origin)'}

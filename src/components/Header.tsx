@@ -51,6 +51,8 @@ interface Props {
   /** Whether the merge engine may auto-insert skewed pairs. Default on. */
   autoInsertEnabled: boolean;
   onToggleAutoInsertEnabled: () => void;
+  historyBackGuard: boolean;
+  onToggleHistoryBackGuard: () => void;
   // ---------- cloud backup (tier 0b) ----------
   cloudStatus: CloudMenuStatus;
   cloudFolderName?: string;
@@ -113,6 +115,8 @@ export function Header({
   onToggleShowEstimatedRemaining,
   autoInsertEnabled,
   onToggleAutoInsertEnabled,
+  historyBackGuard,
+  onToggleHistoryBackGuard,
   cloudStatus,
   cloudFolderName,
   onCloudSignIn,
@@ -352,6 +356,8 @@ export function Header({
             onToggleShowEstimatedRemaining={onToggleShowEstimatedRemaining}
             autoInsertEnabled={autoInsertEnabled}
             onToggleAutoInsertEnabled={onToggleAutoInsertEnabled}
+            historyBackGuard={historyBackGuard}
+            onToggleHistoryBackGuard={onToggleHistoryBackGuard}
             cloudStatus={cloudStatus}
             cloudFolderName={cloudFolderName}
             onCloudSignIn={onCloudSignIn}

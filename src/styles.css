@@ -755,6 +755,20 @@ a {
   gap: 8px;
 }
 
+.settings-footer-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  line-height: 1.35;
+}
+
+.settings-footer-toggle input {
+  margin: 1px 0 0;
+  flex-shrink: 0;
+}
+
 /* Display-name prefs sit inside the AniList source-db row, so no
    divider/border — they read as part of the same block, just nested
    under the source header. The left indent reinforces that they're a

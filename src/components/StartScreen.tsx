@@ -182,6 +182,8 @@ export interface StartDraftCapabilities {
   canList: boolean;
   canRank: boolean;
   canResult: boolean;
+  /** True when START has in-memory draft work that tab navigation would consume or leaving would lose. */
+  hasLosableDraft: boolean;
 }
 
 export type StartDraftAdoptTab = Exclude<TabId, 'start'>;
@@ -886,6 +888,7 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
         canList: false,
         canRank: false,
         canResult: false,
+        hasLosableDraft: false,
       });
     };
   }, [onDraftCapabilitiesChange]);
@@ -1047,6 +1050,7 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
   // adoption while in anilist mode is staged-only. The user adds via
   // "Add to staged" inside the AniList view, then header tabs work.
   useEffect(() => {
+    const hasLosableDraft = draftHasContent();
     if (combinedAlreadySortedReady) {
       // Single already-sorted sublist: RANK is meaningless (no
       // comparisons to schedule), only LIST and RESULT make sense.
@@ -1054,6 +1058,7 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
         canList: combinedSortInput.uniqueCount >= 1,
         canRank: false,
         canResult: combinedSortInput.uniqueCount >= 1,
+        hasLosableDraft,
       });
       return;
     }
@@ -1061,10 +1066,16 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
       canList: combinedSortInput.uniqueCount >= 1,
       canRank: combinedSortInput.uniqueCount >= 2,
       canResult: false,
+      hasLosableDraft,
     });
   }, [
     combinedAlreadySortedReady,
     combinedSortInput.uniqueCount,
+    staged,
+    mode,
+    scratchText,
+    stagedFiles,
+    extrasText,
     onDraftCapabilitiesChange,
   ]);
 

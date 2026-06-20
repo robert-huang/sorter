@@ -1705,6 +1705,11 @@ export interface Settings {
    * merge on every pair.
    */
   autoInsertEnabled?: boolean;
+  /**
+   * When true, intercept the browser Back button while work is at risk
+   * (sort in progress, START draft, A2A round). Default off.
+   */
+  historyBackGuard?: boolean;
 }
 
 export function readSettings(): Settings {

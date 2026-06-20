@@ -15,6 +15,8 @@ interface Props {
   onVaListImageModeChange: (mode: VaListImageMode) => void;
   onStaffGenderFilterChange: (filter: StaffGenderFilter) => void;
   onRoundConfigChange: (patch: Partial<RoundConfig>) => void;
+  historyBackGuard: boolean;
+  onToggleHistoryBackGuard: () => void;
   titleInteractive?: boolean;
   onTitleClick?: () => void;
 }
@@ -29,6 +31,8 @@ export function AnimeToAnimeHeader({
   onVaListImageModeChange,
   onStaffGenderFilterChange,
   onRoundConfigChange,
+  historyBackGuard,
+  onToggleHistoryBackGuard,
   titleInteractive = false,
   onTitleClick,
 }: Props) {
@@ -70,6 +74,8 @@ export function AnimeToAnimeHeader({
           onStaffGenderFilterChange={onStaffGenderFilterChange}
           roundConfig={roundConfig}
           onRoundConfigChange={onRoundConfigChange}
+          historyBackGuard={historyBackGuard}
+          onToggleHistoryBackGuard={onToggleHistoryBackGuard}
           dbSync={dbSync}
         />
       </div>

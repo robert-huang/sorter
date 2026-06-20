@@ -153,6 +153,7 @@ import { AnilistDetailModal } from './components/AnilistDetailModal';
 import { StaffDetailModal } from './components/StaffDetailModal';
 import { ItemDetailContext } from './components/itemDetailContext';
 import { useKeyboard } from './hooks/useKeyboard';
+import { useHistoryBackGuard } from './hooks/useHistoryBackGuard';
 
 // Register the default cloud provider exactly once at module load.
 // Tests that need to swap it can call `_setCloudProviderForTesting`
@@ -258,6 +259,9 @@ export function App() {
   // behavior the first time they load on a build that knows the flag.
   const [autoInsertEnabled, setAutoInsertEnabledState] = useState(
     () => readSettings().autoInsertEnabled !== false,
+  );
+  const [historyBackGuard, setHistoryBackGuardState] = useState(
+    () => !!readSettings().historyBackGuard,
   );
   // Stable options bag rebuilt on every toggle change. The engine
   // module re-resolves its own defaults if we pass `undefined`, but
@@ -554,6 +558,14 @@ export function App() {
     setAutoInsertEnabledState((cur) => {
       const next = !cur;
       updateSettings({ autoInsertEnabled: next });
+      return next;
+    });
+  }, []);
+
+  const toggleHistoryBackGuard = useCallback(() => {
+    setHistoryBackGuardState((cur) => {
+      const next = !cur;
+      updateSettings({ historyBackGuard: next });
       return next;
     });
   }, []);
@@ -1856,6 +1868,7 @@ export function App() {
     canList: false,
     canRank: false,
     canResult: false,
+    hasLosableDraft: false,
   });
 
   /** Park the in-memory session so START draft work begins a fresh slot. */
@@ -2297,14 +2310,29 @@ export function App() {
   }, [state, manifest.slots, manifest.activeId, performStartOver]);
 
   // -------- keyboard --------
+  const rankInProgress = activeTab === 'rank' && state !== null && !state.done;
+  const listInProgress = activeTab === 'list' && state !== null && !state.done;
+  const startHasLosableDraft = activeTab === 'start' && draftCaps.hasLosableDraft;
+  const historyBackGuardActive = startHasLosableDraft || listInProgress || rankInProgress;
+
   useKeyboard(
     {
       onLeft: () => doPick('left'),
       onRight: () => doPick('right'),
       onUp: () => doUndo(),
     },
-    activeTab === 'rank' && state !== null && !state.done,
+    rankInProgress,
   );
+
+  const onBlockedHistoryBack = useCallback(() => {
+    if (startHasLosableDraft) {
+      flashSkipped('Unsaved START draft — use the tabs to navigate.');
+      return;
+    }
+    flashSkipped('Sort in progress — use the tabs to navigate.');
+  }, [startHasLosableDraft, flashSkipped]);
+
+  useHistoryBackGuard(historyBackGuardActive && historyBackGuard, onBlockedHistoryBack);
 
   // -------- derived --------
   const hasState = state !== null;
@@ -2592,6 +2620,8 @@ export function App() {
         onToggleShowEstimatedRemaining={toggleShowEstimatedRemaining}
         autoInsertEnabled={autoInsertEnabled}
         onToggleAutoInsertEnabled={toggleAutoInsertEnabled}
+        historyBackGuard={historyBackGuard}
+        onToggleHistoryBackGuard={toggleHistoryBackGuard}
         cloudStatus={cloudStatus}
         cloudFolderName={cloudAuth.folderName}
         onCloudSignIn={onCloudSignIn}

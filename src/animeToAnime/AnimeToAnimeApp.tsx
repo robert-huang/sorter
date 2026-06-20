@@ -23,9 +23,11 @@ import {
   type VaCreditRow,
 } from '../lib/importers/anilist/graphQueries';
 import { describeNonPersistentStorageBanner, type StorageMode } from '../lib/db/opfs';
+import { readSettings, updateSettings } from '../lib/storage';
 import { productionReads } from '../lib/importers/anilist/readQueries';
 import type { MediaRow, StaffRow } from '../lib/importers/anilist/types';
 import { useAnilistDisplayPreferences } from '../hooks/useAnilistDisplayPreferences';
+import { useHistoryBackGuard } from '../hooks/useHistoryBackGuard';
 import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
 import { pickPersonName } from '../lib/importers/anilist/personDisplayLabel';
 import {
@@ -169,6 +171,9 @@ export function AnimeToAnimeApp() {
   const [startMedia, setStartMedia] = useState<MediaRow | null>(null);
   const [goalMedia, setGoalMedia] = useState<MediaRow | null>(null);
   const [roundConfig, setRoundConfig] = useState<RoundConfig>(loadRoundConfig);
+  const [historyBackGuard, setHistoryBackGuard] = useState(
+    () => !!readSettings().historyBackGuard,
+  );
   /** Snapshotted from persisted settings when a round begins. */
   const [activeRoundConfig, setActiveRoundConfig] = useState<RoundConfig | null>(null);
   const [phase, setPhase] = useState<'setup' | 'play' | 'won' | 'gave_up'>('setup');
@@ -259,6 +264,14 @@ export function AnimeToAnimeApp() {
     setTheme((prev) => {
       const next: AnimeToAnimeTheme = prev === 'dark' ? 'light' : 'dark';
       saveAnimeToAnimeTheme(next);
+      return next;
+    });
+  }, []);
+
+  const onToggleHistoryBackGuard = useCallback(() => {
+    setHistoryBackGuard((cur) => {
+      const next = !cur;
+      updateSettings({ historyBackGuard: next });
       return next;
     });
   }, []);
@@ -452,6 +465,8 @@ export function AnimeToAnimeApp() {
   const onExitRoundCancel = useCallback(() => {
     setExitRoundConfirmOpen(false);
   }, []);
+
+  useHistoryBackGuard(historyBackGuard && phase === 'play', confirmExitToSetup);
 
   const onGiveUpClick = useCallback(() => {
     setGiveUpConfirmOpen(true);
@@ -750,6 +765,8 @@ export function AnimeToAnimeApp() {
         staffGenderFilter={genderFilter}
         onStaffGenderFilterChange={onGenderFilterChange}
         onRoundConfigChange={onRoundConfigChange}
+        historyBackGuard={historyBackGuard}
+        onToggleHistoryBackGuard={onToggleHistoryBackGuard}
         titleInteractive={phase !== 'setup'}
         onTitleClick={confirmExitToSetup}
       />
