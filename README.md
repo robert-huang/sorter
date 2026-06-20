@@ -300,22 +300,24 @@ When auto-insert wins, the engine installs an `AutoInsertFrame` instead of a nor
 
 The frame uses **rank-aware bound tightening**: each subsequent insert starts its lower bound at the previously-landed position + 1, because `pendingInserts` is in rank order. That gives a `Σ ⌈log₂(N + i)⌉` bound — in practice much tighter than the rank-blind worst case above. As that gap is realized, the progress bar **jumps forward**.
 
-**Example pairs** (same numbers as the unit tests):
+**Minimum skew to trigger auto-insert** — for a given small-side size `K`, the smallest larger-side size `N` (with `N ≥ K`) where `insert < merge`:
 
-| Smaller `K` | Larger `N` | `insert = K·⌈log₂(N+K)⌉` | `merge = K+N−1` | Result |
-|-------------|------------|---------------------------|-----------------|--------|
-| 1 | 4 | 1·⌈log₂5⌉ = **3** | **4** | auto-insert |
-| 1 | 5 | 1·⌈log₂6⌉ = **3** | **5** | auto-insert |
-| 1 | 100 | 1·⌈log₂101⌉ = **7** | **100** | auto-insert |
-| 2 | 8 | 2·⌈log₂10⌉ = **8** | **9** | auto-insert |
-| 1 | 1 | 1·⌈log₂2⌉ = **1** | **1** | merge (tie → merge) |
-| 1 | 2 | 1·⌈log₂3⌉ = **2** | **2** | merge (tie → merge) |
-| 2 | 2 | 2·⌈log₂4⌉ = **4** | **3** | merge |
-| 2 | 5 | 2·⌈log₂7⌉ = **6** | **6** | merge (tie → merge) |
-| 3 | 5 | 3·⌈log₂8⌉ = **9** | **7** | merge |
-| 4 | 4 | 4·⌈log₂8⌉ = **12** | **7** | merge |
+| Small `K` | Min large `N` | `N / K` |
+|-----------|---------------|---------|
+| 1 | 3 | 3.0× |
+| 2 | 6 | 3.0× |
+| 3 | 11 | 3.7× |
+| 4 | 18 | 4.5× |
+| 5 | 22 | 4.4× |
+| 6 | 26 | 4.3× |
+| 7 | 37 | 5.3× |
+| 8 | 42 | 5.3× |
+| 9 | 47 | 5.2× |
+| 10 | 52 | 5.2× |
 
-Intuition: a **long** sublist meeting a **short** one (e.g. 5 items vs 1) usually triggers auto-insert; **similar-sized** pairs (e.g. 4 vs 4, 3 vs 5) stay on the classic merge path. The heuristic is conservative — it may skip auto-insert in borderline cases where rank-aware bounds would still win, because the insert formula is a worst-case upper bound.
+Below these thresholds the pair uses classic merge (including ties, where `insert = merge`). Example: `K=1` needs the other sublist at **N ≥ 3** (`1 vs 2` ties; `1 vs 3` triggers). `K=2` needs **N ≥ 6** (`2 vs 5` ties; `2 vs 6` triggers).
+
+The heuristic is conservative — it may skip auto-insert in borderline cases where rank-aware bounds would still win, because the insert formula is a worst-case upper bound.
 
 Behavior notes:
 
