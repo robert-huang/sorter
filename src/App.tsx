@@ -1951,10 +1951,10 @@ export function App() {
   }, []);
 
   const localCloudSlotByCloudId = useMemo(() => {
-    const index = new Map<string, string>();
+    const index = new Map<string, SlotMeta>();
     for (const slot of manifest.slots) {
       if (slot.cloudId && !index.has(slot.cloudId)) {
-        index.set(slot.cloudId, slot.id);
+        index.set(slot.cloudId, slot);
       }
     }
     return index;
@@ -2031,6 +2031,14 @@ export function App() {
       }
     },
     [manifest.activeId],
+  );
+
+  /** Cloud library: drop local copy when listing shows a full sync. */
+  const onRemoveLocalFromCloudLibrary = useCallback(
+    (id: string) => {
+      performDeleteSlot(id);
+    },
+    [performDeleteSlot],
   );
 
   // Single entry-point for "delete this slot, with confirm-unless-suppressed".
@@ -2688,6 +2696,7 @@ export function App() {
           onPull={onCloudPull}
           localCloudSlotByCloudId={localCloudSlotByCloudId}
           onOpenLocalSlot={onSwitchSlot}
+          onRemoveLocalSlot={onRemoveLocalFromCloudLibrary}
           onSignedOut={() => setCloudAuth(cloudGetAuthState())}
           onFolderChanged={() => setCloudAuth(cloudGetAuthState())}
         />

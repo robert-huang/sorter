@@ -313,33 +313,7 @@ interface RowProps {
   cloudPulling: boolean;
 }
 
-/**
- * Three-state per-row cloud sync status:
- *  - 'off'      → user hasn't opted this slot in. Cloud icon hidden /
- *                 gray.
- *  - 'pending'  → opted in but the local copy has changed since the
- *                 last push (or never pushed yet). Yellow up-arrow.
- *  - 'synced'   → opted in, local matches the cloud copy on this device
- *                 as of the last push. Green check.
- *
- * Pull-vs-cloud-newer is intentionally NOT a state here — Phase 1 has
- * no fresh listing on every render so we can't reliably know "the
- * cloud is ahead of me" without an extra fetch on every gear-menu
- * open. The CloudLibraryModal is the path for discovering newer
- * cloud copies.
- */
-type CloudSyncState = 'off' | 'pending' | 'synced';
-
-function deriveSyncState(slot: SlotMeta): CloudSyncState {
-  if (!slot.cloudOptIn) return 'off';
-  if (!slot.cloudId || !slot.cloudPushedAt) return 'pending';
-  // Local updates bump `updatedAt`; pushes stamp `cloudPushedAt`. If
-  // updatedAt > cloudPushedAt, local has unpushed changes. Strict-
-  // greater because the autosave write that follows a push can land
-  // on the same millisecond as cloudPushedAt without representing a
-  // real change.
-  return slot.updatedAt > slot.cloudPushedAt ? 'pending' : 'synced';
-}
+import { deriveCloudSyncState, type CloudSyncState } from '../lib/cloudSync';
 
 function SlotRow({
   slot,
@@ -390,7 +364,7 @@ function SlotRow({
   }
 
   const isPinned = !!slot.pinned;
-  const syncState = deriveSyncState(slot);
+  const syncState = deriveCloudSyncState(slot);
   const meta = [
     pluralize(slot.totalItems, 'item'),
     pluralize(slot.comparisons, 'comparison'),

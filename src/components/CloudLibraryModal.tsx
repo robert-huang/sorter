@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Modal } from './Modal';
 import type { CloudSlotMeta } from '../lib/cloud';
+import { isFullySyncedWithCloudListing } from '../lib/cloudSync';
+import type { SlotMeta } from '../lib/types';
 import {
   getAuthState,
   listCloudSlots,
@@ -18,10 +20,15 @@ interface Props {
    * pulled blob, doesn't drive the adoption flow itself.
    */
   onPull: (meta: CloudSlotMeta) => void | Promise<void>;
-  /** Drive file id → local slot id for backups already on this device. */
-  localCloudSlotByCloudId: ReadonlyMap<string, string>;
+  /** Drive file id → local slot for backups already on this device. */
+  localCloudSlotByCloudId: ReadonlyMap<string, SlotMeta>;
   /** Switch to an existing local slot (no download, no duplicate mint). */
   onOpenLocalSlot: (slotId: string) => void;
+  /**
+   * Remove the local copy when it matches the cloud listing. Cloud file
+   * stays in Drive; the row reverts to Pull.
+   */
+  onRemoveLocalSlot: (slotId: string) => void;
   /**
    * Called after Sign out completes so the App can re-render with the
    * cleared auth state (the gear menu's entries depend on auth state).
@@ -57,6 +64,7 @@ export function CloudLibraryModal({
   onPull,
   localCloudSlotByCloudId,
   onOpenLocalSlot,
+  onRemoveLocalSlot,
   onSignedOut,
   onFolderChanged,
 }: Props) {
@@ -185,23 +193,30 @@ export function CloudLibraryModal({
       )}
       {list.status === 'loaded' && list.rows.length > 0 && (
         <ul className="cloud-library-list">
-          {list.rows.map((row) => (
+          {list.rows.map((row) => {
+            const localSlot = localCloudSlotByCloudId.get(row.cloudId);
+            return (
             <CloudLibraryRow
               key={row.cloudId}
               meta={row}
-              localSlotId={localCloudSlotByCloudId.get(row.cloudId)}
+              localSlot={localSlot}
               actionDisabled={pullingCloudId !== null}
               isPulling={pullingCloudId === row.cloudId}
               onPull={() => handlePull(row)}
               onOpenLocal={() => {
-                const slotId = localCloudSlotByCloudId.get(row.cloudId);
-                if (slotId) {
-                  onOpenLocalSlot(slotId);
+                if (localSlot) {
+                  onOpenLocalSlot(localSlot.id);
                   onClose();
                 }
               }}
+              onRemoveLocal={() => {
+                if (localSlot) {
+                  onRemoveLocalSlot(localSlot.id);
+                }
+              }}
             />
-          ))}
+            );
+          })}
         </ul>
       )}
       <div className="modal-actions">
@@ -224,22 +239,25 @@ export function CloudLibraryModal({
 
 interface RowProps {
   meta: CloudSlotMeta;
-  localSlotId: string | undefined;
+  localSlot: SlotMeta | undefined;
   actionDisabled: boolean;
   isPulling: boolean;
   onPull: () => void;
   onOpenLocal: () => void;
+  onRemoveLocal: () => void;
 }
 
 function CloudLibraryRow({
   meta,
-  localSlotId,
+  localSlot,
   actionDisabled,
   isPulling,
   onPull,
   onOpenLocal,
+  onRemoveLocal,
 }: RowProps) {
-  const alreadyLocal = localSlotId !== undefined;
+  const alreadyLocal = localSlot !== undefined;
+  const fullySynced = isFullySyncedWithCloudListing(localSlot, meta);
   return (
     <li className={`cloud-library-row${alreadyLocal ? ' cloud-library-row--local' : ''}`}>
       <div className="cloud-library-row-main">
@@ -249,20 +267,36 @@ function CloudLibraryRow({
         <div className="cloud-library-row-meta">
           {formatBytes(meta.sizeBytes)} &middot; updated {formatDate(meta.updatedAt)}
           {alreadyLocal && (
-            <span className="cloud-library-row-local-badge"> &middot; on this device</span>
+            <>
+              {' '}
+              &middot;{' '}
+              <button
+                type="button"
+                className="cloud-library-row-local-link"
+                onClick={onOpenLocal}
+                disabled={actionDisabled}
+                title="Open the local copy of this backup"
+              >
+                on this device
+              </button>
+            </>
           )}
         </div>
       </div>
       {alreadyLocal ? (
         <button
           type="button"
-          className="btn cloud-library-row-open-local"
-          onClick={onOpenLocal}
-          disabled={actionDisabled}
-          title="This backup is already saved locally — open that slot"
-          aria-label={`Open local copy of ${meta.displayName}`}
+          className="btn cloud-library-row-remove-local"
+          onClick={onRemoveLocal}
+          disabled={actionDisabled || !fullySynced}
+          title={
+            fullySynced
+              ? 'Remove local copy — cloud backup stays in Drive'
+              : 'Sync or pull before removing the local copy'
+          }
+          aria-label={`Remove local copy of ${meta.displayName}`}
         >
-          <span className="cloud-library-row-open-local-icon" aria-hidden>
+          <span className="cloud-library-row-remove-local-icon" aria-hidden>
             ✓
           </span>
           On device
