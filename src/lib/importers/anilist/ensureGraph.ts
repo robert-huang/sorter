@@ -3,6 +3,7 @@
  */
 
 import type { AnilistImportContext } from './context';
+import { hasKnownGraphCacheDate } from './graphConstants';
 import { expandMediaRelations } from './expandMediaRelations';
 import { expandStaffFilmography } from './expandStaffFilmography';
 import {
@@ -10,7 +11,52 @@ import {
   type ExpandAnilistMediaDetailOptions,
 } from './lazyExpansion';
 import { hasStaffFilmography } from './graphQueries';
-import { getMediaCastExpansionStatus } from './readQueries';
+import {
+  getMediaCastExpansionStatus,
+  type MediaCastExpansionStatus,
+} from './readQueries';
+
+function needsCharactersSectionExpanded(
+  status: MediaCastExpansionStatus | null,
+  force: boolean,
+): boolean {
+  if (force) {
+    return true;
+  }
+  if (!status) {
+    return true;
+  }
+  return (
+    !status.charactersComplete ||
+    !hasKnownGraphCacheDate(status.charactersFetchedAt)
+  );
+}
+
+async function needsStaffSectionExpanded(
+  ctx: AnilistImportContext,
+  mediaId: number,
+  status: MediaCastExpansionStatus | null,
+  force: boolean,
+): Promise<boolean> {
+  if (force) {
+    return true;
+  }
+  if (!status) {
+    return true;
+  }
+  if (
+    !status.staffComplete ||
+    !hasKnownGraphCacheDate(status.staffFetchedAt)
+  ) {
+    return true;
+  }
+  // Drive merge can mark staff_complete while media_staff is still empty.
+  const rows = await ctx.db.exec(
+    'SELECT 1 FROM media_staff WHERE media_id = ? LIMIT 1',
+    [mediaId],
+  );
+  return rows.length === 0;
+}
 
 export async function ensureMediaCastExpanded(
   ctx: AnilistImportContext,
@@ -19,12 +65,13 @@ export async function ensureMediaCastExpanded(
 ): Promise<boolean> {
   const status = await getMediaCastExpansionStatus(ctx.db, mediaId);
   const scope = options.scope ?? 'all';
+  const force = options.force ?? false;
   const needsCharacters =
     (scope === 'all' || scope === 'characters') &&
-    (!status || !status.charactersComplete || options.force);
+    needsCharactersSectionExpanded(status, force);
   const needsStaff =
     (scope === 'all' || scope === 'staff') &&
-    (!status || !status.staffComplete || options.force);
+    (await needsStaffSectionExpanded(ctx, mediaId, status, force));
 
   if (!needsCharacters && !needsStaff) {
     return true;

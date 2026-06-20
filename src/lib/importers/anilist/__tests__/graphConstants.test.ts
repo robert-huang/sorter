@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   formatGraphCacheDate,
   graphStaleRefreshTooltip,
+  hasKnownGraphCacheDate,
   isGraphTimestampStale,
   isUnknownGraphCacheDate,
   oldestStaleGraphTimestamp,
@@ -17,6 +18,12 @@ describe('graphConstants', () => {
   it('isGraphTimestampStale treats unknown cache dates as stale', () => {
     expect(isGraphTimestampStale(0)).toBe(true);
     expect(isGraphTimestampStale(null)).toBe(false);
+  });
+
+  it('hasKnownGraphCacheDate rejects v1 backfill sentinels', () => {
+    expect(hasKnownGraphCacheDate(null)).toBe(false);
+    expect(hasKnownGraphCacheDate(0)).toBe(false);
+    expect(hasKnownGraphCacheDate(1_700_000_000_000)).toBe(true);
   });
 
   it('formatGraphCacheDate renders YYYY-MM-DD in local time', () => {
@@ -46,10 +53,11 @@ describe('graphConstants', () => {
     );
   });
 
-  it('oldestStaleGraphTimestamp includes unknown cache dates', () => {
+  it('oldestStaleGraphTimestamp prefers known stale dates over unknown', () => {
     const now = Date.now();
     const stale = now - 100 * 24 * 60 * 60 * 1000;
-    expect(oldestStaleGraphTimestamp([0, stale], now)).toBe(0);
+    expect(oldestStaleGraphTimestamp([0, stale], now)).toBe(stale);
+    expect(oldestStaleGraphTimestamp([0], now)).toBe(0);
   });
 
   it('oldestStaleGraphTimestamp picks the oldest stale timestamp', () => {

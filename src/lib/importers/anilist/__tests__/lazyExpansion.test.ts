@@ -472,3 +472,32 @@ describe('expandAnilistMediaDetail — progress events', () => {
     h.db.close();
   });
 });
+
+describe('expandAnilistMediaDetail — staff_complete upsert', () => {
+  it('clears staff_complete when a capped staff fetch did not finish', async () => {
+    const h = await makeHarness();
+    h.db.exec(
+      `INSERT INTO media_cast_expansion (
+         media_id, language, fetched_at, staff_fetched_at, staff_complete
+       ) VALUES (100, 'JAPANESE', ?, ?, 1)`,
+      { bind: [NOW, NOW] },
+    );
+    h.executeQuery
+      .mockResolvedValueOnce(makeDetailResponse([], [], false, false))
+      .mockResolvedValueOnce(
+        makeDetailResponse([], [makeStaffEdge(9100)], false, true),
+      );
+
+    const result = await expandAnilistMediaDetail(h.ctx, 100, {
+      scope: 'all',
+      staffMaxPages: 1,
+    });
+
+    expect(result?.staffComplete).toBe(false);
+    const row = h.db.selectObject(
+      'SELECT staff_complete FROM media_cast_expansion WHERE media_id = 100',
+    );
+    expect(row).toEqual({ staff_complete: 0 });
+    h.db.close();
+  });
+});

@@ -9,6 +9,11 @@ export function isUnknownGraphCacheDate(fetchedAt: number): boolean {
   return fetchedAt <= 0;
 }
 
+/** False for null or v1 backfill sentinel (`0`) — expansion should re-stamp these. */
+export function hasKnownGraphCacheDate(fetchedAt: number | null): boolean {
+  return fetchedAt !== null && !isUnknownGraphCacheDate(fetchedAt);
+}
+
 export function isGraphTimestampStale(fetchedAt: number | null, now = Date.now()): boolean {
   if (fetchedAt === null) {
     return false;
@@ -40,16 +45,23 @@ export function oldestStaleGraphTimestamp(
   timestamps: readonly (number | null)[],
   now = Date.now(),
 ): number | null {
-  let oldest: number | null = null;
+  let oldestKnown: number | null = null;
+  let oldestUnknown: number | null = null;
   for (const t of timestamps) {
     if (t === null || !isGraphTimestampStale(t, now)) {
       continue;
     }
-    if (oldest === null || t < oldest) {
-      oldest = t;
+    if (isUnknownGraphCacheDate(t)) {
+      if (oldestUnknown === null) {
+        oldestUnknown = t;
+      }
+      continue;
+    }
+    if (oldestKnown === null || t < oldestKnown) {
+      oldestKnown = t;
     }
   }
-  return oldest;
+  return oldestKnown ?? oldestUnknown;
 }
 
 /** Tooltip / aria-label copy for a stale graph-cache refresh button. */

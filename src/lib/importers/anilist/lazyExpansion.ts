@@ -437,8 +437,16 @@ export async function expandAnilistMediaDetail(
       fetched_at = MAX(media_cast_expansion.fetched_at, excluded.fetched_at),
       characters_fetched_at = COALESCE(excluded.characters_fetched_at, media_cast_expansion.characters_fetched_at),
       staff_fetched_at = COALESCE(excluded.staff_fetched_at, media_cast_expansion.staff_fetched_at),
-      characters_complete = MAX(media_cast_expansion.characters_complete, excluded.characters_complete),
-      staff_complete = MAX(media_cast_expansion.staff_complete, excluded.staff_complete)`,
+      characters_complete = CASE
+        WHEN excluded.characters_fetched_at IS NOT NULL
+        THEN excluded.characters_complete
+        ELSE media_cast_expansion.characters_complete
+      END,
+      staff_complete = CASE
+        WHEN excluded.staff_fetched_at IS NOT NULL
+        THEN excluded.staff_complete
+        ELSE media_cast_expansion.staff_complete
+      END`,
     params: [
       mediaId,
       language,

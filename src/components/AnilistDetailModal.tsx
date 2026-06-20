@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   formatGraphCacheDate,
   graphStaleRefreshTooltip,
+  hasKnownGraphCacheDate,
   isGraphTimestampStale,
   oldestStaleGraphTimestamp,
 } from '../lib/importers/anilist/graphConstants';
@@ -270,7 +271,9 @@ export function AnilistDetailModal({
         const needsExpansion =
           !status ||
           !status.charactersComplete ||
-          !status.staffComplete;
+          !status.staffComplete ||
+          !hasKnownGraphCacheDate(status.charactersFetchedAt) ||
+          !hasKnownGraphCacheDate(status.staffFetchedAt);
         if (loadTick === 0 && d && needsExpansion) {
           setExpanding(true);
           setProgress(null);
