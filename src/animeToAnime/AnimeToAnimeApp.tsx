@@ -66,6 +66,8 @@ import {
   loadVaListImageMode,
   matchesStaffGender,
   mergeLiveProductionRules,
+  playListTitleWithStaffGenderFilter,
+  staffGenderFilterListHint,
   saveRoundConfig,
   saveStaffGenderFilter,
   saveVaListImageMode,
@@ -898,7 +900,11 @@ export function AnimeToAnimeApp() {
                     </>
                   )}
                   <PlayListSectionHeader
-                    title="Voice actors"
+                    title={playListTitleWithStaffGenderFilter(
+                      'Voice actors',
+                      genderFilter,
+                    )}
+                    titleHint={staffGenderFilterListHint(genderFilter)}
                     onRefresh={onRefreshPlayList}
                     refreshing={loading}
                     refreshLabel="Refresh cast from AniList"
@@ -935,8 +941,14 @@ export function AnimeToAnimeApp() {
                   </ul>
                   {roundConfig.allowProduction && (
                     <>
-                      <h3 className="anime-to-anime-subheading anime-to-anime-list-header-title">
-                        Production
+                      <h3
+                        className="anime-to-anime-subheading anime-to-anime-list-header-title"
+                        title={staffGenderFilterListHint(genderFilter)}
+                      >
+                        {playListTitleWithStaffGenderFilter(
+                          'Production staff',
+                          genderFilter,
+                        )}
                       </h3>
                       <ul className="anime-to-anime-hop-list">
                         {filteredProd.map((row) => (

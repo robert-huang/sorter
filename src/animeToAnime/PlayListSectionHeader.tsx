@@ -1,5 +1,7 @@
 interface Props {
   title: string;
+  /** Optional native tooltip on the section heading (e.g. active gender filter). */
+  titleHint?: string;
   onRefresh: () => void;
   refreshing?: boolean;
   refreshLabel?: string;
@@ -13,6 +15,7 @@ interface Props {
 
 export function PlayListSectionHeader({
   title,
+  titleHint,
   onRefresh,
   refreshing = false,
   refreshLabel = 'Refresh list from AniList',
@@ -25,7 +28,12 @@ export function PlayListSectionHeader({
   const label = isStale ? (staleRefreshLabel ?? refreshLabel) : refreshLabel;
   return (
     <div className="anime-to-anime-list-header">
-      <h3 className="anime-to-anime-subheading anime-to-anime-list-header-title">{title}</h3>
+      <h3
+        className="anime-to-anime-subheading anime-to-anime-list-header-title"
+        title={titleHint}
+      >
+        {title}
+      </h3>
       <button
         type="button"
         className={`btn icon-only anime-to-anime-refresh-btn${

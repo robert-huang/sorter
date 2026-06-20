@@ -85,6 +85,31 @@ export function matchesStaffGender(
   return gender.trim().toLowerCase() === filter;
 }
 
+const STAFF_GENDER_FILTER_LABEL: Record<Exclude<StaffGenderFilter, 'any'>, string> = {
+  male: 'Male',
+  female: 'Female',
+};
+
+/** Play-list heading suffix when the live gender filter is not `any`. */
+export function playListTitleWithStaffGenderFilter(
+  baseTitle: string,
+  filter: StaffGenderFilter,
+): string {
+  if (filter === 'any') {
+    return baseTitle;
+  }
+  return `${baseTitle} (${STAFF_GENDER_FILTER_LABEL[filter]})`;
+}
+
+/** Tooltip on VA / production list headings while a gender filter is active. */
+export function staffGenderFilterListHint(filter: StaffGenderFilter): string | undefined {
+  if (filter === 'any') {
+    return undefined;
+  }
+  const label = STAFF_GENDER_FILTER_LABEL[filter].toLowerCase();
+  return `Only ${label} staff are listed. Missing and non-binary gender are excluded.`;
+}
+
 export function loadRoundConfig(): RoundConfig {
   try {
     const raw =

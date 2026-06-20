@@ -6,8 +6,10 @@ import {
   loadStaffGenderFilter,
   matchesStaffGender,
   mergeLiveProductionRules,
+  playListTitleWithStaffGenderFilter,
   saveRoundConfig,
   saveStaffGenderFilter,
+  staffGenderFilterListHint,
 } from '../preferences';
 
 describe('round config persistence', () => {
@@ -77,6 +79,32 @@ describe('staff gender filter persistence', () => {
   it('falls back to "any" for an unrecognized stored value', () => {
     localStorage.setItem(STAFF_GENDER_FILTER_KEY, 'other');
     expect(loadStaffGenderFilter()).toBe('any');
+  });
+});
+
+describe('playListTitleWithStaffGenderFilter', () => {
+  it('leaves the title unchanged when filter is any', () => {
+    expect(playListTitleWithStaffGenderFilter('Voice actors', 'any')).toBe('Voice actors');
+  });
+
+  it('appends the gender label when filter is male or female', () => {
+    expect(playListTitleWithStaffGenderFilter('Voice actors', 'male')).toBe(
+      'Voice actors (Male)',
+    );
+    expect(playListTitleWithStaffGenderFilter('Production staff', 'female')).toBe(
+      'Production staff (Female)',
+    );
+  });
+});
+
+describe('staffGenderFilterListHint', () => {
+  it('returns undefined for any', () => {
+    expect(staffGenderFilterListHint('any')).toBeUndefined();
+  });
+
+  it('explains the active filter for male and female', () => {
+    expect(staffGenderFilterListHint('male')).toContain('male');
+    expect(staffGenderFilterListHint('female')).toContain('female');
   });
 });
 
