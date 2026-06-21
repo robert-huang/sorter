@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  getInsertMergeContext,
+  getInsertContext,
   groupInsertionPending,
   insertionSortFromSublists,
   mergeSliceLabel,
@@ -25,9 +25,9 @@ function mergeState(partial: Partial<MergeState>): MergeState {
   };
 }
 
-describe('getInsertMergeContext', () => {
+describe('getInsertContext', () => {
   it('returns target and remaining ids during auto-insert', () => {
-    const ctx = getInsertMergeContext(
+    const ctx = getInsertContext(
       mergeState({
         currentAutoInsert: {
           target: ['t1', 't2', 't3'],
@@ -43,6 +43,7 @@ describe('getInsertMergeContext', () => {
       }),
     );
     expect(ctx).toEqual({
+      kind: 'merge-auto',
       targetIds: ['t1', 't2', 't3'],
       remainingIds: ['p1', 'p2', 'p3'],
       insertingId: 'p1',
@@ -51,9 +52,10 @@ describe('getInsertMergeContext', () => {
   });
 
   it('returns manual-insert target from the queue sublist', () => {
-    const ctx = getInsertMergeContext(
+    const ctx = getInsertContext(
       mergeState({
         queue: [['q1', 'q2', 'q3']],
+        pendingManualInserts: ['y', 'z'],
         currentManualInsert: {
           insertingId: 'x',
           targetQueueIndex: 0,
@@ -67,17 +69,44 @@ describe('getInsertMergeContext', () => {
       }),
     );
     expect(ctx).toEqual({
+      kind: 'merge-manual',
       targetIds: ['q1', 'q2', 'q3'],
-      remainingIds: ['x'],
+      remainingIds: ['x', 'y', 'z'],
       insertingId: 'x',
       probeId: 'q1',
     });
   });
 
+  it('returns insertion-engine sorted list and pending queue', () => {
+    const ctx = getInsertContext({
+      engine: 'insertion',
+      items: {},
+      sorted: ['s1', 's2'],
+      pending: ['p2'],
+      current: {
+        insertingId: 'p1',
+        lo: 0,
+        hi: 1,
+        probe: 0,
+      },
+      comparisons: 0,
+      done: false,
+      hidden: [],
+      totalComparisonsEverNeeded: 0,
+    });
+    expect(ctx).toEqual({
+      kind: 'insertion',
+      targetIds: ['s1', 's2'],
+      remainingIds: ['p1', 'p2'],
+      insertingId: 'p1',
+      probeId: 's1',
+    });
+  });
+
   it('returns null outside an active insert frame', () => {
-    expect(getInsertMergeContext(mergeState({}))).toBeNull();
+    expect(getInsertContext(mergeState({}))).toBeNull();
     expect(
-      getInsertMergeContext(
+      getInsertContext(
         mergeState({
           current: { left: ['a'], right: ['b'], merged: [] },
         }),

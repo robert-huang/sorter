@@ -1,5 +1,5 @@
-import type { ItemId, MergeState } from '../lib/types';
-import { getInsertPair } from '../lib/binaryInsertion';
+import { getPair } from '../lib/engine';
+import type { InsertionState, ItemId, MergeState, SortState } from '../lib/types';
 
 export function mergeSliceLabel(base: string, count: number): string {
   return `${base} (${count})`;
@@ -63,24 +63,35 @@ export function insertionSortFromSublists(
   return pendingRunIds !== undefined;
 }
 
+export type InsertContextKind = 'insertion' | 'merge-manual' | 'merge-auto';
+
 /**
- * During merge-engine auto- or manual-insert, the LIST tab can show the
- * full target sublist and the remaining incoming items instead of only
- * the active A/B pair. Returns null when not in an active insert frame.
+ * During any binary-insert compare (insertion engine, merge auto-insert, or
+ * merge manual-insert), the LIST tab can show the full target list and the
+ * remaining incoming items instead of only the active A/B pair.
  */
-export interface InsertMergeContextView {
-  /** Larger sublist (or queue target) being merged into. */
+export interface InsertContextView {
+  kind: InsertContextKind;
+  /** Target list being inserted into. */
   targetIds: ItemId[];
-  /** Smaller sublist still to land: active insert first, then queued. */
+  /** Items still to land: active insert first, then queued. */
   remainingIds: ItemId[];
   insertingId: ItemId;
   probeId: ItemId;
 }
 
-export function getInsertMergeContext(
-  state: MergeState,
-): InsertMergeContextView | null {
-  if (state.engine !== 'merge') return null;
+/** @deprecated Use `getInsertContext` */
+export type InsertMergeContextView = InsertContextView;
+
+export function getInsertContext(state: SortState): InsertContextView | null {
+  const pair = getPair(state);
+  if (!pair) return null;
+
+  if (state.engine === 'insertion') {
+    return getInsertionEngineInsertContext(state, pair);
+  }
+
+  if (state.current) return null;
 
   if (state.currentManualInsert?.frame) {
     const mi = state.currentManualInsert;
@@ -88,11 +99,10 @@ export function getInsertMergeContext(
     if (!frame) return null;
     const target = state.queue[mi.targetQueueIndex];
     if (!target) return null;
-    const pair = getInsertPair(frame, target);
-    if (!pair) return null;
     return {
+      kind: 'merge-manual',
       targetIds: [...target],
-      remainingIds: [pair.leftId],
+      remainingIds: [pair.leftId, ...state.pendingManualInserts],
       insertingId: pair.leftId,
       probeId: pair.rightId,
     };
@@ -102,9 +112,8 @@ export function getInsertMergeContext(
     const ai = state.currentAutoInsert;
     const frame = ai.frame;
     if (!frame) return null;
-    const pair = getInsertPair(frame, ai.target);
-    if (!pair) return null;
     return {
+      kind: 'merge-auto',
       targetIds: [...ai.target],
       remainingIds: [pair.leftId, ...ai.pendingInserts],
       insertingId: pair.leftId,
@@ -113,4 +122,25 @@ export function getInsertMergeContext(
   }
 
   return null;
+}
+
+function getInsertionEngineInsertContext(
+  state: InsertionState,
+  pair: { leftId: ItemId; rightId: ItemId },
+): InsertContextView {
+  return {
+    kind: 'insertion',
+    targetIds: [...state.sorted],
+    remainingIds: [pair.leftId, ...state.pending],
+    insertingId: pair.leftId,
+    probeId: pair.rightId,
+  };
+}
+
+/** @deprecated Use `getInsertContext` */
+export function getInsertMergeContext(
+  state: MergeState,
+): InsertContextView | null {
+  if (state.engine !== 'merge') return null;
+  return getInsertContext(state);
 }

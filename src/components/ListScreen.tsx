@@ -14,7 +14,14 @@ import { AddItemsModal } from './AddItemsModal';
 import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
 import { canOpenItemDetail, ItemDetailContext } from './itemDetailContext';
 import { ItemThumb } from './ItemThumb';
-import { mergeSliceLabel, groupInsertionPending, getInsertMergeContext, insertionSortFromSublists, type InsertionPendingGroup } from './listScreenH';
+import {
+  getInsertContext,
+  groupInsertionPending,
+  insertionSortFromSublists,
+  mergeSliceLabel,
+  type InsertContextKind,
+  type InsertionPendingGroup,
+} from './listScreenH';
 
 interface Props {
   state: SortState;
@@ -157,14 +164,26 @@ function formatItemCount(total: number, hidden: number): string {
   return `${base} (${hidden} hidden)`;
 }
 
-/** True when the active compare pair is an insert frame (not merge heads). */
-function isInsertComparison(state: SortState): boolean {
-  if (state.engine === 'insertion') return true;
-  return !!(
-    state.currentManualInsert ||
-    (state.currentAutoInsert && state.currentAutoInsert.frame)
-  );
-}
+const INSERT_CONTEXT_COPY: Record<
+  InsertContextKind,
+  { title: string; hint: string; targetHeading: string }
+> = {
+  insertion: {
+    title: 'Inserting',
+    hint: 'Binary-inserting into the sorted list — highlighted rows match the active pair on RANK.',
+    targetHeading: 'Inserting into',
+  },
+  'merge-manual': {
+    title: 'Manual insert',
+    hint: 'Inserting an exiled item into a queue sublist — highlighted rows match RANK.',
+    targetHeading: 'Inserting into',
+  },
+  'merge-auto': {
+    title: 'Sublist merge',
+    hint: 'Inserting the smaller sublist into the larger one — highlighted rows match the active pair on RANK.',
+    targetHeading: 'Merging into',
+  },
+};
 
 /**
  * LIST should mirror the RANK tab's active pair via `getPair`, not whatever
@@ -179,15 +198,19 @@ function shouldShowCurrentComparison(state: SortState): boolean {
   return state.current === null;
 }
 
-function InsertMergeContextSection({
+function InsertContextSection({
   state,
   onOpenEdit,
+  onHideInserting,
 }: {
-  state: MergeState;
+  state: SortState;
   onOpenEdit: (item: Item) => void;
+  /** Insertion engine: × on the actively-inserting row. */
+  onHideInserting?: (id: string) => void;
 }) {
-  const ctx = getInsertMergeContext(state);
+  const ctx = getInsertContext(state);
   if (!ctx) return null;
+  const copy = INSERT_CONTEXT_COPY[ctx.kind];
   const hidden = useMemo(() => new Set(state.hidden), [state.hidden]);
 
   const visibleTarget = ctx.targetIds.filter((id) => !hidden.has(id));
@@ -195,7 +218,7 @@ function InsertMergeContextSection({
 
   return (
     <div className="list-merging">
-      <div className="list-section-label">Sublist merge</div>
+      <div className="list-section-label">{copy.title}</div>
       <p
         style={{
           fontSize: 13,
@@ -204,13 +227,12 @@ function InsertMergeContextSection({
           marginBottom: 12,
         }}
       >
-        Inserting the smaller sublist into the larger one — highlighted rows
-        match the active pair on RANK.
+        {copy.hint}
       </p>
       <div className="list-merge-context-grid">
         <div className="list-merge-context-panel">
           <div className="list-merge-context-heading">
-            {mergeSliceLabel('Merging into', visibleTarget.length)}
+            {mergeSliceLabel(copy.targetHeading, visibleTarget.length)}
           </div>
           <div className="queue-sublist">
             <div className="queue-sublist-items">
@@ -272,95 +294,20 @@ function InsertMergeContextSection({
                       <span className="list-merge-context-tag">inserting</span>
                     )}
                     <EditButton item={item} onOpen={onOpenEdit} variant="row" />
+                    {onHideInserting && isInserting && (
+                      <button
+                        className="icon-btn danger"
+                        onClick={() => onHideInserting(id)}
+                        title="Remove this item — skip inserting it and move on"
+                        aria-label={`Remove ${item.label}`}
+                      >
+                        ×
+                      </button>
+                    )}
                   </div>
                 );
               })}
             </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function CurrentComparisonSection({
-  state,
-  onOpenEdit,
-  onHideLeft,
-}: {
-  state: SortState;
-  onOpenEdit: (item: Item) => void;
-  /** Insertion engine only: × on the left (inserting) card. */
-  onHideLeft?: (id: string) => void;
-}) {
-  const pair = getPair(state);
-  if (!pair) return null;
-
-  const left = state.items[pair.leftId];
-  const right = state.items[pair.rightId];
-  if (!left || !right) return null;
-
-  const isInsert = isInsertComparison(state);
-  const leftRole = isInsert ? 'Inserting' : 'Left';
-  const rightRole = isInsert ? 'Probe' : 'Right';
-
-  return (
-    <div className="list-merging">
-      <div className="list-section-label">Current comparison</div>
-      <p
-        style={{
-          fontSize: 13,
-          color: 'var(--text-muted)',
-          marginTop: 0,
-          marginBottom: 8,
-        }}
-      >
-        The same two items shown on the RANK tab — edit labels here without
-        leaving LIST.
-      </p>
-      <div className="queue-sublist">
-        <div className="queue-sublist-items">
-          <div className="queue-item-row">
-            <span
-              style={{
-                fontSize: 12,
-                color: 'var(--text-muted)',
-                minWidth: 72,
-              }}
-            >
-              A · {leftRole}
-            </span>
-            <Thumb item={left} />
-            <span className="label-cell" title={left.label}>
-              {left.label}
-            </span>
-            <EditButton item={left} onOpen={onOpenEdit} variant="row" />
-            {onHideLeft && (
-              <button
-                className="icon-btn danger"
-                onClick={() => onHideLeft(left.id)}
-                title="Remove this item — skip inserting it and move on"
-                aria-label={`Remove ${left.label}`}
-              >
-                ×
-              </button>
-            )}
-          </div>
-          <div className="queue-item-row">
-            <span
-              style={{
-                fontSize: 12,
-                color: 'var(--text-muted)',
-                minWidth: 72,
-              }}
-            >
-              B · {rightRole}
-            </span>
-            <Thumb item={right} />
-            <span className="label-cell" title={right.label}>
-              {right.label}
-            </span>
-            <EditButton item={right} onOpen={onOpenEdit} variant="row" />
           </div>
         </div>
       </div>
@@ -534,15 +481,9 @@ function MergeListView({
 
   return (
     <>
-      {shouldShowCurrentComparison(state) &&
-        (state.engine === 'merge' && getInsertMergeContext(state) ? (
-          <InsertMergeContextSection state={state} onOpenEdit={openEdit} />
-        ) : (
-          <CurrentComparisonSection
-            state={state}
-            onOpenEdit={openEdit}
-          />
-        ))}
+      {shouldShowCurrentComparison(state) && getInsertContext(state) && (
+        <InsertContextSection state={state} onOpenEdit={openEdit} />
+      )}
       {state.current && (
         <div className="list-merging">
           <div className="list-section-label">Current sublist</div>
@@ -1126,11 +1067,11 @@ function InsertionListView({
 
   return (
     <>
-      {shouldShowCurrentComparison(state) && (
-        <CurrentComparisonSection
+      {shouldShowCurrentComparison(state) && getInsertContext(state) && (
+        <InsertContextSection
           state={state}
           onOpenEdit={openEdit}
-          onHideLeft={onHide}
+          onHideInserting={onHide}
         />
       )}
 
