@@ -72,6 +72,18 @@ export function looksLikeHeader(firstRow: string[]): boolean {
 }
 
 /**
+ * PapaParse defaults to delimiter auto-detection. On title-only lines with
+ * semicolons but no commas (e.g. `Steins;Gate (TV)`), it picks `;` as the
+ * delimiter and splits the title into multiple cells. Our comma-in-label
+ * repair then rejoins those with `, ` — corrupting the label. This app
+ * only supports comma-separated columns (ITEM, URL, IMAGE), so pin it.
+ */
+export const PAPA_COMMA_CSV_OPTIONS = {
+  skipEmptyLines: 'greedy' as const,
+  delimiter: ',',
+};
+
+/**
  * True when `cell` looks like a URL column value (http(s) or bare domain
  * with a path). Used to distinguish real CSV url/image columns from title
  * fragments split on unquoted commas.
@@ -212,9 +224,7 @@ export function parseCsvRows(
   extraColumns: ExtraColumnsWarning[];
   commaInLabel: CommaInLabelWarning[];
 } {
-  const parsed = Papa.parse<string[]>(text, {
-    skipEmptyLines: 'greedy',
-  });
+  const parsed = Papa.parse<string[]>(text, PAPA_COMMA_CSV_OPTIONS);
   const allRows = (parsed.data ?? []).filter(
     (r) => Array.isArray(r) && r.some((cell) => (cell ?? '').trim() !== ''),
   );

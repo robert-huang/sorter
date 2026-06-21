@@ -23,6 +23,7 @@ import {
   parseCsvRows,
   parseExtrasText,
   parseSources,
+  PAPA_COMMA_CSV_OPTIONS,
   type RawRow,
   type SourceParse,
 } from '../lib/csv';
@@ -523,7 +524,7 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
   const scratchDetectedHeader = useMemo(() => {
     if (!scratchText.trim()) return false;
     const parsed = Papa.parse<string[]>(scratchText, {
-      skipEmptyLines: 'greedy',
+      ...PAPA_COMMA_CSV_OPTIONS,
       preview: 1,
     });
     const first = parsed.data?.[0];
@@ -659,7 +660,7 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
   const pasteDetectedHeader = useMemo(() => {
     if (!pasteText.trim()) return false;
     const parsed = Papa.parse<string[]>(pasteText, {
-      skipEmptyLines: 'greedy',
+      ...PAPA_COMMA_CSV_OPTIONS,
       preview: 1,
     });
     const first = parsed.data?.[0];
@@ -727,7 +728,7 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
   const extrasDetectedHeader = useMemo(() => {
     if (!extrasText.trim()) return false;
     const parsed = Papa.parse<string[]>(extrasText, {
-      skipEmptyLines: 'greedy',
+      ...PAPA_COMMA_CSV_OPTIONS,
       preview: 1,
     });
     const first = parsed.data?.[0];
@@ -740,7 +741,7 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
     const promises = Array.from(files).map((f) =>
       f.text().then((t): StagedFile => {
         const parsed = Papa.parse<string[]>(t, {
-          skipEmptyLines: 'greedy',
+          ...PAPA_COMMA_CSV_OPTIONS,
           preview: 1,
         });
         const first = parsed.data?.[0];

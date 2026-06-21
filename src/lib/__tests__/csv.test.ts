@@ -4,6 +4,7 @@ import {
   dedupRows,
   looksLikeHeader,
   mergeIntoExisting,
+  PAPA_COMMA_CSV_OPTIONS,
   parseCsvRows,
   parseExtrasText,
   parseSources,
@@ -119,6 +120,16 @@ describe('parseCsvRows', () => {
     const r = parseCsvRows('"Pit, the game",https://x,', 'test', false);
     expect(r.rows[0].label).toBe('Pit, the game');
     expect(r.rows[0].url).toBe('https://x');
+  });
+  it('does not split semicolons in title-only rows (comma delimiter only)', () => {
+    const r = parseCsvRows('Steins;Gate (TV)', 'test', false);
+    expect(r.rows).toHaveLength(1);
+    expect(r.rows[0].label).toBe('Steins;Gate (TV)');
+    expect(r.commaInLabel).toEqual([]);
+    expect(r.rows[0].url).toBeUndefined();
+  });
+  it('PAPA_COMMA_CSV_OPTIONS pins comma delimiter', () => {
+    expect(PAPA_COMMA_CSV_OPTIONS.delimiter).toBe(',');
   });
 });
 

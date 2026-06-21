@@ -6,6 +6,7 @@ import {
   looksLikeHeader,
   parseCsvRows,
   parseSources,
+  PAPA_COMMA_CSV_OPTIONS,
 } from '../lib/csv';
 import { Modal } from './Modal';
 
@@ -220,7 +221,7 @@ function MultipleTab({
   const detectedHeader = useMemo(() => {
     if (!text.trim()) return false;
     const parsed = Papa.parse<string[]>(text, {
-      skipEmptyLines: 'greedy',
+      ...PAPA_COMMA_CSV_OPTIONS,
       preview: 1,
     });
     const first = parsed.data?.[0];
