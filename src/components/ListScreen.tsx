@@ -1,4 +1,5 @@
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { getPair } from '../lib/engine';
 import {
   canReorderInCurrentMerge,
   type CurrentMergeSlice,
@@ -154,6 +155,113 @@ function formatItemCount(total: number, hidden: number): string {
   const base = `${total} item${total === 1 ? '' : 's'}`;
   if (hidden === 0) return base;
   return `${base} (${hidden} hidden)`;
+}
+
+/** True when the active compare pair is an insert frame (not merge heads). */
+function isInsertComparison(state: SortState): boolean {
+  if (state.engine === 'insertion') return true;
+  return !!(
+    state.currentManualInsert ||
+    (state.currentAutoInsert && state.currentAutoInsert.frame)
+  );
+}
+
+/**
+ * LIST should mirror the RANK tab's active pair via `getPair`, not whatever
+ * happens to be in "current sublist" slices. Those slices are empty during
+ * merge auto-/manual-insert (`state.current` is null) and insertion only
+ * surfaced the inserting item — never the probe on the right card.
+ */
+function shouldShowCurrentComparison(state: SortState): boolean {
+  if (state.done) return false;
+  if (!getPair(state)) return false;
+  if (state.engine === 'insertion') return true;
+  return state.current === null;
+}
+
+function CurrentComparisonSection({
+  state,
+  onOpenEdit,
+  onHideLeft,
+}: {
+  state: SortState;
+  onOpenEdit: (item: Item) => void;
+  /** Insertion engine only: × on the left (inserting) card. */
+  onHideLeft?: (id: string) => void;
+}) {
+  const pair = getPair(state);
+  if (!pair) return null;
+
+  const left = state.items[pair.leftId];
+  const right = state.items[pair.rightId];
+  if (!left || !right) return null;
+
+  const isInsert = isInsertComparison(state);
+  const leftRole = isInsert ? 'Inserting' : 'Left';
+  const rightRole = isInsert ? 'Probe' : 'Right';
+
+  return (
+    <div className="list-merging">
+      <div className="list-section-label">Current comparison</div>
+      <p
+        style={{
+          fontSize: 13,
+          color: 'var(--text-muted)',
+          marginTop: 0,
+          marginBottom: 8,
+        }}
+      >
+        The same two items shown on the RANK tab — edit labels here without
+        leaving LIST.
+      </p>
+      <div className="queue-sublist">
+        <div className="queue-sublist-items">
+          <div className="queue-item-row">
+            <span
+              style={{
+                fontSize: 12,
+                color: 'var(--text-muted)',
+                minWidth: 72,
+              }}
+            >
+              A · {leftRole}
+            </span>
+            <Thumb item={left} />
+            <span className="label-cell" title={left.label}>
+              {left.label}
+            </span>
+            <EditButton item={left} onOpen={onOpenEdit} variant="row" />
+            {onHideLeft && (
+              <button
+                className="icon-btn danger"
+                onClick={() => onHideLeft(left.id)}
+                title="Remove this item — skip inserting it and move on"
+                aria-label={`Remove ${left.label}`}
+              >
+                ×
+              </button>
+            )}
+          </div>
+          <div className="queue-item-row">
+            <span
+              style={{
+                fontSize: 12,
+                color: 'var(--text-muted)',
+                minWidth: 72,
+              }}
+            >
+              B · {rightRole}
+            </span>
+            <Thumb item={right} />
+            <span className="label-cell" title={right.label}>
+              {right.label}
+            </span>
+            <EditButton item={right} onOpen={onOpenEdit} variant="row" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function ListSlotHeader({
@@ -322,6 +430,12 @@ function MergeListView({
 
   return (
     <>
+      {shouldShowCurrentComparison(state) && (
+        <CurrentComparisonSection
+          state={state}
+          onOpenEdit={openEdit}
+        />
+      )}
       {state.current && (
         <div className="list-merging">
           <div className="list-section-label">Current sublist</div>
@@ -905,43 +1019,12 @@ function InsertionListView({
 
   return (
     <>
-      {insertingId && (
-        <div className="list-merging">
-          <div className="list-section-label">Currently inserting</div>
-          <div className="list-chip-row">
-            <span className="chip">
-              <Thumb item={state.items[insertingId]} />
-              {state.items[insertingId]?.label ?? insertingId}
-              {state.items[insertingId] && (
-                <EditButton
-                  item={state.items[insertingId]}
-                  onOpen={openEdit}
-                  variant="chip"
-                />
-              )}
-              {/* Drop the in-flight item without inserting it: hideItem
-                  cancels the frame and drains the next pending. */}
-              <button
-                className="icon-btn danger"
-                onClick={() => onHide(insertingId)}
-                title="Remove this item — skip inserting it and move on"
-                aria-label={`Remove ${state.items[insertingId]?.label ?? insertingId}`}
-              >
-                ×
-              </button>
-            </span>
-          </div>
-          <div
-            style={{
-              fontSize: 12,
-              color: 'var(--text-muted)',
-              marginTop: 8,
-            }}
-          >
-            Use the RANK tab to binary-search this item into the sorted list,
-            remove it with <strong>×</strong>, or undo to back out.
-          </div>
-        </div>
+      {shouldShowCurrentComparison(state) && (
+        <CurrentComparisonSection
+          state={state}
+          onOpenEdit={openEdit}
+          onHideLeft={onHide}
+        />
       )}
 
       <div className="list-section-label">
