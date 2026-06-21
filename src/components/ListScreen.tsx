@@ -14,7 +14,7 @@ import { AddItemsModal } from './AddItemsModal';
 import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
 import { canOpenItemDetail, ItemDetailContext } from './itemDetailContext';
 import { ItemThumb } from './ItemThumb';
-import { mergeSliceLabel, groupInsertionPending, insertionSortFromSublists, type InsertionPendingGroup } from './listScreenH';
+import { mergeSliceLabel, groupInsertionPending, getInsertMergeContext, insertionSortFromSublists, type InsertionPendingGroup } from './listScreenH';
 
 interface Props {
   state: SortState;
@@ -177,6 +177,110 @@ function shouldShowCurrentComparison(state: SortState): boolean {
   if (!getPair(state)) return false;
   if (state.engine === 'insertion') return true;
   return state.current === null;
+}
+
+function InsertMergeContextSection({
+  state,
+  onOpenEdit,
+}: {
+  state: MergeState;
+  onOpenEdit: (item: Item) => void;
+}) {
+  const ctx = getInsertMergeContext(state);
+  if (!ctx) return null;
+  const hidden = useMemo(() => new Set(state.hidden), [state.hidden]);
+
+  const visibleTarget = ctx.targetIds.filter((id) => !hidden.has(id));
+  const visibleRemaining = ctx.remainingIds.filter((id) => !hidden.has(id));
+
+  return (
+    <div className="list-merging">
+      <div className="list-section-label">Sublist merge</div>
+      <p
+        style={{
+          fontSize: 13,
+          color: 'var(--text-muted)',
+          marginTop: 0,
+          marginBottom: 12,
+        }}
+      >
+        Inserting the smaller sublist into the larger one — highlighted rows
+        match the active pair on RANK.
+      </p>
+      <div className="list-merge-context-grid">
+        <div className="list-merge-context-panel">
+          <div className="list-merge-context-heading">
+            {mergeSliceLabel('Merging into', visibleTarget.length)}
+          </div>
+          <div className="queue-sublist">
+            <div className="queue-sublist-items">
+              {visibleTarget.length === 0 && (
+                <span style={{ fontSize: 13, color: 'var(--text-faint)' }}>
+                  (empty)
+                </span>
+              )}
+              {visibleTarget.map((id, ii) => {
+                const item = state.items[id];
+                if (!item) return null;
+                const isProbe = id === ctx.probeId;
+                return (
+                  <div
+                    key={id}
+                    className={`queue-item-row list-merge-context-row${isProbe ? ' list-merge-context-active' : ''}`}
+                  >
+                    <span className="rank">{ii + 1}.</span>
+                    <Thumb item={item} />
+                    <span className="label-cell" title={item.label}>
+                      {item.label}
+                    </span>
+                    {isProbe && (
+                      <span className="list-merge-context-tag">probe</span>
+                    )}
+                    <EditButton item={item} onOpen={onOpenEdit} variant="row" />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+        <div className="list-merge-context-panel">
+          <div className="list-merge-context-heading">
+            {mergeSliceLabel('Still to insert', visibleRemaining.length)}
+          </div>
+          <div className="queue-sublist">
+            <div className="queue-sublist-items">
+              {visibleRemaining.length === 0 && (
+                <span style={{ fontSize: 13, color: 'var(--text-faint)' }}>
+                  (empty)
+                </span>
+              )}
+              {visibleRemaining.map((id, ii) => {
+                const item = state.items[id];
+                if (!item) return null;
+                const isInserting = id === ctx.insertingId;
+                return (
+                  <div
+                    key={id}
+                    className={`queue-item-row list-merge-context-row${isInserting ? ' list-merge-context-active' : ''}${!isInserting ? ' list-merge-context-queued' : ''}`}
+                  >
+                    <span className="rank">{ii + 1}.</span>
+                    <Thumb item={item} />
+                    <span className="label-cell" title={item.label}>
+                      {item.label}
+                    </span>
+                    {isInserting && (
+                      <span className="list-merge-context-tag">inserting</span>
+                    )}
+                    <EditButton item={item} onOpen={onOpenEdit} variant="row" />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function CurrentComparisonSection({
@@ -430,12 +534,15 @@ function MergeListView({
 
   return (
     <>
-      {shouldShowCurrentComparison(state) && (
-        <CurrentComparisonSection
-          state={state}
-          onOpenEdit={openEdit}
-        />
-      )}
+      {shouldShowCurrentComparison(state) &&
+        (state.engine === 'merge' && getInsertMergeContext(state) ? (
+          <InsertMergeContextSection state={state} onOpenEdit={openEdit} />
+        ) : (
+          <CurrentComparisonSection
+            state={state}
+            onOpenEdit={openEdit}
+          />
+        ))}
       {state.current && (
         <div className="list-merging">
           <div className="list-section-label">Current sublist</div>

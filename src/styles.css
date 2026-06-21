@@ -4039,6 +4039,50 @@ a {
   margin-bottom: 16px;
 }
 
+.list-merge-context-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 720px) {
+  .list-merge-context-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.list-merge-context-panel {
+  min-width: 0;
+}
+
+.list-merge-context-heading {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+
+.list-merge-context-row.list-merge-context-active {
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  outline: 1px solid var(--accent);
+}
+
+.list-merge-context-row.list-merge-context-queued {
+  opacity: 0.72;
+}
+
+.list-merge-context-tag {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
 .list-merge-row {
   display: grid;
   grid-template-columns: 160px 1fr;

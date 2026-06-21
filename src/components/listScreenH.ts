@@ -1,4 +1,5 @@
-import type { ItemId } from '../lib/types';
+import type { ItemId, MergeState } from '../lib/types';
+import { getInsertPair } from '../lib/binaryInsertion';
 
 export function mergeSliceLabel(base: string, count: number): string {
   return `${base} (${count})`;
@@ -60,4 +61,56 @@ export function insertionSortFromSublists(
   pendingRunIds: number[] | undefined,
 ): boolean {
   return pendingRunIds !== undefined;
+}
+
+/**
+ * During merge-engine auto- or manual-insert, the LIST tab can show the
+ * full target sublist and the remaining incoming items instead of only
+ * the active A/B pair. Returns null when not in an active insert frame.
+ */
+export interface InsertMergeContextView {
+  /** Larger sublist (or queue target) being merged into. */
+  targetIds: ItemId[];
+  /** Smaller sublist still to land: active insert first, then queued. */
+  remainingIds: ItemId[];
+  insertingId: ItemId;
+  probeId: ItemId;
+}
+
+export function getInsertMergeContext(
+  state: MergeState,
+): InsertMergeContextView | null {
+  if (state.engine !== 'merge') return null;
+
+  if (state.currentManualInsert?.frame) {
+    const mi = state.currentManualInsert;
+    const frame = mi.frame;
+    if (!frame) return null;
+    const target = state.queue[mi.targetQueueIndex];
+    if (!target) return null;
+    const pair = getInsertPair(frame, target);
+    if (!pair) return null;
+    return {
+      targetIds: [...target],
+      remainingIds: [pair.leftId],
+      insertingId: pair.leftId,
+      probeId: pair.rightId,
+    };
+  }
+
+  if (state.currentAutoInsert?.frame) {
+    const ai = state.currentAutoInsert;
+    const frame = ai.frame;
+    if (!frame) return null;
+    const pair = getInsertPair(frame, ai.target);
+    if (!pair) return null;
+    return {
+      targetIds: [...ai.target],
+      remainingIds: [pair.leftId, ...ai.pendingInserts],
+      insertingId: pair.leftId,
+      probeId: pair.rightId,
+    };
+  }
+
+  return null;
 }

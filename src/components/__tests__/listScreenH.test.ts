@@ -1,9 +1,90 @@
 import { describe, expect, it } from 'vitest';
 import {
+  getInsertMergeContext,
   groupInsertionPending,
   insertionSortFromSublists,
   mergeSliceLabel,
 } from '../listScreenH';
+import type { MergeState } from '../../lib/types';
+
+function mergeState(partial: Partial<MergeState>): MergeState {
+  return {
+    engine: 'merge',
+    items: {},
+    queue: [],
+    current: null,
+    comparisons: 0,
+    done: false,
+    hidden: [],
+    totalComparisonsEverNeeded: 0,
+    toBeInserted: [],
+    pendingManualInserts: [],
+    currentManualInsert: null,
+    currentAutoInsert: null,
+    ...partial,
+  };
+}
+
+describe('getInsertMergeContext', () => {
+  it('returns target and remaining ids during auto-insert', () => {
+    const ctx = getInsertMergeContext(
+      mergeState({
+        currentAutoInsert: {
+          target: ['t1', 't2', 't3'],
+          pendingInserts: ['p2', 'p3'],
+          frame: {
+            insertingId: 'p1',
+            lo: 0,
+            hi: 2,
+            probe: 1,
+          },
+          lastInsertedPosition: null,
+        },
+      }),
+    );
+    expect(ctx).toEqual({
+      targetIds: ['t1', 't2', 't3'],
+      remainingIds: ['p1', 'p2', 'p3'],
+      insertingId: 'p1',
+      probeId: 't2',
+    });
+  });
+
+  it('returns manual-insert target from the queue sublist', () => {
+    const ctx = getInsertMergeContext(
+      mergeState({
+        queue: [['q1', 'q2', 'q3']],
+        currentManualInsert: {
+          insertingId: 'x',
+          targetQueueIndex: 0,
+          frame: {
+            insertingId: 'x',
+            lo: 0,
+            hi: 2,
+            probe: 0,
+          },
+        },
+      }),
+    );
+    expect(ctx).toEqual({
+      targetIds: ['q1', 'q2', 'q3'],
+      remainingIds: ['x'],
+      insertingId: 'x',
+      probeId: 'q1',
+    });
+  });
+
+  it('returns null outside an active insert frame', () => {
+    expect(getInsertMergeContext(mergeState({}))).toBeNull();
+    expect(
+      getInsertMergeContext(
+        mergeState({
+          current: { left: ['a'], right: ['b'], merged: [] },
+        }),
+      ),
+    ).toBeNull();
+  });
+});
 
 describe('mergeSliceLabel', () => {
   it('appends the count in parentheses', () => {
