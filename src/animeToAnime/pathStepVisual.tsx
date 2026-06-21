@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   anilistUrlForCharacter,
   anilistUrlForPathStep,
@@ -8,6 +8,35 @@ import {
 import type { RouteSlotOption } from './cachedGraph';
 import type { PathHopCharacter, PathStep } from './pathHistory';
 import { pathStepLabel } from './pathHistory';
+
+const SLOT_MENU_GAP_PX = 6;
+const SLOT_MENU_VIEWPORT_MARGIN_PX = 12;
+const SLOT_MENU_MAX_HEIGHT_PX = 240;
+const SLOT_MENU_ITEM_HEIGHT_PX = 36;
+const SLOT_MENU_PADDING_PX = 8;
+
+/** Rough menu height before paint; matches `.anime-to-anime-slot-menu` caps. */
+export function estimatedSlotMenuHeight(itemCount: number): number {
+  return Math.min(
+    SLOT_MENU_MAX_HEIGHT_PX,
+    SLOT_MENU_PADDING_PX + itemCount * SLOT_MENU_ITEM_HEIGHT_PX,
+  );
+}
+
+/** Flip the alternate-links menu above the slot when the viewport is tight below. */
+export function shouldOpenSlotMenuUp(
+  anchor: Pick<DOMRect, 'top' | 'bottom'>,
+  menuHeight: number,
+  viewportHeight: number = window.innerHeight,
+): boolean {
+  const spaceBelow =
+    viewportHeight - anchor.bottom - SLOT_MENU_GAP_PX - SLOT_MENU_VIEWPORT_MARGIN_PX;
+  if (spaceBelow >= menuHeight) {
+    return false;
+  }
+  const spaceAbove = anchor.top - SLOT_MENU_GAP_PX - SLOT_MENU_VIEWPORT_MARGIN_PX;
+  return spaceAbove > spaceBelow;
+}
 
 export function PathStepBubble({
   step,
@@ -142,9 +171,39 @@ export function SlotBubble({
   onOpenStep?: (step: PathStep) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuOpensUp, setMenuOpensUp] = useState(false);
   const containerRef = useRef<HTMLSpanElement | null>(null);
+  const menuRef = useRef<HTMLUListElement | null>(null);
   const selected = options[selectedIndex] ?? options[0];
   const extraCount = options.length - 1;
+
+  useLayoutEffect(() => {
+    if (!menuOpen) {
+      setMenuOpensUp(false);
+      return;
+    }
+    const updatePlacement = () => {
+      const anchor = containerRef.current;
+      if (!anchor) {
+        return;
+      }
+      const measuredHeight = menuRef.current?.offsetHeight ?? 0;
+      const menuHeight =
+        measuredHeight > 0
+          ? measuredHeight
+          : estimatedSlotMenuHeight(options.length);
+      setMenuOpensUp(
+        shouldOpenSlotMenuUp(anchor.getBoundingClientRect(), menuHeight),
+      );
+    };
+    updatePlacement();
+    window.addEventListener('resize', updatePlacement);
+    window.addEventListener('scroll', updatePlacement, true);
+    return () => {
+      window.removeEventListener('resize', updatePlacement);
+      window.removeEventListener('scroll', updatePlacement, true);
+    };
+  }, [menuOpen, options.length]);
 
   // Close the menu on an outside click or Escape while it's open.
   useEffect(() => {
@@ -206,7 +265,15 @@ export function SlotBubble({
         )}
       </span>
       {menuOpen && (
-        <ul className="anime-to-anime-slot-menu" role="menu">
+        <ul
+          ref={menuRef}
+          className={
+            menuOpensUp
+              ? 'anime-to-anime-slot-menu anime-to-anime-slot-menu--up'
+              : 'anime-to-anime-slot-menu'
+          }
+          role="menu"
+        >
           {options.map((option, index) => (
             <li key={option.show.mediaId}>
               <button

@@ -2324,6 +2324,11 @@ a {
   text-align: left;
 }
 
+.anime-to-anime-slot-menu--up {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+
 .anime-to-anime-slot-menu-item {
   display: flex;
   align-items: center;

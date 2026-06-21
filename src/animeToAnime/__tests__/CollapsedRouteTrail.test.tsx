@@ -138,6 +138,48 @@ describe('CollapsedRouteTrail slot selection', () => {
     expect(container.querySelectorAll('.anime-to-anime-slot-menu-item')).toHaveLength(2);
   });
 
+  it('opens the alternate-links menu upward when the slot is near the page bottom', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const origGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      if (this.classList.contains('anime-to-anime-slot')) {
+        return {
+          top: 800,
+          bottom: 840,
+          left: 100,
+          right: 300,
+          width: 200,
+          height: 40,
+          x: 100,
+          y: 800,
+          toJSON: () => ({}),
+        } as DOMRect;
+      }
+      return origGetBoundingClientRect.call(this);
+    };
+    Object.defineProperty(window, 'innerHeight', {
+      configurable: true,
+      value: 900,
+    });
+
+    try {
+      act(() => {
+        root.render(<CollapsedRouteTrail route={twoOptionRoute()} />);
+      });
+      const caret = container.querySelector('.anime-to-anime-slot-caret') as HTMLElement;
+      act(() => {
+        caret.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
+      });
+      expect(container.querySelector('.anime-to-anime-slot-menu--up')).not.toBeNull();
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = origGetBoundingClientRect;
+      Object.defineProperty(window, 'innerHeight', {
+        configurable: true,
+        value: window.innerHeight,
+      });
+    }
+  });
+
   it('renders a single-option route with no slot picker', () => {
     const route: CollapsedRoute = {
       linksUsed: 1,
