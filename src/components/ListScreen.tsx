@@ -13,7 +13,7 @@ import { AddItemsModal } from './AddItemsModal';
 import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
 import { canOpenItemDetail, ItemDetailContext } from './itemDetailContext';
 import { ItemThumb } from './ItemThumb';
-import { mergeSliceLabel } from './listScreenH';
+import { mergeSliceLabel, groupInsertionPending, insertionSortFromSublists, type InsertionPendingGroup } from './listScreenH';
 
 interface Props {
   state: SortState;
@@ -707,9 +707,163 @@ function SublistView({
 }
 
 // ============================================================================
-// INSERTION VIEW — Sorted (frozen) + Pending sections, plus a banner for
-// the currently-inserting item. No reorder / break-apart / queue concepts.
+// INSERTION VIEW — Sorted seed + pending queue. When seeded from multiple
+// pre-ranked sublists (`pendingRunIds`), pending renders as sublist blocks
+// like the merge engine queue; otherwise flat FIFO rows.
 // ============================================================================
+
+function InsertionPendingItemRow({
+  item,
+  hidden,
+  onHide,
+  onUnhide,
+  onEdit,
+  rank,
+}: {
+  item: Item;
+  hidden: Set<string>;
+  onHide: (id: string) => void;
+  onUnhide: (id: string) => void;
+  onEdit: (item: Item) => void;
+  rank?: number;
+}) {
+  const isHidden = hidden.has(item.id);
+  return (
+    <div className={`queue-item-row ${isHidden ? 'hidden' : ''}`}>
+      {rank !== undefined && <span className="rank">{rank}.</span>}
+      <Thumb item={item} />
+      <span className="label-cell" title={item.label}>
+        {item.label}
+      </span>
+      <span className="actions">
+        <EditButton item={item} onOpen={onEdit} variant="row" />
+        {isHidden ? (
+          <button
+            className="icon-btn"
+            onClick={() => onUnhide(item.id)}
+            title="Restore"
+          >
+            ↺
+          </button>
+        ) : (
+          <button
+            className="icon-btn danger"
+            onClick={() => onHide(item.id)}
+            title="Skip this item"
+          >
+            ×
+          </button>
+        )}
+      </span>
+    </div>
+  );
+}
+
+function InsertionPendingGroupView({
+  group,
+  groupIndex,
+  state,
+  hidden,
+  onHide,
+  onUnhide,
+  onEdit,
+  isNext,
+}: {
+  group: InsertionPendingGroup;
+  groupIndex: number;
+  state: InsertionState;
+  hidden: Set<string>;
+  onHide: (id: string) => void;
+  onUnhide: (id: string) => void;
+  onEdit: (item: Item) => void;
+  isNext: boolean;
+}) {
+  if (group.kind === 'flat') {
+    return (
+      <>
+        {group.ids.map((id) => {
+          const item = state.items[id];
+          if (!item) return null;
+          return (
+            <InsertionPendingItemRow
+              key={id}
+              item={item}
+              hidden={hidden}
+              onHide={onHide}
+              onUnhide={onUnhide}
+              onEdit={onEdit}
+            />
+          );
+        })}
+      </>
+    );
+  }
+
+  if (group.kind === 'extras') {
+    return (
+      <div className="queue-sublist">
+        <div className="queue-sublist-header">
+          <span className="index">
+            Unranked extras ({group.ids.length})
+          </span>
+        </div>
+        <div className="queue-sublist-items">
+          {group.ids.map((id) => {
+            const item = state.items[id];
+            if (!item) return null;
+            return (
+              <InsertionPendingItemRow
+                key={id}
+                item={item}
+                hidden={hidden}
+                onHide={onHide}
+                onUnhide={onUnhide}
+                onEdit={onEdit}
+              />
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="queue-sublist">
+      <div className="queue-sublist-header">
+        <span className="index">
+          #{groupIndex + 1}{' '}
+          <span style={{ fontWeight: 400 }}>
+            pre-ranked sublist ({group.ids.length} item
+            {group.ids.length === 1 ? '' : 's'})
+          </span>
+          {isNext && (
+            <span style={{ fontWeight: 400, color: 'var(--text-faint)' }}>
+              {' '}
+              · next in queue
+            </span>
+          )}
+        </span>
+      </div>
+      <div className="queue-sublist-items">
+        {group.ids.map((id, ii) => {
+          const item = state.items[id];
+          if (!item) return null;
+          return (
+            <InsertionPendingItemRow
+              key={id}
+              item={item}
+              hidden={hidden}
+              onHide={onHide}
+              onUnhide={onUnhide}
+              onEdit={onEdit}
+              rank={ii + 1}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function InsertionListView({
   state,
@@ -742,6 +896,12 @@ function InsertionListView({
   }, [state.items, editingId]);
 
   const insertingId = state.current?.insertingId;
+  const fromSublists = insertionSortFromSublists(state.pendingRunIds);
+  const pendingGroups = useMemo(
+    () => groupInsertionPending(state.pending, state.pendingRunIds),
+    [state.pending, state.pendingRunIds],
+  );
+  const pendingUsesRuns = pendingGroups.some((g) => g.kind === 'preranked');
 
   return (
     <>
@@ -785,7 +945,9 @@ function InsertionListView({
       )}
 
       <div className="list-section-label">
-        Sorted ({state.sorted.length})
+        {fromSublists
+          ? mergeSliceLabel('Seed sublist (sorted)', state.sorted.length)
+          : `Sorted (${state.sorted.length})`}
       </div>
       <p
         style={{
@@ -794,12 +956,23 @@ function InsertionListView({
           marginTop: 0,
         }}
       >
-        The ranking locked in so far, best to worst — items binary-insert
-        into this list one at a time. You can nudge an item with{' '}
-        <strong>↑ / ↓</strong> or pull it back to re-insert with{' '}
-        <strong>↻</strong> — both cancel and restart the current insert,
-        costing up to ⌈log₂(N+1)⌉ extra comparisons. Use{' '}
-        <strong>× Remove</strong> to drop an item from the rank.
+        {fromSublists ? (
+          <>
+            The largest pre-ranked sublist, frozen best→worst. Other sublists
+            wait in the queue below and binary-insert one item at a time.
+            You can still nudge with <strong>↑ / ↓</strong>, re-insert with{' '}
+            <strong>↻</strong>, or <strong>× Remove</strong> any row.
+          </>
+        ) : (
+          <>
+            The ranking locked in so far, best to worst — items binary-insert
+            into this list one at a time. You can nudge an item with{' '}
+            <strong>↑ / ↓</strong> or pull it back to re-insert with{' '}
+            <strong>↻</strong> — both cancel and restart the current insert,
+            costing up to ⌈log₂(N+1)⌉ extra comparisons. Use{' '}
+            <strong>× Remove</strong> to drop an item from the rank.
+          </>
+        )}
       </p>
       <div className="queue-sublist">
         <div className="queue-sublist-items">
@@ -878,38 +1051,65 @@ function InsertionListView({
       {state.pending.length > 0 && (
         <>
           <div className="list-section-label">
-            Pending ({state.pending.length})
+            {pendingUsesRuns
+              ? `Queue (${state.pending.length} item${
+                  state.pending.length === 1 ? '' : 's'
+                } in ${pendingGroups.length} group${
+                  pendingGroups.length === 1 ? '' : 's'
+                })`
+              : `Pending (${state.pending.length})`}
           </div>
-          <div className="queue-sublist">
-            <div className="queue-sublist-items">
-              {state.pending.map((id) => {
-                const item = state.items[id];
-                if (!item) return null;
-                return (
-                  <div key={id} className="queue-item-row">
-                    <Thumb item={item} />
-                    <span className="label-cell" title={item.label}>
-                      {item.label}
-                    </span>
-                    <span className="actions">
-                      <EditButton
-                        item={item}
-                        onOpen={openEdit}
-                        variant="row"
-                      />
-                      <button
-                        className="icon-btn danger"
-                        onClick={() => onHide(id)}
-                        title="Skip this item"
-                      >
-                        ×
-                      </button>
-                    </span>
-                  </div>
-                );
-              })}
+          {pendingUsesRuns && (
+            <p
+              style={{
+                fontSize: 13,
+                color: 'var(--text-muted)',
+                marginTop: 0,
+              }}
+            >
+              Pre-ranked sublists keep their internal order; only comparisons
+              between sublists are needed. Unranked extras drain after the
+              sublists.
+            </p>
+          )}
+          {pendingUsesRuns ? (
+            pendingGroups.map((group, gi) => (
+              <InsertionPendingGroupView
+                key={
+                  group.kind === 'preranked'
+                    ? `run-${group.runId}`
+                    : group.kind
+                }
+                group={group}
+                groupIndex={gi}
+                state={state}
+                hidden={hidden}
+                onHide={onHide}
+                onUnhide={onUnhide}
+                onEdit={openEdit}
+                isNext={gi === 0 && !insertingId}
+              />
+            ))
+          ) : (
+            <div className="queue-sublist">
+              <div className="queue-sublist-items">
+                {state.pending.map((id) => {
+                  const item = state.items[id];
+                  if (!item) return null;
+                  return (
+                    <InsertionPendingItemRow
+                      key={id}
+                      item={item}
+                      hidden={hidden}
+                      onHide={onHide}
+                      onUnhide={onUnhide}
+                      onEdit={openEdit}
+                    />
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          )}
         </>
       )}
 
