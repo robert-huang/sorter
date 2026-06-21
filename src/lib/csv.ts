@@ -1,5 +1,5 @@
 import Papa from 'papaparse';
-import type { DedupWarning, ExtraColumnsWarning, Item, ItemId } from './types';
+import type { CommaInLabelWarning, DedupWarning, ExtraColumnsWarning, Item, ItemId } from './types';
 
 // ---------- canonical key ----------
 
@@ -71,6 +71,80 @@ export function looksLikeHeader(firstRow: string[]): boolean {
   return true;
 }
 
+/**
+ * True when `cell` looks like a URL column value (http(s) or bare domain
+ * with a path). Used to distinguish real CSV url/image columns from title
+ * fragments split on unquoted commas.
+ */
+export function looksLikeUrl(cell: string): boolean {
+  const t = cell.trim();
+  if (!t) return false;
+  if (/^https?:\/\//i.test(t)) return true;
+  // Bare domain + path, e.g. anilist.co/anime/123 or example.com/foo
+  return /^[\w.-]+\.[a-z]{2,}(\/|$)/i.test(t);
+}
+
+interface NaiveCsvFields {
+  label: string;
+  url?: string;
+  imageUrl?: string;
+}
+
+/** First-three-slot mapping before comma-in-label repair. */
+function naiveCsvFieldsFromRow(row: string[]): NaiveCsvFields {
+  const label = (row[0] ?? '').trim();
+  const url = ((row[1] ?? '').trim() || undefined) as string | undefined;
+  const imageUrl = ((row[2] ?? '').trim() || undefined) as string | undefined;
+  return { label, url, imageUrl };
+}
+
+export interface CommaInLabelRepair {
+  label: string;
+  url?: string;
+  imageUrl?: string;
+  repaired: boolean;
+  naiveParsedAs: NaiveCsvFields;
+  joinedCellCount: number;
+}
+
+/**
+ * When commas split a line into multiple cells but no trailing cell looks
+ * like a URL, join all non-empty cells into one label.
+ */
+export function repairCommaSplitRow(row: string[]): CommaInLabelRepair {
+  const naiveParsedAs = naiveCsvFieldsFromRow(row);
+  const cells = row.map((c) => (c ?? '').trim()).filter((c) => c !== '');
+  if (cells.length <= 1) {
+    return {
+      label: naiveParsedAs.label,
+      url: naiveParsedAs.url,
+      imageUrl: naiveParsedAs.imageUrl,
+      repaired: false,
+      naiveParsedAs,
+      joinedCellCount: cells.length,
+    };
+  }
+  const trailing = cells.slice(1);
+  if (trailing.some(looksLikeUrl)) {
+    return {
+      label: naiveParsedAs.label,
+      url: naiveParsedAs.url,
+      imageUrl: naiveParsedAs.imageUrl,
+      repaired: false,
+      naiveParsedAs,
+      joinedCellCount: cells.length,
+    };
+  }
+  return {
+    label: cells.join(', '),
+    url: undefined,
+    imageUrl: undefined,
+    repaired: true,
+    naiveParsedAs,
+    joinedCellCount: cells.length,
+  };
+}
+
 // ---------- parsing ----------
 
 export interface RawRow {
@@ -94,6 +168,8 @@ export interface RawRow {
    * was emitted for it). Lets `EditItemModal` render the original
    * verbatim row so the user can manually copy substrings into the
    * label/url/image fields when an unquoted comma broke the parse.
+   *
+   * Also attached when a `CommaInLabelWarning` was emitted (auto-rejoin).
    *
    * Off the hot path on purpose — small, well-formed imports don't
    * carry a duplicate string array per row. Lives only in memory
@@ -134,6 +210,7 @@ export function parseCsvRows(
   rows: RawRow[];
   detectedHeader: boolean;
   extraColumns: ExtraColumnsWarning[];
+  commaInLabel: CommaInLabelWarning[];
 } {
   const parsed = Papa.parse<string[]>(text, {
     skipEmptyLines: 'greedy',
@@ -142,18 +219,25 @@ export function parseCsvRows(
     (r) => Array.isArray(r) && r.some((cell) => (cell ?? '').trim() !== ''),
   );
   if (allRows.length === 0) {
-    return { rows: [], detectedHeader: false, extraColumns: [] };
+    return {
+      rows: [],
+      detectedHeader: false,
+      extraColumns: [],
+      commaInLabel: [],
+    };
   }
   const detected = looksLikeHeader(allRows[0]);
   const dataRows = skipHeader ? allRows.slice(1) : allRows;
   const rows: RawRow[] = [];
   const extraColumns: ExtraColumnsWarning[] = [];
+  const commaInLabel: CommaInLabelWarning[] = [];
   for (let i = 0; i < dataRows.length; i++) {
     const row = dataRows[i];
-    const label = (row[0] ?? '').trim();
+    const repair = repairCommaSplitRow(row);
+    const label = repair.label;
     if (!label) continue;
-    const url = ((row[1] ?? '').trim() || undefined) as string | undefined;
-    const imageUrl = ((row[2] ?? '').trim() || undefined) as string | undefined;
+    const url = repair.url;
+    const imageUrl = repair.imageUrl;
     // Count NON-EMPTY cells (post-trim). Trailing empty columns from a
     // CSV with a uniform width on one bad row (e.g. `A,,,,`) shouldn't
     // trip the warning — those are syntactically extra cells but the
@@ -177,7 +261,17 @@ export function parseCsvRows(
         rowNumber: i + 1,
         cellCount: nonEmptyCells,
         rawCells,
-        parsedAs: { label, url, imageUrl },
+        parsedAs: repair.naiveParsedAs,
+      });
+    } else if (repair.repaired) {
+      rawCells = row.map((c) => (c ?? '').toString());
+      commaInLabel.push({
+        sourceName,
+        rowNumber: i + 1,
+        cellCount: repair.joinedCellCount,
+        rawCells,
+        naiveParsedAs: repair.naiveParsedAs,
+        repairedLabel: label,
       });
     }
     rows.push({
@@ -189,7 +283,7 @@ export function parseCsvRows(
       rawCells,
     });
   }
-  return { rows, detectedHeader: detected, extraColumns };
+  return { rows, detectedHeader: detected, extraColumns, commaInLabel };
 }
 
 /**
@@ -300,6 +394,11 @@ export interface SourceParse {
    * `extraColumns` field of its return value.
    */
   extraColumns?: ExtraColumnsWarning[];
+  /**
+   * Comma-in-label auto-repair warnings for this source, mirrored from
+   * `parseCsvRows`. Optional for hand-built SourceParse fixtures.
+   */
+  commaInLabel?: CommaInLabelWarning[];
 }
 
 /**
@@ -330,6 +429,7 @@ export function parseSources(sources: SourceParse[]): {
   items: Item[];
   warnings: DedupWarning[];
   extraColumns: ExtraColumnsWarning[];
+  commaInLabel: CommaInLabelWarning[];
   perSource: Array<{
     sourceName: string;
     items: PreviewItem[]; // ordered, deduped within this source's own rows
@@ -338,10 +438,14 @@ export function parseSources(sources: SourceParse[]): {
   const perSource: Array<{ sourceName: string; items: PreviewItem[] }> = [];
   const flat: RawRow[] = [];
   const extraColumns: ExtraColumnsWarning[] = [];
+  const commaInLabel: CommaInLabelWarning[] = [];
   for (const s of sources) {
     flat.push(...s.rawRows);
     if (s.extraColumns && s.extraColumns.length > 0) {
       extraColumns.push(...s.extraColumns);
+    }
+    if (s.commaInLabel && s.commaInLabel.length > 0) {
+      commaInLabel.push(...s.commaInLabel);
     }
     // Pre-compute per-source deduped item list (in the original row order)
     // so the preview shows what we'd produce for that file alone.
@@ -364,7 +468,7 @@ export function parseSources(sources: SourceParse[]): {
     perSource.push({ sourceName: s.sourceName, items: localItems });
   }
   const { items, warnings } = dedupRows(flat);
-  return { items, warnings, extraColumns, perSource };
+  return { items, warnings, extraColumns, commaInLabel, perSource };
 }
 
 /**

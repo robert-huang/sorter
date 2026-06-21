@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import type { DedupWarning, ExtraColumnsWarning } from '../lib/types';
+import type { CommaInLabelWarning, DedupWarning, ExtraColumnsWarning } from '../lib/types';
 import type { PreviewItem } from '../lib/csv';
 
 export interface PreviewSource {
@@ -27,6 +27,12 @@ interface Props {
    * dropped and recovery is no longer possible without re-importing.
    */
   extraColumns?: ExtraColumnsWarning[];
+  /**
+   * Soft warnings for rows auto-repaired when commas split a title into
+   * multiple cells but no trailing cell looked like a URL. Rendered
+   * after extraColumns and before dedup warnings.
+   */
+  commaInLabel?: CommaInLabelWarning[];
   startLabel: string;
   startDisabled: boolean;
   onStart: () => void;
@@ -58,6 +64,7 @@ export function ImportPreview({
   totalItems,
   warnings,
   extraColumns,
+  commaInLabel,
   startLabel,
   startDisabled,
   onStart,
@@ -75,7 +82,8 @@ export function ImportPreview({
   }, [totalItems, sublistCount, singletonCount]);
 
   const extras = extraColumns ?? [];
-  const totalWarnings = extras.length + warnings.length;
+  const commaRepairs = commaInLabel ?? [];
+  const totalWarnings = extras.length + commaRepairs.length + warnings.length;
 
   return (
     <div className="preview">
@@ -94,7 +102,14 @@ export function ImportPreview({
           <ul>
             {extras.map((w) => (
               <ExtraColumnsWarningItem
-                key={`${w.sourceName}:${w.rowNumber}`}
+                key={`extra:${w.sourceName}:${w.rowNumber}`}
+                warning={w}
+                onEditOccurrence={onEditOccurrence}
+              />
+            ))}
+            {commaRepairs.map((w) => (
+              <CommaInLabelWarningItem
+                key={`comma:${w.sourceName}:${w.rowNumber}`}
                 warning={w}
                 onEditOccurrence={onEditOccurrence}
               />
@@ -170,6 +185,72 @@ function ExtraColumnsWarningItem({
                 )
               }
               title="Open this row in the edit modal — the original row is shown so you can copy the right substrings into the right fields"
+            >
+              Edit row
+            </button>
+          </li>
+        </ul>
+      )}
+    </li>
+  );
+}
+
+/**
+ * One row of the warnings list for a `CommaInLabelWarning`. The row was
+ * auto-repaired by joining comma-split cells into one label; advisory
+ * only — import proceeds with the repaired label.
+ */
+function CommaInLabelWarningItem({
+  warning,
+  onEditOccurrence,
+}: {
+  warning: CommaInLabelWarning;
+  onEditOccurrence?: (
+    sourceName: string,
+    rowNumber: number,
+    currentLabel: string,
+  ) => void;
+}) {
+  const naive = warning.naiveParsedAs;
+  const naiveParts = [
+    `label "${naive.label}"`,
+    naive.url !== undefined && `url "${naive.url}"`,
+    naive.imageUrl !== undefined && `image "${naive.imageUrl}"`,
+  ].filter(Boolean);
+
+  return (
+    <li>
+      <div>
+        <strong>{warning.repairedLabel}</strong>{' '}
+        <span className="extra-cols-meta">
+          ({warning.sourceName}, row {warning.rowNumber}) — joined{' '}
+          {warning.cellCount} column{warning.cellCount === 1 ? '' : 's'} into
+          one title (no URL detected).
+          {naiveParts.length > 0 && (
+            <>
+              {' '}
+              Would have been: {naiveParts.join(', ')}.
+            </>
+          )}
+        </span>
+      </div>
+      {onEditOccurrence && (
+        <ul className="warning-occurrences">
+          <li>
+            <span>
+              {warning.sourceName} (row {warning.rowNumber})
+            </span>
+            <button
+              type="button"
+              className="btn small"
+              onClick={() =>
+                onEditOccurrence(
+                  warning.sourceName,
+                  warning.rowNumber,
+                  warning.repairedLabel,
+                )
+              }
+              title="Open this row in the edit modal — the original row is shown so you can verify or fix the joined title"
             >
               Edit row
             </button>

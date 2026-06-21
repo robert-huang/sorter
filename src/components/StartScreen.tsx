@@ -10,7 +10,13 @@ import {
   type SetStateAction,
 } from 'react';
 import type { TabId } from './Header';
-import type { ExtraColumnsWarning, Item, ItemId, SlotMeta } from '../lib/types';
+import type {
+  CommaInLabelWarning,
+  ExtraColumnsWarning,
+  Item,
+  ItemId,
+  SlotMeta,
+} from '../lib/types';
 import {
   canonicalKey,
   looksLikeHeader,
@@ -137,6 +143,16 @@ function filterExtraColumnsForExcluded(
   warnings: ExtraColumnsWarning[],
   excluded: ExcludedRows,
 ): ExtraColumnsWarning[] {
+  if (excluded.size === 0) return warnings;
+  return warnings.filter(
+    (w) => !excluded.has(overlayKey(w.sourceName, w.rowNumber)),
+  );
+}
+
+function filterCommaInLabelForExcluded(
+  warnings: CommaInLabelWarning[],
+  excluded: ExcludedRows,
+): CommaInLabelWarning[] {
   if (excluded.size === 0) return warnings;
   return warnings.filter(
     (w) => !excluded.has(overlayKey(w.sourceName, w.rowNumber)),
@@ -497,6 +513,7 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
   // -------- scratch mode --------
   const [scratchText, setScratchText] = useState('');
   const [scratchSkipHeader, setScratchSkipHeader] = useState(false);
+  const [scratchOneTitlePerLine, setScratchOneTitlePerLine] = useState(false);
   // When checked, the parsed items are treated as already-sorted: skip
   // the merge sort entirely and start the slot in insertion mode with
   // an empty pending list. The user can then "+ Add items" to insert
@@ -519,10 +536,20 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
         rows: [] as RawRow[],
         detectedHeader: false,
         extraColumns: [] as ExtraColumnsWarning[],
+        commaInLabel: [] as CommaInLabelWarning[],
+      };
+    }
+    if (scratchOneTitlePerLine) {
+      const rows = parseExtrasText(scratchText, 'pasted CSV');
+      return {
+        rows,
+        detectedHeader: false,
+        extraColumns: [] as ExtraColumnsWarning[],
+        commaInLabel: [] as CommaInLabelWarning[],
       };
     }
     return parseCsvRows(scratchText, 'pasted CSV', scratchSkipHeader);
-  }, [scratchText, scratchSkipHeader]);
+  }, [scratchText, scratchSkipHeader, scratchOneTitlePerLine]);
 
   const scratchSources: SourceParse[] = useMemo(
     () =>
@@ -534,6 +561,10 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
               detectedHeader: scratchParsed.detectedHeader,
               extraColumns: filterExtraColumnsForExcluded(
                 scratchParsed.extraColumns,
+                excludedRows,
+              ),
+              commaInLabel: filterCommaInLabelForExcluded(
+                scratchParsed.commaInLabel,
                 excludedRows,
               ),
             },
@@ -566,6 +597,15 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
   const updateScratchSkipHeader = useCallback(
     (next: boolean) => {
       setScratchSkipHeader(next);
+      dropSourceEdits('pasted CSV', setOverrides, setExcludedRows);
+      notifyDraftActivity();
+    },
+    [notifyDraftActivity],
+  );
+
+  const updateScratchOneTitlePerLine = useCallback(
+    (next: boolean) => {
+      setScratchOneTitlePerLine(next);
       dropSourceEdits('pasted CSV', setOverrides, setExcludedRows);
       notifyDraftActivity();
     },
@@ -771,6 +811,7 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
         rawRows: applyImportEdits(r.rows, overrides, excludedRows),
         detectedHeader: r.detectedHeader,
         extraColumns: filterExtraColumnsForExcluded(r.extraColumns, excludedRows),
+        commaInLabel: filterCommaInLabelForExcluded(r.commaInLabel, excludedRows),
       };
     });
 
@@ -783,6 +824,7 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
           rows: [] as RawRow[],
           detectedHeader: false,
           extraColumns: [] as ExtraColumnsWarning[],
+          commaInLabel: [] as CommaInLabelWarning[],
         };
     if (extrasParsed.rows.length === 0 && extrasText.trim()) {
       const plain = parseExtrasText(extrasText);
@@ -800,6 +842,10 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
         detectedHeader: extrasParsed.detectedHeader,
         extraColumns: filterExtraColumnsForExcluded(
           extrasParsed.extraColumns,
+          excludedRows,
+        ),
+        commaInLabel: filterCommaInLabelForExcluded(
+          extrasParsed.commaInLabel,
           excludedRows,
         ),
       });
@@ -835,6 +881,7 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
       items: result.items,
       warnings: result.warnings,
       extraColumns: result.extraColumns,
+      commaInLabel: result.commaInLabel,
       perSource: result.perSource,
       sublists,
       extras,
@@ -847,6 +894,7 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
     setExcludedRows(new Set());
     setScratchText('');
     setScratchSkipHeader(false);
+    setScratchOneTitlePerLine(false);
     setScratchAlreadySorted(false);
     setStagedFiles([]);
     setPasteText('');
@@ -1391,7 +1439,9 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
         <div className="page-section">
           <h2>Sort from scratch</h2>
           <p className="csv-hint">
-            One item per row. Format: <code>ITEM, URL (optional), IMAGE (optional)</code>
+            One item per row. Format: <code>ITEM, URL (optional), IMAGE (optional)</code>.
+            Pasting a plain title list from clipboard? Check &quot;One title per line&quot;
+            below so commas stay part of the title.
           </p>
           <textarea
             className="csv-textarea"
@@ -1430,6 +1480,17 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
           </div>
           <div className="checkbox-row">
             <input
+              id="scratch-one-per-line"
+              type="checkbox"
+              checked={scratchOneTitlePerLine}
+              onChange={(e) => updateScratchOneTitlePerLine(e.target.checked)}
+            />
+            <label htmlFor="scratch-one-per-line">
+              One title per line (commas are part of the title)
+            </label>
+          </div>
+          <div className="checkbox-row">
+            <input
               id="scratch-already-sorted"
               type="checkbox"
               checked={scratchAlreadySorted}
@@ -1453,6 +1514,7 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
             totalItems={scratchResult.items.length}
             warnings={scratchResult.warnings}
             extraColumns={scratchResult.extraColumns}
+            commaInLabel={scratchResult.commaInLabel}
             startLabel={`Add to staged (${scratchResult.items.length} item${scratchResult.items.length === 1 ? '' : 's'})`}
             startDisabled={scratchResult.items.length < 1}
             onStart={addScratchToStaged}
@@ -1612,6 +1674,7 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
             totalItems={prerankedResult.items.length}
             warnings={prerankedResult.warnings}
             extraColumns={prerankedResult.extraColumns}
+            commaInLabel={prerankedResult.commaInLabel}
             sublistCount={prerankedResult.sublists.length}
             singletonCount={prerankedResult.extras.length}
             startLabel={`Add to staged (${prerankedResult.items.length} item${prerankedResult.items.length === 1 ? '' : 's'})`}

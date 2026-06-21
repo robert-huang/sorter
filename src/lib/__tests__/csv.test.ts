@@ -98,7 +98,10 @@ describe('parseCsvRows', () => {
   it('returns detectedHeader regardless of skipHeader', () => {
     const r = parseCsvRows('ITEM,URL\nA,https://x', 'test', false);
     expect(r.detectedHeader).toBe(true);
-    expect(r.rows.map((x) => x.label)).toEqual(['ITEM', 'A']);
+    // Header row included as data: commas join because neither cell is a URL.
+    expect(r.rows.map((x) => x.label)).toEqual(['ITEM, URL', 'A']);
+    expect(r.commaInLabel.length).toBe(1);
+    expect(r.commaInLabel[0].rowNumber).toBe(1);
   });
   it('parses URL and IMAGE columns', () => {
     const r = parseCsvRows('A,https://x,https://y', 'test', false);
@@ -116,6 +119,110 @@ describe('parseCsvRows', () => {
     const r = parseCsvRows('"Pit, the game",https://x,', 'test', false);
     expect(r.rows[0].label).toBe('Pit, the game');
     expect(r.rows[0].url).toBe('https://x');
+  });
+});
+
+describe('parseCsvRows comma-in-label repair', () => {
+  it('joins a 3-cell title-only row and emits a warning', () => {
+    const r = parseCsvRows('inari, konkon, koi iroha.', 'test', false);
+    expect(r.rows.length).toBe(1);
+    expect(r.rows[0].label).toBe('inari, konkon, koi iroha.');
+    expect(r.rows[0].url).toBeUndefined();
+    expect(r.rows[0].imageUrl).toBeUndefined();
+    expect(r.commaInLabel.length).toBe(1);
+    const w = r.commaInLabel[0];
+    expect(w.naiveParsedAs).toEqual({
+      label: 'inari',
+      url: 'konkon',
+      imageUrl: 'koi iroha.',
+    });
+    expect(w.repairedLabel).toBe('inari, konkon, koi iroha.');
+    expect(w.cellCount).toBe(3);
+    expect(r.rows[0].rawCells).toEqual(w.rawCells);
+  });
+
+  it('joins a 2-cell title and emits a warning', () => {
+    const r = parseCsvRows('Title, with comma', 'test', false);
+    expect(r.rows[0].label).toBe('Title, with comma');
+    expect(r.commaInLabel.length).toBe(1);
+    expect(r.commaInLabel[0].naiveParsedAs).toEqual({
+      label: 'Title',
+      url: 'with comma',
+      imageUrl: undefined,
+    });
+  });
+
+  it('does not repair rows with a URL in trailing cells', () => {
+    const r = parseCsvRows('A,https://x,https://y', 'test', false);
+    expect(r.rows[0]).toMatchObject({
+      label: 'A',
+      url: 'https://x',
+      imageUrl: 'https://y',
+    });
+    expect(r.commaInLabel).toEqual([]);
+    expect(r.rows[0].rawCells).toBeUndefined();
+  });
+
+  it('keeps extraColumns (not commaInLabel) when a URL is present past 3 cells', () => {
+    const r = parseCsvRows('Foo, Bar, Baz,https://x,https://img', 'test', false);
+    expect(r.extraColumns.length).toBe(1);
+    expect(r.commaInLabel).toEqual([]);
+    expect(r.rows[0].label).toBe('Foo');
+  });
+
+  it('does not repair single-cell rows', () => {
+    const r = parseCsvRows('Codenames', 'test', false);
+    expect(r.commaInLabel).toEqual([]);
+    expect(r.rows[0].label).toBe('Codenames');
+  });
+});
+
+describe('parseSources comma-in-label flow', () => {
+  it('concatenates commaInLabel across sources in input order', () => {
+    const r = parseSources([
+      {
+        sourceName: 'list-a',
+        rawRows: [{ label: 'A', sourceName: 'list-a', sourceRow: 1 }],
+        detectedHeader: false,
+        commaInLabel: [
+          {
+            sourceName: 'list-a',
+            rowNumber: 2,
+            cellCount: 2,
+            rawCells: ['Foo', ' Bar'],
+            naiveParsedAs: { label: 'Foo', url: 'Bar' },
+            repairedLabel: 'Foo, Bar',
+          },
+        ],
+      },
+      {
+        sourceName: 'list-b',
+        rawRows: [{ label: 'B', sourceName: 'list-b', sourceRow: 1 }],
+        detectedHeader: false,
+        commaInLabel: [
+          {
+            sourceName: 'list-b',
+            rowNumber: 1,
+            cellCount: 3,
+            rawCells: ['x', 'y', 'z'],
+            naiveParsedAs: { label: 'x', url: 'y', imageUrl: 'z' },
+            repairedLabel: 'x, y, z',
+          },
+        ],
+      },
+    ]);
+    expect(r.commaInLabel.map((w) => w.sourceName)).toEqual(['list-a', 'list-b']);
+  });
+
+  it('omitted commaInLabel on a SourceParse counts as zero', () => {
+    const r = parseSources([
+      {
+        sourceName: 'list-a',
+        rawRows: [{ label: 'A', sourceName: 'list-a', sourceRow: 1 }],
+        detectedHeader: false,
+      },
+    ]);
+    expect(r.commaInLabel).toEqual([]);
   });
 });
 

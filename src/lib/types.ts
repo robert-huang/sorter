@@ -285,6 +285,27 @@ export interface ExtraColumnsWarning {
 }
 
 /**
+ * Emitted when a row was auto-repaired: commas split the line into 2–3
+ * cells but none of the trailing cells looked like URLs, so we joined
+ * them back into a single label. Advisory only — import proceeds with
+ * the repaired label; ImportPreview surfaces these so the user can
+ * verify before starting the session.
+ */
+export interface CommaInLabelWarning {
+  sourceName: string;
+  /** 1-indexed row number within the source, AFTER any header skip. */
+  rowNumber: number;
+  /** Non-empty cells that were joined (typically 2 or 3). */
+  cellCount: number;
+  /** Verbatim PapaParse cells for EditItemModal's original-row panel. */
+  rawCells: string[];
+  /** What naive CSV column mapping would have produced without repair. */
+  naiveParsedAs: { label: string; url?: string; imageUrl?: string };
+  /** The joined label actually imported. */
+  repairedLabel: string;
+}
+
+/**
  * v1: original single-engine merge schema (no `engine` field on progress).
  * v2: engine-discriminated progress; introduced the original "Place"
  *     vocabulary (`pendingPlacements`, `currentPlacement`).
