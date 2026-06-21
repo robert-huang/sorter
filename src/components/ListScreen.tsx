@@ -255,10 +255,12 @@ function InsertContextSection({
                     <span className="label-cell" title={item.label}>
                       {item.label}
                     </span>
-                    {isProbe && (
-                      <span className="list-merge-context-tag">probe</span>
-                    )}
-                    <EditButton item={item} onOpen={onOpenEdit} variant="row" />
+                    <span className="actions">
+                      {isProbe && (
+                        <span className="list-merge-context-tag">probe</span>
+                      )}
+                      <EditButton item={item} onOpen={onOpenEdit} variant="row" />
+                    </span>
                   </div>
                 );
               })}
@@ -290,20 +292,22 @@ function InsertContextSection({
                     <span className="label-cell" title={item.label}>
                       {item.label}
                     </span>
-                    {isInserting && (
-                      <span className="list-merge-context-tag">inserting</span>
-                    )}
-                    <EditButton item={item} onOpen={onOpenEdit} variant="row" />
-                    {onHideInserting && isInserting && (
-                      <button
-                        className="icon-btn danger"
-                        onClick={() => onHideInserting(id)}
-                        title="Remove this item — skip inserting it and move on"
-                        aria-label={`Remove ${item.label}`}
-                      >
-                        ×
-                      </button>
-                    )}
+                    <span className="actions">
+                      {isInserting && (
+                        <span className="list-merge-context-tag">inserting</span>
+                      )}
+                      <EditButton item={item} onOpen={onOpenEdit} variant="row" />
+                      {onHideInserting && isInserting && (
+                        <button
+                          className="icon-btn danger"
+                          onClick={() => onHideInserting(id)}
+                          title="Remove this item — skip inserting it and move on"
+                          aria-label={`Remove ${item.label}`}
+                        >
+                          ×
+                        </button>
+                      )}
+                    </span>
                   </div>
                 );
               })}

@@ -4069,6 +4069,22 @@ a {
   margin-bottom: 8px;
 }
 
+.list-merge-context-row {
+  /* Tag + edit + hide share one grid cell — same pattern as queue rows. */
+  min-width: 0;
+}
+
+.list-merge-context-row .label-cell {
+  min-width: 0;
+}
+
+.list-merge-context-row .actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 .list-merge-context-row.list-merge-context-active {
   background: var(--surface);
   border-radius: var(--radius-sm);
