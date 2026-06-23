@@ -7,6 +7,8 @@ import {
   TOOLS_VA_CHARACTER_MEDIA_QUERY,
 } from '../../lib/importers/anilist/queries';
 import { TOOLS_CACHE_TTL_MS, withToolsCache } from '../../lib/importers/anilist/toolsCache';
+import type { ToolsFetchOptions } from '../../lib/importers/anilist/toolsFetchPolicy';
+import { ensureUserAnimeListFresh } from '../../lib/importers/anilist/toolsAnilistAccess';
 import {
   buildFavouritesResult,
   countVaCharactersOnMedia,
@@ -30,11 +32,16 @@ export type FavouritesRunProgress =
 async function fetchConsumedMediaIds(
   username: string,
   signal?: AbortSignal,
+  options?: ToolsFetchOptions,
 ): Promise<Set<number>> {
   signal?.throwIfAborted();
   const cacheKey = `tools:consumed-media:${username.toLowerCase()}`;
-  const ids = await withToolsCache(cacheKey, TOOLS_CACHE_TTL_MS.userList, async () => {
-    const entries = await depaginate<
+  const ids = await withToolsCache(
+    cacheKey,
+    TOOLS_CACHE_TTL_MS.userList,
+    async () => {
+      await ensureUserAnimeListFresh(username, options);
+      const entries = await depaginate<
       {
         Page: {
           pageInfo: { hasNextPage: boolean };
@@ -52,7 +59,9 @@ async function fetchConsumedMediaIds(
       }),
     });
     return entries.map((e) => e.mediaId);
-  });
+    },
+    options,
+  );
   return new Set(ids);
 }
 
@@ -115,6 +124,7 @@ async function fetchFavouriteStaff(
 async function fetchCharacterVoiceEdges(
   charId: number,
   signal?: AbortSignal,
+  options?: ToolsFetchOptions,
 ): Promise<CharacterMediaEdge[]> {
   signal?.throwIfAborted();
   return withToolsCache(
@@ -140,12 +150,14 @@ async function fetchCharacterVoiceEdges(
           pageInfo: data.Character?.media.pageInfo ?? { hasNextPage: false },
         }),
       }),
+    options,
   );
 }
 
 async function fetchVaCharacterEdges(
   vaId: number,
   signal?: AbortSignal,
+  options?: ToolsFetchOptions,
 ): Promise<VaMediaEdge[]> {
   signal?.throwIfAborted();
   return withToolsCache(
@@ -171,6 +183,7 @@ async function fetchVaCharacterEdges(
           pageInfo: data.Staff?.characterMedia.pageInfo ?? { hasNextPage: false },
         }),
       }),
+    options,
   );
 }
 
@@ -178,10 +191,11 @@ export async function runFavouritesAnalysis(
   form: FavouritesForm,
   onProgress: (progress: FavouritesRunProgress) => void,
   signal?: AbortSignal,
+  fetchOptions?: ToolsFetchOptions,
 ): Promise<FavouritesResult> {
   const username = form.username.trim();
   onProgress({ phase: 'list' });
-  const consumedMediaIds = await fetchConsumedMediaIds(username, signal);
+  const consumedMediaIds = await fetchConsumedMediaIds(username, signal, fetchOptions);
 
   onProgress({ phase: 'characters' });
   const [characters, favouriteStaff] = await Promise.all([
@@ -218,7 +232,7 @@ export async function runFavouritesAnalysis(
       name: charName,
     });
 
-    const edges = await fetchCharacterVoiceEdges(character.id, signal);
+    const edges = await fetchCharacterVoiceEdges(character.id, signal, fetchOptions);
     const processed = processCharacterEdges(
       character.id,
       charName,
@@ -247,7 +261,7 @@ export async function runFavouritesAnalysis(
     signal?.throwIfAborted();
     const vaId = vaIdList[i];
     onProgress({ phase: 'va-totals', index: i + 1, total: vaIdList.length });
-    const edges = await fetchVaCharacterEdges(vaId, signal);
+    const edges = await fetchVaCharacterEdges(vaId, signal, fetchOptions);
     vaTotalCharacterCounts.set(vaId, countVaCharactersOnMedia(edges, consumedMediaIds));
   }
 

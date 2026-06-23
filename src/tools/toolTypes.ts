@@ -9,7 +9,11 @@ export type ToolId =
 /** Props every tool panel receives so result rows can open the detail modals. */
 export interface ToolPanelProps {
   /** Open the media detail modal for a clicked show/title. */
-  onOpenMedia: (mediaId: number, fallbackTitle: string) => void;
+  onOpenMedia: (
+    mediaId: number,
+    fallbackTitle: string,
+    options?: { forceRefresh?: boolean },
+  ) => void;
   /** Open the staff detail modal for a clicked staff member / VA. */
   onOpenStaff: (staffId: number, fallbackName: string) => void;
 }

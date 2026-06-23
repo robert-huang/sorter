@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ToolPanelProps } from '../toolTypes';
+import { ToolRunButton } from '../ToolRunButton';
+import { useUsernameListRefresh } from '../useUsernameListRefresh';
 import { runFavouritesAnalysis, type FavouritesRunProgress } from './favouritesApi';
 import { type FavouritesForm, type FavouritesResult, type VaRankRow } from './favouritesLogic';
 import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
@@ -107,6 +109,7 @@ function NameListBlock({ title, names }: { title: string; names: string[] }) {
 }
 
 export function FavouritesPanel({ onOpenStaff }: ToolPanelProps) {
+  const { hint: usernameHint, onUsernameContextMenu } = useUsernameListRefresh();
   const [form, setForm] = useState<FavouritesForm>(() => loadForm());
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<FavouritesRunProgress | null>(null);
@@ -130,7 +133,7 @@ export function FavouritesPanel({ onOpenStaff }: ToolPanelProps) {
     setProgress(null);
   }, []);
 
-  const onRun = useCallback(async () => {
+  const onRun = useCallback(async (forceRefresh = false) => {
     const username = form.username.trim();
     if (!username) {
       setError('Enter an AniList username.');
@@ -152,6 +155,7 @@ export function FavouritesPanel({ onOpenStaff }: ToolPanelProps) {
         form,
         setProgress,
         controller.signal,
+        forceRefresh ? { forceRefresh: true } : undefined,
       );
       setResult(report);
     } catch (e) {
@@ -187,7 +191,7 @@ export function FavouritesPanel({ onOpenStaff }: ToolPanelProps) {
         onSubmit={(e) => {
           e.preventDefault();
           if (!running) {
-            void onRun();
+            void onRun(false);
           }
         }}
       >
@@ -199,7 +203,9 @@ export function FavouritesPanel({ onOpenStaff }: ToolPanelProps) {
             disabled={running}
             placeholder="AL Username"
             value={form.username}
+            title="AniList username — right-click to re-fetch list from AniList"
             onChange={(e) => patchForm({ username: e.target.value })}
+            onContextMenu={(e) => onUsernameContextMenu(e, form.username, running)}
           />
         </label>
 
@@ -214,14 +220,11 @@ export function FavouritesPanel({ onOpenStaff }: ToolPanelProps) {
         </label>
 
         <div className="tool-actions">
-          <button
-            type="button"
-            className="btn primary"
-            disabled={running}
-            onClick={() => void onRun()}
-          >
-            Analyze
-          </button>
+          <ToolRunButton
+            label="Analyze"
+            running={running}
+            onRun={(forceRefresh) => void onRun(forceRefresh)}
+          />
           {running && (
             <button type="button" className="btn" onClick={onCancel}>
               Cancel
@@ -230,6 +233,7 @@ export function FavouritesPanel({ onOpenStaff }: ToolPanelProps) {
         </div>
 
         {statusText && <p className="tool-status">{statusText}</p>}
+        {usernameHint && <p className="tool-field-hint">{usernameHint}</p>}
         {error && <p className="tool-error">{error}</p>}
       </form>
 

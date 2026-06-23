@@ -122,6 +122,8 @@ interface Props {
    *  modal header. Comes from the clicked Item's `label` so the user
    *  always sees their slot's view of the title first. */
   fallbackTitle: string;
+  /** When true, force a live AniList refresh on open (Tools show-title clicks). */
+  initialForceRefresh?: boolean;
   onClose: () => void;
   /**
    * Open the staff detail panel for a cast VA / production-staff member.
@@ -211,6 +213,7 @@ function fmtFuzzyDate(
 export function AnilistDetailModal({
   mediaId,
   fallbackTitle,
+  initialForceRefresh = false,
   onClose,
   onOpenStaff,
 }: Props) {
@@ -269,18 +272,25 @@ export function AnilistDetailModal({
         setExpansionStatus(status);
         setLoading(false);
         const needsExpansion =
+          initialForceRefresh ||
           !status ||
           !status.charactersComplete ||
           !status.staffComplete ||
           !hasKnownGraphCacheDate(status.charactersFetchedAt) ||
           !hasKnownGraphCacheDate(status.staffFetchedAt);
-        if (loadTick === 0 && d && needsExpansion) {
+        const shouldExpandOnOpen =
+          loadTick === 0 && needsExpansion && (d !== null || initialForceRefresh);
+        if (shouldExpandOnOpen) {
           setExpanding(true);
           setProgress(null);
           try {
-            await runAnilistMediaLazyExpansion(mediaId, (e) => {
-              if (!cancelled) setProgress(e);
-            });
+            await runAnilistMediaLazyExpansion(
+              mediaId,
+              (e) => {
+                if (!cancelled) setProgress(e);
+              },
+              initialForceRefresh ? { scope: 'all', force: true } : undefined,
+            );
             if (cancelled) return;
             const d2 = await productionReads.getMediaDetail(mediaId);
             const status2 = await productionReads.getMediaCastExpansionStatus(mediaId);
@@ -310,7 +320,7 @@ export function AnilistDetailModal({
     return () => {
       cancelled = true;
     };
-  }, [mediaId, loadTick]);
+  }, [mediaId, loadTick, initialForceRefresh]);
 
   const onRefresh = useCallback(async () => {
     if (expanding) return;

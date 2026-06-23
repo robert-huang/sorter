@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ToolPanelProps } from '../toolTypes';
+import { ToolRunButton } from '../ToolRunButton';
+import { useUsernameListRefresh } from '../useUsernameListRefresh';
 import {
   buildSharedCreditsResult,
   parseStaffInputs,
@@ -67,6 +69,7 @@ function progressLabel(progress: SharedCreditsRunProgress | null): string | null
 }
 
 export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
+  const { hint: usernameHint, onUsernameContextMenu } = useUsernameListRefresh();
   const [form, setForm] = useState<SharedCreditsForm>(() => loadForm());
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<SharedCreditsRunProgress | null>(null);
@@ -90,7 +93,7 @@ export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
     setProgress(null);
   }, []);
 
-  const onCompare = useCallback(async () => {
+  const onCompare = useCallback(async (forceRefresh = false) => {
     const inputs = parseStaffInputs(form.staffText, form.useIds);
     if (inputs.length === 0) {
       setError('Enter at least one staff name or id.');
@@ -127,6 +130,7 @@ export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
           usernameExclude: form.usernameExclude,
           signal: controller.signal,
           onProgress: setProgress,
+          fetchOptions: forceRefresh ? { forceRefresh: true } : undefined,
         });
 
       const built = buildSharedCreditsResult(
@@ -166,7 +170,7 @@ export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
         onSubmit={(e) => {
           e.preventDefault();
           if (!running) {
-            void onCompare();
+            void onCompare(false);
           }
         }}
       >
@@ -277,7 +281,11 @@ export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
               disabled={running}
               value={form.usernameInclude}
               placeholder="AL Username"
+              title="List Only — right-click to re-fetch list from AniList"
               onChange={(e) => patchForm({ usernameInclude: e.target.value })}
+              onContextMenu={(e) =>
+                onUsernameContextMenu(e, form.usernameInclude, running)
+              }
             />
           </label>
           <label className="tool-field tool-field-grow tool-field-label-row">
@@ -288,20 +296,21 @@ export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
               disabled={running}
               value={form.usernameExclude}
               placeholder="AL Username"
+              title="Exclude List — right-click to re-fetch list from AniList"
               onChange={(e) => patchForm({ usernameExclude: e.target.value })}
+              onContextMenu={(e) =>
+                onUsernameContextMenu(e, form.usernameExclude, running)
+              }
             />
           </label>
         </div>
 
         <div className="tool-actions">
-          <button
-            type="button"
-            className="btn primary"
-            disabled={running}
-            onClick={() => void onCompare()}
-          >
-            Compare
-          </button>
+          <ToolRunButton
+            label="Compare"
+            running={running}
+            onRun={(forceRefresh) => void onCompare(forceRefresh)}
+          />
           {running && (
             <button type="button" className="btn" onClick={onCancel}>
               Cancel
@@ -310,6 +319,7 @@ export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
         </div>
 
         {statusText && <p className="tool-status">{statusText}</p>}
+        {usernameHint && <p className="tool-field-hint">{usernameHint}</p>}
         {error && <p className="tool-error">{error}</p>}
       </form>
 
@@ -326,7 +336,9 @@ export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
                     <button
                       type="button"
                       className="tool-link-btn"
-                      onClick={() => onOpenMedia(show.mediaId, show.title)}
+                      onClick={() =>
+                        onOpenMedia(show.mediaId, show.title, { forceRefresh: true })
+                      }
                     >
                       {show.title}
                     </button>
@@ -360,7 +372,9 @@ export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
                       <button
                         type="button"
                         className="tool-link-btn"
-                        onClick={() => onOpenMedia(row.mediaId, row.title)}
+                        onClick={() =>
+                          onOpenMedia(row.mediaId, row.title, { forceRefresh: true })
+                        }
                       >
                         {row.title}
                       </button>

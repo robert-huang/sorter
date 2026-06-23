@@ -33,6 +33,7 @@ const TOOL_TABS: ReadonlyArray<ToolTab<ToolId>> = [
 interface MediaTarget {
   mediaId: number;
   fallbackTitle: string;
+  forceRefresh?: boolean;
 }
 
 interface StaffTarget {
@@ -66,9 +67,16 @@ export function ToolsApp() {
     saveActiveTool(id);
   }, []);
 
-  const onOpenMedia = useCallback((mediaId: number, fallbackTitle: string) => {
-    setMediaTarget({ mediaId, fallbackTitle });
-  }, []);
+  const onOpenMedia = useCallback(
+    (mediaId: number, fallbackTitle: string, options?: { forceRefresh?: boolean }) => {
+      setMediaTarget({
+        mediaId,
+        fallbackTitle,
+        forceRefresh: options?.forceRefresh,
+      });
+    },
+    [],
+  );
 
   const onOpenStaff = useCallback((staffId: number, fallbackName: string) => {
     setStaffTarget({ staffId, fallbackName });
@@ -132,6 +140,7 @@ export function ToolsApp() {
         <AnilistDetailModal
           mediaId={mediaTarget.mediaId}
           fallbackTitle={mediaTarget.fallbackTitle}
+          initialForceRefresh={mediaTarget.forceRefresh}
           onClose={() => setMediaTarget(null)}
           onOpenStaff={onOpenStaff}
         />

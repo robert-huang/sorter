@@ -149,12 +149,24 @@ export async function toolsCacheSet<T>(
   await idbSet(key, record);
 }
 
+export async function toolsCacheDelete(key: string): Promise<void> {
+  await idbDelete(key);
+}
+
+export type ToolsCacheOptions = {
+  forceRefresh?: boolean;
+};
+
 /** Read-through cache wrapper for async tool fetchers. */
 export async function withToolsCache<T>(
   key: string,
   maxAgeMs: number,
   fetcher: () => Promise<T>,
+  options?: ToolsCacheOptions,
 ): Promise<T> {
+  if (options?.forceRefresh) {
+    await toolsCacheDelete(key);
+  }
   const cached = await toolsCacheGet<T>(key);
   if (cached !== null) {
     return cached;

@@ -11,6 +11,14 @@ import {
   TOOLS_CACHE_TTL_MS,
   withToolsCache,
 } from '../../lib/importers/anilist/toolsCache';
+import type { ToolsFetchOptions } from '../../lib/importers/anilist/toolsFetchPolicy';
+import {
+  ensureStaffFilmographyFresh,
+  ensureUserAnimeListFresh,
+  readStaffShowMapFromDb,
+  readUserListMediaIdsFromDb,
+} from '../../lib/importers/anilist/toolsAnilistAccess';
+import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportContext';
 import {
   formatStartDateKey,
   pickMediaTitle,
@@ -155,10 +163,71 @@ export async function fetchStaffNamesByIds(
   });
 }
 
+async function fetchStaffShowMapLive(
+  staffId: number,
+  roleMode: StaffRoleMode,
+  signal?: AbortSignal,
+): Promise<StaffShowMap> {
+  if (roleMode === 'voice') {
+    const edges = await depaginate<
+      {
+        Staff: {
+          characterMedia: {
+            pageInfo: { hasNextPage: boolean };
+            edges: VoiceEdge[];
+          };
+        } | null;
+      },
+      VoiceEdge
+    >({
+      query: TOOLS_STAFF_VOICE_ROLES_QUERY,
+      variables: { id: staffId },
+      signal,
+      selectPage: (data) => ({
+        nodes: data.Staff?.characterMedia.edges ?? [],
+        pageInfo: data.Staff?.characterMedia.pageInfo ?? { hasNextPage: false },
+      }),
+    });
+
+    const map: StaffShowMap = {};
+    for (const edge of edges) {
+      mergeVoiceEdge(map, edge);
+    }
+    return map;
+  }
+
+  const edges = await depaginate<
+    {
+      Staff: {
+        staffMedia: {
+          pageInfo: { hasNextPage: boolean };
+          edges: ProductionEdge[];
+        };
+      } | null;
+    },
+    ProductionEdge
+  >({
+    query: TOOLS_STAFF_PRODUCTION_ROLES_QUERY,
+    variables: { id: staffId },
+    signal,
+    selectPage: (data) => ({
+      nodes: data.Staff?.staffMedia.edges ?? [],
+      pageInfo: data.Staff?.staffMedia.pageInfo ?? { hasNextPage: false },
+    }),
+  });
+
+  const map: StaffShowMap = {};
+  for (const edge of edges) {
+    mergeProductionEdge(map, edge);
+  }
+  return map;
+}
+
 export async function fetchStaffShowMap(
   staffId: number,
   roleMode: StaffRoleMode,
   signal?: AbortSignal,
+  options?: ToolsFetchOptions,
 ): Promise<StaffShowMap> {
   signal?.throwIfAborted();
   const cacheKey =
@@ -167,89 +236,67 @@ export async function fetchStaffShowMap(
       : `tools:prod-roles:${staffId}`;
   const ttl = TOOLS_CACHE_TTL_MS.staffRoles;
 
-  return withToolsCache(cacheKey, ttl, async () => {
-    if (roleMode === 'voice') {
-      const edges = await depaginate<
-        {
-          Staff: {
-            characterMedia: {
-              pageInfo: { hasNextPage: boolean };
-              edges: VoiceEdge[];
-            };
-          } | null;
-        },
-        VoiceEdge
-      >({
-        query: TOOLS_STAFF_VOICE_ROLES_QUERY,
-        variables: { id: staffId },
-        signal,
-        selectPage: (data) => ({
-          nodes: data.Staff?.characterMedia.edges ?? [],
-          pageInfo: data.Staff?.characterMedia.pageInfo ?? { hasNextPage: false },
-        }),
-      });
-
-      const map: StaffShowMap = {};
-      for (const edge of edges) {
-        mergeVoiceEdge(map, edge);
+  return withToolsCache(
+    cacheKey,
+    ttl,
+    async () => {
+      await ensureStaffFilmographyFresh(staffId, options);
+      const ctx = getToolsImportContext();
+      const fromDb = await readStaffShowMapFromDb(ctx.db, staffId, roleMode);
+      if (fromDb) {
+        return fromDb;
       }
-      return map;
-    }
-
-    const edges = await depaginate<
-      {
-        Staff: {
-          staffMedia: {
-            pageInfo: { hasNextPage: boolean };
-            edges: ProductionEdge[];
-          };
-        } | null;
-      },
-      ProductionEdge
-    >({
-      query: TOOLS_STAFF_PRODUCTION_ROLES_QUERY,
-      variables: { id: staffId },
-      signal,
-      selectPage: (data) => ({
-        nodes: data.Staff?.staffMedia.edges ?? [],
-        pageInfo: data.Staff?.staffMedia.pageInfo ?? { hasNextPage: false },
-      }),
-    });
-
-    const map: StaffShowMap = {};
-    for (const edge of edges) {
-      mergeProductionEdge(map, edge);
-    }
-    return map;
-  });
+      return fetchStaffShowMapLive(staffId, roleMode, signal);
+    },
+    options,
+  );
 }
 
 export async function fetchUserListMediaIds(
   username: string,
   signal?: AbortSignal,
+  options?: ToolsFetchOptions,
 ): Promise<Set<string>> {
   signal?.throwIfAborted();
   const key = `tools:user-list:${username.toLowerCase()}:${USER_LIST_STATUSES.join(',')}`;
-  return withToolsCache(key, TOOLS_CACHE_TTL_MS.userList, async () => {
-    const entries = await depaginate<
-      {
-        Page: {
-          pageInfo: { hasNextPage: boolean };
-          mediaList: Array<{ mediaId: number }>;
-        } | null;
-      },
-      { mediaId: number }
-    >({
-      query: TOOLS_USER_ANIME_LIST_QUERY,
-      variables: { userName: username, statusIn: [...USER_LIST_STATUSES] },
-      signal,
-      selectPage: (data) => ({
-        nodes: data.Page?.mediaList ?? [],
-        pageInfo: data.Page?.pageInfo ?? { hasNextPage: false },
-      }),
-    });
-    return new Set(entries.map((e) => String(e.mediaId)));
-  });
+  return withToolsCache(
+    key,
+    TOOLS_CACHE_TTL_MS.userList,
+    async () => {
+      const user = await ensureUserAnimeListFresh(username, options);
+      if (user) {
+        const ctx = getToolsImportContext();
+        const fromDb = await readUserListMediaIdsFromDb(
+          ctx.db,
+          user.id,
+          USER_LIST_STATUSES,
+        );
+        if (fromDb.size > 0) {
+          return fromDb;
+        }
+      }
+
+      const entries = await depaginate<
+        {
+          Page: {
+            pageInfo: { hasNextPage: boolean };
+            mediaList: Array<{ mediaId: number }>;
+          } | null;
+        },
+        { mediaId: number }
+      >({
+        query: TOOLS_USER_ANIME_LIST_QUERY,
+        variables: { userName: username, statusIn: [...USER_LIST_STATUSES] },
+        signal,
+        selectPage: (data) => ({
+          nodes: data.Page?.mediaList ?? [],
+          pageInfo: data.Page?.pageInfo ?? { hasNextPage: false },
+        }),
+      });
+      return new Set(entries.map((e) => String(e.mediaId)));
+    },
+    options,
+  );
 }
 
 export type SharedCreditsRunProgress =
@@ -266,13 +313,14 @@ export async function runSharedCreditsCompare(options: {
   usernameExclude: string;
   signal?: AbortSignal;
   onProgress?: (progress: SharedCreditsRunProgress) => void;
+  fetchOptions?: ToolsFetchOptions;
 }): Promise<{
   staffNames: Record<number, string>;
   lists: StaffShowMap[];
   userMediaIds: Set<string> | null;
   usernameMode: 'include' | 'exclude' | null;
 }> {
-  const { staffIds, roleMode, usernameInclude, usernameExclude, signal, onProgress } =
+  const { staffIds, roleMode, usernameInclude, usernameExclude, signal, onProgress, fetchOptions } =
     options;
 
   onProgress?.({ phase: 'names' });
@@ -287,7 +335,7 @@ export async function runSharedCreditsCompare(options: {
       staffTotal: staffIds.length,
       staffName: staffNames[staffId] ?? String(staffId),
     });
-    lists.push(await fetchStaffShowMap(staffId, roleMode, signal));
+    lists.push(await fetchStaffShowMap(staffId, roleMode, signal, fetchOptions));
   }
 
   let userMediaIds: Set<string> | null = null;
@@ -296,11 +344,11 @@ export async function runSharedCreditsCompare(options: {
   const excludeUser = usernameExclude.trim();
   if (includeUser) {
     onProgress?.({ phase: 'user-list' });
-    userMediaIds = await fetchUserListMediaIds(includeUser, signal);
+    userMediaIds = await fetchUserListMediaIds(includeUser, signal, fetchOptions);
     usernameMode = 'include';
   } else if (excludeUser) {
     onProgress?.({ phase: 'user-list' });
-    userMediaIds = await fetchUserListMediaIds(excludeUser, signal);
+    userMediaIds = await fetchUserListMediaIds(excludeUser, signal, fetchOptions);
     usernameMode = 'exclude';
   }
 

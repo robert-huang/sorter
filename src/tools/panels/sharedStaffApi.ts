@@ -9,6 +9,14 @@ import {
 } from '../../lib/importers/anilist/queries';
 import { executeAnilistQuery } from '../../lib/importers/anilist/transport';
 import { TOOLS_CACHE_TTL_MS, withToolsCache } from '../../lib/importers/anilist/toolsCache';
+import type { ToolsFetchOptions } from '../../lib/importers/anilist/toolsFetchPolicy';
+import {
+  ensureMediaCastFresh,
+  ensureStaffFilmographyFresh,
+  readProductionFilmographyFromDb,
+  readShowStaffBundleFromDb,
+} from '../../lib/importers/anilist/toolsAnilistAccess';
+import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportContext';
 import { pickMediaTitle } from './sharedCreditsLogic';
 import {
   mergeRoleIntoMap,
@@ -43,147 +51,191 @@ export async function searchAnimeShow(
   });
 }
 
+async function fetchShowStudiosLive(
+  mediaId: number,
+): Promise<CreditedEntityMap> {
+  const data = await executeAnilistQuery<{
+    Media: {
+      studios: {
+        edges: Array<{
+          isMain: boolean;
+          node: { id: number; name: string };
+        }>;
+      };
+    } | null;
+  }>(TOOLS_MEDIA_STUDIOS_QUERY, { mediaId });
+
+  const main: CreditedEntityMap = {};
+  const supporting: CreditedEntityMap = {};
+
+  for (const edge of data?.Media?.studios.edges ?? []) {
+    const target = edge.isMain ? main : supporting;
+    mergeRoleIntoMap(target, edge.node.id, edge.node.name, edge.isMain ? 'Main' : 'Supporting');
+  }
+
+  return { ...main, ...supporting };
+}
+
 export async function fetchShowStudios(
   mediaId: number,
   signal?: AbortSignal,
+  options?: ToolsFetchOptions,
 ): Promise<CreditedEntityMap> {
   signal?.throwIfAborted();
   return withToolsCache(
     `tools:show-studios:${mediaId}`,
     TOOLS_CACHE_TTL_MS.showMetadata,
     async () => {
-      const data = await executeAnilistQuery<{
-        Media: {
-          studios: {
-            edges: Array<{
-              isMain: boolean;
-              node: { id: number; name: string };
-            }>;
-          };
-        } | null;
-      }>(TOOLS_MEDIA_STUDIOS_QUERY, { mediaId });
-
-      const main: CreditedEntityMap = {};
-      const supporting: CreditedEntityMap = {};
-
-      for (const edge of data?.Media?.studios.edges ?? []) {
-        const target = edge.isMain ? main : supporting;
-        mergeRoleIntoMap(target, edge.node.id, edge.node.name, edge.isMain ? 'Main' : 'Supporting');
+      await ensureMediaCastFresh(mediaId, options);
+      const ctx = getToolsImportContext();
+      const bundle = await readShowStaffBundleFromDb(ctx.db, mediaId, '');
+      if (bundle && Object.keys(bundle.studios).length > 0) {
+        return bundle.studios;
       }
-
-      return { ...main, ...supporting };
+      return fetchShowStudiosLive(mediaId);
     },
+    options,
   );
+}
+
+async function fetchShowProductionStaffLive(
+  mediaId: number,
+  signal?: AbortSignal,
+): Promise<CreditedEntityMap> {
+  const edges = await depaginate<
+    {
+      Media: {
+        staff: {
+          pageInfo: { hasNextPage: boolean };
+          edges: Array<{
+            role?: string | null;
+            node: { id: number; name: { full: string } };
+          }>;
+        };
+      } | null;
+    },
+    { role?: string | null; node: { id: number; name: { full: string } } }
+  >({
+    query: TOOLS_MEDIA_PRODUCTION_STAFF_QUERY,
+    variables: { mediaId },
+    signal,
+    selectPage: (data) => ({
+      nodes: data.Media?.staff.edges ?? [],
+      pageInfo: data.Media?.staff.pageInfo ?? { hasNextPage: false },
+    }),
+  });
+
+  const map: CreditedEntityMap = {};
+  edges.forEach((edge, edgeIndex) => {
+    mergeRoleIntoMap(
+      map,
+      edge.node.id,
+      edge.node.name.full,
+      edge.role ?? '(role unavailable)',
+      edgeIndex,
+    );
+  });
+  return map;
 }
 
 export async function fetchShowProductionStaff(
   mediaId: number,
   signal?: AbortSignal,
+  options?: ToolsFetchOptions,
 ): Promise<CreditedEntityMap> {
   signal?.throwIfAborted();
   return withToolsCache(
     `tools:show-prod-staff:${mediaId}`,
     TOOLS_CACHE_TTL_MS.showMetadata,
     async () => {
-      const edges = await depaginate<
-        {
-          Media: {
-            staff: {
-              pageInfo: { hasNextPage: boolean };
-              edges: Array<{
-                role?: string | null;
-                node: { id: number; name: { full: string } };
-              }>;
-            };
-          } | null;
-        },
-        { role?: string | null; node: { id: number; name: { full: string } } }
-      >({
-        query: TOOLS_MEDIA_PRODUCTION_STAFF_QUERY,
-        variables: { mediaId },
-        signal,
-        selectPage: (data) => ({
-          nodes: data.Media?.staff.edges ?? [],
-          pageInfo: data.Media?.staff.pageInfo ?? { hasNextPage: false },
-        }),
-      });
-
-      const map: CreditedEntityMap = {};
-      edges.forEach((edge, edgeIndex) => {
-        mergeRoleIntoMap(
-          map,
-          edge.node.id,
-          edge.node.name.full,
-          edge.role ?? '(role unavailable)',
-          edgeIndex,
-        );
-      });
-      return map;
+      await ensureMediaCastFresh(mediaId, options);
+      const ctx = getToolsImportContext();
+      const bundle = await readShowStaffBundleFromDb(ctx.db, mediaId, '');
+      if (bundle && Object.keys(bundle.productionStaff).length > 0) {
+        return bundle.productionStaff;
+      }
+      return fetchShowProductionStaffLive(mediaId, signal);
     },
+    options,
   );
+}
+
+async function fetchShowVoiceActorsJpLive(
+  mediaId: number,
+  signal?: AbortSignal,
+): Promise<CreditedEntityMap> {
+  const edges = await depaginate<
+    {
+      Media: {
+        characters: {
+          pageInfo: { hasNextPage: boolean };
+          edges: Array<{
+            role?: string | null;
+            node: { name: { full: string } };
+            voiceActorRoles: Array<{
+              roleNotes?: string | null;
+              voiceActor: { id: number; name: { full: string } };
+            }>;
+          }>;
+        };
+      } | null;
+    },
+    {
+      role?: string | null;
+      node: { name: { full: string } };
+      voiceActorRoles: Array<{
+        roleNotes?: string | null;
+        voiceActor: { id: number; name: { full: string } };
+      }>;
+    }
+  >({
+    query: TOOLS_MEDIA_VOICE_ACTORS_QUERY,
+    variables: { mediaId, language: 'JAPANESE' },
+    signal,
+    selectPage: (data) => ({
+      nodes: data.Media?.characters.edges ?? [],
+      pageInfo: data.Media?.characters.pageInfo ?? { hasNextPage: false },
+    }),
+  });
+
+  const map: CreditedEntityMap = {};
+  edges.forEach((edge, edgeIndex) => {
+    for (const vaRole of edge.voiceActorRoles ?? []) {
+      let roleDescr = `${edge.role ?? 'UNKNOWN'} ${edge.node.name.full}`;
+      if (vaRole.roleNotes) {
+        roleDescr += ` ${vaRole.roleNotes}`;
+      }
+      mergeRoleIntoMap(
+        map,
+        vaRole.voiceActor.id,
+        vaRole.voiceActor.name.full,
+        roleDescr,
+        edgeIndex,
+      );
+    }
+  });
+  return map;
 }
 
 export async function fetchShowVoiceActorsJp(
   mediaId: number,
   signal?: AbortSignal,
+  options?: ToolsFetchOptions,
 ): Promise<CreditedEntityMap> {
   signal?.throwIfAborted();
   return withToolsCache(
     `tools:show-vas-jp:${mediaId}`,
     TOOLS_CACHE_TTL_MS.showMetadata,
     async () => {
-      const edges = await depaginate<
-        {
-          Media: {
-            characters: {
-              pageInfo: { hasNextPage: boolean };
-              edges: Array<{
-                role?: string | null;
-                node: { name: { full: string } };
-                voiceActorRoles: Array<{
-                  roleNotes?: string | null;
-                  voiceActor: { id: number; name: { full: string } };
-                }>;
-              }>;
-            };
-          } | null;
-        },
-        {
-          role?: string | null;
-          node: { name: { full: string } };
-          voiceActorRoles: Array<{
-            roleNotes?: string | null;
-            voiceActor: { id: number; name: { full: string } };
-          }>;
-        }
-      >({
-        query: TOOLS_MEDIA_VOICE_ACTORS_QUERY,
-        variables: { mediaId, language: 'JAPANESE' },
-        signal,
-        selectPage: (data) => ({
-          nodes: data.Media?.characters.edges ?? [],
-          pageInfo: data.Media?.characters.pageInfo ?? { hasNextPage: false },
-        }),
-      });
-
-      const map: CreditedEntityMap = {};
-      edges.forEach((edge, edgeIndex) => {
-        for (const vaRole of edge.voiceActorRoles ?? []) {
-          let roleDescr = `${edge.role ?? 'UNKNOWN'} ${edge.node.name.full}`;
-          if (vaRole.roleNotes) {
-            roleDescr += ` ${vaRole.roleNotes}`;
-          }
-          mergeRoleIntoMap(
-            map,
-            vaRole.voiceActor.id,
-            vaRole.voiceActor.name.full,
-            roleDescr,
-            edgeIndex,
-          );
-        }
-      });
-      return map;
+      await ensureMediaCastFresh(mediaId, options);
+      const ctx = getToolsImportContext();
+      const bundle = await readShowStaffBundleFromDb(ctx.db, mediaId, '');
+      if (bundle && Object.keys(bundle.voiceActors).length > 0) {
+        return bundle.voiceActors;
+      }
+      return fetchShowVoiceActorsJpLive(mediaId, signal);
     },
+    options,
   );
 }
 
@@ -191,11 +243,18 @@ export async function fetchShowStaffBundle(
   mediaId: number,
   title: string,
   signal?: AbortSignal,
+  options?: ToolsFetchOptions,
 ): Promise<ShowStaffBundle> {
+  await ensureMediaCastFresh(mediaId, options);
+  const ctx = getToolsImportContext();
+  const fromDb = await readShowStaffBundleFromDb(ctx.db, mediaId, title);
+  if (fromDb) {
+    return fromDb;
+  }
   const [studios, productionStaff, voiceActors] = await Promise.all([
-    fetchShowStudios(mediaId, signal),
-    fetchShowProductionStaff(mediaId, signal),
-    fetchShowVoiceActorsJp(mediaId, signal),
+    fetchShowStudios(mediaId, signal, options),
+    fetchShowProductionStaff(mediaId, signal, options),
+    fetchShowVoiceActorsJp(mediaId, signal, options),
   ]);
   return { id: mediaId, title, studios, productionStaff, voiceActors };
 }
@@ -256,61 +315,76 @@ export async function fetchRelatedAnimeIds(
   );
 }
 
+async function fetchProductionStaffFilmographyLive(
+  staffId: number,
+  signal?: AbortSignal,
+): Promise<ProductionFilmographyShow[]> {
+  const edges = await depaginate<
+    {
+      Staff: {
+        staffMedia: {
+          pageInfo: { hasNextPage: boolean };
+          edges: Array<{
+            staffRole?: string | null;
+            node: {
+              id: number;
+              title: { english?: string | null; romaji?: string | null };
+            };
+          }>;
+        };
+      } | null;
+    },
+    {
+      staffRole?: string | null;
+      node: {
+        id: number;
+        title: { english?: string | null; romaji?: string | null };
+      };
+    }
+  >({
+    query: TOOLS_STAFF_PRODUCTION_FILMOGRAPHY_QUERY,
+    variables: { staffId },
+    signal,
+    selectPage: (data) => ({
+      nodes: data.Staff?.staffMedia.edges ?? [],
+      pageInfo: data.Staff?.staffMedia.pageInfo ?? { hasNextPage: false },
+    }),
+  });
+
+  const byId = new Map<number, ProductionFilmographyShow>();
+  for (const edge of edges) {
+    const show = edge.node;
+    const existing = byId.get(show.id);
+    const title = pickMediaTitle(show.title);
+    const role = edge.staffRole ?? '(role unavailable)';
+    if (!existing) {
+      byId.set(show.id, { id: show.id, title, roles: [role] });
+    } else {
+      existing.roles.push(role);
+    }
+  }
+  return [...byId.values()];
+}
+
 export async function fetchProductionStaffFilmography(
   staffId: number,
   signal?: AbortSignal,
+  options?: ToolsFetchOptions,
 ): Promise<ProductionFilmographyShow[]> {
   signal?.throwIfAborted();
   return withToolsCache(
     `tools:prod-filmography:${staffId}`,
     TOOLS_CACHE_TTL_MS.staffRoles,
     async () => {
-      const edges = await depaginate<
-        {
-          Staff: {
-            staffMedia: {
-              pageInfo: { hasNextPage: boolean };
-              edges: Array<{
-                staffRole?: string | null;
-                node: {
-                  id: number;
-                  title: { english?: string | null; romaji?: string | null };
-                };
-              }>;
-            };
-          } | null;
-        },
-        {
-          staffRole?: string | null;
-          node: {
-            id: number;
-            title: { english?: string | null; romaji?: string | null };
-          };
-        }
-      >({
-        query: TOOLS_STAFF_PRODUCTION_FILMOGRAPHY_QUERY,
-        variables: { staffId },
-        signal,
-        selectPage: (data) => ({
-          nodes: data.Staff?.staffMedia.edges ?? [],
-          pageInfo: data.Staff?.staffMedia.pageInfo ?? { hasNextPage: false },
-        }),
-      });
-
-      const byId = new Map<number, ProductionFilmographyShow>();
-      for (const edge of edges) {
-        const show = edge.node;
-        const existing = byId.get(show.id);
-        const title = pickMediaTitle(show.title);
-        const role = edge.staffRole ?? '(role unavailable)';
-        if (!existing) {
-          byId.set(show.id, { id: show.id, title, roles: [role] });
-        } else {
-          existing.roles.push(role);
-        }
+      await ensureStaffFilmographyFresh(staffId, options);
+      const ctx = getToolsImportContext();
+      const fromDb = await readProductionFilmographyFromDb(ctx.db, staffId);
+      if (fromDb) {
+        return fromDb;
       }
-      return [...byId.values()];
+      return fetchProductionStaffFilmographyLive(staffId, signal);
     },
+    options,
   );
 }
 
@@ -327,6 +401,7 @@ export async function runSharedStaffCompare(options: {
   topMatchCount: number;
   signal?: AbortSignal;
   onProgress?: (progress: SharedStaffRunProgress) => void;
+  fetchOptions?: ToolsFetchOptions;
 }): Promise<{
   shows: ShowStaffBundle[];
   singleShowReport?: {
@@ -349,6 +424,7 @@ export async function runSharedStaffCompare(options: {
     topMatchCount,
     signal,
     onProgress,
+    fetchOptions,
   } = options;
 
   const resolved: Array<{ id: number; title: string }> = [];
@@ -367,7 +443,7 @@ export async function runSharedStaffCompare(options: {
   const shows: ShowStaffBundle[] = [];
   for (const show of resolved) {
     onProgress?.({ phase: 'load-show', label: show.title });
-    shows.push(await fetchShowStaffBundle(show.id, show.title, signal));
+    shows.push(await fetchShowStaffBundle(show.id, show.title, signal, fetchOptions));
   }
 
   if (shows.length !== 1) {
@@ -396,7 +472,7 @@ export async function runSharedStaffCompare(options: {
       staffTotal: staffEntries.length,
       staffName: staffInfo.name,
     });
-    filmographies[staffId] = await fetchProductionStaffFilmography(staffId, signal);
+    filmographies[staffId] = await fetchProductionStaffFilmography(staffId, signal, fetchOptions);
   }
 
   const tally = tallySingleShowMatches({
@@ -418,7 +494,12 @@ export async function runSharedStaffCompare(options: {
   });
 
   const topTitle = tally.titlesById[tally.topMatchMediaId] ?? String(tally.topMatchMediaId);
-  const topBundle = await fetchShowStaffBundle(tally.topMatchMediaId, topTitle, signal);
+  const topBundle = await fetchShowStaffBundle(
+    tally.topMatchMediaId,
+    topTitle,
+    signal,
+    fetchOptions,
+  );
   shows.push(topBundle);
 
   return {

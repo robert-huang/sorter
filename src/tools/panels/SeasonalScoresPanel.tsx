@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ToolPanelProps } from '../toolTypes';
+import { ToolRunButton } from '../ToolRunButton';
+import { useUsernameListRefresh } from '../useUsernameListRefresh';
 import { fetchUserSeasonalShows } from './seasonalScoresApi';
 import {
   buildSeasonalColumns,
@@ -43,6 +45,7 @@ function saveForm(form: SeasonalScoresForm): void {
 }
 
 export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
+  const { hint: usernameHint, onUsernameContextMenu } = useUsernameListRefresh();
   const [form, setForm] = useState<SeasonalScoresForm>(() => loadForm());
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,7 +67,7 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
     setRunning(false);
   }, []);
 
-  const onRun = useCallback(async () => {
+  const onRun = useCallback(async (forceRefresh = false) => {
     const username = form.username.trim();
     if (!username) {
       setError('Enter an AniList username.');
@@ -81,7 +84,11 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
     setResult(null);
 
     try {
-      const shows = await fetchUserSeasonalShows(username, controller.signal);
+      const shows = await fetchUserSeasonalShows(
+        username,
+        controller.signal,
+        forceRefresh ? { forceRefresh: true } : undefined,
+      );
       setResult(buildSeasonalColumns(shows, form));
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') {
@@ -108,7 +115,7 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
         onSubmit={(e) => {
           e.preventDefault();
           if (!running) {
-            void onRun();
+            void onRun(false);
           }
         }}
       >
@@ -120,7 +127,9 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
             disabled={running}
             placeholder="AL Username"
             value={form.username}
+            title="AniList username — right-click to re-fetch list from AniList"
             onChange={(e) => patchForm({ username: e.target.value })}
+            onContextMenu={(e) => onUsernameContextMenu(e, form.username, running)}
           />
         </label>
 
@@ -161,14 +170,11 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
         </div>
 
         <div className="tool-actions">
-          <button
-            type="button"
-            className="btn primary"
-            disabled={running}
-            onClick={() => void onRun()}
-          >
-            Compare
-          </button>
+          <ToolRunButton
+            label="Compare"
+            running={running}
+            onRun={(forceRefresh) => void onRun(forceRefresh)}
+          />
           {running && (
             <button type="button" className="btn" onClick={onCancel}>
               Cancel
@@ -177,6 +183,7 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
         </div>
 
         {running && <p className="tool-status">Loading user list…</p>}
+        {usernameHint && <p className="tool-field-hint">{usernameHint}</p>}
         {error && <p className="tool-error">{error}</p>}
       </form>
 
@@ -212,7 +219,9 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
                             <button
                               type="button"
                               className="tool-link-btn tool-season-title"
-                              onClick={() => onOpenMedia(show.id, show.title)}
+                              onClick={() =>
+                                onOpenMedia(show.id, show.title, { forceRefresh: true })
+                              }
                             >
                               {show.title}
                             </button>

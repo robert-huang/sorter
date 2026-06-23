@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ToolPanelProps } from '../toolTypes';
+import { ToolRunButton } from '../ToolRunButton';
 import {
   finalizeSharedStaffResult,
   parseShowInputs,
@@ -80,7 +81,7 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
     setProgress(null);
   }, []);
 
-  const onCompare = useCallback(async () => {
+  const onCompare = useCallback(async (forceRefresh = false) => {
     const shows = parseShowInputs(form.showText);
     if (shows.length === 0) {
       setError('Enter at least one show title.');
@@ -109,6 +110,7 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
         topMatchCount: form.topMatchCount,
         signal: controller.signal,
         onProgress: setProgress,
+        fetchOptions: forceRefresh ? { forceRefresh: true } : undefined,
       });
 
       setResult(
@@ -145,7 +147,7 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
         onSubmit={(e) => {
           e.preventDefault();
           if (!running) {
-            void onCompare();
+            void onCompare(false);
           }
         }}
       >
@@ -218,14 +220,11 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
         </fieldset>
 
         <div className="tool-actions">
-          <button
-            type="button"
-            className="btn primary"
-            disabled={running}
-            onClick={() => void onCompare()}
-          >
-            Compare
-          </button>
+          <ToolRunButton
+            label="Compare"
+            running={running}
+            onRun={(forceRefresh) => void onCompare(forceRefresh)}
+          />
           {running && (
             <button type="button" className="btn" onClick={onCancel}>
               Cancel
@@ -252,7 +251,7 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
                 <button
                   type="button"
                   className="tool-link-btn"
-                  onClick={() => onOpenMedia(row.mediaId, row.title)}
+                  onClick={() => onOpenMedia(row.mediaId, row.title, { forceRefresh: true })}
                 >
                   {row.title}
                 </button>
@@ -271,7 +270,7 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
                     <button
                       type="button"
                       className="tool-link-btn"
-                      onClick={() => onOpenMedia(row.mediaId, row.title)}
+                      onClick={() => onOpenMedia(row.mediaId, row.title, { forceRefresh: true })}
                     >
                       {row.title}
                     </button>
@@ -296,7 +295,7 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
                       <button
                         type="button"
                         className="tool-link-btn"
-                        onClick={() => onOpenMedia(show.id, show.title)}
+                        onClick={() => onOpenMedia(show.id, show.title, { forceRefresh: true })}
                       >
                         {show.title}
                       </button>
