@@ -5185,13 +5185,13 @@ a {
 .tools-app {
   min-height: 100vh;
   background: var(--bg);
-  /* Sticky chrome: header-toolbar (~49px) + tools tab strip (~56px). */
+  /* Measured at runtime by useToolsChromeStickyTop (header + banner + tabs). */
   --tools-season-sticky-top: 6.5rem;
 }
 
 /* Tab strip sits below the sticky app header on Tools pages. */
 .tools-app .tools-tabs-wrap {
-  top: 49px;
+  top: var(--tools-tabs-sticky-top, var(--tools-header-height, 49px));
   z-index: 14;
 }
 
@@ -5613,26 +5613,33 @@ a {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
+  overflow: visible;
 }
 
-/* Horizontal scroll only — vertical overflow stays on the page so the
-   column header row can use position:sticky below the app chrome. */
+/* Pinned below app chrome; horizontal motion comes from the synced track. */
+.tool-season-header-sticky {
+  position: sticky;
+  top: var(--tools-season-sticky-top, 0);
+  z-index: 6;
+  overflow: hidden;
+  background: var(--surface);
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+
+.tool-season-header-track {
+  will-change: transform;
+}
+
 .tool-season-scroll {
   overflow-x: auto;
   overflow-y: visible;
 }
 
-.tool-season-header-row {
-  position: sticky;
-  top: var(--tools-season-sticky-top, 0);
-  z-index: 4;
-}
-
 .tool-season-header-row,
 .tool-season-row {
   display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(180px, 1fr);
+  width: max-content;
+  min-width: 100%;
 }
 
 .tool-season-col-head {

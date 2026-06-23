@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
 import { useUsernameListRefresh } from '../useUsernameListRefresh';
@@ -7,6 +7,7 @@ import {
   buildSeasonalColumns,
   type SeasonalScoresForm,
   type SeasonalScoresResult,
+  type SeasonColumn,
 } from './seasonalScoresLogic';
 import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
 
@@ -41,6 +42,102 @@ function loadForm(): SeasonalScoresForm {
     username: withLastAnilistUsername(''),
     seasonText: loadSeasonText(),
   };
+}
+
+function seasonGridStyle(columnCount: number): { gridTemplateColumns: string } {
+  return { gridTemplateColumns: `repeat(${columnCount}, 200px)` };
+}
+
+function SeasonalColumnsView({
+  columns,
+  onOpenMedia,
+}: {
+  columns: SeasonColumn[];
+  onOpenMedia: ToolPanelProps['onOpenMedia'];
+}) {
+  const bodyScrollRef = useRef<HTMLDivElement>(null);
+  const headerTrackRef = useRef<HTMLDivElement>(null);
+  const columnCount = columns.length;
+  const gridStyle = seasonGridStyle(columnCount);
+  const rowCount = Math.max(...columns.map((c) => c.shows.length), 0);
+
+  const syncHeaderWithBody = useCallback(() => {
+    const body = bodyScrollRef.current;
+    const track = headerTrackRef.current;
+    if (!body || !track) {
+      return;
+    }
+    const bodyInner = body.querySelector('.tool-season-body');
+    if (bodyInner instanceof HTMLElement) {
+      track.style.width = `${bodyInner.scrollWidth}px`;
+    }
+    track.style.transform = `translateX(-${body.scrollLeft}px)`;
+  }, []);
+
+  useLayoutEffect(() => {
+    syncHeaderWithBody();
+    const body = bodyScrollRef.current;
+    if (!body || typeof ResizeObserver === 'undefined') {
+      return;
+    }
+    const ro = new ResizeObserver(() => syncHeaderWithBody());
+    const bodyInner = body.querySelector('.tool-season-body');
+    if (bodyInner) {
+      ro.observe(bodyInner);
+    }
+    ro.observe(body);
+    return () => ro.disconnect();
+  }, [columns, rowCount, syncHeaderWithBody]);
+
+  return (
+    <div className="tool-season-columns">
+      <div className="tool-season-header-sticky">
+        <div className="tool-season-header-track" ref={headerTrackRef}>
+          <div className="tool-season-header-row" style={gridStyle}>
+            {columns.map((col) => (
+              <div key={col.label} className="tool-season-col-head">
+                <div className="tool-season-col-title">{col.label}</div>
+                <div className="tool-season-col-avg">avg: {col.average ?? 'N/A'}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div
+        className="tool-season-scroll"
+        ref={bodyScrollRef}
+        onScroll={syncHeaderWithBody}
+      >
+        <div className="tool-season-body">
+          {Array.from({ length: rowCount }).map((_, rowIdx) => (
+            <div key={rowIdx} className="tool-season-row" style={gridStyle}>
+              {columns.map((col) => {
+                const show = col.shows[rowIdx];
+                return (
+                  <div key={`${col.label}-${rowIdx}`} className="tool-season-cell">
+                    {show ? (
+                      <div className="tool-season-cell-grid">
+                        <span className="tool-season-score">{show.score ?? '—'}</span>
+                        <button
+                          type="button"
+                          className="tool-link-btn tool-season-title"
+                          onClick={() =>
+                            onOpenMedia(show.id, show.title, { forceRefresh: true })
+                          }
+                        >
+                          {show.title}
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
@@ -189,51 +286,7 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
       {result?.kind === 'empty' && <p className="tool-empty">{result.message}</p>}
 
       {result?.kind === 'columns' && (
-        <div className="tool-season-columns">
-          <div className="tool-season-scroll">
-            <div className="tool-season-header-row">
-              {result.columns.map((col) => (
-                <div key={col.label} className="tool-season-col-head">
-                  <div className="tool-season-col-title">{col.label}</div>
-                  <div className="tool-season-col-avg">
-                    avg: {col.average ?? 'N/A'}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="tool-season-body">
-              {Array.from({
-                length: Math.max(...result.columns.map((c) => c.shows.length), 0),
-              }).map((_, rowIdx) => (
-                <div key={rowIdx} className="tool-season-row">
-                  {result.columns.map((col) => {
-                    const show = col.shows[rowIdx];
-                    return (
-                      <div key={`${col.label}-${rowIdx}`} className="tool-season-cell">
-                        {show ? (
-                          <div className="tool-season-cell-grid">
-                            <span className="tool-season-score">
-                              {show.score ?? '—'}
-                            </span>
-                            <button
-                              type="button"
-                              className="tool-link-btn tool-season-title"
-                              onClick={() =>
-                                onOpenMedia(show.id, show.title, { forceRefresh: true })
-                              }
-                            >
-                              {show.title}
-                            </button>
-                          </div>
-                        ) : null}
-                      </div>
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        <SeasonalColumnsView columns={result.columns} onOpenMedia={onOpenMedia} />
       )}
     </section>
   );

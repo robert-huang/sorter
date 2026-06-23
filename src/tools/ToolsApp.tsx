@@ -12,6 +12,7 @@ import {
 import { ToolsHeader } from './ToolsHeader';
 import { ToolTabs, type ToolTab } from './ToolTabs';
 import { configureToolsImportDirtyHook } from '../lib/importers/anilist/toolsImportContext';
+import { useToolsChromeStickyTop } from './useToolsChromeStickyTop';
 import { useAnilistApiWait } from './useAnilistApiWait';
 import {
   loadActiveTool,
@@ -44,6 +45,7 @@ interface StaffTarget {
 
 export function ToolsApp() {
   const dbSync = useSourceDbSync();
+  useToolsChromeStickyTop();
   const [theme, setTheme] = useState<AnimeToAnimeTheme>(() =>
     loadAnimeToAnimeTheme(),
   );
