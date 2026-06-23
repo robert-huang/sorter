@@ -1,3 +1,5 @@
+import { parseLinesOnePerLine } from '../parseToolLines';
+
 export type SeasonalShow = {
   id: number;
   title: string;
@@ -57,10 +59,7 @@ export function parseSeasonSpecs(
   text: string,
   shows: SeasonalShow[],
 ): SeasonSpec[] {
-  const lines = text
-    .split(/[\n,]+/)
-    .map((l) => l.trim())
-    .filter(Boolean);
+  const lines = parseLinesOnePerLine(text);
 
   if (lines.length === 0) {
     return [];

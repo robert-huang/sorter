@@ -6,6 +6,7 @@ import {
   type SeasonalScoresForm,
   type SeasonalScoresResult,
 } from './seasonalScoresLogic';
+import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
 
 const LS_KEY = 'anime-tools-seasonal-scores-form';
 
@@ -20,11 +21,16 @@ function loadForm(): SeasonalScoresForm {
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) {
-      return DEFAULT_FORM;
+      return { ...DEFAULT_FORM, username: withLastAnilistUsername('') };
     }
-    return { ...DEFAULT_FORM, ...(JSON.parse(raw) as Partial<SeasonalScoresForm>) };
+    const parsed = JSON.parse(raw) as Partial<SeasonalScoresForm>;
+    return {
+      ...DEFAULT_FORM,
+      ...parsed,
+      username: withLastAnilistUsername(parsed.username ?? ''),
+    };
   } catch {
-    return DEFAULT_FORM;
+    return { ...DEFAULT_FORM, username: withLastAnilistUsername('') };
   }
 }
 
@@ -106,23 +112,22 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
           }
         }}
       >
-        <div className="tool-field-row">
-          <label className="tool-field tool-field-grow">
-            <span className="tool-field-label">AniList username</span>
-            <input
-              className="slot-search"
-              type="text"
-              disabled={running}
-              value={form.username}
-              onChange={(e) => patchForm({ username: e.target.value })}
-            />
-          </label>
-        </div>
+        <label className="tool-field tool-field-label-row tool-field-username">
+          <span className="tool-field-label">AniList username</span>
+          <input
+            className="slot-search anime-to-anime-endpoint-user-input"
+            type="text"
+            disabled={running}
+            placeholder="AL Username"
+            value={form.username}
+            onChange={(e) => patchForm({ username: e.target.value })}
+          />
+        </label>
 
         <label className="tool-field">
           <span className="tool-field-label">
-            Seasons (one per line: <code>Winter 2024</code>, <code>2023</code>,{' '}
-            <code>all</code>, <code>allseasons</code>)
+            Seasons (one per line: <code>all</code>, <code>allseasons</code> (full range, split by seasons),{' '}
+            <code>Winter 2024</code>, <code>2018</code>)
           </span>
           <textarea
             className="tool-textarea csv-textarea"
@@ -179,44 +184,46 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
 
       {result?.kind === 'columns' && (
         <div className="tool-season-columns">
-          <div className="tool-season-header-row">
-            {result.columns.map((col) => (
-              <div key={col.label} className="tool-season-col-head">
-                <div className="tool-season-col-title">{col.label}</div>
-                <div className="tool-season-col-avg">
-                  avg: {col.average ?? 'N/A'}
+          <div className="tool-season-scroll">
+            <div className="tool-season-header-row">
+              {result.columns.map((col) => (
+                <div key={col.label} className="tool-season-col-head">
+                  <div className="tool-season-col-title">{col.label}</div>
+                  <div className="tool-season-col-avg">
+                    avg: {col.average ?? 'N/A'}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-          <div className="tool-season-body">
-            {Array.from({
-              length: Math.max(...result.columns.map((c) => c.shows.length), 0),
-            }).map((_, rowIdx) => (
-              <div key={rowIdx} className="tool-season-row">
-                {result.columns.map((col) => {
-                  const show = col.shows[rowIdx];
-                  return (
-                    <div key={`${col.label}-${rowIdx}`} className="tool-season-cell">
-                      {show ? (
-                        <>
-                          <span className="tool-season-score">
-                            {show.score ?? '—'}
-                          </span>{' '}
-                          <button
-                            type="button"
-                            className="tool-link-btn"
-                            onClick={() => onOpenMedia(show.id, show.title)}
-                          >
-                            {show.title}
-                          </button>
-                        </>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
+              ))}
+            </div>
+            <div className="tool-season-body">
+              {Array.from({
+                length: Math.max(...result.columns.map((c) => c.shows.length), 0),
+              }).map((_, rowIdx) => (
+                <div key={rowIdx} className="tool-season-row">
+                  {result.columns.map((col) => {
+                    const show = col.shows[rowIdx];
+                    return (
+                      <div key={`${col.label}-${rowIdx}`} className="tool-season-cell">
+                        {show ? (
+                          <div className="tool-season-cell-grid">
+                            <span className="tool-season-score">
+                              {show.score ?? '—'}
+                            </span>
+                            <button
+                              type="button"
+                              className="tool-link-btn tool-season-title"
+                              onClick={() => onOpenMedia(show.id, show.title)}
+                            >
+                              {show.title}
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}

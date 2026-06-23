@@ -1,4 +1,5 @@
 import { dictDiffs, dictIntersection } from '../../lib/importers/anilist/toolsDictUtils';
+import { parseLinesOnePerLine } from '../parseToolLines';
 
 export type StaffRoleMode = 'voice' | 'production';
 
@@ -47,15 +48,8 @@ type StartDateParts = {
   day?: number | null;
 };
 
-export function parseStaffInputs(text: string, useIds: boolean): string[] {
-  const parts = text
-    .split(/[\n,]+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (useIds) {
-    return parts;
-  }
-  return parts;
+export function parseStaffInputs(text: string, _useIds?: boolean): string[] {
+  return parseLinesOnePerLine(text);
 }
 
 export function formatStartDateKey(date: StartDateParts): string {

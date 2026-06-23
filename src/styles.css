@@ -5185,6 +5185,14 @@ a {
 .tools-app {
   min-height: 100vh;
   background: var(--bg);
+  /* Sticky chrome: header-toolbar (~49px) + tools tab strip (~56px). */
+  --tools-season-sticky-top: 6.5rem;
+}
+
+/* Tab strip sits below the sticky app header on Tools pages. */
+.tools-app .tools-tabs-wrap {
+  top: 49px;
+  z-index: 14;
 }
 
 .tools-tabs-wrap {
@@ -5216,6 +5224,28 @@ a {
   box-shadow: var(--shadow-sm);
 }
 
+.tool-form-section {
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--surface-alt, var(--surface));
+}
+
+.tool-form-section:disabled {
+  opacity: 0.55;
+}
+
+.tool-form-section-legend {
+  padding: 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.tool-form-section .tool-field-row {
+  margin-bottom: 0;
+}
+
 .tool-field {
   display: flex;
   flex-direction: column;
@@ -5227,7 +5257,7 @@ a {
   flex: 0 0 auto;
 }
 
-/* Label and control on one row (e.g. "Min shared [input]"). */
+/* Label and control on one row (e.g. "Min Shared [input]"). */
 .tool-field-label-row {
   flex-direction: row;
   align-items: center;
@@ -5235,9 +5265,28 @@ a {
   margin-bottom: 0;
 }
 
+.tool-field.tool-field-label-row {
+  flex-direction: row;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.tool-field-username .anime-to-anime-endpoint-user-input {
+  flex: 1 1 12rem;
+  min-width: 0;
+  max-width: 280px;
+}
+
 .tool-field-label-row .tool-field-label {
   flex: 0 0 auto;
   white-space: nowrap;
+}
+
+/* Label row above a textarea: title left, option right. */
+.tool-field-label-header {
+  justify-content: space-between;
+  width: 100%;
+  margin-bottom: 6px;
 }
 
 .tool-field-grow {
@@ -5260,6 +5309,18 @@ a {
   flex-wrap: wrap;
   gap: 12px 20px;
   margin-bottom: 12px;
+}
+
+.tool-field-row-wrap {
+  align-items: center;
+}
+
+.tool-field-row-align-center {
+  align-items: center;
+}
+
+.tool-field-row-align-center .tool-field-label-row {
+  margin-bottom: 0;
 }
 
 .tool-checkbox {
@@ -5497,10 +5558,22 @@ a {
 
 .tool-season-columns {
   margin-top: 20px;
-  overflow-x: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
+}
+
+/* Horizontal scroll only — vertical overflow stays on the page so the
+   column header row can use position:sticky below the app chrome. */
+.tool-season-scroll {
+  overflow-x: auto;
+  overflow-y: visible;
+}
+
+.tool-season-header-row {
+  position: sticky;
+  top: var(--tools-season-sticky-top, 0);
+  z-index: 4;
 }
 
 .tool-season-header-row,
@@ -5515,6 +5588,7 @@ a {
   border-bottom: 1px solid var(--border-strong);
   background: var(--surface-2);
   font-size: 13px;
+  box-shadow: 0 1px 0 var(--border);
 }
 
 .tool-season-col-title {
@@ -5533,7 +5607,26 @@ a {
   min-height: 2.25rem;
 }
 
+.tool-season-cell-grid {
+  display: grid;
+  grid-template-columns: 2.75rem minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
 .tool-season-score {
   font-variant-numeric: tabular-nums;
   color: var(--text-muted);
+  text-align: right;
+  line-height: 1.35;
+}
+
+.tool-season-title {
+  text-align: left;
+  word-break: break-word;
+  line-height: 1.35;
+}
+
+.settings-tab-scroll--empty {
+  min-height: 2rem;
 }

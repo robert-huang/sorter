@@ -21,20 +21,10 @@ import {
   mergeAnilistLinkClass,
 } from './anilistMiddleClick';
 
-/**
- * Shared with the START screen's AniList tab: the last-imported handle is
- * remembered here so the A2A "random from user list" field prefills with
- * whatever the user last imported, anywhere in the app.
- */
-const ANILIST_USERNAME_LS_KEY = 'anilist:lastUsername';
-
-function readLastUsername(): string {
-  try {
-    return localStorage.getItem(ANILIST_USERNAME_LS_KEY) ?? '';
-  } catch {
-    return '';
-  }
-}
+import {
+  readLastAnilistUsername,
+  writeLastAnilistUsername,
+} from '../lib/importers/anilist/lastUsername';
 
 interface Props {
   label: string;
@@ -60,7 +50,7 @@ export function EndpointPicker({
   const [searchLoading, setSearchLoading] = useState(false);
   const [apiLoading, setApiLoading] = useState(false);
   const [anilistId, setAnilistId] = useState('');
-  const [username, setUsername] = useState(readLastUsername);
+  const [username, setUsername] = useState(readLastAnilistUsername);
   const [userListStatus, setUserListStatus] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -175,11 +165,7 @@ export function EndpointPicker({
       }
       // Normalise the field to AniList's stored casing and remember it.
       setUsername(result.user.name);
-      try {
-        localStorage.setItem(ANILIST_USERNAME_LS_KEY, result.user.name);
-      } catch {
-        // Best-effort prefill — ignore storage failures (private mode, quota).
-      }
+      writeLastAnilistUsername(result.user.name);
       if (!result.media) {
         onError(`No started or finished anime on ${result.user.name}’s list.`);
         return;

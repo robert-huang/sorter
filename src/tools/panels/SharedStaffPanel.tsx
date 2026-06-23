@@ -12,7 +12,7 @@ const LS_KEY = 'anime-tools-shared-staff-form';
 
 const DEFAULT_FORM: SharedStaffForm = {
   showText: '',
-  sortByPopularity: false,
+  sortByPopularity: true,
   ignoreRelated: false,
   diffMode: false,
   topMatchCount: 5,
@@ -129,6 +129,8 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
   }, [form]);
 
   const statusText = running ? progressLabel(progress) : null;
+  const showCount = parseShowInputs(form.showText).length;
+  const singleShowMode = showCount === 1;
 
   return (
     <section className="tool-panel">
@@ -148,7 +150,7 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
         }}
       >
         <label className="tool-field">
-          <span className="tool-field-label">Shows (one per line or comma-separated)</span>
+          <span className="tool-field-label">Shows (one per line)</span>
           <textarea
             className="tool-textarea csv-textarea"
             rows={3}
@@ -167,16 +169,7 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
               disabled={running}
               onChange={(e) => patchForm({ sortByPopularity: e.target.checked })}
             />
-            Match by popularity (not string match)
-          </label>
-          <label className="tool-checkbox">
-            <input
-              type="checkbox"
-              checked={form.ignoreRelated}
-              disabled={running}
-              onChange={(e) => patchForm({ ignoreRelated: e.target.checked })}
-            />
-            Ignore related shows (single-show mode)
+            Match by popularity
           </label>
           <label className="tool-checkbox">
             <input
@@ -185,26 +178,44 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
               disabled={running}
               onChange={(e) => patchForm({ diffMode: e.target.checked })}
             />
-            Diff (unique per show)
+            Differences Only
           </label>
         </div>
 
-        <label className="tool-field tool-field-inline">
-          <span className="tool-field-label">Top matches (single-show mode)</span>
-          <input
-            className="slot-search tool-input-narrow"
-            type="number"
-            min={1}
-            max={20}
-            disabled={running}
-            value={form.topMatchCount}
-            onChange={(e) =>
-              patchForm({
-                topMatchCount: Math.max(1, Number.parseInt(e.target.value, 10) || 5),
-              })
-            }
-          />
-        </label>
+        <fieldset
+          className="tool-form-section"
+          disabled={running || !singleShowMode}
+        >
+          <legend className="tool-form-section-legend">Single-show mode</legend>
+          <p className="tool-form-section-hint">
+            When exactly one show is entered, scan staff filmographies for similar anime.
+          </p>
+          <div className="tool-field-row">
+            <label className="tool-checkbox">
+              <input
+                type="checkbox"
+                checked={form.ignoreRelated}
+                onChange={(e) => patchForm({ ignoreRelated: e.target.checked })}
+              />
+              Ignore related shows
+            </label>
+            <label className="tool-field tool-field-inline tool-field-label-row">
+              <span className="tool-field-label">Top matches</span>
+              <input
+                className="slot-search tool-input-narrow"
+                type="number"
+                min={1}
+                max={20}
+                value={form.topMatchCount}
+                onChange={(e) =>
+                  patchForm({
+                    topMatchCount: Math.max(1, Number.parseInt(e.target.value, 10) || 5),
+                  })
+                }
+              />
+            </label>
+          </div>
+        </fieldset>
 
         <div className="tool-actions">
           <button

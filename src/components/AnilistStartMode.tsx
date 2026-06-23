@@ -36,6 +36,10 @@ import type {
   MediaRow,
 } from '../lib/importers/anilist/types';
 import { formatAnilistProgress } from './anilistProgressLabel';
+import {
+  readLastAnilistUsername,
+  writeLastAnilistUsername,
+} from '../lib/importers/anilist/lastUsername';
 
 /**
  * StartScreen "anilist" tab content. Owns the full import-and-pick
@@ -58,7 +62,6 @@ import { formatAnilistProgress } from './anilistProgressLabel';
  * a successful import so a typo never overwrites the last good value.
  */
 
-const ANILIST_USERNAME_LS_KEY = 'anilist:lastUsername';
 const ANILIST_FORMAT_IN_LABEL_LS_KEY = 'anilist:includeFormatInLabel';
 
 function readIncludeFormatInLabel(): boolean {
@@ -272,13 +275,7 @@ export function AnilistStartMode({
   onDraftActivity,
   dbSyncRevision,
 }: Props) {
-  const [username, setUsername] = useState<string>(() => {
-    try {
-      return localStorage.getItem(ANILIST_USERNAME_LS_KEY) ?? '';
-    } catch {
-      return '';
-    }
-  });
+  const [username, setUsername] = useState<string>(readLastAnilistUsername);
   const [type, setType] = useState<AnilistMediaType>('ANIME');
   const [includeFormatInLabel, setIncludeFormatInLabel] = useState<boolean>(
     readIncludeFormatInLabel,
@@ -761,11 +758,7 @@ export function AnilistStartMode({
    * prefill normalises case across sessions ("alice" → "Alice").
    */
   const rememberUsername = useCallback((name: string) => {
-    try {
-      localStorage.setItem(ANILIST_USERNAME_LS_KEY, name);
-    } catch {
-      /* ignore */
-    }
+    writeLastAnilistUsername(name);
   }, []);
 
   const onRunImport = useCallback(async () => {

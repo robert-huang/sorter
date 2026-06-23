@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ToolPanelProps } from '../toolTypes';
 import { runFavouritesAnalysis, type FavouritesRunProgress } from './favouritesApi';
 import { type FavouritesForm, type FavouritesResult, type VaRankRow } from './favouritesLogic';
+import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
 
 const LS_KEY = 'anime-tools-favourites-form';
 
@@ -14,11 +15,16 @@ function loadForm(): FavouritesForm {
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) {
-      return DEFAULT_FORM;
+      return { ...DEFAULT_FORM, username: withLastAnilistUsername('') };
     }
-    return { ...DEFAULT_FORM, ...(JSON.parse(raw) as Partial<FavouritesForm>) };
+    const parsed = JSON.parse(raw) as Partial<FavouritesForm>;
+    return {
+      ...DEFAULT_FORM,
+      ...parsed,
+      username: withLastAnilistUsername(parsed.username ?? ''),
+    };
   } catch {
-    return DEFAULT_FORM;
+    return { ...DEFAULT_FORM, username: withLastAnilistUsername('') };
   }
 }
 
@@ -185,18 +191,17 @@ export function FavouritesPanel({ onOpenStaff }: ToolPanelProps) {
           }
         }}
       >
-        <div className="tool-field-row">
-          <label className="tool-field tool-field-grow">
-            <span className="tool-field-label">AniList username</span>
-            <input
-              className="slot-search"
-              type="text"
-              disabled={running}
-              value={form.username}
-              onChange={(e) => patchForm({ username: e.target.value })}
-            />
-          </label>
-        </div>
+        <label className="tool-field tool-field-label-row tool-field-username">
+          <span className="tool-field-label">AniList username</span>
+          <input
+            className="slot-search anime-to-anime-endpoint-user-input"
+            type="text"
+            disabled={running}
+            placeholder="AL Username"
+            value={form.username}
+            onChange={(e) => patchForm({ username: e.target.value })}
+          />
+        </label>
 
         <label className="tool-checkbox">
           <input

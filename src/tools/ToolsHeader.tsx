@@ -1,15 +1,26 @@
 import { AppNavFab } from '../components/AppNavFab';
 import { ANIME_TO_ANIME_HREF } from '../lib/appRoutes';
+import type { SourceDbSyncControls } from '../hooks/useSourceDbSync';
 import type { AnimeToAnimeTheme } from '../animeToAnime/theme';
+import { ToolsSettingsMenu } from './ToolsSettingsMenu';
 
 interface Props {
   theme: AnimeToAnimeTheme;
   onToggleTheme: () => void;
+  historyBackGuard: boolean;
+  onToggleHistoryBackGuard: () => void;
+  dbSync: SourceDbSyncControls;
 }
 
 /** Top toolbar for the Tools app. A2A is the nav hub, so Tools carries a
  *  single `← A2A` cross-link back (Sorter↔Tools is a 2-hop trip through A2A). */
-export function ToolsHeader({ theme, onToggleTheme }: Props) {
+export function ToolsHeader({
+  theme,
+  onToggleTheme,
+  historyBackGuard,
+  onToggleHistoryBackGuard,
+  dbSync,
+}: Props) {
   const themeBtnTitle =
     theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
   const themeBtnGlyph = theme === 'dark' ? '☾' : '☀';
@@ -36,6 +47,11 @@ export function ToolsHeader({ theme, onToggleTheme }: Props) {
         >
           {themeBtnGlyph}
         </button>
+        <ToolsSettingsMenu
+          historyBackGuard={historyBackGuard}
+          onToggleHistoryBackGuard={onToggleHistoryBackGuard}
+          dbSync={dbSync}
+        />
       </div>
     </header>
   );

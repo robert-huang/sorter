@@ -1,6 +1,8 @@
 import { useCallback, useMemo, useState } from 'react';
 import { AnilistDetailModal } from '../components/AnilistDetailModal';
 import { StaffDetailModal } from '../components/StaffDetailModal';
+import { useSourceDbSync } from '../hooks/useSourceDbSync';
+import { readSettings, updateSettings } from '../lib/storage';
 import {
   applyAnimeToAnimeTheme,
   loadAnimeToAnimeTheme,
@@ -39,8 +41,12 @@ interface StaffTarget {
 }
 
 export function ToolsApp() {
+  const dbSync = useSourceDbSync();
   const [theme, setTheme] = useState<AnimeToAnimeTheme>(() =>
     loadAnimeToAnimeTheme(),
+  );
+  const [historyBackGuard, setHistoryBackGuard] = useState(
+    () => !!readSettings().historyBackGuard,
   );
   const [activeTool, setActiveTool] = useState<ToolId>(() => loadActiveTool());
   const [mediaTarget, setMediaTarget] = useState<MediaTarget | null>(null);
@@ -68,6 +74,14 @@ export function ToolsApp() {
     setStaffTarget({ staffId, fallbackName });
   }, []);
 
+  const onToggleHistoryBackGuard = useCallback(() => {
+    setHistoryBackGuard((prev) => {
+      const next = !prev;
+      updateSettings({ historyBackGuard: next });
+      return next;
+    });
+  }, []);
+
   const panelProps: ToolPanelProps = useMemo(
     () => ({ onOpenMedia, onOpenStaff }),
     [onOpenMedia, onOpenStaff],
@@ -87,7 +101,13 @@ export function ToolsApp() {
 
   return (
     <div className="anime-to-anime-app tools-app">
-      <ToolsHeader theme={theme} onToggleTheme={onToggleTheme} />
+      <ToolsHeader
+        theme={theme}
+        onToggleTheme={onToggleTheme}
+        historyBackGuard={historyBackGuard}
+        onToggleHistoryBackGuard={onToggleHistoryBackGuard}
+        dbSync={dbSync}
+      />
       {apiWaitBanner}
       <ToolTabs tabs={TOOL_TABS} activeTab={activeTool} onTabChange={onTabChange} />
 

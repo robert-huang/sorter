@@ -170,8 +170,19 @@ export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
           }
         }}
       >
-        <label className="tool-field">
-          <span className="tool-field-label">Staff (one per line or comma-separated)</span>
+        <div className="tool-field">
+          <div className="tool-field-label-row tool-field-label-header">
+            <span className="tool-field-label">Staff (one per line)</span>
+            <label className="tool-checkbox">
+              <input
+                type="checkbox"
+                checked={form.useIds}
+                disabled={running}
+                onChange={(e) => patchForm({ useIds: e.target.checked })}
+              />
+              Staff IDs
+            </label>
+          </div>
           <textarea
             className="tool-textarea csv-textarea"
             rows={4}
@@ -180,18 +191,9 @@ export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
             onChange={(e) => patchForm({ staffText: e.target.value })}
             placeholder={'e.g. Kana Hanazawa\nYuki Kaji'}
           />
-        </label>
+        </div>
 
-        <div className="tool-field-row">
-          <label className="tool-checkbox">
-            <input
-              type="checkbox"
-              checked={form.useIds}
-              disabled={running}
-              onChange={(e) => patchForm({ useIds: e.target.checked })}
-            />
-            Input is AniList staff IDs
-          </label>
+        <div className="tool-field-row tool-field-row-wrap">
           <div className="tool-field tool-field-label-row">
             <span className="tool-field-label" id="shared-credits-role-label">
               Role type
@@ -219,9 +221,6 @@ export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
               </button>
             </div>
           </div>
-        </div>
-
-        <div className="tool-field-row">
           <label className="tool-checkbox">
             <input
               type="checkbox"
@@ -251,9 +250,9 @@ export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
           </label>
         </div>
 
-        <div className="tool-field-row">
+        <div className="tool-field-row tool-field-row-align-center">
           <label className="tool-field tool-field-inline tool-field-label-row">
-            <span className="tool-field-label">Min shared</span>
+            <span className="tool-field-label">Min Shared</span>
             <input
               className="slot-search tool-input-narrow"
               type="number"
@@ -271,25 +270,25 @@ export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
             />
           </label>
           <label className="tool-field tool-field-grow tool-field-label-row">
-            <span className="tool-field-label">Include only on list</span>
+            <span className="tool-field-label">List Only</span>
             <input
-              className="slot-search"
+              className="slot-search anime-to-anime-endpoint-user-input"
               type="text"
               disabled={running}
               value={form.usernameInclude}
+              placeholder="AL Username"
               onChange={(e) => patchForm({ usernameInclude: e.target.value })}
-              placeholder="username"
             />
           </label>
           <label className="tool-field tool-field-grow tool-field-label-row">
-            <span className="tool-field-label">Exclude list</span>
+            <span className="tool-field-label">Exclude List</span>
             <input
-              className="slot-search"
+              className="slot-search anime-to-anime-endpoint-user-input"
               type="text"
               disabled={running}
               value={form.usernameExclude}
+              placeholder="AL Username"
               onChange={(e) => patchForm({ usernameExclude: e.target.value })}
-              placeholder="username"
             />
           </label>
         </div>

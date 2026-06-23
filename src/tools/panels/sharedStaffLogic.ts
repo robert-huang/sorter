@@ -1,4 +1,5 @@
 import { dictDiffs, dictIntersection } from '../../lib/importers/anilist/toolsDictUtils';
+import { parseLinesOnePerLine } from '../parseToolLines';
 import {
   anyTrimmedRoleInSet,
   MUSIC_ROLES,
@@ -74,10 +75,7 @@ const SECTIONS = [
 ];
 
 export function parseShowInputs(text: string): string[] {
-  return text
-    .split(/[\n,]+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
+  return parseLinesOnePerLine(text);
 }
 
 export function normalizeStaffName(name: string): string {

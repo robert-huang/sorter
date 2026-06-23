@@ -19,9 +19,7 @@ export function describeNonPersistentStorageBanner(options: {
   const { reason, storageHint, context } = options;
 
   if (reason === 'other_tab') {
-    return context === 'a2a'
-      ? 'Another Sorter tab has the database open. Close it and reload this page to use your AniList cache.'
-      : 'Another tab of this app has the database open. Close other Sorter / Anime to Anime tabs and reload to use your saved cache.';
+      return 'Another tab of this app has the database open. Close other Sorter / Anime to Anime / Tools tabs and reload to use your saved cache.';
   }
 
   if (context === 'a2a') {
@@ -35,7 +33,7 @@ export function describeNonPersistentStorageBanner(options: {
     'This tab is using non-persistent storage (another tab may hold the database, or OPFS is unavailable here). ' +
     'Changes may not persist across reloads.' +
     (storageHint ? ` ${storageHint}` : '') +
-    ' Close other Sorter / Anime to Anime tabs and reload, or pull from Drive (gear → Source databases → Pull) to load data for this session.'
+    ' Close other Sorter / Anime to Anime / Tools tabs and reload, or pull from Drive (gear → Source databases → Pull) to load data for this session.'
   );
 }
 
