@@ -14,7 +14,7 @@ export function useToolsChromeStickyTop(): void {
 
     function measure(): void {
       const header = root!.querySelector('.anime-to-anime-header');
-      const banner = root!.querySelector('.tools-wait-banner');
+      const banner = root!.querySelector('.app-banner-stack');
       const tabs = root!.querySelector('.tools-tabs-wrap');
       let headerHeight = 0;
       let tabsTop = 0;
@@ -40,7 +40,7 @@ export function useToolsChromeStickyTop(): void {
 
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
     const header = root.querySelector('.anime-to-anime-header');
-    const banner = root.querySelector('.tools-wait-banner');
+    const banner = root.querySelector('.app-banner-stack');
     const tabs = root.querySelector('.tools-tabs-wrap');
     for (const el of [header, banner, tabs]) {
       if (el && ro) {

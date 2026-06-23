@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { CloudBackupSection } from '../components/CloudBackupSection';
+import { AnilistDisplayPreferencesPanel } from '../components/AnilistDisplayPreferencesPanel';
 import { HistoryBackGuardSetting } from '../components/HistoryBackGuardSetting';
 import { SettingsGitHubLink } from '../components/SettingsGitHubLink';
 import { SourceDatabasesSection } from '../components/sourceDatabasesSection';
@@ -104,7 +105,9 @@ export function ToolsSettingsMenu({
 
           <div className="settings-tab-body" role="tabpanel">
             {tab === 'settings' && (
-              <div className="settings-tab-scroll settings-tab-scroll--empty" />
+              <div className="settings-tab-scroll">
+                <AnilistDisplayPreferencesPanel standalone />
+              </div>
             )}
 
             {tab === 'database' && (

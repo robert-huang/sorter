@@ -3,6 +3,7 @@ import {
   dictDiffs,
   dictIntersection,
 } from '../../lib/importers/anilist/toolsDictUtils';
+import { pickMediaTitle as pickMediaTitleWithPrefs } from '../../lib/importers/anilist/mediaDisplayLabel';
 import { parseLinesOnePerLine } from '../parseToolLines';
 
 export type StaffRoleMode = 'voice' | 'production';
@@ -66,8 +67,14 @@ export function formatStartDateKey(date: StartDateParts): string {
 export function pickMediaTitle(title: {
   english?: string | null;
   romaji?: string | null;
+  native?: string | null;
 }): string {
-  return title.english || title.romaji || 'Untitled';
+  return pickMediaTitleWithPrefs({
+    id: 0,
+    title_english: title.english ?? null,
+    title_romaji: title.romaji ?? null,
+    title_native: title.native ?? null,
+  });
 }
 
 export function filterMainRoles(map: StaffShowMap): StaffShowMap {

@@ -792,6 +792,15 @@ a {
   min-width: 34px;
 }
 
+.settings-anilist-display-prefs--standalone {
+  margin-top: 0;
+  padding-left: 0;
+}
+
+.settings-tab-scroll > .settings-anilist-display-prefs-title {
+  padding-top: 0;
+}
+
 /* Extra breathing room before the global "open the Start tab" hint so
    it reads as a footer, separate from the per-source rows above. */
 .settings-source-refresh-hint {

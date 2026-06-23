@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AnilistDetailModal } from '../components/AnilistDetailModal';
+import { AppBannerStack } from '../components/AppBannerStack';
 import { StaffDetailModal } from '../components/StaffDetailModal';
+import { useDbNonPersistentBanner } from '../hooks/useDbNonPersistentBanner';
 import { useSourceDbSync } from '../hooks/useSourceDbSync';
+import { describeNonPersistentStorageBanner } from '../lib/db/opfs';
 import { readSettings, updateSettings } from '../lib/storage';
 import {
   applyAnimeToAnimeTheme,
@@ -45,6 +48,7 @@ interface StaffTarget {
 
 export function ToolsApp() {
   const dbSync = useSourceDbSync();
+  const dbNonPersistentBanner = useDbNonPersistentBanner();
   useToolsChromeStickyTop();
   const [theme, setTheme] = useState<AnimeToAnimeTheme>(() =>
     loadAnimeToAnimeTheme(),
@@ -112,7 +116,7 @@ export function ToolsApp() {
   const apiWaitBanner =
     apiWait &&
     apiWaitSecondsLeft !== null && (
-      <div className="tools-wait-banner app-banner warn">
+      <div className="app-banner warn">
         <span>
           AniList rate limit — retrying in {apiWaitSecondsLeft}s (attempt {apiWait.attempt})
         </span>
@@ -128,7 +132,35 @@ export function ToolsApp() {
         onToggleHistoryBackGuard={onToggleHistoryBackGuard}
         dbSync={dbSync}
       />
-      {apiWaitBanner}
+      <AppBannerStack>
+        {dbNonPersistentBanner.show && (
+          <div className="app-banner warn">
+            <span>
+              {describeNonPersistentStorageBanner({
+                reason: dbNonPersistentBanner.reason,
+                context: 'sorter',
+              })}
+              {dbNonPersistentBanner.reason === 'other_tab' && (
+                <>
+                  {' '}
+                  Pull from Drive (gear &rarr; Source databases &rarr; Pull) to load data
+                  for this session without closing the other tab.
+                </>
+              )}
+            </span>
+            <button
+              type="button"
+              className="banner-dismiss"
+              onClick={dbNonPersistentBanner.dismiss}
+              aria-label="Dismiss non-persistent storage warning"
+              title="Dismiss"
+            >
+              &times;
+            </button>
+          </div>
+        )}
+        {apiWaitBanner}
+      </AppBannerStack>
       <ToolTabs tabs={TOOL_TABS} activeTab={activeTool} onTabChange={onTabChange} />
 
       <main className="tools-main">

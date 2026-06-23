@@ -11,6 +11,8 @@ import {
 } from './seasonalScoresLogic';
 import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
 
+const LS_KEY = 'anime-tools-seasonal-scores-form';
+/** @deprecated migrated into {@link LS_KEY} */
 const LS_SEASON_TEXT_KEY = 'anime-tools-seasonal-scores-season-text';
 
 const DEFAULT_FORM: SeasonalScoresForm = {
@@ -20,28 +22,45 @@ const DEFAULT_FORM: SeasonalScoresForm = {
   airingNotesOnly: false,
 };
 
-function loadSeasonText(): string {
+type PersistedSeasonalForm = Pick<
+  SeasonalScoresForm,
+  'seasonText' | 'skipEmpty' | 'airingNotesOnly'
+>;
+
+function loadForm(): SeasonalScoresForm {
   try {
-    return localStorage.getItem(LS_SEASON_TEXT_KEY) ?? '';
+    const raw = localStorage.getItem(LS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<PersistedSeasonalForm>;
+      return {
+        ...DEFAULT_FORM,
+        seasonText: parsed.seasonText ?? '',
+        skipEmpty: parsed.skipEmpty ?? false,
+        airingNotesOnly: parsed.airingNotesOnly ?? false,
+        username: withLastAnilistUsername(''),
+      };
+    }
+    return {
+      ...DEFAULT_FORM,
+      username: withLastAnilistUsername(''),
+      seasonText: localStorage.getItem(LS_SEASON_TEXT_KEY) ?? '',
+    };
   } catch {
-    return '';
+    return { ...DEFAULT_FORM, username: withLastAnilistUsername('') };
   }
 }
 
-function saveSeasonText(seasonText: string): void {
+function saveForm(form: SeasonalScoresForm): void {
   try {
-    localStorage.setItem(LS_SEASON_TEXT_KEY, seasonText);
+    const persisted: PersistedSeasonalForm = {
+      seasonText: form.seasonText,
+      skipEmpty: form.skipEmpty,
+      airingNotesOnly: form.airingNotesOnly,
+    };
+    localStorage.setItem(LS_KEY, JSON.stringify(persisted));
   } catch {
     /* ignore */
   }
-}
-
-function loadForm(): SeasonalScoresForm {
-  return {
-    ...DEFAULT_FORM,
-    username: withLastAnilistUsername(''),
-    seasonText: loadSeasonText(),
-  };
 }
 
 function seasonGridStyle(columnCount: number): { gridTemplateColumns: string } {
@@ -149,8 +168,8 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    saveSeasonText(form.seasonText);
-  }, [form.seasonText]);
+    saveForm(form);
+  }, [form]);
 
   const patchForm = useCallback((patch: Partial<SeasonalScoresForm>) => {
     setError(null);
