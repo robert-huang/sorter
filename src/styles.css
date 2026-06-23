@@ -5179,3 +5179,312 @@ a {
   max-width: 240px;
   width: 100%;
 }
+
+/* ── Anime Tools ─────────────────────────────────────────────────────── */
+
+.tools-app {
+  min-height: 100vh;
+  background: var(--bg);
+}
+
+.tools-tabs-wrap {
+  margin-top: 12px;
+}
+
+.tools-wait-banner {
+  margin: 0;
+}
+
+.tools-main {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 16px 16px 48px;
+}
+
+.tool-panel-lead {
+  margin: 0 0 16px;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.tool-form-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  box-shadow: var(--shadow-sm);
+}
+
+.tool-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.tool-field-inline {
+  flex: 0 0 auto;
+}
+
+.tool-field-grow {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.tool-field-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.tool-field-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  margin-bottom: 12px;
+}
+
+.tool-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tool-input-narrow {
+  width: 5rem;
+}
+
+.tool-textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 5rem;
+}
+
+.tool-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.tool-status {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.tool-error {
+  margin: 12px 0 0;
+  color: var(--danger);
+  font-size: 13px;
+}
+
+.tool-empty {
+  margin: 16px 0 0;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.tool-results {
+  margin-top: 20px;
+}
+
+.tool-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.tool-result-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.tool-result-table th,
+.tool-result-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.tool-result-table th {
+  background: var(--surface-2);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.tool-result-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.tool-link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.tool-link-btn:hover {
+  color: var(--accent-hover);
+}
+
+.tool-diff-block + .tool-diff-block {
+  margin-top: 20px;
+}
+
+.tool-diff-title {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.tool-diff-list {
+  margin: 0;
+  padding-left: 1.25rem;
+  font-size: 14px;
+}
+
+.tool-diff-roles {
+  color: var(--text-muted);
+}
+
+.tool-section-title {
+  margin: 0;
+  padding: 12px 12px 0;
+  font-size: 15px;
+}
+
+.tool-single-show-report {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+}
+
+.tool-rank-list {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tool-rank-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+  padding: 6px 0;
+  font-size: 14px;
+}
+
+.tool-rank-count {
+  display: inline-block;
+  min-width: 2ch;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.tool-rank-detail {
+  flex: 1 1 100%;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.tool-name-list,
+.tool-series-row {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.tool-summary {
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.favourites-results details {
+  margin-top: 12px;
+  padding: 12px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.favourites-results details > summary {
+  cursor: pointer;
+  list-style-position: outside;
+}
+
+.favourites-results details > summary::-webkit-details-marker {
+  color: var(--text-muted);
+}
+
+.tool-empty-inline {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-style: italic;
+}
+
+.tool-category-block {
+  margin-top: 16px;
+}
+
+.tool-category-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.tool-season-columns {
+  margin-top: 20px;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.tool-season-header-row,
+.tool-season-row {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(180px, 1fr);
+}
+
+.tool-season-col-head {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  font-size: 13px;
+}
+
+.tool-season-col-title {
+  font-weight: 600;
+}
+
+.tool-season-col-avg {
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.tool-season-cell {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  min-height: 2.25rem;
+}
+
+.tool-season-score {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}

@@ -9,6 +9,7 @@ import {
 } from '../animeToAnime/theme';
 import { ToolsHeader } from './ToolsHeader';
 import { ToolTabs, type ToolTab } from './ToolTabs';
+import { useAnilistApiWait } from './useAnilistApiWait';
 import {
   loadActiveTool,
   saveActiveTool,
@@ -72,9 +73,22 @@ export function ToolsApp() {
     [onOpenMedia, onOpenStaff],
   );
 
+  const { apiWait, apiWaitSecondsLeft } = useAnilistApiWait();
+
+  const apiWaitBanner =
+    apiWait &&
+    apiWaitSecondsLeft !== null && (
+      <div className="tools-wait-banner app-banner warn">
+        <span>
+          AniList rate limit — retrying in {apiWaitSecondsLeft}s (attempt {apiWait.attempt})
+        </span>
+      </div>
+    );
+
   return (
     <div className="anime-to-anime-app tools-app">
       <ToolsHeader theme={theme} onToggleTheme={onToggleTheme} />
+      {apiWaitBanner}
       <ToolTabs tabs={TOOL_TABS} activeTab={activeTool} onTabChange={onTabChange} />
 
       <main className="tools-main">

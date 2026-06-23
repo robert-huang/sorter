@@ -737,3 +737,98 @@ query ToolsMediaRelations($mediaId: Int!) {
   }
 }
 `.trim();
+
+/** User anime list ids (non-planning) for Favourites consumed-media filter. */
+export const TOOLS_USER_CONSUMED_MEDIA_QUERY = `
+query ToolsUserConsumedMedia($userName: String, $page: Int!, $perPage: Int!) {
+  Page(page: $page, perPage: $perPage) {
+    pageInfo { hasNextPage currentPage }
+    mediaList(
+      userName: $userName
+      type: ANIME
+      status_not: PLANNING
+      sort: [MEDIA_ID]
+    ) {
+      mediaId
+    }
+  }
+}
+`.trim();
+
+/** Favourite characters with birthday for Favourites tool (`character_vas.py`). */
+export const TOOLS_FAVOURITE_CHARACTERS_QUERY = `
+query ToolsFavouriteCharacters($username: String!, $page: Int!, $perPage: Int!) {
+  User(name: $username) {
+    favourites {
+      characters(page: $page, perPage: $perPage) {
+        pageInfo { hasNextPage currentPage }
+        nodes {
+          id
+          name { full native }
+          gender
+          favourites
+          dateOfBirth { year month day }
+        }
+      }
+    }
+  }
+}
+`.trim();
+
+/** Favourite staff (VAs) for Favourites tool (`character_vas.py`). */
+export const TOOLS_FAVOURITE_STAFF_QUERY = `
+query ToolsFavouriteStaff($username: String!, $page: Int!, $perPage: Int!) {
+  User(name: $username) {
+    favourites {
+      staff(page: $page, perPage: $perPage) {
+        pageInfo { hasNextPage currentPage }
+        nodes {
+          id
+          name { full native }
+          gender
+          favourites
+        }
+      }
+    }
+  }
+}
+`.trim();
+
+/** Character media edges with JP voice actors (`character_vas.py`). */
+export const TOOLS_CHARACTER_VOICE_MEDIA_QUERY = `
+query ToolsCharacterVoiceMedia($id: Int!, $page: Int!, $perPage: Int!) {
+  Character(id: $id) {
+    media(page: $page, perPage: $perPage) {
+      pageInfo { hasNextPage currentPage }
+      edges {
+        node {
+          id
+          title { romaji native }
+          type
+          format
+        }
+        characterRole
+        voiceActors(language: JAPANESE, sort: RELEVANCE) {
+          id
+          name { full native }
+        }
+      }
+    }
+  }
+}
+`.trim();
+
+/** Characters voiced by a staff member on consumed media (`character_vas.py`). */
+export const TOOLS_VA_CHARACTER_MEDIA_QUERY = `
+query ToolsVaCharacterMedia($id: Int!, $page: Int!, $perPage: Int!) {
+  Staff(id: $id) {
+    characterMedia(page: $page, perPage: $perPage) {
+      pageInfo { hasNextPage currentPage }
+      edges {
+        node { id }
+        characters { id }
+      }
+    }
+  }
+}
+`.trim();
