@@ -34,6 +34,9 @@ function makeCharacter(id: number, name: string) {
     age: null,
     gender: null,
     favourites: null,
+    birth_year: null,
+    birth_month: null,
+    birth_day: null,
     fetched_at: 0,
     updated_at: 0,
   };
