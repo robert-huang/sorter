@@ -5,6 +5,10 @@
 import { formatCharacterCastCredit } from './castRoleDisplay';
 import type { AnilistDbExecutor, SqlBindable } from './context';
 import { compareMediaByReleaseDateDesc } from './mediaSort';
+import {
+  compareProductionStaffByRolePriority,
+  sortProductionRolesByPriority,
+} from './productionRolePriority';
 import { filterProductionStaffRows } from './staffRoleFilter';
 import type { CharacterRow, MediaRow, StaffRow } from './types';
 
@@ -171,10 +175,7 @@ function groupProductionCreditsByStaff(
   rows: readonly { staff: StaffRow; role: string; sortOrder: number }[],
 ): ProductionCreditRow[] {
   const order: number[] = [];
-  const byId = new Map<
-    number,
-    { staff: StaffRow; roles: string[]; minSortOrder: number }
-  >();
+  const byId = new Map<number, { staff: StaffRow; roles: string[]; minSortOrder: number }>();
 
   for (const row of rows) {
     let entry = byId.get(row.staff.id);
@@ -191,17 +192,20 @@ function groupProductionCreditsByStaff(
   }
 
   order.sort((a, b) => {
-    const ao = byId.get(a)!.minSortOrder;
-    const bo = byId.get(b)!.minSortOrder;
-    if (ao !== bo) {
-      return ao - bo;
-    }
-    return a - b;
+    const ae = byId.get(a)!;
+    const be = byId.get(b)!;
+    return compareProductionStaffByRolePriority(
+      { roles: ae.roles, minSortOrder: ae.minSortOrder, staffId: a },
+      { roles: be.roles, minSortOrder: be.minSortOrder, staffId: b },
+    );
   });
 
   return order.map((id) => {
     const entry = byId.get(id)!;
-    return { staff: entry.staff, roles: entry.roles };
+    return {
+      staff: entry.staff,
+      roles: sortProductionRolesByPriority(entry.roles),
+    };
   });
 }
 

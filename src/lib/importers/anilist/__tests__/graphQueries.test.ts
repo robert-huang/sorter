@@ -315,7 +315,7 @@ describe('graphQueries cache pick', () => {
     expect(rows[0].roles).toEqual(['Main Hero (MAIN)', 'Sidekick (SUPPORTING)']);
   });
 
-  it('getProductionCreditsAtMedia sorts staff by AniList sort_order not name', async () => {
+  it('getProductionCreditsAtMedia sorts staff by role priority, not name', async () => {
     seedMedia(sqlite, 100, 'ANIME');
     seedStaff(sqlite, 1, 'Zeta Staff');
     seedStaff(sqlite, 2, 'Alpha Staff');
@@ -329,7 +329,28 @@ describe('graphQueries cache pick', () => {
     expect(rows.map((r) => r.staff.name_full)).toEqual(['Zeta Staff', 'Alpha Staff']);
   });
 
-  it('getProductionCreditsAtMedia groups roles in sort_order', async () => {
+  it('getProductionCreditsAtMedia ranks staff by best role when one has multiple credits', async () => {
+    seedMedia(sqlite, 100, 'ANIME');
+    seedStaff(sqlite, 1, 'Music Only');
+    seedStaff(sqlite, 2, 'Director Plus');
+    sqlite.exec(
+      `INSERT INTO media_staff (media_id, staff_id, role, sort_order)
+         VALUES (?, ?, ?, ?), (?, ?, ?, ?), (?, ?, ?, ?)`,
+      {
+        bind: [
+          100, 1, 'Music', 0,
+          100, 2, 'Music', 0,
+          100, 2, 'Director', 5,
+        ],
+      },
+    );
+
+    const rows = await getProductionCreditsAtMedia(adapter, 100, 'all');
+    expect(rows.map((r) => r.staff.name_full)).toEqual(['Director Plus', 'Music Only']);
+    expect(rows[0].roles).toEqual(['Director', 'Music']);
+  });
+
+  it('getProductionCreditsAtMedia groups roles in priority order', async () => {
     seedMedia(sqlite, 100, 'ANIME');
     seedStaff(sqlite, 1, 'Person');
     sqlite.exec(

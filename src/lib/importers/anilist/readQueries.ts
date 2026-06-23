@@ -25,6 +25,7 @@ import {
   pickPersonName,
 } from './personDisplayLabel';
 import type { AnilistDbExecutor, SqlBindable } from './context';
+import { PRODUCTION_CREDITS_ORDER_BY } from './graphQueries';
 import {
   lastFavouritesRefreshKey,
   lastFullRefreshKey,
@@ -347,7 +348,7 @@ export async function getMediaDetail(
       FROM media_staff ms
       JOIN staff st ON st.id = ms.staff_id
       WHERE ms.media_id = ?
-      ORDER BY ms.sort_order ASC
+      ORDER BY ${PRODUCTION_CREDITS_ORDER_BY}
     `,
     [mediaId],
   );
