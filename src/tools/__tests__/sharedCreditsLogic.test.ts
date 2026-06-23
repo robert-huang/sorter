@@ -46,7 +46,47 @@ describe('sharedCreditsLogic', () => {
       return;
     }
     expect(result.rows[0]?.title).toBe('Show A');
-    expect(result.rows[0]?.cells).toEqual(['Alice (MAIN)', 'Carol (MAIN)']);
+    expect(result.rows[0]?.cells).toEqual(['Alice (MAIN)', '']);
+    expect(result.rows[1]?.cells).toEqual(['', 'Carol (MAIN)']);
+  });
+
+  it('buildSharedCreditsResult aligns matching roles across staff columns', () => {
+    const multiRoleA = {
+      '1': {
+        title: 'Show A',
+        roles: ['Alice (MAIN)', 'Bob (SUPPORTING)'],
+        startDate: '20200101',
+      },
+    };
+    const multiRoleB = {
+      '1': {
+        title: 'Show A',
+        roles: ['Bob (SUPPORTING)'],
+        startDate: '20200101',
+      },
+    };
+    const result = buildSharedCreditsResult(
+      [10, 20],
+      { 10: 'VA A', 20: 'VA B' },
+      [multiRoleA, multiRoleB],
+      {
+        minMatches: null,
+        mainRoleOnly: false,
+        diffMode: false,
+        oldestFirst: false,
+      },
+      null,
+      null,
+    );
+
+    expect(result.kind).toBe('table');
+    if (result.kind !== 'table') {
+      return;
+    }
+    expect(result.rows.map((row) => row.cells)).toEqual([
+      ['Alice (MAIN)', ''],
+      ['Bob (SUPPORTING)', 'Bob (SUPPORTING)'],
+    ]);
   });
 
   it('buildSharedCreditsResult supports diff mode', () => {

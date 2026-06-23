@@ -109,14 +109,15 @@ export async function fetchShowProductionStaff(
       });
 
       const map: CreditedEntityMap = {};
-      for (const edge of edges) {
+      edges.forEach((edge, edgeIndex) => {
         mergeRoleIntoMap(
           map,
           edge.node.id,
           edge.node.name.full,
           edge.role ?? '(role unavailable)',
+          edgeIndex,
         );
-      }
+      });
       return map;
     },
   );
@@ -166,7 +167,7 @@ export async function fetchShowVoiceActorsJp(
       });
 
       const map: CreditedEntityMap = {};
-      for (const edge of edges) {
+      edges.forEach((edge, edgeIndex) => {
         for (const vaRole of edge.voiceActorRoles ?? []) {
           let roleDescr = `${edge.role ?? 'UNKNOWN'} ${edge.node.name.full}`;
           if (vaRole.roleNotes) {
@@ -177,9 +178,10 @@ export async function fetchShowVoiceActorsJp(
             vaRole.voiceActor.id,
             vaRole.voiceActor.name.full,
             roleDescr,
+            edgeIndex,
           );
         }
-      }
+      });
       return map;
     },
   );

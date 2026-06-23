@@ -1,4 +1,8 @@
-import { dictDiffs, dictIntersection } from '../../lib/importers/anilist/toolsDictUtils';
+import {
+  alignRoleCellsAcrossShows,
+  dictDiffs,
+  dictIntersection,
+} from '../../lib/importers/anilist/toolsDictUtils';
 import { parseLinesOnePerLine } from '../parseToolLines';
 import {
   anyTrimmedRoleInSet,
@@ -11,6 +15,8 @@ import {
 export type CreditedEntity = {
   name: string;
   roles: string[];
+  /** First-seen API edge index (character or staff) for relevance ordering. */
+  relevanceOrder?: number;
 };
 
 /** id string → entity with accumulated roles. */
@@ -87,12 +93,47 @@ export function mergeRoleIntoMap(
   id: number,
   name: string,
   role: string,
+  relevanceOrder?: number,
 ): void {
   const key = String(id);
   if (!map[key]) {
-    map[key] = { name: normalizeStaffName(name), roles: [] };
+    map[key] = {
+      name: normalizeStaffName(name),
+      roles: [],
+      relevanceOrder,
+    };
   }
   map[key].roles.push(role);
+}
+
+function compareByRelevanceOrder(
+  maps: CreditedEntityMap[],
+  idA: string,
+  idB: string,
+): number {
+  const orderA = maps[0]?.[idA]?.relevanceOrder ?? Number.MAX_SAFE_INTEGER;
+  const orderB = maps[0]?.[idB]?.relevanceOrder ?? Number.MAX_SAFE_INTEGER;
+  if (orderA !== orderB) {
+    return orderA - orderB;
+  }
+  return Number(idA) - Number(idB);
+}
+
+function entityRowsForCompare(
+  maps: CreditedEntityMap[],
+  id: string,
+  kind: 'studio' | 'staff' | 'va',
+): SharedStaffSectionRow[] {
+  const roleLists = maps.map((m) => m[id]?.roles ?? []);
+  const aligned = alignRoleCellsAcrossShows(roleLists);
+  const displayName = normalizeStaffName(maps[0]?.[id]?.name ?? id);
+
+  return aligned.map((cells, rowIdx) => ({
+    entityId: Number(id),
+    name: rowIdx === 0 ? displayName : '',
+    kind,
+    cells,
+  }));
 }
 
 function entityMapsForSection(shows: ShowStaffBundle[], key: keyof ShowStaffBundle): CreditedEntityMap[] {
@@ -149,22 +190,18 @@ export function buildCompareSections(
       continue;
     }
 
-    const commonIds = dictIntersection(maps);
+    let commonIds = dictIntersection(maps);
     if (commonIds.length === 0) {
       continue;
     }
 
+    if (section.key === 'voiceActors') {
+      commonIds = [...commonIds].sort((a, b) => compareByRelevanceOrder(maps, a, b));
+    }
+
     const rows: SharedStaffSectionRow[] = [];
     for (const id of commonIds) {
-      const maxRoles = Math.max(...maps.map((m) => m[id]?.roles.length ?? 0), 1);
-      for (let i = 0; i < maxRoles; i += 1) {
-        rows.push({
-          entityId: Number(id),
-          name: i === 0 ? normalizeStaffName(maps[0]?.[id]?.name ?? id) : '',
-          kind,
-          cells: maps.map((m) => m[id]?.roles[i] ?? ''),
-        });
-      }
+      rows.push(...entityRowsForCompare(maps, id, kind));
     }
     sections.push({ title: section.title, rows });
   }

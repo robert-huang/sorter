@@ -1,20 +1,32 @@
 import { describe, expect, it } from 'vitest';
-import { dictDiffs, dictIntersection } from '../toolsDictUtils';
+import { alignRoleCellsAcrossShows } from '../toolsDictUtils';
 
-describe('toolsDictUtils', () => {
-  const a = { '1': 'a', '2': 'b', '3': 'c' };
-  const b = { '2': 'b', '3': 'c', '4': 'd' };
-  const c = { '3': 'c', '5': 'e' };
-
-  it('dictIntersection returns keys in all dicts by default', () => {
-    expect(dictIntersection([a, b, c])).toEqual(['3']);
+describe('alignRoleCellsAcrossShows', () => {
+  it('aligns matching roles on the same row using the first show as anchor', () => {
+    expect(alignRoleCellsAcrossShows([['roleA', 'roleB'], ['roleB']])).toEqual([
+      ['roleA', ''],
+      ['roleB', 'roleB'],
+    ]);
   });
 
-  it('dictIntersection supports minimum match threshold', () => {
-    expect(dictIntersection([a, b, c], 2)).toEqual(['2', '3']);
+  it('reorders other shows so shared roles line up with the anchor', () => {
+    expect(alignRoleCellsAcrossShows([['roleB'], ['roleA', 'roleB']])).toEqual([
+      ['roleB', 'roleB'],
+      ['', 'roleA'],
+    ]);
   });
 
-  it('dictDiffs returns per-dict unique keys preserving order', () => {
-    expect(dictDiffs([a, b])).toEqual([['1'], ['4']]);
+  it('handles three shows with mixed overlap', () => {
+    expect(
+      alignRoleCellsAcrossShows([
+        ['Director', 'Music'],
+        ['Music'],
+        ['Director', 'Script'],
+      ]),
+    ).toEqual([
+      ['Director', '', 'Director'],
+      ['Music', 'Music', ''],
+      ['', '', 'Script'],
+    ]);
   });
 });

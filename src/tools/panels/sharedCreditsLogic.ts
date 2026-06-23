@@ -1,4 +1,8 @@
-import { dictDiffs, dictIntersection } from '../../lib/importers/anilist/toolsDictUtils';
+import {
+  alignRoleCellsAcrossShows,
+  dictDiffs,
+  dictIntersection,
+} from '../../lib/importers/anilist/toolsDictUtils';
 import { parseLinesOnePerLine } from '../parseToolLines';
 
 export type StaffRoleMode = 'voice' | 'production';
@@ -161,17 +165,15 @@ export function buildSharedCreditsResult(
 
   const rows: SharedCreditsTableRow[] = [];
   for (const mediaId of sharedIds) {
-    const maxRoles = Math.max(
-      ...processed.map((list) => list[mediaId]?.roles.length ?? 0),
-      1,
-    );
-    for (let i = 0; i < maxRoles; i += 1) {
+    const roleLists = processed.map((list) => list[mediaId]?.roles ?? []);
+    const aligned = alignRoleCellsAcrossShows(roleLists);
+    aligned.forEach((cells, rowIdx) => {
       rows.push({
         mediaId: Number(mediaId),
-        title: i === 0 ? titles[mediaId]! : '',
-        cells: processed.map((list) => list[mediaId]?.roles[i] ?? ''),
+        title: rowIdx === 0 ? titles[mediaId]! : '',
+        cells,
       });
-    }
+    });
   }
 
   return {
