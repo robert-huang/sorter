@@ -30,6 +30,18 @@ import {
 
 const USER_LIST_STATUSES = TOOLS_USER_LIST_STATUSES;
 
+type StaffSearchHit = { id: number; name: { full: string } };
+
+/** Root `Staff(search:)` returns one row; `Page.staff` returns a list. */
+export function pickStaffSearchMatch(
+  staff: StaffSearchHit | StaffSearchHit[] | null | undefined,
+): StaffSearchHit | null {
+  if (!staff) {
+    return null;
+  }
+  return Array.isArray(staff) ? (staff[0] ?? null) : staff;
+}
+
 type VoiceEdge = {
   characterRole?: string | null;
   characters?: Array<{ name?: { full?: string | null } | null } | null> | null;
@@ -91,9 +103,9 @@ export async function resolveStaffIdByName(
     TOOLS_CACHE_TTL_MS.staffSearch,
     async () => {
       const data = await executeAnilistQuery<{
-        Staff: Array<{ id: number; name: { full: string } }> | null;
+        Staff: StaffSearchHit | StaffSearchHit[] | null;
       }>(TOOLS_STAFF_SEARCH_QUERY, { search: name });
-      const match = data?.Staff?.[0];
+      const match = pickStaffSearchMatch(data?.Staff);
       if (!match?.id) {
         throw new Error(`Could not find staff matching "${name}".`);
       }
