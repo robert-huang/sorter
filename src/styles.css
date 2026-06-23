@@ -5227,8 +5227,26 @@ a {
   flex: 0 0 auto;
 }
 
+/* Label and control on one row (e.g. "Min shared [input]"). */
+.tool-field-label-row {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 0;
+}
+
+.tool-field-label-row .tool-field-label {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .tool-field-grow {
   flex: 1 1 180px;
+  min-width: 0;
+}
+
+.tool-field-grow.tool-field-label-row .slot-search {
+  flex: 1 1 120px;
   min-width: 0;
 }
 
@@ -5250,6 +5268,37 @@ a {
   gap: 8px;
   font-size: 13px;
   cursor: pointer;
+}
+
+/* Two-option segmented control (voice vs production, etc.). */
+.tool-segmented {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 4px);
+  overflow: hidden;
+}
+
+.tool-segmented button {
+  padding: 5px 12px;
+  border: none;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.tool-segmented button + button {
+  border-left: 1px solid var(--border);
+}
+
+.tool-segmented button.active {
+  background: var(--accent, #2563eb);
+  color: var(--accent-fg, white);
+}
+
+.tool-segmented button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .tool-input-narrow {

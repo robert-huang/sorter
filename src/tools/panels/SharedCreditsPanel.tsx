@@ -192,17 +192,33 @@ export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
             />
             Input is AniList staff IDs
           </label>
-          <label className="tool-checkbox">
-            <input
-              type="checkbox"
-              checked={form.roleMode === 'production'}
-              disabled={running}
-              onChange={(e) =>
-                patchForm({ roleMode: e.target.checked ? 'production' : 'voice' })
-              }
-            />
-            Production roles (default: voice acting)
-          </label>
+          <div className="tool-field tool-field-label-row">
+            <span className="tool-field-label" id="shared-credits-role-label">
+              Role type
+            </span>
+            <div
+              className="tool-segmented"
+              role="group"
+              aria-labelledby="shared-credits-role-label"
+            >
+              <button
+                type="button"
+                className={form.roleMode === 'voice' ? 'active' : ''}
+                disabled={running}
+                onClick={() => patchForm({ roleMode: 'voice' })}
+              >
+                Voice acting
+              </button>
+              <button
+                type="button"
+                className={form.roleMode === 'production' ? 'active' : ''}
+                disabled={running}
+                onClick={() => patchForm({ roleMode: 'production' })}
+              >
+                Production
+              </button>
+            </div>
+          </div>
         </div>
 
         <div className="tool-field-row">
@@ -210,10 +226,10 @@ export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
             <input
               type="checkbox"
               checked={form.mainRoleOnly}
-              disabled={running}
+              disabled={running || form.roleMode === 'production'}
               onChange={(e) => patchForm({ mainRoleOnly: e.target.checked })}
             />
-            Main roles only
+            Main Roles Only
           </label>
           <label className="tool-checkbox">
             <input
@@ -222,7 +238,7 @@ export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
               disabled={running}
               onChange={(e) => patchForm({ diffMode: e.target.checked })}
             />
-            Diff (unique per staff)
+            Differences Only
           </label>
           <label className="tool-checkbox">
             <input
@@ -231,19 +247,21 @@ export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
               disabled={running}
               onChange={(e) => patchForm({ oldestFirst: e.target.checked })}
             />
-            Oldest first
+            Oldest First
           </label>
         </div>
 
         <div className="tool-field-row">
-          <label className="tool-field tool-field-inline">
-            <span className="tool-field-label">Min shared (blank = all)</span>
+          <label className="tool-field tool-field-inline tool-field-label-row">
+            <span className="tool-field-label">Min shared</span>
             <input
               className="slot-search tool-input-narrow"
               type="number"
               min={1}
               disabled={running || form.diffMode}
               value={form.minMatches ?? ''}
+              placeholder="all"
+              title="Blank = require all staff"
               onChange={(e) => {
                 const raw = e.target.value.trim();
                 patchForm({
@@ -252,26 +270,26 @@ export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
               }}
             />
           </label>
-          <label className="tool-field tool-field-grow">
-            <span className="tool-field-label">Include only on user list</span>
+          <label className="tool-field tool-field-grow tool-field-label-row">
+            <span className="tool-field-label">Include only on list</span>
             <input
               className="slot-search"
               type="text"
               disabled={running}
               value={form.usernameInclude}
               onChange={(e) => patchForm({ usernameInclude: e.target.value })}
-              placeholder="AniList username"
+              placeholder="username"
             />
           </label>
-          <label className="tool-field tool-field-grow">
-            <span className="tool-field-label">Exclude user list</span>
+          <label className="tool-field tool-field-grow tool-field-label-row">
+            <span className="tool-field-label">Exclude list</span>
             <input
               className="slot-search"
               type="text"
               disabled={running}
               value={form.usernameExclude}
               onChange={(e) => patchForm({ usernameExclude: e.target.value })}
-              placeholder="AniList username"
+              placeholder="username"
             />
           </label>
         </div>
