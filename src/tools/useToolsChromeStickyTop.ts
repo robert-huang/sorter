@@ -7,15 +7,16 @@ import { useLayoutEffect } from 'react';
  */
 export function useToolsChromeStickyTop(): void {
   useLayoutEffect(() => {
-    const root = document.querySelector('.tools-app');
-    if (!root) {
+    const rootNode = document.querySelector('.tools-app');
+    if (!(rootNode instanceof HTMLElement)) {
       return;
     }
+    const appRoot: HTMLElement = rootNode;
 
     function measure(): void {
-      const header = root!.querySelector('.anime-to-anime-header');
-      const banner = root!.querySelector('.app-banner-stack');
-      const tabs = root!.querySelector('.tools-tabs-wrap');
+      const header = appRoot.querySelector('.anime-to-anime-header');
+      const banner = appRoot.querySelector('.app-banner-stack');
+      const tabs = appRoot.querySelector('.tools-tabs-wrap');
       let headerHeight = 0;
       let tabsTop = 0;
       let seasonStickyTop = 0;
@@ -31,17 +32,17 @@ export function useToolsChromeStickyTop(): void {
       if (tabs instanceof HTMLElement) {
         seasonStickyTop += tabs.offsetHeight;
       }
-      root!.style.setProperty('--tools-header-height', `${headerHeight}px`);
-      root!.style.setProperty('--tools-tabs-sticky-top', `${tabsTop}px`);
-      root!.style.setProperty('--tools-season-sticky-top', `${seasonStickyTop}px`);
+      appRoot.style.setProperty('--tools-header-height', `${headerHeight}px`);
+      appRoot.style.setProperty('--tools-tabs-sticky-top', `${tabsTop}px`);
+      appRoot.style.setProperty('--tools-season-sticky-top', `${seasonStickyTop}px`);
     }
 
     measure();
 
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
-    const header = root.querySelector('.anime-to-anime-header');
-    const banner = root.querySelector('.app-banner-stack');
-    const tabs = root.querySelector('.tools-tabs-wrap');
+    const header = appRoot.querySelector('.anime-to-anime-header');
+    const banner = appRoot.querySelector('.app-banner-stack');
+    const tabs = appRoot.querySelector('.tools-tabs-wrap');
     for (const el of [header, banner, tabs]) {
       if (el && ro) {
         ro.observe(el);
