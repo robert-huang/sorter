@@ -5246,6 +5246,58 @@ a {
   margin-bottom: 0;
 }
 
+.tool-form-details {
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--surface-alt, var(--surface));
+}
+
+.tool-form-details-summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  list-style: none;
+  user-select: none;
+}
+
+.tool-form-details-summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool-form-details-summary::before {
+  content: '▸ ';
+  display: inline-block;
+  width: 1em;
+  color: var(--text-muted, var(--muted));
+}
+
+.tool-form-details[open] > .tool-form-details-summary::before {
+  content: '▾ ';
+}
+
+.tool-form-details[open] > .tool-form-details-summary {
+  margin-bottom: 10px;
+}
+
+.tool-form-options-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.tool-form-options-stack .tool-field {
+  margin-bottom: 0;
+  width: 100%;
+}
+
+.tool-form-options-stack-disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
 .tool-field {
   display: flex;
   flex-direction: column;

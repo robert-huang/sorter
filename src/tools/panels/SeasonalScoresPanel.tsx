@@ -10,7 +10,7 @@ import {
 } from './seasonalScoresLogic';
 import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
 
-const LS_KEY = 'anime-tools-seasonal-scores-form';
+const LS_SEASON_TEXT_KEY = 'anime-tools-seasonal-scores-season-text';
 
 const DEFAULT_FORM: SeasonalScoresForm = {
   username: '',
@@ -19,29 +19,28 @@ const DEFAULT_FORM: SeasonalScoresForm = {
   airingNotesOnly: false,
 };
 
-function loadForm(): SeasonalScoresForm {
+function loadSeasonText(): string {
   try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) {
-      return { ...DEFAULT_FORM, username: withLastAnilistUsername('') };
-    }
-    const parsed = JSON.parse(raw) as Partial<SeasonalScoresForm>;
-    return {
-      ...DEFAULT_FORM,
-      ...parsed,
-      username: withLastAnilistUsername(parsed.username ?? ''),
-    };
+    return localStorage.getItem(LS_SEASON_TEXT_KEY) ?? '';
   } catch {
-    return { ...DEFAULT_FORM, username: withLastAnilistUsername('') };
+    return '';
   }
 }
 
-function saveForm(form: SeasonalScoresForm): void {
+function saveSeasonText(seasonText: string): void {
   try {
-    localStorage.setItem(LS_KEY, JSON.stringify(form));
+    localStorage.setItem(LS_SEASON_TEXT_KEY, seasonText);
   } catch {
     /* ignore */
   }
+}
+
+function loadForm(): SeasonalScoresForm {
+  return {
+    ...DEFAULT_FORM,
+    username: withLastAnilistUsername(''),
+    seasonText: loadSeasonText(),
+  };
 }
 
 export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
@@ -53,8 +52,8 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    saveForm(form);
-  }, [form]);
+    saveSeasonText(form.seasonText);
+  }, [form.seasonText]);
 
   const patchForm = useCallback((patch: Partial<SeasonalScoresForm>) => {
     setError(null);

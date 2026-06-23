@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
 import { useUsernameListRefresh } from '../useUsernameListRefresh';
@@ -14,8 +14,6 @@ import {
   type SharedCreditsRunProgress,
 } from './sharedCreditsApi';
 
-const LS_KEY = 'anime-tools-shared-credits-form';
-
 const DEFAULT_FORM: SharedCreditsForm = {
   staffText: '',
   useIds: false,
@@ -27,26 +25,6 @@ const DEFAULT_FORM: SharedCreditsForm = {
   diffMode: false,
   oldestFirst: false,
 };
-
-function loadForm(): SharedCreditsForm {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) {
-      return DEFAULT_FORM;
-    }
-    return { ...DEFAULT_FORM, ...(JSON.parse(raw) as Partial<SharedCreditsForm>) };
-  } catch {
-    return DEFAULT_FORM;
-  }
-}
-
-function saveForm(form: SharedCreditsForm): void {
-  try {
-    localStorage.setItem(LS_KEY, JSON.stringify(form));
-  } catch {
-    /* ignore */
-  }
-}
 
 function progressLabel(progress: SharedCreditsRunProgress | null): string | null {
   if (!progress) {
@@ -70,16 +48,12 @@ function progressLabel(progress: SharedCreditsRunProgress | null): string | null
 
 export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
   const { hint: usernameHint, onUsernameContextMenu } = useUsernameListRefresh();
-  const [form, setForm] = useState<SharedCreditsForm>(() => loadForm());
+  const [form, setForm] = useState<SharedCreditsForm>(DEFAULT_FORM);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<SharedCreditsRunProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SharedCreditsResult | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-
-  useEffect(() => {
-    saveForm(form);
-  }, [form]);
 
   const patchForm = useCallback((patch: Partial<SharedCreditsForm>) => {
     setError(null);
@@ -254,8 +228,8 @@ export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
           </label>
         </div>
 
-        <div className="tool-field-row tool-field-row-align-center">
-          <label className="tool-field tool-field-inline tool-field-label-row">
+        <div className="tool-form-options-stack">
+          <label className="tool-field tool-field-label-row">
             <span className="tool-field-label">Min Shared</span>
             <input
               className="slot-search tool-input-narrow"
@@ -273,7 +247,7 @@ export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
               }}
             />
           </label>
-          <label className="tool-field tool-field-grow tool-field-label-row">
+          <label className="tool-field tool-field-label-row tool-field-username">
             <span className="tool-field-label">List Only</span>
             <input
               className="slot-search anime-to-anime-endpoint-user-input"
@@ -288,7 +262,7 @@ export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
               }
             />
           </label>
-          <label className="tool-field tool-field-grow tool-field-label-row">
+          <label className="tool-field tool-field-label-row tool-field-username">
             <span className="tool-field-label">Exclude List</span>
             <input
               className="slot-search anime-to-anime-endpoint-user-input"

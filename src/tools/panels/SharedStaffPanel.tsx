@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
 import {
@@ -9,8 +9,6 @@ import {
 } from './sharedStaffLogic';
 import { runSharedStaffCompare, type SharedStaffRunProgress } from './sharedStaffApi';
 
-const LS_KEY = 'anime-tools-shared-staff-form';
-
 const DEFAULT_FORM: SharedStaffForm = {
   showText: '',
   sortByPopularity: true,
@@ -18,26 +16,6 @@ const DEFAULT_FORM: SharedStaffForm = {
   diffMode: false,
   topMatchCount: 5,
 };
-
-function loadForm(): SharedStaffForm {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) {
-      return DEFAULT_FORM;
-    }
-    return { ...DEFAULT_FORM, ...(JSON.parse(raw) as Partial<SharedStaffForm>) };
-  } catch {
-    return DEFAULT_FORM;
-  }
-}
-
-function saveForm(form: SharedStaffForm): void {
-  try {
-    localStorage.setItem(LS_KEY, JSON.stringify(form));
-  } catch {
-    /* ignore */
-  }
-}
 
 function progressLabel(progress: SharedStaffRunProgress | null): string | null {
   if (!progress) {
@@ -58,16 +36,12 @@ function progressLabel(progress: SharedStaffRunProgress | null): string | null {
 }
 
 export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
-  const [form, setForm] = useState<SharedStaffForm>(() => loadForm());
+  const [form, setForm] = useState<SharedStaffForm>(DEFAULT_FORM);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<SharedStaffRunProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SharedStaffResult | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-
-  useEffect(() => {
-    saveForm(form);
-  }, [form]);
 
   const patchForm = useCallback((patch: Partial<SharedStaffForm>) => {
     setError(null);
@@ -184,30 +158,36 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
           </label>
         </div>
 
-        <fieldset
-          className="tool-form-section"
-          disabled={running || !singleShowMode}
+        <details
+          className="tool-form-details"
+          // Keep collapsed by default; user expands when needed.
         >
-          <legend className="tool-form-section-legend">Single-show mode</legend>
-          <p className="tool-form-section-hint">
-            When exactly one show is entered, scan staff filmographies for similar anime.
-          </p>
-          <div className="tool-field-row">
+          <summary
+            className="tool-form-details-summary"
+            title="When exactly one show is entered, scan each production staff member's filmography for anime with the most staff in common. Can take several minutes."
+          >
+            Single-show mode
+          </summary>
+          <div
+            className={`tool-form-options-stack${singleShowMode ? '' : ' tool-form-options-stack-disabled'}`}
+          >
             <label className="tool-checkbox">
               <input
                 type="checkbox"
                 checked={form.ignoreRelated}
+                disabled={running || !singleShowMode}
                 onChange={(e) => patchForm({ ignoreRelated: e.target.checked })}
               />
               Ignore related shows
             </label>
-            <label className="tool-field tool-field-inline tool-field-label-row">
+            <label className="tool-field tool-field-label-row">
               <span className="tool-field-label">Top matches</span>
               <input
                 className="slot-search tool-input-narrow"
                 type="number"
                 min={1}
                 max={20}
+                disabled={running || !singleShowMode}
                 value={form.topMatchCount}
                 onChange={(e) =>
                   patchForm({
@@ -217,7 +197,7 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
               />
             </label>
           </div>
-        </fieldset>
+        </details>
 
         <div className="tool-actions">
           <ToolRunButton
