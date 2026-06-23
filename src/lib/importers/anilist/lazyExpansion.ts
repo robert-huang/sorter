@@ -8,16 +8,23 @@
  */
 
 import type { AnilistImportContext, SqlBindable } from './context';
+import { MEDIA_UPSERT_SQL, mediaRowToParams } from './importer';
 import {
   mapCharacterRow,
   mapCharacterVoiceActorRows,
   mapMediaCharacterRows,
+  mapMediaRow,
   mapMediaStaffRows,
   mapStaffRow,
 } from './mappers';
 import { emitProgress } from './progress';
-import { buildMediaDetailQuery, buildMediaStaffOnlyQuery } from './queries';
+import {
+  buildAnimeByIdQuery,
+  buildMediaDetailQuery,
+  buildMediaStaffOnlyQuery,
+} from './queries';
 import type {
+  AnilistAnimeByIdResponse,
   AnilistMediaCharacterEdgeGql,
   AnilistMediaDetailResponse,
   AnilistMediaStaffEdgeGql,
@@ -295,6 +302,37 @@ function collectStaffFromStaffEdges(
   return staffById;
 }
 
+/** Cast junction tables FK to `media` — upsert the parent row when missing. */
+async function ensureMediaRowForCastExpansion(
+  ctx: AnilistImportContext,
+  mediaId: number,
+): Promise<boolean> {
+  const rows = await ctx.db.exec(
+    'SELECT 1 FROM media WHERE id = ? LIMIT 1',
+    [mediaId],
+  );
+  if (rows.length > 0) {
+    return true;
+  }
+
+  const response = await ctx.executeQuery<AnilistAnimeByIdResponse>(
+    buildAnimeByIdQuery(),
+    { id: mediaId },
+  );
+  if (!response?.Media) {
+    return false;
+  }
+
+  const row = mapMediaRow(response.Media, ctx.now());
+  await ctx.db.execBatch([
+    { sql: MEDIA_UPSERT_SQL, params: mediaRowToParams(row) },
+  ]);
+  if (ctx.onDirtyIncrement) {
+    await ctx.onDirtyIncrement();
+  }
+  return true;
+}
+
 export async function expandAnilistMediaDetail(
   ctx: AnilistImportContext,
   mediaId: number,
@@ -304,6 +342,10 @@ export async function expandAnilistMediaDetail(
   const language = options.voiceActorLanguage ?? DEFAULT_VOICE_ACTOR_LANGUAGE;
   const scope = options.scope ?? 'all';
   const now = ctx.now();
+
+  if (!(await ensureMediaRowForCastExpansion(ctx, mediaId))) {
+    return null;
+  }
 
   const existing = await readExpansionPatch(ctx, mediaId);
 

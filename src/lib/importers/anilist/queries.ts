@@ -803,7 +803,7 @@ query ToolsCharacterVoiceMedia($id: Int!, $page: Int!, $perPage: Int!) {
       edges {
         node {
           id
-          title { romaji native }
+          title { romaji native english }
           type
           format
         }

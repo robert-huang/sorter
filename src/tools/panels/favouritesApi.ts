@@ -9,14 +9,24 @@ import {
 import { TOOLS_CACHE_TTL_MS, withToolsCache } from '../../lib/importers/anilist/toolsCache';
 import type { ToolsFetchOptions } from '../../lib/importers/anilist/toolsFetchPolicy';
 import {
+  dbCharacterEdgesHaveVoiceCast,
+  ensureStaffFilmographyFresh,
   ensureUserAnimeListFresh,
+  ensureUserFavouritesFresh,
+  readCharacterVoiceEdgesFromDb,
   readConsumedMediaIdsFromDb,
+  readFavouriteCharactersFromDb,
+  readFavouriteStaffFromDb,
+  readVaCharacterEdgesFromDb,
   toolsConsumedMediaCacheKey,
+  toolsFavouriteCharactersCacheKey,
+  toolsFavouriteStaffCacheKey,
 } from '../../lib/importers/anilist/toolsAnilistAccess';
 import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportContext';
 import {
   buildFavouritesResult,
   countVaCharactersOnMedia,
+  pickCharacterName,
   processCharacterEdges,
   type CharacterMediaEdge,
   type CharacterRoleTier,
@@ -55,34 +65,33 @@ async function fetchConsumedMediaIds(
       }
 
       const entries = await depaginate<
-      {
-        Page: {
-          pageInfo: { hasNextPage: boolean };
-          mediaList: Array<{ mediaId: number }>;
-        } | null;
-      },
-      { mediaId: number }
-    >({
-      query: TOOLS_USER_CONSUMED_MEDIA_QUERY,
-      variables: { userName: username },
-      signal,
-      selectPage: (data) => ({
-        nodes: data.Page?.mediaList ?? [],
-        pageInfo: data.Page?.pageInfo ?? { hasNextPage: false },
-      }),
-    });
-    return entries.map((e) => e.mediaId);
+        {
+          Page: {
+            pageInfo: { hasNextPage: boolean };
+            mediaList: Array<{ mediaId: number }>;
+          } | null;
+        },
+        { mediaId: number }
+      >({
+        query: TOOLS_USER_CONSUMED_MEDIA_QUERY,
+        variables: { userName: username },
+        signal,
+        selectPage: (data) => ({
+          nodes: data.Page?.mediaList ?? [],
+          pageInfo: data.Page?.pageInfo ?? { hasNextPage: false },
+        }),
+      });
+      return entries.map((e) => e.mediaId);
     },
     options,
   );
   return new Set(ids);
 }
 
-async function fetchFavouriteCharacters(
+async function fetchFavouriteCharactersLive(
   username: string,
   signal?: AbortSignal,
 ): Promise<FavouriteCharacterInput[]> {
-  signal?.throwIfAborted();
   return depaginate<
     {
       User: {
@@ -106,11 +115,34 @@ async function fetchFavouriteCharacters(
   });
 }
 
-async function fetchFavouriteStaff(
+async function fetchFavouriteCharacters(
+  username: string,
+  signal?: AbortSignal,
+  options?: ToolsFetchOptions,
+): Promise<FavouriteCharacterInput[]> {
+  signal?.throwIfAborted();
+  return withToolsCache(
+    toolsFavouriteCharactersCacheKey(username),
+    TOOLS_CACHE_TTL_MS.userList,
+    async () => {
+      const user = await ensureUserFavouritesFresh(username, 'CHARACTERS', options);
+      if (user) {
+        const ctx = getToolsImportContext();
+        const fromDb = await readFavouriteCharactersFromDb(ctx.db, user.id);
+        if (fromDb) {
+          return fromDb;
+        }
+      }
+      return fetchFavouriteCharactersLive(username, signal);
+    },
+    options,
+  );
+}
+
+async function fetchFavouriteStaffLive(
   username: string,
   signal?: AbortSignal,
 ): Promise<FavouriteStaffInput[]> {
-  signal?.throwIfAborted();
   return depaginate<
     {
       User: {
@@ -134,6 +166,55 @@ async function fetchFavouriteStaff(
   });
 }
 
+async function fetchFavouriteStaff(
+  username: string,
+  signal?: AbortSignal,
+  options?: ToolsFetchOptions,
+): Promise<FavouriteStaffInput[]> {
+  signal?.throwIfAborted();
+  return withToolsCache(
+    toolsFavouriteStaffCacheKey(username),
+    TOOLS_CACHE_TTL_MS.userList,
+    async () => {
+      const user = await ensureUserFavouritesFresh(username, 'STAFF', options);
+      if (user) {
+        const ctx = getToolsImportContext();
+        const fromDb = await readFavouriteStaffFromDb(ctx.db, user.id);
+        if (fromDb) {
+          return fromDb;
+        }
+      }
+      return fetchFavouriteStaffLive(username, signal);
+    },
+    options,
+  );
+}
+
+async function fetchCharacterVoiceEdgesLive(
+  charId: number,
+  signal?: AbortSignal,
+): Promise<CharacterMediaEdge[]> {
+  return depaginate<
+    {
+      Character: {
+        media: {
+          pageInfo: { hasNextPage: boolean };
+          edges: CharacterMediaEdge[];
+        };
+      } | null;
+    },
+    CharacterMediaEdge
+  >({
+    query: TOOLS_CHARACTER_VOICE_MEDIA_QUERY,
+    variables: { id: charId },
+    signal,
+    selectPage: (data) => ({
+      nodes: data.Character?.media.edges ?? [],
+      pageInfo: data.Character?.media.pageInfo ?? { hasNextPage: false },
+    }),
+  });
+}
+
 async function fetchCharacterVoiceEdges(
   charId: number,
   signal?: AbortSignal,
@@ -143,28 +224,41 @@ async function fetchCharacterVoiceEdges(
   return withToolsCache(
     `tools:character-vas:${charId}`,
     TOOLS_CACHE_TTL_MS.characterVa,
-    async () =>
-      depaginate<
-        {
-          Character: {
-            media: {
-              pageInfo: { hasNextPage: boolean };
-              edges: CharacterMediaEdge[];
-            };
-          } | null;
-        },
-        CharacterMediaEdge
-      >({
-        query: TOOLS_CHARACTER_VOICE_MEDIA_QUERY,
-        variables: { id: charId },
-        signal,
-        selectPage: (data) => ({
-          nodes: data.Character?.media.edges ?? [],
-          pageInfo: data.Character?.media.pageInfo ?? { hasNextPage: false },
-        }),
-      }),
+    async () => {
+      const ctx = getToolsImportContext();
+      const fromDb = await readCharacterVoiceEdgesFromDb(ctx.db, charId);
+      if (fromDb && dbCharacterEdgesHaveVoiceCast(fromDb)) {
+        return fromDb;
+      }
+      return fetchCharacterVoiceEdgesLive(charId, signal);
+    },
     options,
   );
+}
+
+async function fetchVaCharacterEdgesLive(
+  vaId: number,
+  signal?: AbortSignal,
+): Promise<VaMediaEdge[]> {
+  return depaginate<
+    {
+      Staff: {
+        characterMedia: {
+          pageInfo: { hasNextPage: boolean };
+          edges: VaMediaEdge[];
+        };
+      } | null;
+    },
+    VaMediaEdge
+  >({
+    query: TOOLS_VA_CHARACTER_MEDIA_QUERY,
+    variables: { id: vaId },
+    signal,
+    selectPage: (data) => ({
+      nodes: data.Staff?.characterMedia.edges ?? [],
+      pageInfo: data.Staff?.characterMedia.pageInfo ?? { hasNextPage: false },
+    }),
+  });
 }
 
 async function fetchVaCharacterEdges(
@@ -176,26 +270,15 @@ async function fetchVaCharacterEdges(
   return withToolsCache(
     `tools:va-characters:${vaId}`,
     TOOLS_CACHE_TTL_MS.characterVa,
-    async () =>
-      depaginate<
-        {
-          Staff: {
-            characterMedia: {
-              pageInfo: { hasNextPage: boolean };
-              edges: VaMediaEdge[];
-            };
-          } | null;
-        },
-        VaMediaEdge
-      >({
-        query: TOOLS_VA_CHARACTER_MEDIA_QUERY,
-        variables: { id: vaId },
-        signal,
-        selectPage: (data) => ({
-          nodes: data.Staff?.characterMedia.edges ?? [],
-          pageInfo: data.Staff?.characterMedia.pageInfo ?? { hasNextPage: false },
-        }),
-      }),
+    async () => {
+      await ensureStaffFilmographyFresh(vaId, options);
+      const ctx = getToolsImportContext();
+      const fromDb = await readVaCharacterEdgesFromDb(ctx.db, vaId);
+      if (fromDb) {
+        return fromDb;
+      }
+      return fetchVaCharacterEdgesLive(vaId, signal);
+    },
     options,
   );
 }
@@ -212,8 +295,8 @@ export async function runFavouritesAnalysis(
 
   onProgress({ phase: 'characters' });
   const [characters, favouriteStaff] = await Promise.all([
-    fetchFavouriteCharacters(username, signal),
-    fetchFavouriteStaff(username, signal),
+    fetchFavouriteCharacters(username, signal, fetchOptions),
+    fetchFavouriteStaff(username, signal, fetchOptions),
   ]);
 
   if (characters.length === 0) {
@@ -232,11 +315,8 @@ export async function runFavouritesAnalysis(
 
   for (let i = 0; i < characters.length; i += 1) {
     signal?.throwIfAborted();
-    const character = characters[i];
-    const charName =
-      form.useEnglishNames || !character.name.native
-        ? character.name.full
-        : character.name.native;
+    const character = characters[i]!;
+    const charName = pickCharacterName(character);
 
     onProgress({
       phase: 'character-vas',
@@ -251,7 +331,6 @@ export async function runFavouritesAnalysis(
       charName,
       edges,
       consumedMediaIds,
-      form.useEnglishNames,
     );
 
     perCharacterVas.push(processed.vas);
@@ -272,7 +351,7 @@ export async function runFavouritesAnalysis(
   const vaIdList = [...vaIds];
   for (let i = 0; i < vaIdList.length; i += 1) {
     signal?.throwIfAborted();
-    const vaId = vaIdList[i];
+    const vaId = vaIdList[i]!;
     onProgress({ phase: 'va-totals', index: i + 1, total: vaIdList.length });
     const edges = await fetchVaCharacterEdges(vaId, signal, fetchOptions);
     vaTotalCharacterCounts.set(vaId, countVaCharactersOnMedia(edges, consumedMediaIds));
@@ -285,6 +364,5 @@ export async function runFavouritesAnalysis(
     perCharacterMeta,
     vaTotalCharacterCounts,
     favouriteStaff,
-    useEnglish: form.useEnglishNames,
   });
 }

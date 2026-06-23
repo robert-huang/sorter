@@ -14,19 +14,38 @@ import {
 } from './graphQueries';
 import { pickMediaTitle as pickMediaRowTitle } from './mediaDisplayLabel';
 import { pickPersonName } from './personDisplayLabel';
+import { runAnilistImport, runAnilistFavourites } from './runners';
+import type { ToolsFetchOptions } from './toolsFetchPolicy';
+import { needsGraphDataRefresh } from './toolsFetchPolicy';
+import { getToolsImportContext } from './toolsImportContext';
+import { toolsCacheDelete } from './toolsCache';
 import {
   getAnilistUserByName,
+  getLastFavouritesRefresh,
   getListedMediaCount,
   getMediaCastExpansionStatus,
   getMediaDetail,
   getStaffFilmography,
   type AnilistUserSummary,
 } from './readQueries';
-import { runAnilistImport } from './runners';
-import type { ToolsFetchOptions } from './toolsFetchPolicy';
-import { needsGraphDataRefresh } from './toolsFetchPolicy';
-import { getToolsImportContext } from './toolsImportContext';
-import { toolsCacheDelete } from './toolsCache';
+import type { AnilistFavouriteType } from './types';
+import {
+  formatStartDateKey,
+  type StaffRoleMode,
+  type StaffShowMap,
+} from '../../../tools/panels/sharedCreditsLogic';
+import {
+  mergeRoleIntoMap,
+  type CreditedEntityMap,
+  type ProductionFilmographyShow,
+  type ShowStaffBundle,
+} from '../../../tools/panels/sharedStaffLogic';
+import type {
+  CharacterMediaEdge,
+  FavouriteCharacterInput,
+  FavouriteStaffInput,
+  VaMediaEdge,
+} from '../../../tools/panels/favouritesLogic';
 
 /** Statuses used by Shared Credits list filter (matches `TOOLS_USER_ANIME_LIST_QUERY`). */
 export const TOOLS_USER_LIST_STATUSES = [
@@ -58,17 +77,14 @@ export function toolsUserListCacheKey(username: string): string {
 export function toolsSeasonListCacheKey(username: string): string {
   return `tools:season-list:${username.toLowerCase()}:${TOOLS_SEASONAL_LIST_STATUSES.join(',')}`;
 }
-import {
-  formatStartDateKey,
-  type StaffRoleMode,
-  type StaffShowMap,
-} from '../../../tools/panels/sharedCreditsLogic';
-import {
-  mergeRoleIntoMap,
-  type CreditedEntityMap,
-  type ProductionFilmographyShow,
-  type ShowStaffBundle,
-} from '../../../tools/panels/sharedStaffLogic';
+
+export function toolsFavouriteCharactersCacheKey(username: string): string {
+  return `tools:fav-characters:${username.toLowerCase()}`;
+}
+
+export function toolsFavouriteStaffCacheKey(username: string): string {
+  return `tools:fav-staff:${username.toLowerCase()}`;
+}
 
 function mediaRowStartDateKey(media: {
   start_year: number | null;
@@ -138,6 +154,229 @@ export async function ensureUserAnimeListFresh(
   }
   return user;
 }
+
+async function getFavouriteRowCount(
+  db: AnilistDbExecutor,
+  anilistUserId: number,
+  type: Extract<AnilistFavouriteType, 'CHARACTERS' | 'STAFF'>,
+): Promise<number> {
+  const table = type === 'CHARACTERS' ? 'character_favourite' : 'staff_favourite';
+  const rows = await db.exec(
+    `SELECT COUNT(*) AS count FROM ${table} WHERE anilist_user_id = ?`,
+    [anilistUserId],
+  );
+  return Number(rows[0]?.count ?? 0);
+}
+
+/**
+ * Ensure the user's character or staff favourites exist in the source DB —
+ * imports when missing, empty, stale (>90d), or force-refresh was requested.
+ */
+export async function ensureUserFavouritesFresh(
+  username: string,
+  type: Extract<AnilistFavouriteType, 'CHARACTERS' | 'STAFF'>,
+  options?: ToolsFetchOptions,
+): Promise<AnilistUserSummary | null> {
+  const handle = username.trim();
+  if (!handle) {
+    return null;
+  }
+  const ctx = getToolsImportContext();
+  let user = await getAnilistUserByName(ctx.db, handle);
+  const count = user ? await getFavouriteRowCount(ctx.db, user.id, type) : 0;
+  const lastRefresh = user
+    ? await getLastFavouritesRefresh(ctx.db, user.id, type)
+    : null;
+  const needsImport =
+    options?.forceRefresh ||
+    !user ||
+    count === 0 ||
+    needsGraphDataRefresh(lastRefresh, options);
+  if (needsImport) {
+    await runAnilistFavourites(handle, type);
+    user = await getAnilistUserByName(ctx.db, handle);
+  }
+  return user;
+}
+
+export async function readFavouriteCharactersFromDb(
+  db: AnilistDbExecutor,
+  anilistUserId: number,
+): Promise<FavouriteCharacterInput[] | null> {
+  const rows = await db.exec(
+    `
+      SELECT c.id,
+             c.name_full,
+             c.name_native,
+             c.gender,
+             c.favourites
+        FROM character_favourite cf
+        JOIN character c ON c.id = cf.character_id
+       WHERE cf.anilist_user_id = ?
+       ORDER BY cf.sort_order ASC
+    `,
+    [anilistUserId],
+  );
+  if (rows.length === 0) {
+    return null;
+  }
+  return rows.map((row) => ({
+    id: Number(row.id),
+    name: {
+      full: (row.name_full as string | null) ?? '',
+      native: (row.name_native as string | null) ?? null,
+    },
+    gender: (row.gender as string | null) ?? null,
+    favourites: row.favourites != null ? Number(row.favourites) : null,
+    dateOfBirth: null,
+  }));
+}
+
+export async function readFavouriteStaffFromDb(
+  db: AnilistDbExecutor,
+  anilistUserId: number,
+): Promise<FavouriteStaffInput[] | null> {
+  const rows = await db.exec(
+    `
+      SELECT s.id,
+             s.name_full,
+             s.name_native,
+             s.gender,
+             s.favourites
+        FROM staff_favourite sf
+        JOIN staff s ON s.id = sf.staff_id
+       WHERE sf.anilist_user_id = ?
+       ORDER BY sf.sort_order ASC
+    `,
+    [anilistUserId],
+  );
+  if (rows.length === 0) {
+    return null;
+  }
+  return rows.map((row) => ({
+    id: Number(row.id),
+    name: {
+      full: (row.name_full as string | null) ?? '',
+      native: (row.name_native as string | null) ?? null,
+    },
+    gender: (row.gender as string | null) ?? null,
+    favourites: row.favourites != null ? Number(row.favourites) : null,
+  }));
+}
+
+function dbCharacterEdgesHaveVoiceCast(edges: CharacterMediaEdge[]): boolean {
+  return edges.some((edge) => edge.voiceActors.length > 0);
+}
+
+/** Character media + JP voice cast from cached `media_character` / `character_voice_actor`. */
+export async function readCharacterVoiceEdgesFromDb(
+  db: AnilistDbExecutor,
+  characterId: number,
+): Promise<CharacterMediaEdge[] | null> {
+  const rows = await db.exec(
+    `
+      SELECT m.id,
+             m.title_romaji,
+             m.title_english,
+             m.title_native,
+             m.type,
+             m.format,
+             mc.role AS character_role,
+             st.id AS staff_id,
+             st.name_full AS staff_name_full,
+             st.name_native AS staff_name_native
+        FROM media_character mc
+        JOIN media m ON m.id = mc.media_id
+        LEFT JOIN character_voice_actor cva
+          ON cva.media_id = mc.media_id
+         AND cva.character_id = mc.character_id
+         AND cva.language = 'JAPANESE'
+        LEFT JOIN staff st ON st.id = cva.staff_id
+       WHERE mc.character_id = ?
+       ORDER BY m.id ASC, st.id ASC
+    `,
+    [characterId],
+  );
+  if (rows.length === 0) {
+    return null;
+  }
+
+  const byMedia = new Map<number, CharacterMediaEdge>();
+  for (const row of rows) {
+    const mediaId = Number(row.id);
+    let edge = byMedia.get(mediaId);
+    if (!edge) {
+      edge = {
+        node: {
+          id: mediaId,
+          title: {
+            romaji: (row.title_romaji as string | null) ?? null,
+            native: (row.title_native as string | null) ?? null,
+            english: (row.title_english as string | null) ?? null,
+          },
+          type: (row.type as string) ?? 'ANIME',
+          format: (row.format as string | null) ?? null,
+        },
+        characterRole: (row.character_role as string | null) ?? 'UNKNOWN',
+        voiceActors: [],
+      };
+      byMedia.set(mediaId, edge);
+    }
+    if (row.staff_id != null) {
+      const staffId = Number(row.staff_id);
+      if (!edge.voiceActors.some((va) => va.id === staffId)) {
+        edge.voiceActors.push({
+          id: staffId,
+          name: {
+            full: (row.staff_name_full as string | null) ?? '',
+            native: (row.staff_name_native as string | null) ?? null,
+          },
+        });
+      }
+    }
+  }
+  return [...byMedia.values()];
+}
+
+/** Staff VA filmography edges from cached `character_voice_actor` (JP only). */
+export async function readVaCharacterEdgesFromDb(
+  db: AnilistDbExecutor,
+  staffId: number,
+): Promise<VaMediaEdge[] | null> {
+  const rows = await db.exec(
+    `
+      SELECT cva.media_id,
+             cva.character_id
+        FROM character_voice_actor cva
+       WHERE cva.staff_id = ?
+         AND cva.language = 'JAPANESE'
+       ORDER BY cva.media_id ASC, cva.character_id ASC
+    `,
+    [staffId],
+  );
+  if (rows.length === 0) {
+    return null;
+  }
+
+  const byMedia = new Map<number, Set<number>>();
+  for (const row of rows) {
+    const mediaId = Number(row.media_id);
+    const characterId = Number(row.character_id);
+    let characters = byMedia.get(mediaId);
+    if (!characters) {
+      characters = new Set();
+      byMedia.set(mediaId, characters);
+    }
+    characters.add(characterId);
+  }
+
+  return [...byMedia.entries()].map(([mediaId, characterIds]) => ({
+    node: { id: mediaId },
+    characters: [...characterIds].map((id) => ({ id })),
+  }));
+}
+
+export { dbCharacterEdgesHaveVoiceCast };
 
 export async function readUserListMediaIdsFromDb(
   db: AnilistDbExecutor,
@@ -345,5 +584,7 @@ export async function bustToolsUserListCache(username: string): Promise<void> {
     toolsCacheDelete(toolsConsumedMediaCacheKey(handle)),
     toolsCacheDelete(toolsUserListCacheKey(handle)),
     toolsCacheDelete(toolsSeasonListCacheKey(handle)),
+    toolsCacheDelete(toolsFavouriteCharactersCacheKey(handle)),
+    toolsCacheDelete(toolsFavouriteStaffCacheKey(handle)),
   ]);
 }

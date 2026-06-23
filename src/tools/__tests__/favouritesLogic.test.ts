@@ -10,15 +10,21 @@ import {
 } from '../panels/favouritesLogic';
 
 describe('pickCharacterName', () => {
-  it('prefers native when not using English', () => {
+  it('prefers native when person display mode is native', () => {
     expect(
-      pickCharacterName({ name: { full: 'Romaji', native: 'ネイティブ' } }, false),
+      pickCharacterName(
+        { id: 1, name: { full: 'Romaji', native: 'ネイティブ' } },
+        'native',
+      ),
     ).toBe('ネイティブ');
   });
 
-  it('uses full when English flag is on', () => {
+  it('uses full when person display mode is full', () => {
     expect(
-      pickCharacterName({ name: { full: 'Romaji', native: 'ネイティブ' } }, true),
+      pickCharacterName(
+        { id: 1, name: { full: 'Romaji', native: 'ネイティブ' } },
+        'full',
+      ),
     ).toBe('Romaji');
   });
 });
@@ -43,7 +49,6 @@ describe('processCharacterEdges', () => {
         },
       ],
       consumed,
-      true,
     );
 
     expect(result.seen).toBe(true);
@@ -77,7 +82,7 @@ describe('accumulateVaStats', () => {
     const accum = accumulateVaStats(
       characters,
       [[{ id: 5, name: 'VA' }], [{ id: 5, name: 'VA' }]],
-      true,
+      'full',
     );
     const va = accum.get(5);
     expect(va).toBeDefined();
@@ -131,7 +136,6 @@ describe('buildFavouritesResult', () => {
         [11, 5],
       ]),
       favouriteStaff: [{ id: 10, name: { full: 'VA A', native: null }, gender: 'Female' }],
-      useEnglish: true,
       topN: 5,
     });
 

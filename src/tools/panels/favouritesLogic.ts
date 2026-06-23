@@ -3,6 +3,15 @@
  * character/VA aggregation. Network I/O lives in `favouritesApi.ts`.
  */
 
+import {
+  getMediaTitleDisplayMode,
+  getPersonNameDisplayMode,
+  type MediaTitleDisplayMode,
+  type PersonNameDisplayMode,
+} from '../../lib/importers/anilist/displayPreferences';
+import { pickMediaTitle as pickMediaTitleWithPrefs } from '../../lib/importers/anilist/mediaDisplayLabel';
+import { pickPersonName } from '../../lib/importers/anilist/personDisplayLabel';
+
 export const FAVOURITES_TOP_N = 20;
 
 /** Characters whose VA pairing should be excluded from stats. */
@@ -42,7 +51,6 @@ const ROLE_RANK: Record<string, CharacterRoleTier> = {
 
 export type FavouritesForm = {
   username: string;
-  useEnglishNames: boolean;
 };
 
 export type FavouriteCharacterInput = {
@@ -63,7 +71,11 @@ export type FavouriteStaffInput = {
 export type CharacterMediaEdge = {
   node: {
     id: number;
-    title: { romaji?: string | null; native?: string | null };
+    title: {
+      romaji?: string | null;
+      native?: string | null;
+      english?: string | null;
+    };
     type: string;
     format?: string | null;
   };
@@ -124,33 +136,51 @@ export type FavouritesResult = {
 };
 
 export function pickCharacterName(
-  character: Pick<FavouriteCharacterInput, 'name'>,
-  useEnglish: boolean,
+  character: Pick<FavouriteCharacterInput, 'id' | 'name'>,
+  personMode: PersonNameDisplayMode = getPersonNameDisplayMode(),
 ): string {
-  if (!useEnglish && character.name.native) {
-    return character.name.native;
-  }
-  return character.name.full;
+  return pickPersonName(
+    {
+      id: character.id,
+      name_full: character.name.full,
+      name_native: character.name.native ?? null,
+    },
+    personMode,
+  );
 }
 
 export function pickStaffName(
-  staff: Pick<FavouriteStaffInput, 'name'>,
-  useEnglish: boolean,
+  staff: Pick<FavouriteStaffInput, 'id' | 'name'>,
+  personMode: PersonNameDisplayMode = getPersonNameDisplayMode(),
 ): string {
-  if (!useEnglish && staff.name.native) {
-    return staff.name.native;
-  }
-  return staff.name.full;
+  return pickPersonName(
+    {
+      id: staff.id,
+      name_full: staff.name.full,
+      name_native: staff.name.native ?? null,
+    },
+    personMode,
+  );
 }
 
-export function pickMediaTitle(
-  title: { romaji?: string | null; native?: string | null },
-  useEnglish: boolean,
+export function pickFavouriteMediaTitle(
+  mediaId: number,
+  title: {
+    romaji?: string | null;
+    native?: string | null;
+    english?: string | null;
+  },
+  mediaMode: MediaTitleDisplayMode = getMediaTitleDisplayMode(),
 ): string {
-  if (!useEnglish && title.native) {
-    return title.native;
-  }
-  return title.romaji ?? title.native ?? '(untitled)';
+  return pickMediaTitleWithPrefs(
+    {
+      id: mediaId,
+      title_romaji: title.romaji ?? null,
+      title_english: title.english ?? null,
+      title_native: title.native ?? null,
+    },
+    mediaMode,
+  );
 }
 
 function isVaBlacklisted(charId: number, vaId: number): boolean {
@@ -163,7 +193,6 @@ export function processCharacterEdges(
   charName: string,
   edges: CharacterMediaEdge[],
   consumedMediaIds: ReadonlySet<number>,
-  useEnglish: boolean,
 ): {
   charRole: CharacterRoleTier;
   seen: boolean;
@@ -186,7 +215,7 @@ export function processCharacterEdges(
       continue;
     }
 
-    const title = pickMediaTitle(edge.node.title, useEnglish);
+    const title = pickFavouriteMediaTitle(mediaId, edge.node.title);
     const bucket = edge.node.type === 'MANGA' ? books : shows;
     if (!bucket[title]) {
       bucket[title] = new Set();
@@ -204,7 +233,11 @@ export function processCharacterEdges(
       }
       vas.push({
         id: va.id,
-        name: useEnglish || !va.name.native ? va.name.full : va.name.native,
+        name: pickPersonName({
+          id: va.id,
+          name_full: va.name.full,
+          name_native: va.name.native ?? null,
+        }),
       });
       vaIds.add(va.id);
     }
@@ -257,7 +290,7 @@ export function formatBirthdayKey(
 export function accumulateVaStats(
   characters: FavouriteCharacterInput[],
   perCharacterVas: Array<Array<{ id: number; name: string }>>,
-  useEnglish: boolean,
+  personMode: PersonNameDisplayMode = getPersonNameDisplayMode(),
 ): Map<number, VaAccumulator> {
   const dummyMedian = characters.length / 10;
   const midpoint = (characters.length / 2) * dummyMedian;
@@ -272,9 +305,9 @@ export function accumulateVaStats(
         existing.count += 1;
         existing.rankSum += rank;
         existing.logScore += logBase - Math.log(rank);
-        existing.characterNames.push(pickCharacterName(characters[i], useEnglish));
+        existing.characterNames.push(pickCharacterName(characters[i], personMode));
         existing.characterNamesWithRank.push(
-          `${pickCharacterName(characters[i], useEnglish)} (${rank})`,
+          `${pickCharacterName(characters[i], personMode)} (${rank})`,
         );
       } else {
         accum.set(va.id, {
@@ -283,9 +316,9 @@ export function accumulateVaStats(
           count: dummyMedian + 1,
           rankSum: midpoint + rank,
           logScore: logBase - Math.log(rank),
-          characterNames: [pickCharacterName(characters[i], useEnglish)],
+          characterNames: [pickCharacterName(characters[i], personMode)],
           characterNamesWithRank: [
-            `${pickCharacterName(characters[i], useEnglish)} (${rank})`,
+            `${pickCharacterName(characters[i], personMode)} (${rank})`,
           ],
         });
       }
@@ -328,7 +361,6 @@ export function buildFavouritesResult(input: {
   }>;
   vaTotalCharacterCounts: Map<number, number>;
   favouriteStaff: FavouriteStaffInput[];
-  useEnglish: boolean;
   topN?: number;
 }): FavouritesResult {
   const {
@@ -337,14 +369,13 @@ export function buildFavouritesResult(input: {
     perCharacterMeta,
     vaTotalCharacterCounts,
     favouriteStaff,
-    useEnglish,
     topN = FAVOURITES_TOP_N,
   } = input;
 
   const dummyMedian = characters.length / 10;
-  const accum = accumulateVaStats(characters, perCharacterVas, useEnglish);
+  const accum = accumulateVaStats(characters, perCharacterVas);
 
-  const characterNames = characters.map((c) => pickCharacterName(c, useEnglish));
+  const characterNames = characters.map((c) => pickCharacterName(c));
   const gender = { female: [] as string[], male: [] as string[], other: [] as string[] };
   const roles = {
     main: [] as string[],
@@ -463,7 +494,7 @@ export function buildFavouritesResult(input: {
 
   const staffRows = favouriteStaff.map((staff) => ({
     id: staff.id,
-    name: pickStaffName(staff, useEnglish),
+    name: pickStaffName(staff),
     gender: staff.gender ?? null,
     matchedCount: accum.get(staff.id)?.characterNames.length ?? 0,
   }));

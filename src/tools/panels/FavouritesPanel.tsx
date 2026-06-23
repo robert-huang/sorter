@@ -10,7 +10,6 @@ const LS_KEY = 'anime-tools-favourites-form';
 
 const DEFAULT_FORM: FavouritesForm = {
   username: '',
-  useEnglishNames: false,
 };
 
 function loadForm(): FavouritesForm {
@@ -19,10 +18,9 @@ function loadForm(): FavouritesForm {
     if (!raw) {
       return { ...DEFAULT_FORM, username: withLastAnilistUsername('') };
     }
-    const parsed = JSON.parse(raw) as Partial<FavouritesForm>;
+    const parsed = JSON.parse(raw) as Partial<FavouritesForm & { useEnglishNames?: boolean }>;
     return {
       ...DEFAULT_FORM,
-      ...parsed,
       username: withLastAnilistUsername(parsed.username ?? ''),
     };
   } catch {
@@ -183,7 +181,7 @@ export function FavouritesPanel({ onOpenStaff }: ToolPanelProps) {
       <p className="tool-panel-lead">
         Find voice actors behind your favourite characters — port of{' '}
         <code>character_vas.py</code>. First run can take a few minutes; character
-        and VA data is cached in the browser.
+        and VA lookups are cached in the browser (gear → Settings for display names).
       </p>
 
       <form
@@ -207,16 +205,6 @@ export function FavouritesPanel({ onOpenStaff }: ToolPanelProps) {
             onChange={(e) => patchForm({ username: e.target.value })}
             onContextMenu={(e) => onUsernameContextMenu(e, form.username, running)}
           />
-        </label>
-
-        <label className="tool-checkbox">
-          <input
-            type="checkbox"
-            checked={form.useEnglishNames}
-            disabled={running}
-            onChange={(e) => patchForm({ useEnglishNames: e.target.checked })}
-          />
-          Use English character / series names
         </label>
 
         <div className="tool-actions">
