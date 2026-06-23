@@ -8,6 +8,7 @@ import {
   TOOLS_STAFF_PRODUCTION_FILMOGRAPHY_QUERY,
 } from '../../lib/importers/anilist/queries';
 import { executeAnilistQuery } from '../../lib/importers/anilist/transport';
+import { pickCharacterName, pickPersonName } from '../../lib/importers/anilist/personDisplayLabel';
 import { TOOLS_CACHE_TTL_MS, withToolsCache } from '../../lib/importers/anilist/toolsCache';
 import type { ToolsFetchOptions } from '../../lib/importers/anilist/toolsFetchPolicy';
 import {
@@ -110,12 +111,12 @@ async function fetchShowProductionStaffLive(
           pageInfo: { hasNextPage: boolean };
           edges: Array<{
             role?: string | null;
-            node: { id: number; name: { full: string } };
+            node: { id: number; name: { full: string; native?: string | null } };
           }>;
         };
       } | null;
     },
-    { role?: string | null; node: { id: number; name: { full: string } } }
+    { role?: string | null; node: { id: number; name: { full: string; native?: string | null } } }
   >({
     query: TOOLS_MEDIA_PRODUCTION_STAFF_QUERY,
     variables: { mediaId },
@@ -131,7 +132,11 @@ async function fetchShowProductionStaffLive(
     mergeRoleIntoMap(
       map,
       edge.node.id,
-      edge.node.name.full,
+      pickPersonName({
+        id: edge.node.id,
+        name_full: edge.node.name.full,
+        name_native: edge.node.name.native ?? null,
+      }),
       edge.role ?? '(role unavailable)',
       edgeIndex,
     );
@@ -172,10 +177,10 @@ async function fetchShowVoiceActorsJpLive(
           pageInfo: { hasNextPage: boolean };
           edges: Array<{
             role?: string | null;
-            node: { id: number; name: { full: string } };
+            node: { id: number; name: { full: string; native?: string | null } };
             voiceActorRoles: Array<{
               roleNotes?: string | null;
-              voiceActor: { id: number; name: { full: string } };
+              voiceActor: { id: number; name: { full: string; native?: string | null } };
             }>;
           }>;
         };
@@ -183,10 +188,10 @@ async function fetchShowVoiceActorsJpLive(
     },
     {
       role?: string | null;
-      node: { id: number; name: { full: string } };
+      node: { id: number; name: { full: string; native?: string | null } };
       voiceActorRoles: Array<{
         roleNotes?: string | null;
-        voiceActor: { id: number; name: { full: string } };
+        voiceActor: { id: number; name: { full: string; native?: string | null } };
       }>;
     }
   >({
@@ -202,14 +207,23 @@ async function fetchShowVoiceActorsJpLive(
   const map: CreditedEntityMap = {};
   edges.forEach((edge, edgeIndex) => {
     for (const vaRole of edge.voiceActorRoles ?? []) {
-      let roleDescr = `${edge.role ?? 'UNKNOWN'} ${edge.node.name.full}`;
+      const characterName = pickCharacterName({
+        id: edge.node.id,
+        name_full: edge.node.name.full,
+        name_native: edge.node.name.native ?? null,
+      });
+      let roleDescr = `${edge.role ?? 'UNKNOWN'} ${characterName}`;
       if (vaRole.roleNotes) {
         roleDescr += ` ${vaRole.roleNotes}`;
       }
       mergeVaRoleIntoMap(
         map,
         vaRole.voiceActor.id,
-        vaRole.voiceActor.name.full,
+        pickPersonName({
+          id: vaRole.voiceActor.id,
+          name_full: vaRole.voiceActor.name.full,
+          name_native: vaRole.voiceActor.name.native ?? null,
+        }),
         edge.node.id,
         roleDescr,
         edgeIndex,

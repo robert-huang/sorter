@@ -10,6 +10,7 @@ import {
   sortProductionRolesByPriority,
 } from './productionRolePriority';
 import { filterProductionStaffRows } from './staffRoleFilter';
+import { pickCharacterName } from './personDisplayLabel';
 import type { CharacterRow, MediaRow, StaffRow } from './types';
 
 function placeholders(n: number): string {
@@ -367,6 +368,7 @@ async function getVoiceAnimeFilmographyForStaff(
     `
       SELECT
         m.*,
+        c.id AS ch_id,
         c.name_full AS ch_name_full,
         c.name_native AS ch_name_native,
         mc.role AS character_role,
@@ -381,7 +383,15 @@ async function getVoiceAnimeFilmographyForStaff(
     [staffId],
   );
   const perCharacter = rows.map((r) => {
-    const characterName = s(r.ch_name_full) ?? s(r.ch_name_native);
+    const characterName = pickCharacterName(
+      {
+        id: reqN(r.ch_id),
+        name_full: s(r.ch_name_full),
+        name_native: s(r.ch_name_native),
+      },
+      undefined,
+      'Character',
+    );
     return {
       media: rowToMediaRow(r),
       roles: [formatCharacterCastCredit(characterName, s(r.character_role))],

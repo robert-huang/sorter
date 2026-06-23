@@ -7,6 +7,7 @@ import {
   TOOLS_USER_ANIME_LIST_QUERY,
 } from '../../lib/importers/anilist/queries';
 import { executeAnilistQuery } from '../../lib/importers/anilist/transport';
+import { pickCharacterName, pickPersonName } from '../../lib/importers/anilist/personDisplayLabel';
 import {
   TOOLS_CACHE_TTL_MS,
   withToolsCache,
@@ -30,7 +31,7 @@ import {
 
 const USER_LIST_STATUSES = TOOLS_USER_LIST_STATUSES;
 
-type StaffSearchHit = { id: number; name: { full: string } };
+type StaffSearchHit = { id: number; name: { full: string; native?: string | null } };
 
 /** Root `Staff(search:)` returns one row; `Page.staff` returns a list. */
 export function pickStaffSearchMatch(
@@ -44,7 +45,10 @@ export function pickStaffSearchMatch(
 
 type VoiceEdge = {
   characterRole?: string | null;
-  characters?: Array<{ name?: { full?: string | null } | null } | null> | null;
+  characters?: Array<{
+    id?: number | null;
+    name?: { full?: string | null; native?: string | null } | null;
+  } | null> | null;
   node: {
     id: number;
     title: { english?: string | null; romaji?: string | null };
@@ -68,7 +72,20 @@ function mergeVoiceEdge(map: StaffShowMap, edge: VoiceEdge): void {
   const startDate = formatStartDateKey(show.startDate);
   const characterRole = edge.characterRole ?? 'UNKNOWN';
   const characters = (edge.characters ?? [])
-    .map((c) => c?.name?.full)
+    .map((c) => {
+      if (!c?.name?.full && !c?.name?.native) {
+        return null;
+      }
+      return pickCharacterName(
+        {
+          id: c.id ?? 0,
+          name_full: c.name?.full ?? null,
+          name_native: c.name?.native ?? null,
+        },
+        undefined,
+        'Character',
+      );
+    })
     .filter((name): name is string => Boolean(name));
 
   if (!map[mediaId]) {
@@ -146,10 +163,10 @@ export async function fetchStaffNamesByIds(
       {
         Page: {
           pageInfo: { hasNextPage: boolean };
-          staff: Array<{ id: number; name: { full: string } }>;
+          staff: Array<{ id: number; name: { full: string; native?: string | null } }>;
         } | null;
       },
-      { id: number; name: { full: string } }
+      { id: number; name: { full: string; native?: string | null } }
     >({
       query: TOOLS_STAFF_BY_IDS_QUERY,
       variables: { staffIds },
@@ -162,7 +179,11 @@ export async function fetchStaffNamesByIds(
 
     const names: Record<number, string> = {};
     for (const row of staff) {
-      names[row.id] = row.name.full;
+      names[row.id] = pickPersonName({
+        id: row.id,
+        name_full: row.name.full,
+        name_native: row.name.native ?? null,
+      });
     }
     if (Object.keys(names).length !== staffIds.length) {
       throw new Error('Could not fetch names for all staff ids.');

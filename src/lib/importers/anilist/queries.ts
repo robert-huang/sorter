@@ -512,7 +512,7 @@ query ToolsStaffByIds($staffIds: [Int], $page: Int!, $perPage: Int!) {
     pageInfo { hasNextPage currentPage }
     staff(id_in: $staffIds) {
       id
-      name { full }
+      name { full native }
     }
   }
 }
@@ -527,7 +527,8 @@ query ToolsStaffVoiceRoles($id: Int!, $page: Int!, $perPage: Int!) {
       edges {
         characterRole
         characters {
-          name { full }
+          id
+          name { full native }
         }
         node {
           id
@@ -660,7 +661,7 @@ query ToolsMediaProductionStaff($mediaId: Int!, $page: Int!, $perPage: Int!) {
         role
         node {
           id
-          name { full }
+          name { full native }
         }
       }
     }
@@ -683,13 +684,13 @@ query ToolsMediaVoiceActors(
         role
         node {
           id
-          name { full }
+          name { full native }
         }
         voiceActorRoles(language: $language) {
           roleNotes
           voiceActor {
             id
-            name { full }
+            name { full native }
           }
         }
       }

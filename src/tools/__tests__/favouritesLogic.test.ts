@@ -10,7 +10,7 @@ import {
 } from '../panels/favouritesLogic';
 
 describe('pickCharacterName', () => {
-  it('prefers native when person display mode is native', () => {
+  it('prefers native when character display mode is native', () => {
     expect(
       pickCharacterName(
         { id: 1, name: { full: 'Romaji', native: 'ネイティブ' } },
@@ -19,7 +19,7 @@ describe('pickCharacterName', () => {
     ).toBe('ネイティブ');
   });
 
-  it('uses full when person display mode is full', () => {
+  it('uses full when character display mode is full', () => {
     expect(
       pickCharacterName(
         { id: 1, name: { full: 'Romaji', native: 'ネイティブ' } },

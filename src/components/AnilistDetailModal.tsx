@@ -15,7 +15,7 @@ import type { AnilistProgressEvent } from '../lib/importers/anilist/progress';
 import { filterProductionStaffRows } from '../lib/importers/anilist/staffRoleFilter';
 import { runAnilistMediaLazyExpansion } from '../lib/importers/anilist/runners';
 import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
-import { pickPersonName } from '../lib/importers/anilist/personDisplayLabel';
+import { pickCharacterName, pickPersonName } from '../lib/importers/anilist/personDisplayLabel';
 import {
   anilistUrlForCharacter,
   anilistUrlForStaffId,
@@ -583,7 +583,7 @@ export function AnilistDetailModal({
                   <ul className="anilist-detail-cast-list">
                     {detail.characters.map(
                       ({ character, role, voiceActors }) => {
-                        const characterName = pickPersonName(
+                        const characterName = pickCharacterName(
                           character,
                           undefined,
                           'Character',

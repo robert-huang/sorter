@@ -4,13 +4,17 @@
  */
 
 import {
+  getCharacterNameDisplayMode,
   getMediaTitleDisplayMode,
   getPersonNameDisplayMode,
   type MediaTitleDisplayMode,
   type PersonNameDisplayMode,
 } from '../../lib/importers/anilist/displayPreferences';
 import { pickMediaTitle as pickMediaTitleWithPrefs } from '../../lib/importers/anilist/mediaDisplayLabel';
-import { pickPersonName } from '../../lib/importers/anilist/personDisplayLabel';
+import {
+  pickCharacterName as pickCharacterNameFields,
+  pickPersonName,
+} from '../../lib/importers/anilist/personDisplayLabel';
 
 export const FAVOURITES_TOP_N = 20;
 
@@ -137,15 +141,15 @@ export type FavouritesResult = {
 
 export function pickCharacterName(
   character: Pick<FavouriteCharacterInput, 'id' | 'name'>,
-  personMode: PersonNameDisplayMode = getPersonNameDisplayMode(),
+  characterMode: PersonNameDisplayMode = getCharacterNameDisplayMode(),
 ): string {
-  return pickPersonName(
+  return pickCharacterNameFields(
     {
       id: character.id,
       name_full: character.name.full,
       name_native: character.name.native ?? null,
     },
-    personMode,
+    characterMode,
   );
 }
 
@@ -290,7 +294,7 @@ export function formatBirthdayKey(
 export function accumulateVaStats(
   characters: FavouriteCharacterInput[],
   perCharacterVas: Array<Array<{ id: number; name: string }>>,
-  personMode: PersonNameDisplayMode = getPersonNameDisplayMode(),
+  characterMode: PersonNameDisplayMode = getCharacterNameDisplayMode(),
 ): Map<number, VaAccumulator> {
   const dummyMedian = characters.length / 10;
   const midpoint = (characters.length / 2) * dummyMedian;
@@ -305,9 +309,9 @@ export function accumulateVaStats(
         existing.count += 1;
         existing.rankSum += rank;
         existing.logScore += logBase - Math.log(rank);
-        existing.characterNames.push(pickCharacterName(characters[i], personMode));
+        existing.characterNames.push(pickCharacterName(characters[i]!, characterMode));
         existing.characterNamesWithRank.push(
-          `${pickCharacterName(characters[i], personMode)} (${rank})`,
+          `${pickCharacterName(characters[i]!, characterMode)} (${rank})`,
         );
       } else {
         accum.set(va.id, {
@@ -316,9 +320,9 @@ export function accumulateVaStats(
           count: dummyMedian + 1,
           rankSum: midpoint + rank,
           logScore: logBase - Math.log(rank),
-          characterNames: [pickCharacterName(characters[i], personMode)],
+          characterNames: [pickCharacterName(characters[i]!, characterMode)],
           characterNamesWithRank: [
-            `${pickCharacterName(characters[i], personMode)} (${rank})`,
+            `${pickCharacterName(characters[i]!, characterMode)} (${rank})`,
           ],
         });
       }

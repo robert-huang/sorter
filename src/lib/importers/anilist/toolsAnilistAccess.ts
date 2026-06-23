@@ -14,7 +14,7 @@ import {
 } from './graphQueries';
 import { pickMediaTitle as pickMediaRowTitle } from './mediaDisplayLabel';
 import { characterDateOfBirthFromRow } from './mappers';
-import { pickPersonName } from './personDisplayLabel';
+import { pickCharacterName, pickPersonName } from './personDisplayLabel';
 import { runAnilistImport, runAnilistFavourites } from './runners';
 import type { ToolsFetchOptions } from './toolsFetchPolicy';
 import { needsGraphDataRefresh } from './toolsFetchPolicy';
@@ -464,6 +464,7 @@ export async function readStaffShowMapFromDb(
         m.start_year,
         m.start_month,
         m.start_day,
+        c.id AS character_id,
         c.name_full AS character_name_full,
         c.name_native AS character_name_native,
         mc.role AS character_role
@@ -498,10 +499,15 @@ export async function readStaffShowMapFromDb(
     if (!map[mediaId]) {
       map[mediaId] = { title, roles: [], startDate };
     }
-    const characterName =
-      (row.character_name_full as string | null) ??
-      (row.character_name_native as string | null) ??
-      'Unknown';
+    const characterName = pickCharacterName(
+      {
+        id: Number(row.character_id ?? 0),
+        name_full: (row.character_name_full as string | null) ?? null,
+        name_native: (row.character_name_native as string | null) ?? null,
+      },
+      undefined,
+      'Character',
+    );
     const characterRole = (row.character_role as string | null) ?? 'UNKNOWN';
     map[mediaId].roles.push(`${characterName} (${characterRole})`);
   }
@@ -545,7 +551,7 @@ export async function readShowStaffBundleFromDb(
   const voiceActors: CreditedEntityMap = {};
   const vaCredits = await getVaCreditsAtMedia(db, mediaId, 'JAPANESE');
   for (const row of vaCredits) {
-    const roleDescr = `${row.characterRole || 'UNKNOWN'} ${pickPersonName(row.character)}`;
+    const roleDescr = `${row.characterRole || 'UNKNOWN'} ${pickCharacterName(row.character)}`;
     mergeVaRoleIntoMap(
       voiceActors,
       row.staff.id,
