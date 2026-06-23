@@ -1,5 +1,6 @@
 import {
   alignRoleCellsAcrossShows,
+  alignVaRoleCellsAcrossShows,
   dictDiffs,
   dictIntersection,
 } from '../../lib/importers/anilist/toolsDictUtils';
@@ -15,6 +16,8 @@ import {
 export type CreditedEntity = {
   name: string;
   roles: string[];
+  /** Parallel to `roles` for JP VA credits — used to align rows by character id. */
+  roleCharacterIds?: number[];
   /** First-seen API edge index (character or staff) for relevance ordering. */
   relevanceOrder?: number;
 };
@@ -106,6 +109,62 @@ export function mergeRoleIntoMap(
   map[key].roles.push(role);
 }
 
+function splitVaRoleLabel(label: string): { castRole: string; characterName: string } {
+  const space = label.indexOf(' ');
+  if (space < 0) {
+    return { castRole: label, characterName: '' };
+  }
+  return { castRole: label.slice(0, space), characterName: label.slice(space + 1) };
+}
+
+function mergeVaRoleLabels(existing: string, incoming: string): string {
+  if (existing === incoming) {
+    return existing;
+  }
+  const left = splitVaRoleLabel(existing);
+  const right = splitVaRoleLabel(incoming);
+  if (
+    left.characterName &&
+    left.characterName === right.characterName &&
+    left.castRole !== right.castRole
+  ) {
+    return `${left.castRole}/${right.castRole} ${left.characterName}`;
+  }
+  return `${existing}; ${incoming}`;
+}
+
+/** Accumulate JP VA credits keyed by staff id; same character id shares one role slot. */
+export function mergeVaRoleIntoMap(
+  map: CreditedEntityMap,
+  vaId: number,
+  vaName: string,
+  characterId: number,
+  roleLabel: string,
+  relevanceOrder?: number,
+): void {
+  const key = String(vaId);
+  if (!map[key]) {
+    map[key] = {
+      name: normalizeStaffName(vaName),
+      roles: [],
+      roleCharacterIds: [],
+      relevanceOrder,
+    };
+  }
+  const entity = map[key]!;
+  const characterIds = entity.roleCharacterIds ?? (entity.roleCharacterIds = []);
+  const existingIdx = characterIds.indexOf(characterId);
+  if (existingIdx >= 0) {
+    entity.roles[existingIdx] = mergeVaRoleLabels(entity.roles[existingIdx]!, roleLabel);
+    return;
+  }
+  characterIds.push(characterId);
+  entity.roles.push(roleLabel);
+  if (relevanceOrder !== undefined && entity.relevanceOrder === undefined) {
+    entity.relevanceOrder = relevanceOrder;
+  }
+}
+
 function compareByRelevanceOrder(
   maps: CreditedEntityMap[],
   idA: string,
@@ -125,7 +184,22 @@ function entityRowsForCompare(
   kind: 'studio' | 'staff' | 'va',
 ): SharedStaffSectionRow[] {
   const roleLists = maps.map((m) => m[id]?.roles ?? []);
-  const aligned = alignRoleCellsAcrossShows(roleLists);
+  const aligned =
+    kind === 'va'
+      ? alignVaRoleCellsAcrossShows(
+          maps.map((m) => {
+            const entity = m[id];
+            if (!entity) {
+              return [];
+            }
+            const characterIds = entity.roleCharacterIds ?? [];
+            return entity.roles.map((label, roleIdx) => ({
+              characterId: characterIds[roleIdx] ?? -(roleIdx + 1),
+              label,
+            }));
+          }),
+        )
+      : alignRoleCellsAcrossShows(roleLists);
   const displayName = normalizeStaffName(maps[0]?.[id]?.name ?? id);
 
   return aligned.map((cells, rowIdx) => ({

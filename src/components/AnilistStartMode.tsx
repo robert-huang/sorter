@@ -494,7 +494,7 @@ export function AnilistStartMode({
     setCandidates((prev) =>
       prev.map((item) => relabelAnilistItem(item, includeFormatInLabel)),
     );
-  }, [displayPrefs.mediaTitleMode, displayPrefs.personNameMode, includeFormatInLabel]);
+  }, [displayPrefs.mediaTitleMode, displayPrefs.personNameMode, displayPrefs.characterNameMode, includeFormatInLabel]);
 
   // Load per-favourite-type last-refresh timestamps + cached counts
   // for the user the typed `username` resolves to. Mirrors the

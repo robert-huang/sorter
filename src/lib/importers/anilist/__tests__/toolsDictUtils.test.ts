@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alignRoleCellsAcrossShows } from '../toolsDictUtils';
+import { alignRoleCellsAcrossShows, alignVaRoleCellsAcrossShows } from '../toolsDictUtils';
 
 describe('alignRoleCellsAcrossShows', () => {
   it('aligns matching roles on the same row using the first show as anchor', () => {
@@ -27,6 +27,35 @@ describe('alignRoleCellsAcrossShows', () => {
       ['Director', '', 'Director'],
       ['Music', 'Music', ''],
       ['', '', 'Script'],
+    ]);
+  });
+});
+
+describe('alignVaRoleCellsAcrossShows', () => {
+  it('aligns roles with the same character id even when cast role differs', () => {
+    expect(
+      alignVaRoleCellsAcrossShows([
+        [{ characterId: 100, label: 'MAIN Alice' }],
+        [{ characterId: 100, label: 'SUPPORTING Alice' }],
+      ]),
+    ).toEqual([['MAIN Alice', 'SUPPORTING Alice']]);
+  });
+
+  it('keeps different characters on separate rows', () => {
+    expect(
+      alignVaRoleCellsAcrossShows([
+        [
+          { characterId: 100, label: 'MAIN Alice' },
+          { characterId: 200, label: 'MAIN Bob' },
+        ],
+        [
+          { characterId: 200, label: 'MAIN Bob' },
+          { characterId: 100, label: 'BACKGROUND Alice' },
+        ],
+      ]),
+    ).toEqual([
+      ['MAIN Alice', 'BACKGROUND Alice'],
+      ['MAIN Bob', 'MAIN Bob'],
     ]);
   });
 });

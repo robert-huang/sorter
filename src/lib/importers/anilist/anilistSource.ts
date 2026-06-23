@@ -2,6 +2,7 @@ import { registerSource, type SourceDescriptor } from '../../db/source-registry'
 import migration001 from './migrations/001-init.sql?raw';
 import migration002 from './migrations/002-cast-expansion-tracking.sql?raw';
 import migration003 from './migrations/003-graph-expansion.sql?raw';
+import migration004 from './migrations/004-character-birth-date.sql?raw';
 import type { AnilistFavouriteType, AnilistMediaType } from './types';
 
 export const ANILIST_SOURCE_ID = 'anilist';
@@ -113,6 +114,7 @@ export const anilistSourceDescriptor: SourceDescriptor = {
     { version: 1, sql: migration001 },
     { version: 2, sql: migration002 },
     { version: 3, sql: migration003 },
+    { version: 4, sql: migration004 },
   ],
   merge: {
     metadataTables: [

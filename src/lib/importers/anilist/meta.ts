@@ -42,6 +42,13 @@ export function lastFavouritesRefreshKey(
   return `last_favourites_refresh:${anilistUserId}:${type}`;
 }
 
+/** Bump when favourite-character imports start persisting `character.birth_*`. */
+export const FAV_CHARACTERS_DOB_SCHEMA_VERSION = 1;
+
+export function favCharactersDobSchemaKey(anilistUserId: number): string {
+  return `fav_characters_dob_v${FAV_CHARACTERS_DOB_SCHEMA_VERSION}:${anilistUserId}`;
+}
+
 /**
  * Build the UPSERT statement for setting a `_meta` value. Returned as a
  * statement object (not executed) so importers can include it in the same

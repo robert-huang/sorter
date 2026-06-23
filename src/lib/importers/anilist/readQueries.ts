@@ -135,6 +135,9 @@ function rowToCharacterRow(r: DbRow): CharacterRow {
     age: s(r.age),
     gender: s(r.gender),
     favourites: n(r.favourites),
+    birth_year: n(r.birth_year),
+    birth_month: n(r.birth_month),
+    birth_day: n(r.birth_day),
     fetched_at: reqN(r.fetched_at),
     updated_at: reqN(r.updated_at),
   };

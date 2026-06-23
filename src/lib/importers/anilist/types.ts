@@ -258,6 +258,7 @@ export type AnilistCharacterGql = {
   age: string | null;
   gender: string | null;
   favourites: number | null;
+  dateOfBirth?: AnilistFuzzyDate | null;
 };
 
 /**
@@ -499,6 +500,9 @@ export type CharacterRow = {
   age: string | null;
   gender: string | null;
   favourites: number | null;
+  birth_year: number | null;
+  birth_month: number | null;
+  birth_day: number | null;
   fetched_at: number;
   updated_at: number;
 };

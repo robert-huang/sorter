@@ -20,6 +20,7 @@ import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportCo
 import { pickMediaTitle } from './sharedCreditsLogic';
 import {
   mergeRoleIntoMap,
+  mergeVaRoleIntoMap,
   tallySingleShowMatches,
   type CreditedEntityMap,
   type ProductionFilmographyShow,
@@ -171,7 +172,7 @@ async function fetchShowVoiceActorsJpLive(
           pageInfo: { hasNextPage: boolean };
           edges: Array<{
             role?: string | null;
-            node: { name: { full: string } };
+            node: { id: number; name: { full: string } };
             voiceActorRoles: Array<{
               roleNotes?: string | null;
               voiceActor: { id: number; name: { full: string } };
@@ -182,7 +183,7 @@ async function fetchShowVoiceActorsJpLive(
     },
     {
       role?: string | null;
-      node: { name: { full: string } };
+      node: { id: number; name: { full: string } };
       voiceActorRoles: Array<{
         roleNotes?: string | null;
         voiceActor: { id: number; name: { full: string } };
@@ -205,10 +206,11 @@ async function fetchShowVoiceActorsJpLive(
       if (vaRole.roleNotes) {
         roleDescr += ` ${vaRole.roleNotes}`;
       }
-      mergeRoleIntoMap(
+      mergeVaRoleIntoMap(
         map,
         vaRole.voiceActor.id,
         vaRole.voiceActor.name.full,
+        edge.node.id,
         roleDescr,
         edgeIndex,
       );
@@ -248,15 +250,26 @@ export async function fetchShowStaffBundle(
   await ensureMediaCastFresh(mediaId, options);
   const ctx = getToolsImportContext();
   const fromDb = await readShowStaffBundleFromDb(ctx.db, mediaId, title);
-  if (fromDb) {
-    return fromDb;
-  }
+
   const [studios, productionStaff, voiceActors] = await Promise.all([
-    fetchShowStudios(mediaId, signal, options),
-    fetchShowProductionStaff(mediaId, signal, options),
-    fetchShowVoiceActorsJp(mediaId, signal, options),
+    fromDb && Object.keys(fromDb.studios).length > 0
+      ? fromDb.studios
+      : fetchShowStudios(mediaId, signal, options),
+    fromDb && Object.keys(fromDb.productionStaff).length > 0
+      ? fromDb.productionStaff
+      : fetchShowProductionStaff(mediaId, signal, options),
+    fromDb && Object.keys(fromDb.voiceActors).length > 0
+      ? fromDb.voiceActors
+      : fetchShowVoiceActorsJp(mediaId, signal, options),
   ]);
-  return { id: mediaId, title, studios, productionStaff, voiceActors };
+
+  return {
+    id: mediaId,
+    title: fromDb?.title || title,
+    studios,
+    productionStaff,
+    voiceActors,
+  };
 }
 
 export async function fetchRelatedAnimeIds(

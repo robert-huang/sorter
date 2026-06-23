@@ -7,6 +7,7 @@ export type PersonNameDisplayMode = 'full' | 'native';
 export type AnilistDisplayPreferences = {
   mediaTitleMode: MediaTitleDisplayMode;
   personNameMode: PersonNameDisplayMode;
+  characterNameMode: PersonNameDisplayMode;
 };
 
 const STORAGE_KEY = 'anilist:display-preferences:v1';
@@ -16,7 +17,12 @@ export const ANILIST_DISPLAY_PREFS_CHANGED = 'anilist-display-preferences-change
 const DEFAULT_PREFS: AnilistDisplayPreferences = {
   mediaTitleMode: 'romaji',
   personNameMode: 'full',
+  characterNameMode: 'full',
 };
+
+function normalisePersonNameMode(value: unknown): PersonNameDisplayMode {
+  return value === 'native' ? 'native' : 'full';
+}
 
 function normaliseMediaTitleMode(value: unknown): MediaTitleDisplayMode {
   if (value === 'english' || value === 'native') {
@@ -66,9 +72,13 @@ export function loadAnilistDisplayPreferences(): AnilistDisplayPreferences {
       return cachedPrefs;
     }
     const parsed = JSON.parse(raw) as Partial<AnilistDisplayPreferences>;
+    const personNameMode = normalisePersonNameMode(parsed.personNameMode);
     cachedPrefs = {
       mediaTitleMode: normaliseMediaTitleMode(parsed.mediaTitleMode),
-      personNameMode: parsed.personNameMode === 'native' ? 'native' : 'full',
+      personNameMode,
+      characterNameMode: normalisePersonNameMode(
+        parsed.characterNameMode ?? personNameMode,
+      ),
     };
     return cachedPrefs;
   } catch {
@@ -97,6 +107,10 @@ export function getMediaTitleDisplayMode(): MediaTitleDisplayMode {
 
 export function getPersonNameDisplayMode(): PersonNameDisplayMode {
   return loadAnilistDisplayPreferences().personNameMode;
+}
+
+export function getCharacterNameDisplayMode(): PersonNameDisplayMode {
+  return loadAnilistDisplayPreferences().characterNameMode;
 }
 
 export function subscribeAnilistDisplayPreferences(listener: () => void): () => void {

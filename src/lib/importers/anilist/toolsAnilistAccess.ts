@@ -13,18 +13,21 @@ import {
   hasStaffFilmography,
 } from './graphQueries';
 import { pickMediaTitle as pickMediaRowTitle } from './mediaDisplayLabel';
+import { characterDateOfBirthFromRow } from './mappers';
 import { pickPersonName } from './personDisplayLabel';
 import { runAnilistImport, runAnilistFavourites } from './runners';
 import type { ToolsFetchOptions } from './toolsFetchPolicy';
 import { needsGraphDataRefresh } from './toolsFetchPolicy';
 import { getToolsImportContext } from './toolsImportContext';
 import { toolsCacheDelete } from './toolsCache';
+import { favCharactersDobSchemaKey } from './meta';
 import {
   getAnilistUserByName,
   getLastFavouritesRefresh,
   getListedMediaCount,
   getMediaCastExpansionStatus,
   getMediaDetail,
+  getMeta,
   getStaffFilmography,
   type AnilistUserSummary,
 } from './readQueries';
@@ -36,6 +39,7 @@ import {
 } from '../../../tools/panels/sharedCreditsLogic';
 import {
   mergeRoleIntoMap,
+  mergeVaRoleIntoMap,
   type CreditedEntityMap,
   type ProductionFilmographyShow,
   type ShowStaffBundle,
@@ -168,9 +172,22 @@ async function getFavouriteRowCount(
   return Number(rows[0]?.count ?? 0);
 }
 
+async function needsCharacterFavouritesDobBackfill(
+  db: AnilistDbExecutor,
+  anilistUserId: number,
+): Promise<boolean> {
+  const flag = await getMeta(db, favCharactersDobSchemaKey(anilistUserId));
+  if (flag === '1') {
+    return false;
+  }
+  const count = await getFavouriteRowCount(db, anilistUserId, 'CHARACTERS');
+  return count > 0;
+}
+
 /**
  * Ensure the user's character or staff favourites exist in the source DB —
- * imports when missing, empty, stale (>90d), or force-refresh was requested.
+ * imports when missing, empty, stale (>90d), force-refresh was requested,
+ * or character favourites predate birth-date schema.
  */
 export async function ensureUserFavouritesFresh(
   username: string,
@@ -187,11 +204,16 @@ export async function ensureUserFavouritesFresh(
   const lastRefresh = user
     ? await getLastFavouritesRefresh(ctx.db, user.id, type)
     : null;
+  const needsDobBackfill =
+    type === 'CHARACTERS' &&
+    user != null &&
+    (await needsCharacterFavouritesDobBackfill(ctx.db, user.id));
   const needsImport =
     options?.forceRefresh ||
     !user ||
     count === 0 ||
-    needsGraphDataRefresh(lastRefresh, options);
+    needsGraphDataRefresh(lastRefresh, options) ||
+    needsDobBackfill;
   if (needsImport) {
     await runAnilistFavourites(handle, type);
     user = await getAnilistUserByName(ctx.db, handle);
@@ -209,7 +231,10 @@ export async function readFavouriteCharactersFromDb(
              c.name_full,
              c.name_native,
              c.gender,
-             c.favourites
+             c.favourites,
+             c.birth_year,
+             c.birth_month,
+             c.birth_day
         FROM character_favourite cf
         JOIN character c ON c.id = cf.character_id
        WHERE cf.anilist_user_id = ?
@@ -228,7 +253,11 @@ export async function readFavouriteCharactersFromDb(
     },
     gender: (row.gender as string | null) ?? null,
     favourites: row.favourites != null ? Number(row.favourites) : null,
-    dateOfBirth: null,
+    dateOfBirth: characterDateOfBirthFromRow({
+      birth_year: row.birth_year != null ? Number(row.birth_year) : null,
+      birth_month: row.birth_month != null ? Number(row.birth_month) : null,
+      birth_day: row.birth_day != null ? Number(row.birth_day) : null,
+    }),
   }));
 }
 
@@ -517,10 +546,11 @@ export async function readShowStaffBundleFromDb(
   const vaCredits = await getVaCreditsAtMedia(db, mediaId, 'JAPANESE');
   for (const row of vaCredits) {
     const roleDescr = `${row.characterRole || 'UNKNOWN'} ${pickPersonName(row.character)}`;
-    mergeRoleIntoMap(
+    mergeVaRoleIntoMap(
       voiceActors,
       row.staff.id,
       pickPersonName(row.staff),
+      row.character.id,
       roleDescr,
       row.characterSortOrder,
     );

@@ -250,6 +250,7 @@ export function mapMediaListEntryRow(
 }
 
 export function mapCharacterRow(c: AnilistCharacterGql, now: number): CharacterRow {
+  const birth = fuzzyDateParts(c.dateOfBirth ?? null);
   return {
     id: c.id,
     name_full: c.name.full ?? null,
@@ -260,9 +261,27 @@ export function mapCharacterRow(c: AnilistCharacterGql, now: number): CharacterR
     age: c.age ?? null,
     gender: c.gender ?? null,
     favourites: c.favourites ?? null,
+    birth_year: birth.year,
+    birth_month: birth.month,
+    birth_day: birth.day,
     fetched_at: now,
     updated_at: now,
   };
+}
+
+/** Rehydrate AniList-style `dateOfBirth` from cached `character.birth_*` columns. */
+export function characterDateOfBirthFromRow(parts: {
+  birth_year?: number | null;
+  birth_month?: number | null;
+  birth_day?: number | null;
+}): { year?: number | null; month?: number | null; day?: number | null } | null {
+  const year = parts.birth_year ?? null;
+  const month = parts.birth_month ?? null;
+  const day = parts.birth_day ?? null;
+  if (year === null && month === null && day === null) {
+    return null;
+  }
+  return { year, month, day };
 }
 
 export function mapStaffRow(s: AnilistStaffGql, now: number): StaffRow {

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   buildCompareSections,
   finalizeSharedStaffResult,
+  mergeVaRoleIntoMap,
+  type CreditedEntityMap,
   type ShowStaffBundle,
 } from '../panels/sharedStaffLogic';
 
@@ -87,6 +89,41 @@ describe('sharedStaffLogic', () => {
       ['roleB', 'roleB'],
       ['', 'roleA'],
     ]);
+  });
+
+  it('aligns VA roles by character id across different cast roles', () => {
+    const left = bundle(1, 'Left', {
+      voiceActors: {
+        '20': {
+          name: 'VA One',
+          roles: ['MAIN Alice'],
+          roleCharacterIds: [100],
+          relevanceOrder: 0,
+        },
+      },
+    });
+    const right = bundle(2, 'Right', {
+      voiceActors: {
+        '20': {
+          name: 'VA One',
+          roles: ['SUPPORTING Alice'],
+          roleCharacterIds: [100],
+          relevanceOrder: 0,
+        },
+      },
+    });
+    const sections = buildCompareSections([left, right], false);
+    const vas = sections.find((s) => s.title === 'Voice Actors (JP)');
+    expect(vas?.rows).toHaveLength(1);
+    expect(vas?.rows[0]?.cells).toEqual(['MAIN Alice', 'SUPPORTING Alice']);
+  });
+
+  it('mergeVaRoleIntoMap collapses duplicate character credits within a show', () => {
+    const map: CreditedEntityMap = {};
+    mergeVaRoleIntoMap(map, 20, 'VA One', 100, 'MAIN Alice');
+    mergeVaRoleIntoMap(map, 20, 'VA One', 100, 'SUPPORTING Alice');
+    expect(map['20']?.roles).toEqual(['MAIN/SUPPORTING Alice']);
+    expect(map['20']?.roleCharacterIds).toEqual([100]);
   });
 
   it('sorts voice actors by first-show relevance order', () => {

@@ -12,6 +12,7 @@ export function useAnilistDisplayPreferences(): {
   prefs: AnilistDisplayPreferences;
   setMediaTitleMode: (mode: MediaTitleDisplayMode) => void;
   setPersonNameMode: (mode: PersonNameDisplayMode) => void;
+  setCharacterNameMode: (mode: PersonNameDisplayMode) => void;
 } {
   const [prefs, setPrefs] = useState<AnilistDisplayPreferences>(() =>
     loadAnilistDisplayPreferences(),
@@ -31,5 +32,9 @@ export function useAnilistDisplayPreferences(): {
     saveAnilistDisplayPreferences({ personNameMode: mode });
   };
 
-  return { prefs, setMediaTitleMode, setPersonNameMode };
+  const setCharacterNameMode = (mode: PersonNameDisplayMode): void => {
+    saveAnilistDisplayPreferences({ characterNameMode: mode });
+  };
+
+  return { prefs, setMediaTitleMode, setPersonNameMode, setCharacterNameMode };
 }

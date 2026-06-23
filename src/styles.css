@@ -5530,7 +5530,7 @@ a {
 
 .tool-section-title {
   margin: 0;
-  padding: 12px 12px 0;
+  padding: 12px 12px 8px;
   font-size: 15px;
 }
 
@@ -5618,60 +5618,64 @@ a {
 }
 
 .tool-season-fullbleed {
-  width: 100vw;
-  max-width: 100vw;
-  margin-left: calc(50% - 50vw);
-  margin-top: 20px;
+  width: min(90vw, 100%);
+  max-width: 90vw;
+  max-height: 90vh;
+  margin: 20px auto 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .tool-season-columns {
   margin-top: 0;
   border: 1px solid var(--border);
-  border-radius: 0;
+  border-radius: var(--radius);
   background: var(--surface);
-  overflow: visible;
-  isolation: isolate;
-}
-
-/* Pinned below app chrome; horizontal motion comes from the synced track. */
-.tool-season-header-sticky {
-  position: sticky;
-  top: var(--tools-season-sticky-top, 0);
-  z-index: 13;
   overflow: hidden;
-  background: var(--surface);
-  box-shadow: 0 2px 0 var(--border);
-}
-
-.tool-season-header-track {
-  will-change: transform;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .tool-season-scroll {
   position: relative;
   z-index: 0;
-  overflow-x: auto;
-  overflow-y: visible;
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
 }
 
-.tool-season-header-row,
-.tool-season-row {
-  display: grid;
+.tool-season-body {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
   width: max-content;
   min-width: 100%;
 }
 
+.tool-season-column {
+  flex: 0 0 300px;
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+}
+
+.tool-season-column:last-child {
+  border-right: none;
+}
+
 .tool-season-col-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   padding: 10px 12px;
   border-bottom: 1px solid var(--border-strong);
   background: var(--surface-2);
   font-size: 13px;
   box-shadow: 0 1px 0 var(--border);
-}
-
-.tool-season-col-head:not(:first-child),
-.tool-season-cell:not(:first-child) {
-  border-left: 1px solid var(--border);
 }
 
 .tool-season-col-title {
@@ -5688,7 +5692,6 @@ a {
   border-bottom: 1px solid var(--border);
   background: var(--surface);
   font-size: 13px;
-  min-height: 2.25rem;
 }
 
 .tool-season-cell-grid {

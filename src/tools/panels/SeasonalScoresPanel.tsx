@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
 import { useUsernameListRefresh } from '../useUsernameListRefresh';
@@ -63,10 +63,6 @@ function saveForm(form: SeasonalScoresForm): void {
   }
 }
 
-function seasonGridStyle(columnCount: number): { gridTemplateColumns: string } {
-  return { gridTemplateColumns: `repeat(${columnCount}, minmax(12.5rem, 1fr))` };
-}
-
 function SeasonalColumnsView({
   columns,
   onOpenMedia,
@@ -74,83 +70,32 @@ function SeasonalColumnsView({
   columns: SeasonColumn[];
   onOpenMedia: ToolPanelProps['onOpenMedia'];
 }) {
-  const bodyScrollRef = useRef<HTMLDivElement>(null);
-  const headerTrackRef = useRef<HTMLDivElement>(null);
-  const columnCount = columns.length;
-  const gridStyle = seasonGridStyle(columnCount);
-  const rowCount = Math.max(...columns.map((c) => c.shows.length), 0);
-
-  const syncHeaderWithBody = useCallback(() => {
-    const body = bodyScrollRef.current;
-    const track = headerTrackRef.current;
-    if (!body || !track) {
-      return;
-    }
-    const bodyInner = body.querySelector('.tool-season-body');
-    if (bodyInner instanceof HTMLElement) {
-      track.style.width = `${bodyInner.scrollWidth}px`;
-    }
-    track.style.transform = `translateX(-${body.scrollLeft}px)`;
-  }, []);
-
-  useLayoutEffect(() => {
-    syncHeaderWithBody();
-    const body = bodyScrollRef.current;
-    if (!body || typeof ResizeObserver === 'undefined') {
-      return;
-    }
-    const ro = new ResizeObserver(() => syncHeaderWithBody());
-    const bodyInner = body.querySelector('.tool-season-body');
-    if (bodyInner) {
-      ro.observe(bodyInner);
-    }
-    ro.observe(body);
-    return () => ro.disconnect();
-  }, [columns, rowCount, syncHeaderWithBody]);
-
   return (
     <div className="tool-season-columns">
-      <div className="tool-season-header-sticky">
-        <div className="tool-season-header-track" ref={headerTrackRef}>
-          <div className="tool-season-header-row" style={gridStyle}>
-            {columns.map((col) => (
-              <div key={col.label} className="tool-season-col-head">
+      <div className="tool-season-scroll">
+        <div className="tool-season-body">
+          {columns.map((col) => (
+            <div key={col.label} className="tool-season-column">
+              <div className="tool-season-col-head">
                 <div className="tool-season-col-title">{col.label}</div>
                 <div className="tool-season-col-avg">avg: {col.average ?? 'N/A'}</div>
               </div>
-            ))}
-          </div>
-        </div>
-      </div>
-      <div
-        className="tool-season-scroll"
-        ref={bodyScrollRef}
-        onScroll={syncHeaderWithBody}
-      >
-        <div className="tool-season-body">
-          {Array.from({ length: rowCount }).map((_, rowIdx) => (
-            <div key={rowIdx} className="tool-season-row" style={gridStyle}>
-              {columns.map((col) => {
-                const show = col.shows[rowIdx];
-                return (
-                  <div key={`${col.label}-${rowIdx}`} className="tool-season-cell">
-                    {show ? (
-                      <div className="tool-season-cell-grid">
-                        <span className="tool-season-score">{show.score ?? '—'}</span>
-                        <button
-                          type="button"
-                          className="tool-link-btn tool-season-title"
-                          onClick={() =>
-                            onOpenMedia(show.id, show.title, { forceRefresh: true })
-                          }
-                        >
-                          {show.title}
-                        </button>
-                      </div>
-                    ) : null}
+              {col.shows.map((show) => (
+                <div key={show.id} className="tool-season-cell">
+                  <div className="tool-season-cell-grid">
+                    <span className="tool-season-score">{show.score ?? '—'}</span>
+                    <button
+                      type="button"
+                      className="tool-link-btn tool-season-title"
+                      onClick={() =>
+                        onOpenMedia(show.id, show.title, { forceRefresh: true })
+                      }
+                    >
+                      {show.title}
+                    </button>
                   </div>
-                );
-              })}
+                </div>
+              ))}
             </div>
           ))}
         </div>

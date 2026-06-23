@@ -1,4 +1,8 @@
-import { getPersonNameDisplayMode, type PersonNameDisplayMode } from './displayPreferences';
+import {
+  getCharacterNameDisplayMode,
+  getPersonNameDisplayMode,
+  type PersonNameDisplayMode,
+} from './displayPreferences';
 
 export type PersonNameFields = {
   id: number;
@@ -16,6 +20,14 @@ export function pickPersonName(
     return fields.name_native ?? fields.name_full ?? fallback;
   }
   return fields.name_full ?? fields.name_native ?? fallback;
+}
+
+export function pickCharacterName(
+  fields: PersonNameFields,
+  mode: PersonNameDisplayMode = getCharacterNameDisplayMode(),
+  fallbackLabel = 'Character',
+): string {
+  return pickPersonName(fields, mode, fallbackLabel);
 }
 
 /** Character rows also carry alternative/nickname names (JSON arrays). */

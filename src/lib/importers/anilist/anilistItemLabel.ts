@@ -2,7 +2,7 @@ import type { Item } from '../../types';
 import type { AnilistMediaFormat } from './types';
 import type { AnilistItemLabelSource } from '../../types';
 import { formatMediaDisplayLabel, type MediaTitleFields } from './mediaDisplayLabel';
-import { pickPersonName } from './personDisplayLabel';
+import { pickCharacterName, pickPersonName } from './personDisplayLabel';
 
 export function resolveAnilistItemLabel(
   source: AnilistItemLabelSource,
@@ -14,6 +14,9 @@ export function resolveAnilistItemLabel(
       source.format,
       includeFormatInLabel,
     );
+  }
+  if (source.kind === 'character') {
+    return pickCharacterName(source.nameFields, undefined, source.fallbackLabel);
   }
   return pickPersonName(source.nameFields, undefined, source.fallbackLabel);
 }

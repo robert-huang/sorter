@@ -322,6 +322,7 @@ query FavouriteCharactersPage($username: String!, $page: Int!, $perPage: Int!) {
             age
             gender
             favourites
+            dateOfBirth { year month day }
           }
         }
       }
@@ -681,6 +682,7 @@ query ToolsMediaVoiceActors(
       edges {
         role
         node {
+          id
           name { full }
         }
         voiceActorRoles(language: $language) {

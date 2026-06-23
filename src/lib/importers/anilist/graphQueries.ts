@@ -112,6 +112,9 @@ function rowToCharacterRowPrefixed(r: Record<string, unknown>): CharacterRow {
     age: s(r.ch_age),
     gender: s(r.ch_gender),
     favourites: n(r.ch_favourites),
+    birth_year: n(r.ch_birth_year),
+    birth_month: n(r.ch_birth_month),
+    birth_day: n(r.ch_birth_day),
     fetched_at: reqN(r.ch_fetched_at),
     updated_at: reqN(r.ch_updated_at),
   };

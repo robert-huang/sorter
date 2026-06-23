@@ -65,7 +65,7 @@ import {
   mapStudioRows,
   mapTagRows,
 } from './mappers';
-import { buildSetMetaStmt, lastFavouritesRefreshKey } from './meta';
+import { buildSetMetaStmt, favCharactersDobSchemaKey, lastFavouritesRefreshKey } from './meta';
 import { emitProgress } from './progress';
 import {
   FAVOURITE_ANIME_QUERY,
@@ -485,6 +485,10 @@ export async function importAnilistFavourites(
     // transaction so the wipe + writes + stamp commit atomically.
     const stampStmt = buildSetMetaStmt(lastFavouritesRefreshKey(anilistUserRow.id, type), now);
     stmts.push({ sql: stampStmt.sql, params: stampStmt.params ?? [] });
+    if (type === 'CHARACTERS') {
+      const dobStmt = buildSetMetaStmt(favCharactersDobSchemaKey(anilistUserRow.id), '1');
+      stmts.push({ sql: dobStmt.sql, params: dobStmt.params ?? [] });
+    }
 
     emitProgress(ctx.onProgress, { kind: 'writing', statements: stmts.length });
     await ctx.db.execBatch(stmts);

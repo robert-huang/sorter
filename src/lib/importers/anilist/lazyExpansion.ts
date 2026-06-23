@@ -81,6 +81,9 @@ export const CHARACTER_COLS = [
   'age',
   'gender',
   'favourites',
+  'birth_year',
+  'birth_month',
+  'birth_day',
   'fetched_at',
   'updated_at',
 ] as const;
@@ -108,7 +111,23 @@ function buildPersonUpsertSql(table: string, cols: readonly string[]): string {
     `ON CONFLICT(id) DO UPDATE SET ${updates}`;
 }
 
-export const CHARACTER_UPSERT_SQL = buildPersonUpsertSql('character', CHARACTER_COLS);
+function buildCharacterUpsertSql(): string {
+  const placeholders = CHARACTER_COLS.map(() => '?').join(', ');
+  const updates = CHARACTER_COLS.filter((c) => c !== 'id')
+    .map((c) => {
+      if (c === 'birth_year' || c === 'birth_month' || c === 'birth_day') {
+        return `${c} = COALESCE(excluded.${c}, character.${c})`;
+      }
+      return `${c} = excluded.${c}`;
+    })
+    .join(', ');
+  return (
+    `INSERT INTO character (${CHARACTER_COLS.join(', ')}) VALUES (${placeholders}) ` +
+    `ON CONFLICT(id) DO UPDATE SET ${updates}`
+  );
+}
+
+export const CHARACTER_UPSERT_SQL = buildCharacterUpsertSql();
 export const STAFF_UPSERT_SQL = buildPersonUpsertSql('staff', STAFF_COLS);
 
 export function characterRowToParams(row: CharacterRow): SqlBindable[] {

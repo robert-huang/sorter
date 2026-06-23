@@ -23,7 +23,8 @@ export function AnilistDisplayPreferencesPanel({
   /** When true, drop the source-db nested indent (Tools settings tab). */
   standalone?: boolean;
 }) {
-  const { prefs, setMediaTitleMode, setPersonNameMode } = useAnilistDisplayPreferences();
+  const { prefs, setMediaTitleMode, setPersonNameMode, setCharacterNameMode } =
+    useAnilistDisplayPreferences();
 
   return (
     <>
@@ -60,6 +61,22 @@ export function AnilistDisplayPreferencesPanel({
                 className={prefs.personNameMode === option.value ? 'active' : ''}
                 aria-pressed={prefs.personNameMode === option.value}
                 onClick={() => setPersonNameMode(option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="filter-chip-range-row">
+          <span>character</span>
+          <div className="filter-chip-segmented" role="group" aria-label="character">
+            {NAME_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={prefs.characterNameMode === option.value ? 'active' : ''}
+                aria-pressed={prefs.characterNameMode === option.value}
+                onClick={() => setCharacterNameMode(option.value)}
               >
                 {option.label}
               </button>

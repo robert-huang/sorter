@@ -422,6 +422,22 @@ describe('character / staff mappers', () => {
     const row = mapCharacterRow(character, NOW);
     expect(row.name_alternatives_json).toBe(JSON.stringify(['Alt Name', 'Nickname']));
     expect(row.name_alternatives_spoiler_json).toBe(JSON.stringify(['True Identity']));
+    expect(row.birth_year).toBeNull();
+    expect(row.birth_month).toBeNull();
+    expect(row.birth_day).toBeNull();
+  });
+
+  it('mapCharacterRow maps dateOfBirth fuzzy parts', () => {
+    const row = mapCharacterRow(
+      {
+        ...character,
+        dateOfBirth: { year: 1990, month: 3, day: 5 },
+      },
+      NOW,
+    );
+    expect(row.birth_year).toBe(1990);
+    expect(row.birth_month).toBe(3);
+    expect(row.birth_day).toBe(5);
   });
 
   it('mapCharacterRow returns NULL for empty alternative arrays', () => {
