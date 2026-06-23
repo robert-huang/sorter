@@ -17,6 +17,8 @@ import {
   ensureUserAnimeListFresh,
   readStaffShowMapFromDb,
   readUserListMediaIdsFromDb,
+  TOOLS_USER_LIST_STATUSES,
+  toolsUserListCacheKey,
 } from '../../lib/importers/anilist/toolsAnilistAccess';
 import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportContext';
 import {
@@ -26,13 +28,7 @@ import {
   type StaffShowMap,
 } from './sharedCreditsLogic';
 
-const USER_LIST_STATUSES = [
-  'CURRENT',
-  'REPEATING',
-  'COMPLETED',
-  'PAUSED',
-  'DROPPED',
-] as const;
+const USER_LIST_STATUSES = TOOLS_USER_LIST_STATUSES;
 
 type VoiceEdge = {
   characterRole?: string | null;
@@ -258,7 +254,7 @@ export async function fetchUserListMediaIds(
   options?: ToolsFetchOptions,
 ): Promise<Set<string>> {
   signal?.throwIfAborted();
-  const key = `tools:user-list:${username.toLowerCase()}:${USER_LIST_STATUSES.join(',')}`;
+  const key = toolsUserListCacheKey(username);
   return withToolsCache(
     key,
     TOOLS_CACHE_TTL_MS.userList,

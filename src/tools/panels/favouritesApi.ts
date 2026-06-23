@@ -8,7 +8,12 @@ import {
 } from '../../lib/importers/anilist/queries';
 import { TOOLS_CACHE_TTL_MS, withToolsCache } from '../../lib/importers/anilist/toolsCache';
 import type { ToolsFetchOptions } from '../../lib/importers/anilist/toolsFetchPolicy';
-import { ensureUserAnimeListFresh } from '../../lib/importers/anilist/toolsAnilistAccess';
+import {
+  ensureUserAnimeListFresh,
+  readConsumedMediaIdsFromDb,
+  toolsConsumedMediaCacheKey,
+} from '../../lib/importers/anilist/toolsAnilistAccess';
+import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportContext';
 import {
   buildFavouritesResult,
   countVaCharactersOnMedia,
@@ -35,12 +40,20 @@ async function fetchConsumedMediaIds(
   options?: ToolsFetchOptions,
 ): Promise<Set<number>> {
   signal?.throwIfAborted();
-  const cacheKey = `tools:consumed-media:${username.toLowerCase()}`;
+  const cacheKey = toolsConsumedMediaCacheKey(username);
   const ids = await withToolsCache(
     cacheKey,
     TOOLS_CACHE_TTL_MS.userList,
     async () => {
-      await ensureUserAnimeListFresh(username, options);
+      const user = await ensureUserAnimeListFresh(username, options);
+      if (user) {
+        const ctx = getToolsImportContext();
+        const fromDb = await readConsumedMediaIdsFromDb(ctx.db, user.id);
+        if (fromDb) {
+          return [...fromDb];
+        }
+      }
+
       const entries = await depaginate<
       {
         Page: {

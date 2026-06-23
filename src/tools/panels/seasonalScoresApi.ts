@@ -4,13 +4,15 @@ import { TOOLS_CACHE_TTL_MS, withToolsCache } from '../../lib/importers/anilist/
 import type { ToolsFetchOptions } from '../../lib/importers/anilist/toolsFetchPolicy';
 import {
   ensureUserAnimeListFresh,
+  TOOLS_SEASONAL_LIST_STATUSES,
+  toolsSeasonListCacheKey,
 } from '../../lib/importers/anilist/toolsAnilistAccess';
 import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportContext';
 import { pickMediaTitle as pickMediaRowTitle } from '../../lib/importers/anilist/mediaDisplayLabel';
 import { pickMediaTitle } from './sharedCreditsLogic';
 import type { SeasonalShow } from './seasonalScoresLogic';
 
-const SEASONAL_STATUSES = ['COMPLETED', 'CURRENT', 'REPEATING'] as const;
+const SEASONAL_STATUSES = TOOLS_SEASONAL_LIST_STATUSES;
 
 async function readSeasonalShowsFromDb(
   anilistUserId: number,
@@ -51,7 +53,7 @@ export async function fetchUserSeasonalShows(
   signal?: AbortSignal,
   options?: ToolsFetchOptions,
 ): Promise<SeasonalShow[]> {
-  const key = `tools:season-list:${username.toLowerCase()}:${SEASONAL_STATUSES.join(',')}`;
+  const key = toolsSeasonListCacheKey(username);
   return withToolsCache(
     key,
     TOOLS_CACHE_TTL_MS.userList,

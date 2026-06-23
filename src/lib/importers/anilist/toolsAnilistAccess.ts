@@ -27,6 +27,37 @@ import type { ToolsFetchOptions } from './toolsFetchPolicy';
 import { needsGraphDataRefresh } from './toolsFetchPolicy';
 import { getToolsImportContext } from './toolsImportContext';
 import { toolsCacheDelete } from './toolsCache';
+
+/** Statuses used by Shared Credits list filter (matches `TOOLS_USER_ANIME_LIST_QUERY`). */
+export const TOOLS_USER_LIST_STATUSES = [
+  'CURRENT',
+  'REPEATING',
+  'COMPLETED',
+  'PAUSED',
+  'DROPPED',
+] as const;
+
+/** Non-planning list entries — matches `TOOLS_USER_CONSUMED_MEDIA_QUERY` (`status_not: PLANNING`). */
+export const TOOLS_CONSUMED_LIST_STATUSES = [...TOOLS_USER_LIST_STATUSES] as const;
+
+/** Statuses used by Seasonal Scores (completed + airing). */
+export const TOOLS_SEASONAL_LIST_STATUSES = [
+  'COMPLETED',
+  'CURRENT',
+  'REPEATING',
+] as const;
+
+export function toolsConsumedMediaCacheKey(username: string): string {
+  return `tools:consumed-media:${username.toLowerCase()}`;
+}
+
+export function toolsUserListCacheKey(username: string): string {
+  return `tools:user-list:${username.toLowerCase()}:${TOOLS_USER_LIST_STATUSES.join(',')}`;
+}
+
+export function toolsSeasonListCacheKey(username: string): string {
+  return `tools:season-list:${username.toLowerCase()}:${TOOLS_SEASONAL_LIST_STATUSES.join(',')}`;
+}
 import {
   formatStartDateKey,
   type StaffRoleMode,
@@ -292,11 +323,27 @@ export async function readProductionFilmographyFromDb(
   return shows.length > 0 ? shows : null;
 }
 
+export async function readConsumedMediaIdsFromDb(
+  db: AnilistDbExecutor,
+  anilistUserId: number,
+): Promise<Set<number> | null> {
+  const ids = await readUserListMediaIdsFromDb(
+    db,
+    anilistUserId,
+    TOOLS_CONSUMED_LIST_STATUSES,
+  );
+  return ids.size > 0 ? new Set([...ids].map((id) => Number(id))) : null;
+}
+
 /** Bust tools-cache keys tied to a username (right-click on username field). */
 export async function bustToolsUserListCache(username: string): Promise<void> {
-  const handle = username.trim().toLowerCase();
+  const handle = username.trim();
   if (!handle) {
     return;
   }
-  await toolsCacheDelete(`tools:consumed-media:${handle}`);
+  await Promise.all([
+    toolsCacheDelete(toolsConsumedMediaCacheKey(handle)),
+    toolsCacheDelete(toolsUserListCacheKey(handle)),
+    toolsCacheDelete(toolsSeasonListCacheKey(handle)),
+  ]);
 }

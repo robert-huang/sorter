@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AnilistDetailModal } from '../components/AnilistDetailModal';
 import { StaffDetailModal } from '../components/StaffDetailModal';
 import { useSourceDbSync } from '../hooks/useSourceDbSync';
@@ -11,6 +11,7 @@ import {
 } from '../animeToAnime/theme';
 import { ToolsHeader } from './ToolsHeader';
 import { ToolTabs, type ToolTab } from './ToolTabs';
+import { configureToolsImportDirtyHook } from '../lib/importers/anilist/toolsImportContext';
 import { useAnilistApiWait } from './useAnilistApiWait';
 import {
   loadActiveTool,
@@ -94,6 +95,15 @@ export function ToolsApp() {
     () => ({ onOpenMedia, onOpenStaff }),
     [onOpenMedia, onOpenStaff],
   );
+
+  useEffect(() => {
+    configureToolsImportDirtyHook({
+      onDirtyBumped: () => dbSync.refreshDbSyncRevision(),
+    });
+    return () => {
+      configureToolsImportDirtyHook({});
+    };
+  }, [dbSync.refreshDbSyncRevision]);
 
   const { apiWait, apiWaitSecondsLeft } = useAnilistApiWait();
 
