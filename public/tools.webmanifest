@@ -1,0 +1,16 @@
+{
+  "name": "Tools",
+  "short_name": "Tools",
+  "description": "Lookup and exploration utilities.",
+  "icons": [
+    {
+      "src": "favicons/tools.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "theme_color": "#3b5bff",
+  "background_color": "#ffffff",
+  "display": "standalone"
+}

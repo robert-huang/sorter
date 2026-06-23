@@ -1,0 +1,16 @@
+{
+  "name": "Sorter",
+  "short_name": "Sorter",
+  "description": "Rank lists by pairwise comparison.",
+  "icons": [
+    {
+      "src": "favicons/sorter.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "theme_color": "#3b5bff",
+  "background_color": "#ffffff",
+  "display": "standalone"
+}

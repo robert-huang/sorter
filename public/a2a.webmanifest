@@ -1,0 +1,16 @@
+{
+  "name": "Anime to Anime",
+  "short_name": "A2A",
+  "description": "Find paths between anime via shared staff and voice actors.",
+  "icons": [
+    {
+      "src": "favicons/a2a.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "theme_color": "#f43f5e",
+  "background_color": "#fff1f5",
+  "display": "standalone"
+}
