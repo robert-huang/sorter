@@ -64,7 +64,7 @@ function saveForm(form: SeasonalScoresForm): void {
 }
 
 function seasonGridStyle(columnCount: number): { gridTemplateColumns: string } {
-  return { gridTemplateColumns: `repeat(${columnCount}, 200px)` };
+  return { gridTemplateColumns: `repeat(${columnCount}, minmax(12.5rem, 1fr))` };
 }
 
 function SeasonalColumnsView({
@@ -305,7 +305,9 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
       {result?.kind === 'empty' && <p className="tool-empty">{result.message}</p>}
 
       {result?.kind === 'columns' && (
-        <SeasonalColumnsView columns={result.columns} onOpenMedia={onOpenMedia} />
+        <div className="tool-season-fullbleed">
+          <SeasonalColumnsView columns={result.columns} onOpenMedia={onOpenMedia} />
+        </div>
       )}
     </section>
   );

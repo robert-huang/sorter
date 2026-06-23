@@ -5617,22 +5617,30 @@ a {
   font-weight: 600;
 }
 
-.tool-season-columns {
+.tool-season-fullbleed {
+  width: 100vw;
+  max-width: 100vw;
+  margin-left: calc(50% - 50vw);
   margin-top: 20px;
+}
+
+.tool-season-columns {
+  margin-top: 0;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: 0;
   background: var(--surface);
   overflow: visible;
+  isolation: isolate;
 }
 
 /* Pinned below app chrome; horizontal motion comes from the synced track. */
 .tool-season-header-sticky {
   position: sticky;
   top: var(--tools-season-sticky-top, 0);
-  z-index: 6;
+  z-index: 13;
   overflow: hidden;
   background: var(--surface);
-  border-radius: var(--radius) var(--radius) 0 0;
+  box-shadow: 0 2px 0 var(--border);
 }
 
 .tool-season-header-track {
@@ -5640,6 +5648,8 @@ a {
 }
 
 .tool-season-scroll {
+  position: relative;
+  z-index: 0;
   overflow-x: auto;
   overflow-y: visible;
 }
@@ -5659,6 +5669,11 @@ a {
   box-shadow: 0 1px 0 var(--border);
 }
 
+.tool-season-col-head:not(:first-child),
+.tool-season-cell:not(:first-child) {
+  border-left: 1px solid var(--border);
+}
+
 .tool-season-col-title {
   font-weight: 600;
 }
@@ -5671,6 +5686,7 @@ a {
 .tool-season-cell {
   padding: 8px 12px;
   border-bottom: 1px solid var(--border);
+  background: var(--surface);
   font-size: 13px;
   min-height: 2.25rem;
 }
