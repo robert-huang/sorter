@@ -1,0 +1,115 @@
+import { useCallback, useMemo, useState } from 'react';
+import { AnilistDetailModal } from '../components/AnilistDetailModal';
+import { StaffDetailModal } from '../components/StaffDetailModal';
+import {
+  applyAnimeToAnimeTheme,
+  loadAnimeToAnimeTheme,
+  saveAnimeToAnimeTheme,
+  type AnimeToAnimeTheme,
+} from '../animeToAnime/theme';
+import { ToolsHeader } from './ToolsHeader';
+import { ToolTabs, type ToolTab } from './ToolTabs';
+import {
+  loadActiveTool,
+  saveActiveTool,
+  type ToolId,
+  type ToolPanelProps,
+} from './toolTypes';
+import { SharedCreditsPanel } from './panels/SharedCreditsPanel';
+import { SharedStaffPanel } from './panels/SharedStaffPanel';
+import { SeasonalScoresPanel } from './panels/SeasonalScoresPanel';
+import { FavouritesPanel } from './panels/FavouritesPanel';
+
+const TOOL_TABS: ReadonlyArray<ToolTab<ToolId>> = [
+  { id: 'shared-credits', label: 'Shared Credits' },
+  { id: 'shared-staff', label: 'Shared Staff' },
+  { id: 'seasonal-scores', label: 'Seasonal Scores' },
+  { id: 'favourites', label: 'Favourites' },
+];
+
+interface MediaTarget {
+  mediaId: number;
+  fallbackTitle: string;
+}
+
+interface StaffTarget {
+  staffId: number;
+  fallbackName: string;
+}
+
+export function ToolsApp() {
+  const [theme, setTheme] = useState<AnimeToAnimeTheme>(() =>
+    loadAnimeToAnimeTheme(),
+  );
+  const [activeTool, setActiveTool] = useState<ToolId>(() => loadActiveTool());
+  const [mediaTarget, setMediaTarget] = useState<MediaTarget | null>(null);
+  const [staffTarget, setStaffTarget] = useState<StaffTarget | null>(null);
+
+  const onToggleTheme = useCallback(() => {
+    setTheme((prev) => {
+      const next: AnimeToAnimeTheme = prev === 'dark' ? 'light' : 'dark';
+      applyAnimeToAnimeTheme(next);
+      saveAnimeToAnimeTheme(next);
+      return next;
+    });
+  }, []);
+
+  const onTabChange = useCallback((id: ToolId) => {
+    setActiveTool(id);
+    saveActiveTool(id);
+  }, []);
+
+  const onOpenMedia = useCallback((mediaId: number, fallbackTitle: string) => {
+    setMediaTarget({ mediaId, fallbackTitle });
+  }, []);
+
+  const onOpenStaff = useCallback((staffId: number, fallbackName: string) => {
+    setStaffTarget({ staffId, fallbackName });
+  }, []);
+
+  const panelProps: ToolPanelProps = useMemo(
+    () => ({ onOpenMedia, onOpenStaff }),
+    [onOpenMedia, onOpenStaff],
+  );
+
+  return (
+    <div className="anime-to-anime-app tools-app">
+      <ToolsHeader theme={theme} onToggleTheme={onToggleTheme} />
+      <ToolTabs tabs={TOOL_TABS} activeTab={activeTool} onTabChange={onTabChange} />
+
+      <main className="tools-main">
+        {/* Each panel keeps its own state mounted while hidden so a tab
+            switch doesn't discard in-progress results. */}
+        <div hidden={activeTool !== 'shared-credits'}>
+          <SharedCreditsPanel {...panelProps} />
+        </div>
+        <div hidden={activeTool !== 'shared-staff'}>
+          <SharedStaffPanel {...panelProps} />
+        </div>
+        <div hidden={activeTool !== 'seasonal-scores'}>
+          <SeasonalScoresPanel {...panelProps} />
+        </div>
+        <div hidden={activeTool !== 'favourites'}>
+          <FavouritesPanel {...panelProps} />
+        </div>
+      </main>
+
+      {mediaTarget && (
+        <AnilistDetailModal
+          mediaId={mediaTarget.mediaId}
+          fallbackTitle={mediaTarget.fallbackTitle}
+          onClose={() => setMediaTarget(null)}
+          onOpenStaff={onOpenStaff}
+        />
+      )}
+      {staffTarget && (
+        <StaffDetailModal
+          staffId={staffTarget.staffId}
+          fallbackName={staffTarget.fallbackName}
+          onClose={() => setStaffTarget(null)}
+          onOpenMedia={onOpenMedia}
+        />
+      )}
+    </div>
+  );
+}
