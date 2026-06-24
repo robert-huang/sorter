@@ -6,12 +6,8 @@ import {
   TOOLS_USER_CONSUMED_MEDIA_QUERY,
   TOOLS_VA_CHARACTER_MEDIA_QUERY,
 } from '../../lib/importers/anilist/queries';
-import { toolsCacheDelete, withToolsCache, TOOLS_CACHE_TTL_MS } from '../../lib/importers/anilist/toolsCache';
 import type { ToolsFetchOptions } from '../../lib/importers/anilist/toolsFetchPolicy';
-import { needsGraphDataRefresh } from '../../lib/importers/anilist/toolsFetchPolicy';
-import { getStaffFilmographyFetchedAt } from '../../lib/importers/anilist/graphQueries';
 import {
-  bustFavouritesAnalysisCaches,
   dbCharacterEdgesHaveVoiceCast,
   ensureStaffFilmographyFresh,
   ensureUserAnimeListFresh,
@@ -22,8 +18,6 @@ import {
   readFavouriteCharactersFromDb,
   readFavouriteStaffFromDb,
   readVaCharacterEdgesFromDb,
-  toolsCharacterVaCacheKey,
-  toolsVaCharactersCacheKey,
 } from '../../lib/importers/anilist/toolsAnilistAccess';
 import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportContext';
 import {
@@ -197,50 +191,24 @@ async function fetchCharacterVoiceEdgesLive(
   });
 }
 
-async function invalidateCharacterVoiceCacheIfStale(
-  charId: number,
-  options?: ToolsFetchOptions,
-): Promise<void> {
-  if (options?.forceRefresh) {
-    return;
-  }
-  const ctx = getToolsImportContext();
-  const fromDb = await readCharacterVoiceEdgesFromDb(ctx.db, charId);
-  if (!fromDb || !dbCharacterEdgesHaveVoiceCast(fromDb)) {
-    return;
-  }
-  const fresh = await isCharacterVoiceEdgesDbFresh(ctx.db, fromDb, options);
-  if (!fresh) {
-    await toolsCacheDelete(toolsCharacterVaCacheKey(charId));
-  }
-}
-
 async function fetchCharacterVoiceEdges(
   charId: number,
   signal?: AbortSignal,
   options?: ToolsFetchOptions,
 ): Promise<CharacterMediaEdge[]> {
   signal?.throwIfAborted();
-  await invalidateCharacterVoiceCacheIfStale(charId, options);
-  return withToolsCache(
-    toolsCharacterVaCacheKey(charId),
-    TOOLS_CACHE_TTL_MS.characterVa,
-    async () => {
-      if (!options?.forceRefresh) {
-        const ctx = getToolsImportContext();
-        const fromDb = await readCharacterVoiceEdgesFromDb(ctx.db, charId);
-        if (
-          fromDb &&
-          dbCharacterEdgesHaveVoiceCast(fromDb) &&
-          (await isCharacterVoiceEdgesDbFresh(ctx.db, fromDb, options))
-        ) {
-          return fromDb;
-        }
-      }
-      return fetchCharacterVoiceEdgesLive(charId, signal);
-    },
-    options,
-  );
+  if (!options?.forceRefresh) {
+    const ctx = getToolsImportContext();
+    const fromDb = await readCharacterVoiceEdgesFromDb(ctx.db, charId);
+    if (
+      fromDb &&
+      dbCharacterEdgesHaveVoiceCast(fromDb) &&
+      (await isCharacterVoiceEdgesDbFresh(ctx.db, fromDb, options))
+    ) {
+      return fromDb;
+    }
+  }
+  return fetchCharacterVoiceEdgesLive(charId, signal);
 }
 
 async function fetchVaCharacterEdgesLive(
@@ -268,43 +236,21 @@ async function fetchVaCharacterEdgesLive(
   });
 }
 
-async function invalidateVaCharacterCacheIfStale(
-  vaId: number,
-  options?: ToolsFetchOptions,
-): Promise<void> {
-  if (options?.forceRefresh) {
-    return;
-  }
-  const ctx = getToolsImportContext();
-  const fetchedAt = await getStaffFilmographyFetchedAt(ctx.db, vaId);
-  if (needsGraphDataRefresh(fetchedAt, options)) {
-    await toolsCacheDelete(toolsVaCharactersCacheKey(vaId));
-  }
-}
-
 async function fetchVaCharacterEdges(
   vaId: number,
   signal?: AbortSignal,
   options?: ToolsFetchOptions,
 ): Promise<VaMediaEdge[]> {
   signal?.throwIfAborted();
-  await invalidateVaCharacterCacheIfStale(vaId, options);
-  return withToolsCache(
-    toolsVaCharactersCacheKey(vaId),
-    TOOLS_CACHE_TTL_MS.characterVa,
-    async () => {
-      await ensureStaffFilmographyFresh(vaId, options);
-      if (!options?.forceRefresh) {
-        const ctx = getToolsImportContext();
-        const fromDb = await readVaCharacterEdgesFromDb(ctx.db, vaId);
-        if (fromDb) {
-          return fromDb;
-        }
-      }
-      return fetchVaCharacterEdgesLive(vaId, signal);
-    },
-    options,
-  );
+  await ensureStaffFilmographyFresh(vaId, options);
+  if (!options?.forceRefresh) {
+    const ctx = getToolsImportContext();
+    const fromDb = await readVaCharacterEdgesFromDb(ctx.db, vaId);
+    if (fromDb) {
+      return fromDb;
+    }
+  }
+  return fetchVaCharacterEdgesLive(vaId, signal);
 }
 
 export type FavouritesAnalysisPayload = {
@@ -342,14 +288,6 @@ export async function runFavouritesAnalysis(
   }> = [];
   const perCharacterEdges: CharacterMediaEdge[][] = [];
   const vaIds = new Set<number>();
-
-  if (fetchOptions?.forceRefresh) {
-    const staffVaIds = favouriteStaff.map((staff) => staff.id);
-    await bustFavouritesAnalysisCaches(
-      characters.map((character) => character.id),
-      staffVaIds,
-    );
-  }
 
   for (let i = 0; i < characters.length; i += 1) {
     signal?.throwIfAborted();

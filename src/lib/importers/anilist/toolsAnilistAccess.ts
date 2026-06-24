@@ -19,7 +19,6 @@ import { runAnilistImport, runAnilistFavourites } from './runners';
 import type { ToolsFetchOptions } from './toolsFetchPolicy';
 import { needsGraphDataRefresh } from './toolsFetchPolicy';
 import { getToolsImportContext } from './toolsImportContext';
-import { toolsCacheDelete } from './toolsCache';
 import { favCharactersDobSchemaKey } from './meta';
 import {
   getAnilistUserByName,
@@ -69,34 +68,6 @@ export const TOOLS_SEASONAL_LIST_STATUSES = [
   'CURRENT',
   'REPEATING',
 ] as const;
-
-export function toolsConsumedMediaCacheKey(username: string): string {
-  return `tools:consumed-media:${username.toLowerCase()}`;
-}
-
-export function toolsUserListCacheKey(username: string): string {
-  return `tools:user-list:${username.toLowerCase()}:${TOOLS_USER_LIST_STATUSES.join(',')}`;
-}
-
-export function toolsSeasonListCacheKey(username: string): string {
-  return `tools:season-list:${username.toLowerCase()}:${TOOLS_SEASONAL_LIST_STATUSES.join(',')}`;
-}
-
-export function toolsFavouriteCharactersCacheKey(username: string): string {
-  return `tools:fav-characters:${username.toLowerCase()}`;
-}
-
-export function toolsFavouriteStaffCacheKey(username: string): string {
-  return `tools:fav-staff:${username.toLowerCase()}`;
-}
-
-export function toolsCharacterVaCacheKey(charId: number): string {
-  return `tools:character-vas:${charId}`;
-}
-
-export function toolsVaCharactersCacheKey(vaId: number): string {
-  return `tools:va-characters:${vaId}`;
-}
 
 function mediaRowStartDateKey(media: {
   start_year: number | null;
@@ -452,17 +423,6 @@ export async function isCharacterVoiceEdgesDbFresh(
   return true;
 }
 
-/** Bust per-character / per-VA IndexedDB keys after a full favourites refresh. */
-export async function bustFavouritesAnalysisCaches(
-  characterIds: readonly number[],
-  vaIds: readonly number[],
-): Promise<void> {
-  await Promise.all([
-    ...characterIds.map((id) => toolsCacheDelete(toolsCharacterVaCacheKey(id))),
-    ...vaIds.map((id) => toolsCacheDelete(toolsVaCharactersCacheKey(id))),
-  ]);
-}
-
 /** Staff avatar URLs from the local DB (populated by cast/filmography imports). */
 export async function readStaffImagesFromDb(
   db: AnilistDbExecutor,
@@ -727,19 +687,4 @@ export async function readConsumedMediaIdsFromDb(
     TOOLS_CONSUMED_LIST_STATUSES,
   );
   return ids.size > 0 ? new Set([...ids].map((id) => Number(id))) : null;
-}
-
-/** Bust tools-cache keys tied to a username (right-click on username field). */
-export async function bustToolsUserListCache(username: string): Promise<void> {
-  const handle = username.trim();
-  if (!handle) {
-    return;
-  }
-  await Promise.all([
-    toolsCacheDelete(toolsConsumedMediaCacheKey(handle)),
-    toolsCacheDelete(toolsUserListCacheKey(handle)),
-    toolsCacheDelete(toolsSeasonListCacheKey(handle)),
-    toolsCacheDelete(toolsFavouriteCharactersCacheKey(handle)),
-    toolsCacheDelete(toolsFavouriteStaffCacheKey(handle)),
-  ]);
 }

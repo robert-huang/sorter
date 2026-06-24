@@ -1,6 +1,5 @@
 import { useCallback, useState } from 'react';
 import {
-  bustToolsUserListCache,
   ensureUserAnimeListFresh,
   ensureUserFavouritesFresh,
 } from '../lib/importers/anilist/toolsAnilistAccess';
@@ -18,7 +17,6 @@ async function refreshUserListFromAnilist(
   if (!handle) {
     return;
   }
-  await bustToolsUserListCache(handle);
   await ensureUserAnimeListFresh(handle, { forceRefresh: true });
   if (refreshFavourites) {
     await ensureUserFavouritesFresh(handle, 'CHARACTERS', { forceRefresh: true });

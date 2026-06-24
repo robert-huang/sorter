@@ -9,8 +9,8 @@ import {
 } from '../../lib/importers/anilist/queries';
 import { executeAnilistQuery } from '../../lib/importers/anilist/transport';
 import { pickCharacterName, pickPersonName } from '../../lib/importers/anilist/personDisplayLabel';
-import { TOOLS_CACHE_TTL_MS, withToolsCache } from '../../lib/importers/anilist/toolsCache';
 import type { ToolsFetchOptions } from '../../lib/importers/anilist/toolsFetchPolicy';
+import { withSessionMemo } from '../../lib/importers/anilist/toolsSessionMemo';
 import {
   ensureMediaCastFresh,
   ensureStaffFilmographyFresh,
@@ -38,7 +38,7 @@ export async function searchAnimeShow(
   signal?.throwIfAborted();
   const sort = sortByPopularity ? ['POPULARITY_DESC'] : ['SEARCH_MATCH'];
   const cacheKey = `tools:media-search:${search.toLowerCase()}:${sort.join(',')}`;
-  return withToolsCache(cacheKey, TOOLS_CACHE_TTL_MS.showMetadata, async () => {
+  return withSessionMemo(cacheKey, async () => {
     const data = await executeAnilistQuery<{
       Media: {
         id: number;
@@ -86,20 +86,13 @@ export async function fetchShowStudios(
   options?: ToolsFetchOptions,
 ): Promise<CreditedEntityMap> {
   signal?.throwIfAborted();
-  return withToolsCache(
-    `tools:show-studios:${mediaId}`,
-    TOOLS_CACHE_TTL_MS.showMetadata,
-    async () => {
-      await ensureMediaCastFresh(mediaId, options);
-      const ctx = getToolsImportContext();
-      const bundle = await readShowStaffBundleFromDb(ctx.db, mediaId, '');
-      if (bundle && Object.keys(bundle.studios).length > 0) {
-        return bundle.studios;
-      }
-      return fetchShowStudiosLive(mediaId);
-    },
-    options,
-  );
+  await ensureMediaCastFresh(mediaId, options);
+  const ctx = getToolsImportContext();
+  const bundle = await readShowStaffBundleFromDb(ctx.db, mediaId, '');
+  if (bundle && Object.keys(bundle.studios).length > 0) {
+    return bundle.studios;
+  }
+  return fetchShowStudiosLive(mediaId);
 }
 
 async function fetchShowProductionStaffLive(
@@ -152,20 +145,13 @@ export async function fetchShowProductionStaff(
   options?: ToolsFetchOptions,
 ): Promise<CreditedEntityMap> {
   signal?.throwIfAborted();
-  return withToolsCache(
-    `tools:show-prod-staff:${mediaId}`,
-    TOOLS_CACHE_TTL_MS.showMetadata,
-    async () => {
-      await ensureMediaCastFresh(mediaId, options);
-      const ctx = getToolsImportContext();
-      const bundle = await readShowStaffBundleFromDb(ctx.db, mediaId, '');
-      if (bundle && Object.keys(bundle.productionStaff).length > 0) {
-        return bundle.productionStaff;
-      }
-      return fetchShowProductionStaffLive(mediaId, signal);
-    },
-    options,
-  );
+  await ensureMediaCastFresh(mediaId, options);
+  const ctx = getToolsImportContext();
+  const bundle = await readShowStaffBundleFromDb(ctx.db, mediaId, '');
+  if (bundle && Object.keys(bundle.productionStaff).length > 0) {
+    return bundle.productionStaff;
+  }
+  return fetchShowProductionStaffLive(mediaId, signal);
 }
 
 async function fetchShowVoiceActorsJpLive(
@@ -241,20 +227,13 @@ export async function fetchShowVoiceActorsJp(
   options?: ToolsFetchOptions,
 ): Promise<CreditedEntityMap> {
   signal?.throwIfAborted();
-  return withToolsCache(
-    `tools:show-vas-jp:${mediaId}`,
-    TOOLS_CACHE_TTL_MS.showMetadata,
-    async () => {
-      await ensureMediaCastFresh(mediaId, options);
-      const ctx = getToolsImportContext();
-      const bundle = await readShowStaffBundleFromDb(ctx.db, mediaId, '');
-      if (bundle && Object.keys(bundle.voiceActors).length > 0) {
-        return bundle.voiceActors;
-      }
-      return fetchShowVoiceActorsJpLive(mediaId, signal);
-    },
-    options,
-  );
+  await ensureMediaCastFresh(mediaId, options);
+  const ctx = getToolsImportContext();
+  const bundle = await readShowStaffBundleFromDb(ctx.db, mediaId, '');
+  if (bundle && Object.keys(bundle.voiceActors).length > 0) {
+    return bundle.voiceActors;
+  }
+  return fetchShowVoiceActorsJpLive(mediaId, signal);
 }
 
 export async function fetchShowStaffBundle(
@@ -294,55 +273,51 @@ export async function fetchRelatedAnimeIds(
   signal?: AbortSignal,
 ): Promise<Set<number>> {
   signal?.throwIfAborted();
-  return withToolsCache(
-    `tools:related-anime:${rootMediaId}`,
-    TOOLS_CACHE_TTL_MS.showMetadata,
-    async () => {
-      const related = new Set<number>([rootMediaId]);
-      const queue = [rootMediaId];
+  return withSessionMemo(`tools:related-anime:${rootMediaId}`, async () => {
+    const related = new Set<number>([rootMediaId]);
+    const queue = [rootMediaId];
 
-      while (queue.length > 0) {
-        signal?.throwIfAborted();
-        const curId = queue.pop()!;
-        const data = await executeAnilistQuery<{
-          Media: {
-            relations: {
-              edges: Array<{
-                relationType: string;
-                node: {
-                  id: number;
-                  type: string;
-                  format?: string | null;
-                  tags?: Array<{ name: string }> | null;
-                };
-              }>;
-            };
-          } | null;
-        }>(TOOLS_MEDIA_RELATIONS_QUERY, { mediaId: curId });
+    while (queue.length > 0) {
+      signal?.throwIfAborted();
+      const curId = queue.pop()!;
+      const data = await executeAnilistQuery<{
+        Media: {
+          relations: {
+            edges: Array<{
+              relationType: string;
+              node: {
+                id: number;
+                type: string;
+                format?: string | null;
+                tags?: Array<{ name: string }> | null;
+              };
+            }>;
+          };
+        } | null;
+      }>(TOOLS_MEDIA_RELATIONS_QUERY, { mediaId: curId });
 
-        for (const edge of data?.Media?.relations.edges ?? []) {
-          const node = edge.node;
-          if (node.type !== 'ANIME' || related.has(node.id)) {
-            continue;
-          }
-          related.add(node.id);
-
-          const isCrossover = (node.tags ?? []).some((t) => t.name === 'Crossover');
-          if (
-            edge.relationType === 'OTHER' ||
-            node.format === 'MUSIC' ||
-            isCrossover
-          ) {
-            continue;
-          }
-          queue.push(node.id);
+      for (const edge of data?.Media?.relations.edges ?? []) {
+        const node = edge.node;
+        if (node.type !== 'ANIME' || related.has(node.id)) {
+          continue;
         }
-      }
+        related.add(node.id);
 
-      related.delete(rootMediaId);
-      return related;
-    },
-  );
+        const isCrossover = (node.tags ?? []).some((t) => t.name === 'Crossover');
+        if (
+          edge.relationType === 'OTHER' ||
+          node.format === 'MUSIC' ||
+          isCrossover
+        ) {
+          continue;
+        }
+        queue.push(node.id);
+      }
+    }
+
+    related.delete(rootMediaId);
+    return related;
+  });
 }
 
 async function fetchProductionStaffFilmographyLive(
@@ -416,20 +391,13 @@ export async function fetchProductionStaffFilmography(
   options?: ToolsFetchOptions,
 ): Promise<ProductionFilmographyShow[]> {
   signal?.throwIfAborted();
-  return withToolsCache(
-    `tools:prod-filmography:${staffId}`,
-    TOOLS_CACHE_TTL_MS.staffRoles,
-    async () => {
-      await ensureStaffFilmographyFresh(staffId, options);
-      const ctx = getToolsImportContext();
-      const fromDb = await readProductionFilmographyFromDb(ctx.db, staffId);
-      if (fromDb) {
-        return fromDb;
-      }
-      return fetchProductionStaffFilmographyLive(staffId, signal);
-    },
-    options,
-  );
+  await ensureStaffFilmographyFresh(staffId, options);
+  const ctx = getToolsImportContext();
+  const fromDb = await readProductionFilmographyFromDb(ctx.db, staffId);
+  if (fromDb) {
+    return fromDb;
+  }
+  return fetchProductionStaffFilmographyLive(staffId, signal);
 }
 
 export type SharedStaffRunProgress =

@@ -12,14 +12,8 @@ import {
   pickPersonName,
   type PersonNameFields,
 } from '../../lib/importers/anilist/personDisplayLabel';
-import {
-  TOOLS_CACHE_TTL_MS,
-  toolsCacheDelete,
-  toolsCacheGet,
-  toolsCacheSet,
-  withToolsCache,
-} from '../../lib/importers/anilist/toolsCache';
 import type { ToolsFetchOptions } from '../../lib/importers/anilist/toolsFetchPolicy';
+import { withSessionMemo } from '../../lib/importers/anilist/toolsSessionMemo';
 import {
   ensureStaffFilmographyFresh,
   ensureUserAnimeListFresh,
@@ -27,15 +21,12 @@ import {
   readStaffShowMapFromDb,
   readUserListMediaIdsFromDb,
   TOOLS_USER_LIST_STATUSES,
-  toolsUserListCacheKey,
 } from '../../lib/importers/anilist/toolsAnilistAccess';
 import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportContext';
 import {
   formatStartDateKey,
   pickMediaTitle,
-  type StaffRoleEntry,
   type StaffRoleMode,
-  type StaffShowEntry,
   type StaffShowMap,
 } from './sharedCreditsLogic';
 
@@ -47,112 +38,6 @@ import {
 export type ToolStaffNameFields = PersonNameFields & {
   image?: string | null;
 };
-
-/** Bump when cached staff-name / role-map shapes change. */
-const STAFF_NAMES_CACHE_VERSION = 3;
-const STAFF_ROLES_CACHE_VERSION = 2;
-
-/** Legacy caches stored plain name strings instead of PersonNameFields rows. */
-export function normalizeStaffNameFieldsFromCache(
-  staffIds: number[],
-  cached: unknown,
-): Record<number, ToolStaffNameFields> | null {
-  if (!cached || typeof cached !== 'object') {
-    return null;
-  }
-  const record = cached as Record<string, unknown>;
-  const out: Record<number, ToolStaffNameFields> = {};
-  for (const staffId of staffIds) {
-    const row = record[staffId] ?? record[String(staffId)];
-    if (row == null) {
-      return null;
-    }
-    if (typeof row === 'string') {
-      out[staffId] = {
-        id: staffId,
-        name_full: row,
-        name_native: null,
-        image: null,
-      };
-      continue;
-    }
-    if (typeof row !== 'object') {
-      return null;
-    }
-    const fields = row as Partial<ToolStaffNameFields> & {
-      name?: { full?: string | null; native?: string | null };
-    };
-    if (typeof fields.id === 'number') {
-      out[staffId] = {
-        id: fields.id,
-        name_full: fields.name_full ?? null,
-        name_native: fields.name_native ?? null,
-        image: fields.image ?? null,
-      };
-      continue;
-    }
-    if (fields.name?.full) {
-      out[staffId] = {
-        id: staffId,
-        name_full: fields.name.full,
-        name_native: fields.name.native ?? null,
-        image: fields.image ?? null,
-      };
-      continue;
-    }
-    return null;
-  }
-  return out;
-}
-
-/** Legacy role maps stored plain role strings instead of StaffRoleEntry objects. */
-export function normalizeStaffShowMapFromCache(cached: unknown): StaffShowMap | null {
-  if (!cached || typeof cached !== 'object') {
-    return null;
-  }
-  const record = cached as Record<string, unknown>;
-  const out: StaffShowMap = {};
-  for (const [mediaId, entry] of Object.entries(record)) {
-    if (!entry || typeof entry !== 'object') {
-      return null;
-    }
-    const row = entry as Partial<StaffShowEntry> & { roles?: unknown };
-    if (typeof row.title !== 'string') {
-      return null;
-    }
-    const roles: StaffRoleEntry[] = [];
-    if (Array.isArray(row.roles)) {
-      for (const role of row.roles) {
-        if (typeof role === 'string') {
-          roles.push({ label: role });
-        } else if (
-          role &&
-          typeof role === 'object' &&
-          typeof (role as StaffRoleEntry).label === 'string'
-        ) {
-          roles.push(role as StaffRoleEntry);
-        }
-      }
-    }
-    out[mediaId] = {
-      title: row.title,
-      coverImage: row.coverImage ?? null,
-      roles,
-      startDate: row.startDate ?? '99999999',
-      titleSource: row.titleSource,
-    };
-  }
-  return Object.keys(out).length > 0 ? out : null;
-}
-
-function staffNamesCacheKey(staffIds: number[]): string {
-  return `tools:staff-names:v${STAFF_NAMES_CACHE_VERSION}:${staffIds.join(',')}`;
-}
-
-function staffRolesCacheKey(staffId: number, roleMode: StaffRoleMode): string {
-  const prefix = roleMode === 'voice' ? 'tools:voice-roles' : 'tools:prod-roles';
-  return `${prefix}:v${STAFF_ROLES_CACHE_VERSION}:${staffId}`;
-}
 
 const USER_LIST_STATUSES = TOOLS_USER_LIST_STATUSES;
 
@@ -298,20 +183,16 @@ export async function resolveStaffIdByName(
   signal?: AbortSignal,
 ): Promise<number> {
   signal?.throwIfAborted();
-  return withToolsCache(
-    `tools:staff-search:${name.toLowerCase()}`,
-    TOOLS_CACHE_TTL_MS.staffSearch,
-    async () => {
-      const data = await executeAnilistQuery<{
-        Staff: StaffSearchHit | StaffSearchHit[] | null;
-      }>(TOOLS_STAFF_SEARCH_QUERY, { search: name });
-      const match = pickStaffSearchMatch(data?.Staff);
-      if (!match?.id) {
-        throw new Error(`Could not find staff matching "${name}".`);
-      }
-      return match.id;
-    },
-  );
+  return withSessionMemo(`tools:staff-search:${name.toLowerCase()}`, async () => {
+    const data = await executeAnilistQuery<{
+      Staff: StaffSearchHit | StaffSearchHit[] | null;
+    }>(TOOLS_STAFF_SEARCH_QUERY, { search: name });
+    const match = pickStaffSearchMatch(data?.Staff);
+    if (!match?.id) {
+      throw new Error(`Could not find staff matching "${name}".`);
+    }
+    return match.id;
+  });
 }
 
 export async function resolveStaffIds(
@@ -403,26 +284,16 @@ export async function fetchStaffNameFieldsByIds(
   options?: ToolsFetchOptions,
 ): Promise<Record<number, ToolStaffNameFields>> {
   signal?.throwIfAborted();
-  const key = staffNamesCacheKey(staffIds);
-  if (options?.forceRefresh) {
-    await toolsCacheDelete(key);
-  } else {
-    const cached = await toolsCacheGet<unknown>(key);
-    const normalized = cached ? normalizeStaffNameFieldsFromCache(staffIds, cached) : null;
-    if (normalized) {
-      const enriched = await enrichStaffNameFieldsImages(normalized);
-      if (!staffIds.some((id) => !enriched[id]?.image)) {
-        return enriched;
-      }
-    } else if (cached != null) {
-      await toolsCacheDelete(key);
-    }
-  }
-
-  let fields = await fetchStaffNameFieldsFromApi(staffIds, signal);
-  fields = await enrichStaffNameFieldsImages(fields);
-  await toolsCacheSet(key, fields, TOOLS_CACHE_TTL_MS.staffSearch);
-  return fields;
+  const key = `tools:staff-names:${[...staffIds].sort((a, b) => a - b).join(',')}`;
+  return withSessionMemo(
+    key,
+    async () => {
+      let fields = await fetchStaffNameFieldsFromApi(staffIds, signal);
+      fields = await enrichStaffNameFieldsImages(fields);
+      return fields;
+    },
+    options,
+  );
 }
 
 export async function fetchStaffNamesByIds(
@@ -504,28 +375,10 @@ export async function fetchStaffShowMap(
   options?: ToolsFetchOptions,
 ): Promise<StaffShowMap> {
   signal?.throwIfAborted();
-  const cacheKey = staffRolesCacheKey(staffId, roleMode);
-  const ttl = TOOLS_CACHE_TTL_MS.staffRoles;
-
-  if (!options?.forceRefresh) {
-    const cached = await toolsCacheGet<unknown>(cacheKey);
-    const normalized = cached ? normalizeStaffShowMapFromCache(cached) : null;
-    if (normalized) {
-      return normalized;
-    }
-    if (cached != null) {
-      await toolsCacheDelete(cacheKey);
-    }
-  } else {
-    await toolsCacheDelete(cacheKey);
-  }
-
   await ensureStaffFilmographyFresh(staffId, options);
   const ctx = getToolsImportContext();
   const fromDb = await readStaffShowMapFromDb(ctx.db, staffId, roleMode);
-  const value = fromDb ?? (await fetchStaffShowMapLive(staffId, roleMode, signal));
-  await toolsCacheSet(cacheKey, value, ttl);
-  return value;
+  return fromDb ?? (await fetchStaffShowMapLive(staffId, roleMode, signal));
 }
 
 export async function fetchUserListMediaIds(
@@ -534,45 +387,37 @@ export async function fetchUserListMediaIds(
   options?: ToolsFetchOptions,
 ): Promise<Set<string>> {
   signal?.throwIfAborted();
-  const key = toolsUserListCacheKey(username);
-  return withToolsCache(
-    key,
-    TOOLS_CACHE_TTL_MS.userList,
-    async () => {
-      const user = await ensureUserAnimeListFresh(username, options);
-      if (user) {
-        const ctx = getToolsImportContext();
-        const fromDb = await readUserListMediaIdsFromDb(
-          ctx.db,
-          user.id,
-          USER_LIST_STATUSES,
-        );
-        if (fromDb.size > 0) {
-          return fromDb;
-        }
-      }
+  const user = await ensureUserAnimeListFresh(username, options);
+  if (user) {
+    const ctx = getToolsImportContext();
+    const fromDb = await readUserListMediaIdsFromDb(
+      ctx.db,
+      user.id,
+      USER_LIST_STATUSES,
+    );
+    if (fromDb.size > 0) {
+      return fromDb;
+    }
+  }
 
-      const entries = await depaginate<
-        {
-          Page: {
-            pageInfo: { hasNextPage: boolean };
-            mediaList: Array<{ mediaId: number }>;
-          } | null;
-        },
-        { mediaId: number }
-      >({
-        query: TOOLS_USER_ANIME_LIST_QUERY,
-        variables: { userName: username, statusIn: [...USER_LIST_STATUSES] },
-        signal,
-        selectPage: (data) => ({
-          nodes: data.Page?.mediaList ?? [],
-          pageInfo: data.Page?.pageInfo ?? { hasNextPage: false },
-        }),
-      });
-      return new Set(entries.map((e) => String(e.mediaId)));
+  const entries = await depaginate<
+    {
+      Page: {
+        pageInfo: { hasNextPage: boolean };
+        mediaList: Array<{ mediaId: number }>;
+      } | null;
     },
-    options,
-  );
+    { mediaId: number }
+  >({
+    query: TOOLS_USER_ANIME_LIST_QUERY,
+    variables: { userName: username, statusIn: [...USER_LIST_STATUSES] },
+    signal,
+    selectPage: (data) => ({
+      nodes: data.Page?.mediaList ?? [],
+      pageInfo: data.Page?.pageInfo ?? { hasNextPage: false },
+    }),
+  });
+  return new Set(entries.map((e) => String(e.mediaId)));
 }
 
 export type SharedCreditsRunProgress =
