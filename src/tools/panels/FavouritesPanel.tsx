@@ -107,7 +107,9 @@ function NameListBlock({ title, names }: { title: string; names: string[] }) {
 }
 
 export function FavouritesPanel({ onOpenStaff }: ToolPanelProps) {
-  const { hint: usernameHint, onUsernameContextMenu } = useUsernameListRefresh();
+  const { hint: usernameHint, onUsernameContextMenu } = useUsernameListRefresh({
+    refreshFavourites: true,
+  });
   const [form, setForm] = useState<FavouritesForm>(() => loadForm());
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<FavouritesRunProgress | null>(null);
@@ -201,7 +203,7 @@ export function FavouritesPanel({ onOpenStaff }: ToolPanelProps) {
             disabled={running}
             placeholder="AL Username"
             value={form.username}
-            title="AniList username — right-click to re-fetch list from AniList"
+            title="AniList username — right-click to re-fetch anime list and favourites from AniList"
             onChange={(e) => patchForm({ username: e.target.value })}
             onContextMenu={(e) => onUsernameContextMenu(e, form.username, running)}
           />
@@ -211,6 +213,7 @@ export function FavouritesPanel({ onOpenStaff }: ToolPanelProps) {
           <ToolRunButton
             label="Analyze"
             running={running}
+            forceRefreshTitle="Right-click to re-fetch favourites, character VAs, and anime list from AniList (bypass cache)"
             onRun={(forceRefresh) => void onRun(forceRefresh)}
           />
           {running && (

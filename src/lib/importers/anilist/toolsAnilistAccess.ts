@@ -90,6 +90,14 @@ export function toolsFavouriteStaffCacheKey(username: string): string {
   return `tools:fav-staff:${username.toLowerCase()}`;
 }
 
+export function toolsCharacterVaCacheKey(charId: number): string {
+  return `tools:character-vas:${charId}`;
+}
+
+export function toolsVaCharactersCacheKey(vaId: number): string {
+  return `tools:va-characters:${vaId}`;
+}
+
 function mediaRowStartDateKey(media: {
   start_year: number | null;
   start_month: number | null;
@@ -406,6 +414,42 @@ export async function readVaCharacterEdgesFromDb(
 }
 
 export { dbCharacterEdgesHaveVoiceCast };
+
+/**
+ * True when every appearance media has a complete, fresh cast expansion.
+ * Used by Favourites to avoid serving stale `media_character` / CVA rows.
+ */
+export async function isCharacterVoiceEdgesDbFresh(
+  db: AnilistDbExecutor,
+  edges: CharacterMediaEdge[],
+  options?: ToolsFetchOptions,
+): Promise<boolean> {
+  if (edges.length === 0) {
+    return false;
+  }
+  for (const edge of edges) {
+    const status = await getMediaCastExpansionStatus(db, edge.node.id);
+    if (
+      !status ||
+      !status.charactersComplete ||
+      needsGraphDataRefresh(status.charactersFetchedAt, options)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** Bust per-character / per-VA IndexedDB keys after a full favourites refresh. */
+export async function bustFavouritesAnalysisCaches(
+  characterIds: readonly number[],
+  vaIds: readonly number[],
+): Promise<void> {
+  await Promise.all([
+    ...characterIds.map((id) => toolsCacheDelete(toolsCharacterVaCacheKey(id))),
+    ...vaIds.map((id) => toolsCacheDelete(toolsVaCharactersCacheKey(id))),
+  ]);
+}
 
 export async function readUserListMediaIdsFromDb(
   db: AnilistDbExecutor,
