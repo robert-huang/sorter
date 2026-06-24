@@ -5,18 +5,16 @@ import {
   TOOLS_SEASONAL_LIST_STATUSES,
   ensureUserAnimeListFresh,
 } from '../../lib/importers/anilist/toolsAnilistAccess';
+import {
+  TOOLS_SESSION_TTL_MS,
+  withSessionTtlMemo,
+} from '../../lib/importers/anilist/toolsSessionMemo';
 import { pickMediaTitle } from './sharedCreditsLogic';
 import type { SeasonalShow } from './seasonalScoresLogic';
 
 const SEASONAL_STATUSES = TOOLS_SEASONAL_LIST_STATUSES;
 
-/**
- * Seasonal scores need list-entry notes (#airing). Those are not stored in the
- * production DB, so scores/notes always come from a live AniList list query.
- * The user's anime list itself is served from the DB cache via
- * {@link ensureUserAnimeListFresh} (no 15-minute tools TTL layer).
- */
-export async function fetchUserSeasonalShows(
+async function fetchUserSeasonalShowsLive(
   username: string,
   signal?: AbortSignal,
   options?: ToolsFetchOptions,
@@ -77,4 +75,25 @@ export async function fetchUserSeasonalShows(
     score: entry.score ?? null,
     notes: entry.notes ?? null,
   }));
+}
+
+/**
+ * Seasonal scores need list-entry notes (#airing), which are not stored in the
+ * DB — the live AniList list query supplies scores/notes/season fields. Results
+ * are memoized in-session for {@link TOOLS_SESSION_TTL_MS}; force refresh busts
+ * the memo and re-imports the DB list via {@link ensureUserAnimeListFresh}.
+ */
+export async function fetchUserSeasonalShows(
+  username: string,
+  signal?: AbortSignal,
+  options?: ToolsFetchOptions,
+): Promise<SeasonalShow[]> {
+  signal?.throwIfAborted();
+  const handle = username.trim().toLowerCase();
+  return withSessionTtlMemo(
+    `seasonal:list:${handle}`,
+    TOOLS_SESSION_TTL_MS,
+    () => fetchUserSeasonalShowsLive(username, signal, options),
+    { bust: options?.forceRefresh },
+  );
 }

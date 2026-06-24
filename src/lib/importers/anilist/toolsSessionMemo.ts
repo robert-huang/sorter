@@ -5,7 +5,10 @@
 
 import type { ToolsFetchOptions } from './toolsFetchPolicy';
 
-export const FAVOURITES_SESSION_TTL_MS = 15 * 60 * 1000;
+export const TOOLS_SESSION_TTL_MS = 15 * 60 * 1000;
+
+/** @deprecated Use {@link TOOLS_SESSION_TTL_MS}. */
+export const FAVOURITES_SESSION_TTL_MS = TOOLS_SESSION_TTL_MS;
 
 type TtlEntry = {
   value: unknown;
