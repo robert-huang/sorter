@@ -58,7 +58,7 @@ describe('processCharacterEdges', () => {
     expect(result.shows[1]).toEqual({
       title: 'Show A',
       coverImage: null,
-      characters: ['Hero'],
+      characters: [{ id: 99, name: 'Hero' }],
     });
   });
 });
@@ -92,7 +92,10 @@ describe('accumulateVaStats', () => {
     expect(va).toBeDefined();
     // dummy = 0.2, two hits => raw count 2, stored count 2.2
     expect(va!.count).toBeCloseTo(2.2, 5);
-    expect(va!.characterNames).toEqual(['A', 'B']);
+    expect(va!.characters).toEqual([
+      { id: 1, name: 'A' },
+      { id: 2, name: 'B' },
+    ]);
   });
 });
 
@@ -128,7 +131,7 @@ describe('buildFavouritesResult', () => {
           seen: true,
           isMain: true,
           shows: {
-            1: { title: 'Show 1', coverImage: null, characters: ['Alice'] },
+            1: { title: 'Show 1', coverImage: null, characters: [{ id: 1, name: 'Alice' }] },
           },
           books: {},
         },
@@ -137,7 +140,7 @@ describe('buildFavouritesResult', () => {
           seen: true,
           isMain: false,
           shows: {
-            2: { title: 'Show 2', coverImage: null, characters: ['Bob'] },
+            2: { title: 'Show 2', coverImage: null, characters: [{ id: 2, name: 'Bob' }] },
           },
           books: {},
         },
@@ -151,18 +154,21 @@ describe('buildFavouritesResult', () => {
 
     expect(result.characterCount).toBe(2);
     expect(result.byCount[0].staffId).toBe(10);
-    expect(result.gender.female).toEqual(['Alice']);
-    expect(result.gender.male).toEqual(['Bob']);
+    expect(result.gender.female).toEqual([{ id: 1, name: 'Alice' }]);
+    expect(result.gender.male).toEqual([{ id: 2, name: 'Bob' }]);
     expect(result.numFemaleSeen).toBe(1);
     expect(result.numMain).toBe(1);
     expect(result.favouriteCharacters).toEqual([
-      { id: 1, name: 'Alice', rank: 1 },
-      { id: 2, name: 'Bob', rank: 2 },
+      { id: 1, name: 'Alice', rank: 1, gender: 'Female' },
+      { id: 2, name: 'Bob', rank: 2, gender: 'Male' },
     ]);
     expect(formatBirthdayKey(characters[0].dateOfBirth)).toBe('0305');
-    expect(result.birthdays['0305']).toEqual(['Alice']);
+    expect(result.birthdays['0305']).toEqual([{ id: 1, name: 'Alice' }]);
     expect(result.favouriteStaff[0].matchedCount).toBe(2);
-    expect(result.favouriteStaff[0].matchedCharacterNames).toEqual(['Alice', 'Bob']);
+    expect(result.favouriteStaff[0].matchedCharacters).toEqual([
+      { id: 1, name: 'Alice' },
+      { id: 2, name: 'Bob' },
+    ]);
     expect(result.byCount.length).toBe(2);
   });
 });

@@ -73,10 +73,15 @@ export type FavouriteStaffInput = {
   image?: { large?: string | null } | null;
 };
 
+export type FavouriteCharacterRef = {
+  id: number;
+  name: string;
+};
+
 export type FavouritesSeriesMeta = {
   title: string;
   coverImage: string | null;
-  characters: string[];
+  characters: FavouriteCharacterRef[];
 };
 
 export type FavouritesSeriesRow = {
@@ -84,7 +89,7 @@ export type FavouritesSeriesRow = {
   mediaType: 'ANIME' | 'MANGA';
   title: string;
   coverImage: string | null;
-  characters: string[];
+  characters: FavouriteCharacterRef[];
 };
 
 export type CharacterMediaEdge = {
@@ -119,7 +124,7 @@ export type VaAccumulator = {
   count: number;
   rankSum: number;
   logScore: number;
-  characterNames: string[];
+  characters: FavouriteCharacterRef[];
   characterNamesWithRank: string[];
 };
 
@@ -129,7 +134,7 @@ export type VaRankRow = {
   imageUrl: string | null;
   displayValue: string;
   numericValue: number;
-  characterNames: string[];
+  characters: FavouriteCharacterRef[];
   characterNamesWithRank: string[];
 };
 
@@ -143,25 +148,25 @@ export type FavouritesResult = {
   byAvgRank: VaRankRow[];
   byLogScore: VaRankRow[];
   byPercent: VaRankRow[];
-  gender: { female: string[]; male: string[]; other: string[] };
+  gender: { female: FavouriteCharacterRef[]; male: FavouriteCharacterRef[]; other: FavouriteCharacterRef[] };
   roles: {
-    main: string[];
-    supporting: string[];
-    background: string[];
-    unknown: string[];
+    main: FavouriteCharacterRef[];
+    supporting: FavouriteCharacterRef[];
+    background: FavouriteCharacterRef[];
+    unknown: FavouriteCharacterRef[];
   };
-  birthdays: Record<string, string[]>;
+  birthdays: Record<string, FavouriteCharacterRef[]>;
   seriesAnime: FavouritesSeriesRow[];
   seriesManga: FavouritesSeriesRow[];
   characterNames: string[];
-  favouriteCharacters: Array<{ id: number; name: string; rank: number }>;
+  favouriteCharacters: Array<{ id: number; name: string; rank: number; gender: string | null }>;
   favouriteStaff: Array<{
     id: number;
     name: string;
     imageUrl: string | null;
     gender: string | null;
     matchedCount: number;
-    matchedCharacterNames: string[];
+    matchedCharacters: FavouriteCharacterRef[];
   }>;
 };
 
@@ -236,10 +241,16 @@ export function processCharacterEdges(
   let charRole = CharacterRoleTier.Unknown;
   let seen = false;
   let isMain = false;
-  const shows: Record<number, { title: string; coverImage: string | null; characters: Set<string> }> =
-    {};
-  const books: Record<number, { title: string; coverImage: string | null; characters: Set<string> }> =
-    {};
+  const shows: Record<
+    number,
+    { title: string; coverImage: string | null; characters: Map<number, FavouriteCharacterRef> }
+  > = {};
+  const books: Record<
+    number,
+    { title: string; coverImage: string | null; characters: Map<number, FavouriteCharacterRef> }
+  > = {};
+
+  const charRef: FavouriteCharacterRef = { id: charId, name: charName };
 
   for (const edge of edges) {
     const mediaId = edge.node.id;
@@ -253,10 +264,10 @@ export function processCharacterEdges(
       bucket[mediaId] = {
         title,
         coverImage: edge.node.coverImage?.large ?? null,
-        characters: new Set(),
+        characters: new Map(),
       };
     }
-    bucket[mediaId].characters.add(charName);
+    bucket[mediaId].characters.set(charId, charRef);
 
     const roleRank = ROLE_RANK[edge.characterRole] ?? CharacterRoleTier.Unknown;
     charRole = Math.min(charRole, roleRank) as CharacterRoleTier;
@@ -281,7 +292,10 @@ export function processCharacterEdges(
   }
 
   const toSeriesMeta = (
-    map: Record<number, { title: string; coverImage: string | null; characters: Set<string> }>,
+    map: Record<
+      number,
+      { title: string; coverImage: string | null; characters: Map<number, FavouriteCharacterRef> }
+    >,
   ): Record<number, FavouritesSeriesMeta> =>
     Object.fromEntries(
       Object.entries(map).map(([mediaId, entry]) => [
@@ -289,7 +303,9 @@ export function processCharacterEdges(
         {
           title: entry.title,
           coverImage: entry.coverImage,
-          characters: [...entry.characters].sort(),
+          characters: [...entry.characters.values()].sort((a, b) =>
+            a.name.localeCompare(b.name),
+          ),
         },
       ]),
     );
@@ -345,16 +361,19 @@ export function accumulateVaStats(
 
   for (let i = 0; i < characters.length; i += 1) {
     const rank = i + 1;
+    const character = characters[i]!;
+    const characterRef: FavouriteCharacterRef = {
+      id: character.id,
+      name: pickCharacterName(character, characterMode),
+    };
     for (const va of perCharacterVas[i] ?? []) {
       const existing = accum.get(va.id);
       if (existing) {
         existing.count += 1;
         existing.rankSum += rank;
         existing.logScore += logBase - Math.log(rank);
-        existing.characterNames.push(pickCharacterName(characters[i]!, characterMode));
-        existing.characterNamesWithRank.push(
-          `${pickCharacterName(characters[i]!, characterMode)} (${rank})`,
-        );
+        existing.characters.push(characterRef);
+        existing.characterNamesWithRank.push(`${characterRef.name} (${rank})`);
         if (!existing.imageUrl && va.imageUrl) {
           existing.imageUrl = va.imageUrl;
         }
@@ -366,10 +385,8 @@ export function accumulateVaStats(
           count: dummyMedian + 1,
           rankSum: midpoint + rank,
           logScore: logBase - Math.log(rank),
-          characterNames: [pickCharacterName(characters[i]!, characterMode)],
-          characterNamesWithRank: [
-            `${pickCharacterName(characters[i]!, characterMode)} (${rank})`,
-          ],
+          characters: [characterRef],
+          characterNamesWithRank: [`${characterRef.name} (${rank})`],
         });
       }
     }
@@ -391,7 +408,7 @@ function toRankRows(
       imageUrl: va.imageUrl,
       displayValue,
       numericValue,
-      characterNames: va.characterNames,
+      characters: va.characters,
       characterNamesWithRank: va.characterNamesWithRank,
     };
   });
@@ -428,15 +445,20 @@ export function buildFavouritesResult(input: {
     id: character.id,
     name: characterNames[index]!,
     rank: index + 1,
+    gender: character.gender ?? null,
   }));
-  const gender = { female: [] as string[], male: [] as string[], other: [] as string[] };
-  const roles = {
-    main: [] as string[],
-    supporting: [] as string[],
-    background: [] as string[],
-    unknown: [] as string[],
+  const gender = {
+    female: [] as FavouriteCharacterRef[],
+    male: [] as FavouriteCharacterRef[],
+    other: [] as FavouriteCharacterRef[],
   };
-  const birthdays: Record<string, string[]> = {};
+  const roles = {
+    main: [] as FavouriteCharacterRef[],
+    supporting: [] as FavouriteCharacterRef[],
+    background: [] as FavouriteCharacterRef[],
+    unknown: [] as FavouriteCharacterRef[],
+  };
+  const birthdays: Record<string, FavouriteCharacterRef[]> = {};
   const seriesAnimeById = new Map<number, FavouritesSeriesRow>();
   const seriesMangaById = new Map<number, FavouritesSeriesRow>();
 
@@ -445,7 +467,8 @@ export function buildFavouritesResult(input: {
   let numFemaleSeen = 0;
 
   for (let i = 0; i < characters.length; i += 1) {
-    const name = characterNames[i];
+    const name = characterNames[i]!;
+    const characterRef: FavouriteCharacterRef = { id: characters[i]!.id, name };
     const meta = perCharacterMeta[i];
     numSeen += meta.seen ? 1 : 0;
     numMain += meta.isMain ? 1 : 0;
@@ -455,23 +478,23 @@ export function buildFavouritesResult(input: {
       numFemaleSeen += 1;
     }
     if (g === 'female' || g === 'male') {
-      gender[g].push(name);
+      gender[g].push(characterRef);
     } else {
-      gender.other.push(name);
+      gender.other.push(characterRef);
     }
 
     switch (meta.charRole) {
       case CharacterRoleTier.Main:
-        roles.main.push(name);
+        roles.main.push(characterRef);
         break;
       case CharacterRoleTier.Supporting:
-        roles.supporting.push(name);
+        roles.supporting.push(characterRef);
         break;
       case CharacterRoleTier.Background:
-        roles.background.push(name);
+        roles.background.push(characterRef);
         break;
       default:
-        roles.unknown.push(name);
+        roles.unknown.push(characterRef);
         break;
     }
 
@@ -479,7 +502,7 @@ export function buildFavouritesResult(input: {
     if (!birthdays[birthdayKey]) {
       birthdays[birthdayKey] = [];
     }
-    birthdays[birthdayKey].push(name);
+    birthdays[birthdayKey].push(characterRef);
 
     for (const [mediaIdStr, entry] of Object.entries(meta.shows)) {
       mergeSeriesRow(seriesAnimeById, Number(mediaIdStr), 'ANIME', entry);
@@ -532,15 +555,15 @@ export function buildFavouritesResult(input: {
   );
 
   const staffRows = favouriteStaff.map((staff) => {
-    const matchedCharacterNames = accum.get(staff.id)?.characterNames ?? [];
+    const matchedCharacters = accum.get(staff.id)?.characters ?? [];
     return {
       id: staff.id,
       name: pickStaffName(staff),
       imageUrl:
         staff.image?.large ?? accum.get(staff.id)?.imageUrl ?? null,
       gender: staff.gender ?? null,
-      matchedCount: matchedCharacterNames.length,
-      matchedCharacterNames,
+      matchedCount: matchedCharacters.length,
+      matchedCharacters,
     };
   });
 
@@ -557,8 +580,8 @@ export function buildFavouritesResult(input: {
     gender,
     roles,
     birthdays,
-    seriesAnime: sortSeriesRows([...seriesAnimeById.values()], characterNames),
-    seriesManga: sortSeriesRows([...seriesMangaById.values()], characterNames),
+    seriesAnime: sortSeriesRows([...seriesAnimeById.values()], favouriteCharacters),
+    seriesManga: sortSeriesRows([...seriesMangaById.values()], favouriteCharacters),
     characterNames,
     favouriteCharacters,
     favouriteStaff: staffRows,
@@ -629,22 +652,23 @@ function mergeSeriesRow(
     };
     target.set(mediaId, row);
   }
-  for (const characterName of entry.characters) {
-    if (!row.characters.includes(characterName)) {
-      row.characters.push(characterName);
+  for (const character of entry.characters) {
+    if (!row.characters.some((existing) => existing.id === character.id)) {
+      row.characters.push(character);
     }
   }
 }
 
 function sortSeriesRows(
   rows: FavouritesSeriesRow[],
-  characterNames: string[],
+  favouriteOrder: Array<{ id: number }>,
 ): FavouritesSeriesRow[] {
+  const orderById = new Map(favouriteOrder.map((character, index) => [character.id, index]));
   return rows
     .map((row) => ({
       ...row,
       characters: [...row.characters].sort(
-        (a, b) => characterNames.indexOf(a) - characterNames.indexOf(b),
+        (a, b) => (orderById.get(a.id) ?? 0) - (orderById.get(b.id) ?? 0),
       ),
     }))
     .sort((a, b) => a.title.localeCompare(b.title));

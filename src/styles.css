@@ -5733,6 +5733,16 @@ html {
   text-underline-offset: 2px;
 }
 
+.tool-entity-btn--staff-male .tool-entity-label strong,
+.tool-entity-btn--staff-male:hover .tool-entity-label strong {
+  color: cornflowerblue;
+}
+
+.tool-entity-btn--staff-female .tool-entity-label strong,
+.tool-entity-btn--staff-female:hover .tool-entity-label strong {
+  color: plum;
+}
+
 .tool-entity-avatar {
   flex: 0 0 auto;
   object-fit: cover;
@@ -5891,6 +5901,32 @@ html {
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.4;
+}
+
+/* Middle-click character names in tools: gender colour, accent + underline on hover */
+.tool-character-name-link {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.tool-character-name-link:hover {
+  color: var(--accent, #2563eb);
+  text-decoration: underline;
+}
+
+.tool-character-name-link--male {
+  color: cornflowerblue;
+}
+
+.tool-character-name-link--female {
+  color: plum;
+}
+
+.tool-character-name-link--male:hover,
+.tool-character-name-link--female:hover {
+  color: var(--accent, #2563eb);
+  text-decoration: underline;
 }
 
 .tool-name-list,

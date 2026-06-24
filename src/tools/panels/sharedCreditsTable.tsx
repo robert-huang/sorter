@@ -18,10 +18,7 @@ function SharedCreditsRoleName({ role }: { role: StaffRoleEntry }) {
 
   return (
     <span
-      className={mergeAnilistLinkClass(
-        'anilist-detail-character-name',
-        anilistLink.className,
-      )}
+      className={mergeAnilistLinkClass('tool-character-name-link', anilistLink.className)}
       onMouseDown={anilistLink.onMouseDown}
       onAuxClick={anilistLink.onAuxClick}
     >

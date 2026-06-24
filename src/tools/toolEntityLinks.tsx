@@ -98,7 +98,20 @@ type ToolStaffButtonProps = {
   onOpenStaff: ToolPanelProps['onOpenStaff'];
   compact?: boolean;
   className?: string;
+  /** When set, colours the name (male: cornflowerblue, female: plum). */
+  gender?: string | null;
 };
+
+function staffGenderButtonClass(gender: string | null | undefined): string {
+  const normalized = (gender ?? '').toLowerCase();
+  if (normalized === 'male') {
+    return 'tool-entity-btn--staff-male';
+  }
+  if (normalized === 'female') {
+    return 'tool-entity-btn--staff-female';
+  }
+  return '';
+}
 
 /** Staff/VA avatar + name chip that opens the staff detail modal (left) or AniList (middle). */
 export function ToolStaffButton({
@@ -108,6 +121,7 @@ export function ToolStaffButton({
   onOpenStaff,
   compact = false,
   className,
+  gender,
 }: ToolStaffButtonProps) {
   const anilistLink = bindAnilistMiddleClick(anilistUrlForStaffId(staffId));
 
@@ -118,6 +132,7 @@ export function ToolStaffButton({
         [
           'tool-entity-btn',
           compact ? 'tool-entity-btn--compact' : '',
+          staffGenderButtonClass(gender),
           className ?? '',
         ]
           .filter(Boolean)
@@ -140,10 +155,23 @@ export function ToolStaffButton({
 type ToolCharacterNameProps = {
   characterId: number;
   name: string;
+  /** When set, colours the name (male: cornflowerblue, female: plum). */
+  gender?: string | null;
 };
 
+function characterGenderLinkClass(gender: string | null | undefined): string {
+  const normalized = (gender ?? '').toLowerCase();
+  if (normalized === 'male') {
+    return 'tool-character-name-link--male';
+  }
+  if (normalized === 'female') {
+    return 'tool-character-name-link--female';
+  }
+  return '';
+}
+
 /** Character name with middle-click to open AniList (no in-app character modal). */
-export function ToolCharacterName({ characterId, name }: ToolCharacterNameProps) {
+export function ToolCharacterName({ characterId, name, gender }: ToolCharacterNameProps) {
   const anilistLink = bindAnilistMiddleClick(anilistUrlForCharacter(characterId));
 
   if (!anilistLink.className) {
@@ -153,13 +181,43 @@ export function ToolCharacterName({ characterId, name }: ToolCharacterNameProps)
   return (
     <span
       className={mergeAnilistLinkClass(
-        'anilist-detail-character-name',
+        ['tool-character-name-link', characterGenderLinkClass(gender)]
+          .filter(Boolean)
+          .join(' '),
         anilistLink.className,
       )}
       onMouseDown={anilistLink.onMouseDown}
       onAuxClick={anilistLink.onAuxClick}
     >
       {name}
+    </span>
+  );
+}
+
+/** Comma-separated character names with middle-click AniList links. */
+export function CharacterNameInlineList({
+  characters,
+  className,
+}: {
+  characters: Array<{ id: number; name: string; gender?: string | null }>;
+  className?: string;
+}) {
+  if (characters.length === 0) {
+    return null;
+  }
+
+  return (
+    <span className={className}>
+      {characters.map((character, index) => (
+        <span key={character.id}>
+          {index > 0 ? ', ' : null}
+          <ToolCharacterName
+            characterId={character.id}
+            name={character.name}
+            gender={character.gender}
+          />
+        </span>
+      ))}
     </span>
   );
 }

@@ -4,13 +4,14 @@ import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsernam
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
 import { ToolUsernameField } from '../ToolUsernameField';
-import { ToolCharacterName, ToolShowButton, ToolStaffButton } from '../toolEntityLinks';
+import { CharacterNameInlineList, ToolCharacterName, ToolShowButton, ToolStaffButton } from '../toolEntityLinks';
 import { useUsernameListRefresh } from '../useUsernameListRefresh';
 import { useToolsDisplayLabelRevision } from '../useToolsDisplayLabelRevision';
 import { runFavouritesAnalysis, type FavouritesRunProgress } from './favouritesApi';
 import {
   FAVOURITES_TOP_N,
   rebuildFavouritesResult,
+  type FavouriteCharacterRef,
   type FavouritesForm,
   type FavouritesRebuildSource,
   type FavouritesResult,
@@ -107,7 +108,9 @@ function VaRankBlock({
               onOpenStaff={onOpenStaff}
               compact
             />
-            <span className="tool-rank-detail">{row.characterNames.join(', ')}</span>
+            <span className="tool-rank-detail">
+              <CharacterNameInlineList characters={row.characters} />
+            </span>
           </li>
         ))}
       </ul>
@@ -149,23 +152,33 @@ function SeriesListBlock({
             onOpenMedia={onOpenMedia}
             compact
           />
-          <span className="tool-rank-detail">{row.characters.join(', ')}</span>
+          <span className="tool-rank-detail">
+            <CharacterNameInlineList characters={row.characters} />
+          </span>
         </div>
       ))}
     </details>
   );
 }
 
-function NameListBlock({ title, names }: { title: string; names: string[] }) {
-  if (names.length === 0) {
+function NameListBlock({
+  title,
+  characters,
+}: {
+  title: string;
+  characters: FavouriteCharacterRef[];
+}) {
+  if (characters.length === 0) {
     return null;
   }
   return (
     <details className="tool-category-block">
       <summary className="tool-category-title">
-        {title} ({names.length})
+        {title} ({characters.length})
       </summary>
-      <p className="tool-name-list">{names.join(', ')}</p>
+      <p className="tool-name-list">
+        <CharacterNameInlineList characters={characters} />
+      </p>
     </details>
   );
 }
@@ -202,7 +215,11 @@ function FavouriteCharactersBlock({
         {characters.map((character) => (
           <li key={character.id}>
             <span className="tool-rank-count">{character.rank}.</span>
-            <ToolCharacterName characterId={character.id} name={character.name} />
+          <ToolCharacterName
+            characterId={character.id}
+            name={character.name}
+            gender={character.gender}
+          />
           </li>
         ))}
       </ol>
@@ -405,16 +422,16 @@ export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
           <FavouriteCharactersBlock characters={result.favouriteCharacters} />
 
           <GroupedCategoryBlock title="Gender">
-            <NameListBlock title="Female characters" names={result.gender.female} />
-            <NameListBlock title="Male characters" names={result.gender.male} />
-            <NameListBlock title="Other / unknown gender" names={result.gender.other} />
+            <NameListBlock title="Female characters" characters={result.gender.female} />
+            <NameListBlock title="Male characters" characters={result.gender.male} />
+            <NameListBlock title="Other / unknown gender" characters={result.gender.other} />
           </GroupedCategoryBlock>
 
-          <GroupedCategoryBlock title="Roles on your list">
-            <NameListBlock title="Main roles" names={result.roles.main} />
-            <NameListBlock title="Supporting roles" names={result.roles.supporting} />
-            <NameListBlock title="Background roles" names={result.roles.background} />
-            <NameListBlock title="Unknown roles" names={result.roles.unknown} />
+          <GroupedCategoryBlock title="Roles">
+            <NameListBlock title="Main roles" characters={result.roles.main} />
+            <NameListBlock title="Supporting roles" characters={result.roles.supporting} />
+            <NameListBlock title="Background roles" characters={result.roles.background} />
+            <NameListBlock title="Unknown roles (or manga only)" characters={result.roles.unknown} />
           </GroupedCategoryBlock>
 
           <details className="tool-category-block">
@@ -422,10 +439,10 @@ export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
             <ul className="tool-rank-list">
               {Object.entries(result.birthdays)
                 .sort(([a], [b]) => a.localeCompare(b))
-                .map(([day, names]) => (
+                .map(([day, characters]) => (
                   <li key={day}>
                     <span className="tool-rank-count">{day}</span>
-                    <span>{names.join(', ')}</span>
+                    <CharacterNameInlineList characters={characters} />
                   </li>
                 ))}
             </ul>
@@ -441,16 +458,14 @@ export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
                     staffId={staff.id}
                     name={staff.name}
                     imageUrl={staff.imageUrl}
+                    gender={staff.gender}
                     onOpenStaff={onOpenStaff}
                     compact
                   />
-                  {staff.matchedCharacterNames.length > 0 ? (
+                  {staff.matchedCharacters.length > 0 ? (
                     <span className="tool-rank-detail">
-                      {staff.matchedCharacterNames.join(', ')}
+                      <CharacterNameInlineList characters={staff.matchedCharacters} />
                     </span>
-                  ) : null}
-                  {staff.gender ? (
-                    <span className="tool-rank-detail">{staff.gender}</span>
                   ) : null}
                 </li>
               ))}
