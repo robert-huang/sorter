@@ -5988,6 +5988,10 @@ html {
   font-weight: 600;
 }
 
+.tool-category-title[title] {
+  cursor: help;
+}
+
 .tool-season-fullbleed {
   /* Break out of .tools-main (max-width 1100px) so 90vw is viewport-relative. */
   width: 90vw;

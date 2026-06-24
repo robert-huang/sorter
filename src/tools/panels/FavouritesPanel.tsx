@@ -24,6 +24,12 @@ const LS_KEY = 'anime-tools-favourites-form';
 const EXPAND_ROLES_TITLE =
   'Fully re-fetch role data from AniList and save to the local database — every favourite character’s appearances, then voice-actor roles for VAs found on those characters, then voice-actor roles for your favourite staff. Can take a long time for large favourite lists. Use Analyze for a faster run from cache.';
 
+const VA_BAYESIAN_RANK_HELP =
+  'Bayesian average of your favourite-list ranks for characters this VA voices. Let N = your favourite-character count and r = rank (1 = top). Each VA starts with a dummy prior: count (N÷10)+1 and rank-sum (N÷2)×(N÷10). Each real match adds +1 to count and +r to rank-sum. Shown value = rank-sum ÷ count — lower is better (more top-ranked favourites).';
+
+const VA_LOG_SCORE_HELP =
+  'Log score favours VAs behind higher-ranked favourites. Let N = your favourite-character count and r = rank (1 = top). Per matched character, add ln(N) − ln(r) (same as ln(N÷r); rank 1 adds the most). Shown value is the total × 10 — higher is better.';
+
 const DEFAULT_FORM: FavouritesForm = {
   username: '',
 };
@@ -79,11 +85,13 @@ function VaRankBlock({
   rows,
   onOpenStaff,
   defaultOpen = false,
+  titleHelp,
 }: {
   title: string;
   rows: VaRankRow[];
   onOpenStaff: ToolPanelProps['onOpenStaff'];
   defaultOpen?: boolean;
+  titleHelp?: string;
 }) {
   const [visible, setVisible] = useState(FAVOURITES_TOP_N);
 
@@ -96,7 +104,9 @@ function VaRankBlock({
 
   return (
     <details className="tool-category-block" open={defaultOpen || undefined}>
-      <summary className="tool-category-title">{title}</summary>
+      <summary className="tool-category-title" title={titleHelp}>
+        {title}
+      </summary>
       <ul className="tool-rank-list">
         {shown.map((row) => (
           <li key={`${title}-${row.staffId}`}>
@@ -407,11 +417,13 @@ export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
             title="Top VAs by average favourite rank (Bayesian)"
             rows={result.byAvgRank}
             onOpenStaff={onOpenStaff}
+            titleHelp={VA_BAYESIAN_RANK_HELP}
           />
           <VaRankBlock
             title="Top VAs by log score"
             rows={result.byLogScore}
             onOpenStaff={onOpenStaff}
+            titleHelp={VA_LOG_SCORE_HELP}
           />
           <VaRankBlock
             title="Top VAs by % of their characters favourited"
