@@ -85,6 +85,8 @@
 
 * {
   box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }
 
 html,
@@ -103,6 +105,39 @@ button {
 
 a {
   color: var(--accent);
+}
+
+/* ---------- Themed scrollbars ----------
+   Thin thumbs on a transparent track; tokens follow light/dark theme.
+   WebKit/Blink pseudo-elements + Firefox scrollbar-* on scrollables. */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 /* ---------- App shell ---------- */
@@ -5201,7 +5236,7 @@ a {
 .tools-app {
   min-height: 100vh;
   background: var(--bg);
-  /* Measured at runtime by useToolsChromeStickyTop (header + banner + tabs). */
+  /* Measured at runtime by useToolsChromeStickyTop (header + tabs). */
   --tools-season-sticky-top: 6.5rem;
 }
 
@@ -5357,6 +5392,7 @@ a {
 
 /* Label row above a textarea: title left, option right. */
 .tool-field-label-header {
+  display: flex;
   justify-content: space-between;
   align-items: center;
   width: 100%;
@@ -5365,6 +5401,7 @@ a {
 
 .tool-checkbox-header {
   margin-bottom: 0;
+  flex-shrink: 0;
 }
 
 .tool-field-grow {
@@ -5571,21 +5608,6 @@ a {
   overflow-x: auto;
   width: 100%;
   max-width: fit-content;
-  scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
-}
-
-.tool-credits-table-scroll::-webkit-scrollbar {
-  height: 8px;
-}
-
-.tool-credits-table-scroll::-webkit-scrollbar-track {
-  background: var(--scrollbar-track);
-}
-
-.tool-credits-table-scroll::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb);
-  border-radius: 999px;
 }
 
 .tool-credits-table {
@@ -5955,33 +5977,6 @@ a {
   overflow: auto;
   flex: 1;
   min-height: 0;
-  scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
-}
-
-.tool-season-scroll::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-.tool-season-scroll::-webkit-scrollbar-track {
-  background: var(--scrollbar-track);
-}
-
-.tool-season-scroll::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb);
-  border-radius: 999px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
-}
-
-.tool-season-scroll::-webkit-scrollbar-thumb:hover {
-  background: var(--scrollbar-thumb-hover);
-  background-clip: padding-box;
-}
-
-.tool-season-scroll::-webkit-scrollbar-corner {
-  background: transparent;
 }
 
 .tool-season-body {

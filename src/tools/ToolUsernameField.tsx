@@ -1,15 +1,16 @@
-import { RefreshIcon } from '../components/icons';
-
 type ToolUsernameFieldProps = {
   label: string;
   value: string;
   disabled?: boolean;
   placeholder?: string;
   onChange: (value: string) => void;
-  /** When set, shows a refresh icon button to the right of the input. */
+  /** When set, shows a refresh button to the right of the input (a2a style). */
   onRefresh?: () => void;
   refreshing?: boolean;
+  refreshLabel?: string;
 };
+
+const DEFAULT_REFRESH_LABEL = 'Refresh list from AniList';
 
 /** AniList username field matching anime-to-anime width and layout. */
 export function ToolUsernameField({
@@ -20,6 +21,7 @@ export function ToolUsernameField({
   onChange,
   onRefresh,
   refreshing,
+  refreshLabel = DEFAULT_REFRESH_LABEL,
 }: ToolUsernameFieldProps) {
   return (
     <label className="tool-field tool-field-label-row tool-field-username">
@@ -36,12 +38,13 @@ export function ToolUsernameField({
         {onRefresh && (
           <button
             type="button"
-            className="btn small icon-only anime-to-anime-random-btn"
+            className="btn icon-only anime-to-anime-refresh-btn anime-to-anime-refresh-btn--compact anime-to-anime-random-btn"
             disabled={disabled || refreshing || value.trim().length === 0}
             onClick={onRefresh}
-            aria-label="Refresh list from AniList"
+            title={refreshLabel}
+            aria-label={refreshLabel}
           >
-            <RefreshIcon size={16} />
+            ↻
           </button>
         )}
       </div>

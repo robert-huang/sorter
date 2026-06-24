@@ -199,7 +199,7 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
                 disabled={running || !singleShowMode}
                 onChange={(e) => patchForm({ ignoreRelated: e.target.checked })}
               />
-              Ignore related shows
+              Ignore related shows to avoid sequels and spinoffs
             </label>
             <label className="tool-field tool-field-label-row">
               <span className="tool-field-label">Top matches</span>

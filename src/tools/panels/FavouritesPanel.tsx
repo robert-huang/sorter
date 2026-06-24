@@ -254,6 +254,7 @@ export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
           value={form.username}
           disabled={running}
           refreshing={refreshingList}
+          refreshLabel="Refresh list and favourites from AniList"
           onChange={(username) => patchForm({ username })}
           onRefresh={() => refreshUsernameList(form.username, running)}
         />

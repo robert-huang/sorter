@@ -67,7 +67,7 @@ export function SharedCreditsResultsTable({
         <table className="tool-result-table tool-credits-table">
           <thead>
             <tr>
-              <th className="tool-credits-col-show">Show</th>
+              <th className="tool-credits-col-show"></th>
               {staffIds.map((staffId, index) => (
                 <th key={staffId}>
                   <ToolStaffButton

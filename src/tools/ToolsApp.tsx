@@ -125,13 +125,6 @@ export function ToolsApp() {
 
   return (
     <div className="anime-to-anime-app tools-app">
-      <ToolsHeader
-        theme={theme}
-        onToggleTheme={onToggleTheme}
-        historyBackGuard={historyBackGuard}
-        onToggleHistoryBackGuard={onToggleHistoryBackGuard}
-        dbSync={dbSync}
-      />
       <AppBannerStack>
         {dbNonPersistentBanner.show && (
           <div className="app-banner warn">
@@ -161,6 +154,13 @@ export function ToolsApp() {
         )}
         {apiWaitBanner}
       </AppBannerStack>
+      <ToolsHeader
+        theme={theme}
+        onToggleTheme={onToggleTheme}
+        historyBackGuard={historyBackGuard}
+        onToggleHistoryBackGuard={onToggleHistoryBackGuard}
+        dbSync={dbSync}
+      />
       <ToolTabs tabs={TOOL_TABS} activeTab={activeTool} onTabChange={onTabChange} />
 
       <main className="tools-main">
