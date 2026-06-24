@@ -23,6 +23,7 @@ import type { ToolsFetchOptions } from '../../lib/importers/anilist/toolsFetchPo
 import {
   ensureStaffFilmographyFresh,
   ensureUserAnimeListFresh,
+  readStaffImagesFromDb,
   readStaffShowMapFromDb,
   readUserListMediaIdsFromDb,
   TOOLS_USER_LIST_STATUSES,
@@ -48,7 +49,7 @@ export type ToolStaffNameFields = PersonNameFields & {
 };
 
 /** Bump when cached staff-name / role-map shapes change. */
-const STAFF_NAMES_CACHE_VERSION = 2;
+const STAFF_NAMES_CACHE_VERSION = 3;
 const STAFF_ROLES_CACHE_VERSION = 2;
 
 /** Legacy caches stored plain name strings instead of PersonNameFields rows. */
@@ -334,6 +335,68 @@ export async function resolveStaffIds(
   return ids;
 }
 
+async function enrichStaffNameFieldsImages(
+  fields: Record<number, ToolStaffNameFields>,
+): Promise<Record<number, ToolStaffNameFields>> {
+  const ctx = getToolsImportContext();
+  const images = await readStaffImagesFromDb(ctx.db, Object.keys(fields).map(Number));
+  const out: Record<number, ToolStaffNameFields> = { ...fields };
+  for (const [id, image] of Object.entries(images)) {
+    const staffId = Number(id);
+    const row = out[staffId];
+    if (!row || !image || row.image) {
+      continue;
+    }
+    out[staffId] = { ...row, image };
+  }
+  return out;
+}
+
+async function fetchStaffNameFieldsFromApi(
+  staffIds: number[],
+  signal?: AbortSignal,
+): Promise<Record<number, ToolStaffNameFields>> {
+  const staff = await depaginate<
+    {
+      Page: {
+        pageInfo: { hasNextPage: boolean };
+        staff: Array<{
+          id: number;
+          name: { full: string; native?: string | null };
+          image?: { large?: string | null } | null;
+        }>;
+      } | null;
+    },
+    {
+      id: number;
+      name: { full: string; native?: string | null };
+      image?: { large?: string | null } | null;
+    }
+  >({
+    query: TOOLS_STAFF_BY_IDS_QUERY,
+    variables: { staffIds },
+    signal,
+    selectPage: (data) => ({
+      nodes: data.Page?.staff ?? [],
+      pageInfo: data.Page?.pageInfo ?? { hasNextPage: false },
+    }),
+  });
+
+  const fields: Record<number, ToolStaffNameFields> = {};
+  for (const row of staff) {
+    fields[row.id] = {
+      id: row.id,
+      name_full: row.name.full,
+      name_native: row.name.native ?? null,
+      image: row.image?.large ?? null,
+    };
+  }
+  if (Object.keys(fields).length !== staffIds.length) {
+    throw new Error('Could not fetch names for all staff ids.');
+  }
+  return fields;
+}
+
 export async function fetchStaffNameFieldsByIds(
   staffIds: number[],
   signal?: AbortSignal,
@@ -341,59 +404,25 @@ export async function fetchStaffNameFieldsByIds(
 ): Promise<Record<number, ToolStaffNameFields>> {
   signal?.throwIfAborted();
   const key = staffNamesCacheKey(staffIds);
-  if (!options?.forceRefresh) {
+  if (options?.forceRefresh) {
+    await toolsCacheDelete(key);
+  } else {
     const cached = await toolsCacheGet<unknown>(key);
     const normalized = cached ? normalizeStaffNameFieldsFromCache(staffIds, cached) : null;
     if (normalized) {
-      return normalized;
-    }
-    if (cached != null) {
+      const enriched = await enrichStaffNameFieldsImages(normalized);
+      if (!staffIds.some((id) => !enriched[id]?.image)) {
+        return enriched;
+      }
+    } else if (cached != null) {
       await toolsCacheDelete(key);
     }
-  } else {
-    await toolsCacheDelete(key);
   }
 
-  const staff = await depaginate<
-      {
-        Page: {
-          pageInfo: { hasNextPage: boolean };
-          staff: Array<{
-            id: number;
-            name: { full: string; native?: string | null };
-            image?: { large?: string | null } | null;
-          }>;
-        } | null;
-      },
-      {
-        id: number;
-        name: { full: string; native?: string | null };
-        image?: { large?: string | null } | null;
-      }
-    >({
-      query: TOOLS_STAFF_BY_IDS_QUERY,
-      variables: { staffIds },
-      signal,
-      selectPage: (data) => ({
-        nodes: data.Page?.staff ?? [],
-        pageInfo: data.Page?.pageInfo ?? { hasNextPage: false },
-      }),
-    });
-
-    const fields: Record<number, ToolStaffNameFields> = {};
-    for (const row of staff) {
-      fields[row.id] = {
-        id: row.id,
-        name_full: row.name.full,
-        name_native: row.name.native ?? null,
-        image: row.image?.large ?? null,
-      };
-    }
-    if (Object.keys(fields).length !== staffIds.length) {
-      throw new Error('Could not fetch names for all staff ids.');
-    }
-    await toolsCacheSet(key, fields, TOOLS_CACHE_TTL_MS.staffSearch);
-    return fields;
+  let fields = await fetchStaffNameFieldsFromApi(staffIds, signal);
+  fields = await enrichStaffNameFieldsImages(fields);
+  await toolsCacheSet(key, fields, TOOLS_CACHE_TTL_MS.staffSearch);
+  return fields;
 }
 
 export async function fetchStaffNamesByIds(

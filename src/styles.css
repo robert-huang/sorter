@@ -5339,10 +5339,15 @@ a {
   margin-bottom: 12px;
 }
 
+.tool-field-username .anime-to-anime-endpoint-user {
+  flex: 0 0 auto;
+}
+
 .tool-field-username .anime-to-anime-endpoint-user-input {
-  flex: 1 1 12rem;
+  width: 100px;
+  flex: 0 0 auto;
   min-width: 0;
-  max-width: 280px;
+  max-width: none;
 }
 
 .tool-field-label-row .tool-field-label {
@@ -5406,16 +5411,35 @@ a {
 
 .tool-shared-credits-filters-row .tool-field {
   margin-bottom: 0;
-  flex: 1 1 12rem;
+}
+
+.tool-shared-credits-filters-row .tool-field-username {
+  flex: 0 0 auto;
   min-width: 0;
-  max-width: 280px;
+  max-width: none;
+}
+
+.tool-shared-credits-min-shared {
+  flex: 0 0 auto;
+  max-width: none;
+}
+
+.tool-shared-credits-min-shared-input {
+  width: 3.25rem;
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: none;
+  margin: 0;
+  padding-left: 6px;
+  padding-right: 2px;
+  text-align: center;
 }
 
 .tool-shared-credits-filters-row .anime-to-anime-endpoint-user-input {
-  flex: 1 1 12rem;
+  width: 100px;
+  flex: 0 0 auto;
   min-width: 0;
-  max-width: 280px;
-  width: auto;
+  max-width: none;
 }
 
 .tool-shared-credits-filters-hint {
@@ -5524,6 +5548,11 @@ a {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
+}
+
+.tool-table-wrap .tool-result-table th,
+.tool-table-wrap .tool-result-table td {
+  vertical-align: middle;
 }
 
 .tool-credits-table-outer {
@@ -6003,20 +6032,30 @@ a {
 }
 
 .tool-season-cell-grid {
-  display: grid;
-  grid-template-columns: 2.75rem minmax(0, 1fr);
+  display: flex;
+  flex-direction: row;
   gap: 8px;
-  align-items: start;
+  align-items: flex-start;
 }
 
 .tool-season-score {
+  flex: 0 0 24px;
+  width: 24px;
+  min-width: 24px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
   color: var(--text-muted);
+  line-height: 1;
   text-align: right;
-  line-height: 1.35;
 }
 
 .tool-season-title {
+  min-width: 0;
+  flex: 1 1 auto;
   text-align: left;
   word-break: break-word;
   line-height: 1.35;

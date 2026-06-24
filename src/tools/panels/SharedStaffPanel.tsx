@@ -290,7 +290,7 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
             <table className="tool-result-table">
               <thead>
                 <tr>
-                  <th>Name</th>
+                  <th></th>
                   {result.shows.map((show) => (
                     <th key={show.id}>
                       <ToolShowButton
@@ -315,6 +315,7 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
                           <ToolStaffButton
                             staffId={row.entityId}
                             name={row.name}
+                            imageUrl={row.imageUrl}
                             onOpenStaff={onOpenStaff}
                             compact
                           />

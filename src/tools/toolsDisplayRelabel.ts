@@ -7,6 +7,7 @@ import {
 import { getToolsImportContext } from '../lib/importers/anilist/toolsImportContext';
 import {
   readShowStaffBundleFromDb,
+  readStaffImagesFromDb,
   readStaffShowMapFromDb,
 } from '../lib/importers/anilist/toolsAnilistAccess';
 import type { SeasonalShow } from './panels/seasonalScoresLogic';
@@ -124,9 +125,19 @@ export async function rebuildSharedCreditsResult(
     source.roleMode,
     source.lists,
   );
+  const ctx = getToolsImportContext();
+  const images = await readStaffImagesFromDb(ctx.db, source.staffIds);
+  const staffNameFields = { ...source.staffNameFields };
+  for (const [id, image] of Object.entries(images)) {
+    const staffId = Number(id);
+    const row = staffNameFields[staffId];
+    if (row && image && !row.image) {
+      staffNameFields[staffId] = { ...row, image };
+    }
+  }
   return buildSharedCreditsResult(
     source.staffIds,
-    source.staffNameFields,
+    staffNameFields,
     lists,
     source.form,
     source.userMediaIds,

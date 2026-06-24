@@ -463,6 +463,26 @@ export async function bustFavouritesAnalysisCaches(
   ]);
 }
 
+/** Staff avatar URLs from the local DB (populated by cast/filmography imports). */
+export async function readStaffImagesFromDb(
+  db: AnilistDbExecutor,
+  staffIds: number[],
+): Promise<Record<number, string | null>> {
+  if (staffIds.length === 0) {
+    return {};
+  }
+  const placeholders = staffIds.map(() => '?').join(', ');
+  const rows = await db.exec(
+    `SELECT id, image FROM staff WHERE id IN (${placeholders})`,
+    staffIds,
+  );
+  const out: Record<number, string | null> = {};
+  for (const row of rows) {
+    out[Number(row.id)] = (row.image as string | null) ?? null;
+  }
+  return out;
+}
+
 export async function readUserListMediaIdsFromDb(
   db: AnilistDbExecutor,
   anilistUserId: number,
@@ -633,6 +653,7 @@ export async function readShowStaffBundleFromDb(
         pickPersonName(row.staff),
         role,
         roleIndex,
+        row.staff.image,
       );
     });
   }
@@ -648,6 +669,7 @@ export async function readShowStaffBundleFromDb(
       row.character.id,
       roleDescr,
       row.characterSortOrder,
+      row.staff.image,
     );
   }
 

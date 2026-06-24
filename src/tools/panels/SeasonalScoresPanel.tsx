@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
+import { ToolUsernameField } from '../ToolUsernameField';
 import { useUsernameListRefresh } from '../useUsernameListRefresh';
 import { useToolsDisplayLabelRevision } from '../useToolsDisplayLabelRevision';
 import { relabelSeasonalShows } from '../toolsDisplayRelabel';
@@ -108,7 +109,7 @@ function SeasonalColumnsView({
 }
 
 export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
-  const { hint: usernameHint, onUsernameContextMenu } = useUsernameListRefresh();
+  const { refreshing: refreshingList, refreshUsernameList } = useUsernameListRefresh();
   const displayLabelRevision = useToolsDisplayLabelRevision();
   const [form, setForm] = useState<SeasonalScoresForm>(() => loadForm());
   const [running, setRunning] = useState(false);
@@ -193,19 +194,14 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
           }
         }}
       >
-        <label className="tool-field tool-field-label-row tool-field-username">
-          <span className="tool-field-label">AniList username</span>
-          <input
-            className="slot-search anime-to-anime-endpoint-user-input"
-            type="text"
-            disabled={running}
-            placeholder="AL Username"
-            value={form.username}
-            title="AniList username — right-click to re-fetch list from AniList"
-            onChange={(e) => patchForm({ username: e.target.value })}
-            onContextMenu={(e) => onUsernameContextMenu(e, form.username, running)}
-          />
-        </label>
+        <ToolUsernameField
+          label="AniList username"
+          value={form.username}
+          disabled={running}
+          refreshing={refreshingList}
+          onChange={(username) => patchForm({ username })}
+          onRefresh={() => refreshUsernameList(form.username, running)}
+        />
 
         <label className="tool-field">
           <span className="tool-field-label">
@@ -257,7 +253,6 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
         </div>
 
         {running && <p className="tool-status">Loading user list…</p>}
-        {usernameHint && <p className="tool-field-hint">{usernameHint}</p>}
         {error && <p className="tool-error">{error}</p>}
       </form>
 

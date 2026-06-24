@@ -260,16 +260,15 @@ export function SharedCreditsPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps)
         </div>
 
         <div className="tool-shared-credits-filters-row">
-          <label className="tool-field tool-field-label-row tool-field-username">
+          <label className="tool-field tool-field-label-row tool-shared-credits-min-shared">
             <span className="tool-field-label">Min Shared</span>
             <input
-              className="slot-search anime-to-anime-endpoint-user-input"
+              className="slot-search tool-shared-credits-min-shared-input"
               type="number"
               min={1}
               disabled={running || form.diffMode}
               value={form.minMatches ?? ''}
               placeholder="all"
-              title="Blank = require all staff"
               onChange={(e) => {
                 const raw = e.target.value.trim();
                 patchForm({

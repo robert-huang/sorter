@@ -10,15 +10,30 @@ export type UsernameListRefreshOptions = {
   refreshFavourites?: boolean;
 };
 
-/** EndpointPicker-style right-click handler for Tools username fields. */
+async function refreshUserListFromAnilist(
+  username: string,
+  refreshFavourites: boolean,
+): Promise<void> {
+  const handle = username.trim();
+  if (!handle) {
+    return;
+  }
+  await bustToolsUserListCache(handle);
+  await ensureUserAnimeListFresh(handle, { forceRefresh: true });
+  if (refreshFavourites) {
+    await ensureUserFavouritesFresh(handle, 'CHARACTERS', { forceRefresh: true });
+    await ensureUserFavouritesFresh(handle, 'STAFF', { forceRefresh: true });
+  }
+}
+
+/** Refresh handler for Tools username fields (icon button or legacy right-click). */
 export function useUsernameListRefresh(options?: UsernameListRefreshOptions) {
   const refreshFavourites = options?.refreshFavourites ?? false;
-  const [hint, setHint] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [hint, setHint] = useState<string | null>(null);
 
-  const onUsernameContextMenu = useCallback(
-    (e: MouseEvent, username: string, disabled?: boolean) => {
-      e.preventDefault();
+  const runRefresh = useCallback(
+    (username: string, disabled?: boolean) => {
       const handle = username.trim();
       if (!handle || disabled || refreshing) {
         return;
@@ -28,12 +43,7 @@ export function useUsernameListRefresh(options?: UsernameListRefreshOptions) {
       setHint(`Re-fetching ${handle}'s ${scopeLabel}…`);
       void (async () => {
         try {
-          await bustToolsUserListCache(handle);
-          await ensureUserAnimeListFresh(handle, { forceRefresh: true });
-          if (refreshFavourites) {
-            await ensureUserFavouritesFresh(handle, 'CHARACTERS', { forceRefresh: true });
-            await ensureUserFavouritesFresh(handle, 'STAFF', { forceRefresh: true });
-          }
+          await refreshUserListFromAnilist(handle, refreshFavourites);
           setHint(`Refreshed ${handle}'s ${scopeLabel}.`);
         } catch (err) {
           setHint(err instanceof Error ? err.message : 'Refresh failed.');
@@ -46,5 +56,14 @@ export function useUsernameListRefresh(options?: UsernameListRefreshOptions) {
     [refreshFavourites, refreshing],
   );
 
-  return { hint, refreshing, onUsernameContextMenu };
+  /** Shared Credits still uses right-click on list username fields. */
+  const onUsernameContextMenu = useCallback(
+    (e: MouseEvent, username: string, disabled?: boolean) => {
+      e.preventDefault();
+      runRefresh(username, disabled);
+    },
+    [runRefresh],
+  );
+
+  return { hint, refreshing, refreshUsernameList: runRefresh, onUsernameContextMenu };
 }

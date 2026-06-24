@@ -16,6 +16,7 @@ import {
 export type CreditedEntity = {
   name: string;
   roles: string[];
+  image?: string | null;
   /** Parallel to `roles` for JP VA credits — used to align rows by character id. */
   roleCharacterIds?: number[];
   /** First-seen API edge index (character or staff) for relevance ordering. */
@@ -45,6 +46,7 @@ export type SharedStaffForm = {
 export type SharedStaffSectionRow = {
   entityId: number;
   name: string;
+  imageUrl?: string | null;
   kind: 'studio' | 'staff' | 'va';
   cells: string[];
 };
@@ -99,6 +101,7 @@ export function mergeRoleIntoMap(
   name: string,
   role: string,
   relevanceOrder?: number,
+  image?: string | null,
 ): void {
   const key = String(id);
   if (!map[key]) {
@@ -106,7 +109,10 @@ export function mergeRoleIntoMap(
       name: normalizeStaffName(name),
       roles: [],
       relevanceOrder,
+      image: image ?? null,
     };
+  } else if (image && !map[key].image) {
+    map[key].image = image;
   }
   map[key].roles.push(role);
 }
@@ -143,6 +149,7 @@ export function mergeVaRoleIntoMap(
   characterId: number,
   roleLabel: string,
   relevanceOrder?: number,
+  image?: string | null,
 ): void {
   const key = String(vaId);
   if (!map[key]) {
@@ -151,7 +158,10 @@ export function mergeVaRoleIntoMap(
       roles: [],
       roleCharacterIds: [],
       relevanceOrder,
+      image: image ?? null,
     };
+  } else if (image && !map[key].image) {
+    map[key].image = image;
   }
   const entity = map[key]!;
   const characterIds = entity.roleCharacterIds ?? (entity.roleCharacterIds = []);
@@ -203,10 +213,12 @@ function entityRowsForCompare(
         )
       : alignRoleCellsAcrossShows(roleLists);
   const displayName = normalizeStaffName(maps[0]?.[id]?.name ?? id);
+  const imageUrl = maps[0]?.[id]?.image ?? null;
 
   return aligned.map((cells, rowIdx) => ({
     entityId: Number(id),
     name: rowIdx === 0 ? displayName : '',
+    imageUrl: rowIdx === 0 ? imageUrl : null,
     kind,
     cells,
   }));
@@ -256,6 +268,7 @@ export function buildCompareSections(
             rows.push({
               entityId: Number(id),
               name: i === 0 ? entity.name : '',
+              imageUrl: i === 0 ? (entity.image ?? null) : null,
               kind,
               cells,
             });

@@ -6,11 +6,7 @@ import {
   TOOLS_USER_CONSUMED_MEDIA_QUERY,
   TOOLS_VA_CHARACTER_MEDIA_QUERY,
 } from '../../lib/importers/anilist/queries';
-import {
-  TOOLS_CACHE_TTL_MS,
-  toolsCacheDelete,
-  withToolsCache,
-} from '../../lib/importers/anilist/toolsCache';
+import { toolsCacheDelete, withToolsCache, TOOLS_CACHE_TTL_MS } from '../../lib/importers/anilist/toolsCache';
 import type { ToolsFetchOptions } from '../../lib/importers/anilist/toolsFetchPolicy';
 import { needsGraphDataRefresh } from '../../lib/importers/anilist/toolsFetchPolicy';
 import { getStaffFilmographyFetchedAt } from '../../lib/importers/anilist/graphQueries';
@@ -27,9 +23,6 @@ import {
   readFavouriteStaffFromDb,
   readVaCharacterEdgesFromDb,
   toolsCharacterVaCacheKey,
-  toolsConsumedMediaCacheKey,
-  toolsFavouriteCharactersCacheKey,
-  toolsFavouriteStaffCacheKey,
   toolsVaCharactersCacheKey,
 } from '../../lib/importers/anilist/toolsAnilistAccess';
 import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportContext';
@@ -62,42 +55,33 @@ async function fetchConsumedMediaIds(
   options?: ToolsFetchOptions,
 ): Promise<Set<number>> {
   signal?.throwIfAborted();
-  const cacheKey = toolsConsumedMediaCacheKey(username);
-  const ids = await withToolsCache(
-    cacheKey,
-    TOOLS_CACHE_TTL_MS.userList,
-    async () => {
-      const user = await ensureUserAnimeListFresh(username, options);
-      if (user) {
-        const ctx = getToolsImportContext();
-        const fromDb = await readConsumedMediaIdsFromDb(ctx.db, user.id);
-        if (fromDb) {
-          return [...fromDb];
-        }
-      }
+  const user = await ensureUserAnimeListFresh(username, options);
+  if (user) {
+    const ctx = getToolsImportContext();
+    const fromDb = await readConsumedMediaIdsFromDb(ctx.db, user.id);
+    if (fromDb) {
+      return fromDb;
+    }
+  }
 
-      const entries = await depaginate<
-        {
-          Page: {
-            pageInfo: { hasNextPage: boolean };
-            mediaList: Array<{ mediaId: number }>;
-          } | null;
-        },
-        { mediaId: number }
-      >({
-        query: TOOLS_USER_CONSUMED_MEDIA_QUERY,
-        variables: { userName: username },
-        signal,
-        selectPage: (data) => ({
-          nodes: data.Page?.mediaList ?? [],
-          pageInfo: data.Page?.pageInfo ?? { hasNextPage: false },
-        }),
-      });
-      return entries.map((e) => e.mediaId);
+  const entries = await depaginate<
+    {
+      Page: {
+        pageInfo: { hasNextPage: boolean };
+        mediaList: Array<{ mediaId: number }>;
+      } | null;
     },
-    options,
-  );
-  return new Set(ids);
+    { mediaId: number }
+  >({
+    query: TOOLS_USER_CONSUMED_MEDIA_QUERY,
+    variables: { userName: username },
+    signal,
+    selectPage: (data) => ({
+      nodes: data.Page?.mediaList ?? [],
+      pageInfo: data.Page?.pageInfo ?? { hasNextPage: false },
+    }),
+  });
+  return new Set(entries.map((e) => e.mediaId));
 }
 
 async function fetchFavouriteCharactersLive(
@@ -133,22 +117,15 @@ async function fetchFavouriteCharacters(
   options?: ToolsFetchOptions,
 ): Promise<FavouriteCharacterInput[]> {
   signal?.throwIfAborted();
-  return withToolsCache(
-    toolsFavouriteCharactersCacheKey(username),
-    TOOLS_CACHE_TTL_MS.userList,
-    async () => {
-      const user = await ensureUserFavouritesFresh(username, 'CHARACTERS', options);
-      if (user) {
-        const ctx = getToolsImportContext();
-        const fromDb = await readFavouriteCharactersFromDb(ctx.db, user.id);
-        if (fromDb) {
-          return fromDb;
-        }
-      }
-      return fetchFavouriteCharactersLive(username, signal);
-    },
-    options,
-  );
+  const user = await ensureUserFavouritesFresh(username, 'CHARACTERS', options);
+  if (user) {
+    const ctx = getToolsImportContext();
+    const fromDb = await readFavouriteCharactersFromDb(ctx.db, user.id);
+    if (fromDb) {
+      return fromDb;
+    }
+  }
+  return fetchFavouriteCharactersLive(username, signal);
 }
 
 async function fetchFavouriteStaffLive(
@@ -184,22 +161,15 @@ async function fetchFavouriteStaff(
   options?: ToolsFetchOptions,
 ): Promise<FavouriteStaffInput[]> {
   signal?.throwIfAborted();
-  return withToolsCache(
-    toolsFavouriteStaffCacheKey(username),
-    TOOLS_CACHE_TTL_MS.userList,
-    async () => {
-      const user = await ensureUserFavouritesFresh(username, 'STAFF', options);
-      if (user) {
-        const ctx = getToolsImportContext();
-        const fromDb = await readFavouriteStaffFromDb(ctx.db, user.id);
-        if (fromDb) {
-          return fromDb;
-        }
-      }
-      return fetchFavouriteStaffLive(username, signal);
-    },
-    options,
-  );
+  const user = await ensureUserFavouritesFresh(username, 'STAFF', options);
+  if (user) {
+    const ctx = getToolsImportContext();
+    const fromDb = await readFavouriteStaffFromDb(ctx.db, user.id);
+    if (fromDb) {
+      return fromDb;
+    }
+  }
+  return fetchFavouriteStaffLive(username, signal);
 }
 
 async function fetchCharacterVoiceEdgesLive(
