@@ -128,13 +128,14 @@ type Harness = {
   autoPush: ReturnType<typeof vi.fn>;
 };
 
-async function makeHarness(): Promise<Harness> {
+async function makeHarness(options?: { seedMedia?: boolean }): Promise<Harness> {
   const db = await freshAnilistDb();
-  // Pre-seed the media row that lazy expansion expects to exist already.
-  db.exec(
-    'INSERT INTO media (id, type, fetched_at, updated_at) VALUES (?, ?, ?, ?)',
-    { bind: [100, 'ANIME', NOW, NOW] },
-  );
+  if (options?.seedMedia !== false) {
+    db.exec(
+      'INSERT INTO media (id, type, fetched_at, updated_at) VALUES (?, ?, ?, ?)',
+      { bind: [100, 'ANIME', NOW, NOW] },
+    );
+  }
   const executeQuery = vi.fn();
   const dirty = vi.fn();
   const autoPush = vi.fn();
@@ -213,6 +214,48 @@ describe('expandAnilistMediaDetail — happy path', () => {
     expect(h.dirty).toHaveBeenCalledTimes(1);
     // Lazy expansion must NOT trigger autopush (Phase D manual-push only)
     expect(h.autoPush).not.toHaveBeenCalled();
+    h.db.close();
+  });
+
+  it('upserts the parent media row before writing cast junctions', async () => {
+    const h = await makeHarness({ seedMedia: false });
+    h.executeQuery
+      .mockResolvedValueOnce({
+        Media: {
+          id: 100,
+          type: 'ANIME',
+          title: { english: 'Test Show', romaji: 'Test', native: null },
+          coverImage: null,
+          format: 'TV',
+          status: 'FINISHED',
+          episodes: 12,
+          chapters: null,
+          startDate: null,
+          endDate: null,
+          season: null,
+          seasonYear: null,
+          meanScore: null,
+          favourites: null,
+          countryOfOrigin: 'JP',
+          genres: null,
+          synonyms: null,
+          studios: { nodes: [] },
+          tags: [],
+        },
+      })
+      .mockResolvedValueOnce(
+        makeDetailResponse([makeCharEdge(1000, [9001])], [], false, false),
+      )
+      .mockResolvedValueOnce(
+        makeDetailResponse([], [makeStaffEdge(9100)], false, false),
+      );
+
+    const result = await expandAnilistMediaDetail(h.ctx, 100);
+
+    expect(result).not.toBeNull();
+    expect(countRows(h.db, 'media', 'WHERE id = 100')).toBe(1);
+    expect(countRows(h.db, 'media_character', 'WHERE media_id = 100')).toBe(1);
+    expect(h.executeQuery.mock.calls[0][0]).toContain('AnimeById');
     h.db.close();
   });
 });

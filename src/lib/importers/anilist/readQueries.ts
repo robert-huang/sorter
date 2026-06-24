@@ -22,6 +22,7 @@ import { mediaTitleSearchParts, pickMediaTitle } from './mediaDisplayLabel';
 import {
   characterNameSearchParts,
   personNameSearchParts,
+  pickCharacterName,
   pickPersonName,
 } from './personDisplayLabel';
 import type { AnilistDbExecutor, SqlBindable } from './context';
@@ -135,6 +136,9 @@ function rowToCharacterRow(r: DbRow): CharacterRow {
     age: s(r.age),
     gender: s(r.gender),
     favourites: n(r.favourites),
+    birth_year: n(r.birth_year),
+    birth_month: n(r.birth_month),
+    birth_day: n(r.birth_day),
     fetched_at: reqN(r.fetched_at),
     updated_at: reqN(r.updated_at),
   };
@@ -532,7 +536,7 @@ export async function getStaffFilmography(
     if (!credit.voicedCharacters.some((c) => c.id === characterId)) {
       credit.voicedCharacters.push({
         id: characterId,
-        name: pickPersonName(
+        name: pickCharacterName(
           {
             id: characterId,
             name_full: s(r.character_name_full),
@@ -854,13 +858,13 @@ export async function getFavouritesAsItems(
           name_native: s(r.name_native),
         };
         const anilistLabelSource: AnilistItemLabelSource = {
-          kind: 'person',
+          kind: 'character',
           nameFields,
           fallbackLabel: 'Character',
         };
         return {
           externalId: id,
-          label: pickPersonName(nameFields, undefined, 'Character'),
+          label: pickCharacterName(nameFields, undefined, 'Character'),
           imageUrl: s(r.image),
           // Search also matches alternative spellings / nicknames so a
           // character is findable by any alias, not just the display one.

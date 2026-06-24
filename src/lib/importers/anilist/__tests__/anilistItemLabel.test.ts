@@ -34,7 +34,7 @@ describe('resolveAnilistItemLabel', () => {
     ).toBe('Squid Girl (TV)');
   });
 
-  it('resolves a person label honouring the name display mode', () => {
+  it('resolves a staff label honouring the staff display mode', () => {
     saveAnilistDisplayPreferences({ personNameMode: 'native' });
     expect(
       resolveAnilistItemLabel(
@@ -46,6 +46,20 @@ describe('resolveAnilistItemLabel', () => {
         false,
       ),
     ).toBe('堀江由衣');
+  });
+
+  it('resolves a character label honouring the character display mode', () => {
+    saveAnilistDisplayPreferences({ characterNameMode: 'native' });
+    expect(
+      resolveAnilistItemLabel(
+        {
+          kind: 'character',
+          nameFields: { id: 12, name_full: 'Romaji', name_native: 'ネイティブ' },
+          fallbackLabel: 'Character',
+        },
+        false,
+      ),
+    ).toBe('ネイティブ');
   });
 });
 

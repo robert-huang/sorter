@@ -250,6 +250,7 @@ export function mapMediaListEntryRow(
 }
 
 export function mapCharacterRow(c: AnilistCharacterGql, now: number): CharacterRow {
+  const birth = fuzzyDateParts(c.dateOfBirth ?? null);
   return {
     id: c.id,
     name_full: c.name.full ?? null,
@@ -260,9 +261,27 @@ export function mapCharacterRow(c: AnilistCharacterGql, now: number): CharacterR
     age: c.age ?? null,
     gender: c.gender ?? null,
     favourites: c.favourites ?? null,
+    birth_year: birth.year,
+    birth_month: birth.month,
+    birth_day: birth.day,
     fetched_at: now,
     updated_at: now,
   };
+}
+
+/** Rehydrate AniList-style `dateOfBirth` from cached `character.birth_*` columns. */
+export function characterDateOfBirthFromRow(parts: {
+  birth_year?: number | null;
+  birth_month?: number | null;
+  birth_day?: number | null;
+}): { year?: number | null; month?: number | null; day?: number | null } | null {
+  const year = parts.birth_year ?? null;
+  const month = parts.birth_month ?? null;
+  const day = parts.birth_day ?? null;
+  if (year === null && month === null && day === null) {
+    return null;
+  }
+  return { year, month, day };
 }
 
 export function mapStaffRow(s: AnilistStaffGql, now: number): StaffRow {
@@ -414,6 +433,77 @@ export function mapStaffCharacterAppearanceData(
   return {
     mediaRows: [...mediaById.values()],
     characterRows: [...characterById.values()],
+    mediaCharacterRows,
+    cvaRows,
+  };
+}
+
+/**
+ * Character filmography from `Character.media` — upsert media/staff rows,
+ * junctions, and JP CVA rows for one character across their appearances.
+ */
+export function mapCharacterMediaAppearanceData(
+  characterId: number,
+  edges: readonly {
+    characterRole: AnilistCharacterRole | null;
+    node: AnilistMediaGql | null;
+    voiceActors: readonly AnilistStaffGql[];
+  }[],
+  language: AnilistStaffLanguage,
+  now: number,
+): {
+  mediaRows: MediaRow[];
+  staffRows: StaffRow[];
+  mediaCharacterRows: MediaCharacterRow[];
+  cvaRows: CharacterVoiceActorRow[];
+} {
+  const mediaById = new Map<number, MediaRow>();
+  const staffById = new Map<number, StaffRow>();
+  const mediaCharacterSeen = new Set<string>();
+  const mediaCharacterRows: MediaCharacterRow[] = [];
+  const cvaSeen = new Set<string>();
+  const cvaRows: CharacterVoiceActorRow[] = [];
+  let sortOrder = 0;
+
+  for (const e of edges) {
+    const mediaId = mediaNodeId(e.node);
+    if (mediaId === null || !e.node) {
+      continue;
+    }
+    if (!mediaById.has(mediaId)) {
+      mediaById.set(mediaId, mapMediaRow(e.node, now));
+    }
+    const mcKey = `${mediaId}:${characterId}`;
+    if (!mediaCharacterSeen.has(mcKey)) {
+      mediaCharacterSeen.add(mcKey);
+      mediaCharacterRows.push({
+        media_id: mediaId,
+        character_id: characterId,
+        role: e.characterRole ?? null,
+        sort_order: sortOrder,
+      });
+      sortOrder += 1;
+    }
+    for (const va of e.voiceActors ?? []) {
+      if (!staffById.has(va.id)) {
+        staffById.set(va.id, mapStaffRow(va, now));
+      }
+      const cvaKey = `${mediaId}:${characterId}:${va.id}`;
+      if (!cvaSeen.has(cvaKey)) {
+        cvaSeen.add(cvaKey);
+        cvaRows.push({
+          media_id: mediaId,
+          character_id: characterId,
+          staff_id: va.id,
+          language,
+        });
+      }
+    }
+  }
+
+  return {
+    mediaRows: [...mediaById.values()],
+    staffRows: [...staffById.values()],
     mediaCharacterRows,
     cvaRows,
   };

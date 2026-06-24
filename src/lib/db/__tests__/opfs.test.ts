@@ -14,7 +14,7 @@ describe('describeNonPersistentStorageBanner', () => {
         reason: 'other_tab',
         context: 'a2a',
       }),
-    ).toContain('Another Sorter tab');
+    ).toContain('Another tab of this app has the database open');
   });
 
   it('names another tab when the OPFS lock is contended (Sorter)', () => {
@@ -23,7 +23,7 @@ describe('describeNonPersistentStorageBanner', () => {
         reason: 'other_tab',
         context: 'sorter',
       }),
-    ).toContain('Close other Sorter / Anime to Anime tabs');
+    ).toContain('Close other Sorter / Anime to Anime / Tools tabs');
   });
 });
 

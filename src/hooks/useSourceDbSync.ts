@@ -31,6 +31,8 @@ export interface SourceDbSyncControls {
   dbSyncRevision: number;
   /** Ad-hoc local DB write — bumps pending counter and refreshes sync UI. */
   bumpSourceDbDirty: (sourceId: string) => void;
+  /** Refresh sync UI after something else already recorded a dirty write. */
+  refreshDbSyncRevision: () => void;
   onDbPushSource: (sourceId: string) => void;
   onDbPullSource: (sourceId: string) => void;
 }
@@ -100,6 +102,10 @@ export function useSourceDbSync(): SourceDbSyncControls {
 
   const bumpSourceDbDirty = useCallback((sourceId: string) => {
     recordSourceDbDirtyWrite(sourceId);
+    setDbSyncRevision((r) => r + 1);
+  }, []);
+
+  const refreshDbSyncRevision = useCallback(() => {
     setDbSyncRevision((r) => r + 1);
   }, []);
 
@@ -214,6 +220,7 @@ export function useSourceDbSync(): SourceDbSyncControls {
     sourceDbErrors,
     dbSyncRevision,
     bumpSourceDbDirty,
+    refreshDbSyncRevision,
     onDbPushSource,
     onDbPullSource,
   };

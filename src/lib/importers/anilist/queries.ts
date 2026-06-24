@@ -322,6 +322,7 @@ query FavouriteCharactersPage($username: String!, $page: Int!, $perPage: Int!) {
             age
             gender
             favourites
+            dateOfBirth { year month day }
           }
         }
       }
@@ -486,6 +487,357 @@ query FavouriteStudiosPage($username: String!, $page: Int!, $perPage: Int!) {
             name
           }
         }
+      }
+    }
+  }
+}
+`.trim();
+
+// ── Tools (live AniList queries ported from anilisttools) ─────────────
+
+/** Top staff match by favourites for a name search (`compare_vas.py`). */
+export const TOOLS_STAFF_SEARCH_QUERY = `
+query ToolsStaffSearch($search: String!) {
+  Staff(search: $search, sort: FAVOURITES_DESC) {
+    id
+    name { full }
+  }
+}
+`.trim();
+
+/** Resolve staff names for a set of ids (`compare_vas.py`). */
+export const TOOLS_STAFF_BY_IDS_QUERY = `
+query ToolsStaffByIds($staffIds: [Int], $page: Int!, $perPage: Int!) {
+  Page(page: $page, perPage: $perPage) {
+    pageInfo { hasNextPage currentPage }
+      staff(id_in: $staffIds) {
+      id
+      name { full native }
+      image { large }
+    }
+  }
+}
+`.trim();
+
+/** VA filmography edges for Shared Credits (`compare_vas.py`). */
+export const TOOLS_STAFF_VOICE_ROLES_QUERY = `
+query ToolsStaffVoiceRoles($id: Int!, $page: Int!, $perPage: Int!) {
+  Staff(id: $id) {
+    characterMedia(sort: START_DATE_DESC, page: $page, perPage: $perPage) {
+      pageInfo { hasNextPage currentPage }
+      edges {
+        characterRole
+        characters {
+          id
+          name { full native }
+        }
+        node {
+          id
+          title { english romaji }
+          coverImage { large }
+          startDate { year month day }
+        }
+      }
+    }
+  }
+}
+`.trim();
+
+/** Production filmography edges for Shared Credits (`compare_vas.py`). */
+export const TOOLS_STAFF_PRODUCTION_ROLES_QUERY = `
+query ToolsStaffProductionRoles($id: Int!, $page: Int!, $perPage: Int!) {
+  Staff(id: $id) {
+    staffMedia(type: ANIME, sort: START_DATE_DESC, page: $page, perPage: $perPage) {
+      pageInfo { hasNextPage currentPage }
+      edges {
+        staffRole
+        node {
+          id
+          title { english romaji }
+          coverImage { large }
+          startDate { year month day }
+        }
+      }
+    }
+  }
+}
+`.trim();
+
+/**
+ * User anime list for tools — includes `notes` for `#airing` filtering and
+ * `MEDIA_ID` tie-break sort (`compare_vas.py` / `compare_seasons.py`).
+ */
+export const TOOLS_USER_ANIME_LIST_QUERY = `
+query ToolsUserAnimeList(
+  $userName: String
+  $statusIn: [MediaListStatus]
+  $page: Int!
+  $perPage: Int!
+) {
+  Page(page: $page, perPage: $perPage) {
+    pageInfo { hasNextPage currentPage }
+    mediaList(
+      userName: $userName
+      type: ANIME
+      status_in: $statusIn
+      sort: [SCORE_DESC, MEDIA_ID]
+    ) {
+      mediaId
+      status
+      score(format: POINT_100)
+      progress
+      notes
+      media {
+        id
+        title { english romaji }
+        coverImage { large }
+        season
+        seasonYear
+        duration
+      }
+    }
+  }
+}
+`.trim();
+
+/** Seasonal scores list variant without notes (`compare_seasons.py`). */
+export const TOOLS_USER_ANIME_SEASON_LIST_QUERY = `
+query ToolsUserAnimeSeasonList(
+  $userName: String
+  $statusIn: [MediaListStatus]
+  $page: Int!
+  $perPage: Int!
+) {
+  Page(page: $page, perPage: $perPage) {
+    pageInfo { hasNextPage currentPage }
+    mediaList(
+      userName: $userName
+      type: ANIME
+      status_in: $statusIn
+      sort: [SCORE_DESC, MEDIA_ID]
+    ) {
+      score(format: POINT_100)
+      media {
+        id
+        title { english romaji }
+        season
+        seasonYear
+      }
+    }
+  }
+}
+`.trim();
+
+/** Media search for Shared Staff show picker (`compare_staff.py`). */
+export const TOOLS_MEDIA_SEARCH_QUERY = `
+query ToolsMediaSearch($search: String!, $sort: [MediaSort]) {
+  Media(search: $search, type: ANIME, sort: $sort) {
+    id
+    title { english romaji }
+  }
+}
+`.trim();
+
+/** Studios on a show (`compare_staff.py`). */
+export const TOOLS_MEDIA_STUDIOS_QUERY = `
+query ToolsMediaStudios($mediaId: Int!) {
+  Media(id: $mediaId) {
+    studios {
+      edges {
+        isMain
+        node {
+          id
+          name
+        }
+      }
+    }
+  }
+}
+`.trim();
+
+/** Production staff edges on a show (`compare_staff.py`). */
+export const TOOLS_MEDIA_PRODUCTION_STAFF_QUERY = `
+query ToolsMediaProductionStaff($mediaId: Int!, $page: Int!, $perPage: Int!) {
+  Media(id: $mediaId) {
+    staff(sort: RELEVANCE, page: $page, perPage: $perPage) {
+      pageInfo { hasNextPage currentPage }
+      edges {
+        role
+        node {
+          id
+          name { full native }
+        }
+      }
+    }
+  }
+}
+`.trim();
+
+/** JP voice actors on a show (`compare_staff.py`). */
+export const TOOLS_MEDIA_VOICE_ACTORS_QUERY = `
+query ToolsMediaVoiceActors(
+  $mediaId: Int!
+  $language: StaffLanguage
+  $page: Int!
+  $perPage: Int!
+) {
+  Media(id: $mediaId) {
+    characters(sort: [ROLE, RELEVANCE], page: $page, perPage: $perPage) {
+      pageInfo { hasNextPage currentPage }
+      edges {
+        role
+        node {
+          id
+          name { full native }
+        }
+        voiceActorRoles(language: $language) {
+          roleNotes
+          voiceActor {
+            id
+            name { full native }
+          }
+        }
+      }
+    }
+  }
+}
+`.trim();
+
+/** Production staff filmography for single-show Shared Staff search. */
+export const TOOLS_STAFF_PRODUCTION_FILMOGRAPHY_QUERY = `
+query ToolsStaffProductionFilmography(
+  $staffId: Int!
+  $page: Int!
+  $perPage: Int!
+) {
+  Staff(id: $staffId) {
+    staffMedia(type: ANIME, sort: POPULARITY_DESC, page: $page, perPage: $perPage) {
+      pageInfo { hasNextPage currentPage }
+      edges {
+        staffRole
+        node {
+          id
+          title { english romaji }
+          coverImage { large }
+        }
+      }
+    }
+  }
+}
+`.trim();
+
+/** Related shows walk for `--ignore-related` (`compare_staff.py`). */
+export const TOOLS_MEDIA_RELATIONS_QUERY = `
+query ToolsMediaRelations($mediaId: Int!) {
+  Media(id: $mediaId) {
+    relations {
+      edges {
+        relationType
+        node {
+          id
+          type
+          format
+          title { english romaji }
+          tags { name }
+        }
+      }
+    }
+  }
+}
+`.trim();
+
+/** User anime list ids (non-planning) for Favourites consumed-media filter. */
+export const TOOLS_USER_CONSUMED_MEDIA_QUERY = `
+query ToolsUserConsumedMedia($userName: String, $page: Int!, $perPage: Int!) {
+  Page(page: $page, perPage: $perPage) {
+    pageInfo { hasNextPage currentPage }
+    mediaList(
+      userName: $userName
+      type: ANIME
+      status_not: PLANNING
+      sort: [MEDIA_ID]
+    ) {
+      mediaId
+    }
+  }
+}
+`.trim();
+
+/** Favourite characters with birthday for Favourites tool (`character_vas.py`). */
+export const TOOLS_FAVOURITE_CHARACTERS_QUERY = `
+query ToolsFavouriteCharacters($username: String!, $page: Int!, $perPage: Int!) {
+  User(name: $username) {
+    favourites {
+      characters(page: $page, perPage: $perPage) {
+        pageInfo { hasNextPage currentPage }
+        nodes {
+          id
+          name { full native }
+          gender
+          favourites
+          dateOfBirth { year month day }
+        }
+      }
+    }
+  }
+}
+`.trim();
+
+/** Favourite staff (VAs) for Favourites tool (`character_vas.py`). */
+export const TOOLS_FAVOURITE_STAFF_QUERY = `
+query ToolsFavouriteStaff($username: String!, $page: Int!, $perPage: Int!) {
+  User(name: $username) {
+    favourites {
+      staff(page: $page, perPage: $perPage) {
+        pageInfo { hasNextPage currentPage }
+        nodes {
+          id
+          name { full native }
+          gender
+          favourites
+          image { large }
+        }
+      }
+    }
+  }
+}
+`.trim();
+
+/** Character media edges with JP voice actors (`character_vas.py`). */
+export const TOOLS_CHARACTER_VOICE_MEDIA_QUERY = `
+query ToolsCharacterVoiceMedia($id: Int!, $page: Int!, $perPage: Int!) {
+  Character(id: $id) {
+    media(page: $page, perPage: $perPage) {
+      pageInfo { hasNextPage currentPage }
+      edges {
+        node {
+          id
+          title { romaji native english }
+          type
+          format
+          coverImage { large }
+        }
+        characterRole
+        voiceActors(language: JAPANESE, sort: RELEVANCE) {
+          id
+          name { full native }
+          image { large }
+        }
+      }
+    }
+  }
+}
+`.trim();
+
+/** Characters voiced by a staff member on consumed media (`character_vas.py`). */
+export const TOOLS_VA_CHARACTER_MEDIA_QUERY = `
+query ToolsVaCharacterMedia($id: Int!, $page: Int!, $perPage: Int!) {
+  Staff(id: $id) {
+    characterMedia(page: $page, perPage: $perPage) {
+      pageInfo { hasNextPage currentPage }
+      edges {
+        node { id }
+        characters { id }
       }
     }
   }

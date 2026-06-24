@@ -8,16 +8,23 @@
  */
 
 import type { AnilistImportContext, SqlBindable } from './context';
+import { MEDIA_UPSERT_SQL, mediaRowToParams } from './importer';
 import {
   mapCharacterRow,
   mapCharacterVoiceActorRows,
   mapMediaCharacterRows,
+  mapMediaRow,
   mapMediaStaffRows,
   mapStaffRow,
 } from './mappers';
 import { emitProgress } from './progress';
-import { buildMediaDetailQuery, buildMediaStaffOnlyQuery } from './queries';
+import {
+  buildAnimeByIdQuery,
+  buildMediaDetailQuery,
+  buildMediaStaffOnlyQuery,
+} from './queries';
 import type {
+  AnilistAnimeByIdResponse,
   AnilistMediaCharacterEdgeGql,
   AnilistMediaDetailResponse,
   AnilistMediaStaffEdgeGql,
@@ -74,6 +81,9 @@ export const CHARACTER_COLS = [
   'age',
   'gender',
   'favourites',
+  'birth_year',
+  'birth_month',
+  'birth_day',
   'fetched_at',
   'updated_at',
 ] as const;
@@ -101,7 +111,23 @@ function buildPersonUpsertSql(table: string, cols: readonly string[]): string {
     `ON CONFLICT(id) DO UPDATE SET ${updates}`;
 }
 
-export const CHARACTER_UPSERT_SQL = buildPersonUpsertSql('character', CHARACTER_COLS);
+function buildCharacterUpsertSql(): string {
+  const placeholders = CHARACTER_COLS.map(() => '?').join(', ');
+  const updates = CHARACTER_COLS.filter((c) => c !== 'id')
+    .map((c) => {
+      if (c === 'birth_year' || c === 'birth_month' || c === 'birth_day') {
+        return `${c} = COALESCE(excluded.${c}, character.${c})`;
+      }
+      return `${c} = excluded.${c}`;
+    })
+    .join(', ');
+  return (
+    `INSERT INTO character (${CHARACTER_COLS.join(', ')}) VALUES (${placeholders}) ` +
+    `ON CONFLICT(id) DO UPDATE SET ${updates}`
+  );
+}
+
+export const CHARACTER_UPSERT_SQL = buildCharacterUpsertSql();
 export const STAFF_UPSERT_SQL = buildPersonUpsertSql('staff', STAFF_COLS);
 
 export function characterRowToParams(row: CharacterRow): SqlBindable[] {
@@ -295,6 +321,37 @@ function collectStaffFromStaffEdges(
   return staffById;
 }
 
+/** Cast junction tables FK to `media` — upsert the parent row when missing. */
+async function ensureMediaRowForCastExpansion(
+  ctx: AnilistImportContext,
+  mediaId: number,
+): Promise<boolean> {
+  const rows = await ctx.db.exec(
+    'SELECT 1 FROM media WHERE id = ? LIMIT 1',
+    [mediaId],
+  );
+  if (rows.length > 0) {
+    return true;
+  }
+
+  const response = await ctx.executeQuery<AnilistAnimeByIdResponse>(
+    buildAnimeByIdQuery(),
+    { id: mediaId },
+  );
+  if (!response?.Media) {
+    return false;
+  }
+
+  const row = mapMediaRow(response.Media, ctx.now());
+  await ctx.db.execBatch([
+    { sql: MEDIA_UPSERT_SQL, params: mediaRowToParams(row) },
+  ]);
+  if (ctx.onDirtyIncrement) {
+    await ctx.onDirtyIncrement();
+  }
+  return true;
+}
+
 export async function expandAnilistMediaDetail(
   ctx: AnilistImportContext,
   mediaId: number,
@@ -304,6 +361,10 @@ export async function expandAnilistMediaDetail(
   const language = options.voiceActorLanguage ?? DEFAULT_VOICE_ACTOR_LANGUAGE;
   const scope = options.scope ?? 'all';
   const now = ctx.now();
+
+  if (!(await ensureMediaRowForCastExpansion(ctx, mediaId))) {
+    return null;
+  }
 
   const existing = await readExpansionPatch(ctx, mediaId);
 

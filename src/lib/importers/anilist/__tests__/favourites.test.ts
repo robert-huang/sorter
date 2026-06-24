@@ -11,7 +11,7 @@ import { ANILIST_SOURCE_ID, anilistSourceDescriptor } from '../anilistSource';
 import type { AnilistDbExecutor, AnilistImportContext } from '../context';
 import { importAnilistFavourites } from '../favourites';
 import { AnilistScrapeLockHeldError } from '../importer';
-import { lastFavouritesRefreshKey } from '../meta';
+import { favCharactersDobSchemaKey, lastFavouritesRefreshKey } from '../meta';
 import type {
   AnilistCharacterGql,
   AnilistFavouriteEdge,
@@ -389,6 +389,27 @@ describe('importAnilistFavourites — CHARACTERS', () => {
     // The old `character` row stays (no upward cascade) — that's fine
     expect(countRows(h.db, 'character', 'WHERE id = 555')).toBe(1);
     expect(selectMetaValue(h.db, lastFavouritesRefreshKey(USER_ID, 'CHARACTERS'))).toBe(String(NOW));
+    expect(selectMetaValue(h.db, favCharactersDobSchemaKey(USER_ID))).toBe('1');
+    h.db.close();
+  });
+
+  it('persists dateOfBirth parts on the character row', async () => {
+    const h = await makeHarness();
+    const char: AnilistCharacterGql = {
+      id: 2001,
+      name: { full: 'Birthday Char', native: null, alternative: null, alternativeSpoiler: null },
+      image: null,
+      age: null,
+      gender: null,
+      favourites: 10,
+      dateOfBirth: { year: 1990, month: 3, day: 5 },
+    };
+    h.enqueueFavPages(makeCharFavPage([{ favouriteOrder: 0, node: char }], false));
+    await importAnilistFavourites(h.ctx, { username: USER_NAME, type: 'CHARACTERS' });
+    const row = h.db.selectObject(
+      'SELECT birth_year, birth_month, birth_day FROM character WHERE id = 2001',
+    );
+    expect(row).toEqual({ birth_year: 1990, birth_month: 3, birth_day: 5 });
     h.db.close();
   });
 

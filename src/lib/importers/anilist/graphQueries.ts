@@ -10,6 +10,7 @@ import {
   sortProductionRolesByPriority,
 } from './productionRolePriority';
 import { filterProductionStaffRows } from './staffRoleFilter';
+import { pickCharacterName } from './personDisplayLabel';
 import type { CharacterRow, MediaRow, StaffRow } from './types';
 
 function placeholders(n: number): string {
@@ -112,6 +113,9 @@ function rowToCharacterRowPrefixed(r: Record<string, unknown>): CharacterRow {
     age: s(r.ch_age),
     gender: s(r.ch_gender),
     favourites: n(r.ch_favourites),
+    birth_year: n(r.ch_birth_year),
+    birth_month: n(r.ch_birth_month),
+    birth_day: n(r.ch_birth_day),
     fetched_at: reqN(r.ch_fetched_at),
     updated_at: reqN(r.ch_updated_at),
   };
@@ -364,6 +368,7 @@ async function getVoiceAnimeFilmographyForStaff(
     `
       SELECT
         m.*,
+        c.id AS ch_id,
         c.name_full AS ch_name_full,
         c.name_native AS ch_name_native,
         mc.role AS character_role,
@@ -378,7 +383,15 @@ async function getVoiceAnimeFilmographyForStaff(
     [staffId],
   );
   const perCharacter = rows.map((r) => {
-    const characterName = s(r.ch_name_full) ?? s(r.ch_name_native);
+    const characterName = pickCharacterName(
+      {
+        id: reqN(r.ch_id),
+        name_full: s(r.ch_name_full),
+        name_native: s(r.ch_name_native),
+      },
+      undefined,
+      'Character',
+    );
     return {
       media: rowToMediaRow(r),
       roles: [formatCharacterCastCredit(characterName, s(r.character_role))],
@@ -521,6 +534,31 @@ export async function getStaffFilmographyFetchedAt(
   const rows = await db.exec(
     'SELECT fetched_at FROM staff_filmography_expansion WHERE staff_id = ?',
     [staffId],
+  );
+  if (rows.length === 0) {
+    return null;
+  }
+  return n(rows[0].fetched_at);
+}
+
+export async function hasCharacterMediaExpansion(
+  db: AnilistDbExecutor,
+  characterId: number,
+): Promise<boolean> {
+  const rows = await db.exec(
+    'SELECT 1 FROM character_media_expansion WHERE character_id = ? LIMIT 1',
+    [characterId],
+  );
+  return rows.length > 0;
+}
+
+export async function getCharacterMediaFetchedAt(
+  db: AnilistDbExecutor,
+  characterId: number,
+): Promise<number | null> {
+  const rows = await db.exec(
+    'SELECT fetched_at FROM character_media_expansion WHERE character_id = ?',
+    [characterId],
   );
   if (rows.length === 0) {
     return null;

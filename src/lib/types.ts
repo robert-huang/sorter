@@ -25,7 +25,8 @@ import type { AnilistMediaFormat } from './importers/anilist/types';
 /** Enough metadata to re-render an AniList item label when display prefs change. */
 export type AnilistItemLabelSource =
   | { kind: 'media'; titleFields: MediaTitleFields; format: AnilistMediaFormat | null }
-  | { kind: 'person'; nameFields: PersonNameFields; fallbackLabel?: string };
+  | { kind: 'person'; nameFields: PersonNameFields; fallbackLabel?: string }
+  | { kind: 'character'; nameFields: PersonNameFields; fallbackLabel?: string };
 
 export type ItemSource =
   | { kind: 'manual' }

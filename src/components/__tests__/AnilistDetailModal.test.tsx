@@ -86,6 +86,9 @@ function makeDetail(id: number, hasCharacters: boolean) {
               age: null,
               gender: null,
               favourites: null,
+              birth_year: null,
+              birth_month: null,
+              birth_day: null,
               fetched_at: 0,
               updated_at: 0,
             },
@@ -171,7 +174,7 @@ describe('AnilistDetailModal — lazy expansion', () => {
     // Second arg is the per-call onProgress callback wired by the
     // modal so the "Cast (refreshing…)" label can humanize stage
     // events while the expansion runs.
-    expect(mockedExpand).toHaveBeenCalledWith(42, expect.any(Function));
+    expect(mockedExpand).toHaveBeenCalledWith(42, expect.any(Function), undefined);
     // Two reads: initial fetch + post-expansion refetch.
     expect(mockedGetMediaDetail).toHaveBeenCalledTimes(2);
   });
@@ -411,6 +414,9 @@ describe('AnilistDetailModal — clickable people (staff panel nav)', () => {
       age: null,
       gender: null,
       favourites: null,
+      birth_year: null,
+      birth_month: null,
+      birth_day: null,
       fetched_at: 0,
       updated_at: 0,
     };

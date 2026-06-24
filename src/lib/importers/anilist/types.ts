@@ -258,6 +258,7 @@ export type AnilistCharacterGql = {
   age: string | null;
   gender: string | null;
   favourites: number | null;
+  dateOfBirth?: AnilistFuzzyDate | null;
 };
 
 /**
@@ -317,6 +318,23 @@ export type AnilistStaffCharacterMediaEdgeGql = {
   characterRole: AnilistCharacterRole | null;
   characters: Array<AnilistCharacterGql | null>;
   node: AnilistMediaGql | null;
+};
+
+/** `Character.media` edge — character appearance with JP voice cast (Favourites). */
+export type AnilistCharacterMediaEdgeGql = {
+  characterRole: AnilistCharacterRole | null;
+  node: AnilistMediaGql | null;
+  voiceActors: AnilistStaffGql[];
+};
+
+export type AnilistCharacterVoiceMediaResponse = {
+  Character: {
+    id: number;
+    media: {
+      pageInfo: Pick<AnilistPageInfo, 'hasNextPage' | 'currentPage'>;
+      edges: AnilistCharacterMediaEdgeGql[];
+    } | null;
+  } | null;
 };
 
 /** @deprecated Use {@link AnilistStaffCharacterMediaEdgeGql}. */
@@ -499,6 +517,9 @@ export type CharacterRow = {
   age: string | null;
   gender: string | null;
   favourites: number | null;
+  birth_year: number | null;
+  birth_month: number | null;
+  birth_day: number | null;
   fetched_at: number;
   updated_at: number;
 };

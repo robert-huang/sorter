@@ -17,8 +17,14 @@ const NAME_OPTIONS: { value: PersonNameDisplayMode; label: string }[] = [
 ];
 
 /** Display toggles for cached AniList media/staff titles — under the anilist DB row. */
-export function AnilistDisplayPreferencesPanel() {
-  const { prefs, setMediaTitleMode, setPersonNameMode } = useAnilistDisplayPreferences();
+export function AnilistDisplayPreferencesPanel({
+  standalone = false,
+}: {
+  /** When true, drop the source-db nested indent (Tools settings tab). */
+  standalone?: boolean;
+}) {
+  const { prefs, setMediaTitleMode, setPersonNameMode, setCharacterNameMode } =
+    useAnilistDisplayPreferences();
 
   return (
     <>
@@ -26,7 +32,9 @@ export function AnilistDisplayPreferencesPanel() {
           rest of the source-db row, not double-indented with the
           entry/staff rows. */}
       <div className="settings-status settings-anilist-display-prefs-title">Display names</div>
-      <div className="settings-anilist-display-prefs">
+      <div
+        className={`settings-anilist-display-prefs${standalone ? ' settings-anilist-display-prefs--standalone' : ''}`}
+      >
         <div className="filter-chip-range-row">
           <span>entry</span>
           <div className="filter-chip-segmented" role="group" aria-label="entry">
@@ -53,6 +61,22 @@ export function AnilistDisplayPreferencesPanel() {
                 className={prefs.personNameMode === option.value ? 'active' : ''}
                 aria-pressed={prefs.personNameMode === option.value}
                 onClick={() => setPersonNameMode(option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="filter-chip-range-row">
+          <span>character</span>
+          <div className="filter-chip-segmented" role="group" aria-label="character">
+            {NAME_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={prefs.characterNameMode === option.value ? 'active' : ''}
+                aria-pressed={prefs.characterNameMode === option.value}
+                onClick={() => setCharacterNameMode(option.value)}
               >
                 {option.label}
               </button>

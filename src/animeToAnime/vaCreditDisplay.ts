@@ -1,7 +1,7 @@
 import type { AnimeFilmographyRow, VaCreditRow } from '../lib/importers/anilist/graphQueries';
 import type { AnilistCharacterRole } from '../lib/importers/anilist/types';
 import { formatCharacterCastCredit } from '../lib/importers/anilist/castRoleDisplay';
-import { pickPersonName } from '../lib/importers/anilist/personDisplayLabel';
+import { pickCharacterName, pickPersonName } from '../lib/importers/anilist/personDisplayLabel';
 import type { VaListImageMode } from './preferences';
 
 const CHARACTER_ROLE_ORDER: Record<AnilistCharacterRole, number> = {
@@ -73,7 +73,7 @@ export type GroupedVaCreditRow = {
 };
 
 export function vaCreditCharacterName(row: VaCreditRow): string {
-  return pickPersonName(row.character, undefined, 'Character');
+  return pickCharacterName(row.character, undefined, 'Character');
 }
 
 function stripLeadingAs(role: string): string {
