@@ -7,7 +7,7 @@ vi.mock('../../lib/importers/anilist/depaginate', () => ({
 }));
 
 vi.mock('../../lib/importers/anilist/toolsAnilistAccess', () => ({
-  TOOLS_SEASONAL_LIST_STATUSES: ['COMPLETED', 'CURRENT', 'REPEATING'],
+  TOOLS_SEASONAL_LIST_STATUSES: ['COMPLETED', 'CURRENT', 'REPEATING', 'PAUSED'],
   ensureUserAnimeListFresh: vi.fn().mockResolvedValue({ id: 1 }),
 }));
 
@@ -47,6 +47,12 @@ describe('fetchUserSeasonalShows', () => {
     expect(second).toEqual(first);
     expect(depaginateMock).toHaveBeenCalledTimes(1);
     expect(ensureUserAnimeListFreshMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('normalizes AniList score 0 to null', async () => {
+    depaginateMock.mockResolvedValueOnce([{ ...listEntry(1), score: 0 }]);
+    const shows = await fetchUserSeasonalShows('rh_test');
+    expect(shows[0]?.score).toBeNull();
   });
 
   it('forceRefresh busts the memo and re-fetches', async () => {

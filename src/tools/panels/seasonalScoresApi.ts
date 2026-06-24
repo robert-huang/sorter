@@ -10,7 +10,7 @@ import {
   withSessionTtlMemo,
 } from '../../lib/importers/anilist/toolsSessionMemo';
 import { pickMediaTitle } from './sharedCreditsLogic';
-import type { SeasonalShow } from './seasonalScoresLogic';
+import { normalizeSeasonalListScore, type SeasonalShow } from './seasonalScoresLogic';
 
 const SEASONAL_STATUSES = TOOLS_SEASONAL_LIST_STATUSES;
 
@@ -72,7 +72,7 @@ async function fetchUserSeasonalShowsLive(
     coverImage: entry.media.coverImage?.large ?? null,
     season: entry.media.season ?? null,
     seasonYear: entry.media.seasonYear ?? null,
-    score: entry.score ?? null,
+    score: normalizeSeasonalListScore(entry.score),
     notes: entry.notes ?? null,
   }));
 }

@@ -26,6 +26,7 @@ export type SeasonalScoresForm = {
 
 export type SeasonColumn = {
   label: string;
+  ratedCount: number;
   average: number | null;
   shows: Array<{ id: number; title: string; coverImage: string | null; score: number | null }>;
 };
@@ -35,6 +36,30 @@ export type SeasonalScoresResult =
   | { kind: 'columns'; columns: SeasonColumn[] };
 
 const SEASON_NAMES = ['WINTER', 'SPRING', 'SUMMER', 'FALL'] as const;
+
+/** AniList POINT_100 list scores use 0 for "not rated". */
+export function normalizeSeasonalListScore(score: number | null | undefined): number | null {
+  if (score == null || score <= 0) {
+    return null;
+  }
+  return score;
+}
+
+export function formatSeasonalScoreLabel(score: number | null | undefined): string {
+  const normalized = normalizeSeasonalListScore(score);
+  return normalized == null ? '—' : String(normalized);
+}
+
+export function countRatedSeasonalShows(shows: SeasonalShow[]): number {
+  return shows.reduce(
+    (count, show) => count + (normalizeSeasonalListScore(show.score) == null ? 0 : 1),
+    0,
+  );
+}
+
+export function formatSeasonColumnLabel(label: string, ratedCount: number): string {
+  return `${label} (${ratedCount})`;
+}
 
 export function parseSeasonLine(line: string): { season: string | null; year: number } | null {
   const trimmed = line.trim();
@@ -125,11 +150,16 @@ export function bucketShowsForSeason(
       }
       return true;
     })
-    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+    .sort(
+      (a, b) =>
+        (normalizeSeasonalListScore(b.score) ?? 0) - (normalizeSeasonalListScore(a.score) ?? 0),
+    );
 }
 
 export function averageScore(shows: SeasonalShow[]): number | null {
-  const scored = shows.map((s) => s.score).filter((s): s is number => s !== null && s > 0);
+  const scored = shows
+    .map((s) => normalizeSeasonalListScore(s.score))
+    .filter((s): s is number => s !== null);
   if (scored.length === 0) {
     return null;
   }
@@ -154,12 +184,13 @@ export function buildSeasonalColumns(
     }
     columns.push({
       label: spec.label,
+      ratedCount: countRatedSeasonalShows(bucket),
       average: averageScore(bucket),
       shows: bucket.map((show) => ({
         id: show.id,
         title: show.title,
         coverImage: show.coverImage ?? null,
-        score: show.score,
+        score: normalizeSeasonalListScore(show.score),
       })),
     });
   }

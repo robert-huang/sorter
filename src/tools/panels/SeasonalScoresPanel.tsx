@@ -8,6 +8,8 @@ import { relabelSeasonalShows } from '../toolsDisplayRelabel';
 import { fetchUserSeasonalShows } from './seasonalScoresApi';
 import {
   buildSeasonalColumns,
+  formatSeasonColumnLabel,
+  formatSeasonalScoreLabel,
   type SeasonalScoresForm,
   type SeasonalScoresResult,
   type SeasonColumn,
@@ -83,13 +85,15 @@ function SeasonalColumnsView({
           {columns.map((col) => (
             <div key={col.label} className="tool-season-column">
               <div className="tool-season-col-head">
-                <div className="tool-season-col-title">{col.label}</div>
+                <div className="tool-season-col-title">
+                  {formatSeasonColumnLabel(col.label, col.ratedCount)}
+                </div>
                 <div className="tool-season-col-avg">avg: {col.average ?? 'N/A'}</div>
               </div>
               {col.shows.map((show) => (
                 <div key={show.id} className="tool-season-cell">
                   <div className="tool-season-cell-grid">
-                    <span className="tool-season-score">{show.score ?? '—'}</span>
+                    <span className="tool-season-score">{formatSeasonalScoreLabel(show.score)}</span>
                     <ToolShowButton
                       mediaId={show.id}
                       title={show.title}

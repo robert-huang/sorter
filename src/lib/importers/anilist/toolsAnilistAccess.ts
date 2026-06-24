@@ -64,11 +64,12 @@ export const TOOLS_USER_LIST_STATUSES = [
 /** Non-planning list entries — matches `TOOLS_USER_CONSUMED_MEDIA_QUERY` (`status_not: PLANNING`). */
 export const TOOLS_CONSUMED_LIST_STATUSES = [...TOOLS_USER_LIST_STATUSES] as const;
 
-/** Statuses used by Seasonal Scores (completed + airing). */
+/** Statuses used by Seasonal Scores (completed, airing, paused, rewatching). */
 export const TOOLS_SEASONAL_LIST_STATUSES = [
   'COMPLETED',
   'CURRENT',
   'REPEATING',
+  'PAUSED',
 ] as const;
 
 function mediaRowStartDateKey(media: {

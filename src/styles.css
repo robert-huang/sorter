@@ -6012,7 +6012,7 @@ html {
   width: 90vw;
   max-width: 90vw;
   margin-inline: calc(50% - 45vw);
-  max-height: 90vh;
+  max-height: calc(100vh - var(--tools-season-sticky-top, 6.5rem) - 2.5rem);
   margin-top: 20px;
   margin-bottom: 0;
   display: flex;
