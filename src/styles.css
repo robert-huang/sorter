@@ -6080,6 +6080,10 @@ html {
   align-items: flex-start;
 }
 
+.tool-season-title.tool-entity-btn {
+  align-items: flex-start;
+}
+
 .tool-season-score {
   flex: 0 0 24px;
   width: 24px;
