@@ -5591,6 +5591,21 @@ html {
   background: var(--surface);
 }
 
+.tool-drag-scroll {
+  cursor: grab;
+  touch-action: none;
+}
+
+.tool-drag-scroll.is-drag-scroll-dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.tool-drag-scroll.is-drag-scroll-dragging * {
+  pointer-events: none;
+  user-select: none;
+}
+
 .tool-table-wrap .tool-result-table th,
 .tool-table-wrap .tool-result-table td {
   vertical-align: middle;
@@ -6024,18 +6039,6 @@ html {
   overflow: auto;
   flex: 1;
   min-height: 0;
-  cursor: grab;
-  touch-action: none;
-}
-
-.tool-season-scroll.is-drag-scroll-dragging {
-  cursor: grabbing;
-  user-select: none;
-}
-
-.tool-season-scroll.is-drag-scroll-dragging * {
-  pointer-events: none;
-  user-select: none;
 }
 
 .tool-season-body {

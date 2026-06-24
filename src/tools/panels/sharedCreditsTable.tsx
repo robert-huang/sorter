@@ -4,6 +4,7 @@ import {
   mergeAnilistLinkClass,
 } from '../../lib/importers/anilist/anilistLinks';
 import { ToolShowButton, ToolStaffButton } from '../toolEntityLinks';
+import { DragScroll } from '../../components/DragScroll';
 import type { ToolPanelProps } from '../toolTypes';
 import type { SharedCreditsTableRow, StaffRoleEntry } from './sharedCreditsLogic';
 
@@ -60,7 +61,7 @@ export function SharedCreditsResultsTable({
 }) {
   return (
     <div className="tool-results tool-credits-table-outer">
-      <div className="tool-credits-table-scroll">
+      <DragScroll className="tool-credits-table-scroll">
         <table className="tool-result-table tool-credits-table">
           <thead>
             <tr>
@@ -99,7 +100,7 @@ export function SharedCreditsResultsTable({
             ))}
           </tbody>
         </table>
-      </div>
+      </DragScroll>
     </div>
   );
 }

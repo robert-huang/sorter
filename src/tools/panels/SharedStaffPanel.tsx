@@ -14,6 +14,7 @@ import {
 } from './sharedStaffLogic';
 import { runSharedStaffCompare, type SharedStaffRunProgress } from './sharedStaffApi';
 import { ToolShowButton, ToolStaffButton } from '../toolEntityLinks';
+import { DragScroll } from '../../components/DragScroll';
 
 const DEFAULT_FORM: SharedStaffForm = {
   showText: '',
@@ -285,7 +286,7 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
 
       {result?.kind === 'compare' &&
         result.sections.map((section) => (
-          <div key={section.title} className="tool-results tool-table-wrap">
+          <DragScroll key={section.title} className="tool-results tool-table-wrap">
             <h3 className="tool-section-title">{section.title}</h3>
             <table className="tool-result-table">
               <thead>
@@ -329,7 +330,7 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
                 ))}
               </tbody>
             </table>
-          </div>
+          </DragScroll>
         ))}
     </section>
   );

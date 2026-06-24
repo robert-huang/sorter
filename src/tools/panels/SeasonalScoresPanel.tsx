@@ -15,7 +15,7 @@ import {
 } from './seasonalScoresLogic';
 import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
 import { ToolShowButton } from '../toolEntityLinks';
-import { useDragScroll } from '../../lib/hooks/useDragScroll';
+import { DragScroll } from '../../components/DragScroll';
 
 const LS_KEY = 'anime-tools-seasonal-scores-form';
 /** @deprecated migrated into {@link LS_KEY} */
@@ -76,11 +76,9 @@ function SeasonalColumnsView({
   columns: SeasonColumn[];
   onOpenMedia: ToolPanelProps['onOpenMedia'];
 }) {
-  const { ref: scrollRef, ...dragScrollProps } = useDragScroll<HTMLDivElement>();
-
   return (
     <div className="tool-season-columns">
-      <div ref={scrollRef} className="tool-season-scroll" {...dragScrollProps}>
+      <DragScroll className="tool-season-scroll">
         <div className="tool-season-body">
           {columns.map((col) => (
             <div key={col.label} className="tool-season-column">
@@ -106,7 +104,7 @@ function SeasonalColumnsView({
             </div>
           ))}
         </div>
-      </div>
+      </DragScroll>
     </div>
   );
 }
