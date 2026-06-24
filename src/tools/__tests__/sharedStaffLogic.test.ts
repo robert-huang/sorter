@@ -125,6 +125,23 @@ describe('sharedStaffLogic', () => {
     ]);
   });
 
+  it('keeps studio Main/Supporting on one row per show', () => {
+    const left = bundle(1, 'Left', {
+      studios: {
+        '5': { name: 'CoMix Wave', roles: ['Main'] },
+      },
+    });
+    const right = bundle(2, 'Right', {
+      studios: {
+        '5': { name: 'CoMix Wave', roles: ['Supporting', 'Main'] },
+      },
+    });
+    const sections = buildCompareSections([left, right], false);
+    const studios = sections.find((s) => s.title === 'Studios');
+    expect(studios?.rows).toHaveLength(1);
+    expect(studios?.rows[0]?.cells).toEqual(['Main', 'Supporting, Main']);
+  });
+
   it('aligns VA roles by character id across different cast roles', () => {
     const left = bundle(1, 'Left', {
       voiceActors: {

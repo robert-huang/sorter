@@ -210,7 +210,7 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
           </span>
           <textarea
             className="tool-textarea csv-textarea"
-            rows={4}
+            rows={6}
             disabled={running}
             value={form.seasonText}
             onChange={(e) => patchForm({ seasonText: e.target.value })}

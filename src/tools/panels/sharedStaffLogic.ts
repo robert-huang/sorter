@@ -190,6 +190,10 @@ function compareByRelevanceOrder(
   return Number(idA) - Number(idB);
 }
 
+function formatStudioRoleCell(roles: readonly string[]): string {
+  return roles.join(', ');
+}
+
 function entityRowsForCompare(
   maps: CreditedEntityMap[],
   id: string,
@@ -211,7 +215,9 @@ function entityRowsForCompare(
             }));
           }),
         )
-      : alignRoleCellsAcrossShows(roleLists);
+      : kind === 'studio'
+        ? [maps.map((m) => formatStudioRoleCell(m[id]?.roles ?? []))]
+        : alignRoleCellsAcrossShows(roleLists);
   const displayName = normalizeStaffName(maps[0]?.[id]?.name ?? id);
   const imageUrl = maps[0]?.[id]?.image ?? null;
 
@@ -259,6 +265,18 @@ export function buildCompareSections(
         for (const id of diffs[showIdx] ?? []) {
           const entity = maps[showIdx]?.[id];
           if (!entity) {
+            continue;
+          }
+          if (kind === 'studio') {
+            const cells = shows.map(() => '');
+            cells[showIdx] = formatStudioRoleCell(entity.roles);
+            rows.push({
+              entityId: Number(id),
+              name: entity.name,
+              imageUrl: entity.image ?? null,
+              kind,
+              cells,
+            });
             continue;
           }
           const maxRoles = entity.roles.length || 1;

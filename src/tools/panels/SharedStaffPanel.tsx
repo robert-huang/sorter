@@ -150,7 +150,7 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
           <span className="tool-field-label">Shows (one per line)</span>
           <textarea
             className="tool-textarea csv-textarea"
-            rows={3}
+            rows={6}
             value={form.showText}
             disabled={running}
             onChange={(e) => patchForm({ showText: e.target.value })}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
+import { ToolUsernameField } from '../ToolUsernameField';
 import { useUsernameListRefresh } from '../useUsernameListRefresh';
 import { useToolsDisplayLabelRevision } from '../useToolsDisplayLabelRevision';
 import {
@@ -33,8 +34,6 @@ const DEFAULT_FORM: SharedCreditsForm = {
   oldestFirst: false,
 };
 
-const USERNAME_FIELD_TITLE = 'Right-click to re-fetch list from AniList';
-
 function progressLabel(progress: SharedCreditsRunProgress | null): string | null {
   if (!progress) {
     return null;
@@ -56,7 +55,7 @@ function progressLabel(progress: SharedCreditsRunProgress | null): string | null
 }
 
 export function SharedCreditsPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
-  const { hint: usernameHint, onUsernameContextMenu } = useUsernameListRefresh();
+  const { refreshing: refreshingList, refreshUsernameList } = useUsernameListRefresh();
   const displayLabelRevision = useToolsDisplayLabelRevision();
   const [form, setForm] = useState<SharedCreditsForm>(DEFAULT_FORM);
   const [running, setRunning] = useState(false);
@@ -194,7 +193,7 @@ export function SharedCreditsPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps)
           </div>
           <textarea
             className="tool-textarea csv-textarea"
-            rows={4}
+            rows={6}
             value={form.staffText}
             disabled={running}
             onChange={(e) => patchForm({ staffText: e.target.value })}
@@ -277,40 +276,23 @@ export function SharedCreditsPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps)
               }}
             />
           </label>
-          <label className="tool-field tool-field-label-row tool-field-username">
-            <span className="tool-field-label">List Only</span>
-            <input
-              className="slot-search anime-to-anime-endpoint-user-input"
-              type="text"
-              disabled={running}
-              value={form.usernameInclude}
-              placeholder="AL Username"
-              title={USERNAME_FIELD_TITLE}
-              onChange={(e) => patchForm({ usernameInclude: e.target.value })}
-              onContextMenu={(e) =>
-                onUsernameContextMenu(e, form.usernameInclude, running)
-              }
-            />
-          </label>
-          <label className="tool-field tool-field-label-row tool-field-username">
-            <span className="tool-field-label">Exclude List</span>
-            <input
-              className="slot-search anime-to-anime-endpoint-user-input"
-              type="text"
-              disabled={running}
-              value={form.usernameExclude}
-              placeholder="AL Username"
-              title={USERNAME_FIELD_TITLE}
-              onChange={(e) => patchForm({ usernameExclude: e.target.value })}
-              onContextMenu={(e) =>
-                onUsernameContextMenu(e, form.usernameExclude, running)
-              }
-            />
-          </label>
+          <ToolUsernameField
+            label="List Only"
+            value={form.usernameInclude}
+            disabled={running}
+            refreshing={refreshingList}
+            onChange={(usernameInclude) => patchForm({ usernameInclude })}
+            onRefresh={() => refreshUsernameList(form.usernameInclude, running)}
+          />
+          <ToolUsernameField
+            label="Exclude List"
+            value={form.usernameExclude}
+            disabled={running}
+            refreshing={refreshingList}
+            onChange={(usernameExclude) => patchForm({ usernameExclude })}
+            onRefresh={() => refreshUsernameList(form.usernameExclude, running)}
+          />
         </div>
-        <p className="tool-field-hint tool-shared-credits-filters-hint">
-          {USERNAME_FIELD_TITLE}
-        </p>
 
         <div className="tool-actions">
           <ToolRunButton
@@ -326,7 +308,6 @@ export function SharedCreditsPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps)
         </div>
 
         {statusText && <p className="tool-status">{statusText}</p>}
-        {usernameHint && <p className="tool-field-hint">{usernameHint}</p>}
         {error && <p className="tool-error">{error}</p>}
       </form>
 

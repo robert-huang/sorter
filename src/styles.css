@@ -5378,6 +5378,10 @@ html {
   flex: 0 0 auto;
 }
 
+.tool-field-username .anime-to-anime-refresh-btn {
+  align-self: center;
+}
+
 .tool-field-username .anime-to-anime-endpoint-user-input {
   width: 100px;
   flex: 0 0 auto;
@@ -5479,10 +5483,6 @@ html {
   max-width: none;
 }
 
-.tool-shared-credits-filters-hint {
-  margin: 4px 0 12px;
-}
-
 .tool-field-row {
   display: flex;
   flex-wrap: wrap;
@@ -5548,7 +5548,11 @@ html {
 .tool-textarea {
   width: 100%;
   resize: vertical;
-  min-height: 5rem;
+  min-height: 11rem;
+}
+
+.tool-form-card .tool-textarea.csv-textarea {
+  min-height: 13rem;
 }
 
 .tool-actions {
