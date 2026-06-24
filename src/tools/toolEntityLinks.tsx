@@ -78,7 +78,7 @@ export function ToolShowButton({
         anilistLink.className,
       )}
       title={title}
-      onClick={() => onOpenMedia(mediaId, title, { forceRefresh: true })}
+      onClick={() => onOpenMedia(mediaId, title)}
       onMouseDown={anilistLink.onMouseDown}
       onAuxClick={anilistLink.onAuxClick}
     >

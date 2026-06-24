@@ -14,6 +14,9 @@ import {
 } from '../../lib/importers/anilist/personDisplayLabel';
 import {
   TOOLS_CACHE_TTL_MS,
+  toolsCacheDelete,
+  toolsCacheGet,
+  toolsCacheSet,
   withToolsCache,
 } from '../../lib/importers/anilist/toolsCache';
 import type { ToolsFetchOptions } from '../../lib/importers/anilist/toolsFetchPolicy';
@@ -29,7 +32,9 @@ import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportCo
 import {
   formatStartDateKey,
   pickMediaTitle,
+  type StaffRoleEntry,
   type StaffRoleMode,
+  type StaffShowEntry,
   type StaffShowMap,
 } from './sharedCreditsLogic';
 
@@ -41,6 +46,112 @@ import {
 export type ToolStaffNameFields = PersonNameFields & {
   image?: string | null;
 };
+
+/** Bump when cached staff-name / role-map shapes change. */
+const STAFF_NAMES_CACHE_VERSION = 2;
+const STAFF_ROLES_CACHE_VERSION = 2;
+
+/** Legacy caches stored plain name strings instead of PersonNameFields rows. */
+export function normalizeStaffNameFieldsFromCache(
+  staffIds: number[],
+  cached: unknown,
+): Record<number, ToolStaffNameFields> | null {
+  if (!cached || typeof cached !== 'object') {
+    return null;
+  }
+  const record = cached as Record<string, unknown>;
+  const out: Record<number, ToolStaffNameFields> = {};
+  for (const staffId of staffIds) {
+    const row = record[staffId] ?? record[String(staffId)];
+    if (row == null) {
+      return null;
+    }
+    if (typeof row === 'string') {
+      out[staffId] = {
+        id: staffId,
+        name_full: row,
+        name_native: null,
+        image: null,
+      };
+      continue;
+    }
+    if (typeof row !== 'object') {
+      return null;
+    }
+    const fields = row as Partial<ToolStaffNameFields> & {
+      name?: { full?: string | null; native?: string | null };
+    };
+    if (typeof fields.id === 'number') {
+      out[staffId] = {
+        id: fields.id,
+        name_full: fields.name_full ?? null,
+        name_native: fields.name_native ?? null,
+        image: fields.image ?? null,
+      };
+      continue;
+    }
+    if (fields.name?.full) {
+      out[staffId] = {
+        id: staffId,
+        name_full: fields.name.full,
+        name_native: fields.name.native ?? null,
+        image: fields.image ?? null,
+      };
+      continue;
+    }
+    return null;
+  }
+  return out;
+}
+
+/** Legacy role maps stored plain role strings instead of StaffRoleEntry objects. */
+export function normalizeStaffShowMapFromCache(cached: unknown): StaffShowMap | null {
+  if (!cached || typeof cached !== 'object') {
+    return null;
+  }
+  const record = cached as Record<string, unknown>;
+  const out: StaffShowMap = {};
+  for (const [mediaId, entry] of Object.entries(record)) {
+    if (!entry || typeof entry !== 'object') {
+      return null;
+    }
+    const row = entry as Partial<StaffShowEntry> & { roles?: unknown };
+    if (typeof row.title !== 'string') {
+      return null;
+    }
+    const roles: StaffRoleEntry[] = [];
+    if (Array.isArray(row.roles)) {
+      for (const role of row.roles) {
+        if (typeof role === 'string') {
+          roles.push({ label: role });
+        } else if (
+          role &&
+          typeof role === 'object' &&
+          typeof (role as StaffRoleEntry).label === 'string'
+        ) {
+          roles.push(role as StaffRoleEntry);
+        }
+      }
+    }
+    out[mediaId] = {
+      title: row.title,
+      coverImage: row.coverImage ?? null,
+      roles,
+      startDate: row.startDate ?? '99999999',
+      titleSource: row.titleSource,
+    };
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+function staffNamesCacheKey(staffIds: number[]): string {
+  return `tools:staff-names:v${STAFF_NAMES_CACHE_VERSION}:${staffIds.join(',')}`;
+}
+
+function staffRolesCacheKey(staffId: number, roleMode: StaffRoleMode): string {
+  const prefix = roleMode === 'voice' ? 'tools:voice-roles' : 'tools:prod-roles';
+  return `${prefix}:v${STAFF_ROLES_CACHE_VERSION}:${staffId}`;
+}
 
 const USER_LIST_STATUSES = TOOLS_USER_LIST_STATUSES;
 
@@ -226,11 +337,24 @@ export async function resolveStaffIds(
 export async function fetchStaffNameFieldsByIds(
   staffIds: number[],
   signal?: AbortSignal,
+  options?: ToolsFetchOptions,
 ): Promise<Record<number, ToolStaffNameFields>> {
   signal?.throwIfAborted();
-  const key = `tools:staff-names:${staffIds.join(',')}`;
-  return withToolsCache(key, TOOLS_CACHE_TTL_MS.staffSearch, async () => {
-    const staff = await depaginate<
+  const key = staffNamesCacheKey(staffIds);
+  if (!options?.forceRefresh) {
+    const cached = await toolsCacheGet<unknown>(key);
+    const normalized = cached ? normalizeStaffNameFieldsFromCache(staffIds, cached) : null;
+    if (normalized) {
+      return normalized;
+    }
+    if (cached != null) {
+      await toolsCacheDelete(key);
+    }
+  } else {
+    await toolsCacheDelete(key);
+  }
+
+  const staff = await depaginate<
       {
         Page: {
           pageInfo: { hasNextPage: boolean };
@@ -268,8 +392,8 @@ export async function fetchStaffNameFieldsByIds(
     if (Object.keys(fields).length !== staffIds.length) {
       throw new Error('Could not fetch names for all staff ids.');
     }
+    await toolsCacheSet(key, fields, TOOLS_CACHE_TTL_MS.staffSearch);
     return fields;
-  });
 }
 
 export async function fetchStaffNamesByIds(
@@ -351,26 +475,28 @@ export async function fetchStaffShowMap(
   options?: ToolsFetchOptions,
 ): Promise<StaffShowMap> {
   signal?.throwIfAborted();
-  const cacheKey =
-    roleMode === 'voice'
-      ? `tools:voice-roles:${staffId}`
-      : `tools:prod-roles:${staffId}`;
+  const cacheKey = staffRolesCacheKey(staffId, roleMode);
   const ttl = TOOLS_CACHE_TTL_MS.staffRoles;
 
-  return withToolsCache(
-    cacheKey,
-    ttl,
-    async () => {
-      await ensureStaffFilmographyFresh(staffId, options);
-      const ctx = getToolsImportContext();
-      const fromDb = await readStaffShowMapFromDb(ctx.db, staffId, roleMode);
-      if (fromDb) {
-        return fromDb;
-      }
-      return fetchStaffShowMapLive(staffId, roleMode, signal);
-    },
-    options,
-  );
+  if (!options?.forceRefresh) {
+    const cached = await toolsCacheGet<unknown>(cacheKey);
+    const normalized = cached ? normalizeStaffShowMapFromCache(cached) : null;
+    if (normalized) {
+      return normalized;
+    }
+    if (cached != null) {
+      await toolsCacheDelete(cacheKey);
+    }
+  } else {
+    await toolsCacheDelete(cacheKey);
+  }
+
+  await ensureStaffFilmographyFresh(staffId, options);
+  const ctx = getToolsImportContext();
+  const fromDb = await readStaffShowMapFromDb(ctx.db, staffId, roleMode);
+  const value = fromDb ?? (await fetchStaffShowMapLive(staffId, roleMode, signal));
+  await toolsCacheSet(cacheKey, value, ttl);
+  return value;
 }
 
 export async function fetchUserListMediaIds(
@@ -445,7 +571,7 @@ export async function runSharedCreditsCompare(options: {
     options;
 
   onProgress?.({ phase: 'names' });
-  const staffNameFields = await fetchStaffNameFieldsByIds(staffIds, signal);
+  const staffNameFields = await fetchStaffNameFieldsByIds(staffIds, signal, fetchOptions);
   const staffNames = Object.fromEntries(
     Object.entries(staffNameFields).map(([id, row]) => [Number(id), pickPersonName(row)]),
   ) as Record<number, string>;
@@ -460,6 +586,15 @@ export async function runSharedCreditsCompare(options: {
       staffName: staffNames[staffId] ?? String(staffId),
     });
     lists.push(await fetchStaffShowMap(staffId, roleMode, signal, fetchOptions));
+  }
+
+  // Prefer DB-backed maps (label sources + complete cast) over any legacy cache rows.
+  const ctx = getToolsImportContext();
+  for (let i = 0; i < staffIds.length; i += 1) {
+    const fromDb = await readStaffShowMapFromDb(ctx.db, staffIds[i]!, roleMode);
+    if (fromDb) {
+      lists[i] = fromDb;
+    }
   }
 
   let userMediaIds: Set<string> | null = null;

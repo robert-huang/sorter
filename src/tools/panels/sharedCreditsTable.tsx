@@ -94,7 +94,7 @@ export function SharedCreditsResultsTable({
                   />
                 </th>
                 {row.cells.map((roles, colIdx) => (
-                  <td key={`${row.mediaId}-${colIdx}`}>
+                  <td key={`${row.mediaId}-${colIdx}`} className="tool-credits-role-col">
                     <SharedCreditsRoleCell roles={roles} />
                   </td>
                 ))}
