@@ -169,6 +169,47 @@ describe('sharedStaffLogic', () => {
     expect(vas?.rows[0]?.cells).toEqual(['MAIN Alice', 'SUPPORTING Alice']);
   });
 
+  it('aligns VA roles by character id when the anchor show lacks that character', () => {
+    const yukinoId = 88530;
+    const tenki = bundle(1, 'Tenki no Ko', {
+      voiceActors: {
+        '95079': {
+          name: 'Kana Hanazawa',
+          roles: ['MAIN Natsumi'],
+          roleCharacterIds: [1001],
+          relevanceOrder: 0,
+        },
+      },
+    });
+    const kimi = bundle(2, 'Kimi no Na Wa', {
+      voiceActors: {
+        '95079': {
+          name: 'Kana Hanazawa',
+          roles: ['MAIN Mitsuha Miyamizu', 'BACKGROUND Yukari Yukino'],
+          roleCharacterIds: [1002, yukinoId],
+          relevanceOrder: 1,
+        },
+      },
+    });
+    const kotonoha = bundle(3, 'Kotonoha no Niwa', {
+      voiceActors: {
+        '95079': {
+          name: 'Kana Hanazawa',
+          roles: ['MAIN Yukari Yukino'],
+          roleCharacterIds: [yukinoId],
+          relevanceOrder: 0,
+        },
+      },
+    });
+    const sections = buildCompareSections([tenki, kimi, kotonoha], false);
+    const vas = sections.find((s) => s.title === 'Voice Actors (JP)');
+    expect(vas?.rows.map((row) => row.cells)).toEqual([
+      ['MAIN Natsumi', '', ''],
+      ['', 'MAIN Mitsuha Miyamizu', ''],
+      ['', 'BACKGROUND Yukari Yukino', 'MAIN Yukari Yukino'],
+    ]);
+  });
+
   it('mergeVaRoleIntoMap collapses duplicate character credits within a show', () => {
     const map: CreditedEntityMap = {};
     mergeVaRoleIntoMap(map, 20, 'VA One', 100, 'MAIN Alice');

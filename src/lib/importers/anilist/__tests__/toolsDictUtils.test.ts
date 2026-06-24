@@ -72,4 +72,26 @@ describe('alignVaRoleCellsAcrossShows', () => {
       ['MAIN Bob', 'MAIN Bob'],
     ]);
   });
+
+  it('aligns the same character id across non-anchor shows when the anchor lacks it', () => {
+    const yukinoId = 88530;
+    expect(
+      alignVaRoleCellsAcrossShows([
+        [{ characterId: 1, label: 'MAIN Hodaka Morishima' }],
+        [
+          { characterId: 2, label: 'MAIN Mitsuha Miyamizu' },
+          { characterId: yukinoId, label: 'BACKGROUND Yukari Yukino' },
+        ],
+        [
+          { characterId: yukinoId, label: 'MAIN Yukari Yukino' },
+          { characterId: 3, label: 'MAIN Takao Akizuki' },
+        ],
+      ]),
+    ).toEqual([
+      ['MAIN Hodaka Morishima', '', ''],
+      ['', 'MAIN Mitsuha Miyamizu', ''],
+      ['', 'BACKGROUND Yukari Yukino', 'MAIN Yukari Yukino'],
+      ['', '', 'MAIN Takao Akizuki'],
+    ]);
+  });
 });

@@ -96,8 +96,9 @@ export type VaRoleCell = {
 };
 
 /**
- * Align VA role labels across shows by character id. Cast role (MAIN vs SUPPORTING)
- * may differ; matching characters still share a row.
+ * Align VA role labels across shows by character id. Cast role (MAIN vs BACKGROUND)
+ * may differ; matching characters still share a row. Leftover roles on non-anchor
+ * shows are cross-matched so a character only in shows 2+ still aligns.
  */
 export function alignVaRoleCellsAcrossShows(
   roleLists: ReadonlyArray<readonly VaRoleCell[]>,
@@ -136,6 +137,17 @@ export function alignVaRoleCellsAcrossShows(
       const role = pool.shift()!;
       const cells = Array<string>(showCount).fill('');
       cells[showIdx] = role.label;
+      for (let otherIdx = 0; otherIdx < showCount; otherIdx += 1) {
+        if (otherIdx === showIdx) {
+          continue;
+        }
+        const otherPool = remaining[otherIdx]!;
+        const matchIdx = otherPool.findIndex((other) => other.characterId === role.characterId);
+        if (matchIdx >= 0) {
+          cells[otherIdx] = otherPool[matchIdx]!.label;
+          otherPool.splice(matchIdx, 1);
+        }
+      }
       rows.push(cells);
     }
   }
