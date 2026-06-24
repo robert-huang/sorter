@@ -2,8 +2,15 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
 import { useUsernameListRefresh } from '../useUsernameListRefresh';
+import { useToolsDisplayLabelRevision } from '../useToolsDisplayLabelRevision';
 import { runFavouritesAnalysis, type FavouritesRunProgress } from './favouritesApi';
-import { type FavouritesForm, type FavouritesResult, type VaRankRow } from './favouritesLogic';
+import {
+  rebuildFavouritesResult,
+  type FavouritesForm,
+  type FavouritesRebuildSource,
+  type FavouritesResult,
+  type VaRankRow,
+} from './favouritesLogic';
 import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
 
 const LS_KEY = 'anime-tools-favourites-form';
@@ -110,16 +117,26 @@ export function FavouritesPanel({ onOpenStaff }: ToolPanelProps) {
   const { hint: usernameHint, onUsernameContextMenu } = useUsernameListRefresh({
     refreshFavourites: true,
   });
+  const displayLabelRevision = useToolsDisplayLabelRevision();
   const [form, setForm] = useState<FavouritesForm>(() => loadForm());
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<FavouritesRunProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<FavouritesResult | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const rebuildSourceRef = useRef<FavouritesRebuildSource | null>(null);
 
   useEffect(() => {
     saveForm(form);
   }, [form]);
+
+  useEffect(() => {
+    const source = rebuildSourceRef.current;
+    if (!source) {
+      return;
+    }
+    setResult(rebuildFavouritesResult(source));
+  }, [displayLabelRevision]);
 
   const patchForm = useCallback((patch: Partial<FavouritesForm>) => {
     setError(null);
@@ -148,15 +165,17 @@ export function FavouritesPanel({ onOpenStaff }: ToolPanelProps) {
     setRunning(true);
     setError(null);
     setResult(null);
+    rebuildSourceRef.current = null;
     setProgress({ phase: 'list' });
 
     try {
-      const report = await runFavouritesAnalysis(
+      const { result: report, rebuildSource } = await runFavouritesAnalysis(
         form,
         setProgress,
         controller.signal,
         forceRefresh ? { forceRefresh: true } : undefined,
       );
+      rebuildSourceRef.current = rebuildSource;
       setResult(report);
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') {

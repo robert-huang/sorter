@@ -7,7 +7,7 @@ import {
   TOOLS_USER_ANIME_LIST_QUERY,
 } from '../../lib/importers/anilist/queries';
 import { executeAnilistQuery } from '../../lib/importers/anilist/transport';
-import { pickCharacterName, pickPersonName } from '../../lib/importers/anilist/personDisplayLabel';
+import { pickCharacterName, pickPersonName, type PersonNameFields } from '../../lib/importers/anilist/personDisplayLabel';
 import {
   TOOLS_CACHE_TTL_MS,
   withToolsCache,
@@ -28,6 +28,10 @@ import {
   type StaffRoleMode,
   type StaffShowMap,
 } from './sharedCreditsLogic';
+import {
+  mediaTitleSource,
+  voiceRoleLabelSource,
+} from '../toolsDisplayRelabel';
 
 const USER_LIST_STATUSES = TOOLS_USER_LIST_STATUSES;
 
@@ -70,6 +74,12 @@ type ProductionEdge = {
 function mergeVoiceEdge(map: StaffShowMap, edge: VoiceEdge): void {
   const show = edge.node;
   const mediaId = String(show.id);
+  const titleSource = mediaTitleSource({
+    id: show.id,
+    title_english: show.title.english ?? null,
+    title_romaji: show.title.romaji ?? null,
+    title_native: (show.title as { native?: string | null }).native ?? null,
+  });
   const title = pickMediaTitle(show.title);
   const startDate = formatStartDateKey(show.startDate);
   const characterRole = edge.characterRole ?? 'UNKNOWN';
@@ -79,34 +89,56 @@ function mergeVoiceEdge(map: StaffShowMap, edge: VoiceEdge): void {
         return null;
       }
       const characterId = c.id ?? 0;
+      const characterNameFull = c.name?.full ?? null;
+      const characterNameNative = c.name?.native ?? null;
       const characterName = pickCharacterName(
         {
           id: characterId,
-          name_full: c.name?.full ?? null,
-          name_native: c.name?.native ?? null,
+          name_full: characterNameFull,
+          name_native: characterNameNative,
         },
         undefined,
         'Character',
       );
-      return { characterId, characterName };
+      return { characterId, characterName, characterNameFull, characterNameNative };
     })
     .filter(
-      (entry): entry is { characterId: number; characterName: string } =>
-        Boolean(entry),
+      (
+        entry,
+      ): entry is {
+        characterId: number;
+        characterName: string;
+        characterNameFull: string | null;
+        characterNameNative: string | null;
+      } => Boolean(entry),
     );
 
   const coverImage = show.coverImage?.large ?? null;
 
   if (!map[mediaId]) {
-    map[mediaId] = { title, roles: [], startDate, coverImage };
+    map[mediaId] = { title, roles: [], startDate, coverImage, titleSource };
   } else if (!map[mediaId].coverImage && coverImage) {
     map[mediaId].coverImage = coverImage;
+  } else if (!map[mediaId].titleSource) {
+    map[mediaId].titleSource = titleSource;
   }
 
-  for (const { characterId, characterName } of characters) {
+  for (const {
+    characterId,
+    characterName,
+    characterNameFull,
+    characterNameNative,
+  } of characters) {
+    const labelSource = voiceRoleLabelSource({
+      characterId,
+      characterNameFull,
+      characterNameNative,
+      characterRole,
+    });
     map[mediaId].roles.push({
       label: `${characterName} (${characterRole})`,
       characterId: characterId > 0 ? characterId : undefined,
+      labelSource,
     });
   }
 }
@@ -114,18 +146,30 @@ function mergeVoiceEdge(map: StaffShowMap, edge: VoiceEdge): void {
 function mergeProductionEdge(map: StaffShowMap, edge: ProductionEdge): void {
   const show = edge.node;
   const mediaId = String(show.id);
+  const titleSource = mediaTitleSource({
+    id: show.id,
+    title_english: show.title.english ?? null,
+    title_romaji: show.title.romaji ?? null,
+    title_native: (show.title as { native?: string | null }).native ?? null,
+  });
   const title = pickMediaTitle(show.title);
   const startDate = formatStartDateKey(show.startDate);
+  const staffRole = edge.staffRole ?? '(role unavailable)';
 
   const coverImage = show.coverImage?.large ?? null;
 
   if (!map[mediaId]) {
-    map[mediaId] = { title, roles: [], startDate, coverImage };
+    map[mediaId] = { title, roles: [], startDate, coverImage, titleSource };
   } else if (!map[mediaId].coverImage && coverImage) {
     map[mediaId].coverImage = coverImage;
+  } else if (!map[mediaId].titleSource) {
+    map[mediaId].titleSource = titleSource;
   }
 
-  map[mediaId].roles.push({ label: edge.staffRole ?? '(role unavailable)' });
+  map[mediaId].roles.push({
+    label: staffRole,
+    labelSource: { kind: 'production', staffRole },
+  });
 }
 
 export async function resolveStaffIdByName(
@@ -170,10 +214,10 @@ export async function resolveStaffIds(
   return ids;
 }
 
-export async function fetchStaffNamesByIds(
+export async function fetchStaffNameFieldsByIds(
   staffIds: number[],
   signal?: AbortSignal,
-): Promise<Record<number, string>> {
+): Promise<Record<number, PersonNameFields>> {
   signal?.throwIfAborted();
   const key = `tools:staff-names:${staffIds.join(',')}`;
   return withToolsCache(key, TOOLS_CACHE_TTL_MS.staffSearch, async () => {
@@ -195,19 +239,31 @@ export async function fetchStaffNamesByIds(
       }),
     });
 
-    const names: Record<number, string> = {};
+    const fields: Record<number, PersonNameFields> = {};
     for (const row of staff) {
-      names[row.id] = pickPersonName({
+      fields[row.id] = {
         id: row.id,
         name_full: row.name.full,
         name_native: row.name.native ?? null,
-      });
+      };
     }
-    if (Object.keys(names).length !== staffIds.length) {
+    if (Object.keys(fields).length !== staffIds.length) {
       throw new Error('Could not fetch names for all staff ids.');
     }
-    return names;
+    return fields;
   });
+}
+
+export async function fetchStaffNamesByIds(
+  staffIds: number[],
+  signal?: AbortSignal,
+): Promise<Record<number, string>> {
+  const fields = await fetchStaffNameFieldsByIds(staffIds, signal);
+  const names: Record<number, string> = {};
+  for (const [id, row] of Object.entries(fields)) {
+    names[Number(id)] = pickPersonName(row);
+  }
+  return names;
 }
 
 async function fetchStaffShowMapLive(
@@ -362,7 +418,7 @@ export async function runSharedCreditsCompare(options: {
   onProgress?: (progress: SharedCreditsRunProgress) => void;
   fetchOptions?: ToolsFetchOptions;
 }): Promise<{
-  staffNames: Record<number, string>;
+  staffNameFields: Record<number, PersonNameFields>;
   lists: StaffShowMap[];
   userMediaIds: Set<string> | null;
   usernameMode: 'include' | 'exclude' | null;
@@ -371,7 +427,10 @@ export async function runSharedCreditsCompare(options: {
     options;
 
   onProgress?.({ phase: 'names' });
-  const staffNames = await fetchStaffNamesByIds(staffIds, signal);
+  const staffNameFields = await fetchStaffNameFieldsByIds(staffIds, signal);
+  const staffNames = Object.fromEntries(
+    Object.entries(staffNameFields).map(([id, row]) => [Number(id), pickPersonName(row)]),
+  ) as Record<number, string>;
 
   const lists: StaffShowMap[] = [];
   for (let i = 0; i < staffIds.length; i += 1) {
@@ -400,5 +459,5 @@ export async function runSharedCreditsCompare(options: {
   }
 
   onProgress?.({ phase: 'compare' });
-  return { staffNames, lists, userMediaIds, usernameMode };
+  return { staffNameFields, lists, userMediaIds, usernameMode };
 }

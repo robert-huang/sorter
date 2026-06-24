@@ -383,9 +383,15 @@ async function fetchProductionStaffFilmographyLive(
     const show = edge.node;
     const existing = byId.get(show.id);
     const title = pickMediaTitle(show.title);
+    const titleSource = {
+      id: show.id,
+      title_english: show.title.english ?? null,
+      title_romaji: show.title.romaji ?? null,
+      title_native: (show.title as { native?: string | null }).native ?? null,
+    };
     const role = edge.staffRole ?? '(role unavailable)';
     if (!existing) {
-      byId.set(show.id, { id: show.id, title, roles: [role] });
+      byId.set(show.id, { id: show.id, title, roles: [role], titleSource });
     } else {
       existing.roles.push(role);
     }
@@ -442,6 +448,13 @@ export async function runSharedStaffCompare(options: {
   tallyMeta?: {
     topMatchMediaId: number | null;
     titlesById: Record<number, string>;
+  };
+  singleShowSource?: {
+    sourceShowId: number;
+    ignoredShowIds: number[];
+    topMatchCount: number;
+    filmographies: Record<number, ProductionFilmographyShow[]>;
+    topMatchMediaId: number | null;
   };
 }> {
   const {
@@ -511,8 +524,16 @@ export async function runSharedStaffCompare(options: {
     topCategory: 3,
   });
 
+  const singleShowSource = {
+    sourceShowId: source.id,
+    ignoredShowIds: [...ignored],
+    topMatchCount,
+    filmographies,
+    topMatchMediaId: tally.topMatchMediaId,
+  };
+
   if (!tally.topMatchMediaId) {
-    return { shows, tallyMeta: tally };
+    return { shows, tallyMeta: tally, singleShowSource };
   }
 
   onProgress?.({
@@ -537,5 +558,6 @@ export async function runSharedStaffCompare(options: {
       byCategory: tally.byCategory,
     },
     tallyMeta: tally,
+    singleShowSource,
   };
 }

@@ -1,6 +1,11 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
+import { useToolsDisplayLabelRevision } from '../useToolsDisplayLabelRevision';
+import {
+  rebuildSharedStaffResult,
+  type SharedStaffRebuildSource,
+} from '../toolsDisplayRelabel';
 import {
   finalizeSharedStaffResult,
   parseShowInputs,
@@ -36,12 +41,22 @@ function progressLabel(progress: SharedStaffRunProgress | null): string | null {
 }
 
 export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
+  const displayLabelRevision = useToolsDisplayLabelRevision();
   const [form, setForm] = useState<SharedStaffForm>(DEFAULT_FORM);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<SharedStaffRunProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SharedStaffResult | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const rebuildSourceRef = useRef<SharedStaffRebuildSource | null>(null);
+
+  useEffect(() => {
+    const source = rebuildSourceRef.current;
+    if (!source) {
+      return;
+    }
+    void rebuildSharedStaffResult(source).then(setResult);
+  }, [displayLabelRevision]);
 
   const patchForm = useCallback((patch: Partial<SharedStaffForm>) => {
     setError(null);
@@ -75,9 +90,11 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
     setRunning(true);
     setError(null);
     setResult(null);
+    rebuildSourceRef.current = null;
 
     try {
-      const { shows: bundles, singleShowReport } = await runSharedStaffCompare({
+      const { shows: bundles, singleShowReport, singleShowSource } =
+        await runSharedStaffCompare({
         showSearches: shows,
         sortByPopularity: form.sortByPopularity,
         ignoreRelated: form.ignoreRelated,
@@ -87,9 +104,12 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
         fetchOptions: forceRefresh ? { forceRefresh: true } : undefined,
       });
 
-      setResult(
-        finalizeSharedStaffResult(bundles, form, singleShowReport),
-      );
+      rebuildSourceRef.current = {
+        bundles,
+        form,
+        singleShow: singleShowSource,
+      };
+      setResult(finalizeSharedStaffResult(bundles, form, singleShowReport));
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') {
         return;

@@ -522,6 +522,53 @@ export function buildFavouritesResult(input: {
   };
 }
 
+export type FavouritesRebuildSource = {
+  characters: FavouriteCharacterInput[];
+  perCharacterEdges: CharacterMediaEdge[][];
+  consumedMediaIds: ReadonlySet<number>;
+  favouriteStaff: FavouriteStaffInput[];
+  vaTotalCharacterCounts: Map<number, number>;
+};
+
+export function rebuildFavouritesResult(
+  source: FavouritesRebuildSource,
+): FavouritesResult {
+  const perCharacterVas: Array<Array<{ id: number; name: string }>> = [];
+  const perCharacterMeta: Array<{
+    charRole: CharacterRoleTier;
+    seen: boolean;
+    isMain: boolean;
+    shows: Record<string, string[]>;
+    books: Record<string, string[]>;
+  }> = [];
+
+  for (let i = 0; i < source.characters.length; i += 1) {
+    const character = source.characters[i]!;
+    const processed = processCharacterEdges(
+      character.id,
+      pickCharacterName(character),
+      source.perCharacterEdges[i] ?? [],
+      source.consumedMediaIds,
+    );
+    perCharacterVas.push(processed.vas);
+    perCharacterMeta.push({
+      charRole: processed.charRole,
+      seen: processed.seen,
+      isMain: processed.isMain,
+      shows: processed.shows,
+      books: processed.books,
+    });
+  }
+
+  return buildFavouritesResult({
+    characters: source.characters,
+    perCharacterVas,
+    perCharacterMeta,
+    vaTotalCharacterCounts: source.vaTotalCharacterCounts,
+    favouriteStaff: source.favouriteStaff,
+  });
+}
+
 function sortSeriesMap(
   map: Record<string, string[]>,
   characterNames: string[],

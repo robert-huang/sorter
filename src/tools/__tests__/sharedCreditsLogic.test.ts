@@ -10,6 +10,17 @@ function role(label: string, characterId?: number): StaffRoleEntry {
   return characterId != null ? { label, characterId } : { label };
 }
 
+function staffNameFields(
+  names: Record<number, string>,
+): Record<number, { id: number; name_full: string; name_native: null }> {
+  return Object.fromEntries(
+    Object.entries(names).map(([id, name]) => [
+      Number(id),
+      { id: Number(id), name_full: name, name_native: null },
+    ]),
+  );
+}
+
 describe('sharedCreditsLogic', () => {
   const staffA = {
     '1': {
@@ -54,7 +65,7 @@ describe('sharedCreditsLogic', () => {
   it('buildSharedCreditsResult returns one row per shared show without cross-column alignment', () => {
     const result = buildSharedCreditsResult(
       [10, 20],
-      { 10: 'VA A', 20: 'VA B' },
+      staffNameFields({ 10: 'VA A', 20: 'VA B' }),
       [staffA, staffB],
       {
         minMatches: null,
@@ -97,7 +108,7 @@ describe('sharedCreditsLogic', () => {
     };
     const result = buildSharedCreditsResult(
       [10, 20],
-      { 10: 'VA A', 20: 'VA B' },
+      staffNameFields({ 10: 'VA A', 20: 'VA B' }),
       [multiRoleA, multiRoleB],
       {
         minMatches: null,
@@ -123,7 +134,7 @@ describe('sharedCreditsLogic', () => {
   it('buildSharedCreditsResult supports diff mode', () => {
     const result = buildSharedCreditsResult(
       [10, 20],
-      { 10: 'VA A', 20: 'VA B' },
+      staffNameFields({ 10: 'VA A', 20: 'VA B' }),
       [staffA, staffB],
       {
         minMatches: null,
@@ -147,7 +158,7 @@ describe('sharedCreditsLogic', () => {
   it('buildSharedCreditsResult filters by username include set', () => {
     const result = buildSharedCreditsResult(
       [10, 20],
-      { 10: 'VA A', 20: 'VA B' },
+      staffNameFields({ 10: 'VA A', 20: 'VA B' }),
       [staffA, staffB],
       {
         minMatches: null,

@@ -287,6 +287,7 @@ export type ProductionFilmographyShow = {
   id: number;
   title: string;
   roles: string[];
+  titleSource?: import('./sharedCreditsLogic').MediaTitleSource;
 };
 
 export function tallySingleShowMatches(options: {

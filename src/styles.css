@@ -795,7 +795,8 @@ a {
    shrink them so the segmented controls read as the primary control. */
 .settings-anilist-display-prefs .filter-chip-range-row > span {
   font-size: 11px;
-  min-width: 34px;
+  min-width: 64px;
+  text-align: right;
 }
 
 .settings-anilist-display-prefs--standalone {

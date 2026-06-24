@@ -1,7 +1,12 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
 import { useUsernameListRefresh } from '../useUsernameListRefresh';
+import { useToolsDisplayLabelRevision } from '../useToolsDisplayLabelRevision';
+import {
+  rebuildSharedCreditsResult,
+  type SharedCreditsRebuildSource,
+} from '../toolsDisplayRelabel';
 import {
   buildSharedCreditsResult,
   parseStaffInputs,
@@ -51,12 +56,22 @@ function progressLabel(progress: SharedCreditsRunProgress | null): string | null
 
 export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
   const { hint: usernameHint, onUsernameContextMenu } = useUsernameListRefresh();
+  const displayLabelRevision = useToolsDisplayLabelRevision();
   const [form, setForm] = useState<SharedCreditsForm>(DEFAULT_FORM);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<SharedCreditsRunProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SharedCreditsResult | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const rebuildSourceRef = useRef<SharedCreditsRebuildSource | null>(null);
+
+  useEffect(() => {
+    const source = rebuildSourceRef.current;
+    if (!source) {
+      return;
+    }
+    void rebuildSharedCreditsResult(source).then(setResult);
+  }, [displayLabelRevision]);
 
   const patchForm = useCallback((patch: Partial<SharedCreditsForm>) => {
     setError(null);
@@ -95,11 +110,12 @@ export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
     setRunning(true);
     setError(null);
     setResult(null);
+    rebuildSourceRef.current = null;
     setProgress({ phase: 'resolve' });
 
     try {
       const staffIds = await resolveStaffIds(inputs, form.useIds, controller.signal);
-      const { staffNames, lists, userMediaIds, usernameMode } =
+      const { staffNameFields, lists, userMediaIds, usernameMode } =
         await runSharedCreditsCompare({
           staffIds,
           roleMode: form.roleMode,
@@ -110,15 +126,26 @@ export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
           fetchOptions: forceRefresh ? { forceRefresh: true } : undefined,
         });
 
-      const built = buildSharedCreditsResult(
+      const source: SharedCreditsRebuildSource = {
         staffIds,
-        staffNames,
+        staffNameFields,
         lists,
+        roleMode: form.roleMode,
         form,
         userMediaIds,
         usernameMode,
+      };
+      rebuildSourceRef.current = source;
+      setResult(
+        buildSharedCreditsResult(
+          staffIds,
+          staffNameFields,
+          lists,
+          form,
+          userMediaIds,
+          usernameMode,
+        ),
       );
-      setResult(built);
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') {
         return;

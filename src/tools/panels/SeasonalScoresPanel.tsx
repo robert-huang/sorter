@@ -2,12 +2,15 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
 import { useUsernameListRefresh } from '../useUsernameListRefresh';
+import { useToolsDisplayLabelRevision } from '../useToolsDisplayLabelRevision';
+import { relabelSeasonalShows } from '../toolsDisplayRelabel';
 import { fetchUserSeasonalShows } from './seasonalScoresApi';
 import {
   buildSeasonalColumns,
   type SeasonalScoresForm,
   type SeasonalScoresResult,
   type SeasonColumn,
+  type SeasonalShow,
 } from './seasonalScoresLogic';
 import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
 
@@ -106,15 +109,24 @@ function SeasonalColumnsView({
 
 export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
   const { hint: usernameHint, onUsernameContextMenu } = useUsernameListRefresh();
+  const displayLabelRevision = useToolsDisplayLabelRevision();
   const [form, setForm] = useState<SeasonalScoresForm>(() => loadForm());
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SeasonalScoresResult | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const showsRef = useRef<SeasonalShow[] | null>(null);
 
   useEffect(() => {
     saveForm(form);
   }, [form]);
+
+  useEffect(() => {
+    if (!showsRef.current) {
+      return;
+    }
+    setResult(buildSeasonalColumns(relabelSeasonalShows(showsRef.current), form));
+  }, [displayLabelRevision, form]);
 
   const patchForm = useCallback((patch: Partial<SeasonalScoresForm>) => {
     setError(null);
@@ -142,6 +154,7 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
     setRunning(true);
     setError(null);
     setResult(null);
+    showsRef.current = null;
 
     try {
       const shows = await fetchUserSeasonalShows(
@@ -149,6 +162,7 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
         controller.signal,
         forceRefresh ? { forceRefresh: true } : undefined,
       );
+      showsRef.current = shows;
       setResult(buildSeasonalColumns(shows, form));
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') {

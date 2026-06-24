@@ -1,12 +1,32 @@
 import { dictDiffs, dictIntersection } from '../../lib/importers/anilist/toolsDictUtils';
-import { pickMediaTitle as pickMediaTitleWithPrefs } from '../../lib/importers/anilist/mediaDisplayLabel';
+import {
+  pickMediaTitle as pickMediaTitleWithPrefs,
+  type MediaTitleFields,
+} from '../../lib/importers/anilist/mediaDisplayLabel';
+import {
+  pickPersonName,
+  type PersonNameFields,
+} from '../../lib/importers/anilist/personDisplayLabel';
 import { parseLinesOnePerLine } from '../parseToolLines';
+
+export type MediaTitleSource = MediaTitleFields;
+
+export type StaffRoleLabelSource =
+  | {
+      kind: 'voice';
+      characterId: number;
+      characterNameFull: string | null;
+      characterNameNative: string | null;
+      characterRole: string;
+    }
+  | { kind: 'production'; staffRole: string };
 
 export type StaffRoleMode = 'voice' | 'production';
 
 export type StaffRoleEntry = {
   label: string;
   characterId?: number;
+  labelSource?: StaffRoleLabelSource;
 };
 
 export type StaffShowEntry = {
@@ -14,6 +34,7 @@ export type StaffShowEntry = {
   coverImage: string | null;
   roles: StaffRoleEntry[];
   startDate: string;
+  titleSource?: MediaTitleSource;
 };
 
 export function formatStaffRoleLabel(role: StaffRoleEntry): string {
@@ -111,7 +132,7 @@ export function applyUsernameMediaFilter(
 
 export function buildSharedCreditsResult(
   staffIds: number[],
-  staffNames: Record<number, string>,
+  staffNameFields: Record<number, PersonNameFields>,
   lists: StaffShowMap[],
   form: Pick<
     SharedCreditsForm,
@@ -134,7 +155,12 @@ export function buildSharedCreditsResult(
       }
       blocks.push({
         staffId,
-        staffName: staffNames[staffId] ?? String(staffId),
+        staffName:
+          pickPersonName(staffNameFields[staffId] ?? {
+            id: staffId,
+            name_full: String(staffId),
+            name_native: null,
+          }),
         shows: uniqueIds.map((mediaId) => {
           const entry = processed[idx]?.[mediaId];
           return {
@@ -191,7 +217,13 @@ export function buildSharedCreditsResult(
   return {
     kind: 'table',
     staffIds,
-    staffNames: staffIds.map((id) => staffNames[id] ?? String(id)),
+    staffNames: staffIds.map((id) =>
+      pickPersonName(staffNameFields[id] ?? {
+        id,
+        name_full: String(id),
+        name_native: null,
+      }),
+    ),
     rows,
   };
 }

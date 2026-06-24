@@ -3,6 +3,7 @@ import { parseLinesOnePerLine } from '../parseToolLines';
 export type SeasonalShow = {
   id: number;
   title: string;
+  titleSource?: import('../../lib/importers/anilist/mediaDisplayLabel').MediaTitleFields;
   season: string | null;
   seasonYear: number | null;
   score: number | null;

@@ -491,9 +491,18 @@ export async function readStaffShowMapFromDb(
       const mediaId = String(credit.media.id);
       map[mediaId] = {
         title: pickMediaRowTitle(credit.media),
-        roles: credit.productionRoles.map((role) => ({ label: role })),
+        roles: credit.productionRoles.map((role) => ({
+          label: role,
+          labelSource: { kind: 'production', staffRole: role },
+        })),
         startDate: mediaRowStartDateKey(credit.media),
         coverImage: credit.media.cover_image,
+        titleSource: {
+          id: credit.media.id,
+          title_english: credit.media.title_english,
+          title_romaji: credit.media.title_romaji,
+          title_native: credit.media.title_native,
+        },
       };
     }
     return Object.keys(map).length > 0 ? map : null;
@@ -548,6 +557,12 @@ export async function readStaffShowMapFromDb(
         roles: [],
         startDate,
         coverImage: (row.cover_image as string | null) ?? null,
+        titleSource: {
+          id: Number(row.id),
+          title_english: (row.title_english as string | null) ?? null,
+          title_romaji: (row.title_romaji as string | null) ?? null,
+          title_native: (row.title_native as string | null) ?? null,
+        },
       };
     }
     const characterName = pickCharacterName(
@@ -564,6 +579,13 @@ export async function readStaffShowMapFromDb(
     map[mediaId].roles.push({
       label: `${characterName} (${characterRole})`,
       characterId: characterId && characterId > 0 ? characterId : undefined,
+      labelSource: {
+        kind: 'voice',
+        characterId: characterId ?? 0,
+        characterNameFull: (row.character_name_full as string | null) ?? null,
+        characterNameNative: (row.character_name_native as string | null) ?? null,
+        characterRole,
+      },
     });
   }
   return map;
@@ -648,6 +670,12 @@ export async function readProductionFilmographyFromDb(
       id: credit.media.id,
       title: pickMediaRowTitle(credit.media),
       roles: [...credit.productionRoles],
+      titleSource: {
+        id: credit.media.id,
+        title_english: credit.media.title_english,
+        title_romaji: credit.media.title_romaji,
+        title_native: credit.media.title_native,
+      },
     });
   }
   return shows.length > 0 ? shows : null;

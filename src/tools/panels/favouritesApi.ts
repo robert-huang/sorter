@@ -43,6 +43,7 @@ import {
   type FavouriteCharacterInput,
   type FavouriteStaffInput,
   type FavouritesForm,
+  type FavouritesRebuildSource,
   type FavouritesResult,
   type VaMediaEdge,
 } from './favouritesLogic';
@@ -335,12 +336,17 @@ async function fetchVaCharacterEdges(
   );
 }
 
+export type FavouritesAnalysisPayload = {
+  result: FavouritesResult;
+  rebuildSource: FavouritesRebuildSource;
+};
+
 export async function runFavouritesAnalysis(
   form: FavouritesForm,
   onProgress: (progress: FavouritesRunProgress) => void,
   signal?: AbortSignal,
   fetchOptions?: ToolsFetchOptions,
-): Promise<FavouritesResult> {
+): Promise<FavouritesAnalysisPayload> {
   const username = form.username.trim();
   onProgress({ phase: 'list' });
   const consumedMediaIds = await fetchConsumedMediaIds(username, signal, fetchOptions);
@@ -363,6 +369,7 @@ export async function runFavouritesAnalysis(
     shows: Record<string, string[]>;
     books: Record<string, string[]>;
   }> = [];
+  const perCharacterEdges: CharacterMediaEdge[][] = [];
   const vaIds = new Set<number>();
 
   if (fetchOptions?.forceRefresh) {
@@ -386,6 +393,7 @@ export async function runFavouritesAnalysis(
     });
 
     const edges = await fetchCharacterVoiceEdges(character.id, signal, fetchOptions);
+    perCharacterEdges.push(edges);
     const processed = processCharacterEdges(
       character.id,
       charName,
@@ -418,11 +426,21 @@ export async function runFavouritesAnalysis(
   }
 
   onProgress({ phase: 'build' });
-  return buildFavouritesResult({
+  const rebuildSource: FavouritesRebuildSource = {
     characters,
-    perCharacterVas,
-    perCharacterMeta,
-    vaTotalCharacterCounts,
+    perCharacterEdges,
+    consumedMediaIds,
     favouriteStaff,
-  });
+    vaTotalCharacterCounts,
+  };
+  return {
+    result: buildFavouritesResult({
+      characters,
+      perCharacterVas,
+      perCharacterMeta,
+      vaTotalCharacterCounts,
+      favouriteStaff,
+    }),
+    rebuildSource,
+  };
 }

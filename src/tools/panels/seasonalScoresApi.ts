@@ -65,6 +65,12 @@ export async function fetchUserSeasonalShows(
       return entries.map((entry) => ({
         id: entry.media.id,
         title: pickMediaTitle(entry.media.title),
+        titleSource: {
+          id: entry.media.id,
+          title_english: entry.media.title.english ?? null,
+          title_romaji: entry.media.title.romaji ?? null,
+          title_native: (entry.media.title as { native?: string | null }).native ?? null,
+        },
         season: entry.media.season ?? null,
         seasonYear: entry.media.seasonYear ?? null,
         score: entry.score ?? null,
