@@ -1,4 +1,5 @@
 import {
+  anilistUrlForCharacter,
   anilistUrlForMediaEntry,
   anilistUrlForStaffId,
   bindAnilistMiddleClick,
@@ -133,5 +134,32 @@ export function ToolStaffButton({
         <strong>{name}</strong>
       </span>
     </button>
+  );
+}
+
+type ToolCharacterNameProps = {
+  characterId: number;
+  name: string;
+};
+
+/** Character name with middle-click to open AniList (no in-app character modal). */
+export function ToolCharacterName({ characterId, name }: ToolCharacterNameProps) {
+  const anilistLink = bindAnilistMiddleClick(anilistUrlForCharacter(characterId));
+
+  if (!anilistLink.className) {
+    return <span>{name}</span>;
+  }
+
+  return (
+    <span
+      className={mergeAnilistLinkClass(
+        'anilist-detail-character-name',
+        anilistLink.className,
+      )}
+      onMouseDown={anilistLink.onMouseDown}
+      onAuxClick={anilistLink.onAuxClick}
+    >
+      {name}
+    </span>
   );
 }

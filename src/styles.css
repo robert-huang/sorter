@@ -5597,7 +5597,7 @@ html {
 }
 
 .tool-credits-table-outer {
-  width: 100%;
+  width: fit-content;
   max-width: 100%;
   margin: 20px auto 0;
   border: 1px solid var(--border);
@@ -5616,7 +5616,6 @@ html {
 
 .tool-credits-table {
   width: max-content;
-  min-width: min(100%, 48rem);
 }
 
 .tool-credits-table th,
@@ -5941,6 +5940,10 @@ html {
 
 .tool-category-block {
   margin-top: 16px;
+}
+
+.tool-category-block .tool-category-block {
+  margin-left: 1rem;
 }
 
 .tool-category-title {

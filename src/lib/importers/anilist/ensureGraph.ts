@@ -5,12 +5,13 @@
 import type { AnilistImportContext } from './context';
 import { hasKnownGraphCacheDate } from './graphConstants';
 import { expandMediaRelations } from './expandMediaRelations';
+import { expandCharacterMedia } from './expandCharacterMedia';
 import { expandStaffFilmography } from './expandStaffFilmography';
 import {
   expandAnilistMediaDetail,
   type ExpandAnilistMediaDetailOptions,
 } from './lazyExpansion';
-import { hasStaffFilmography } from './graphQueries';
+import { hasCharacterMediaExpansion, hasStaffFilmography } from './graphQueries';
 import {
   getMediaCastExpansionStatus,
   type MediaCastExpansionStatus,
@@ -87,6 +88,22 @@ export async function ensureMediaCastExpanded(
 export type EnsureStaffFilmographyOptions = {
   force?: boolean;
 };
+
+export type EnsureCharacterMediaOptions = {
+  force?: boolean;
+};
+
+export async function ensureCharacterMedia(
+  ctx: AnilistImportContext,
+  characterId: number,
+  options: EnsureCharacterMediaOptions = {},
+): Promise<boolean> {
+  if (!options.force && (await hasCharacterMediaExpansion(ctx.db, characterId))) {
+    return true;
+  }
+  const result = await expandCharacterMedia(ctx, characterId, options);
+  return result !== null;
+}
 
 export async function ensureStaffFilmography(
   ctx: AnilistImportContext,

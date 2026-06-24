@@ -5,11 +5,13 @@
  */
 
 import type { AnilistDbExecutor } from './context';
-import { ensureMediaCastExpanded, ensureStaffFilmography } from './ensureGraph';
+import { ensureMediaCastExpanded, ensureCharacterMedia, ensureStaffFilmography } from './ensureGraph';
 import {
+  getCharacterMediaFetchedAt,
   getProductionCreditsAtMedia,
   getStaffFilmographyFetchedAt,
   getVaCreditsAtMedia,
+  hasCharacterMediaExpansion,
   hasStaffFilmography,
 } from './graphQueries';
 import { pickMediaTitle as pickMediaRowTitle } from './mediaDisplayLabel';
@@ -93,6 +95,20 @@ export async function ensureStaffFilmographyFresh(
     !hasData ||
     needsGraphDataRefresh(fetchedAt, options);
   await ensureStaffFilmography(ctx, staffId, { force });
+}
+
+export async function ensureCharacterMediaFresh(
+  characterId: number,
+  options?: ToolsFetchOptions,
+): Promise<void> {
+  const ctx = getToolsImportContext();
+  const fetchedAt = await getCharacterMediaFetchedAt(ctx.db, characterId);
+  const hasData = await hasCharacterMediaExpansion(ctx.db, characterId);
+  const force =
+    options?.forceRefresh ||
+    !hasData ||
+    needsGraphDataRefresh(fetchedAt, options);
+  await ensureCharacterMedia(ctx, characterId, { force });
 }
 
 export async function ensureMediaCastFresh(

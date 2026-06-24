@@ -438,6 +438,77 @@ export function mapStaffCharacterAppearanceData(
   };
 }
 
+/**
+ * Character filmography from `Character.media` — upsert media/staff rows,
+ * junctions, and JP CVA rows for one character across their appearances.
+ */
+export function mapCharacterMediaAppearanceData(
+  characterId: number,
+  edges: readonly {
+    characterRole: AnilistCharacterRole | null;
+    node: AnilistMediaGql | null;
+    voiceActors: readonly AnilistStaffGql[];
+  }[],
+  language: AnilistStaffLanguage,
+  now: number,
+): {
+  mediaRows: MediaRow[];
+  staffRows: StaffRow[];
+  mediaCharacterRows: MediaCharacterRow[];
+  cvaRows: CharacterVoiceActorRow[];
+} {
+  const mediaById = new Map<number, MediaRow>();
+  const staffById = new Map<number, StaffRow>();
+  const mediaCharacterSeen = new Set<string>();
+  const mediaCharacterRows: MediaCharacterRow[] = [];
+  const cvaSeen = new Set<string>();
+  const cvaRows: CharacterVoiceActorRow[] = [];
+  let sortOrder = 0;
+
+  for (const e of edges) {
+    const mediaId = mediaNodeId(e.node);
+    if (mediaId === null || !e.node) {
+      continue;
+    }
+    if (!mediaById.has(mediaId)) {
+      mediaById.set(mediaId, mapMediaRow(e.node, now));
+    }
+    const mcKey = `${mediaId}:${characterId}`;
+    if (!mediaCharacterSeen.has(mcKey)) {
+      mediaCharacterSeen.add(mcKey);
+      mediaCharacterRows.push({
+        media_id: mediaId,
+        character_id: characterId,
+        role: e.characterRole ?? null,
+        sort_order: sortOrder,
+      });
+      sortOrder += 1;
+    }
+    for (const va of e.voiceActors ?? []) {
+      if (!staffById.has(va.id)) {
+        staffById.set(va.id, mapStaffRow(va, now));
+      }
+      const cvaKey = `${mediaId}:${characterId}:${va.id}`;
+      if (!cvaSeen.has(cvaKey)) {
+        cvaSeen.add(cvaKey);
+        cvaRows.push({
+          media_id: mediaId,
+          character_id: characterId,
+          staff_id: va.id,
+          language,
+        });
+      }
+    }
+  }
+
+  return {
+    mediaRows: [...mediaById.values()],
+    staffRows: [...staffById.values()],
+    mediaCharacterRows,
+    cvaRows,
+  };
+}
+
 export function mapMediaStaffRows(
   mediaId: number,
   edges: AnilistMediaStaffEdgeGql[],

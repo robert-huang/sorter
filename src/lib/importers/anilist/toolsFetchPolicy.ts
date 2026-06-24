@@ -6,6 +6,32 @@ export type ToolsFetchOptions = {
   forceRefresh?: boolean;
 };
 
+/** Favourites tool — scoped refresh / expansion modes. */
+export type FavouritesFetchOptions = {
+  /** Right-click Analyze — re-import favourite chars/staff only. */
+  forceRefreshFavourites?: boolean;
+  /** Expand Roles — full graph expansion into SQLite before building the report. */
+  expandRoles?: boolean;
+};
+
+export function favouritesImportOptions(
+  options?: FavouritesFetchOptions,
+): ToolsFetchOptions | undefined {
+  if (options?.forceRefreshFavourites) {
+    return { forceRefresh: true };
+  }
+  return undefined;
+}
+
+export function favouritesGraphForceOptions(
+  options?: FavouritesFetchOptions,
+): ToolsFetchOptions | undefined {
+  if (options?.expandRoles) {
+    return { forceRefresh: true };
+  }
+  return undefined;
+}
+
 /**
  * Whether graph-backed data (cast, staff filmography, user list) should
  * be pulled from AniList before reading the local DB.

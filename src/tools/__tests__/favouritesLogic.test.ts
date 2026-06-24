@@ -147,15 +147,22 @@ describe('buildFavouritesResult', () => {
         [11, 5],
       ]),
       favouriteStaff: [{ id: 10, name: { full: 'VA A', native: null }, gender: 'Female' }],
-      topN: 5,
     });
 
     expect(result.characterCount).toBe(2);
     expect(result.byCount[0].staffId).toBe(10);
     expect(result.gender.female).toEqual(['Alice']);
     expect(result.gender.male).toEqual(['Bob']);
+    expect(result.numFemaleSeen).toBe(1);
+    expect(result.numMain).toBe(1);
+    expect(result.favouriteCharacters).toEqual([
+      { id: 1, name: 'Alice', rank: 1 },
+      { id: 2, name: 'Bob', rank: 2 },
+    ]);
     expect(formatBirthdayKey(characters[0].dateOfBirth)).toBe('0305');
     expect(result.birthdays['0305']).toEqual(['Alice']);
     expect(result.favouriteStaff[0].matchedCount).toBe(2);
+    expect(result.favouriteStaff[0].matchedCharacterNames).toEqual(['Alice', 'Bob']);
+    expect(result.byCount.length).toBe(2);
   });
 });

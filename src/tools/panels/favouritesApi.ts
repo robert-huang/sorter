@@ -6,13 +6,20 @@ import {
   TOOLS_USER_CONSUMED_MEDIA_QUERY,
   TOOLS_VA_CHARACTER_MEDIA_QUERY,
 } from '../../lib/importers/anilist/queries';
-import type { ToolsFetchOptions } from '../../lib/importers/anilist/toolsFetchPolicy';
 import {
-  dbCharacterEdgesHaveVoiceCast,
+  favouritesGraphForceOptions,
+  favouritesImportOptions,
+  type FavouritesFetchOptions,
+} from '../../lib/importers/anilist/toolsFetchPolicy';
+import {
+  FAVOURITES_SESSION_TTL_MS,
+  withSessionTtlMemo,
+} from '../../lib/importers/anilist/toolsSessionMemo';
+import {
+  ensureCharacterMediaFresh,
   ensureStaffFilmographyFresh,
   ensureUserAnimeListFresh,
   ensureUserFavouritesFresh,
-  isCharacterVoiceEdgesDbFresh,
   readCharacterVoiceEdgesFromDb,
   readConsumedMediaIdsFromDb,
   readFavouriteCharactersFromDb,
@@ -36,20 +43,23 @@ import {
   type VaMediaEdge,
 } from './favouritesLogic';
 
+/** Normal Analyze caps character-media live fallback at two pages. */
+const FAVOURITES_CHARACTER_MEDIA_MAX_PAGES = 2;
+
 export type FavouritesRunProgress =
   | { phase: 'list' }
   | { phase: 'characters' }
   | { phase: 'character-vas'; index: number; total: number; name: string }
   | { phase: 'va-totals'; index: number; total: number }
+  | { phase: 'expand-staff-filmography'; index: number; total: number }
   | { phase: 'build' };
 
 async function fetchConsumedMediaIds(
   username: string,
   signal?: AbortSignal,
-  options?: ToolsFetchOptions,
 ): Promise<Set<number>> {
   signal?.throwIfAborted();
-  const user = await ensureUserAnimeListFresh(username, options);
+  const user = await ensureUserAnimeListFresh(username);
   if (user) {
     const ctx = getToolsImportContext();
     const fromDb = await readConsumedMediaIdsFromDb(ctx.db, user.id);
@@ -105,13 +115,16 @@ async function fetchFavouriteCharactersLive(
   });
 }
 
-async function fetchFavouriteCharacters(
+async function fetchFavouriteCharactersFromDbOrLive(
   username: string,
   signal?: AbortSignal,
-  options?: ToolsFetchOptions,
+  options?: FavouritesFetchOptions,
 ): Promise<FavouriteCharacterInput[]> {
-  signal?.throwIfAborted();
-  const user = await ensureUserFavouritesFresh(username, 'CHARACTERS', options);
+  const user = await ensureUserFavouritesFresh(
+    username,
+    'CHARACTERS',
+    favouritesImportOptions(options),
+  );
   if (user) {
     const ctx = getToolsImportContext();
     const fromDb = await readFavouriteCharactersFromDb(ctx.db, user.id);
@@ -120,6 +133,21 @@ async function fetchFavouriteCharacters(
     }
   }
   return fetchFavouriteCharactersLive(username, signal);
+}
+
+async function fetchFavouriteCharacters(
+  username: string,
+  signal?: AbortSignal,
+  options?: FavouritesFetchOptions,
+): Promise<FavouriteCharacterInput[]> {
+  signal?.throwIfAborted();
+  const handle = username.trim().toLowerCase();
+  return withSessionTtlMemo(
+    `fav:chars:${handle}`,
+    FAVOURITES_SESSION_TTL_MS,
+    () => fetchFavouriteCharactersFromDbOrLive(username, signal, options),
+    { bust: options?.forceRefreshFavourites },
+  );
 }
 
 async function fetchFavouriteStaffLive(
@@ -149,13 +177,16 @@ async function fetchFavouriteStaffLive(
   });
 }
 
-async function fetchFavouriteStaff(
+async function fetchFavouriteStaffFromDbOrLive(
   username: string,
   signal?: AbortSignal,
-  options?: ToolsFetchOptions,
+  options?: FavouritesFetchOptions,
 ): Promise<FavouriteStaffInput[]> {
-  signal?.throwIfAborted();
-  const user = await ensureUserFavouritesFresh(username, 'STAFF', options);
+  const user = await ensureUserFavouritesFresh(
+    username,
+    'STAFF',
+    favouritesImportOptions(options),
+  );
   if (user) {
     const ctx = getToolsImportContext();
     const fromDb = await readFavouriteStaffFromDb(ctx.db, user.id);
@@ -166,9 +197,25 @@ async function fetchFavouriteStaff(
   return fetchFavouriteStaffLive(username, signal);
 }
 
+async function fetchFavouriteStaff(
+  username: string,
+  signal?: AbortSignal,
+  options?: FavouritesFetchOptions,
+): Promise<FavouriteStaffInput[]> {
+  signal?.throwIfAborted();
+  const handle = username.trim().toLowerCase();
+  return withSessionTtlMemo(
+    `fav:staff:${handle}`,
+    FAVOURITES_SESSION_TTL_MS,
+    () => fetchFavouriteStaffFromDbOrLive(username, signal, options),
+    { bust: options?.forceRefreshFavourites },
+  );
+}
+
 async function fetchCharacterVoiceEdgesLive(
   charId: number,
   signal?: AbortSignal,
+  maxPages?: number,
 ): Promise<CharacterMediaEdge[]> {
   return depaginate<
     {
@@ -184,6 +231,7 @@ async function fetchCharacterVoiceEdgesLive(
     query: TOOLS_CHARACTER_VOICE_MEDIA_QUERY,
     variables: { id: charId },
     signal,
+    maxPages,
     selectPage: (data) => ({
       nodes: data.Character?.media.edges ?? [],
       pageInfo: data.Character?.media.pageInfo ?? { hasNextPage: false },
@@ -194,21 +242,29 @@ async function fetchCharacterVoiceEdgesLive(
 async function fetchCharacterVoiceEdges(
   charId: number,
   signal?: AbortSignal,
-  options?: ToolsFetchOptions,
+  options?: FavouritesFetchOptions,
 ): Promise<CharacterMediaEdge[]> {
   signal?.throwIfAborted();
-  if (!options?.forceRefresh) {
-    const ctx = getToolsImportContext();
+  const ctx = getToolsImportContext();
+
+  if (options?.expandRoles) {
+    await ensureCharacterMediaFresh(charId, favouritesGraphForceOptions(options));
     const fromDb = await readCharacterVoiceEdgesFromDb(ctx.db, charId);
-    if (
-      fromDb &&
-      dbCharacterEdgesHaveVoiceCast(fromDb) &&
-      (await isCharacterVoiceEdgesDbFresh(ctx.db, fromDb, options))
-    ) {
+    if (fromDb) {
       return fromDb;
     }
+    return fetchCharacterVoiceEdgesLive(charId, signal);
   }
-  return fetchCharacterVoiceEdgesLive(charId, signal);
+
+  const fromDb = await readCharacterVoiceEdgesFromDb(ctx.db, charId);
+  if (fromDb) {
+    return fromDb;
+  }
+  return fetchCharacterVoiceEdgesLive(
+    charId,
+    signal,
+    FAVOURITES_CHARACTER_MEDIA_MAX_PAGES,
+  );
 }
 
 async function fetchVaCharacterEdgesLive(
@@ -239,16 +295,23 @@ async function fetchVaCharacterEdgesLive(
 async function fetchVaCharacterEdges(
   vaId: number,
   signal?: AbortSignal,
-  options?: ToolsFetchOptions,
+  options?: FavouritesFetchOptions,
 ): Promise<VaMediaEdge[]> {
   signal?.throwIfAborted();
-  await ensureStaffFilmographyFresh(vaId, options);
-  if (!options?.forceRefresh) {
-    const ctx = getToolsImportContext();
+  const ctx = getToolsImportContext();
+
+  if (options?.expandRoles) {
+    await ensureStaffFilmographyFresh(vaId, favouritesGraphForceOptions(options));
     const fromDb = await readVaCharacterEdgesFromDb(ctx.db, vaId);
     if (fromDb) {
       return fromDb;
     }
+    return fetchVaCharacterEdgesLive(vaId, signal);
+  }
+
+  const fromDb = await readVaCharacterEdgesFromDb(ctx.db, vaId);
+  if (fromDb) {
+    return fromDb;
   }
   return fetchVaCharacterEdgesLive(vaId, signal);
 }
@@ -262,11 +325,11 @@ export async function runFavouritesAnalysis(
   form: FavouritesForm,
   onProgress: (progress: FavouritesRunProgress) => void,
   signal?: AbortSignal,
-  fetchOptions?: ToolsFetchOptions,
+  fetchOptions?: FavouritesFetchOptions,
 ): Promise<FavouritesAnalysisPayload> {
   const username = form.username.trim();
   onProgress({ phase: 'list' });
-  const consumedMediaIds = await fetchConsumedMediaIds(username, signal, fetchOptions);
+  const consumedMediaIds = await fetchConsumedMediaIds(username, signal);
 
   onProgress({ phase: 'characters' });
   const [characters, favouriteStaff] = await Promise.all([
@@ -332,6 +395,22 @@ export async function runFavouritesAnalysis(
     onProgress({ phase: 'va-totals', index: i + 1, total: vaIdList.length });
     const edges = await fetchVaCharacterEdges(vaId, signal, fetchOptions);
     vaTotalCharacterCounts.set(vaId, countVaCharactersOnMedia(edges, consumedMediaIds));
+  }
+
+  if (fetchOptions?.expandRoles) {
+    const staffToExpand = favouriteStaff
+      .map((staff) => staff.id)
+      .filter((staffId) => !vaIds.has(staffId));
+    for (let i = 0; i < staffToExpand.length; i += 1) {
+      signal?.throwIfAborted();
+      const staffId = staffToExpand[i]!;
+      onProgress({
+        phase: 'expand-staff-filmography',
+        index: i + 1,
+        total: staffToExpand.length,
+      });
+      await ensureStaffFilmographyFresh(staffId, favouritesGraphForceOptions(fetchOptions));
+    }
   }
 
   onProgress({ phase: 'build' });

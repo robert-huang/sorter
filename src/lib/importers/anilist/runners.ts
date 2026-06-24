@@ -30,6 +30,7 @@ import { ANILIST_SOURCE_ID } from './anilistSource';
 import { makeAnilistImportContext } from './context';
 import { importAnilistFavourites } from './favourites';
 import { importAnilistList } from './importer';
+import { expandCharacterMedia, type ExpandCharacterMediaResult } from './expandCharacterMedia';
 import { expandStaffFilmography, type ExpandStaffFilmographyResult } from './expandStaffFilmography';
 import { expandMediaRelations, type ExpandMediaRelationsResult } from './expandMediaRelations';
 import {
@@ -145,6 +146,15 @@ export async function runAnilistStaffFilmographyExpansion(
   onProgress?: AnilistProgressReporter,
 ): Promise<ExpandStaffFilmographyResult | null> {
   const result = await expandStaffFilmography(buildContext(onProgress), staffId);
+  if (result) markLocalDbPresent();
+  return result;
+}
+
+export async function runAnilistCharacterMediaExpansion(
+  characterId: number,
+  onProgress?: AnilistProgressReporter,
+): Promise<ExpandCharacterMediaResult | null> {
+  const result = await expandCharacterMedia(buildContext(onProgress), characterId);
   if (result) markLocalDbPresent();
   return result;
 }

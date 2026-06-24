@@ -21,6 +21,8 @@ export type DepaginateOptions<TData, TNode> = {
   query: string;
   variables?: Record<string, unknown>;
   perPage?: number;
+  /** Stop after this many pages (Favourites bounded fetches). */
+  maxPages?: number;
   /** Pull nodes + pageInfo from one page's GraphQL `data` payload. */
   selectPage: (data: TData) => { nodes: TNode[]; pageInfo: DepaginatePageInfo };
   signal?: AbortSignal;
@@ -44,6 +46,7 @@ export async function depaginate<TData, TNode>(
     query,
     variables = {},
     perPage = ANILIST_TOOLS_MAX_PAGE_SIZE,
+    maxPages,
     selectPage,
     signal,
     onProgress,
@@ -51,9 +54,13 @@ export async function depaginate<TData, TNode>(
 
   const out: TNode[] = [];
   let page = 1;
+  let pagesFetched = 0;
 
   while (true) {
     throwIfAborted(signal);
+    if (maxPages !== undefined && pagesFetched >= maxPages) {
+      break;
+    }
 
     const data = await executeAnilistQuery<TData>(query, {
       ...variables,
@@ -65,6 +72,7 @@ export async function depaginate<TData, TNode>(
       break;
     }
 
+    pagesFetched += 1;
     const { nodes, pageInfo } = selectPage(data);
     out.push(...nodes);
     onProgress?.({ page, collected: out.length });

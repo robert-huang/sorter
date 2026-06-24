@@ -320,6 +320,23 @@ export type AnilistStaffCharacterMediaEdgeGql = {
   node: AnilistMediaGql | null;
 };
 
+/** `Character.media` edge — character appearance with JP voice cast (Favourites). */
+export type AnilistCharacterMediaEdgeGql = {
+  characterRole: AnilistCharacterRole | null;
+  node: AnilistMediaGql | null;
+  voiceActors: AnilistStaffGql[];
+};
+
+export type AnilistCharacterVoiceMediaResponse = {
+  Character: {
+    id: number;
+    media: {
+      pageInfo: Pick<AnilistPageInfo, 'hasNextPage' | 'currentPage'>;
+      edges: AnilistCharacterMediaEdgeGql[];
+    } | null;
+  } | null;
+};
+
 /** @deprecated Use {@link AnilistStaffCharacterMediaEdgeGql}. */
 export type AnilistStaffCharacterEdgeGql = AnilistStaffCharacterMediaEdgeGql;
 

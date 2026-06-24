@@ -14,6 +14,7 @@ import {
   mapCharacterFavouriteRow,
   mapCharacterRow,
   mapCharacterVoiceActorRows,
+  mapCharacterMediaAppearanceData,
   mapMediaCharacterRows,
   mapMediaFavouriteRow,
   mapMediaListEntryRow,
@@ -702,6 +703,62 @@ describe('mapStaffCharacterAppearanceData', () => {
     expect(result.mediaRows).toHaveLength(1);
     expect(result.characterRows).toHaveLength(1);
     expect(result.cvaRows).toHaveLength(1);
+  });
+});
+
+describe('mapCharacterMediaAppearanceData', () => {
+  it('maps Character.media edges with voiceActors for one character', () => {
+    const media = fullMedia({ id: 300 });
+    const va = {
+      id: 99,
+      name: { full: 'VA Name', native: null, alternative: null },
+      image: { large: null },
+      languageV2: 'JAPANESE',
+      favourites: null,
+      age: null,
+      gender: null,
+    };
+    const result = mapCharacterMediaAppearanceData(
+      10,
+      [
+        {
+          characterRole: 'MAIN',
+          node: media,
+          voiceActors: [va],
+        },
+      ],
+      'JAPANESE',
+      NOW,
+    );
+    expect(result.mediaRows).toHaveLength(1);
+    expect(result.mediaRows[0]!.id).toBe(300);
+    expect(result.staffRows).toHaveLength(1);
+    expect(result.staffRows[0]!.id).toBe(99);
+    expect(result.mediaCharacterRows).toHaveLength(1);
+    expect(result.mediaCharacterRows[0]).toMatchObject({
+      media_id: 300,
+      character_id: 10,
+      role: 'MAIN',
+    });
+    expect(result.cvaRows).toHaveLength(1);
+    expect(result.cvaRows[0]).toMatchObject({
+      media_id: 300,
+      character_id: 10,
+      staff_id: 99,
+      language: 'JAPANESE',
+    });
+  });
+
+  it('skips null media nodes', () => {
+    const result = mapCharacterMediaAppearanceData(
+      10,
+      [{ characterRole: 'MAIN', node: null, voiceActors: [] }],
+      'JAPANESE',
+      NOW,
+    );
+    expect(result.mediaRows).toHaveLength(0);
+    expect(result.mediaCharacterRows).toHaveLength(0);
+    expect(result.cvaRows).toHaveLength(0);
   });
 });
 

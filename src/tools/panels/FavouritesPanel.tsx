@@ -1,12 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import type { FavouritesFetchOptions } from '../../lib/importers/anilist/toolsFetchPolicy';
+import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
 import { ToolUsernameField } from '../ToolUsernameField';
-import { ToolShowButton, ToolStaffButton } from '../toolEntityLinks';
+import { ToolCharacterName, ToolShowButton, ToolStaffButton } from '../toolEntityLinks';
 import { useUsernameListRefresh } from '../useUsernameListRefresh';
 import { useToolsDisplayLabelRevision } from '../useToolsDisplayLabelRevision';
 import { runFavouritesAnalysis, type FavouritesRunProgress } from './favouritesApi';
 import {
+  FAVOURITES_TOP_N,
   rebuildFavouritesResult,
   type FavouritesForm,
   type FavouritesRebuildSource,
@@ -14,9 +17,11 @@ import {
   type FavouritesSeriesRow,
   type VaRankRow,
 } from './favouritesLogic';
-import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
 
 const LS_KEY = 'anime-tools-favourites-form';
+
+const EXPAND_ROLES_TITLE =
+  'Fully re-fetch role data from AniList and save to the local database — every favourite character’s appearances, then voice-actor roles for VAs found on those characters, then voice-actor roles for your favourite staff. Can take a long time for large favourite lists. Use Analyze for a faster run from cache.';
 
 const DEFAULT_FORM: FavouritesForm = {
   username: '',
@@ -59,6 +64,8 @@ function progressLabel(progress: FavouritesRunProgress | null): string | null {
       return `Fetching VAs for ${progress.name} (${progress.index}/${progress.total})…`;
     case 'va-totals':
       return `Counting VA filmography (${progress.index}/${progress.total})…`;
+    case 'expand-staff-filmography':
+      return `Expanding staff filmography (${progress.index}/${progress.total})…`;
     case 'build':
       return 'Building report…';
     default:
@@ -77,14 +84,20 @@ function VaRankBlock({
   onOpenStaff: ToolPanelProps['onOpenStaff'];
   defaultOpen?: boolean;
 }) {
+  const [visible, setVisible] = useState(FAVOURITES_TOP_N);
+
   if (rows.length === 0) {
     return null;
   }
+
+  const shown = rows.slice(0, visible);
+  const hasMore = visible < rows.length;
+
   return (
     <details className="tool-category-block" open={defaultOpen || undefined}>
       <summary className="tool-category-title">{title}</summary>
       <ul className="tool-rank-list">
-        {rows.map((row) => (
+        {shown.map((row) => (
           <li key={`${title}-${row.staffId}`}>
             <span className="tool-rank-count">{row.displayValue}</span>
             <ToolStaffButton
@@ -98,6 +111,15 @@ function VaRankBlock({
           </li>
         ))}
       </ul>
+      {hasMore ? (
+        <button
+          type="button"
+          className="btn"
+          onClick={() => setVisible((current) => current + FAVOURITES_TOP_N)}
+        >
+          Load more
+        </button>
+      ) : null}
     </details>
   );
 }
@@ -148,6 +170,46 @@ function NameListBlock({ title, names }: { title: string; names: string[] }) {
   );
 }
 
+function GroupedCategoryBlock({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <details className="tool-category-block">
+      <summary className="tool-category-title">{title}</summary>
+      {children}
+    </details>
+  );
+}
+
+function FavouriteCharactersBlock({
+  characters,
+}: {
+  characters: FavouritesResult['favouriteCharacters'];
+}) {
+  if (characters.length === 0) {
+    return null;
+  }
+  return (
+    <details className="tool-category-block">
+      <summary className="tool-category-title">
+        Favourite characters ({characters.length})
+      </summary>
+      <ol className="tool-rank-list tool-favourite-characters-list">
+        {characters.map((character) => (
+          <li key={character.id}>
+            <span className="tool-rank-count">{character.rank}.</span>
+            <ToolCharacterName characterId={character.id} name={character.name} />
+          </li>
+        ))}
+      </ol>
+    </details>
+  );
+}
+
 export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
   const { refreshing: refreshingList, refreshUsernameList } = useUsernameListRefresh({
     refreshFavourites: true,
@@ -185,59 +247,82 @@ export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
     setProgress(null);
   }, []);
 
-  const onRun = useCallback(async (forceRefresh = false) => {
-    const username = form.username.trim();
-    if (!username) {
-      setError('Enter an AniList username.');
-      setResult(null);
-      return;
-    }
-
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    setRunning(true);
-    setError(null);
-    setResult(null);
-    rebuildSourceRef.current = null;
-    setProgress({ phase: 'list' });
-
-    try {
-      const { result: report, rebuildSource } = await runFavouritesAnalysis(
-        form,
-        setProgress,
-        controller.signal,
-        forceRefresh ? { forceRefresh: true } : undefined,
-      );
-      rebuildSourceRef.current = rebuildSource;
-      setResult(report);
-    } catch (e) {
-      if (e instanceof DOMException && e.name === 'AbortError') {
+  const runAnalysis = useCallback(
+    async (fetchOptions?: FavouritesFetchOptions) => {
+      const username = form.username.trim();
+      if (!username) {
+        setError('Enter an AniList username.');
+        setResult(null);
         return;
       }
-      setError(e instanceof Error ? e.message : 'Failed to run analysis.');
-    } finally {
-      if (abortRef.current === controller) {
-        abortRef.current = null;
-        setRunning(false);
-        setProgress(null);
+
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      setRunning(true);
+      setError(null);
+      setResult(null);
+      rebuildSourceRef.current = null;
+      setProgress({ phase: 'list' });
+
+      try {
+        const { result: report, rebuildSource } = await runFavouritesAnalysis(
+          form,
+          setProgress,
+          controller.signal,
+          fetchOptions,
+        );
+        rebuildSourceRef.current = rebuildSource;
+        setResult(report);
+      } catch (e) {
+        if (e instanceof DOMException && e.name === 'AbortError') {
+          return;
+        }
+        setError(e instanceof Error ? e.message : 'Failed to run analysis.');
+      } finally {
+        if (abortRef.current === controller) {
+          abortRef.current = null;
+          setRunning(false);
+          setProgress(null);
+        }
       }
-    }
-  }, [form]);
+    },
+    [form],
+  );
+
+  const onRun = useCallback(
+    (forceRefreshFavourites = false) => {
+      void runAnalysis(
+        forceRefreshFavourites ? { forceRefreshFavourites: true } : undefined,
+      );
+    },
+    [runAnalysis],
+  );
+
+  const onExpandRoles = useCallback(() => {
+    void runAnalysis({ expandRoles: true });
+  }, [runAnalysis]);
 
   const statusText = progressLabel(progress);
   const mainRolePct =
     result && result.numSeen > 0
-      ? Math.round((result.roles.main.length / result.numSeen) * 100)
+      ? Math.round((result.numMain / result.numSeen) * 100)
+      : null;
+  const femalePct =
+    result && result.numSeen > 0
+      ? Math.round((result.numFemaleSeen / result.numSeen) * 100)
       : null;
 
   return (
     <section className="tool-panel">
       <p className="tool-panel-lead">
         Find voice actors behind your favourite characters — port of{' '}
-        <code>character_vas.py</code>. First run can take a few minutes; character
-        and VA lookups are cached in the browser (gear → Settings for display names).
+        <code>character_vas.py</code>. <strong>Analyze</strong> uses cached favourites and
+        local database lookups for a fast run; use the ↻ button to refresh your anime list
+        from AniList. <strong>Expand Roles</strong> fully re-fetches character and VA role
+        data into the local database (can take a long time). Gear → Settings controls display
+        names.
       </p>
 
       <form
@@ -245,7 +330,7 @@ export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
         onSubmit={(e) => {
           e.preventDefault();
           if (!running) {
-            void onRun(false);
+            onRun(false);
           }
         }}
       >
@@ -263,9 +348,18 @@ export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
           <ToolRunButton
             label="Analyze"
             running={running}
-            forceRefreshTitle="Right-click to re-fetch favourites, character VAs, and anime list from AniList (bypass cache)"
-            onRun={(forceRefresh) => void onRun(forceRefresh)}
+            forceRefreshTitle="Right-click to re-fetch favourite characters and staff from AniList"
+            onRun={(forceRefresh) => onRun(forceRefresh)}
           />
+          <button
+            type="button"
+            className="btn danger"
+            disabled={running}
+            title={running ? undefined : EXPAND_ROLES_TITLE}
+            onClick={onExpandRoles}
+          >
+            Expand Roles
+          </button>
           {running && (
             <button type="button" className="btn" onClick={onCancel}>
               Cancel
@@ -283,6 +377,7 @@ export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
             {result.characterCount} favourite characters · {result.vaCount} VAs ·{' '}
             {result.numSeen} seen on your list
             {mainRolePct !== null ? ` · ~${mainRolePct}% main roles` : ''}
+            {femalePct !== null ? ` · ~${femalePct}% female` : ''}
           </p>
 
           <VaRankBlock
@@ -307,17 +402,20 @@ export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
             onOpenStaff={onOpenStaff}
           />
 
-          <NameListBlock
-            title="Female characters"
-            names={result.gender.female}
-          />
-          <NameListBlock title="Male characters" names={result.gender.male} />
-          <NameListBlock title="Other / unknown gender" names={result.gender.other} />
+          <FavouriteCharactersBlock characters={result.favouriteCharacters} />
 
-          <NameListBlock title="Main roles" names={result.roles.main} />
-          <NameListBlock title="Supporting roles" names={result.roles.supporting} />
-          <NameListBlock title="Background roles" names={result.roles.background} />
-          <NameListBlock title="Unknown roles" names={result.roles.unknown} />
+          <GroupedCategoryBlock title="Gender">
+            <NameListBlock title="Female characters" names={result.gender.female} />
+            <NameListBlock title="Male characters" names={result.gender.male} />
+            <NameListBlock title="Other / unknown gender" names={result.gender.other} />
+          </GroupedCategoryBlock>
+
+          <GroupedCategoryBlock title="Roles on your list">
+            <NameListBlock title="Main roles" names={result.roles.main} />
+            <NameListBlock title="Supporting roles" names={result.roles.supporting} />
+            <NameListBlock title="Background roles" names={result.roles.background} />
+            <NameListBlock title="Unknown roles" names={result.roles.unknown} />
+          </GroupedCategoryBlock>
 
           <details className="tool-category-block">
             <summary className="tool-category-title">Birthdays</summary>
@@ -346,6 +444,11 @@ export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
                     onOpenStaff={onOpenStaff}
                     compact
                   />
+                  {staff.matchedCharacterNames.length > 0 ? (
+                    <span className="tool-rank-detail">
+                      {staff.matchedCharacterNames.join(', ')}
+                    </span>
+                  ) : null}
                   {staff.gender ? (
                     <span className="tool-rank-detail">{staff.gender}</span>
                   ) : null}

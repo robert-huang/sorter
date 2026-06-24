@@ -138,6 +138,7 @@ export type FavouritesResult = {
   vaCount: number;
   numSeen: number;
   numMain: number;
+  numFemaleSeen: number;
   byCount: VaRankRow[];
   byAvgRank: VaRankRow[];
   byLogScore: VaRankRow[];
@@ -153,12 +154,14 @@ export type FavouritesResult = {
   seriesAnime: FavouritesSeriesRow[];
   seriesManga: FavouritesSeriesRow[];
   characterNames: string[];
+  favouriteCharacters: Array<{ id: number; name: string; rank: number }>;
   favouriteStaff: Array<{
     id: number;
     name: string;
     imageUrl: string | null;
     gender: string | null;
     matchedCount: number;
+    matchedCharacterNames: string[];
   }>;
 };
 
@@ -379,7 +382,6 @@ function toRankRows(
   accum: Map<number, VaAccumulator>,
   pick: (va: VaAccumulator) => { displayValue: string; numericValue: number },
   sort: (a: VaRankRow, b: VaRankRow) => number,
-  topN: number,
 ): VaRankRow[] {
   const rows: VaRankRow[] = [...accum.values()].map((va) => {
     const { displayValue, numericValue } = pick(va);
@@ -394,7 +396,7 @@ function toRankRows(
     };
   });
   rows.sort(sort);
-  return rows.slice(0, topN);
+  return rows;
 }
 
 export function buildFavouritesResult(input: {
@@ -409,7 +411,6 @@ export function buildFavouritesResult(input: {
   }>;
   vaTotalCharacterCounts: Map<number, number>;
   favouriteStaff: FavouriteStaffInput[];
-  topN?: number;
 }): FavouritesResult {
   const {
     characters,
@@ -417,13 +418,17 @@ export function buildFavouritesResult(input: {
     perCharacterMeta,
     vaTotalCharacterCounts,
     favouriteStaff,
-    topN = FAVOURITES_TOP_N,
   } = input;
 
   const dummyMedian = characters.length / 10;
   const accum = accumulateVaStats(characters, perCharacterVas);
 
   const characterNames = characters.map((c) => pickCharacterName(c));
+  const favouriteCharacters = characters.map((character, index) => ({
+    id: character.id,
+    name: characterNames[index]!,
+    rank: index + 1,
+  }));
   const gender = { female: [] as string[], male: [] as string[], other: [] as string[] };
   const roles = {
     main: [] as string[],
@@ -437,6 +442,7 @@ export function buildFavouritesResult(input: {
 
   let numSeen = 0;
   let numMain = 0;
+  let numFemaleSeen = 0;
 
   for (let i = 0; i < characters.length; i += 1) {
     const name = characterNames[i];
@@ -445,6 +451,9 @@ export function buildFavouritesResult(input: {
     numMain += meta.isMain ? 1 : 0;
 
     const g = (characters[i].gender ?? '').toLowerCase();
+    if (meta.seen && g === 'female') {
+      numFemaleSeen += 1;
+    }
     if (g === 'female' || g === 'male') {
       gender[g].push(name);
     } else {
@@ -487,7 +496,6 @@ export function buildFavouritesResult(input: {
       numericValue: va.count - dummyMedian,
     }),
     (a, b) => b.numericValue - a.numericValue,
-    topN,
   );
 
   const byAvgRank = toRankRows(
@@ -497,7 +505,6 @@ export function buildFavouritesResult(input: {
       numericValue: va.rankSum / va.count,
     }),
     (a, b) => a.numericValue - b.numericValue,
-    topN,
   );
 
   const byLogScore = toRankRows(
@@ -507,7 +514,6 @@ export function buildFavouritesResult(input: {
       numericValue: va.logScore,
     }),
     (a, b) => b.numericValue - a.numericValue,
-    topN,
   );
 
   const byPercent = toRankRows(
@@ -523,23 +529,27 @@ export function buildFavouritesResult(input: {
       };
     },
     (a, b) => b.numericValue - a.numericValue,
-    topN,
   );
 
-  const staffRows = favouriteStaff.map((staff) => ({
-    id: staff.id,
-    name: pickStaffName(staff),
-    imageUrl:
-      staff.image?.large ?? accum.get(staff.id)?.imageUrl ?? null,
-    gender: staff.gender ?? null,
-    matchedCount: accum.get(staff.id)?.characterNames.length ?? 0,
-  }));
+  const staffRows = favouriteStaff.map((staff) => {
+    const matchedCharacterNames = accum.get(staff.id)?.characterNames ?? [];
+    return {
+      id: staff.id,
+      name: pickStaffName(staff),
+      imageUrl:
+        staff.image?.large ?? accum.get(staff.id)?.imageUrl ?? null,
+      gender: staff.gender ?? null,
+      matchedCount: matchedCharacterNames.length,
+      matchedCharacterNames,
+    };
+  });
 
   return {
     characterCount: characters.length,
     vaCount: accum.size,
     numSeen,
     numMain,
+    numFemaleSeen,
     byCount,
     byAvgRank,
     byLogScore,
@@ -550,6 +560,7 @@ export function buildFavouritesResult(input: {
     seriesAnime: sortSeriesRows([...seriesAnimeById.values()], characterNames),
     seriesManga: sortSeriesRows([...seriesMangaById.values()], characterNames),
     characterNames,
+    favouriteCharacters,
     favouriteStaff: staffRows,
   };
 }

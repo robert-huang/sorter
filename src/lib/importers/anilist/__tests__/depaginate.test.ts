@@ -99,4 +99,28 @@ describe('depaginate', () => {
       }),
     ).rejects.toMatchObject({ name: 'AbortError' });
   });
+
+  it('stops after maxPages even when hasNextPage is true', async () => {
+    mockQuery.mockImplementation(async (_query, vars) => {
+      const page = (vars?.page as number) ?? 1;
+      return {
+        Page: {
+          pageInfo: { hasNextPage: true, currentPage: page },
+          media: [{ id: page }],
+        },
+      };
+    });
+
+    const nodes = await depaginate<PageData, { id: number }>({
+      query: 'q',
+      maxPages: 2,
+      selectPage: (data) => ({
+        nodes: data.Page.media,
+        pageInfo: data.Page.pageInfo,
+      }),
+    });
+
+    expect(nodes).toEqual([{ id: 1 }, { id: 2 }]);
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+  });
 });

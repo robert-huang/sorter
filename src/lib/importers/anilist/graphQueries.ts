@@ -541,6 +541,31 @@ export async function getStaffFilmographyFetchedAt(
   return n(rows[0].fetched_at);
 }
 
+export async function hasCharacterMediaExpansion(
+  db: AnilistDbExecutor,
+  characterId: number,
+): Promise<boolean> {
+  const rows = await db.exec(
+    'SELECT 1 FROM character_media_expansion WHERE character_id = ? LIMIT 1',
+    [characterId],
+  );
+  return rows.length > 0;
+}
+
+export async function getCharacterMediaFetchedAt(
+  db: AnilistDbExecutor,
+  characterId: number,
+): Promise<number | null> {
+  const rows = await db.exec(
+    'SELECT fetched_at FROM character_media_expansion WHERE character_id = ?',
+    [characterId],
+  );
+  if (rows.length === 0) {
+    return null;
+  }
+  return n(rows[0].fetched_at);
+}
+
 export type AnimeCacheStats = {
   totalMedia: number;
   animeCount: number;
