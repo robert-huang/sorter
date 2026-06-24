@@ -6077,11 +6077,7 @@ html {
   display: flex;
   flex-direction: row;
   gap: 8px;
-  align-items: flex-start;
-}
-
-.tool-season-title.tool-entity-btn {
-  align-items: flex-start;
+  align-items: center;
 }
 
 .tool-season-score {
