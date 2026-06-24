@@ -4,6 +4,7 @@ export type SeasonalShow = {
   id: number;
   title: string;
   titleSource?: import('../../lib/importers/anilist/mediaDisplayLabel').MediaTitleFields;
+  coverImage?: string | null;
   season: string | null;
   seasonYear: number | null;
   score: number | null;
@@ -26,7 +27,7 @@ export type SeasonalScoresForm = {
 export type SeasonColumn = {
   label: string;
   average: number | null;
-  shows: Array<{ id: number; title: string; score: number | null }>;
+  shows: Array<{ id: number; title: string; coverImage: string | null; score: number | null }>;
 };
 
 export type SeasonalScoresResult =
@@ -157,6 +158,7 @@ export function buildSeasonalColumns(
       shows: bucket.map((show) => ({
         id: show.id,
         title: show.title,
+        coverImage: show.coverImage ?? null,
         score: show.score,
       })),
     });

@@ -5,8 +5,8 @@ import {
 } from '../../lib/importers/anilist/mediaDisplayLabel';
 import {
   pickPersonName,
-  type PersonNameFields,
 } from '../../lib/importers/anilist/personDisplayLabel';
+import type { ToolStaffNameFields } from './sharedCreditsApi';
 import { parseLinesOnePerLine } from '../parseToolLines';
 
 export type MediaTitleSource = MediaTitleFields;
@@ -67,13 +67,25 @@ export type SharedCreditsTableRow = {
 export type SharedCreditsDiffBlock = {
   staffId: number;
   staffName: string;
-  shows: Array<{ mediaId: number; title: string; rolesLabel: string }>;
+  staffImage?: string | null;
+  shows: Array<{
+    mediaId: number;
+    title: string;
+    coverImage: string | null;
+    rolesLabel: string;
+  }>;
 };
 
 export type SharedCreditsResult =
   | { kind: 'empty'; message: string }
   | { kind: 'diff'; blocks: SharedCreditsDiffBlock[] }
-  | { kind: 'table'; staffIds: number[]; staffNames: string[]; rows: SharedCreditsTableRow[] };
+  | {
+      kind: 'table';
+      staffIds: number[];
+      staffNames: string[];
+      staffImages: Array<string | null>;
+      rows: SharedCreditsTableRow[];
+    };
 
 type StartDateParts = {
   year?: number | null;
@@ -132,7 +144,7 @@ export function applyUsernameMediaFilter(
 
 export function buildSharedCreditsResult(
   staffIds: number[],
-  staffNameFields: Record<number, PersonNameFields>,
+  staffNameFields: Record<number, ToolStaffNameFields>,
   lists: StaffShowMap[],
   form: Pick<
     SharedCreditsForm,
@@ -161,11 +173,13 @@ export function buildSharedCreditsResult(
             name_full: String(staffId),
             name_native: null,
           }),
+        staffImage: staffNameFields[staffId]?.image ?? null,
         shows: uniqueIds.map((mediaId) => {
           const entry = processed[idx]?.[mediaId];
           return {
             mediaId: Number(mediaId),
             title: entry?.title ?? mediaId,
+            coverImage: entry?.coverImage ?? null,
             rolesLabel: entry?.roles.map(formatStaffRoleLabel).join(', ') ?? '',
           };
         }),
@@ -224,6 +238,7 @@ export function buildSharedCreditsResult(
         name_native: null,
       }),
     ),
+    staffImages: staffIds.map((id) => staffNameFields[id]?.image ?? null),
     rows,
   };
 }

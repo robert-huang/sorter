@@ -28,6 +28,7 @@ export type CreditedEntityMap = Record<string, CreditedEntity>;
 export type ShowStaffBundle = {
   id: number;
   title: string;
+  coverImage?: string | null;
   studios: CreditedEntityMap;
   productionStaff: CreditedEntityMap;
   voiceActors: CreditedEntityMap;
@@ -56,6 +57,7 @@ export type SharedStaffSection = {
 export type SharedStaffTopMatch = {
   mediaId: number;
   title: string;
+  coverImage: string | null;
   sharedStaffCount: number;
 };
 
@@ -68,7 +70,7 @@ export type SharedStaffResult =
   | { kind: 'empty'; message: string }
   | {
       kind: 'compare';
-      shows: Array<{ id: number; title: string }>;
+      shows: Array<{ id: number; title: string; coverImage: string | null }>;
       sections: SharedStaffSection[];
       singleShowReport?: {
         sourceTitle: string;
@@ -288,6 +290,7 @@ export type ProductionFilmographyShow = {
   title: string;
   roles: string[];
   titleSource?: import('./sharedCreditsLogic').MediaTitleSource;
+  coverImage?: string | null;
 };
 
 export function tallySingleShowMatches(options: {
@@ -316,6 +319,7 @@ export function tallySingleShowMatches(options: {
   const visualsCounts = new Map<number, number>();
   const writingCounts = new Map<number, number>();
   const titlesById: Record<number, string> = {};
+  const coversById: Record<number, string | null> = {};
 
   for (const [staffKey, staffInfo] of Object.entries(productionStaff)) {
     const staffId = Number(staffKey);
@@ -326,6 +330,9 @@ export function tallySingleShowMatches(options: {
 
     for (const show of showRoles) {
       titlesById[show.id] = show.title;
+      if (show.coverImage) {
+        coversById[show.id] = show.coverImage;
+      }
     }
 
     const sourceRoles = staffInfo.roles;
@@ -369,6 +376,7 @@ export function tallySingleShowMatches(options: {
       .map(([mediaId, sharedStaffCount]) => ({
         mediaId,
         title: titlesById[mediaId] ?? String(mediaId),
+        coverImage: coversById[mediaId] ?? null,
         sharedStaffCount,
       }));
 
@@ -410,7 +418,11 @@ export function finalizeSharedStaffResult(
 
   return {
     kind: 'compare',
-    shows: shows.map((s) => ({ id: s.id, title: s.title })),
+    shows: shows.map((s) => ({
+      id: s.id,
+      title: s.title,
+      coverImage: s.coverImage ?? null,
+    })),
     sections,
     singleShowReport,
   };

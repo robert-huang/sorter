@@ -25,6 +25,8 @@ import {
   tallySingleShowMatches,
   type CreditedEntityMap,
   type ProductionFilmographyShow,
+  type SharedStaffCategoryMatches,
+  type SharedStaffTopMatch,
   type ShowStaffBundle,
 } from './sharedStaffLogic';
 
@@ -280,6 +282,7 @@ export async function fetchShowStaffBundle(
   return {
     id: mediaId,
     title: fromDb?.title || title,
+    coverImage: fromDb?.coverImage ?? null,
     studios,
     productionStaff,
     voiceActors,
@@ -366,6 +369,7 @@ async function fetchProductionStaffFilmographyLive(
       node: {
         id: number;
         title: { english?: string | null; romaji?: string | null };
+        coverImage?: { large?: string | null } | null;
       };
     }
   >({
@@ -389,9 +393,16 @@ async function fetchProductionStaffFilmographyLive(
       title_romaji: show.title.romaji ?? null,
       title_native: (show.title as { native?: string | null }).native ?? null,
     };
+    const coverImage = show.coverImage?.large ?? null;
     const role = edge.staffRole ?? '(role unavailable)';
     if (!existing) {
-      byId.set(show.id, { id: show.id, title, roles: [role], titleSource });
+      byId.set(show.id, {
+        id: show.id,
+        title,
+        roles: [role],
+        titleSource,
+        coverImage,
+      });
     } else {
       existing.roles.push(role);
     }
@@ -439,11 +450,8 @@ export async function runSharedStaffCompare(options: {
   shows: ShowStaffBundle[];
   singleShowReport?: {
     sourceTitle: string;
-    topOverall: Array<{ mediaId: number; title: string; sharedStaffCount: number }>;
-    byCategory: Array<{
-      label: string;
-      matches: Array<{ mediaId: number; title: string; sharedStaffCount: number }>;
-    }>;
+    topOverall: SharedStaffTopMatch[];
+    byCategory: SharedStaffCategoryMatches[];
   };
   tallyMeta?: {
     topMatchMediaId: number | null;

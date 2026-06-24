@@ -54,8 +54,12 @@ describe('processCharacterEdges', () => {
     expect(result.seen).toBe(true);
     expect(result.isMain).toBe(true);
     expect(result.charRole).toBe(CharacterRoleTier.Main);
-    expect(result.vas).toEqual([{ id: 10, name: 'VA One' }]);
-    expect(result.shows['Show A']).toEqual(['Hero']);
+    expect(result.vas).toEqual([{ id: 10, name: 'VA One', imageUrl: null }]);
+    expect(result.shows[1]).toEqual({
+      title: 'Show A',
+      coverImage: null,
+      characters: ['Hero'],
+    });
   });
 });
 
@@ -81,7 +85,7 @@ describe('accumulateVaStats', () => {
     ];
     const accum = accumulateVaStats(
       characters,
-      [[{ id: 5, name: 'VA' }], [{ id: 5, name: 'VA' }]],
+      [[{ id: 5, name: 'VA', imageUrl: null }], [{ id: 5, name: 'VA', imageUrl: null }]],
       'full',
     );
     const va = accum.get(5);
@@ -112,22 +116,29 @@ describe('buildFavouritesResult', () => {
     const result = buildFavouritesResult({
       characters,
       perCharacterVas: [
-        [{ id: 10, name: 'VA A' }],
-        [{ id: 10, name: 'VA A' }, { id: 11, name: 'VA B' }],
+        [{ id: 10, name: 'VA A', imageUrl: null }],
+        [
+          { id: 10, name: 'VA A', imageUrl: null },
+          { id: 11, name: 'VA B', imageUrl: null },
+        ],
       ],
       perCharacterMeta: [
         {
           charRole: CharacterRoleTier.Main,
           seen: true,
           isMain: true,
-          shows: { 'Show 1': ['Alice'] },
+          shows: {
+            1: { title: 'Show 1', coverImage: null, characters: ['Alice'] },
+          },
           books: {},
         },
         {
           charRole: CharacterRoleTier.Supporting,
           seen: true,
           isMain: false,
-          shows: { 'Show 2': ['Bob'] },
+          shows: {
+            2: { title: 'Show 2', coverImage: null, characters: ['Bob'] },
+          },
           books: {},
         },
       ],

@@ -7,7 +7,11 @@ import {
   TOOLS_USER_ANIME_LIST_QUERY,
 } from '../../lib/importers/anilist/queries';
 import { executeAnilistQuery } from '../../lib/importers/anilist/transport';
-import { pickCharacterName, pickPersonName, type PersonNameFields } from '../../lib/importers/anilist/personDisplayLabel';
+import {
+  pickCharacterName,
+  pickPersonName,
+  type PersonNameFields,
+} from '../../lib/importers/anilist/personDisplayLabel';
 import {
   TOOLS_CACHE_TTL_MS,
   withToolsCache,
@@ -28,10 +32,15 @@ import {
   type StaffRoleMode,
   type StaffShowMap,
 } from './sharedCreditsLogic';
+
 import {
   mediaTitleSource,
   voiceRoleLabelSource,
 } from '../toolsDisplayRelabel';
+
+export type ToolStaffNameFields = PersonNameFields & {
+  image?: string | null;
+};
 
 const USER_LIST_STATUSES = TOOLS_USER_LIST_STATUSES;
 
@@ -217,7 +226,7 @@ export async function resolveStaffIds(
 export async function fetchStaffNameFieldsByIds(
   staffIds: number[],
   signal?: AbortSignal,
-): Promise<Record<number, PersonNameFields>> {
+): Promise<Record<number, ToolStaffNameFields>> {
   signal?.throwIfAborted();
   const key = `tools:staff-names:${staffIds.join(',')}`;
   return withToolsCache(key, TOOLS_CACHE_TTL_MS.staffSearch, async () => {
@@ -225,10 +234,18 @@ export async function fetchStaffNameFieldsByIds(
       {
         Page: {
           pageInfo: { hasNextPage: boolean };
-          staff: Array<{ id: number; name: { full: string; native?: string | null } }>;
+          staff: Array<{
+            id: number;
+            name: { full: string; native?: string | null };
+            image?: { large?: string | null } | null;
+          }>;
         } | null;
       },
-      { id: number; name: { full: string; native?: string | null } }
+      {
+        id: number;
+        name: { full: string; native?: string | null };
+        image?: { large?: string | null } | null;
+      }
     >({
       query: TOOLS_STAFF_BY_IDS_QUERY,
       variables: { staffIds },
@@ -239,12 +256,13 @@ export async function fetchStaffNameFieldsByIds(
       }),
     });
 
-    const fields: Record<number, PersonNameFields> = {};
+    const fields: Record<number, ToolStaffNameFields> = {};
     for (const row of staff) {
       fields[row.id] = {
         id: row.id,
         name_full: row.name.full,
         name_native: row.name.native ?? null,
+        image: row.image?.large ?? null,
       };
     }
     if (Object.keys(fields).length !== staffIds.length) {
@@ -418,7 +436,7 @@ export async function runSharedCreditsCompare(options: {
   onProgress?: (progress: SharedCreditsRunProgress) => void;
   fetchOptions?: ToolsFetchOptions;
 }): Promise<{
-  staffNameFields: Record<number, PersonNameFields>;
+  staffNameFields: Record<number, ToolStaffNameFields>;
   lists: StaffShowMap[];
   userMediaIds: Set<string> | null;
   usernameMode: 'include' | 'exclude' | null;

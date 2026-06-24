@@ -13,6 +13,7 @@ import {
   type SeasonalShow,
 } from './seasonalScoresLogic';
 import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
+import { ToolShowButton } from '../toolEntityLinks';
 
 const LS_KEY = 'anime-tools-seasonal-scores-form';
 /** @deprecated migrated into {@link LS_KEY} */
@@ -87,15 +88,14 @@ function SeasonalColumnsView({
                 <div key={show.id} className="tool-season-cell">
                   <div className="tool-season-cell-grid">
                     <span className="tool-season-score">{show.score ?? '—'}</span>
-                    <button
-                      type="button"
-                      className="tool-link-btn tool-season-title"
-                      onClick={() =>
-                        onOpenMedia(show.id, show.title, { forceRefresh: true })
-                      }
-                    >
-                      {show.title}
-                    </button>
+                    <ToolShowButton
+                      mediaId={show.id}
+                      title={show.title}
+                      coverImage={show.coverImage}
+                      onOpenMedia={onOpenMedia}
+                      compact
+                      className="tool-season-title"
+                    />
                   </div>
                 </div>
               ))}

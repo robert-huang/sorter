@@ -279,7 +279,8 @@ export async function readFavouriteStaffFromDb(
              s.name_full,
              s.name_native,
              s.gender,
-             s.favourites
+             s.favourites,
+             s.image
         FROM staff_favourite sf
         JOIN staff s ON s.id = sf.staff_id
        WHERE sf.anilist_user_id = ?
@@ -298,6 +299,9 @@ export async function readFavouriteStaffFromDb(
     },
     gender: (row.gender as string | null) ?? null,
     favourites: row.favourites != null ? Number(row.favourites) : null,
+    image: (row.image as string | null)
+      ? { large: row.image as string }
+      : null,
   }));
 }
 
@@ -318,10 +322,12 @@ export async function readCharacterVoiceEdgesFromDb(
              m.title_native,
              m.type,
              m.format,
+             m.cover_image,
              mc.role AS character_role,
              st.id AS staff_id,
              st.name_full AS staff_name_full,
-             st.name_native AS staff_name_native
+             st.name_native AS staff_name_native,
+             st.image AS staff_image
         FROM media_character mc
         JOIN media m ON m.id = mc.media_id
         LEFT JOIN character_voice_actor cva
@@ -353,6 +359,9 @@ export async function readCharacterVoiceEdgesFromDb(
           },
           type: (row.type as string) ?? 'ANIME',
           format: (row.format as string | null) ?? null,
+          coverImage: (row.cover_image as string | null)
+            ? { large: row.cover_image as string }
+            : null,
         },
         characterRole: (row.character_role as string | null) ?? 'UNKNOWN',
         voiceActors: [],
@@ -368,6 +377,9 @@ export async function readCharacterVoiceEdgesFromDb(
             full: (row.staff_name_full as string | null) ?? '',
             native: (row.staff_name_native as string | null) ?? null,
           },
+          image: (row.staff_image as string | null)
+            ? { large: row.staff_image as string }
+            : null,
         });
       }
     }
@@ -650,6 +662,7 @@ export async function readShowStaffBundleFromDb(
   return {
     id: mediaId,
     title: title || pickMediaRowTitle(detail.media),
+    coverImage: detail.media.cover_image,
     studios,
     productionStaff,
     voiceActors,
@@ -676,6 +689,7 @@ export async function readProductionFilmographyFromDb(
         title_romaji: credit.media.title_romaji,
         title_native: credit.media.title_native,
       },
+      coverImage: credit.media.cover_image,
     });
   }
   return shows.length > 0 ? shows : null;

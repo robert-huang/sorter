@@ -19,6 +19,7 @@ import {
   type SharedCreditsRunProgress,
 } from './sharedCreditsApi';
 import { SharedCreditsResultsTable } from './sharedCreditsTable';
+import { ToolShowButton, ToolStaffButton } from '../toolEntityLinks';
 
 const DEFAULT_FORM: SharedCreditsForm = {
   staffText: '',
@@ -54,7 +55,7 @@ function progressLabel(progress: SharedCreditsRunProgress | null): string | null
   }
 }
 
-export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
+export function SharedCreditsPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
   const { hint: usernameHint, onUsernameContextMenu } = useUsernameListRefresh();
   const displayLabelRevision = useToolsDisplayLabelRevision();
   const [form, setForm] = useState<SharedCreditsForm>(DEFAULT_FORM);
@@ -336,19 +337,25 @@ export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
         <div className="tool-results">
           {result.blocks.map((block) => (
             <div key={block.staffId} className="tool-diff-block">
-              <h3 className="tool-diff-title">{block.staffName}</h3>
+              <h3 className="tool-diff-title">
+                <ToolStaffButton
+                  staffId={block.staffId}
+                  name={block.staffName}
+                  imageUrl={block.staffImage ?? null}
+                  onOpenStaff={onOpenStaff}
+                  compact
+                />
+              </h3>
               <ul className="tool-diff-list">
                 {block.shows.map((show) => (
                   <li key={show.mediaId}>
-                    <button
-                      type="button"
-                      className="tool-link-btn"
-                      onClick={() =>
-                        onOpenMedia(show.mediaId, show.title, { forceRefresh: true })
-                      }
-                    >
-                      {show.title}
-                    </button>
+                    <ToolShowButton
+                      mediaId={show.mediaId}
+                      title={show.title}
+                      coverImage={show.coverImage}
+                      onOpenMedia={onOpenMedia}
+                      compact
+                    />
                     {show.rolesLabel && (
                       <span className="tool-diff-roles"> — {show.rolesLabel}</span>
                     )}
@@ -362,9 +369,12 @@ export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
 
       {result?.kind === 'table' && (
         <SharedCreditsResultsTable
+          staffIds={result.staffIds}
           staffNames={result.staffNames}
+          staffImages={result.staffImages}
           rows={result.rows}
           onOpenMedia={onOpenMedia}
+          onOpenStaff={onOpenStaff}
         />
       )}
     </section>

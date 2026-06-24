@@ -12,11 +12,11 @@ function role(label: string, characterId?: number): StaffRoleEntry {
 
 function staffNameFields(
   names: Record<number, string>,
-): Record<number, { id: number; name_full: string; name_native: null }> {
+): Record<number, { id: number; name_full: string; name_native: null; image: null }> {
   return Object.fromEntries(
     Object.entries(names).map(([id, name]) => [
       Number(id),
-      { id: Number(id), name_full: name, name_native: null },
+      { id: Number(id), name_full: name, name_native: null, image: null },
     ]),
   );
 }

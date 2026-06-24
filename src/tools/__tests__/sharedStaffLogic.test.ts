@@ -197,7 +197,7 @@ describe('sharedStaffLogic', () => {
       { diffMode: false },
       {
         sourceTitle: 'Source',
-        topOverall: [{ mediaId: 2, title: 'Top Match', sharedStaffCount: 4 }],
+        topOverall: [{ mediaId: 2, title: 'Top Match', coverImage: null, sharedStaffCount: 4 }],
         byCategory: [],
       },
     );

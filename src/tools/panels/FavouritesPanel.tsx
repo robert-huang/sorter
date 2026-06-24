@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
+import { ToolShowButton, ToolStaffButton } from '../toolEntityLinks';
 import { useUsernameListRefresh } from '../useUsernameListRefresh';
 import { useToolsDisplayLabelRevision } from '../useToolsDisplayLabelRevision';
 import { runFavouritesAnalysis, type FavouritesRunProgress } from './favouritesApi';
@@ -9,6 +10,7 @@ import {
   type FavouritesForm,
   type FavouritesRebuildSource,
   type FavouritesResult,
+  type FavouritesSeriesRow,
   type VaRankRow,
 } from './favouritesLogic';
 import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
@@ -84,17 +86,49 @@ function VaRankBlock({
         {rows.map((row) => (
           <li key={`${title}-${row.staffId}`}>
             <span className="tool-rank-count">{row.displayValue}</span>
-            <button
-              type="button"
-              className="tool-link-btn"
-              onClick={() => onOpenStaff(row.staffId, row.name)}
-            >
-              {row.name}
-            </button>
+            <ToolStaffButton
+              staffId={row.staffId}
+              name={row.name}
+              imageUrl={row.imageUrl}
+              onOpenStaff={onOpenStaff}
+              compact
+            />
             <span className="tool-rank-detail">{row.characterNames.join(', ')}</span>
           </li>
         ))}
       </ul>
+    </details>
+  );
+}
+
+function SeriesListBlock({
+  title,
+  rows,
+  onOpenMedia,
+}: {
+  title: string;
+  rows: FavouritesSeriesRow[];
+  onOpenMedia: ToolPanelProps['onOpenMedia'];
+}) {
+  if (rows.length === 0) {
+    return null;
+  }
+  return (
+    <details className="tool-category-block">
+      <summary className="tool-category-title">{title}</summary>
+      {rows.map((row) => (
+        <div key={row.mediaId} className="tool-series-row">
+          <ToolShowButton
+            mediaId={row.mediaId}
+            title={row.title}
+            coverImage={row.coverImage}
+            mediaType={row.mediaType}
+            onOpenMedia={onOpenMedia}
+            compact
+          />
+          <span className="tool-rank-detail">{row.characters.join(', ')}</span>
+        </div>
+      ))}
     </details>
   );
 }
@@ -113,7 +147,7 @@ function NameListBlock({ title, names }: { title: string; names: string[] }) {
   );
 }
 
-export function FavouritesPanel({ onOpenStaff }: ToolPanelProps) {
+export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
   const { hint: usernameHint, onUsernameContextMenu } = useUsernameListRefresh({
     refreshFavourites: true,
   });
@@ -309,13 +343,13 @@ export function FavouritesPanel({ onOpenStaff }: ToolPanelProps) {
               {result.favouriteStaff.map((staff) => (
                 <li key={staff.id}>
                   <span className="tool-rank-count">{staff.matchedCount}</span>
-                  <button
-                    type="button"
-                    className="tool-link-btn"
-                    onClick={() => onOpenStaff(staff.id, staff.name)}
-                  >
-                    {staff.name}
-                  </button>
+                  <ToolStaffButton
+                    staffId={staff.id}
+                    name={staff.name}
+                    imageUrl={staff.imageUrl}
+                    onOpenStaff={onOpenStaff}
+                    compact
+                  />
                   {staff.gender ? (
                     <span className="tool-rank-detail">{staff.gender}</span>
                   ) : null}
@@ -324,31 +358,17 @@ export function FavouritesPanel({ onOpenStaff }: ToolPanelProps) {
             </ul>
           </details>
 
-          <details className="tool-category-block">
-            <summary className="tool-category-title">Characters by anime series</summary>
-            {Object.keys(result.seriesAnime).length === 0 ? (
-              <p className="tool-empty-inline">No anime on your list matched these characters.</p>
-            ) : (
-              Object.entries(result.seriesAnime).map(([title, chars]) => (
-                <div key={title} className="tool-series-row">
-                  <strong>{title}</strong>: {chars.join(', ')}
-                </div>
-              ))
-            )}
-          </details>
+          <SeriesListBlock
+            title="Characters by anime series"
+            rows={result.seriesAnime}
+            onOpenMedia={onOpenMedia}
+          />
 
-          <details className="tool-category-block">
-            <summary className="tool-category-title">Characters by manga series</summary>
-            {Object.keys(result.seriesManga).length === 0 ? (
-              <p className="tool-empty-inline">No manga on your list matched these characters.</p>
-            ) : (
-              Object.entries(result.seriesManga).map(([title, chars]) => (
-                <div key={title} className="tool-series-row">
-                  <strong>{title}</strong>: {chars.join(', ')}
-                </div>
-              ))
-            )}
-          </details>
+          <SeriesListBlock
+            title="Characters by manga series"
+            rows={result.seriesManga}
+            onOpenMedia={onOpenMedia}
+          />
         </div>
       )}
     </section>

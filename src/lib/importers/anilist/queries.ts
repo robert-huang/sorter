@@ -510,9 +510,10 @@ export const TOOLS_STAFF_BY_IDS_QUERY = `
 query ToolsStaffByIds($staffIds: [Int], $page: Int!, $perPage: Int!) {
   Page(page: $page, perPage: $perPage) {
     pageInfo { hasNextPage currentPage }
-    staff(id_in: $staffIds) {
+      staff(id_in: $staffIds) {
       id
       name { full native }
+      image { large }
     }
   }
 }
@@ -589,6 +590,7 @@ query ToolsUserAnimeList(
       media {
         id
         title { english romaji }
+        coverImage { large }
         season
         seasonYear
         duration
@@ -716,6 +718,7 @@ query ToolsStaffProductionFilmography(
         node {
           id
           title { english romaji }
+          coverImage { large }
         }
       }
     }
@@ -792,6 +795,7 @@ query ToolsFavouriteStaff($username: String!, $page: Int!, $perPage: Int!) {
           name { full native }
           gender
           favourites
+          image { large }
         }
       }
     }
@@ -811,11 +815,13 @@ query ToolsCharacterVoiceMedia($id: Int!, $page: Int!, $perPage: Int!) {
           title { romaji native english }
           type
           format
+          coverImage { large }
         }
         characterRole
         voiceActors(language: JAPANESE, sort: RELEVANCE) {
           id
           name { full native }
+          image { large }
         }
       }
     }

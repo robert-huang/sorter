@@ -70,6 +70,21 @@ export type FavouriteStaffInput = {
   name: { full: string; native?: string | null };
   gender?: string | null;
   favourites?: number | null;
+  image?: { large?: string | null } | null;
+};
+
+export type FavouritesSeriesMeta = {
+  title: string;
+  coverImage: string | null;
+  characters: string[];
+};
+
+export type FavouritesSeriesRow = {
+  mediaId: number;
+  mediaType: 'ANIME' | 'MANGA';
+  title: string;
+  coverImage: string | null;
+  characters: string[];
 };
 
 export type CharacterMediaEdge = {
@@ -82,9 +97,14 @@ export type CharacterMediaEdge = {
     };
     type: string;
     format?: string | null;
+    coverImage?: { large?: string | null } | null;
   };
   characterRole: string;
-  voiceActors: Array<{ id: number; name: { full: string; native?: string | null } }>;
+  voiceActors: Array<{
+    id: number;
+    name: { full: string; native?: string | null };
+    image?: { large?: string | null } | null;
+  }>;
 };
 
 export type VaMediaEdge = {
@@ -95,6 +115,7 @@ export type VaMediaEdge = {
 export type VaAccumulator = {
   id: number;
   name: string;
+  imageUrl: string | null;
   count: number;
   rankSum: number;
   logScore: number;
@@ -105,6 +126,7 @@ export type VaAccumulator = {
 export type VaRankRow = {
   staffId: number;
   name: string;
+  imageUrl: string | null;
   displayValue: string;
   numericValue: number;
   characterNames: string[];
@@ -128,12 +150,13 @@ export type FavouritesResult = {
     unknown: string[];
   };
   birthdays: Record<string, string[]>;
-  seriesAnime: Record<string, string[]>;
-  seriesManga: Record<string, string[]>;
+  seriesAnime: FavouritesSeriesRow[];
+  seriesManga: FavouritesSeriesRow[];
   characterNames: string[];
   favouriteStaff: Array<{
     id: number;
     name: string;
+    imageUrl: string | null;
     gender: string | null;
     matchedCount: number;
   }>;
@@ -201,17 +224,19 @@ export function processCharacterEdges(
   charRole: CharacterRoleTier;
   seen: boolean;
   isMain: boolean;
-  vas: Array<{ id: number; name: string }>;
-  shows: Record<string, string[]>;
-  books: Record<string, string[]>;
+  vas: Array<{ id: number; name: string; imageUrl: string | null }>;
+  shows: Record<number, FavouritesSeriesMeta>;
+  books: Record<number, FavouritesSeriesMeta>;
 } {
   const vaIds = new Set<number>();
-  const vas: Array<{ id: number; name: string }> = [];
+  const vas: Array<{ id: number; name: string; imageUrl: string | null }> = [];
   let charRole = CharacterRoleTier.Unknown;
   let seen = false;
   let isMain = false;
-  const shows: Record<string, Set<string>> = {};
-  const books: Record<string, Set<string>> = {};
+  const shows: Record<number, { title: string; coverImage: string | null; characters: Set<string> }> =
+    {};
+  const books: Record<number, { title: string; coverImage: string | null; characters: Set<string> }> =
+    {};
 
   for (const edge of edges) {
     const mediaId = edge.node.id;
@@ -221,10 +246,14 @@ export function processCharacterEdges(
 
     const title = pickFavouriteMediaTitle(mediaId, edge.node.title);
     const bucket = edge.node.type === 'MANGA' ? books : shows;
-    if (!bucket[title]) {
-      bucket[title] = new Set();
+    if (!bucket[mediaId]) {
+      bucket[mediaId] = {
+        title,
+        coverImage: edge.node.coverImage?.large ?? null,
+        characters: new Set(),
+      };
     }
-    bucket[title].add(charName);
+    bucket[mediaId].characters.add(charName);
 
     const roleRank = ROLE_RANK[edge.characterRole] ?? CharacterRoleTier.Unknown;
     charRole = Math.min(charRole, roleRank) as CharacterRoleTier;
@@ -242,14 +271,24 @@ export function processCharacterEdges(
           name_full: va.name.full,
           name_native: va.name.native ?? null,
         }),
+        imageUrl: va.image?.large ?? null,
       });
       vaIds.add(va.id);
     }
   }
 
-  const toSortedArrays = (map: Record<string, Set<string>>): Record<string, string[]> =>
+  const toSeriesMeta = (
+    map: Record<number, { title: string; coverImage: string | null; characters: Set<string> }>,
+  ): Record<number, FavouritesSeriesMeta> =>
     Object.fromEntries(
-      Object.entries(map).map(([key, value]) => [key, [...value].sort()]),
+      Object.entries(map).map(([mediaId, entry]) => [
+        mediaId,
+        {
+          title: entry.title,
+          coverImage: entry.coverImage,
+          characters: [...entry.characters].sort(),
+        },
+      ]),
     );
 
   return {
@@ -257,8 +296,8 @@ export function processCharacterEdges(
     seen,
     isMain,
     vas,
-    shows: toSortedArrays(shows),
-    books: toSortedArrays(books),
+    shows: toSeriesMeta(shows),
+    books: toSeriesMeta(books),
   };
 }
 
@@ -293,7 +332,7 @@ export function formatBirthdayKey(
 
 export function accumulateVaStats(
   characters: FavouriteCharacterInput[],
-  perCharacterVas: Array<Array<{ id: number; name: string }>>,
+  perCharacterVas: Array<Array<{ id: number; name: string; imageUrl: string | null }>>,
   characterMode: PersonNameDisplayMode = getCharacterNameDisplayMode(),
 ): Map<number, VaAccumulator> {
   const dummyMedian = characters.length / 10;
@@ -313,10 +352,14 @@ export function accumulateVaStats(
         existing.characterNamesWithRank.push(
           `${pickCharacterName(characters[i]!, characterMode)} (${rank})`,
         );
+        if (!existing.imageUrl && va.imageUrl) {
+          existing.imageUrl = va.imageUrl;
+        }
       } else {
         accum.set(va.id, {
           id: va.id,
           name: va.name,
+          imageUrl: va.imageUrl,
           count: dummyMedian + 1,
           rankSum: midpoint + rank,
           logScore: logBase - Math.log(rank),
@@ -343,6 +386,7 @@ function toRankRows(
     return {
       staffId: va.id,
       name: va.name,
+      imageUrl: va.imageUrl,
       displayValue,
       numericValue,
       characterNames: va.characterNames,
@@ -355,13 +399,13 @@ function toRankRows(
 
 export function buildFavouritesResult(input: {
   characters: FavouriteCharacterInput[];
-  perCharacterVas: Array<Array<{ id: number; name: string }>>;
+  perCharacterVas: Array<Array<{ id: number; name: string; imageUrl: string | null }>>;
   perCharacterMeta: Array<{
     charRole: CharacterRoleTier;
     seen: boolean;
     isMain: boolean;
-    shows: Record<string, string[]>;
-    books: Record<string, string[]>;
+    shows: Record<number, FavouritesSeriesMeta>;
+    books: Record<number, FavouritesSeriesMeta>;
   }>;
   vaTotalCharacterCounts: Map<number, number>;
   favouriteStaff: FavouriteStaffInput[];
@@ -388,8 +432,8 @@ export function buildFavouritesResult(input: {
     unknown: [] as string[],
   };
   const birthdays: Record<string, string[]> = {};
-  const seriesAnime: Record<string, string[]> = {};
-  const seriesManga: Record<string, string[]> = {};
+  const seriesAnimeById = new Map<number, FavouritesSeriesRow>();
+  const seriesMangaById = new Map<number, FavouritesSeriesRow>();
 
   let numSeen = 0;
   let numMain = 0;
@@ -428,25 +472,11 @@ export function buildFavouritesResult(input: {
     }
     birthdays[birthdayKey].push(name);
 
-    for (const [title, chars] of Object.entries(meta.shows)) {
-      if (!seriesAnime[title]) {
-        seriesAnime[title] = [];
-      }
-      for (const c of chars) {
-        if (!seriesAnime[title].includes(c)) {
-          seriesAnime[title].push(c);
-        }
-      }
+    for (const [mediaIdStr, entry] of Object.entries(meta.shows)) {
+      mergeSeriesRow(seriesAnimeById, Number(mediaIdStr), 'ANIME', entry);
     }
-    for (const [title, chars] of Object.entries(meta.books)) {
-      if (!seriesManga[title]) {
-        seriesManga[title] = [];
-      }
-      for (const c of chars) {
-        if (!seriesManga[title].includes(c)) {
-          seriesManga[title].push(c);
-        }
-      }
+    for (const [mediaIdStr, entry] of Object.entries(meta.books)) {
+      mergeSeriesRow(seriesMangaById, Number(mediaIdStr), 'MANGA', entry);
     }
   }
 
@@ -499,6 +529,8 @@ export function buildFavouritesResult(input: {
   const staffRows = favouriteStaff.map((staff) => ({
     id: staff.id,
     name: pickStaffName(staff),
+    imageUrl:
+      staff.image?.large ?? accum.get(staff.id)?.imageUrl ?? null,
     gender: staff.gender ?? null,
     matchedCount: accum.get(staff.id)?.characterNames.length ?? 0,
   }));
@@ -515,8 +547,8 @@ export function buildFavouritesResult(input: {
     gender,
     roles,
     birthdays,
-    seriesAnime: sortSeriesMap(seriesAnime, characterNames),
-    seriesManga: sortSeriesMap(seriesManga, characterNames),
+    seriesAnime: sortSeriesRows([...seriesAnimeById.values()], characterNames),
+    seriesManga: sortSeriesRows([...seriesMangaById.values()], characterNames),
     characterNames,
     favouriteStaff: staffRows,
   };
@@ -533,13 +565,13 @@ export type FavouritesRebuildSource = {
 export function rebuildFavouritesResult(
   source: FavouritesRebuildSource,
 ): FavouritesResult {
-  const perCharacterVas: Array<Array<{ id: number; name: string }>> = [];
+  const perCharacterVas: Array<Array<{ id: number; name: string; imageUrl: string | null }>> = [];
   const perCharacterMeta: Array<{
     charRole: CharacterRoleTier;
     seen: boolean;
     isMain: boolean;
-    shows: Record<string, string[]>;
-    books: Record<string, string[]>;
+    shows: Record<number, FavouritesSeriesMeta>;
+    books: Record<number, FavouritesSeriesMeta>;
   }> = [];
 
   for (let i = 0; i < source.characters.length; i += 1) {
@@ -569,15 +601,40 @@ export function rebuildFavouritesResult(
   });
 }
 
-function sortSeriesMap(
-  map: Record<string, string[]>,
-  characterNames: string[],
-): Record<string, string[]> {
-  const out: Record<string, string[]> = {};
-  for (const [title, names] of Object.entries(map)) {
-    out[title] = [...names].sort(
-      (a, b) => characterNames.indexOf(a) - characterNames.indexOf(b),
-    );
+function mergeSeriesRow(
+  target: Map<number, FavouritesSeriesRow>,
+  mediaId: number,
+  mediaType: 'ANIME' | 'MANGA',
+  entry: FavouritesSeriesMeta,
+): void {
+  let row = target.get(mediaId);
+  if (!row) {
+    row = {
+      mediaId,
+      mediaType,
+      title: entry.title,
+      coverImage: entry.coverImage,
+      characters: [],
+    };
+    target.set(mediaId, row);
   }
-  return out;
+  for (const characterName of entry.characters) {
+    if (!row.characters.includes(characterName)) {
+      row.characters.push(characterName);
+    }
+  }
+}
+
+function sortSeriesRows(
+  rows: FavouritesSeriesRow[],
+  characterNames: string[],
+): FavouritesSeriesRow[] {
+  return rows
+    .map((row) => ({
+      ...row,
+      characters: [...row.characters].sort(
+        (a, b) => characterNames.indexOf(a) - characterNames.indexOf(b),
+      ),
+    }))
+    .sort((a, b) => a.title.localeCompare(b.title));
 }

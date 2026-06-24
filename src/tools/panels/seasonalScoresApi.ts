@@ -36,6 +36,7 @@ export async function fetchUserSeasonalShows(
               media: {
                 id: number;
                 title: { english?: string | null; romaji?: string | null };
+                coverImage?: { large?: string | null } | null;
                 season?: string | null;
                 seasonYear?: number | null;
               };
@@ -48,6 +49,7 @@ export async function fetchUserSeasonalShows(
           media: {
             id: number;
             title: { english?: string | null; romaji?: string | null };
+            coverImage?: { large?: string | null } | null;
             season?: string | null;
             seasonYear?: number | null;
           };
@@ -71,6 +73,7 @@ export async function fetchUserSeasonalShows(
           title_romaji: entry.media.title.romaji ?? null,
           title_native: (entry.media.title as { native?: string | null }).native ?? null,
         },
+        coverImage: entry.media.coverImage?.large ?? null,
         season: entry.media.season ?? null,
         seasonYear: entry.media.seasonYear ?? null,
         score: entry.score ?? null,

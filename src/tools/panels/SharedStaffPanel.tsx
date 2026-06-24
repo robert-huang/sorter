@@ -13,6 +13,7 @@ import {
   type SharedStaffResult,
 } from './sharedStaffLogic';
 import { runSharedStaffCompare, type SharedStaffRunProgress } from './sharedStaffApi';
+import { ToolShowButton, ToolStaffButton } from '../toolEntityLinks';
 
 const DEFAULT_FORM: SharedStaffForm = {
   showText: '',
@@ -248,13 +249,13 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
             {result.singleShowReport.topOverall.map((row) => (
               <li key={row.mediaId}>
                 <span className="tool-rank-count">{row.sharedStaffCount}</span>
-                <button
-                  type="button"
-                  className="tool-link-btn"
-                  onClick={() => onOpenMedia(row.mediaId, row.title, { forceRefresh: true })}
-                >
-                  {row.title}
-                </button>
+                <ToolShowButton
+                  mediaId={row.mediaId}
+                  title={row.title}
+                  coverImage={row.coverImage}
+                  onOpenMedia={onOpenMedia}
+                  compact
+                />
               </li>
             ))}
           </ul>
@@ -267,13 +268,13 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
                 {block.matches.map((row) => (
                   <li key={`${block.label}-${row.mediaId}`}>
                     <span className="tool-rank-count">{row.sharedStaffCount}</span>
-                    <button
-                      type="button"
-                      className="tool-link-btn"
-                      onClick={() => onOpenMedia(row.mediaId, row.title, { forceRefresh: true })}
-                    >
-                      {row.title}
-                    </button>
+                    <ToolShowButton
+                      mediaId={row.mediaId}
+                      title={row.title}
+                      coverImage={row.coverImage}
+                      onOpenMedia={onOpenMedia}
+                      compact
+                    />
                   </li>
                 ))}
               </ul>
@@ -292,13 +293,13 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
                   <th>Name</th>
                   {result.shows.map((show) => (
                     <th key={show.id}>
-                      <button
-                        type="button"
-                        className="tool-link-btn"
-                        onClick={() => onOpenMedia(show.id, show.title, { forceRefresh: true })}
-                      >
-                        {show.title}
-                      </button>
+                      <ToolShowButton
+                        mediaId={show.id}
+                        title={show.title}
+                        coverImage={show.coverImage}
+                        onOpenMedia={onOpenMedia}
+                        compact
+                      />
                     </th>
                   ))}
                 </tr>
@@ -311,13 +312,12 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
                         row.kind === 'studio' ? (
                           row.name
                         ) : (
-                          <button
-                            type="button"
-                            className="tool-link-btn"
-                            onClick={() => onOpenStaff(row.entityId, row.name)}
-                          >
-                            {row.name}
-                          </button>
+                          <ToolStaffButton
+                            staffId={row.entityId}
+                            name={row.name}
+                            onOpenStaff={onOpenStaff}
+                            compact
+                          />
                         )
                       ) : null}
                     </td>

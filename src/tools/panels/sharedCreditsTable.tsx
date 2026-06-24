@@ -3,6 +3,7 @@ import {
   bindAnilistMiddleClick,
   mergeAnilistLinkClass,
 } from '../../lib/importers/anilist/anilistLinks';
+import { ToolShowButton, ToolStaffButton } from '../toolEntityLinks';
 import type { ToolPanelProps } from '../toolTypes';
 import type { SharedCreditsTableRow, StaffRoleEntry } from './sharedCreditsLogic';
 
@@ -45,41 +46,20 @@ function SharedCreditsRoleCell({ roles }: { roles: StaffRoleEntry[] }) {
   );
 }
 
-function SharedCreditsShowCell({
-  mediaId,
-  title,
-  coverImage,
-  onOpenMedia,
-}: {
-  mediaId: number;
-  title: string;
-  coverImage: string | null;
-  onOpenMedia: ToolPanelProps['onOpenMedia'];
-}) {
-  return (
-    <button
-      type="button"
-      className="tool-credits-show-btn"
-      onClick={() => onOpenMedia(mediaId, title, { forceRefresh: true })}
-    >
-      {coverImage ? (
-        <img src={coverImage} alt="" className="tool-credits-show-poster" />
-      ) : (
-        <span className="tool-credits-show-poster tool-credits-show-poster-placeholder" />
-      )}
-      <span className="tool-credits-show-title">{title}</span>
-    </button>
-  );
-}
-
 export function SharedCreditsResultsTable({
+  staffIds,
   staffNames,
+  staffImages,
   rows,
   onOpenMedia,
+  onOpenStaff,
 }: {
+  staffIds: number[];
   staffNames: string[];
+  staffImages: Array<string | null>;
   rows: SharedCreditsTableRow[];
   onOpenMedia: ToolPanelProps['onOpenMedia'];
+  onOpenStaff: ToolPanelProps['onOpenStaff'];
 }) {
   return (
     <div className="tool-results tool-credits-table-outer">
@@ -88,8 +68,16 @@ export function SharedCreditsResultsTable({
           <thead>
             <tr>
               <th className="tool-credits-col-show">Show</th>
-              {staffNames.map((name) => (
-                <th key={name}>{name}</th>
+              {staffIds.map((staffId, index) => (
+                <th key={staffId}>
+                  <ToolStaffButton
+                    staffId={staffId}
+                    name={staffNames[index] ?? String(staffId)}
+                    imageUrl={staffImages[index] ?? null}
+                    onOpenStaff={onOpenStaff}
+                    compact
+                  />
+                </th>
               ))}
             </tr>
           </thead>
@@ -97,11 +85,12 @@ export function SharedCreditsResultsTable({
             {rows.map((row) => (
               <tr key={row.mediaId}>
                 <th className="tool-credits-col-show" scope="row">
-                  <SharedCreditsShowCell
+                  <ToolShowButton
                     mediaId={row.mediaId}
                     title={row.title}
                     coverImage={row.coverImage}
                     onOpenMedia={onOpenMedia}
+                    compact
                   />
                 </th>
                 {row.cells.map((roles, colIdx) => (

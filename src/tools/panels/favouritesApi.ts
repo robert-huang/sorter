@@ -45,6 +45,7 @@ import {
   type FavouritesForm,
   type FavouritesRebuildSource,
   type FavouritesResult,
+  type FavouritesSeriesMeta,
   type VaMediaEdge,
 } from './favouritesLogic';
 
@@ -361,13 +362,13 @@ export async function runFavouritesAnalysis(
     throw new Error('This user has no favourite characters.');
   }
 
-  const perCharacterVas: Array<Array<{ id: number; name: string }>> = [];
+  const perCharacterVas: Array<Array<{ id: number; name: string; imageUrl: string | null }>> = [];
   const perCharacterMeta: Array<{
     charRole: CharacterRoleTier;
     seen: boolean;
     isMain: boolean;
-    shows: Record<string, string[]>;
-    books: Record<string, string[]>;
+    shows: Record<number, FavouritesSeriesMeta>;
+    books: Record<number, FavouritesSeriesMeta>;
   }> = [];
   const perCharacterEdges: CharacterMediaEdge[][] = [];
   const vaIds = new Set<number>();

@@ -13,12 +13,13 @@ import type { SeasonalShow } from './panels/seasonalScoresLogic';
 import {
   buildSharedCreditsResult,
   type SharedCreditsForm,
+  type SharedCreditsResult,
   type StaffRoleEntry,
   type StaffRoleLabelSource,
   type StaffRoleMode,
   type StaffShowMap,
 } from './panels/sharedCreditsLogic';
-import type { SharedCreditsResult } from './panels/sharedCreditsLogic';
+import type { ToolStaffNameFields } from './panels/sharedCreditsApi';
 import {
   finalizeSharedStaffResult,
   tallySingleShowMatches,
@@ -104,7 +105,7 @@ export async function reloadStaffShowMapsFromDb(
 
 export type SharedCreditsRebuildSource = {
   staffIds: number[];
-  staffNameFields: Record<number, PersonNameFields>;
+  staffNameFields: Record<number, ToolStaffNameFields>;
   lists: StaffShowMap[];
   roleMode: StaffRoleMode;
   form: Pick<
@@ -139,6 +140,7 @@ function relabelProductionFilmography(
   return shows.map((show) => ({
     ...show,
     title: show.titleSource ? pickMediaTitle(show.titleSource) : show.title,
+    coverImage: show.coverImage ?? null,
   }));
 }
 
