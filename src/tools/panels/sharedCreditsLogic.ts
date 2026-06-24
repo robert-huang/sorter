@@ -1,18 +1,24 @@
-import {
-  alignRoleCellsAcrossShows,
-  dictDiffs,
-  dictIntersection,
-} from '../../lib/importers/anilist/toolsDictUtils';
+import { dictDiffs, dictIntersection } from '../../lib/importers/anilist/toolsDictUtils';
 import { pickMediaTitle as pickMediaTitleWithPrefs } from '../../lib/importers/anilist/mediaDisplayLabel';
 import { parseLinesOnePerLine } from '../parseToolLines';
 
 export type StaffRoleMode = 'voice' | 'production';
 
+export type StaffRoleEntry = {
+  label: string;
+  characterId?: number;
+};
+
 export type StaffShowEntry = {
   title: string;
-  roles: string[];
+  coverImage: string | null;
+  roles: StaffRoleEntry[];
   startDate: string;
 };
+
+export function formatStaffRoleLabel(role: StaffRoleEntry): string {
+  return role.label;
+}
 
 /** Map of media id (string) → show + roles for one staff member. */
 export type StaffShowMap = Record<string, StaffShowEntry>;
@@ -32,8 +38,9 @@ export type SharedCreditsForm = {
 export type SharedCreditsTableRow = {
   mediaId: number;
   title: string;
-  /** One string per staff column for this sub-row. */
-  cells: string[];
+  coverImage: string | null;
+  /** One role list per staff column (no cross-column alignment). */
+  cells: StaffRoleEntry[][];
 };
 
 export type SharedCreditsDiffBlock = {
@@ -80,7 +87,7 @@ export function pickMediaTitle(title: {
 export function filterMainRoles(map: StaffShowMap): StaffShowMap {
   const out: StaffShowMap = {};
   for (const [mediaId, entry] of Object.entries(map)) {
-    const roles = entry.roles.filter((role) => role.includes('(MAIN)'));
+    const roles = entry.roles.filter((role) => role.label.includes('(MAIN)'));
     if (roles.length > 0) {
       out[mediaId] = { ...entry, roles };
     }
@@ -133,7 +140,7 @@ export function buildSharedCreditsResult(
           return {
             mediaId: Number(mediaId),
             title: entry?.title ?? mediaId,
-            rolesLabel: entry?.roles.join(', ') ?? '',
+            rolesLabel: entry?.roles.map(formatStaffRoleLabel).join(', ') ?? '',
           };
         }),
       });
@@ -158,10 +165,14 @@ export function buildSharedCreditsResult(
 
   const releaseDates: Record<string, string> = {};
   const titles: Record<string, string> = {};
+  const coverImages: Record<string, string | null> = {};
   for (const list of processed) {
     for (const [mediaId, entry] of Object.entries(list)) {
       releaseDates[mediaId] = entry.startDate;
       titles[mediaId] = entry.title;
+      if (coverImages[mediaId] == null && entry.coverImage) {
+        coverImages[mediaId] = entry.coverImage;
+      }
     }
   }
 
@@ -170,18 +181,12 @@ export function buildSharedCreditsResult(
     return form.oldestFirst ? cmp : -cmp;
   });
 
-  const rows: SharedCreditsTableRow[] = [];
-  for (const mediaId of sharedIds) {
-    const roleLists = processed.map((list) => list[mediaId]?.roles ?? []);
-    const aligned = alignRoleCellsAcrossShows(roleLists);
-    aligned.forEach((cells, rowIdx) => {
-      rows.push({
-        mediaId: Number(mediaId),
-        title: rowIdx === 0 ? titles[mediaId]! : '',
-        cells,
-      });
-    });
-  }
+  const rows: SharedCreditsTableRow[] = sharedIds.map((mediaId) => ({
+    mediaId: Number(mediaId),
+    title: titles[mediaId]!,
+    coverImage: coverImages[mediaId] ?? null,
+    cells: processed.map((list) => list[mediaId]?.roles ?? []),
+  }));
 
   return {
     kind: 'table',

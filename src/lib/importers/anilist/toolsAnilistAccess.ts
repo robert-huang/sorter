@@ -491,8 +491,9 @@ export async function readStaffShowMapFromDb(
       const mediaId = String(credit.media.id);
       map[mediaId] = {
         title: pickMediaRowTitle(credit.media),
-        roles: [...credit.productionRoles],
+        roles: credit.productionRoles.map((role) => ({ label: role })),
         startDate: mediaRowStartDateKey(credit.media),
+        coverImage: credit.media.cover_image,
       };
     }
     return Object.keys(map).length > 0 ? map : null;
@@ -505,6 +506,7 @@ export async function readStaffShowMapFromDb(
         m.title_english,
         m.title_romaji,
         m.title_native,
+        m.cover_image,
         m.start_year,
         m.start_month,
         m.start_day,
@@ -541,7 +543,12 @@ export async function readStaffShowMapFromDb(
       start_day: row.start_day as number | null,
     });
     if (!map[mediaId]) {
-      map[mediaId] = { title, roles: [], startDate };
+      map[mediaId] = {
+        title,
+        roles: [],
+        startDate,
+        coverImage: (row.cover_image as string | null) ?? null,
+      };
     }
     const characterName = pickCharacterName(
       {
@@ -553,7 +560,11 @@ export async function readStaffShowMapFromDb(
       'Character',
     );
     const characterRole = (row.character_role as string | null) ?? 'UNKNOWN';
-    map[mediaId].roles.push(`${characterName} (${characterRole})`);
+    const characterId = row.character_id != null ? Number(row.character_id) : undefined;
+    map[mediaId].roles.push({
+      label: `${characterName} (${characterRole})`,
+      characterId: characterId && characterId > 0 ? characterId : undefined,
+    });
   }
   return map;
 }

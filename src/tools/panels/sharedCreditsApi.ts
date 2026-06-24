@@ -52,6 +52,7 @@ type VoiceEdge = {
   node: {
     id: number;
     title: { english?: string | null; romaji?: string | null };
+    coverImage?: { large?: string | null } | null;
     startDate: { year?: number | null; month?: number | null; day?: number | null };
   };
 };
@@ -61,6 +62,7 @@ type ProductionEdge = {
   node: {
     id: number;
     title: { english?: string | null; romaji?: string | null };
+    coverImage?: { large?: string | null } | null;
     startDate: { year?: number | null; month?: number | null; day?: number | null };
   };
 };
@@ -76,24 +78,36 @@ function mergeVoiceEdge(map: StaffShowMap, edge: VoiceEdge): void {
       if (!c?.name?.full && !c?.name?.native) {
         return null;
       }
-      return pickCharacterName(
+      const characterId = c.id ?? 0;
+      const characterName = pickCharacterName(
         {
-          id: c.id ?? 0,
+          id: characterId,
           name_full: c.name?.full ?? null,
           name_native: c.name?.native ?? null,
         },
         undefined,
         'Character',
       );
+      return { characterId, characterName };
     })
-    .filter((name): name is string => Boolean(name));
+    .filter(
+      (entry): entry is { characterId: number; characterName: string } =>
+        Boolean(entry),
+    );
+
+  const coverImage = show.coverImage?.large ?? null;
 
   if (!map[mediaId]) {
-    map[mediaId] = { title, roles: [], startDate };
+    map[mediaId] = { title, roles: [], startDate, coverImage };
+  } else if (!map[mediaId].coverImage && coverImage) {
+    map[mediaId].coverImage = coverImage;
   }
 
-  for (const character of characters) {
-    map[mediaId].roles.push(`${character} (${characterRole})`);
+  for (const { characterId, characterName } of characters) {
+    map[mediaId].roles.push({
+      label: `${characterName} (${characterRole})`,
+      characterId: characterId > 0 ? characterId : undefined,
+    });
   }
 }
 
@@ -103,11 +117,15 @@ function mergeProductionEdge(map: StaffShowMap, edge: ProductionEdge): void {
   const title = pickMediaTitle(show.title);
   const startDate = formatStartDateKey(show.startDate);
 
+  const coverImage = show.coverImage?.large ?? null;
+
   if (!map[mediaId]) {
-    map[mediaId] = { title, roles: [], startDate };
+    map[mediaId] = { title, roles: [], startDate, coverImage };
+  } else if (!map[mediaId].coverImage && coverImage) {
+    map[mediaId].coverImage = coverImage;
   }
 
-  map[mediaId].roles.push(edge.staffRole ?? '(role unavailable)');
+  map[mediaId].roles.push({ label: edge.staffRole ?? '(role unavailable)' });
 }
 
 export async function resolveStaffIdByName(

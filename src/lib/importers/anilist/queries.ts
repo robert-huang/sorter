@@ -533,6 +533,7 @@ query ToolsStaffVoiceRoles($id: Int!, $page: Int!, $perPage: Int!) {
         node {
           id
           title { english romaji }
+          coverImage { large }
           startDate { year month day }
         }
       }
@@ -552,6 +553,7 @@ query ToolsStaffProductionRoles($id: Int!, $page: Int!, $perPage: Int!) {
         node {
           id
           title { english romaji }
+          coverImage { large }
           startDate { year month day }
         }
       }

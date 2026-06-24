@@ -13,6 +13,7 @@ import {
   runSharedCreditsCompare,
   type SharedCreditsRunProgress,
 } from './sharedCreditsApi';
+import { SharedCreditsResultsTable } from './sharedCreditsTable';
 
 const DEFAULT_FORM: SharedCreditsForm = {
   staffText: '',
@@ -25,6 +26,8 @@ const DEFAULT_FORM: SharedCreditsForm = {
   diffMode: false,
   oldestFirst: false,
 };
+
+const USERNAME_FIELD_TITLE = 'Right-click to re-fetch list from AniList';
 
 function progressLabel(progress: SharedCreditsRunProgress | null): string | null {
   if (!progress) {
@@ -151,7 +154,7 @@ export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
         <div className="tool-field">
           <div className="tool-field-label-row tool-field-label-header">
             <span className="tool-field-label">Staff (one per line)</span>
-            <label className="tool-checkbox">
+            <label className="tool-checkbox tool-checkbox-header">
               <input
                 type="checkbox"
                 checked={form.useIds}
@@ -171,8 +174,8 @@ export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
           />
         </div>
 
-        <div className="tool-field-row tool-field-row-wrap">
-          <div className="tool-field tool-field-label-row">
+        <div className="tool-shared-credits-role-row">
+          <div className="tool-field tool-field-label-row tool-field-inline">
             <span className="tool-field-label" id="shared-credits-role-label">
               Role type
             </span>
@@ -228,11 +231,11 @@ export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
           </label>
         </div>
 
-        <div className="tool-form-options-stack">
-          <label className="tool-field tool-field-label-row">
+        <div className="tool-shared-credits-filters-row">
+          <label className="tool-field tool-field-label-row tool-field-username">
             <span className="tool-field-label">Min Shared</span>
             <input
-              className="slot-search tool-input-narrow"
+              className="slot-search anime-to-anime-endpoint-user-input"
               type="number"
               min={1}
               disabled={running || form.diffMode}
@@ -255,7 +258,7 @@ export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
               disabled={running}
               value={form.usernameInclude}
               placeholder="AL Username"
-              title="List Only — right-click to re-fetch list from AniList"
+              title={USERNAME_FIELD_TITLE}
               onChange={(e) => patchForm({ usernameInclude: e.target.value })}
               onContextMenu={(e) =>
                 onUsernameContextMenu(e, form.usernameInclude, running)
@@ -270,7 +273,7 @@ export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
               disabled={running}
               value={form.usernameExclude}
               placeholder="AL Username"
-              title="Exclude List — right-click to re-fetch list from AniList"
+              title={USERNAME_FIELD_TITLE}
               onChange={(e) => patchForm({ usernameExclude: e.target.value })}
               onContextMenu={(e) =>
                 onUsernameContextMenu(e, form.usernameExclude, running)
@@ -278,6 +281,9 @@ export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
             />
           </label>
         </div>
+        <p className="tool-field-hint tool-shared-credits-filters-hint">
+          {USERNAME_FIELD_TITLE}
+        </p>
 
         <div className="tool-actions">
           <ToolRunButton
@@ -328,40 +334,11 @@ export function SharedCreditsPanel({ onOpenMedia }: ToolPanelProps) {
       )}
 
       {result?.kind === 'table' && (
-        <div className="tool-results tool-table-wrap">
-          <table className="tool-result-table">
-            <thead>
-              <tr>
-                <th>Show</th>
-                {result.staffNames.map((name) => (
-                  <th key={name}>{name}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {result.rows.map((row, idx) => (
-                <tr key={`${row.mediaId}-${idx}`}>
-                  <td>
-                    {row.title ? (
-                      <button
-                        type="button"
-                        className="tool-link-btn"
-                        onClick={() =>
-                          onOpenMedia(row.mediaId, row.title, { forceRefresh: true })
-                        }
-                      >
-                        {row.title}
-                      </button>
-                    ) : null}
-                  </td>
-                  {row.cells.map((cell, colIdx) => (
-                    <td key={`${idx}-${colIdx}`}>{cell}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <SharedCreditsResultsTable
+          staffNames={result.staffNames}
+          rows={result.rows}
+          onOpenMedia={onOpenMedia}
+        />
       )}
     </section>
   );

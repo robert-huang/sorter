@@ -3,16 +3,41 @@ import {
   buildSharedCreditsResult,
   filterMainRoles,
   formatStartDateKey,
+  type StaffRoleEntry,
 } from '../panels/sharedCreditsLogic';
+
+function role(label: string, characterId?: number): StaffRoleEntry {
+  return characterId != null ? { label, characterId } : { label };
+}
 
 describe('sharedCreditsLogic', () => {
   const staffA = {
-    '1': { title: 'Show A', roles: ['Alice (MAIN)'], startDate: '20200101' },
-    '2': { title: 'Show B', roles: ['Bob (SUPPORTING)'], startDate: '20190101' },
+    '1': {
+      title: 'Show A',
+      coverImage: null,
+      roles: [role('Alice (MAIN)', 100)],
+      startDate: '20200101',
+    },
+    '2': {
+      title: 'Show B',
+      coverImage: null,
+      roles: [role('Bob (SUPPORTING)', 101)],
+      startDate: '20190101',
+    },
   };
   const staffB = {
-    '1': { title: 'Show A', roles: ['Carol (MAIN)'], startDate: '20200101' },
-    '3': { title: 'Show C', roles: ['Dave (MAIN)'], startDate: '20210101' },
+    '1': {
+      title: 'Show A',
+      coverImage: null,
+      roles: [role('Carol (MAIN)', 102)],
+      startDate: '20200101',
+    },
+    '3': {
+      title: 'Show C',
+      coverImage: null,
+      roles: [role('Dave (MAIN)', 103)],
+      startDate: '20210101',
+    },
   };
 
   it('formatStartDateKey pads missing parts', () => {
@@ -22,11 +47,11 @@ describe('sharedCreditsLogic', () => {
 
   it('filterMainRoles keeps only MAIN-tagged roles', () => {
     const filtered = filterMainRoles(staffA);
-    expect(filtered['1']?.roles).toEqual(['Alice (MAIN)']);
+    expect(filtered['1']?.roles).toEqual([role('Alice (MAIN)', 100)]);
     expect(filtered['2']).toBeUndefined();
   });
 
-  it('buildSharedCreditsResult returns intersection table sorted newest first', () => {
+  it('buildSharedCreditsResult returns one row per shared show without cross-column alignment', () => {
     const result = buildSharedCreditsResult(
       [10, 20],
       { 10: 'VA A', 20: 'VA B' },
@@ -45,23 +70,28 @@ describe('sharedCreditsLogic', () => {
     if (result.kind !== 'table') {
       return;
     }
+    expect(result.rows).toHaveLength(1);
     expect(result.rows[0]?.title).toBe('Show A');
-    expect(result.rows[0]?.cells).toEqual(['Alice (MAIN)', '']);
-    expect(result.rows[1]?.cells).toEqual(['', 'Carol (MAIN)']);
+    expect(result.rows[0]?.cells).toEqual([
+      [role('Alice (MAIN)', 100)],
+      [role('Carol (MAIN)', 102)],
+    ]);
   });
 
-  it('buildSharedCreditsResult aligns matching roles across staff columns', () => {
+  it('buildSharedCreditsResult keeps each staff column independent when roles differ', () => {
     const multiRoleA = {
       '1': {
         title: 'Show A',
-        roles: ['Alice (MAIN)', 'Bob (SUPPORTING)'],
+        coverImage: null,
+        roles: [role('Alice (MAIN)', 100), role('Bob (SUPPORTING)', 101)],
         startDate: '20200101',
       },
     };
     const multiRoleB = {
       '1': {
         title: 'Show A',
-        roles: ['Bob (SUPPORTING)'],
+        coverImage: null,
+        roles: [role('Bob (SUPPORTING)', 101)],
         startDate: '20200101',
       },
     };
@@ -83,9 +113,10 @@ describe('sharedCreditsLogic', () => {
     if (result.kind !== 'table') {
       return;
     }
-    expect(result.rows.map((row) => row.cells)).toEqual([
-      ['Alice (MAIN)', ''],
-      ['Bob (SUPPORTING)', 'Bob (SUPPORTING)'],
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]?.cells).toEqual([
+      [role('Alice (MAIN)', 100), role('Bob (SUPPORTING)', 101)],
+      [role('Bob (SUPPORTING)', 101)],
     ]);
   });
 
@@ -132,6 +163,6 @@ describe('sharedCreditsLogic', () => {
     if (result.kind !== 'table') {
       return;
     }
-    expect(result.rows.every((r) => r.mediaId === 1 || r.title === '')).toBe(true);
+    expect(result.rows.every((r) => r.mediaId === 1)).toBe(true);
   });
 });
