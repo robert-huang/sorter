@@ -9,6 +9,8 @@ export type SeasonalShow = {
   seasonYear: number | null;
   score: number | null;
   notes: string | null;
+  /** AniList list status (e.g. PLANNING when include-planning fetch is enabled). */
+  listStatus?: string | null;
 };
 
 export type SeasonSpec = {
@@ -22,13 +24,20 @@ export type SeasonalScoresForm = {
   seasonText: string;
   skipEmpty: boolean;
   airingNotesOnly: boolean;
+  includePlanning: boolean;
 };
 
 export type SeasonColumn = {
   label: string;
   ratedCount: number;
   average: number | null;
-  shows: Array<{ id: number; title: string; coverImage: string | null; score: number | null }>;
+  shows: Array<{
+    id: number;
+    title: string;
+    coverImage: string | null;
+    score: number | null;
+    listStatus?: string | null;
+  }>;
 };
 
 export type SeasonalScoresResult =
@@ -45,16 +54,35 @@ export function normalizeSeasonalListScore(score: number | null | undefined): nu
   return score;
 }
 
-export function formatSeasonalScoreLabel(score: number | null | undefined): string {
+export function isSeasonalPlanningShow(show: Pick<SeasonalShow, 'listStatus'>): boolean {
+  return show.listStatus === 'PLANNING';
+}
+
+export function formatSeasonalScoreLabel(
+  score: number | null | undefined,
+  listStatus?: string | null,
+): string {
+  if (isSeasonalPlanningShow({ listStatus })) {
+    return 'P';
+  }
   const normalized = normalizeSeasonalListScore(score);
   return normalized == null ? '—' : String(normalized);
 }
 
 export function countRatedSeasonalShows(shows: SeasonalShow[]): number {
-  return shows.reduce(
-    (count, show) => count + (normalizeSeasonalListScore(show.score) == null ? 0 : 1),
-    0,
-  );
+  return shows.reduce((count, show) => {
+    if (isSeasonalPlanningShow(show)) {
+      return count;
+    }
+    return count + (normalizeSeasonalListScore(show.score) == null ? 0 : 1);
+  }, 0);
+}
+
+function seasonalShowSortKey(show: SeasonalShow): number {
+  if (isSeasonalPlanningShow(show)) {
+    return -1;
+  }
+  return normalizeSeasonalListScore(show.score) ?? 0;
 }
 
 export function formatSeasonColumnLabel(label: string, ratedCount: number): string {
@@ -136,9 +164,13 @@ export function bucketShowsForSeason(
   shows: SeasonalShow[],
   spec: SeasonSpec,
   airingNotesOnly: boolean,
+  includePlanning: boolean,
 ): SeasonalShow[] {
   return shows
     .filter((show) => {
+      if (!includePlanning && isSeasonalPlanningShow(show)) {
+        return false;
+      }
       if (show.seasonYear !== spec.year) {
         return false;
       }
@@ -150,14 +182,12 @@ export function bucketShowsForSeason(
       }
       return true;
     })
-    .sort(
-      (a, b) =>
-        (normalizeSeasonalListScore(b.score) ?? 0) - (normalizeSeasonalListScore(a.score) ?? 0),
-    );
+    .sort((a, b) => seasonalShowSortKey(b) - seasonalShowSortKey(a));
 }
 
 export function averageScore(shows: SeasonalShow[]): number | null {
   const scored = shows
+    .filter((show) => !isSeasonalPlanningShow(show))
     .map((s) => normalizeSeasonalListScore(s.score))
     .filter((s): s is number => s !== null);
   if (scored.length === 0) {
@@ -178,7 +208,12 @@ export function buildSeasonalColumns(
 
   const columns: SeasonColumn[] = [];
   for (const spec of specs) {
-    const bucket = bucketShowsForSeason(shows, spec, form.airingNotesOnly);
+    const bucket = bucketShowsForSeason(
+      shows,
+      spec,
+      form.airingNotesOnly,
+      form.includePlanning,
+    );
     if (form.skipEmpty && bucket.length === 0) {
       continue;
     }
@@ -191,6 +226,7 @@ export function buildSeasonalColumns(
         title: show.title,
         coverImage: show.coverImage ?? null,
         score: normalizeSeasonalListScore(show.score),
+        listStatus: show.listStatus ?? null,
       })),
     });
   }

@@ -28,11 +28,12 @@ const DEFAULT_FORM: SeasonalScoresForm = {
   seasonText: '',
   skipEmpty: false,
   airingNotesOnly: false,
+  includePlanning: false,
 };
 
 type PersistedSeasonalForm = Pick<
   SeasonalScoresForm,
-  'seasonText' | 'skipEmpty' | 'airingNotesOnly'
+  'seasonText' | 'skipEmpty' | 'airingNotesOnly' | 'includePlanning'
 >;
 
 function loadForm(): SeasonalScoresForm {
@@ -45,6 +46,7 @@ function loadForm(): SeasonalScoresForm {
         seasonText: parsed.seasonText ?? '',
         skipEmpty: parsed.skipEmpty ?? false,
         airingNotesOnly: parsed.airingNotesOnly ?? false,
+        includePlanning: parsed.includePlanning ?? false,
         username: withLastAnilistUsername(''),
       };
     }
@@ -64,6 +66,7 @@ function saveForm(form: SeasonalScoresForm): void {
       seasonText: form.seasonText,
       skipEmpty: form.skipEmpty,
       airingNotesOnly: form.airingNotesOnly,
+      includePlanning: form.includePlanning,
     };
     localStorage.setItem(LS_KEY, JSON.stringify(persisted));
   } catch {
@@ -93,7 +96,9 @@ function SeasonalColumnsView({
               {col.shows.map((show) => (
                 <div key={show.id} className="tool-season-cell">
                   <div className="tool-season-cell-grid">
-                    <span className="tool-season-score">{formatSeasonalScoreLabel(show.score)}</span>
+                    <span className="tool-season-score">
+                      {formatSeasonalScoreLabel(show.score, show.listStatus)}
+                    </span>
                     <ToolShowButton
                       mediaId={show.id}
                       title={show.title}
@@ -163,11 +168,10 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
     showsRef.current = null;
 
     try {
-      const shows = await fetchUserSeasonalShows(
-        username,
-        controller.signal,
-        forceRefresh ? { forceRefresh: true } : undefined,
-      );
+      const shows = await fetchUserSeasonalShows(username, controller.signal, {
+        includePlanning: form.includePlanning,
+        ...(forceRefresh ? { forceRefresh: true } : {}),
+      });
       showsRef.current = shows;
       setResult(buildSeasonalColumns(shows, form));
     } catch (e) {
@@ -241,6 +245,15 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
               onChange={(e) => patchForm({ airingNotesOnly: e.target.checked })}
             />
             Only #airing notes
+          </label>
+          <label className="tool-checkbox">
+            <input
+              type="checkbox"
+              checked={form.includePlanning}
+              disabled={running}
+              onChange={(e) => patchForm({ includePlanning: e.target.checked })}
+            />
+            Include Planning
           </label>
         </div>
 

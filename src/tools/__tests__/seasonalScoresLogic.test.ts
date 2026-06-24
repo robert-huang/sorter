@@ -54,6 +54,7 @@ describe('seasonalScoresLogic', () => {
       seasonText: 'Winter 2024\nSpring 2024',
       skipEmpty: false,
       airingNotesOnly: false,
+      includePlanning: false,
     });
     expect(result.kind).toBe('columns');
     if (result.kind !== 'columns') {
@@ -71,6 +72,8 @@ describe('seasonalScoresLogic', () => {
     expect(normalizeSeasonalListScore(85)).toBe(85);
     expect(formatSeasonalScoreLabel(0)).toBe('—');
     expect(formatSeasonalScoreLabel(85)).toBe('85');
+    expect(formatSeasonalScoreLabel(85, 'PLANNING')).toBe('P');
+    expect(formatSeasonalScoreLabel(null, 'PLANNING')).toBe('P');
   });
 
   it('averageScore ignores unrated paused and repeating entries', () => {
@@ -106,6 +109,7 @@ describe('seasonalScoresLogic', () => {
       seasonText: 'Winter 2024',
       skipEmpty: false,
       airingNotesOnly: false,
+      includePlanning: false,
     });
     expect(result.kind).toBe('columns');
     if (result.kind === 'columns') {
@@ -120,5 +124,77 @@ describe('seasonalScoresLogic', () => {
   it('formatSeasonColumnLabel appends rated count after the year', () => {
     expect(formatSeasonColumnLabel('Winter 2024', 5)).toBe('Winter 2024 (5)');
     expect(formatSeasonColumnLabel('2024', 12)).toBe('2024 (12)');
+  });
+
+  it('includes planning shows with P label and excludes them from average', () => {
+    const shows: SeasonalShow[] = [
+      {
+        id: 1,
+        title: 'Scored',
+        season: 'WINTER',
+        seasonYear: 2024,
+        score: 80,
+        notes: null,
+      },
+      {
+        id: 2,
+        title: 'Planning',
+        season: 'WINTER',
+        seasonYear: 2024,
+        score: 90,
+        notes: null,
+        listStatus: 'PLANNING',
+      },
+    ];
+    expect(averageScore(shows)).toBe(80);
+    const result = buildSeasonalColumns(shows, {
+      username: 'user',
+      seasonText: 'Winter 2024',
+      skipEmpty: false,
+      airingNotesOnly: false,
+      includePlanning: true,
+    });
+    expect(result.kind).toBe('columns');
+    if (result.kind === 'columns') {
+      expect(result.columns[0]?.average).toBe(80);
+      expect(result.columns[0]?.ratedCount).toBe(1);
+      expect(result.columns[0]?.shows).toHaveLength(2);
+      expect(result.columns[0]?.shows[0]?.title).toBe('Scored');
+      expect(result.columns[0]?.shows[1]?.listStatus).toBe('PLANNING');
+    }
+  });
+
+  it('filters planning shows when includePlanning is off', () => {
+    const shows: SeasonalShow[] = [
+      {
+        id: 1,
+        title: 'Scored',
+        season: 'WINTER',
+        seasonYear: 2024,
+        score: 80,
+        notes: null,
+      },
+      {
+        id: 2,
+        title: 'Planning',
+        season: 'WINTER',
+        seasonYear: 2024,
+        score: null,
+        notes: null,
+        listStatus: 'PLANNING',
+      },
+    ];
+    const result = buildSeasonalColumns(shows, {
+      username: 'user',
+      seasonText: 'Winter 2024',
+      skipEmpty: false,
+      airingNotesOnly: false,
+      includePlanning: false,
+    });
+    expect(result.kind).toBe('columns');
+    if (result.kind === 'columns') {
+      expect(result.columns[0]?.shows).toHaveLength(1);
+      expect(result.columns[0]?.shows[0]?.title).toBe('Scored');
+    }
   });
 });

@@ -12,12 +12,22 @@ import {
 import { pickMediaTitle } from './sharedCreditsLogic';
 import { normalizeSeasonalListScore, type SeasonalShow } from './seasonalScoresLogic';
 
-const SEASONAL_STATUSES = TOOLS_SEASONAL_LIST_STATUSES;
+export type SeasonalScoresFetchOptions = ToolsFetchOptions & {
+  /** When true, PLANNING list entries are included in the fetch. */
+  includePlanning?: boolean;
+};
+
+function seasonalListStatuses(includePlanning?: boolean): string[] {
+  if (includePlanning) {
+    return [...TOOLS_SEASONAL_LIST_STATUSES, 'PLANNING'];
+  }
+  return [...TOOLS_SEASONAL_LIST_STATUSES];
+}
 
 async function fetchUserSeasonalShowsLive(
   username: string,
   signal?: AbortSignal,
-  options?: ToolsFetchOptions,
+  options?: SeasonalScoresFetchOptions,
 ): Promise<SeasonalShow[]> {
   signal?.throwIfAborted();
   await ensureUserAnimeListFresh(username, options);
@@ -27,6 +37,7 @@ async function fetchUserSeasonalShowsLive(
       Page: {
         pageInfo: { hasNextPage: boolean };
         mediaList: Array<{
+          status?: string | null;
           score?: number | null;
           notes?: string | null;
           media: {
@@ -40,6 +51,7 @@ async function fetchUserSeasonalShowsLive(
       } | null;
     },
     {
+      status?: string | null;
       score?: number | null;
       notes?: string | null;
       media: {
@@ -52,7 +64,7 @@ async function fetchUserSeasonalShowsLive(
     }
   >({
     query: TOOLS_USER_ANIME_LIST_QUERY,
-    variables: { userName: username, statusIn: [...SEASONAL_STATUSES] },
+    variables: { userName: username, statusIn: seasonalListStatuses(options?.includePlanning) },
     signal,
     selectPage: (data) => ({
       nodes: data.Page?.mediaList ?? [],
@@ -74,6 +86,7 @@ async function fetchUserSeasonalShowsLive(
     seasonYear: entry.media.seasonYear ?? null,
     score: normalizeSeasonalListScore(entry.score),
     notes: entry.notes ?? null,
+    listStatus: entry.status ?? null,
   }));
 }
 
@@ -86,12 +99,13 @@ async function fetchUserSeasonalShowsLive(
 export async function fetchUserSeasonalShows(
   username: string,
   signal?: AbortSignal,
-  options?: ToolsFetchOptions,
+  options?: SeasonalScoresFetchOptions,
 ): Promise<SeasonalShow[]> {
   signal?.throwIfAborted();
   const handle = username.trim().toLowerCase();
+  const planningKey = options?.includePlanning ? 'plan' : 'base';
   return withSessionTtlMemo(
-    `seasonal:list:${handle}`,
+    `seasonal:list:${handle}:${planningKey}`,
     TOOLS_SESSION_TTL_MS,
     () => fetchUserSeasonalShowsLive(username, signal, options),
     { bust: options?.forceRefresh },

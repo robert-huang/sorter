@@ -17,8 +17,9 @@ import { ensureUserAnimeListFresh } from '../../lib/importers/anilist/toolsAnili
 const depaginateMock = vi.mocked(depaginate);
 const ensureUserAnimeListFreshMock = vi.mocked(ensureUserAnimeListFresh);
 
-function listEntry(id: number) {
+function listEntry(id: number, status = 'COMPLETED') {
   return {
+    status,
     score: 80,
     notes: null,
     media: {
@@ -62,5 +63,28 @@ describe('fetchUserSeasonalShows', () => {
     expect((await fetchUserSeasonalShows('rh_test', undefined, { forceRefresh: true }))[0]?.id).toBe(2);
     expect(depaginateMock).toHaveBeenCalledTimes(2);
     expect(ensureUserAnimeListFreshMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('includes PLANNING in statusIn when includePlanning is set', async () => {
+    await fetchUserSeasonalShows('rh_test', undefined, { includePlanning: true });
+    expect(depaginateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        variables: expect.objectContaining({
+          statusIn: expect.arrayContaining(['PLANNING']),
+        }),
+      }),
+    );
+  });
+
+  it('maps list status from API entries', async () => {
+    depaginateMock.mockResolvedValueOnce([listEntry(1, 'PLANNING')]);
+    const shows = await fetchUserSeasonalShows('rh_test', undefined, { includePlanning: true });
+    expect(shows[0]?.listStatus).toBe('PLANNING');
+  });
+
+  it('uses separate memo keys for planning vs base fetches', async () => {
+    await fetchUserSeasonalShows('rh_test');
+    await fetchUserSeasonalShows('rh_test', undefined, { includePlanning: true });
+    expect(depaginateMock).toHaveBeenCalledTimes(2);
   });
 });
