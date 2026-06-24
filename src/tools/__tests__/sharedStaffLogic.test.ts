@@ -91,6 +91,40 @@ describe('sharedStaffLogic', () => {
     ]);
   });
 
+  it('aligns roles shared only on later shows when the anchor lacks them', () => {
+    const kimi = bundle(1, 'Kimi no Na Wa', {
+      productionStaff: {
+        '1': {
+          name: 'Makoto Shinkai',
+          roles: ['Storyboard', 'Editing'],
+        },
+      },
+    });
+    const tenki = bundle(2, 'Tenki no Ko', {
+      productionStaff: {
+        '1': {
+          name: 'Makoto Shinkai',
+          roles: ['Storyboard', 'Image Board'],
+        },
+      },
+    });
+    const suzume = bundle(3, 'Suzume', {
+      productionStaff: {
+        '1': {
+          name: 'Makoto Shinkai',
+          roles: ['Storyboard', 'Editing', 'Image Board'],
+        },
+      },
+    });
+    const sections = buildCompareSections([kimi, tenki, suzume], false);
+    const prod = sections.find((s) => s.title === 'Production Staff');
+    expect(prod?.rows.map((row) => row.cells)).toEqual([
+      ['Storyboard', 'Storyboard', 'Storyboard'],
+      ['Editing', '', 'Editing'],
+      ['', 'Image Board', 'Image Board'],
+    ]);
+  });
+
   it('aligns VA roles by character id across different cast roles', () => {
     const left = bundle(1, 'Left', {
       voiceActors: {

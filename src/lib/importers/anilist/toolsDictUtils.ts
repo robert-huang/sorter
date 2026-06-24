@@ -72,6 +72,17 @@ export function alignRoleCellsAcrossShows(
       const role = pool.shift()!;
       const cells = Array<string>(showCount).fill('');
       cells[showIdx] = role;
+      for (let otherIdx = 0; otherIdx < showCount; otherIdx += 1) {
+        if (otherIdx === showIdx) {
+          continue;
+        }
+        const otherPool = remaining[otherIdx]!;
+        const matchIdx = otherPool.indexOf(role);
+        if (matchIdx >= 0) {
+          cells[otherIdx] = role;
+          otherPool.splice(matchIdx, 1);
+        }
+      }
       rows.push(cells);
     }
   }

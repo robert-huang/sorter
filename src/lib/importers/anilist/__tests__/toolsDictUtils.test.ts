@@ -29,6 +29,20 @@ describe('alignRoleCellsAcrossShows', () => {
       ['', '', 'Script'],
     ]);
   });
+
+  it('aligns leftover roles that only appear on non-anchor shows', () => {
+    expect(
+      alignRoleCellsAcrossShows([
+        ['Storyboard', 'Editing'],
+        ['Storyboard', 'Image Board'],
+        ['Storyboard', 'Editing', 'Image Board'],
+      ]),
+    ).toEqual([
+      ['Storyboard', 'Storyboard', 'Storyboard'],
+      ['Editing', '', 'Editing'],
+      ['', 'Image Board', 'Image Board'],
+    ]);
+  });
 });
 
 describe('alignVaRoleCellsAcrossShows', () => {
