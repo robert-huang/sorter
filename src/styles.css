@@ -5548,6 +5548,33 @@ html {
   width: 5rem;
 }
 
+/*
+ * Seasonal Scores mode picker: when "Custom" is selected, the textarea +
+ * hint shouldn't extend past the segmented control above them. `max-content`
+ * sizes the column to the segmented's natural width; the textarea's own
+ * `width: 100%` then fills exactly that width.
+ */
+.tool-seasonal-mode-field {
+  width: max-content;
+  max-width: 100%;
+}
+
+.tool-input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  box-sizing: border-box;
+}
+
+.tool-input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .tool-textarea {
   width: 100%;
   resize: vertical;
@@ -6142,6 +6169,67 @@ html {
   text-align: left;
   word-break: break-word;
   line-height: 1.35;
+}
+
+/* Franchise Scores — narrower columns (one row per entry) + format chip. */
+.tool-season-columns .tool-franchise-column--seed {
+  /* Seeds stay visually anchored even when most chart is unscored. */
+  background: var(--accent-soft, color-mix(in srgb, var(--accent, #2563eb) 14%, var(--surface)));
+}
+
+.tool-franchise-column--seed .tool-season-col-head {
+  background: var(--accent-soft, color-mix(in srgb, var(--accent, #2563eb) 18%, var(--surface-2)));
+}
+
+.tool-franchise-title {
+  width: 100%;
+}
+
+.tool-franchise-meta {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.tool-franchise-format {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.tool-franchise-score-cell {
+  justify-content: space-between;
+}
+
+.tool-franchise-seed-tag {
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.tool-franchise-toggles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 4px 12px;
+  margin-top: 4px;
+}
+
+/* Franchise chart packs more entries per viewport than the seasonal chart. */
+.tool-season-body > .tool-season-column.tool-franchise-column,
+.tool-season-body > .tool-season-column.tool-franchise-column--seed {
+  flex: 0 0 220px;
+  width: 220px;
 }
 
 .settings-tab-scroll--empty {

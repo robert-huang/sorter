@@ -4,6 +4,7 @@ export type ToolId =
   | 'shared-credits'
   | 'shared-staff'
   | 'seasonal-scores'
+  | 'franchise-scores'
   | 'favourites';
 
 /** Props every tool panel receives so result rows can open the detail modals. */
@@ -24,6 +25,7 @@ const TOOL_IDS: readonly ToolId[] = [
   'shared-credits',
   'shared-staff',
   'seasonal-scores',
+  'franchise-scores',
   'favourites',
 ];
 

@@ -1,0 +1,289 @@
+import type { MediaTitleFields } from '../../lib/importers/anilist/mediaDisplayLabel';
+import { normalizeSeasonalListScore } from './seasonalScoresLogic';
+
+/**
+ * AniList `MediaRelation` enum values. AniList's GraphQL schema does not
+ * document each one in detail, but in practice:
+ * - PREQUEL / SEQUEL: chronologically before / after the seed in the same arc
+ * - PARENT / SIDE_STORY / SPIN_OFF: same world, off-shoot lines
+ * - SUMMARY / ALTERNATIVE: recap or alt-universe retelling
+ * - SOURCE / ADAPTATION: cross-medium pair (manga ↔ anime, novel ↔ anime, ...)
+ * - COMPILATION / CONTAINS: collection / contains relationships
+ * - CHARACTER: shares a character (often cameos)
+ * - OTHER: AniList's catch-all when nothing else fits (soundtracks,
+ *   special editions, promos, etc.)
+ */
+export const FRANCHISE_RELATION_TYPES = [
+  'PREQUEL',
+  'SEQUEL',
+  'PARENT',
+  'SIDE_STORY',
+  'SPIN_OFF',
+  'ALTERNATIVE',
+  'SUMMARY',
+  'ADAPTATION',
+  'SOURCE',
+  'COMPILATION',
+  'CONTAINS',
+  'OTHER',
+  'CHARACTER',
+] as const;
+
+export type FranchiseRelationType = (typeof FRANCHISE_RELATION_TYPES)[number];
+
+/** Human label + tooltip for the toggle grid. */
+export const FRANCHISE_RELATION_LABELS: Record<
+  FranchiseRelationType,
+  { label: string; hint: string }
+> = {
+  PREQUEL: { label: 'Prequel', hint: 'Comes before the seed in-arc.' },
+  SEQUEL: { label: 'Sequel', hint: 'Continues after the seed.' },
+  PARENT: { label: 'Parent', hint: 'Containing series / parent story.' },
+  SIDE_STORY: { label: 'Side story', hint: 'Same world, off-shoot story.' },
+  SPIN_OFF: { label: 'Spin-off', hint: 'Spin-off series.' },
+  ALTERNATIVE: { label: 'Alternative', hint: 'Alternative universe retelling.' },
+  SUMMARY: { label: 'Summary', hint: 'Recap / summary cut.' },
+  ADAPTATION: {
+    label: 'Adaptation',
+    hint: 'A cross-medium adaptation (e.g. an anime made FROM the seed manga).',
+  },
+  SOURCE: {
+    label: 'Source',
+    hint: 'The source material the seed was adapted from (e.g. the manga an anime is based on).',
+  },
+  COMPILATION: { label: 'Compilation', hint: 'A compilation containing the seed.' },
+  CONTAINS: { label: 'Contains', hint: 'The seed contains this entry.' },
+  OTHER: {
+    label: 'Other',
+    hint: "AniList's catch-all bucket (e.g. soundtracks, promos, specials).",
+  },
+  CHARACTER: {
+    label: 'Shared character',
+    hint: 'Just shares a character with the seed — often only a cameo. Off by default.',
+  },
+};
+
+/** Default relation toggles: everything ON except CHARACTER (per user request). */
+export const DEFAULT_RELATION_TOGGLES: Record<FranchiseRelationType, boolean> = {
+  PREQUEL: true,
+  SEQUEL: true,
+  PARENT: true,
+  SIDE_STORY: true,
+  SPIN_OFF: true,
+  ALTERNATIVE: true,
+  SUMMARY: true,
+  ADAPTATION: true,
+  SOURCE: true,
+  COMPILATION: true,
+  CONTAINS: true,
+  OTHER: true,
+  CHARACTER: false,
+};
+
+export type FranchiseForm = {
+  username: string;
+  showText: string;
+  relationTypes: Record<FranchiseRelationType, boolean>;
+};
+
+/** Raw node returned by the BFS — display fields normalized for the chart. */
+export type FranchiseNode = {
+  id: number;
+  /** ANIME or MANGA — drives which user list lookup applies. */
+  mediaType: 'ANIME' | 'MANGA';
+  /** AniList format (TV, MOVIE, OVA, MANGA, NOVEL, ...) — null if missing. */
+  format: string | null;
+  title: string;
+  titleSource: MediaTitleFields;
+  coverImage: string | null;
+  startDate: { year: number | null; month: number | null; day: number | null };
+};
+
+/** A franchise entry stamped with the seed's relation hop and the user's list status. */
+export type FranchiseEntry = FranchiseNode & {
+  /** True for the seed media itself. */
+  isSeed: boolean;
+  /** Null when the entry is not on the user's list at all (unwatched). */
+  listStatus: string | null;
+  /** Null when no score is set on the list entry. */
+  score: number | null;
+};
+
+export type FranchiseResult =
+  | { kind: 'empty'; message: string }
+  | {
+      kind: 'columns';
+      seed: { id: number; title: string };
+      entries: FranchiseEntry[];
+    };
+
+/**
+ * Date sort key: YYYYMMDD as a number, with unknown parts filled in with `01`
+ * so half-known dates anchor to the start of their year/month. Fully-missing
+ * dates sort last via Number.MAX_SAFE_INTEGER.
+ */
+export function franchiseDateSortKey(date: FranchiseNode['startDate']): number {
+  if (date.year == null) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+  const month = date.month ?? 1;
+  const day = date.day ?? 1;
+  return date.year * 10000 + month * 100 + day;
+}
+
+/** Short, chart-friendly label for the column header. */
+export function franchiseDateLabel(date: FranchiseNode['startDate']): string {
+  if (date.year == null) {
+    return 'TBA';
+  }
+  if (date.month == null) {
+    return String(date.year);
+  }
+  const MONTHS = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ] as const;
+  const monthLabel = MONTHS[Math.min(Math.max(date.month, 1), 12) - 1];
+  return `${monthLabel} ${date.year}`;
+}
+
+/**
+ * Score cell label. `U` = unwatched (entry isn't on the user's list at all),
+ * `P` = PLANNING, `—` = on list but no score, otherwise the score itself.
+ *
+ * Distinct from {@link formatSeasonalScoreLabel} because seasonal-scores only
+ * ever shows shows already on the list — there's no "unwatched" bucket there.
+ */
+export function formatFranchiseScoreLabel(
+  score: number | null | undefined,
+  listStatus: string | null | undefined,
+): string {
+  if (listStatus == null) {
+    return 'U';
+  }
+  if (listStatus === 'PLANNING') {
+    return 'P';
+  }
+  const normalized = normalizeSeasonalListScore(score);
+  return normalized == null ? '—' : String(normalized);
+}
+
+/** Filter helper used by the BFS and reused by tests. */
+export function enabledRelationTypes(
+  toggles: Record<FranchiseRelationType, boolean>,
+): Set<string> {
+  const out = new Set<string>();
+  for (const [type, enabled] of Object.entries(toggles)) {
+    if (enabled) {
+      out.add(type);
+    }
+  }
+  return out;
+}
+
+/** One response from the relation-fetcher used by {@link bfsFranchiseRelations}. */
+export type FranchiseRelationsResponse = {
+  self: FranchiseNode | null;
+  edges: Array<{ relationType: string; node: FranchiseNode }>;
+};
+
+export type BfsFranchiseOptions = {
+  maxNodes?: number;
+  /** Fires once per visited media id so the panel can show progress. */
+  onProgress?: (info: { visited: number; queueDepth: number; lastTitle: string }) => void;
+  signal?: AbortSignal;
+};
+
+/**
+ * Walk franchise relations breadth-first from `seedId`, returning every node
+ * reachable via the enabled relation types (bounded by `maxNodes`, default
+ * 200, so a runaway "OTHER" web from a popular property can't drown the UI).
+ * Pure-ish: relies on the injected `fetcher` so tests can stub the network.
+ */
+export async function bfsFranchiseRelations(
+  seedId: number,
+  toggles: Record<FranchiseRelationType, boolean>,
+  fetcher: (id: number, signal?: AbortSignal) => Promise<FranchiseRelationsResponse | null>,
+  options: BfsFranchiseOptions = {},
+): Promise<Map<number, FranchiseNode>> {
+  const enabled = enabledRelationTypes(toggles);
+  const maxNodes = options.maxNodes ?? 200;
+  const nodes = new Map<number, FranchiseNode>();
+  const visitedFetches = new Set<number>();
+  const queue: number[] = [seedId];
+
+  while (queue.length > 0 && nodes.size < maxNodes) {
+    options.signal?.throwIfAborted();
+    const id = queue.shift()!;
+    if (visitedFetches.has(id)) {
+      continue;
+    }
+    visitedFetches.add(id);
+
+    const response = await fetcher(id, options.signal);
+    if (!response) {
+      continue;
+    }
+    if (response.self && !nodes.has(response.self.id)) {
+      nodes.set(response.self.id, response.self);
+    }
+
+    options.onProgress?.({
+      visited: nodes.size,
+      queueDepth: queue.length,
+      lastTitle: response.self?.title ?? String(id),
+    });
+
+    for (const edge of response.edges) {
+      if (!enabled.has(edge.relationType)) {
+        continue;
+      }
+      const childId = edge.node.id;
+      if (!nodes.has(childId)) {
+        // Stamp metadata immediately from the edge — we may not get around to
+        // fetching this child before maxNodes is reached, but it can still
+        // appear in the chart with title/date from this edge alone.
+        nodes.set(childId, edge.node);
+      }
+      if (nodes.size >= maxNodes) {
+        break;
+      }
+      if (!visitedFetches.has(childId)) {
+        queue.push(childId);
+      }
+    }
+  }
+
+  return nodes;
+}
+
+/**
+ * Stamp BFS nodes with the user's list status/score and sort by start date.
+ * Pure — the panel & tests both call this on already-fetched data.
+ */
+export function buildFranchiseEntries(
+  seedId: number,
+  nodes: ReadonlyMap<number, FranchiseNode>,
+  userList: ReadonlyMap<number, { status: string | null; score: number | null }>,
+): FranchiseEntry[] {
+  const entries: FranchiseEntry[] = [];
+  for (const node of nodes.values()) {
+    const listEntry = userList.get(node.id) ?? null;
+    entries.push({
+      ...node,
+      isSeed: node.id === seedId,
+      listStatus: listEntry?.status ?? null,
+      score: listEntry?.score ?? null,
+    });
+  }
+  // Stable tiebreak on id keeps two same-date entries in a deterministic order.
+  entries.sort((a, b) => {
+    const keyA = franchiseDateSortKey(a.startDate);
+    const keyB = franchiseDateSortKey(b.startDate);
+    if (keyA !== keyB) {
+      return keyA - keyB;
+    }
+    return a.id - b.id;
+  });
+  return entries;
+}

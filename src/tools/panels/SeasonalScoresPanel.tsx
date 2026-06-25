@@ -105,10 +105,10 @@ function saveForm(form: SeasonalScoresForm): void {
 }
 
 const SEASON_MODE_OPTIONS: { value: SeasonMode; label: string; title: string }[] = [
-  { value: 'all', label: 'All years', title: "Compare full years from the user's list range." },
+  { value: 'all', label: 'All (Years)', title: "Compare full years from the user's list range." },
   {
     value: 'allseasons',
-    label: 'All seasons',
+    label: 'All (Seasons)',
     title: "Split the user's list range into Winter/Spring/Summer/Fall columns.",
   },
   { value: 'custom', label: 'Custom', title: 'Type your own season list (one per line).' },
@@ -298,10 +298,7 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
           onRefresh={() => refreshUsernameList(form.username, running)}
         />
 
-        <div className="tool-field">
-          <span className="tool-field-label" id="seasonal-scores-mode-label">
-            Seasons
-          </span>
+        <div className="tool-field tool-seasonal-mode-field">
           <div
             className="tool-segmented"
             role="group"

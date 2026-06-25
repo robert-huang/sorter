@@ -26,12 +26,14 @@ import {
 import { SharedCreditsPanel } from './panels/SharedCreditsPanel';
 import { SharedStaffPanel } from './panels/SharedStaffPanel';
 import { SeasonalScoresPanel } from './panels/SeasonalScoresPanel';
+import { FranchiseScoresPanel } from './panels/FranchiseScoresPanel';
 import { FavouritesPanel } from './panels/FavouritesPanel';
 
 const TOOL_TABS: ReadonlyArray<ToolTab<ToolId>> = [
   { id: 'shared-credits', label: 'Shared Credits' },
   { id: 'shared-staff', label: 'Shared Staff' },
   { id: 'seasonal-scores', label: 'Seasonal Scores' },
+  { id: 'franchise-scores', label: 'Franchise Scores' },
   { id: 'favourites', label: 'Favourites' },
 ];
 
@@ -174,6 +176,9 @@ export function ToolsApp() {
         </div>
         <div hidden={activeTool !== 'seasonal-scores'}>
           <SeasonalScoresPanel {...panelProps} />
+        </div>
+        <div hidden={activeTool !== 'franchise-scores'}>
+          <FranchiseScoresPanel {...panelProps} />
         </div>
         <div hidden={activeTool !== 'favourites'}>
           <FavouritesPanel {...panelProps} />

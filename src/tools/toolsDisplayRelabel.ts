@@ -10,6 +10,7 @@ import {
   readStaffImagesFromDb,
   readStaffShowMapFromDb,
 } from '../lib/importers/anilist/toolsAnilistAccess';
+import type { FranchiseEntry } from './panels/franchiseScoresLogic';
 import type { SeasonalShow } from './panels/seasonalScoresLogic';
 import {
   buildSharedCreditsResult,
@@ -76,6 +77,13 @@ export function relabelStaffShowMap(map: StaffShowMap): StaffShowMap {
     };
   }
   return out;
+}
+
+export function relabelFranchiseEntries(entries: FranchiseEntry[]): FranchiseEntry[] {
+  return entries.map((entry) => ({
+    ...entry,
+    title: pickMediaTitle(entry.titleSource),
+  }));
 }
 
 export function relabelSeasonalShows(shows: SeasonalShow[]): SeasonalShow[] {

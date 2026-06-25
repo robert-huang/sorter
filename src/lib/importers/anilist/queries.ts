@@ -718,6 +718,65 @@ query ToolsMediaRelations($mediaId: Int!) {
 }
 `.trim();
 
+/**
+ * Franchise Scores: full relation edges + chart-ready metadata for one media,
+ * both for the seed itself (top-level fields) and for every directly-related
+ * node (edges[*].node). The BFS walker iterates this query per media id so
+ * each call adds at most one network hop's worth of franchise nodes.
+ */
+export const TOOLS_FRANCHISE_RELATIONS_QUERY = `
+query ToolsFranchiseRelations($mediaId: Int!) {
+  Media(id: $mediaId) {
+    id
+    type
+    format
+    title { english romaji native }
+    coverImage { large }
+    startDate { year month day }
+    relations {
+      edges {
+        relationType
+        node {
+          id
+          type
+          format
+          title { english romaji native }
+          coverImage { large }
+          startDate { year month day }
+        }
+      }
+    }
+  }
+}
+`.trim();
+
+/**
+ * Franchise Scores: minimal user list rows (id + status + 0-100 score) for
+ * either ANIME or MANGA, so the panel can stamp watched/planning/unwatched
+ * labels onto franchise nodes from both lists.
+ */
+export const TOOLS_USER_MEDIA_LIST_MINIMAL_QUERY = `
+query ToolsUserMediaListMinimal(
+  $userName: String
+  $type: MediaType
+  $page: Int!
+  $perPage: Int!
+) {
+  Page(page: $page, perPage: $perPage) {
+    pageInfo { hasNextPage currentPage }
+    mediaList(
+      userName: $userName
+      type: $type
+      sort: [MEDIA_ID]
+    ) {
+      mediaId
+      status
+      score(format: POINT_100)
+    }
+  }
+}
+`.trim();
+
 /** User anime list ids (non-planning) for Favourites consumed-media filter. */
 export const TOOLS_USER_CONSUMED_MEDIA_QUERY = `
 query ToolsUserConsumedMedia($userName: String, $page: Int!, $perPage: Int!) {
