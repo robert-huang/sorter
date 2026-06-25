@@ -18,6 +18,11 @@ import {
 import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
 import { ToolShowButton } from '../toolEntityLinks';
 import { DragScroll } from '../../components/DragScroll';
+import {
+  anilistUrlForSeasonSearch,
+  bindAnilistMiddleClick,
+  mergeAnilistLinkClass,
+} from '../../lib/importers/anilist/anilistLinks';
 
 const LS_KEY = 'anime-tools-seasonal-scores-form';
 /** @deprecated migrated into {@link LS_KEY} */
@@ -85,10 +90,22 @@ function SeasonalColumnsView({
     <div className="tool-season-columns">
       <DragScroll className="tool-season-scroll">
         <div className="tool-season-body">
-          {columns.map((col, colIdx) => (
+          {columns.map((col, colIdx) => {
+            const searchLink = bindAnilistMiddleClick(
+              anilistUrlForSeasonSearch(col.season, col.year),
+            );
+            return (
             <div key={`${colIdx}-${col.label}`} className="tool-season-column">
               <div className="tool-season-col-head">
-                <div className="tool-season-col-title">
+                <div
+                  className={mergeAnilistLinkClass(
+                    'tool-season-col-title',
+                    searchLink.className,
+                  )}
+                  onMouseDown={searchLink.onMouseDown}
+                  onAuxClick={searchLink.onAuxClick}
+                  title="Middle-click to search this season on AniList"
+                >
                   {formatSeasonColumnLabel(col.label, col.ratedCount)}
                 </div>
                 <div className="tool-season-col-avg">avg: {col.average ?? 'N/A'}</div>
@@ -111,7 +128,8 @@ function SeasonalColumnsView({
                 </div>
               ))}
             </div>
-          ))}
+            );
+          })}
         </div>
       </DragScroll>
     </div>

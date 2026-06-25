@@ -29,6 +29,9 @@ export type SeasonalScoresForm = {
 
 export type SeasonColumn = {
   label: string;
+  /** Carried through from the spec so the UI can build the matching AniList search URL. */
+  season: string | null;
+  year: number;
   ratedCount: number;
   average: number | null;
   shows: Array<{
@@ -219,6 +222,8 @@ export function buildSeasonalColumns(
     }
     columns.push({
       label: spec.label,
+      season: spec.season,
+      year: spec.year,
       ratedCount: countRatedSeasonalShows(bucket),
       average: averageScore(bucket),
       shows: bucket.map((show) => ({

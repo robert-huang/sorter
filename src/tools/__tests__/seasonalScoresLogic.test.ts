@@ -319,6 +319,26 @@ describe('seasonalScoresLogic', () => {
     }
   });
 
+  it('threads season + year into each SeasonColumn (for AniList search URL)', () => {
+    const shows: SeasonalShow[] = [
+      { id: 1, title: 'A', season: 'WINTER', seasonYear: 2024, score: 80, notes: null },
+      { id: 2, title: 'B', season: 'SPRING', seasonYear: 2024, score: 70, notes: null },
+    ];
+    const result = buildSeasonalColumns(shows, {
+      username: 'user',
+      seasonText: 'Winter 2024\n2024',
+      skipEmpty: false,
+      airingNotesOnly: false,
+      includePlanning: false,
+    });
+    expect(result.kind).toBe('columns');
+    if (result.kind === 'columns') {
+      expect(result.columns[0]).toMatchObject({ season: 'WINTER', year: 2024 });
+      // Year-only spec (`2024`) leaves season unset.
+      expect(result.columns[1]).toMatchObject({ season: null, year: 2024 });
+    }
+  });
+
   it('returns empty kind when season text is blank', () => {
     const result = buildSeasonalColumns(sampleShows, {
       username: 'user',

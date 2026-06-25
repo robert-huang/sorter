@@ -17,6 +17,33 @@ export function anilistUrlForMediaEntry(type: AnilistMediaType, id: number): str
   return buildAnilistMediaUrl(type, id);
 }
 
+/**
+ * AniList anime search filtered by year (always) and season (when set), with
+ * the "only show my anime" toggle pre-checked so the result page matches
+ * what the seasonal-scores column reflects from the user's own list.
+ *
+ * Example shapes:
+ *  - `/search/anime?year=2020&season=FALL&only%20show%20my%20anime=true`
+ *  - `/search/anime?year=2020&only%20show%20my%20anime=true`
+ *
+ * NOTE: AniList's UI reads the "only show my anime" filter from a query
+ * param whose key contains literal spaces — we encode those as %20 (not +)
+ * because the AniList front-end's parser doesn't decode +-as-space here.
+ */
+export function anilistUrlForSeasonSearch(
+  season: string | null,
+  year: number,
+): string {
+  const parts: string[] = [`year=${encodeURIComponent(String(year))}`];
+  if (season) {
+    parts.push(`season=${encodeURIComponent(season.toUpperCase())}`);
+  }
+  parts.push(
+    `${encodeURIComponent('only show my anime')}=true`,
+  );
+  return `https://anilist.co/search/anime?${parts.join('&')}`;
+}
+
 /** True when `url` is a canonical AniList page (not an arbitrary external link). */
 export function isAnilistPageUrl(url: string): boolean {
   return /^https:\/\/anilist\.co\//.test(url);

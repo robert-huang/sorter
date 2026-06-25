@@ -72,6 +72,12 @@ export function useDragScroll<T extends HTMLElement = HTMLDivElement>(): UseDrag
       return;
     }
 
+    // NOTE: do NOT call setPointerCapture here. Capturing on pointerdown
+    // makes browsers (Chromium especially) retarget the subsequent
+    // synthesized `click` event to this scroll container instead of the
+    // inner element the user actually clicked — breaking buttons inside
+    // a DragScroll (e.g. the show-name tiles in Seasonal Scores). We
+    // upgrade to a real capture only once the drag threshold is crossed.
     dragRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -80,7 +86,6 @@ export function useDragScroll<T extends HTMLElement = HTMLDivElement>(): UseDrag
       scrollTop: el.scrollTop,
       dragging: false,
     };
-    el.setPointerCapture(event.pointerId);
   }, []);
 
   const onPointerMove = useCallback<PointerEventHandler<T>>((event) => {
@@ -99,6 +104,14 @@ export function useDragScroll<T extends HTMLElement = HTMLDivElement>(): UseDrag
       }
       state.dragging = true;
       el.classList.add('is-drag-scroll-dragging');
+      // Drag confirmed — claim the pointer so a fast swipe that leaves
+      // the container still keeps panning. Safe to do now because the
+      // gesture is no longer a click.
+      try {
+        el.setPointerCapture(event.pointerId);
+      } catch {
+        /* capture may fail if the pointer was already released */
+      }
     }
 
     event.preventDefault();
