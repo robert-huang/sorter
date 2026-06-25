@@ -1,7 +1,6 @@
 import {
   alignRoleCellsAcrossShows,
   alignVaRoleCellsAcrossShows,
-  dictDiffs,
   dictIntersection,
 } from '../../lib/importers/anilist/toolsDictUtils';
 import { parseLinesOnePerLine } from '../parseToolLines';
@@ -38,7 +37,13 @@ export type SharedStaffForm = {
   showText: string;
   sortByPopularity: boolean;
   ignoreRelated: boolean;
-  diffMode: boolean;
+  /**
+   * When true, the compare chart includes every studio/staff/VA from every
+   * show (union) and leaves the cell blank where a show lacks that entity.
+   * When false (default), only entities that appear in EVERY show are listed
+   * (intersection).
+   */
+  includeAll: boolean;
   topMatchCount: number;
 };
 
@@ -217,8 +222,11 @@ function entityRowsForCompare(
       : kind === 'studio'
         ? [maps.map((m) => formatStudioRoleCell(m[id]?.roles ?? []))]
         : alignRoleCellsAcrossShows(roleLists);
-  const displayName = normalizeStaffName(maps[0]?.[id]?.name ?? id);
-  const imageUrl = maps[0]?.[id]?.image ?? null;
+  // Find name/image from any map that has this entity — required for
+  // "include all" mode where the entity may be absent from maps[0].
+  const firstHit = maps.find((m) => m[id]);
+  const displayName = normalizeStaffName(firstHit?.[id]?.name ?? id);
+  const imageUrl = firstHit?.[id]?.image ?? null;
 
   return aligned.map((cells, rowIdx) => ({
     entityId: Number(id),
@@ -245,68 +253,27 @@ function entityKindForSection(key: keyof ShowStaffBundle): 'studio' | 'staff' | 
 
 export function buildCompareSections(
   shows: ShowStaffBundle[],
-  diffMode: boolean,
+  includeAll: boolean,
 ): SharedStaffSection[] {
   const sections: SharedStaffSection[] = [];
+  // includeAll=true means union (threshold 1); false means intersection (every show).
+  const threshold = includeAll ? 1 : shows.length;
 
   for (const section of SECTIONS) {
     const maps = entityMapsForSection(shows, section.key);
     const kind = entityKindForSection(section.key);
 
-    if (diffMode) {
-      const diffs = dictDiffs(maps);
-      const hasAny = diffs.some((ids) => ids.length > 0);
-      if (!hasAny) {
-        continue;
-      }
-      const rows: SharedStaffSectionRow[] = [];
-      shows.forEach((_show, showIdx) => {
-        for (const id of diffs[showIdx] ?? []) {
-          const entity = maps[showIdx]?.[id];
-          if (!entity) {
-            continue;
-          }
-          if (kind === 'studio') {
-            const cells = shows.map(() => '');
-            cells[showIdx] = formatStudioRoleCell(entity.roles);
-            rows.push({
-              entityId: Number(id),
-              name: entity.name,
-              imageUrl: entity.image ?? null,
-              kind,
-              cells,
-            });
-            continue;
-          }
-          const maxRoles = entity.roles.length || 1;
-          for (let i = 0; i < maxRoles; i += 1) {
-            const cells = shows.map(() => '');
-            cells[showIdx] = entity.roles[i] ?? '';
-            rows.push({
-              entityId: Number(id),
-              name: i === 0 ? entity.name : '',
-              imageUrl: i === 0 ? (entity.image ?? null) : null,
-              kind,
-              cells,
-            });
-          }
-        }
-      });
-      sections.push({ title: section.title, rows });
-      continue;
-    }
-
-    let commonIds = dictIntersection(maps);
-    if (commonIds.length === 0) {
+    let ids = dictIntersection(maps, threshold);
+    if (ids.length === 0) {
       continue;
     }
 
     if (section.key === 'voiceActors') {
-      commonIds = [...commonIds].sort((a, b) => compareByRelevanceOrder(maps, a, b));
+      ids = [...ids].sort((a, b) => compareByRelevanceOrder(maps, a, b));
     }
 
     const rows: SharedStaffSectionRow[] = [];
-    for (const id of commonIds) {
+    for (const id of ids) {
       rows.push(...entityRowsForCompare(maps, id, kind));
     }
     sections.push({ title: section.title, rows });
@@ -426,19 +393,19 @@ export function tallySingleShowMatches(options: {
 
 export function finalizeSharedStaffResult(
   shows: ShowStaffBundle[],
-  form: Pick<SharedStaffForm, 'diffMode'>,
+  form: Pick<SharedStaffForm, 'includeAll'>,
   singleShowReport?: {
     sourceTitle: string;
     topOverall: SharedStaffTopMatch[];
     byCategory: SharedStaffCategoryMatches[];
   },
 ): SharedStaffResult {
-  const sections = buildCompareSections(shows, form.diffMode);
+  const sections = buildCompareSections(shows, form.includeAll);
   if (sections.length === 0 && !singleShowReport) {
     return {
       kind: 'empty',
-      message: form.diffMode
-        ? 'No differing studios/staff/VAs found.'
+      message: form.includeAll
+        ? 'No studios/staff/VAs found.'
         : 'No common studios/staff/VAs found!',
     };
   }

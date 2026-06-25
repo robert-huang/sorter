@@ -157,7 +157,7 @@ function relabelProductionFilmography(
 
 export type SharedStaffRebuildSource = {
   bundles: ShowStaffBundle[];
-  form: Pick<SharedStaffForm, 'diffMode'>;
+  form: Pick<SharedStaffForm, 'includeAll'>;
   singleShow?: {
     sourceShowId: number;
     ignoredShowIds: number[];

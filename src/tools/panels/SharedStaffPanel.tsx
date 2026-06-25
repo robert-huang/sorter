@@ -20,7 +20,7 @@ const DEFAULT_FORM: SharedStaffForm = {
   showText: '',
   sortByPopularity: true,
   ignoreRelated: false,
-  diffMode: false,
+  includeAll: false,
   topMatchCount: 5,
 };
 
@@ -91,11 +91,6 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
     const shows = parseShowInputs(form.showText);
     if (shows.length === 0) {
       setError('Enter at least one show title.');
-      setResult(null);
-      return;
-    }
-    if (form.diffMode && shows.length < 2) {
-      setError('Diff mode needs at least two shows.');
       setResult(null);
       return;
     }
@@ -185,14 +180,17 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
             />
             Match by popularity
           </label>
-          <label className="tool-checkbox">
+          <label
+            className="tool-checkbox"
+            title="Show every studio/staff/VA from any show, leaving the cell blank where a show lacks that entity. Off by default — only entities common to every show are listed."
+          >
             <input
               type="checkbox"
-              checked={form.diffMode}
+              checked={form.includeAll}
               disabled={running}
-              onChange={(e) => patchForm({ diffMode: e.target.checked })}
+              onChange={(e) => patchForm({ includeAll: e.target.checked })}
             />
-            Differences Only
+            Include all (show blanks)
           </label>
         </div>
 
@@ -307,7 +305,7 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
             <table className="tool-result-table">
               <thead>
                 <tr>
-                  <th></th>
+                  <th className="tool-staff-compare-entity"></th>
                   {result.shows.map((show) => (
                     <th key={show.id}>
                       <ToolShowButton
@@ -324,7 +322,7 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
               <tbody>
                 {section.rows.map((row, idx) => (
                   <tr key={`${section.title}-${row.entityId}-${idx}`}>
-                    <td>
+                    <td className="tool-staff-compare-entity">
                       {row.name ? (
                         row.kind === 'studio' ? (
                           row.name

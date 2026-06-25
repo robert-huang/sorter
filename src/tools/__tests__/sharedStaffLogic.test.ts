@@ -236,6 +236,40 @@ describe('sharedStaffLogic', () => {
     expect(vas?.rows.filter((row) => row.name).map((row) => row.entityId)).toEqual([20, 30]);
   });
 
+  it('includeAll=true unions entities across shows and leaves cells blank where missing', () => {
+    const left = bundle(1, 'Left', {
+      studios: {
+        '5': { name: 'Studio A', roles: ['Main'] },
+      },
+      productionStaff: {
+        '10': { name: 'Director', roles: ['Director'] },
+      },
+    });
+    const right = bundle(2, 'Right', {
+      studios: {
+        '6': { name: 'Studio B', roles: ['Main'] },
+      },
+      productionStaff: {
+        '10': { name: 'Director', roles: ['Storyboard'] },
+        '11': { name: 'Composer', roles: ['Music'] },
+      },
+    });
+    const sections = buildCompareSections([left, right], true);
+
+    const studios = sections.find((s) => s.title === 'Studios');
+    expect(studios?.rows).toEqual([
+      expect.objectContaining({ entityId: 5, name: 'Studio A', cells: ['Main', ''] }),
+      expect.objectContaining({ entityId: 6, name: 'Studio B', cells: ['', 'Main'] }),
+    ]);
+
+    const prod = sections.find((s) => s.title === 'Production Staff');
+    expect(prod?.rows.map((row) => ({ id: row.entityId, name: row.name, cells: row.cells }))).toEqual([
+      { id: 10, name: 'Director', cells: ['Director', ''] },
+      { id: 10, name: '', cells: ['', 'Storyboard'] },
+      { id: 11, name: 'Composer', cells: ['', 'Music'] },
+    ]);
+  });
+
   it('finalizeSharedStaffResult returns empty when no overlap', () => {
     const onlyA = bundle(3, 'Lonely', {
       studios: { '5': { name: 'Studio', roles: ['Main'] } },
@@ -243,7 +277,7 @@ describe('sharedStaffLogic', () => {
     const onlyB = bundle(4, 'Also Lonely', {
       studios: { '6': { name: 'Other', roles: ['Main'] } },
     });
-    const result = finalizeSharedStaffResult([onlyA, onlyB], { diffMode: false });
+    const result = finalizeSharedStaffResult([onlyA, onlyB], { includeAll: false });
     expect(result.kind).toBe('empty');
   });
 
@@ -252,7 +286,7 @@ describe('sharedStaffLogic', () => {
     const top = bundle(2, 'Top Match');
     const result = finalizeSharedStaffResult(
       [source, top],
-      { diffMode: false },
+      { includeAll: false },
       {
         sourceTitle: 'Source',
         topOverall: [{ mediaId: 2, title: 'Top Match', coverImage: null, sharedStaffCount: 4 }],

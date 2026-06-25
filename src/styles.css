@@ -3034,6 +3034,9 @@ html {
   border-radius: var(--radius-sm);
   resize: vertical;
   background: var(--surface-2);
+  /* Without an explicit color the UA default (~black) wins in dark mode, */
+  /* making the typed text unreadable on the dark `--surface-2` background. */
+  color: var(--text);
 }
 
 .checkbox-row {
@@ -5549,6 +5552,9 @@ html {
   width: 100%;
   resize: vertical;
   min-height: 11rem;
+  /* Match `.csv-textarea` so dark-mode typed text stays readable. */
+  background: var(--surface-2);
+  color: var(--text);
 }
 
 .tool-form-card .tool-textarea.csv-textarea {
@@ -5619,6 +5625,16 @@ html {
 .tool-table-wrap .tool-result-table th,
 .tool-table-wrap .tool-result-table td {
   vertical-align: middle;
+}
+
+/* Staff/studio entity column in the Shared Staff compare tables. The */
+/* parent table is `width: 100%` so without a min-width the first column */
+/* gets squished when the show columns absorb all the space — long staff */
+/* names like "Hiroyuki Yamashita" then wrap to 1 char per line. */
+.tool-table-wrap .tool-result-table th.tool-staff-compare-entity,
+.tool-table-wrap .tool-result-table td.tool-staff-compare-entity {
+  min-width: 12rem;
+  white-space: normal;
 }
 
 .tool-credits-table-outer {
