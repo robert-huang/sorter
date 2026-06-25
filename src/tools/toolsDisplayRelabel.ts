@@ -31,6 +31,7 @@ import {
   type ShowStaffBundle,
 } from './panels/sharedStaffLogic';
 import type { SharedStaffResult } from './panels/sharedStaffLogic';
+import { getProductionAllRoles } from './toolsPreferences';
 
 export function resolveStaffDisplayNames(
   fields: Record<number, PersonNameFields>,
@@ -167,6 +168,15 @@ export type SharedStaffRebuildSource = {
   };
 };
 
+function buildSharedStaffOptions(
+  form: Pick<SharedStaffForm, 'includeAll'>,
+): { includeAll: boolean; productionAllRoles: boolean } {
+  return {
+    includeAll: form.includeAll,
+    productionAllRoles: getProductionAllRoles(),
+  };
+}
+
 export async function rebuildSharedStaffResult(
   source: SharedStaffRebuildSource,
 ): Promise<SharedStaffResult> {
@@ -218,7 +228,11 @@ export async function rebuildSharedStaffResult(
     }
   }
 
-  return finalizeSharedStaffResult(bundles, source.form, singleShowReport);
+  return finalizeSharedStaffResult(
+    bundles,
+    buildSharedStaffOptions(source.form),
+    singleShowReport,
+  );
 }
 
 /** Build a voice-role label source from API/DB fields. */

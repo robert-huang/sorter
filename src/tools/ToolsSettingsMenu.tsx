@@ -5,6 +5,7 @@ import { HistoryBackGuardSetting } from '../components/HistoryBackGuardSetting';
 import { SettingsGitHubLink } from '../components/SettingsGitHubLink';
 import { SourceDatabasesSection } from '../components/sourceDatabasesSection';
 import type { SourceDbSyncControls } from '../hooks/useSourceDbSync';
+import { useToolsPreferences } from '../hooks/useToolsPreferences';
 
 type SettingsTab = 'settings' | 'database';
 
@@ -44,6 +45,7 @@ export function ToolsSettingsMenu({
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<SettingsTab>(() => readPersistedTab());
   const wrapRef = useRef<HTMLDivElement>(null);
+  const { prefs: toolsPrefs, setProductionAllRoles } = useToolsPreferences();
 
   function selectTab(next: SettingsTab): void {
     setTab(next);
@@ -107,6 +109,19 @@ export function ToolsSettingsMenu({
             {tab === 'settings' && (
               <div className="settings-tab-scroll">
                 <AnilistDisplayPreferencesPanel standalone />
+                <div className="settings-divider" />
+                <p className="edit-item-advanced-title">Shared Staff</p>
+                <label
+                  className="settings-item checkbox"
+                  title="When off, the Shared Staff compare chart hides non-core production credits (e.g. Storyboard, Production Assistant) and only lists key roles like Director, Music, and Script."
+                >
+                  <input
+                    type="checkbox"
+                    checked={toolsPrefs.productionAllRoles}
+                    onChange={(e) => setProductionAllRoles(e.target.checked)}
+                  />
+                  Show all production roles
+                </label>
               </div>
             )}
 

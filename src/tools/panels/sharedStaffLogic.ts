@@ -10,6 +10,7 @@ import {
   VISUALS_ROLES,
   WRITING_ROLES,
 } from '../../lib/importers/anilist/staffRoleBuckets';
+import { isKeyProductionRole } from '../../lib/importers/anilist/staffRoleFilter';
 
 export type CreditedEntity = {
   name: string;
@@ -251,16 +252,43 @@ function entityKindForSection(key: keyof ShowStaffBundle): 'studio' | 'staff' | 
   return 'va';
 }
 
+export type CompareSectionsOptions = {
+  /** Union (true) vs intersection (false) — see SharedStaffForm.includeAll. */
+  includeAll: boolean;
+  /**
+   * When false (default for the panel), the Production Staff section is
+   * filtered to "key" roles only via `isKeyProductionRole`. Studios and VAs
+   * are unaffected.
+   */
+  productionAllRoles: boolean;
+};
+
+function filterProductionMapToKeyRoles(map: CreditedEntityMap): CreditedEntityMap {
+  const out: CreditedEntityMap = {};
+  for (const [id, entity] of Object.entries(map)) {
+    const keyRoles = entity.roles.filter(isKeyProductionRole);
+    if (keyRoles.length === 0) {
+      continue;
+    }
+    out[id] = { ...entity, roles: keyRoles };
+  }
+  return out;
+}
+
 export function buildCompareSections(
   shows: ShowStaffBundle[],
-  includeAll: boolean,
+  options: CompareSectionsOptions,
 ): SharedStaffSection[] {
+  const { includeAll, productionAllRoles } = options;
   const sections: SharedStaffSection[] = [];
   // includeAll=true means union (threshold 1); false means intersection (every show).
   const threshold = includeAll ? 1 : shows.length;
 
   for (const section of SECTIONS) {
-    const maps = entityMapsForSection(shows, section.key);
+    let maps = entityMapsForSection(shows, section.key);
+    if (section.key === 'productionStaff' && !productionAllRoles) {
+      maps = maps.map(filterProductionMapToKeyRoles);
+    }
     const kind = entityKindForSection(section.key);
 
     let ids = dictIntersection(maps, threshold);
@@ -393,18 +421,18 @@ export function tallySingleShowMatches(options: {
 
 export function finalizeSharedStaffResult(
   shows: ShowStaffBundle[],
-  form: Pick<SharedStaffForm, 'includeAll'>,
+  options: CompareSectionsOptions,
   singleShowReport?: {
     sourceTitle: string;
     topOverall: SharedStaffTopMatch[];
     byCategory: SharedStaffCategoryMatches[];
   },
 ): SharedStaffResult {
-  const sections = buildCompareSections(shows, form.includeAll);
+  const sections = buildCompareSections(shows, options);
   if (sections.length === 0 && !singleShowReport) {
     return {
       kind: 'empty',
-      message: form.includeAll
+      message: options.includeAll
         ? 'No studios/staff/VAs found.'
         : 'No common studios/staff/VAs found!',
     };

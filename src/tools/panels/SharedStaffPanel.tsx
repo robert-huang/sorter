@@ -15,6 +15,8 @@ import {
 import { runSharedStaffCompare, type SharedStaffRunProgress } from './sharedStaffApi';
 import { ToolShowButton, ToolStaffButton } from '../toolEntityLinks';
 import { DragScroll } from '../../components/DragScroll';
+import { useToolsPreferencesRevision } from '../../hooks/useToolsPreferences';
+import { getProductionAllRoles } from '../toolsPreferences';
 
 const DEFAULT_FORM: SharedStaffForm = {
   showText: '',
@@ -44,6 +46,7 @@ function progressLabel(progress: SharedStaffRunProgress | null): string | null {
 
 export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
   const displayLabelRevision = useToolsDisplayLabelRevision();
+  const toolsPrefsRevision = useToolsPreferencesRevision();
   const [form, setForm] = useState<SharedStaffForm>(DEFAULT_FORM);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<SharedStaffRunProgress | null>(null);
@@ -73,7 +76,9 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
           setError(e instanceof Error ? e.message : 'Failed to relabel results.');
         }
       });
-  }, [displayLabelRevision]);
+    // toolsPrefsRevision: re-derive sections when the "show all production
+    // roles" toggle changes — bundles are unchanged, so reuse rebuildSourceRef.
+  }, [displayLabelRevision, toolsPrefsRevision]);
 
   const patchForm = useCallback((patch: Partial<SharedStaffForm>) => {
     setError(null);
@@ -122,7 +127,13 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
         form,
         singleShow: singleShowSource,
       };
-      setResult(finalizeSharedStaffResult(bundles, form, singleShowReport));
+      setResult(
+        finalizeSharedStaffResult(
+          bundles,
+          { includeAll: form.includeAll, productionAllRoles: getProductionAllRoles() },
+          singleShowReport,
+        ),
+      );
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') {
         return;

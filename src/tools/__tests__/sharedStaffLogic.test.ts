@@ -22,6 +22,14 @@ function bundle(
   };
 }
 
+// Most existing tests assert raw role passthrough — they predate the
+// "key production roles" filter, so they opt back into the old "all roles"
+// behavior. The filter has its own dedicated test below.
+const OPTS_INTERSECT_ALL_ROLES = {
+  includeAll: false,
+  productionAllRoles: true,
+} as const;
+
 describe('sharedStaffLogic', () => {
   const showA = bundle(1, 'A', {
     productionStaff: {
@@ -42,7 +50,7 @@ describe('sharedStaffLogic', () => {
   });
 
   it('buildCompareSections finds common production staff and VAs', () => {
-    const sections = buildCompareSections([showA, showB], false);
+    const sections = buildCompareSections([showA, showB], OPTS_INTERSECT_ALL_ROLES);
     const titles = sections.map((s) => s.title);
     expect(titles).toContain('Production Staff');
     expect(titles).toContain('Voice Actors (JP)');
@@ -64,7 +72,7 @@ describe('sharedStaffLogic', () => {
         '1': { name: 'Person', roles: ['roleB'] },
       },
     });
-    const sections = buildCompareSections([left, right], false);
+    const sections = buildCompareSections([left, right], OPTS_INTERSECT_ALL_ROLES);
     const prod = sections.find((s) => s.title === 'Production Staff');
     expect(prod?.rows.map((row) => row.cells)).toEqual([
       ['roleA', ''],
@@ -83,7 +91,7 @@ describe('sharedStaffLogic', () => {
         '1': { name: 'Person', roles: ['roleA', 'roleB'] },
       },
     });
-    const sections = buildCompareSections([left, right], false);
+    const sections = buildCompareSections([left, right], OPTS_INTERSECT_ALL_ROLES);
     const prod = sections.find((s) => s.title === 'Production Staff');
     expect(prod?.rows.map((row) => row.cells)).toEqual([
       ['roleB', 'roleB'],
@@ -116,7 +124,7 @@ describe('sharedStaffLogic', () => {
         },
       },
     });
-    const sections = buildCompareSections([kimi, tenki, suzume], false);
+    const sections = buildCompareSections([kimi, tenki, suzume], OPTS_INTERSECT_ALL_ROLES);
     const prod = sections.find((s) => s.title === 'Production Staff');
     expect(prod?.rows.map((row) => row.cells)).toEqual([
       ['Storyboard', 'Storyboard', 'Storyboard'],
@@ -136,7 +144,7 @@ describe('sharedStaffLogic', () => {
         '5': { name: 'CoMix Wave', roles: ['Supporting', 'Main'] },
       },
     });
-    const sections = buildCompareSections([left, right], false);
+    const sections = buildCompareSections([left, right], OPTS_INTERSECT_ALL_ROLES);
     const studios = sections.find((s) => s.title === 'Studios');
     expect(studios?.rows).toHaveLength(1);
     expect(studios?.rows[0]?.cells).toEqual(['Main', 'Supporting, Main']);
@@ -163,7 +171,7 @@ describe('sharedStaffLogic', () => {
         },
       },
     });
-    const sections = buildCompareSections([left, right], false);
+    const sections = buildCompareSections([left, right], OPTS_INTERSECT_ALL_ROLES);
     const vas = sections.find((s) => s.title === 'Voice Actors (JP)');
     expect(vas?.rows).toHaveLength(1);
     expect(vas?.rows[0]?.cells).toEqual(['MAIN Alice', 'SUPPORTING Alice']);
@@ -201,7 +209,7 @@ describe('sharedStaffLogic', () => {
         },
       },
     });
-    const sections = buildCompareSections([tenki, kimi, kotonoha], false);
+    const sections = buildCompareSections([tenki, kimi, kotonoha], OPTS_INTERSECT_ALL_ROLES);
     const vas = sections.find((s) => s.title === 'Voice Actors (JP)');
     expect(vas?.rows.map((row) => row.cells)).toEqual([
       ['MAIN Natsumi', '', ''],
@@ -231,7 +239,7 @@ describe('sharedStaffLogic', () => {
         '20': { name: 'Earlier VA', roles: ['MAIN Amy'], relevanceOrder: 0 },
       },
     });
-    const sections = buildCompareSections([left, right], false);
+    const sections = buildCompareSections([left, right], OPTS_INTERSECT_ALL_ROLES);
     const vas = sections.find((s) => s.title === 'Voice Actors (JP)');
     expect(vas?.rows.filter((row) => row.name).map((row) => row.entityId)).toEqual([20, 30]);
   });
@@ -254,7 +262,7 @@ describe('sharedStaffLogic', () => {
         '11': { name: 'Composer', roles: ['Music'] },
       },
     });
-    const sections = buildCompareSections([left, right], true);
+    const sections = buildCompareSections([left, right], { includeAll: true, productionAllRoles: true });
 
     const studios = sections.find((s) => s.title === 'Studios');
     expect(studios?.rows).toEqual([
@@ -270,6 +278,80 @@ describe('sharedStaffLogic', () => {
     ]);
   });
 
+  it('productionAllRoles=false keeps only key production roles and drops staff with no key roles', () => {
+    // Director + Music are key; Storyboard + Production Assistant are not.
+    const left = bundle(1, 'Left', {
+      productionStaff: {
+        '10': { name: 'Director-san', roles: ['Director', 'Storyboard'] },
+        '11': { name: 'Storyboard-only', roles: ['Storyboard'] },
+        '12': { name: 'Music-san', roles: ['Music'] },
+      },
+    });
+    const right = bundle(2, 'Right', {
+      productionStaff: {
+        '10': { name: 'Director-san', roles: ['Storyboard', 'Director'] },
+        '11': { name: 'Storyboard-only', roles: ['Storyboard'] },
+        '12': { name: 'Music-san', roles: ['Music'] },
+      },
+    });
+
+    const filteredSections = buildCompareSections([left, right], {
+      includeAll: false,
+      productionAllRoles: false,
+    });
+    const prod = filteredSections.find((s) => s.title === 'Production Staff');
+    // Storyboard-only is dropped entirely; Director-san's Storyboard cell is stripped.
+    expect(prod?.rows.map((row) => ({ id: row.entityId, cells: row.cells }))).toEqual([
+      { id: 10, cells: ['Director', 'Director'] },
+      { id: 12, cells: ['Music', 'Music'] },
+    ]);
+
+    // Sanity: turning the flag on restores Storyboard credits.
+    const allSections = buildCompareSections([left, right], {
+      includeAll: false,
+      productionAllRoles: true,
+    });
+    const allProd = allSections.find((s) => s.title === 'Production Staff');
+    const allRoleCells = allProd?.rows.flatMap((row) => row.cells) ?? [];
+    expect(allRoleCells).toContain('Storyboard');
+    expect(allProd?.rows.some((row) => row.entityId === 11)).toBe(true);
+  });
+
+  it('productionAllRoles=false leaves Studios and Voice Actors untouched', () => {
+    // Studios use 'Main'/'Supporting' labels — those would be filtered out
+    // if the filter were applied indiscriminately. VAs use free-form
+    // character labels and would also be wiped.
+    const left = bundle(1, 'Left', {
+      studios: { '5': { name: 'Studio A', roles: ['Main'] } },
+      voiceActors: {
+        '20': {
+          name: 'VA One',
+          roles: ['MAIN Alice'],
+          roleCharacterIds: [100],
+          relevanceOrder: 0,
+        },
+      },
+    });
+    const right = bundle(2, 'Right', {
+      studios: { '5': { name: 'Studio A', roles: ['Main'] } },
+      voiceActors: {
+        '20': {
+          name: 'VA One',
+          roles: ['MAIN Alice'],
+          roleCharacterIds: [100],
+          relevanceOrder: 0,
+        },
+      },
+    });
+
+    const sections = buildCompareSections([left, right], {
+      includeAll: false,
+      productionAllRoles: false,
+    });
+    expect(sections.find((s) => s.title === 'Studios')?.rows).toHaveLength(1);
+    expect(sections.find((s) => s.title === 'Voice Actors (JP)')?.rows).toHaveLength(1);
+  });
+
   it('finalizeSharedStaffResult returns empty when no overlap', () => {
     const onlyA = bundle(3, 'Lonely', {
       studios: { '5': { name: 'Studio', roles: ['Main'] } },
@@ -277,7 +359,7 @@ describe('sharedStaffLogic', () => {
     const onlyB = bundle(4, 'Also Lonely', {
       studios: { '6': { name: 'Other', roles: ['Main'] } },
     });
-    const result = finalizeSharedStaffResult([onlyA, onlyB], { includeAll: false });
+    const result = finalizeSharedStaffResult([onlyA, onlyB], OPTS_INTERSECT_ALL_ROLES);
     expect(result.kind).toBe('empty');
   });
 
@@ -286,7 +368,7 @@ describe('sharedStaffLogic', () => {
     const top = bundle(2, 'Top Match');
     const result = finalizeSharedStaffResult(
       [source, top],
-      { includeAll: false },
+      OPTS_INTERSECT_ALL_ROLES,
       {
         sourceTitle: 'Source',
         topOverall: [{ mediaId: 2, title: 'Top Match', coverImage: null, sharedStaffCount: 4 }],
