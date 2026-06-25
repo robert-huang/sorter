@@ -42,7 +42,7 @@ async function fetchUserSeasonalShowsLive(
           notes?: string | null;
           media: {
             id: number;
-            title: { english?: string | null; romaji?: string | null };
+            title: { english?: string | null; romaji?: string | null; native?: string | null };
             coverImage?: { large?: string | null } | null;
             season?: string | null;
             seasonYear?: number | null;
@@ -56,7 +56,7 @@ async function fetchUserSeasonalShowsLive(
       notes?: string | null;
       media: {
         id: number;
-        title: { english?: string | null; romaji?: string | null };
+        title: { english?: string | null; romaji?: string | null; native?: string | null };
         coverImage?: { large?: string | null } | null;
         season?: string | null;
         seasonYear?: number | null;
@@ -79,7 +79,7 @@ async function fetchUserSeasonalShowsLive(
       id: entry.media.id,
       title_english: entry.media.title.english ?? null,
       title_romaji: entry.media.title.romaji ?? null,
-      title_native: (entry.media.title as { native?: string | null }).native ?? null,
+      title_native: entry.media.title.native ?? null,
     },
     coverImage: entry.media.coverImage?.large ?? null,
     season: entry.media.season ?? null,

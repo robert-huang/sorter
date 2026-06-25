@@ -125,7 +125,6 @@ export type VaAccumulator = {
   rankSum: number;
   logScore: number;
   characters: FavouriteCharacterRef[];
-  characterNamesWithRank: string[];
 };
 
 export type VaRankRow = {
@@ -135,7 +134,6 @@ export type VaRankRow = {
   displayValue: string;
   numericValue: number;
   characters: FavouriteCharacterRef[];
-  characterNamesWithRank: string[];
 };
 
 export type FavouritesResult = {
@@ -168,6 +166,12 @@ export type FavouritesResult = {
     matchedCount: number;
     matchedCharacters: FavouriteCharacterRef[];
   }>;
+  /**
+   * Names of characters whose VA appearances were truncated by the
+   * bounded normal-Analyze fetch. Non-empty means stats may
+   * under-report; UI should suggest Expand Roles for full data.
+   */
+  truncatedCharacterNames?: string[];
 };
 
 export function pickCharacterName(
@@ -373,7 +377,6 @@ export function accumulateVaStats(
         existing.rankSum += rank;
         existing.logScore += logBase - Math.log(rank);
         existing.characters.push(characterRef);
-        existing.characterNamesWithRank.push(`${characterRef.name} (${rank})`);
         if (!existing.imageUrl && va.imageUrl) {
           existing.imageUrl = va.imageUrl;
         }
@@ -386,7 +389,6 @@ export function accumulateVaStats(
           rankSum: midpoint + rank,
           logScore: logBase - Math.log(rank),
           characters: [characterRef],
-          characterNamesWithRank: [`${characterRef.name} (${rank})`],
         });
       }
     }
@@ -409,7 +411,6 @@ function toRankRows(
       displayValue,
       numericValue,
       characters: va.characters,
-      characterNamesWithRank: va.characterNamesWithRank,
     };
   });
   rows.sort(sort);
@@ -428,6 +429,8 @@ export function buildFavouritesResult(input: {
   }>;
   vaTotalCharacterCounts: Map<number, number>;
   favouriteStaff: FavouriteStaffInput[];
+  /** Character names whose normal-Analyze VA fetch hit the page cap. */
+  truncatedCharacterNames?: string[];
 }): FavouritesResult {
   const {
     characters,
@@ -435,6 +438,7 @@ export function buildFavouritesResult(input: {
     perCharacterMeta,
     vaTotalCharacterCounts,
     favouriteStaff,
+    truncatedCharacterNames,
   } = input;
 
   const dummyMedian = characters.length / 10;
@@ -585,6 +589,9 @@ export function buildFavouritesResult(input: {
     characterNames,
     favouriteCharacters,
     favouriteStaff: staffRows,
+    ...(truncatedCharacterNames && truncatedCharacterNames.length > 0
+      ? { truncatedCharacterNames }
+      : {}),
   };
 }
 
@@ -594,6 +601,8 @@ export type FavouritesRebuildSource = {
   consumedMediaIds: ReadonlySet<number>;
   favouriteStaff: FavouriteStaffInput[];
   vaTotalCharacterCounts: Map<number, number>;
+  /** Set when a character's bounded VA fetch hit the page cap. */
+  truncatedCharacterIds?: ReadonlySet<number>;
 };
 
 export function rebuildFavouritesResult(
@@ -626,12 +635,19 @@ export function rebuildFavouritesResult(
     });
   }
 
+  const truncatedNames = source.truncatedCharacterIds
+    ? source.characters
+        .filter((c) => source.truncatedCharacterIds!.has(c.id))
+        .map((c) => pickCharacterName(c))
+    : undefined;
+
   return buildFavouritesResult({
     characters: source.characters,
     perCharacterVas,
     perCharacterMeta,
     vaTotalCharacterCounts: source.vaTotalCharacterCounts,
     favouriteStaff: source.favouriteStaff,
+    ...(truncatedNames ? { truncatedCharacterNames: truncatedNames } : {}),
   });
 }
 

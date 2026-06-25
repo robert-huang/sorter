@@ -1,8 +1,9 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ensureUserAnimeListFresh,
   ensureUserFavouritesFresh,
 } from '../lib/importers/anilist/toolsAnilistAccess';
+import { bustFavouritesSessionMemo } from './panels/favouritesApi';
 
 export type UsernameListRefreshOptions = {
   /** Also re-import character + staff favourites into the source DB. */
@@ -21,6 +22,10 @@ async function refreshUserListFromAnilist(
   if (refreshFavourites) {
     await ensureUserFavouritesFresh(handle, 'CHARACTERS', { forceRefresh: true });
     await ensureUserFavouritesFresh(handle, 'STAFF', { forceRefresh: true });
+    // The favourites Analyze path memoizes the DB read for 15min. Without
+    // busting here, the next Analyze would still serve the pre-refresh
+    // list even though SQLite has the new rows.
+    bustFavouritesSessionMemo(handle);
   }
 }
 
@@ -28,6 +33,16 @@ async function refreshUserListFromAnilist(
 export function useUsernameListRefresh(options?: UsernameListRefreshOptions) {
   const refreshFavourites = options?.refreshFavourites ?? false;
   const [refreshing, setRefreshing] = useState(false);
+  // Avoid setting state after the panel unmounts; the refresh keeps
+  // running (no abort wired in yet) but at least we don't warn / leak.
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const refreshUsernameList = useCallback(
     (username: string, disabled?: boolean) => {
@@ -40,7 +55,9 @@ export function useUsernameListRefresh(options?: UsernameListRefreshOptions) {
         try {
           await refreshUserListFromAnilist(handle, refreshFavourites);
         } finally {
-          setRefreshing(false);
+          if (mountedRef.current) {
+            setRefreshing(false);
+          }
         }
       })();
     },

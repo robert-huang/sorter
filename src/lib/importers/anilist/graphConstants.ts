@@ -70,5 +70,10 @@ export function graphStaleRefreshTooltip(
   subject: string,
   verb: 'refresh' | 're-fetch' = 're-fetch',
 ): string {
+  // v1-backfill rows have `fetched_at = 0` — age is genuinely unknown,
+  // claiming "over 90 days old" is misleading. Use a softer prompt.
+  if (isUnknownGraphCacheDate(fetchedAt)) {
+    return `${subject} cache age is unknown (v1 backfill) — click to ${verb} from AniList`;
+  }
   return `${subject} is over 90 days old (${formatGraphCacheDate(fetchedAt)}) — click to ${verb} from AniList`;
 }

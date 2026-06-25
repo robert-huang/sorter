@@ -2727,6 +2727,7 @@ export function App() {
           localCloudSlotByCloudId={localCloudSlotByCloudId}
           onOpenLocalSlot={onSwitchSlot}
           onRemoveLocalSlot={onRemoveLocalFromCloudLibrary}
+          activeSlotId={manifest.activeId}
           onSignedOut={() => setCloudAuth(cloudGetAuthState())}
           onFolderChanged={() => setCloudAuth(cloudGetAuthState())}
         />

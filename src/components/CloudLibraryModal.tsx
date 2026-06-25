@@ -30,6 +30,12 @@ interface Props {
    */
   onRemoveLocalSlot: (slotId: string) => void;
   /**
+   * Currently loaded slot id. Used to gate the Remove button on rows
+   * that match it, since removing the active slot would also wipe the
+   * in-memory sort and bounce the user to the start tab.
+   */
+  activeSlotId?: string | null;
+  /**
    * Called after Sign out completes so the App can re-render with the
    * cleared auth state (the gear menu's entries depend on auth state).
    */
@@ -65,6 +71,7 @@ export function CloudLibraryModal({
   localCloudSlotByCloudId,
   onOpenLocalSlot,
   onRemoveLocalSlot,
+  activeSlotId,
   onSignedOut,
   onFolderChanged,
 }: Props) {
@@ -200,6 +207,7 @@ export function CloudLibraryModal({
               key={row.cloudId}
               meta={row}
               localSlot={localSlot}
+              isActiveLocalSlot={!!localSlot && localSlot.id === activeSlotId}
               actionDisabled={pullingCloudId !== null}
               isPulling={pullingCloudId === row.cloudId}
               onPull={() => handlePull(row)}
@@ -240,6 +248,7 @@ export function CloudLibraryModal({
 interface RowProps {
   meta: CloudSlotMeta;
   localSlot: SlotMeta | undefined;
+  isActiveLocalSlot: boolean;
   actionDisabled: boolean;
   isPulling: boolean;
   onPull: () => void;
@@ -250,6 +259,7 @@ interface RowProps {
 function CloudLibraryRow({
   meta,
   localSlot,
+  isActiveLocalSlot,
   actionDisabled,
   isPulling,
   onPull,
@@ -258,6 +268,19 @@ function CloudLibraryRow({
 }: RowProps) {
   const alreadyLocal = localSlot !== undefined;
   const fullySynced = isFullySyncedWithCloudListing(localSlot, meta);
+  // Disable Remove on the active slot — otherwise one click both deletes
+  // the local copy AND drops the in-memory session. User has to switch
+  // slots first, which makes the destructive intent explicit.
+  const removeDisabled = actionDisabled || !fullySynced || isActiveLocalSlot;
+  const removeTitle = (() => {
+    if (isActiveLocalSlot) {
+      return 'Switch to a different slot before removing this one';
+    }
+    if (fullySynced) {
+      return 'Remove local copy — cloud backup stays in Drive';
+    }
+    return 'Sync or pull before removing the local copy';
+  })();
   return (
     <li className={`cloud-library-row${alreadyLocal ? ' cloud-library-row--local' : ''}`}>
       <div className="cloud-library-row-main">
@@ -288,12 +311,8 @@ function CloudLibraryRow({
           type="button"
           className="btn cloud-library-row-remove-local"
           onClick={onRemoveLocal}
-          disabled={actionDisabled || !fullySynced}
-          title={
-            fullySynced
-              ? 'Remove local copy — cloud backup stays in Drive'
-              : 'Sync or pull before removing the local copy'
-          }
+          disabled={removeDisabled}
+          title={removeTitle}
           aria-label={`Remove local copy of ${meta.displayName}`}
         >
           <span className="cloud-library-row-remove-local-icon" aria-hidden>

@@ -85,8 +85,8 @@ function SeasonalColumnsView({
     <div className="tool-season-columns">
       <DragScroll className="tool-season-scroll">
         <div className="tool-season-body">
-          {columns.map((col) => (
-            <div key={col.label} className="tool-season-column">
+          {columns.map((col, colIdx) => (
+            <div key={`${colIdx}-${col.label}`} className="tool-season-column">
               <div className="tool-season-col-head">
                 <div className="tool-season-col-title">
                   {formatSeasonColumnLabel(col.label, col.ratedCount)}
@@ -127,17 +127,16 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
   const [result, setResult] = useState<SeasonalScoresResult | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const showsRef = useRef<SeasonalShow[] | null>(null);
+  // Track what the cached shows in `showsRef` were fetched with so that form
+  // changes which invalidate the cache (different user, planning toggled on
+  // when the cache only has non-planning entries) can trigger a refetch or
+  // clear instead of rendering stale data.
+  const fetchedUsernameRef = useRef<string | null>(null);
+  const fetchedIncludePlanningRef = useRef<boolean>(false);
 
   useEffect(() => {
     saveForm(form);
   }, [form]);
-
-  useEffect(() => {
-    if (!showsRef.current) {
-      return;
-    }
-    setResult(buildSeasonalColumns(relabelSeasonalShows(showsRef.current), form));
-  }, [displayLabelRevision, form]);
 
   const patchForm = useCallback((patch: Partial<SeasonalScoresForm>) => {
     setError(null);
@@ -162,6 +161,9 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
     const controller = new AbortController();
     abortRef.current = controller;
 
+    const includePlanningAtFetch = form.includePlanning;
+    const handle = username.toLowerCase();
+
     setRunning(true);
     setError(null);
     setResult(null);
@@ -169,11 +171,13 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
 
     try {
       const shows = await fetchUserSeasonalShows(username, controller.signal, {
-        includePlanning: form.includePlanning,
+        includePlanning: includePlanningAtFetch,
         ...(forceRefresh ? { forceRefresh: true } : {}),
       });
       showsRef.current = shows;
-      setResult(buildSeasonalColumns(shows, form));
+      fetchedUsernameRef.current = handle;
+      fetchedIncludePlanningRef.current = includePlanningAtFetch;
+      setResult(buildSeasonalColumns(relabelSeasonalShows(shows), form));
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') {
         return;
@@ -186,6 +190,28 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
       }
     }
   }, [form]);
+
+  useEffect(() => {
+    if (!showsRef.current) {
+      return;
+    }
+    const handle = form.username.trim().toLowerCase();
+    // Different user typed in: drop the prior user's cached shows.
+    if (fetchedUsernameRef.current !== null && handle !== fetchedUsernameRef.current) {
+      showsRef.current = null;
+      fetchedUsernameRef.current = null;
+      fetchedIncludePlanningRef.current = false;
+      setResult(null);
+      return;
+    }
+    // Toggled Include Planning on but the cache was built without PLANNING entries:
+    // auto-refetch so the columns actually include planning items.
+    if (form.includePlanning && !fetchedIncludePlanningRef.current && !running) {
+      void onRun(false);
+      return;
+    }
+    setResult(buildSeasonalColumns(relabelSeasonalShows(showsRef.current), form));
+  }, [displayLabelRevision, form, running, onRun]);
 
   return (
     <section className="tool-panel">

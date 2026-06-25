@@ -20,13 +20,14 @@ export function ToolRunButton({
   const busy = running || disabled;
   const title = busy ? undefined : forceRefreshTitle;
 
+  // Left-click submits the parent form (`type="submit"`), which invokes onRun via
+  // the form's onSubmit handler. Right-click bypasses the form to force refresh.
   return (
     <button
       type="submit"
       className="btn primary"
       disabled={busy}
       title={title}
-      onClick={() => onRun(false)}
       onContextMenu={(e) => {
         e.preventDefault();
         if (!busy) {

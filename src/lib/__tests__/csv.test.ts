@@ -131,6 +131,34 @@ describe('parseCsvRows', () => {
   it('PAPA_COMMA_CSV_OPTIONS pins comma delimiter', () => {
     expect(PAPA_COMMA_CSV_OPTIONS.delimiter).toBe(',');
   });
+
+  it('returns an empty result for empty/whitespace-only input', () => {
+    const r = parseCsvRows('', 'test', false);
+    expect(r.rows).toEqual([]);
+    expect(r.detectedHeader).toBe(false);
+    expect(r.extraColumns).toEqual([]);
+    expect(r.commaInLabel).toEqual([]);
+
+    const r2 = parseCsvRows('   \n  \n', 'test', false);
+    expect(r2.rows).toEqual([]);
+  });
+
+  it('handles CRLF line endings (Windows / Excel exports)', () => {
+    const r = parseCsvRows('A\r\nB\r\nC', 'test', false);
+    expect(r.rows.map((x) => x.label)).toEqual(['A', 'B', 'C']);
+  });
+});
+
+describe('parseExtrasText edge cases', () => {
+  it('handles CRLF line endings', () => {
+    const rows = parseExtrasText('A\r\nB\r\nC');
+    expect(rows.map((r) => r.label)).toEqual(['A', 'B', 'C']);
+  });
+
+  it('returns [] for empty/whitespace-only input', () => {
+    expect(parseExtrasText('')).toEqual([]);
+    expect(parseExtrasText('  \n  \n')).toEqual([]);
+  });
 });
 
 describe('parseCsvRows comma-in-label repair', () => {

@@ -589,39 +589,11 @@ query ToolsUserAnimeList(
       notes
       media {
         id
-        title { english romaji }
+        title { english romaji native }
         coverImage { large }
         season
         seasonYear
         duration
-      }
-    }
-  }
-}
-`.trim();
-
-/** Seasonal scores list variant without notes (`compare_seasons.py`). */
-export const TOOLS_USER_ANIME_SEASON_LIST_QUERY = `
-query ToolsUserAnimeSeasonList(
-  $userName: String
-  $statusIn: [MediaListStatus]
-  $page: Int!
-  $perPage: Int!
-) {
-  Page(page: $page, perPage: $perPage) {
-    pageInfo { hasNextPage currentPage }
-    mediaList(
-      userName: $userName
-      type: ANIME
-      status_in: $statusIn
-      sort: [SCORE_DESC, MEDIA_ID]
-    ) {
-      score(format: POINT_100)
-      media {
-        id
-        title { english romaji }
-        season
-        seasonYear
       }
     }
   }

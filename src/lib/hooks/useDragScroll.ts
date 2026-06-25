@@ -39,12 +39,24 @@ export function useDragScroll<T extends HTMLElement = HTMLDivElement>(): UseDrag
     }
 
     if (suppressClick && state.dragging) {
+      // If the synthesized click never reaches us (release outside window,
+      // browser swallows it, etc.) we'd otherwise leak this capture
+      // listener forever. The cleanup timeout fires on the next macrotask
+      // — well after any real click dispatched as part of the same gesture.
+      let timeoutId = 0;
+      const cleanup = () => {
+        document.removeEventListener('click', suppress, true);
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+      };
       const suppress = (event: MouseEvent) => {
         event.preventDefault();
         event.stopImmediatePropagation();
-        document.removeEventListener('click', suppress, true);
+        cleanup();
       };
       document.addEventListener('click', suppress, true);
+      timeoutId = window.setTimeout(cleanup, 250);
     }
 
     dragRef.current = null;

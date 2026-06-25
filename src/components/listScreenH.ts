@@ -1,5 +1,5 @@
 import { getPair } from '../lib/engine';
-import type { InsertionState, ItemId, MergeState, SortState } from '../lib/types';
+import type { InsertionState, ItemId, SortState } from '../lib/types';
 
 export function mergeSliceLabel(base: string, count: number): string {
   return `${base} (${count})`;
@@ -26,7 +26,16 @@ export function groupInsertionPending(
   pendingRunIds: number[] | undefined,
 ): InsertionPendingGroup[] {
   if (pending.length === 0) return [];
-  if (!pendingRunIds || pendingRunIds.length !== pending.length) {
+  if (!pendingRunIds) {
+    return [{ kind: 'flat', ids: [...pending] }];
+  }
+  if (pendingRunIds.length !== pending.length) {
+    // Length divergence means the sublist sublist UI is going to disappear
+    // and the user has no signal as to why. Warn loudly in the console
+    // so a regression is at least debuggable.
+    console.warn(
+      `[insertion] pendingRunIds length (${pendingRunIds.length}) does not match pending length (${pending.length}); flattening sublist groups.`,
+    );
     return [{ kind: 'flat', ids: [...pending] }];
   }
 
@@ -79,9 +88,6 @@ export interface InsertContextView {
   insertingId: ItemId;
   probeId: ItemId;
 }
-
-/** @deprecated Use `getInsertContext` */
-export type InsertMergeContextView = InsertContextView;
 
 export function getInsertContext(state: SortState): InsertContextView | null {
   const pair = getPair(state);
@@ -137,10 +143,3 @@ function getInsertionEngineInsertContext(
   };
 }
 
-/** @deprecated Use `getInsertContext` */
-export function getInsertMergeContext(
-  state: MergeState,
-): InsertContextView | null {
-  if (state.engine !== 'merge') return null;
-  return getInsertContext(state);
-}

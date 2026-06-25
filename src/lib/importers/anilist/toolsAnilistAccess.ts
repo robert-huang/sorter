@@ -293,10 +293,6 @@ export async function readFavouriteStaffFromDb(
   }));
 }
 
-function dbCharacterEdgesHaveVoiceCast(edges: CharacterMediaEdge[]): boolean {
-  return edges.some((edge) => edge.voiceActors.length > 0);
-}
-
 /** Character media + JP voice cast from cached `media_character` / `character_voice_actor`. */
 export async function readCharacterVoiceEdgesFromDb(
   db: AnilistDbExecutor,
@@ -413,11 +409,11 @@ export async function readVaCharacterEdgesFromDb(
   }));
 }
 
-export { dbCharacterEdgesHaveVoiceCast };
-
 /**
- * True when every appearance media has a complete, fresh cast expansion.
- * Used by Favourites to avoid serving stale `media_character` / CVA rows.
+ * True when every appearance media has a complete, fresh cast expansion
+ * for BOTH the characters and staff sections. Staff completeness is
+ * required because Favourites reads `character_voice_actor` rows joined
+ * onto each appearance — those rows are populated by the staff section.
  */
 export async function isCharacterVoiceEdgesDbFresh(
   db: AnilistDbExecutor,
@@ -432,12 +428,32 @@ export async function isCharacterVoiceEdgesDbFresh(
     if (
       !status ||
       !status.charactersComplete ||
-      needsGraphDataRefresh(status.charactersFetchedAt, options)
+      !status.staffComplete ||
+      needsGraphDataRefresh(status.charactersFetchedAt, options) ||
+      needsGraphDataRefresh(status.staffFetchedAt, options)
     ) {
       return false;
     }
   }
   return true;
+}
+
+/**
+ * True when this VA's full filmography has been fetched and is fresh.
+ * Mirrors the character-side helper so Favourites can avoid serving
+ * stale `character_voice_actor` rows joined onto a partial filmography.
+ */
+export async function isVaCharacterEdgesDbFresh(
+  db: AnilistDbExecutor,
+  staffId: number,
+  options?: ToolsFetchOptions,
+): Promise<boolean> {
+  const hasData = await hasStaffFilmography(db, staffId);
+  if (!hasData) {
+    return false;
+  }
+  const fetchedAt = await getStaffFilmographyFetchedAt(db, staffId);
+  return !needsGraphDataRefresh(fetchedAt, options);
 }
 
 /** Staff avatar URLs from the local DB (populated by cast/filmography imports). */
@@ -658,9 +674,12 @@ export async function readShowStaffBundleFromDb(
     return null;
   }
 
+  // Prefer DB-derived title so display-pref changes (eng/romaji/native) honor
+  // the new mode on rebuild. Fall back to the passed `title` (typically the
+  // user's typed search) only when DB lacks all title fields for this media.
   return {
     id: mediaId,
-    title: title || pickMediaRowTitle(detail.media),
+    title: pickMediaRowTitle(detail.media, undefined, title || undefined),
     coverImage: detail.media.cover_image,
     studios,
     productionStaff,

@@ -57,7 +57,12 @@ export async function searchAnimeShow(
 
 async function fetchShowStudiosLive(
   mediaId: number,
+  signal?: AbortSignal,
 ): Promise<CreditedEntityMap> {
+  // `executeAnilistQuery` does not yet accept an AbortSignal; the request
+  // will still run to completion if the user cancels. Checking at entry
+  // at least prevents a stale request from being queued behind an abort.
+  signal?.throwIfAborted();
   const data = await executeAnilistQuery<{
     Media: {
       studios: {
@@ -92,7 +97,7 @@ export async function fetchShowStudios(
   if (bundle && Object.keys(bundle.studios).length > 0) {
     return bundle.studios;
   }
-  return fetchShowStudiosLive(mediaId);
+  return fetchShowStudiosLive(mediaId, signal);
 }
 
 async function fetchShowProductionStaffLive(

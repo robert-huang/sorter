@@ -51,13 +51,28 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
   const [result, setResult] = useState<SharedStaffResult | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const rebuildSourceRef = useRef<SharedStaffRebuildSource | null>(null);
+  // Monotonic generation guard: every new Compare and every relabel start
+  // bumps the counter so an older async rebuild can't clobber a newer result.
+  const rebuildGenerationRef = useRef(0);
 
   useEffect(() => {
     const source = rebuildSourceRef.current;
     if (!source) {
       return;
     }
-    void rebuildSharedStaffResult(source).then(setResult);
+    rebuildGenerationRef.current += 1;
+    const gen = rebuildGenerationRef.current;
+    void rebuildSharedStaffResult(source)
+      .then((rebuilt) => {
+        if (rebuildGenerationRef.current === gen) {
+          setResult(rebuilt);
+        }
+      })
+      .catch((e) => {
+        if (rebuildGenerationRef.current === gen) {
+          setError(e instanceof Error ? e.message : 'Failed to relabel results.');
+        }
+      });
   }, [displayLabelRevision]);
 
   const patchForm = useCallback((patch: Partial<SharedStaffForm>) => {
@@ -88,6 +103,7 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
+    rebuildGenerationRef.current += 1;
 
     setRunning(true);
     setError(null);

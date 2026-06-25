@@ -197,4 +197,136 @@ describe('seasonalScoresLogic', () => {
       expect(result.columns[0]?.shows[0]?.title).toBe('Scored');
     }
   });
+
+  it('expands `all` into one column per year covering the data span', () => {
+    const shows: SeasonalShow[] = [
+      { id: 1, title: 'A', season: 'WINTER', seasonYear: 2022, score: 70, notes: null },
+      { id: 2, title: 'B', season: 'SPRING', seasonYear: 2024, score: 80, notes: null },
+    ];
+    const specs = parseSeasonSpecs('all', shows);
+    expect(specs.map((s) => s.label)).toEqual(['2022', '2023', '2024']);
+    expect(specs.every((s) => s.season === null)).toBe(true);
+  });
+
+  it('expands `allseasons` into four labeled columns per year', () => {
+    const shows: SeasonalShow[] = [
+      { id: 1, title: 'A', season: 'WINTER', seasonYear: 2023, score: 70, notes: null },
+      { id: 2, title: 'B', season: 'FALL',   seasonYear: 2024, score: 80, notes: null },
+    ];
+    const specs = parseSeasonSpecs('allseasons', shows);
+    expect(specs.map((s) => s.label)).toEqual([
+      'Winter 2023', 'Spring 2023', 'Summer 2023', 'Fall 2023',
+      'Winter 2024', 'Spring 2024', 'Summer 2024', 'Fall 2024',
+    ]);
+  });
+
+  it('skipEmpty drops columns with no matching shows', () => {
+    const result = buildSeasonalColumns(sampleShows, {
+      username: 'user',
+      seasonText: 'Winter 2024\nFall 2099',
+      skipEmpty: true,
+      airingNotesOnly: false,
+      includePlanning: false,
+    });
+    expect(result.kind).toBe('columns');
+    if (result.kind === 'columns') {
+      expect(result.columns.map((c) => c.label)).toEqual(['Winter 2024']);
+    }
+  });
+
+  it('all-unrated column returns null average and ratedCount 0', () => {
+    const shows: SeasonalShow[] = [
+      { id: 1, title: 'A', season: 'WINTER', seasonYear: 2024, score: 0,    notes: null },
+      { id: 2, title: 'B', season: 'WINTER', seasonYear: 2024, score: null, notes: null },
+    ];
+    const result = buildSeasonalColumns(shows, {
+      username: 'user',
+      seasonText: 'Winter 2024',
+      skipEmpty: false,
+      airingNotesOnly: false,
+      includePlanning: false,
+    });
+    expect(result.kind).toBe('columns');
+    if (result.kind === 'columns') {
+      expect(result.columns[0]?.average).toBeNull();
+      expect(result.columns[0]?.ratedCount).toBe(0);
+      expect(result.columns[0]?.shows).toHaveLength(2);
+    }
+  });
+
+  it('all-planning column returns null average and zero ratedCount but keeps the shows visible', () => {
+    const shows: SeasonalShow[] = [
+      { id: 1, title: 'P1', season: 'WINTER', seasonYear: 2024, score: 90, notes: null, listStatus: 'PLANNING' },
+      { id: 2, title: 'P2', season: 'WINTER', seasonYear: 2024, score: 70, notes: null, listStatus: 'PLANNING' },
+    ];
+    const result = buildSeasonalColumns(shows, {
+      username: 'user',
+      seasonText: 'Winter 2024',
+      skipEmpty: false,
+      airingNotesOnly: false,
+      includePlanning: true,
+    });
+    expect(result.kind).toBe('columns');
+    if (result.kind === 'columns') {
+      expect(result.columns[0]?.average).toBeNull();
+      expect(result.columns[0]?.ratedCount).toBe(0);
+      expect(result.columns[0]?.shows).toHaveLength(2);
+    }
+  });
+
+  it('airingNotesOnly keeps only entries whose notes include #airing', () => {
+    const shows: SeasonalShow[] = [
+      { id: 1, title: 'A', season: 'WINTER', seasonYear: 2024, score: 90, notes: 'just a note' },
+      { id: 2, title: 'B', season: 'WINTER', seasonYear: 2024, score: 80, notes: '#airing finished' },
+      { id: 3, title: 'C', season: 'WINTER', seasonYear: 2024, score: 70, notes: null },
+    ];
+    const result = buildSeasonalColumns(shows, {
+      username: 'user',
+      seasonText: 'Winter 2024',
+      skipEmpty: false,
+      airingNotesOnly: true,
+      includePlanning: false,
+    });
+    expect(result.kind).toBe('columns');
+    if (result.kind === 'columns') {
+      expect(result.columns[0]?.shows.map((s) => s.title)).toEqual(['B']);
+    }
+  });
+
+  it('sorts within a column: scored descending, planning pinned to the bottom, unrated below scored', () => {
+    const shows: SeasonalShow[] = [
+      { id: 1, title: 'Low',      season: 'WINTER', seasonYear: 2024, score: 60,   notes: null },
+      { id: 2, title: 'Planning', season: 'WINTER', seasonYear: 2024, score: 99,   notes: null, listStatus: 'PLANNING' },
+      { id: 3, title: 'High',     season: 'WINTER', seasonYear: 2024, score: 90,   notes: null },
+      { id: 4, title: 'Unrated',  season: 'WINTER', seasonYear: 2024, score: null, notes: null },
+    ];
+    const result = buildSeasonalColumns(shows, {
+      username: 'user',
+      seasonText: 'Winter 2024',
+      skipEmpty: false,
+      airingNotesOnly: false,
+      includePlanning: true,
+    });
+    expect(result.kind).toBe('columns');
+    if (result.kind === 'columns') {
+      // High (90) → Low (60) → Unrated (0) → Planning (-1)
+      expect(result.columns[0]?.shows.map((s) => s.title)).toEqual([
+        'High',
+        'Low',
+        'Unrated',
+        'Planning',
+      ]);
+    }
+  });
+
+  it('returns empty kind when season text is blank', () => {
+    const result = buildSeasonalColumns(sampleShows, {
+      username: 'user',
+      seasonText: '   \n  ',
+      skipEmpty: false,
+      airingNotesOnly: false,
+      includePlanning: false,
+    });
+    expect(result.kind).toBe('empty');
+  });
 });

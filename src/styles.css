@@ -5574,6 +5574,16 @@ html {
   font-size: 13px;
 }
 
+.tool-warning {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: rgba(255, 170, 0, 0.08);
+  border-left: 3px solid var(--warning, #d99617);
+  color: var(--text-default);
+  font-size: 12.5px;
+}
+
 .tool-empty {
   margin: 16px 0 0;
   color: var(--text-muted);

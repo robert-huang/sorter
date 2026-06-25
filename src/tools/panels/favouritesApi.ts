@@ -1,4 +1,4 @@
-import { depaginate } from '../../lib/importers/anilist/depaginate';
+import { depaginate, depaginateWithMeta } from '../../lib/importers/anilist/depaginate';
 import {
   TOOLS_CHARACTER_VOICE_MEDIA_QUERY,
   TOOLS_FAVOURITE_CHARACTERS_QUERY,
@@ -13,6 +13,7 @@ import {
 } from '../../lib/importers/anilist/toolsFetchPolicy';
 import {
   FAVOURITES_SESSION_TTL_MS,
+  sessionMemoDelete,
   withSessionTtlMemo,
 } from '../../lib/importers/anilist/toolsSessionMemo';
 import {
@@ -20,6 +21,8 @@ import {
   ensureStaffFilmographyFresh,
   ensureUserAnimeListFresh,
   ensureUserFavouritesFresh,
+  isCharacterVoiceEdgesDbFresh,
+  isVaCharacterEdgesDbFresh,
   readCharacterVoiceEdgesFromDb,
   readConsumedMediaIdsFromDb,
   readFavouriteCharactersFromDb,
@@ -45,6 +48,20 @@ import {
 
 /** Normal Analyze caps character-media live fallback at two pages. */
 const FAVOURITES_CHARACTER_MEDIA_MAX_PAGES = 2;
+
+/**
+ * Drop the favourites list session memo for a given username. Called by
+ * the ↻ refresh button after a force re-import — without this the next
+ * Analyze keeps serving the pre-refresh list for up to 15 minutes.
+ */
+export function bustFavouritesSessionMemo(username: string): void {
+  const handle = username.trim().toLowerCase();
+  if (!handle) {
+    return;
+  }
+  sessionMemoDelete(`fav:chars:${handle}`);
+  sessionMemoDelete(`fav:staff:${handle}`);
+}
 
 export type FavouritesRunProgress =
   | { phase: 'list' }
@@ -142,11 +159,13 @@ async function fetchFavouriteCharacters(
 ): Promise<FavouriteCharacterInput[]> {
   signal?.throwIfAborted();
   const handle = username.trim().toLowerCase();
+  // expandRoles is a deep-fetch path; bust the memo so we re-read the
+  // (post-import) DB list instead of serving a pre-expandRoles cache.
   return withSessionTtlMemo(
     `fav:chars:${handle}`,
     FAVOURITES_SESSION_TTL_MS,
     () => fetchFavouriteCharactersFromDbOrLive(username, signal, options),
-    { bust: options?.forceRefreshFavourites },
+    { bust: !!(options?.forceRefreshFavourites || options?.expandRoles) },
   );
 }
 
@@ -208,7 +227,7 @@ async function fetchFavouriteStaff(
     `fav:staff:${handle}`,
     FAVOURITES_SESSION_TTL_MS,
     () => fetchFavouriteStaffFromDbOrLive(username, signal, options),
-    { bust: options?.forceRefreshFavourites },
+    { bust: !!(options?.forceRefreshFavourites || options?.expandRoles) },
   );
 }
 
@@ -216,8 +235,8 @@ async function fetchCharacterVoiceEdgesLive(
   charId: number,
   signal?: AbortSignal,
   maxPages?: number,
-): Promise<CharacterMediaEdge[]> {
-  return depaginate<
+): Promise<{ edges: CharacterMediaEdge[]; truncated: boolean }> {
+  const result = await depaginateWithMeta<
     {
       Character: {
         media: {
@@ -237,13 +256,14 @@ async function fetchCharacterVoiceEdgesLive(
       pageInfo: data.Character?.media.pageInfo ?? { hasNextPage: false },
     }),
   });
+  return { edges: result.nodes, truncated: result.truncated };
 }
 
 async function fetchCharacterVoiceEdges(
   charId: number,
   signal?: AbortSignal,
   options?: FavouritesFetchOptions,
-): Promise<CharacterMediaEdge[]> {
+): Promise<{ edges: CharacterMediaEdge[]; truncated: boolean }> {
   signal?.throwIfAborted();
   const ctx = getToolsImportContext();
 
@@ -251,14 +271,18 @@ async function fetchCharacterVoiceEdges(
     await ensureCharacterMediaFresh(charId, favouritesGraphForceOptions(options));
     const fromDb = await readCharacterVoiceEdgesFromDb(ctx.db, charId);
     if (fromDb) {
-      return fromDb;
+      return { edges: fromDb, truncated: false };
     }
     return fetchCharacterVoiceEdgesLive(charId, signal);
   }
 
+  // Normal Analyze: only trust DB rows when every appearance media has
+  // complete + fresh character AND staff cast expansion. Partial DB
+  // rows (e.g. from a media-detail import that fetched only one show's
+  // cast) under-report VAs and would silently mask missing data.
   const fromDb = await readCharacterVoiceEdgesFromDb(ctx.db, charId);
-  if (fromDb) {
-    return fromDb;
+  if (fromDb && (await isCharacterVoiceEdgesDbFresh(ctx.db, fromDb))) {
+    return { edges: fromDb, truncated: false };
   }
   return fetchCharacterVoiceEdgesLive(
     charId,
@@ -309,9 +333,14 @@ async function fetchVaCharacterEdges(
     return fetchVaCharacterEdgesLive(vaId, signal);
   }
 
-  const fromDb = await readVaCharacterEdgesFromDb(ctx.db, vaId);
-  if (fromDb) {
-    return fromDb;
+  // Normal Analyze: only trust DB rows when this VA's full filmography
+  // has been fetched and is fresh. Partial filmography would under-
+  // report total appearance counts used for "shared with you" stats.
+  if (await isVaCharacterEdgesDbFresh(ctx.db, vaId)) {
+    const fromDb = await readVaCharacterEdgesFromDb(ctx.db, vaId);
+    if (fromDb) {
+      return fromDb;
+    }
   }
   return fetchVaCharacterEdgesLive(vaId, signal);
 }
@@ -351,6 +380,8 @@ export async function runFavouritesAnalysis(
   }> = [];
   const perCharacterEdges: CharacterMediaEdge[][] = [];
   const vaIds = new Set<number>();
+  const truncatedCharacterIds = new Set<number>();
+  const truncatedCharacterNames: string[] = [];
 
   for (let i = 0; i < characters.length; i += 1) {
     signal?.throwIfAborted();
@@ -364,8 +395,16 @@ export async function runFavouritesAnalysis(
       name: charName,
     });
 
-    const edges = await fetchCharacterVoiceEdges(character.id, signal, fetchOptions);
+    const { edges, truncated } = await fetchCharacterVoiceEdges(
+      character.id,
+      signal,
+      fetchOptions,
+    );
     perCharacterEdges.push(edges);
+    if (truncated) {
+      truncatedCharacterIds.add(character.id);
+      truncatedCharacterNames.push(charName);
+    }
     const processed = processCharacterEdges(
       character.id,
       charName,
@@ -409,6 +448,12 @@ export async function runFavouritesAnalysis(
         index: i + 1,
         total: staffToExpand.length,
       });
+      // NOTE: ensureStaffFilmographyFresh does not currently accept an
+      // AbortSignal; an in-flight expansion can keep hitting AniList for
+      // minutes after the user clicks Cancel. The between-iteration
+      // throwIfAborted above bounds the damage to "one staff at a time"
+      // but threading the signal down through the importer would be
+      // strictly better. Same applies to ensureCharacterMediaFresh above.
       await ensureStaffFilmographyFresh(staffId, favouritesGraphForceOptions(fetchOptions));
     }
   }
@@ -420,6 +465,7 @@ export async function runFavouritesAnalysis(
     consumedMediaIds,
     favouriteStaff,
     vaTotalCharacterCounts,
+    ...(truncatedCharacterIds.size > 0 ? { truncatedCharacterIds } : {}),
   };
   return {
     result: buildFavouritesResult({
@@ -428,6 +474,7 @@ export async function runFavouritesAnalysis(
       perCharacterMeta,
       vaTotalCharacterCounts,
       favouriteStaff,
+      ...(truncatedCharacterNames.length > 0 ? { truncatedCharacterNames } : {}),
     }),
     rebuildSource,
   };

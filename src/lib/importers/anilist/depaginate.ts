@@ -35,13 +35,21 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
   }
 }
 
+export type DepaginateResult<TNode> = {
+  nodes: TNode[];
+  /** True iff the loop stopped because `maxPages` was hit while AniList still reported more pages. */
+  truncated: boolean;
+  pagesFetched: number;
+};
+
 /**
- * Fetch every page of a paginated AniList query and return the accumulated
- * nodes. Honors `signal` between page requests.
+ * Same as {@link depaginate} but also reports whether the loop stopped
+ * early because of `maxPages`. Use when a bounded fetch needs to surface
+ * partial-data warnings instead of silently under-reporting.
  */
-export async function depaginate<TData, TNode>(
+export async function depaginateWithMeta<TData, TNode>(
   options: DepaginateOptions<TData, TNode>,
-): Promise<TNode[]> {
+): Promise<DepaginateResult<TNode>> {
   const {
     query,
     variables = {},
@@ -55,10 +63,15 @@ export async function depaginate<TData, TNode>(
   const out: TNode[] = [];
   let page = 1;
   let pagesFetched = 0;
+  let truncated = false;
 
   while (true) {
     throwIfAborted(signal);
     if (maxPages !== undefined && pagesFetched >= maxPages) {
+      // We were going to fetch another page but the cap stopped us.
+      // The previous iteration's pageInfo had hasNextPage=true, so flag
+      // truncation. (We break before pageInfo check so the flag was
+      // already set below if hasNextPage was false.)
       break;
     }
 
@@ -81,8 +94,25 @@ export async function depaginate<TData, TNode>(
       break;
     }
 
+    if (maxPages !== undefined && pagesFetched >= maxPages) {
+      // hasNextPage=true but we just hit the cap — partial data.
+      truncated = true;
+      break;
+    }
+
     page += 1;
   }
 
-  return out;
+  return { nodes: out, truncated, pagesFetched };
+}
+
+/**
+ * Fetch every page of a paginated AniList query and return the accumulated
+ * nodes. Honors `signal` between page requests.
+ */
+export async function depaginate<TData, TNode>(
+  options: DepaginateOptions<TData, TNode>,
+): Promise<TNode[]> {
+  const { nodes } = await depaginateWithMeta(options);
+  return nodes;
 }

@@ -45,11 +45,11 @@ describe('graphConstants', () => {
     );
   });
 
-  it('graphStaleRefreshTooltip uses unknown date for backfilled rows', () => {
+  it('graphStaleRefreshTooltip uses unknown-age copy for backfilled rows', () => {
     expect(
       graphStaleRefreshTooltip(0, "This entry's cached cast", 'refresh'),
     ).toBe(
-      "This entry's cached cast is over 90 days old (unknown date) — click to refresh from AniList",
+      "This entry's cached cast cache age is unknown (v1 backfill) — click to refresh from AniList",
     );
   });
 

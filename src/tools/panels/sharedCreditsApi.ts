@@ -183,7 +183,10 @@ export async function resolveStaffIdByName(
   signal?: AbortSignal,
 ): Promise<number> {
   signal?.throwIfAborted();
-  return withSessionMemo(`tools:staff-search:${name.toLowerCase()}`, async () => {
+  // executeAnilistQuery does not yet take a signal, but re-check after
+  // the query resolves so a stale rapid-Compare-then-cancel sequence
+  // doesn't silently warm the memo for the aborted run.
+  const result = await withSessionMemo(`tools:staff-search:${name.toLowerCase()}`, async () => {
     const data = await executeAnilistQuery<{
       Staff: StaffSearchHit | StaffSearchHit[] | null;
     }>(TOOLS_STAFF_SEARCH_QUERY, { search: name });
@@ -193,6 +196,8 @@ export async function resolveStaffIdByName(
     }
     return match.id;
   });
+  signal?.throwIfAborted();
+  return result;
 }
 
 export async function resolveStaffIds(

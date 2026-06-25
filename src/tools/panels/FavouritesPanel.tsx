@@ -406,6 +406,17 @@ export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
             {mainRolePct !== null ? ` · ~${mainRolePct}% main roles` : ''}
             {femalePct !== null ? ` · ~${femalePct}% female` : ''}
           </p>
+          {result.truncatedCharacterNames && result.truncatedCharacterNames.length > 0 && (
+            <p
+              className="tool-warning"
+              title={`Truncated characters: ${result.truncatedCharacterNames.join(', ')}`}
+            >
+              Partial data: {result.truncatedCharacterNames.length} character
+              {result.truncatedCharacterNames.length === 1 ? '' : 's'} had more VA
+              appearances than the normal-Analyze cap could fetch. Right-click
+              Analyze (or use Expand Roles) for the full filmography.
+            </p>
+          )}
 
           <VaRankBlock
             title="Top VAs by favourite character count"

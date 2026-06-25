@@ -8,7 +8,6 @@ import { parseLinesOnePerLine } from '../parseToolLines';
 import {
   anyTrimmedRoleInSet,
   MUSIC_ROLES,
-  trimProductionRole,
   VISUALS_ROLES,
   WRITING_ROLES,
 } from '../../lib/importers/anilist/staffRoleBuckets';
@@ -367,7 +366,6 @@ export function tallySingleShowMatches(options: {
     }
 
     const sourceRoles = staffInfo.roles;
-    const trimmedSource = sourceRoles.map(trimProductionRole);
 
     for (const show of showRoles) {
       if (ignoredShowIds.has(show.id)) {
@@ -396,8 +394,6 @@ export function tallySingleShowMatches(options: {
     bumpCategory(MUSIC_ROLES, musicCounts);
     bumpCategory(VISUALS_ROLES, visualsCounts);
     bumpCategory(WRITING_ROLES, writingCounts);
-
-    void trimmedSource;
   }
 
   const toMatches = (counter: Map<number, number>, limit: number): SharedStaffTopMatch[] =>
