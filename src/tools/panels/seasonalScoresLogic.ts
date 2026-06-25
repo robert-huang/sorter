@@ -19,13 +19,36 @@ export type SeasonSpec = {
   year: number;
 };
 
+/**
+ * `all` / `allseasons` substitute a fixed magic seasonText so the user can pick
+ * a sensible default without typing. `custom` falls through to whatever they
+ * type in the textarea (the existing free-form input).
+ */
+export type SeasonMode = 'all' | 'allseasons' | 'custom';
+
 export type SeasonalScoresForm = {
   username: string;
   seasonText: string;
+  seasonMode: SeasonMode;
   skipEmpty: boolean;
   airingNotesOnly: boolean;
   includePlanning: boolean;
 };
+
+/**
+ * Resolve the form to what `buildSeasonalColumns` should actually parse.
+ * The user's typed seasonText is preserved on the form object — we only
+ * override `seasonText` for compute when `seasonMode` is a preset.
+ */
+export function effectiveSeasonalForm(form: SeasonalScoresForm): SeasonalScoresForm {
+  if (form.seasonMode === 'all') {
+    return { ...form, seasonText: 'all' };
+  }
+  if (form.seasonMode === 'allseasons') {
+    return { ...form, seasonText: 'allseasons' };
+  }
+  return form;
+}
 
 export type SeasonColumn = {
   label: string;

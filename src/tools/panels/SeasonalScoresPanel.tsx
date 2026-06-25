@@ -8,8 +8,10 @@ import { relabelSeasonalShows } from '../toolsDisplayRelabel';
 import { fetchUserSeasonalShows } from './seasonalScoresApi';
 import {
   buildSeasonalColumns,
+  effectiveSeasonalForm,
   formatSeasonColumnLabel,
   formatSeasonalScoreLabel,
+  type SeasonMode,
   type SeasonalScoresForm,
   type SeasonalScoresResult,
   type SeasonColumn,
@@ -31,6 +33,9 @@ const LS_SEASON_TEXT_KEY = 'anime-tools-seasonal-scores-season-text';
 const DEFAULT_FORM: SeasonalScoresForm = {
   username: '',
   seasonText: '',
+  // Default new users to `allseasons` so first-run produces a useful chart
+  // without forcing them to learn the textarea grammar.
+  seasonMode: 'allseasons',
   skipEmpty: false,
   airingNotesOnly: false,
   includePlanning: false,
@@ -38,27 +43,46 @@ const DEFAULT_FORM: SeasonalScoresForm = {
 
 type PersistedSeasonalForm = Pick<
   SeasonalScoresForm,
-  'seasonText' | 'skipEmpty' | 'airingNotesOnly' | 'includePlanning'
+  'seasonText' | 'seasonMode' | 'skipEmpty' | 'airingNotesOnly' | 'includePlanning'
 >;
+
+function normalizeSeasonMode(value: unknown): SeasonMode {
+  if (value === 'all' || value === 'allseasons' || value === 'custom') {
+    return value;
+  }
+  return 'allseasons';
+}
 
 function loadForm(): SeasonalScoresForm {
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<PersistedSeasonalForm>;
+      const seasonText = parsed.seasonText ?? '';
       return {
         ...DEFAULT_FORM,
-        seasonText: parsed.seasonText ?? '',
+        seasonText,
+        // Pre-toggle saves don't carry a mode — preserve the user's previous
+        // textarea content by inferring `custom` when text exists, otherwise
+        // fall through to the default.
+        seasonMode:
+          parsed.seasonMode != null
+            ? normalizeSeasonMode(parsed.seasonMode)
+            : seasonText.trim().length > 0
+              ? 'custom'
+              : DEFAULT_FORM.seasonMode,
         skipEmpty: parsed.skipEmpty ?? false,
         airingNotesOnly: parsed.airingNotesOnly ?? false,
         includePlanning: parsed.includePlanning ?? false,
         username: withLastAnilistUsername(''),
       };
     }
+    const legacySeasonText = localStorage.getItem(LS_SEASON_TEXT_KEY) ?? '';
     return {
       ...DEFAULT_FORM,
       username: withLastAnilistUsername(''),
-      seasonText: localStorage.getItem(LS_SEASON_TEXT_KEY) ?? '',
+      seasonText: legacySeasonText,
+      seasonMode: legacySeasonText.trim().length > 0 ? 'custom' : DEFAULT_FORM.seasonMode,
     };
   } catch {
     return { ...DEFAULT_FORM, username: withLastAnilistUsername('') };
@@ -69,6 +93,7 @@ function saveForm(form: SeasonalScoresForm): void {
   try {
     const persisted: PersistedSeasonalForm = {
       seasonText: form.seasonText,
+      seasonMode: form.seasonMode,
       skipEmpty: form.skipEmpty,
       airingNotesOnly: form.airingNotesOnly,
       includePlanning: form.includePlanning,
@@ -79,6 +104,16 @@ function saveForm(form: SeasonalScoresForm): void {
   }
 }
 
+const SEASON_MODE_OPTIONS: { value: SeasonMode; label: string; title: string }[] = [
+  { value: 'all', label: 'All years', title: "Compare full years from the user's list range." },
+  {
+    value: 'allseasons',
+    label: 'All seasons',
+    title: "Split the user's list range into Winter/Spring/Summer/Fall columns.",
+  },
+  { value: 'custom', label: 'Custom', title: 'Type your own season list (one per line).' },
+];
+
 function SeasonalColumnsView({
   columns,
   onOpenMedia,
@@ -88,7 +123,7 @@ function SeasonalColumnsView({
 }) {
   return (
     <div className="tool-season-columns">
-      <DragScroll className="tool-season-scroll">
+      <DragScroll className="tool-season-scroll" initialScrollEnd>
         <div className="tool-season-body">
           {columns.map((col, colIdx) => {
             const searchLink = bindAnilistMiddleClick(
@@ -195,7 +230,9 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
       showsRef.current = shows;
       fetchedUsernameRef.current = handle;
       fetchedIncludePlanningRef.current = includePlanningAtFetch;
-      setResult(buildSeasonalColumns(relabelSeasonalShows(shows), form));
+      setResult(
+        buildSeasonalColumns(relabelSeasonalShows(shows), effectiveSeasonalForm(form)),
+      );
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') {
         return;
@@ -228,7 +265,12 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
       void onRun(false);
       return;
     }
-    setResult(buildSeasonalColumns(relabelSeasonalShows(showsRef.current), form));
+    setResult(
+      buildSeasonalColumns(
+        relabelSeasonalShows(showsRef.current),
+        effectiveSeasonalForm(form),
+      ),
+    );
   }, [displayLabelRevision, form, running, onRun]);
 
   return (
@@ -256,20 +298,46 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
           onRefresh={() => refreshUsernameList(form.username, running)}
         />
 
-        <label className="tool-field">
-          <span className="tool-field-label">
-            Seasons (one per line: <code>all</code>, <code>allseasons</code> (full range, split by seasons),{' '}
-            <code>Winter 2024</code>, <code>2018</code>)
+        <div className="tool-field">
+          <span className="tool-field-label" id="seasonal-scores-mode-label">
+            Seasons
           </span>
-          <textarea
-            className="tool-textarea csv-textarea"
-            rows={6}
-            disabled={running}
-            value={form.seasonText}
-            onChange={(e) => patchForm({ seasonText: e.target.value })}
-            placeholder={'Winter 2024\nSpring 2024\nSummer 2024'}
-          />
-        </label>
+          <div
+            className="tool-segmented"
+            role="group"
+            aria-labelledby="seasonal-scores-mode-label"
+          >
+            {SEASON_MODE_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={form.seasonMode === option.value ? 'active' : ''}
+                aria-pressed={form.seasonMode === option.value}
+                disabled={running}
+                title={option.title}
+                onClick={() => patchForm({ seasonMode: option.value })}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          {form.seasonMode === 'custom' && (
+            <>
+              <span className="tool-field-hint">
+                One per line: <code>all</code>, <code>allseasons</code>,{' '}
+                <code>Winter 2024</code>, <code>2018</code>
+              </span>
+              <textarea
+                className="tool-textarea csv-textarea"
+                rows={6}
+                disabled={running}
+                value={form.seasonText}
+                onChange={(e) => patchForm({ seasonText: e.target.value })}
+                placeholder={'Winter 2024\nSpring 2024\nSummer 2024'}
+              />
+            </>
+          )}
+        </div>
 
         <div className="tool-field-row">
           <label className="tool-checkbox">

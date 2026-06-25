@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
   averageScore,
   buildSeasonalColumns,
+  effectiveSeasonalForm,
   formatSeasonColumnLabel,
   formatSeasonalScoreLabel,
   normalizeSeasonalListScore,
   parseSeasonLine,
   parseSeasonSpecs,
+  type SeasonalScoresForm,
   type SeasonalShow,
 } from '../panels/seasonalScoresLogic';
 
@@ -55,6 +57,7 @@ describe('seasonalScoresLogic', () => {
       skipEmpty: false,
       airingNotesOnly: false,
       includePlanning: false,
+      seasonMode: 'custom',
     });
     expect(result.kind).toBe('columns');
     if (result.kind !== 'columns') {
@@ -110,6 +113,7 @@ describe('seasonalScoresLogic', () => {
       skipEmpty: false,
       airingNotesOnly: false,
       includePlanning: false,
+      seasonMode: 'custom',
     });
     expect(result.kind).toBe('columns');
     if (result.kind === 'columns') {
@@ -153,6 +157,7 @@ describe('seasonalScoresLogic', () => {
       skipEmpty: false,
       airingNotesOnly: false,
       includePlanning: true,
+      seasonMode: 'custom',
     });
     expect(result.kind).toBe('columns');
     if (result.kind === 'columns') {
@@ -190,6 +195,7 @@ describe('seasonalScoresLogic', () => {
       skipEmpty: false,
       airingNotesOnly: false,
       includePlanning: false,
+      seasonMode: 'custom',
     });
     expect(result.kind).toBe('columns');
     if (result.kind === 'columns') {
@@ -227,6 +233,7 @@ describe('seasonalScoresLogic', () => {
       skipEmpty: true,
       airingNotesOnly: false,
       includePlanning: false,
+      seasonMode: 'custom',
     });
     expect(result.kind).toBe('columns');
     if (result.kind === 'columns') {
@@ -245,6 +252,7 @@ describe('seasonalScoresLogic', () => {
       skipEmpty: false,
       airingNotesOnly: false,
       includePlanning: false,
+      seasonMode: 'custom',
     });
     expect(result.kind).toBe('columns');
     if (result.kind === 'columns') {
@@ -265,6 +273,7 @@ describe('seasonalScoresLogic', () => {
       skipEmpty: false,
       airingNotesOnly: false,
       includePlanning: true,
+      seasonMode: 'custom',
     });
     expect(result.kind).toBe('columns');
     if (result.kind === 'columns') {
@@ -286,6 +295,7 @@ describe('seasonalScoresLogic', () => {
       skipEmpty: false,
       airingNotesOnly: true,
       includePlanning: false,
+      seasonMode: 'custom',
     });
     expect(result.kind).toBe('columns');
     if (result.kind === 'columns') {
@@ -306,6 +316,7 @@ describe('seasonalScoresLogic', () => {
       skipEmpty: false,
       airingNotesOnly: false,
       includePlanning: true,
+      seasonMode: 'custom',
     });
     expect(result.kind).toBe('columns');
     if (result.kind === 'columns') {
@@ -330,6 +341,7 @@ describe('seasonalScoresLogic', () => {
       skipEmpty: false,
       airingNotesOnly: false,
       includePlanning: false,
+      seasonMode: 'custom',
     });
     expect(result.kind).toBe('columns');
     if (result.kind === 'columns') {
@@ -346,7 +358,68 @@ describe('seasonalScoresLogic', () => {
       skipEmpty: false,
       airingNotesOnly: false,
       includePlanning: false,
+      seasonMode: 'custom',
     });
     expect(result.kind).toBe('empty');
+  });
+
+  describe('effectiveSeasonalForm', () => {
+    const baseForm: SeasonalScoresForm = {
+      username: 'user',
+      seasonText: 'Winter 2024',
+      seasonMode: 'custom',
+      skipEmpty: false,
+      airingNotesOnly: false,
+      includePlanning: false,
+    };
+
+    it('preserves seasonText when mode is custom', () => {
+      const effective = effectiveSeasonalForm(baseForm);
+      expect(effective.seasonText).toBe('Winter 2024');
+      // Returned form should equal the input (custom is a passthrough).
+      expect(effective).toEqual(baseForm);
+    });
+
+    it('overrides seasonText with "all" when mode is all (keeping other fields)', () => {
+      const effective = effectiveSeasonalForm({ ...baseForm, seasonMode: 'all' });
+      expect(effective.seasonText).toBe('all');
+      // Verifies the magic keyword routes through parseSeasonSpecs into year columns.
+      // sampleShows are all 2024 — `all` yields one column per year in the range.
+      const result = buildSeasonalColumns(sampleShows, effective);
+      expect(result.kind).toBe('columns');
+      if (result.kind === 'columns') {
+        expect(result.columns.map((c) => c.label)).toEqual(['2024']);
+        expect(result.columns.every((c) => c.season === null)).toBe(true);
+      }
+    });
+
+    it('overrides seasonText with "allseasons" when mode is allseasons', () => {
+      const effective = effectiveSeasonalForm({ ...baseForm, seasonMode: 'allseasons' });
+      expect(effective.seasonText).toBe('allseasons');
+      const result = buildSeasonalColumns(sampleShows, effective);
+      expect(result.kind).toBe('columns');
+      if (result.kind === 'columns') {
+        // 1 year × 4 seasons = 4 columns in Winter→Fall order.
+        expect(result.columns).toHaveLength(4);
+        expect(result.columns[0]).toMatchObject({ season: 'WINTER', year: 2024 });
+        expect(result.columns[3]).toMatchObject({ season: 'FALL', year: 2024 });
+      }
+    });
+
+    it('keeps the user-typed seasonText on the form object even when overriding for compute', () => {
+      const typed = 'My typed list';
+      const effective = effectiveSeasonalForm({
+        ...baseForm,
+        seasonText: typed,
+        seasonMode: 'all',
+      });
+      // The override applies only to the returned copy used for compute —
+      // the caller's source-of-truth form (passed in) is untouched.
+      expect(effective.seasonText).toBe('all');
+      expect(baseForm.seasonText).toBe('Winter 2024');
+      // And switching back to custom restores the typed text in the next call.
+      const next = effectiveSeasonalForm({ ...baseForm, seasonText: typed });
+      expect(next.seasonText).toBe(typed);
+    });
   });
 });
