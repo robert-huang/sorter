@@ -87,4 +87,20 @@ describe('fetchUserSeasonalShows', () => {
     await fetchUserSeasonalShows('rh_test', undefined, { includePlanning: true });
     expect(depaginateMock).toHaveBeenCalledTimes(2);
   });
+
+  it('does NOT memoize empty results — retries on the next call', async () => {
+    // First call: AniList short-circuits (rate-limit, `data: null`) → [].
+    // Second call should NOT hit the cache; otherwise the user is stuck
+    // with an empty/2026-only chart until the 15m TTL expires.
+    depaginateMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([listEntry(1)]);
+
+    const first = await fetchUserSeasonalShows('rh_test');
+    const second = await fetchUserSeasonalShows('rh_test');
+
+    expect(first).toEqual([]);
+    expect(second).toHaveLength(1);
+    expect(depaginateMock).toHaveBeenCalledTimes(2);
+  });
 });

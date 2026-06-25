@@ -7,17 +7,20 @@ import { useToolsDisplayLabelRevision } from '../useToolsDisplayLabelRevision';
 import { relabelFranchiseEntries } from '../toolsDisplayRelabel';
 import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
 import { ToolShowButton } from '../toolEntityLinks';
-import { DragScroll } from '../../components/DragScroll';
 import {
+  bustFranchiseListMemos,
   runFranchiseScores,
   type FranchiseRunProgress,
 } from './franchiseScoresApi';
 import {
+  buildFranchiseClipboardText,
+  buildFranchiseCsv,
   DEFAULT_RELATION_TOGGLES,
   FRANCHISE_RELATION_LABELS,
   FRANCHISE_RELATION_TYPES,
   formatFranchiseScoreLabel,
   franchiseDateLabel,
+  franchiseFormatLabel,
   type FranchiseEntry,
   type FranchiseForm,
   type FranchiseRelationType,
@@ -101,29 +104,114 @@ type FranchiseResultState =
       entries: FranchiseEntry[];
     };
 
-function FranchiseColumnsView({
+/**
+ * Sanitize a seed title into a filesystem-safe filename slug for the CSV
+ * download. Strips runs of non-alphanumeric chars to a single hyphen and
+ * trims edges; empty input falls back to `franchise`.
+ */
+function franchiseCsvFilename(seedTitle: string): string {
+  const slug = seedTitle
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return `franchise-${slug || 'untitled'}.csv`;
+}
+
+function downloadCsv(filename: string, contents: string): void {
+  const blob = new Blob([contents], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function FranchiseTable({
   entries,
   seedId,
+  seedTitle,
   onOpenMedia,
 }: {
   entries: FranchiseEntry[];
   seedId: number;
+  seedTitle: string;
   onOpenMedia: ToolPanelProps['onOpenMedia'];
 }) {
+  // Brief visual confirmation that the clipboard write succeeded; clears
+  // itself so a follow-up Copy fires the toast again.
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(async () => {
+    const text = buildFranchiseClipboardText(entries);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard API blocked (non-HTTPS, permissions). Silently no-op —
+      // browsers surface their own permission prompt; we don't need to
+      // double-toast the failure.
+    }
+  }, [entries]);
+
+  const handleExportCsv = useCallback(() => {
+    downloadCsv(franchiseCsvFilename(seedTitle), buildFranchiseCsv(entries));
+  }, [entries, seedTitle]);
+
   return (
-    <div className="tool-season-columns">
-      <DragScroll className="tool-season-scroll" initialScrollEnd>
-        <div className="tool-season-body">
+    <div className="tool-franchise-result">
+      <div className="tool-franchise-export-actions">
+        <button
+          type="button"
+          className="btn btn-small"
+          onClick={() => void handleCopy()}
+          title="Copy each row as `title (format)` — newline-separated."
+        >
+          {copied ? 'Copied!' : 'Copy titles'}
+        </button>
+        <button
+          type="button"
+          className="btn btn-small"
+          onClick={handleExportCsv}
+          title="Download a CSV with columns: Title, Format, Score."
+        >
+          Export CSV
+        </button>
+      </div>
+      <table className="tool-franchise-table">
+        <thead>
+          <tr>
+            <th className="tool-franchise-th-date">Date</th>
+            <th className="tool-franchise-th-title">Title</th>
+            <th className="tool-franchise-th-score">Score</th>
+          </tr>
+        </thead>
+        <tbody>
           {entries.map((entry) => {
             const isSeed = entry.id === seedId;
             const dateLabel = franchiseDateLabel(entry.startDate);
-            const formatLabel = entry.format ?? entry.mediaType;
+            const formatLabel = franchiseFormatLabel(entry);
+            const scoreLabel = formatFranchiseScoreLabel(
+              entry.score,
+              entry.listStatus,
+            );
+            const statusTitle = entry.listStatus
+              ? `On list: ${entry.listStatus}`
+              : 'Not on your list (unwatched)';
             return (
-              <div
+              <tr
                 key={entry.id}
-                className={`tool-season-column tool-franchise-column${isSeed ? ' tool-franchise-column--seed' : ''}`}
+                className={
+                  isSeed
+                    ? 'tool-franchise-row tool-franchise-row--seed'
+                    : 'tool-franchise-row'
+                }
               >
-                <div className="tool-season-col-head">
+                <td className="tool-franchise-td-date">{dateLabel}</td>
+                <td className="tool-franchise-td-title">
                   <ToolShowButton
                     mediaId={entry.id}
                     title={entry.title}
@@ -131,44 +219,42 @@ function FranchiseColumnsView({
                     mediaType={entry.mediaType}
                     onOpenMedia={onOpenMedia}
                     compact
-                    className="tool-franchise-title"
+                    className="tool-franchise-title-link"
                   />
-                  <div className="tool-season-col-avg tool-franchise-meta">
-                    <span>{dateLabel}</span>
-                    <span
-                      className="tool-franchise-format"
-                      title={`AniList format: ${formatLabel}`}
-                    >
-                      {formatLabel}
-                    </span>
-                  </div>
-                </div>
-                <div className="tool-season-cell">
-                  <div className="tool-season-cell-grid tool-franchise-score-cell">
-                    <span
-                      className="tool-season-score"
-                      title={
-                        entry.listStatus
-                          ? `On list: ${entry.listStatus}`
-                          : 'Not on your list (unwatched)'
-                      }
-                    >
-                      {formatFranchiseScoreLabel(entry.score, entry.listStatus)}
-                    </span>
-                    {isSeed && <span className="tool-franchise-seed-tag">seed</span>}
-                  </div>
-                </div>
-              </div>
+                  <span
+                    className="tool-franchise-format"
+                    title={`AniList format: ${formatLabel}`}
+                  >
+                    {formatLabel}
+                  </span>
+                  {isSeed && (
+                    <span className="tool-franchise-seed-tag">seed</span>
+                  )}
+                </td>
+                <td className="tool-franchise-td-score" title={statusTitle}>
+                  {scoreLabel}
+                </td>
+              </tr>
             );
           })}
-        </div>
-      </DragScroll>
+        </tbody>
+      </table>
     </div>
   );
 }
 
 export function FranchiseScoresPanel({ onOpenMedia }: ToolPanelProps) {
-  const { refreshing: refreshingList, refreshUsernameList } = useUsernameListRefresh();
+  // Refresh button must update BOTH the anime + manga lists (franchise reads
+  // each user's list and stamps watched/scored status onto every node), and
+  // bust the per-(user,type) franchise list memos so the next Trace re-fetches
+  // the live data. Relation memos are intentionally preserved — relations
+  // don't change when a user updates their list.
+  const { refreshing: refreshingList, refreshUsernameList } = useUsernameListRefresh({
+    refreshManga: true,
+    onAfterRefresh: (handle) => {
+      bustFranchiseListMemos(handle);
+    },
+  });
   const displayLabelRevision = useToolsDisplayLabelRevision();
   const [form, setForm] = useState<FranchiseForm>(() => loadForm());
   const [running, setRunning] = useState(false);
@@ -305,6 +391,7 @@ export function FranchiseScoresPanel({ onOpenMedia }: ToolPanelProps) {
           refreshing={refreshingList}
           onChange={(username) => patchForm({ username })}
           onRefresh={() => refreshUsernameList(form.username, running)}
+          refreshLabel="Refresh anime + manga lists from AniList"
         />
 
         <div className="tool-field">
@@ -369,13 +456,12 @@ export function FranchiseScoresPanel({ onOpenMedia }: ToolPanelProps) {
       {result?.kind === 'empty' && <p className="tool-empty">{result.message}</p>}
 
       {result?.kind === 'columns' && (
-        <div className="tool-season-fullbleed">
-          <FranchiseColumnsView
-            entries={result.entries}
-            seedId={result.seed.id}
-            onOpenMedia={onOpenMedia}
-          />
-        </div>
+        <FranchiseTable
+          entries={result.entries}
+          seedId={result.seed.id}
+          seedTitle={result.seed.title}
+          onOpenMedia={onOpenMedia}
+        />
       )}
     </section>
   );

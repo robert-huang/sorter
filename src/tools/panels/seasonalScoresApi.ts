@@ -7,6 +7,7 @@ import {
 } from '../../lib/importers/anilist/toolsAnilistAccess';
 import {
   TOOLS_SESSION_TTL_MS,
+  sessionMemoDelete,
   withSessionTtlMemo,
 } from '../../lib/importers/anilist/toolsSessionMemo';
 import { pickMediaTitle } from './sharedCreditsLogic';
@@ -104,10 +105,20 @@ export async function fetchUserSeasonalShows(
   signal?.throwIfAborted();
   const handle = username.trim().toLowerCase();
   const planningKey = options?.includePlanning ? 'plan' : 'base';
-  return withSessionTtlMemo(
-    `seasonal:list:${handle}:${planningKey}`,
+  const key = `seasonal:list:${handle}:${planningKey}`;
+  const shows = await withSessionTtlMemo(
+    key,
     TOOLS_SESSION_TTL_MS,
     () => fetchUserSeasonalShowsLive(username, signal, options),
     { bust: options?.forceRefresh },
   );
+  // Don't lock the user into an empty result for 15m. An empty array is most
+  // often a transient `executeAnilistQuery` → `data: null` short-circuit (rate
+  // limit recovery, partial response). Busting the memo lets the next click
+  // retry the live query without needing a fresh tab or right-click refresh.
+  // Legitimately-empty lists pay one extra request on each retry — acceptable.
+  if (shows.length === 0) {
+    sessionMemoDelete(key);
+  }
+  return shows;
 }

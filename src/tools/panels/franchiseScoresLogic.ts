@@ -55,15 +55,20 @@ export const FRANCHISE_RELATION_LABELS: Record<
   CONTAINS: { label: 'Contains', hint: 'The seed contains this entry.' },
   OTHER: {
     label: 'Other',
-    hint: "AniList's catch-all bucket (e.g. soundtracks, promos, specials).",
+    hint: "AniList's catch-all bucket (soundtracks, promos, specials) — often noisy. Off by default.",
   },
   CHARACTER: {
-    label: 'Shared character',
+    label: 'Character',
     hint: 'Just shares a character with the seed — often only a cameo. Off by default.',
   },
 };
 
-/** Default relation toggles: everything ON except CHARACTER (per user request). */
+/**
+ * Default relation toggles: the strong franchise links are ON; CHARACTER
+ * and OTHER are OFF because they tend to drag in unrelated noise (cameos,
+ * soundtrack-only entries, promo videos) that bloats the chart without
+ * being "the same story".
+ */
 export const DEFAULT_RELATION_TOGGLES: Record<FranchiseRelationType, boolean> = {
   PREQUEL: true,
   SEQUEL: true,
@@ -76,7 +81,7 @@ export const DEFAULT_RELATION_TOGGLES: Record<FranchiseRelationType, boolean> = 
   SOURCE: true,
   COMPILATION: true,
   CONTAINS: true,
-  OTHER: true,
+  OTHER: false,
   CHARACTER: false,
 };
 
@@ -166,6 +171,63 @@ export function formatFranchiseScoreLabel(
   }
   const normalized = normalizeSeasonalListScore(score);
   return normalized == null ? '—' : String(normalized);
+}
+
+/**
+ * Chip label for an entry: prefer the AniList `format` (TV / MOVIE / OVA /
+ * MANGA / NOVEL / ...) and fall back to the `mediaType` (ANIME / MANGA)
+ * when the format is missing. Centralized so the table cell and the CSV
+ * export always agree on what shows next to a title.
+ */
+export function franchiseFormatLabel(
+  entry: Pick<FranchiseEntry, 'format' | 'mediaType'>,
+): string {
+  return entry.format ?? entry.mediaType;
+}
+
+/**
+ * RFC 4180 CSV escaping: wrap the value in double quotes when it contains
+ * a comma, double quote, or any newline; double up embedded quotes inside
+ * the wrapped form. Used by {@link buildFranchiseCsv}.
+ */
+export function csvEscapeFranchiseCell(value: string): string {
+  if (/[",\r\n]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
+
+/**
+ * Build a CSV string for the franchise table — columns: Title, Format,
+ * Score. The Score column uses the same display label the on-screen table
+ * shows ({@link formatFranchiseScoreLabel}) so the export matches what
+ * the user sees: `U` for unwatched, `P` for planning, `—` for "on list
+ * but no score", otherwise the numeric score. Rows are CRLF-separated
+ * per RFC 4180 so Excel opens it cleanly on Windows.
+ */
+export function buildFranchiseCsv(entries: FranchiseEntry[]): string {
+  const header = ['Title', 'Format', 'Score'].join(',');
+  const rows = entries.map((entry) =>
+    [
+      csvEscapeFranchiseCell(entry.title),
+      csvEscapeFranchiseCell(franchiseFormatLabel(entry)),
+      csvEscapeFranchiseCell(
+        formatFranchiseScoreLabel(entry.score, entry.listStatus),
+      ),
+    ].join(','),
+  );
+  return [header, ...rows].join('\r\n');
+}
+
+/**
+ * "Title (Format)" lines — one per entry, separated by `\n`. Plain text
+ * intended for the "Copy" button (e.g. paste into Discord / a notes app
+ * where a CSV would be noisy).
+ */
+export function buildFranchiseClipboardText(entries: FranchiseEntry[]): string {
+  return entries
+    .map((entry) => `${entry.title} (${franchiseFormatLabel(entry)})`)
+    .join('\n');
 }
 
 /** Filter helper used by the BFS and reused by tests. */

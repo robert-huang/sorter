@@ -226,6 +226,59 @@ describe('seasonalScoresLogic', () => {
     ]);
   });
 
+  it('emits zero specs for `all` / `allseasons` when shows have no usable years', () => {
+    // Empty list (most common: AniList `data: null` short-circuit).
+    expect(parseSeasonSpecs('all', [])).toEqual([]);
+    expect(parseSeasonSpecs('allseasons', [])).toEqual([]);
+    // Non-empty list but every entry is missing seasonYear (e.g. all movies).
+    const moviesOnly: SeasonalShow[] = [
+      { id: 1, title: 'Movie A', season: null, seasonYear: null, score: 85, notes: null },
+      { id: 2, title: 'Movie B', season: null, seasonYear: null, score: 75, notes: null },
+    ];
+    expect(parseSeasonSpecs('all', moviesOnly)).toEqual([]);
+    expect(parseSeasonSpecs('allseasons', moviesOnly)).toEqual([]);
+  });
+
+  it('explicit season lines still resolve when shows have no usable years', () => {
+    // Regression guard: removing the current-year fallback must not break
+    // typed seasons / years that don't depend on the shows-derived range.
+    const specs = parseSeasonSpecs('Winter 2024\n2018', []);
+    expect(specs.map((s) => s.label)).toEqual(['Winter 2024', '2018']);
+  });
+
+  it('empty shows + `allseasons` returns the privacy/empty-list message', () => {
+    const result = buildSeasonalColumns([], {
+      username: 'user',
+      seasonText: 'allseasons',
+      skipEmpty: false,
+      airingNotesOnly: false,
+      includePlanning: false,
+      seasonMode: 'allseasons',
+    });
+    expect(result.kind).toBe('empty');
+    if (result.kind === 'empty') {
+      expect(result.message).toMatch(/list may be private/i);
+    }
+  });
+
+  it('shows-with-no-seasonYear + `all` returns the custom-mode hint', () => {
+    const moviesOnly: SeasonalShow[] = [
+      { id: 1, title: 'Movie A', season: null, seasonYear: null, score: 85, notes: null },
+    ];
+    const result = buildSeasonalColumns(moviesOnly, {
+      username: 'user',
+      seasonText: 'all',
+      skipEmpty: false,
+      airingNotesOnly: false,
+      includePlanning: false,
+      seasonMode: 'all',
+    });
+    expect(result.kind).toBe('empty');
+    if (result.kind === 'empty') {
+      expect(result.message).toMatch(/custom mode/i);
+    }
+  });
+
   it('skipEmpty drops columns with no matching shows', () => {
     const result = buildSeasonalColumns(sampleShows, {
       username: 'user',

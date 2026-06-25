@@ -129,11 +129,14 @@ export async function ensureMediaCastFresh(
 }
 
 /**
- * Ensure the user's anime list exists in the source DB — imports when
- * missing, empty, stale (>90d), or force-refresh was requested.
+ * Ensure the user's anime OR manga list exists in the source DB — imports
+ * when missing, empty, stale (>90d), or force-refresh was requested.
+ * Generic over MediaType so the Franchise Scores tool can refresh both
+ * lists through the same code path.
  */
-export async function ensureUserAnimeListFresh(
+export async function ensureUserMediaListFresh(
   username: string,
+  type: 'ANIME' | 'MANGA',
   options?: ToolsFetchOptions,
 ): Promise<AnilistUserSummary | null> {
   const handle = username.trim();
@@ -142,17 +145,33 @@ export async function ensureUserAnimeListFresh(
   }
   const ctx = getToolsImportContext();
   let user = await getAnilistUserByName(ctx.db, handle);
-  const count = user ? await getListedMediaCount(ctx.db, user.id, 'ANIME') : 0;
+  const count = user ? await getListedMediaCount(ctx.db, user.id, type) : 0;
   const needsImport =
     options?.forceRefresh ||
     !user ||
     count === 0 ||
     needsGraphDataRefresh(user.fetched_at, options);
   if (needsImport) {
-    await runAnilistImport(handle, 'ANIME');
+    await runAnilistImport(handle, type);
     user = await getAnilistUserByName(ctx.db, handle);
   }
   return user;
+}
+
+/** ANIME-typed alias preserved so existing callers don't need to thread a type arg. */
+export function ensureUserAnimeListFresh(
+  username: string,
+  options?: ToolsFetchOptions,
+): Promise<AnilistUserSummary | null> {
+  return ensureUserMediaListFresh(username, 'ANIME', options);
+}
+
+/** MANGA-typed alias for symmetry with {@link ensureUserAnimeListFresh}. */
+export function ensureUserMangaListFresh(
+  username: string,
+  options?: ToolsFetchOptions,
+): Promise<AnilistUserSummary | null> {
+  return ensureUserMediaListFresh(username, 'MANGA', options);
 }
 
 async function getFavouriteRowCount(

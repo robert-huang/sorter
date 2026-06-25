@@ -1,12 +1,17 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   bfsFranchiseRelations,
+  buildFranchiseCsv,
+  buildFranchiseClipboardText,
   buildFranchiseEntries,
+  csvEscapeFranchiseCell,
   DEFAULT_RELATION_TOGGLES,
   enabledRelationTypes,
   formatFranchiseScoreLabel,
   franchiseDateLabel,
   franchiseDateSortKey,
+  franchiseFormatLabel,
+  type FranchiseEntry,
   type FranchiseNode,
   type FranchiseRelationsResponse,
 } from '../panels/franchiseScoresLogic';
@@ -93,11 +98,14 @@ describe('formatFranchiseScoreLabel', () => {
 });
 
 describe('enabledRelationTypes / DEFAULT_RELATION_TOGGLES', () => {
-  it('defaults all relations ON except CHARACTER (per user request)', () => {
+  it('defaults canon franchise relations ON but excludes CHARACTER + OTHER', () => {
+    // CHARACTER drags in cameos; OTHER is AniList's catch-all noise bucket
+    // (soundtracks, promos) — both off by default per user preference.
     const enabled = enabledRelationTypes(DEFAULT_RELATION_TOGGLES);
     expect(enabled.has('SEQUEL')).toBe(true);
-    expect(enabled.has('OTHER')).toBe(true);
     expect(enabled.has('SOURCE')).toBe(true);
+    expect(enabled.has('ADAPTATION')).toBe(true);
+    expect(enabled.has('OTHER')).toBe(false);
     expect(enabled.has('CHARACTER')).toBe(false);
   });
 });
@@ -115,13 +123,16 @@ describe('bfsFranchiseRelations', () => {
         { relationType: 'SEQUEL', node: node(2) },
         // Default toggles have CHARACTER off — node 3 must NOT appear.
         { relationType: 'CHARACTER', node: node(3) },
+        // OTHER is also off by default — node 4 must NOT appear.
+        { relationType: 'OTHER', node: node(4) },
       ]},
       2: { self: node(2), edges: [] },
     });
     const nodes = await bfsFranchiseRelations(1, DEFAULT_RELATION_TOGGLES, fetcher);
     expect([...nodes.keys()].sort()).toEqual([1, 2]);
-    // Fetcher should not have been called for the skipped child.
+    // Fetcher should not have been called for the skipped children.
     expect(fetcher).not.toHaveBeenCalledWith(3, expect.anything());
+    expect(fetcher).not.toHaveBeenCalledWith(4, expect.anything());
   });
 
   it('walks transitively across enabled edges', async () => {
@@ -235,5 +246,120 @@ describe('buildFranchiseEntries', () => {
     ]);
     const entries = buildFranchiseEntries(10, nodes, new Map());
     expect(entries.map((e) => e.id)).toEqual([5, 10]);
+  });
+});
+
+// ---------- Export helpers (Copy / CSV) ----------
+
+function entry(
+  id: number,
+  overrides: Partial<FranchiseEntry> = {},
+): FranchiseEntry {
+  return {
+    id,
+    mediaType: 'ANIME',
+    format: 'TV',
+    title: `Show ${id}`,
+    titleSource: {
+      id,
+      title_english: `Show ${id}`,
+      title_romaji: null,
+      title_native: null,
+    },
+    coverImage: null,
+    startDate: { year: 2020, month: 1, day: 1 },
+    isSeed: false,
+    listStatus: null,
+    score: null,
+    ...overrides,
+  };
+}
+
+describe('franchiseFormatLabel', () => {
+  it('uses the explicit AniList format when present', () => {
+    expect(franchiseFormatLabel({ format: 'OVA', mediaType: 'ANIME' })).toBe('OVA');
+  });
+
+  it('falls back to mediaType when format is missing', () => {
+    expect(franchiseFormatLabel({ format: null, mediaType: 'MANGA' })).toBe('MANGA');
+  });
+});
+
+describe('csvEscapeFranchiseCell', () => {
+  it('leaves plain text untouched', () => {
+    expect(csvEscapeFranchiseCell('Fate Zero')).toBe('Fate Zero');
+  });
+
+  it('wraps values containing commas in quotes', () => {
+    expect(csvEscapeFranchiseCell('Bocchi, the Rock!')).toBe('"Bocchi, the Rock!"');
+  });
+
+  it('doubles embedded quotes when wrapping', () => {
+    expect(csvEscapeFranchiseCell('She said "hi"')).toBe('"She said ""hi"""');
+  });
+
+  it('wraps values with newlines (CR or LF) in quotes', () => {
+    expect(csvEscapeFranchiseCell('line1\nline2')).toBe('"line1\nline2"');
+    expect(csvEscapeFranchiseCell('line1\r\nline2')).toBe('"line1\r\nline2"');
+  });
+});
+
+describe('buildFranchiseCsv', () => {
+  it('emits header + one row per entry with Title/Format/Score columns', () => {
+    const entries = [
+      entry(1, { title: 'Show A', format: 'TV', score: 88, listStatus: 'COMPLETED' }),
+      entry(2, { title: 'Show B', format: 'MOVIE', score: null, listStatus: 'PLANNING' }),
+      entry(3, { title: 'Show C', format: null, score: null, listStatus: null }),
+    ];
+    expect(buildFranchiseCsv(entries)).toBe(
+      [
+        'Title,Format,Score',
+        'Show A,TV,88',
+        'Show B,MOVIE,P',
+        'Show C,ANIME,U',
+      ].join('\r\n'),
+    );
+  });
+
+  it('escapes commas + quotes in any column', () => {
+    const entries = [
+      entry(1, {
+        title: 'Bocchi, the Rock!',
+        format: 'TV',
+        score: 90,
+        listStatus: 'COMPLETED',
+      }),
+    ];
+    expect(buildFranchiseCsv(entries)).toBe(
+      ['Title,Format,Score', '"Bocchi, the Rock!",TV,90'].join('\r\n'),
+    );
+  });
+
+  it('uses CRLF row separators for cross-platform spreadsheet compat', () => {
+    const csv = buildFranchiseCsv([entry(1, { score: 80, listStatus: 'COMPLETED' })]);
+    expect(csv.split('\r\n')).toHaveLength(2);
+  });
+
+  it('header-only output when there are no entries', () => {
+    expect(buildFranchiseCsv([])).toBe('Title,Format,Score');
+  });
+});
+
+describe('buildFranchiseClipboardText', () => {
+  it('emits "Title (Format)" lines separated by newlines', () => {
+    const entries = [
+      entry(1, { title: 'Fate/Zero', format: 'TV' }),
+      entry(2, { title: 'Fate/stay night Movie', format: 'MOVIE' }),
+      entry(3, { title: 'Fate/Apocrypha', format: null }),
+    ];
+    expect(buildFranchiseClipboardText(entries)).toBe(
+      ['Fate/Zero (TV)', 'Fate/stay night Movie (MOVIE)', 'Fate/Apocrypha (ANIME)'].join(
+        '\n',
+      ),
+    );
+  });
+
+  it('empty input yields an empty string', () => {
+    expect(buildFranchiseClipboardText([])).toBe('');
   });
 });

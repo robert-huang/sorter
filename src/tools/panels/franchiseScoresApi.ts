@@ -7,10 +7,25 @@ import {
 import { executeAnilistQuery } from '../../lib/importers/anilist/transport';
 import {
   TOOLS_SESSION_TTL_MS,
+  sessionMemoDelete,
   withSessionMemo,
   withSessionTtlMemo,
 } from '../../lib/importers/anilist/toolsSessionMemo';
+import { withPersistentTtlCache } from '../../lib/importers/anilist/toolsPersistentCache';
 import type { ToolsFetchOptions } from '../../lib/importers/anilist/toolsFetchPolicy';
+
+/**
+ * Franchise relations rarely change once a media id is settled (a brand-new
+ * sequel can be picked up by right-clicking Trace to force-refresh), so we
+ * persist them across sessions for 90 days. A 90d in-memory TTL is fine too
+ * — entries are still bounded by the tab's lifetime, and the persistent
+ * cache below survives reloads.
+ */
+const FRANCHISE_RELATIONS_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+
+function franchiseRelationsCacheKey(mediaId: number): string {
+  return `franchise:relations:${mediaId}`;
+}
 import { pickMediaTitle } from './sharedCreditsLogic';
 import { normalizeSeasonalListScore } from './seasonalScoresLogic';
 import {
@@ -105,16 +120,33 @@ async function fetchFranchiseRelationsLive(
   return { self, edges };
 }
 
+/**
+ * Two-tier cache for the franchise graph:
+ *   L1: in-memory session memo — dedups concurrent BFS calls and avoids
+ *       re-parsing JSON within a tab.
+ *   L2: localStorage — survives reloads, 90-day TTL so a casual revisit
+ *       to the same franchise doesn't burn a chain of GraphQL calls.
+ * Right-click Trace flows `forceRefresh: true` through both layers so the
+ * user can pull in a brand-new sequel that AniList added since the last
+ * cache was populated.
+ */
 function fetchFranchiseRelations(
   mediaId: number,
   signal?: AbortSignal,
   options?: ToolsFetchOptions,
 ): Promise<FranchiseRelationsResponse | null> {
   signal?.throwIfAborted();
+  const key = franchiseRelationsCacheKey(mediaId);
   return withSessionTtlMemo(
-    `franchise:relations:${mediaId}`,
-    TOOLS_SESSION_TTL_MS,
-    () => fetchFranchiseRelationsLive(mediaId, signal),
+    key,
+    FRANCHISE_RELATIONS_TTL_MS,
+    () =>
+      withPersistentTtlCache(
+        key,
+        FRANCHISE_RELATIONS_TTL_MS,
+        () => fetchFranchiseRelationsLive(mediaId, signal),
+        { bust: options?.forceRefresh },
+      ),
     { bust: options?.forceRefresh },
   );
 }
@@ -155,19 +187,40 @@ async function fetchUserMediaListLive(
   }));
 }
 
-function fetchUserMediaList(
+function franchiseListMemoKey(username: string, type: 'ANIME' | 'MANGA'): string {
+  return `franchise:list:${username.trim().toLowerCase()}:${type}`;
+}
+
+async function fetchUserMediaList(
   username: string,
   type: 'ANIME' | 'MANGA',
   signal?: AbortSignal,
   options?: ToolsFetchOptions,
 ): Promise<UserListEntry[]> {
-  const handle = username.trim().toLowerCase();
-  return withSessionTtlMemo(
-    `franchise:list:${handle}:${type}`,
+  const key = franchiseListMemoKey(username, type);
+  const entries = await withSessionTtlMemo(
+    key,
     TOOLS_SESSION_TTL_MS,
     () => fetchUserMediaListLive(username, type, signal),
     { bust: options?.forceRefresh },
   );
+  // Same rationale as `fetchUserSeasonalShows`: don't lock the user into an
+  // empty list for 15m when the live fetch could transiently return [].
+  if (entries.length === 0) {
+    sessionMemoDelete(key);
+  }
+  return entries;
+}
+
+/**
+ * Bust the per-(user,type) franchise list memos so the next Trace re-fetches
+ * the user's anime + manga lists. Used by the username refresh button.
+ * Relation memos are left alone because franchise relations don't change
+ * when the user updates their list.
+ */
+export function bustFranchiseListMemos(username: string): void {
+  sessionMemoDelete(franchiseListMemoKey(username, 'ANIME'));
+  sessionMemoDelete(franchiseListMemoKey(username, 'MANGA'));
 }
 
 export type FranchiseRunProgress =

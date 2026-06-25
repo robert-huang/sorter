@@ -149,20 +149,32 @@ export function parseSeasonSpecs(
   const years = shows
     .map((s) => s.seasonYear)
     .filter((y): y is number => y !== null && y > 0);
-  const minYear = years.length > 0 ? Math.min(...years) : new Date().getFullYear();
-  const maxYear = years.length > 0 ? Math.max(...years) : minYear;
+  // No current-year fallback when the user has no usable seasonYear values
+  // (empty list, list fetch returned `data: null`, user with only movies).
+  // The previous fallback to `new Date().getFullYear()` silently rendered a
+  // 2026-only chart that looked broken; surfacing zero specs instead lets
+  // `buildSeasonalColumns` emit the empty-state message.
+  const minYear = years.length > 0 ? Math.min(...years) : null;
+  const maxYear = years.length > 0 ? Math.max(...years) : null;
+  const hasRange = minYear !== null && maxYear !== null;
 
   const specs: SeasonSpec[] = [];
 
   for (const line of lines) {
     const lower = line.toLowerCase();
     if (lower === 'all') {
+      if (!hasRange) {
+        continue;
+      }
       for (let year = minYear; year <= maxYear; year += 1) {
         specs.push({ label: String(year), season: null, year });
       }
       continue;
     }
     if (lower === 'allseasons') {
+      if (!hasRange) {
+        continue;
+      }
       for (let year = minYear; year <= maxYear; year += 1) {
         for (const season of SEASON_NAMES) {
           const label = `${season[0]}${season.slice(1).toLowerCase()} ${year}`;
@@ -229,6 +241,25 @@ export function buildSeasonalColumns(
 ): SeasonalScoresResult {
   const specs = parseSeasonSpecs(form.seasonText, shows);
   if (specs.length === 0) {
+    // Disambiguate so the user knows whether to type a season or
+    // refresh — the `all`/`allseasons` presets only fail to emit specs
+    // when the fetched list itself has no usable seasonYear values.
+    const trimmed = form.seasonText.trim().toLowerCase();
+    const isPreset = trimmed === 'all' || trimmed === 'allseasons';
+    if (isPreset && shows.length === 0) {
+      return {
+        kind: 'empty',
+        message:
+          "AniList didn't return any list entries for this user — the list may be private or the response was empty. Right-click Compare to force a fresh fetch.",
+      };
+    }
+    if (isPreset) {
+      return {
+        kind: 'empty',
+        message:
+          'None of the fetched shows have a season/year — try the Custom mode and enter seasons manually.',
+      };
+    }
     return { kind: 'empty', message: 'Enter at least one season or year to compare.' };
   }
 

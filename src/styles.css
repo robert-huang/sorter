@@ -5559,6 +5559,24 @@ html {
   max-width: 100%;
 }
 
+/*
+ * The hint and textarea must not push `.tool-seasonal-mode-field` wider
+ * than the segmented chip. Their `width: 0` zeros out their contribution
+ * to the parent's `max-content` calculation; `min-width: 100%` then
+ * resolves AFTER the parent's width is settled and expands them back to
+ * fill it. Without this, macOS Chrome / Safari let the hint's longer
+ * rendered text (SF renders the 12px hint a few px wider than Segoe UI
+ * on Windows) drive the parent's intrinsic width and the textarea
+ * visibly overflows the chip's right edge. `box-sizing: border-box` so
+ * the textarea's padding doesn't blow past the parent.
+ */
+.tool-seasonal-mode-field > .tool-field-hint,
+.tool-seasonal-mode-field > .tool-textarea {
+  width: 0;
+  min-width: 100%;
+  box-sizing: border-box;
+}
+
 .tool-input {
   width: 100%;
   padding: 6px 8px;
@@ -6172,26 +6190,92 @@ html {
 }
 
 /* Franchise Scores — narrower columns (one row per entry) + format chip. */
-.tool-season-columns .tool-franchise-column--seed {
-  /* Seeds stay visually anchored even when most chart is unscored. */
-  background: var(--accent-soft, color-mix(in srgb, var(--accent, #2563eb) 14%, var(--surface)));
-}
+/* ---------- Franchise Scores: vertical table layout ---------- */
 
-.tool-franchise-column--seed .tool-season-col-head {
-  background: var(--accent-soft, color-mix(in srgb, var(--accent, #2563eb) 18%, var(--surface-2)));
-}
-
-.tool-franchise-title {
-  width: 100%;
-}
-
-.tool-franchise-meta {
+.tool-franchise-result {
+  margin-top: 16px;
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
+  gap: 8px;
+  /* Shrink to the table's natural width — date + longest title + score —
+     so the chart is genuinely vertical (not a full-bleed horizontal strip
+     like the seasonal columns). Capped at 100% so narrow viewports still
+     contain the whole table. */
+  width: fit-content;
+  max-width: 100%;
+}
+
+.tool-franchise-export-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tool-franchise-table {
+  border-collapse: collapse;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface);
+  font-size: 13px;
+  /* Cells size to content along the inline axis (date + score are short;
+     title takes whatever space the longest entry needs). */
+  width: auto;
+}
+
+.tool-franchise-table th,
+.tool-franchise-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+  text-align: left;
+}
+
+.tool-franchise-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.tool-franchise-table th {
+  background: var(--surface-2);
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.tool-franchise-th-score {
+  text-align: center;
+}
+
+.tool-franchise-td-date {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tool-franchise-td-title {
+  display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  margin-top: 4px;
+  gap: 8px;
+  /* The title link is the only "elastic" content — long franchise names
+     extend the column horizontally; date and score stay snug. */
+}
+
+.tool-franchise-title-link {
+  /* Cover + title chip handles its own internal layout. */
+}
+
+.tool-franchise-td-score {
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.tool-franchise-row--seed {
+  background: var(--accent-soft, color-mix(in srgb, var(--accent, #2563eb) 14%, var(--surface)));
 }
 
 .tool-franchise-format {
@@ -6207,8 +6291,10 @@ html {
   white-space: nowrap;
 }
 
-.tool-franchise-score-cell {
-  justify-content: space-between;
+.tool-franchise-row--seed .tool-franchise-format {
+  /* Tint the chip in the seed row so the row tint doesn't make it look
+     "stuck inside" a flat colored block. */
+  background: var(--surface-2);
 }
 
 .tool-franchise-seed-tag {
@@ -6223,13 +6309,6 @@ html {
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   gap: 4px 12px;
   margin-top: 4px;
-}
-
-/* Franchise chart packs more entries per viewport than the seasonal chart. */
-.tool-season-body > .tool-season-column.tool-franchise-column,
-.tool-season-body > .tool-season-column.tool-franchise-column--seed {
-  flex: 0 0 220px;
-  width: 220px;
 }
 
 .settings-tab-scroll--empty {
