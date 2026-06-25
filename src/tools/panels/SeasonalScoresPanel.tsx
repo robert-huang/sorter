@@ -121,9 +121,21 @@ function SeasonalColumnsView({
   columns: SeasonColumn[];
   onOpenMedia: ToolPanelProps['onOpenMedia'];
 }) {
+  // Snap-to-right whenever the column SHAPE changes (different number of
+  // columns, different mode, custom-season-list edit, etc.) — not when
+  // only show labels change due to a display-language relabel. Column
+  // labels ("Spring 2024", "2018", ...) are derived from form fields
+  // that affect columns, so hashing them captures every settings change
+  // that rebuilds the chart in place without triggering a parent
+  // unmount/remount.
+  const scrollEndKey = `${columns.length}|${columns.map((c) => c.label).join('|')}`;
   return (
     <div className="tool-season-columns">
-      <DragScroll className="tool-season-scroll" initialScrollEnd>
+      <DragScroll
+        className="tool-season-scroll"
+        initialScrollEnd
+        scrollEndKey={scrollEndKey}
+      >
         <div className="tool-season-body">
           {columns.map((col, colIdx) => {
             const searchLink = bindAnilistMiddleClick(
