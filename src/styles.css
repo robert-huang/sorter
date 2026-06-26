@@ -5702,20 +5702,59 @@ html {
 .tool-staff-compare-wrap {
   max-height: min(80vh, 720px);
   overflow-y: auto;
+  /* Shrink the bordered card to its actual data — with only 2 shows
+   * the card stops at the second column instead of stretching across
+   * the panel the way a 100%-width table normally would. max-width
+   * keeps the wrapper from overshooting the panel when there are
+   * many shows; the existing overflow-x on .tool-table-wrap handles
+   * the horizontal scroll in that case. */
+  width: fit-content;
+  max-width: 100%;
+}
+
+/* Override .tool-result-table { width: 100% } so the SharedStaff
+ * compare table is sized by its column contents — the wrapper above
+ * then hugs the table. Other tools that share .tool-result-table
+ * (SharedCredits) keep the 100%-width behavior. */
+.tool-staff-compare-table {
+  width: auto;
 }
 
 .tool-staff-compare-wrap .tool-staff-compare-table thead th {
   position: sticky;
   top: 0;
-  /* Sit above body cells so column borders / staff thumbnails don't
-     bleed through. Section h3 isn't sticky (the show title is the
-     informative bit per the request) so a 2-stack of z-indices isn't
-     needed. */
-  z-index: 2;
+  /* Stacking order for the sticky grid:
+   *   3 — sticky-top header cells (regular show columns)
+   *   2 — sticky-left entity column (staff/studio name in tbody)
+   *   4 — corner: header cell of the entity column (overridden below)
+   * The corner needs to sit above BOTH the sticky-top row and the
+   * sticky-left column it intersects. */
+  z-index: 3;
   /* th already gets var(--surface-2) from the base rule — repeat here
      so a future theme tweak that drops the background won't suddenly
      make the pinned row see-through. */
   background: var(--surface-2);
+}
+
+/* Pin the staff/studio name column when the user scrolls horizontally
+ * through many shows — the entity label is the row's identifier, so
+ * losing it on scroll makes the grid unreadable. */
+.tool-staff-compare-wrap .tool-staff-compare-table td.tool-staff-compare-entity {
+  position: sticky;
+  left: 0;
+  /* Opaque background so neighbouring cells (and their staff
+   * thumbnails) don't bleed through during horizontal scroll. */
+  background: var(--surface);
+  z-index: 2;
+}
+
+/* Top-left intersection: sticky on both axes. The thead rule above
+ * already sets position: sticky + top: 0 + the surface-2 background;
+ * we just add the left anchor and bump z-index so this single cell
+ * sits above both the sticky-top row and the sticky-left column. */
+.tool-staff-compare-wrap .tool-staff-compare-table thead th.tool-staff-compare-entity {
+  left: 0;
+  z-index: 4;
 }
 
 .tool-credits-table-outer {
@@ -6129,7 +6168,15 @@ html {
 
 .tool-season-columns {
   margin-top: 0;
-  width: 100%;
+  /* Shrink the chart card to its actual data — with a small custom
+   * season list the card stops at the last column instead of always
+   * filling the full 90vw breakout. max-width keeps us inside the
+   * parent so a wide season range still triggers the inner
+   * .tool-season-scroll horizontal scroll. align-self centers the
+   * narrower card within the fullbleed area. */
+  width: fit-content;
+  max-width: 100%;
+  align-self: center;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
