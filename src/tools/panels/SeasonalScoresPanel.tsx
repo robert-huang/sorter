@@ -393,7 +393,7 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
       {result?.kind === 'empty' && <p className="tool-empty">{result.message}</p>}
 
       {result?.kind === 'columns' && (
-        <div className="tool-season-fullbleed">
+        <div className="tool-chart-fullbleed tool-season-fullbleed">
           <SeasonalColumnsView columns={result.columns} onOpenMedia={onOpenMedia} />
         </div>
       )}

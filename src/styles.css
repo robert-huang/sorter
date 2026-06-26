@@ -5704,12 +5704,12 @@ html {
   overflow-y: auto;
   /* Shrink the bordered card to its actual data — with only 2 shows
    * the card stops at the second column instead of stretching across
-   * the panel the way a 100%-width table normally would. max-width
-   * keeps the wrapper from overshooting the panel when there are
-   * many shows; the existing overflow-x on .tool-table-wrap handles
-   * the horizontal scroll in that case. */
+   * the fullbleed area. max-width: 100% caps at the 90vw parent;
+   * overflow-x on .tool-table-wrap handles horizontal scroll when
+   * there are many shows. */
   width: fit-content;
   max-width: 100%;
+  align-self: center;
 }
 
 /* Override .tool-result-table { width: 100% } so the SharedStaff
@@ -5755,6 +5755,20 @@ html {
 .tool-staff-compare-wrap .tool-staff-compare-table thead th.tool-staff-compare-entity {
   left: 0;
   z-index: 4;
+}
+
+/* The corner cell carries the section heading ("Production Staff",
+ * "Voice Actors", etc.) so the label stays pinned with the rest of
+ * the sticky frame. Reset cell padding so the h3 inside owns the
+ * spacing and looks like the standalone heading it replaces. */
+.tool-staff-compare-section-th {
+  padding: 0;
+}
+
+.tool-staff-compare-section-th .tool-section-title {
+  /* Match the surrounding header cells' baseline so the section title
+   * reads as part of the header row rather than floating above it. */
+  padding: 8px 10px;
 }
 
 .tool-credits-table-outer {
@@ -6153,17 +6167,23 @@ html {
   cursor: help;
 }
 
-.tool-season-fullbleed {
-  /* Break out of .tools-main (max-width 1100px) so 90vw is viewport-relative. */
+/* Break wide tool charts out of .tools-main (max-width 1100px) so they
+ * can use up to 90vw. Shared Staff compare tables and Seasonal Scores
+ * columns both sit inside this wrapper. */
+.tool-chart-fullbleed {
   width: 90vw;
   max-width: 90vw;
   margin-inline: calc(50% - 45vw);
-  max-height: calc(100vh - var(--tools-season-sticky-top, 6.5rem) - 2.5rem);
   margin-top: 20px;
   margin-bottom: 0;
   display: flex;
   flex-direction: column;
+  align-items: center;
   min-height: 0;
+}
+
+.tool-season-fullbleed {
+  max-height: calc(100vh - var(--tools-season-sticky-top, 6.5rem) - 2.5rem);
 }
 
 .tool-season-columns {

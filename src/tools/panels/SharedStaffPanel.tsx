@@ -397,57 +397,64 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
         </div>
       )}
 
-      {result?.kind === 'compare' &&
-        result.sections.map((section) => (
-          <DragScroll
-            key={section.title}
-            className="tool-results tool-table-wrap tool-staff-compare-wrap"
-          >
-            <h3 className="tool-section-title">{section.title}</h3>
-            <table className="tool-result-table tool-staff-compare-table">
-              <thead>
-                <tr>
-                  <th className="tool-staff-compare-entity"></th>
-                  {result.shows.map((show) => (
-                    <th key={show.id}>
-                      <ToolShowButton
-                        mediaId={show.id}
-                        title={show.title}
-                        coverImage={show.coverImage}
-                        onOpenMedia={onOpenMedia}
-                        compact
-                      />
+      {result?.kind === 'compare' && (
+        <div className="tool-chart-fullbleed">
+          {result.sections.map((section) => (
+            <DragScroll
+              key={section.title}
+              className="tool-results tool-table-wrap tool-staff-compare-wrap"
+            >
+              <table className="tool-result-table tool-staff-compare-table">
+                <thead>
+                  {/* Section title lives inside the top-left corner cell so
+                      it inherits the corner's sticky-on-both-axes pinning
+                      — staying visible while either axis scrolls. */}
+                  <tr>
+                    <th className="tool-staff-compare-entity tool-staff-compare-section-th">
+                      <h3 className="tool-section-title">{section.title}</h3>
                     </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {section.rows.map((row, idx) => (
-                  <tr key={`${section.title}-${row.entityId}-${idx}`}>
-                    <td className="tool-staff-compare-entity">
-                      {row.name ? (
-                        row.kind === 'studio' ? (
-                          row.name
-                        ) : (
-                          <ToolStaffButton
-                            staffId={row.entityId}
-                            name={row.name}
-                            imageUrl={row.imageUrl}
-                            onOpenStaff={onOpenStaff}
-                            compact
-                          />
-                        )
-                      ) : null}
-                    </td>
-                    {row.cells.map((cell, colIdx) => (
-                      <td key={`${idx}-${colIdx}`}>{cell}</td>
+                    {result.shows.map((show) => (
+                      <th key={show.id}>
+                        <ToolShowButton
+                          mediaId={show.id}
+                          title={show.title}
+                          coverImage={show.coverImage}
+                          onOpenMedia={onOpenMedia}
+                          compact
+                        />
+                      </th>
                     ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </DragScroll>
-        ))}
+                </thead>
+                <tbody>
+                  {section.rows.map((row, idx) => (
+                    <tr key={`${section.title}-${row.entityId}-${idx}`}>
+                      <td className="tool-staff-compare-entity">
+                        {row.name ? (
+                          row.kind === 'studio' ? (
+                            row.name
+                          ) : (
+                            <ToolStaffButton
+                              staffId={row.entityId}
+                              name={row.name}
+                              imageUrl={row.imageUrl}
+                              onOpenStaff={onOpenStaff}
+                              compact
+                            />
+                          )
+                        ) : null}
+                      </td>
+                      {row.cells.map((cell, colIdx) => (
+                        <td key={`${idx}-${colIdx}`}>{cell}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </DragScroll>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
