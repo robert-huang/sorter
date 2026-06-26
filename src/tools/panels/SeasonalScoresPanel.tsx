@@ -192,12 +192,11 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
   const [result, setResult] = useState<SeasonalScoresResult | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const showsRef = useRef<SeasonalShow[] | null>(null);
-  // Track what the cached shows in `showsRef` were fetched with so that form
-  // changes which invalidate the cache (different user, planning toggled on
-  // when the cache only has non-planning entries) can trigger a refetch or
-  // clear instead of rendering stale data.
+  // Username at fetch time so a different user typed in can clear the
+  // cached shows. The PLANNING dimension used to live here too; it now
+  // doesn't — every fetch includes PLANNING and the checkbox filters
+  // client-side via `bucketShowsForSeason`.
   const fetchedUsernameRef = useRef<string | null>(null);
-  const fetchedIncludePlanningRef = useRef<boolean>(false);
 
   useEffect(() => {
     saveForm(form);
@@ -226,7 +225,6 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
     const controller = new AbortController();
     abortRef.current = controller;
 
-    const includePlanningAtFetch = form.includePlanning;
     const handle = username.toLowerCase();
 
     setRunning(true);
@@ -235,13 +233,13 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
     showsRef.current = null;
 
     try {
-      const shows = await fetchUserSeasonalShows(username, controller.signal, {
-        includePlanning: includePlanningAtFetch,
-        ...(forceRefresh ? { forceRefresh: true } : {}),
-      });
+      const shows = await fetchUserSeasonalShows(
+        username,
+        controller.signal,
+        forceRefresh ? { forceRefresh: true } : undefined,
+      );
       showsRef.current = shows;
       fetchedUsernameRef.current = handle;
-      fetchedIncludePlanningRef.current = includePlanningAtFetch;
       setResult(
         buildSeasonalColumns(relabelSeasonalShows(shows), effectiveSeasonalForm(form)),
       );
@@ -267,23 +265,20 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
     if (fetchedUsernameRef.current !== null && handle !== fetchedUsernameRef.current) {
       showsRef.current = null;
       fetchedUsernameRef.current = null;
-      fetchedIncludePlanningRef.current = false;
       setResult(null);
       return;
     }
-    // Toggled Include Planning on but the cache was built without PLANNING entries:
-    // auto-refetch so the columns actually include planning items.
-    if (form.includePlanning && !fetchedIncludePlanningRef.current && !running) {
-      void onRun(false);
-      return;
-    }
+    // includePlanning / skipEmpty / airingNotesOnly are pure client-side
+    // filters over the cached shows — toggling them just rebuilds the
+    // columns without re-fetching. PLANNING entries are always present
+    // in showsRef (see fetchUserSeasonalShows).
     setResult(
       buildSeasonalColumns(
         relabelSeasonalShows(showsRef.current),
         effectiveSeasonalForm(form),
       ),
     );
-  }, [displayLabelRevision, form, running, onRun]);
+  }, [displayLabelRevision, form]);
 
   return (
     <section className="tool-panel">

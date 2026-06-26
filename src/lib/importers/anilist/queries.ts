@@ -750,33 +750,6 @@ query ToolsFranchiseRelations($mediaId: Int!) {
 }
 `.trim();
 
-/**
- * Franchise Scores: minimal user list rows (id + status + 0-100 score) for
- * either ANIME or MANGA, so the panel can stamp watched/planning/unwatched
- * labels onto franchise nodes from both lists.
- */
-export const TOOLS_USER_MEDIA_LIST_MINIMAL_QUERY = `
-query ToolsUserMediaListMinimal(
-  $userName: String
-  $type: MediaType
-  $page: Int!
-  $perPage: Int!
-) {
-  Page(page: $page, perPage: $perPage) {
-    pageInfo { hasNextPage currentPage }
-    mediaList(
-      userName: $userName
-      type: $type
-      sort: [MEDIA_ID]
-    ) {
-      mediaId
-      status
-      score(format: POINT_100)
-    }
-  }
-}
-`.trim();
-
 /** User anime list ids (non-planning) for Favourites consumed-media filter. */
 export const TOOLS_USER_CONSUMED_MEDIA_QUERY = `
 query ToolsUserConsumedMedia($userName: String, $page: Int!, $perPage: Int!) {

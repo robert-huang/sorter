@@ -10,7 +10,11 @@ import {
 import { executeAnilistQuery } from '../../lib/importers/anilist/transport';
 import { pickCharacterName, pickPersonName } from '../../lib/importers/anilist/personDisplayLabel';
 import type { ToolsFetchOptions } from '../../lib/importers/anilist/toolsFetchPolicy';
-import { withSessionMemo } from '../../lib/importers/anilist/toolsSessionMemo';
+import {
+  withSessionMemo,
+  withSessionTtlMemo,
+} from '../../lib/importers/anilist/toolsSessionMemo';
+import { withPersistentTtlCache } from '../../lib/importers/anilist/toolsPersistentCache';
 import {
   ensureMediaCastFresh,
   ensureStaffFilmographyFresh,
@@ -273,56 +277,93 @@ export async function fetchShowStaffBundle(
   };
 }
 
+/**
+ * Anime-relation graph rarely changes after release, so the walked set
+ * is persisted across sessions for 90 days. Mirrors the Franchise
+ * Scores cache. Force-refresh re-walks from scratch (Compare with
+ * right-click); without it, the persistent cache is read once per
+ * session per root id and then the in-memory session memo serves the
+ * Set for the rest of the tab's life.
+ */
+const RELATED_ANIME_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+
+function relatedAnimeCacheKey(rootMediaId: number): string {
+  return `shared-staff:related-anime:${rootMediaId}`;
+}
+
+async function walkRelatedAnimeIds(
+  rootMediaId: number,
+  signal?: AbortSignal,
+): Promise<number[]> {
+  const related = new Set<number>([rootMediaId]);
+  const queue = [rootMediaId];
+
+  while (queue.length > 0) {
+    signal?.throwIfAborted();
+    const curId = queue.pop()!;
+    const data = await executeAnilistQuery<{
+      Media: {
+        relations: {
+          edges: Array<{
+            relationType: string;
+            node: {
+              id: number;
+              type: string;
+              format?: string | null;
+              tags?: Array<{ name: string }> | null;
+            };
+          }>;
+        };
+      } | null;
+    }>(TOOLS_MEDIA_RELATIONS_QUERY, { mediaId: curId });
+
+    for (const edge of data?.Media?.relations.edges ?? []) {
+      const node = edge.node;
+      if (node.type !== 'ANIME' || related.has(node.id)) {
+        continue;
+      }
+      related.add(node.id);
+
+      const isCrossover = (node.tags ?? []).some((t) => t.name === 'Crossover');
+      if (
+        edge.relationType === 'OTHER' ||
+        node.format === 'MUSIC' ||
+        isCrossover
+      ) {
+        continue;
+      }
+      queue.push(node.id);
+    }
+  }
+
+  related.delete(rootMediaId);
+  return [...related];
+}
+
 export async function fetchRelatedAnimeIds(
   rootMediaId: number,
   signal?: AbortSignal,
+  options?: ToolsFetchOptions,
 ): Promise<Set<number>> {
   signal?.throwIfAborted();
-  return withSessionMemo(`tools:related-anime:${rootMediaId}`, async () => {
-    const related = new Set<number>([rootMediaId]);
-    const queue = [rootMediaId];
-
-    while (queue.length > 0) {
-      signal?.throwIfAborted();
-      const curId = queue.pop()!;
-      const data = await executeAnilistQuery<{
-        Media: {
-          relations: {
-            edges: Array<{
-              relationType: string;
-              node: {
-                id: number;
-                type: string;
-                format?: string | null;
-                tags?: Array<{ name: string }> | null;
-              };
-            }>;
-          };
-        } | null;
-      }>(TOOLS_MEDIA_RELATIONS_QUERY, { mediaId: curId });
-
-      for (const edge of data?.Media?.relations.edges ?? []) {
-        const node = edge.node;
-        if (node.type !== 'ANIME' || related.has(node.id)) {
-          continue;
-        }
-        related.add(node.id);
-
-        const isCrossover = (node.tags ?? []).some((t) => t.name === 'Crossover');
-        if (
-          edge.relationType === 'OTHER' ||
-          node.format === 'MUSIC' ||
-          isCrossover
-        ) {
-          continue;
-        }
-        queue.push(node.id);
-      }
-    }
-
-    related.delete(rootMediaId);
-    return related;
-  });
+  const key = relatedAnimeCacheKey(rootMediaId);
+  // Two-tier cache: session memo dedups concurrent calls + avoids
+  // re-parsing JSON; localStorage layer survives reloads with a 90d
+  // TTL. Persisted as a number[] (Sets don't round-trip through JSON)
+  // and re-wrapped into a Set at the boundary.
+  const ids = await withSessionTtlMemo(
+    key,
+    RELATED_ANIME_TTL_MS,
+    () =>
+      withPersistentTtlCache(
+        key,
+        RELATED_ANIME_TTL_MS,
+        () => walkRelatedAnimeIds(rootMediaId, signal),
+        { bust: options?.forceRefresh },
+      ),
+    { bust: options?.forceRefresh },
+  );
+  return new Set(ids);
 }
 
 async function fetchProductionStaffFilmographyLive(
@@ -479,7 +520,7 @@ export async function runSharedStaffCompare(options: {
 
   let ignored = new Set<number>([source.id]);
   if (ignoreRelated) {
-    const related = await fetchRelatedAnimeIds(source.id, signal);
+    const related = await fetchRelatedAnimeIds(source.id, signal, fetchOptions);
     ignored = new Set([source.id, ...related]);
   }
 

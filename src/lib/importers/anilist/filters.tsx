@@ -1316,12 +1316,24 @@ function SeasonYearChip({
  * no longer shows rated items the score range is zeroed, since the
  * slider only applies to the rated subset.
  */
+/**
+ * Standalone shape consumed by the reusable {@link ScoreRangeChip}.
+ * Structurally identical to the relevant slice of
+ * {@link AnilistFilterChipState}, but declared here without the
+ * AniList tie-in so callers outside the sort flow (e.g. the
+ * Franchise Scores tool panel) can host the chip with their own
+ * form state.
+ */
+export type ScoreRangeChipState = {
+  userScoreInclude: 'any' | 'rated' | 'unrated';
+  scoreMin: number | null;
+  scoreMax: number | null;
+};
+
 export function toggleScoreBucket(
-  pill: AnilistFilterChipState['userScoreInclude'],
+  pill: ScoreRangeChipState['userScoreInclude'],
   bucket: 'rated' | 'unrated',
-): Partial<
-  Pick<AnilistFilterChipState, 'userScoreInclude' | 'scoreMin' | 'scoreMax'>
-> {
+): Partial<ScoreRangeChipState> {
   const selected = {
     rated: pill === 'any' || pill === 'rated',
     unrated: pill === 'any' || pill === 'unrated',
@@ -1345,20 +1357,24 @@ export function toggleScoreBucket(
   return { userScoreInclude: next };
 }
 
-function ScoreRangeChip({
+/**
+ * Exported so non-sort surfaces (e.g. the Franchise Scores tool panel)
+ * can reuse the same chip without re-implementing the rated/unrated
+ * pill + dual-range slider plumbing. The state type
+ * ({@link ScoreRangeChipState}) is decoupled from
+ * {@link AnilistFilterChipState} so external hosts don't pull in
+ * unrelated AniList chip fields.
+ */
+export function ScoreRangeChip({
   pill,
   min,
   max,
   onChange,
 }: {
-  pill: AnilistFilterChipState['userScoreInclude'];
+  pill: ScoreRangeChipState['userScoreInclude'];
   min: number | null;
   max: number | null;
-  onChange: (
-    patch: Partial<
-      Pick<AnilistFilterChipState, 'userScoreInclude' | 'scoreMin' | 'scoreMax'>
-    >,
-  ) => void;
+  onChange: (patch: Partial<ScoreRangeChipState>) => void;
 }): ReactNode {
   const SLIDER_MIN = 1;
   const SLIDER_MAX = 100;

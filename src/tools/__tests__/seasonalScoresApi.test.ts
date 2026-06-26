@@ -6,8 +6,11 @@ vi.mock('../../lib/importers/anilist/depaginate', () => ({
   depaginate: vi.fn(),
 }));
 
+// Mirror the production constant so the assertion below catches accidental
+// regressions of "PLANNING is now optional again". If this changes, the
+// "Include Planning" checkbox can no longer be an instant client-side filter.
 vi.mock('../../lib/importers/anilist/toolsAnilistAccess', () => ({
-  TOOLS_SEASONAL_LIST_STATUSES: ['COMPLETED', 'CURRENT', 'REPEATING', 'PAUSED'],
+  TOOLS_SEASONAL_LIST_STATUSES: ['COMPLETED', 'CURRENT', 'REPEATING', 'PAUSED', 'PLANNING'],
   ensureUserAnimeListFresh: vi.fn().mockResolvedValue({ id: 1 }),
 }));
 
@@ -65,8 +68,8 @@ describe('fetchUserSeasonalShows', () => {
     expect(ensureUserAnimeListFreshMock).toHaveBeenCalledTimes(2);
   });
 
-  it('includes PLANNING in statusIn when includePlanning is set', async () => {
-    await fetchUserSeasonalShows('rh_test', undefined, { includePlanning: true });
+  it('always requests PLANNING in statusIn so the checkbox is a client-side filter', async () => {
+    await fetchUserSeasonalShows('rh_test');
     expect(depaginateMock).toHaveBeenCalledWith(
       expect.objectContaining({
         variables: expect.objectContaining({
@@ -76,16 +79,18 @@ describe('fetchUserSeasonalShows', () => {
     );
   });
 
-  it('maps list status from API entries', async () => {
+  it('maps PLANNING list status from API entries into the SeasonalShow', async () => {
     depaginateMock.mockResolvedValueOnce([listEntry(1, 'PLANNING')]);
-    const shows = await fetchUserSeasonalShows('rh_test', undefined, { includePlanning: true });
+    const shows = await fetchUserSeasonalShows('rh_test');
     expect(shows[0]?.listStatus).toBe('PLANNING');
   });
 
-  it('uses separate memo keys for planning vs base fetches', async () => {
+  it('shares the same cache regardless of whether the consumer wants planning shown', async () => {
+    // No more per-(user, planning) cache split — both reads serve the
+    // same PLANNING-inclusive list from one network round trip.
     await fetchUserSeasonalShows('rh_test');
-    await fetchUserSeasonalShows('rh_test', undefined, { includePlanning: true });
-    expect(depaginateMock).toHaveBeenCalledTimes(2);
+    await fetchUserSeasonalShows('rh_test');
+    expect(depaginateMock).toHaveBeenCalledTimes(1);
   });
 
   it('does NOT memoize empty results — retries on the next call', async () => {

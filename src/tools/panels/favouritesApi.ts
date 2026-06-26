@@ -21,8 +21,6 @@ import {
   ensureStaffFilmographyFresh,
   ensureUserAnimeListFresh,
   ensureUserFavouritesFresh,
-  isCharacterVoiceEdgesDbFresh,
-  isVaCharacterEdgesDbFresh,
   readCharacterVoiceEdgesFromDb,
   readConsumedMediaIdsFromDb,
   readFavouriteCharactersFromDb,
@@ -46,7 +44,13 @@ import {
   type VaMediaEdge,
 } from './favouritesLogic';
 
-/** Normal Analyze caps character-media live fallback at two pages. */
+/**
+ * Cap on the defensive live fallback when the DB read returns nothing
+ * AFTER `ensureCharacterMediaFresh` already ran (e.g. the AniList probe
+ * said the character exists but the expansion produced zero rows for
+ * some reason). Bounded to two pages so a corrupted-cache fallback
+ * can't quietly hammer AniList on every Analyze run.
+ */
 const FAVOURITES_CHARACTER_MEDIA_MAX_PAGES = 2;
 
 /**
@@ -267,23 +271,30 @@ async function fetchCharacterVoiceEdges(
   signal?.throwIfAborted();
   const ctx = getToolsImportContext();
 
-  if (options?.expandRoles) {
-    await ensureCharacterMediaFresh(charId, favouritesGraphForceOptions(options));
-    const fromDb = await readCharacterVoiceEdgesFromDb(ctx.db, charId);
-    if (fromDb) {
-      return { edges: fromDb, truncated: false };
-    }
-    return fetchCharacterVoiceEdgesLive(charId, signal);
-  }
-
-  // Normal Analyze: only trust DB rows when every appearance media has
-  // complete + fresh character AND staff cast expansion. Partial DB
-  // rows (e.g. from a media-detail import that fetched only one show's
-  // cast) under-report VAs and would silently mask missing data.
+  // Single write-through path: ensureCharacterMediaFresh is idempotent
+  // (no-op when character_media_expansion.fetched_at is <90d), runs a
+  // full live expansion + persists otherwise, and force-refreshes on
+  // Expand Roles. Then we read the complete cached rows from the DB.
+  //
+  // Previously Analyze had a DB freshness check that required every
+  // appearance media's full cast to be pre-imported, which almost
+  // never holds — so Analyze fell back to a 2-page live fetch that
+  // was thrown away after each run. Result: every Analyze re-paid
+  // the network cost for every favourite character forever.
+  //
+  // NOTE: ensureCharacterMediaFresh does not currently accept an
+  // AbortSignal — see the cancel-related comment in
+  // runFavouritesAnalysis below. throwIfAborted at entry bounds the
+  // damage to one character at a time.
+  await ensureCharacterMediaFresh(charId, favouritesGraphForceOptions(options));
   const fromDb = await readCharacterVoiceEdgesFromDb(ctx.db, charId);
-  if (fromDb && (await isCharacterVoiceEdgesDbFresh(ctx.db, fromDb))) {
+  if (fromDb) {
     return { edges: fromDb, truncated: false };
   }
+  // Defensive fallback: expansion ran but the DB read came back empty
+  // (very old schema, partial write, or character with no JP cast).
+  // Cap the live fallback so a misbehaving cache doesn't quietly do an
+  // unbounded fetch on every Analyze run.
   return fetchCharacterVoiceEdgesLive(
     charId,
     signal,
@@ -324,24 +335,20 @@ async function fetchVaCharacterEdges(
   signal?.throwIfAborted();
   const ctx = getToolsImportContext();
 
-  if (options?.expandRoles) {
-    await ensureStaffFilmographyFresh(vaId, favouritesGraphForceOptions(options));
-    const fromDb = await readVaCharacterEdgesFromDb(ctx.db, vaId);
-    if (fromDb) {
-      return fromDb;
-    }
-    return fetchVaCharacterEdgesLive(vaId, signal);
+  // Same write-through pattern as fetchCharacterVoiceEdges above:
+  // ensureStaffFilmographyFresh is a no-op when staff_filmography_
+  // expansion is <90d, runs a full import + persists otherwise, and
+  // force-refreshes on Expand Roles. Analyze used to skip the
+  // persist and re-fetch every VA's full filmography on every run.
+  //
+  // NOTE: same AbortSignal caveat as fetchCharacterVoiceEdges.
+  await ensureStaffFilmographyFresh(vaId, favouritesGraphForceOptions(options));
+  const fromDb = await readVaCharacterEdgesFromDb(ctx.db, vaId);
+  if (fromDb) {
+    return fromDb;
   }
-
-  // Normal Analyze: only trust DB rows when this VA's full filmography
-  // has been fetched and is fresh. Partial filmography would under-
-  // report total appearance counts used for "shared with you" stats.
-  if (await isVaCharacterEdgesDbFresh(ctx.db, vaId)) {
-    const fromDb = await readVaCharacterEdgesFromDb(ctx.db, vaId);
-    if (fromDb) {
-      return fromDb;
-    }
-  }
+  // Defensive fallback when the DB read returns nothing despite a
+  // successful ensure call (rare — e.g. staff with no JP voice roles).
   return fetchVaCharacterEdgesLive(vaId, signal);
 }
 

@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  applyFranchiseFilters,
   bfsFranchiseRelations,
   buildFranchiseCsv,
   buildFranchiseClipboardText,
   buildFranchiseEntries,
   csvEscapeFranchiseCell,
+  DEFAULT_FRANCHISE_FILTERS,
   DEFAULT_RELATION_TOGGLES,
   enabledRelationTypes,
   formatFranchiseScoreLabel,
@@ -361,5 +363,104 @@ describe('buildFranchiseClipboardText', () => {
 
   it('empty input yields an empty string', () => {
     expect(buildFranchiseClipboardText([])).toBe('');
+  });
+});
+
+describe('applyFranchiseFilters', () => {
+  /** Build a small mixed-media fixture exercising every score bucket
+   *  the filter cares about: ANIME rated, ANIME unrated (no list row),
+   *  ANIME on-list-no-score, ANIME PLANNING (with stale score), MANGA
+   *  rated. Repeated across tests so behaviour stays comparable. */
+  function fixture(): FranchiseEntry[] {
+    return [
+      entry(1, { mediaType: 'ANIME', listStatus: 'COMPLETED', score: 85 }),
+      entry(2, { mediaType: 'ANIME', listStatus: null, score: null }),
+      entry(3, { mediaType: 'ANIME', listStatus: 'COMPLETED', score: null }),
+      // PLANNING with a non-zero score still groups with unrated — the
+      // table renders 'P' regardless, so the filter mirrors that.
+      entry(4, { mediaType: 'ANIME', listStatus: 'PLANNING', score: 70 }),
+      entry(5, { mediaType: 'MANGA', listStatus: 'COMPLETED', score: 92 }),
+      entry(6, { mediaType: 'MANGA', listStatus: null, score: null }),
+    ];
+  }
+
+  it('passes everything through with defaults', () => {
+    const out = applyFranchiseFilters(fixture(), DEFAULT_FRANCHISE_FILTERS);
+    expect(out.map((e) => e.id)).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+
+  it('returns an empty list when both media-type checkboxes are off', () => {
+    const out = applyFranchiseFilters(fixture(), {
+      ...DEFAULT_FRANCHISE_FILTERS,
+      includeAnime: false,
+      includeManga: false,
+    });
+    expect(out).toEqual([]);
+  });
+
+  it('drops anime when includeAnime is off', () => {
+    const out = applyFranchiseFilters(fixture(), {
+      ...DEFAULT_FRANCHISE_FILTERS,
+      includeAnime: false,
+    });
+    expect(out.map((e) => e.id)).toEqual([5, 6]);
+  });
+
+  it('drops manga when includeManga is off', () => {
+    const out = applyFranchiseFilters(fixture(), {
+      ...DEFAULT_FRANCHISE_FILTERS,
+      includeManga: false,
+    });
+    expect(out.map((e) => e.id)).toEqual([1, 2, 3, 4]);
+  });
+
+  it('rated pill keeps only entries with a numeric score > 0 on the list', () => {
+    const out = applyFranchiseFilters(fixture(), {
+      ...DEFAULT_FRANCHISE_FILTERS,
+      userScoreInclude: 'rated',
+    });
+    // PLANNING is excluded even though its score is non-zero, matching
+    // how the table labels it.
+    expect(out.map((e) => e.id)).toEqual([1, 5]);
+  });
+
+  it('unrated pill keeps PLANNING + unwatched + on-list-no-score', () => {
+    const out = applyFranchiseFilters(fixture(), {
+      ...DEFAULT_FRANCHISE_FILTERS,
+      userScoreInclude: 'unrated',
+    });
+    expect(out.map((e) => e.id)).toEqual([2, 3, 4, 6]);
+  });
+
+  it('range narrows the rated bucket but ignores unrated items', () => {
+    const out = applyFranchiseFilters(fixture(), {
+      ...DEFAULT_FRANCHISE_FILTERS,
+      scoreMin: 90,
+      scoreMax: null,
+    });
+    // 85 drops out, 92 stays; every unrated entry passes the range
+    // check (range only applies inside the rated bucket).
+    expect(out.map((e) => e.id)).toEqual([2, 3, 4, 5, 6]);
+  });
+
+  it('range + rated pill stack — only rated entries inside the bounds', () => {
+    const out = applyFranchiseFilters(fixture(), {
+      ...DEFAULT_FRANCHISE_FILTERS,
+      userScoreInclude: 'rated',
+      scoreMin: 80,
+      scoreMax: 90,
+    });
+    expect(out.map((e) => e.id)).toEqual([1]);
+  });
+
+  it('media-type + score filters compose', () => {
+    const out = applyFranchiseFilters(fixture(), {
+      includeAnime: false,
+      includeManga: true,
+      userScoreInclude: 'rated',
+      scoreMin: 90,
+      scoreMax: null,
+    });
+    expect(out.map((e) => e.id)).toEqual([5]);
   });
 });

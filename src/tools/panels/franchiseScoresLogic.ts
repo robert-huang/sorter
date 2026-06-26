@@ -91,6 +91,32 @@ export type FranchiseForm = {
   relationTypes: Record<FranchiseRelationType, boolean>;
 };
 
+/**
+ * Client-side filters layered over the franchise result table. Applied
+ * post-fetch so toggling them is instant (no relation re-walk, no
+ * list re-read). The score controls mirror the sorter's ScoreRangeChip
+ * exactly so the rated/unrated/score-range semantics stay consistent
+ * between tools.
+ *
+ * Defaults ({@link DEFAULT_FRANCHISE_FILTERS}) are "show everything":
+ * both media-type checkboxes on, score pill at 'any', range unbounded.
+ */
+export type FranchiseFilters = {
+  includeAnime: boolean;
+  includeManga: boolean;
+  userScoreInclude: 'any' | 'rated' | 'unrated';
+  scoreMin: number | null;
+  scoreMax: number | null;
+};
+
+export const DEFAULT_FRANCHISE_FILTERS: FranchiseFilters = {
+  includeAnime: true,
+  includeManga: true,
+  userScoreInclude: 'any',
+  scoreMin: null,
+  scoreMax: null,
+};
+
 /** Raw node returned by the BFS — display fields normalized for the chart. */
 export type FranchiseNode = {
   id: number;
@@ -348,4 +374,57 @@ export function buildFranchiseEntries(
     return a.id - b.id;
   });
   return entries;
+}
+
+/**
+ * Apply the client-side {@link FranchiseFilters} to a result set.
+ * Order of operations matches the user mental model:
+ *   1. Media-type gate (anime/manga checkboxes). With both off the
+ *      result is empty by design — the panel renders the "no entries"
+ *      state in that case.
+ *   2. Rated/unrated bucket. An entry is "rated" iff it's on the
+ *      user's list AND has a numeric score > 0 (matches AniList's
+ *      POINT_100 convention where 0 = "I haven't scored this").
+ *      PLANNING entries are treated as unrated because the table
+ *      shows them as "P" regardless of any backing score, so users
+ *      filtering by "unrated" expect them in that bucket. Unwatched
+ *      entries (no list row at all) are also unrated.
+ *   3. Score range. Only narrows the rated bucket — unrated items
+ *      pass the range check by virtue of being filtered out at step
+ *      2 when the pill is 'rated', and pass through unchanged when
+ *      the pill is 'any' or 'unrated' (the slider is meaningless
+ *      against a missing score). Bounds are inclusive on both sides.
+ */
+export function applyFranchiseFilters(
+  entries: readonly FranchiseEntry[],
+  filters: FranchiseFilters,
+): FranchiseEntry[] {
+  if (!filters.includeAnime && !filters.includeManga) {
+    return [];
+  }
+  const out: FranchiseEntry[] = [];
+  for (const entry of entries) {
+    if (entry.mediaType === 'ANIME' && !filters.includeAnime) continue;
+    if (entry.mediaType === 'MANGA' && !filters.includeManga) continue;
+
+    const normalized = normalizeSeasonalListScore(entry.score);
+    // PLANNING is bucketed with unrated so the filter agrees with the
+    // displayed "P" label — a PLANNING entry with a stale score still
+    // can't be told apart from a true unrated one in the table.
+    const isRated =
+      entry.listStatus != null &&
+      entry.listStatus !== 'PLANNING' &&
+      normalized != null;
+
+    if (filters.userScoreInclude === 'rated' && !isRated) continue;
+    if (filters.userScoreInclude === 'unrated' && isRated) continue;
+
+    if (isRated) {
+      if (filters.scoreMin != null && normalized! < filters.scoreMin) continue;
+      if (filters.scoreMax != null && normalized! > filters.scoreMax) continue;
+    }
+
+    out.push(entry);
+  }
+  return out;
 }

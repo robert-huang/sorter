@@ -1,18 +1,19 @@
-import { depaginate } from '../../lib/importers/anilist/depaginate';
 import {
   TOOLS_FRANCHISE_RELATIONS_QUERY,
   TOOLS_MEDIA_SEARCH_QUERY,
-  TOOLS_USER_MEDIA_LIST_MINIMAL_QUERY,
 } from '../../lib/importers/anilist/queries';
 import { executeAnilistQuery } from '../../lib/importers/anilist/transport';
 import {
-  TOOLS_SESSION_TTL_MS,
-  sessionMemoDelete,
   withSessionMemo,
   withSessionTtlMemo,
 } from '../../lib/importers/anilist/toolsSessionMemo';
 import { withPersistentTtlCache } from '../../lib/importers/anilist/toolsPersistentCache';
 import type { ToolsFetchOptions } from '../../lib/importers/anilist/toolsFetchPolicy';
+import {
+  ensureUserMediaListFresh,
+  readUserMediaListEntriesFromDb,
+} from '../../lib/importers/anilist/toolsAnilistAccess';
+import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportContext';
 
 /**
  * Franchise relations rarely change once a media id is settled (a brand-new
@@ -153,74 +154,39 @@ function fetchFranchiseRelations(
 
 type UserListEntry = { mediaId: number; status: string | null; score: number | null };
 
-async function fetchUserMediaListLive(
-  username: string,
-  type: 'ANIME' | 'MANGA',
-  signal?: AbortSignal,
-): Promise<UserListEntry[]> {
-  signal?.throwIfAborted();
-  const entries = await depaginate<
-    {
-      Page: {
-        pageInfo: { hasNextPage: boolean };
-        mediaList: Array<{
-          mediaId: number;
-          status?: string | null;
-          score?: number | null;
-        }>;
-      } | null;
-    },
-    { mediaId: number; status?: string | null; score?: number | null }
-  >({
-    query: TOOLS_USER_MEDIA_LIST_MINIMAL_QUERY,
-    variables: { userName: username, type },
-    signal,
-    selectPage: (data) => ({
-      nodes: data.Page?.mediaList ?? [],
-      pageInfo: data.Page?.pageInfo ?? { hasNextPage: false },
-    }),
-  });
-  return entries.map((entry) => ({
-    mediaId: entry.mediaId,
-    status: entry.status ?? null,
-    score: normalizeSeasonalListScore(entry.score ?? null),
-  }));
-}
-
-function franchiseListMemoKey(username: string, type: 'ANIME' | 'MANGA'): string {
-  return `franchise:list:${username.trim().toLowerCase()}:${type}`;
-}
-
+/**
+ * DB-first read of the user's list for a given media type. Used to be a
+ * live AniList depaginate that was thrown away after each Trace (only
+ * a 15-min session memo) — meaning every revisit re-paid the cost of
+ * both anime + manga list fetches. Now we go through the same shared
+ * `media_list_entry` cache the other tools use:
+ *   - `ensureUserMediaListFresh` is idempotent: no-op when the user's
+ *     list was imported <90d ago, else runs a full import + persists.
+ *   - `readUserMediaListEntriesFromDb` returns rows directly with
+ *     status + score so we can stamp watched/scored onto franchise
+ *     nodes without a network round trip.
+ * Force-refresh threads through `ensureUserMediaListFresh` and re-runs
+ * the AniList import.
+ */
 async function fetchUserMediaList(
   username: string,
   type: 'ANIME' | 'MANGA',
-  signal?: AbortSignal,
+  _signal?: AbortSignal,
   options?: ToolsFetchOptions,
 ): Promise<UserListEntry[]> {
-  const key = franchiseListMemoKey(username, type);
-  const entries = await withSessionTtlMemo(
-    key,
-    TOOLS_SESSION_TTL_MS,
-    () => fetchUserMediaListLive(username, type, signal),
-    { bust: options?.forceRefresh },
-  );
-  // Same rationale as `fetchUserSeasonalShows`: don't lock the user into an
-  // empty list for 15m when the live fetch could transiently return [].
-  if (entries.length === 0) {
-    sessionMemoDelete(key);
+  const user = await ensureUserMediaListFresh(username, type, options);
+  if (!user) {
+    return [];
   }
-  return entries;
-}
-
-/**
- * Bust the per-(user,type) franchise list memos so the next Trace re-fetches
- * the user's anime + manga lists. Used by the username refresh button.
- * Relation memos are left alone because franchise relations don't change
- * when the user updates their list.
- */
-export function bustFranchiseListMemos(username: string): void {
-  sessionMemoDelete(franchiseListMemoKey(username, 'ANIME'));
-  sessionMemoDelete(franchiseListMemoKey(username, 'MANGA'));
+  const ctx = getToolsImportContext();
+  const rows = await readUserMediaListEntriesFromDb(ctx.db, user.id, type);
+  return rows.map((row) => ({
+    mediaId: row.mediaId,
+    status: row.status,
+    // AniList POINT_100 0 = "not rated"; normalize so franchise label
+    // logic doesn't render a 0 cell.
+    score: normalizeSeasonalListScore(row.score),
+  }));
 }
 
 export type FranchiseRunProgress =

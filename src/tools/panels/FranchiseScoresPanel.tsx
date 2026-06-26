@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
 import { ToolUsernameField } from '../ToolUsernameField';
@@ -8,13 +8,14 @@ import { relabelFranchiseEntries } from '../toolsDisplayRelabel';
 import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
 import { ToolShowButton } from '../toolEntityLinks';
 import {
-  bustFranchiseListMemos,
   runFranchiseScores,
   type FranchiseRunProgress,
 } from './franchiseScoresApi';
 import {
+  applyFranchiseFilters,
   buildFranchiseClipboardText,
   buildFranchiseCsv,
+  DEFAULT_FRANCHISE_FILTERS,
   DEFAULT_RELATION_TOGGLES,
   FRANCHISE_RELATION_LABELS,
   FRANCHISE_RELATION_TYPES,
@@ -22,11 +23,14 @@ import {
   franchiseDateLabel,
   franchiseFormatLabel,
   type FranchiseEntry,
+  type FranchiseFilters,
   type FranchiseForm,
   type FranchiseRelationType,
 } from './franchiseScoresLogic';
+import { ScoreRangeChip } from '../../lib/importers/anilist/filters';
 
 const LS_KEY = 'anime-tools-franchise-scores-form';
+const LS_FILTERS_KEY = 'anime-tools-franchise-scores-filters';
 
 const DEFAULT_FORM: FranchiseForm = {
   username: '',
@@ -76,6 +80,62 @@ function saveForm(form: FranchiseForm): void {
       relationTypes: form.relationTypes,
     };
     localStorage.setItem(LS_KEY, JSON.stringify(persisted));
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Coerce a persisted filter blob back into a fully-populated
+ * {@link FranchiseFilters}. Each field is validated independently so a
+ * partially-corrupt payload (e.g. a stale shape from a previous
+ * version) still degrades cleanly to defaults instead of crashing on
+ * load.
+ */
+function normalizeFilters(raw: unknown): FranchiseFilters {
+  if (!raw || typeof raw !== 'object') {
+    return { ...DEFAULT_FRANCHISE_FILTERS };
+  }
+  const obj = raw as Record<string, unknown>;
+  const includeAnime =
+    typeof obj.includeAnime === 'boolean'
+      ? obj.includeAnime
+      : DEFAULT_FRANCHISE_FILTERS.includeAnime;
+  const includeManga =
+    typeof obj.includeManga === 'boolean'
+      ? obj.includeManga
+      : DEFAULT_FRANCHISE_FILTERS.includeManga;
+  const pillRaw = obj.userScoreInclude;
+  const userScoreInclude =
+    pillRaw === 'rated' || pillRaw === 'unrated' || pillRaw === 'any'
+      ? pillRaw
+      : DEFAULT_FRANCHISE_FILTERS.userScoreInclude;
+  const scoreMin =
+    typeof obj.scoreMin === 'number' && Number.isFinite(obj.scoreMin)
+      ? obj.scoreMin
+      : null;
+  const scoreMax =
+    typeof obj.scoreMax === 'number' && Number.isFinite(obj.scoreMax)
+      ? obj.scoreMax
+      : null;
+  return { includeAnime, includeManga, userScoreInclude, scoreMin, scoreMax };
+}
+
+function loadFilters(): FranchiseFilters {
+  try {
+    const raw = localStorage.getItem(LS_FILTERS_KEY);
+    if (raw) {
+      return normalizeFilters(JSON.parse(raw));
+    }
+  } catch {
+    /* ignore */
+  }
+  return { ...DEFAULT_FRANCHISE_FILTERS };
+}
+
+function saveFilters(filters: FranchiseFilters): void {
+  try {
+    localStorage.setItem(LS_FILTERS_KEY, JSON.stringify(filters));
   } catch {
     /* ignore */
   }
@@ -244,19 +304,20 @@ function FranchiseTable({
 }
 
 export function FranchiseScoresPanel({ onOpenMedia }: ToolPanelProps) {
-  // Refresh button must update BOTH the anime + manga lists (franchise reads
-  // each user's list and stamps watched/scored status onto every node), and
-  // bust the per-(user,type) franchise list memos so the next Trace re-fetches
-  // the live data. Relation memos are intentionally preserved — relations
-  // don't change when a user updates their list.
+  // Refresh button must update BOTH the anime + manga lists (franchise
+  // reads each user's list and stamps watched/scored status onto every
+  // node). The lists themselves now live in the source DB via
+  // ensureUserMediaListFresh — useUsernameListRefresh already
+  // force-refreshes both there, so the next Trace will pick them up
+  // automatically with no extra memo busting. Relation caches are
+  // intentionally untouched — relations don't change when a user
+  // updates their list.
   const { refreshing: refreshingList, refreshUsernameList } = useUsernameListRefresh({
     refreshManga: true,
-    onAfterRefresh: (handle) => {
-      bustFranchiseListMemos(handle);
-    },
   });
   const displayLabelRevision = useToolsDisplayLabelRevision();
   const [form, setForm] = useState<FranchiseForm>(() => loadForm());
+  const [filters, setFilters] = useState<FranchiseFilters>(() => loadFilters());
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<FranchiseResultState | null>(null);
@@ -272,6 +333,14 @@ export function FranchiseScoresPanel({ onOpenMedia }: ToolPanelProps) {
   useEffect(() => {
     saveForm(form);
   }, [form]);
+
+  useEffect(() => {
+    saveFilters(filters);
+  }, [filters]);
+
+  const patchFilters = useCallback((patch: Partial<FranchiseFilters>) => {
+    setFilters((prev) => ({ ...prev, ...patch }));
+  }, []);
 
   const patchForm = useCallback((patch: Partial<FranchiseForm>) => {
     setError(null);
@@ -456,13 +525,114 @@ export function FranchiseScoresPanel({ onOpenMedia }: ToolPanelProps) {
       {result?.kind === 'empty' && <p className="tool-empty">{result.message}</p>}
 
       {result?.kind === 'columns' && (
-        <FranchiseTable
+        <FranchiseFilteredView
           entries={result.entries}
           seedId={result.seed.id}
           seedTitle={result.seed.title}
+          filters={filters}
+          onPatchFilters={patchFilters}
           onOpenMedia={onOpenMedia}
         />
       )}
     </section>
+  );
+}
+
+/**
+ * Filter row + table. Kept as a sibling component (rather than inlined
+ * into the panel) so the `useMemo` for filtered entries doesn't have
+ * to run during the form's hot edit path — and so the panel itself
+ * stays focused on running / canceling / state. The Copy / CSV
+ * buttons inside {@link FranchiseTable} operate on whatever entries
+ * we pass in, so they automatically reflect the active filter
+ * without needing extra plumbing.
+ */
+function FranchiseFilteredView({
+  entries,
+  seedId,
+  seedTitle,
+  filters,
+  onPatchFilters,
+  onOpenMedia,
+}: {
+  entries: FranchiseEntry[];
+  seedId: number;
+  seedTitle: string;
+  filters: FranchiseFilters;
+  onPatchFilters: (patch: Partial<FranchiseFilters>) => void;
+  onOpenMedia: ToolPanelProps['onOpenMedia'];
+}) {
+  const filtered = useMemo(
+    () => applyFranchiseFilters(entries, filters),
+    [entries, filters],
+  );
+  const bothMediaOff = !filters.includeAnime && !filters.includeManga;
+  return (
+    <div className="tool-franchise-filtered">
+      <FranchiseFilterBar
+        filters={filters}
+        totalCount={entries.length}
+        visibleCount={filtered.length}
+        onPatch={onPatchFilters}
+      />
+      {bothMediaOff ? (
+        <p className="tool-empty">
+          Both Anime and Manga are unchecked — toggle at least one to see entries.
+        </p>
+      ) : filtered.length === 0 ? (
+        <p className="tool-empty">No entries match the current filter.</p>
+      ) : (
+        <FranchiseTable
+          entries={filtered}
+          seedId={seedId}
+          seedTitle={seedTitle}
+          onOpenMedia={onOpenMedia}
+        />
+      )}
+    </div>
+  );
+}
+
+function FranchiseFilterBar({
+  filters,
+  totalCount,
+  visibleCount,
+  onPatch,
+}: {
+  filters: FranchiseFilters;
+  totalCount: number;
+  visibleCount: number;
+  onPatch: (patch: Partial<FranchiseFilters>) => void;
+}) {
+  return (
+    <div className="tool-franchise-filterbar">
+      <div className="tool-franchise-filterbar-controls">
+        <label className="tool-checkbox" title="Show ANIME entries from the franchise.">
+          <input
+            type="checkbox"
+            checked={filters.includeAnime}
+            onChange={(e) => onPatch({ includeAnime: e.target.checked })}
+          />
+          Anime
+        </label>
+        <label className="tool-checkbox" title="Show MANGA / NOVEL entries from the franchise.">
+          <input
+            type="checkbox"
+            checked={filters.includeManga}
+            onChange={(e) => onPatch({ includeManga: e.target.checked })}
+          />
+          Manga
+        </label>
+        <ScoreRangeChip
+          pill={filters.userScoreInclude}
+          min={filters.scoreMin}
+          max={filters.scoreMax}
+          onChange={(patch) => onPatch(patch)}
+        />
+      </div>
+      <span className="tool-franchise-filterbar-count">
+        Showing {visibleCount} of {totalCount}
+      </span>
+    </div>
   );
 }

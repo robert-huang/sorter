@@ -64,12 +64,20 @@ export const TOOLS_USER_LIST_STATUSES = [
 /** Non-planning list entries — matches `TOOLS_USER_CONSUMED_MEDIA_QUERY` (`status_not: PLANNING`). */
 export const TOOLS_CONSUMED_LIST_STATUSES = [...TOOLS_USER_LIST_STATUSES] as const;
 
-/** Statuses used by Seasonal Scores (completed, airing, paused, rewatching). */
+/**
+ * Statuses fetched by Seasonal Scores. PLANNING is always included so
+ * the "Include Planning" checkbox can filter client-side instantly —
+ * without it, toggling the checkbox forced a full re-fetch. The
+ * planning rows are cheap to fetch and tiny relative to the rest of
+ * the list, so the cost is negligible. `bucketShowsForSeason` does the
+ * actual planning filter in seasonalScoresLogic.
+ */
 export const TOOLS_SEASONAL_LIST_STATUSES = [
   'COMPLETED',
   'CURRENT',
   'REPEATING',
   'PAUSED',
+  'PLANNING',
 ] as const;
 
 function mediaRowStartDateKey(media: {
@@ -428,53 +436,6 @@ export async function readVaCharacterEdgesFromDb(
   }));
 }
 
-/**
- * True when every appearance media has a complete, fresh cast expansion
- * for BOTH the characters and staff sections. Staff completeness is
- * required because Favourites reads `character_voice_actor` rows joined
- * onto each appearance — those rows are populated by the staff section.
- */
-export async function isCharacterVoiceEdgesDbFresh(
-  db: AnilistDbExecutor,
-  edges: CharacterMediaEdge[],
-  options?: ToolsFetchOptions,
-): Promise<boolean> {
-  if (edges.length === 0) {
-    return false;
-  }
-  for (const edge of edges) {
-    const status = await getMediaCastExpansionStatus(db, edge.node.id);
-    if (
-      !status ||
-      !status.charactersComplete ||
-      !status.staffComplete ||
-      needsGraphDataRefresh(status.charactersFetchedAt, options) ||
-      needsGraphDataRefresh(status.staffFetchedAt, options)
-    ) {
-      return false;
-    }
-  }
-  return true;
-}
-
-/**
- * True when this VA's full filmography has been fetched and is fresh.
- * Mirrors the character-side helper so Favourites can avoid serving
- * stale `character_voice_actor` rows joined onto a partial filmography.
- */
-export async function isVaCharacterEdgesDbFresh(
-  db: AnilistDbExecutor,
-  staffId: number,
-  options?: ToolsFetchOptions,
-): Promise<boolean> {
-  const hasData = await hasStaffFilmography(db, staffId);
-  if (!hasData) {
-    return false;
-  }
-  const fetchedAt = await getStaffFilmographyFetchedAt(db, staffId);
-  return !needsGraphDataRefresh(fetchedAt, options);
-}
-
 /** Staff avatar URLs from the local DB (populated by cast/filmography imports). */
 export async function readStaffImagesFromDb(
   db: AnilistDbExecutor,
@@ -493,6 +454,36 @@ export async function readStaffImagesFromDb(
     out[Number(row.id)] = (row.image as string | null) ?? null;
   }
   return out;
+}
+
+/**
+ * Full list entries (media_id + status + score) for a user, filtered by
+ * media type. Franchise Scores reads this for both ANIME and MANGA to
+ * stamp watched/scored status onto each franchise node. Returns an
+ * empty array when the user has no entries of this type (so callers
+ * can distinguish "empty list" from "user missing"); use the
+ * surrounding `ensureUserMediaListFresh` to populate the table first.
+ */
+export async function readUserMediaListEntriesFromDb(
+  db: AnilistDbExecutor,
+  anilistUserId: number,
+  type: 'ANIME' | 'MANGA',
+): Promise<Array<{ mediaId: number; status: string | null; score: number | null }>> {
+  const rows = await db.exec(
+    `SELECT mle.media_id, mle.status, mle.score
+       FROM media_list_entry mle
+       JOIN media m ON m.id = mle.media_id
+      WHERE mle.anilist_user_id = ?
+        AND m.type = ?`,
+    [anilistUserId, type],
+  );
+  return rows.map((row) => ({
+    mediaId: Number(row.media_id),
+    status: (row.status as string | null) ?? null,
+    // SQL `score` is stored as the raw AniList score (0 = unrated); the
+    // caller normalizes via `normalizeSeasonalListScore` so 0 → null.
+    score: row.score != null ? Number(row.score) : null,
+  }));
 }
 
 export async function readUserListMediaIdsFromDb(

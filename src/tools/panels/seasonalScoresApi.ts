@@ -13,17 +13,7 @@ import {
 import { pickMediaTitle } from './sharedCreditsLogic';
 import { normalizeSeasonalListScore, type SeasonalShow } from './seasonalScoresLogic';
 
-export type SeasonalScoresFetchOptions = ToolsFetchOptions & {
-  /** When true, PLANNING list entries are included in the fetch. */
-  includePlanning?: boolean;
-};
-
-function seasonalListStatuses(includePlanning?: boolean): string[] {
-  if (includePlanning) {
-    return [...TOOLS_SEASONAL_LIST_STATUSES, 'PLANNING'];
-  }
-  return [...TOOLS_SEASONAL_LIST_STATUSES];
-}
+export type SeasonalScoresFetchOptions = ToolsFetchOptions;
 
 async function fetchUserSeasonalShowsLive(
   username: string,
@@ -65,7 +55,7 @@ async function fetchUserSeasonalShowsLive(
     }
   >({
     query: TOOLS_USER_ANIME_LIST_QUERY,
-    variables: { userName: username, statusIn: seasonalListStatuses(options?.includePlanning) },
+    variables: { userName: username, statusIn: [...TOOLS_SEASONAL_LIST_STATUSES] },
     signal,
     selectPage: (data) => ({
       nodes: data.Page?.mediaList ?? [],
@@ -92,10 +82,16 @@ async function fetchUserSeasonalShowsLive(
 }
 
 /**
- * Seasonal scores need list-entry notes (#airing), which are not stored in the
- * DB — the live AniList list query supplies scores/notes/season fields. Results
- * are memoized in-session for {@link TOOLS_SESSION_TTL_MS}; force refresh busts
- * the memo and re-imports the DB list via {@link ensureUserAnimeListFresh}.
+ * Seasonal scores need list-entry notes (#airing) and scores, which are
+ * NOT stored in the DB — the live AniList list query is the source of
+ * truth here (the DB only has score/status; notes aren't persisted).
+ *
+ * Always fetched with PLANNING included; the "Include Planning"
+ * checkbox is a client-side filter (see `bucketShowsForSeason`) so
+ * toggling it is instant instead of triggering another network round
+ * trip. Results are memoized in-session for {@link TOOLS_SESSION_TTL_MS};
+ * force refresh busts the memo and re-imports the DB list via
+ * {@link ensureUserAnimeListFresh}.
  */
 export async function fetchUserSeasonalShows(
   username: string,
@@ -104,8 +100,7 @@ export async function fetchUserSeasonalShows(
 ): Promise<SeasonalShow[]> {
   signal?.throwIfAborted();
   const handle = username.trim().toLowerCase();
-  const planningKey = options?.includePlanning ? 'plan' : 'base';
-  const key = `seasonal:list:${handle}:${planningKey}`;
+  const key = `seasonal:list:${handle}`;
   const shows = await withSessionTtlMemo(
     key,
     TOOLS_SESSION_TTL_MS,

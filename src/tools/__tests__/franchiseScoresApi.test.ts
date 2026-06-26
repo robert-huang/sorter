@@ -1,3 +1,21 @@
+/**
+ * Franchise Scores caching contract:
+ *
+ *   - The user's anime + manga lists are read from the source DB via
+ *     `ensureUserMediaListFresh` + `readUserMediaListEntriesFromDb`.
+ *     They are NOT live-fetched on every Trace — that was the original
+ *     cache gap. The username refresh button flows
+ *     `forceRefresh: true` through ensureUserMediaListFresh to re-
+ *     import.
+ *   - Relations are walked through `executeAnilistQuery` and the per-
+ *     node response is persisted to localStorage for 90 days. The
+ *     walker is wrapped in a session memo + persistent cache so the
+ *     second Trace within a session does ZERO network calls, and a
+ *     reload still serves the prior walk from localStorage.
+ *   - Right-click Trace (forceRefresh) busts BOTH the relation
+ *     persistent cache AND triggers a fresh AniList list import.
+ */
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { _clearSessionMemoForTesting } from '../../lib/importers/anilist/toolsSessionMemo';
 import {
@@ -6,27 +24,31 @@ import {
 } from '../../lib/importers/anilist/toolsPersistentCache';
 import { _resetAvailabilityCache } from '../../lib/storage';
 
-vi.mock('../../lib/importers/anilist/depaginate', () => ({
-  depaginate: vi.fn(),
-}));
-
 vi.mock('../../lib/importers/anilist/transport', () => ({
   executeAnilistQuery: vi.fn(),
 }));
 
-import { depaginate } from '../../lib/importers/anilist/depaginate';
+vi.mock('../../lib/importers/anilist/toolsImportContext', () => ({
+  getToolsImportContext: vi.fn(),
+}));
+
+vi.mock('../../lib/importers/anilist/toolsAnilistAccess', () => ({
+  ensureUserMediaListFresh: vi.fn(),
+  readUserMediaListEntriesFromDb: vi.fn(),
+}));
+
 import { executeAnilistQuery } from '../../lib/importers/anilist/transport';
+import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportContext';
 import {
-  bustFranchiseListMemos,
-  runFranchiseScores,
-} from '../panels/franchiseScoresApi';
+  ensureUserMediaListFresh,
+  readUserMediaListEntriesFromDb,
+} from '../../lib/importers/anilist/toolsAnilistAccess';
+import { runFranchiseScores } from '../panels/franchiseScoresApi';
 
-const depaginateMock = vi.mocked(depaginate);
 const executeAnilistQueryMock = vi.mocked(executeAnilistQuery);
-
-function listEntry(id: number, score = 80, status = 'COMPLETED') {
-  return { mediaId: id, status, score };
-}
+const getCtxMock = vi.mocked(getToolsImportContext);
+const ensureUserMediaListFreshMock = vi.mocked(ensureUserMediaListFresh);
+const readUserMediaListEntriesFromDbMock = vi.mocked(readUserMediaListEntriesFromDb);
 
 function relationsResponse(
   selfId: number,
@@ -57,22 +79,44 @@ function relationsResponse(
   };
 }
 
+function dbEntry(
+  mediaId: number,
+  score: number | null,
+  status: string | null = 'COMPLETED',
+) {
+  return { mediaId, status, score };
+}
+
 beforeEach(() => {
   _clearSessionMemoForTesting();
   window.localStorage.clear();
   _resetAvailabilityCache();
   persistentCacheDeletePrefix('franchise:');
   executeAnilistQueryMock.mockReset();
-  depaginateMock.mockReset();
+  getCtxMock.mockReset();
+  ensureUserMediaListFreshMock.mockReset();
+  readUserMediaListEntriesFromDbMock.mockReset();
+
+  getCtxMock.mockReturnValue({ db: { exec: vi.fn() } } as never);
+  // Default: user exists in DB and ensureUserMediaListFresh is a no-op
+  // (the DB is already fresh). Override per-test to simulate force-
+  // refresh / first-import flows.
+  ensureUserMediaListFreshMock.mockResolvedValue({
+    id: 42,
+    name: 'rh_test',
+    fetched_at: Date.now(),
+  } as never);
+  readUserMediaListEntriesFromDbMock.mockResolvedValue([]);
 });
 
 describe('runFranchiseScores caching', () => {
-  it('serves the second run from cache — no extra relation fetches', async () => {
-    // Seed search + relations for seed (no edges so BFS terminates immediately).
+  it('serves both list types from the DB and does zero list-related GraphQL calls', async () => {
     executeAnilistQueryMock
       .mockResolvedValueOnce({ Media: { id: 100, title: { english: 'Seed', romaji: null } } })
       .mockResolvedValueOnce(relationsResponse(100, []));
-    depaginateMock.mockResolvedValue([listEntry(100, 90)]);
+    readUserMediaListEntriesFromDbMock.mockImplementation(async (_db, _uid, type) =>
+      type === 'ANIME' ? [dbEntry(100, 90)] : [],
+    );
 
     const first = await runFranchiseScores({
       seedSearch: 'Seed',
@@ -81,29 +125,36 @@ describe('runFranchiseScores caching', () => {
     expect(first.entries.map((e) => e.id)).toEqual([100]);
     expect(first.entries[0]?.score).toBe(90);
 
-    // 2 GraphQL calls (search + relations), 2 depaginate calls (anime + manga lists).
-    const callsAfterFirst = executeAnilistQueryMock.mock.calls.length;
-    const pageCallsAfterFirst = depaginateMock.mock.calls.length;
-    expect(callsAfterFirst).toBe(2);
-    expect(pageCallsAfterFirst).toBe(2);
+    // Both list types ensured + read; only 2 GraphQL calls (search + relations).
+    expect(ensureUserMediaListFreshMock).toHaveBeenCalledTimes(2);
+    expect(readUserMediaListEntriesFromDbMock).toHaveBeenCalledTimes(2);
+    expect(executeAnilistQueryMock).toHaveBeenCalledTimes(2);
 
-    // Second run — everything memoized, ZERO new network calls.
+    // Second run: relations cached in session memo, list still served
+    // from DB. Search re-fires in this test (search has its own
+    // separate session memo, but per call site it's keyed by the
+    // exact search string so a repeat of "Seed" is also memoized —
+    // ZERO new GraphQL calls expected).
+    const callsBeforeSecond = executeAnilistQueryMock.mock.calls.length;
     const second = await runFranchiseScores({
       seedSearch: 'Seed',
       username: 'rh_test',
     });
     expect(second.entries.map((e) => e.id)).toEqual([100]);
-    expect(executeAnilistQueryMock).toHaveBeenCalledTimes(callsAfterFirst);
-    expect(depaginateMock).toHaveBeenCalledTimes(pageCallsAfterFirst);
+    expect(executeAnilistQueryMock).toHaveBeenCalledTimes(callsBeforeSecond);
+    // ensureUserMediaListFresh is idempotent + cheap — calling it
+    // again is fine (and intentional so the username refresh button
+    // doesn't need to bust per-tool memos).
+    expect(ensureUserMediaListFreshMock).toHaveBeenCalledTimes(4);
   });
 
-  it('forceRefresh busts relation + list memos and re-fetches', async () => {
+  it('forceRefresh threads through to ensureUserMediaListFresh for BOTH list types', async () => {
     executeAnilistQueryMock
       .mockResolvedValueOnce({ Media: { id: 100, title: { english: 'Seed', romaji: null } } })
       .mockResolvedValueOnce(relationsResponse(100, []))
       .mockResolvedValueOnce({ Media: { id: 100, title: { english: 'Seed', romaji: null } } })
       .mockResolvedValueOnce(relationsResponse(100, []));
-    depaginateMock.mockResolvedValue([listEntry(100, 90)]);
+    readUserMediaListEntriesFromDbMock.mockResolvedValue([dbEntry(100, 88)]);
 
     await runFranchiseScores({ seedSearch: 'Seed', username: 'rh_test' });
     await runFranchiseScores({
@@ -112,36 +163,50 @@ describe('runFranchiseScores caching', () => {
       fetchOptions: { forceRefresh: true },
     });
 
-    // 4 GraphQL (2 search + 2 relations), 4 depaginate (anime/manga × 2).
-    expect(executeAnilistQueryMock.mock.calls.length).toBeGreaterThanOrEqual(3);
-    expect(depaginateMock.mock.calls.length).toBe(4);
+    // First run: ANIME + MANGA, no force. Second run: ANIME + MANGA, force.
+    expect(ensureUserMediaListFreshMock).toHaveBeenCalledWith('rh_test', 'ANIME', undefined);
+    expect(ensureUserMediaListFreshMock).toHaveBeenCalledWith('rh_test', 'MANGA', undefined);
+    expect(ensureUserMediaListFreshMock).toHaveBeenCalledWith(
+      'rh_test',
+      'ANIME',
+      { forceRefresh: true },
+    );
+    expect(ensureUserMediaListFreshMock).toHaveBeenCalledWith(
+      'rh_test',
+      'MANGA',
+      { forceRefresh: true },
+    );
   });
-});
 
-describe('fetchUserMediaList empty-result handling', () => {
-  it('does NOT memoize empty list results — next run retries', async () => {
-    // Seed search + relations are constant.
+  it('returns score=null when the user has the show on their list but unrated', async () => {
     executeAnilistQueryMock
       .mockResolvedValueOnce({ Media: { id: 100, title: { english: 'Seed', romaji: null } } })
-      .mockResolvedValueOnce(relationsResponse(100, []))
+      .mockResolvedValueOnce(relationsResponse(100, []));
+    // AniList POINT_100 stores "not rated" as 0; the DB read returns 0
+    // verbatim and the franchise layer normalizes it to null so the
+    // chart renders "—" instead of "0".
+    readUserMediaListEntriesFromDbMock.mockImplementation(async (_db, _uid, type) =>
+      type === 'ANIME' ? [dbEntry(100, 0, 'CURRENT')] : [],
+    );
+
+    const result = await runFranchiseScores({ seedSearch: 'Seed', username: 'rh_test' });
+    expect(result.entries[0]?.score).toBeNull();
+    expect(result.entries[0]?.listStatus).toBe('CURRENT');
+  });
+
+  it('handles a missing user gracefully (ensureUserMediaListFresh returns null)', async () => {
+    executeAnilistQueryMock
       .mockResolvedValueOnce({ Media: { id: 100, title: { english: 'Seed', romaji: null } } })
       .mockResolvedValueOnce(relationsResponse(100, []));
-    // First run: both list fetches transiently return empty.
-    depaginateMock
-      .mockResolvedValueOnce([])  // anime
-      .mockResolvedValueOnce([])  // manga
-      // Second run: both succeed.
-      .mockResolvedValueOnce([listEntry(100, 88)])
-      .mockResolvedValueOnce([]);
+    // Both type lookups return null → readUserMediaListEntriesFromDb
+    // is skipped entirely; the franchise entry shows up with no list
+    // info instead of crashing on the missing user id.
+    ensureUserMediaListFreshMock.mockResolvedValue(null);
 
-    const first = await runFranchiseScores({ seedSearch: 'Seed', username: 'rh_test' });
-    expect(first.entries[0]?.score).toBeNull();
-    expect(first.entries[0]?.listStatus).toBeNull();
-
-    const second = await runFranchiseScores({ seedSearch: 'Seed', username: 'rh_test' });
-    expect(second.entries[0]?.score).toBe(88);
-    // 4 depaginate calls — empty results were NOT served from cache.
-    expect(depaginateMock).toHaveBeenCalledTimes(4);
+    const result = await runFranchiseScores({ seedSearch: 'Seed', username: 'nobody' });
+    expect(result.entries[0]?.score).toBeNull();
+    expect(result.entries[0]?.listStatus).toBeNull();
+    expect(readUserMediaListEntriesFromDbMock).not.toHaveBeenCalled();
   });
 });
 
@@ -154,39 +219,28 @@ describe('franchise relations cross-session cache', () => {
       .mockResolvedValueOnce(relationsResponse(200, []))
       // Second "session": only the search re-fires; relations come from localStorage.
       .mockResolvedValueOnce({ Media: { id: 100, title: { english: 'Seed', romaji: null } } });
-    depaginateMock.mockResolvedValue([]);
 
     await runFranchiseScores({ seedSearch: 'Seed', username: 'rh_test' });
 
-    // Relations for both nodes landed in localStorage under the franchise prefix.
-    expect(persistentCacheGet('franchise:relations:100')).toMatchObject({
-      hit: true,
-    });
-    expect(persistentCacheGet('franchise:relations:200')).toMatchObject({
-      hit: true,
-    });
+    expect(persistentCacheGet('franchise:relations:100')).toMatchObject({ hit: true });
+    expect(persistentCacheGet('franchise:relations:200')).toMatchObject({ hit: true });
 
-    // Simulate a new session: drop the in-memory session memo, but keep
-    // localStorage. Relation fetches must NOT hit the network.
     _clearSessionMemoForTesting();
-    const graphqlCallsBeforeSecondSession = executeAnilistQueryMock.mock.calls.length;
+    const callsBeforeSecondSession = executeAnilistQueryMock.mock.calls.length;
 
     await runFranchiseScores({ seedSearch: 'Seed', username: 'rh_test' });
 
-    // Only the seed search (its session memo was just cleared) counts as a
-    // new GraphQL call — both relation fetches come from localStorage.
-    const newGraphqlCalls =
-      executeAnilistQueryMock.mock.calls.length - graphqlCallsBeforeSecondSession;
-    expect(newGraphqlCalls).toBe(1);
+    // Only the seed search re-fires; both relation walks come from localStorage.
+    const newCalls = executeAnilistQueryMock.mock.calls.length - callsBeforeSecondSession;
+    expect(newCalls).toBe(1);
   });
 
-  it('forceRefresh busts the persistent cache too', async () => {
+  it('forceRefresh busts the persistent relations cache', async () => {
     executeAnilistQueryMock
       .mockResolvedValueOnce({ Media: { id: 100, title: { english: 'Seed', romaji: null } } })
       .mockResolvedValueOnce(relationsResponse(100, []))
       .mockResolvedValueOnce({ Media: { id: 100, title: { english: 'Seed', romaji: null } } })
       .mockResolvedValueOnce(relationsResponse(100, []));
-    depaginateMock.mockResolvedValue([]);
 
     await runFranchiseScores({ seedSearch: 'Seed', username: 'rh_test' });
     _clearSessionMemoForTesting();
@@ -196,37 +250,7 @@ describe('franchise relations cross-session cache', () => {
       fetchOptions: { forceRefresh: true },
     });
 
-    // 4 calls total: search + relations × 2 runs (persistent cache busted on second).
+    // 4 calls: search + relations × 2 runs (persistent cache busted on second).
     expect(executeAnilistQueryMock).toHaveBeenCalledTimes(4);
-  });
-});
-
-describe('bustFranchiseListMemos', () => {
-  it('busts anime + manga list memos but preserves the relations cache', async () => {
-    executeAnilistQueryMock
-      .mockResolvedValueOnce({ Media: { id: 100, title: { english: 'Seed', romaji: null } } })
-      .mockResolvedValueOnce(relationsResponse(100, []));
-    depaginateMock
-      .mockResolvedValueOnce([listEntry(100, 70)])
-      .mockResolvedValueOnce([])
-      // After bust — second list fetch (anime + manga) hits network again.
-      .mockResolvedValueOnce([listEntry(100, 95)])
-      .mockResolvedValueOnce([]);
-
-    const first = await runFranchiseScores({ seedSearch: 'Seed', username: 'rh_test' });
-    expect(first.entries[0]?.score).toBe(70);
-
-    const graphqlCallsBeforeBust = executeAnilistQueryMock.mock.calls.length;
-    const listCallsBeforeBust = depaginateMock.mock.calls.length;
-
-    bustFranchiseListMemos('rh_test');
-
-    const second = await runFranchiseScores({ seedSearch: 'Seed', username: 'rh_test' });
-    expect(second.entries[0]?.score).toBe(95);
-
-    // Relations weren't re-fetched (still cached) — no new GraphQL calls.
-    expect(executeAnilistQueryMock.mock.calls.length).toBe(graphqlCallsBeforeBust);
-    // Both list memos busted — 2 new depaginate calls.
-    expect(depaginateMock.mock.calls.length).toBe(listCallsBeforeBust + 2);
   });
 });
