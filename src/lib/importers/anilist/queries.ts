@@ -599,6 +599,8 @@ query ToolsUserAnimeList(
         coverImage { large }
         season
         seasonYear
+        startDate { year month day }
+        endDate { year month day }
         duration
       }
     }

@@ -1,5 +1,11 @@
 import { parseLinesOnePerLine } from '../parseToolLines';
 
+export type SeasonalFuzzyDate = {
+  year: number | null;
+  month: number | null;
+  day: number | null;
+};
+
 export type SeasonalShow = {
   id: number;
   title: string;
@@ -7,6 +13,8 @@ export type SeasonalShow = {
   coverImage?: string | null;
   season: string | null;
   seasonYear: number | null;
+  startDate?: SeasonalFuzzyDate | null;
+  endDate?: SeasonalFuzzyDate | null;
   score: number | null;
   notes: string | null;
   /** AniList list status (e.g. PLANNING when include-planning fetch is enabled). */
@@ -33,6 +41,8 @@ export type SeasonalScoresForm = {
   skipEmpty: boolean;
   airingNotesOnly: boolean;
   includePlanning: boolean;
+  /** Bucket by broadcast start/end overlap instead of a single AniList season tag. */
+  spanAiringSeasons: boolean;
 };
 
 /**
@@ -198,21 +208,142 @@ export function parseSeasonSpecs(
   return specs;
 }
 
+function daysInMonth(year: number, month: number): number {
+  return new Date(year, month, 0).getDate();
+}
+
+function calendarDateKey(year: number, month: number, day: number): number {
+  return year * 10_000 + month * 100 + day;
+}
+
+/** Resolve an AniList fuzzy date to an inclusive calendar bound. */
+export function fuzzyDateToCalendarKey(
+  date: SeasonalFuzzyDate | null | undefined,
+  bound: 'start' | 'end',
+): number | null {
+  if (!date || date.year == null) {
+    return null;
+  }
+  const year = date.year;
+  if (date.month == null) {
+    return bound === 'start'
+      ? calendarDateKey(year, 1, 1)
+      : calendarDateKey(year, 12, 31);
+  }
+  const month = date.month;
+  if (date.day == null) {
+    return bound === 'start'
+      ? calendarDateKey(year, month, 1)
+      : calendarDateKey(year, month, daysInMonth(year, month));
+  }
+  return calendarDateKey(year, month, date.day);
+}
+
+function nowCalendarKey(now: Date): number {
+  return calendarDateKey(now.getFullYear(), now.getMonth() + 1, now.getDate());
+}
+
+export type AiringInterval = {
+  start: number;
+  end: number;
+};
+
+/** Broadcast range; missing end extends through `now`. */
+export function resolveShowAiringInterval(
+  show: Pick<SeasonalShow, 'startDate' | 'endDate'>,
+  now: Date,
+): AiringInterval | null {
+  const start = fuzzyDateToCalendarKey(show.startDate, 'start');
+  if (start == null) {
+    return null;
+  }
+  const end = fuzzyDateToCalendarKey(show.endDate, 'end') ?? nowCalendarKey(now);
+  return { start, end: Math.max(start, end) };
+}
+
+function intervalsOverlap(a: AiringInterval, b: AiringInterval): boolean {
+  return a.start <= b.end && a.end >= b.start;
+}
+
+/** AniList season calendar windows (inclusive). */
+export function seasonSpecCalendarInterval(spec: SeasonSpec): AiringInterval {
+  if (spec.season === null) {
+    return {
+      start: calendarDateKey(spec.year, 1, 1),
+      end: calendarDateKey(spec.year, 12, 31),
+    };
+  }
+  switch (spec.season) {
+    case 'WINTER':
+      return {
+        start: calendarDateKey(spec.year, 1, 1),
+        end: calendarDateKey(spec.year, 3, 31),
+      };
+    case 'SPRING':
+      return {
+        start: calendarDateKey(spec.year, 4, 1),
+        end: calendarDateKey(spec.year, 6, 30),
+      };
+    case 'SUMMER':
+      return {
+        start: calendarDateKey(spec.year, 7, 1),
+        end: calendarDateKey(spec.year, 9, 30),
+      };
+    case 'FALL':
+      return {
+        start: calendarDateKey(spec.year, 10, 1),
+        end: calendarDateKey(spec.year, 12, 31),
+      };
+    default:
+      return {
+        start: calendarDateKey(spec.year, 1, 1),
+        end: calendarDateKey(spec.year, 12, 31),
+      };
+  }
+}
+
+function matchesSeasonYearAndTag(
+  show: Pick<SeasonalShow, 'season' | 'seasonYear'>,
+  spec: SeasonSpec,
+): boolean {
+  if (show.seasonYear !== spec.year) {
+    return false;
+  }
+  if (spec.season && show.season !== spec.season) {
+    return false;
+  }
+  return true;
+}
+
+export function showMatchesSeasonSpec(
+  show: SeasonalShow,
+  spec: SeasonSpec,
+  options: { spanAiringSeasons: boolean; now: Date },
+): boolean {
+  if (!options.spanAiringSeasons) {
+    return matchesSeasonYearAndTag(show, spec);
+  }
+  const airing = resolveShowAiringInterval(show, options.now);
+  if (airing == null) {
+    return matchesSeasonYearAndTag(show, spec);
+  }
+  return intervalsOverlap(airing, seasonSpecCalendarInterval(spec));
+}
+
 export function bucketShowsForSeason(
   shows: SeasonalShow[],
   spec: SeasonSpec,
   airingNotesOnly: boolean,
   includePlanning: boolean,
+  spanAiringSeasons: boolean,
+  now: Date = new Date(),
 ): SeasonalShow[] {
   return shows
     .filter((show) => {
       if (!includePlanning && isSeasonalPlanningShow(show)) {
         return false;
       }
-      if (show.seasonYear !== spec.year) {
-        return false;
-      }
-      if (spec.season && show.season !== spec.season) {
+      if (!showMatchesSeasonSpec(show, spec, { spanAiringSeasons, now })) {
         return false;
       }
       if (airingNotesOnly && !(show.notes ?? '').includes('#airing')) {
@@ -235,10 +366,17 @@ export function averageScore(shows: SeasonalShow[]): number | null {
   return Math.round((sum / scored.length) * 1000) / 1000;
 }
 
+export type BuildSeasonalColumnsOptions = {
+  /** Injectable clock for spanning-mode tests. */
+  now?: Date;
+};
+
 export function buildSeasonalColumns(
   shows: SeasonalShow[],
   form: SeasonalScoresForm,
+  options?: BuildSeasonalColumnsOptions,
 ): SeasonalScoresResult {
+  const now = options?.now ?? new Date();
   const specs = parseSeasonSpecs(form.seasonText, shows);
   if (specs.length === 0) {
     // Disambiguate so the user knows whether to type a season or
@@ -270,6 +408,8 @@ export function buildSeasonalColumns(
       spec,
       form.airingNotesOnly,
       form.includePlanning,
+      form.spanAiringSeasons,
+      now,
     );
     if (form.skipEmpty && bucket.length === 0) {
       continue;

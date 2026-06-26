@@ -57,6 +57,7 @@ describe('seasonalScoresLogic', () => {
       skipEmpty: false,
       airingNotesOnly: false,
       includePlanning: false,
+      spanAiringSeasons: false,
       seasonMode: 'custom',
     });
     expect(result.kind).toBe('columns');
@@ -113,6 +114,7 @@ describe('seasonalScoresLogic', () => {
       skipEmpty: false,
       airingNotesOnly: false,
       includePlanning: false,
+      spanAiringSeasons: false,
       seasonMode: 'custom',
     });
     expect(result.kind).toBe('columns');
@@ -157,6 +159,7 @@ describe('seasonalScoresLogic', () => {
       skipEmpty: false,
       airingNotesOnly: false,
       includePlanning: true,
+      spanAiringSeasons: false,
       seasonMode: 'custom',
     });
     expect(result.kind).toBe('columns');
@@ -195,6 +198,7 @@ describe('seasonalScoresLogic', () => {
       skipEmpty: false,
       airingNotesOnly: false,
       includePlanning: false,
+      spanAiringSeasons: false,
       seasonMode: 'custom',
     });
     expect(result.kind).toBe('columns');
@@ -253,6 +257,7 @@ describe('seasonalScoresLogic', () => {
       skipEmpty: false,
       airingNotesOnly: false,
       includePlanning: false,
+      spanAiringSeasons: false,
       seasonMode: 'allseasons',
     });
     expect(result.kind).toBe('empty');
@@ -271,6 +276,7 @@ describe('seasonalScoresLogic', () => {
       skipEmpty: false,
       airingNotesOnly: false,
       includePlanning: false,
+      spanAiringSeasons: false,
       seasonMode: 'all',
     });
     expect(result.kind).toBe('empty');
@@ -286,6 +292,7 @@ describe('seasonalScoresLogic', () => {
       skipEmpty: true,
       airingNotesOnly: false,
       includePlanning: false,
+      spanAiringSeasons: false,
       seasonMode: 'custom',
     });
     expect(result.kind).toBe('columns');
@@ -305,6 +312,7 @@ describe('seasonalScoresLogic', () => {
       skipEmpty: false,
       airingNotesOnly: false,
       includePlanning: false,
+      spanAiringSeasons: false,
       seasonMode: 'custom',
     });
     expect(result.kind).toBe('columns');
@@ -326,6 +334,7 @@ describe('seasonalScoresLogic', () => {
       skipEmpty: false,
       airingNotesOnly: false,
       includePlanning: true,
+      spanAiringSeasons: false,
       seasonMode: 'custom',
     });
     expect(result.kind).toBe('columns');
@@ -348,6 +357,7 @@ describe('seasonalScoresLogic', () => {
       skipEmpty: false,
       airingNotesOnly: true,
       includePlanning: false,
+      spanAiringSeasons: false,
       seasonMode: 'custom',
     });
     expect(result.kind).toBe('columns');
@@ -369,6 +379,7 @@ describe('seasonalScoresLogic', () => {
       skipEmpty: false,
       airingNotesOnly: false,
       includePlanning: true,
+      spanAiringSeasons: false,
       seasonMode: 'custom',
     });
     expect(result.kind).toBe('columns');
@@ -394,6 +405,7 @@ describe('seasonalScoresLogic', () => {
       skipEmpty: false,
       airingNotesOnly: false,
       includePlanning: false,
+      spanAiringSeasons: false,
       seasonMode: 'custom',
     });
     expect(result.kind).toBe('columns');
@@ -411,6 +423,7 @@ describe('seasonalScoresLogic', () => {
       skipEmpty: false,
       airingNotesOnly: false,
       includePlanning: false,
+      spanAiringSeasons: false,
       seasonMode: 'custom',
     });
     expect(result.kind).toBe('empty');
@@ -424,6 +437,7 @@ describe('seasonalScoresLogic', () => {
       skipEmpty: false,
       airingNotesOnly: false,
       includePlanning: false,
+      spanAiringSeasons: false,
     };
 
     it('preserves seasonText when mode is custom', () => {
@@ -473,6 +487,160 @@ describe('seasonalScoresLogic', () => {
       // And switching back to custom restores the typed text in the next call.
       const next = effectiveSeasonalForm({ ...baseForm, seasonText: typed });
       expect(next.seasonText).toBe(typed);
+    });
+  });
+
+  describe('spanAiringSeasons', () => {
+    const spanForm = {
+      username: 'user',
+      seasonText: 'Spring 2026\nSummer 2026',
+      seasonMode: 'custom' as const,
+      skipEmpty: false,
+      airingNotesOnly: false,
+      includePlanning: false,
+      spanAiringSeasons: true,
+    };
+
+    it('places cross-season shows in every overlapping column and counts both averages', () => {
+      const shows: SeasonalShow[] = [
+        {
+          id: 1,
+          title: 'ReZero S4',
+          season: 'SPRING',
+          seasonYear: 2026,
+          startDate: { year: 2026, month: 4, day: 1 },
+          endDate: { year: 2026, month: 8, day: 31 },
+          score: 90,
+          notes: null,
+        },
+      ];
+      const result = buildSeasonalColumns(shows, spanForm);
+      expect(result.kind).toBe('columns');
+      if (result.kind !== 'columns') {
+        return;
+      }
+      expect(result.columns.map((c) => c.label)).toEqual(['Spring 2026', 'Summer 2026']);
+      expect(result.columns[0]?.shows.map((s) => s.title)).toEqual(['ReZero S4']);
+      expect(result.columns[1]?.shows.map((s) => s.title)).toEqual(['ReZero S4']);
+      expect(result.columns[0]?.average).toBe(90);
+      expect(result.columns[1]?.average).toBe(90);
+    });
+
+    it('extends ongoing shows through today into each overlapped season', () => {
+      const shows: SeasonalShow[] = [
+        {
+          id: 2,
+          title: 'Mofusand',
+          season: 'WINTER',
+          seasonYear: 2026,
+          startDate: { year: 2026, month: 1, day: 5 },
+          endDate: null,
+          score: 80,
+          notes: null,
+        },
+      ];
+      const june = buildSeasonalColumns(
+        shows,
+        {
+          ...spanForm,
+          seasonText: 'Winter 2026\nSpring 2026\nSummer 2026',
+        },
+        { now: new Date(2026, 5, 25) },
+      );
+      expect(june.kind).toBe('columns');
+      if (june.kind === 'columns') {
+        expect(june.columns.map((c) => c.label)).toEqual([
+          'Winter 2026',
+          'Spring 2026',
+          'Summer 2026',
+        ]);
+        expect(june.columns[0]?.shows).toHaveLength(1);
+        expect(june.columns[1]?.shows).toHaveLength(1);
+        expect(june.columns[2]?.shows).toHaveLength(0);
+      }
+
+      const july = buildSeasonalColumns(
+        shows,
+        {
+          ...spanForm,
+          seasonText: 'Winter 2026\nSpring 2026\nSummer 2026',
+        },
+        { now: new Date(2026, 6, 15) },
+      );
+      expect(july.kind).toBe('columns');
+      if (july.kind === 'columns') {
+        expect(july.columns[2]?.shows.map((s) => s.title)).toEqual(['Mofusand']);
+      }
+    });
+
+    it('falls back to season tag when airing dates are missing', () => {
+      const shows: SeasonalShow[] = [
+        {
+          id: 3,
+          title: 'Tagged only',
+          season: 'WINTER',
+          seasonYear: 2024,
+          score: 70,
+          notes: null,
+        },
+      ];
+      const result = buildSeasonalColumns(
+        shows,
+        { ...spanForm, seasonText: 'Winter 2024\nSpring 2024', spanAiringSeasons: true },
+      );
+      expect(result.kind).toBe('columns');
+      if (result.kind === 'columns') {
+        expect(result.columns[0]?.shows).toHaveLength(1);
+        expect(result.columns[1]?.shows).toHaveLength(0);
+      }
+    });
+
+    it('with toggle off, cross-season dates still use season tag only', () => {
+      const shows: SeasonalShow[] = [
+        {
+          id: 4,
+          title: 'ReZero S4',
+          season: 'SPRING',
+          seasonYear: 2026,
+          startDate: { year: 2026, month: 4, day: 1 },
+          endDate: { year: 2026, month: 8, day: 31 },
+          score: 90,
+          notes: null,
+        },
+      ];
+      const result = buildSeasonalColumns(shows, {
+        ...spanForm,
+        spanAiringSeasons: false,
+      });
+      expect(result.kind).toBe('columns');
+      if (result.kind === 'columns') {
+        expect(result.columns[0]?.shows).toHaveLength(1);
+        expect(result.columns[1]?.shows).toHaveLength(0);
+      }
+    });
+
+    it('year columns use calendar-year overlap', () => {
+      const shows: SeasonalShow[] = [
+        {
+          id: 5,
+          title: 'Cross-year',
+          season: 'WINTER',
+          seasonYear: 2026,
+          startDate: { year: 2025, month: 12, day: 1 },
+          endDate: { year: 2026, month: 2, day: 28 },
+          score: 85,
+          notes: null,
+        },
+      ];
+      const result = buildSeasonalColumns(
+        shows,
+        { ...spanForm, seasonText: '2025\n2026', spanAiringSeasons: true },
+      );
+      expect(result.kind).toBe('columns');
+      if (result.kind === 'columns') {
+        expect(result.columns[0]?.shows.map((s) => s.title)).toEqual(['Cross-year']);
+        expect(result.columns[1]?.shows.map((s) => s.title)).toEqual(['Cross-year']);
+      }
     });
   });
 });

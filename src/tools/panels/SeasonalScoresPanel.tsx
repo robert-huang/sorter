@@ -39,11 +39,17 @@ const DEFAULT_FORM: SeasonalScoresForm = {
   skipEmpty: false,
   airingNotesOnly: false,
   includePlanning: false,
+  spanAiringSeasons: false,
 };
 
 type PersistedSeasonalForm = Pick<
   SeasonalScoresForm,
-  'seasonText' | 'seasonMode' | 'skipEmpty' | 'airingNotesOnly' | 'includePlanning'
+  | 'seasonText'
+  | 'seasonMode'
+  | 'skipEmpty'
+  | 'airingNotesOnly'
+  | 'includePlanning'
+  | 'spanAiringSeasons'
 >;
 
 function normalizeSeasonMode(value: unknown): SeasonMode {
@@ -74,6 +80,7 @@ function loadForm(): SeasonalScoresForm {
         skipEmpty: parsed.skipEmpty ?? false,
         airingNotesOnly: parsed.airingNotesOnly ?? false,
         includePlanning: parsed.includePlanning ?? false,
+        spanAiringSeasons: parsed.spanAiringSeasons ?? false,
         username: withLastAnilistUsername(''),
       };
     }
@@ -97,6 +104,7 @@ function saveForm(form: SeasonalScoresForm): void {
       skipEmpty: form.skipEmpty,
       airingNotesOnly: form.airingNotesOnly,
       includePlanning: form.includePlanning,
+      spanAiringSeasons: form.spanAiringSeasons,
     };
     localStorage.setItem(LS_KEY, JSON.stringify(persisted));
   } catch {
@@ -370,6 +378,16 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
               onChange={(e) => patchForm({ includePlanning: e.target.checked })}
             />
             Include Planning
+          </label>
+          <label className="tool-checkbox">
+            <input
+              type="checkbox"
+              checked={form.spanAiringSeasons}
+              disabled={running}
+              onChange={(e) => patchForm({ spanAiringSeasons: e.target.checked })}
+              title="Place shows in every season column their broadcast dates overlap (ongoing shows extend through today)."
+            />
+            Span Airing Seasons
           </label>
         </div>
 

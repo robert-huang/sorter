@@ -11,9 +11,40 @@ import {
   withSessionTtlMemo,
 } from '../../lib/importers/anilist/toolsSessionMemo';
 import { pickMediaTitle } from './sharedCreditsLogic';
-import { normalizeSeasonalListScore, type SeasonalShow } from './seasonalScoresLogic';
+import {
+  normalizeSeasonalListScore,
+  type SeasonalFuzzyDate,
+  type SeasonalShow,
+} from './seasonalScoresLogic';
 
 export type SeasonalScoresFetchOptions = ToolsFetchOptions;
+
+type GqlFuzzyDate = {
+  year?: number | null;
+  month?: number | null;
+  day?: number | null;
+} | null;
+
+type SeasonalListMedia = {
+  id: number;
+  title: { english?: string | null; romaji?: string | null; native?: string | null };
+  coverImage?: { large?: string | null } | null;
+  season?: string | null;
+  seasonYear?: number | null;
+  startDate?: GqlFuzzyDate;
+  endDate?: GqlFuzzyDate;
+};
+
+function mapFuzzyDate(date: GqlFuzzyDate): SeasonalFuzzyDate | null {
+  if (!date || date.year == null) {
+    return null;
+  }
+  return {
+    year: date.year,
+    month: date.month ?? null,
+    day: date.day ?? null,
+  };
+}
 
 async function fetchUserSeasonalShowsLive(
   username: string,
@@ -31,13 +62,7 @@ async function fetchUserSeasonalShowsLive(
           status?: string | null;
           score?: number | null;
           notes?: string | null;
-          media: {
-            id: number;
-            title: { english?: string | null; romaji?: string | null; native?: string | null };
-            coverImage?: { large?: string | null } | null;
-            season?: string | null;
-            seasonYear?: number | null;
-          };
+          media: SeasonalListMedia;
         }>;
       } | null;
     },
@@ -45,13 +70,7 @@ async function fetchUserSeasonalShowsLive(
       status?: string | null;
       score?: number | null;
       notes?: string | null;
-      media: {
-        id: number;
-        title: { english?: string | null; romaji?: string | null; native?: string | null };
-        coverImage?: { large?: string | null } | null;
-        season?: string | null;
-        seasonYear?: number | null;
-      };
+      media: SeasonalListMedia;
     }
   >({
     query: TOOLS_USER_ANIME_LIST_QUERY,
@@ -75,6 +94,8 @@ async function fetchUserSeasonalShowsLive(
     coverImage: entry.media.coverImage?.large ?? null,
     season: entry.media.season ?? null,
     seasonYear: entry.media.seasonYear ?? null,
+    startDate: mapFuzzyDate(entry.media.startDate ?? null),
+    endDate: mapFuzzyDate(entry.media.endDate ?? null),
     score: normalizeSeasonalListScore(entry.score),
     notes: entry.notes ?? null,
     listStatus: entry.status ?? null,

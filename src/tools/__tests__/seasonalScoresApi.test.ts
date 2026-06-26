@@ -85,6 +85,22 @@ describe('fetchUserSeasonalShows', () => {
     expect(shows[0]?.listStatus).toBe('PLANNING');
   });
 
+  it('maps startDate and endDate from API media into SeasonalShow', async () => {
+    depaginateMock.mockResolvedValueOnce([
+      {
+        ...listEntry(1),
+        media: {
+          ...listEntry(1).media,
+          startDate: { year: 2026, month: 4, day: 1 },
+          endDate: { year: 2026, month: 8, day: null },
+        },
+      },
+    ]);
+    const shows = await fetchUserSeasonalShows('rh_test');
+    expect(shows[0]?.startDate).toEqual({ year: 2026, month: 4, day: 1 });
+    expect(shows[0]?.endDate).toEqual({ year: 2026, month: 8, day: null });
+  });
+
   it('shares the same cache regardless of whether the consumer wants planning shown', async () => {
     // No more per-(user, planning) cache split — both reads serve the
     // same PLANNING-inclusive list from one network round trip.
