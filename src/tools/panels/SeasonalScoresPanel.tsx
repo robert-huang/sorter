@@ -132,14 +132,22 @@ function SeasonalColumnsView({
 }) {
   return (
     <div className="tool-season-columns">
-      <DragScroll className="tool-season-scroll" initialScrollEnd>
+      <DragScroll
+        className="tool-season-scroll"
+        initialScrollEnd
+        scrollAnchorSelector="[data-scroll-anchor]"
+      >
         <div className="tool-season-body">
           {columns.map((col, colIdx) => {
             const searchLink = bindAnilistMiddleClick(
               anilistUrlForSeasonSearch(col.season, col.year),
             );
             return (
-            <div key={`${colIdx}-${col.label}`} className="tool-season-column">
+            <div
+              key={`${colIdx}-${col.label}`}
+              className="tool-season-column"
+              data-scroll-anchor={col.label}
+            >
               <div className="tool-season-col-head">
                 <div
                   className={mergeAnilistLinkClass(

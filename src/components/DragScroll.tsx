@@ -1,5 +1,10 @@
 import { useLayoutEffect, useRef, type ReactNode } from 'react';
 import { useDragScroll } from '../lib/hooks/useDragScroll';
+import {
+  captureLeftmostVisibleScrollAnchor,
+  restoreScrollAnchor,
+  type ScrollAnchorSnapshot,
+} from '../lib/scrollAnchor';
 
 type DragScrollProps = {
   className?: string;
@@ -11,6 +16,19 @@ type DragScrollProps = {
    * begins on the most recent season instead of the oldest.
    */
   initialScrollEnd?: boolean;
+  /**
+   * When set, preserve the leftmost visible matching child's viewport
+   * position across content updates (e.g. season columns after a filter
+   * toggle). Falls back to scroll-ratio preservation when the anchor is
+   * missing after the rebuild.
+   */
+  scrollAnchorSelector?: string;
+  scrollAnchorAttribute?: string;
+};
+
+type SavedScrollState = {
+  ratio: number;
+  anchor: ScrollAnchorSnapshot | null;
 };
 
 function maxScrollLeft(el: HTMLElement): number {
@@ -22,15 +40,16 @@ export function DragScroll({
   className,
   children,
   initialScrollEnd = false,
+  scrollAnchorSelector,
+  scrollAnchorAttribute = 'data-scroll-anchor',
 }: DragScrollProps) {
   const { ref, ...dragProps } = useDragScroll<HTMLDivElement>();
   const isFirstLayoutRef = useRef(true);
-  const savedScrollRatioRef = useRef<number | null>(null);
+  const savedScrollRef = useRef<SavedScrollState | null>(null);
 
   // useLayoutEffect runs after DOM commit (so scrollWidth is final) and
   // before paint. On first mount with `initialScrollEnd`, snap right.
-  // On later passes, restore the user's prior scroll ratio so filter
-  // toggles / relabels don't jolt them to either edge.
+  // On later passes, restore the user's column anchor or scroll ratio.
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) {
@@ -42,10 +61,24 @@ export function DragScroll({
       if (initialScrollEnd) {
         el.scrollLeft = maxScrollLeft(el) || el.scrollWidth;
       }
-    } else if (savedScrollRatioRef.current != null) {
-      const max = maxScrollLeft(el);
-      el.scrollLeft = savedScrollRatioRef.current * max;
-      savedScrollRatioRef.current = null;
+    } else if (savedScrollRef.current != null) {
+      const saved = savedScrollRef.current;
+      savedScrollRef.current = null;
+
+      const anchorRestored =
+        saved.anchor != null &&
+        scrollAnchorSelector != null &&
+        restoreScrollAnchor(
+          el,
+          scrollAnchorSelector,
+          saved.anchor,
+          scrollAnchorAttribute,
+        );
+
+      if (!anchorRestored) {
+        const max = maxScrollLeft(el);
+        el.scrollLeft = saved.ratio * max;
+      }
     }
 
     return () => {
@@ -53,11 +86,21 @@ export function DragScroll({
       if (!cleanupEl) {
         return;
       }
+
       const max = maxScrollLeft(cleanupEl);
-      savedScrollRatioRef.current = max > 0 ? cleanupEl.scrollLeft / max : 0;
+      const ratio = max > 0 ? cleanupEl.scrollLeft / max : 0;
+      const anchor =
+        scrollAnchorSelector != null
+          ? captureLeftmostVisibleScrollAnchor(
+              cleanupEl,
+              scrollAnchorSelector,
+              scrollAnchorAttribute,
+            )
+          : null;
+      savedScrollRef.current = { ratio, anchor };
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- ref is stable; children drives restore
-  }, [children, initialScrollEnd]);
+  }, [children, initialScrollEnd, scrollAnchorAttribute, scrollAnchorSelector]);
 
   return (
     <div

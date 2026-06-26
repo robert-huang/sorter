@@ -177,4 +177,88 @@ describe('DragScroll scroll preservation', () => {
     });
     remountContainer.remove();
   });
+
+  it('keeps the same anchored column visible when the anchor still exists', () => {
+    act(() => {
+      root.render(
+        <DragScroll initialScrollEnd scrollAnchorSelector="[data-scroll-anchor]">
+          <div style={{ display: 'flex' }}>
+            <div
+              data-scroll-anchor="Spring 2020"
+              ref={(node) => {
+                if (node) {
+                  setStubScrollWidth(node.parentElement!.parentElement!, 1000);
+                  node.getBoundingClientRect = () => mockRect(120, 100);
+                }
+              }}
+            >
+              Spring
+            </div>
+            <div
+              data-scroll-anchor="Summer 2020"
+              ref={(node) => {
+                if (node) {
+                  node.getBoundingClientRect = () => mockRect(260, 100);
+                }
+              }}
+            >
+              Summer
+            </div>
+          </div>
+        </DragScroll>,
+      );
+    });
+
+    const el = getScrollContainer();
+    el.getBoundingClientRect = () => mockRect(0, 400);
+    el.scrollLeft = 100;
+
+    act(() => {
+      root.render(
+        <DragScroll initialScrollEnd scrollAnchorSelector="[data-scroll-anchor]">
+          <div style={{ display: 'flex' }}>
+            <div
+              data-scroll-anchor="Spring 2020"
+              ref={(node) => {
+                if (node) {
+                  setStubScrollWidth(node.parentElement!.parentElement!, 1400);
+                  node.getBoundingClientRect = () => mockRect(220, 100);
+                }
+              }}
+            >
+              Spring (taller)
+            </div>
+            <div
+              data-scroll-anchor="Summer 2020"
+              ref={(node) => {
+                if (node) {
+                  node.getBoundingClientRect = () => mockRect(360, 100);
+                }
+              }}
+            >
+              Summer
+            </div>
+          </div>
+        </DragScroll>,
+      );
+    });
+
+    expect(el.scrollLeft).toBe(200);
+  });
 });
+
+function mockRect(left: number, width: number): DOMRect {
+  return {
+    left,
+    right: left + width,
+    top: 0,
+    bottom: 100,
+    width,
+    height: 100,
+    x: left,
+    y: 0,
+    toJSON() {
+      return {};
+    },
+  };
+}
