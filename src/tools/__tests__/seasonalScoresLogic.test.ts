@@ -661,5 +661,45 @@ describe('seasonalScoresLogic', () => {
         expect(result.columns[1]?.shows[0]?.extendedPlacement).toBe(false);
       }
     });
+
+    it('does not leak across season boundary weeks (late winter start / early spring end)', () => {
+      const shows: SeasonalShow[] = [
+        {
+          id: 10,
+          title: 'Shunkashuutou Daikousha',
+          season: 'SPRING',
+          seasonYear: 2024,
+          startDate: { year: 2024, month: 3, day: 29 },
+          endDate: { year: 2024, month: 6, day: 15 },
+          score: 85,
+          notes: null,
+        },
+        {
+          id: 11,
+          title: 'Darwin Jihen',
+          season: 'WINTER',
+          seasonYear: 2024,
+          startDate: { year: 2024, month: 1, day: 5 },
+          endDate: { year: 2024, month: 4, day: 1 },
+          score: 75,
+          notes: null,
+        },
+      ];
+      const result = buildSeasonalColumns(
+        shows,
+        {
+          ...spanForm,
+          seasonText: 'Winter 2024\nSpring 2024',
+        },
+      );
+      expect(result.kind).toBe('columns');
+      if (result.kind !== 'columns') {
+        return;
+      }
+      const winter = result.columns.find((c) => c.label === 'Winter 2024');
+      const spring = result.columns.find((c) => c.label === 'Spring 2024');
+      expect(winter?.shows.map((s) => s.title)).toEqual(['Darwin Jihen']);
+      expect(spring?.shows.map((s) => s.title)).toEqual(['Shunkashuutou Daikousha']);
+    });
   });
 });

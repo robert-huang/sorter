@@ -291,6 +291,107 @@ function intervalsOverlap(a: AiringInterval, b: AiringInterval): boolean {
   return a.start <= b.end && a.end >= b.start;
 }
 
+type AnilistSeasonName = (typeof SEASON_NAMES)[number];
+
+function parseCalendarKey(key: number): { year: number; month: number; day: number } {
+  return {
+    year: Math.floor(key / 10_000),
+    month: Math.floor((key % 10_000) / 100),
+    day: key % 100,
+  };
+}
+
+function addDaysToCalendarKey(key: number, deltaDays: number): number {
+  const { year, month, day } = parseCalendarKey(key);
+  const date = new Date(year, month - 1, day);
+  date.setDate(date.getDate() + deltaDays);
+  return calendarDateKey(date.getFullYear(), date.getMonth() + 1, date.getDate());
+}
+
+function anilistSeasonAt(key: number): { season: AnilistSeasonName; year: number } {
+  const { year, month } = parseCalendarKey(key);
+  if (month <= 3) {
+    return { season: 'WINTER', year };
+  }
+  if (month <= 6) {
+    return { season: 'SPRING', year };
+  }
+  if (month <= 9) {
+    return { season: 'SUMMER', year };
+  }
+  return { season: 'FALL', year };
+}
+
+function firstDayOfNextAnilistSeason(
+  season: AnilistSeasonName,
+  year: number,
+): number {
+  switch (season) {
+    case 'WINTER':
+      return calendarDateKey(year, 4, 1);
+    case 'SPRING':
+      return calendarDateKey(year, 7, 1);
+    case 'SUMMER':
+      return calendarDateKey(year, 10, 1);
+    case 'FALL':
+      return calendarDateKey(year + 1, 1, 1);
+  }
+}
+
+function lastDayOfPreviousAnilistSeason(
+  season: AnilistSeasonName,
+  year: number,
+): number {
+  switch (season) {
+    case 'WINTER':
+      return calendarDateKey(year - 1, 12, 31);
+    case 'SPRING':
+      return calendarDateKey(year, 3, 31);
+    case 'SUMMER':
+      return calendarDateKey(year, 6, 30);
+    case 'FALL':
+      return calendarDateKey(year, 9, 30);
+  }
+}
+
+function isInLastWeekOfItsSeason(key: number): boolean {
+  const { season, year } = anilistSeasonAt(key);
+  const bounds = seasonSpecCalendarInterval({ label: '', season, year });
+  const lastWeekStart = addDaysToCalendarKey(bounds.end, -6);
+  return key >= lastWeekStart && key <= bounds.end;
+}
+
+function isInFirstWeekOfItsSeason(key: number): boolean {
+  const { season, year } = anilistSeasonAt(key);
+  const bounds = seasonSpecCalendarInterval({ label: '', season, year });
+  const firstWeekEnd = addDaysToCalendarKey(bounds.start, 6);
+  return key >= bounds.start && key <= firstWeekEnd;
+}
+
+/**
+ * Trim boundary leakage: starts in the last week of a season don't count
+ * toward that season; ends in the first week don't count toward that season.
+ */
+export function clampAiringIntervalSeasonBoundaries(
+  interval: AiringInterval,
+): AiringInterval | null {
+  let { start, end } = interval;
+
+  if (isInLastWeekOfItsSeason(start)) {
+    const { season, year } = anilistSeasonAt(start);
+    start = firstDayOfNextAnilistSeason(season, year);
+  }
+  if (isInFirstWeekOfItsSeason(end)) {
+    const { season, year } = anilistSeasonAt(end);
+    end = lastDayOfPreviousAnilistSeason(season, year);
+  }
+
+  if (start > end) {
+    return null;
+  }
+  return { start, end };
+}
+
 /** AniList season calendar windows (inclusive). */
 export function seasonSpecCalendarInterval(spec: SeasonSpec): AiringInterval {
   if (spec.season === null) {
@@ -365,7 +466,11 @@ export function showMatchesSeasonSpec(
   if (airing == null) {
     return matchesSeasonYearAndTag(show, spec);
   }
-  return intervalsOverlap(airing, seasonSpecCalendarInterval(spec));
+  const clamped = clampAiringIntervalSeasonBoundaries(airing);
+  if (clamped == null) {
+    return matchesSeasonYearAndTag(show, spec);
+  }
+  return intervalsOverlap(clamped, seasonSpecCalendarInterval(spec));
 }
 
 export function bucketShowsForSeason(
