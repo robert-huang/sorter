@@ -442,16 +442,36 @@ function matchesSeasonYearAndTag(
   return true;
 }
 
-/** Span mode: show is in this column only because airing dates overlap. */
+/** Span mode: faded when this column is an extra season beyond the show's tagged slot. */
+export function showAppearsInTaggedSeasonColumn(
+  show: SeasonalShow,
+  specs: SeasonSpec[],
+  options: { spanAiringSeasons: boolean; now: Date },
+): boolean {
+  if (show.seasonYear == null) {
+    return false;
+  }
+  for (const taggedSpec of specs) {
+    if (!matchesSeasonYearAndTag(show, taggedSpec)) {
+      continue;
+    }
+    if (showMatchesSeasonSpec(show, taggedSpec, options)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function isExtendedSeasonPlacement(
   show: SeasonalShow,
   spec: SeasonSpec,
   spanAiringSeasons: boolean,
+  appearsInTaggedSeasonColumn: boolean,
 ): boolean {
-  if (!spanAiringSeasons) {
+  if (!spanAiringSeasons || matchesSeasonYearAndTag(show, spec)) {
     return false;
   }
-  return !matchesSeasonYearAndTag(show, spec);
+  return appearsInTaggedSeasonColumn;
 }
 
 export function showMatchesSeasonSpec(
@@ -545,6 +565,15 @@ export function buildSeasonalColumns(
   }
 
   const columns: SeasonColumn[] = [];
+  const matchOptions = { spanAiringSeasons: form.spanAiringSeasons, now };
+  const appearsInTaggedSeasonById = new Map<number, boolean>();
+  for (const show of shows) {
+    appearsInTaggedSeasonById.set(
+      show.id,
+      showAppearsInTaggedSeasonColumn(show, specs, matchOptions),
+    );
+  }
+
   for (const spec of specs) {
     const bucket = bucketShowsForSeason(
       shows,
@@ -569,7 +598,12 @@ export function buildSeasonalColumns(
         coverImage: show.coverImage ?? null,
         score: normalizeSeasonalListScore(show.score),
         listStatus: show.listStatus ?? null,
-        extendedPlacement: isExtendedSeasonPlacement(show, spec, form.spanAiringSeasons),
+        extendedPlacement: isExtendedSeasonPlacement(
+          show,
+          spec,
+          form.spanAiringSeasons,
+          appearsInTaggedSeasonById.get(show.id) ?? false,
+        ),
       })),
     });
   }

@@ -701,5 +701,32 @@ describe('seasonalScoresLogic', () => {
       expect(winter?.shows.map((s) => s.title)).toEqual(['Darwin Jihen']);
       expect(spring?.shows.map((s) => s.title)).toEqual(['Shunkashuutou Daikousha']);
     });
+
+    it('does not fade when dates place a show only outside its AniList season tag', () => {
+      const shows: SeasonalShow[] = [
+        {
+          id: 12,
+          title: 'Ray Chou Kaguya Hime',
+          season: 'SPRING',
+          seasonYear: 2026,
+          startDate: { year: 2026, month: 1, day: 10 },
+          endDate: { year: 2026, month: 3, day: 15 },
+          score: 82,
+          notes: null,
+        },
+      ];
+      const result = buildSeasonalColumns(
+        shows,
+        { ...spanForm, seasonText: 'Winter 2026\nSpring 2026' },
+      );
+      expect(result.kind).toBe('columns');
+      if (result.kind === 'columns') {
+        const winter = result.columns.find((c) => c.label === 'Winter 2026');
+        const spring = result.columns.find((c) => c.label === 'Spring 2026');
+        expect(winter?.shows.map((s) => s.title)).toEqual(['Ray Chou Kaguya Hime']);
+        expect(spring?.shows).toHaveLength(0);
+        expect(winter?.shows[0]?.extendedPlacement).toBe(false);
+      }
+    });
   });
 });
