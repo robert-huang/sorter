@@ -37,49 +37,89 @@ export function dictIntersection<T>(
  * show's role list in order; each role is paired with the same label in other
  * shows when present. Unmatched roles from other shows follow in their native
  * order.
+ *
+ * An optional `normalize` hook lets callers collapse cosmetically-different
+ * labels that should still share a row — e.g. production-staff roles where
+ * AniList tacks on episode / segment scope as a parenthetical (`Animation
+ * Director (OP1, OP3)` vs `Animation Director (eps 1-4)`). The match is
+ * exact-label-first and only falls back to the normalized key, so identical
+ * labels still align to their identical counterparts before fuzzy matches
+ * pull them off — that preserves the previous identity-preferring layout when
+ * exact matches exist on both sides. Displayed cells always carry the
+ * ORIGINAL label so the parenthetical detail survives the merge.
+ *
+ * Default normalize is the identity, which preserves the original
+ * exact-string-only behaviour for callers (studios, etc.) that don't want
+ * the fuzzy match.
  */
 export function alignRoleCellsAcrossShows(
   roleLists: ReadonlyArray<readonly string[]>,
+  normalize: (label: string) => string = (label) => label,
 ): string[][] {
   const showCount = roleLists.length;
   if (showCount === 0) {
     return [];
   }
 
-  const remaining = roleLists.map((roles) => [...roles]);
+  // Parallel `{ label, key }` per pool so we don't re-normalize on every
+  // findIndex. Splices remove entries from both fields at once.
+  type PoolEntry = { label: string; key: string };
+  const remaining: PoolEntry[][] = roleLists.map((roles) =>
+    roles.map((label) => ({ label, key: normalize(label) })),
+  );
+
+  /** Prefer an exact label match (so identical labels stay paired together);
+   *  fall back to matching on the normalized key when no exact match exists. */
+  function findMatchIdx(pool: PoolEntry[], label: string, key: string): number {
+    const exact = pool.findIndex((entry) => entry.label === label);
+    if (exact >= 0) return exact;
+    return pool.findIndex((entry) => entry.key === key);
+  }
+
   const rows: string[][] = [];
 
-  for (const role of roleLists[0] ?? []) {
+  // Phase 1: anchor on show 0. Each anchor role pulls its own match (or
+  // a normalized-key match) out of every other show's pool.
+  const anchorRoles = roleLists[0] ?? [];
+  for (const anchorLabel of anchorRoles) {
     const cells = Array<string>(showCount).fill('');
-    cells[0] = role;
+    cells[0] = anchorLabel;
+    const anchorKey = normalize(anchorLabel);
+
     const anchorPool = remaining[0]!;
-    anchorPool.splice(anchorPool.indexOf(role), 1);
+    const anchorPoolIdx = findMatchIdx(anchorPool, anchorLabel, anchorKey);
+    if (anchorPoolIdx >= 0) {
+      anchorPool.splice(anchorPoolIdx, 1);
+    }
 
     for (let showIdx = 1; showIdx < showCount; showIdx += 1) {
       const pool = remaining[showIdx]!;
-      const matchIdx = pool.indexOf(role);
+      const matchIdx = findMatchIdx(pool, anchorLabel, anchorKey);
       if (matchIdx >= 0) {
-        cells[showIdx] = role;
+        cells[showIdx] = pool[matchIdx]!.label;
         pool.splice(matchIdx, 1);
       }
     }
     rows.push(cells);
   }
 
+  // Phase 2: leftover roles only present on non-anchor shows. Same
+  // exact-first / key-fallback rule lets a role that's only on shows 2+
+  // still cluster on one row even if the labels differ in detail.
   for (let showIdx = 1; showIdx < showCount; showIdx += 1) {
     const pool = remaining[showIdx]!;
     while (pool.length > 0) {
-      const role = pool.shift()!;
+      const seed = pool.shift()!;
       const cells = Array<string>(showCount).fill('');
-      cells[showIdx] = role;
+      cells[showIdx] = seed.label;
       for (let otherIdx = 0; otherIdx < showCount; otherIdx += 1) {
         if (otherIdx === showIdx) {
           continue;
         }
         const otherPool = remaining[otherIdx]!;
-        const matchIdx = otherPool.indexOf(role);
+        const matchIdx = findMatchIdx(otherPool, seed.label, seed.key);
         if (matchIdx >= 0) {
-          cells[otherIdx] = role;
+          cells[otherIdx] = otherPool[matchIdx]!.label;
           otherPool.splice(matchIdx, 1);
         }
       }

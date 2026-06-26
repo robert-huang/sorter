@@ -5682,6 +5682,33 @@ html {
   white-space: normal;
 }
 
+/* Shared Staff compare tables can run to dozens of production-staff
+   rows; without a height cap the show-title header row scrolls out of
+   view long before the staff list ends. Bound the wrapper height so
+   the wrapper itself becomes a vertical scroll container — that's the
+   anchor `position: sticky` on the <th> cells needs. Page-scroll still
+   pushes the whole chart off-screen once it leaves the viewport
+   (scroll chaining hands wheel events back to the document after the
+   internal scroll bottoms out). */
+.tool-staff-compare-wrap {
+  max-height: min(80vh, 720px);
+  overflow-y: auto;
+}
+
+.tool-staff-compare-wrap .tool-staff-compare-table thead th {
+  position: sticky;
+  top: 0;
+  /* Sit above body cells so column borders / staff thumbnails don't
+     bleed through. Section h3 isn't sticky (the show title is the
+     informative bit per the request) so a 2-stack of z-indices isn't
+     needed. */
+  z-index: 2;
+  /* th already gets var(--surface-2) from the base rule — repeat here
+     so a future theme tweak that drops the background won't suddenly
+     make the pinned row see-through. */
+  background: var(--surface-2);
+}
+
 .tool-credits-table-outer {
   width: fit-content;
   max-width: 100%;

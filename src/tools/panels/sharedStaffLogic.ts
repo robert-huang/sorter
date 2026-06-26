@@ -7,6 +7,7 @@ import { parseLinesOnePerLine } from '../parseToolLines';
 import {
   anyTrimmedRoleInSet,
   MUSIC_ROLES,
+  trimProductionRole,
   VISUALS_ROLES,
   WRITING_ROLES,
 } from '../../lib/importers/anilist/staffRoleBuckets';
@@ -220,9 +221,14 @@ function entityRowsForCompare(
             }));
           }),
         )
-      : kind === 'studio'
+        : kind === 'studio'
         ? [maps.map((m) => formatStudioRoleCell(m[id]?.roles ?? []))]
-        : alignRoleCellsAcrossShows(roleLists);
+        : // Production staff: collapse "(...)" scope details when aligning
+          // so e.g. `Animation Director (OP1, OP3)` lands on the same row
+          // as `Animation Director (eps 1-4)` for the same person across
+          // shows. Cells still display the full original label so the user
+          // can see WHICH episodes/segments each show credits them for.
+          alignRoleCellsAcrossShows(roleLists, trimProductionRole);
   // Find name/image from any map that has this entity — required for
   // "include all" mode where the entity may be absent from maps[0].
   const firstHit = maps.find((m) => m[id]);

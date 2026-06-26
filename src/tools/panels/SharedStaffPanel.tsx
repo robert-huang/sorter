@@ -311,9 +311,12 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
 
       {result?.kind === 'compare' &&
         result.sections.map((section) => (
-          <DragScroll key={section.title} className="tool-results tool-table-wrap">
+          <DragScroll
+            key={section.title}
+            className="tool-results tool-table-wrap tool-staff-compare-wrap"
+          >
             <h3 className="tool-section-title">{section.title}</h3>
-            <table className="tool-result-table">
+            <table className="tool-result-table tool-staff-compare-table">
               <thead>
                 <tr>
                   <th className="tool-staff-compare-entity"></th>
