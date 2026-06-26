@@ -200,6 +200,52 @@ function formatStudioRoleCell(roles: readonly string[]): string {
   return roles.join(', ');
 }
 
+function studioHasRole(entity: CreditedEntity | undefined, role: 'Main' | 'Supporting'): boolean {
+  return entity?.roles.includes(role) ?? false;
+}
+
+/**
+ * Studio compare rows: mains for show 1, then show 2, … then supporting
+ * studios for show 1, show 2, … (left-to-right / top-to-down in the grid).
+ */
+export function orderStudioEntityIds(
+  maps: CreditedEntityMap[],
+  threshold: number,
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+
+  const qualifies = (id: string): boolean => {
+    const count = maps.reduce((acc, map) => acc + (id in map ? 1 : 0), 0);
+    return count >= threshold;
+  };
+
+  const add = (id: string) => {
+    if (!seen.has(id) && qualifies(id)) {
+      seen.add(id);
+      out.push(id);
+    }
+  };
+
+  for (const map of maps) {
+    for (const id of Object.keys(map)) {
+      if (studioHasRole(map[id], 'Main')) {
+        add(id);
+      }
+    }
+  }
+
+  for (const map of maps) {
+    for (const id of Object.keys(map)) {
+      if (studioHasRole(map[id], 'Supporting')) {
+        add(id);
+      }
+    }
+  }
+
+  return out;
+}
+
 function entityRowsForCompare(
   maps: CreditedEntityMap[],
   id: string,
@@ -302,7 +348,9 @@ export function buildCompareSections(
       continue;
     }
 
-    if (section.key === 'voiceActors') {
+    if (section.key === 'studios') {
+      ids = orderStudioEntityIds(maps, threshold);
+    } else if (section.key === 'voiceActors') {
       ids = [...ids].sort((a, b) => compareByRelevanceOrder(maps, a, b));
     }
 

@@ -265,6 +265,7 @@ describe('sharedStaffLogic', () => {
     const sections = buildCompareSections([left, right], { includeAll: true, productionAllRoles: true });
 
     const studios = sections.find((s) => s.title === 'Studios');
+    expect(studios?.rows.map((row) => row.entityId)).toEqual([5, 6]);
     expect(studios?.rows).toEqual([
       expect.objectContaining({ entityId: 5, name: 'Studio A', cells: ['Main', ''] }),
       expect.objectContaining({ entityId: 6, name: 'Studio B', cells: ['', 'Main'] }),
@@ -275,6 +276,30 @@ describe('sharedStaffLogic', () => {
       { id: 10, name: 'Director', cells: ['Director', ''] },
       { id: 10, name: '', cells: ['', 'Storyboard'] },
       { id: 11, name: 'Composer', cells: ['', 'Music'] },
+    ]);
+  });
+
+  it('orders studio rows: mains per show left-to-right, then supporting per show', () => {
+    const show1 = bundle(1, 'Show 1', {
+      studios: {
+        '5': { name: 'Main A', roles: ['Main'] },
+        '7': { name: 'Support X', roles: ['Supporting'] },
+      },
+    });
+    const show2 = bundle(2, 'Show 2', {
+      studios: {
+        '6': { name: 'Main B', roles: ['Main'] },
+        '7': { name: 'Support X', roles: ['Supporting'] },
+        '8': { name: 'Support Y', roles: ['Supporting'] },
+      },
+    });
+    const sections = buildCompareSections([show1, show2], { includeAll: true, productionAllRoles: true });
+    const studios = sections.find((s) => s.title === 'Studios');
+    expect(studios?.rows.map((row) => ({ id: row.entityId, name: row.name, cells: row.cells }))).toEqual([
+      { id: 5, name: 'Main A', cells: ['Main', ''] },
+      { id: 6, name: 'Main B', cells: ['', 'Main'] },
+      { id: 7, name: 'Support X', cells: ['Supporting', 'Supporting'] },
+      { id: 8, name: 'Support Y', cells: ['', 'Supporting'] },
     ]);
   });
 
