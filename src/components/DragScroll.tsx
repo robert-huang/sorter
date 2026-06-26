@@ -1,57 +1,63 @@
-import { useLayoutEffect, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, type ReactNode } from 'react';
 import { useDragScroll } from '../lib/hooks/useDragScroll';
 
 type DragScrollProps = {
   className?: string;
   children: ReactNode;
   /**
-   * When true, scroll the container all the way to its right edge after
-   * mount. Opt-in because most consumers want the natural left-anchored
-   * start; Seasonal Scores opts in so the chart begins on the most recent
-   * season instead of the oldest.
+   * When true, scroll the container all the way to its right edge on the
+   * first layout pass only. Opt-in because most consumers want the natural
+   * left-anchored start; Seasonal Scores opts in so a freshly loaded chart
+   * begins on the most recent season instead of the oldest.
    */
   initialScrollEnd?: boolean;
-  /**
-   * Re-trigger the {@link initialScrollEnd} snap-to-right whenever this
-   * value changes. Use when the chart contents change shape WITHOUT the
-   * parent unmounting (e.g. Seasonal Scores: toggling Skip Empty / Only
-   * #airing / switching season mode rebuilds the columns in place via
-   * the form-watching effect, never going through `setResult(null)`).
-   *
-   * Omit (or pass a stable value) to preserve the user's scroll position
-   * across re-renders — that's the right behavior for pure relabel
-   * passes (display-language change) where the SAME chart is shown with
-   * different labels and the user expects to stay where they were.
-   */
-  scrollEndKey?: string | number;
 };
+
+function maxScrollLeft(el: HTMLElement): number {
+  return Math.max(0, el.scrollWidth - el.clientWidth);
+}
 
 /** Scroll container that supports click-drag panning in any scroll direction. */
 export function DragScroll({
   className,
   children,
   initialScrollEnd = false,
-  scrollEndKey,
 }: DragScrollProps) {
   const { ref, ...dragProps } = useDragScroll<HTMLDivElement>();
+  const isFirstLayoutRef = useRef(true);
+  const savedScrollRatioRef = useRef<number | null>(null);
 
   // useLayoutEffect runs after DOM commit (so scrollWidth is final) and
-  // before paint (so the user never sees the left-anchored frame first).
-  // Re-runs on mount and on every `scrollEndKey` change — callers that
-  // want pure mount-only behavior simply don't pass `scrollEndKey`, and
-  // the deps array stays `[initialScrollEnd, undefined]` (constant after
-  // mount).
+  // before paint. On first mount with `initialScrollEnd`, snap right.
+  // On later passes, restore the user's prior scroll ratio so filter
+  // toggles / relabels don't jolt them to either edge.
   useLayoutEffect(() => {
-    if (!initialScrollEnd) {
-      return;
-    }
     const el = ref.current;
     if (!el) {
       return;
     }
-    el.scrollLeft = el.scrollWidth;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- ref is stable, intentional dep list
-  }, [initialScrollEnd, scrollEndKey]);
+
+    if (isFirstLayoutRef.current) {
+      isFirstLayoutRef.current = false;
+      if (initialScrollEnd) {
+        el.scrollLeft = maxScrollLeft(el) || el.scrollWidth;
+      }
+    } else if (savedScrollRatioRef.current != null) {
+      const max = maxScrollLeft(el);
+      el.scrollLeft = savedScrollRatioRef.current * max;
+      savedScrollRatioRef.current = null;
+    }
+
+    return () => {
+      const cleanupEl = ref.current;
+      if (!cleanupEl) {
+        return;
+      }
+      const max = maxScrollLeft(cleanupEl);
+      savedScrollRatioRef.current = max > 0 ? cleanupEl.scrollLeft / max : 0;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ref is stable; children drives restore
+  }, [children, initialScrollEnd]);
 
   return (
     <div

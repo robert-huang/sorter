@@ -1,15 +1,10 @@
 /**
- * DragScroll snap-to-right contract:
+ * DragScroll scroll contract:
  *
- *   - `initialScrollEnd` on mount: container's `scrollLeft` is set to its
- *     `scrollWidth` so callers like Seasonal Scores anchor on the most
- *     recent season instead of the oldest.
- *   - Without `scrollEndKey`: subsequent re-renders preserve the user's
- *     scroll position (so a display-language relabel doesn't jolt them).
- *   - With `scrollEndKey`: a change to that key re-runs the snap. This
- *     covers Seasonal Scores' form-toggle path — Skip Empty / mode /
- *     custom season text rebuild the columns in place via the
- *     form-watching effect, never going through `setResult(null)`.
+ *   - `initialScrollEnd` on first layout: container's `scrollLeft` is set to
+ *     its max scroll so Seasonal Scores anchors on the most recent season.
+ *   - Subsequent re-renders restore the user's scroll ratio so filter toggles,
+ *     relabels, and column content changes don't jolt them to either edge.
  */
 
 import { act } from 'react';
@@ -38,6 +33,13 @@ beforeEach(() => {
       return typeof v === 'number' ? v : 0;
     },
   });
+  Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
+    configurable: true,
+    get(this: HTMLElement) {
+      const v = (this as HTMLElement & { __clientWidth?: number }).__clientWidth;
+      return typeof v === 'number' ? v : 0;
+    },
+  });
 });
 
 afterEach(() => {
@@ -61,8 +63,6 @@ function getScrollContainer(): HTMLElement {
 
 describe('DragScroll initialScrollEnd', () => {
   it('snaps to the right edge on mount when initialScrollEnd is set', () => {
-    // The layout effect reads scrollWidth at commit time; arrange the
-    // stub via a setup callback that runs before the effect fires.
     act(() => {
       root.render(
         <DragScroll initialScrollEnd>
@@ -89,8 +89,8 @@ describe('DragScroll initialScrollEnd', () => {
   });
 });
 
-describe('DragScroll scrollEndKey', () => {
-  it('preserves scroll across re-renders when scrollEndKey is omitted', () => {
+describe('DragScroll scroll preservation', () => {
+  it('preserves scroll ratio across re-renders after the user pans', () => {
     act(() => {
       root.render(
         <DragScroll initialScrollEnd>
@@ -103,9 +103,6 @@ describe('DragScroll scrollEndKey', () => {
     const el = getScrollContainer();
     expect(el.scrollLeft).toBe(1000);
 
-    // Simulate the user dragging back to the start, then a relabel
-    // re-render with a different scrollWidth. Without scrollEndKey the
-    // effect must NOT fire again.
     el.scrollLeft = 200;
     act(() => {
       root.render(
@@ -116,44 +113,13 @@ describe('DragScroll scrollEndKey', () => {
         </DragScroll>,
       );
     });
-    expect(el.scrollLeft).toBe(200);
+    expect(el.scrollLeft).toBe(280);
   });
 
-  it('re-snaps to right when scrollEndKey changes', () => {
-    let stubWidth = 1000;
+  it('does NOT re-snap to the right when only chart content changes', () => {
     act(() => {
       root.render(
-        <DragScroll initialScrollEnd scrollEndKey="key-a">
-          <div ref={(node) => node && setStubScrollWidth(node.parentElement!, stubWidth)}>
-            v1
-          </div>
-        </DragScroll>,
-      );
-    });
-    const el = getScrollContainer();
-    expect(el.scrollLeft).toBe(1000);
-
-    // User scrolls back to look at older data.
-    el.scrollLeft = 100;
-
-    // Settings change rebuilds the chart in place — wider content, new key.
-    stubWidth = 1400;
-    act(() => {
-      root.render(
-        <DragScroll initialScrollEnd scrollEndKey="key-b">
-          <div ref={(node) => node && setStubScrollWidth(node.parentElement!, stubWidth)}>
-            v2 (wider — more columns)
-          </div>
-        </DragScroll>,
-      );
-    });
-    expect(el.scrollLeft).toBe(1400);
-  });
-
-  it('does NOT re-snap when scrollEndKey stays the same', () => {
-    act(() => {
-      root.render(
-        <DragScroll initialScrollEnd scrollEndKey="stable">
+        <DragScroll initialScrollEnd>
           <div ref={(node) => node && setStubScrollWidth(node.parentElement!, 1000)}>
             v1
           </div>
@@ -166,13 +132,49 @@ describe('DragScroll scrollEndKey', () => {
     el.scrollLeft = 300;
     act(() => {
       root.render(
-        <DragScroll initialScrollEnd scrollEndKey="stable">
+        <DragScroll initialScrollEnd>
           <div ref={(node) => node && setStubScrollWidth(node.parentElement!, 1400)}>
-            v2 (same shape, only labels changed)
+            v2 (wider — more columns)
           </div>
         </DragScroll>,
       );
     });
-    expect(el.scrollLeft).toBe(300);
+    expect(el.scrollLeft).toBe(420);
+  });
+
+  it('snaps to the right again only after a fresh mount', () => {
+    act(() => {
+      root.render(
+        <DragScroll initialScrollEnd>
+          <div ref={(node) => node && setStubScrollWidth(node.parentElement!, 1000)}>
+            v1
+          </div>
+        </DragScroll>,
+      );
+    });
+    getScrollContainer().scrollLeft = 100;
+
+    act(() => {
+      root.unmount();
+    });
+
+    const remountContainer = document.createElement('div');
+    document.body.appendChild(remountContainer);
+    const remountRoot = createRoot(remountContainer);
+    act(() => {
+      remountRoot.render(
+        <DragScroll initialScrollEnd>
+          <div ref={(node) => node && setStubScrollWidth(node.parentElement!, 1200)}>
+            fresh load
+          </div>
+        </DragScroll>,
+      );
+    });
+    const remounted = remountContainer.querySelector('.tool-drag-scroll');
+    expect(remounted instanceof HTMLElement && remounted.scrollLeft).toBe(1200);
+    act(() => {
+      remountRoot.unmount();
+    });
+    remountContainer.remove();
   });
 });

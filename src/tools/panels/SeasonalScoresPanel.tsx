@@ -130,21 +130,9 @@ function SeasonalColumnsView({
   columns: SeasonColumn[];
   onOpenMedia: ToolPanelProps['onOpenMedia'];
 }) {
-  // Snap-to-right whenever the column SHAPE changes (different number of
-  // columns, different mode, custom-season-list edit, etc.) — not when
-  // only show labels change due to a display-language relabel. Column
-  // labels ("Spring 2024", "2018", ...) are derived from form fields
-  // that affect columns, so hashing them captures every settings change
-  // that rebuilds the chart in place without triggering a parent
-  // unmount/remount.
-  const scrollEndKey = `${columns.length}|${columns.map((c) => c.label).join('|')}`;
   return (
     <div className="tool-season-columns">
-      <DragScroll
-        className="tool-season-scroll"
-        initialScrollEnd
-        scrollEndKey={scrollEndKey}
-      >
+      <DragScroll className="tool-season-scroll" initialScrollEnd>
         <div className="tool-season-body">
           {columns.map((col, colIdx) => {
             const searchLink = bindAnilistMiddleClick(
@@ -222,6 +210,8 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
   const [result, setResult] = useState<SeasonalScoresResult | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const showsRef = useRef<SeasonalShow[] | null>(null);
+  /** Bumped only on a successful list fetch so the chart remounts and snaps right once. */
+  const chartSessionRef = useRef(0);
   // Username at fetch time so a different user typed in can clear the
   // cached shows. The PLANNING dimension used to live here too; it now
   // doesn't — every fetch includes PLANNING and the checkbox filters
@@ -270,6 +260,7 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
       );
       showsRef.current = shows;
       fetchedUsernameRef.current = handle;
+      chartSessionRef.current += 1;
       setResult(
         buildSeasonalColumns(relabelSeasonalShows(shows), effectiveSeasonalForm(form)),
       );
@@ -434,7 +425,11 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
 
       {result?.kind === 'columns' && (
         <div className="tool-chart-fullbleed tool-season-fullbleed">
-          <SeasonalColumnsView columns={result.columns} onOpenMedia={onOpenMedia} />
+          <SeasonalColumnsView
+            key={chartSessionRef.current}
+            columns={result.columns}
+            onOpenMedia={onOpenMedia}
+          />
         </div>
       )}
     </section>
