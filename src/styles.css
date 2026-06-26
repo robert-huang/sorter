@@ -6282,24 +6282,14 @@ html {
   color: var(--text-muted);
   line-height: 1;
   text-align: right;
-  border-radius: 4px;
 }
 
 .tool-score-tone--high {
-  background-color: rgb(189, 234, 171);
-  color: var(--text);
+  color: rgb(189, 234, 171);
 }
 
 .tool-score-tone--low {
-  background-color: rgb(225, 128, 178);
-  color: var(--text);
-}
-
-.tool-season-col-avg.tool-score-tone--high,
-.tool-season-col-avg.tool-score-tone--low {
-  display: inline-block;
-  padding: 0 4px;
-  border-radius: 4px;
+  color: rgb(225, 128, 178);
 }
 
 .tool-season-title {
@@ -6397,11 +6387,6 @@ html {
   text-align: center;
   font-weight: 600;
   white-space: nowrap;
-}
-
-.tool-franchise-td-score.tool-score-tone--high,
-.tool-franchise-td-score.tool-score-tone--low {
-  border-radius: 4px;
 }
 
 .tool-franchise-row--seed {

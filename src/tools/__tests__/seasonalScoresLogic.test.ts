@@ -82,15 +82,15 @@ describe('seasonalScoresLogic', () => {
     expect(formatSeasonalScoreLabel(null, 'PLANNING')).toBe('P');
   });
 
-  it('scoreDisplayTone highlights scores above 8 and below 7', () => {
-    expect(scoreDisplayTone(9)).toBe('high');
-    expect(scoreDisplayTone(8)).toBeNull();
-    expect(scoreDisplayTone(7)).toBeNull();
-    expect(scoreDisplayTone(6)).toBe('low');
+  it('scoreDisplayTone highlights scores above 80 and below 70', () => {
+    expect(scoreDisplayTone(85)).toBe('high');
+    expect(scoreDisplayTone(80)).toBeNull();
+    expect(scoreDisplayTone(70)).toBeNull();
+    expect(scoreDisplayTone(65)).toBe('low');
     expect(scoreDisplayTone(null)).toBeNull();
-    expect(scoreDisplayToneClass(10)).toBe('tool-score-tone--high');
-    expect(scoreDisplayToneClass(5)).toBe('tool-score-tone--low');
-    expect(scoreDisplayToneClass(7.5)).toBe('');
+    expect(scoreDisplayToneClass(90)).toBe('tool-score-tone--high');
+    expect(scoreDisplayToneClass(50)).toBe('tool-score-tone--low');
+    expect(scoreDisplayToneClass(75)).toBe('');
   });
 
   it('averageScore ignores unrated paused and repeating entries', () => {

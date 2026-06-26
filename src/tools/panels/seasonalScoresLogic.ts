@@ -94,7 +94,7 @@ export function normalizeSeasonalListScore(score: number | null | undefined): nu
 
 export type ScoreDisplayTone = 'high' | 'low';
 
-/** Background tint for scored list entries: >8 green, <7 pink. */
+/** Text colour for scored list entries: >80 green, <70 pink. */
 export function scoreDisplayTone(
   score: number | null | undefined,
 ): ScoreDisplayTone | null {
@@ -102,10 +102,10 @@ export function scoreDisplayTone(
   if (normalized == null) {
     return null;
   }
-  if (normalized > 8) {
+  if (normalized > 80) {
     return 'high';
   }
-  if (normalized < 7) {
+  if (normalized < 70) {
     return 'low';
   }
   return null;
