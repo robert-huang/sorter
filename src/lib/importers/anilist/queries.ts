@@ -371,6 +371,12 @@ query StaffFilmography(
 ) {
   Staff(id: $id) {
     id
+    name { full native }
+    languageV2
+    image { large }
+    age
+    gender
+    favourites
     characterMedia(page: $charactersPage, perPage: $perPage) {
       pageInfo { hasNextPage currentPage }
       edges {
@@ -826,6 +832,10 @@ query ToolsCharacterVoiceMedia($id: Int!, $page: Int!, $perPage: Int!) {
           id
           name { full native }
           image { large }
+          age
+          gender
+          languageV2
+          favourites
         }
       }
     }

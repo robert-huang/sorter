@@ -9,8 +9,8 @@ import { mapCharacterMediaAppearanceData } from './mappers';
 import { MEDIA_UPSERT_SQL, mediaRowToParams } from './importer';
 import {
   DEFAULT_VOICE_ACTOR_LANGUAGE,
-  STAFF_UPSERT_SQL,
-  staffRowToParams,
+  STAFF_STUB_UPSERT_SQL,
+  staffStubRowToParams,
 } from './lazyExpansion';
 import { emitProgress } from './progress';
 import { TOOLS_CHARACTER_VOICE_MEDIA_QUERY } from './queries';
@@ -112,7 +112,7 @@ export async function expandCharacterMedia(
     stmts.push({ sql: MEDIA_UPSERT_SQL, params: mediaRowToParams(row) });
   }
   for (const row of appearance.staffRows) {
-    stmts.push({ sql: STAFF_UPSERT_SQL, params: staffRowToParams(row) });
+    stmts.push({ sql: STAFF_STUB_UPSERT_SQL, params: staffStubRowToParams(row) });
   }
   for (const mc of appearance.mediaCharacterRows) {
     stmts.push({

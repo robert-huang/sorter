@@ -203,6 +203,9 @@ describe('runFavouritesAnalysis caching', () => {
       expect.any(String),
       { forceRefresh: true },
     );
+    expect(ensureUserAnimeListFreshMock).toHaveBeenCalledWith('user', {
+      forceRefresh: true,
+    });
   });
 
   it('falls back to a capped live fetch when the DB read returns null after ensure', async () => {

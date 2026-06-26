@@ -12,15 +12,19 @@ import {
 } from './mappers';
 import { MEDIA_UPSERT_SQL, mediaRowToParams } from './importer';
 import {
-  CHARACTER_UPSERT_SQL,
-  characterRowToParams,
+  CHARACTER_STUB_UPSERT_SQL,
+  characterStubRowToParams,
   DEFAULT_VOICE_ACTOR_LANGUAGE,
+  STAFF_UPSERT_SQL,
+  staffRowToParams,
 } from './lazyExpansion';
+import { mapStaffRow } from './mappers';
 import { emitProgress } from './progress';
 import { buildStaffFilmographyQuery } from './queries';
 import type {
   AnilistStaffCharacterMediaEdgeGql,
   AnilistStaffFilmographyResponse,
+  AnilistStaffGql,
   AnilistStaffLanguage,
   AnilistStaffMediaEdgeGql,
 } from './types';
@@ -48,12 +52,17 @@ async function fetchCharacterPages(
   staffId: number,
   perPage: number,
   maxPages: number | undefined,
-): Promise<{ edges: AnilistStaffCharacterMediaEdgeGql[]; pagesFetched: number }> {
+): Promise<{
+  edges: AnilistStaffCharacterMediaEdgeGql[];
+  pagesFetched: number;
+  staff: AnilistStaffGql | null;
+}> {
   const query = buildStaffFilmographyQuery();
   const allEdges: AnilistStaffCharacterMediaEdgeGql[] = [];
   let page = 1;
   let pagesFetched = 0;
   let hasNext = true;
+  let staff: AnilistStaffGql | null = null;
 
   while (hasNext && (maxPages === undefined || pagesFetched < maxPages)) {
     const response = await ctx.executeQuery<AnilistStaffFilmographyResponse>(query, {
@@ -64,9 +73,12 @@ async function fetchCharacterPages(
     });
     if (!response?.Staff) {
       if (pagesFetched === 0) {
-        return { edges: [], pagesFetched: 0 };
+        return { edges: [], pagesFetched: 0, staff: null };
       }
       break;
+    }
+    if (staff === null) {
+      staff = response.Staff;
     }
     pagesFetched += 1;
     const conn = response.Staff.characterMedia;
@@ -85,7 +97,7 @@ async function fetchCharacterPages(
     page += 1;
   }
 
-  return { edges: allEdges, pagesFetched };
+  return { edges: allEdges, pagesFetched, staff };
 }
 
 async function fetchStaffMediaPages(
@@ -93,12 +105,17 @@ async function fetchStaffMediaPages(
   staffId: number,
   perPage: number,
   maxPages: number | undefined,
-): Promise<{ edges: AnilistStaffMediaEdgeGql[]; pagesFetched: number }> {
+): Promise<{
+  edges: AnilistStaffMediaEdgeGql[];
+  pagesFetched: number;
+  staff: AnilistStaffGql | null;
+}> {
   const query = buildStaffFilmographyQuery();
   const allEdges: AnilistStaffMediaEdgeGql[] = [];
   let page = 1;
   let pagesFetched = 0;
   let hasNext = true;
+  let staff: AnilistStaffGql | null = null;
 
   while (hasNext && (maxPages === undefined || pagesFetched < maxPages)) {
     const response = await ctx.executeQuery<AnilistStaffFilmographyResponse>(query, {
@@ -109,9 +126,12 @@ async function fetchStaffMediaPages(
     });
     if (!response?.Staff) {
       if (pagesFetched === 0) {
-        return { edges: [], pagesFetched: 0 };
+        return { edges: [], pagesFetched: 0, staff: null };
       }
       break;
+    }
+    if (staff === null) {
+      staff = response.Staff;
     }
     pagesFetched += 1;
     const conn = response.Staff.staffMedia;
@@ -130,7 +150,7 @@ async function fetchStaffMediaPages(
     page += 1;
   }
 
-  return { edges: allEdges, pagesFetched };
+  return { edges: allEdges, pagesFetched, staff };
 }
 
 export async function expandStaffFilmography(
@@ -156,6 +176,7 @@ export async function expandStaffFilmography(
   );
   const characterEdges = charResult.edges;
   const staffMediaEdges = staffMediaResult.edges;
+  let staffProfile = charResult.staff ?? staffMediaResult.staff;
 
   if (characterEdges.length === 0 && staffMediaEdges.length === 0) {
     const probe = await ctx.executeQuery<AnilistStaffFilmographyResponse>(
@@ -165,6 +186,7 @@ export async function expandStaffFilmography(
     if (!probe?.Staff) {
       return null;
     }
+    staffProfile = staffProfile ?? probe.Staff;
   }
 
   const appearance = mapStaffCharacterAppearanceData(staffId, characterEdges, language, now);
@@ -187,11 +209,18 @@ export async function expandStaffFilmography(
 
   const stmts: Array<{ sql: string; params: readonly SqlBindable[] }> = [];
 
+  if (staffProfile) {
+    stmts.push({
+      sql: STAFF_UPSERT_SQL,
+      params: staffRowToParams(mapStaffRow(staffProfile, now)),
+    });
+  }
+
   for (const row of mediaById.values()) {
     stmts.push({ sql: MEDIA_UPSERT_SQL, params: mediaRowToParams(row) });
   }
   for (const row of appearance.characterRows) {
-    stmts.push({ sql: CHARACTER_UPSERT_SQL, params: characterRowToParams(row) });
+    stmts.push({ sql: CHARACTER_STUB_UPSERT_SQL, params: characterStubRowToParams(row) });
   }
   for (const mc of appearance.mediaCharacterRows) {
     stmts.push({

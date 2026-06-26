@@ -2,11 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as client from '../lib/db/client';
 import { ANILIST_SOURCE_ID } from '../lib/importers/anilist/anilistSource';
 import { makeAnilistImportContext } from '../lib/importers/anilist/context';
+import { ensureMediaRelations } from '../lib/importers/anilist/ensureGraph';
 import {
-  ensureMediaCastExpanded,
-  ensureMediaRelations,
-  ensureStaffFilmography,
-} from '../lib/importers/anilist/ensureGraph';
+  ensureMediaCastFreshWithContext,
+  ensureStaffFilmographyFreshWithContext,
+} from '../lib/importers/anilist/toolsAnilistAccess';
 import {
   describeAnimeRandomPickFailure,
   getAnimeCacheStats,
@@ -500,7 +500,9 @@ export function AnimeToAnimeApp() {
       const ctx = importCtx.current;
       try {
         if (current.kind === 'anime') {
-          await ensureMediaCastExpanded(ctx, current.mediaId, { force: forceRefresh });
+          await ensureMediaCastFreshWithContext(ctx, current.mediaId, {
+            forceRefresh,
+          });
           if (rules.allowRelations) {
             await ensureMediaRelations(ctx, current.mediaId);
           }
@@ -541,7 +543,9 @@ export function AnimeToAnimeApp() {
           // The my-list toggle only applies to staff filmography lists.
           setMyListMediaIds(new Set());
         } else {
-          await ensureStaffFilmography(ctx, current.staffId, { force: forceRefresh });
+          await ensureStaffFilmographyFreshWithContext(ctx, current.staffId, {
+            forceRefresh,
+          });
           const staffRows = await ctx.db.exec('SELECT * FROM staff WHERE id = ?', [
             current.staffId,
           ]);

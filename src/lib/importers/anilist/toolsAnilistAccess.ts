@@ -4,7 +4,7 @@
  * falls back to live GraphQL when the DB has no rows.
  */
 
-import type { AnilistDbExecutor } from './context';
+import type { AnilistDbExecutor, AnilistImportContext } from './context';
 import { ensureMediaCastExpanded, ensureCharacterMedia, ensureStaffFilmography } from './ensureGraph';
 import {
   getCharacterMediaFetchedAt,
@@ -92,11 +92,11 @@ function mediaRowStartDateKey(media: {
   });
 }
 
-export async function ensureStaffFilmographyFresh(
+export async function ensureStaffFilmographyFreshWithContext(
+  ctx: AnilistImportContext,
   staffId: number,
   options?: ToolsFetchOptions,
 ): Promise<void> {
-  const ctx = getToolsImportContext();
   const fetchedAt = await getStaffFilmographyFetchedAt(ctx.db, staffId);
   const hasData = await hasStaffFilmography(ctx.db, staffId);
   const force =
@@ -104,6 +104,13 @@ export async function ensureStaffFilmographyFresh(
     !hasData ||
     needsGraphDataRefresh(fetchedAt, options);
   await ensureStaffFilmography(ctx, staffId, { force });
+}
+
+export async function ensureStaffFilmographyFresh(
+  staffId: number,
+  options?: ToolsFetchOptions,
+): Promise<void> {
+  await ensureStaffFilmographyFreshWithContext(getToolsImportContext(), staffId, options);
 }
 
 export async function ensureCharacterMediaFresh(
@@ -120,11 +127,11 @@ export async function ensureCharacterMediaFresh(
   await ensureCharacterMedia(ctx, characterId, { force });
 }
 
-export async function ensureMediaCastFresh(
+export async function ensureMediaCastFreshWithContext(
+  ctx: AnilistImportContext,
   mediaId: number,
   options?: ToolsFetchOptions,
 ): Promise<void> {
-  const ctx = getToolsImportContext();
   const status = await getMediaCastExpansionStatus(ctx.db, mediaId);
   const force =
     options?.forceRefresh ||
@@ -134,6 +141,13 @@ export async function ensureMediaCastFresh(
     needsGraphDataRefresh(status.charactersFetchedAt, options) ||
     needsGraphDataRefresh(status.staffFetchedAt, options);
   await ensureMediaCastExpanded(ctx, mediaId, { force });
+}
+
+export async function ensureMediaCastFresh(
+  mediaId: number,
+  options?: ToolsFetchOptions,
+): Promise<void> {
+  await ensureMediaCastFreshWithContext(getToolsImportContext(), mediaId, options);
 }
 
 /**

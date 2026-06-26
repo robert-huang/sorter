@@ -347,8 +347,7 @@ export type AnilistStaffMediaEdgeGql = {
 };
 
 export type AnilistStaffFilmographyResponse = {
-  Staff: {
-    id: number;
+  Staff: AnilistStaffGql & {
     characterMedia: {
       pageInfo: Pick<AnilistPageInfo, 'hasNextPage' | 'currentPage'>;
       edges: AnilistStaffCharacterMediaEdgeGql[];

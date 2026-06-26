@@ -101,6 +101,32 @@ export const STAFF_COLS = [
   'updated_at',
 ] as const;
 
+/** Identity-only staff upsert — does not touch profile fields like gender. */
+export const STAFF_STUB_COLS = [
+  'id',
+  'name_full',
+  'name_native',
+  'image',
+  'fetched_at',
+  'updated_at',
+] as const;
+
+export type StaffStubRow = Pick<StaffRow, (typeof STAFF_STUB_COLS)[number]>;
+
+/** Identity-only character upsert — does not touch profile fields like gender. */
+export const CHARACTER_STUB_COLS = [
+  'id',
+  'name_full',
+  'name_native',
+  'name_alternatives_json',
+  'name_alternatives_spoiler_json',
+  'image',
+  'fetched_at',
+  'updated_at',
+] as const;
+
+export type CharacterStubRow = Pick<CharacterRow, (typeof CHARACTER_STUB_COLS)[number]>;
+
 function buildPersonUpsertSql(table: string, cols: readonly string[]): string {
   const placeholders = cols.map(() => '?').join(', ');
   const updates = cols
@@ -127,8 +153,42 @@ function buildCharacterUpsertSql(): string {
   );
 }
 
+function buildStaffStubUpsertSql(): string {
+  const placeholders = STAFF_STUB_COLS.map(() => '?').join(', ');
+  const updates = STAFF_STUB_COLS.filter((c) => c !== 'id')
+    .map((c) => {
+      if (c === 'image') {
+        return `${c} = COALESCE(excluded.${c}, staff.${c})`;
+      }
+      return `${c} = excluded.${c}`;
+    })
+    .join(', ');
+  return (
+    `INSERT INTO staff (${STAFF_STUB_COLS.join(', ')}) VALUES (${placeholders}) ` +
+    `ON CONFLICT(id) DO UPDATE SET ${updates}`
+  );
+}
+
+function buildCharacterStubUpsertSql(): string {
+  const placeholders = CHARACTER_STUB_COLS.map(() => '?').join(', ');
+  const updates = CHARACTER_STUB_COLS.filter((c) => c !== 'id')
+    .map((c) => {
+      if (c === 'image') {
+        return `${c} = COALESCE(excluded.${c}, character.${c})`;
+      }
+      return `${c} = excluded.${c}`;
+    })
+    .join(', ');
+  return (
+    `INSERT INTO character (${CHARACTER_STUB_COLS.join(', ')}) VALUES (${placeholders}) ` +
+    `ON CONFLICT(id) DO UPDATE SET ${updates}`
+  );
+}
+
 export const CHARACTER_UPSERT_SQL = buildCharacterUpsertSql();
+export const CHARACTER_STUB_UPSERT_SQL = buildCharacterStubUpsertSql();
 export const STAFF_UPSERT_SQL = buildPersonUpsertSql('staff', STAFF_COLS);
+export const STAFF_STUB_UPSERT_SQL = buildStaffStubUpsertSql();
 
 export function characterRowToParams(row: CharacterRow): SqlBindable[] {
   return CHARACTER_COLS.map((c) => row[c]);
@@ -136,6 +196,14 @@ export function characterRowToParams(row: CharacterRow): SqlBindable[] {
 
 export function staffRowToParams(row: StaffRow): SqlBindable[] {
   return STAFF_COLS.map((c) => row[c]);
+}
+
+export function staffStubRowToParams(row: StaffStubRow): SqlBindable[] {
+  return STAFF_STUB_COLS.map((c) => row[c]);
+}
+
+export function characterStubRowToParams(row: CharacterStubRow): SqlBindable[] {
+  return CHARACTER_STUB_COLS.map((c) => row[c]);
 }
 
 type ExpansionPatch = {

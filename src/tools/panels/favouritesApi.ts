@@ -78,9 +78,10 @@ export type FavouritesRunProgress =
 async function fetchConsumedMediaIds(
   username: string,
   signal?: AbortSignal,
+  options?: FavouritesFetchOptions,
 ): Promise<Set<number>> {
   signal?.throwIfAborted();
-  const user = await ensureUserAnimeListFresh(username);
+  const user = await ensureUserAnimeListFresh(username, favouritesImportOptions(options));
   if (user) {
     const ctx = getToolsImportContext();
     const fromDb = await readConsumedMediaIdsFromDb(ctx.db, user.id);
@@ -365,7 +366,7 @@ export async function runFavouritesAnalysis(
 ): Promise<FavouritesAnalysisPayload> {
   const username = form.username.trim();
   onProgress({ phase: 'list' });
-  const consumedMediaIds = await fetchConsumedMediaIds(username, signal);
+  const consumedMediaIds = await fetchConsumedMediaIds(username, signal, fetchOptions);
 
   onProgress({ phase: 'characters' });
   const [characters, favouriteStaff] = await Promise.all([

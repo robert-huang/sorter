@@ -9,4 +9,10 @@ describe('buildStaffFilmographyQuery', () => {
     expect(q).toContain('staffRole');
     expect(q).not.toMatch(/edges\s*\{\s*role/m);
   });
+
+  it('requests staff profile fields on the root Staff node', () => {
+    const q = buildStaffFilmographyQuery();
+    expect(q).toContain('languageV2');
+    expect(q).toMatch(/Staff\(id: \$id\)[\s\S]*gender/);
+  });
 });
