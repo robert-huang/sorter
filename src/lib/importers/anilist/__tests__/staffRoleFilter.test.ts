@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   isKeyProductionRole,
+  normalizeProductionRoleForCompare,
   normalizeProductionRoleForMatch,
+  productionRoleRankIndex,
+  sortProductionRoleRowsByRank,
 } from '../staffRoleFilter';
 
 describe('normalizeProductionRoleForMatch', () => {
@@ -14,6 +17,44 @@ describe('normalizeProductionRoleForMatch', () => {
     expect(normalizeProductionRoleForMatch('Chief Assistant Animation Director')).toBe(
       'animation director',
     );
+  });
+});
+
+describe('normalizeProductionRoleForCompare', () => {
+  it('strips parentheticals but keeps rank prefixes distinct', () => {
+    expect(normalizeProductionRoleForCompare('Animation Director (eps 1-4)')).toBe(
+      'animation director',
+    );
+    expect(normalizeProductionRoleForCompare('Chief Animation Director')).toBe(
+      'chief animation director',
+    );
+    expect(normalizeProductionRoleForCompare('Animation Director')).toBe('animation director');
+  });
+});
+
+describe('productionRoleRankIndex', () => {
+  it('orders Executive before Chief before base before Assistant', () => {
+    expect(productionRoleRankIndex('Executive Animation Director')).toBe(0);
+    expect(productionRoleRankIndex('Chief Animation Director')).toBe(1);
+    expect(productionRoleRankIndex('Animation Director')).toBe(2);
+    expect(productionRoleRankIndex('Assistant Animation Director')).toBe(3);
+    expect(productionRoleRankIndex('Chief Animation Director')).toBeLessThan(
+      productionRoleRankIndex('Animation Director'),
+    );
+  });
+});
+
+describe('sortProductionRoleRowsByRank', () => {
+  it('orders rank variants of the same base role senior-first', () => {
+    expect(
+      sortProductionRoleRowsByRank([
+        ['Animation Director', ''],
+        ['', 'Chief Animation Director'],
+      ]),
+    ).toEqual([
+      ['', 'Chief Animation Director'],
+      ['Animation Director', ''],
+    ]);
   });
 });
 

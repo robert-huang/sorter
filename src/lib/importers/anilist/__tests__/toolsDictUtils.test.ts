@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { alignRoleCellsAcrossShows, alignVaRoleCellsAcrossShows } from '../toolsDictUtils';
-import { trimProductionRole } from '../staffRoleBuckets';
+import { normalizeProductionRoleForCompare } from '../staffRoleFilter';
 
 describe('alignRoleCellsAcrossShows', () => {
   it('aligns matching roles on the same row using the first show as anchor', () => {
@@ -58,7 +58,7 @@ describe('alignRoleCellsAcrossShows', () => {
             ['Theme Song Performance (OP5)'],
             ['Theme Song Performance (OP2a, OP2b)'],
           ],
-          trimProductionRole,
+          normalizeProductionRoleForCompare,
         ),
       ).toEqual([
         ['Theme Song Performance (OP5)', 'Theme Song Performance (OP2a, OP2b)'],
@@ -69,7 +69,7 @@ describe('alignRoleCellsAcrossShows', () => {
       expect(
         alignRoleCellsAcrossShows(
           [['Animation Director (OP1, OP3)'], ['Animation Director (eps 1-4)']],
-          trimProductionRole,
+          normalizeProductionRoleForCompare,
         ),
       ).toEqual([['Animation Director (OP1, OP3)', 'Animation Director (eps 1-4)']]);
     });
@@ -85,7 +85,7 @@ describe('alignRoleCellsAcrossShows', () => {
             ['Animation Director (OP1)', 'Animation Director (eps 1-2)'],
             ['Animation Director (eps 1-2)', 'Animation Director (OP1)'],
           ],
-          trimProductionRole,
+          normalizeProductionRoleForCompare,
         ),
       ).toEqual([
         ['Animation Director (OP1)', 'Animation Director (OP1)'],
@@ -104,7 +104,7 @@ describe('alignRoleCellsAcrossShows', () => {
             ['Animation Director (OP1)'],
             ['Animation Director (eps 5-7)'],
           ],
-          trimProductionRole,
+          normalizeProductionRoleForCompare,
         ),
       ).toEqual([
         ['Storyboard', '', ''],
@@ -112,17 +112,27 @@ describe('alignRoleCellsAcrossShows', () => {
       ]);
     });
 
-    it('keeps distinct roles on separate rows even after trimming', () => {
-      // "Sound Director" trims to "Sound", "Animation Director" trims to
-      // "Animation" — they must not collapse into one another.
+    it('keeps distinct roles on separate rows', () => {
       expect(
         alignRoleCellsAcrossShows(
           [['Sound Director (OP1)', 'Animation Director (eps 1)'], ['Sound Director (OP2)']],
-          trimProductionRole,
+          normalizeProductionRoleForCompare,
         ),
       ).toEqual([
         ['Sound Director (OP1)', 'Sound Director (OP2)'],
         ['Animation Director (eps 1)', ''],
+      ]);
+    });
+
+    it('keeps chief and base animation director on separate rows', () => {
+      expect(
+        alignRoleCellsAcrossShows(
+          [['Animation Director'], ['Chief Animation Director']],
+          normalizeProductionRoleForCompare,
+        ),
+      ).toEqual([
+        ['Animation Director', ''],
+        ['', 'Chief Animation Director'],
       ]);
     });
 

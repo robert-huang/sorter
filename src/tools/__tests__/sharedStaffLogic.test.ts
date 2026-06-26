@@ -3,6 +3,7 @@ import {
   buildCompareSections,
   finalizeSharedStaffResult,
   mergeVaRoleIntoMap,
+  sortVaRoleRowsByCastTier,
   type CreditedEntityMap,
   type ShowStaffBundle,
 } from '../panels/sharedStaffLogic';
@@ -226,7 +227,7 @@ describe('sharedStaffLogic', () => {
     expect(map['20']?.roleCharacterIds).toEqual([100]);
   });
 
-  it('sorts voice actors by first-show relevance order', () => {
+  it('sorts voice actors by first-show relevance order within the same cast tier', () => {
     const left = bundle(1, 'Left', {
       voiceActors: {
         '30': { name: 'Later VA', roles: ['MAIN Zed'], relevanceOrder: 5 },
@@ -242,6 +243,82 @@ describe('sharedStaffLogic', () => {
     const sections = buildCompareSections([left, right], OPTS_INTERSECT_ALL_ROLES);
     const vas = sections.find((s) => s.title === 'Voice Actors (JP)');
     expect(vas?.rows.filter((row) => row.name).map((row) => row.entityId)).toEqual([20, 30]);
+  });
+
+  it('orders voice actors MAIN per show left-to-right before SUPPORTING and BACKGROUND', () => {
+    const show1 = bundle(1, 'Show 1', {
+      voiceActors: {
+        '30': {
+          name: 'Supporting VA',
+          roles: ['SUPPORTING Side'],
+          relevanceOrder: 0,
+        },
+        '20': {
+          name: 'Main VA',
+          roles: ['MAIN Lead'],
+          relevanceOrder: 3,
+        },
+      },
+    });
+    const show2 = bundle(2, 'Show 2', {
+      voiceActors: {
+        '40': {
+          name: 'Background VA',
+          roles: ['BACKGROUND Extra'],
+          relevanceOrder: 0,
+        },
+        '20': {
+          name: 'Main VA',
+          roles: ['MAIN Lead'],
+          relevanceOrder: 0,
+        },
+      },
+    });
+    const sections = buildCompareSections([show1, show2], { includeAll: true, productionAllRoles: true });
+    const vas = sections.find((s) => s.title === 'Voice Actors (JP)');
+    expect(vas?.rows.filter((row) => row.name).map((row) => row.entityId)).toEqual([20, 30, 40]);
+  });
+
+  it('orders a VA character rows MAIN before SUPPORTING before BACKGROUND', () => {
+    const left = bundle(1, 'Left', {
+      voiceActors: {
+        '20': {
+          name: 'VA One',
+          roles: ['BACKGROUND Bob', 'MAIN Alice', 'SUPPORTING Carol'],
+          roleCharacterIds: [200, 100, 300],
+          relevanceOrder: 0,
+        },
+      },
+    });
+    const right = bundle(2, 'Right', {
+      voiceActors: {
+        '20': {
+          name: 'VA One',
+          roles: ['MAIN Alice', 'SUPPORTING Carol', 'BACKGROUND Bob'],
+          roleCharacterIds: [100, 300, 200],
+          relevanceOrder: 0,
+        },
+      },
+    });
+    const sections = buildCompareSections([left, right], OPTS_INTERSECT_ALL_ROLES);
+    const vas = sections.find((s) => s.title === 'Voice Actors (JP)');
+    expect(vas?.rows.map((row) => row.cells)).toEqual([
+      ['MAIN Alice', 'MAIN Alice'],
+      ['SUPPORTING Carol', 'SUPPORTING Carol'],
+      ['BACKGROUND Bob', 'BACKGROUND Bob'],
+    ]);
+  });
+
+  it('sortVaRoleRowsByCastTier promotes MAIN rows above BACKGROUND leftovers', () => {
+    expect(
+      sortVaRoleRowsByCastTier([
+        ['BACKGROUND Yukari Yukino', ''],
+        ['MAIN Mitsuha Miyamizu', ''],
+      ]),
+    ).toEqual([
+      ['MAIN Mitsuha Miyamizu', ''],
+      ['BACKGROUND Yukari Yukino', ''],
+    ]);
   });
 
   it('includeAll=true unions entities across shows and leaves cells blank where missing', () => {
@@ -375,6 +452,31 @@ describe('sharedStaffLogic', () => {
     });
     expect(sections.find((s) => s.title === 'Studios')?.rows).toHaveLength(1);
     expect(sections.find((s) => s.title === 'Voice Actors (JP)')?.rows).toHaveLength(1);
+  });
+
+  it('keeps chief and base animation director on separate rows with chief first', () => {
+    const kizuI = bundle(1, 'Kizumonogatari I', {
+      productionStaff: {
+        '1': {
+          name: 'Hiroki Yamamura',
+          roles: ['Animation Director'],
+        },
+      },
+    });
+    const kizuII = bundle(2, 'Kizumonogatari II', {
+      productionStaff: {
+        '1': {
+          name: 'Hiroki Yamamura',
+          roles: ['Chief Animation Director'],
+        },
+      },
+    });
+    const sections = buildCompareSections([kizuI, kizuII], OPTS_INTERSECT_ALL_ROLES);
+    const prod = sections.find((s) => s.title === 'Production Staff');
+    expect(prod?.rows.map((row) => row.cells)).toEqual([
+      ['', 'Chief Animation Director'],
+      ['Animation Director', ''],
+    ]);
   });
 
   it('finalizeSharedStaffResult returns empty when no overlap', () => {

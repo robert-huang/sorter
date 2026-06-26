@@ -61,6 +61,68 @@ export function normalizeProductionRoleForMatch(role: string): string {
 }
 
 /**
+ * Normalize for shared-staff row alignment: strip parenthetical scope only.
+ * Chief / Executive / Assistant prefixes stay distinct so e.g. Chief Animation
+ * Director does not collapse onto Animation Director.
+ */
+export function normalizeProductionRoleForCompare(role: string): string {
+  if (!role) {
+    return '';
+  }
+  return stripTrailingParenthetical(role.trim())
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+/** Executive (0) → Chief (1) → base (2) → Assistant (3). */
+export function productionRoleRankIndex(role: string): number {
+  const normalized = stripTrailingParenthetical(role.trim()).toLowerCase();
+  if (normalized.startsWith('executive ')) {
+    return 0;
+  }
+  if (normalized.startsWith('chief ')) {
+    return 1;
+  }
+  if (normalized.startsWith('assistant ')) {
+    return 3;
+  }
+  return 2;
+}
+
+function representativeProductionRoleLabel(cells: readonly string[]): string {
+  return cells.find((cell) => cell.length > 0) ?? '';
+}
+
+/**
+ * Within a staff member's aligned compare rows, order rank variants of the
+ * same base role Executive → Chief → base → Assistant while preserving
+ * relative order across unrelated roles.
+ */
+export function sortProductionRoleRowsByRank(
+  rows: ReadonlyArray<readonly string[]>,
+): string[][] {
+  const withMeta = rows.map((cells, originalIdx) => {
+    const label = representativeProductionRoleLabel(cells);
+    return {
+      cells: [...cells],
+      originalIdx,
+      baseKey: normalizeProductionRoleForMatch(label),
+      rank: productionRoleRankIndex(label),
+    };
+  });
+  withMeta.sort((a, b) => {
+    if (a.baseKey !== b.baseKey) {
+      return a.originalIdx - b.originalIdx;
+    }
+    if (a.rank !== b.rank) {
+      return a.rank - b.rank;
+    }
+    return a.originalIdx - b.originalIdx;
+  });
+  return withMeta.map((entry) => entry.cells);
+}
+
+/**
  * Whether a production credit role counts as a "key" production role for
  * sorter detail panel and anime-to-anime production hops (default).
  */

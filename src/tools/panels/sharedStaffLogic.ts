@@ -2,16 +2,20 @@ import {
   alignRoleCellsAcrossShows,
   alignVaRoleCellsAcrossShows,
   dictIntersection,
+  type VaRoleCell,
 } from '../../lib/importers/anilist/toolsDictUtils';
 import { parseLinesOnePerLine } from '../parseToolLines';
 import {
   anyTrimmedRoleInSet,
   MUSIC_ROLES,
-  trimProductionRole,
   VISUALS_ROLES,
   WRITING_ROLES,
 } from '../../lib/importers/anilist/staffRoleBuckets';
-import { isKeyProductionRole } from '../../lib/importers/anilist/staffRoleFilter';
+import {
+  isKeyProductionRole,
+  normalizeProductionRoleForCompare,
+  sortProductionRoleRowsByRank,
+} from '../../lib/importers/anilist/staffRoleFilter';
 
 export type CreditedEntity = {
   name: string;
@@ -131,6 +135,87 @@ function splitVaRoleLabel(label: string): { castRole: string; characterName: str
   return { castRole: label.slice(0, space), characterName: label.slice(space + 1) };
 }
 
+const VA_CAST_TIERS = ['MAIN', 'SUPPORTING', 'BACKGROUND'] as const;
+type VaCastTier = (typeof VA_CAST_TIERS)[number];
+
+/** Lower index = more prominent cast billing (MAIN first). */
+function vaRoleCastTierIndex(roleLabel: string): number {
+  const { castRole } = splitVaRoleLabel(roleLabel);
+  let best = Number.MAX_SAFE_INTEGER;
+  for (const token of castRole.split('/')) {
+    const tierIdx = VA_CAST_TIERS.indexOf(token as VaCastTier);
+    if (tierIdx >= 0) {
+      best = Math.min(best, tierIdx);
+    }
+  }
+  return best;
+}
+
+function vaEntityHasCastTier(
+  entity: CreditedEntity | undefined,
+  tier: VaCastTier,
+): boolean {
+  if (!entity) {
+    return false;
+  }
+  const tierIdx = VA_CAST_TIERS.indexOf(tier);
+  return entity.roles.some((role) => vaRoleCastTierIndex(role) === tierIdx);
+}
+
+function compareVaRelevanceInMap(map: CreditedEntityMap, idA: string, idB: string): number {
+  const orderA = map[idA]?.relevanceOrder ?? Number.MAX_SAFE_INTEGER;
+  const orderB = map[idB]?.relevanceOrder ?? Number.MAX_SAFE_INTEGER;
+  if (orderA !== orderB) {
+    return orderA - orderB;
+  }
+  return Number(idA) - Number(idB);
+}
+
+function sortVaRolesForAlignment(roles: readonly VaRoleCell[]): VaRoleCell[] {
+  return roles
+    .map((role, originalIdx) => ({
+      role,
+      originalIdx,
+      tier: vaRoleCastTierIndex(role.label),
+    }))
+    .sort((a, b) => {
+      if (a.tier !== b.tier) {
+        return a.tier - b.tier;
+      }
+      return a.originalIdx - b.originalIdx;
+    })
+    .map((entry) => entry.role);
+}
+
+function bestCastTierIndexForVaRow(cells: readonly string[]): number {
+  let best = Number.MAX_SAFE_INTEGER;
+  for (const cell of cells) {
+    if (!cell) {
+      continue;
+    }
+    best = Math.min(best, vaRoleCastTierIndex(cell));
+  }
+  return best;
+}
+
+/** MAIN → SUPPORTING → BACKGROUND within each VA's aligned character rows. */
+export function sortVaRoleRowsByCastTier(
+  rows: ReadonlyArray<readonly string[]>,
+): string[][] {
+  const withMeta = rows.map((cells, originalIdx) => ({
+    cells: [...cells],
+    originalIdx,
+    tier: bestCastTierIndexForVaRow(cells),
+  }));
+  withMeta.sort((a, b) => {
+    if (a.tier !== b.tier) {
+      return a.tier - b.tier;
+    }
+    return a.originalIdx - b.originalIdx;
+  });
+  return withMeta.map((entry) => entry.cells);
+}
+
 function mergeVaRoleLabels(existing: string, incoming: string): string {
   if (existing === incoming) {
     return existing;
@@ -183,18 +268,6 @@ export function mergeVaRoleIntoMap(
   }
 }
 
-function compareByRelevanceOrder(
-  maps: CreditedEntityMap[],
-  idA: string,
-  idB: string,
-): number {
-  const orderA = maps[0]?.[idA]?.relevanceOrder ?? Number.MAX_SAFE_INTEGER;
-  const orderB = maps[0]?.[idB]?.relevanceOrder ?? Number.MAX_SAFE_INTEGER;
-  if (orderA !== orderB) {
-    return orderA - orderB;
-  }
-  return Number(idA) - Number(idB);
-}
 
 function formatStudioRoleCell(roles: readonly string[]): string {
   return roles.join(', ');
@@ -246,6 +319,51 @@ export function orderStudioEntityIds(
   return out;
 }
 
+/**
+ * VA compare rows: MAIN credits for show 1, show 2, … then SUPPORTING per
+ * show, then BACKGROUND — left-to-right / top-to-down. Within each show and
+ * tier, API relevance order is preserved.
+ */
+export function orderVaEntityIds(
+  maps: CreditedEntityMap[],
+  threshold: number,
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+
+  const qualifies = (id: string): boolean => {
+    const count = maps.reduce((acc, map) => acc + (id in map ? 1 : 0), 0);
+    return count >= threshold;
+  };
+
+  const add = (id: string) => {
+    if (!seen.has(id) && qualifies(id)) {
+      seen.add(id);
+      out.push(id);
+    }
+  };
+
+  for (const tier of VA_CAST_TIERS) {
+    for (const map of maps) {
+      const ids = Object.keys(map)
+        .filter((id) => vaEntityHasCastTier(map[id], tier))
+        .sort((a, b) => compareVaRelevanceInMap(map, a, b));
+      for (const id of ids) {
+        add(id);
+      }
+    }
+  }
+
+  for (const map of maps) {
+    const ids = Object.keys(map).sort((a, b) => compareVaRelevanceInMap(map, a, b));
+    for (const id of ids) {
+      add(id);
+    }
+  }
+
+  return out;
+}
+
 function entityRowsForCompare(
   maps: CreditedEntityMap[],
   id: string,
@@ -254,27 +372,36 @@ function entityRowsForCompare(
   const roleLists = maps.map((m) => m[id]?.roles ?? []);
   const aligned =
     kind === 'va'
-      ? alignVaRoleCellsAcrossShows(
-          maps.map((m) => {
-            const entity = m[id];
-            if (!entity) {
-              return [];
-            }
-            const characterIds = entity.roleCharacterIds ?? [];
-            return entity.roles.map((label, roleIdx) => ({
-              characterId: characterIds[roleIdx] ?? -(roleIdx + 1),
-              label,
-            }));
-          }),
-        )
+      ? (() => {
+          const rows = alignVaRoleCellsAcrossShows(
+            maps.map((m) => {
+              const entity = m[id];
+              if (!entity) {
+                return [];
+              }
+              const characterIds = entity.roleCharacterIds ?? [];
+              return sortVaRolesForAlignment(
+                entity.roles.map((label, roleIdx) => ({
+                  characterId: characterIds[roleIdx] ?? -(roleIdx + 1),
+                  label,
+                })),
+              );
+            }),
+          );
+          return sortVaRoleRowsByCastTier(rows);
+        })()
         : kind === 'studio'
         ? [maps.map((m) => formatStudioRoleCell(m[id]?.roles ?? []))]
-        : // Production staff: collapse "(...)" scope details when aligning
-          // so e.g. `Animation Director (OP1, OP3)` lands on the same row
-          // as `Animation Director (eps 1-4)` for the same person across
-          // shows. Cells still display the full original label so the user
-          // can see WHICH episodes/segments each show credits them for.
-          alignRoleCellsAcrossShows(roleLists, trimProductionRole);
+        : (() => {
+          // Production staff: collapse "(...)" scope when aligning so e.g.
+          // `Animation Director (OP1)` shares a row with `Animation Director
+          // (eps 1-4)`, but Chief Animation Director stays on its own row.
+          const aligned = alignRoleCellsAcrossShows(
+            roleLists,
+            normalizeProductionRoleForCompare,
+          );
+          return sortProductionRoleRowsByRank(aligned);
+        })();
   // Find name/image from any map that has this entity — required for
   // "include all" mode where the entity may be absent from maps[0].
   const firstHit = maps.find((m) => m[id]);
@@ -351,7 +478,7 @@ export function buildCompareSections(
     if (section.key === 'studios') {
       ids = orderStudioEntityIds(maps, threshold);
     } else if (section.key === 'voiceActors') {
-      ids = [...ids].sort((a, b) => compareByRelevanceOrder(maps, a, b));
+      ids = orderVaEntityIds(maps, threshold);
     }
 
     const rows: SharedStaffSectionRow[] = [];
