@@ -24,6 +24,7 @@ type DragScrollProps = {
    */
   scrollAnchorSelector?: string;
   scrollAnchorAttribute?: string;
+  scrollAnchorYearAttribute?: string;
 };
 
 type SavedScrollState = {
@@ -42,6 +43,7 @@ export function DragScroll({
   initialScrollEnd = false,
   scrollAnchorSelector,
   scrollAnchorAttribute = 'data-scroll-anchor',
+  scrollAnchorYearAttribute = 'data-scroll-anchor-year',
 }: DragScrollProps) {
   const { ref, ...dragProps } = useDragScroll<HTMLDivElement>();
   const isFirstLayoutRef = useRef(true);
@@ -73,6 +75,7 @@ export function DragScroll({
           scrollAnchorSelector,
           saved.anchor,
           scrollAnchorAttribute,
+          scrollAnchorYearAttribute,
         );
 
       if (!anchorRestored) {
@@ -95,12 +98,13 @@ export function DragScroll({
               cleanupEl,
               scrollAnchorSelector,
               scrollAnchorAttribute,
+              scrollAnchorYearAttribute,
             )
           : null;
       savedScrollRef.current = { ratio, anchor };
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- ref is stable; children drives restore
-  }, [children, initialScrollEnd, scrollAnchorAttribute, scrollAnchorSelector]);
+  }, [children, initialScrollEnd, scrollAnchorAttribute, scrollAnchorSelector, scrollAnchorYearAttribute]);
 
   return (
     <div

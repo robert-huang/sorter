@@ -147,6 +147,7 @@ function SeasonalColumnsView({
               key={`${colIdx}-${col.label}`}
               className="tool-season-column"
               data-scroll-anchor={col.label}
+              data-scroll-anchor-year={col.year}
             >
               <div className="tool-season-col-head">
                 <div
