@@ -73,6 +73,8 @@ export type SeasonColumn = {
     coverImage: string | null;
     score: number | null;
     listStatus?: string | null;
+    /** Span mode: placed via airing overlap, not the show's AniList season tag. */
+    extendedPlacement?: boolean;
   }>;
 };
 
@@ -88,6 +90,30 @@ export function normalizeSeasonalListScore(score: number | null | undefined): nu
     return null;
   }
   return score;
+}
+
+export type ScoreDisplayTone = 'high' | 'low';
+
+/** Background tint for scored list entries: >8 green, <7 pink. */
+export function scoreDisplayTone(
+  score: number | null | undefined,
+): ScoreDisplayTone | null {
+  const normalized = normalizeSeasonalListScore(score);
+  if (normalized == null) {
+    return null;
+  }
+  if (normalized > 8) {
+    return 'high';
+  }
+  if (normalized < 7) {
+    return 'low';
+  }
+  return null;
+}
+
+export function scoreDisplayToneClass(score: number | null | undefined): string {
+  const tone = scoreDisplayTone(score);
+  return tone == null ? '' : `tool-score-tone--${tone}`;
 }
 
 export function isSeasonalPlanningShow(show: Pick<SeasonalShow, 'listStatus'>): boolean {
@@ -315,6 +341,18 @@ function matchesSeasonYearAndTag(
   return true;
 }
 
+/** Span mode: show is in this column only because airing dates overlap. */
+export function isExtendedSeasonPlacement(
+  show: SeasonalShow,
+  spec: SeasonSpec,
+  spanAiringSeasons: boolean,
+): boolean {
+  if (!spanAiringSeasons) {
+    return false;
+  }
+  return !matchesSeasonYearAndTag(show, spec);
+}
+
 export function showMatchesSeasonSpec(
   show: SeasonalShow,
   spec: SeasonSpec,
@@ -426,6 +464,7 @@ export function buildSeasonalColumns(
         coverImage: show.coverImage ?? null,
         score: normalizeSeasonalListScore(show.score),
         listStatus: show.listStatus ?? null,
+        extendedPlacement: isExtendedSeasonPlacement(show, spec, form.spanAiringSeasons),
       })),
     });
   }

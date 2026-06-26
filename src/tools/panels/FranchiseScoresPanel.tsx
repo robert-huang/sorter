@@ -27,6 +27,7 @@ import {
   type FranchiseForm,
   type FranchiseRelationType,
 } from './franchiseScoresLogic';
+import { scoreDisplayToneClass } from './seasonalScoresLogic';
 import { ScoreRangeChip } from '../../lib/importers/anilist/filters';
 
 const LS_KEY = 'anime-tools-franchise-scores-form';
@@ -291,7 +292,15 @@ function FranchiseTable({
                     <span className="tool-franchise-seed-tag">seed</span>
                   )}
                 </td>
-                <td className="tool-franchise-td-score" title={statusTitle}>
+                <td
+                  className={[
+                    'tool-franchise-td-score',
+                    scoreDisplayToneClass(entry.score),
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  title={statusTitle}
+                >
                   {scoreLabel}
                 </td>
               </tr>

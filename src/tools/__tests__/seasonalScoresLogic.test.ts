@@ -6,6 +6,8 @@ import {
   formatSeasonColumnLabel,
   formatSeasonalScoreLabel,
   normalizeSeasonalListScore,
+  scoreDisplayTone,
+  scoreDisplayToneClass,
   parseSeasonLine,
   parseSeasonSpecs,
   type SeasonalScoresForm,
@@ -78,6 +80,17 @@ describe('seasonalScoresLogic', () => {
     expect(formatSeasonalScoreLabel(85)).toBe('85');
     expect(formatSeasonalScoreLabel(85, 'PLANNING')).toBe('P');
     expect(formatSeasonalScoreLabel(null, 'PLANNING')).toBe('P');
+  });
+
+  it('scoreDisplayTone highlights scores above 8 and below 7', () => {
+    expect(scoreDisplayTone(9)).toBe('high');
+    expect(scoreDisplayTone(8)).toBeNull();
+    expect(scoreDisplayTone(7)).toBeNull();
+    expect(scoreDisplayTone(6)).toBe('low');
+    expect(scoreDisplayTone(null)).toBeNull();
+    expect(scoreDisplayToneClass(10)).toBe('tool-score-tone--high');
+    expect(scoreDisplayToneClass(5)).toBe('tool-score-tone--low');
+    expect(scoreDisplayToneClass(7.5)).toBe('');
   });
 
   it('averageScore ignores unrated paused and repeating entries', () => {
@@ -524,6 +537,8 @@ describe('seasonalScoresLogic', () => {
       expect(result.columns[1]?.shows.map((s) => s.title)).toEqual(['ReZero S4']);
       expect(result.columns[0]?.average).toBe(90);
       expect(result.columns[1]?.average).toBe(90);
+      expect(result.columns[0]?.shows[0]?.extendedPlacement).toBe(false);
+      expect(result.columns[1]?.shows[0]?.extendedPlacement).toBe(true);
     });
 
     it('extends ongoing shows through today into each overlapped season', () => {
@@ -557,6 +572,8 @@ describe('seasonalScoresLogic', () => {
         expect(june.columns[0]?.shows).toHaveLength(1);
         expect(june.columns[1]?.shows).toHaveLength(1);
         expect(june.columns[2]?.shows).toHaveLength(0);
+        expect(june.columns[0]?.shows[0]?.extendedPlacement).toBe(false);
+        expect(june.columns[1]?.shows[0]?.extendedPlacement).toBe(true);
       }
 
       const july = buildSeasonalColumns(
@@ -640,6 +657,8 @@ describe('seasonalScoresLogic', () => {
       if (result.kind === 'columns') {
         expect(result.columns[0]?.shows.map((s) => s.title)).toEqual(['Cross-year']);
         expect(result.columns[1]?.shows.map((s) => s.title)).toEqual(['Cross-year']);
+        expect(result.columns[0]?.shows[0]?.extendedPlacement).toBe(true);
+        expect(result.columns[1]?.shows[0]?.extendedPlacement).toBe(false);
       }
     });
   });

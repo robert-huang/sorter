@@ -11,6 +11,7 @@ import {
   effectiveSeasonalForm,
   formatSeasonColumnLabel,
   formatSeasonalScoreLabel,
+  scoreDisplayToneClass,
   type SeasonMode,
   type SeasonalScoresForm,
   type SeasonalScoresResult,
@@ -163,12 +164,28 @@ function SeasonalColumnsView({
                 >
                   {formatSeasonColumnLabel(col.label, col.ratedCount)}
                 </div>
-                <div className="tool-season-col-avg">avg: {col.average ?? 'N/A'}</div>
+                <div
+                  className={[
+                    'tool-season-col-avg',
+                    scoreDisplayToneClass(col.average),
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                >
+                  avg: {col.average ?? 'N/A'}
+                </div>
               </div>
               {col.shows.map((show) => (
                 <div key={show.id} className="tool-season-cell">
                   <div className="tool-season-cell-grid">
-                    <span className="tool-season-score">
+                    <span
+                      className={[
+                        'tool-season-score',
+                        scoreDisplayToneClass(show.score),
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                    >
                       {formatSeasonalScoreLabel(show.score, show.listStatus)}
                     </span>
                     <ToolShowButton
@@ -177,7 +194,12 @@ function SeasonalColumnsView({
                       coverImage={show.coverImage}
                       onOpenMedia={onOpenMedia}
                       compact
-                      className="tool-season-title"
+                      className={[
+                        'tool-season-title',
+                        show.extendedPlacement ? 'tool-season-title--extended' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
                     />
                   </div>
                 </div>
