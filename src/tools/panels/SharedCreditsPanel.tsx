@@ -34,6 +34,89 @@ const DEFAULT_FORM: SharedCreditsForm = {
   oldestFirst: false,
 };
 
+/**
+ * Persist the full Compare form across reloads — textarea contents
+ * plus every toggle, role mode, min-shared, and username filter —
+ * so reopening the tool restores exactly what the user last had set
+ * up. The Clear button in the label row still only wipes the staff
+ * textarea (matches the user's mental model of "clear the input
+ * box", not "reset all settings").
+ *
+ * Legacy key {@link LS_LEGACY_QUERY_KEY} held just `staffText`; we
+ * read it on first load if the new key is missing so we don't lose
+ * the user's previously-saved query when this expands.
+ */
+const LS_KEY = 'anime-tools-shared-credits-form';
+/** @deprecated migrated into {@link LS_KEY} */
+const LS_LEGACY_QUERY_KEY = 'anime-tools-shared-credits-query';
+
+type PersistedSharedCreditsForm = SharedCreditsForm;
+
+function normalizeRoleMode(value: unknown): SharedCreditsForm['roleMode'] {
+  return value === 'production' ? 'production' : 'voice';
+}
+
+function normalizeMinMatches(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null;
+  }
+  return Math.max(1, Math.trunc(value));
+}
+
+function loadForm(): SharedCreditsForm {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<PersistedSharedCreditsForm>;
+      return {
+        ...DEFAULT_FORM,
+        staffText: typeof parsed.staffText === 'string' ? parsed.staffText : '',
+        useIds: typeof parsed.useIds === 'boolean' ? parsed.useIds : DEFAULT_FORM.useIds,
+        roleMode: normalizeRoleMode(parsed.roleMode),
+        minMatches:
+          parsed.minMatches === null ? null : normalizeMinMatches(parsed.minMatches),
+        mainRoleOnly:
+          typeof parsed.mainRoleOnly === 'boolean'
+            ? parsed.mainRoleOnly
+            : DEFAULT_FORM.mainRoleOnly,
+        usernameInclude:
+          typeof parsed.usernameInclude === 'string' ? parsed.usernameInclude : '',
+        usernameExclude:
+          typeof parsed.usernameExclude === 'string' ? parsed.usernameExclude : '',
+        diffMode:
+          typeof parsed.diffMode === 'boolean' ? parsed.diffMode : DEFAULT_FORM.diffMode,
+        oldestFirst:
+          typeof parsed.oldestFirst === 'boolean'
+            ? parsed.oldestFirst
+            : DEFAULT_FORM.oldestFirst,
+      };
+    }
+    const legacyStaffText = localStorage.getItem(LS_LEGACY_QUERY_KEY) ?? '';
+    return { ...DEFAULT_FORM, staffText: legacyStaffText };
+  } catch {
+    return { ...DEFAULT_FORM };
+  }
+}
+
+function saveForm(form: SharedCreditsForm): void {
+  try {
+    const persisted: PersistedSharedCreditsForm = {
+      staffText: form.staffText,
+      useIds: form.useIds,
+      roleMode: form.roleMode,
+      minMatches: form.minMatches,
+      mainRoleOnly: form.mainRoleOnly,
+      usernameInclude: form.usernameInclude,
+      usernameExclude: form.usernameExclude,
+      diffMode: form.diffMode,
+      oldestFirst: form.oldestFirst,
+    };
+    localStorage.setItem(LS_KEY, JSON.stringify(persisted));
+  } catch {
+    /* ignore quota / SecurityError */
+  }
+}
+
 function progressLabel(progress: SharedCreditsRunProgress | null): string | null {
   if (!progress) {
     return null;
@@ -57,7 +140,7 @@ function progressLabel(progress: SharedCreditsRunProgress | null): string | null
 export function SharedCreditsPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
   const { refreshing: refreshingList, refreshUsernameList } = useUsernameListRefresh();
   const displayLabelRevision = useToolsDisplayLabelRevision();
-  const [form, setForm] = useState<SharedCreditsForm>(DEFAULT_FORM);
+  const [form, setForm] = useState<SharedCreditsForm>(() => loadForm());
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<SharedCreditsRunProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -92,6 +175,14 @@ export function SharedCreditsPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps)
     setError(null);
     setForm((prev) => ({ ...prev, ...patch }));
   }, []);
+
+  useEffect(() => {
+    saveForm(form);
+  }, [form]);
+
+  const onClearStaffText = useCallback(() => {
+    patchForm({ staffText: '' });
+  }, [patchForm]);
 
   const onCancel = useCallback(() => {
     abortRef.current?.abort();
@@ -197,15 +288,26 @@ export function SharedCreditsPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps)
         <div className="tool-field">
           <div className="tool-field-label-row tool-field-label-header">
             <span className="tool-field-label">Staff (one per line)</span>
-            <label className="tool-checkbox tool-checkbox-header">
-              <input
-                type="checkbox"
-                checked={form.useIds}
-                disabled={running}
-                onChange={(e) => patchForm({ useIds: e.target.checked })}
-              />
-              Staff IDs
-            </label>
+            <div className="tool-field-label-header-actions">
+              <button
+                type="button"
+                className="btn btn-small"
+                disabled={running || form.staffText.length === 0}
+                onClick={onClearStaffText}
+                title="Clear the textarea"
+              >
+                Clear
+              </button>
+              <label className="tool-checkbox tool-checkbox-header">
+                <input
+                  type="checkbox"
+                  checked={form.useIds}
+                  disabled={running}
+                  onChange={(e) => patchForm({ useIds: e.target.checked })}
+                />
+                Staff IDs
+              </label>
+            </div>
           </div>
           <textarea
             className="tool-textarea csv-textarea"
@@ -280,14 +382,25 @@ export function SharedCreditsPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps)
             <input
               className="slot-search tool-shared-credits-min-shared-input"
               type="number"
-              min={1}
+              // min=0 (not 1) so the spinner / wheel can step down past 1
+              // into 0 — which we treat as "clear the filter back to all".
+              min={0}
+              step={1}
               disabled={running || form.diffMode}
               value={form.minMatches ?? ''}
               placeholder="all"
               onChange={(e) => {
                 const raw = e.target.value.trim();
+                if (raw === '') {
+                  patchForm({ minMatches: null });
+                  return;
+                }
+                const parsed = Number.parseInt(raw, 10);
+                // Stepping/typing down to 0 (or below) clears the filter
+                // — matches the "all" placeholder shown when null.
                 patchForm({
-                  minMatches: raw === '' ? null : Math.max(1, Number.parseInt(raw, 10) || 1),
+                  minMatches:
+                    !Number.isFinite(parsed) || parsed <= 0 ? null : parsed,
                 });
               }}
             />

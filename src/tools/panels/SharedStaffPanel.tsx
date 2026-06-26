@@ -26,6 +26,75 @@ const DEFAULT_FORM: SharedStaffForm = {
   topMatchCount: 5,
 };
 
+/**
+ * Persist the full Compare form across reloads — textarea contents
+ * plus every toggle/number — so reopening the tool restores exactly
+ * what the user last had set up. The Clear button below the label
+ * still only wipes the textarea (matches the user's mental model of
+ * "clear the input box", not "reset all settings").
+ *
+ * Legacy key {@link LS_LEGACY_QUERY_KEY} held just `showText`; we read
+ * it on first load if the new key is missing so we don't lose the
+ * user's previously-saved query when this expands.
+ */
+const LS_KEY = 'anime-tools-shared-staff-form';
+/** @deprecated migrated into {@link LS_KEY} */
+const LS_LEGACY_QUERY_KEY = 'anime-tools-shared-staff-query';
+
+type PersistedSharedStaffForm = SharedStaffForm;
+
+function clampTopMatchCount(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return DEFAULT_FORM.topMatchCount;
+  }
+  return Math.min(20, Math.max(1, Math.trunc(value)));
+}
+
+function loadForm(): SharedStaffForm {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<PersistedSharedStaffForm>;
+      return {
+        ...DEFAULT_FORM,
+        showText: typeof parsed.showText === 'string' ? parsed.showText : '',
+        sortByPopularity:
+          typeof parsed.sortByPopularity === 'boolean'
+            ? parsed.sortByPopularity
+            : DEFAULT_FORM.sortByPopularity,
+        ignoreRelated:
+          typeof parsed.ignoreRelated === 'boolean'
+            ? parsed.ignoreRelated
+            : DEFAULT_FORM.ignoreRelated,
+        includeAll:
+          typeof parsed.includeAll === 'boolean'
+            ? parsed.includeAll
+            : DEFAULT_FORM.includeAll,
+        topMatchCount: clampTopMatchCount(parsed.topMatchCount),
+      };
+    }
+    const legacyShowText = localStorage.getItem(LS_LEGACY_QUERY_KEY) ?? '';
+    return { ...DEFAULT_FORM, showText: legacyShowText };
+  } catch {
+    return { ...DEFAULT_FORM };
+  }
+}
+
+function saveForm(form: SharedStaffForm): void {
+  try {
+    const persisted: PersistedSharedStaffForm = {
+      showText: form.showText,
+      sortByPopularity: form.sortByPopularity,
+      ignoreRelated: form.ignoreRelated,
+      includeAll: form.includeAll,
+      topMatchCount: form.topMatchCount,
+    };
+    localStorage.setItem(LS_KEY, JSON.stringify(persisted));
+  } catch {
+    /* ignore quota / SecurityError */
+  }
+}
+
 function progressLabel(progress: SharedStaffRunProgress | null): string | null {
   if (!progress) {
     return null;
@@ -47,7 +116,7 @@ function progressLabel(progress: SharedStaffRunProgress | null): string | null {
 export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
   const displayLabelRevision = useToolsDisplayLabelRevision();
   const toolsPrefsRevision = useToolsPreferencesRevision();
-  const [form, setForm] = useState<SharedStaffForm>(DEFAULT_FORM);
+  const [form, setForm] = useState<SharedStaffForm>(() => loadForm());
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<SharedStaffRunProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -84,6 +153,14 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
     setError(null);
     setForm((prev) => ({ ...prev, ...patch }));
   }, []);
+
+  useEffect(() => {
+    saveForm(form);
+  }, [form]);
+
+  const onClearShowText = useCallback(() => {
+    patchForm({ showText: '' });
+  }, [patchForm]);
 
   const onCancel = useCallback(() => {
     abortRef.current?.abort();
@@ -169,8 +246,19 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
           }
         }}
       >
-        <label className="tool-field">
-          <span className="tool-field-label">Shows (one per line)</span>
+        <div className="tool-field">
+          <div className="tool-field-label-row tool-field-label-header">
+            <span className="tool-field-label">Shows (one per line)</span>
+            <button
+              type="button"
+              className="btn btn-small"
+              disabled={running || form.showText.length === 0}
+              onClick={onClearShowText}
+              title="Clear the textarea"
+            >
+              Clear
+            </button>
+          </div>
           <textarea
             className="tool-textarea csv-textarea"
             rows={6}
@@ -179,7 +267,7 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
             onChange={(e) => patchForm({ showText: e.target.value })}
             placeholder={'e.g. Steins;Gate\nYour Name'}
           />
-        </label>
+        </div>
 
         <div className="tool-field-row">
           <label className="tool-checkbox">
