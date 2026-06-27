@@ -16,10 +16,7 @@ vi.mock('../../lib/importers/anilist/toolsAnilistAccess', () => ({
 }));
 
 import { depaginate } from '../../lib/importers/anilist/depaginate';
-import {
-  ensureUserAnimeListFresh,
-  readUserSeasonalShowsFromDb,
-} from '../../lib/importers/anilist/toolsAnilistAccess';
+import { ensureUserAnimeListFresh } from '../../lib/importers/anilist/toolsAnilistAccess';
 
 const depaginateMock = vi.mocked(depaginate);
 const ensureUserAnimeListFreshMock = vi.mocked(ensureUserAnimeListFresh);
