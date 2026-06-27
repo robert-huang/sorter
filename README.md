@@ -11,9 +11,9 @@ It runs one of **two engines** per slot:
 
 Both engines share the same RANK / LIST / RESULT screens, undo ring, autosave, and save-file format.
 
-Items can come from a pasted/loaded CSV **or be imported from [AniList](https://anilist.co)** — pull a user's anime/manga list or favourites into a local SQLite cache (kept in your browser's OPFS), filter it down, then sort. AniList items get rich **detail panels** (media metadata + cast/voice-actors, and staff filmographies) and also feed a side game, **[Anime to Anime](#anime-to-anime-separate-page)**.
+Items can come from a pasted/loaded CSV **or be imported from [AniList](https://anilist.co)** — pull a user's anime/manga list or favourites into a local SQLite cache (kept in your browser's OPFS), filter it down, then sort. AniList items get rich **detail panels** (media metadata + cast/voice-actors, and staff filmographies), feed a side game **[Anime to Anime](#anime-to-anime-separate-page)**, and power **[Anime Tools](#anime-tools-separate-page)** — shared-credits/staff comparison, seasonal score charts, franchise walks, favourites analysis, and authenticated list-entry updates.
 
-No backend. No telemetry. No accounts. Everything runs in your browser.
+No backend. No telemetry. Optional sign-in (AniList OAuth for your own list mutations / hidden entries; Google Drive for cloud backup) — everything else runs entirely in your browser.
 
 > Optional opt-in: per-slot cloud backup via Google Drive (manual Push/Pull). See the Cloud backup section below for details. The local AniList cache can likewise be Pushed/Pulled to Drive — see [Local source database](#local-source-database-anilist-cache).
 
@@ -52,10 +52,26 @@ A side mini-app: connect a **Start** anime to a **Goal** anime by hopping throug
 - After `npm run build`: `dist/anime-to-anime.html`
 - Source: `anime-to-anime.html`, `src/animeToAnime/`
 - Open from either page: floating nav button (**A2A →** on the Sorter, **← Sorter** on A2A), or gear menu footer (**Anime to Anime** / **Sorter**)
+- From A2A: **Tools →** in the header opens [Anime Tools](#anime-tools-separate-page)
 - **Local DB:** shares the OPFS-backed `anilist.sqlite` with the Sorter — see [Local source database](#local-source-database-anilist-cache). Workers load via Vite's `?worker` import (not raw `.ts` URLs — those get the wrong `video/mp2t` MIME type on some servers).
 - **Theme:** independent from main Sorter (`anime-to-anime-theme` in localStorage); sun/moon toggle in the header; defaults to **dark**
 
 See [Anime to Anime — gameplay](#anime-to-anime--gameplay) further down for setup, modes, hops, and the win/give-up screens.
+
+### Anime Tools (separate page)
+
+A third mini-app: AniList analysis utilities that read (and sometimes write) the same local cache as the Sorter. Import lists on START → AniList first so the cache has data to work with.
+
+- Dev: `http://localhost:5173/tools.html`
+- After `npm run build`: `dist/tools.html`
+- Source: `tools.html`, `src/tools/`
+- **Navigation:** Anime to Anime header **Tools →**; Tools header **← A2A** back. From the main Sorter, go **A2A →** then **Tools →** (Tools does not link directly to the Sorter).
+- **Local DB:** shares the OPFS-backed `anilist.sqlite` with the Sorter and Anime to Anime — see [Local source database](#local-source-database-anilist-cache).
+- **Theme:** shares the Anime-to-Anime theme (`anime-to-anime-theme` in `localStorage`); sun/moon toggle in the header.
+- **Detail modals:** result rows can open the same media/staff detail panels as the main Sorter.
+- **Gear menu:** Display names, AniList account sign-in, source-database Push/Pull, cloud backup — same building blocks as the other pages.
+
+See [Anime Tools — tabs](#anime-tools--tabs) for what each tool does.
 
 ### 3. Double-click `dist/index.html` (no terminal needed)
 
@@ -195,14 +211,14 @@ Shows the staff image, name (+ native name), language, favourites (`★`), an **
 
 ## Local source database (AniList cache)
 
-AniList data lives in a per-source **SQLite database in your browser's OPFS** (`anilist.sqlite`), shared by the main Sorter and the Anime-to-Anime page. It survives reloads when the tab can use persistent OPFS storage; otherwise the tab falls back to **in-memory** SQLite for the session.
+AniList data lives in a per-source **SQLite database in your browser's OPFS** (`anilist.sqlite`), shared by the main Sorter, Anime to Anime, and Anime Tools. It survives reloads when the tab can use persistent OPFS storage; otherwise the tab falls back to **in-memory** SQLite for the session.
 
 ### One active tab holds the cache
 
-Each page (Sorter, Anime to Anime) runs its own dedicated DB worker but targets the **same OPFS file**, coordinated by a Web Lock. Only **one tab at a time** can hold the persistent cache:
+Each page (Sorter, Anime to Anime, Anime Tools) runs its own dedicated DB worker but targets the **same OPFS file**, coordinated by a Web Lock. Only **one tab at a time** can hold the persistent cache:
 
-- Navigating Sorter ↔ Anime to Anime **in the same tab** is fine — the worker is torn down on leave so the next page can open the file.
-- A **second tab** falls back to in-memory storage and shows a banner, e.g. *"Another tab of this app has the database open. Close other Sorter / Anime to Anime tabs and reload to use your saved cache."* You can still **Pull** from Drive to load a session copy without closing the other tab.
+- Navigating Sorter ↔ Anime to Anime ↔ Tools **in the same tab** is fine — the worker is torn down on leave so the next page can open the file.
+- A **second tab** falls back to in-memory storage and shows a banner, e.g. *"Another tab of this app has the database open. Close other Sorter / Anime to Anime / Tools tabs and reload to use your saved cache."* You can still **Pull** from Drive to load a session copy without closing the other tab.
 - OPFS needs a secure context (HTTPS or `http://localhost`) and sync access handles; **no COOP/COEP headers are required**, so it works on GitHub Pages.
 
 ### Source databases (gear menu → Databases)
@@ -474,6 +490,87 @@ Reaching the Goal shows **Goal reached!** with **Links used** and the path taken
 - **Shortest path (cached)** — runs a BFS over your cached graph (respecting the active round rules) to see whether a shorter route exists. After a win it's capped at the links you used (*"Shortest in cache: X link(s) · Your path: Y link(s)"*); after a give-up it's an unbounded search. If nothing is found it suggests expanding more shows/staff or changing rules.
 - **Play Again** — returns to setup with your Start/Goal still selected (press Start round again).
 
+## Anime Tools — tabs
+
+The Tools page is a tabbed shell (`anime-tools-active-tool` in `localStorage` remembers the last tab). Every tool shares a few behaviors:
+
+- **Username fields** remember the last successful AniList username (`withLastAnilistUsername`) and offer **Refresh username list** to re-import that user's anime list into the cache.
+- **Display names** (romaji/english/native titles, full/native staff names) relabel cached result rows live when you change the preference in the gear menu.
+- **AniList rate limits** — a top banner counts down when the API returns `429`; long-running compares can be cancelled mid-run.
+- **Form persistence** — each tab saves its own settings to `localStorage` (textarea contents, toggles, filters) so reopening the tool restores your last setup. Per-tool "Clear" buttons wipe only the main text input, not every toggle.
+- **OAuth for writes** — read-only tools work with any public username; **Update List Entry** requires you to be signed in as that user (gear → Database → Sign in to AniList). See [AniList accounts](#anilist-accounts).
+
+### Shared Credits
+
+Given one staff/VA name per line (names or AniList ids), find anime they appear in together.
+
+- **Role mode** — **Voice** (character + VA credits) or **Production** (staff credits).
+- **Min shared** — optional minimum number of input staff that must share a show (default: all).
+- **Main roles only** — voice mode: MAIN/SUPPORTING characters only.
+- **Username include / exclude** — cross-reference against a cached user list (only shows on / not on that list).
+- **Diff mode** — per-staff blocks listing each person's shows instead of a wide comparison table.
+- **Oldest first** — sort result rows by start date ascending.
+
+Results open media/staff detail modals from title or name links.
+
+### Shared Staff
+
+Given one anime title or AniList id per line, compare shared studios, production staff, and voice actors.
+
+- **Sort by popularity** — order comparison sections by AniList favourites count (default on).
+- **Ignore related** — do not expand relation-linked anime when resolving a single show input.
+- **Include all** — union mode: list every entity from any input show and leave cells blank where a show lacks that credit. Off (default) = intersection: only entities present in **every** input show.
+- **Top matches** — when exactly one show is entered, also surface the top N other cached anime that share the most staff (1–20, default 5).
+- **Show all production roles** — gear menu → Settings (off by default; when off, only key production roles like Director / Script / Music — same idea as Anime to Anime).
+
+Sections: Studios, Production, Voice actors. Single-show mode also lists category top-match suggestions.
+
+### Seasonal Scores
+
+Chart one user's AniList scores across seasons.
+
+- **Season mode** — **All seasons** (`allseasons`, default for new users), **Current year all** (`all`), or **Custom** (free-form season textarea grammar, e.g. `2024 spring`, `2023`).
+- **Skip empty** — hide season columns with no rated entries.
+- **Airing notes only** — only include shows whose list notes contain an airing marker.
+- **Include planning** — fetch PLANNING entries (off by default).
+- **Span airing seasons** — bucket shows by broadcast start/end overlap with each season window instead of AniList's single `season` tag.
+
+Columns show rated count, column average, and per-show scores (green > 80, pink < 70). Season headers link to AniList season browse URLs.
+
+### Franchise Scores
+
+Walk AniList **relations** outward from one or more seed shows and chart the user's scores across the franchise.
+
+- **Relation toggles** — prequel, sequel, parent, side story, spin-off, alternative, summary, adaptation, source, compilation, contains (on by default); **Other** and **Character** (off by default — noisy cameos / soundtracks).
+- **Post-fetch filters** — score range chips (rated / unrated / min–max), same semantics as the Sorter FilterBar.
+- **Export** — copy franchise table as CSV or plain text.
+
+Uses cached list scores when available; fetches relation edges and missing entries on demand.
+
+### Favourites
+
+Analyze a user's favourite **characters** and **staff** from the local cache.
+
+- **Analyze** — fast run from cache: rank voice actors by how many of your favourite characters they voice, with **Bayesian rank** and **log score** columns (tooltips explain the formulas), plus a per-series breakdown of favourite characters on each show.
+- **Expand roles** — slow full re-fetch: every favourite character's appearances, then VA roles for VAs on those characters, then VA roles for favourite staff. Use when the cache is thin; can take a long time on large favourite lists.
+
+Character/staff/show names in results open detail modals.
+
+### Update List Entry
+
+Authenticated `SaveMediaListEntry` for **one media id** at a time. Only fields you fill in are sent — leave a field blank to leave that column unchanged on AniList.
+
+| Field | Behavior |
+| --- | --- |
+| **Username** | Must match a signed-in AniList account for mutations; inline hint shows sign-in status. |
+| **Media ID** | Required positive integer (AniList media id). |
+| **Status** | `CURRENT`, `REPEATING`, `COMPLETED`, `PLANNING`, `PAUSED`, `DROPPED` (same order as the list-status filter chip). |
+| **Progress / Progress volumes** | Non-negative integers. |
+| **Score** | 0–100 integer, or blank to skip. |
+| **Notes find / replace** | mass_tagger-style: replace-only sets notes; `find = *` replaces entire notes; non-empty find does first match replace (skip if not found); find empty + replace sets notes only when current notes are blank. |
+
+On success the local `media_list_entry` row is patched and the seasonal-scores session cache for that user is busted so the next chart run reflects the change. Incremental DB edits bump the pending-changes counter — manual Push if cloud backup is enabled.
+
 ## Cloud backup (optional, opt-in per slot)
 
 Slot-level Push / Pull to a Google Drive folder of your choosing. The whole feature is opt-in — both at sign-in time and per-slot — and the app never touches files you didn't explicitly grant access to.
@@ -590,9 +687,15 @@ The included `.github/workflows/deploy.yml` builds + publishes the app to GitHub
 | Cloud PKCE state (transient) | `sessionStorage` key `sorter:cloud:pkce:v1`. Lives only across the OAuth redirect round-trip. |
 | Pre-auth URL hash (transient) | `sessionStorage` key `sorter:preAuthHash`. Restores any in-flight `#share=…` payload after the OAuth redirect. |
 | Cloud slot files | One JSON file per opted-in slot inside the Drive folder you picked. Named `<slotName>_<slotId>.sorter.json`. |
-| AniList cache (source DB) | SQLite in **OPFS**: `/anilist.sqlite` (or `/anilist-mem.sqlite` in the in-memory fallback). Shared by Sorter + Anime to Anime. |
+| AniList cache (source DB) | SQLite in **OPFS**: `/anilist.sqlite` (or `/anilist-mem.sqlite` in the in-memory fallback). Shared by Sorter + Anime to Anime + Anime Tools. |
 | Source DB sync metadata | `localStorage` key `sorter:db-sync:v1`. Per-source etags, push/pull times, pending-change count, scrape lock. |
 | AniList display preferences | `localStorage` key `anilist:display-preferences:v1`. Title language + staff-name format. |
+| AniList OAuth accounts | `localStorage` key `anilist:accounts:v1`. Access tokens + expiry per signed-in user. Wiped per-account on sign-out. |
+| Tools active tab | `localStorage` key `anime-tools-active-tool`. Last-selected Tools tab id. |
+| Tools global preferences | `localStorage` key `anime-tools:preferences:v1`. e.g. Shared Staff "show all production roles". |
+| Tools per-panel forms | `localStorage` keys `anime-tools-*-form` (and legacy `*-query` keys). Persist textarea + toggle state per tool. |
+| Tools gear last tab | `localStorage` key `anime-tools:settings:lastTab`. Settings vs Database tab in Tools gear menu. |
+| Anime-to-Anime theme | `localStorage` key `anime-to-anime-theme`. Shared by Anime to Anime + Anime Tools. |
 | Cloud source-DB files | One `.sqlite` per source under a `db/` subfolder of your Drive folder (e.g. `db/anilist.sqlite`). |
 | Image cache | Browser HTTP cache; auto-managed. |
 
@@ -615,10 +718,11 @@ Coverage:
 - **Storage** (`storage.test.ts`): slot CRUD, legacy v1 migration, cap eviction (pin-aware), autosave routing + debounce + force-flush + discard-pending, v1 → v3 and v2 → v3 progress upgrades (including undo ring), v3 round-trip for both engine shapes, two-stage quota recovery (trim undo → evict non-pinned), manifest repair from orphaned slot blobs after manifest corruption.
 - **Share link** (`share.test.ts`): encode/decode round-trip (incl. non-ASCII labels, order preservation, dropped-undefined optional fields), failure modes (bad base64, bad JSON, wrong version, empty items, wrong-type optional fields), URL hash extraction.
 - **Cloud backup** (`cloud.test.ts`): filename build/parse, etag-mismatch handling, provider proxy behavior.
-- **AniList importer & cache** (`lib/importers/anilist/__tests__/`): `importer` / `favourites` (wipe-and-rebuild), `transport` (serialization + 429 backoff), `runners`, `lazyExpansion`, `queries.filmography`, `migration`, `mappers`, `readQueries`, `anilistSource`, label builders (`mediaDisplayLabel`, `personDisplayLabel`, `anilistItemLabel`, `mediaSort`), and filters (`filters`, `characterStaffFilters`, `staffRoleFilter`).
+- **AniList importer & cache** (`lib/importers/anilist/__tests__/`): `importer` / `favourites` (wipe-and-rebuild), `transport` (serialization + 429 backoff), `runners`, `lazyExpansion`, `queries.filmography`, `migration`, `mappers`, `readQueries`, `anilistSource`, `anilistAuth` (OAuth account storage + `requireAccessTokenForUsername`), `listMutations` (dynamic `SaveMediaListEntry` builder), label builders (`mediaDisplayLabel`, `personDisplayLabel`, `anilistItemLabel`, `mediaSort`), and filters (`filters`, `characterStaffFilters`, `staffRoleFilter`).
 - **Local source DB / OPFS** (`lib/db/__tests__/`): `client`, `workerInit`, `dbWorkerCore`, `dbExec`, `dbTransport`, `opfs` / `opfsLock` / `opfsInstallRetry`, `migration-runner`, `sync`, `syncManifest`, `merge` (row-level pull merge).
 - **AniList UI** (`components/__tests__/`): `AnilistDetailModal`, `StaffDetailModal` (lazy expand / refresh / my-list toggle / stale warning / middle-click), `ItemThumb`, `StagedItemsPanel` (engine split button), `FilterBar`, `listScreenH`, `compareScreenH`.
 - **Anime to Anime** (`animeToAnime/__tests__/`): `cachedGraph` (0–1 BFS shortest-path), `listFilter`, `pathHopLabels`, `vaCreditDisplay`, `preferences`.
+- **Anime Tools** (`tools/__tests__/`): `sharedCreditsLogic` / `sharedCreditsApi`, `sharedStaffLogic` / `sharedStaffRelatedAnime`, `seasonalScoresLogic` / `seasonalScoresApi`, `franchiseScoresLogic` / `franchiseScoresApi`, `favouritesLogic` / `favouritesApi`, `updateListEntryLogic` / `updateListEntryApi`, `parseToolLines`, `staffRoleBuckets`, `toolsDisplayRelabel`.
 - **Hooks** (`hooks/__tests__/`): `useAnilistWaitCountdown` (rate-limit countdown).
 
 ## Save-file format & migration
@@ -643,11 +747,21 @@ The next write persists the blob as v4. Older builds that only understand v1 / v
 
 ```
 anime-to-anime.html     # Anime to Anime entry (Vite multi-page build)
+tools.html              # Anime Tools entry (Vite multi-page build)
+anilist-oauth-callback.html  # OAuth popup callback (hosted on GitHub Pages)
 index.html              # main sorter app
 src/
   animeToAnime/         # Anime to Anime game (AnimeToAnimeApp.tsx, EndpointPicker,
                         # VA/production/filmography hop buttons, path trail,
                         # WinScreen, AnimeToAnimeSettingsMenu, cachedGraph 0–1 BFS)
+  tools/                # Anime Tools (ToolsApp.tsx, ToolsHeader, ToolsSettingsMenu,
+                        # ToolTabs, ToolRunButton, ToolUsernameField, toolEntityLinks)
+    panels/             # SharedCreditsPanel, SharedStaffPanel, SeasonalScoresPanel,
+                        # FranchiseScoresPanel, FavouritesPanel, UpdateListEntryPanel
+                        # + *Logic.ts / *Api.ts per tool
+    toolsPreferences.ts # global Tools prefs (productionAllRoles)
+    toolTypes.ts        # ToolId union + active-tab localStorage
+    __tests__/          # per-tool logic/api suites
   main.tsx, App.tsx, styles.css, lib/appRoutes.ts
   lib/
     types.ts            # SortState / SortProgress (discriminated union: MergeProgress
@@ -688,9 +802,12 @@ src/
                         # 404-fallback create-new, version-based etag check
     importers/anilist/  # AniList source: importer + favourites (fetch list/favourites
                         # → SQLite, wipe-and-rebuild), transport (HTTP + 429 backoff),
+                        # anilistAuth (OAuth implicit grant, multi-account storage),
+                        # listMutations (SaveMediaListEntry GraphQL builder),
                         # queries / graphQueries, mappers, readQueries (productionReads),
                         # lazyExpansion + expandStaffFilmography / expandMediaRelations,
                         # runners, filters / characterStaffFilters / staffRoleFilter,
+                        # toolsFetchPolicy / toolsImportContext / toolsSessionMemo,
                         # label builders (mediaDisplayLabel / personDisplayLabel /
                         # anilistItemLabel / mediaSort) + displayPreferences, anilistSource
     db/                 # OPFS SQLite layer: client + worker + dbWorkerCore (RPC),
@@ -700,7 +817,7 @@ src/
                         # dbPageLifecycle
     __tests__/          # vitest suites
   hooks/                # useKeyboard, useAnilistDisplayPreferences,
-                        # useAnilistWaitCountdown, useSourceDbSync
+                        # useAnilistWaitCountdown, useSourceDbSync, useToolsPreferences
   components/           # Header, SettingsMenu (now with cloud sign-in / browse /
                         # change folder / sign-out entries), StartScreen,
                         # ImportPreview,
@@ -727,12 +844,14 @@ src/
                         # StagedItemsPanel (cross-source staging + engine split button),
                         # FilterBar, AnilistDetailModal (media), StaffDetailModal,
                         # sourceDatabasesSection + AnilistDisplayPreferencesPanel,
-                        # CloudBackupSection, AppNavFab, AppBannerStack, SettingsGitHubLink
+                        # AnilistAccountsSection, CloudBackupSection, AppNavFab,
+                        # AppBannerStack, SettingsGitHubLink
 ```
 
 ## Roadmap
 
-- **AniList integration** — import lists/favourites into a local OPFS SQLite cache, filter + stage to sort, media/staff detail panels, and Drive backup of the cache. (Shipped — see [Importing from AniList](#importing-from-anilist), [AniList detail panels](#anilist-detail-panels), and [Local source database](#local-source-database-anilist-cache).) Design notes live in `.cursor/plans/`.
+- **AniList integration** — import lists/favourites into a local OPFS SQLite cache, filter + stage to sort, media/staff detail panels, Drive backup of the cache, and OAuth for your own list mutations. (Shipped — see [Importing from AniList](#importing-from-anilist), [AniList detail panels](#anilist-detail-panels), [Local source database](#local-source-database-anilist-cache), and [AniList accounts](#anilist-accounts).) Design notes live in `.cursor/plans/`.
+- **Anime Tools** — shared credits/staff comparison, seasonal score charts, franchise relation walks, favourites VA ranking, and Update List Entry mutations. (Shipped — see [Anime Tools — tabs](#anime-tools--tabs).)
 - Additional import sources beyond AniList, reusing the same per-source SQLite cache layer.
 
 ## License
