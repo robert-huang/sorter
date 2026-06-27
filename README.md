@@ -568,10 +568,11 @@ After sign-in, import **your own** AniList username on START (or in Tools) to pu
 
 The included `.github/workflows/deploy.yml` builds + publishes the app to GitHub Pages on every push to `main`. To enable cloud backup on the deployed copy:
 
-1. **Add two repo secrets** — Repo Settings → Secrets and variables → Actions → **New repository secret**, once for each:
-    - Name: `VITE_GOOGLE_CLIENT_ID`, value: your `…apps.googleusercontent.com` OAuth client id
-    - Name: `VITE_GOOGLE_CLIENT_SECRET`, value: the matching client secret
-   The workflow's `npm run build` step is wired to read both via `${{ secrets.VITE_GOOGLE_CLIENT_ID }}` and `${{ secrets.VITE_GOOGLE_CLIENT_SECRET }}`, so the next push inlines them into the deployed bundle. If either is missing the deployed app falls back to the "not configured" banner with no other ill effects.
+1. **Add repo secrets** — Repo Settings → Secrets and variables → Actions → **New repository secret**:
+    - `VITE_GOOGLE_CLIENT_ID` — your `…apps.googleusercontent.com` OAuth client id
+    - `VITE_GOOGLE_CLIENT_SECRET` — the matching client secret
+    - `VITE_ANILIST_CLIENT_ID` — your AniList API client id ([developer settings](https://anilist.co/settings/developer))
+   The workflow's `npm run build` step reads these via `${{ secrets.* }}` and inlines them into the deployed bundle. If any is missing, that feature shows a "not configured" banner; the rest of the app still works.
 2. **Register the GitHub Pages URL with your OAuth client** — in Google Cloud Console → APIs & Services → Credentials → your OAuth client:
     - Authorized JavaScript origins: `https://<your-username>.github.io`
     - Authorized redirect URIs: `https://<your-username>.github.io/<repo-name>/` *(trailing slash is mandatory — Google does exact-string matching on redirect URIs and the app sends `window.location.origin + window.location.pathname`, which for an `index.html` at the directory root resolves to `…/<repo>/`)*
