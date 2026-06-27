@@ -5316,6 +5316,10 @@ html {
   line-height: 1.5;
 }
 
+.tool-panel-lead-secondary {
+  margin-top: -8px;
+}
+
 .tool-form-card {
   background: var(--surface);
   border: 1px solid var(--border);

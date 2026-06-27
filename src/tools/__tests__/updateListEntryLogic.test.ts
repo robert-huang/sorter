@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { buildSaveMediaListEntryMutation } from '../../lib/importers/anilist/listMutations';
 import {
+  formatMassNotesSuccessMessage,
   formatUpdateSuccessMessage,
+  planMassNotesUpdates,
   resolveNotesUpdate,
   validateAndResolveUpdate,
+  validateMassNotesMode,
+  wantsMassNotesMode,
   wantsNotesUpdate,
 } from '../panels/updateListEntryLogic';
 
@@ -139,14 +143,26 @@ describe('resolveNotesUpdate', () => {
 });
 
 describe('validateAndResolveUpdate', () => {
-  it('rejects when media id missing', () => {
+  it('rejects when media id missing and notes fields empty', () => {
     const result = validateAndResolveUpdate(
       { ...BASE_FORM, mediaId: '' },
       null,
     );
     expect(result).toEqual({
       kind: 'validation',
-      message: 'Media ID is required and must be a positive integer.',
+      message:
+        'Media ID is required unless running mass notes tagging (leave Media ID empty and fill Notes Find or Replace).',
+    });
+  });
+
+  it('rejects mass notes mode when routed through single-entry resolver', () => {
+    const result = validateAndResolveUpdate(
+      { ...BASE_FORM, mediaId: '', notesReplace: '#airing' },
+      null,
+    );
+    expect(result).toEqual({
+      kind: 'validation',
+      message: 'Mass notes updates are handled separately from single-entry updates.',
     });
   });
 
@@ -260,5 +276,66 @@ describe('buildSaveMediaListEntryMutation integration', () => {
     );
     expect(built.query).toMatch(/mutation SaveMediaListEntry/);
     expect(built.query).toContain('notes: $notes');
+  });
+});
+
+describe('mass notes mode', () => {
+  it('detects empty media id with notes fields', () => {
+    expect(
+      wantsMassNotesMode({ ...BASE_FORM, mediaId: '', notesReplace: '#airing' }),
+    ).toBe(true);
+    expect(wantsMassNotesMode({ ...BASE_FORM, mediaId: '' })).toBe(false);
+    expect(wantsMassNotesMode({ ...BASE_FORM, notesReplace: '#airing' })).toBe(false);
+  });
+
+  it('rejects mass mode when other list fields are filled', () => {
+    expect(
+      validateMassNotesMode({
+        ...BASE_FORM,
+        mediaId: '',
+        notesReplace: '#airing',
+        status: 'CURRENT',
+      }),
+    ).toEqual({
+      kind: 'validation',
+      message:
+        'Mass notes mode only updates notes — clear status, progress, volumes, and score, or provide a Media ID.',
+    });
+  });
+
+  it('plans per-entry updates with mass_tagger skip counts', () => {
+    const plan = planMassNotesUpdates(
+      [
+        { mediaId: 1, notes: '' },
+        { mediaId: 2, notes: 'aa #airing' },
+        { mediaId: 3, notes: 'has notes' },
+        { mediaId: 4, notes: 'no tag' },
+      ],
+      { find: '#airing', replace: '#aired' },
+    );
+
+    expect(plan.updates).toEqual([
+      { mediaId: 2, notes: 'aa #aired' },
+    ]);
+    expect(plan.stats).toMatchObject({
+      examined: 4,
+      updated: 1,
+      skippedBlankOnly: 0,
+      skippedFindNotFound: 3,
+    });
+  });
+
+  it('formats mass success message with skip breakdown', () => {
+    expect(
+      formatMassNotesSuccessMessage({
+        examined: 10,
+        updated: 3,
+        skippedBlankOnly: 2,
+        skippedFindNotFound: 4,
+        unchanged: 1,
+      }),
+    ).toBe(
+      'Updated notes on 3 entries (10 examined; skipped: 2 blank-only, 4 find not found).',
+    );
   });
 });

@@ -129,4 +129,46 @@ describe('updateListEntry', () => {
     expect(onDirtyIncrementMock).toHaveBeenCalled();
     expect(sessionMemoDeleteMock).toHaveBeenCalledWith('seasonal:list:testuser');
   });
+
+  it('mass-updates notes across the list when media id is empty', async () => {
+    executeQueryMock
+      .mockResolvedValueOnce({
+        MediaListCollection: {
+          hasNextChunk: false,
+          lists: [
+            {
+              entries: [
+                { notes: 'aa #airing', media: { id: 10 } },
+                { notes: 'plain', media: { id: 11 } },
+              ],
+            },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        MediaListCollection: {
+          hasNextChunk: false,
+          lists: [{ entries: [] }],
+        },
+      })
+      .mockResolvedValueOnce({
+        SaveMediaListEntry: { id: 1, notes: 'aa #aired' },
+      });
+
+    const result = await updateListEntry({
+      ...BASE_FORM,
+      mediaId: '',
+      notesFind: '#airing',
+      notesReplace: '#aired',
+    });
+
+    expect(executeQueryMock).toHaveBeenCalledTimes(3);
+    expect(executeQueryMock.mock.calls[0]?.[0]).toContain('ListNotesCollection');
+    expect(executeQueryMock.mock.calls[2]?.[1]).toMatchObject({
+      mediaId: 10,
+      notes: 'aa #aired',
+    });
+    expect(result.updatedCount).toBe(1);
+    expect(result.message).toContain('Updated notes on 1 entries');
+  });
 });

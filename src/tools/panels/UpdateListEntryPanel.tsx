@@ -134,6 +134,11 @@ export function UpdateListEntryPanel(_props: ToolPanelProps) {
         fields are sent (blank fields are ignored). Notes support find-and-replace (
         <code>*</code> replaces the entire note).
       </p>
+      <p className="tool-panel-lead tool-panel-lead-secondary">
+        Leave Media ID empty and fill Notes Find or Replace to run mass_tagger-style
+        notes tagging across your whole anime and manga list (same find/replace rules
+        per entry).
+      </p>
 
       <form className="tool-form-card tool-update-list-entry-form" onSubmit={onSubmit}>
         <div className="tool-update-list-entry-grid">

@@ -51,6 +51,24 @@ export type ResolvedListEntryUpdate = {
   skippedNotesReason: string | null;
 };
 
+export type ListEntryNotesRow = {
+  mediaId: number;
+  notes: string | null;
+};
+
+export type MassNotesPlan = {
+  kind: 'mass-notes';
+  notesInput: NotesUpdateInput;
+  updates: Array<{ mediaId: number; notes: string }>;
+  stats: {
+    examined: number;
+    updated: number;
+    skippedBlankOnly: number;
+    skippedFindNotFound: number;
+    unchanged: number;
+  };
+};
+
 function parseOptionalInt(
   raw: string,
   label: string,
@@ -80,6 +98,115 @@ function parseOptionalScore(raw: string): { value: number } | { error: string } 
 
 export function wantsNotesUpdate(input: NotesUpdateInput): boolean {
   return input.replace.trim().length > 0 || input.find.trim().length > 0;
+}
+
+export function isMediaIdEmpty(mediaId: string): boolean {
+  return mediaId.trim() === '';
+}
+
+/** Empty media id + at least one notes field → mass_tagger-style list pass. */
+export function wantsMassNotesMode(form: UpdateListEntryForm): boolean {
+  return (
+    isMediaIdEmpty(form.mediaId) &&
+    wantsNotesUpdate({ find: form.notesFind, replace: form.notesReplace })
+  );
+}
+
+export function hasNonNotesListFields(form: UpdateListEntryForm): boolean {
+  return (
+    form.status.trim().length > 0 ||
+    form.progress.trim().length > 0 ||
+    form.progressVolumes.trim().length > 0 ||
+    form.score.trim().length > 0
+  );
+}
+
+export function validateMassNotesMode(
+  form: UpdateListEntryForm,
+): UpdateListEntryValidationError | { kind: 'ok'; notesInput: NotesUpdateInput } {
+  if (!wantsMassNotesMode(form)) {
+    return {
+      kind: 'validation',
+      message:
+        'Leave Media ID empty and fill Notes Find or Replace to run mass notes tagging across your list.',
+    };
+  }
+  if (hasNonNotesListFields(form)) {
+    return {
+      kind: 'validation',
+      message:
+        'Mass notes mode only updates notes — clear status, progress, volumes, and score, or provide a Media ID.',
+    };
+  }
+  return {
+    kind: 'ok',
+    notesInput: { find: form.notesFind, replace: form.notesReplace },
+  };
+}
+
+export function planMassNotesUpdates(
+  entries: readonly ListEntryNotesRow[],
+  notesInput: NotesUpdateInput,
+): MassNotesPlan {
+  const updates: Array<{ mediaId: number; notes: string }> = [];
+  let skippedBlankOnly = 0;
+  let skippedFindNotFound = 0;
+  let unchanged = 0;
+
+  for (const entry of entries) {
+    const result = resolveNotesUpdate(entry.notes, notesInput);
+    if (result.kind === 'set') {
+      const previous = entry.notes ?? '';
+      if (result.notes === previous) {
+        unchanged += 1;
+      } else {
+        updates.push({ mediaId: entry.mediaId, notes: result.notes });
+      }
+    } else if (result.kind === 'skip') {
+      if (result.reason === 'blank-only') {
+        skippedBlankOnly += 1;
+      } else if (result.reason === 'find-not-found') {
+        skippedFindNotFound += 1;
+      }
+    } else {
+      unchanged += 1;
+    }
+  }
+
+  return {
+    kind: 'mass-notes',
+    notesInput,
+    updates,
+    stats: {
+      examined: entries.length,
+      updated: updates.length,
+      skippedBlankOnly,
+      skippedFindNotFound,
+      unchanged,
+    },
+  };
+}
+
+export function formatMassNotesSuccessMessage(stats: MassNotesPlan['stats']): string {
+  if (stats.updated === 0) {
+    const skipped =
+      stats.skippedBlankOnly + stats.skippedFindNotFound + stats.unchanged;
+    if (skipped === 0) {
+      return 'No list entries found to update.';
+    }
+    return `No list entries updated (${stats.examined} examined).`;
+  }
+
+  const skipParts: string[] = [];
+  if (stats.skippedBlankOnly > 0) {
+    skipParts.push(`${stats.skippedBlankOnly} blank-only`);
+  }
+  if (stats.skippedFindNotFound > 0) {
+    skipParts.push(`${stats.skippedFindNotFound} find not found`);
+  }
+  const skipSuffix =
+    skipParts.length > 0 ? `; skipped: ${skipParts.join(', ')}` : '';
+  return `Updated notes on ${stats.updated} entries (${stats.examined} examined${skipSuffix}).`;
 }
 
 /**
@@ -141,6 +268,20 @@ export function validateAndResolveUpdate(
   form: UpdateListEntryForm,
   currentNotes: string | null | undefined,
 ): ResolvedListEntryUpdate | UpdateListEntryValidationError {
+  if (isMediaIdEmpty(form.mediaId)) {
+    if (wantsMassNotesMode(form)) {
+      return {
+        kind: 'validation',
+        message: 'Mass notes updates are handled separately from single-entry updates.',
+      };
+    }
+    return {
+      kind: 'validation',
+      message:
+        'Media ID is required unless running mass notes tagging (leave Media ID empty and fill Notes Find or Replace).',
+    };
+  }
+
   const mediaParsed = parseOptionalInt(form.mediaId, 'Media ID');
   if ('error' in mediaParsed) {
     return { kind: 'validation', message: 'Media ID is required and must be a positive integer.' };

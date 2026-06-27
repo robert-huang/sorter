@@ -120,3 +120,34 @@ export type SaveMediaListEntryResponse = {
     notes?: string | null;
   } | null;
 };
+
+/** Minimal list scrape for mass notes tagging — media id + notes only. */
+export const LIST_NOTES_COLLECTION_QUERY = `
+query ListNotesCollection($username: String!, $type: MediaType!, $chunk: Int!, $perChunk: Int!) {
+  MediaListCollection(userName: $username, type: $type, chunk: $chunk, perChunk: $perChunk) {
+    hasNextChunk
+    lists {
+      entries {
+        notes
+        media {
+          id
+        }
+      }
+    }
+  }
+}
+`.trim();
+
+export type ListNotesCollectionEntry = {
+  notes: string | null;
+  media: { id: number } | null;
+};
+
+export type ListNotesCollectionResponse = {
+  MediaListCollection: {
+    hasNextChunk: boolean;
+    lists: Array<{
+      entries: ListNotesCollectionEntry[] | null;
+    }> | null;
+  } | null;
+};

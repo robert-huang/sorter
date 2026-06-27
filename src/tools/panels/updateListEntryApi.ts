@@ -4,24 +4,34 @@ import {
 } from '../../lib/importers/anilist/anilistAuth';
 import { makeAnilistImportContext } from '../../lib/importers/anilist/context';
 import {
+  buildSaveMediaListEntryMutation,
+  LIST_NOTES_COLLECTION_QUERY,
   LIST_ENTRY_FOR_MEDIA_QUERY,
   type ListEntryForMediaResponse,
+  type ListNotesCollectionEntry,
+  type ListNotesCollectionResponse,
   type SaveMediaListEntryResponse,
 } from '../../lib/importers/anilist/listMutations';
 import { getAnilistUserByName } from '../../lib/importers/anilist/readQueries';
 import { sessionMemoDelete } from '../../lib/importers/anilist/toolsSessionMemo';
 import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportContext';
-import type { AnilistMediaListStatus } from '../../lib/importers/anilist/types';
+import type { AnilistMediaType } from '../../lib/importers/anilist/types';
 import {
+  formatMassNotesSuccessMessage,
   formatUpdateSuccessMessage,
+  planMassNotesUpdates,
   validateAndResolveUpdate,
+  validateMassNotesMode,
+  wantsMassNotesMode,
   wantsNotesUpdate,
+  type ListEntryNotesRow,
   type UpdateListEntryForm,
 } from './updateListEntryLogic';
 
 export type UpdateListEntryResult = {
   message: string;
-  mediaId: number;
+  mediaId?: number;
+  updatedCount?: number;
 };
 
 async function fetchCurrentListEntryNotes(
@@ -97,6 +107,129 @@ async function patchLocalListEntry(
   sessionMemoDelete(`seasonal:list:${username.trim().toLowerCase()}`);
 }
 
+const LIST_NOTES_PER_CHUNK = 500;
+
+function dedupeListNotesEntries(
+  entries: readonly ListNotesCollectionEntry[],
+): ListEntryNotesRow[] {
+  const byMediaId = new Map<number, ListEntryNotesRow>();
+  for (const entry of entries) {
+    const mediaId = entry.media?.id;
+    if (mediaId == null) {
+      continue;
+    }
+    if (!byMediaId.has(mediaId)) {
+      byMediaId.set(mediaId, {
+        mediaId,
+        notes: entry.notes ?? null,
+      });
+    }
+  }
+  return [...byMediaId.values()];
+}
+
+async function fetchListNotesForType(
+  username: string,
+  type: AnilistMediaType,
+  accessToken: string,
+  authFailureUserId: number | undefined,
+  signal?: AbortSignal,
+): Promise<ListEntryNotesRow[]> {
+  const ctx = makeAnilistImportContext({ accessToken, authFailureUserId });
+  const accumulated: ListNotesCollectionEntry[] = [];
+  let chunk = 1;
+
+  while (true) {
+    signal?.throwIfAborted();
+    const response = await ctx.executeQuery<ListNotesCollectionResponse>(
+      LIST_NOTES_COLLECTION_QUERY,
+      { username, type, chunk, perChunk: LIST_NOTES_PER_CHUNK },
+    );
+    const collection = response?.MediaListCollection;
+    for (const group of collection?.lists ?? []) {
+      if (group?.entries) {
+        accumulated.push(...group.entries);
+      }
+    }
+    if (!collection?.hasNextChunk) {
+      break;
+    }
+    chunk += 1;
+  }
+
+  return dedupeListNotesEntries(accumulated);
+}
+
+async function fetchAllListNotes(
+  username: string,
+  accessToken: string,
+  authFailureUserId: number | undefined,
+  signal?: AbortSignal,
+): Promise<ListEntryNotesRow[]> {
+  const [anime, manga] = await Promise.all([
+    fetchListNotesForType(username, 'ANIME', accessToken, authFailureUserId, signal),
+    fetchListNotesForType(username, 'MANGA', accessToken, authFailureUserId, signal),
+  ]);
+  const byMediaId = new Map<number, ListEntryNotesRow>();
+  for (const row of [...anime, ...manga]) {
+    if (!byMediaId.has(row.mediaId)) {
+      byMediaId.set(row.mediaId, row);
+    }
+  }
+  return [...byMediaId.values()];
+}
+
+async function massUpdateListEntryNotes(
+  form: UpdateListEntryForm,
+  username: string,
+  accessToken: string,
+  authFailureUserId: number | undefined,
+  signal?: AbortSignal,
+): Promise<UpdateListEntryResult> {
+  const validated = validateMassNotesMode(form);
+  if (validated.kind === 'validation') {
+    throw new Error(validated.message);
+  }
+
+  signal?.throwIfAborted();
+  const entries = await fetchAllListNotes(
+    username,
+    accessToken,
+    authFailureUserId,
+    signal,
+  );
+  const plan = planMassNotesUpdates(entries, validated.notesInput);
+
+  if (plan.updates.length === 0) {
+    return {
+      message: formatMassNotesSuccessMessage(plan.stats),
+      updatedCount: 0,
+    };
+  }
+
+  const ctx = makeAnilistImportContext({ accessToken, authFailureUserId });
+  for (const update of plan.updates) {
+    signal?.throwIfAborted();
+    const mutation = buildSaveMediaListEntryMutation(
+      { mediaId: update.mediaId, notes: update.notes },
+      ['notes'],
+    );
+    const response = await ctx.executeQuery<SaveMediaListEntryResponse>(
+      mutation.query,
+      mutation.variables,
+    );
+    if (!response?.SaveMediaListEntry) {
+      throw new Error(`AniList did not return an updated list entry for media ${update.mediaId}.`);
+    }
+    await patchLocalListEntry(username, update.mediaId, { notes: update.notes });
+  }
+
+  return {
+    message: formatMassNotesSuccessMessage(plan.stats),
+    updatedCount: plan.stats.updated,
+  };
+}
+
 export async function updateListEntry(
   form: UpdateListEntryForm,
   signal?: AbortSignal,
@@ -110,6 +243,16 @@ export async function updateListEntry(
 
   const account = findAnilistAccountByName(username);
   const accessToken = requireAccessTokenForUsername(username);
+
+  if (wantsMassNotesMode(form)) {
+    return massUpdateListEntryNotes(
+      form,
+      username,
+      accessToken,
+      account?.userId,
+      signal,
+    );
+  }
 
   const notesInput = { find: form.notesFind, replace: form.notesReplace };
   let currentNotes: string | null | undefined;
@@ -167,4 +310,4 @@ export async function updateListEntry(
   };
 }
 
-export type { AnilistMediaListStatus };
+export type { AnilistMediaListStatus } from '../../lib/importers/anilist/types';
