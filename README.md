@@ -539,6 +539,31 @@ VITE_GOOGLE_CLIENT_SECRET=GOCSPX-…
 
 Then `npm start` (rebuilds + serves) or `npm run dev` picks them up. **Vite inlines env vars at build time**, so if you change `.env.local` while `npm start` is running you have to Ctrl+C and re-run it before the new value takes effect.
 
+### AniList accounts
+
+Sign in via **gear menu → Databases tab → Sign in to AniList**. A pop-up opens AniList; after you approve, the token returns automatically (same idea as Postman's `oauth.pstmn.io` callback — we host our own callback page).
+
+**One-time AniList API client setup** ([developer settings](https://anilist.co/settings/developer)):
+
+1. Create a client and copy the **Client ID**.
+2. Set **Redirect URL** to exactly:
+   `https://robert-huang.github.io/sorter/anilist-oauth-callback.html`
+   (Forks: set `VITE_ANILIST_OAUTH_CALLBACK_URL` to your own hosted `anilist-oauth-callback.html` URL.)
+3. Add to `.env.local` and restart the dev server:
+
+```bash
+VITE_ANILIST_CLIENT_ID=12345
+```
+
+That single redirect URL works for **localhost and production** — you do not register `http://localhost:5173/`. The pop-up lands on the hosted callback page, which `postMessage`s the token back to whatever origin opened it (`localhost:5173`, GitHub Pages, etc.).
+
+After sign-in, import **your own** AniList username on START (or in Tools) to pull hidden custom-list entries. Other people's usernames still use the public API.
+
+```bash
+# optional fork override:
+# VITE_ANILIST_OAUTH_CALLBACK_URL=https://you.github.io/your-repo/anilist-oauth-callback.html
+```
+
 ### Deploying to GitHub Pages with cloud backup
 
 The included `.github/workflows/deploy.yml` builds + publishes the app to GitHub Pages on every push to `main`. To enable cloud backup on the deployed copy:

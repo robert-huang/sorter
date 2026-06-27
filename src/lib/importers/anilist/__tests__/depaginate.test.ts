@@ -63,6 +63,30 @@ describe('depaginate', () => {
     });
   });
 
+  it('forwards accessToken to executeAnilistQuery when provided', async () => {
+    mockQuery.mockResolvedValueOnce({
+      Page: {
+        pageInfo: { hasNextPage: false, currentPage: 1 },
+        media: [{ id: 1 }],
+      },
+    });
+
+    await depaginate<PageData, { id: number }>({
+      query: 'query { ... }',
+      accessToken: 'oauth-token',
+      selectPage: (data) => ({
+        nodes: data.Page.media,
+        pageInfo: data.Page.pageInfo,
+      }),
+    });
+
+    expect(mockQuery).toHaveBeenCalledWith(
+      'query { ... }',
+      { page: 1, perPage: 50 },
+      { accessToken: 'oauth-token' },
+    );
+  });
+
   it('stops when the response data is null', async () => {
     mockQuery.mockResolvedValueOnce(null);
 

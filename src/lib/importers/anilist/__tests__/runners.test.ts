@@ -27,7 +27,25 @@ vi.mock('../lazyExpansion', () => ({
   expandAnilistMediaDetail: (...args: unknown[]) => expandAnilistMediaDetail(...args),
 }));
 
+const resolveAccessTokenForUsername = vi.fn();
+const findAnilistAccountByName = vi.fn();
+
+vi.mock('../anilistAuth', () => ({
+  resolveAccessTokenForUsername: (...args: unknown[]) =>
+    resolveAccessTokenForUsername(...args),
+  findAnilistAccountByName: (...args: unknown[]) => findAnilistAccountByName(...args),
+  AnilistAuthRequiredError: class AnilistAuthRequiredError extends Error {
+    userName: string;
+    constructor(userName: string) {
+      super(`auth required: ${userName}`);
+      this.name = 'AnilistAuthRequiredError';
+      this.userName = userName;
+    }
+  },
+}));
+
 import { ANILIST_SOURCE_ID } from '../anilistSource';
+import { AnilistAuthRequiredError } from '../anilistAuth';
 import {
   runAnilistFavourites,
   runAnilistImport,
@@ -39,6 +57,10 @@ beforeEach(() => {
   importAnilistList.mockReset();
   importAnilistFavourites.mockReset();
   expandAnilistMediaDetail.mockReset();
+  resolveAccessTokenForUsername.mockReset();
+  findAnilistAccountByName.mockReset();
+  resolveAccessTokenForUsername.mockReturnValue(null);
+  findAnilistAccountByName.mockReturnValue(null);
 });
 
 afterEach(() => {
@@ -128,5 +150,50 @@ describe('runners hasLocalDb bookkeeping', () => {
     expect(meta.hasLocalDb).toBe(true);
     // Confirm the runner short-circuited rather than overwriting unrelated meta.
     expect(meta.remoteEtag).toBe('preserve');
+  });
+});
+
+describe('runAnilistImport auth token wiring', () => {
+  it('passes resolved access token into import context for matching accounts', async () => {
+    resolveAccessTokenForUsername.mockReturnValue('oauth-token');
+    findAnilistAccountByName.mockReturnValue({ userId: 9, userName: 'alice' });
+    importAnilistList.mockResolvedValue({
+      type: 'ANIME',
+      anilistUserId: 9,
+      username: 'alice',
+      chunksFetched: 1,
+      entriesWritten: 1,
+    });
+
+    await runAnilistImport('alice', 'ANIME');
+
+    expect(resolveAccessTokenForUsername).toHaveBeenCalledWith('alice');
+    const ctx = importAnilistList.mock.calls[0][0];
+    expect(ctx).toBeDefined();
+  });
+
+  it('propagates AnilistAuthRequiredError when stored account token is bad', async () => {
+    resolveAccessTokenForUsername.mockImplementation(() => {
+      throw new AnilistAuthRequiredError('alice');
+    });
+    findAnilistAccountByName.mockReturnValue({ userId: 9, userName: 'alice' });
+
+    await expect(runAnilistImport('alice', 'ANIME')).rejects.toThrow(AnilistAuthRequiredError);
+    expect(importAnilistList).not.toHaveBeenCalled();
+  });
+
+  it('uses public import when no stored account exists', async () => {
+    resolveAccessTokenForUsername.mockReturnValue(null);
+    importAnilistList.mockResolvedValue({
+      type: 'ANIME',
+      anilistUserId: 1,
+      username: 'stranger',
+      chunksFetched: 1,
+      entriesWritten: 1,
+    });
+
+    await runAnilistImport('stranger', 'ANIME');
+
+    expect(importAnilistList).toHaveBeenCalled();
   });
 });

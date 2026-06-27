@@ -181,6 +181,8 @@ export type AnilistMediaListEntryGql = {
   createdAt: number | null;
   /** AniList `MediaList.updatedAt`; SECONDS since epoch, nullable. */
   updatedAt: number | null;
+  /** Per-entry notes (e.g. `#airing` tags for seasonal scores). */
+  notes: string | null;
   /**
    * One `{name, enabled}` entry per custom list the user has defined
    * for this media type. Empty array when the user has no custom
@@ -599,6 +601,7 @@ export type MediaListEntryRow = {
   anilist_created_at: number | null;
   /** MS since epoch; AniList `updatedAt` × 1000. Nullable, same caveat. */
   anilist_updated_at: number | null;
+  notes: string | null;
   fetched_at: number;
   updated_at: number;
 };

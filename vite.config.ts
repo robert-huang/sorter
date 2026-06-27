@@ -4,7 +4,8 @@ import react from '@vitejs/plugin-react';
 
 /** Optional local dev/preview headers (cross-origin isolation; not required for OPFS SAH pool). */
 const crossOriginIsolationHeaders = {
-  'Cross-Origin-Opener-Policy': 'same-origin',
+  // Allow OAuth popup → hosted callback page to keep window.opener for postMessage.
+  'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
   // credentialless: cross-origin isolation without breaking CDN images (AniList covers).
   'Cross-Origin-Embedder-Policy': 'credentialless',
 };
@@ -34,6 +35,7 @@ export default defineConfig({
         dbSmoke: resolve(__dirname, 'db-smoke.html'),
         animeToAnime: resolve(__dirname, 'anime-to-anime.html'),
         tools: resolve(__dirname, 'tools.html'),
+        anilistOAuthCallback: resolve(__dirname, 'anilist-oauth-callback.html'),
       },
     },
   },

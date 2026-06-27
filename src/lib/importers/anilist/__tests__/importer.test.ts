@@ -112,6 +112,7 @@ function makeEntry(
     completedAt: null,
     createdAt: null,
     updatedAt: null,
+    notes: null,
     customLists: [],
     media: makeMedia(mediaId, mediaOverrides),
     ...overrides,

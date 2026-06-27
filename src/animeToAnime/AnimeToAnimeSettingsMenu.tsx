@@ -3,6 +3,7 @@ import { CloudBackupSection } from '../components/CloudBackupSection';
 import { HistoryBackGuardSetting } from '../components/HistoryBackGuardSetting';
 import { SettingsGitHubLink } from '../components/SettingsGitHubLink';
 import { SourceDatabasesSection } from '../components/sourceDatabasesSection';
+import { AnilistAccountsSection } from '../components/AnilistAccountsSection';
 import type { CloudMenuStatus } from '../components/SettingsMenu';
 import type { RoundConfig, StaffGenderFilter, VaListImageMode } from './preferences';
 
@@ -258,6 +259,7 @@ export function AnimeToAnimeSettingsMenu({
                         <div className="settings-divider" />
                       </>
                     )}
+                    <AnilistAccountsSection />
                     <SourceDatabasesSection
                       cloudStatus={dbSync.cloudStatus}
                       pushingIds={dbSync.dbPushingIds}

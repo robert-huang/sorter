@@ -73,6 +73,7 @@ function fullEntry(overrides: Partial<AnilistMediaListEntryGql> = {}): AnilistMe
     completedAt: null,
     createdAt: null,
     updatedAt: null,
+    notes: null,
     customLists: [],
     media: fullMedia(),
     ...overrides,

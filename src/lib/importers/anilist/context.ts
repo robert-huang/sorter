@@ -22,8 +22,14 @@
 import * as client from '../../db/client';
 import type { DbRow, SqlParam } from '../../db/rpc';
 import { ANILIST_SOURCE_ID } from './anilistSource';
+import {
+  AnilistAuthRequiredError,
+  getAnilistAccount,
+  isAnilistAuthFailure,
+  markAnilistAccountInvalid,
+} from './anilistAuth';
 import type { AnilistProgressReporter } from './progress';
-import { executeAnilistQuery } from './transport';
+import { executeAnilistQuery, type ExecuteAnilistQueryOptions } from './transport';
 
 export type SqlBindable = SqlParam;
 
@@ -65,17 +71,49 @@ export interface AnilistImportContext {
   onProgress?: AnilistProgressReporter;
 }
 
+export type MakeAnilistImportContextOptions = Partial<AnilistImportContext> & {
+  accessToken?: string;
+  /** When set, auth failures mark this account invalid before re-throwing. */
+  authFailureUserId?: number;
+};
+
+function bindAccessTokenToExecuteQuery(
+  accessToken: string,
+  authFailureUserId?: number,
+): AnilistExecuteQuery {
+  return async <T>(query: string, variables: Record<string, unknown>) => {
+    const options: ExecuteAnilistQueryOptions = { accessToken };
+    try {
+      return await executeAnilistQuery<T>(query, variables, options);
+    } catch (err) {
+      if (isAnilistAuthFailure(err)) {
+        if (authFailureUserId != null) {
+          markAnilistAccountInvalid(authFailureUserId);
+        }
+        const account =
+          authFailureUserId != null ? getAnilistAccount(authFailureUserId) : null;
+        throw new AnilistAuthRequiredError(account?.userName ?? 'your account');
+      }
+      throw err;
+    }
+  };
+}
+
 /**
  * Production context wired to the real transport + worker-mediated DB
  * client. Pass overrides to swap individual deps (e.g. inject an autopush
  * hook from the App layer).
  */
 export function makeAnilistImportContext(
-  overrides: Partial<AnilistImportContext> = {},
+  overrides: MakeAnilistImportContextOptions = {},
 ): AnilistImportContext {
+  const { accessToken, authFailureUserId, ...rest } = overrides;
   const sourceId = ANILIST_SOURCE_ID;
+  const baseExecuteQuery: AnilistExecuteQuery = accessToken
+    ? bindAccessTokenToExecuteQuery(accessToken, authFailureUserId)
+    : executeAnilistQuery;
   return {
-    executeQuery: executeAnilistQuery,
+    executeQuery: baseExecuteQuery,
     db: {
       exec: (sql, params) =>
         client.exec(sourceId, sql, params ? [...params] : undefined),
@@ -86,6 +124,6 @@ export function makeAnilistImportContext(
         ),
     },
     now: () => Date.now(),
-    ...overrides,
+    ...rest,
   };
 }

@@ -23,6 +23,8 @@ export type DepaginateOptions<TData, TNode> = {
   perPage?: number;
   /** Stop after this many pages (Favourites bounded fetches). */
   maxPages?: number;
+  /** Optional Bearer token for authenticated list queries. */
+  accessToken?: string;
   /** Pull nodes + pageInfo from one page's GraphQL `data` payload. */
   selectPage: (data: TData) => { nodes: TNode[]; pageInfo: DepaginatePageInfo };
   signal?: AbortSignal;
@@ -55,6 +57,7 @@ export async function depaginateWithMeta<TData, TNode>(
     variables = {},
     perPage = ANILIST_TOOLS_MAX_PAGE_SIZE,
     maxPages,
+    accessToken,
     selectPage,
     signal,
     onProgress,
@@ -75,11 +78,10 @@ export async function depaginateWithMeta<TData, TNode>(
       break;
     }
 
-    const data = await executeAnilistQuery<TData>(query, {
-      ...variables,
-      page,
-      perPage,
-    });
+    const pageVariables = { ...variables, page, perPage };
+    const data = accessToken
+      ? await executeAnilistQuery<TData>(query, pageVariables, { accessToken })
+      : await executeAnilistQuery<TData>(query, pageVariables);
 
     if (!data) {
       break;

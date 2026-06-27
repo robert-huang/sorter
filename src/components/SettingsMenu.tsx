@@ -3,6 +3,7 @@ import { HistoryBackGuardSetting } from './HistoryBackGuardSetting';
 import { SettingsGitHubLink } from './SettingsGitHubLink';
 import { SlotList } from './SlotList';
 import { CloudBackupSection } from './CloudBackupSection';
+import { AnilistAccountsSection } from './AnilistAccountsSection';
 import { SourceDatabasesSection } from './sourceDatabasesSection';
 import type { SlotsManifest } from '../lib/types';
 
@@ -396,15 +397,18 @@ export function SettingsMenu({
                     a http(s) origin to enable it.
                   </div>
                 ) : (
-                  <SourceDatabasesSection
-                    cloudStatus={cloudStatus}
-                    pushingIds={dbPushingIds}
-                    pullingIds={dbPullingIds}
-                    sourceDbErrors={sourceDbErrors}
-                    syncRevision={dbSyncRevision}
-                    onPushSource={onDbPushSource}
-                    onPullSource={onDbPullSource}
-                  />
+                  <>
+                    <AnilistAccountsSection />
+                    <SourceDatabasesSection
+                      cloudStatus={cloudStatus}
+                      pushingIds={dbPushingIds}
+                      pullingIds={dbPullingIds}
+                      sourceDbErrors={sourceDbErrors}
+                      syncRevision={dbSyncRevision}
+                      onPushSource={onDbPushSource}
+                      onPullSource={onDbPullSource}
+                    />
+                  </>
                 )}
                 <div className="settings-status settings-source-refresh-hint">
                   To refresh a source's data, open the Start tab and pick

@@ -13,6 +13,7 @@ import { dbSyncErrorMessage } from '../lib/db/dbSyncErrorMessage';
 import { pullDbFromDrive, pushDbToDrive } from '../lib/db/sync';
 import { recordSourceDbDirtyWrite } from '../lib/db/syncManifest';
 import { ANILIST_SOURCE_ID } from '../lib/importers/anilist/anilistSource';
+import { handleAnilistAuthRedirect } from '../lib/importers/anilist/anilistAuth';
 import { configureAnilistRunnerHooks } from '../lib/importers/anilist/runners';
 import { InFlightTracker } from '../lib/inFlightTracker';
 import { isAutosaveAvailable } from '../lib/storage';
@@ -75,9 +76,16 @@ export function useSourceDbSync(): SourceDbSyncControls {
     cloudAuth.status === 'signed-in' ? cloudAuth.folderName : undefined;
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !cloudAvailable) return;
+    if (typeof window === 'undefined') return;
     let canceled = false;
     void (async () => {
+      try {
+        await handleAnilistAuthRedirect();
+      } catch (err) {
+        console.warn('anilist auth redirect failed', err);
+      }
+      if (canceled) return;
+      if (!cloudAvailable) return;
       try {
         await cloudHandleAuthRedirect();
       } catch (err) {

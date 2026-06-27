@@ -123,11 +123,16 @@ const waitListeners = new Set<(state: AnilistWaitState | null) => void>();
  *   - Throws {@link GraphQLError} when the response body has `errors[]`.
  *   - Throws {@link RateLimitExceededError} after the retry cap.
  */
+export type ExecuteAnilistQueryOptions = {
+  accessToken?: string;
+};
+
 export function executeAnilistQuery<T>(
   query: string,
   variables: Record<string, unknown> = {},
+  options: ExecuteAnilistQueryOptions = {},
 ): Promise<T | null> {
-  return enqueue(() => runOnce<T>(query, variables));
+  return enqueue(() => runOnce<T>(query, variables, options));
 }
 
 /**
@@ -169,6 +174,7 @@ function noop(): void {
 async function runOnce<T>(
   query: string,
   variables: Record<string, unknown>,
+  options: ExecuteAnilistQueryOptions = {},
 ): Promise<T | null> {
   let attempt = 0;
   while (true) {
@@ -185,12 +191,16 @@ async function runOnce<T>(
     // the entire import even though the next attempt would succeed.
     let response: Response;
     try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      };
+      if (options.accessToken) {
+        headers.Authorization = `Bearer ${options.accessToken}`;
+      }
       response = await fetch(ANILIST_GRAPHQL_ENDPOINT, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
+        headers,
         body: JSON.stringify({ query, variables }),
       });
     } catch (cause) {

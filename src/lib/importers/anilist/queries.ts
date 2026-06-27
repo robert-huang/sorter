@@ -123,6 +123,7 @@ query ListCollection($username: String!, $type: MediaType!, $chunk: Int!, $perCh
         score(format: POINT_100)
         status
         repeat
+        notes
         startedAt { year month day }
         completedAt { year month day }
         createdAt
