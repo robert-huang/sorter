@@ -4558,14 +4558,23 @@ html {
   width: min(760px, calc(100% - 32px));
 }
 
-.anilist-start-embedded {
+/* Embedded in AddItemsModal — keep breathing room inside the bordered panel. */
+.modal-wide-anilist .anilist-start-embedded {
   margin: 0;
-  padding: 0;
+  margin-bottom: 0;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg, #f8f8f8) 55%, var(--surface));
 }
 
 .anilist-start-embedded .anilist-start-preview {
   max-height: min(320px, 42vh);
   overflow-y: auto;
+}
+
+.anilist-start-embedded .anilist-start-bar {
+  row-gap: 10px;
 }
 
 .anilist-start-preview-row--duplicate {
