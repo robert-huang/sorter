@@ -8,6 +8,7 @@ import {
   normalizeSeasonalListScore,
   scoreDisplayTone,
   scoreDisplayToneClass,
+  seasonColumnIndicesWithTopAverage,
   parseSeasonLine,
   parseSeasonSpecs,
   type SeasonalScoresForm,
@@ -143,6 +144,37 @@ describe('seasonalScoresLogic', () => {
   it('formatSeasonColumnLabel appends rated count after the year', () => {
     expect(formatSeasonColumnLabel('Winter 2024', 5)).toBe('Winter 2024 (5)');
     expect(formatSeasonColumnLabel('2024', 12)).toBe('2024 (12)');
+  });
+
+  describe('seasonColumnIndicesWithTopAverage', () => {
+    it('returns the single highest-average column index', () => {
+      expect(
+        seasonColumnIndicesWithTopAverage([
+          { average: 70 },
+          { average: 85 },
+          { average: 80 },
+        ]),
+      ).toEqual(new Set([1]));
+    });
+
+    it('returns every column tied for the highest average', () => {
+      expect(
+        seasonColumnIndicesWithTopAverage([
+          { average: 90 },
+          { average: 75 },
+          { average: 90 },
+        ]),
+      ).toEqual(new Set([0, 2]));
+    });
+
+    it('ignores null averages and returns empty when none are rated', () => {
+      expect(
+        seasonColumnIndicesWithTopAverage([
+          { average: null },
+          { average: null },
+        ]),
+      ).toEqual(new Set());
+    });
   });
 
   it('includes planning shows with P label and excludes them from average', () => {

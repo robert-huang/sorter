@@ -529,6 +529,27 @@ export function averageScore(shows: SeasonalShow[]): number | null {
   return Math.round((sum / scored.length) * 1000) / 1000;
 }
 
+/** Column indices tied for the highest non-null average (empty when none rated). */
+export function seasonColumnIndicesWithTopAverage(
+  columns: ReadonlyArray<Pick<SeasonColumn, 'average'>>,
+): Set<number> {
+  let max: number | null = null;
+  const indices: number[] = [];
+  columns.forEach((col, index) => {
+    if (col.average == null) {
+      return;
+    }
+    if (max === null || col.average > max) {
+      max = col.average;
+      indices.length = 0;
+      indices.push(index);
+    } else if (col.average === max) {
+      indices.push(index);
+    }
+  });
+  return new Set(indices);
+}
+
 export type BuildSeasonalColumnsOptions = {
   /** Injectable clock for spanning-mode tests. */
   now?: Date;

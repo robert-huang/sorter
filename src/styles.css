@@ -6418,6 +6418,16 @@ html {
   margin-top: 4px;
 }
 
+.tool-season-col-avg-star {
+  margin-left: 0.2em;
+  font-size: 0.8em;
+  color: var(--text-faint);
+}
+
+.tool-season-col-avg.tool-score-tone--high .tool-season-col-avg-star {
+  color: inherit;
+}
+
 .tool-season-cell {
   padding: 8px 12px;
   border-bottom: 1px solid var(--border);

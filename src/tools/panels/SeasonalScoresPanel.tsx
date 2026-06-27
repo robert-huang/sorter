@@ -12,6 +12,7 @@ import {
   formatSeasonColumnLabel,
   formatSeasonalScoreLabel,
   scoreDisplayToneClass,
+  seasonColumnIndicesWithTopAverage,
   type SeasonMode,
   type SeasonalScoresForm,
   type SeasonalScoresResult,
@@ -130,6 +131,8 @@ function SeasonalColumnsView({
   columns: SeasonColumn[];
   onOpenMedia: ToolPanelProps['onOpenMedia'];
 }) {
+  const topAverageColumnIndices = seasonColumnIndicesWithTopAverage(columns);
+
   return (
     <div className="tool-season-columns">
       <DragScroll
@@ -170,6 +173,15 @@ function SeasonalColumnsView({
                     .join(' ')}
                 >
                   avg: {col.average ?? 'N/A'}
+                  {topAverageColumnIndices.has(colIdx) ? (
+                    <span
+                      className="tool-season-col-avg-star"
+                      title="Highest average in this chart"
+                      aria-hidden="true"
+                    >
+                      ★
+                    </span>
+                  ) : null}
                 </div>
               </div>
               {col.shows.map((show) => (
