@@ -18,27 +18,13 @@
       (function () {
         var MESSAGE_TYPE = 'anilist-oauth-callback';
         var status = document.getElementById('status');
-        var query = window.location.search.startsWith('?')
-          ? window.location.search.slice(1)
-          : window.location.search;
-        var queryParams = new URLSearchParams(query);
-        var authCode = queryParams.get('code');
-        var error = queryParams.get('error') || queryParams.get('error_description');
-        var stateRaw = queryParams.get('state');
-
-        // Legacy implicit-grant fallback (hash fragment).
         var hash = window.location.hash.startsWith('#')
           ? window.location.hash.slice(1)
           : window.location.hash;
-        var hashParams = new URLSearchParams(hash);
-        var accessToken = hashParams.get('access_token');
-        if (!error) {
-          error = hashParams.get('error') || hashParams.get('error_description');
-        }
-        if (!stateRaw) {
-          stateRaw = hashParams.get('state');
-        }
-
+        var params = new URLSearchParams(hash);
+        var accessToken = params.get('access_token');
+        var error = params.get('error') || params.get('error_description');
+        var stateRaw = params.get('state');
         var targetOrigin = null;
         var nonce = null;
 
@@ -59,7 +45,6 @@
         var payload = {
           type: MESSAGE_TYPE,
           accessToken: accessToken,
-          authCode: authCode,
           error: error,
           nonce: nonce,
         };

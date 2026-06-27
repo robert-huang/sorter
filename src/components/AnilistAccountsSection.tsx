@@ -77,7 +77,7 @@ export function AnilistAccountsSection() {
       {!configured && (
         <div className="settings-status settings-anilist-hint" style={{ color: 'var(--text-muted)' }}>
           AniList sign-in is not configured for this build (
-          <code>VITE_ANILIST_CLIENT_ID</code> and <code>VITE_ANILIST_CLIENT_SECRET</code>).
+          <code>VITE_ANILIST_CLIENT_ID</code>).
         </div>
       )}
       {showDevSetup && (

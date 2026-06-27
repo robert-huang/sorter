@@ -137,8 +137,7 @@ describe('popup OAuth helpers', () => {
     expect(
       isAnilistOAuthCallbackMessage({
         type: 'anilist-oauth-callback',
-        accessToken: null,
-        authCode: 'code-123',
+        accessToken: 'tok',
         error: null,
         nonce: 'n',
       }),

@@ -545,7 +545,7 @@ Sign in via **gear menu → Databases tab → Sign in to AniList**. A pop-up ope
 
 **One-time AniList API client setup** ([developer settings](https://anilist.co/settings/developer)):
 
-1. Create a client and copy the **Client ID** and **Client Secret**.
+1. Create a client and copy the **Client ID**.
 2. Set **Redirect URL** to exactly:
    `https://robert-huang.github.io/sorter/anilist-oauth-callback.html`
    (Forks: set `VITE_ANILIST_OAUTH_CALLBACK_URL` to your own hosted `anilist-oauth-callback.html` URL.)
@@ -553,10 +553,9 @@ Sign in via **gear menu → Databases tab → Sign in to AniList**. A pop-up ope
 
 ```bash
 VITE_ANILIST_CLIENT_ID=12345
-VITE_ANILIST_CLIENT_SECRET=your-client-secret
 ```
 
-That single redirect URL works for **localhost and production** — you do not register `http://localhost:5173/`. The pop-up lands on the hosted callback page, which `postMessage`s the auth code back to whatever origin opened it; the app exchanges it for an access token.
+Uses **implicit grant** — the access token arrives in the redirect URL hash, so no server-side token exchange (AniList’s `/oauth/token` endpoint is not browser-CORS-enabled). That single redirect URL works for **localhost and production**.
 
 After sign-in, import **your own** AniList username on START (or in Tools) to pull hidden custom-list entries. Other people's usernames still use the public API.
 
@@ -573,7 +572,6 @@ The included `.github/workflows/deploy.yml` builds + publishes the app to GitHub
     - `VITE_GOOGLE_CLIENT_ID` — your `…apps.googleusercontent.com` OAuth client id
     - `VITE_GOOGLE_CLIENT_SECRET` — the matching client secret
     - `VITE_ANILIST_CLIENT_ID` — your AniList API client id ([developer settings](https://anilist.co/settings/developer))
-    - `VITE_ANILIST_CLIENT_SECRET` — the matching AniList client secret
    The workflow's `npm run build` step reads these via `${{ secrets.* }}` and inlines them into the deployed bundle. If any is missing, that feature shows a "not configured" banner; the rest of the app still works.
 2. **Register the GitHub Pages URL with your OAuth client** — in Google Cloud Console → APIs & Services → Credentials → your OAuth client:
     - Authorized JavaScript origins: `https://<your-username>.github.io`
