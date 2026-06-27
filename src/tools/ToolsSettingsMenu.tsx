@@ -4,6 +4,7 @@ import { AnilistDisplayPreferencesPanel } from '../components/AnilistDisplayPref
 import { HistoryBackGuardSetting } from '../components/HistoryBackGuardSetting';
 import { SettingsGitHubLink } from '../components/SettingsGitHubLink';
 import { SourceDatabasesSection } from '../components/sourceDatabasesSection';
+import { AnilistAccountsSection } from '../components/AnilistAccountsSection';
 import type { SourceDbSyncControls } from '../hooks/useSourceDbSync';
 import { useToolsPreferences } from '../hooks/useToolsPreferences';
 
@@ -157,6 +158,7 @@ export function ToolsSettingsMenu({
                             {dbSync.cloudActionError}
                           </div>
                         )}
+                        <AnilistAccountsSection />
                         <div className="settings-divider" />
                       </>
                     )}
@@ -188,6 +190,7 @@ export function ToolsSettingsMenu({
                         />
                       </>
                     )}
+                    {dbSync.cloudStatus === 'ready' && <AnilistAccountsSection />}
                   </>
                 )}
               </div>

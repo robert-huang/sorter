@@ -1,10 +1,13 @@
 import { depaginate } from '../../lib/importers/anilist/depaginate';
+import { findAnilistAccountByName, resolveAccessTokenForUsername } from '../../lib/importers/anilist/anilistAuth';
 import { TOOLS_USER_ANIME_LIST_QUERY } from '../../lib/importers/anilist/queries';
 import type { ToolsFetchOptions } from '../../lib/importers/anilist/toolsFetchPolicy';
 import {
   TOOLS_SEASONAL_LIST_STATUSES,
   ensureUserAnimeListFresh,
+  readUserSeasonalShowsFromDb,
 } from '../../lib/importers/anilist/toolsAnilistAccess';
+import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportContext';
 import {
   TOOLS_SESSION_TTL_MS,
   sessionMemoDelete,
@@ -49,10 +52,10 @@ function mapFuzzyDate(date: GqlFuzzyDate): SeasonalFuzzyDate | null {
 async function fetchUserSeasonalShowsLive(
   username: string,
   signal?: AbortSignal,
-  options?: SeasonalScoresFetchOptions,
 ): Promise<SeasonalShow[]> {
   signal?.throwIfAborted();
-  await ensureUserAnimeListFresh(username, options);
+  let accessToken: string | undefined;
+  accessToken = resolveAccessTokenForUsername(username) ?? undefined;
 
   const entries = await depaginate<
     {
@@ -76,6 +79,7 @@ async function fetchUserSeasonalShowsLive(
     query: TOOLS_USER_ANIME_LIST_QUERY,
     variables: { userName: username, statusIn: [...TOOLS_SEASONAL_LIST_STATUSES] },
     signal,
+    accessToken,
     selectPage: (data) => ({
       nodes: data.Page?.mediaList ?? [],
       pageInfo: data.Page?.pageInfo ?? { hasNextPage: false },
@@ -102,10 +106,31 @@ async function fetchUserSeasonalShowsLive(
   }));
 }
 
+async function fetchUserSeasonalShowsResolved(
+  username: string,
+  signal?: AbortSignal,
+  options?: SeasonalScoresFetchOptions,
+): Promise<SeasonalShow[]> {
+  signal?.throwIfAborted();
+  const user = await ensureUserAnimeListFresh(username, options);
+  const ctx = getToolsImportContext();
+  const hasAccount = findAnilistAccountByName(username) !== null;
+  if (user) {
+    const fromDb = await readUserSeasonalShowsFromDb(ctx.db, user.id);
+    if (fromDb.length > 0 || hasAccount) {
+      return fromDb;
+    }
+  }
+  if (hasAccount) {
+    return [];
+  }
+  return fetchUserSeasonalShowsLive(username, signal);
+}
+
 /**
- * Seasonal scores need list-entry notes (#airing) and scores, which are
- * NOT stored in the DB — the live AniList list query is the source of
- * truth here (the DB only has score/status; notes aren't persisted).
+ * Seasonal scores read list-entry notes and scores from the imported DB when
+ * available (authenticated import via MediaListCollection). Live
+ * `Page.mediaList` is the fallback for unauthenticated third-party usernames.
  *
  * Always fetched with PLANNING included; the "Include Planning"
  * checkbox is a client-side filter (see `bucketShowsForSeason`) so
@@ -125,7 +150,7 @@ export async function fetchUserSeasonalShows(
   const shows = await withSessionTtlMemo(
     key,
     TOOLS_SESSION_TTL_MS,
-    () => fetchUserSeasonalShowsLive(username, signal, options),
+    () => fetchUserSeasonalShowsResolved(username, signal, options),
     { bust: options?.forceRefresh },
   );
   // Don't lock the user into an empty result for 15m. An empty array is most

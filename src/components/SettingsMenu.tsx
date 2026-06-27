@@ -3,6 +3,7 @@ import { HistoryBackGuardSetting } from './HistoryBackGuardSetting';
 import { SettingsGitHubLink } from './SettingsGitHubLink';
 import { SlotList } from './SlotList';
 import { CloudBackupSection } from './CloudBackupSection';
+import { AnilistAccountsSection } from './AnilistAccountsSection';
 import { SourceDatabasesSection } from './sourceDatabasesSection';
 import type { SlotsManifest } from '../lib/types';
 
@@ -391,10 +392,13 @@ export function SettingsMenu({
               // panel is free to scroll when the database list grows.
               <div className="settings-tab-scroll">
                 {cloudStatus === 'unavailable' ? (
-                  <div className="settings-status">
-                    Database sync needs autosave enabled. Open the app from
-                    a http(s) origin to enable it.
-                  </div>
+                  <>
+                    <div className="settings-status">
+                      Database sync needs autosave enabled. Open the app from
+                      a http(s) origin to enable it.
+                    </div>
+                    <AnilistAccountsSection />
+                  </>
                 ) : (
                   <SourceDatabasesSection
                     cloudStatus={cloudStatus}
@@ -469,6 +473,13 @@ export function SettingsMenu({
                 >
                   Sign out of cloud
                 </button>
+                {tab === 'databases' && <AnilistAccountsSection />}
+              </>
+            )}
+            {tab === 'databases' && cloudStatus !== 'ready' && cloudStatus !== 'unavailable' && (
+              <>
+                <div className="settings-divider" />
+                <AnilistAccountsSection />
               </>
             )}
             <div className="settings-divider" />

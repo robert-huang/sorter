@@ -223,6 +223,7 @@ const MEDIA_LIST_ENTRY_COLS = [
   'completed_day',
   'anilist_created_at',
   'anilist_updated_at',
+  'notes',
   'fetched_at',
   'updated_at',
 ] as const;

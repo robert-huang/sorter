@@ -120,6 +120,7 @@ function rowToMediaListEntryRow(r: DbRow): MediaListEntryRow {
     completed_day: n(r.completed_day),
     anilist_created_at: n(r.anilist_created_at),
     anilist_updated_at: n(r.anilist_updated_at),
+    notes: s(r.notes),
     fetched_at: reqN(r.fetched_at),
     updated_at: reqN(r.updated_at),
   };

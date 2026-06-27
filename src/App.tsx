@@ -144,6 +144,7 @@ import {
   type DbNonPersistentReason,
 } from './lib/db/opfs';
 import { ANILIST_SOURCE_ID } from './lib/importers/anilist/anilistSource';
+import { handleAnilistAuthRedirect } from './lib/importers/anilist/anilistAuth';
 import { ensureAnilistFiltersRegistered } from './lib/importers/anilist/filters';
 import { ensureCharacterStaffFiltersRegistered } from './lib/importers/anilist/characterStaffFilters';
 import { configureAnilistRunnerHooks } from './lib/importers/anilist/runners';
@@ -680,6 +681,14 @@ export function App() {
     if (typeof window === 'undefined') return;
     let canceled = false;
     async function run(): Promise<void> {
+      // AniList OAuth redirect (implicit grant hash). Runs before cloud
+      // auth so a mid-flow hash survives any subsequent OAuth round-trip.
+      try {
+        await handleAnilistAuthRedirect();
+      } catch (err) {
+        console.warn('anilist auth redirect failed', err);
+      }
+      if (canceled) return;
       // Cloud auth redirect handler. No-op when the URL has no auth
       // params (the common case). Errors surface to the console only;
       // the user sees the result via getAuthState on the next render.

@@ -35,9 +35,14 @@ import {
 import type { AnilistFavouriteType } from './types';
 import {
   formatStartDateKey,
+  pickMediaTitle,
   type StaffRoleMode,
   type StaffShowMap,
 } from '../../../tools/panels/sharedCreditsLogic';
+import {
+  normalizeSeasonalListScore,
+  type SeasonalShow,
+} from '../../../tools/panels/seasonalScoresLogic';
 import {
   mergeRoleIntoMap,
   mergeVaRoleIntoMap,
@@ -519,6 +524,79 @@ export async function readUserListMediaIdsFromDb(
     [anilistUserId, ...statuses],
   );
   return new Set(rows.map((r) => String(r.media_id)));
+}
+
+/**
+ * Seasonal scores source after authenticated import — list entry notes and
+ * hidden custom-list entries live here, not in `Page.mediaList`.
+ */
+export async function readUserSeasonalShowsFromDb(
+  db: AnilistDbExecutor,
+  anilistUserId: number,
+): Promise<SeasonalShow[]> {
+  const placeholders = TOOLS_SEASONAL_LIST_STATUSES.map(() => '?').join(', ');
+  const rows = await db.exec(
+    `SELECT m.id,
+            m.title_english,
+            m.title_romaji,
+            m.title_native,
+            m.cover_image,
+            m.season,
+            m.season_year,
+            m.start_year,
+            m.start_month,
+            m.start_day,
+            m.end_year,
+            m.end_month,
+            m.end_day,
+            mle.status,
+            mle.score,
+            mle.notes
+       FROM media_list_entry mle
+       JOIN media m ON m.id = mle.media_id
+      WHERE mle.anilist_user_id = ?
+        AND m.type = 'ANIME'
+        AND mle.status IN (${placeholders})`,
+    [anilistUserId, ...TOOLS_SEASONAL_LIST_STATUSES],
+  );
+  return rows.map((row) => ({
+    id: Number(row.id),
+    title: pickMediaTitle({
+      english: (row.title_english as string | null) ?? null,
+      romaji: (row.title_romaji as string | null) ?? null,
+      native: (row.title_native as string | null) ?? null,
+    }),
+    titleSource: {
+      id: Number(row.id),
+      title_english: (row.title_english as string | null) ?? null,
+      title_romaji: (row.title_romaji as string | null) ?? null,
+      title_native: (row.title_native as string | null) ?? null,
+    },
+    coverImage: (row.cover_image as string | null) ?? null,
+    season: (row.season as string | null) ?? null,
+    seasonYear: row.season_year != null ? Number(row.season_year) : null,
+    startDate:
+      row.start_year != null
+        ? {
+            year: Number(row.start_year),
+            month: row.start_month != null ? Number(row.start_month) : null,
+            day: row.start_day != null ? Number(row.start_day) : null,
+          }
+        : null,
+    endDate:
+      row.end_year != null
+        ? {
+            year: Number(row.end_year),
+            month: row.end_month != null ? Number(row.end_month) : null,
+            day: row.end_day != null ? Number(row.end_day) : null,
+          }
+        : null,
+    score: normalizeSeasonalListScore(
+      row.score != null ? Number(row.score) : null,
+    ),
+    notes: (row.notes as string | null) ?? null,
+    listStatus: (row.status as string | null) ?? null,
+  }));
 }
 
 export async function readStaffShowMapFromDb(

@@ -27,6 +27,7 @@ import {
   recordSourceDbDirtyWrite,
 } from '../../db/syncManifest';
 import { ANILIST_SOURCE_ID } from './anilistSource';
+import { findAnilistAccountByName, resolveAccessTokenForUsername } from './anilistAuth';
 import { makeAnilistImportContext } from './context';
 import { importAnilistFavourites } from './favourites';
 import { importAnilistList } from './importer';
@@ -79,7 +80,12 @@ export function configureAnilistRunnerHooks(next: AnilistRunnerHooks): void {
  *  per-call `onProgress` is passed in by the UI caller — runner
  *  hooks deliberately don't carry it because progress is highly
  *  caller-scoped (one input box / one button needs the labels). */
-function buildContext(onProgress?: AnilistProgressReporter) {
+function buildContext(
+  onProgress?: AnilistProgressReporter,
+  auth?: { username: string },
+) {
+  const account = auth ? findAnilistAccountByName(auth.username) : null;
+  const accessToken = auth ? resolveAccessTokenForUsername(auth.username) : null;
   return makeAnilistImportContext({
     onAutoPushRequested: async () => {
       if (hooks.onAutoPushRequested) await hooks.onAutoPushRequested();
@@ -89,6 +95,8 @@ function buildContext(onProgress?: AnilistProgressReporter) {
       if (hooks.onDirtyBumped) hooks.onDirtyBumped(next);
     },
     onProgress,
+    accessToken: accessToken ?? undefined,
+    authFailureUserId: account?.userId,
   });
 }
 
@@ -112,7 +120,7 @@ export async function runAnilistImport(
   type: AnilistMediaType,
   onProgress?: AnilistProgressReporter,
 ): Promise<ImportAnilistListResult> {
-  const result = await importAnilistList(buildContext(onProgress), { username, type });
+  const result = await importAnilistList(buildContext(onProgress, { username }), { username, type });
   markLocalDbPresent();
   return result;
 }

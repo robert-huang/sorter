@@ -244,6 +244,7 @@ export function mapMediaListEntryRow(
     completed_day: completed.day,
     anilist_created_at: entry.createdAt != null ? entry.createdAt * 1000 : null,
     anilist_updated_at: entry.updatedAt != null ? entry.updatedAt * 1000 : null,
+    notes: entry.notes ?? null,
     fetched_at: now,
     updated_at: now,
   };

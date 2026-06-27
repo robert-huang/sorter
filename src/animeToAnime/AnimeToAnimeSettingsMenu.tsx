@@ -3,6 +3,7 @@ import { CloudBackupSection } from '../components/CloudBackupSection';
 import { HistoryBackGuardSetting } from '../components/HistoryBackGuardSetting';
 import { SettingsGitHubLink } from '../components/SettingsGitHubLink';
 import { SourceDatabasesSection } from '../components/sourceDatabasesSection';
+import { AnilistAccountsSection } from '../components/AnilistAccountsSection';
 import type { CloudMenuStatus } from '../components/SettingsMenu';
 import type { RoundConfig, StaffGenderFilter, VaListImageMode } from './preferences';
 
@@ -255,6 +256,7 @@ export function AnimeToAnimeSettingsMenu({
                             {dbSync.cloudActionError}
                           </div>
                         )}
+                        <AnilistAccountsSection />
                         <div className="settings-divider" />
                       </>
                     )}
@@ -286,6 +288,7 @@ export function AnimeToAnimeSettingsMenu({
                         />
                       </>
                     )}
+                    {dbSync.cloudStatus === 'ready' && <AnilistAccountsSection />}
                   </>
                 )}
               </div>

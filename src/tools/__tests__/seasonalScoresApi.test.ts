@@ -12,6 +12,7 @@ vi.mock('../../lib/importers/anilist/depaginate', () => ({
 vi.mock('../../lib/importers/anilist/toolsAnilistAccess', () => ({
   TOOLS_SEASONAL_LIST_STATUSES: ['COMPLETED', 'CURRENT', 'REPEATING', 'PAUSED', 'PLANNING'],
   ensureUserAnimeListFresh: vi.fn().mockResolvedValue({ id: 1 }),
+  readUserSeasonalShowsFromDb: vi.fn().mockResolvedValue([]),
 }));
 
 import { depaginate } from '../../lib/importers/anilist/depaginate';

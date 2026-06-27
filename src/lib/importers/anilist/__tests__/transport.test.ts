@@ -69,6 +69,17 @@ describe('executeAnilistQuery — happy path', () => {
     });
   });
 
+  it('attaches Authorization Bearer when accessToken is provided', async () => {
+    const fetchMock = makeFetchMock([jsonResponse(200, { data: { ok: true } })]);
+    vi.stubGlobal('fetch', fetchMock);
+
+    await executeAnilistQuery('query Q { x }', {}, { accessToken: 'secret-token' });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInitJson];
+    const headers = new Headers(init.headers as HeadersInit);
+    expect(headers.get('Authorization')).toBe('Bearer secret-token');
+  });
+
   it('returns null for a 404 (AniList "not found" convention)', async () => {
     vi.stubGlobal('fetch', makeFetchMock([jsonResponse(404, { errors: [{ message: 'not found' }] })]));
     const result = await executeAnilistQuery('query Q { x }', {});
