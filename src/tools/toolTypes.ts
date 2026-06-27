@@ -5,7 +5,8 @@ export type ToolId =
   | 'shared-staff'
   | 'seasonal-scores'
   | 'franchise-scores'
-  | 'favourites';
+  | 'favourites'
+  | 'update-list-entry';
 
 /** Props every tool panel receives so result rows can open the detail modals. */
 export interface ToolPanelProps {
@@ -27,6 +28,7 @@ const TOOL_IDS: readonly ToolId[] = [
   'seasonal-scores',
   'franchise-scores',
   'favourites',
+  'update-list-entry',
 ];
 
 export function loadActiveTool(): ToolId {

@@ -341,6 +341,15 @@ export function resolveAccessTokenForUsername(username: string): string | null {
   return account.accessToken;
 }
 
+/** Like {@link resolveAccessTokenForUsername} but throws when no account is stored. */
+export function requireAccessTokenForUsername(username: string): string {
+  const token = resolveAccessTokenForUsername(username);
+  if (!token) {
+    throw new AnilistAuthRequiredError(username.trim() || 'your account');
+  }
+  return token;
+}
+
 export function markAnilistAccountExpired(userId: number): void {
   const store = readStore();
   const idx = store.accounts.findIndex((a) => a.userId === userId);

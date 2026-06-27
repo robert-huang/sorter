@@ -14,6 +14,7 @@ import {
   parseOAuthHashParams,
   parseOAuthQueryParams,
   resolveAccessTokenForUsername,
+  requireAccessTokenForUsername,
   signOutAnilistAccount,
 } from '../anilistAuth';
 
@@ -165,6 +166,15 @@ describe('account store', () => {
 
   it('returns null when no stored account exists', () => {
     expect(resolveAccessTokenForUsername('nobody')).toBeNull();
+  });
+
+  it('requireAccessTokenForUsername throws when no stored account exists', () => {
+    expect(() => requireAccessTokenForUsername('nobody')).toThrow(AnilistAuthRequiredError);
+  });
+
+  it('requireAccessTokenForUsername returns token when account is valid', () => {
+    seedAccount({ expiresAt: Date.now() + 60_000 });
+    expect(requireAccessTokenForUsername('TestUser')).toBe('token-abc');
   });
 
   it('upserts by userId via mark expired + sign out', () => {

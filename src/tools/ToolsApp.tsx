@@ -28,6 +28,7 @@ import { SharedStaffPanel } from './panels/SharedStaffPanel';
 import { SeasonalScoresPanel } from './panels/SeasonalScoresPanel';
 import { FranchiseScoresPanel } from './panels/FranchiseScoresPanel';
 import { FavouritesPanel } from './panels/FavouritesPanel';
+import { UpdateListEntryPanel } from './panels/UpdateListEntryPanel';
 
 const TOOL_TABS: ReadonlyArray<ToolTab<ToolId>> = [
   { id: 'shared-credits', label: 'Shared Credits' },
@@ -35,6 +36,7 @@ const TOOL_TABS: ReadonlyArray<ToolTab<ToolId>> = [
   { id: 'seasonal-scores', label: 'Seasonal Scores' },
   { id: 'franchise-scores', label: 'Franchise Scores' },
   { id: 'favourites', label: 'Favourites' },
+  { id: 'update-list-entry', label: 'Update List Entry' },
 ];
 
 interface MediaTarget {
@@ -182,6 +184,9 @@ export function ToolsApp() {
         </div>
         <div hidden={activeTool !== 'favourites'}>
           <FavouritesPanel {...panelProps} />
+        </div>
+        <div hidden={activeTool !== 'update-list-entry'}>
+          <UpdateListEntryPanel {...panelProps} />
         </div>
       </main>
 
