@@ -84,10 +84,9 @@ export function wantsNotesUpdate(input: NotesUpdateInput): boolean {
 
 /**
  * mass_tagger-style notes resolution:
- * - replace only → set notes directly
+ * - find empty + replace → set notes only when current notes are blank
  * - find `*` → replace entire notes
  * - find non-empty → first match replace, else skip
- * - find empty + replace → blank notes only
  */
 export function resolveNotesUpdate(
   currentNotes: string | null,
@@ -104,19 +103,15 @@ export function resolveNotesUpdate(
 
   const current = currentNotes ?? '';
 
-  if (!findTrimmed && replaceTrimmed) {
-    return { kind: 'set', notes: replace };
+  if (!findTrimmed) {
+    if (!current.trim()) {
+      return { kind: 'set', notes: replace };
+    }
+    return { kind: 'skip', reason: 'blank-only' };
   }
 
   if (findTrimmed === '*') {
     return { kind: 'set', notes: replace };
-  }
-
-  if (findTrimmed === '') {
-    if (!current.trim()) {
-      return replaceTrimmed ? { kind: 'set', notes: replace } : { kind: 'none' };
-    }
-    return { kind: 'skip', reason: 'blank-only' };
   }
 
   if (current.includes(find)) {

@@ -19,10 +19,21 @@ const BASE_FORM = {
 };
 
 describe('resolveNotesUpdate', () => {
-  it('sets notes directly when only replace is provided', () => {
-    expect(resolveNotesUpdate('old', { find: '', replace: 'new' })).toEqual({
+  it('sets notes when only replace is provided and current notes are blank', () => {
+    expect(resolveNotesUpdate('', { find: '', replace: '#airing' })).toEqual({
+      kind: 'set',
+      notes: '#airing',
+    });
+    expect(resolveNotesUpdate(null, { find: '', replace: 'new' })).toEqual({
       kind: 'set',
       notes: 'new',
+    });
+  });
+
+  it('skips replace-only when current notes already exist', () => {
+    expect(resolveNotesUpdate('old', { find: '', replace: 'new' })).toEqual({
+      kind: 'skip',
+      reason: 'blank-only',
     });
   });
 
@@ -30,6 +41,15 @@ describe('resolveNotesUpdate', () => {
     expect(resolveNotesUpdate('foo #airing bar', { find: '#airing', replace: '#done' })).toEqual({
       kind: 'set',
       notes: 'foo #done bar',
+    });
+  });
+
+  it('preserves leading spaces in find and replace (no trim on mutation)', () => {
+    expect(
+      resolveNotesUpdate('aa #airing', { find: ' #airing', replace: ' #aired' }),
+    ).toEqual({
+      kind: 'set',
+      notes: 'aa #aired',
     });
   });
 
@@ -44,6 +64,76 @@ describe('resolveNotesUpdate', () => {
     expect(resolveNotesUpdate('anything', { find: '*', replace: 'replaced' })).toEqual({
       kind: 'set',
       notes: 'replaced',
+    });
+  });
+
+  describe('does not trim find/replace values written to notes', () => {
+    it('keeps trailing spaces on blank-only replace', () => {
+      expect(resolveNotesUpdate('', { find: '', replace: ' #airing ' })).toEqual({
+        kind: 'set',
+        notes: ' #airing ',
+      });
+    });
+
+    it('keeps trailing spaces on * full replace', () => {
+      expect(resolveNotesUpdate('old', { find: '*', replace: ' new ' })).toEqual({
+        kind: 'set',
+        notes: ' new ',
+      });
+    });
+
+    it('keeps trailing spaces in substring find and replace', () => {
+      expect(
+        resolveNotesUpdate('tag #airing ', { find: '#airing ', replace: '#done ' }),
+      ).toEqual({
+        kind: 'set',
+        notes: 'tag #done ',
+      });
+    });
+
+    it('does not match a spaced find against an unspaced occurrence', () => {
+      expect(
+        resolveNotesUpdate('aa#airing', { find: ' #airing', replace: ' #aired' }),
+      ).toEqual({
+        kind: 'skip',
+        reason: 'find-not-found',
+      });
+    });
+  });
+
+  describe('trims only for empty/filled routing', () => {
+    it('treats whitespace-only find and replace as no notes update', () => {
+      expect(resolveNotesUpdate('notes', { find: '   ', replace: '  ' })).toEqual({
+        kind: 'none',
+      });
+    });
+
+    it('treats whitespace-only find as blank-only when replace has content', () => {
+      expect(resolveNotesUpdate('', { find: '   ', replace: '#airing' })).toEqual({
+        kind: 'set',
+        notes: '#airing',
+      });
+    });
+
+    it('treats whitespace-only current notes as blank for replace-only', () => {
+      expect(resolveNotesUpdate('   ', { find: '', replace: '#airing' })).toEqual({
+        kind: 'set',
+        notes: '#airing',
+      });
+    });
+
+    it('treats whitespace-only current notes as non-blank when trimmed content exists', () => {
+      expect(resolveNotesUpdate('  x  ', { find: '', replace: '#airing' })).toEqual({
+        kind: 'skip',
+        reason: 'blank-only',
+      });
+    });
+
+    it('treats padded * find as full replace', () => {
+      expect(resolveNotesUpdate('old', { find: '  *  ', replace: 'new' })).toEqual({
+        kind: 'set',
+        notes: 'new',
+      });
     });
   });
 });
@@ -76,6 +166,22 @@ describe('validateAndResolveUpdate', () => {
     expect(result.mutationFields).toEqual(['status']);
     expect(result.mutation.query).toContain('status: $status');
     expect(result.mutation.query).not.toContain('$notes:');
+  });
+
+  it('skips replace-only notes when entry has notes but still updates status', () => {
+    const result = validateAndResolveUpdate(
+      {
+        ...BASE_FORM,
+        status: 'CURRENT',
+        notesReplace: '#airing',
+      },
+      'existing note',
+    );
+    if (result.kind === 'validation') {
+      throw new Error('expected success');
+    }
+    expect(result.mutationFields).toEqual(['status']);
+    expect(result.skippedNotesReason).toContain('blank-only');
   });
 
   it('skips notes when find not found but still updates status', () => {
@@ -132,6 +238,17 @@ describe('wantsNotesUpdate', () => {
     expect(wantsNotesUpdate({ find: '', replace: 'a' })).toBe(true);
     expect(wantsNotesUpdate({ find: 'a', replace: '' })).toBe(true);
     expect(wantsNotesUpdate({ find: '', replace: '' })).toBe(false);
+  });
+
+  it('is false when find and replace are whitespace-only', () => {
+    expect(wantsNotesUpdate({ find: '   ', replace: '' })).toBe(false);
+    expect(wantsNotesUpdate({ find: '', replace: '\t' })).toBe(false);
+    expect(wantsNotesUpdate({ find: '  ', replace: '  ' })).toBe(false);
+  });
+
+  it('is true when find or replace has non-whitespace surrounded by spaces', () => {
+    expect(wantsNotesUpdate({ find: '  #airing  ', replace: '' })).toBe(true);
+    expect(wantsNotesUpdate({ find: '', replace: '  tag  ' })).toBe(true);
   });
 });
 

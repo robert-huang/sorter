@@ -55,8 +55,6 @@ export function ToolClearableInput({
           <svg
             className="tool-clearable-input-icon"
             viewBox="0 0 12 12"
-            width="12"
-            height="12"
             aria-hidden="true"
           >
             <path
