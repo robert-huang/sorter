@@ -3,8 +3,8 @@
  *
  *   - `initialScrollEnd` on first layout: container's `scrollLeft` is set to
  *     its max scroll so Seasonal Scores anchors on the most recent season.
- *   - Subsequent re-renders restore the user's scroll ratio so filter toggles,
- *     relabels, and column content changes don't jolt them to either edge.
+ *   - Subsequent re-renders restore the leftmost visible `data-scroll-anchor`
+ *     label (not column index), with scroll-ratio fallback.
  */
 
 import { act } from 'react';
@@ -105,6 +105,9 @@ describe('DragScroll scroll preservation', () => {
 
     el.scrollLeft = 200;
     act(() => {
+      el.dispatchEvent(new Event('scroll'));
+    });
+    act(() => {
       root.render(
         <DragScroll initialScrollEnd>
           <div ref={(node) => node && setStubScrollWidth(node.parentElement!, 1400)}>
@@ -130,6 +133,9 @@ describe('DragScroll scroll preservation', () => {
     expect(el.scrollLeft).toBe(1000);
 
     el.scrollLeft = 300;
+    act(() => {
+      el.dispatchEvent(new Event('scroll'));
+    });
     act(() => {
       root.render(
         <DragScroll initialScrollEnd>
@@ -212,6 +218,9 @@ describe('DragScroll scroll preservation', () => {
     const el = getScrollContainer();
     el.getBoundingClientRect = () => mockRect(0, 400);
     el.scrollLeft = 100;
+    act(() => {
+      el.dispatchEvent(new Event('scroll'));
+    });
 
     act(() => {
       root.render(
@@ -244,6 +253,72 @@ describe('DragScroll scroll preservation', () => {
     });
 
     expect(el.scrollLeft).toBe(200);
+  });
+
+  it('keeps the same year column visible when earlier columns are inserted', () => {
+    const column = (key: string, left: number) => (
+      <div
+        key={key}
+        data-scroll-anchor={key}
+        data-scroll-anchor-year={key}
+        ref={(node) => {
+          if (node) {
+            node.getBoundingClientRect = () => mockRect(left, 100);
+          }
+        }}
+      >
+        {key}
+      </div>
+    );
+
+    act(() => {
+      root.render(
+        <DragScroll initialScrollEnd scrollAnchorSelector="[data-scroll-anchor]">
+          <div
+            style={{ display: 'flex' }}
+            ref={(node) => {
+              if (node) {
+                setStubScrollWidth(node.parentElement!.parentElement!, 1000);
+              }
+            }}
+          >
+            {column('1991', -100)}
+            {column('1992', 40)}
+            {column('1993', 140)}
+          </div>
+        </DragScroll>,
+      );
+    });
+
+    const el = getScrollContainer();
+    el.getBoundingClientRect = () => mockRect(0, 400);
+    el.scrollLeft = 300;
+    act(() => {
+      el.dispatchEvent(new Event('scroll'));
+    });
+
+    act(() => {
+      root.render(
+        <DragScroll initialScrollEnd scrollAnchorSelector="[data-scroll-anchor]">
+          <div
+            style={{ display: 'flex' }}
+            ref={(node) => {
+              if (node) {
+                setStubScrollWidth(node.parentElement!.parentElement!, 1300);
+              }
+            }}
+          >
+            {column('1989', -220)}
+            {column('1990', -100)}
+            {column('1991', 20)}
+            {column('1992', 280)}
+            {column('1993', 380)}
+          </div>
+        </DragScroll>,
+      );
+    });
+
+    expect(el.scrollLeft).toBe(540);
   });
 });
 

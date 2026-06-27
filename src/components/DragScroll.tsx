@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, type ReactNode } from 'react';
+import { useCallback, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { useDragScroll } from '../lib/hooks/useDragScroll';
 import {
   captureLeftmostVisibleScrollAnchor,
@@ -32,6 +32,12 @@ type SavedScrollState = {
   anchor: ScrollAnchorSnapshot | null;
 };
 
+type AnchorConfig = {
+  scrollAnchorSelector?: string;
+  scrollAnchorAttribute: string;
+  scrollAnchorYearAttribute: string;
+};
+
 function maxScrollLeft(el: HTMLElement): number {
   return Math.max(0, el.scrollWidth - el.clientWidth);
 }
@@ -48,10 +54,39 @@ export function DragScroll({
   const { ref, ...dragProps } = useDragScroll<HTMLDivElement>();
   const isFirstLayoutRef = useRef(true);
   const savedScrollRef = useRef<SavedScrollState | null>(null);
+  const anchorConfigRef = useRef<AnchorConfig>({
+    scrollAnchorSelector,
+    scrollAnchorAttribute,
+    scrollAnchorYearAttribute,
+  });
+  anchorConfigRef.current = {
+    scrollAnchorSelector,
+    scrollAnchorAttribute,
+    scrollAnchorYearAttribute,
+  };
+
+  const saveScrollState = useCallback((el: HTMLElement): void => {
+    const {
+      scrollAnchorSelector: selector,
+      scrollAnchorAttribute: attribute,
+      scrollAnchorYearAttribute: yearAttribute,
+    } = anchorConfigRef.current;
+    const max = maxScrollLeft(el);
+    savedScrollRef.current = {
+      ratio: max > 0 ? el.scrollLeft / max : 0,
+      anchor:
+        selector != null
+          ? captureLeftmostVisibleScrollAnchor(el, selector, attribute, yearAttribute)
+          : null,
+    };
+  }, []);
 
   // useLayoutEffect runs after DOM commit (so scrollWidth is final) and
   // before paint. On first mount with `initialScrollEnd`, snap right.
-  // On later passes, restore the user's column anchor or scroll ratio.
+  // On later passes, restore the user's column anchor (by label) or scroll
+  // ratio. Snapshot is taken at the end of each pass and on scroll — never
+  // in effect cleanup, which runs after the next commit and would read the
+  // new column DOM at the old scroll offset.
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) {
@@ -65,18 +100,16 @@ export function DragScroll({
       }
     } else if (savedScrollRef.current != null) {
       const saved = savedScrollRef.current;
-      savedScrollRef.current = null;
+      const {
+        scrollAnchorSelector: selector,
+        scrollAnchorAttribute: attribute,
+        scrollAnchorYearAttribute: yearAttribute,
+      } = anchorConfigRef.current;
 
       const anchorRestored =
         saved.anchor != null &&
-        scrollAnchorSelector != null &&
-        restoreScrollAnchor(
-          el,
-          scrollAnchorSelector,
-          saved.anchor,
-          scrollAnchorAttribute,
-          scrollAnchorYearAttribute,
-        );
+        selector != null &&
+        restoreScrollAnchor(el, selector, saved.anchor, attribute, yearAttribute);
 
       if (!anchorRestored) {
         const max = maxScrollLeft(el);
@@ -84,27 +117,17 @@ export function DragScroll({
       }
     }
 
-    return () => {
-      const cleanupEl = ref.current;
-      if (!cleanupEl) {
-        return;
-      }
+    saveScrollState(el);
 
-      const max = maxScrollLeft(cleanupEl);
-      const ratio = max > 0 ? cleanupEl.scrollLeft / max : 0;
-      const anchor =
-        scrollAnchorSelector != null
-          ? captureLeftmostVisibleScrollAnchor(
-              cleanupEl,
-              scrollAnchorSelector,
-              scrollAnchorAttribute,
-              scrollAnchorYearAttribute,
-            )
-          : null;
-      savedScrollRef.current = { ratio, anchor };
+    const onScroll = (): void => {
+      saveScrollState(el);
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      el.removeEventListener('scroll', onScroll);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- ref is stable; children drives restore
-  }, [children, initialScrollEnd, scrollAnchorAttribute, scrollAnchorSelector, scrollAnchorYearAttribute]);
+  }, [children, initialScrollEnd, saveScrollState]);
 
   return (
     <div
