@@ -392,23 +392,23 @@ export function SettingsMenu({
               // panel is free to scroll when the database list grows.
               <div className="settings-tab-scroll">
                 {cloudStatus === 'unavailable' ? (
-                  <div className="settings-status">
-                    Database sync needs autosave enabled. Open the app from
-                    a http(s) origin to enable it.
-                  </div>
-                ) : (
                   <>
+                    <div className="settings-status">
+                      Database sync needs autosave enabled. Open the app from
+                      a http(s) origin to enable it.
+                    </div>
                     <AnilistAccountsSection />
-                    <SourceDatabasesSection
-                      cloudStatus={cloudStatus}
-                      pushingIds={dbPushingIds}
-                      pullingIds={dbPullingIds}
-                      sourceDbErrors={sourceDbErrors}
-                      syncRevision={dbSyncRevision}
-                      onPushSource={onDbPushSource}
-                      onPullSource={onDbPullSource}
-                    />
                   </>
+                ) : (
+                  <SourceDatabasesSection
+                    cloudStatus={cloudStatus}
+                    pushingIds={dbPushingIds}
+                    pullingIds={dbPullingIds}
+                    sourceDbErrors={sourceDbErrors}
+                    syncRevision={dbSyncRevision}
+                    onPushSource={onDbPushSource}
+                    onPullSource={onDbPullSource}
+                  />
                 )}
                 <div className="settings-status settings-source-refresh-hint">
                   To refresh a source's data, open the Start tab and pick
@@ -473,6 +473,13 @@ export function SettingsMenu({
                 >
                   Sign out of cloud
                 </button>
+                {tab === 'databases' && <AnilistAccountsSection />}
+              </>
+            )}
+            {tab === 'databases' && cloudStatus !== 'ready' && cloudStatus !== 'unavailable' && (
+              <>
+                <div className="settings-divider" />
+                <AnilistAccountsSection />
               </>
             )}
             <div className="settings-divider" />

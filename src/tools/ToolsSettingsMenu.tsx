@@ -158,10 +158,10 @@ export function ToolsSettingsMenu({
                             {dbSync.cloudActionError}
                           </div>
                         )}
+                        <AnilistAccountsSection />
                         <div className="settings-divider" />
                       </>
                     )}
-                    <AnilistAccountsSection />
                     <SourceDatabasesSection
                       cloudStatus={dbSync.cloudStatus}
                       pushingIds={dbSync.dbPushingIds}
@@ -190,6 +190,7 @@ export function ToolsSettingsMenu({
                         />
                       </>
                     )}
+                    {dbSync.cloudStatus === 'ready' && <AnilistAccountsSection />}
                   </>
                 )}
               </div>

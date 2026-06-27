@@ -256,10 +256,10 @@ export function AnimeToAnimeSettingsMenu({
                             {dbSync.cloudActionError}
                           </div>
                         )}
+                        <AnilistAccountsSection />
                         <div className="settings-divider" />
                       </>
                     )}
-                    <AnilistAccountsSection />
                     <SourceDatabasesSection
                       cloudStatus={dbSync.cloudStatus}
                       pushingIds={dbSync.dbPushingIds}
@@ -288,6 +288,7 @@ export function AnimeToAnimeSettingsMenu({
                         />
                       </>
                     )}
+                    {dbSync.cloudStatus === 'ready' && <AnilistAccountsSection />}
                   </>
                 )}
               </div>
