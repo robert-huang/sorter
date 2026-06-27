@@ -25,6 +25,8 @@ import {
 
 interface Props {
   state: SortState;
+  /** Bumps when the AniList source DB changes (import, pull, etc.). */
+  dbSyncRevision: number;
   /** Active save-slot id — used when renaming from the LIST header. */
   slotId: string;
   slotName: string;
@@ -444,6 +446,7 @@ export function ListScreen(props: Props) {
 
 function MergeListView({
   state,
+  dbSyncRevision,
   onHide,
   onUnhide,
   onReorder,
@@ -637,6 +640,7 @@ function MergeListView({
         <AddItemsModal
           engine="merge"
           existingIds={existingIds}
+          dbSyncRevision={dbSyncRevision}
           onCancel={() => setAddOpen(false)}
           onAddOne={(item) => {
             onAddItem(item);
@@ -1033,6 +1037,7 @@ function InsertionPendingGroupView({
 
 function InsertionListView({
   state,
+  dbSyncRevision,
   onHide,
   onUnhide,
   onAddItem,
@@ -1258,6 +1263,7 @@ function InsertionListView({
         <AddItemsModal
           engine="insertion"
           existingIds={existingIds}
+          dbSyncRevision={dbSyncRevision}
           onCancel={() => setAddOpen(false)}
           onAddOne={(item) => {
             onAddItem(item);

@@ -7,6 +7,8 @@ import { ShareLinkModal } from './ShareLinkModal';
 
 interface Props {
   state: SortState;
+  /** Bumps when the AniList source DB changes (import, pull, etc.). */
+  dbSyncRevision: number;
   /**
    * Active slot's display name. Passed through to the share-link
    * payload so the recipient sees a meaningful default slot name
@@ -73,6 +75,7 @@ function downloadText(text: string, filename: string, mime: string): void {
 export function ResultScreen({
   state,
   slotName,
+  dbSyncRevision,
   onUnhide,
   onStartOver,
   onAddOne,
@@ -227,6 +230,7 @@ export function ResultScreen({
         <AddItemsModal
           engine={state.engine}
           existingIds={existingIds}
+          dbSyncRevision={dbSyncRevision}
           onCancel={() => setAddOpen(false)}
           onAddOne={(item) => {
             onAddOne(item);

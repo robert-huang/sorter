@@ -8,12 +8,14 @@ import {
   parseSources,
   PAPA_COMMA_CSV_OPTIONS,
 } from '../lib/csv';
+import { AnilistStartMode } from './AnilistStartMode';
 import { Modal } from './Modal';
 
 /**
- * Unified "Add item(s)" modal. Two tabs:
+ * Unified "Add item(s)" modal. Three tabs:
  *  - "Single"  — label + URL + image fields (one item).
  *  - "Multiple" — CSV paste + file upload (N items at once).
+ *  - "AniList" — import from a user's list or favourites cache.
  *
  * On the merge engine, the Multiple tab also offers a checkbox:
  *  "Treat as one pre-ranked sublist". When checked, the items append as
@@ -22,11 +24,13 @@ import { Modal } from './Modal';
  *  (route to onAddMany). On the insertion engine the checkbox is hidden
  *  because there is no pre-ranked concept — pending is FIFO either way.
  */
-type Tab = 'single' | 'multiple';
+type Tab = 'single' | 'multiple' | 'anilist';
 
 interface Props {
   engine: 'merge' | 'insertion';
   existingIds: Set<string>;
+  /** Bumps when the AniList source DB changes (import, pull, etc.). */
+  dbSyncRevision: number;
   onCancel: () => void;
   /** Single tab → add one item (skipped automatically if id collides). */
   onAddOne: (item: Item) => void;
@@ -42,6 +46,7 @@ interface Props {
 export function AddItemsModal({
   engine,
   existingIds,
+  dbSyncRevision,
   onCancel,
   onAddOne,
   onAddMany,
@@ -49,11 +54,18 @@ export function AddItemsModal({
 }: Props) {
   const [tab, setTab] = useState<Tab>('single');
 
+  const modalClassName = [
+    'modal-wide',
+    tab === 'anilist' ? 'modal-wide-anilist' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
   return (
     <Modal
       label={`Add item${tab === 'multiple' ? 's' : ''}`}
       onClose={onCancel}
-      className="modal-wide"
+      className={modalClassName}
     >
       <h3>Add item{tab === 'multiple' ? 's' : ''}</h3>
       <div className="modal-tabs" role="tablist">
@@ -75,6 +87,15 @@ export function AddItemsModal({
         >
           Multiple
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'anilist'}
+          className={`modal-tab${tab === 'anilist' ? ' active' : ''}`}
+          onClick={() => setTab('anilist')}
+        >
+          AniList
+        </button>
       </div>
 
       {tab === 'single' && (
@@ -91,6 +112,17 @@ export function AddItemsModal({
           onCancel={onCancel}
           onAddMany={onAddMany}
           onAddPreRanked={onAddPreRanked}
+        />
+      )}
+      {tab === 'anilist' && (
+        <AnilistStartMode
+          embedded
+          dbSyncRevision={dbSyncRevision}
+          existingIds={existingIds}
+          onAddItems={(items) => {
+            onAddMany(items);
+            onCancel();
+          }}
         />
       )}
     </Modal>

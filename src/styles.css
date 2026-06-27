@@ -4554,6 +4554,29 @@ html {
   width: min(680px, calc(100% - 32px));
 }
 
+.modal-wide-anilist {
+  width: min(760px, calc(100% - 32px));
+}
+
+.anilist-start-embedded {
+  margin: 0;
+  padding: 0;
+}
+
+.anilist-start-embedded .anilist-start-preview {
+  max-height: min(320px, 42vh);
+  overflow-y: auto;
+}
+
+.anilist-start-preview-row--duplicate {
+  opacity: 0.55;
+}
+
+.anilist-start-preview-dup-hint {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
 /* Tab strip inside a modal — used by AddItemsModal to switch between
  * the Single-item form and the Multiple-items CSV pane. Visually
  * understated (no card-shaped pills) so it doesn't compete with the

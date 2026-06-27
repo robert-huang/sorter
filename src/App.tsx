@@ -2397,6 +2397,7 @@ export function App() {
         {startScreenEl}
         <ListScreen
         state={state}
+        dbSyncRevision={dbSyncRevision}
         slotId={manifest.activeId ?? ''}
         slotName={
           manifest.slots.find((s) => s.id === manifest.activeId)?.name ??
@@ -2440,6 +2441,7 @@ export function App() {
         {startScreenEl}
         <ResultScreen
         state={state}
+        dbSyncRevision={dbSyncRevision}
         slotName={
           manifest.slots.find((s) => s.id === manifest.activeId)?.name
         }

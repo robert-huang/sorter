@@ -117,18 +117,7 @@ function timeAgo(ms: number | null): string {
   return `${Math.floor(delta / DAY)}d ago`;
 }
 
-interface Props {
-  /**
-   * Called when the user confirms a selection via "Add to staged".
-   * Items carry `source: { kind: 'anilist', externalId }` so the
-   * LIST tab can open the detail modal + the FilterBar can render
-   * chips. `sourceLabel` is shown verbatim in the staged-items panel
-   * (e.g. `AniList: robert/anime`).
-   */
-  onAddToStaged: (items: Item[], sourceLabel: string) => void;
-  /** Fired when the user types into the input — used by the parent
-   *  to park any loaded session so the import lands in a fresh slot. */
-  onDraftActivity: () => void;
+type AnilistStartModeProps = {
   /**
    * Bumped by App.tsx after any push / pull / dirty-bump on the source
    * DB. Folded into the two cache-hint lookup effects' dep arrays so a
@@ -139,7 +128,37 @@ interface Props {
    * continue to render "no cache".
    */
   dbSyncRevision: number;
-}
+  /**
+   * Compact layout for embedding inside AddItemsModal (no page heading /
+   * intro copy). Favourites + list import stay available.
+   */
+  embedded?: boolean;
+  /**
+   * When set, selected items already in the active sort are skipped on
+   * add and preview rows are marked as duplicates.
+   */
+  existingIds?: Set<string>;
+  /** Fired when the user types into the input — used by the parent
+   *  to park any loaded session so the import lands in a fresh slot. */
+  onDraftActivity?: () => void;
+} & (
+  | {
+      /**
+       * Called when the user confirms a selection via "Add to staged".
+       * Items carry `source: { kind: 'anilist', externalId }` so the
+       * LIST tab can open the detail modal + the FilterBar can render
+       * chips. `sourceLabel` is shown verbatim in the staged-items panel
+       * (e.g. `AniList: robert/anime`).
+       */
+      onAddToStaged: (items: Item[], sourceLabel: string) => void;
+      onAddItems?: never;
+    }
+  | {
+      /** Add-items modal path — append selected items to the active sort. */
+      onAddItems: (items: Item[]) => void;
+      onAddToStaged?: never;
+    }
+);
 
 /**
  * Materialise a MediaRow into an Item ready to seed the sorter. The
@@ -272,9 +291,12 @@ type CandidateSource =
 
 export function AnilistStartMode({
   onAddToStaged,
-  onDraftActivity,
+  onAddItems,
+  onDraftActivity = () => {},
   dbSyncRevision,
-}: Props) {
+  embedded = false,
+  existingIds,
+}: AnilistStartModeProps) {
   const [username, setUsername] = useState<string>(readLastAnilistUsername);
   const [type, setType] = useState<AnilistMediaType>('ANIME');
   const [includeFormatInLabel, setIncludeFormatInLabel] = useState<boolean>(
@@ -976,7 +998,7 @@ export function AnilistStartMode({
     loadFavouritesIntoCandidates,
   ]);
 
-  const onAddSelectedToStaged = useCallback(() => {
+  const onConfirmSelection = useCallback(() => {
     const out: Item[] = [];
     for (const it of items) {
       if (!visibleIds || visibleIds.has(it.id)) {
@@ -984,6 +1006,18 @@ export function AnilistStartMode({
       }
     }
     if (out.length === 0) return;
+
+    if (onAddItems) {
+      const fresh =
+        existingIds != null
+          ? out.filter((it) => !existingIds.has(it.id))
+          : out;
+      if (fresh.length === 0) return;
+      onAddItems(fresh);
+      setSelectedIds(new Set());
+      return;
+    }
+
     // Source label reflects what the user actually loaded into the
     // candidate preview — list-imported media gets the original
     // `AniList: name/type` label; favourites get `AniList favourites:
@@ -1003,7 +1037,7 @@ export function AnilistStartMode({
       const name = username.trim() || 'unknown user';
       sourceLabel = `AniList: ${name}`;
     }
-    onAddToStaged(out, sourceLabel);
+    onAddToStaged!(out, sourceLabel);
     // Clear the selection so the user explicitly opts into the next
     // batch — protects against accidentally re-adding the same items
     // (which would dedup anyway, but is visually confusing).
@@ -1013,6 +1047,8 @@ export function AnilistStartMode({
     visibleIds,
     selectedIds,
     onAddToStaged,
+    onAddItems,
+    existingIds,
     candidateSource,
     username,
   ]);
@@ -1047,15 +1083,44 @@ export function AnilistStartMode({
     };
   })();
 
+  const addableSelectedCount = useMemo(() => {
+    if (!onAddItems || existingIds == null) {
+      return selectedCount;
+    }
+    let count = 0;
+    for (const it of items) {
+      if (!selectedIds.has(it.id)) continue;
+      if (visibleIds != null && !visibleIds.has(it.id)) continue;
+      if (!existingIds.has(it.id)) count += 1;
+    }
+    return count;
+  }, [onAddItems, existingIds, selectedCount, items, selectedIds, visibleIds]);
+
+  const addButtonLabel = onAddItems
+    ? `Add ${addableSelectedCount} to sort`
+    : `Add ${selectedCount} selected to staged`;
+
   return (
-    <div className="page-section anilist-start">
-      <h2>Import from AniList</h2>
-      <p className="csv-hint">
-        Pull a user's anime or manga list, filter by genre / year /
-        studio / tag / score, then sort. Imports refresh the local
-        cache and (when cloud is connected) auto-push to your Drive
-        folder.
-      </p>
+    <div
+      className={[
+        'page-section',
+        'anilist-start',
+        embedded ? 'anilist-start-embedded' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
+      {!embedded && (
+        <>
+          <h2>Import from AniList</h2>
+          <p className="csv-hint">
+            Pull a user's anime or manga list, filter by genre / year /
+            studio / tag / score, then sort. Imports refresh the local
+            cache and (when cloud is connected) auto-push to your Drive
+            folder.
+          </p>
+        </>
+      )}
 
       <div className="anilist-start-bar">
         <input
@@ -1332,12 +1397,23 @@ export function AnilistStartMode({
 
           <div className="anilist-start-preview">
             {visibleItems.map((it) => {
+              const alreadyInSort =
+                existingIds != null && existingIds.has(it.id);
               const checked = selectedIds.has(it.id);
               return (
-                <label className="anilist-start-preview-row" key={it.id}>
+                <label
+                  className={[
+                    'anilist-start-preview-row',
+                    alreadyInSort ? 'anilist-start-preview-row--duplicate' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  key={it.id}
+                >
                   <input
                     type="checkbox"
                     checked={checked}
+                    disabled={alreadyInSort}
                     onChange={() => toggleId(it.id)}
                   />
                   <ItemThumb
@@ -1347,6 +1423,12 @@ export function AnilistStartMode({
                   />
                   <span className="anilist-start-preview-label">
                     {it.label}
+                    {alreadyInSort && (
+                      <span className="anilist-start-preview-dup-hint">
+                        {' '}
+                        (in sort)
+                      </span>
+                    )}
                   </span>
                 </label>
               );
@@ -1356,11 +1438,15 @@ export function AnilistStartMode({
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
             <button
               className="btn primary"
-              disabled={selectedCount < 1}
-              onClick={onAddSelectedToStaged}
-              title="Append these to the staged items panel below — combine with clipboard, pre-ranked lists, or other AniList batches before sorting"
+              disabled={(onAddItems ? addableSelectedCount : selectedCount) < 1}
+              onClick={onConfirmSelection}
+              title={
+                onAddItems
+                  ? 'Append the selected items to this sort (items already in the sort are skipped)'
+                  : 'Append these to the staged items panel below — combine with clipboard, pre-ranked lists, or other AniList batches before sorting'
+              }
             >
-              Add {selectedCount} selected to staged
+              {addButtonLabel}
             </button>
           </div>
         </>
