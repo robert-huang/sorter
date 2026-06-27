@@ -6,7 +6,6 @@ import {
 import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
-import { ToolUsernameField } from '../ToolUsernameField';
 import { updateListEntry } from './updateListEntryApi';
 import {
   MEDIA_LIST_STATUSES,
@@ -14,6 +13,17 @@ import {
 } from './updateListEntryLogic';
 
 const LS_KEY = 'anime-tools-update-list-entry-form';
+
+const FIELD_IDS = {
+  username: 'update-list-entry-username',
+  mediaId: 'update-list-entry-media-id',
+  status: 'update-list-entry-status',
+  progress: 'update-list-entry-progress',
+  progressVolumes: 'update-list-entry-progress-volumes',
+  score: 'update-list-entry-score',
+  notesFind: 'update-list-entry-notes-find',
+  notesReplace: 'update-list-entry-notes-replace',
+} as const;
 
 const DEFAULT_FORM: UpdateListEntryForm = {
   username: '',
@@ -60,10 +70,10 @@ function authHintForUsername(username: string): string | null {
   }
   const account = findAnilistAccountByName(handle);
   if (!account) {
-    return 'Not signed in — open gear menu → Databases tab → Sign in to AniList.';
+    return 'Not signed in — gear → Databases → Sign in to AniList.';
   }
   if (account.status !== 'ok') {
-    return `Sign-in expired or invalid for @${account.userName} — sign in again from the gear menu.`;
+    return `Sign-in expired for @${account.userName} — sign in again.`;
   }
   return `Signed in as @${account.userName}.`;
 }
@@ -120,38 +130,52 @@ export function UpdateListEntryPanel(_props: ToolPanelProps) {
     <section className="tool-panel">
       <p className="tool-panel-lead">
         Patch one AniList list entry via <code>SaveMediaListEntry</code>. Only filled
-        fields are sent (blanks fields are ignored). Notes support find-and-replace (<code>*</code> replaces the
-        entire note).
+        fields are sent (blank fields are ignored). Notes support find-and-replace (
+        <code>*</code> replaces the entire note).
       </p>
 
-      <form className="tool-form" onSubmit={onSubmit}>
-        <div className="tool-form-section">
-          <ToolUsernameField
-            label="Username"
-            value={form.username}
-            disabled={running}
-            onChange={(username) => patchForm({ username })}
-          />
-          {authHint && <p className="tool-field-hint">{authHint}</p>}
-
-          <label className="tool-field tool-field-label-row">
-            <span className="tool-field-label">Media ID</span>
+      <form className="tool-form-card tool-update-list-entry-form" onSubmit={onSubmit}>
+        <div className="tool-update-list-entry-grid">
+          <label className="tool-update-list-entry-label" htmlFor={FIELD_IDS.username}>
+            Username
+          </label>
+          <div className="tool-update-list-entry-control">
             <input
-              className="slot-search"
+              id={FIELD_IDS.username}
+              className="slot-search tool-update-list-entry-username-input"
+              type="text"
+              disabled={running}
+              placeholder="AL Username"
+              value={form.username}
+              onChange={(e) => patchForm({ username: e.target.value })}
+            />
+            {authHint && <span className="tool-field-hint tool-field-hint-inline">{authHint}</span>}
+          </div>
+
+          <label className="tool-update-list-entry-label" htmlFor={FIELD_IDS.mediaId}>
+            Media ID
+          </label>
+          <div className="tool-update-list-entry-control">
+            <input
+              id={FIELD_IDS.mediaId}
+              className="slot-search tool-update-list-entry-media-id"
               type="number"
               min={1}
               step={1}
               disabled={running}
-              placeholder="AniList Media ID"
+              placeholder="AniList media id"
               value={form.mediaId}
               onChange={(e) => patchForm({ mediaId: e.target.value })}
             />
-          </label>
+          </div>
 
-          <label className="tool-field tool-field-label-row">
-            <span className="tool-field-label">Status</span>
+          <label className="tool-update-list-entry-label" htmlFor={FIELD_IDS.status}>
+            Status
+          </label>
+          <div className="tool-update-list-entry-control">
             <select
-              className="slot-search"
+              id={FIELD_IDS.status}
+              className="slot-search tool-update-list-entry-status"
               disabled={running}
               value={form.status}
               onChange={(e) => patchForm({ status: e.target.value })}
@@ -163,90 +187,108 @@ export function UpdateListEntryPanel(_props: ToolPanelProps) {
                 </option>
               ))}
             </select>
-          </label>
-
-          <div className="tool-field-row">
-            <label className="tool-field tool-field-label-row tool-field-grow">
-              <span className="tool-field-label">Progress</span>
-              <input
-                className="slot-search"
-                type="number"
-                min={0}
-                step={1}
-                disabled={running}
-                placeholder="Episodes / Chapters"
-                value={form.progress}
-                onChange={(e) => patchForm({ progress: e.target.value })}
-              />
-            </label>
-            <label className="tool-field tool-field-label-row tool-field-grow">
-              <span className="tool-field-label">Progress volumes</span>
-              <input
-                className="slot-search"
-                type="number"
-                min={0}
-                step={1}
-                disabled={running}
-                placeholder="Manga Volumes"
-                value={form.progressVolumes}
-                onChange={(e) => patchForm({ progressVolumes: e.target.value })}
-              />
-            </label>
           </div>
 
-          <label className="tool-field tool-field-label-row">
-            <span className="tool-field-label">Score</span>
+          <label className="tool-update-list-entry-label" htmlFor={FIELD_IDS.progress}>
+            Progress
+          </label>
+          <div className="tool-update-list-entry-control">
             <input
-              className="slot-search"
+              id={FIELD_IDS.progress}
+              className="slot-search tool-update-list-entry-number"
+              type="number"
+              min={0}
+              step={1}
+              disabled={running}
+              placeholder="Episodes / Chapters"
+              value={form.progress}
+              onChange={(e) => patchForm({ progress: e.target.value })}
+            />
+
+          <label
+            className="tool-update-list-entry-label"
+            htmlFor={FIELD_IDS.progressVolumes}
+          >
+            Progress Volumes
+          </label>
+            <input
+              id={FIELD_IDS.progressVolumes}
+              className="slot-search tool-update-list-entry-number"
+              type="number"
+              min={0}
+              step={1}
+              disabled={running}
+              placeholder="Manga Volumes"
+              value={form.progressVolumes}
+              onChange={(e) => patchForm({ progressVolumes: e.target.value })}
+            />
+          </div>
+
+          <label className="tool-update-list-entry-label" htmlFor={FIELD_IDS.score}>
+            Score
+          </label>
+          <div className="tool-update-list-entry-control">
+            <input
+              id={FIELD_IDS.score}
+              className="slot-search tool-update-list-entry-number"
               type="number"
               min={0}
               max={100}
               step={1}
               disabled={running}
-              placeholder="0–100 (blank = unchanged)"
+              placeholder=""
               value={form.score}
               onChange={(e) => patchForm({ score: e.target.value })}
             />
-          </label>
-
-          <div className="tool-field-row">
-            <label className="tool-field tool-field-label-row tool-field-grow">
-              <span className="tool-field-label">Notes Find</span>
-              <input
-                className="slot-search"
-                type="text"
-                disabled={running}
-                placeholder="Find (* for full replace)"
-                value={form.notesFind}
-                onChange={(e) => patchForm({ notesFind: e.target.value })}
-              />
-            </label>
-            <label className="tool-field tool-field-label-row tool-field-grow">
-              <span className="tool-field-label">Notes Replace</span>
-              <input
-                className="slot-search"
-                type="text"
-                disabled={running}
-                placeholder="Replace With"
-                value={form.notesReplace}
-                onChange={(e) => patchForm({ notesReplace: e.target.value })}
-              />
-            </label>
           </div>
-          <p className="tool-field-hint">
-            Leave find empty to set notes directly. Find must match to replace (first match only).
-          </p>
-        </div>
 
-        <ToolRunButton
-          label="Update"
-          running={running}
-          disabled={running}
-          onRun={() => {
-            /* mutation tool — no force-refresh */
-          }}
-          forceRefreshTitle=""
-        />
+          <label className="tool-update-list-entry-label" htmlFor={FIELD_IDS.notesFind}>
+            Notes Find
+          </label>
+          <div className="tool-update-list-entry-control">
+            <input
+              id={FIELD_IDS.notesFind}
+              className="slot-search tool-update-list-entry-notes-input"
+              type="text"
+              disabled={running}
+              placeholder="Find (* = full replace)"
+              value={form.notesFind}
+              onChange={(e) => patchForm({ notesFind: e.target.value })}
+            />
+
+          <label
+            className="tool-update-list-entry-label"
+            htmlFor={FIELD_IDS.notesReplace}
+          >
+            Notes Replace
+          </label>
+            <input
+              id={FIELD_IDS.notesReplace}
+              className="slot-search tool-update-list-entry-notes-input"
+              type="text"
+              disabled={running}
+              placeholder="Replace With"
+              value={form.notesReplace}
+              onChange={(e) => patchForm({ notesReplace: e.target.value })}
+            />
+          </div>
+
+          <p className="tool-field-hint tool-update-list-entry-hint-row">
+            Leave find empty to set notes directly on all entries with no notes. Find must match to replace (first match only).
+          </p>
+
+          <div className="tool-actions tool-update-list-entry-actions">
+            <ToolRunButton
+              label="Update"
+              running={running}
+              disabled={running}
+              onRun={() => {
+                /* mutation tool — no force-refresh */
+              }}
+              forceRefreshTitle=""
+            />
+          </div>
+        </div>
       </form>
 
       {error && <p className="tool-error">{error}</p>}

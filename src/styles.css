@@ -5571,10 +5571,41 @@ html {
   width: 5rem;
 }
 
-/* Update List Entry — slot-search defaults to width: 100%. */
-.tool-update-list-entry-form .slot-search {
+/* Update List Entry — two-column grid, labels right-aligned. */
+.tool-update-list-entry-grid {
+  display: grid;
+  grid-template-columns: max-content minmax(0, max-content);
+  column-gap: 12px;
+  row-gap: 10px;
+  align-items: center;
+  width: max-content;
+  max-width: 100%;
+}
+
+.tool-update-list-entry-label {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
+  justify-self: end;
+}
+
+.tool-update-list-entry-control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tool-update-list-entry-form input.slot-search,
+.tool-update-list-entry-form select.slot-search {
+  width: auto;
+  max-width: 100%;
   margin: 0;
   flex: 0 0 auto;
+  box-sizing: border-box;
 }
 
 .tool-update-list-entry-form .tool-update-list-entry-media-id {
@@ -5590,22 +5621,29 @@ html {
 }
 
 .tool-update-list-entry-form .tool-update-list-entry-notes-input {
-  width: min(16rem, 100%);
+  width: 16rem;
+  max-width: 100%;
 }
 
-.tool-update-list-entry-form .tool-field-label-row {
-  flex: 0 0 auto;
-  align-items: center;
+.tool-update-list-entry-form .tool-update-list-entry-username-input {
+  width: 100px;
 }
 
-.tool-update-list-entry-form .tool-field.tool-field-label-row {
-  align-items: center;
+.tool-update-list-entry-hint-row {
+  grid-column: 2;
+  margin: -4px 0 0;
+}
+
+.tool-update-list-entry-actions {
+  grid-column: 2;
+  margin-top: 4px;
 }
 
 .tool-field-hint-inline {
   margin: 0;
   flex: 0 1 auto;
   min-width: 0;
+  line-height: 1.3;
 }
 
 /*
