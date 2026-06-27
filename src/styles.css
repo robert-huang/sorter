@@ -5571,6 +5571,32 @@ html {
   width: 5rem;
 }
 
+/* Update List Entry — slot-search defaults to width: 100%. */
+.tool-update-list-entry-form .slot-search {
+  margin: 0;
+  flex: 0 0 auto;
+}
+
+.tool-update-list-entry-form .tool-update-list-entry-media-id {
+  width: 7rem;
+}
+
+.tool-update-list-entry-form .tool-update-list-entry-status {
+  width: 11rem;
+}
+
+.tool-update-list-entry-form .tool-update-list-entry-number {
+  width: 5rem;
+}
+
+.tool-update-list-entry-form .tool-update-list-entry-notes-input {
+  width: min(16rem, 100%);
+}
+
+.tool-update-list-entry-form .tool-field-label-row {
+  flex: 0 0 auto;
+}
+
 /*
  * Seasonal Scores mode picker: when "Custom" is selected, the textarea +
  * hint shouldn't extend past the segmented control above them. `max-content`

@@ -120,7 +120,7 @@ export function UpdateListEntryPanel(_props: ToolPanelProps) {
     <section className="tool-panel">
       <p className="tool-panel-lead">
         Patch one AniList list entry via <code>SaveMediaListEntry</code>. Only filled
-        fields are sent. Notes support find-and-replace (<code>*</code> replaces the
+        fields are sent (blanks fields are ignored). Notes support find-and-replace (<code>*</code> replaces the
         entire note).
       </p>
 
@@ -142,7 +142,7 @@ export function UpdateListEntryPanel(_props: ToolPanelProps) {
               min={1}
               step={1}
               disabled={running}
-              placeholder="AniList media id"
+              placeholder="AniList Media ID"
               value={form.mediaId}
               onChange={(e) => patchForm({ mediaId: e.target.value })}
             />
@@ -174,7 +174,7 @@ export function UpdateListEntryPanel(_props: ToolPanelProps) {
                 min={0}
                 step={1}
                 disabled={running}
-                placeholder="Episodes / chapters"
+                placeholder="Episodes / Chapters"
                 value={form.progress}
                 onChange={(e) => patchForm({ progress: e.target.value })}
               />
@@ -187,7 +187,7 @@ export function UpdateListEntryPanel(_props: ToolPanelProps) {
                 min={0}
                 step={1}
                 disabled={running}
-                placeholder="Manga volumes"
+                placeholder="Manga Volumes"
                 value={form.progressVolumes}
                 onChange={(e) => patchForm({ progressVolumes: e.target.value })}
               />
@@ -211,31 +211,30 @@ export function UpdateListEntryPanel(_props: ToolPanelProps) {
 
           <div className="tool-field-row">
             <label className="tool-field tool-field-label-row tool-field-grow">
-              <span className="tool-field-label">Notes find</span>
+              <span className="tool-field-label">Notes Find</span>
               <input
                 className="slot-search"
                 type="text"
                 disabled={running}
-                placeholder="Find (or * for full replace)"
+                placeholder="Find (* for full replace)"
                 value={form.notesFind}
                 onChange={(e) => patchForm({ notesFind: e.target.value })}
               />
             </label>
             <label className="tool-field tool-field-label-row tool-field-grow">
-              <span className="tool-field-label">Notes replace</span>
+              <span className="tool-field-label">Notes Replace</span>
               <input
                 className="slot-search"
                 type="text"
                 disabled={running}
-                placeholder="Replace with"
+                placeholder="Replace With"
                 value={form.notesReplace}
                 onChange={(e) => patchForm({ notesReplace: e.target.value })}
               />
             </label>
           </div>
           <p className="tool-field-hint">
-            Leave find empty to set notes directly. Find must match to replace (first
-            match only).
+            Leave find empty to set notes directly. Find must match to replace (first match only).
           </p>
         </div>
 
