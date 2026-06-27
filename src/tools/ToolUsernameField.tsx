@@ -4,6 +4,8 @@ type ToolUsernameFieldProps = {
   disabled?: boolean;
   placeholder?: string;
   onChange: (value: string) => void;
+  /** Optional hint shown inline to the right of the input (and refresh button). */
+  hint?: string | null;
   /** When set, shows a refresh button to the right of the input (a2a style). */
   onRefresh?: () => void;
   refreshing?: boolean;
@@ -19,6 +21,7 @@ export function ToolUsernameField({
   disabled,
   placeholder = 'AL Username',
   onChange,
+  hint,
   onRefresh,
   refreshing,
   refreshLabel = DEFAULT_REFRESH_LABEL,
@@ -48,6 +51,7 @@ export function ToolUsernameField({
           </button>
         )}
       </div>
+      {hint && <span className="tool-field-hint tool-field-hint-inline">{hint}</span>}
     </label>
   );
 }

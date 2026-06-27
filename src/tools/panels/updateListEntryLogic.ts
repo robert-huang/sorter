@@ -5,13 +5,14 @@ import type {
 } from '../../lib/importers/anilist/listMutations';
 import { buildSaveMediaListEntryMutation } from '../../lib/importers/anilist/listMutations';
 
+/** Matches {@link ALL_LIST_STATUSES} / list-status filter chip order. */
 export const MEDIA_LIST_STATUSES: readonly AnilistMediaListStatus[] = [
   'CURRENT',
-  'PLANNING',
-  'COMPLETED',
-  'DROPPED',
-  'PAUSED',
   'REPEATING',
+  'COMPLETED',
+  'PLANNING',
+  'PAUSED',
+  'DROPPED',
 ];
 
 export type UpdateListEntryForm = {

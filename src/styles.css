@@ -5595,6 +5595,17 @@ html {
 
 .tool-update-list-entry-form .tool-field-label-row {
   flex: 0 0 auto;
+  align-items: center;
+}
+
+.tool-update-list-entry-form .tool-field.tool-field-label-row {
+  align-items: center;
+}
+
+.tool-field-hint-inline {
+  margin: 0;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 /*
