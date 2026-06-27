@@ -69,24 +69,25 @@ export function AnilistAccountsSection() {
 
   const configured = isAnilistOAuthConfigured();
   const callbackUrl = getAnilistOAuthCallbackUrl();
+  const showDevSetup = import.meta.env.DEV && configured;
 
   return (
-    <>
+    <div className="settings-anilist-accounts">
       <div className="settings-status settings-section-label">AniList accounts</div>
       {!configured && (
-        <div className="settings-status" style={{ color: 'var(--text-muted)' }}>
+        <div className="settings-status settings-anilist-hint" style={{ color: 'var(--text-muted)' }}>
           AniList sign-in is not configured for this build (
-          <code>VITE_ANILIST_CLIENT_ID</code>).
+          <code>VITE_ANILIST_CLIENT_ID</code> and <code>VITE_ANILIST_CLIENT_SECRET</code>).
         </div>
       )}
-      {configured && (
-        <div className="settings-status settings-item-hint">
-          One-time AniList setup: register redirect URL{' '}
-          <code style={{ wordBreak: 'break-all' }}>{callbackUrl}</code> on your API client.
+      {showDevSetup && (
+        <div className="settings-status settings-anilist-hint">
+          Dev setup: register redirect URL{' '}
+          <code>{callbackUrl}</code> on your AniList API client.
         </div>
       )}
       {accounts.length === 0 ? (
-        <div className="settings-status" style={{ color: 'var(--text-muted)' }}>
+        <div className="settings-status settings-anilist-hint" style={{ color: 'var(--text-muted)' }}>
           No AniList accounts signed in.
         </div>
       ) : (
@@ -147,10 +148,9 @@ export function AnilistAccountsSection() {
           {signingIn ? 'Waiting for AniList…' : 'Sign in to AniList…'}
         </button>
       )}
-      <div className="settings-status settings-item-hint">
-        Opens AniList in a pop-up, then returns automatically. List imports for
-        logged-in accounts include hidden entries. Other usernames still use public
-        lists.
+      <div className="settings-status settings-anilist-hint">
+        Opens AniList in a pop-up, then returns automatically. Signed-in imports
+        include hidden list entries; other usernames still use public lists.
       </div>
       {error && (
         <div className="settings-source-db-error" role="alert">
@@ -158,6 +158,6 @@ export function AnilistAccountsSection() {
         </div>
       )}
       <div className="settings-divider" />
-    </>
+    </div>
   );
 }

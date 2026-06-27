@@ -562,7 +562,7 @@ html {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-md);
-  width: 340px;
+  width: 380px;
   max-width: calc(100vw - 24px);
   padding: 8px;
   z-index: 30;
@@ -880,6 +880,20 @@ html {
   max-width: none;
   overflow: visible;
   white-space: normal;
+}
+
+/* AniList accounts block: full-width hints (not the 12em inline ellipsis). */
+.settings-anilist-accounts .settings-anilist-hint {
+  max-width: none;
+  display: block;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+  line-height: 1.45;
+}
+
+.settings-anilist-accounts .settings-anilist-hint code {
+  word-break: break-all;
 }
 
 .settings-source-db-row {

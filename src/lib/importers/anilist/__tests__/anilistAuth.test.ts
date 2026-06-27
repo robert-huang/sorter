@@ -12,6 +12,7 @@ import {
   listAnilistAccounts,
   markAnilistAccountExpired,
   parseOAuthHashParams,
+  parseOAuthQueryParams,
   resolveAccessTokenForUsername,
   signOutAnilistAccount,
 } from '../anilistAuth';
@@ -62,6 +63,24 @@ beforeEach(() => {
 afterEach(() => {
   _clearAnilistAccountsForTesting();
   vi.unstubAllGlobals();
+});
+
+describe('parseOAuthQueryParams', () => {
+  it('parses code and state from a query string', () => {
+    expect(parseOAuthQueryParams('?code=abc&state=xyz')).toEqual({
+      authCode: 'abc',
+      error: null,
+      state: 'xyz',
+    });
+  });
+
+  it('returns nulls for an empty query', () => {
+    expect(parseOAuthQueryParams('')).toEqual({
+      authCode: null,
+      error: null,
+      state: null,
+    });
+  });
 });
 
 describe('parseOAuthHashParams', () => {
@@ -118,7 +137,8 @@ describe('popup OAuth helpers', () => {
     expect(
       isAnilistOAuthCallbackMessage({
         type: 'anilist-oauth-callback',
-        accessToken: 'tok',
+        accessToken: null,
+        authCode: 'code-123',
         error: null,
         nonce: 'n',
       }),

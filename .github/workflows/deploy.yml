@@ -56,10 +56,11 @@ jobs:
       # allowlist on the Google Cloud Console side — a stolen id+secret
       # can only redirect to URLs we've explicitly registered.
       #
-      # VITE_ANILIST_CLIENT_ID enables AniList OAuth sign-in (implicit
-      # grant). Public client id only — no secret. Callback URL defaults
-      # to GITHUB_PAGES_URL/anilist-oauth-callback.html; override with
-      # VITE_ANILIST_OAUTH_CALLBACK_URL only when forking.
+      # VITE_ANILIST_CLIENT_ID + VITE_ANILIST_CLIENT_SECRET enable AniList OAuth
+      # sign-in (authorization code grant). Both are inlined into the
+      # deployed bundle — the secret is exchanged in-browser after the
+      # hosted callback returns an auth code (same trade-off as Google).
+      # Callback URL defaults to GITHUB_PAGES_URL/anilist-oauth-callback.html.
       #
       # If any repo secret is unset, ${{ secrets.X }} resolves to ''
       # and the deployed app falls back to its "not configured" banner;
@@ -69,6 +70,7 @@ jobs:
           VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
           VITE_GOOGLE_CLIENT_SECRET: ${{ secrets.VITE_GOOGLE_CLIENT_SECRET }}
           VITE_ANILIST_CLIENT_ID: ${{ secrets.VITE_ANILIST_CLIENT_ID }}
+          VITE_ANILIST_CLIENT_SECRET: ${{ secrets.VITE_ANILIST_CLIENT_SECRET }}
 
       - uses: actions/upload-pages-artifact@v5
         with:

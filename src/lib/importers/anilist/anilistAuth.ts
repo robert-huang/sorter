@@ -1,11 +1,13 @@
 /**
- * AniList OAuth (implicit grant) + multi-account localStorage store.
+ * AniList OAuth (authorization code grant) + multi-account localStorage store.
  *
  * Tokens live in localStorage (`anilist:accounts:v1`) — same XSS exposure
  * model as Google Drive cloud backup; acceptable for personal-scale use.
  *
  * Env:
  *   - `VITE_ANILIST_CLIENT_ID` (required)
+ *   - `VITE_ANILIST_CLIENT_SECRET` (required — exchanged in-browser after
+ *     the hosted callback returns an auth code; same trade-off as Google)
  *   - `VITE_ANILIST_OAUTH_CALLBACK_URL` (optional override for the hosted
  *     callback page; default is the public GitHub Pages callback below)
  *
@@ -13,7 +15,7 @@
  * your AniList API client — the callback page URL (default:
  * `https://robert-huang.github.io/sorter/anilist-oauth-callback.html`).
  * Works from localhost and production: a popup opens AniList, the callback
- * page receives the token and postMessages it back to the opener.
+ * page receives the auth code and postMessages it back to the opener.
  */
 
 import { GITHUB_PAGES_URL } from '../../appRoutes';
@@ -21,6 +23,7 @@ import { GraphQLError, HttpError, executeAnilistQuery } from './transport';
 
 const ENV = ((import.meta as unknown as { env?: Record<string, string | undefined> }).env) ?? {};
 const ANILIST_CLIENT_ID: string = ENV.VITE_ANILIST_CLIENT_ID ?? '';
+const ANILIST_CLIENT_SECRET: string = ENV.VITE_ANILIST_CLIENT_SECRET ?? '';
 const CALLBACK_URL_OVERRIDE: string = ENV.VITE_ANILIST_OAUTH_CALLBACK_URL ?? '';
 
 const STORAGE_KEY = 'anilist:accounts:v1';
@@ -28,6 +31,7 @@ const RETURN_URL_KEY = 'anilist:auth:return-url';
 const OAUTH_PENDING_KEY = 'anilist:oauth:pending-nonce';
 
 const AUTHORIZE_ENDPOINT = 'https://anilist.co/api/v2/oauth/authorize';
+const TOKEN_ENDPOINT = 'https://anilist.co/api/v2/oauth/token';
 
 export const ANILIST_OAUTH_MESSAGE_TYPE = 'anilist-oauth-callback';
 
@@ -53,6 +57,7 @@ export type AnilistAccountStatus = 'ok' | 'expired' | 'invalid';
 export type AnilistOAuthCallbackMessage = {
   type: typeof ANILIST_OAUTH_MESSAGE_TYPE;
   accessToken: string | null;
+  authCode: string | null;
   error: string | null;
   nonce: string | null;
 };
@@ -236,6 +241,24 @@ export function isAnilistOAuthCallbackMessage(
   return row.type === ANILIST_OAUTH_MESSAGE_TYPE;
 }
 
+/** Parse `code` / `error` from an OAuth redirect query string. */
+export function parseOAuthQueryParams(search: string): {
+  authCode: string | null;
+  error: string | null;
+  state: string | null;
+} {
+  const trimmed = search.startsWith('?') ? search.slice(1) : search;
+  if (!trimmed) {
+    return { authCode: null, error: null, state: null };
+  }
+  const params = new URLSearchParams(trimmed);
+  return {
+    authCode: params.get('code'),
+    error: params.get('error') ?? params.get('error_description'),
+    state: params.get('state'),
+  };
+}
+
 /** Parse `access_token` (+ optional `token_type`) from an OAuth hash fragment. */
 export function parseOAuthHashParams(hash: string): {
   accessToken: string | null;
@@ -361,7 +384,7 @@ export function subscribeAnilistAccounts(listener: () => void): () => void {
 }
 
 export function isAnilistOAuthConfigured(): boolean {
-  return ANILIST_CLIENT_ID.length > 0;
+  return ANILIST_CLIENT_ID.length > 0 && ANILIST_CLIENT_SECRET.length > 0;
 }
 
 function requireClientId(): string {
@@ -369,11 +392,21 @@ function requireClientId(): string {
     throw new Error(
       'AniList sign-in is not configured: VITE_ANILIST_CLIENT_ID is empty. ' +
         `Register an API client at https://anilist.co/settings/developer ` +
-        `(redirect URL: ${getAnilistOAuthCallbackUrl()}) and set the env var. ` +
+        `(redirect URL: ${getAnilistOAuthCallbackUrl()}) and set the env vars. ` +
         'See README "AniList accounts".',
     );
   }
   return ANILIST_CLIENT_ID;
+}
+
+function requireClientSecret(): string {
+  if (!ANILIST_CLIENT_SECRET) {
+    throw new Error(
+      'AniList sign-in is not configured: VITE_ANILIST_CLIENT_SECRET is empty. ' +
+        'Copy the client secret from https://anilist.co/settings/developer into your env / GitHub secret.',
+    );
+  }
+  return ANILIST_CLIENT_SECRET;
 }
 
 export function buildAnilistPopupAuthorizeUrl(origin: string, nonce: string): string {
@@ -381,10 +414,48 @@ export function buildAnilistPopupAuthorizeUrl(origin: string, nonce: string): st
   const params = new URLSearchParams({
     client_id: requireClientId(),
     redirect_uri: getAnilistOAuthCallbackUrl(),
-    response_type: 'token',
+    response_type: 'code',
     state,
   });
   return `${AUTHORIZE_ENDPOINT}?${params.toString()}`;
+}
+
+type TokenExchangeResponse = {
+  access_token?: string;
+  error?: string;
+  message?: string;
+};
+
+/** Exchange an authorization code for a JWT access token. */
+export async function exchangeAnilistAuthCode(authCode: string): Promise<string> {
+  const response = await fetch(TOKEN_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({
+      grant_type: 'authorization_code',
+      client_id: requireClientId(),
+      client_secret: requireClientSecret(),
+      redirect_uri: getAnilistOAuthCallbackUrl(),
+      code: authCode,
+    }),
+  });
+
+  let payload: TokenExchangeResponse;
+  try {
+    payload = (await response.json()) as TokenExchangeResponse;
+  } catch {
+    throw new Error(`AniList sign-in failed: token exchange returned ${response.status}`);
+  }
+
+  if (!response.ok || !payload.access_token) {
+    const detail = payload.message ?? payload.error ?? `HTTP ${response.status}`;
+    throw new Error(`AniList sign-in failed: ${detail}`);
+  }
+
+  return payload.access_token;
 }
 
 /**
@@ -475,23 +546,40 @@ export function signInToAnilist(): Promise<AnilistStoredAccount> {
         });
         return;
       }
-      if (!event.data.accessToken) {
-        finish(() => {
-          reject(new Error('AniList sign-in failed: no access token returned'));
-        });
+
+      const completeWithToken = (accessToken: string) => {
+        void registerAnilistAccountFromToken(accessToken)
+          .then((account) => {
+            finish(() => {
+              resolve(account);
+            });
+          })
+          .catch((err) => {
+            finish(() => {
+              reject(err instanceof Error ? err : new Error('AniList sign-in failed'));
+            });
+          });
+      };
+
+      if (event.data.authCode) {
+        void exchangeAnilistAuthCode(event.data.authCode)
+          .then(completeWithToken)
+          .catch((err) => {
+            finish(() => {
+              reject(err instanceof Error ? err : new Error('AniList sign-in failed'));
+            });
+          });
         return;
       }
-      void registerAnilistAccountFromToken(event.data.accessToken)
-        .then((account) => {
-          finish(() => {
-            resolve(account);
-          });
-        })
-        .catch((err) => {
-          finish(() => {
-            reject(err instanceof Error ? err : new Error('AniList sign-in failed'));
-          });
-        });
+
+      if (event.data.accessToken) {
+        completeWithToken(event.data.accessToken);
+        return;
+      }
+
+      finish(() => {
+        reject(new Error('AniList sign-in failed: no access token or auth code returned'));
+      });
     }
 
     window.addEventListener('message', onMessage);
@@ -530,8 +618,12 @@ export async function handleAnilistAuthRedirect(): Promise<AnilistStoredAccount 
   if (typeof window === 'undefined') {
     return null;
   }
-  const { accessToken, error } = parseOAuthHashParams(window.location.hash);
-  if (!accessToken && !error) {
+
+  const { authCode, error: queryError } = parseOAuthQueryParams(window.location.search);
+  const { accessToken: hashToken, error: hashError } = parseOAuthHashParams(window.location.hash);
+  const error = queryError ?? hashError;
+
+  if (!authCode && !hashToken && !error) {
     return null;
   }
 
@@ -541,13 +633,23 @@ export async function handleAnilistAuthRedirect(): Promise<AnilistStoredAccount 
     const target =
       returnPath && returnPath.length > 0
         ? `${window.location.origin}${returnPath}`
-        : `${window.location.origin}${window.location.pathname}${window.location.search}`;
+        : `${window.location.origin}${window.location.pathname}`;
     window.history.replaceState(null, '', target);
   };
 
-  if (error || !accessToken) {
+  if (error) {
     cleanUrl();
-    throw new Error(`AniList sign-in failed: ${error ?? 'no access token in redirect'}`);
+    throw new Error(`AniList sign-in failed: ${error}`);
+  }
+
+  let accessToken = hashToken;
+  if (authCode) {
+    accessToken = await exchangeAnilistAuthCode(authCode);
+  }
+
+  if (!accessToken) {
+    cleanUrl();
+    throw new Error('AniList sign-in failed: no access token in redirect');
   }
 
   const account = await registerAnilistAccountFromToken(accessToken);
