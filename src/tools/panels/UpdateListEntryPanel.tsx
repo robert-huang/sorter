@@ -163,7 +163,7 @@ export function UpdateListEntryPanel(_props: ToolPanelProps) {
               min={1}
               step={1}
               disabled={running}
-              placeholder="AniList media id"
+              placeholder="AniList Media ID"
               value={form.mediaId}
               onChange={(e) => patchForm({ mediaId: e.target.value })}
             />
@@ -274,7 +274,7 @@ export function UpdateListEntryPanel(_props: ToolPanelProps) {
           </div>
 
           <p className="tool-field-hint tool-update-list-entry-hint-row">
-            Leave find empty to set notes directly on all entries with no notes. Find must match to replace (first match only).
+            Leave Find empty to set notes directly on all entries with no notes. Find must match to replace (first match only).
           </p>
 
           <div className="tool-actions tool-update-list-entry-actions">
