@@ -5,6 +5,7 @@ import {
 } from '../../lib/importers/anilist/anilistAuth';
 import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
 import type { ToolPanelProps } from '../toolTypes';
+import { ToolClearableInput } from '../ToolClearableInput';
 import { ToolRunButton } from '../ToolRunButton';
 import { updateListEntry } from './updateListEntryApi';
 import {
@@ -156,16 +157,16 @@ export function UpdateListEntryPanel(_props: ToolPanelProps) {
             Media ID
           </label>
           <div className="tool-update-list-entry-control">
-            <input
+            <ToolClearableInput
               id={FIELD_IDS.mediaId}
-              className="slot-search tool-update-list-entry-media-id"
+              className="tool-update-list-entry-media-id"
               type="number"
               min={1}
               step={1}
               disabled={running}
               placeholder="AniList Media ID"
               value={form.mediaId}
-              onChange={(e) => patchForm({ mediaId: e.target.value })}
+              onChange={(mediaId) => patchForm({ mediaId })}
             />
           </div>
 
@@ -193,34 +194,34 @@ export function UpdateListEntryPanel(_props: ToolPanelProps) {
             Progress
           </label>
           <div className="tool-update-list-entry-control">
-            <input
+            <ToolClearableInput
               id={FIELD_IDS.progress}
-              className="slot-search tool-update-list-entry-number"
+              className="tool-update-list-entry-number"
               type="number"
               min={0}
               step={1}
               disabled={running}
               placeholder="Episodes / Chapters"
               value={form.progress}
-              onChange={(e) => patchForm({ progress: e.target.value })}
+              onChange={(progress) => patchForm({ progress })}
             />
 
-          <label
-            className="tool-update-list-entry-label"
-            htmlFor={FIELD_IDS.progressVolumes}
-          >
-            Progress Volumes
-          </label>
-            <input
+            <label
+              className="tool-update-list-entry-label"
+              htmlFor={FIELD_IDS.progressVolumes}
+            >
+              Progress Volumes
+            </label>
+            <ToolClearableInput
               id={FIELD_IDS.progressVolumes}
-              className="slot-search tool-update-list-entry-number"
+              className="tool-update-list-entry-number"
               type="number"
               min={0}
               step={1}
               disabled={running}
               placeholder="Manga Volumes"
               value={form.progressVolumes}
-              onChange={(e) => patchForm({ progressVolumes: e.target.value })}
+              onChange={(progressVolumes) => patchForm({ progressVolumes })}
             />
           </div>
 
@@ -228,9 +229,9 @@ export function UpdateListEntryPanel(_props: ToolPanelProps) {
             Score
           </label>
           <div className="tool-update-list-entry-control">
-            <input
+            <ToolClearableInput
               id={FIELD_IDS.score}
-              className="slot-search tool-update-list-entry-number"
+              className="tool-update-list-entry-number"
               type="number"
               min={0}
               max={100}
@@ -238,7 +239,7 @@ export function UpdateListEntryPanel(_props: ToolPanelProps) {
               disabled={running}
               placeholder=""
               value={form.score}
-              onChange={(e) => patchForm({ score: e.target.value })}
+              onChange={(score) => patchForm({ score })}
             />
           </div>
 
@@ -246,30 +247,28 @@ export function UpdateListEntryPanel(_props: ToolPanelProps) {
             Notes Find
           </label>
           <div className="tool-update-list-entry-control">
-            <input
+            <ToolClearableInput
               id={FIELD_IDS.notesFind}
-              className="slot-search tool-update-list-entry-notes-input"
-              type="text"
+              className="tool-update-list-entry-notes-input"
               disabled={running}
               placeholder="Find (* = full replace)"
               value={form.notesFind}
-              onChange={(e) => patchForm({ notesFind: e.target.value })}
+              onChange={(notesFind) => patchForm({ notesFind })}
             />
 
-          <label
-            className="tool-update-list-entry-label"
-            htmlFor={FIELD_IDS.notesReplace}
-          >
-            Notes Replace
-          </label>
-            <input
+            <label
+              className="tool-update-list-entry-label"
+              htmlFor={FIELD_IDS.notesReplace}
+            >
+              Notes Replace
+            </label>
+            <ToolClearableInput
               id={FIELD_IDS.notesReplace}
-              className="slot-search tool-update-list-entry-notes-input"
-              type="text"
+              className="tool-update-list-entry-notes-input"
               disabled={running}
               placeholder="Replace With"
               value={form.notesReplace}
-              onChange={(e) => patchForm({ notesReplace: e.target.value })}
+              onChange={(notesReplace) => patchForm({ notesReplace })}
             />
           </div>
 
