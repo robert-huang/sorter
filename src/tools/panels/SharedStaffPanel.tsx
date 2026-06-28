@@ -243,8 +243,7 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
     <section className="tool-panel">
       <p className="tool-panel-lead">
         Compare studios, production staff, and Japanese voice actors across shows — port
-        of <code>compare_staff.py</code>. Enable single-show mode in Advanced to scan
-        staff filmographies for the most overlapping anime (slow).
+        of <code>compare_staff.py</code>.
       </p>
 
       <form
@@ -306,7 +305,7 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
         <details className="tool-form-details">
           <summary
             className="tool-form-details-summary"
-            title="When exactly one show is entered and single-show mode is enabled, scan each production staff member's filmography for anime with the most staff in common. Can take several minutes."
+            title="scan staff filmographies for the most overlapping anime (slow)"
           >
             Single-show Mode
           </summary>
