@@ -26,6 +26,28 @@ export function rankingSlotIds(state: SortState): Set<ItemId> {
 }
 
 /**
+ * LIST header total — ids participating in this sort right now, not every
+ * stale `items` catalog entry left over after dismiss / forget.
+ */
+export function listHeaderItemCount(state: SortState): number {
+  const ids = rankingSlotIds(state);
+  if (state.engine === 'insertion') {
+    if (state.current) ids.add(state.current.insertingId);
+  } else {
+    if (state.currentManualInsert) {
+      ids.add(state.currentManualInsert.insertingId);
+    }
+    const ai = state.currentAutoInsert;
+    if (ai) {
+      for (const id of ai.target) ids.add(id);
+      for (const id of ai.pendingInserts) ids.add(id);
+      if (ai.frame) ids.add(ai.frame.insertingId);
+    }
+  }
+  return ids.size;
+}
+
+/**
  * Hidden ids that no longer appear in any ranking list row — e.g. removed
  * from pending during insertion, or exiled from merge without landing in
  * `toBeInserted`. These only show up in the header count unless we render

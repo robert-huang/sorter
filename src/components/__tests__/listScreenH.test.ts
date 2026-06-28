@@ -5,6 +5,7 @@ import {
   groupInsertionPending,
   hiddenIdsNotInRanking,
   insertionSortFromSublists,
+  listHeaderItemCount,
   mergeSliceLabel,
   rankLabelForHiddenId,
   rankingSlotIds,
@@ -203,6 +204,42 @@ describe('rankingSlotIds / hiddenIdsNotInRanking', () => {
     });
     expect([...rankingSlotIds(state)]).toEqual(['q1', 't1']);
     expect(hiddenIdsNotInRanking(state)).toEqual(['orphan']);
+  });
+});
+
+describe('listHeaderItemCount', () => {
+  it('counts ranking slots, not stale catalog-only items', () => {
+    const state = {
+      engine: 'insertion' as const,
+      items: {
+        a: { id: 'a', label: 'A' },
+        b: { id: 'b', label: 'B' },
+        ghost: { id: 'ghost', label: 'Ghost' },
+      },
+      sorted: ['a', 'b'],
+      pending: [],
+      current: null,
+      comparisons: 0,
+      done: true,
+      hidden: [],
+      totalComparisonsEverNeeded: 0,
+    };
+    expect(listHeaderItemCount(state)).toBe(2);
+  });
+
+  it('includes the in-flight inserting id during insertion', () => {
+    const state = {
+      engine: 'insertion' as const,
+      items: { a: { id: 'a', label: 'A' }, x: { id: 'x', label: 'X' } },
+      sorted: ['a'],
+      pending: [],
+      current: { insertingId: 'x', lo: 0, hi: 0, probe: 0 },
+      comparisons: 0,
+      done: false,
+      hidden: [],
+      totalComparisonsEverNeeded: 0,
+    };
+    expect(listHeaderItemCount(state)).toBe(2);
   });
 });
 

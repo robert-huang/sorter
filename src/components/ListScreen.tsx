@@ -19,6 +19,7 @@ import {
   getInsertContext,
   groupInsertionPending,
   insertionSortFromSublists,
+  listHeaderItemCount,
   mergeSliceLabel,
   rankLabelForHiddenId,
   rankingSlotIds,
@@ -664,8 +665,8 @@ function ListSlotHeader({
 export function ListScreen(props: Props) {
   const items = props.state?.items;
   const itemCount = useMemo(
-    () => (items ? Object.keys(items).length : 0),
-    [items],
+    () => (props.state ? listHeaderItemCount(props.state) : 0),
+    [props.state],
   );
   const hiddenCount = props.state?.hidden?.length ?? 0;
 
