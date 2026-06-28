@@ -4,6 +4,7 @@ import {
   addItems,
   buildInsertionState,
   comparisonsRemaining,
+  dismissHidden,
   getPair,
   getPeekLeftIds,
   getPeekRightIds,
@@ -13,6 +14,7 @@ import {
   pickRight,
   reorderInSorted,
   restoreProgress,
+  restoreHiddenItem,
   returnToPending,
   seedAsSorted,
   snapshotProgress,
@@ -613,6 +615,53 @@ describe('getPeekRightIds', () => {
     // Frame collapsed → current should be null. Peek is [].
     expect(s.current).toBeNull();
     expect(getPeekRightIds(s)).toEqual([]);
+  });
+});
+
+describe('dismissHidden / restoreHiddenItem', () => {
+  it('dismissHidden removes a ghost id from hidden without touching ranking', () => {
+    const s0: InsertionState = {
+      engine: 'insertion',
+      items: { a: A, b: B },
+      sorted: ['a', 'b'],
+      pending: [],
+      current: null,
+      comparisons: 0,
+      done: true,
+      hidden: ['ghost-id', 'a'],
+      totalComparisonsEverNeeded: 0,
+    };
+    const s1 = dismissHidden(s0, 'ghost-id');
+    expect(s1.hidden).toEqual(['a']);
+    expect(s1.sorted).toEqual(['a', 'b']);
+    expect(s1.done).toBe(true);
+  });
+
+  it('restoreHiddenItem re-queues an orphan hidden pending item', () => {
+    const s0 = build({ sorted: [A, B, C, D, E], pending: [X, Y] });
+    const hidden = hideItem(s0, 'y');
+    expect(hidden.hidden).toContain('y');
+    expect(hidden.pending).not.toContain('y');
+    const restored = restoreHiddenItem(hidden, 'y');
+    expect(restored.hidden).not.toContain('y');
+    expect(restored.pending[0]).toBe('y');
+    expect(restored.done).toBe(false);
+  });
+
+  it('restoreHiddenItem on ghost without metadata dismisses instead', () => {
+    const s0: InsertionState = {
+      engine: 'insertion',
+      items: { a: A },
+      sorted: ['a'],
+      pending: [],
+      current: null,
+      comparisons: 0,
+      done: true,
+      hidden: ['ghost-id'],
+      totalComparisonsEverNeeded: 0,
+    };
+    const s1 = restoreHiddenItem(s0, 'ghost-id');
+    expect(s1.hidden).toEqual([]);
   });
 });
 

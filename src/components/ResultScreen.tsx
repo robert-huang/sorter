@@ -1,6 +1,10 @@
 import { useMemo, useState } from 'react';
 import type { Item, SortState } from '../lib/types';
 import { comparisonsRemaining, getRanking } from '../lib/engine';
+import {
+  formatOrphanHiddenId,
+  rankingSlotIds,
+} from './listScreenH';
 import { AddItemsModal } from './AddItemsModal';
 import { ItemThumb } from './ItemThumb';
 import { ShareLinkModal } from './ShareLinkModal';
@@ -16,6 +20,8 @@ interface Props {
    */
   slotName?: string;
   onUnhide: (id: string) => void;
+  onRestoreHidden: (id: string) => void;
+  onDismissHidden: (id: string) => void;
   /**
    * Start over from scratch: re-init the sort with the same items but
    * no comparison history. Shows a confirm modal in App.tsx (unless the
@@ -77,6 +83,8 @@ export function ResultScreen({
   slotName,
   dbSyncRevision,
   onUnhide,
+  onRestoreHidden,
+  onDismissHidden,
   onStartOver,
   onAddOne,
   onAddMany,
@@ -92,6 +100,7 @@ export function ResultScreen({
   // AddItemsModal also handles the engine-aware tab UI itself — we pass
   // state.engine and it hides the "pre-ranked" checkbox on insertion.
   const existingIds = useMemo(() => new Set(Object.keys(state.items)), [state.items]);
+  const rankingSlots = useMemo(() => rankingSlotIds(state), [state]);
 
   if (!state.done) {
     return (
@@ -110,9 +119,7 @@ export function ResultScreen({
   const ranking = getRanking(state)
     .map((id) => state.items[id])
     .filter(Boolean);
-  const hiddenItems = state.hidden
-    .map((id) => state.items[id])
-    .filter(Boolean);
+  const hiddenIds = state.hidden;
 
   const md = ranking.map((it, i) => `${i + 1}. ${it.label}`).join('\n');
   const txt = ranking.map((it) => it.label).join('\n');
@@ -183,31 +190,71 @@ export function ResultScreen({
         </ol>
       </div>
 
-      {hiddenItems.length > 0 && (
+      {hiddenIds.length > 0 && (
         <div className="page-section">
           <button
             className="result-hidden-toggle"
             onClick={() => setShowHidden((v) => !v)}
           >
-            {showHidden ? '▾' : '▸'} {hiddenItems.length} item
-            {hiddenItems.length === 1 ? '' : 's'} were removed during sorting
+            {showHidden ? '▾' : '▸'} {hiddenIds.length} item
+            {hiddenIds.length === 1 ? '' : 's'} removed during sorting
           </button>
           {showHidden && (
             <ul className="result-list" style={{ marginTop: 8 }}>
-              {hiddenItems.map((it) => (
-                <li key={it.id} className="result-row">
-                  <div className="rank-num" style={{ color: 'var(--text-faint)' }}>
-                    —
-                  </div>
-                  <ItemThumb item={it} as="div" className="image-wrap" />
-                  <div className="label-cell" style={{ textDecoration: 'line-through' }}>
-                    {it.label}
-                  </div>
-                  <button className="btn" onClick={() => onUnhide(it.id)}>
-                    Restore
-                  </button>
-                </li>
-              ))}
+              {hiddenIds.map((id) => {
+                const item = state.items[id];
+                const label = item?.label ?? formatOrphanHiddenId(id);
+                const inRanking = rankingSlots.has(id);
+                const canRestore = !!item;
+                return (
+                  <li key={id} className="result-row">
+                    <div className="rank-num" style={{ color: 'var(--text-faint)' }}>
+                      —
+                    </div>
+                    <ItemThumb
+                      item={item ?? { id, label }}
+                      as="div"
+                      className="image-wrap"
+                    />
+                    <div
+                      className="label-cell"
+                      style={{ textDecoration: 'line-through' }}
+                    >
+                      {label}
+                      {!canRestore && (
+                        <span style={{ color: 'var(--text-faint)' }}>
+                          {' '}
+                          · metadata missing — dismiss only
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      {canRestore && (
+                        <button
+                          className="btn"
+                          onClick={() =>
+                            inRanking ? onUnhide(id) : onRestoreHidden(id)
+                          }
+                          title={
+                            inRanking
+                              ? 'Show in final ranking again'
+                              : 'Queue for sorting again'
+                          }
+                        >
+                          Restore
+                        </button>
+                      )}
+                      <button
+                        className="btn danger"
+                        onClick={() => onDismissHidden(id)}
+                        title="Clear from hidden count"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>

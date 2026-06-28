@@ -21,6 +21,7 @@ import {
   reorderInSublist,
   reorderInCurrentMerge,
   restoreProgress,
+  returnToPending,
   seedFromSublists,
   shouldAutoInsert,
   snapshotProgress,
@@ -888,6 +889,34 @@ describe('manualInsert + drainManualInserts (plan §5c)', () => {
     s = cancelManualInsert(s);
     expect(s.currentManualInsert).toBeNull();
     expect(s.toBeInserted).toContain('g');
+  });
+});
+
+describe('returnToPending (completed merge ↻)', () => {
+  it('pulls an id from the final queue sublist and starts manual insert', () => {
+    const s0 = runWithOracle([A, B, C, D], ['a', 'b', 'c', 'd']);
+    expect(s0.done).toBe(true);
+    expect(s0.queue).toEqual([['a', 'b', 'c', 'd']]);
+    expect(s0.toBeInserted).toEqual([]);
+
+    const s1 = returnToPending(s0, 'c');
+    expect(s1.done).toBe(false);
+    expect(s1.items).toEqual(s0.items);
+    expect(s1.queue[0]).toEqual(['a', 'b', 'd']);
+    expect(s1.toBeInserted).toContain('c');
+    expect(s1.currentManualInsert?.insertingId).toBe('c');
+    expect(getPair(s1)?.leftId).toBe('c');
+  });
+
+  it('is a no-op when the id is not in the queue', () => {
+    const s0 = runWithOracle([A, B], ['a', 'b']);
+    expect(returnToPending(s0, 'zzz')).toBe(s0);
+  });
+
+  it('is a no-op for hidden ids', () => {
+    let s0 = runWithOracle([A, B, C], ['a', 'b', 'c']);
+    s0 = hideItem(s0, 'b');
+    expect(returnToPending(s0, 'b')).toBe(s0);
   });
 });
 

@@ -6,6 +6,7 @@ import {
   getRanking,
   hideItem,
   restoreProgress,
+  returnToPending,
   rewriteIdInProgress,
   snapshotProgress,
   transitionMergeDoneToInsertion,
@@ -69,6 +70,23 @@ describe('engine dispatch', () => {
       m = (p.leftId <= p.rightId ? pickLeft(m) : pickRight(m)) as MergeState;
     }
     expect(getRanking(m)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('returnToPending dispatches to merge when engine is merge', () => {
+    let m = initSort([A, B, C]) as MergeState;
+    while (!m.done) {
+      const p = getPair(m);
+      if (!p) break;
+      m = (p.leftId <= p.rightId ? pickLeft(m) : pickRight(m)) as MergeState;
+    }
+    expect(m.done).toBe(true);
+    const next = returnToPending(m, 'b');
+    expect(next.engine).toBe('merge');
+    expect(next.done).toBe(false);
+    if (next.engine === 'merge') {
+      expect(next.currentManualInsert?.insertingId).toBe('b');
+      expect(next.queue[0]).toEqual(['a', 'c']);
+    }
   });
 
   it('hide/unhide dispatch correctly per engine', () => {

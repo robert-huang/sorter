@@ -746,6 +746,47 @@ export function unhideItem(
 }
 
 /**
+ * Drop an id from `hidden[]` without restoring it to the ranking. Clears
+ * ghost entries whose metadata was already removed from `items`.
+ */
+export function dismissHidden(
+  state: InsertionState,
+  id: ItemId,
+): InsertionState {
+  if (!state.hidden.includes(id)) return state;
+  const next = snapshotProgress(state);
+  next.hidden = next.hidden.filter((h) => h !== id);
+  return { ...next, items: state.items };
+}
+
+/**
+ * Restore a hidden item that no longer sits in `sorted[]` or `pending[]`
+ * (typically removed from pending when hidden). Re-queues at the front of
+ * `pending` for a fresh binary insert. In-ranking hidden ids delegate to
+ * `unhideItem`.
+ */
+export function restoreHiddenItem(
+  state: InsertionState,
+  id: ItemId,
+): InsertionState {
+  if (!state.hidden.includes(id)) return state;
+  if (!state.items[id]) return dismissHidden(state, id);
+  if (state.sorted.includes(id) || state.pending.includes(id)) {
+    return unhideItem(state, id);
+  }
+  const next = snapshotProgress(state);
+  next.hidden = next.hidden.filter((h) => h !== id);
+  next.pending = [id, ...next.pending];
+  if (next.pendingRunIds) {
+    next.pendingRunIds = [freshRunId(next), ...next.pendingRunIds];
+  }
+  if (next.done) next.done = false;
+  drainPending(next);
+  bumpTotalComparisons(next);
+  return { ...next, items: state.items };
+}
+
+/**
  * Add a single new item to the back of `pending`. Returns null if the
  * id is already present (so caller can surface "skipped" feedback).
  */

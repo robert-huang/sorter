@@ -15,13 +15,233 @@ import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
 import { canOpenItemDetail, ItemDetailContext } from './itemDetailContext';
 import { ItemThumb } from './ItemThumb';
 import {
+  formatOrphanHiddenId,
   getInsertContext,
   groupInsertionPending,
+  hiddenIdsNotInRanking,
   insertionSortFromSublists,
   mergeSliceLabel,
   type InsertContextKind,
   type InsertionPendingGroup,
 } from './listScreenH';
+
+/** Item ids shown in the unified completed-ranking section (LIST tab). */
+function completedRankingIds(state: SortState): string[] {
+  if (state.engine === 'insertion') return state.sorted;
+  if (!state.done || state.queue.length === 0) return [];
+  return state.queue[0];
+}
+
+/**
+ * Unified LIST view for a finished sort — same label, help text, and row
+ * actions (↑/↓, ↻, ×) whether the slot finished on merge or insertion.
+ */
+function CompletedRankingSection({
+  rankedIds,
+  items,
+  hidden,
+  onHide,
+  onUnhide,
+  onEdit,
+  onReorder,
+  onReturnToPending,
+}: {
+  rankedIds: string[];
+  items: Record<string, Item>;
+  hidden: Set<string>;
+  onHide: (id: string) => void;
+  onUnhide: (id: string) => void;
+  onEdit: (item: Item) => void;
+  onReorder: (itemIndex: number, dir: -1 | 1) => void;
+  onReturnToPending: (id: string) => void;
+}) {
+  return (
+    <>
+      <div className="list-section-label">
+        {mergeSliceLabel('Sorted', rankedIds.length)}
+      </div>
+      <p
+        style={{
+          fontSize: 13,
+          color: 'var(--text-muted)',
+          marginTop: 0,
+        }}
+      >
+        Nudge an item with{' '} <strong>↑ / ↓</strong>, pull it back to re-insert with{' '}
+        <strong>↻</strong>, or <strong>× Remove</strong> to drop it from the rank.
+      </p>
+      <div className="queue-sublist">
+        <div className="queue-sublist-items">
+          {rankedIds.map((id, ii) => {
+            const item = items[id];
+            if (!item) return null;
+            const isHidden = hidden.has(id);
+            return (
+              <div
+                key={id}
+                className={`queue-item-row ${isHidden ? 'hidden' : ''}`}
+              >
+                <span className="rank">{ii + 1}.</span>
+                <Thumb item={item} />
+                <span className="label-cell" title={item.label}>
+                  {item.label}
+                </span>
+                {!isHidden && rankedIds.length > 1 && (
+                  <span className="actions">
+                    <button
+                      className="icon-btn"
+                      onClick={() => onReorder(ii, -1)}
+                      disabled={ii === 0}
+                      title="Nudge up"
+                    >
+                      ↑
+                    </button>
+                    <button
+                      className="icon-btn"
+                      onClick={() => onReorder(ii, 1)}
+                      disabled={ii === rankedIds.length - 1}
+                      title="Nudge down"
+                    >
+                      ↓
+                    </button>
+                    <button
+                      className="icon-btn"
+                      onClick={() => onReturnToPending(id)}
+                      title="Pull this item back out and re-insert it (fresh binary search)"
+                    >
+                      ↻
+                    </button>
+                  </span>
+                )}
+                <span className="actions">
+                  <EditButton item={item} onOpen={onEdit} variant="row" />
+                  {isHidden ? (
+                    <button
+                      className="icon-btn"
+                      onClick={() => onUnhide(id)}
+                      title="Restore"
+                    >
+                      ↺
+                    </button>
+                  ) : (
+                    <button
+                      className="icon-btn danger"
+                      onClick={() => onHide(id)}
+                      title="Remove"
+                    >
+                      ×
+                    </button>
+                  )}
+                </span>
+              </div>
+            );
+          })}
+          {rankedIds.length === 0 && (
+            <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+              (no sorted items yet)
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+/**
+ * Hidden items that no longer appear in sorted / queue / pending rows —
+ * only referenced in the header "(N hidden)" count until this section.
+ */
+function RemovedDuringSortingSection({
+  ids,
+  items,
+  onRestore,
+  onDismiss,
+}: {
+  ids: string[];
+  items: Record<string, Item>;
+  onRestore: (id: string) => void;
+  onDismiss: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  if (ids.length === 0) return null;
+
+  return (
+    <div className="list-removed-during-sort">
+      <button
+        type="button"
+        className="list-section-label list-removed-toggle"
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          background: 'none',
+          border: 'none',
+          padding: 0,
+          cursor: 'pointer',
+          textAlign: 'left',
+          width: '100%',
+        }}
+      >
+        {open ? '▾' : '▸'} Removed during sorting ({ids.length})
+      </button>
+      {open && (
+        <>
+          <p
+            style={{
+              fontSize: 13,
+              color: 'var(--text-muted)',
+              marginTop: 0,
+            }}
+          >
+            These items were hidden and are no longer in the ranking list.
+            Use <strong>↺ Restore</strong> to queue them for sorting again,
+            or <strong>× Dismiss</strong> to clear them from the hidden count.
+          </p>
+          <div className="queue-sublist">
+            <div className="queue-sublist-items">
+              {ids.map((id) => {
+                const item = items[id];
+                const label = item?.label ?? formatOrphanHiddenId(id);
+                const canRestore = !!item;
+                return (
+                  <div key={id} className="queue-item-row hidden">
+                    <span className="rank">—</span>
+                    <Thumb item={item ?? { id, label }} />
+                    <span className="label-cell" title={label}>
+                      {label}
+                      {!canRestore && (
+                        <span style={{ color: 'var(--text-faint)' }}>
+                          {' '}
+                          · metadata missing — dismiss only
+                        </span>
+                      )}
+                    </span>
+                    <span className="actions">
+                      {canRestore && (
+                        <button
+                          className="icon-btn"
+                          onClick={() => onRestore(id)}
+                          title="Queue this item for sorting again"
+                        >
+                          ↺ Restore
+                        </button>
+                      )}
+                      <button
+                        className="icon-btn danger"
+                        onClick={() => onDismiss(id)}
+                        title="Clear from hidden count"
+                      >
+                        × Dismiss
+                      </button>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 interface Props {
   state: SortState;
@@ -64,10 +284,17 @@ interface Props {
    */
   onReorderInSorted: (sortedIndex: number, dir: -1 | 1) => void;
   /**
-   * Insertion-only: pull an item out of `sorted[]` and re-insert it
-   * via a fresh binary insertion (queued to the front of `pending`).
+   * Pull an item out of the ranking and re-insert it via a fresh binary
+   * search (↻). Works on both engines when the sort is complete.
    */
   onReturnToPending: (id: string) => void;
+  /** Clear a hidden id that no longer has a ranking row (ghost / orphan). */
+  onDismissHidden: (id: string) => void;
+  /**
+   * Re-queue a hidden orphan for sorting. Ids still inline in the ranking
+   * use `onUnhide` instead.
+   */
+  onRestoreHidden: (id: string) => void;
   /**
    * Patch metadata (label / url / imageUrl) on an item in place. The
    * item's structural position in the sort is preserved — only the
@@ -415,11 +642,22 @@ function ListSlotHeader({
 }
 
 export function ListScreen(props: Props) {
+  const items = props.state?.items;
   const itemCount = useMemo(
-    () => Object.keys(props.state.items).length,
-    [props.state.items],
+    () => (items ? Object.keys(items).length : 0),
+    [items],
   );
-  const hiddenCount = props.state.hidden.length;
+  const hiddenCount = props.state?.hidden?.length ?? 0;
+
+  if (!props.state || !items) {
+    return null;
+  }
+
+  const state = props.state;
+  const orphanHiddenIds = useMemo(
+    () => hiddenIdsNotInRanking(state),
+    [state],
+  );
 
   return (
     <div className="page">
@@ -430,11 +668,17 @@ export function ListScreen(props: Props) {
         hiddenCount={hiddenCount}
         onRename={props.onRenameSlot}
       />
-      {props.state.engine === 'insertion' ? (
-        <InsertionListView {...props} state={props.state} />
+      {state.engine === 'insertion' ? (
+        <InsertionListView {...props} state={state} />
       ) : (
-        <MergeListView {...props} state={props.state} />
+        <MergeListView {...props} state={state} />
       )}
+      <RemovedDuringSortingSection
+        ids={orphanHiddenIds}
+        items={items}
+        onRestore={props.onRestoreHidden}
+        onDismiss={props.onDismissHidden}
+      />
     </div>
   );
 }
@@ -458,6 +702,7 @@ function MergeListView({
   onManualInsert,
   onForget,
   onEditItem,
+  onReturnToPending,
 }: Props & { state: MergeState }) {
   const [addOpen, setAddOpen] = useState(false);
   // The item currently open in the EditItemModal. We track by id (not
@@ -539,31 +784,47 @@ function MergeListView({
         </div>
       )}
 
-      <div className="list-section-label">
-        Queue ({state.queue.length} sublist{state.queue.length === 1 ? '' : 's'})
-      </div>
-      {state.queue.length === 0 && (
-        <div
-          className="page-section"
-          style={{ textAlign: 'center', color: 'var(--text-muted)' }}
-        >
-          Queue is empty.
-        </div>
-      )}
-      {state.queue.map((sub, qi) => (
-        <SublistView
-          key={qi}
-          sub={sub}
-          queueIndex={qi}
-          state={state}
+      {state.done ? (
+        <CompletedRankingSection
+          rankedIds={completedRankingIds(state)}
+          items={state.items}
           hidden={hidden}
           onHide={onHide}
           onUnhide={onUnhide}
-          onReorder={onReorder}
-          onBreakApart={onBreakApart}
           onEdit={openEdit}
+          onReorder={(ii, dir) => onReorder(0, ii, dir)}
+          onReturnToPending={onReturnToPending}
         />
-      ))}
+      ) : (
+        <>
+          <div className="list-section-label">
+            Queue ({state.queue.length} sublist
+            {state.queue.length === 1 ? '' : 's'})
+          </div>
+          {state.queue.length === 0 && (
+            <div
+              className="page-section"
+              style={{ textAlign: 'center', color: 'var(--text-muted)' }}
+            >
+              Queue is empty.
+            </div>
+          )}
+          {state.queue.map((sub, qi) => (
+            <SublistView
+              key={qi}
+              sub={sub}
+              queueIndex={qi}
+              state={state}
+              hidden={hidden}
+              onHide={onHide}
+              onUnhide={onUnhide}
+              onReorder={onReorder}
+              onBreakApart={onBreakApart}
+              onEdit={openEdit}
+            />
+          ))}
+        </>
+      )}
 
       {state.toBeInserted.length > 0 && (
         <div className="list-to-be-inserted">
@@ -1084,109 +1345,125 @@ function InsertionListView({
         />
       )}
 
-      <div className="list-section-label">
-        {fromSublists
-          ? mergeSliceLabel('Seed sublist (sorted)', state.sorted.length)
-          : `Sorted (${state.sorted.length})`}
-      </div>
-      <p
-        style={{
-          fontSize: 13,
-          color: 'var(--text-muted)',
-          marginTop: 0,
-        }}
-      >
-        {fromSublists ? (
-          <>
-            The largest pre-ranked sublist, frozen best→worst. Other sublists
-            wait in the queue below and binary-insert one item at a time.
-            You can still nudge with <strong>↑ / ↓</strong>, re-insert with{' '}
-            <strong>↻</strong>, or <strong>× Remove</strong> any row.
-          </>
-        ) : (
-          <>
-            The ranking locked in so far, best to worst — items binary-insert
-            into this list one at a time. You can nudge an item with{' '}
-            <strong>↑ / ↓</strong> or pull it back to re-insert with{' '}
-            <strong>↻</strong> — both cancel and restart the current insert,
-            costing up to ⌈log₂(N+1)⌉ extra comparisons. Use{' '}
-            <strong>× Remove</strong> to drop an item from the rank.
-          </>
-        )}
-      </p>
-      <div className="queue-sublist">
-        <div className="queue-sublist-items">
-          {state.sorted.map((id, ii) => {
-            const item = state.items[id];
-            if (!item) return null;
-            const isHidden = hidden.has(id);
-            return (
-              <div
-                key={id}
-                className={`queue-item-row ${isHidden ? 'hidden' : ''}`}
-              >
-                <span className="rank">{ii + 1}.</span>
-                <Thumb item={item} />
-                <span className="label-cell" title={item.label}>
-                  {item.label}
-                </span>
-                {!isHidden && state.sorted.length > 1 && (
-                  <span className="actions">
-                    <button
-                      className="icon-btn"
-                      onClick={() => onReorderInSorted(ii, -1)}
-                      disabled={ii === 0}
-                      title="Nudge up (cancels and restarts the current insert)"
-                    >
-                      ↑
-                    </button>
-                    <button
-                      className="icon-btn"
-                      onClick={() => onReorderInSorted(ii, 1)}
-                      disabled={ii === state.sorted.length - 1}
-                      title="Nudge down (cancels and restarts the current insert)"
-                    >
-                      ↓
-                    </button>
-                    <button
-                      className="icon-btn"
-                      onClick={() => onReturnToPending(id)}
-                      title="Pull this item back out and re-insert it (fresh binary search)"
-                    >
-                      ↻
-                    </button>
-                  </span>
-                )}
-                <span className="actions">
-                  <EditButton item={item} onOpen={openEdit} variant="row" />
-                  {isHidden ? (
-                    <button
-                      className="icon-btn"
-                      onClick={() => onUnhide(id)}
-                      title="Restore"
-                    >
-                      ↺
-                    </button>
-                  ) : (
-                    <button
-                      className="icon-btn danger"
-                      onClick={() => onHide(id)}
-                      title="Remove"
-                    >
-                      ×
-                    </button>
-                  )}
-                </span>
-              </div>
-            );
-          })}
-          {state.sorted.length === 0 && (
-            <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>
-              (no sorted items yet)
+      {state.done ? (
+        <CompletedRankingSection
+          rankedIds={completedRankingIds(state)}
+          items={state.items}
+          hidden={hidden}
+          onHide={onHide}
+          onUnhide={onUnhide}
+          onEdit={openEdit}
+          onReorder={(ii, dir) => onReorderInSorted(ii, dir)}
+          onReturnToPending={onReturnToPending}
+        />
+      ) : (
+        <>
+          <div className="list-section-label">
+            {fromSublists
+              ? mergeSliceLabel('Seed sublist (sorted)', state.sorted.length)
+              : `Sorted (${state.sorted.length})`}
+          </div>
+          <p
+            style={{
+              fontSize: 13,
+              color: 'var(--text-muted)',
+              marginTop: 0,
+            }}
+          >
+            {fromSublists ? (
+              <>
+                The largest pre-ranked sublist, frozen best→worst. Other
+                sublists wait in the queue below and binary-insert one item at
+                a time. You can still nudge with <strong>↑ / ↓</strong>,
+                re-insert with <strong>↻</strong>, or <strong>× Remove</strong>{' '}
+                any row.
+              </>
+            ) : (
+              <>
+                The ranking locked in so far, best to worst — items
+                binary-insert into this list one at a time. You can nudge an
+                item with <strong>↑ / ↓</strong> or pull it back to re-insert
+                with <strong>↻</strong> — both cancel and restart the current
+                insert, costing up to ⌈log₂(N+1)⌉ extra comparisons. Use{' '}
+                <strong>× Remove</strong> to drop an item from the rank.
+              </>
+            )}
+          </p>
+          <div className="queue-sublist">
+            <div className="queue-sublist-items">
+              {state.sorted.map((id, ii) => {
+                const item = state.items[id];
+                if (!item) return null;
+                const isHidden = hidden.has(id);
+                return (
+                  <div
+                    key={id}
+                    className={`queue-item-row ${isHidden ? 'hidden' : ''}`}
+                  >
+                    <span className="rank">{ii + 1}.</span>
+                    <Thumb item={item} />
+                    <span className="label-cell" title={item.label}>
+                      {item.label}
+                    </span>
+                    {!isHidden && state.sorted.length > 1 && (
+                      <span className="actions">
+                        <button
+                          className="icon-btn"
+                          onClick={() => onReorderInSorted(ii, -1)}
+                          disabled={ii === 0}
+                          title="Nudge up (cancels and restarts the current insert)"
+                        >
+                          ↑
+                        </button>
+                        <button
+                          className="icon-btn"
+                          onClick={() => onReorderInSorted(ii, 1)}
+                          disabled={ii === state.sorted.length - 1}
+                          title="Nudge down (cancels and restarts the current insert)"
+                        >
+                          ↓
+                        </button>
+                        <button
+                          className="icon-btn"
+                          onClick={() => onReturnToPending(id)}
+                          title="Pull this item back out and re-insert it (fresh binary search)"
+                        >
+                          ↻
+                        </button>
+                      </span>
+                    )}
+                    <span className="actions">
+                      <EditButton item={item} onOpen={openEdit} variant="row" />
+                      {isHidden ? (
+                        <button
+                          className="icon-btn"
+                          onClick={() => onUnhide(id)}
+                          title="Restore"
+                        >
+                          ↺
+                        </button>
+                      ) : (
+                        <button
+                          className="icon-btn danger"
+                          onClick={() => onHide(id)}
+                          title="Remove"
+                        >
+                          ×
+                        </button>
+                      )}
+                    </span>
+                  </div>
+                );
+              })}
+              {state.sorted.length === 0 && (
+                <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+                  (no sorted items yet)
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      </div>
+          </div>
+        </>
+      )}
 
       {state.pending.length > 0 && (
         <>

@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  formatOrphanHiddenId,
   getInsertContext,
   groupInsertionPending,
+  hiddenIdsNotInRanking,
   insertionSortFromSublists,
   mergeSliceLabel,
+  rankingSlotIds,
 } from '../listScreenH';
 import type { MergeState } from '../../lib/types';
 
@@ -163,5 +166,41 @@ describe('insertionSortFromSublists', () => {
   it('is true only when pendingRunIds is defined', () => {
     expect(insertionSortFromSublists(undefined)).toBe(false);
     expect(insertionSortFromSublists([0, 0])).toBe(true);
+  });
+});
+
+describe('formatOrphanHiddenId', () => {
+  it('replaces hyphens with spaces', () => {
+    expect(formatOrphanHiddenId('ponkotsu-fuukiiin--manga')).toBe(
+      'ponkotsu fuukiiin  manga',
+    );
+  });
+});
+
+describe('rankingSlotIds / hiddenIdsNotInRanking', () => {
+  it('treats insertion sorted and pending as ranking slots', () => {
+    const state = {
+      engine: 'insertion' as const,
+      items: {},
+      sorted: ['a', 'b'],
+      pending: ['c'],
+      current: null,
+      comparisons: 0,
+      done: true,
+      hidden: ['ghost', 'b'],
+      totalComparisonsEverNeeded: 0,
+    };
+    expect([...rankingSlotIds(state)]).toEqual(['a', 'b', 'c']);
+    expect(hiddenIdsNotInRanking(state)).toEqual(['ghost']);
+  });
+
+  it('lists merge queue and toBeInserted as ranking slots', () => {
+    const state = mergeState({
+      queue: [['q1']],
+      toBeInserted: ['t1'],
+      hidden: ['orphan', 'q1'],
+    });
+    expect([...rankingSlotIds(state)]).toEqual(['q1', 't1']);
+    expect(hiddenIdsNotInRanking(state)).toEqual(['orphan']);
   });
 });

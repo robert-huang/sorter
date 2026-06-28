@@ -5,6 +5,37 @@ export function mergeSliceLabel(base: string, count: number): string {
   return `${base} (${count})`;
 }
 
+/** Human-readable label when a hidden id has no `items` metadata. */
+export function formatOrphanHiddenId(id: ItemId): string {
+  return id.replace(/-/g, ' ');
+}
+
+/** Ids that occupy a visible ranking slot (sorted, pending, queue, etc.). */
+export function rankingSlotIds(state: SortState): Set<ItemId> {
+  const ranked = new Set<ItemId>();
+  if (state.engine === 'insertion') {
+    for (const id of state.sorted) ranked.add(id);
+    for (const id of state.pending) ranked.add(id);
+  } else {
+    for (const sub of state.queue) {
+      for (const id of sub) ranked.add(id);
+    }
+    for (const id of state.toBeInserted) ranked.add(id);
+  }
+  return ranked;
+}
+
+/**
+ * Hidden ids that no longer appear in any ranking list row — e.g. removed
+ * from pending during insertion, or exiled from merge without landing in
+ * `toBeInserted`. These only show up in the header count unless we render
+ * a dedicated "removed" section.
+ */
+export function hiddenIdsNotInRanking(state: SortState): ItemId[] {
+  const slots = rankingSlotIds(state);
+  return state.hidden.filter((id) => !slots.has(id));
+}
+
 export type InsertionPendingGroupKind = 'flat' | 'preranked' | 'extras';
 
 export interface InsertionPendingGroup {

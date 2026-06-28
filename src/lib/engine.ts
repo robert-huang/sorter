@@ -176,6 +176,27 @@ export function unhideItem(state: SortState, id: ItemId): SortState {
     : merge.unhideItem(state, id);
 }
 
+/** Permanently clear a hidden id (no restore). */
+export function dismissHidden(state: SortState, id: ItemId): SortState {
+  return state.engine === 'insertion'
+    ? insertion.dismissHidden(state, id)
+    : merge.dismissHidden(state, id);
+}
+
+/**
+ * Restore a hidden item that is no longer in any ranking slot. Re-queues
+ * it for sorting; in-ranking hidden ids just unhide.
+ */
+export function restoreHiddenItem(
+  state: SortState,
+  id: ItemId,
+  options?: MergeOptions,
+): SortState {
+  return state.engine === 'insertion'
+    ? insertion.restoreHiddenItem(state, id)
+    : merge.restoreHiddenItem(state, id, options);
+}
+
 /**
  * Patch the metadata of a single item (label / url / imageUrl) without
  * touching the sort structure. Engine-agnostic because both engines
@@ -446,15 +467,17 @@ export function reorderInSorted(
 }
 
 /**
- * Insertion engine: take an id out of `sorted[]` and put it back at the
- * front of `pending[]` so it gets a fresh binary insertion next. Used
- * by the per-row ↻ button on the insertion-mode Sorted list.
+ * Pull an item out of the current ranking and queue it for a fresh
+ * binary insertion:
+ *  - insertion engine: remove from `sorted[]`, front of `pending[]`
+ *  - merge engine: remove from `queue[]`, manual-insert drain
  *
- * No-op on a merge state.
+ * Used by the per-row ↻ button on the completed Sorted list (LIST tab).
  */
 export function returnToPending(state: SortState, id: ItemId): SortState {
-  if (state.engine !== 'insertion') return state;
-  return insertion.returnToPending(state, id);
+  return state.engine === 'insertion'
+    ? insertion.returnToPending(state, id)
+    : merge.returnToPending(state, id);
 }
 
 // ---------- engine transition ----------

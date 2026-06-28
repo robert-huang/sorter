@@ -12,6 +12,7 @@ import {
   addItem as engineAddItem,
   addItems as engineAddItems,
   comparisonsRemaining as engineComparisonsRemaining,
+  dismissHidden as engineDismissHidden,
   type EngineOptions,
   getRanking as engineGetRanking,
   hideItem as engineHideItem,
@@ -19,6 +20,7 @@ import {
   pickRight as enginePickRight,
   reorderInSorted as engineReorderInSorted,
   restoreProgress as engineRestoreProgress,
+  restoreHiddenItem as engineRestoreHiddenItem,
   returnToPending as engineReturnToPending,
   rewriteIdInProgress as engineRewriteIdInProgress,
   snapshotProgress as engineSnapshotProgress,
@@ -830,6 +832,28 @@ export function App() {
     [pushUndo],
   );
 
+  const doDismissHidden = useCallback(
+    (id: ItemId) => {
+      setState((cur) => {
+        if (!cur) return cur;
+        pushUndo(cur);
+        return engineDismissHidden(cur, id);
+      });
+    },
+    [pushUndo],
+  );
+
+  const doRestoreHidden = useCallback(
+    (id: ItemId) => {
+      setState((cur) => {
+        if (!cur) return cur;
+        pushUndo(cur);
+        return engineRestoreHiddenItem(cur, id, engineOptions);
+      });
+    },
+    [pushUndo, engineOptions],
+  );
+
   // In-place metadata edit (label / url / imageUrl + optional id
   // rename). `engineUpdateItem` returns the same state reference when
   // nothing actually changes — that's our signal to NOT push an undo
@@ -1002,7 +1026,7 @@ export function App() {
   const doReturnToPending = useCallback(
     (id: ItemId) => {
       setState((cur) => {
-        if (!cur || cur.engine !== 'insertion') return cur;
+        if (!cur) return cur;
         pushUndo(cur);
         const next = engineReturnToPending(cur, id);
         if (next !== cur) {
@@ -2416,6 +2440,8 @@ export function App() {
         onForget={doForget}
         onReorderInSorted={doReorderInSorted}
         onReturnToPending={doReturnToPending}
+        onDismissHidden={doDismissHidden}
+        onRestoreHidden={doRestoreHidden}
         onEditItem={doEditItem}
       />
       </>
@@ -2446,6 +2472,8 @@ export function App() {
           manifest.slots.find((s) => s.id === manifest.activeId)?.name
         }
         onUnhide={doUnhide}
+        onRestoreHidden={doRestoreHidden}
+        onDismissHidden={doDismissHidden}
         onStartOver={requestStartOver}
         onAddOne={doAddItem}
         onAddMany={doAddItemsList}

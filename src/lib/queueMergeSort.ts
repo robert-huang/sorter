@@ -1118,12 +1118,81 @@ export function unhideItem(state: MergeState, id: ItemId): MergeState {
   return { ...next, items: state.items };
 }
 
+/** Drop an id from `hidden[]` without changing the ranking. */
+export function dismissHidden(state: MergeState, id: ItemId): MergeState {
+  if (!state.hidden.includes(id)) return state;
+  const next = snapshotProgress(state);
+  next.hidden = next.hidden.filter((h) => h !== id);
+  return { ...next, items: state.items };
+}
+
+/**
+ * Restore a hidden merge item that is not in any queue sublist or
+ * `toBeInserted`. When metadata exists, queues it for manual insert.
+ */
+export function restoreHiddenItem(
+  state: MergeState,
+  id: ItemId,
+  options?: MergeOptions,
+): MergeState {
+  if (!state.hidden.includes(id)) return state;
+  if (!state.items[id]) return dismissHidden(state, id);
+
+  const inQueue = state.queue.some((sub) => sub.includes(id));
+  if (inQueue || state.toBeInserted.includes(id)) {
+    return unhideItem(state, id);
+  }
+
+  const next = snapshotProgress(state);
+  next.hidden = next.hidden.filter((h) => h !== id);
+  if (!next.toBeInserted.includes(id)) {
+    next.toBeInserted.push(id);
+  }
+  const withItems: MergeState = { ...next, items: state.items };
+  return manualInsert(withItems, id, options);
+}
+
 /**
  * Queue an id from the `toBeInserted` bucket for the binary-insertion drain — user-triggered
  * "I want this item put back into the ranking." Drains immediately if
  * no merge is in flight, otherwise waits for `flushIfMergeComplete`.
  * The item must be in `state.toBeInserted`.
  */
+/**
+ * Pull an id out of a queue sublist and binary-search it back in via the
+ * manual-insert drain — same UX as insertion-engine `returnToPending` (↻).
+ * The id is removed from `queue`, placed in `toBeInserted`, then drained.
+ */
+export function returnToPending(
+  state: MergeState,
+  id: ItemId,
+  options?: MergeOptions,
+): MergeState {
+  if (state.hidden.includes(id)) return state;
+
+  let queueIndex = -1;
+  for (let qi = 0; qi < state.queue.length; qi++) {
+    if (state.queue[qi].includes(id)) {
+      queueIndex = qi;
+      break;
+    }
+  }
+  if (queueIndex < 0) return state;
+
+  const progress = snapshotProgress(state);
+  const sub = progress.queue[queueIndex].filter((x) => x !== id);
+  if (sub.length === 0) {
+    progress.queue = progress.queue.filter((_, i) => i !== queueIndex);
+  } else {
+    progress.queue[queueIndex] = sub;
+  }
+  if (!progress.toBeInserted.includes(id)) {
+    progress.toBeInserted.push(id);
+  }
+  const withItems: MergeState = { ...progress, items: state.items };
+  return manualInsert(withItems, id, options);
+}
+
 export function manualInsert(
   state: MergeState,
   id: ItemId,
