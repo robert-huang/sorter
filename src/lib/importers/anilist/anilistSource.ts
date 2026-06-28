@@ -5,6 +5,7 @@ import migration003 from './migrations/003-graph-expansion.sql?raw';
 import migration004 from './migrations/004-character-birth-date.sql?raw';
 import migration005 from './migrations/005-character-media-expansion.sql?raw';
 import migration006 from './migrations/006-media-list-entry-notes.sql?raw';
+import migration007 from './migrations/007-media-source.sql?raw';
 import type { AnilistFavouriteType, AnilistMediaType } from './types';
 
 export const ANILIST_SOURCE_ID = 'anilist';
@@ -119,6 +120,7 @@ export const anilistSourceDescriptor: SourceDescriptor = {
     { version: 4, sql: migration004 },
     { version: 5, sql: migration005 },
     { version: 6, sql: migration006 },
+    { version: 7, sql: migration007 },
   ],
   merge: {
     metadataTables: [

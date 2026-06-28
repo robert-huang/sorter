@@ -131,6 +131,7 @@ function makeMedia(id: number, type: 'ANIME' | 'MANGA'): AnilistMediaGql {
     title: { english: `${type}-${id}`, romaji: null, native: null },
     coverImage: { large: null },
     format: null,
+    source: null,
     status: null,
     episodes: null,
     chapters: null,

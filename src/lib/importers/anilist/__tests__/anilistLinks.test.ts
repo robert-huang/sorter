@@ -23,4 +23,10 @@ describe('anilistUrlForSeasonSearch', () => {
     expect(url).toContain('only%20show%20my%20anime=true');
     expect(url).not.toContain('+');
   });
+
+  it('omits year for all-time list search links', () => {
+    expect(anilistUrlForSeasonSearch(null, 0)).toBe(
+      'https://anilist.co/search/anime?only%20show%20my%20anime=true',
+    );
+  });
 });

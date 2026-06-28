@@ -81,6 +81,7 @@ function makeMedia(id: number, overrides: Partial<AnilistMediaGql> = {}): Anilis
     title: { english: `EN-${id}`, romaji: `RO-${id}`, native: null },
     coverImage: { large: `https://example.test/${id}.jpg` },
     format: 'TV',
+    source: null,
     status: 'FINISHED',
     episodes: 12,
     chapters: null,

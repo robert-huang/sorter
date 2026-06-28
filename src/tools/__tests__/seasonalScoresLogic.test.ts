@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applySeasonalSourceFilters,
   averageScore,
   buildSeasonalColumns,
+  DEFAULT_SEASONAL_SOURCE_FILTERS,
   effectiveSeasonalForm,
   formatSeasonColumnLabel,
   formatSeasonalScoreLabel,
@@ -9,6 +11,7 @@ import {
   scoreDisplayTone,
   scoreDisplayToneClass,
   seasonColumnIndicesWithTopAverage,
+  seasonalSourceFilterBucket,
   parseSeasonLine,
   parseSeasonSpecs,
   type SeasonalScoresForm,
@@ -253,6 +256,69 @@ describe('seasonalScoresLogic', () => {
     }
   });
 
+  it('expands `alltime` into a single merged column', () => {
+    const specs = parseSeasonSpecs('alltime', sampleShows);
+    expect(specs).toEqual([
+      { label: 'All time', season: null, year: 0, matchAll: true },
+    ]);
+  });
+
+  it('buildSeasonalColumns merges the full list in alltime mode', () => {
+    const result = buildSeasonalColumns(sampleShows, {
+      username: 'user',
+      seasonText: 'alltime',
+      skipEmpty: false,
+      airingNotesOnly: false,
+      includePlanning: false,
+      spanAiringSeasons: false,
+      seasonMode: 'alltime',
+    });
+    expect(result.kind).toBe('columns');
+    if (result.kind === 'columns') {
+      expect(result.columns).toHaveLength(1);
+      expect(result.columns[0]).toMatchObject({
+        label: 'All time',
+        matchAll: true,
+        ratedCount: 3,
+      });
+      expect(result.columns[0]?.shows.map((s) => s.title)).toEqual([
+        'Winter A',
+        'Winter B',
+        'Spring A',
+      ]);
+    }
+  });
+
+  it('applySeasonalSourceFilters keeps only enabled adaptation sources', () => {
+    const shows: SeasonalShow[] = [
+      {
+        id: 1,
+        title: 'Original',
+        season: 'WINTER',
+        seasonYear: 2024,
+        score: 90,
+        notes: null,
+        source: 'ORIGINAL',
+      },
+      {
+        id: 2,
+        title: 'LN adapt',
+        season: 'WINTER',
+        seasonYear: 2024,
+        score: 80,
+        notes: null,
+        source: 'LIGHT_NOVEL',
+      },
+    ];
+    const filtered = applySeasonalSourceFilters(shows, {
+      ...DEFAULT_SEASONAL_SOURCE_FILTERS,
+      LIGHT_NOVEL: false,
+    });
+    expect(filtered.map((s) => s.title)).toEqual(['Original']);
+    expect(seasonalSourceFilterBucket(null)).toBe('OTHER');
+    expect(seasonalSourceFilterBucket('DOUJINSHI')).toBe('OTHER');
+  });
+
   it('expands `all` into one column per year covering the data span', () => {
     const shows: SeasonalShow[] = [
       { id: 1, title: 'A', season: 'WINTER', seasonYear: 2022, score: 70, notes: null },
@@ -490,6 +556,17 @@ describe('seasonalScoresLogic', () => {
       expect(effective.seasonText).toBe('Winter 2024');
       // Returned form should equal the input (custom is a passthrough).
       expect(effective).toEqual(baseForm);
+    });
+
+    it('overrides seasonText with "alltime" when mode is alltime', () => {
+      const effective = effectiveSeasonalForm({ ...baseForm, seasonMode: 'alltime' });
+      expect(effective.seasonText).toBe('alltime');
+      const result = buildSeasonalColumns(sampleShows, effective);
+      expect(result.kind).toBe('columns');
+      if (result.kind === 'columns') {
+        expect(result.columns).toHaveLength(1);
+        expect(result.columns[0]?.matchAll).toBe(true);
+      }
     });
 
     it('overrides seasonText with "all" when mode is all (keeping other fields)', () => {

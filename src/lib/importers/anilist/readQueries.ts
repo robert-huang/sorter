@@ -84,6 +84,7 @@ function rowToMediaRow(r: DbRow): MediaRow {
     title_native: s(r.title_native),
     cover_image: s(r.cover_image),
     format: s(r.format) as MediaRow['format'],
+    source: s(r.source) as MediaRow['source'],
     status: s(r.status) as MediaRow['status'],
     episodes: n(r.episodes),
     chapters: n(r.chapters),

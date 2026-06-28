@@ -38,6 +38,7 @@ const MEDIA_FIELD_SELECTION = `
   title { english romaji native }
   coverImage { large }
   format
+  source
   status
   episodes
   chapters
@@ -598,6 +599,7 @@ query ToolsUserAnimeList(
         id
         title { english romaji native }
         coverImage { large }
+        source
         season
         seasonYear
         startDate { year month day }

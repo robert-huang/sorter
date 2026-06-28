@@ -34,7 +34,10 @@ export function anilistUrlForSeasonSearch(
   season: string | null,
   year: number,
 ): string {
-  const parts: string[] = [`year=${encodeURIComponent(String(year))}`];
+  const parts: string[] = [];
+  if (year > 0) {
+    parts.push(`year=${encodeURIComponent(String(year))}`);
+  }
   if (season) {
     parts.push(`season=${encodeURIComponent(season.toUpperCase())}`);
   }

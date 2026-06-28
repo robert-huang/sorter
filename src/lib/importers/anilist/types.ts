@@ -42,6 +42,24 @@ export type AnilistMediaStatus =
 /** AniList MediaSeason. */
 export type AnilistMediaSeason = 'WINTER' | 'SPRING' | 'SUMMER' | 'FALL';
 
+/** AniList MediaSource — what the anime/manga was adapted from. */
+export type AnilistMediaSource =
+  | 'ORIGINAL'
+  | 'MANGA'
+  | 'LIGHT_NOVEL'
+  | 'VISUAL_NOVEL'
+  | 'VIDEO_GAME'
+  | 'OTHER'
+  | 'NOVEL'
+  | 'DOUJINSHI'
+  | 'ANIME'
+  | 'WEB_NOVEL'
+  | 'LIVE_ACTION'
+  | 'GAME'
+  | 'COMIC'
+  | 'MULTIMEDIA_PROJECT'
+  | 'PICTURE_BOOK';
+
 /** AniList MediaListStatus — the user's own status on a list entry. */
 export type AnilistMediaListStatus =
   | 'CURRENT'
@@ -106,6 +124,7 @@ export type AnilistMediaGql = {
   };
   coverImage: { large: string | null } | null;
   format: AnilistMediaFormat | null;
+  source?: AnilistMediaSource | null;
   status: AnilistMediaStatus | null;
   episodes: number | null;
   chapters: number | null;
@@ -472,6 +491,8 @@ export type MediaRow = {
   title_native: string | null;
   cover_image: string | null;
   format: AnilistMediaFormat | null;
+  /** Null when not yet imported or unknown on AniList. */
+  source?: AnilistMediaSource | null;
   status: AnilistMediaStatus | null;
   episodes: number | null;
   chapters: number | null;

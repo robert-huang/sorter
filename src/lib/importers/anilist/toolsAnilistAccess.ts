@@ -544,6 +544,7 @@ export async function readUserSeasonalShowsFromDb(
             m.cover_image,
             m.season,
             m.season_year,
+            m.source,
             m.start_year,
             m.start_month,
             m.start_day,
@@ -576,6 +577,7 @@ export async function readUserSeasonalShowsFromDb(
     coverImage: (row.cover_image as string | null) ?? null,
     season: (row.season as string | null) ?? null,
     seasonYear: row.season_year != null ? Number(row.season_year) : null,
+    source: (row.source as SeasonalShow['source']) ?? null,
     startDate:
       row.start_year != null
         ? {

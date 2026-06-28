@@ -1,4 +1,5 @@
 import { parseLinesOnePerLine } from '../parseToolLines';
+import type { AnilistMediaSource } from '../../lib/importers/anilist/types';
 
 export type SeasonalFuzzyDate = {
   year: number | null;
@@ -19,12 +20,16 @@ export type SeasonalShow = {
   notes: string | null;
   /** AniList list status (e.g. PLANNING when include-planning fetch is enabled). */
   listStatus?: string | null;
+  /** AniList MediaSource (ORIGINAL, LIGHT_NOVEL, …) — null when not yet imported. */
+  source?: AnilistMediaSource | null;
 };
 
 export type SeasonSpec = {
   label: string;
   season: string | null;
   year: number;
+  /** Single merged column across the full list (ignores season/year matching). */
+  matchAll?: boolean;
 };
 
 /**
@@ -32,7 +37,76 @@ export type SeasonSpec = {
  * a sensible default without typing. `custom` falls through to whatever they
  * type in the textarea (the existing free-form input).
  */
-export type SeasonMode = 'all' | 'allseasons' | 'custom';
+export type SeasonMode = 'alltime' | 'all' | 'allseasons' | 'custom';
+
+/** Checkbox keys for the adaptation-source filter bar. */
+export const SEASONAL_SOURCE_FILTER_KEYS = [
+  'ORIGINAL',
+  'MANGA',
+  'LIGHT_NOVEL',
+  'VISUAL_NOVEL',
+  'NOVEL',
+  'VIDEO_GAME',
+  'OTHER',
+] as const;
+
+export type SeasonalSourceFilterKey = (typeof SEASONAL_SOURCE_FILTER_KEYS)[number];
+
+export type SeasonalSourceFilters = Record<SeasonalSourceFilterKey, boolean>;
+
+export const DEFAULT_SEASONAL_SOURCE_FILTERS: SeasonalSourceFilters = {
+  ORIGINAL: true,
+  MANGA: true,
+  LIGHT_NOVEL: true,
+  VISUAL_NOVEL: true,
+  NOVEL: true,
+  VIDEO_GAME: true,
+  OTHER: true,
+};
+
+const EXPLICIT_SEASONAL_SOURCE_KEYS = new Set<string>([
+  'ORIGINAL',
+  'MANGA',
+  'LIGHT_NOVEL',
+  'VISUAL_NOVEL',
+  'NOVEL',
+  'VIDEO_GAME',
+]);
+
+export function seasonalSourceFilterLabel(key: SeasonalSourceFilterKey): string {
+  switch (key) {
+    case 'ORIGINAL':
+      return 'Original';
+    case 'MANGA':
+      return 'Manga';
+    case 'LIGHT_NOVEL':
+      return 'Light novel';
+    case 'VISUAL_NOVEL':
+      return 'Visual novel';
+    case 'NOVEL':
+      return 'Novel';
+    case 'VIDEO_GAME':
+      return 'Video game';
+    case 'OTHER':
+      return 'Other';
+  }
+}
+
+export function seasonalSourceFilterBucket(
+  source: AnilistMediaSource | null | undefined,
+): SeasonalSourceFilterKey {
+  if (source && EXPLICIT_SEASONAL_SOURCE_KEYS.has(source)) {
+    return source as SeasonalSourceFilterKey;
+  }
+  return 'OTHER';
+}
+
+export function applySeasonalSourceFilters(
+  shows: SeasonalShow[],
+  filters: SeasonalSourceFilters,
+): SeasonalShow[] {
+  return shows.filter((show) => filters[seasonalSourceFilterBucket(show.source)]);
+}
 
 export type SeasonalScoresForm = {
   username: string;
@@ -51,6 +125,9 @@ export type SeasonalScoresForm = {
  * override `seasonText` for compute when `seasonMode` is a preset.
  */
 export function effectiveSeasonalForm(form: SeasonalScoresForm): SeasonalScoresForm {
+  if (form.seasonMode === 'alltime') {
+    return { ...form, seasonText: 'alltime' };
+  }
   if (form.seasonMode === 'all') {
     return { ...form, seasonText: 'all' };
   }
@@ -65,6 +142,7 @@ export type SeasonColumn = {
   /** Carried through from the spec so the UI can build the matching AniList search URL. */
   season: string | null;
   year: number;
+  matchAll?: boolean;
   ratedCount: number;
   average: number | null;
   shows: Array<{
@@ -198,6 +276,10 @@ export function parseSeasonSpecs(
 
   for (const line of lines) {
     const lower = line.toLowerCase();
+    if (lower === 'alltime') {
+      specs.push({ label: 'All time', season: null, year: 0, matchAll: true });
+      continue;
+    }
     if (lower === 'all') {
       if (!hasRange) {
         continue;
@@ -479,6 +561,9 @@ export function showMatchesSeasonSpec(
   spec: SeasonSpec,
   options: { spanAiringSeasons: boolean; now: Date },
 ): boolean {
+  if (spec.matchAll) {
+    return true;
+  }
   if (!options.spanAiringSeasons) {
     return matchesSeasonYearAndTag(show, spec);
   }
@@ -553,6 +638,8 @@ export function seasonColumnIndicesWithTopAverage(
 export type BuildSeasonalColumnsOptions = {
   /** Injectable clock for spanning-mode tests. */
   now?: Date;
+  /** Client-side adaptation-source filter (instant toggle over cached shows). */
+  sourceFilters?: SeasonalSourceFilters;
 };
 
 export function buildSeasonalColumns(
@@ -561,13 +648,18 @@ export function buildSeasonalColumns(
   options?: BuildSeasonalColumnsOptions,
 ): SeasonalScoresResult {
   const now = options?.now ?? new Date();
-  const specs = parseSeasonSpecs(form.seasonText, shows);
+  const filteredShows = applySeasonalSourceFilters(
+    shows,
+    options?.sourceFilters ?? DEFAULT_SEASONAL_SOURCE_FILTERS,
+  );
+  const specs = parseSeasonSpecs(form.seasonText, filteredShows);
   if (specs.length === 0) {
     // Disambiguate so the user knows whether to type a season or
-    // refresh — the `all`/`allseasons` presets only fail to emit specs
+    // refresh — the `all`/`allseasons`/`alltime` presets only fail to emit specs
     // when the fetched list itself has no usable seasonYear values.
     const trimmed = form.seasonText.trim().toLowerCase();
-    const isPreset = trimmed === 'all' || trimmed === 'allseasons';
+    const isPreset =
+      trimmed === 'alltime' || trimmed === 'all' || trimmed === 'allseasons';
     if (isPreset && shows.length === 0) {
       return {
         kind: 'empty',
@@ -579,7 +671,9 @@ export function buildSeasonalColumns(
       return {
         kind: 'empty',
         message:
-          'None of the fetched shows have a season/year — try the Custom mode and enter seasons manually.',
+          trimmed === 'alltime'
+            ? 'No shows matched the current source filters.'
+            : 'None of the fetched shows have a season/year — try the Custom mode and enter seasons manually.',
       };
     }
     return { kind: 'empty', message: 'Enter at least one season or year to compare.' };
@@ -588,7 +682,7 @@ export function buildSeasonalColumns(
   const columns: SeasonColumn[] = [];
   const matchOptions = { spanAiringSeasons: form.spanAiringSeasons, now };
   const appearsInTaggedSeasonById = new Map<number, boolean>();
-  for (const show of shows) {
+  for (const show of filteredShows) {
     appearsInTaggedSeasonById.set(
       show.id,
       showAppearsInTaggedSeasonColumn(show, specs, matchOptions),
@@ -597,7 +691,7 @@ export function buildSeasonalColumns(
 
   for (const spec of specs) {
     const bucket = bucketShowsForSeason(
-      shows,
+      filteredShows,
       spec,
       form.airingNotesOnly,
       form.includePlanning,
@@ -611,6 +705,7 @@ export function buildSeasonalColumns(
       label: spec.label,
       season: spec.season,
       year: spec.year,
+      matchAll: spec.matchAll,
       ratedCount: countRatedSeasonalShows(bucket),
       average: averageScore(bucket),
       shows: bucket.map((show) => ({

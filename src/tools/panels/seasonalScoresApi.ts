@@ -32,6 +32,7 @@ type SeasonalListMedia = {
   id: number;
   title: { english?: string | null; romaji?: string | null; native?: string | null };
   coverImage?: { large?: string | null } | null;
+  source?: string | null;
   season?: string | null;
   seasonYear?: number | null;
   startDate?: GqlFuzzyDate;
@@ -96,6 +97,7 @@ async function fetchUserSeasonalShowsLive(
       title_native: entry.media.title.native ?? null,
     },
     coverImage: entry.media.coverImage?.large ?? null,
+    source: (entry.media.source as SeasonalShow['source']) ?? null,
     season: entry.media.season ?? null,
     seasonYear: entry.media.seasonYear ?? null,
     startDate: mapFuzzyDate(entry.media.startDate ?? null),

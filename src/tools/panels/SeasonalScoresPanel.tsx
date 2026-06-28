@@ -8,14 +8,19 @@ import { relabelSeasonalShows } from '../toolsDisplayRelabel';
 import { fetchUserSeasonalShows } from './seasonalScoresApi';
 import {
   buildSeasonalColumns,
+  DEFAULT_SEASONAL_SOURCE_FILTERS,
+  applySeasonalSourceFilters,
   effectiveSeasonalForm,
   formatSeasonColumnLabel,
   formatSeasonalScoreLabel,
   scoreDisplayToneClass,
+  SEASONAL_SOURCE_FILTER_KEYS,
   seasonColumnIndicesWithTopAverage,
+  seasonalSourceFilterLabel,
   type SeasonMode,
   type SeasonalScoresForm,
   type SeasonalScoresResult,
+  type SeasonalSourceFilters,
   type SeasonColumn,
   type SeasonalShow,
 } from './seasonalScoresLogic';
@@ -29,6 +34,7 @@ import {
 } from '../../lib/importers/anilist/anilistLinks';
 
 const LS_KEY = 'anime-tools-seasonal-scores-form';
+const LS_SOURCE_FILTERS_KEY = 'anime-tools-seasonal-scores-source-filters';
 /** @deprecated migrated into {@link LS_KEY} */
 const LS_SEASON_TEXT_KEY = 'anime-tools-seasonal-scores-season-text';
 
@@ -55,10 +61,41 @@ type PersistedSeasonalForm = Pick<
 >;
 
 function normalizeSeasonMode(value: unknown): SeasonMode {
-  if (value === 'all' || value === 'allseasons' || value === 'custom') {
+  if (value === 'alltime' || value === 'all' || value === 'allseasons' || value === 'custom') {
     return value;
   }
   return 'allseasons';
+}
+
+function normalizeSourceFilters(raw: unknown): SeasonalSourceFilters {
+  const parsed = raw && typeof raw === 'object' ? (raw as Partial<SeasonalSourceFilters>) : {};
+  const next = { ...DEFAULT_SEASONAL_SOURCE_FILTERS };
+  for (const key of SEASONAL_SOURCE_FILTER_KEYS) {
+    if (typeof parsed[key] === 'boolean') {
+      next[key] = parsed[key]!;
+    }
+  }
+  return next;
+}
+
+function loadSourceFilters(): SeasonalSourceFilters {
+  try {
+    const raw = localStorage.getItem(LS_SOURCE_FILTERS_KEY);
+    if (!raw) {
+      return { ...DEFAULT_SEASONAL_SOURCE_FILTERS };
+    }
+    return normalizeSourceFilters(JSON.parse(raw));
+  } catch {
+    return { ...DEFAULT_SEASONAL_SOURCE_FILTERS };
+  }
+}
+
+function saveSourceFilters(filters: SeasonalSourceFilters): void {
+  try {
+    localStorage.setItem(LS_SOURCE_FILTERS_KEY, JSON.stringify(filters));
+  } catch {
+    /* ignore */
+  }
 }
 
 function loadForm(): SeasonalScoresForm {
@@ -115,6 +152,11 @@ function saveForm(form: SeasonalScoresForm): void {
 }
 
 const SEASON_MODE_OPTIONS: { value: SeasonMode; label: string; title: string }[] = [
+  {
+    value: 'alltime',
+    label: 'All Time',
+    title: 'Merge the full list into one column (ignores season/year buckets).',
+  },
   { value: 'all', label: 'All (Years)', title: "Compare full years from the user's list range." },
   {
     value: 'allseasons',
@@ -143,7 +185,9 @@ function SeasonalColumnsView({
         <div className="tool-season-body">
           {columns.map((col, colIdx) => {
             const searchLink = bindAnilistMiddleClick(
-              anilistUrlForSeasonSearch(col.season, col.year),
+              col.matchAll
+                ? anilistUrlForSeasonSearch(null, 0)
+                : anilistUrlForSeasonSearch(col.season, col.year),
             );
             return (
             <div
@@ -226,6 +270,9 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
   const { refreshing: refreshingList, refreshUsernameList } = useUsernameListRefresh();
   const displayLabelRevision = useToolsDisplayLabelRevision();
   const [form, setForm] = useState<SeasonalScoresForm>(() => loadForm());
+  const [sourceFilters, setSourceFilters] = useState<SeasonalSourceFilters>(() =>
+    loadSourceFilters(),
+  );
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SeasonalScoresResult | null>(null);
@@ -242,6 +289,22 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
   useEffect(() => {
     saveForm(form);
   }, [form]);
+
+  useEffect(() => {
+    saveSourceFilters(sourceFilters);
+  }, [sourceFilters]);
+
+  const patchSourceFilters = useCallback((patch: Partial<SeasonalSourceFilters>) => {
+    setSourceFilters((prev) => ({ ...prev, ...patch }));
+  }, []);
+
+  const buildColumns = useCallback(
+    (shows: SeasonalShow[]) =>
+      buildSeasonalColumns(relabelSeasonalShows(shows), effectiveSeasonalForm(form), {
+        sourceFilters,
+      }),
+    [displayLabelRevision, form, sourceFilters],
+  );
 
   const patchForm = useCallback((patch: Partial<SeasonalScoresForm>) => {
     setError(null);
@@ -282,9 +345,7 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
       showsRef.current = shows;
       fetchedUsernameRef.current = handle;
       chartSessionRef.current += 1;
-      setResult(
-        buildSeasonalColumns(relabelSeasonalShows(shows), effectiveSeasonalForm(form)),
-      );
+      setResult(buildColumns(shows));
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') {
         return;
@@ -296,7 +357,7 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
         setRunning(false);
       }
     }
-  }, [form]);
+  }, [form, buildColumns]);
 
   useEffect(() => {
     if (!showsRef.current) {
@@ -314,13 +375,14 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
     // filters over the cached shows — toggling them just rebuilds the
     // columns without re-fetching. PLANNING entries are always present
     // in showsRef (see fetchUserSeasonalShows).
-    setResult(
-      buildSeasonalColumns(
-        relabelSeasonalShows(showsRef.current),
-        effectiveSeasonalForm(form),
-      ),
-    );
-  }, [displayLabelRevision, form]);
+    setResult(buildColumns(showsRef.current));
+  }, [buildColumns, form.username]);
+
+  const cachedShows = showsRef.current;
+  const visibleSourceCount =
+    cachedShows == null
+      ? null
+      : applySeasonalSourceFilters(relabelSeasonalShows(cachedShows), sourceFilters).length;
 
   return (
     <section className="tool-panel">
@@ -370,7 +432,7 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
           {form.seasonMode === 'custom' && (
             <>
               <span className="tool-field-hint">
-                One per line: <code>all</code>, <code>allseasons</code>,{' '}
+                One per line: <code>alltime</code>, <code>all</code>, <code>allseasons</code>,{' '}
                 <code>Winter 2024</code>, <code>2018</code>
               </span>
               <textarea
@@ -383,6 +445,31 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
               />
             </>
           )}
+        </div>
+
+        <div className="tool-franchise-filterbar tool-seasonal-source-filterbar">
+          <div className="tool-franchise-filterbar-controls">
+            {SEASONAL_SOURCE_FILTER_KEYS.map((key) => (
+              <label
+                key={key}
+                className="tool-checkbox"
+                title={`Include ${seasonalSourceFilterLabel(key)} adaptations.`}
+              >
+                <input
+                  type="checkbox"
+                  checked={sourceFilters[key]}
+                  disabled={running}
+                  onChange={(e) => patchSourceFilters({ [key]: e.target.checked })}
+                />
+                {seasonalSourceFilterLabel(key)}
+              </label>
+            ))}
+          </div>
+          {cachedShows != null && visibleSourceCount != null ? (
+            <span className="tool-franchise-filterbar-count">
+              Showing {visibleSourceCount} of {cachedShows.length}
+            </span>
+          ) : null}
         </div>
 
         <div className="tool-field-row">

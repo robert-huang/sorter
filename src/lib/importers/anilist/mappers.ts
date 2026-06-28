@@ -107,6 +107,7 @@ export function mapMediaRow(media: AnilistMediaGql, now: number): MediaRow {
     title_native: media.title.native ?? null,
     cover_image: media.coverImage?.large ?? null,
     format: media.format ?? null,
+    source: media.source ?? null,
     status: media.status ?? null,
     episodes: media.episodes ?? null,
     chapters: media.chapters ?? null,
