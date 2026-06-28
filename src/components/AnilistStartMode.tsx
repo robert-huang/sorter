@@ -289,6 +289,13 @@ type CandidateSource =
       type: AnilistFavouriteType;
     };
 
+function selectionAfterCandidateLoad(
+  items: Item[],
+  selectAll: boolean,
+): Set<ItemId> {
+  return selectAll ? new Set(items.map((it) => it.id)) : new Set();
+}
+
 export function AnilistStartMode({
   onAddToStaged,
   onAddItems,
@@ -297,6 +304,7 @@ export function AnilistStartMode({
   embedded = false,
   existingIds,
 }: AnilistStartModeProps) {
+  const selectAllOnLoad = !embedded;
   const [username, setUsername] = useState<string>(readLastAnilistUsername);
   const [type, setType] = useState<AnilistMediaType>('ANIME');
   const [includeFormatInLabel, setIncludeFormatInLabel] = useState<boolean>(
@@ -455,7 +463,7 @@ export function AnilistStartMode({
         canonicalName: latest.name,
         type,
       });
-      setSelectedIds(new Set(next.map((it) => it.id)));
+      setSelectedIds(selectionAfterCandidateLoad(next, selectAllOnLoad));
       // Fresh import wipes the previous preview — clear search too
       // so the new preview opens with everything visible. Otherwise
       // a stale "Cowboy" search from an anime import would silently
@@ -465,7 +473,7 @@ export function AnilistStartMode({
     return () => {
       cancelled = true;
     };
-  }, [importTick, type]);
+  }, [importTick, type, includeFormatInLabel, selectAllOnLoad]);
 
   // Re-label loaded anime/manga candidates when the format toggle flips.
   useEffect(() => {
@@ -853,11 +861,11 @@ export function AnilistStartMode({
         canonicalName: user.name,
         type: favTypeArg,
       });
-      setSelectedIds(new Set(next.map((it) => it.id)));
+      setSelectedIds(selectionAfterCandidateLoad(next, selectAllOnLoad));
       setSearch('');
       return next.length;
     },
-    [includeFormatInLabel],
+    [includeFormatInLabel, selectAllOnLoad],
   );
 
   const onRefreshFavourites = useCallback(async () => {
@@ -947,7 +955,7 @@ export function AnilistStartMode({
       canonicalName: cachedListInfo.canonicalName,
       type,
     });
-    setSelectedIds(new Set(next.map((it) => it.id)));
+    setSelectedIds(selectionAfterCandidateLoad(next, selectAllOnLoad));
     setSearch('');
   }, [
     cachedListInfo,
@@ -956,6 +964,7 @@ export function AnilistStartMode({
     includeFormatInLabel,
     onDraftActivity,
     rememberUsername,
+    selectAllOnLoad,
   ]);
 
   /**
