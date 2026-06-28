@@ -1803,6 +1803,22 @@ html {
 }
 
 /* Sorter: vertically centered with the Start / List / Rank tab card. */
+.app-nav-links--tabs-row {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.app-nav-links--tabs-row .app-nav-link {
+  box-shadow: var(--shadow-md);
+}
+
+/* Legacy single-link hook — prefer `.app-nav-links--tabs-row`. */
 .app-nav-link--tabs-row {
   position: absolute;
   left: 16px;

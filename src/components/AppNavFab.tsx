@@ -6,7 +6,7 @@ interface Props {
   className?: string;
 }
 
-/** Cross-app link between Sorter and Anime to Anime (inline in a header bar). */
+/** Cross-app link between Sorter, Anime to Anime, and Tools. */
 export function AppNavFab({ href, label, title, className }: Props) {
   const classes = ['app-nav-link', className].filter(Boolean).join(' ');
   return (

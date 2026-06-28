@@ -1,5 +1,5 @@
 import { AppNavFab } from '../components/AppNavFab';
-import { ANIME_TO_ANIME_HREF } from '../lib/appRoutes';
+import { ANIME_TO_ANIME_HREF, SORTER_HOME_HREF } from '../lib/appRoutes';
 import type { SourceDbSyncControls } from '../hooks/useSourceDbSync';
 import type { AnimeToAnimeTheme } from '../animeToAnime/theme';
 import { ToolsSettingsMenu } from './ToolsSettingsMenu';
@@ -12,8 +12,7 @@ interface Props {
   dbSync: SourceDbSyncControls;
 }
 
-/** Top toolbar for the Tools app. A2A is the nav hub, so Tools carries a
- *  single `← A2A` cross-link back (Sorter↔Tools is a 2-hop trip through A2A). */
+/** Top toolbar for the Tools app. */
 export function ToolsHeader({
   theme,
   onToggleTheme,
@@ -28,6 +27,11 @@ export function ToolsHeader({
   return (
     <header className="anime-to-anime-header header-toolbar">
       <div className="header-toolbar-left">
+        <AppNavFab
+          href={SORTER_HOME_HREF}
+          label="← Sorter"
+          title="Back to Sorter"
+        />
         <AppNavFab
           href={ANIME_TO_ANIME_HREF}
           label="← A2A"
