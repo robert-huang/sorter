@@ -1127,6 +1127,74 @@ export function dismissHidden(state: MergeState, id: ItemId): MergeState {
 }
 
 /**
+ * Permanently drop a hidden id from the sort: clear `hidden[]` and remove
+ * it from queue sublists, `toBeInserted`, in-flight merge/insert frames.
+ * Keeps the `items` entry. Orphans only clear the hidden bit.
+ */
+export function forgetHiddenItem(
+  state: MergeState,
+  id: ItemId,
+  options?: MergeOptions,
+): MergeState {
+  if (!state.hidden.includes(id)) return state;
+  const opts = resolveOptions(options);
+  const inRanking =
+    state.queue.some((sub) => sub.includes(id)) ||
+    state.toBeInserted.includes(id) ||
+    (state.current !== null &&
+      (state.current.left.includes(id) ||
+        state.current.right.includes(id) ||
+        state.current.merged.includes(id)));
+  if (!inRanking) return dismissHidden(state, id);
+
+  const next = snapshotProgress(state);
+  next.hidden = next.hidden.filter((h) => h !== id);
+  next.queue = next.queue
+    .map((sub) => sub.filter((x) => x !== id))
+    .filter((sub) => sub.length > 0);
+  next.toBeInserted = next.toBeInserted.filter((x) => x !== id);
+  next.pendingManualInserts = next.pendingManualInserts.filter((x) => x !== id);
+
+  if (next.current) {
+    next.current = {
+      left: next.current.left.filter((x) => x !== id),
+      right: next.current.right.filter((x) => x !== id),
+      merged: next.current.merged.filter((x) => x !== id),
+    };
+  }
+  if (next.currentManualInsert?.insertingId === id) {
+    next.currentManualInsert = null;
+  }
+  if (next.currentAutoInsert) {
+    const ai = next.currentAutoInsert;
+    if (ai.frame?.insertingId === id) ai.frame = null;
+    ai.pendingInserts = ai.pendingInserts.filter((x) => x !== id);
+    ai.target = ai.target.filter((x) => x !== id);
+  }
+
+  const hiddenSet = new Set(next.hidden);
+  if (next.current) flushIfMergeComplete(next, hiddenSet, opts);
+  drainManualInserts(next, hiddenSet);
+  if (
+    !next.currentManualInsert &&
+    next.current === null &&
+    next.currentAutoInsert === null
+  ) {
+    advance(next, hiddenSet, opts);
+  }
+  if (
+    next.queue.length <= 1 &&
+    next.current === null &&
+    next.currentManualInsert === null &&
+    next.currentAutoInsert === null &&
+    next.pendingManualInserts.length === 0
+  ) {
+    next.done = true;
+  }
+  return { ...next, items: state.items };
+}
+
+/**
  * Restore a hidden merge item that is not in any queue sublist or
  * `toBeInserted`. When metadata exists, queues it for manual insert.
  */

@@ -760,6 +760,43 @@ export function dismissHidden(
 }
 
 /**
+ * Permanently drop a hidden id: clear `hidden[]` and remove it from every
+ * ranking slot (`sorted[]`, `pending[]`, active insert frame). Keeps the
+ * `items` entry for labels / undo. Orphans with no ranking row just clear
+ * the hidden bit.
+ */
+export function forgetHiddenItem(
+  state: InsertionState,
+  id: ItemId,
+): InsertionState {
+  if (!state.hidden.includes(id)) return state;
+  const inSorted = state.sorted.includes(id);
+  const inPending = state.pending.includes(id);
+  if (!inSorted && !inPending) return dismissHidden(state, id);
+
+  const next = snapshotProgress(state);
+  next.hidden = next.hidden.filter((h) => h !== id);
+  const si = next.sorted.indexOf(id);
+  if (si >= 0) {
+    next.sorted = [
+      ...next.sorted.slice(0, si),
+      ...next.sorted.slice(si + 1),
+    ];
+  }
+  const pi = next.pending.indexOf(id);
+  if (pi >= 0) {
+    next.pending.splice(pi, 1);
+    if (next.pendingRunIds) next.pendingRunIds.splice(pi, 1);
+  }
+  if (next.current?.insertingId === id) {
+    next.current = null;
+    drainPending(next);
+  }
+  bumpTotalComparisons(next);
+  return { ...next, items: state.items };
+}
+
+/**
  * Restore a hidden item that no longer sits in `sorted[]` or `pending[]`
  * (typically removed from pending when hidden). Re-queues at the front of
  * `pending` for a fresh binary insert. In-ranking hidden ids delegate to

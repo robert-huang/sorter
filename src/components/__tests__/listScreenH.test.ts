@@ -6,6 +6,7 @@ import {
   hiddenIdsNotInRanking,
   insertionSortFromSublists,
   mergeSliceLabel,
+  rankLabelForHiddenId,
   rankingSlotIds,
 } from '../listScreenH';
 import type { MergeState } from '../../lib/types';
@@ -202,5 +203,16 @@ describe('rankingSlotIds / hiddenIdsNotInRanking', () => {
     });
     expect([...rankingSlotIds(state)]).toEqual(['q1', 't1']);
     expect(hiddenIdsNotInRanking(state)).toEqual(['orphan']);
+  });
+});
+
+describe('rankLabelForHiddenId', () => {
+  it('shows 1-based rank in a completed merge sublist', () => {
+    const state = mergeState({
+      done: true,
+      queue: [['a', 'b', 'c']],
+      hidden: ['b'],
+    });
+    expect(rankLabelForHiddenId(state, 'b')).toBe('2.');
   });
 });

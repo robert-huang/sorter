@@ -4372,6 +4372,13 @@ html {
    * sizer from squishing the thumb to 0 when a label is unusually
    * long (was visible with full anime titles like "JoJo's Bizarre
    * Adventure: Stone Ocean Part 3"). */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-faint);
+  background: var(--surface-2);
   overflow: hidden;
   border-radius: 4px;
   flex-shrink: 0;
@@ -4512,12 +4519,15 @@ html {
   gap: 8px;
 }
 
+.result-hidden-section {
+  padding-top: 8px;
+}
+
 .result-hidden-toggle {
   background: transparent;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 8px 12px;
-  margin-top: 16px;
   font-size: 13px;
   color: var(--text-muted);
 }

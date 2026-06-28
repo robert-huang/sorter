@@ -7,6 +7,7 @@ import {
   cancelManualInsert,
   comparisonsRemaining,
   forgetItem,
+  forgetHiddenItem,
   getPair,
   getPeekLeftIds,
   getPeekRightIds,
@@ -283,6 +284,20 @@ describe('unhideItem', () => {
     let s = initSort([A, B, C]);
     s = unhideItem(s, 'b');
     expect(s.hidden).toEqual([]);
+  });
+});
+
+describe('forgetHiddenItem', () => {
+  it('removes a hidden id from the final queue and hidden list', () => {
+    const s0 = runWithOracle([A, B, C, D], ['a', 'b', 'c', 'd']);
+    const s1 = hideItem(s0, 'b');
+    expect(s1.hidden).toContain('b');
+    expect(s1.queue[0]).toContain('b');
+    const s2 = forgetHiddenItem(s1, 'b');
+    expect(s2.hidden).not.toContain('b');
+    expect(s2.queue[0]).not.toContain('b');
+    expect(getRanking(s2)).not.toContain('b');
+    expect(s2.items.b).toBeDefined();
   });
 });
 

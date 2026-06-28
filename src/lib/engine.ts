@@ -184,6 +184,20 @@ export function dismissHidden(state: SortState, id: ItemId): SortState {
 }
 
 /**
+ * Permanently remove a hidden item from the sort (ranking slots + hidden bit).
+ * Orphans only clear the hidden entry.
+ */
+export function forgetHiddenItem(
+  state: SortState,
+  id: ItemId,
+  options?: MergeOptions,
+): SortState {
+  return state.engine === 'insertion'
+    ? insertion.forgetHiddenItem(state, id)
+    : merge.forgetHiddenItem(state, id, options);
+}
+
+/**
  * Restore a hidden item that is no longer in any ranking slot. Re-queues
  * it for sorting; in-ranking hidden ids just unhide.
  */
@@ -478,6 +492,34 @@ export function returnToPending(state: SortState, id: ItemId): SortState {
   return state.engine === 'insertion'
     ? insertion.returnToPending(state, id)
     : merge.returnToPending(state, id);
+}
+
+/**
+ * Pull a hidden item back out for a fresh binary insert. In-ranking ids
+ * are unhidden then `returnToPending`; orphans delegate to
+ * `restoreHiddenItem`.
+ */
+export function reinsertHiddenItem(
+  state: SortState,
+  id: ItemId,
+  options?: MergeOptions,
+): SortState {
+  if (!state.hidden.includes(id)) return state;
+  if (state.engine === 'insertion') {
+    const inRanking =
+      state.sorted.includes(id) || state.pending.includes(id);
+    if (inRanking) {
+      return insertion.returnToPending(insertion.unhideItem(state, id), id);
+    }
+    return insertion.restoreHiddenItem(state, id);
+  }
+  const inRanking =
+    state.queue.some((sub) => sub.includes(id)) ||
+    state.toBeInserted.includes(id);
+  if (inRanking) {
+    return merge.returnToPending(merge.unhideItem(state, id), id, options);
+  }
+  return merge.restoreHiddenItem(state, id, options);
 }
 
 // ---------- engine transition ----------

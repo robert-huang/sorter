@@ -14,6 +14,7 @@ import {
   comparisonsRemaining as engineComparisonsRemaining,
   dismissHidden as engineDismissHidden,
   type EngineOptions,
+  forgetHiddenItem as engineForgetHiddenItem,
   getRanking as engineGetRanking,
   hideItem as engineHideItem,
   pickLeft as enginePickLeft,
@@ -21,6 +22,7 @@ import {
   reorderInSorted as engineReorderInSorted,
   restoreProgress as engineRestoreProgress,
   restoreHiddenItem as engineRestoreHiddenItem,
+  reinsertHiddenItem as engineReinsertHiddenItem,
   returnToPending as engineReturnToPending,
   rewriteIdInProgress as engineRewriteIdInProgress,
   snapshotProgress as engineSnapshotProgress,
@@ -211,6 +213,8 @@ function bootRead(): { manifest: SlotsManifest } {
 export function App() {
   const [autosaveOn] = useState(() => isAutosaveAvailable());
   const [state, setState] = useState<SortState | null>(null);
+  const stateRef = useRef<SortState | null>(null);
+  stateRef.current = state;
   const [undoRing, setUndoRing] = useState<SortProgress[]>([]);
   const [activeTab, setActiveTab] = useState<TabId>('start');
   // The most recent user interaction that *changed the current pair*. The
@@ -582,6 +586,19 @@ export function App() {
     });
   }, []);
 
+  /** Push one undo frame, then apply — never call pushUndo inside setState. */
+  const applyWithUndo = useCallback(
+    (compute: (cur: SortState) => SortState) => {
+      const cur = stateRef.current;
+      if (!cur) return;
+      const next = compute(cur);
+      if (next === cur) return;
+      pushUndo(cur);
+      setState(next);
+    },
+    [pushUndo],
+  );
+
   const flashSkipped = useCallback((msg: string) => {
     setSkippedMessage(msg);
     if (skippedTimer.current) clearTimeout(skippedTimer.current);
@@ -823,35 +840,37 @@ export function App() {
 
   const doUnhide = useCallback(
     (id: ItemId) => {
-      setState((cur) => {
-        if (!cur) return cur;
-        pushUndo(cur);
-        return engineUnhideItem(cur, id);
-      });
+      applyWithUndo((cur) => engineUnhideItem(cur, id));
     },
-    [pushUndo],
+    [applyWithUndo],
   );
 
   const doDismissHidden = useCallback(
     (id: ItemId) => {
-      setState((cur) => {
-        if (!cur) return cur;
-        pushUndo(cur);
-        return engineDismissHidden(cur, id);
-      });
+      applyWithUndo((cur) => engineDismissHidden(cur, id));
     },
-    [pushUndo],
+    [applyWithUndo],
   );
 
   const doRestoreHidden = useCallback(
     (id: ItemId) => {
-      setState((cur) => {
-        if (!cur) return cur;
-        pushUndo(cur);
-        return engineRestoreHiddenItem(cur, id, engineOptions);
-      });
+      applyWithUndo((cur) => engineRestoreHiddenItem(cur, id, engineOptions));
     },
-    [pushUndo, engineOptions],
+    [applyWithUndo, engineOptions],
+  );
+
+  const doReinsertHidden = useCallback(
+    (id: ItemId) => {
+      applyWithUndo((cur) => engineReinsertHiddenItem(cur, id, engineOptions));
+    },
+    [applyWithUndo, engineOptions],
+  );
+
+  const doForgetHidden = useCallback(
+    (id: ItemId) => {
+      applyWithUndo((cur) => engineForgetHiddenItem(cur, id, engineOptions));
+    },
+    [applyWithUndo, engineOptions],
   );
 
   // In-place metadata edit (label / url / imageUrl + optional id
@@ -1894,8 +1913,6 @@ export function App() {
 
   // -------- start --------
   const startScreenRef = useRef<StartScreenHandle>(null);
-  const stateRef = useRef(state);
-  stateRef.current = state;
 
   const [draftCaps, setDraftCaps] = useState<StartDraftCapabilities>({
     canList: false,
@@ -2442,6 +2459,8 @@ export function App() {
         onReturnToPending={doReturnToPending}
         onDismissHidden={doDismissHidden}
         onRestoreHidden={doRestoreHidden}
+        onReinsertHidden={doReinsertHidden}
+        onForgetHidden={doForgetHidden}
         onEditItem={doEditItem}
       />
       </>

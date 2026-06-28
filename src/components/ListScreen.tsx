@@ -18,9 +18,10 @@ import {
   formatOrphanHiddenId,
   getInsertContext,
   groupInsertionPending,
-  hiddenIdsNotInRanking,
   insertionSortFromSublists,
   mergeSliceLabel,
+  rankLabelForHiddenId,
+  rankingSlotIds,
   type InsertContextKind,
   type InsertionPendingGroup,
 } from './listScreenH';
@@ -148,19 +149,23 @@ function CompletedRankingSection({
 }
 
 /**
- * Hidden items that no longer appear in sorted / queue / pending rows —
- * only referenced in the header "(N hidden)" count until this section.
+ * All hidden items — shown at the bottom even when they still appear
+ * (struck through) in the main ranking list above.
  */
-function RemovedDuringSortingSection({
+function HiddenItemsSection({
   ids,
   items,
-  onRestore,
-  onDismiss,
+  state,
+  rankingSlots,
+  onReinsert,
+  onForget,
 }: {
   ids: string[];
   items: Record<string, Item>;
-  onRestore: (id: string) => void;
-  onDismiss: (id: string) => void;
+  state: SortState;
+  rankingSlots: Set<string>;
+  onReinsert: (id: string) => void;
+  onForget: (id: string) => void;
 }) {
   const [open, setOpen] = useState(true);
   if (ids.length === 0) return null;
@@ -180,7 +185,7 @@ function RemovedDuringSortingSection({
           width: '100%',
         }}
       >
-        {open ? '▾' : '▸'} Removed during sorting ({ids.length})
+        {open ? '▾' : '▸'} Hidden items ({ids.length})
       </button>
       {open && (
         <>
@@ -191,23 +196,26 @@ function RemovedDuringSortingSection({
               marginTop: 0,
             }}
           >
-            These items were hidden and are no longer in the ranking list.
-            Use <strong>↺ Restore</strong> to queue them for sorting again,
-            or <strong>× Dismiss</strong> to clear them from the hidden count.
+            These items stay in the list above at their old rank (struck
+            through). Use <strong>↻ Reinsert</strong> to pull one back out
+            for a fresh binary insert, or <strong>× Dismiss</strong> to
+            remove it from the sort entirely.
           </p>
           <div className="queue-sublist">
             <div className="queue-sublist-items">
               {ids.map((id) => {
                 const item = items[id];
                 const label = item?.label ?? formatOrphanHiddenId(id);
-                const canRestore = !!item;
+                const inRanking = rankingSlots.has(id);
+                const canReinsert = !!item;
+                const rank = inRanking ? rankLabelForHiddenId(state, id) : '—';
                 return (
                   <div key={id} className="queue-item-row hidden">
-                    <span className="rank">—</span>
+                    <span className="rank">{rank}</span>
                     <Thumb item={item ?? { id, label }} />
                     <span className="label-cell" title={label}>
                       {label}
-                      {!canRestore && (
+                      {!canReinsert && (
                         <span style={{ color: 'var(--text-faint)' }}>
                           {' '}
                           · metadata missing — dismiss only
@@ -215,19 +223,27 @@ function RemovedDuringSortingSection({
                       )}
                     </span>
                     <span className="actions">
-                      {canRestore && (
+                      {canReinsert && (
                         <button
                           className="icon-btn"
-                          onClick={() => onRestore(id)}
-                          title="Queue this item for sorting again"
+                          onClick={() => onReinsert(id)}
+                          title={
+                            inRanking
+                              ? 'Pull out and binary-insert again'
+                              : 'Queue for sorting again'
+                          }
                         >
-                          ↺ Restore
+                          ↻ Reinsert
                         </button>
                       )}
                       <button
                         className="icon-btn danger"
-                        onClick={() => onDismiss(id)}
-                        title="Clear from hidden count"
+                        onClick={() => onForget(id)}
+                        title={
+                          inRanking
+                            ? 'Remove from the sort entirely'
+                            : 'Clear from hidden count'
+                        }
                       >
                         × Dismiss
                       </button>
@@ -295,6 +311,10 @@ interface Props {
    * use `onUnhide` instead.
    */
   onRestoreHidden: (id: string) => void;
+  /** Pull a hidden item back out for a fresh binary insert (↻). */
+  onReinsertHidden: (id: string) => void;
+  /** Permanently remove a hidden item from the sort (× Dismiss). */
+  onForgetHidden: (id: string) => void;
   /**
    * Patch metadata (label / url / imageUrl) on an item in place. The
    * item's structural position in the sort is preserved — only the
@@ -654,10 +674,8 @@ export function ListScreen(props: Props) {
   }
 
   const state = props.state;
-  const orphanHiddenIds = useMemo(
-    () => hiddenIdsNotInRanking(state),
-    [state],
-  );
+  const rankingSlots = useMemo(() => rankingSlotIds(state), [state]);
+  const hiddenIds = useMemo(() => state.hidden, [state.hidden]);
 
   return (
     <div className="page">
@@ -673,11 +691,13 @@ export function ListScreen(props: Props) {
       ) : (
         <MergeListView {...props} state={state} />
       )}
-      <RemovedDuringSortingSection
-        ids={orphanHiddenIds}
+      <HiddenItemsSection
+        ids={hiddenIds}
         items={items}
-        onRestore={props.onRestoreHidden}
-        onDismiss={props.onDismissHidden}
+        state={state}
+        rankingSlots={rankingSlots}
+        onReinsert={props.onReinsertHidden}
+        onForget={props.onForgetHidden}
       />
     </div>
   );

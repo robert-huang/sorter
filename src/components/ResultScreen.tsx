@@ -191,7 +191,7 @@ export function ResultScreen({
       </div>
 
       {hiddenIds.length > 0 && (
-        <div className="page-section">
+        <div className="page-section result-hidden-section">
           <button
             className="result-hidden-toggle"
             onClick={() => setShowHidden((v) => !v)}

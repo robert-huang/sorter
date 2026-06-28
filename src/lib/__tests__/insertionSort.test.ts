@@ -5,6 +5,7 @@ import {
   buildInsertionState,
   comparisonsRemaining,
   dismissHidden,
+  forgetHiddenItem,
   getPair,
   getPeekLeftIds,
   getPeekRightIds,
@@ -618,7 +619,7 @@ describe('getPeekRightIds', () => {
   });
 });
 
-describe('dismissHidden / restoreHiddenItem', () => {
+describe('dismissHidden / restoreHiddenItem / forgetHiddenItem', () => {
   it('dismissHidden removes a ghost id from hidden without touching ranking', () => {
     const s0: InsertionState = {
       engine: 'insertion',
@@ -662,6 +663,17 @@ describe('dismissHidden / restoreHiddenItem', () => {
     };
     const s1 = restoreHiddenItem(s0, 'ghost-id');
     expect(s1.hidden).toEqual([]);
+  });
+
+  it('forgetHiddenItem removes a hidden id from sorted and hidden', () => {
+    const s0 = build({ sorted: [A, B, C, D, E], pending: [] });
+    const s1 = hideItem(s0, 'c');
+    expect(s1.hidden).toContain('c');
+    expect(s1.sorted).toContain('c');
+    const s2 = forgetHiddenItem(s1, 'c');
+    expect(s2.hidden).not.toContain('c');
+    expect(s2.sorted).not.toContain('c');
+    expect(s2.items.c).toBeDefined();
   });
 });
 

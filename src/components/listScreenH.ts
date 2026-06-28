@@ -36,6 +36,23 @@ export function hiddenIdsNotInRanking(state: SortState): ItemId[] {
   return state.hidden.filter((id) => !slots.has(id));
 }
 
+/** Rank label for a hidden id still sitting in a ranking list row. */
+export function rankLabelForHiddenId(state: SortState, id: ItemId): string {
+  if (state.engine === 'insertion') {
+    const i = state.sorted.indexOf(id);
+    if (i >= 0) return `${i + 1}.`;
+  } else if (state.done && state.queue.length === 1) {
+    const i = state.queue[0].indexOf(id);
+    if (i >= 0) return `${i + 1}.`;
+  } else {
+    for (let qi = 0; qi < state.queue.length; qi++) {
+      const i = state.queue[qi].indexOf(id);
+      if (i >= 0) return `${qi + 1}:${i + 1}`;
+    }
+  }
+  return '—';
+}
+
 export type InsertionPendingGroupKind = 'flat' | 'preranked' | 'extras';
 
 export interface InsertionPendingGroup {
