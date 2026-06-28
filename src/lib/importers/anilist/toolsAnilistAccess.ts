@@ -509,6 +509,7 @@ export async function readUserListMediaIdsFromDb(
   db: AnilistDbExecutor,
   anilistUserId: number,
   statuses: readonly string[],
+  mediaType: 'ANIME' | 'MANGA' = 'ANIME',
 ): Promise<Set<string>> {
   if (statuses.length === 0) {
     return new Set();
@@ -519,9 +520,9 @@ export async function readUserListMediaIdsFromDb(
        FROM media_list_entry mle
        JOIN media m ON m.id = mle.media_id
       WHERE mle.anilist_user_id = ?
-        AND m.type = 'ANIME'
+        AND m.type = ?
         AND mle.status IN (${placeholders})`,
-    [anilistUserId, ...statuses],
+    [anilistUserId, mediaType, ...statuses],
   );
   return new Set(rows.map((r) => String(r.media_id)));
 }
@@ -819,10 +820,10 @@ export async function readConsumedMediaIdsFromDb(
   db: AnilistDbExecutor,
   anilistUserId: number,
 ): Promise<Set<number> | null> {
-  const ids = await readUserListMediaIdsFromDb(
-    db,
-    anilistUserId,
-    TOOLS_CONSUMED_LIST_STATUSES,
-  );
-  return ids.size > 0 ? new Set([...ids].map((id) => Number(id))) : null;
+  const [animeIds, mangaIds] = await Promise.all([
+    readUserListMediaIdsFromDb(db, anilistUserId, TOOLS_CONSUMED_LIST_STATUSES, 'ANIME'),
+    readUserListMediaIdsFromDb(db, anilistUserId, TOOLS_CONSUMED_LIST_STATUSES, 'MANGA'),
+  ]);
+  const merged = new Set([...animeIds, ...mangaIds].map((id) => Number(id)));
+  return merged.size > 0 ? merged : null;
 }

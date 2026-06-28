@@ -31,6 +31,7 @@ vi.mock('../../lib/importers/anilist/toolsAnilistAccess', () => ({
   ensureCharacterMediaFresh: vi.fn(),
   ensureStaffFilmographyFresh: vi.fn(),
   ensureUserAnimeListFresh: vi.fn(),
+  ensureUserMangaListFresh: vi.fn(),
   ensureUserFavouritesFresh: vi.fn(),
   readCharacterVoiceEdgesFromDb: vi.fn(),
   readConsumedMediaIdsFromDb: vi.fn(),
@@ -45,6 +46,7 @@ import {
   ensureCharacterMediaFresh,
   ensureStaffFilmographyFresh,
   ensureUserAnimeListFresh,
+  ensureUserMangaListFresh,
   ensureUserFavouritesFresh,
   readCharacterVoiceEdgesFromDb,
   readConsumedMediaIdsFromDb,
@@ -66,6 +68,7 @@ const getCtxMock = vi.mocked(getToolsImportContext);
 const ensureCharacterMediaFreshMock = vi.mocked(ensureCharacterMediaFresh);
 const ensureStaffFilmographyFreshMock = vi.mocked(ensureStaffFilmographyFresh);
 const ensureUserAnimeListFreshMock = vi.mocked(ensureUserAnimeListFresh);
+const ensureUserMangaListFreshMock = vi.mocked(ensureUserMangaListFresh);
 const ensureUserFavouritesFreshMock = vi.mocked(ensureUserFavouritesFresh);
 const readCharacterVoiceEdgesFromDbMock = vi.mocked(readCharacterVoiceEdgesFromDb);
 const readConsumedMediaIdsFromDbMock = vi.mocked(readConsumedMediaIdsFromDb);
@@ -113,6 +116,7 @@ beforeEach(() => {
   ensureCharacterMediaFreshMock.mockReset();
   ensureStaffFilmographyFreshMock.mockReset();
   ensureUserAnimeListFreshMock.mockReset();
+  ensureUserMangaListFreshMock.mockReset();
   ensureUserFavouritesFreshMock.mockReset();
   readCharacterVoiceEdgesFromDbMock.mockReset();
   readConsumedMediaIdsFromDbMock.mockReset();
@@ -126,6 +130,11 @@ beforeEach(() => {
   ensureCharacterMediaFreshMock.mockResolvedValue();
   ensureStaffFilmographyFreshMock.mockResolvedValue();
   ensureUserAnimeListFreshMock.mockResolvedValue({
+    id: 42,
+    name: 'user',
+    fetched_at: Date.now(),
+  } as never);
+  ensureUserMangaListFreshMock.mockResolvedValue({
     id: 42,
     name: 'user',
     fetched_at: Date.now(),
@@ -206,6 +215,17 @@ describe('runFavouritesAnalysis caching', () => {
     expect(ensureUserAnimeListFreshMock).toHaveBeenCalledWith('user', {
       forceRefresh: true,
     });
+    expect(ensureUserMangaListFreshMock).toHaveBeenCalledWith('user', {
+      forceRefresh: true,
+    });
+  });
+
+  it('imports both anime and manga lists before building consumed media ids', async () => {
+    await runFavouritesAnalysis(FORM, () => {});
+
+    expect(ensureUserAnimeListFreshMock).toHaveBeenCalledWith('user', undefined);
+    expect(ensureUserMangaListFreshMock).toHaveBeenCalledWith('user', undefined);
+    expect(readConsumedMediaIdsFromDbMock).toHaveBeenCalled();
   });
 
   it('falls back to a capped live fetch when the DB read returns null after ensure', async () => {

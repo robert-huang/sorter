@@ -759,14 +759,14 @@ query ToolsFranchiseRelations($mediaId: Int!) {
 }
 `.trim();
 
-/** User anime list ids (non-planning) for Favourites consumed-media filter. */
+/** User anime/manga list ids (non-planning) for Favourites consumed-media filter. */
 export const TOOLS_USER_CONSUMED_MEDIA_QUERY = `
-query ToolsUserConsumedMedia($userName: String, $page: Int!, $perPage: Int!) {
+query ToolsUserConsumedMedia($userName: String, $page: Int!, $perPage: Int!, $type: MediaType!) {
   Page(page: $page, perPage: $perPage) {
     pageInfo { hasNextPage currentPage }
     mediaList(
       userName: $userName
-      type: ANIME
+      type: $type
       status_not: PLANNING
       sort: [MEDIA_ID]
     ) {

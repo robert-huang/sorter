@@ -61,6 +61,28 @@ describe('processCharacterEdges', () => {
       characters: [{ id: 99, name: 'Hero' }],
     });
   });
+
+  it('groups manga edges into books when manga is on the user list', () => {
+    const result = processCharacterEdges(
+      99,
+      'Hero',
+      [
+        {
+          node: { id: 50, title: { romaji: 'Manga A', native: null }, type: 'MANGA' },
+          characterRole: 'MAIN',
+          voiceActors: [{ id: 10, name: { full: 'VA One', native: null } }],
+        },
+      ],
+      new Set([50]),
+    );
+
+    expect(result.books[50]).toEqual({
+      title: 'Manga A',
+      coverImage: null,
+      characters: [{ id: 99, name: 'Hero' }],
+    });
+    expect(result.shows).toEqual({});
+  });
 });
 
 describe('countVaCharactersOnMedia', () => {
@@ -170,5 +192,45 @@ describe('buildFavouritesResult', () => {
       { id: 2, name: 'Bob' },
     ]);
     expect(result.byCount.length).toBe(2);
+  });
+
+  it('builds seriesManga from per-character book metadata', () => {
+    const result = buildFavouritesResult({
+      characters: [
+        {
+          id: 1,
+          name: { full: 'Alice', native: null },
+          gender: 'Female',
+          dateOfBirth: null,
+        },
+      ],
+      perCharacterVas: [[{ id: 10, name: 'VA A', imageUrl: null }]],
+      perCharacterMeta: [
+        {
+          charRole: CharacterRoleTier.Main,
+          seen: true,
+          isMain: true,
+          shows: {},
+          books: {
+            50: {
+              title: 'Manga A',
+              coverImage: null,
+              characters: [{ id: 1, name: 'Alice' }],
+            },
+          },
+        },
+      ],
+      vaTotalCharacterCounts: new Map([[10, 1]]),
+      favouriteStaff: [],
+    });
+
+    expect(result.seriesManga).toEqual([
+      expect.objectContaining({
+        mediaId: 50,
+        title: 'Manga A',
+        mediaType: 'MANGA',
+        characters: [{ id: 1, name: 'Alice' }],
+      }),
+    ]);
   });
 });

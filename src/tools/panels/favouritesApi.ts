@@ -20,6 +20,7 @@ import {
   ensureCharacterMediaFresh,
   ensureStaffFilmographyFresh,
   ensureUserAnimeListFresh,
+  ensureUserMangaListFresh,
   ensureUserFavouritesFresh,
   readCharacterVoiceEdgesFromDb,
   readConsumedMediaIdsFromDb,
@@ -75,21 +76,11 @@ export type FavouritesRunProgress =
   | { phase: 'expand-staff-filmography'; index: number; total: number }
   | { phase: 'build' };
 
-async function fetchConsumedMediaIds(
+async function fetchConsumedMediaListLive(
   username: string,
+  type: 'ANIME' | 'MANGA',
   signal?: AbortSignal,
-  options?: FavouritesFetchOptions,
-): Promise<Set<number>> {
-  signal?.throwIfAborted();
-  const user = await ensureUserAnimeListFresh(username, favouritesImportOptions(options));
-  if (user) {
-    const ctx = getToolsImportContext();
-    const fromDb = await readConsumedMediaIdsFromDb(ctx.db, user.id);
-    if (fromDb) {
-      return fromDb;
-    }
-  }
-
+): Promise<number[]> {
   const entries = await depaginate<
     {
       Page: {
@@ -100,14 +91,41 @@ async function fetchConsumedMediaIds(
     { mediaId: number }
   >({
     query: TOOLS_USER_CONSUMED_MEDIA_QUERY,
-    variables: { userName: username },
+    variables: { userName: username, type },
     signal,
     selectPage: (data) => ({
       nodes: data.Page?.mediaList ?? [],
       pageInfo: data.Page?.pageInfo ?? { hasNextPage: false },
     }),
   });
-  return new Set(entries.map((e) => e.mediaId));
+  return entries.map((e) => e.mediaId);
+}
+
+async function fetchConsumedMediaIds(
+  username: string,
+  signal?: AbortSignal,
+  options?: FavouritesFetchOptions,
+): Promise<Set<number>> {
+  signal?.throwIfAborted();
+  const importOptions = favouritesImportOptions(options);
+  const [animeUser, mangaUser] = await Promise.all([
+    ensureUserAnimeListFresh(username, importOptions),
+    ensureUserMangaListFresh(username, importOptions),
+  ]);
+  const user = animeUser ?? mangaUser;
+  if (user) {
+    const ctx = getToolsImportContext();
+    const fromDb = await readConsumedMediaIdsFromDb(ctx.db, user.id);
+    if (fromDb) {
+      return fromDb;
+    }
+  }
+
+  const [animeIds, mangaIds] = await Promise.all([
+    fetchConsumedMediaListLive(username, 'ANIME', signal),
+    fetchConsumedMediaListLive(username, 'MANGA', signal),
+  ]);
+  return new Set([...animeIds, ...mangaIds]);
 }
 
 async function fetchFavouriteCharactersLive(
