@@ -23,6 +23,7 @@ const DEFAULT_FORM: SharedStaffForm = {
   sortByPopularity: true,
   ignoreRelated: false,
   includeAll: false,
+  enableSingleShowMode: false,
   topMatchCount: 5,
 };
 
@@ -70,6 +71,10 @@ function loadForm(): SharedStaffForm {
           typeof parsed.includeAll === 'boolean'
             ? parsed.includeAll
             : DEFAULT_FORM.includeAll,
+        enableSingleShowMode:
+          typeof parsed.enableSingleShowMode === 'boolean'
+            ? parsed.enableSingleShowMode
+            : DEFAULT_FORM.enableSingleShowMode,
         topMatchCount: clampTopMatchCount(parsed.topMatchCount),
       };
     }
@@ -87,6 +92,7 @@ function saveForm(form: SharedStaffForm): void {
       sortByPopularity: form.sortByPopularity,
       ignoreRelated: form.ignoreRelated,
       includeAll: form.includeAll,
+      enableSingleShowMode: form.enableSingleShowMode,
       topMatchCount: form.topMatchCount,
     };
     localStorage.setItem(LS_KEY, JSON.stringify(persisted));
@@ -187,12 +193,15 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
     setResult(null);
     rebuildSourceRef.current = null;
 
+    const singleShowActive = shows.length === 1 && form.enableSingleShowMode;
+
     try {
       const { shows: bundles, singleShowReport, singleShowSource } =
         await runSharedStaffCompare({
         showSearches: shows,
         sortByPopularity: form.sortByPopularity,
-        ignoreRelated: form.ignoreRelated,
+        ignoreRelated: singleShowActive ? form.ignoreRelated : false,
+        enableSingleShowMode: singleShowActive,
         topMatchCount: form.topMatchCount,
         signal: controller.signal,
         onProgress: setProgress,
@@ -227,14 +236,15 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
 
   const statusText = running ? progressLabel(progress) : null;
   const showCount = parseShowInputs(form.showText).length;
-  const singleShowMode = showCount === 1;
+  const singleShowEligible = showCount === 1;
+  const singleShowOptionsActive = singleShowEligible && form.enableSingleShowMode;
 
   return (
     <section className="tool-panel">
       <p className="tool-panel-lead">
         Compare studios, production staff, and Japanese voice actors across shows — port
-        of <code>compare_staff.py</code>. One show triggers a slow “most shared staff”
-        search.
+        of <code>compare_staff.py</code>. Enable single-show mode in Advanced to scan
+        staff filmographies for the most overlapping anime (slow).
       </p>
 
       <form
@@ -293,36 +303,53 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
           </label>
         </div>
 
-        <details
-          className="tool-form-details"
-          // Keep collapsed by default; user expands when needed.
-        >
+        <details className="tool-form-details">
           <summary
             className="tool-form-details-summary"
-            title="When exactly one show is entered, scan each production staff member's filmography for anime with the most staff in common. Can take several minutes."
+            title="When exactly one show is entered and single-show mode is enabled, scan each production staff member's filmography for anime with the most staff in common. Can take several minutes."
           >
-            Single-show mode
+            Single-show Mode
           </summary>
           <div
-            className={`tool-form-options-stack${singleShowMode ? '' : ' tool-form-options-stack-disabled'}`}
+            className={`tool-form-options-stack${singleShowEligible ? '' : ' tool-form-options-stack-disabled'}`}
           >
-            <label className="tool-checkbox">
+            <label
+              className="tool-checkbox"
+              title={
+                singleShowEligible
+                  ? 'Scan each production staff member’s filmography for anime with the most staff in common. Can take several minutes.'
+                  : 'Enter exactly one show to use single-show mode.'
+              }
+            >
+              <input
+                type="checkbox"
+                checked={form.enableSingleShowMode}
+                disabled={running || !singleShowEligible}
+                onChange={(e) => patchForm({ enableSingleShowMode: e.target.checked })}
+              />
+              Enable Single-show Mode
+            </label>
+            <label
+              className={`tool-checkbox${singleShowOptionsActive ? '' : ' tool-form-options-stack-disabled'}`}
+            >
               <input
                 type="checkbox"
                 checked={form.ignoreRelated}
-                disabled={running || !singleShowMode}
+                disabled={running || !singleShowOptionsActive}
                 onChange={(e) => patchForm({ ignoreRelated: e.target.checked })}
               />
               Ignore related shows to avoid sequels and spinoffs
             </label>
-            <label className="tool-field tool-field-label-row">
+            <label
+              className={`tool-field tool-field-label-row${singleShowOptionsActive ? '' : ' tool-form-options-stack-disabled'}`}
+            >
               <span className="tool-field-label">Top matches</span>
               <input
                 className="slot-search tool-input-narrow"
                 type="number"
                 min={1}
                 max={20}
-                disabled={running || !singleShowMode}
+                disabled={running || !singleShowOptionsActive}
                 value={form.topMatchCount}
                 onChange={(e) =>
                   patchForm({

@@ -50,6 +50,8 @@ export type SharedStaffForm = {
    * (intersection).
    */
   includeAll: boolean;
+  /** Slow filmography scan — only when enabled and exactly one show is entered. */
+  enableSingleShowMode: boolean;
   topMatchCount: number;
 };
 

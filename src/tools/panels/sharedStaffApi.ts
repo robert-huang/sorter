@@ -456,6 +456,7 @@ export async function runSharedStaffCompare(options: {
   showSearches: string[];
   sortByPopularity: boolean;
   ignoreRelated: boolean;
+  enableSingleShowMode: boolean;
   topMatchCount: number;
   signal?: AbortSignal;
   onProgress?: (progress: SharedStaffRunProgress) => void;
@@ -483,6 +484,7 @@ export async function runSharedStaffCompare(options: {
     showSearches,
     sortByPopularity,
     ignoreRelated,
+    enableSingleShowMode,
     topMatchCount,
     signal,
     onProgress,
@@ -508,7 +510,7 @@ export async function runSharedStaffCompare(options: {
     shows.push(await fetchShowStaffBundle(show.id, show.title, signal, fetchOptions));
   }
 
-  if (shows.length !== 1) {
+  if (shows.length !== 1 || !enableSingleShowMode) {
     return { shows };
   }
 

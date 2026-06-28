@@ -1810,8 +1810,10 @@ html {
   transform: translateY(-50%);
   pointer-events: auto;
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
 .app-nav-links--tabs-row .app-nav-link {
@@ -5421,6 +5423,10 @@ html {
 .tool-form-options-stack .tool-field {
   margin-bottom: 0;
   width: 100%;
+}
+
+.tool-form-options-stack .tool-field.tool-field-label-row {
+  margin-bottom: 0;
 }
 
 .tool-form-options-stack-disabled {
