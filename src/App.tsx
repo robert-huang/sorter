@@ -49,6 +49,7 @@ import {
   resetBranchedSlotComparisonProgress,
   type CompletedSortEditAction,
 } from './lib/completedSortEditH';
+import { listHeaderItemCount } from './lib/sortPopulation';
 import {
   type AutosaveBlob,
   type AutosaveError,
@@ -215,6 +216,11 @@ export function App() {
   const [state, setState] = useState<SortState | null>(null);
   const stateRef = useRef<SortState | null>(null);
   stateRef.current = state;
+  // Slot whose blob is currently in memory. Tracked explicitly (not via
+  // manifest.activeId) because autosave's post-write manifest refresh can
+  // race with setActiveSlot and leave React's activeId one beat behind the
+  // loaded session — most visible in document.title after Resume.
+  const [loadedSlotId, setLoadedSlotId] = useState<string | null>(null);
   const [undoRing, setUndoRing] = useState<SortProgress[]>([]);
   const [activeTab, setActiveTab] = useState<TabId>('start');
   // The most recent user interaction that *changed the current pair*. The
@@ -527,7 +533,8 @@ export function App() {
       document.title = 'Sorter';
       return;
     }
-    const slotName = manifest.slots.find((s) => s.id === manifest.activeId)?.name;
+    const titleSlotId = loadedSlotId ?? manifest.activeId;
+    const slotName = manifest.slots.find((s) => s.id === titleSlotId)?.name;
     const base = slotName ?? 'Untitled sort';
     if (state.done) {
       document.title = `${base} ✓ — Sorter`;
@@ -542,7 +549,7 @@ export function App() {
     const completed = Math.max(0, total - remaining);
     const pct = Math.min(100, Math.round((completed / total) * 100));
     document.title = `${base} (${pct}%) — Sorter`;
-  }, [state, manifest, autoInsertEnabled]);
+  }, [state, loadedSlotId, manifest.slots, manifest.activeId, autoInsertEnabled]);
 
   // -------- theme + settings toggles --------
   const toggleTheme = useCallback(() => {
@@ -671,12 +678,14 @@ export function App() {
     discardPendingAutosave();
     const session = deserialize(readSlotBlob(multitabStaleSlotId));
     if (session) {
+      setLoadedSlotId(multitabStaleSlotId);
       setState(session.state);
       setUndoRing(session.undoRing);
     } else {
       // Other tab deleted the slot between the event and the click.
       // Drop in-memory state and return to START so the user picks
       // their next move explicitly.
+      setLoadedSlotId(null);
       setState(null);
       setUndoRing([]);
       setActiveTab('start');
@@ -1130,6 +1139,7 @@ export function App() {
         updateSlotMeta(result.meta.id, { updatedAt: cloudBinding.cloudUpdatedAt });
       }
       setManifest(readManifest());
+      setLoadedSlotId(result.meta.id);
       setState(session.state);
       setUndoRing(session.undoRing);
       setActiveTab(
@@ -1237,7 +1247,7 @@ export function App() {
     (action: CompletedSortEditAction) => {
       if (!state || !state.done) return;
       const slotName =
-        manifest.slots.find((s) => s.id === manifest.activeId)?.name ??
+        manifest.slots.find((s) => s.id === (loadedSlotId ?? manifest.activeId))?.name ??
         'Untitled sort';
       if (readSettings().suppressCompletedSortEditConfirm) {
         executeCompletedSortEdit(action, 'new', slotName);
@@ -1245,7 +1255,7 @@ export function App() {
       }
       setCompletedEditPending({ action, slotName });
     },
-    [state, manifest.slots, manifest.activeId, executeCompletedSortEdit],
+    [state, manifest.slots, manifest.activeId, loadedSlotId, executeCompletedSortEdit],
   );
 
   // doAppendPreRanked is merge-only. A pre-ranked sublist appends to the
@@ -1661,6 +1671,7 @@ export function App() {
           if (refreshed.activeId === id) {
             const session = deserialize(result.blob);
             if (session) {
+              setLoadedSlotId(id);
               setState(session.state);
               setUndoRing(session.undoRing);
             }
@@ -1925,6 +1936,7 @@ export function App() {
   const parkActiveSession = useCallback(() => {
     if (!stateRef.current) return;
     flushAutosave();
+    setLoadedSlotId(null);
     setState(null);
     setUndoRing([]);
     setManifest(readManifest());
@@ -2000,14 +2012,17 @@ export function App() {
    * clicking Resume on the "active" slot expects to actually re-enter it.
    */
   const onSwitchSlot = useCallback((id: string) => {
-    setActiveSlot(id); // flushes any pending writes for the OUTGOING slot
+    // Use the returned manifest — readManifest() after flushAutosave can
+    // still see the outgoing activeId if a post-write listener ran first.
+    const m = setActiveSlot(id);
     const session = deserialize(readSlotBlob(id));
     if (!session) {
       // Bad data — refresh manifest and stay put.
       setManifest(readManifest());
       return;
     }
-    setManifest(readManifest());
+    setLoadedSlotId(id);
+    setManifest(m);
     setState(session.state);
     setUndoRing(session.undoRing);
     setActiveTab(session.state.done ? 'result' : 'rank');
@@ -2084,16 +2099,17 @@ export function App() {
   // and the suppressed-confirm path of requestDeleteSlot.
   const performDeleteSlot = useCallback(
     (id: string) => {
-      const wasActive = manifest.activeId === id;
+      const wasLoaded = loadedSlotId === id;
       const m = deleteSlot(id);
       setManifest(m);
-      if (wasActive) {
+      if (wasLoaded) {
+        setLoadedSlotId(null);
         setState(null);
         setUndoRing([]);
         setActiveTab('start');
       }
     },
-    [manifest.activeId],
+    [loadedSlotId],
   );
 
   /** Cloud library: drop local copy when listing shows a full sync. */
@@ -2287,6 +2303,7 @@ export function App() {
       // inside storage; here we just drop in-memory state so the UI
       // doesn't render a session whose blob may have just been wiped.
       if (mode === 'replace') {
+        setLoadedSlotId(null);
         setState(null);
         setUndoRing([]);
         setActiveTab('start');
@@ -2340,24 +2357,24 @@ export function App() {
     // Land on LIST so the user can preview / tweak the seeded queue
     // before committing to the first comparison.
     const slotName =
-      manifest.slots.find((s) => s.id === manifest.activeId)?.name ??
+      manifest.slots.find((s) => s.id === (loadedSlotId ?? manifest.activeId))?.name ??
       'Untitled sort';
     adoptNewSession(session, derivedSlotName(slotName, 'redo'), 'list');
-  }, [state, manifest.slots, manifest.activeId, adoptNewSession, engineOptions]);
+  }, [state, manifest.slots, manifest.activeId, loadedSlotId, adoptNewSession, engineOptions]);
 
   const requestStartOver = useCallback(() => {
     if (!state) return;
     const itemCount = engineGetRanking(state).length;
     if (itemCount === 0) return;
     const slotName =
-      manifest.slots.find((s) => s.id === manifest.activeId)?.name ??
+      manifest.slots.find((s) => s.id === (loadedSlotId ?? manifest.activeId))?.name ??
       'Untitled sort';
     if (readSettings().suppressStartOverConfirm) {
       performStartOver();
       return;
     }
     setStartOverPending({ itemCount, slotName });
-  }, [state, manifest.slots, manifest.activeId, performStartOver]);
+  }, [state, manifest.slots, manifest.activeId, loadedSlotId, performStartOver]);
 
   // -------- keyboard --------
   const rankInProgress = activeTab === 'rank' && state !== null && !state.done;
@@ -2388,12 +2405,12 @@ export function App() {
   const hasState = state !== null;
   const canUndo = undoRing.length > 0;
 
-  // The slot whose blob is currently loaded into memory. Null when state
-  // is null (post-refresh, or after deleting the active slot). Used by the
-  // gear-menu SlotList to render the "Active" tag *only* on the slot the
-  // user is genuinely sorting in right now — not on the orphaned active
-  // pointer from a previous session.
-  const loadedSlotId = hasState ? manifest.activeId : null;
+  // Slot whose blob is in memory — null when parked / after refresh.
+  const effectiveLoadedSlotId = hasState ? loadedSlotId : null;
+  const loadedSlotItemCount = state ? listHeaderItemCount(state) : null;
+  const loadedSlotName =
+    manifest.slots.find((s) => s.id === (loadedSlotId ?? manifest.activeId))?.name ??
+    'Untitled sort';
 
   // The single-slot Resume CTA on START. Only shown when there's no
   // in-memory session AND we have a previously-active slot to resume.
@@ -2439,11 +2456,8 @@ export function App() {
         <ListScreen
         state={state}
         dbSyncRevision={dbSyncRevision}
-        slotId={manifest.activeId ?? ''}
-        slotName={
-          manifest.slots.find((s) => s.id === manifest.activeId)?.name ??
-          'Untitled sort'
-        }
+        slotId={effectiveLoadedSlotId ?? ''}
+        slotName={loadedSlotName}
         onRenameSlot={onRenameSlot}
         onHide={doHide}
         onUnhide={doUnhide}
@@ -2487,9 +2501,7 @@ export function App() {
         <ResultScreen
         state={state}
         dbSyncRevision={dbSyncRevision}
-        slotName={
-          manifest.slots.find((s) => s.id === manifest.activeId)?.name
-        }
+        slotName={loadedSlotName}
         onUnhide={doUnhide}
         onRestoreHidden={doRestoreHidden}
         onDismissHidden={doDismissHidden}
@@ -2664,7 +2676,8 @@ export function App() {
         onBackupAll={onBackupAll}
         onRestoreFromBackup={onRestoreFromBackup}
         manifest={manifest}
-        loadedSlotId={loadedSlotId}
+        loadedSlotId={effectiveLoadedSlotId}
+        loadedSlotItemCount={loadedSlotItemCount}
         onSwitchSlot={onSwitchSlot}
         onDeleteSlot={onDeleteSlot}
         onRenameSlot={onRenameSlot}

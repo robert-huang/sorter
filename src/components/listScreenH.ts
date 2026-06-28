@@ -1,5 +1,11 @@
 import { getPair } from '../lib/engine';
 import type { InsertionState, ItemId, SortState } from '../lib/types';
+import {
+  listHeaderItemCount,
+  rankingSlotIds,
+} from '../lib/sortPopulation';
+
+export { listHeaderItemCount, rankingSlotIds };
 
 export function mergeSliceLabel(base: string, count: number): string {
   return `${base} (${count})`;
@@ -8,43 +14,6 @@ export function mergeSliceLabel(base: string, count: number): string {
 /** Human-readable label when a hidden id has no `items` metadata. */
 export function formatOrphanHiddenId(id: ItemId): string {
   return id.replace(/-/g, ' ');
-}
-
-/** Ids that occupy a visible ranking slot (sorted, pending, queue, etc.). */
-export function rankingSlotIds(state: SortState): Set<ItemId> {
-  const ranked = new Set<ItemId>();
-  if (state.engine === 'insertion') {
-    for (const id of state.sorted) ranked.add(id);
-    for (const id of state.pending) ranked.add(id);
-  } else {
-    for (const sub of state.queue) {
-      for (const id of sub) ranked.add(id);
-    }
-    for (const id of state.toBeInserted) ranked.add(id);
-  }
-  return ranked;
-}
-
-/**
- * LIST header total — ids participating in this sort right now, not every
- * stale `items` catalog entry left over after dismiss / forget.
- */
-export function listHeaderItemCount(state: SortState): number {
-  const ids = rankingSlotIds(state);
-  if (state.engine === 'insertion') {
-    if (state.current) ids.add(state.current.insertingId);
-  } else {
-    if (state.currentManualInsert) {
-      ids.add(state.currentManualInsert.insertingId);
-    }
-    const ai = state.currentAutoInsert;
-    if (ai) {
-      for (const id of ai.target) ids.add(id);
-      for (const id of ai.pendingInserts) ids.add(id);
-      if (ai.frame) ids.add(ai.frame.insertingId);
-    }
-  }
-  return ids.size;
 }
 
 /**

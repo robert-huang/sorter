@@ -170,7 +170,7 @@ describe('createSlot', () => {
     expect(evicted).toEqual([]);
   });
 
-  it('totalItems excludes hidden items', () => {
+  it('totalItems counts ranking slots, not stale catalog-only items', () => {
     const blob: AutosaveBlob = {
       items: {
         a: { id: 'a', label: 'Alpha' },
@@ -185,6 +185,29 @@ describe('createSlot', () => {
     };
     const meta = mintSlot(blob, 'With hidden');
     expect(meta.totalItems).toBe(1);
+  });
+
+  it('totalItems ignores orphan catalog entries after dismiss', () => {
+    const blob: AutosaveBlob = {
+      items: {
+        a: { id: 'a', label: 'Alpha' },
+        b: { id: 'b', label: 'Bravo' },
+        orphan: { id: 'orphan', label: 'Orphan' },
+      },
+      progress: {
+        engine: 'insertion',
+        sorted: ['a', 'b'],
+        pending: [],
+        current: null,
+        comparisons: 0,
+        done: true,
+        hidden: [],
+        totalComparisonsEverNeeded: 0,
+      },
+      undoRing: [],
+    };
+    const meta = mintSlot(blob, 'With orphan');
+    expect(meta.totalItems).toBe(2);
   });
 
   it('evicts the oldest-updatedAt slot when SLOT_CAP would be exceeded and reports it in `evicted`', () => {

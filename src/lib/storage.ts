@@ -7,6 +7,7 @@ import type {
   SlotsManifest,
   SortProgress,
 } from './types';
+import { activeSortItemCount } from './sortPopulation';
 
 // ---------- keys ----------
 
@@ -78,9 +79,9 @@ export interface AutosaveBlob {
   undoRing: SortProgress[];
 }
 
-/** Non-hidden items still in the sort — used for slot-meta `totalItems`. */
-function visibleItemCount(blob: Pick<AutosaveBlob, 'items' | 'progress'>): number {
-  return Math.max(0, Object.keys(blob.items).length - blob.progress.hidden.length);
+/** Active sort population — used for slot-meta `totalItems`. */
+function visibleItemCount(blob: Pick<AutosaveBlob, 'progress'>): number {
+  return activeSortItemCount(blob.progress);
 }
 
 function buildSaveFile(blob: AutosaveBlob): SaveFile {

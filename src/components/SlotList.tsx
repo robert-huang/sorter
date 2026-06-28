@@ -12,6 +12,8 @@ interface Props {
    * session".
    */
   loadedSlotId: string | null;
+  /** Live item count for the loaded slot (manifest meta can lag). */
+  loadedSlotItemCount?: number | null;
   onSwitch: (id: string) => void;
   onDelete: (id: string) => void;
   onRename: (id: string, name: string) => void;
@@ -114,6 +116,7 @@ const SEARCH_THRESHOLD = 5;
 export function SlotList({
   slots,
   loadedSlotId,
+  loadedSlotItemCount = null,
   onSwitch,
   onDelete,
   onRename,
@@ -275,6 +278,11 @@ export function SlotList({
               key={s.id}
               slot={s}
               isLoaded={loadedSlotId === s.id}
+              itemCount={
+                loadedSlotId === s.id && loadedSlotItemCount != null
+                  ? loadedSlotItemCount
+                  : s.totalItems
+              }
               onSwitch={onSwitch}
               onDelete={onDelete}
               onRename={onRename}
@@ -298,6 +306,7 @@ interface RowProps {
   slot: SlotMeta;
   /** True when this slot's blob is the one loaded into memory right now. */
   isLoaded: boolean;
+  itemCount: number;
   onSwitch: (id: string) => void;
   onDelete: (id: string) => void;
   onRename: (id: string, name: string) => void;
@@ -318,6 +327,7 @@ import { deriveCloudSyncState, type CloudSyncState } from '../lib/cloudSync';
 function SlotRow({
   slot,
   isLoaded,
+  itemCount,
   onSwitch,
   onDelete,
   onRename,
@@ -366,7 +376,7 @@ function SlotRow({
   const isPinned = !!slot.pinned;
   const syncState = deriveCloudSyncState(slot);
   const meta = [
-    pluralize(slot.totalItems, 'item'),
+    pluralize(itemCount, 'item'),
     pluralize(slot.comparisons, 'comparison'),
     slot.done ? 'done' : null,
     relativeTime(slot.updatedAt),

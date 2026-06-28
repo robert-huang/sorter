@@ -30,6 +30,8 @@ interface Props {
   manifest: SlotsManifest;
   /** Slot currently loaded into memory; null when on START. */
   loadedSlotId: string | null;
+  /** Live item count for the loaded slot (manifest meta can lag). */
+  loadedSlotItemCount?: number | null;
   onSwitchSlot: (id: string) => void;
   onDeleteSlot: (id: string) => void;
   onRenameSlot: (id: string, name: string) => void;
@@ -102,6 +104,7 @@ export function Header({
   onRestoreFromBackup,
   manifest,
   loadedSlotId,
+  loadedSlotItemCount = null,
   onSwitchSlot,
   onDeleteSlot,
   onRenameSlot,
@@ -347,6 +350,7 @@ export function Header({
             onRestoreFromBackup={onRestoreFromBackup}
             manifest={manifest}
             loadedSlotId={loadedSlotId}
+            loadedSlotItemCount={loadedSlotItemCount}
             onSwitchSlot={onSwitchSlot}
             onDeleteSlot={onDeleteSlot}
             onRenameSlot={onRenameSlot}
