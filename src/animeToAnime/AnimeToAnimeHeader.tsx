@@ -1,5 +1,5 @@
 import { AppNavFab } from '../components/AppNavFab';
-import { SORTER_HOME_HREF, TOOLS_HREF } from '../lib/appRoutes';
+import { NAV_TO_SORTER, NAV_TO_TOOLS, SORTER_HOME_HREF, TOOLS_HREF } from '../lib/appRoutes';
 import { AnimeToAnimeSettingsMenu } from './AnimeToAnimeSettingsMenu';
 import type { SourceDbSyncControls } from '../hooks/useSourceDbSync';
 import type { RoundConfig, StaffGenderFilter, VaListImageMode } from './preferences';
@@ -43,8 +43,8 @@ export function AnimeToAnimeHeader({
   return (
     <header className="anime-to-anime-header header-toolbar">
       <div className="header-toolbar-left">
-        <AppNavFab href={SORTER_HOME_HREF} label="← Sorter" title="Back to Sorter" />
-        <AppNavFab href={TOOLS_HREF} label="Tools →" title="Open Anime Tools" />
+        <AppNavFab href={SORTER_HOME_HREF} label={NAV_TO_SORTER} title="Back to Sorter" />
+        <AppNavFab href={TOOLS_HREF} label={NAV_TO_TOOLS} title="Open Anime Tools" />
       </div>
       {titleInteractive && onTitleClick ? (
         <button

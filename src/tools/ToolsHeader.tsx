@@ -1,5 +1,10 @@
 import { AppNavFab } from '../components/AppNavFab';
-import { ANIME_TO_ANIME_HREF, SORTER_HOME_HREF } from '../lib/appRoutes';
+import {
+  ANIME_TO_ANIME_HREF,
+  NAV_TO_A2A_BACK,
+  NAV_TO_SORTER_END,
+  SORTER_HOME_HREF,
+} from '../lib/appRoutes';
 import type { SourceDbSyncControls } from '../hooks/useSourceDbSync';
 import type { AnimeToAnimeTheme } from '../animeToAnime/theme';
 import { ToolsSettingsMenu } from './ToolsSettingsMenu';
@@ -29,12 +34,12 @@ export function ToolsHeader({
       <div className="header-toolbar-left">
         <AppNavFab
           href={SORTER_HOME_HREF}
-          label="← Sorter"
+          label={NAV_TO_SORTER_END}
           title="Back to Sorter"
         />
         <AppNavFab
           href={ANIME_TO_ANIME_HREF}
-          label="← A2A"
+          label={NAV_TO_A2A_BACK}
           title="Back to Anime to Anime"
         />
       </div>
