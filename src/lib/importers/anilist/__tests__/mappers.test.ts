@@ -46,6 +46,7 @@ function fullMedia(overrides: Partial<AnilistMediaGql> = {}): AnilistMediaGql {
     title: { english: 'EN', romaji: 'RO', native: 'NA' },
     coverImage: { large: 'https://example.test/cover.jpg' },
     format: 'TV',
+    source: 'LIGHT_NOVEL',
     status: 'FINISHED',
     episodes: 12,
     chapters: null,
@@ -102,6 +103,7 @@ describe('mapMediaRow', () => {
       title_native: 'NA',
       cover_image: 'https://example.test/cover.jpg',
       format: 'TV',
+      source: 'LIGHT_NOVEL',
       status: 'FINISHED',
       episodes: 12,
       chapters: null,
@@ -155,6 +157,7 @@ describe('mapMediaRow', () => {
     expect(row.end_month).toBeNull();
     expect(row.end_day).toBeNull();
     expect(row.country_of_origin).toBeNull();
+    expect(row.source).toBeNull();
     // genres_json coerces null → '[]' so JSON queries are uniform.
     expect(row.genres_json).toBe('[]');
     // synonyms_json keeps null as null — no synonym is a real signal vs empty array.
