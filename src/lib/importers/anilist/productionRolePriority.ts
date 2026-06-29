@@ -7,6 +7,7 @@ import { normalizeProductionRoleForMatch } from './staffRoleFilter';
  */
 export const PRODUCTION_ROLE_PRIORITY: readonly string[] = [
   'original creator',
+  'original story',
   'original character design',
   'director',
   'series director',
@@ -15,6 +16,7 @@ export const PRODUCTION_ROLE_PRIORITY: readonly string[] = [
   'character design',
   'animation director',
   'theme song performance',
+  'music performance',
   'insert song performance',
   'music',
   'sound director',
@@ -23,8 +25,10 @@ export const PRODUCTION_ROLE_PRIORITY: readonly string[] = [
   'art director',
   'color design',
   'theme song composition',
-  'theme song lyrics',
+  'music composition',
   'insert song composition',
+  'theme song lyrics',
+  'music lyrics',
   'insert song lyrics',
 ];
 

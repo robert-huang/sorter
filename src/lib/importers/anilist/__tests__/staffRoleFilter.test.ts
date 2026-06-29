@@ -86,6 +86,7 @@ describe('isKeyProductionRole', () => {
 
   it('matches writing and creator roles', () => {
     expect(isKeyProductionRole('Original Creator')).toBe(true);
+    expect(isKeyProductionRole('Original Story')).toBe(true);
     expect(isKeyProductionRole('Script')).toBe(true);
     expect(isKeyProductionRole('Series Composition')).toBe(true);
     expect(isKeyProductionRole('Script (ep 3)')).toBe(true);
@@ -93,6 +94,9 @@ describe('isKeyProductionRole', () => {
 
   it('matches music and theme song credits, including format suffixes', () => {
     expect(isKeyProductionRole('Music')).toBe(true);
+    expect(isKeyProductionRole('Music Performance')).toBe(true);
+    expect(isKeyProductionRole('Music Composition (OP)')).toBe(true);
+    expect(isKeyProductionRole('Music Lyrics')).toBe(true);
     expect(isKeyProductionRole('Theme Song Performance')).toBe(true);
     expect(isKeyProductionRole('Theme Song Composition (ED)')).toBe(true);
   });
