@@ -314,6 +314,17 @@ describe('addItem (mid-sort)', () => {
     expect(addItem(s0, A)).toBeNull();
   });
 
+  it('re-queues orphan catalog entry not in any ranking slot', () => {
+    const s0 = initSort([A, B]);
+    const orphan: Item = { id: 'orphan', label: 'Orphan' };
+    const withOrphan: MergeState = {
+      ...s0,
+      items: { ...s0.items, orphan },
+    };
+    const s1 = addItem(withOrphan, orphan)!;
+    expect(s1.queue.some((sub) => sub.includes('orphan'))).toBe(true);
+  });
+
   it('flips done back to false and a merge resumes', () => {
     let s = initSort([A]);
     expect(s.done).toBe(true);

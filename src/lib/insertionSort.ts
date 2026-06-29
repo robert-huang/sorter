@@ -7,6 +7,7 @@ import {
   startRankAwareInsert,
   worstCaseInsertCost,
 } from './binaryInsertion';
+import { isItemInActiveRanking } from './sortPopulation';
 import { shuffledCopy } from './shuffle';
 import type {
   InsertFrame,
@@ -831,9 +832,18 @@ export function addItem(
   state: InsertionState,
   item: Item,
 ): InsertionState | null {
-  if (state.items[item.id]) return null;
+  if (isItemInActiveRanking(state, item.id)) return null;
+  const existing = state.items[item.id];
+  const merged: Item = existing
+    ? {
+        ...existing,
+        ...item,
+        url: existing.url ?? item.url,
+        imageUrl: existing.imageUrl ?? item.imageUrl,
+      }
+    : item;
   const next = snapshotProgress(state);
-  next.pending = [...next.pending, item.id];
+  next.pending = [...next.pending, merged.id];
   // Added items are never asserted pre-ranked: append as a singleton run
   // (full-range insert) when run tracking is active; leave it off
   // otherwise so the flat path stays run-free.
@@ -845,7 +855,7 @@ export function addItem(
   // bumpTotalComparisons walks the projected plan; the newly-pushed id
   // contributes its own ⌈log2⌉ cost since pending now includes it.
   bumpTotalComparisons(next);
-  return { ...next, items: { ...state.items, [item.id]: item } };
+  return { ...next, items: { ...state.items, [merged.id]: merged } };
 }
 
 /**
@@ -864,7 +874,7 @@ export function addItems(
   const skipped: ItemId[] = [];
   const survivors: Item[] = [];
   for (const it of items) {
-    if (state.items[it.id]) skipped.push(it.id);
+    if (isItemInActiveRanking(state, it.id)) skipped.push(it.id);
     else survivors.push(it);
   }
   if (survivors.length === 0) return { state, skipped };
@@ -882,7 +892,17 @@ export function addItems(
   bumpTotalComparisons(next);
   drainPending(next);
   const itemsDict = { ...state.items };
-  for (const it of survivors) itemsDict[it.id] = it;
+  for (const it of survivors) {
+    const existing = itemsDict[it.id];
+    itemsDict[it.id] = existing
+      ? {
+          ...existing,
+          ...it,
+          url: existing.url ?? it.url,
+          imageUrl: existing.imageUrl ?? it.imageUrl,
+        }
+      : it;
+  }
   return {
     state: { ...next, items: itemsDict },
     skipped,

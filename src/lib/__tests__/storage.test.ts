@@ -14,6 +14,7 @@ import {
   discardPendingAutosave,
   exportAllSlots,
   flushAutosave,
+  saveNow,
   getLastAutosaveError,
   importAllSlots,
   isAtCapAndAllPinned,
@@ -455,6 +456,15 @@ describe('scheduleAutosave', () => {
     await new Promise((r) => setTimeout(r, 5));
     scheduleAutosave(makeBlob(4));
     flushAutosave();
+    const afterUpdatedAt = readManifest().slots.find((s) => s.id === slot.id)!.updatedAt;
+    expect(afterUpdatedAt > beforeUpdatedAt).toBe(true);
+  });
+
+  it('saveNow bumps updatedAt even when blob is unchanged', async () => {
+    const slot = mintSlot(makeBlob(3), 'A');
+    const beforeUpdatedAt = readManifest().slots.find((s) => s.id === slot.id)!.updatedAt;
+    await new Promise((r) => setTimeout(r, 5));
+    saveNow(makeBlob(3));
     const afterUpdatedAt = readManifest().slots.find((s) => s.id === slot.id)!.updatedAt;
     expect(afterUpdatedAt > beforeUpdatedAt).toBe(true);
   });

@@ -2,10 +2,11 @@ import { getPair } from '../lib/engine';
 import type { InsertionState, ItemId, SortState } from '../lib/types';
 import {
   listHeaderItemCount,
+  activeRankingIds,
   rankingSlotIds,
 } from '../lib/sortPopulation';
 
-export { listHeaderItemCount, rankingSlotIds };
+export { listHeaderItemCount, activeRankingIds, rankingSlotIds };
 
 export function mergeSliceLabel(base: string, count: number): string {
   return `${base} (${count})`;

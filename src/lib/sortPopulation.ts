@@ -16,15 +16,20 @@ export function rankingSlotIds(state: SortProgress): Set<ItemId> {
 }
 
 /**
- * Count of items participating in the sort right now — ranking slots plus
- * any in-flight insert ids. Ignores stale `items` catalog entries left
- * over after dismiss / forget.
+ * Ranking slots plus any in-flight insert ids. Ignores stale `items`
+ * catalog entries left over after dismiss / forget.
  */
-export function activeSortItemCount(state: SortProgress): number {
+export function activeRankingIds(state: SortProgress): Set<ItemId> {
   const ids = rankingSlotIds(state);
   if (state.engine === 'insertion') {
     if (state.current) ids.add(state.current.insertingId);
   } else {
+    if (state.current) {
+      for (const id of state.current.left) ids.add(id);
+      for (const id of state.current.right) ids.add(id);
+      for (const id of state.current.merged) ids.add(id);
+    }
+    for (const id of state.pendingManualInserts) ids.add(id);
     if (state.currentManualInsert) {
       ids.add(state.currentManualInsert.insertingId);
     }
@@ -35,7 +40,24 @@ export function activeSortItemCount(state: SortProgress): number {
       if (ai.frame) ids.add(ai.frame.insertingId);
     }
   }
-  return ids.size;
+  return ids;
+}
+
+/** True when `id` already participates in the sort (not merely in `items`). */
+export function isItemInActiveRanking(
+  state: SortProgress,
+  id: ItemId,
+): boolean {
+  return activeRankingIds(state).has(id);
+}
+
+/**
+ * Count of items participating in the sort right now — ranking slots plus
+ * any in-flight insert ids. Ignores stale `items` catalog entries left
+ * over after dismiss / forget.
+ */
+export function activeSortItemCount(state: SortProgress): number {
+  return activeRankingIds(state).size;
 }
 
 /** LIST header alias — same count, accepts full in-memory state. */

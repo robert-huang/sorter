@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { Item, SortState } from '../lib/types';
 import { comparisonsRemaining, getRanking } from '../lib/engine';
 import {
+  activeRankingIds,
   formatOrphanHiddenId,
   rankingSlotIds,
 } from './listScreenH';
@@ -95,11 +96,9 @@ export function ResultScreen({
   const [addOpen, setAddOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
 
-  // existingIds powers AddItemsModal's de-dup hints; it shows in the
-  // multiple-tab preview ("N already in your sort, will be skipped").
-  // AddItemsModal also handles the engine-aware tab UI itself — we pass
-  // state.engine and it hides the "pre-ranked" checkbox on insertion.
-  const existingIds = useMemo(() => new Set(Object.keys(state.items)), [state.items]);
+  // existingIds powers AddItemsModal de-dup hints. Only ids in ranking
+  // slots / in-flight inserts count — not stale catalog leftovers.
+  const existingIds = useMemo(() => activeRankingIds(state), [state]);
   const rankingSlots = useMemo(() => rankingSlotIds(state), [state]);
 
   if (!state.done) {

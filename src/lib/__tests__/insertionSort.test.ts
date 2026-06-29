@@ -257,6 +257,18 @@ describe('addItem (mid-plan)', () => {
     expect(addItem(s0, X)).toBeNull();
   });
 
+  it('re-queues orphan catalog entry not in any ranking slot', () => {
+    const orphan: Item = { id: 'orphan', label: 'Orphan' };
+    const base = seedAsSorted([A, B, C]);
+    const s0: InsertionState = {
+      ...base,
+      items: { ...base.items, orphan },
+    };
+    const s1 = addItem(s0, orphan)!;
+    expect(s1.done).toBe(false);
+    expect(s1.current?.insertingId ?? s1.pending).toContain('orphan');
+  });
+
   it('mid-insert: addItem does NOT interrupt the current frame', () => {
     const s0 = build({ sorted: [A, B, C, D, E], pending: [X] });
     expect(s0.current?.insertingId).toBe('x');

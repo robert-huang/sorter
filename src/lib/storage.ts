@@ -1110,7 +1110,7 @@ function commitWriteSuccess(blob: AutosaveBlob, recovery?: AutosaveRecovery): vo
  * set, so the next `flushAutosave` from the caller re-issued the same
  * blob to localStorage).
  */
-function performWrite(blob: AutosaveBlob): void {
+function performWrite(blob: AutosaveBlob, options?: { touchLastUsed?: boolean }): void {
   if (!isAutosaveAvailable()) return;
   if (currentActiveId === null) return;
   pendingBlob = null;
@@ -1146,6 +1146,11 @@ function performWrite(blob: AutosaveBlob): void {
   if (existing && JSON.stringify(existing) === JSON.stringify(blob)) {
     lastFlushTime = Date.now();
     comparisonsAtLastFlush = blob.progress.comparisons;
+    // Toolbar Save: user explicitly touched this slot — bump recency even
+    // when the blob is unchanged. Autosave skips the meta bump here.
+    if (options?.touchLastUsed) {
+      commitWriteSuccess(blob);
+    }
     return;
   }
 
@@ -1258,6 +1263,23 @@ export function flushAutosave(): void {
     debounceTimer = null;
   }
   if (pendingBlob) performWrite(pendingBlob);
+}
+
+/**
+ * Toolbar Save: persist the active slot immediately and always bump its
+ * `updatedAt` so it sorts to the top of the slot list — even when the
+ * blob matches what's already on disk. Autosave deliberately skips that
+ * meta bump on no-op writes.
+ */
+export function saveNow(blob: AutosaveBlob): void {
+  if (!isAutosaveAvailable()) return;
+  if (currentActiveId === null) return;
+  if (debounceTimer !== null) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+  }
+  pendingBlob = null;
+  performWrite(blob, { touchLastUsed: true });
 }
 
 /**

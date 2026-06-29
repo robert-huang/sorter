@@ -8,6 +8,7 @@ import {
   startRankAwareInsert,
 } from './binaryInsertion';
 import { shuffledCopy } from './shuffle';
+import { isItemInActiveRanking } from './sortPopulation';
 import type {
   AutoInsertFrame,
   Item,
@@ -1363,11 +1364,20 @@ export function addItem(
   item: Item,
   options?: MergeOptions,
 ): MergeState | null {
-  if (state.items[item.id]) return null;
+  if (isItemInActiveRanking(state, item.id)) return null;
+  const existing = state.items[item.id];
+  const merged: Item = existing
+    ? {
+        ...existing,
+        ...item,
+        url: existing.url ?? item.url,
+        imageUrl: existing.imageUrl ?? item.imageUrl,
+      }
+    : item;
   const opts = resolveOptions(options);
 
   const next = snapshotProgress(state);
-  next.queue.push([item.id]);
+  next.queue.push([merged.id]);
   if (next.done) {
     next.done = false;
   }
@@ -1376,7 +1386,7 @@ export function addItem(
 
   return {
     ...next,
-    items: { ...state.items, [item.id]: item },
+    items: { ...state.items, [merged.id]: merged },
   };
 }
 
@@ -1407,7 +1417,7 @@ export function addItems(
 
   for (const it of items) {
     const existing = itemsDict[it.id];
-    if (existing) {
+    if (existing && isItemInActiveRanking(state, it.id)) {
       skipped.push(it.id);
       itemsDict[it.id] = {
         ...existing,
@@ -1416,7 +1426,16 @@ export function addItems(
       };
       continue;
     }
-    itemsDict[it.id] = it;
+    if (existing) {
+      itemsDict[it.id] = {
+        ...existing,
+        ...it,
+        url: existing.url ?? it.url,
+        imageUrl: existing.imageUrl ?? it.imageUrl,
+      };
+    } else {
+      itemsDict[it.id] = it;
+    }
     newSingletonIds.push(it.id);
   }
 
@@ -1456,7 +1475,7 @@ export function appendPreRankedSublist(
 
   for (const it of items) {
     const existing = itemsDict[it.id];
-    if (existing) {
+    if (existing && isItemInActiveRanking(state, it.id)) {
       skipped.push(it.id);
       const merged: Item = {
         ...existing,
@@ -1465,7 +1484,16 @@ export function appendPreRankedSublist(
       };
       itemsDict[it.id] = merged;
     } else {
-      itemsDict[it.id] = it;
+      if (existing) {
+        itemsDict[it.id] = {
+          ...existing,
+          ...it,
+          url: existing.url ?? it.url,
+          imageUrl: existing.imageUrl ?? it.imageUrl,
+        };
+      } else {
+        itemsDict[it.id] = it;
+      }
       newSublistIds.push(it.id);
     }
   }

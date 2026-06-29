@@ -85,6 +85,7 @@ import {
   deriveAdoptedCloudSlotTimestamps,
   clearCloudBinding,
   getLastAutosaveError,
+  saveNow,
   scheduleAutosave,
   subscribeAfterWrite,
   subscribeAutosaveError,
@@ -2193,16 +2194,12 @@ export function App() {
     downloadSave(buildBlob(state, undoRing));
   }, [state, undoRing]);
 
-  // Force-flush the autosave debounce so the active slot's localStorage
-  // blob matches in-memory state right now. Used by the toolbar Save
-  // button to give the user explicit "I saved" feedback.
+  // Force-flush the active slot and bump its recency (`updatedAt`) so it
+  // rises to the top of the slot list — even when nothing changed since
+  // the last autosave.
   const onSaveNow = useCallback(() => {
     if (!state) return;
-    // Make sure the most up-to-date blob is the pending one before we
-    // flush; the effect-based scheduleAutosave may not have fired yet for
-    // the very latest state.
-    scheduleAutosave(buildBlob(state, undoRing));
-    flushAutosave();
+    saveNow(buildBlob(state, undoRing));
     setManifest(readManifest());
   }, [state, undoRing]);
 
