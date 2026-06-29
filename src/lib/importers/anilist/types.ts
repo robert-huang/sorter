@@ -60,7 +60,24 @@ export type AnilistMediaSource =
   | 'MULTIMEDIA_PROJECT'
   | 'PICTURE_BOOK';
 
-/** AniList MediaListStatus — the user's own status on a list entry. */
+/** Full universe of AniList MediaSource values (chip / filter order). */
+export const ALL_ANILIST_MEDIA_SOURCES: readonly AnilistMediaSource[] = [
+  'ORIGINAL',
+  'MANGA',
+  'LIGHT_NOVEL',
+  'NOVEL',
+  'WEB_NOVEL',
+  'VISUAL_NOVEL',
+  'VIDEO_GAME',
+  'GAME',
+  'LIVE_ACTION',
+  'ANIME',
+  'COMIC',
+  'DOUJINSHI',
+  'MULTIMEDIA_PROJECT',
+  'PICTURE_BOOK',
+  'OTHER',
+];
 export type AnilistMediaListStatus =
   | 'CURRENT'
   | 'PLANNING'

@@ -1,5 +1,6 @@
 import { parseLinesOnePerLine } from '../parseToolLines';
 import type { AnilistMediaSource } from '../../lib/importers/anilist/types';
+import { ALL_ANILIST_MEDIA_SOURCES } from '../../lib/importers/anilist/types';
 
 export type SeasonalFuzzyDate = {
   year: number | null;
@@ -39,8 +40,13 @@ export type SeasonSpec = {
  */
 export type SeasonMode = 'alltime' | 'all' | 'allseasons' | 'custom';
 
-/** Checkbox keys for the adaptation-source filter bar. */
-export const SEASONAL_SOURCE_FILTER_KEYS = [
+/** One chip option per AniList MediaSource value. */
+export const SEASONAL_SOURCE_FILTER_KEYS = ALL_ANILIST_MEDIA_SOURCES;
+
+export type SeasonalSourceFilterKey = AnilistMediaSource;
+
+/** @deprecated Pre–full-enum source chip set; used to migrate “all selected” saves. */
+const LEGACY_SEASONAL_SOURCE_FILTER_KEYS = [
   'ORIGINAL',
   'MANGA',
   'LIGHT_NOVEL',
@@ -48,30 +54,41 @@ export const SEASONAL_SOURCE_FILTER_KEYS = [
   'NOVEL',
   'VIDEO_GAME',
   'OTHER',
-] as const;
+] as const satisfies readonly AnilistMediaSource[];
 
-export type SeasonalSourceFilterKey = (typeof SEASONAL_SOURCE_FILTER_KEYS)[number];
+/** Selected adaptation-source buckets (same chip model as list-status filters). */
+export type SeasonalSourceFilters = SeasonalSourceFilterKey[];
 
-export type SeasonalSourceFilters = Record<SeasonalSourceFilterKey, boolean>;
+export const DEFAULT_SEASONAL_SOURCE_FILTERS: SeasonalSourceFilters = [
+  ...SEASONAL_SOURCE_FILTER_KEYS,
+];
 
-export const DEFAULT_SEASONAL_SOURCE_FILTERS: SeasonalSourceFilters = {
-  ORIGINAL: true,
-  MANGA: true,
-  LIGHT_NOVEL: true,
-  VISUAL_NOVEL: true,
-  NOVEL: true,
-  VIDEO_GAME: true,
-  OTHER: true,
-};
+/** Coerce persisted/localStorage values into a valid source selection. */
+export function normalizeSeasonalSourceFilters(raw: unknown): SeasonalSourceFilters {
+  if (Array.isArray(raw)) {
+    let selected = SEASONAL_SOURCE_FILTER_KEYS.filter((key) => raw.includes(key));
+    const hadFullLegacySet = LEGACY_SEASONAL_SOURCE_FILTER_KEYS.every((key) =>
+      raw.includes(key),
+    );
+    if (hadFullLegacySet) {
+      for (const key of SEASONAL_SOURCE_FILTER_KEYS) {
+        if (!selected.includes(key)) {
+          selected = [...selected, key];
+        }
+      }
+    }
+    return selected.length > 0 ? selected : [...DEFAULT_SEASONAL_SOURCE_FILTERS];
+  }
+  if (raw && typeof raw === 'object') {
+    // Legacy boolean-map shape from the first checkbox bar.
+    const parsed = raw as Partial<Record<SeasonalSourceFilterKey, boolean>>;
+    const selected = SEASONAL_SOURCE_FILTER_KEYS.filter((key) => parsed[key] !== false);
+    return selected.length > 0 ? [...selected] : [...DEFAULT_SEASONAL_SOURCE_FILTERS];
+  }
+  return [...DEFAULT_SEASONAL_SOURCE_FILTERS];
+}
 
-const EXPLICIT_SEASONAL_SOURCE_KEYS = new Set<string>([
-  'ORIGINAL',
-  'MANGA',
-  'LIGHT_NOVEL',
-  'VISUAL_NOVEL',
-  'NOVEL',
-  'VIDEO_GAME',
-]);
+const KNOWN_SEASONAL_SOURCE_KEYS = new Set<string>(SEASONAL_SOURCE_FILTER_KEYS);
 
 export function seasonalSourceFilterLabel(key: SeasonalSourceFilterKey): string {
   switch (key) {
@@ -89,23 +106,46 @@ export function seasonalSourceFilterLabel(key: SeasonalSourceFilterKey): string 
       return 'Video game';
     case 'OTHER':
       return 'Other';
+    case 'DOUJINSHI':
+      return 'Doujinshi';
+    case 'ANIME':
+      return 'Anime';
+    case 'WEB_NOVEL':
+      return 'Web novel';
+    case 'LIVE_ACTION':
+      return 'Live action';
+    case 'GAME':
+      return 'Game';
+    case 'COMIC':
+      return 'Comic';
+    case 'MULTIMEDIA_PROJECT':
+      return 'Multimedia project';
+    case 'PICTURE_BOOK':
+      return 'Picture book';
   }
 }
 
 export function seasonalSourceFilterBucket(
   source: AnilistMediaSource | null | undefined,
 ): SeasonalSourceFilterKey {
-  if (source && EXPLICIT_SEASONAL_SOURCE_KEYS.has(source)) {
-    return source as SeasonalSourceFilterKey;
+  if (source && KNOWN_SEASONAL_SOURCE_KEYS.has(source)) {
+    return source;
   }
   return 'OTHER';
 }
 
 export function applySeasonalSourceFilters(
   shows: SeasonalShow[],
-  filters: SeasonalSourceFilters,
+  selected: SeasonalSourceFilters,
 ): SeasonalShow[] {
-  return shows.filter((show) => filters[seasonalSourceFilterBucket(show.source)]);
+  if (selected.length === 0) {
+    return [];
+  }
+  if (selected.length >= SEASONAL_SOURCE_FILTER_KEYS.length) {
+    return shows;
+  }
+  const allowed = new Set(selected);
+  return shows.filter((show) => allowed.has(seasonalSourceFilterBucket(show.source)));
 }
 
 export type SeasonalScoresForm = {

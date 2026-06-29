@@ -13,10 +13,12 @@ import {
   effectiveSeasonalForm,
   formatSeasonColumnLabel,
   formatSeasonalScoreLabel,
+  normalizeSeasonalSourceFilters,
   scoreDisplayToneClass,
   SEASONAL_SOURCE_FILTER_KEYS,
   seasonColumnIndicesWithTopAverage,
   seasonalSourceFilterLabel,
+  type SeasonalSourceFilterKey,
   type SeasonMode,
   type SeasonalScoresForm,
   type SeasonalScoresResult,
@@ -32,6 +34,7 @@ import {
   bindAnilistMiddleClick,
   mergeAnilistLinkClass,
 } from '../../lib/importers/anilist/anilistLinks';
+import { MultiSelectChip, toggleInArray } from '../../lib/importers/anilist/filters';
 
 const LS_KEY = 'anime-tools-seasonal-scores-form';
 const LS_SOURCE_FILTERS_KEY = 'anime-tools-seasonal-scores-source-filters';
@@ -67,26 +70,15 @@ function normalizeSeasonMode(value: unknown): SeasonMode {
   return 'allseasons';
 }
 
-function normalizeSourceFilters(raw: unknown): SeasonalSourceFilters {
-  const parsed = raw && typeof raw === 'object' ? (raw as Partial<SeasonalSourceFilters>) : {};
-  const next = { ...DEFAULT_SEASONAL_SOURCE_FILTERS };
-  for (const key of SEASONAL_SOURCE_FILTER_KEYS) {
-    if (typeof parsed[key] === 'boolean') {
-      next[key] = parsed[key]!;
-    }
-  }
-  return next;
-}
-
 function loadSourceFilters(): SeasonalSourceFilters {
   try {
     const raw = localStorage.getItem(LS_SOURCE_FILTERS_KEY);
     if (!raw) {
-      return { ...DEFAULT_SEASONAL_SOURCE_FILTERS };
+      return [...DEFAULT_SEASONAL_SOURCE_FILTERS];
     }
-    return normalizeSourceFilters(JSON.parse(raw));
+    return normalizeSeasonalSourceFilters(JSON.parse(raw));
   } catch {
-    return { ...DEFAULT_SEASONAL_SOURCE_FILTERS };
+    return [...DEFAULT_SEASONAL_SOURCE_FILTERS];
   }
 }
 
@@ -294,10 +286,6 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
     saveSourceFilters(sourceFilters);
   }, [sourceFilters]);
 
-  const patchSourceFilters = useCallback((patch: Partial<SeasonalSourceFilters>) => {
-    setSourceFilters((prev) => ({ ...prev, ...patch }));
-  }, []);
-
   const buildColumns = useCallback(
     (shows: SeasonalShow[]) =>
       buildSeasonalColumns(relabelSeasonalShows(shows), effectiveSeasonalForm(form), {
@@ -447,32 +435,7 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
           )}
         </div>
 
-        <div className="tool-franchise-filterbar tool-seasonal-source-filterbar">
-          <div className="tool-franchise-filterbar-controls">
-            {SEASONAL_SOURCE_FILTER_KEYS.map((key) => (
-              <label
-                key={key}
-                className="tool-checkbox"
-                title={`Include ${seasonalSourceFilterLabel(key)} adaptations.`}
-              >
-                <input
-                  type="checkbox"
-                  checked={sourceFilters[key]}
-                  disabled={running}
-                  onChange={(e) => patchSourceFilters({ [key]: e.target.checked })}
-                />
-                {seasonalSourceFilterLabel(key)}
-              </label>
-            ))}
-          </div>
-          {cachedShows != null && visibleSourceCount != null ? (
-            <span className="tool-franchise-filterbar-count">
-              Showing {visibleSourceCount} of {cachedShows.length}
-            </span>
-          ) : null}
-        </div>
-
-        <div className="tool-field-row">
+        <div className="tool-field-row tool-field-row-wrap">
           <label className="tool-checkbox">
             <input
               type="checkbox"
@@ -510,6 +473,21 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
             />
             Span Airing Seasons
           </label>
+          <MultiSelectChip<SeasonalSourceFilterKey>
+            label="source"
+            options={SEASONAL_SOURCE_FILTER_KEYS}
+            selected={sourceFilters}
+            formatOption={seasonalSourceFilterLabel}
+            onToggle={(value) =>
+              setSourceFilters((prev) => toggleInArray(prev, value))
+            }
+            onReplaceAll={(values) => setSourceFilters([...values])}
+          />
+          {cachedShows != null && visibleSourceCount != null ? (
+            <span className="tool-franchise-filterbar-count">
+              Showing {visibleSourceCount} of {cachedShows.length}
+            </span>
+          ) : null}
         </div>
 
         <div className="tool-actions">

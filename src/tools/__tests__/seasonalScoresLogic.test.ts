@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { AnilistMediaSource } from '../../lib/importers/anilist/types';
 import {
   applySeasonalSourceFilters,
   averageScore,
@@ -310,13 +311,15 @@ describe('seasonalScoresLogic', () => {
         source: 'LIGHT_NOVEL',
       },
     ];
-    const filtered = applySeasonalSourceFilters(shows, {
-      ...DEFAULT_SEASONAL_SOURCE_FILTERS,
-      LIGHT_NOVEL: false,
-    });
+    const filtered = applySeasonalSourceFilters(
+      shows,
+      DEFAULT_SEASONAL_SOURCE_FILTERS.filter((key) => key !== 'LIGHT_NOVEL'),
+    );
     expect(filtered.map((s) => s.title)).toEqual(['Original']);
     expect(seasonalSourceFilterBucket(null)).toBe('OTHER');
-    expect(seasonalSourceFilterBucket('DOUJINSHI')).toBe('OTHER');
+    expect(seasonalSourceFilterBucket('DOUJINSHI')).toBe('DOUJINSHI');
+    expect(seasonalSourceFilterBucket('WEB_NOVEL')).toBe('WEB_NOVEL');
+    expect(seasonalSourceFilterBucket('not-a-source' as AnilistMediaSource)).toBe('OTHER');
   });
 
   it('expands `all` into one column per year covering the data span', () => {
