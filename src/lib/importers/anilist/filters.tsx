@@ -855,6 +855,7 @@ export function MultiSelectChip<T extends string | number>({
   onToggle,
   formatOption,
   onReplaceAll,
+  menuStatus,
   searchable = false,
   searchPlaceholder,
 }: {
@@ -863,6 +864,8 @@ export function MultiSelectChip<T extends string | number>({
   selected: readonly T[];
   onToggle: (value: T) => void;
   formatOption?: (value: T) => string;
+  /** Optional muted one-line status at the top of the open menu. */
+  menuStatus?: string;
   /** Optional bulk-set callback. When provided, the popover renders
    *  "Select all" + "Clear" buttons in a toolbar at the top. Selecting
    *  all replaces the current selection with the full options array;
@@ -906,7 +909,12 @@ export function MultiSelectChip<T extends string | number>({
       : restOptions;
   }
 
-  const allSelected = options.length > 0 && selected.length === options.length;
+  const allSelected =
+    options.length > 0 &&
+    options.every((opt) => selected.includes(opt));
+
+  const chipCountLabel =
+    count === 0 ? '' : allSelected ? ' · all' : ` · ${count}`;
 
   return (
     <div
@@ -920,7 +928,7 @@ export function MultiSelectChip<T extends string | number>({
         onClick={() => setOpen((x) => !x)}
       >
         {label}
-        {count > 0 ? ` · ${count}` : ''}
+        {chipCountLabel}
       </button>
       {open && (
         <div className="filter-chip-menu" role="menu">
@@ -956,6 +964,9 @@ export function MultiSelectChip<T extends string | number>({
               </button>
             </div>
           )}
+          {menuStatus ? (
+            <div className="filter-chip-menu-status">{menuStatus}</div>
+          ) : null}
           {options.length === 0 && (
             <div className="filter-chip-empty">(no options)</div>
           )}

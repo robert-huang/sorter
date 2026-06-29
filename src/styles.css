@@ -1088,6 +1088,13 @@ html {
   font-size: 0.85rem;
 }
 
+.filter-chip-menu-status {
+  padding: 6px 6px 6px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-align: right;
+}
+
 .filter-chip-divider {
   height: 1px;
   margin: 4px 0;

@@ -4,6 +4,7 @@ import {
   applySeasonalSourceFilters,
   averageScore,
   buildSeasonalColumns,
+  countSeasonalShowsBySourceBucket,
   DEFAULT_SEASONAL_SOURCE_FILTERS,
   effectiveSeasonalForm,
   formatSeasonColumnLabel,
@@ -320,6 +321,91 @@ describe('seasonalScoresLogic', () => {
     expect(seasonalSourceFilterBucket('DOUJINSHI')).toBe('DOUJINSHI');
     expect(seasonalSourceFilterBucket('WEB_NOVEL')).toBe('WEB_NOVEL');
     expect(seasonalSourceFilterBucket('not-a-source' as AnilistMediaSource)).toBe('OTHER');
+  });
+
+  it('countSeasonalShowsBySourceBucket tallies each adaptation source', () => {
+    const shows: SeasonalShow[] = [
+      {
+        id: 1,
+        title: 'A',
+        season: 'WINTER',
+        seasonYear: 2024,
+        score: 90,
+        notes: null,
+        source: 'ORIGINAL',
+      },
+      {
+        id: 2,
+        title: 'B',
+        season: 'WINTER',
+        seasonYear: 2024,
+        score: 80,
+        notes: null,
+        source: 'ORIGINAL',
+      },
+      {
+        id: 3,
+        title: 'C',
+        season: 'WINTER',
+        seasonYear: 2024,
+        score: 70,
+        notes: null,
+        source: 'LIGHT_NOVEL',
+      },
+      {
+        id: 4,
+        title: 'D',
+        season: 'WINTER',
+        seasonYear: 2024,
+        score: 60,
+        notes: null,
+        source: null,
+      },
+    ];
+    const counts = countSeasonalShowsBySourceBucket(shows);
+    expect(counts.ORIGINAL).toBe(2);
+    expect(counts.LIGHT_NOVEL).toBe(1);
+    expect(counts.OTHER).toBe(1);
+    expect(counts.MANGA).toBe(0);
+  });
+
+  it('buildSeasonalColumns applies sourceFilters over cached shows', () => {
+    const shows: SeasonalShow[] = [
+      {
+        id: 1,
+        title: 'Manga show',
+        season: 'WINTER',
+        seasonYear: 2024,
+        score: 90,
+        notes: null,
+        source: 'MANGA',
+      },
+      {
+        id: 2,
+        title: 'Original show',
+        season: 'WINTER',
+        seasonYear: 2024,
+        score: 80,
+        notes: null,
+        source: 'ORIGINAL',
+      },
+    ];
+    const form: SeasonalScoresForm = {
+      username: 'tester',
+      seasonText: 'alltime',
+      seasonMode: 'alltime',
+      skipEmpty: false,
+      airingNotesOnly: false,
+      includePlanning: false,
+      spanAiringSeasons: false,
+    };
+    const filtered = buildSeasonalColumns(shows, effectiveSeasonalForm(form), {
+      sourceFilters: ['ORIGINAL'],
+    });
+    expect(filtered.kind).toBe('columns');
+    if (filtered.kind === 'columns') {
+      expect(filtered.columns[0]?.shows.map((show) => show.title)).toEqual(['Original show']);
+    }
   });
 
   it('expands `all` into one column per year covering the data span', () => {

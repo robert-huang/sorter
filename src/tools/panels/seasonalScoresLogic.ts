@@ -97,13 +97,13 @@ export function seasonalSourceFilterLabel(key: SeasonalSourceFilterKey): string 
     case 'MANGA':
       return 'Manga';
     case 'LIGHT_NOVEL':
-      return 'Light novel';
+      return 'Light Novel';
     case 'VISUAL_NOVEL':
-      return 'Visual novel';
+      return 'Visual Novel';
     case 'NOVEL':
       return 'Novel';
     case 'VIDEO_GAME':
-      return 'Video game';
+      return 'Video Game';
     case 'OTHER':
       return 'Other';
     case 'DOUJINSHI':
@@ -111,17 +111,17 @@ export function seasonalSourceFilterLabel(key: SeasonalSourceFilterKey): string 
     case 'ANIME':
       return 'Anime';
     case 'WEB_NOVEL':
-      return 'Web novel';
+      return 'Web Novel';
     case 'LIVE_ACTION':
-      return 'Live action';
+      return 'Live Action';
     case 'GAME':
       return 'Game';
     case 'COMIC':
       return 'Comic';
     case 'MULTIMEDIA_PROJECT':
-      return 'Multimedia project';
+      return 'Multimedia';
     case 'PICTURE_BOOK':
-      return 'Picture book';
+      return 'Picture Book';
   }
 }
 
@@ -134,6 +134,14 @@ export function seasonalSourceFilterBucket(
   return 'OTHER';
 }
 
+export function isAllSeasonalSourcesSelected(selected: SeasonalSourceFilters): boolean {
+  if (selected.length < SEASONAL_SOURCE_FILTER_KEYS.length) {
+    return false;
+  }
+  const allowed = new Set(selected);
+  return SEASONAL_SOURCE_FILTER_KEYS.every((key) => allowed.has(key));
+}
+
 export function applySeasonalSourceFilters(
   shows: SeasonalShow[],
   selected: SeasonalSourceFilters,
@@ -141,11 +149,24 @@ export function applySeasonalSourceFilters(
   if (selected.length === 0) {
     return [];
   }
-  if (selected.length >= SEASONAL_SOURCE_FILTER_KEYS.length) {
+  if (isAllSeasonalSourcesSelected(selected)) {
     return shows;
   }
   const allowed = new Set(selected);
   return shows.filter((show) => allowed.has(seasonalSourceFilterBucket(show.source)));
+}
+
+/** Per-bucket show counts for source-filter chip labels (e.g. Original (12)). */
+export function countSeasonalShowsBySourceBucket(
+  shows: readonly SeasonalShow[],
+): Record<SeasonalSourceFilterKey, number> {
+  const counts = Object.fromEntries(
+    SEASONAL_SOURCE_FILTER_KEYS.map((key) => [key, 0]),
+  ) as Record<SeasonalSourceFilterKey, number>;
+  for (const show of shows) {
+    counts[seasonalSourceFilterBucket(show.source)] += 1;
+  }
+  return counts;
 }
 
 export type SeasonalScoresForm = {
@@ -317,7 +338,7 @@ export function parseSeasonSpecs(
   for (const line of lines) {
     const lower = line.toLowerCase();
     if (lower === 'alltime') {
-      specs.push({ label: 'All time', season: null, year: 0, matchAll: true });
+      specs.push({ label: 'All Time', season: null, year: 0, matchAll: true });
       continue;
     }
     if (lower === 'all') {

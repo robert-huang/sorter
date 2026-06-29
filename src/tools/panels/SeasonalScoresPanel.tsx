@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
 import { ToolUsernameField } from '../ToolUsernameField';
@@ -8,6 +8,7 @@ import { relabelSeasonalShows } from '../toolsDisplayRelabel';
 import { fetchUserSeasonalShows } from './seasonalScoresApi';
 import {
   buildSeasonalColumns,
+  countSeasonalShowsBySourceBucket,
   DEFAULT_SEASONAL_SOURCE_FILTERS,
   applySeasonalSourceFilters,
   effectiveSeasonalForm,
@@ -265,11 +266,10 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
   const [sourceFilters, setSourceFilters] = useState<SeasonalSourceFilters>(() =>
     loadSourceFilters(),
   );
+  const [cachedShows, setCachedShows] = useState<SeasonalShow[] | null>(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<SeasonalScoresResult | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const showsRef = useRef<SeasonalShow[] | null>(null);
   /** Bumped only on a successful list fetch so the chart remounts and snaps right once. */
   const chartSessionRef = useRef(0);
   // Username at fetch time so a different user typed in can clear the
@@ -294,6 +294,17 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
     [displayLabelRevision, form, sourceFilters],
   );
 
+  const result = useMemo((): SeasonalScoresResult | null => {
+    if (!cachedShows) {
+      return null;
+    }
+    const handle = form.username.trim().toLowerCase();
+    if (fetchedUsernameRef.current !== null && handle !== fetchedUsernameRef.current) {
+      return null;
+    }
+    return buildColumns(cachedShows);
+  }, [cachedShows, buildColumns, form.username]);
+
   const patchForm = useCallback((patch: Partial<SeasonalScoresForm>) => {
     setError(null);
     setForm((prev) => ({ ...prev, ...patch }));
@@ -309,7 +320,7 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
     const username = form.username.trim();
     if (!username) {
       setError('Enter an AniList username.');
-      setResult(null);
+      setCachedShows(null);
       return;
     }
 
@@ -321,8 +332,7 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
 
     setRunning(true);
     setError(null);
-    setResult(null);
-    showsRef.current = null;
+    setCachedShows(null);
 
     try {
       const shows = await fetchUserSeasonalShows(
@@ -330,10 +340,9 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
         controller.signal,
         forceRefresh ? { forceRefresh: true } : undefined,
       );
-      showsRef.current = shows;
+      setCachedShows(shows);
       fetchedUsernameRef.current = handle;
       chartSessionRef.current += 1;
-      setResult(buildColumns(shows));
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') {
         return;
@@ -345,32 +354,42 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
         setRunning(false);
       }
     }
-  }, [form, buildColumns]);
+  }, [form.username]);
 
   useEffect(() => {
-    if (!showsRef.current) {
-      return;
-    }
     const handle = form.username.trim().toLowerCase();
-    // Different user typed in: drop the prior user's cached shows.
-    if (fetchedUsernameRef.current !== null && handle !== fetchedUsernameRef.current) {
-      showsRef.current = null;
+    if (
+      cachedShows != null &&
+      fetchedUsernameRef.current !== null &&
+      handle !== fetchedUsernameRef.current
+    ) {
+      setCachedShows(null);
       fetchedUsernameRef.current = null;
-      setResult(null);
-      return;
     }
-    // includePlanning / skipEmpty / airingNotesOnly are pure client-side
-    // filters over the cached shows — toggling them just rebuilds the
-    // columns without re-fetching. PLANNING entries are always present
-    // in showsRef (see fetchUserSeasonalShows).
-    setResult(buildColumns(showsRef.current));
-  }, [buildColumns, form.username]);
+  }, [form.username, cachedShows]);
 
-  const cachedShows = showsRef.current;
   const visibleSourceCount =
     cachedShows == null
       ? null
       : applySeasonalSourceFilters(relabelSeasonalShows(cachedShows), sourceFilters).length;
+
+  const sourceFilterCounts = useMemo(() => {
+    if (!cachedShows) {
+      return null;
+    }
+    return countSeasonalShowsBySourceBucket(relabelSeasonalShows(cachedShows));
+  }, [cachedShows, displayLabelRevision]);
+
+  const formatSourceFilterOption = useCallback(
+    (key: SeasonalSourceFilterKey) => {
+      const label = seasonalSourceFilterLabel(key);
+      if (!sourceFilterCounts) {
+        return label;
+      }
+      return `${label} (${sourceFilterCounts[key]})`;
+    },
+    [sourceFilterCounts],
+  );
 
   return (
     <section className="tool-panel">
@@ -477,17 +496,17 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
             label="source"
             options={SEASONAL_SOURCE_FILTER_KEYS}
             selected={sourceFilters}
-            formatOption={seasonalSourceFilterLabel}
+            formatOption={formatSourceFilterOption}
+            menuStatus={
+              cachedShows != null && visibleSourceCount != null
+                ? `${visibleSourceCount} of ${cachedShows.length}`
+                : undefined
+            }
             onToggle={(value) =>
               setSourceFilters((prev) => toggleInArray(prev, value))
             }
             onReplaceAll={(values) => setSourceFilters([...values])}
           />
-          {cachedShows != null && visibleSourceCount != null ? (
-            <span className="tool-franchise-filterbar-count">
-              Showing {visibleSourceCount} of {cachedShows.length}
-            </span>
-          ) : null}
         </div>
 
         <div className="tool-actions">
