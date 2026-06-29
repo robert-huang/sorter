@@ -261,7 +261,7 @@ describe('seasonalScoresLogic', () => {
   it('expands `alltime` into a single merged column', () => {
     const specs = parseSeasonSpecs('alltime', sampleShows);
     expect(specs).toEqual([
-      { label: 'All time', season: null, year: 0, matchAll: true },
+      { label: 'All Time', season: null, year: 0, matchAll: true },
     ]);
   });
 
@@ -279,7 +279,7 @@ describe('seasonalScoresLogic', () => {
     if (result.kind === 'columns') {
       expect(result.columns).toHaveLength(1);
       expect(result.columns[0]).toMatchObject({
-        label: 'All time',
+        label: 'All Time',
         matchAll: true,
         ratedCount: 3,
       });
