@@ -194,16 +194,38 @@ export function ToolCharacterName({ characterId, name, gender }: ToolCharacterNa
   );
 }
 
-/** Comma-separated character names with middle-click AniList links. */
+/** Comma-separated or stacked character names with middle-click AniList links. */
 export function CharacterNameInlineList({
   characters,
   className,
+  layout = 'inline',
 }: {
   characters: Array<{ id: number; name: string; gender?: string | null }>;
   className?: string;
+  layout?: 'inline' | 'stacked';
 }) {
   if (characters.length === 0) {
     return null;
+  }
+
+  if (layout === 'stacked') {
+    return (
+      <span
+        className={['character-name-inline-list--stacked', className]
+          .filter(Boolean)
+          .join(' ')}
+      >
+        {characters.map((character) => (
+          <span key={character.id} className="character-name-inline-list__line">
+            <ToolCharacterName
+              characterId={character.id}
+              name={character.name}
+              gender={character.gender}
+            />
+          </span>
+        ))}
+      </span>
+    );
   }
 
   return (

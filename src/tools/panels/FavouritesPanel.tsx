@@ -379,7 +379,10 @@ function BirthdayCalendarBlock({
                   <span className="favourites-birthday-day">{cell.day}</span>
                   {hasCharacters ? (
                     <span className="favourites-birthday-names">
-                      <CharacterNameInlineList characters={cell.characters} />
+                      <CharacterNameInlineList
+                        characters={cell.characters}
+                        layout="stacked"
+                      />
                     </span>
                   ) : null}
                 </div>

@@ -6465,6 +6465,10 @@ html {
   overflow-wrap: anywhere;
 }
 
+.character-name-inline-list--stacked .character-name-inline-list__line {
+  display: block;
+}
+
 .favourites-birthday-incomplete {
   margin-top: 12px;
   font-size: 13px;
