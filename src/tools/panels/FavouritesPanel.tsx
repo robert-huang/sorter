@@ -290,7 +290,7 @@ function BirthdayCalendarBlock({
 }: {
   birthdays: FavouritesResult['birthdays'];
 }) {
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const layout = useMemo(() => buildBirthdayCalendarLayout(birthdays), [birthdays]);
   const calendarItems = useMemo(
     () => buildBirthdayCalendarRenderItems(layout),
@@ -311,19 +311,19 @@ function BirthdayCalendarBlock({
           <input
             type="radio"
             name="favourites-birthday-view-mode"
-            checked={viewMode === 'grid'}
-            onChange={() => setViewMode('grid')}
+            checked={viewMode === 'list'}
+            onChange={() => setViewMode('list')}
           />{' '}
-          Calendar
+          List
         </label>
         <label>
           <input
             type="radio"
             name="favourites-birthday-view-mode"
-            checked={viewMode === 'list'}
-            onChange={() => setViewMode('list')}
+            checked={viewMode === 'grid'}
+            onChange={() => setViewMode('grid')}
           />{' '}
-          List
+          Calendar
         </label>
       </div>
       {viewMode === 'list' ? (
@@ -378,12 +378,16 @@ function BirthdayCalendarBlock({
                   ) : null}
                   <span className="favourites-birthday-day">{cell.day}</span>
                   {hasCharacters ? (
-                    <span className="favourites-birthday-names">
-                      <CharacterNameInlineList
-                        characters={cell.characters}
-                        layout="stacked"
-                      />
-                    </span>
+                    <div className="favourites-birthday-names">
+                      {cell.characters.map((character) => (
+                        <div key={character.id} className="favourites-birthday-name-line">
+                          <ToolCharacterName
+                            characterId={character.id}
+                            name={character.name}
+                          />
+                        </div>
+                      ))}
+                    </div>
                   ) : null}
                 </div>
               );

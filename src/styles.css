@@ -6459,14 +6459,28 @@ html {
 }
 
 .favourites-birthday-names {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   margin-top: 2px;
   font-size: 11px;
   overflow-wrap: anywhere;
 }
 
+.favourites-birthday-name-line {
+  display: block;
+  line-height: 1.35;
+}
+
+.character-name-inline-list--stacked {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .character-name-inline-list--stacked .character-name-inline-list__line {
   display: block;
+  line-height: 1.35;
 }
 
 .favourites-birthday-incomplete {

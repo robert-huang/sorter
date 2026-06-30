@@ -210,21 +210,21 @@ export function CharacterNameInlineList({
 
   if (layout === 'stacked') {
     return (
-      <span
+      <div
         className={['character-name-inline-list--stacked', className]
           .filter(Boolean)
           .join(' ')}
       >
         {characters.map((character) => (
-          <span key={character.id} className="character-name-inline-list__line">
+          <div key={character.id} className="character-name-inline-list__line">
             <ToolCharacterName
               characterId={character.id}
               name={character.name}
               gender={character.gender}
             />
-          </span>
+          </div>
         ))}
-      </span>
+      </div>
     );
   }
 
