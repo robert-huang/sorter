@@ -6397,7 +6397,8 @@ html {
 }
 
 .favourites-series-search .tool-clearable-input {
-  display: block;
+  display: grid;
+  grid-template-columns: 1fr;
   width: 100%;
   max-width: 360px;
 }
