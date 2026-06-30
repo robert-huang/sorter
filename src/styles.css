@@ -6380,6 +6380,90 @@ html {
   color: var(--text-muted);
 }
 
+.favourites-percent-role-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  margin: 10px 0 8px;
+  font-size: 13px;
+}
+
+.favourites-percent-role-toggle label {
+  cursor: pointer;
+}
+
+.favourites-series-search {
+  margin: 10px 0 8px;
+}
+
+.favourites-series-search .tool-clearable-input {
+  display: block;
+  width: 100%;
+  max-width: 360px;
+}
+
+.favourites-birthday-calendar {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.favourites-birthday-cell {
+  min-height: 42px;
+  padding: 4px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg, #fff);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.favourites-birthday-cell--filled {
+  background: color-mix(in srgb, var(--accent, #2563eb) 8%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent, #2563eb) 25%, var(--border));
+}
+
+.favourites-birthday-month {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.favourites-birthday-day {
+  display: block;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.favourites-birthday-cell--filled .favourites-birthday-day {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.favourites-birthday-names {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+}
+
+.favourites-birthday-incomplete {
+  margin-top: 12px;
+  font-size: 13px;
+}
+
+.favourites-birthday-incomplete-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
 .tool-empty-inline {
   margin: 8px 0 0;
   color: var(--text-muted);

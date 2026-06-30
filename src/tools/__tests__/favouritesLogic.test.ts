@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   accumulateVaStats,
+  buildBirthdayCalendarLayout,
   buildFavouritesResult,
+  buildVaPercentRankRows,
   CharacterRoleTier,
   countVaCharactersOnMedia,
   formatBirthdayKey,
@@ -97,6 +99,119 @@ describe('countVaCharactersOnMedia', () => {
     );
     expect(count).toBe(2);
   });
+
+  it('counts only characters whose best role on seen media is MAIN', () => {
+    const count = countVaCharactersOnMedia(
+      [
+        {
+          node: { id: 1 },
+          characterRole: 'SUPPORTING',
+          characters: [{ id: 100 }],
+        },
+        {
+          node: { id: 2 },
+          characterRole: 'MAIN',
+          characters: [{ id: 101 }],
+        },
+        {
+          node: { id: 3 },
+          characterRole: 'SUPPORTING',
+          characters: [{ id: 102 }],
+        },
+        {
+          node: { id: 1 },
+          characterRole: 'MAIN',
+          characters: [{ id: 100 }],
+        },
+      ],
+      new Set([1, 2, 3]),
+      'mainOnly',
+    );
+    expect(count).toBe(2);
+  });
+});
+
+describe('buildBirthdayCalendarLayout', () => {
+  it('lays out months continuously from January 1 in column 0', () => {
+    const layout = buildBirthdayCalendarLayout({
+      '0101': [{ id: 1, name: 'New Year' }],
+      '0201': [{ id: 2, name: 'Feb' }],
+      '1231': [{ id: 3, name: 'Eve' }],
+    });
+
+    expect(layout.cells[0]).toMatchObject({ month: 1, day: 1, linearIndex: 0 });
+    expect(layout.cells[0]?.characters).toEqual([{ id: 1, name: 'New Year' }]);
+    expect(layout.cells[31]).toMatchObject({ month: 2, day: 1, linearIndex: 31 });
+    expect(layout.cells[layout.cells.length - 1]).toMatchObject({ month: 12, day: 31 });
+    expect(layout.incomplete).toEqual([]);
+  });
+});
+
+describe('buildVaPercentRankRows', () => {
+  it('recomputes favourited counts for main-role-only mode', () => {
+    const byCount = [
+      {
+        staffId: 10,
+        name: 'VA A',
+        imageUrl: null,
+        displayValue: '2',
+        numericValue: 2,
+        characters: [
+          { id: 1, name: 'Main' },
+          { id: 2, name: 'Supporting' },
+        ],
+      },
+    ];
+    const rows = buildVaPercentRankRows(
+      byCount,
+      {
+        vaTotalCharacterCounts: { 10: 20 },
+        vaMainRoleCharacterCounts: { 10: 5 },
+        characterRoleTierById: {
+          1: CharacterRoleTier.Main,
+          2: CharacterRoleTier.Supporting,
+        },
+        characterCount: 20,
+      },
+      'mainOnly',
+    );
+
+    expect(rows[0]?.displayValue).toBe('20% (1/5)');
+    expect(rows[0]?.characters).toEqual([{ id: 1, name: 'Main' }]);
+    // N = main-role favourite count (1), not total favourites (20).
+    expect(rows[0]?.numericValue).toBeCloseTo(1 / (5 + 0.1), 5);
+  });
+
+  it('uses total favourite count for sort dampening in all-roles mode', () => {
+    const byCount = [
+      {
+        staffId: 10,
+        name: 'VA A',
+        imageUrl: null,
+        displayValue: '2',
+        numericValue: 2,
+        characters: [
+          { id: 1, name: 'Main' },
+          { id: 2, name: 'Supporting' },
+        ],
+      },
+    ];
+    const rows = buildVaPercentRankRows(
+      byCount,
+      {
+        vaTotalCharacterCounts: { 10: 20 },
+        vaMainRoleCharacterCounts: { 10: 5 },
+        characterRoleTierById: {
+          1: CharacterRoleTier.Main,
+          2: CharacterRoleTier.Supporting,
+        },
+        characterCount: 20,
+      },
+      'all',
+    );
+
+    expect(rows[0]?.numericValue).toBeCloseTo(2 / (20 + 2), 5);
+  });
 });
 
 describe('accumulateVaStats', () => {
@@ -171,6 +286,10 @@ describe('buildFavouritesResult', () => {
         [10, 20],
         [11, 5],
       ]),
+      vaMainRoleCharacterCounts: new Map([
+        [10, 8],
+        [11, 2],
+      ]),
       favouriteStaff: [{ id: 10, name: { full: 'VA A', native: null }, gender: 'Female' }],
     });
 
@@ -221,6 +340,7 @@ describe('buildFavouritesResult', () => {
         },
       ],
       vaTotalCharacterCounts: new Map([[10, 1]]),
+      vaMainRoleCharacterCounts: new Map([[10, 1]]),
       favouriteStaff: [],
     });
 

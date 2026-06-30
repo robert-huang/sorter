@@ -108,10 +108,11 @@ async function fetchConsumedMediaIds(
 ): Promise<Set<number>> {
   signal?.throwIfAborted();
   const importOptions = favouritesImportOptions(options);
-  const [animeUser, mangaUser] = await Promise.all([
-    ensureUserAnimeListFresh(username, importOptions),
-    ensureUserMangaListFresh(username, importOptions),
-  ]);
+  // List imports share the per-source AniList scrape lock — run sequentially
+  // (same as the ↻ refresh button) so parallel ensure* calls don't race.
+  const animeUser = await ensureUserAnimeListFresh(username, importOptions);
+  signal?.throwIfAborted();
+  const mangaUser = await ensureUserMangaListFresh(username, importOptions);
   const user = animeUser ?? mangaUser;
   if (user) {
     const ctx = getToolsImportContext();
@@ -387,10 +388,10 @@ export async function runFavouritesAnalysis(
   const consumedMediaIds = await fetchConsumedMediaIds(username, signal, fetchOptions);
 
   onProgress({ phase: 'characters' });
-  const [characters, favouriteStaff] = await Promise.all([
-    fetchFavouriteCharacters(username, signal, fetchOptions),
-    fetchFavouriteStaff(username, signal, fetchOptions),
-  ]);
+  // Favourites imports also take the scrape lock — fetch one type at a time.
+  const characters = await fetchFavouriteCharacters(username, signal, fetchOptions);
+  signal?.throwIfAborted();
+  const favouriteStaff = await fetchFavouriteStaff(username, signal, fetchOptions);
 
   if (characters.length === 0) {
     throw new Error('This user has no favourite characters.');
@@ -453,13 +454,21 @@ export async function runFavouritesAnalysis(
   }
 
   const vaTotalCharacterCounts = new Map<number, number>();
+  const vaMainRoleCharacterCounts = new Map<number, number>();
   const vaIdList = [...vaIds];
   for (let i = 0; i < vaIdList.length; i += 1) {
     signal?.throwIfAborted();
     const vaId = vaIdList[i]!;
     onProgress({ phase: 'va-totals', index: i + 1, total: vaIdList.length });
     const edges = await fetchVaCharacterEdges(vaId, signal, fetchOptions);
-    vaTotalCharacterCounts.set(vaId, countVaCharactersOnMedia(edges, consumedMediaIds));
+    vaTotalCharacterCounts.set(
+      vaId,
+      countVaCharactersOnMedia(edges, consumedMediaIds, 'all'),
+    );
+    vaMainRoleCharacterCounts.set(
+      vaId,
+      countVaCharactersOnMedia(edges, consumedMediaIds, 'mainOnly'),
+    );
   }
 
   if (fetchOptions?.expandRoles) {
@@ -491,6 +500,7 @@ export async function runFavouritesAnalysis(
     consumedMediaIds,
     favouriteStaff,
     vaTotalCharacterCounts,
+    vaMainRoleCharacterCounts,
     ...(truncatedCharacterIds.size > 0 ? { truncatedCharacterIds } : {}),
   };
   return {
@@ -499,6 +509,7 @@ export async function runFavouritesAnalysis(
       perCharacterVas,
       perCharacterMeta,
       vaTotalCharacterCounts,
+      vaMainRoleCharacterCounts,
       favouriteStaff,
       ...(truncatedCharacterNames.length > 0 ? { truncatedCharacterNames } : {}),
     }),

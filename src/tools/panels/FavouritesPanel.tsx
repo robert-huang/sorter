@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { FavouritesFetchOptions } from '../../lib/importers/anilist/toolsFetchPolicy';
 import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
 import type { ToolPanelProps } from '../toolTypes';
+import { ToolClearableInput } from '../ToolClearableInput';
 import { ToolRunButton } from '../ToolRunButton';
 import { ToolUsernameField } from '../ToolUsernameField';
 import { CharacterNameInlineList, ToolCharacterName, ToolShowButton, ToolStaffButton } from '../toolEntityLinks';
@@ -9,6 +10,9 @@ import { useUsernameListRefresh } from '../useUsernameListRefresh';
 import { useToolsDisplayLabelRevision } from '../useToolsDisplayLabelRevision';
 import { runFavouritesAnalysis, type FavouritesRunProgress } from './favouritesApi';
 import {
+  BIRTHDAY_MONTH_LABELS,
+  buildBirthdayCalendarLayout,
+  buildVaPercentRankRows,
   FAVOURITES_TOP_N,
   rebuildFavouritesResult,
   type FavouriteCharacterRef,
@@ -16,6 +20,7 @@ import {
   type FavouritesRebuildSource,
   type FavouritesResult,
   type FavouritesSeriesRow,
+  type VaPercentRoleMode,
   type VaRankRow,
 } from './favouritesLogic';
 
@@ -28,7 +33,7 @@ const VA_BAYESIAN_RANK_HELP =
   'Bayesian average of your favourite-list ranks for characters this VA voices. N = total favourites, n = favourites for a given VA, r = rank of the character (1 = top). Character Count per VA = (N÷10+1)+n, Rank-Sum per VA = (N÷2×N÷10)+∑r, Bayesian Score = Count + Rank-Sum — lower is better (more top-ranked favourites).';
 
 const VA_LOG_SCORE_HELP =
-  'Log score favours VAs behind higher-ranked favourites. N = total favourites, r = rank of the character (1 = top). Log Score = ∑ln(N÷r)(N Let N = your favourite-character count and r = rank (1 = top). Per matched character, add ln(N) − ln(r) (same as ln(N÷r); rank 1 adds the most). Shown value is the total × 10 — higher is better.';
+  'Log score favours VAs behind higher-ranked favourites. N = total favourites, r = rank of the character (1 = top). Per matched character, add ln(N) − ln(r) (same as ln(N÷r); rank 1 adds the most). Shown value is the total × 10 — higher is better.';
 
 const DEFAULT_FORM: FavouritesForm = {
   username: '',
@@ -80,33 +85,21 @@ function progressLabel(progress: FavouritesRunProgress | null): string | null {
   }
 }
 
-function VaRankBlock({
-  title,
+function VaRankList({
   rows,
+  title,
   onOpenStaff,
-  defaultOpen = false,
-  titleHelp,
 }: {
-  title: string;
   rows: VaRankRow[];
+  title: string;
   onOpenStaff: ToolPanelProps['onOpenStaff'];
-  defaultOpen?: boolean;
-  titleHelp?: string;
 }) {
   const [visible, setVisible] = useState(FAVOURITES_TOP_N);
-
-  if (rows.length === 0) {
-    return null;
-  }
-
   const shown = rows.slice(0, visible);
   const hasMore = visible < rows.length;
 
   return (
-    <details className="tool-category-block" open={defaultOpen || undefined}>
-      <summary className="tool-category-title" title={titleHelp}>
-        {title}
-      </summary>
+    <>
       <ul className="tool-rank-list">
         {shown.map((row) => (
           <li key={`${title}-${row.staffId}`}>
@@ -133,8 +126,113 @@ function VaRankBlock({
           Load more
         </button>
       ) : null}
+    </>
+  );
+}
+
+function VaRankBlock({
+  title,
+  rows,
+  onOpenStaff,
+  defaultOpen = false,
+  titleHelp,
+}: {
+  title: string;
+  rows: VaRankRow[];
+  onOpenStaff: ToolPanelProps['onOpenStaff'];
+  defaultOpen?: boolean;
+  titleHelp?: string;
+}) {
+  if (rows.length === 0) {
+    return null;
+  }
+
+  return (
+    <details className="tool-category-block" open={defaultOpen || undefined}>
+      <summary className="tool-category-title" title={titleHelp}>
+        {title}
+      </summary>
+      <VaRankList rows={rows} title={title} onOpenStaff={onOpenStaff} />
     </details>
   );
+}
+
+function VaPercentBlock({
+  byCount,
+  vaPercentMeta,
+  onOpenStaff,
+}: {
+  byCount: VaRankRow[];
+  vaPercentMeta: FavouritesResult['vaPercentMeta'];
+  onOpenStaff: ToolPanelProps['onOpenStaff'];
+}) {
+  const [roleMode, setRoleMode] = useState<VaPercentRoleMode>('all');
+  const rows = useMemo(
+    () => buildVaPercentRankRows(byCount, vaPercentMeta, roleMode),
+    [byCount, vaPercentMeta, roleMode],
+  );
+
+  if (byCount.length === 0) {
+    return null;
+  }
+
+  return (
+    <details className="tool-category-block">
+      <summary className="tool-category-title">
+        Top VAs by % of their characters favourited
+      </summary>
+      <div className="favourites-percent-role-toggle">
+        <label>
+          <input
+            type="radio"
+            name="favourites-percent-role-mode"
+            checked={roleMode === 'all'}
+            onChange={() => setRoleMode('all')}
+          />{' '}
+          All Roles
+        </label>
+        <label>
+          <input
+            type="radio"
+            name="favourites-percent-role-mode"
+            checked={roleMode === 'mainOnly'}
+            onChange={() => setRoleMode('mainOnly')}
+          />{' '}
+          Main Roles Only
+        </label>
+      </div>
+      <VaRankList
+        rows={rows}
+        title="Top VAs by % of their characters favourited"
+        onOpenStaff={onOpenStaff}
+      />
+    </details>
+  );
+}
+
+function filterSeriesRows(
+  rows: FavouritesSeriesRow[],
+  query: string,
+): FavouritesSeriesRow[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) {
+    return rows;
+  }
+  return rows
+    .map((row) => {
+      const titleMatch = row.title.toLowerCase().includes(needle);
+      const matchingCharacters = row.characters.filter((character) =>
+        character.name.toLowerCase().includes(needle),
+      );
+      if (titleMatch) {
+        return row;
+      }
+      if (matchingCharacters.length === 0) {
+        return null;
+      }
+      return { ...row, characters: matchingCharacters };
+    })
+    .filter((row): row is FavouritesSeriesRow => row !== null);
 }
 
 function SeriesListBlock({
@@ -146,27 +244,97 @@ function SeriesListBlock({
   rows: FavouritesSeriesRow[];
   onOpenMedia: ToolPanelProps['onOpenMedia'];
 }) {
+  const [search, setSearch] = useState('');
+  const filteredRows = useMemo(() => filterSeriesRows(rows, search), [rows, search]);
+
   if (rows.length === 0) {
     return null;
   }
   return (
     <details className="tool-category-block">
       <summary className="tool-category-title">{title}</summary>
-      {rows.map((row) => (
-        <div key={row.mediaId} className="tool-series-row">
-          <ToolShowButton
-            mediaId={row.mediaId}
-            title={row.title}
-            coverImage={row.coverImage}
-            mediaType={row.mediaType}
-            onOpenMedia={onOpenMedia}
-            compact
-          />
-          <span className="tool-rank-detail">
-            <CharacterNameInlineList characters={row.characters} />
-          </span>
+      <div className="favourites-series-search">
+        <ToolClearableInput
+          id={`${title}-search`}
+          value={search}
+          placeholder="Filter series or characters…"
+          onChange={setSearch}
+        />
+      </div>
+      {filteredRows.length === 0 ? (
+        <p className="tool-status">No matches.</p>
+      ) : (
+        filteredRows.map((row) => (
+          <div key={row.mediaId} className="tool-series-row">
+            <ToolShowButton
+              mediaId={row.mediaId}
+              title={row.title}
+              coverImage={row.coverImage}
+              mediaType={row.mediaType}
+              onOpenMedia={onOpenMedia}
+              compact
+            />
+            <span className="tool-rank-detail">
+              <CharacterNameInlineList characters={row.characters} />
+            </span>
+          </div>
+        ))
+      )}
+    </details>
+  );
+}
+
+function BirthdayCalendarBlock({
+  birthdays,
+}: {
+  birthdays: FavouritesResult['birthdays'];
+}) {
+  const layout = useMemo(() => buildBirthdayCalendarLayout(birthdays), [birthdays]);
+  const hasBirthdays =
+    layout.cells.some((cell) => cell.characters.length > 0) || layout.incomplete.length > 0;
+
+  if (!hasBirthdays) {
+    return null;
+  }
+
+  return (
+    <details className="tool-category-block">
+      <summary className="tool-category-title">Birthdays</summary>
+      <div className="favourites-birthday-calendar">
+        {layout.cells.map((cell) => {
+          const isMonthStart = cell.day === 1;
+          const hasCharacters = cell.characters.length > 0;
+          return (
+            <div
+              key={`${cell.month}-${cell.day}`}
+              className={[
+                'favourites-birthday-cell',
+                hasCharacters ? 'favourites-birthday-cell--filled' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+            >
+              {isMonthStart ? (
+                <span className="favourites-birthday-month">
+                  {BIRTHDAY_MONTH_LABELS[cell.month - 1]}
+                </span>
+              ) : null}
+              <span className="favourites-birthday-day">{cell.day}</span>
+              {hasCharacters ? (
+                <span className="favourites-birthday-names">
+                  <CharacterNameInlineList characters={cell.characters} />
+                </span>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+      {layout.incomplete.length > 0 ? (
+        <div className="favourites-birthday-incomplete">
+          <span className="favourites-birthday-incomplete-label">Unknown date</span>
+          <CharacterNameInlineList characters={layout.incomplete} />
         </div>
-      ))}
+      ) : null}
     </details>
   );
 }
@@ -345,11 +513,15 @@ export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
     <section className="tool-panel">
       <p className="tool-panel-lead">
         Find voice actors behind your favourite characters — port of{' '}
-        <code>character_vas.py</code>. <strong>Analyze</strong> uses cached favourites and
-        local database lookups for a fast run; use the ↻ button to refresh your anime list
-        from AniList. <strong>Expand Roles</strong> fully re-fetches character and VA role
-        data into the local database (can take a long time). Gear → Settings controls display
-        names.
+        <code>character_vas.py</code>.
+        <br />
+        <strong>Analyze</strong> uses cached favourites and local database lookups for a
+        fast run; use the ↻ button to refresh your anime list from AniList.
+        <br />
+        <strong>Expand Roles</strong> fully re-fetches character and VA role data into the
+        local database (can take a long time).
+        <br />
+        Gear → Settings controls display names.
       </p>
 
       <form
@@ -436,9 +608,9 @@ export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
             onOpenStaff={onOpenStaff}
             titleHelp={VA_LOG_SCORE_HELP}
           />
-          <VaRankBlock
-            title="Top VAs by % of their characters favourited"
-            rows={result.byPercent}
+          <VaPercentBlock
+            byCount={result.byCount}
+            vaPercentMeta={result.vaPercentMeta}
             onOpenStaff={onOpenStaff}
           />
 
@@ -457,19 +629,7 @@ export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
             <NameListBlock title="Unknown roles (or manga only)" characters={result.roles.unknown} />
           </GroupedCategoryBlock>
 
-          <details className="tool-category-block">
-            <summary className="tool-category-title">Birthdays</summary>
-            <ul className="tool-rank-list">
-              {Object.entries(result.birthdays)
-                .sort(([a], [b]) => a.localeCompare(b))
-                .map(([day, characters]) => (
-                  <li key={day}>
-                    <span className="tool-rank-count">{day}</span>
-                    <CharacterNameInlineList characters={characters} />
-                  </li>
-                ))}
-            </ul>
-          </details>
+          <BirthdayCalendarBlock birthdays={result.birthdays} />
 
           <details className="tool-category-block">
             <summary className="tool-category-title">Favourite staff (VAs)</summary>

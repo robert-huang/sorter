@@ -101,9 +101,10 @@ function makeCharEdge(mediaId: number, vaId: number): CharacterMediaEdge {
   };
 }
 
-function makeVaEdge(mediaId: number, charId: number): VaMediaEdge {
+function makeVaEdge(mediaId: number, charId: number, characterRole = 'MAIN'): VaMediaEdge {
   return {
     node: { id: mediaId },
+    characterRole,
     characters: [{ id: charId }],
   };
 }
@@ -226,6 +227,32 @@ describe('runFavouritesAnalysis caching', () => {
     expect(ensureUserAnimeListFreshMock).toHaveBeenCalledWith('user', undefined);
     expect(ensureUserMangaListFreshMock).toHaveBeenCalledWith('user', undefined);
     expect(readConsumedMediaIdsFromDbMock).toHaveBeenCalled();
+  });
+
+  it('serializes scrape-lock imports instead of running them in parallel', async () => {
+    const callOrder: string[] = [];
+    const mockUser = { id: 1, name: 'user', fetched_at: Date.now() };
+    ensureUserAnimeListFreshMock.mockImplementation(async () => {
+      callOrder.push('anime-list');
+      return mockUser;
+    });
+    ensureUserMangaListFreshMock.mockImplementation(async () => {
+      callOrder.push('manga-list');
+      return mockUser;
+    });
+    ensureUserFavouritesFreshMock.mockImplementation(async (_username, type) => {
+      callOrder.push(`favourites-${type}`);
+      return mockUser;
+    });
+
+    await runFavouritesAnalysis(FORM, () => {});
+
+    expect(callOrder).toEqual([
+      'anime-list',
+      'manga-list',
+      'favourites-CHARACTERS',
+      'favourites-STAFF',
+    ]);
   });
 
   it('falls back to a capped live fetch when the DB read returns null after ensure', async () => {

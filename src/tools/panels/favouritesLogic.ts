@@ -20,25 +20,27 @@ export const FAVOURITES_TOP_N = 20;
 
 /** Characters whose VA pairing should be excluded from stats. */
 export const CHAR_VA_BLACKLIST: Readonly<Record<number, readonly number[]>> = {
-  137070: [95241],
-  121101: [109251],
-  200292: [118738],
-  20336: [95740],
-  164170: [95869],
-  127095: [107750],
-  286805: [112629],
-  2645: [95256],
-  40591: [105013],
-  4606: [95935],
-  47167: [95823],
-  1748: [95496],
-  1743: [95014],
-  4228: [95517],
-  3198: [95458],
+  137070: [95241], // Lillia Aspley: [Rina Satou] (LN)
+  121101: [109251], // Miyuki Shirogane: [You Taichi] (young)
+  200292: [118738], // Yuuta Asamura: [Shizuka Ishigami] (young)
+  20336: [95740], // Shigeru Fujiwara: [Nanee Katou] (young)
+  164170: [95869], // Rika Honjouji: [Saori Hayami] (manga)
+  127095: [107750], // Kei Asai: [Hibiki Yamamura] (young)
+  286805: [112629], // Nika Nanaura: [Haruka Shiraishi] (temp replacement)
+  2645: [95256], // Balsa Yonsa: [Naomi Shindou] (young)
+  40591: [105013], // Jinta Yadomi: [Mutsumi Tamura] (young)
+  4606: [95935], // Tomoya Okazaki: [Fuyuka Ooura] (young)
+  47167: [95823], // Taichi Mashima: [Ayahi Takagaki] (young)
+  1748: [95496], // Ran Mouri: [Wakana Yamazaki] (manga)
+  // 1743: [95014], // Ai Haibara: [Megumi Hayashibara] (manga)
+  4228: [95517], // Ayumi Yoshida: [Yukiko Iwai] (manga)
+  3198: [95458], // Kazuha Tooyama: [Yuuko Miyamura] (manga)
 };
 
 /** Media ids excluded from character/VA stats. */
-export const MEDIA_BLACKLIST = new Set<number>([14753]);
+export const MEDIA_BLACKLIST = new Set<number>([
+  14753, // Horimiya OVA
+]);
 
 export enum CharacterRoleTier {
   Main = 0,
@@ -114,7 +116,17 @@ export type CharacterMediaEdge = {
 
 export type VaMediaEdge = {
   node: { id: number };
+  characterRole?: string | null;
   characters: Array<{ id: number } | null> | null;
+};
+
+export type VaPercentRoleMode = 'all' | 'mainOnly';
+
+export type VaPercentMeta = {
+  vaTotalCharacterCounts: Record<number, number>;
+  vaMainRoleCharacterCounts: Record<number, number>;
+  characterRoleTierById: Record<number, CharacterRoleTier>;
+  characterCount: number;
 };
 
 export type VaAccumulator = {
@@ -146,6 +158,7 @@ export type FavouritesResult = {
   byAvgRank: VaRankRow[];
   byLogScore: VaRankRow[];
   byPercent: VaRankRow[];
+  vaPercentMeta: VaPercentMeta;
   gender: { female: FavouriteCharacterRef[]; male: FavouriteCharacterRef[]; other: FavouriteCharacterRef[] };
   roles: {
     main: FavouriteCharacterRef[];
@@ -324,22 +337,48 @@ export function processCharacterEdges(
   };
 }
 
+function roleTierFromLabel(role: string | null | undefined): CharacterRoleTier {
+  return ROLE_RANK[role ?? ''] ?? CharacterRoleTier.Unknown;
+}
+
+/** Best (highest) role tier for each character on consumed media from VA filmography edges. */
+export function collectVaCharacterRoleTiers(
+  edges: VaMediaEdge[],
+  consumedMediaIds: ReadonlySet<number>,
+): Map<number, CharacterRoleTier> {
+  const characterBestTier = new Map<number, CharacterRoleTier>();
+  for (const edge of edges) {
+    const mediaId = edge.node.id;
+    if (!consumedMediaIds.has(mediaId) || MEDIA_BLACKLIST.has(mediaId)) {
+      continue;
+    }
+    const roleTier = roleTierFromLabel(edge.characterRole);
+    for (const character of edge.characters ?? []) {
+      if (character?.id === undefined) {
+        continue;
+      }
+      const existing = characterBestTier.get(character.id) ?? CharacterRoleTier.Unknown;
+      characterBestTier.set(
+        character.id,
+        Math.min(existing, roleTier) as CharacterRoleTier,
+      );
+    }
+  }
+  return characterBestTier;
+}
+
 export function countVaCharactersOnMedia(
   edges: VaMediaEdge[],
   consumedMediaIds: ReadonlySet<number>,
+  roleMode: VaPercentRoleMode = 'all',
 ): number {
-  const characterIds = new Set<number>();
-  for (const edge of edges) {
-    if (!consumedMediaIds.has(edge.node.id)) {
-      continue;
-    }
-    for (const character of edge.characters ?? []) {
-      if (character?.id !== undefined && !characterIds.has(character.id)) {
-        characterIds.add(character.id);
-      }
-    }
+  const characterBestTier = collectVaCharacterRoleTiers(edges, consumedMediaIds);
+  if (roleMode === 'mainOnly') {
+    return [...characterBestTier.values()].filter(
+      (tier) => tier === CharacterRoleTier.Main,
+    ).length;
   }
-  return characterIds.size;
+  return characterBestTier.size;
 }
 
 export function formatBirthdayKey(
@@ -351,6 +390,73 @@ export function formatBirthdayKey(
     return `${month}${day}`;
   }
   return 'incomplete/missing data';
+}
+
+const BIRTHDAY_DAYS_IN_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31] as const;
+
+export const BIRTHDAY_MONTH_LABELS = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+] as const;
+
+export type BirthdayCalendarCell = {
+  month: number;
+  day: number;
+  linearIndex: number;
+  characters: FavouriteCharacterRef[];
+};
+
+export type BirthdayCalendarLayout = {
+  cells: BirthdayCalendarCell[];
+  incomplete: FavouriteCharacterRef[];
+};
+
+/** Continuous year grid: Jan 1 in column 0; each month follows the previous month's end column. */
+export function buildBirthdayCalendarLayout(
+  birthdays: Record<string, FavouriteCharacterRef[]>,
+): BirthdayCalendarLayout {
+  const byMonthDay = new Map<string, FavouriteCharacterRef[]>();
+  const incomplete: FavouriteCharacterRef[] = [];
+
+  for (const [key, characters] of Object.entries(birthdays)) {
+    if (key === 'incomplete/missing data') {
+      incomplete.push(...characters);
+      continue;
+    }
+    byMonthDay.set(key, characters);
+  }
+
+  const cells: BirthdayCalendarCell[] = [];
+  let linearIndex = 0;
+  for (let month = 1; month <= 12; month += 1) {
+    const daysInMonth = BIRTHDAY_DAYS_IN_MONTH[month - 1]!;
+    for (let day = 1; day <= daysInMonth; day += 1) {
+      const key = `${String(month).padStart(2, '0')}${String(day).padStart(2, '0')}`;
+      cells.push({
+        month,
+        day,
+        linearIndex,
+        characters: byMonthDay.get(key) ?? [],
+      });
+      linearIndex += 1;
+    }
+  }
+
+  return { cells, incomplete };
+}
+
+export function mapToRecord(map: Map<number, number>): Record<number, number> {
+  return Object.fromEntries(map.entries());
 }
 
 export function accumulateVaStats(
@@ -417,6 +523,52 @@ function toRankRows(
   return rows;
 }
 
+function countMainRoleFavourites(
+  characterRoleTierById: Record<number, CharacterRoleTier>,
+): number {
+  return Object.values(characterRoleTierById).filter(
+    (tier) => tier === CharacterRoleTier.Main,
+  ).length;
+}
+
+export function buildVaPercentRankRows(
+  byCountRows: VaRankRow[],
+  meta: VaPercentMeta,
+  roleMode: VaPercentRoleMode,
+): VaRankRow[] {
+  const mainRoleFavouriteCount = countMainRoleFavourites(meta.characterRoleTierById);
+  const dummyMedian =
+    roleMode === 'mainOnly'
+      ? mainRoleFavouriteCount / 10
+      : meta.characterCount / 10;
+  const totalCounts =
+    roleMode === 'mainOnly'
+      ? meta.vaMainRoleCharacterCounts
+      : meta.vaTotalCharacterCounts;
+
+  const rows: VaRankRow[] = byCountRows.map((row) => {
+    const favoritedCharacters =
+      roleMode === 'mainOnly'
+        ? row.characters.filter(
+            (character) =>
+              meta.characterRoleTierById[character.id] === CharacterRoleTier.Main,
+          )
+        : row.characters;
+    const favorited = favoritedCharacters.length;
+    const total = totalCounts[row.staffId] ?? 0;
+    const pct = total > 0 ? (100 * favorited) / total : 0;
+    return {
+      ...row,
+      displayValue: `${Math.round(pct)}% (${favorited}/${total})`,
+      numericValue: favorited / (total + dummyMedian),
+      characters: favoritedCharacters,
+    };
+  });
+
+  rows.sort((a, b) => b.numericValue - a.numericValue);
+  return rows;
+}
+
 export function buildFavouritesResult(input: {
   characters: FavouriteCharacterInput[];
   perCharacterVas: Array<Array<{ id: number; name: string; imageUrl: string | null }>>;
@@ -428,6 +580,7 @@ export function buildFavouritesResult(input: {
     books: Record<number, FavouritesSeriesMeta>;
   }>;
   vaTotalCharacterCounts: Map<number, number>;
+  vaMainRoleCharacterCounts: Map<number, number>;
   favouriteStaff: FavouriteStaffInput[];
   /** Character names whose normal-Analyze VA fetch hit the page cap. */
   truncatedCharacterNames?: string[];
@@ -437,6 +590,7 @@ export function buildFavouritesResult(input: {
     perCharacterVas,
     perCharacterMeta,
     vaTotalCharacterCounts,
+    vaMainRoleCharacterCounts,
     favouriteStaff,
     truncatedCharacterNames,
   } = input;
@@ -543,20 +697,29 @@ export function buildFavouritesResult(input: {
     (a, b) => b.numericValue - a.numericValue,
   );
 
-  const byPercent = toRankRows(
-    accum,
-    (va) => {
-      const total = vaTotalCharacterCounts.get(va.id) ?? 0;
-      const favorited = va.count - dummyMedian;
-      const pct = total > 0 ? (100 * favorited) / total : 0;
-      return {
-        displayValue: `${Math.round(pct)}% (${Math.round(favorited)}/${total})`,
-        numericValue:
-          favorited / (total + characters.length / 10),
-      };
-    },
-    (a, b) => b.numericValue - a.numericValue,
-  );
+  const byPercent = buildVaPercentRankRows(byCount, {
+    vaTotalCharacterCounts: mapToRecord(vaTotalCharacterCounts),
+    vaMainRoleCharacterCounts: mapToRecord(vaMainRoleCharacterCounts),
+    characterRoleTierById: Object.fromEntries(
+      characters.map((character, index) => [
+        character.id,
+        perCharacterMeta[index]!.charRole,
+      ]),
+    ),
+    characterCount: characters.length,
+  }, 'all');
+
+  const vaPercentMeta: VaPercentMeta = {
+    vaTotalCharacterCounts: mapToRecord(vaTotalCharacterCounts),
+    vaMainRoleCharacterCounts: mapToRecord(vaMainRoleCharacterCounts),
+    characterRoleTierById: Object.fromEntries(
+      characters.map((character, index) => [
+        character.id,
+        perCharacterMeta[index]!.charRole,
+      ]),
+    ),
+    characterCount: characters.length,
+  };
 
   const staffRows = favouriteStaff.map((staff) => {
     const matchedCharacters = accum.get(staff.id)?.characters ?? [];
@@ -581,6 +744,7 @@ export function buildFavouritesResult(input: {
     byAvgRank,
     byLogScore,
     byPercent,
+    vaPercentMeta,
     gender,
     roles,
     birthdays,
@@ -601,6 +765,7 @@ export type FavouritesRebuildSource = {
   consumedMediaIds: ReadonlySet<number>;
   favouriteStaff: FavouriteStaffInput[];
   vaTotalCharacterCounts: Map<number, number>;
+  vaMainRoleCharacterCounts: Map<number, number>;
   /** Set when a character's bounded VA fetch hit the page cap. */
   truncatedCharacterIds?: ReadonlySet<number>;
 };
@@ -646,6 +811,7 @@ export function rebuildFavouritesResult(
     perCharacterVas,
     perCharacterMeta,
     vaTotalCharacterCounts: source.vaTotalCharacterCounts,
+    vaMainRoleCharacterCounts: source.vaMainRoleCharacterCounts,
     favouriteStaff: source.favouriteStaff,
     ...(truncatedNames ? { truncatedCharacterNames: truncatedNames } : {}),
   });

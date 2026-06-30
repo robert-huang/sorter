@@ -855,6 +855,7 @@ query ToolsVaCharacterMedia($id: Int!, $page: Int!, $perPage: Int!) {
     characterMedia(page: $page, perPage: $perPage) {
       pageInfo { hasNextPage currentPage }
       edges {
+        characterRole
         node { id }
         characters { id }
       }

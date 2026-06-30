@@ -425,8 +425,12 @@ export async function readVaCharacterEdgesFromDb(
   const rows = await db.exec(
     `
       SELECT cva.media_id,
-             cva.character_id
+             cva.character_id,
+             mc.role AS character_role
         FROM character_voice_actor cva
+        JOIN media_character mc
+          ON mc.media_id = cva.media_id
+         AND mc.character_id = cva.character_id
        WHERE cva.staff_id = ?
          AND cva.language = 'JAPANESE'
        ORDER BY cva.media_id ASC, cva.character_id ASC
@@ -437,21 +441,27 @@ export async function readVaCharacterEdgesFromDb(
     return null;
   }
 
-  const byMedia = new Map<number, Set<number>>();
+  const byMediaRole = new Map<
+    string,
+    { mediaId: number; characterRole: string; characterIds: number[] }
+  >();
   for (const row of rows) {
     const mediaId = Number(row.media_id);
     const characterId = Number(row.character_id);
-    let characters = byMedia.get(mediaId);
-    if (!characters) {
-      characters = new Set();
-      byMedia.set(mediaId, characters);
+    const characterRole = (row.character_role as string | null) ?? 'UNKNOWN';
+    const key = `${mediaId}:${characterRole}`;
+    let entry = byMediaRole.get(key);
+    if (!entry) {
+      entry = { mediaId, characterRole, characterIds: [] };
+      byMediaRole.set(key, entry);
     }
-    characters.add(characterId);
+    entry.characterIds.push(characterId);
   }
 
-  return [...byMedia.entries()].map(([mediaId, characterIds]) => ({
+  return [...byMediaRole.values()].map(({ mediaId, characterRole, characterIds }) => ({
     node: { id: mediaId },
-    characters: [...characterIds].map((id) => ({ id })),
+    characterRole,
+    characters: characterIds.map((id) => ({ id })),
   }));
 }
 
