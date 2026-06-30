@@ -341,18 +341,20 @@ function BirthdayCalendarBlock({
         <>
           <div className="favourites-birthday-calendar">
             {calendarItems.map((item) => {
-              if (item.kind === 'gap') {
+              if (item.kind === 'pad') {
                 return (
                   <div
-                    key={`gap-${item.afterMonth}-${item.slotIndex}`}
-                    className={[
-                      'favourites-birthday-month-gap',
-                      item.isSeparatorRow && item.slotIndex === 0
-                        ? 'favourites-birthday-month-gap--separator-row'
-                        : '',
-                    ]
-                      .filter(Boolean)
-                      .join(' ')}
+                    key={`pad-${item.afterMonth}-${item.padKind}-${item.slotIndex}`}
+                    className="favourites-birthday-month-pad"
+                    aria-hidden
+                  />
+                );
+              }
+              if (item.kind === 'monthBreak') {
+                return (
+                  <div
+                    key={`break-${item.afterMonth}`}
+                    className="favourites-birthday-month-break"
                     aria-hidden
                   />
                 );

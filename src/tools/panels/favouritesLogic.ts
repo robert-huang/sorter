@@ -431,6 +431,7 @@ export function formatBirthdayKey(
 }
 
 const BIRTHDAY_DAYS_IN_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31] as const;
+// February uses 29 so the continuous year grid keeps March 31 on the last column.
 
 export const BIRTHDAY_MONTH_LABELS = [
   'January',
@@ -486,36 +487,71 @@ export function groupBirthdayCalendarByMonth(
 }
 
 export type BirthdayCalendarRenderItem =
-  | { kind: 'gap'; afterMonth: number; slotIndex: number; isSeparatorRow: boolean }
+  | { kind: 'pad'; afterMonth: number; slotIndex: number; padKind: 'row-end' | 'month-start' }
+  | { kind: 'monthBreak'; afterMonth: number }
   | { kind: 'cell'; cell: BirthdayCalendarCell };
 
-/** Gap slots after each month — always a full 7-cell break before the next month. */
-export function computeMonthEndGapCount(): number {
-  return 7;
+/** Pad slots from `nextCol` through column 6 so the month row is complete. */
+export function countMonthEndRowPaddingFromNextCol(nextCol: number): number {
+  return nextCol === 0 ? 0 : 7 - nextCol;
 }
 
-/** Flatten layout cells with a 7-cell gap row after every month except December. */
+/** Pad slots before day 1 so it lands on its continuous-year column. */
+export function countMonthStartLeadingPads(startCol: number): number {
+  return startCol;
+}
+
+/**
+ * After each month: pad to row end, fixed-height row gap, then leading pads so the
+ * next month starts on the column it would occupy in the continuous year grid.
+ */
 export function buildBirthdayCalendarRenderItems(
   layout: BirthdayCalendarLayout,
 ): BirthdayCalendarRenderItem[] {
   const items: BirthdayCalendarRenderItem[] = [];
-  for (const cell of layout.cells) {
+  let nextCol = 0;
+
+  for (let i = 0; i < layout.cells.length; i += 1) {
+    const cell = layout.cells[i]!;
     items.push({ kind: 'cell', cell });
+    nextCol = (nextCol + 1) % 7;
 
     const isLastDayOfMonth = cell.day === BIRTHDAY_DAYS_IN_MONTH[cell.month - 1];
     if (!isLastDayOfMonth || cell.month === 12) {
       continue;
     }
 
-    for (let slotIndex = 0; slotIndex < 7; slotIndex += 1) {
+    const rowEndPadCount = countMonthEndRowPaddingFromNextCol(nextCol);
+    for (let slotIndex = 0; slotIndex < rowEndPadCount; slotIndex += 1) {
       items.push({
-        kind: 'gap',
+        kind: 'pad',
         afterMonth: cell.month,
         slotIndex,
-        isSeparatorRow: slotIndex === 0,
+        padKind: 'row-end',
       });
+      nextCol = (nextCol + 1) % 7;
+    }
+
+    items.push({ kind: 'monthBreak', afterMonth: cell.month });
+    nextCol = 0;
+
+    const nextCell = layout.cells[i + 1];
+    if (!nextCell) {
+      continue;
+    }
+
+    const leadingPadCount = countMonthStartLeadingPads(nextCell.linearIndex % 7);
+    for (let slotIndex = 0; slotIndex < leadingPadCount; slotIndex += 1) {
+      items.push({
+        kind: 'pad',
+        afterMonth: cell.month,
+        slotIndex,
+        padKind: 'month-start',
+      });
+      nextCol = (nextCol + 1) % 7;
     }
   }
+
   return items;
 }
 

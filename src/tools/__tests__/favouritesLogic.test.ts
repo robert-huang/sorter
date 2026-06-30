@@ -3,7 +3,8 @@ import {
   accumulateVaStats,
   buildBirthdayCalendarLayout,
   buildBirthdayCalendarRenderItems,
-  computeMonthEndGapCount,
+  countMonthEndRowPaddingFromNextCol,
+  countMonthStartLeadingPads,
   buildFavouritesResult,
   buildVaPercentRankRows,
   CharacterRoleTier,
@@ -147,33 +148,90 @@ describe('buildBirthdayCalendarLayout', () => {
     expect(layout.cells[0]).toMatchObject({ month: 1, day: 1, linearIndex: 0 });
     expect(layout.cells[0]?.characters).toEqual([{ id: 1, name: 'New Year' }]);
     expect(layout.cells[31]).toMatchObject({ month: 2, day: 1, linearIndex: 31 });
+    expect(layout.cells[31]!.linearIndex % 7).toBe(3);
+    const jan31 = layout.cells.find((cell) => cell.month === 1 && cell.day === 31);
+    const feb1 = layout.cells.find((cell) => cell.month === 2 && cell.day === 1);
+    expect(feb1!.linearIndex).toBe(jan31!.linearIndex + 1);
+    expect(layout.cells.find((cell) => cell.month === 2 && cell.day === 29)).toBeDefined();
+    expect(layout.cells.find((cell) => cell.month === 2 && cell.day === 30)).toBeUndefined();
+    const mar31 = layout.cells.find((cell) => cell.month === 3 && cell.day === 31);
+    expect(mar31?.linearIndex).toBe(90);
+    expect(mar31!.linearIndex % 7).toBe(6);
     expect(layout.cells[layout.cells.length - 1]).toMatchObject({ month: 12, day: 31 });
     expect(layout.incomplete).toEqual([]);
   });
 });
 
-describe('computeMonthEndGapCount', () => {
-  it('is always 7', () => {
-    expect(computeMonthEndGapCount()).toBe(7);
+describe('countMonthEndRowPaddingFromNextCol', () => {
+  it('pads from the next column through column 6', () => {
+    expect(countMonthEndRowPaddingFromNextCol(3)).toBe(4);
+    expect(countMonthEndRowPaddingFromNextCol(0)).toBe(0);
   });
 });
 
-describe('buildBirthdayCalendarRenderItems', () => {
-  it('inserts 7 gap cells after every month except December', () => {
-    const layout = buildBirthdayCalendarLayout({});
-    const items = buildBirthdayCalendarRenderItems(layout);
-    const gaps = items.filter((item) => item.kind === 'gap');
-    expect(gaps).toHaveLength(11 * 7);
+describe('countMonthStartLeadingPads', () => {
+  it('matches the continuous-year start column', () => {
+    expect(countMonthStartLeadingPads(3)).toBe(3);
+    expect(countMonthStartLeadingPads(0)).toBe(0);
+  });
+});
 
+function renderColOfCell(
+  items: ReturnType<typeof buildBirthdayCalendarRenderItems>,
+  month: number,
+  day: number,
+): number | null {
+  let col = 0;
+  let found: number | null = null;
+  for (const item of items) {
+    if (item.kind === 'monthBreak') {
+      col = 0;
+      continue;
+    }
+    if (item.kind === 'cell' && item.cell.month === month && item.cell.day === day) {
+      found = col;
+    }
+    if (item.kind === 'cell' || item.kind === 'pad') {
+      col = (col + 1) % 7;
+    }
+  }
+  return found;
+}
+
+describe('buildBirthdayCalendarRenderItems', () => {
+  it('pads Jan to row end, row gap, then leading pads so Feb 1 is on column 4 (1-based)', () => {
+    const items = buildBirthdayCalendarRenderItems(buildBirthdayCalendarLayout({}));
     const jan31Index = items.findIndex(
       (item) => item.kind === 'cell' && item.cell.month === 1 && item.cell.day === 31,
     );
     const feb1Index = items.findIndex(
       (item) => item.kind === 'cell' && item.cell.month === 2 && item.cell.day === 1,
     );
-    const gapsBetween = items.slice(jan31Index + 1, feb1Index);
-    expect(gapsBetween).toHaveLength(7);
-    expect(gapsBetween.every((item) => item.kind === 'gap')).toBe(true);
+    expect(items.slice(jan31Index + 1, feb1Index)).toEqual([
+      { kind: 'pad', afterMonth: 1, slotIndex: 0, padKind: 'row-end' },
+      { kind: 'pad', afterMonth: 1, slotIndex: 1, padKind: 'row-end' },
+      { kind: 'pad', afterMonth: 1, slotIndex: 2, padKind: 'row-end' },
+      { kind: 'pad', afterMonth: 1, slotIndex: 3, padKind: 'row-end' },
+      { kind: 'monthBreak', afterMonth: 1 },
+      { kind: 'pad', afterMonth: 1, slotIndex: 0, padKind: 'month-start' },
+      { kind: 'pad', afterMonth: 1, slotIndex: 1, padKind: 'month-start' },
+      { kind: 'pad', afterMonth: 1, slotIndex: 2, padKind: 'month-start' },
+    ]);
+    expect(renderColOfCell(items, 2, 1)).toBe(3);
+  });
+
+  it('uses only a row gap between March and April when March ends on column 7 (1-based)', () => {
+    const items = buildBirthdayCalendarRenderItems(buildBirthdayCalendarLayout({}));
+    const mar31Index = items.findIndex(
+      (item) => item.kind === 'cell' && item.cell.month === 3 && item.cell.day === 31,
+    );
+    const apr1Index = items.findIndex(
+      (item) => item.kind === 'cell' && item.cell.month === 4 && item.cell.day === 1,
+    );
+    expect(items.slice(mar31Index + 1, apr1Index)).toEqual([
+      { kind: 'monthBreak', afterMonth: 3 },
+    ]);
+    expect(renderColOfCell(items, 4, 1)).toBe(0);
   });
 });
 

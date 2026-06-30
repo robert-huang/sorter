@@ -6404,26 +6404,35 @@ html {
 }
 
 .favourites-birthday-calendar {
+  --favourites-birthday-cell-min-height: 42px;
+  --favourites-birthday-month-gap-row-height: 12px;
+  --favourites-birthday-grid-gap: 4px;
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 4px;
+  gap: var(--favourites-birthday-grid-gap);
   margin-top: 10px;
   min-width: 0;
   max-width: 100%;
 }
 
-.favourites-birthday-month-gap {
+.favourites-birthday-month-pad {
   min-width: 0;
-  min-height: 42px;
+  min-height: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 
-.favourites-birthday-month-gap--separator-row {
-  margin-top: 10px;
+.favourites-birthday-month-break {
+  grid-column: 1 / -1;
+  /* Two narrow gap rows (12px each) plus the row gap between them — ~28px total. */
+  height: calc(
+    2 * var(--favourites-birthday-month-gap-row-height) + var(--favourites-birthday-grid-gap)
+  );
 }
 
 .favourites-birthday-cell {
   min-width: 0;
-  min-height: 42px;
+  min-height: var(--favourites-birthday-cell-min-height);
   padding: 4px 5px;
   border: 1px solid var(--border);
   border-radius: 4px;
