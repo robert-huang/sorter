@@ -5,8 +5,10 @@ import {
   buildFavouritesResult,
   buildVaPercentRankRows,
   CharacterRoleTier,
+  countMainRoleVaCharacters,
   countVaCharactersOnMedia,
   formatBirthdayKey,
+  MAIN_ROLE_PERCENT_DUMMY,
   pickCharacterName,
   processCharacterEdges,
 } from '../panels/favouritesLogic';
@@ -178,8 +180,7 @@ describe('buildVaPercentRankRows', () => {
 
     expect(rows[0]?.displayValue).toBe('20% (1/5)');
     expect(rows[0]?.characters).toEqual([{ id: 1, name: 'Main' }]);
-    // N = main-role favourite count (1), not total favourites (20).
-    expect(rows[0]?.numericValue).toBeCloseTo(1 / (5 + 0.1), 5);
+    expect(rows[0]?.numericValue).toBeCloseTo(1 / (5 + MAIN_ROLE_PERCENT_DUMMY), 5);
   });
 
   it('uses total favourite count for sort dampening in all-roles mode', () => {
@@ -211,6 +212,45 @@ describe('buildVaPercentRankRows', () => {
     );
 
     expect(rows[0]?.numericValue).toBeCloseTo(2 / (20 + 2), 5);
+  });
+});
+
+describe('countMainRoleVaCharacters', () => {
+  it('counts a character as main when manga MAIN is best tier on consumed media', () => {
+    const voicedCharacterIds = new Set([42]);
+    const count = countMainRoleVaCharacters(voicedCharacterIds, [
+      { characterId: 42, role: 'SUPPORTING' },
+      { characterId: 42, role: 'MAIN' },
+    ]);
+    expect(count).toBe(1);
+  });
+
+  it('does not count when only supporting roles exist on consumed media', () => {
+    const voicedCharacterIds = new Set([42]);
+    const count = countMainRoleVaCharacters(voicedCharacterIds, [
+      { characterId: 42, role: 'SUPPORTING' },
+    ]);
+    expect(count).toBe(0);
+  });
+});
+
+describe('countVaCharactersOnMedia mainOnly vs countMainRoleVaCharacters', () => {
+  it('edge-based mainOnly misses manga MAIN when VA filmography edge is supporting', () => {
+    const consumed = new Set([100, 200]);
+    const vaEdges = [
+      {
+        node: { id: 100 },
+        characterRole: 'SUPPORTING',
+        characters: [{ id: 42 }],
+      },
+    ];
+    expect(countVaCharactersOnMedia(vaEdges, consumed, 'mainOnly')).toBe(0);
+    expect(
+      countMainRoleVaCharacters(new Set([42]), [
+        { characterId: 42, role: 'SUPPORTING' },
+        { characterId: 42, role: 'MAIN' },
+      ]),
+    ).toBe(1);
   });
 });
 

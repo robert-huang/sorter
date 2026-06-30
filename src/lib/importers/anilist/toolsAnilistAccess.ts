@@ -56,6 +56,7 @@ import type {
   FavouriteStaffInput,
   VaMediaEdge,
 } from '../../../tools/panels/favouritesLogic';
+import { countMainRoleVaCharacters } from '../../../tools/panels/favouritesLogic';
 
 /** Statuses used by Shared Credits list filter (matches `TOOLS_USER_ANIME_LIST_QUERY`). */
 export const TOOLS_USER_LIST_STATUSES = [
@@ -463,6 +464,56 @@ export async function readVaCharacterEdgesFromDb(
     characterRole,
     characters: characterIds.map((id) => ({ id })),
   }));
+}
+
+/**
+ * Main-role VA total on consumed media: characters this VA voices where the
+ * character's best `media_character.role` on your list is MAIN (includes manga).
+ */
+export async function countVaMainRoleCharactersOnConsumedMediaFromDb(
+  db: AnilistDbExecutor,
+  staffId: number,
+  consumedMediaIds: ReadonlySet<number>,
+): Promise<number> {
+  if (consumedMediaIds.size === 0) {
+    return 0;
+  }
+  const mediaIds = [...consumedMediaIds];
+  const mediaPlaceholders = mediaIds.map(() => '?').join(', ');
+  const voicedRows = await db.exec(
+    `
+      SELECT DISTINCT character_id
+        FROM character_voice_actor
+       WHERE staff_id = ?
+         AND language = 'JAPANESE'
+         AND media_id IN (${mediaPlaceholders})
+    `,
+    [staffId, ...mediaIds],
+  );
+  const voicedCharacterIds = new Set(
+    voicedRows.map((row) => Number(row.character_id)),
+  );
+  if (voicedCharacterIds.size === 0) {
+    return 0;
+  }
+  const characterIds = [...voicedCharacterIds];
+  const characterPlaceholders = characterIds.map(() => '?').join(', ');
+  const roleRows = await db.exec(
+    `
+      SELECT character_id, role
+        FROM media_character
+       WHERE character_id IN (${characterPlaceholders})
+         AND media_id IN (${mediaPlaceholders})
+    `,
+    [...characterIds, ...mediaIds],
+  );
+  return countMainRoleVaCharacters(
+    voicedCharacterIds,
+    roleRows.map((row) => ({
+      characterId: Number(row.character_id),
+      role: (row.role as string | null) ?? null,
+    })),
+  );
 }
 
 /** Staff avatar URLs from the local DB (populated by cast/filmography imports). */

@@ -38,6 +38,7 @@ vi.mock('../../lib/importers/anilist/toolsAnilistAccess', () => ({
   readFavouriteCharactersFromDb: vi.fn(),
   readFavouriteStaffFromDb: vi.fn(),
   readVaCharacterEdgesFromDb: vi.fn(),
+  countVaMainRoleCharactersOnConsumedMediaFromDb: vi.fn(),
 }));
 
 import { depaginate, depaginateWithMeta } from '../../lib/importers/anilist/depaginate';
@@ -53,6 +54,7 @@ import {
   readFavouriteCharactersFromDb,
   readFavouriteStaffFromDb,
   readVaCharacterEdgesFromDb,
+  countVaMainRoleCharactersOnConsumedMediaFromDb,
 } from '../../lib/importers/anilist/toolsAnilistAccess';
 import { _clearSessionMemoForTesting } from '../../lib/importers/anilist/toolsSessionMemo';
 import { runFavouritesAnalysis } from '../panels/favouritesApi';
@@ -75,6 +77,9 @@ const readConsumedMediaIdsFromDbMock = vi.mocked(readConsumedMediaIdsFromDb);
 const readFavouriteCharactersFromDbMock = vi.mocked(readFavouriteCharactersFromDb);
 const readFavouriteStaffFromDbMock = vi.mocked(readFavouriteStaffFromDb);
 const readVaCharacterEdgesFromDbMock = vi.mocked(readVaCharacterEdgesFromDb);
+const countVaMainRoleCharactersOnConsumedMediaFromDbMock = vi.mocked(
+  countVaMainRoleCharactersOnConsumedMediaFromDb,
+);
 
 function makeCharacter(id: number, name = `Char ${id}`): FavouriteCharacterInput {
   return {
@@ -124,6 +129,7 @@ beforeEach(() => {
   readFavouriteCharactersFromDbMock.mockReset();
   readFavouriteStaffFromDbMock.mockReset();
   readVaCharacterEdgesFromDbMock.mockReset();
+  countVaMainRoleCharactersOnConsumedMediaFromDbMock.mockReset();
 
   // Default wiring: DB-backed reads succeed everywhere so we can focus
   // on the ensure-call side of the contract. Individual tests override.
@@ -159,6 +165,7 @@ beforeEach(() => {
   readVaCharacterEdgesFromDbMock.mockImplementation(async (_db, staffId) => [
     makeVaEdge(100, Number(staffId)),
   ]);
+  countVaMainRoleCharactersOnConsumedMediaFromDbMock.mockResolvedValue(1);
 });
 
 const FORM = {

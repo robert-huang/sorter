@@ -122,6 +122,9 @@ export type VaMediaEdge = {
 
 export type VaPercentRoleMode = 'all' | 'mainOnly';
 
+/** Fixed sort dampening for main-role % so 1/1 does not dominate the ranking. */
+export const MAIN_ROLE_PERCENT_DUMMY = 2;
+
 export type VaPercentMeta = {
   vaTotalCharacterCounts: Record<number, number>;
   vaMainRoleCharacterCounts: Record<number, number>;
@@ -381,6 +384,41 @@ export function countVaCharactersOnMedia(
   return characterBestTier.size;
 }
 
+export type CharacterRoleOnMediaRow = {
+  characterId: number;
+  role: string | null;
+};
+
+/**
+ * Best role tier per character across `media_character` rows on consumed
+ * media. Used for main-role VA totals so a manga MAIN counts even when the
+ * VA filmography edge only reflects an anime appearance.
+ */
+export function countMainRoleVaCharacters(
+  voicedCharacterIds: ReadonlySet<number>,
+  roleRows: CharacterRoleOnMediaRow[],
+): number {
+  const bestTier = new Map<number, CharacterRoleTier>();
+  for (const row of roleRows) {
+    if (!voicedCharacterIds.has(row.characterId)) {
+      continue;
+    }
+    const roleTier = roleTierFromLabel(row.role);
+    const existing = bestTier.get(row.characterId) ?? CharacterRoleTier.Unknown;
+    bestTier.set(
+      row.characterId,
+      Math.min(existing, roleTier) as CharacterRoleTier,
+    );
+  }
+  let count = 0;
+  for (const characterId of voicedCharacterIds) {
+    if (bestTier.get(characterId) === CharacterRoleTier.Main) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
 export function formatBirthdayKey(
   dob: FavouriteCharacterInput['dateOfBirth'],
 ): string {
@@ -523,23 +561,14 @@ function toRankRows(
   return rows;
 }
 
-function countMainRoleFavourites(
-  characterRoleTierById: Record<number, CharacterRoleTier>,
-): number {
-  return Object.values(characterRoleTierById).filter(
-    (tier) => tier === CharacterRoleTier.Main,
-  ).length;
-}
-
 export function buildVaPercentRankRows(
   byCountRows: VaRankRow[],
   meta: VaPercentMeta,
   roleMode: VaPercentRoleMode,
 ): VaRankRow[] {
-  const mainRoleFavouriteCount = countMainRoleFavourites(meta.characterRoleTierById);
   const dummyMedian =
     roleMode === 'mainOnly'
-      ? mainRoleFavouriteCount / 10
+      ? MAIN_ROLE_PERCENT_DUMMY
       : meta.characterCount / 10;
   const totalCounts =
     roleMode === 'mainOnly'

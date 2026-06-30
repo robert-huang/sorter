@@ -27,6 +27,7 @@ import {
   readFavouriteCharactersFromDb,
   readFavouriteStaffFromDb,
   readVaCharacterEdgesFromDb,
+  countVaMainRoleCharactersOnConsumedMediaFromDb,
 } from '../../lib/importers/anilist/toolsAnilistAccess';
 import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportContext';
 import {
@@ -461,13 +462,18 @@ export async function runFavouritesAnalysis(
     const vaId = vaIdList[i]!;
     onProgress({ phase: 'va-totals', index: i + 1, total: vaIdList.length });
     const edges = await fetchVaCharacterEdges(vaId, signal, fetchOptions);
+    const ctx = getToolsImportContext();
     vaTotalCharacterCounts.set(
       vaId,
       countVaCharactersOnMedia(edges, consumedMediaIds, 'all'),
     );
     vaMainRoleCharacterCounts.set(
       vaId,
-      countVaCharactersOnMedia(edges, consumedMediaIds, 'mainOnly'),
+      await countVaMainRoleCharactersOnConsumedMediaFromDb(
+        ctx.db,
+        vaId,
+        consumedMediaIds,
+      ),
     );
   }
 
