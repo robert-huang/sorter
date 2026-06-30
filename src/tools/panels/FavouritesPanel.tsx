@@ -12,6 +12,7 @@ import { runFavouritesAnalysis, type FavouritesRunProgress } from './favouritesA
 import {
   BIRTHDAY_MONTH_LABELS,
   buildBirthdayCalendarLayout,
+  buildBirthdayCalendarRenderItems,
   buildVaPercentRankRows,
   FAVOURITES_TOP_N,
   rebuildFavouritesResult,
@@ -289,7 +290,12 @@ function BirthdayCalendarBlock({
 }: {
   birthdays: FavouritesResult['birthdays'];
 }) {
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const layout = useMemo(() => buildBirthdayCalendarLayout(birthdays), [birthdays]);
+  const calendarItems = useMemo(
+    () => buildBirthdayCalendarRenderItems(layout),
+    [layout],
+  );
   const hasBirthdays =
     layout.cells.some((cell) => cell.characters.length > 0) || layout.incomplete.length > 0;
 
@@ -300,41 +306,94 @@ function BirthdayCalendarBlock({
   return (
     <details className="tool-category-block">
       <summary className="tool-category-title">Birthdays</summary>
-      <div className="favourites-birthday-calendar">
-        {layout.cells.map((cell) => {
-          const isMonthStart = cell.day === 1;
-          const hasCharacters = cell.characters.length > 0;
-          return (
-            <div
-              key={`${cell.month}-${cell.day}`}
-              className={[
-                'favourites-birthday-cell',
-                hasCharacters ? 'favourites-birthday-cell--filled' : '',
-              ]
-                .filter(Boolean)
-                .join(' ')}
-            >
-              {isMonthStart ? (
-                <span className="favourites-birthday-month">
-                  {BIRTHDAY_MONTH_LABELS[cell.month - 1]}
-                </span>
-              ) : null}
-              <span className="favourites-birthday-day">{cell.day}</span>
-              {hasCharacters ? (
-                <span className="favourites-birthday-names">
-                  <CharacterNameInlineList characters={cell.characters} />
-                </span>
-              ) : null}
-            </div>
-          );
-        })}
+      <div className="favourites-percent-role-toggle">
+        <label>
+          <input
+            type="radio"
+            name="favourites-birthday-view-mode"
+            checked={viewMode === 'grid'}
+            onChange={() => setViewMode('grid')}
+          />{' '}
+          Calendar
+        </label>
+        <label>
+          <input
+            type="radio"
+            name="favourites-birthday-view-mode"
+            checked={viewMode === 'list'}
+            onChange={() => setViewMode('list')}
+          />{' '}
+          List
+        </label>
       </div>
-      {layout.incomplete.length > 0 ? (
-        <div className="favourites-birthday-incomplete">
-          <span className="favourites-birthday-incomplete-label">Unknown date</span>
-          <CharacterNameInlineList characters={layout.incomplete} />
-        </div>
-      ) : null}
+      {viewMode === 'list' ? (
+        <ul className="tool-rank-list">
+          {Object.entries(birthdays)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([day, characters]) => (
+              <li key={day}>
+                <span className="tool-rank-count">{day}</span>
+                <CharacterNameInlineList characters={characters} />
+              </li>
+            ))}
+        </ul>
+      ) : (
+        <>
+          <div className="favourites-birthday-calendar">
+            {calendarItems.map((item) => {
+              if (item.kind === 'gap') {
+                return (
+                  <div
+                    key={`gap-${item.afterMonth}-${item.slotIndex}`}
+                    className={[
+                      'favourites-birthday-month-gap',
+                      item.isSeparatorRow && item.slotIndex === 0
+                        ? 'favourites-birthday-month-gap--separator-row'
+                        : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                    aria-hidden
+                  />
+                );
+              }
+              const { cell } = item;
+              const isMonthStart = cell.day === 1;
+              const hasCharacters = cell.characters.length > 0;
+              return (
+                <div
+                  key={`${cell.month}-${cell.day}`}
+                  className={[
+                    'favourites-birthday-cell',
+                    hasCharacters ? 'favourites-birthday-cell--filled' : '',
+                    isMonthStart ? 'favourites-birthday-cell--month-start' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                >
+                  {isMonthStart ? (
+                    <span className="favourites-birthday-month">
+                      {BIRTHDAY_MONTH_LABELS[cell.month - 1]}
+                    </span>
+                  ) : null}
+                  <span className="favourites-birthday-day">{cell.day}</span>
+                  {hasCharacters ? (
+                    <span className="favourites-birthday-names">
+                      <CharacterNameInlineList characters={cell.characters} />
+                    </span>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+          {layout.incomplete.length > 0 ? (
+            <div className="favourites-birthday-incomplete">
+              <span className="favourites-birthday-incomplete-label">Unknown date</span>
+              <CharacterNameInlineList characters={layout.incomplete} />
+            </div>
+          ) : null}
+        </>
+      )}
     </details>
   );
 }

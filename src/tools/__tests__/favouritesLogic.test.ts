@@ -2,12 +2,15 @@ import { describe, expect, it } from 'vitest';
 import {
   accumulateVaStats,
   buildBirthdayCalendarLayout,
+  buildBirthdayCalendarRenderItems,
+  computeMonthEndGapCount,
   buildFavouritesResult,
   buildVaPercentRankRows,
   CharacterRoleTier,
   countMainRoleVaCharacters,
   countVaCharactersOnMedia,
   formatBirthdayKey,
+  groupBirthdayCalendarByMonth,
   MAIN_ROLE_PERCENT_DUMMY,
   pickCharacterName,
   processCharacterEdges,
@@ -146,6 +149,42 @@ describe('buildBirthdayCalendarLayout', () => {
     expect(layout.cells[31]).toMatchObject({ month: 2, day: 1, linearIndex: 31 });
     expect(layout.cells[layout.cells.length - 1]).toMatchObject({ month: 12, day: 31 });
     expect(layout.incomplete).toEqual([]);
+  });
+});
+
+describe('computeMonthEndGapCount', () => {
+  it('is always 7', () => {
+    expect(computeMonthEndGapCount()).toBe(7);
+  });
+});
+
+describe('buildBirthdayCalendarRenderItems', () => {
+  it('inserts 7 gap cells after every month except December', () => {
+    const layout = buildBirthdayCalendarLayout({});
+    const items = buildBirthdayCalendarRenderItems(layout);
+    const gaps = items.filter((item) => item.kind === 'gap');
+    expect(gaps).toHaveLength(11 * 7);
+
+    const jan31Index = items.findIndex(
+      (item) => item.kind === 'cell' && item.cell.month === 1 && item.cell.day === 31,
+    );
+    const feb1Index = items.findIndex(
+      (item) => item.kind === 'cell' && item.cell.month === 2 && item.cell.day === 1,
+    );
+    const gapsBetween = items.slice(jan31Index + 1, feb1Index);
+    expect(gapsBetween).toHaveLength(7);
+    expect(gapsBetween.every((item) => item.kind === 'gap')).toBe(true);
+  });
+});
+
+describe('groupBirthdayCalendarByMonth', () => {
+  it('pads month starts to continue the 7-column year flow', () => {
+    const layout = buildBirthdayCalendarLayout({});
+    const months = groupBirthdayCalendarByMonth(layout);
+    expect(months).toHaveLength(12);
+    expect(months[0]?.leadingBlankCount).toBe(0);
+    expect(months[1]?.leadingBlankCount).toBe(3);
+    expect(months[1]?.cells[0]).toMatchObject({ month: 2, day: 1 });
   });
 });
 

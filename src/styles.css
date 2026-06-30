@@ -6407,9 +6407,21 @@ html {
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 4px;
   margin-top: 10px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.favourites-birthday-month-gap {
+  min-width: 0;
+  min-height: 42px;
+}
+
+.favourites-birthday-month-gap--separator-row {
+  margin-top: 10px;
 }
 
 .favourites-birthday-cell {
+  min-width: 0;
   min-height: 42px;
   padding: 4px 5px;
   border: 1px solid var(--border);
@@ -6417,6 +6429,7 @@ html {
   background: var(--bg, #fff);
   font-size: 11px;
   line-height: 1.35;
+  overflow: hidden;
 }
 
 .favourites-birthday-cell--filled {
@@ -6449,6 +6462,7 @@ html {
   display: block;
   margin-top: 2px;
   font-size: 11px;
+  overflow-wrap: anywhere;
 }
 
 .favourites-birthday-incomplete {

@@ -459,6 +459,66 @@ export type BirthdayCalendarLayout = {
   incomplete: FavouriteCharacterRef[];
 };
 
+export type BirthdayCalendarMonth = {
+  month: number;
+  /** Empty cells before day 1 so the month continues the 7-column year flow. */
+  leadingBlankCount: number;
+  cells: BirthdayCalendarCell[];
+};
+
+export function groupBirthdayCalendarByMonth(
+  layout: BirthdayCalendarLayout,
+): BirthdayCalendarMonth[] {
+  const byMonth = new Map<number, BirthdayCalendarCell[]>();
+  for (const cell of layout.cells) {
+    const monthCells = byMonth.get(cell.month);
+    if (monthCells) {
+      monthCells.push(cell);
+    } else {
+      byMonth.set(cell.month, [cell]);
+    }
+  }
+  return [...byMonth.entries()].map(([month, cells]) => ({
+    month,
+    leadingBlankCount: (cells[0]?.linearIndex ?? 0) % 7,
+    cells,
+  }));
+}
+
+export type BirthdayCalendarRenderItem =
+  | { kind: 'gap'; afterMonth: number; slotIndex: number; isSeparatorRow: boolean }
+  | { kind: 'cell'; cell: BirthdayCalendarCell };
+
+/** Gap slots after each month — always a full 7-cell break before the next month. */
+export function computeMonthEndGapCount(): number {
+  return 7;
+}
+
+/** Flatten layout cells with a 7-cell gap row after every month except December. */
+export function buildBirthdayCalendarRenderItems(
+  layout: BirthdayCalendarLayout,
+): BirthdayCalendarRenderItem[] {
+  const items: BirthdayCalendarRenderItem[] = [];
+  for (const cell of layout.cells) {
+    items.push({ kind: 'cell', cell });
+
+    const isLastDayOfMonth = cell.day === BIRTHDAY_DAYS_IN_MONTH[cell.month - 1];
+    if (!isLastDayOfMonth || cell.month === 12) {
+      continue;
+    }
+
+    for (let slotIndex = 0; slotIndex < 7; slotIndex += 1) {
+      items.push({
+        kind: 'gap',
+        afterMonth: cell.month,
+        slotIndex,
+        isSeparatorRow: slotIndex === 0,
+      });
+    }
+  }
+  return items;
+}
+
 /** Continuous year grid: Jan 1 in column 0; each month follows the previous month's end column. */
 export function buildBirthdayCalendarLayout(
   birthdays: Record<string, FavouriteCharacterRef[]>,
