@@ -787,7 +787,7 @@ query ToolsFavouriteCharacters($username: String!, $page: Int!, $perPage: Int!) 
         pageInfo { hasNextPage currentPage }
         nodes {
           id
-          name { full native }
+          name { full native alternative alternativeSpoiler }
           gender
           favourites
           dateOfBirth { year month day }
@@ -828,6 +828,7 @@ query ToolsCharacterVoiceMedia($id: Int!, $page: Int!, $perPage: Int!) {
         node {
           id
           title { romaji native english }
+          synonyms
           type
           format
           coverImage { large }

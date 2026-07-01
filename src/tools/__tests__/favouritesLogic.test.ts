@@ -14,6 +14,8 @@ import {
   groupBirthdayCalendarByMonth,
   MAIN_ROLE_PERCENT_DUMMY,
   pickCharacterName,
+  filterFavouritesSeriesRows,
+  favouriteCharacterSearchParts,
   processCharacterEdges,
 } from '../panels/favouritesLogic';
 
@@ -39,11 +41,14 @@ describe('pickCharacterName', () => {
 
 describe('processCharacterEdges', () => {
   const consumed = new Set([1, 2]);
+  const heroCharacter = {
+    id: 99,
+    name: { full: 'Hero', native: null },
+  };
 
   it('skips media not on user list and blacklisted ids', () => {
     const result = processCharacterEdges(
-      99,
-      'Hero',
+      heroCharacter,
       [
         {
           node: { id: 1, title: { romaji: 'Show A', native: null }, type: 'ANIME' },
@@ -65,15 +70,15 @@ describe('processCharacterEdges', () => {
     expect(result.vas).toEqual([{ id: 10, name: 'VA One', imageUrl: null }]);
     expect(result.shows[1]).toEqual({
       title: 'Show A',
+      titleSearchTokens: ['Show A'],
       coverImage: null,
-      characters: [{ id: 99, name: 'Hero' }],
+      characters: [{ id: 99, name: 'Hero', searchTokens: ['Hero'] }],
     });
   });
 
   it('groups manga edges into books when manga is on the user list', () => {
     const result = processCharacterEdges(
-      99,
-      'Hero',
+      heroCharacter,
       [
         {
           node: { id: 50, title: { romaji: 'Manga A', native: null }, type: 'MANGA' },
@@ -86,8 +91,9 @@ describe('processCharacterEdges', () => {
 
     expect(result.books[50]).toEqual({
       title: 'Manga A',
+      titleSearchTokens: ['Manga A'],
       coverImage: null,
-      characters: [{ id: 99, name: 'Hero' }],
+      characters: [{ id: 99, name: 'Hero', searchTokens: ['Hero'] }],
     });
     expect(result.shows).toEqual({});
   });
@@ -140,13 +146,13 @@ describe('countVaCharactersOnMedia', () => {
 describe('buildBirthdayCalendarLayout', () => {
   it('lays out months continuously from January 1 in column 0', () => {
     const layout = buildBirthdayCalendarLayout({
-      '0101': [{ id: 1, name: 'New Year' }],
-      '0201': [{ id: 2, name: 'Feb' }],
-      '1231': [{ id: 3, name: 'Eve' }],
+      '0101': [{ id: 1, name: 'New Year', searchTokens: ['New Year'] }],
+      '0201': [{ id: 2, name: 'Feb', searchTokens: ['Feb'] }],
+      '1231': [{ id: 3, name: 'Eve', searchTokens: ['Eve'] }],
     });
 
     expect(layout.cells[0]).toMatchObject({ month: 1, day: 1, linearIndex: 0 });
-    expect(layout.cells[0]?.characters).toEqual([{ id: 1, name: 'New Year' }]);
+    expect(layout.cells[0]?.characters).toEqual([{ id: 1, name: 'New Year', searchTokens: ['New Year'] }]);
     expect(layout.cells[31]).toMatchObject({ month: 2, day: 1, linearIndex: 31 });
     expect(layout.cells[31]!.linearIndex % 7).toBe(3);
     const jan31 = layout.cells.find((cell) => cell.month === 1 && cell.day === 31);
@@ -256,8 +262,8 @@ describe('buildVaPercentRankRows', () => {
         displayValue: '2',
         numericValue: 2,
         characters: [
-          { id: 1, name: 'Main' },
-          { id: 2, name: 'Supporting' },
+          { id: 1, name: 'Main', searchTokens: ['Main'] },
+          { id: 2, name: 'Supporting', searchTokens: ['Supporting'] },
         ],
       },
     ];
@@ -276,7 +282,7 @@ describe('buildVaPercentRankRows', () => {
     );
 
     expect(rows[0]?.displayValue).toBe('20% (1/5)');
-    expect(rows[0]?.characters).toEqual([{ id: 1, name: 'Main' }]);
+    expect(rows[0]?.characters).toEqual([{ id: 1, name: 'Main', searchTokens: ['Main'] }]);
     expect(rows[0]?.numericValue).toBeCloseTo(1 / (5 + MAIN_ROLE_PERCENT_DUMMY), 5);
   });
 
@@ -289,8 +295,8 @@ describe('buildVaPercentRankRows', () => {
         displayValue: '2',
         numericValue: 2,
         characters: [
-          { id: 1, name: 'Main' },
-          { id: 2, name: 'Supporting' },
+          { id: 1, name: 'Main', searchTokens: ['Main'] },
+          { id: 2, name: 'Supporting', searchTokens: ['Supporting'] },
         ],
       },
     ];
@@ -319,7 +325,7 @@ describe('buildVaPercentRankRows', () => {
         imageUrl: null,
         displayValue: '1',
         numericValue: 1,
-        characters: [{ id: 1, name: 'Main' }],
+        characters: [{ id: 1, name: 'Main', searchTokens: ['Main'] }],
       },
       {
         staffId: 20,
@@ -327,7 +333,7 @@ describe('buildVaPercentRankRows', () => {
         imageUrl: null,
         displayValue: '1',
         numericValue: 1,
-        characters: [{ id: 2, name: 'Supporting' }],
+        characters: [{ id: 2, name: 'Supporting', searchTokens: ['Supporting'] }],
       },
     ];
     const meta = {
@@ -403,8 +409,8 @@ describe('accumulateVaStats', () => {
     // dummy = 0.2, two hits => raw count 2, stored count 2.2
     expect(va!.count).toBeCloseTo(2.2, 5);
     expect(va!.characters).toEqual([
-      { id: 1, name: 'A' },
-      { id: 2, name: 'B' },
+      { id: 1, name: 'A', searchTokens: ['A'] },
+      { id: 2, name: 'B', searchTokens: ['B'] },
     ]);
   });
 });
@@ -441,7 +447,12 @@ describe('buildFavouritesResult', () => {
           seen: true,
           isMain: true,
           shows: {
-            1: { title: 'Show 1', coverImage: null, characters: [{ id: 1, name: 'Alice' }] },
+            1: {
+              title: 'Show 1',
+              titleSearchTokens: ['Show 1'],
+              coverImage: null,
+              characters: [{ id: 1, name: 'Alice', searchTokens: ['Alice'] }],
+            },
           },
           books: {},
         },
@@ -450,7 +461,12 @@ describe('buildFavouritesResult', () => {
           seen: true,
           isMain: false,
           shows: {
-            2: { title: 'Show 2', coverImage: null, characters: [{ id: 2, name: 'Bob' }] },
+            2: {
+              title: 'Show 2',
+              titleSearchTokens: ['Show 2'],
+              coverImage: null,
+              characters: [{ id: 2, name: 'Bob', searchTokens: ['Bob'] }],
+            },
           },
           books: {},
         },
@@ -468,8 +484,8 @@ describe('buildFavouritesResult', () => {
 
     expect(result.characterCount).toBe(2);
     expect(result.byCount[0].staffId).toBe(10);
-    expect(result.gender.female).toEqual([{ id: 1, name: 'Alice' }]);
-    expect(result.gender.male).toEqual([{ id: 2, name: 'Bob' }]);
+    expect(result.gender.female).toEqual([{ id: 1, name: 'Alice', searchTokens: ['Alice'] }]);
+    expect(result.gender.male).toEqual([{ id: 2, name: 'Bob', searchTokens: ['Bob'] }]);
     expect(result.numFemaleSeen).toBe(1);
     expect(result.numMain).toBe(1);
     expect(result.favouriteCharacters).toEqual([
@@ -477,11 +493,11 @@ describe('buildFavouritesResult', () => {
       { id: 2, name: 'Bob', rank: 2, gender: 'Male' },
     ]);
     expect(formatBirthdayKey(characters[0].dateOfBirth)).toBe('0305');
-    expect(result.birthdays['0305']).toEqual([{ id: 1, name: 'Alice' }]);
+    expect(result.birthdays['0305']).toEqual([{ id: 1, name: 'Alice', searchTokens: ['Alice'] }]);
     expect(result.favouriteStaff[0].matchedCount).toBe(2);
     expect(result.favouriteStaff[0].matchedCharacters).toEqual([
-      { id: 1, name: 'Alice' },
-      { id: 2, name: 'Bob' },
+      { id: 1, name: 'Alice', searchTokens: ['Alice'] },
+      { id: 2, name: 'Bob', searchTokens: ['Bob'] },
     ]);
     expect(result.byCount.length).toBe(2);
   });
@@ -506,8 +522,9 @@ describe('buildFavouritesResult', () => {
           books: {
             50: {
               title: 'Manga A',
+              titleSearchTokens: ['Manga A'],
               coverImage: null,
-              characters: [{ id: 1, name: 'Alice' }],
+              characters: [{ id: 1, name: 'Alice', searchTokens: ['Alice'] }],
             },
           },
         },
@@ -522,8 +539,83 @@ describe('buildFavouritesResult', () => {
         mediaId: 50,
         title: 'Manga A',
         mediaType: 'MANGA',
-        characters: [{ id: 1, name: 'Alice' }],
+        characters: [{ id: 1, name: 'Alice', searchTokens: ['Alice'] }],
       }),
     ]);
+  });
+});
+
+describe('filterFavouritesSeriesRows', () => {
+  const rows = [
+    {
+      mediaId: 1,
+      mediaType: 'ANIME' as const,
+      title: 'Frieren: Beyond Journey\'s End',
+      titleSearchTokens: ['Frieren: Beyond Journey\'s End', '葬送のフリーレン'],
+      coverImage: null,
+      characters: [
+        {
+          id: 10,
+          name: 'Frieren',
+          searchTokens: ['Frieren', 'フリーレン'],
+        },
+        {
+          id: 11,
+          name: 'Stark',
+          searchTokens: ['Stark', 'シュタルク'],
+        },
+      ],
+    },
+    {
+      mediaId: 2,
+      mediaType: 'ANIME' as const,
+      title: 'Bocchi the Rock!',
+      titleSearchTokens: ['Bocchi the Rock!', 'ぼっち・ざ・ろっく！', 'Bocchi'],
+      coverImage: null,
+      characters: [
+        {
+          id: 20,
+          name: 'Hitori Gotou',
+          searchTokens: ['Hitori Gotou', '後藤ひとり', 'Bocchi'],
+        },
+      ],
+    },
+  ];
+
+  it('matches native title when display title is English', () => {
+    expect(filterFavouritesSeriesRows(rows, 'フリーレン')).toEqual([rows[0]]);
+  });
+
+  it('matches media synonym in title search tokens', () => {
+    expect(filterFavouritesSeriesRows(rows, 'ぼっち・ざ・ろっく')).toEqual([rows[1]]);
+  });
+
+  it('filters characters by alias while keeping the series row', () => {
+    expect(filterFavouritesSeriesRows(rows, 'シュタルク')).toEqual([
+      {
+        ...rows[0],
+        characters: [rows[0].characters[1]],
+      },
+    ]);
+  });
+
+  it('matches character nickname alias', () => {
+    expect(filterFavouritesSeriesRows(rows, 'bocchi')).toEqual([rows[1]]);
+  });
+});
+
+describe('favouriteCharacterSearchParts', () => {
+  it('includes alternative and spoiler aliases', () => {
+    expect(
+      favouriteCharacterSearchParts({
+        id: 1,
+        name: {
+          full: 'Hitori Gotou',
+          native: '後藤ひとり',
+          alternative: ['Bocchi'],
+          alternativeSpoiler: ['Guitar Hero'],
+        },
+      }),
+    ).toEqual(expect.arrayContaining(['Hitori Gotou', '後藤ひとり', 'Bocchi', 'Guitar Hero']));
   });
 });

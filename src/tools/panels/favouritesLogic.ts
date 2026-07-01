@@ -10,11 +10,13 @@ import {
   type MediaTitleDisplayMode,
   type PersonNameDisplayMode,
 } from '../../lib/importers/anilist/displayPreferences';
-import { pickMediaTitle as pickMediaTitleWithPrefs } from '../../lib/importers/anilist/mediaDisplayLabel';
+import { pickMediaTitle as pickMediaTitleWithPrefs, mediaTitleSearchParts } from '../../lib/importers/anilist/mediaDisplayLabel';
 import {
   pickCharacterName as pickCharacterNameFields,
   pickPersonName,
+  characterNameSearchParts,
 } from '../../lib/importers/anilist/personDisplayLabel';
+import { matchesListFilter } from '../../animeToAnime/listFilter';
 
 export const FAVOURITES_TOP_N = 20;
 
@@ -35,6 +37,11 @@ export const CHAR_VA_BLACKLIST: Readonly<Record<number, readonly number[]>> = {
   // 1743: [95014], // Ai Haibara: [Megumi Hayashibara] (manga)
   4228: [95517], // Ayumi Yoshida: [Yukiko Iwai] (manga)
   3198: [95458], // Kazuha Tooyama: [Yuuko Miyamura] (manga)
+  13975: [96463], // Miwako Satou: [Atsuko Yuya] (manga)
+  9421: [95133], // Wataru Takagi: [Wataru Takagi] (manga)
+  1744: [95497], // Eri Kisaki: [Gara Takashima] (manga)
+  184313: [115100], // Stark: [Arisa Kiyoto] (young)
+  13783: [95247], // Takashi Natsume: [Ayumi Fujimura] (young)
 };
 
 /** Media ids excluded from character/VA stats. */
@@ -61,7 +68,12 @@ export type FavouritesForm = {
 
 export type FavouriteCharacterInput = {
   id: number;
-  name: { full: string; native?: string | null };
+  name: {
+    full: string;
+    native?: string | null;
+    alternative?: string[] | null;
+    alternativeSpoiler?: string[] | null;
+  };
   gender?: string | null;
   favourites?: number | null;
   dateOfBirth?: { year?: number | null; month?: number | null; day?: number | null } | null;
@@ -78,10 +90,12 @@ export type FavouriteStaffInput = {
 export type FavouriteCharacterRef = {
   id: number;
   name: string;
+  searchTokens: readonly string[];
 };
 
 export type FavouritesSeriesMeta = {
   title: string;
+  titleSearchTokens: readonly string[];
   coverImage: string | null;
   characters: FavouriteCharacterRef[];
 };
@@ -90,6 +104,7 @@ export type FavouritesSeriesRow = {
   mediaId: number;
   mediaType: 'ANIME' | 'MANGA';
   title: string;
+  titleSearchTokens: readonly string[];
   coverImage: string | null;
   characters: FavouriteCharacterRef[];
 };
@@ -102,6 +117,7 @@ export type CharacterMediaEdge = {
       native?: string | null;
       english?: string | null;
     };
+    synonyms?: string[] | null;
     type: string;
     format?: string | null;
     coverImage?: { large?: string | null } | null;
@@ -232,14 +248,58 @@ export function pickFavouriteMediaTitle(
   );
 }
 
+function stringArrayToJson(values: string[] | null | undefined): string | null {
+  if (!values?.length) {
+    return null;
+  }
+  return JSON.stringify(values);
+}
+
+export function favouriteCharacterSearchParts(
+  character: Pick<FavouriteCharacterInput, 'id' | 'name'>,
+): readonly string[] {
+  return characterNameSearchParts({
+    id: character.id,
+    name_full: character.name.full,
+    name_native: character.name.native ?? null,
+    name_alternatives_json: stringArrayToJson(character.name.alternative ?? null),
+    name_alternatives_spoiler_json: stringArrayToJson(character.name.alternativeSpoiler ?? null),
+  });
+}
+
+function mediaEdgeTitleSearchParts(
+  mediaId: number,
+  title: CharacterMediaEdge['node']['title'],
+  synonyms?: string[] | null,
+): readonly string[] {
+  return mediaTitleSearchParts({
+    id: mediaId,
+    title_romaji: title.romaji ?? null,
+    title_english: title.english ?? null,
+    title_native: title.native ?? null,
+    synonyms_json: stringArrayToJson(synonyms ?? null),
+  });
+}
+
+function unionSearchParts(...lists: ReadonlyArray<readonly string[]>): readonly string[] {
+  const parts: string[] = [];
+  for (const list of lists) {
+    for (const part of list) {
+      if (!parts.includes(part)) {
+        parts.push(part);
+      }
+    }
+  }
+  return parts;
+}
+
 function isVaBlacklisted(charId: number, vaId: number): boolean {
   const blocked = CHAR_VA_BLACKLIST[charId];
   return blocked !== undefined && blocked.includes(vaId);
 }
 
 export function processCharacterEdges(
-  charId: number,
-  charName: string,
+  character: FavouriteCharacterInput,
   edges: CharacterMediaEdge[],
   consumedMediaIds: ReadonlySet<number>,
 ): {
@@ -250,21 +310,26 @@ export function processCharacterEdges(
   shows: Record<number, FavouritesSeriesMeta>;
   books: Record<number, FavouritesSeriesMeta>;
 } {
+  const charId = character.id;
   const vaIds = new Set<number>();
   const vas: Array<{ id: number; name: string; imageUrl: string | null }> = [];
   let charRole = CharacterRoleTier.Unknown;
   let seen = false;
   let isMain = false;
-  const shows: Record<
-    number,
-    { title: string; coverImage: string | null; characters: Map<number, FavouriteCharacterRef> }
-  > = {};
-  const books: Record<
-    number,
-    { title: string; coverImage: string | null; characters: Map<number, FavouriteCharacterRef> }
-  > = {};
+  type SeriesBucketEntry = {
+    title: string;
+    titleSearchTokens: readonly string[];
+    coverImage: string | null;
+    characters: Map<number, FavouriteCharacterRef>;
+  };
+  const shows: Record<number, SeriesBucketEntry> = {};
+  const books: Record<number, SeriesBucketEntry> = {};
 
-  const charRef: FavouriteCharacterRef = { id: charId, name: charName };
+  const charRef: FavouriteCharacterRef = {
+    id: charId,
+    name: pickCharacterName(character),
+    searchTokens: favouriteCharacterSearchParts(character),
+  };
 
   for (const edge of edges) {
     const mediaId = edge.node.id;
@@ -273,13 +338,24 @@ export function processCharacterEdges(
     }
 
     const title = pickFavouriteMediaTitle(mediaId, edge.node.title);
+    const titleSearchTokens = mediaEdgeTitleSearchParts(
+      mediaId,
+      edge.node.title,
+      edge.node.synonyms,
+    );
     const bucket = edge.node.type === 'MANGA' ? books : shows;
     if (!bucket[mediaId]) {
       bucket[mediaId] = {
         title,
+        titleSearchTokens,
         coverImage: edge.node.coverImage?.large ?? null,
         characters: new Map(),
       };
+    } else {
+      bucket[mediaId].titleSearchTokens = unionSearchParts(
+        bucket[mediaId].titleSearchTokens,
+        titleSearchTokens,
+      );
     }
     bucket[mediaId].characters.set(charId, charRef);
 
@@ -305,17 +381,13 @@ export function processCharacterEdges(
     }
   }
 
-  const toSeriesMeta = (
-    map: Record<
-      number,
-      { title: string; coverImage: string | null; characters: Map<number, FavouriteCharacterRef> }
-    >,
-  ): Record<number, FavouritesSeriesMeta> =>
+  const toSeriesMeta = (map: Record<number, SeriesBucketEntry>): Record<number, FavouritesSeriesMeta> =>
     Object.fromEntries(
       Object.entries(map).map(([mediaId, entry]) => [
         mediaId,
         {
           title: entry.title,
+          titleSearchTokens: entry.titleSearchTokens,
           coverImage: entry.coverImage,
           characters: [...entry.characters.values()].sort((a, b) =>
             a.name.localeCompare(b.name),
@@ -603,6 +675,7 @@ export function accumulateVaStats(
     const characterRef: FavouriteCharacterRef = {
       id: character.id,
       name: pickCharacterName(character, characterMode),
+      searchTokens: favouriteCharacterSearchParts(character),
     };
     for (const va of perCharacterVas[i] ?? []) {
       const existing = accum.get(va.id);
@@ -744,7 +817,11 @@ export function buildFavouritesResult(input: {
 
   for (let i = 0; i < characters.length; i += 1) {
     const name = characterNames[i]!;
-    const characterRef: FavouriteCharacterRef = { id: characters[i]!.id, name };
+    const characterRef: FavouriteCharacterRef = {
+      id: characters[i]!.id,
+      name,
+      searchTokens: favouriteCharacterSearchParts(characters[i]!),
+    };
     const meta = perCharacterMeta[i];
     numSeen += meta.seen ? 1 : 0;
     numMain += meta.isMain ? 1 : 0;
@@ -898,8 +975,7 @@ export function rebuildFavouritesResult(
   for (let i = 0; i < source.characters.length; i += 1) {
     const character = source.characters[i]!;
     const processed = processCharacterEdges(
-      character.id,
-      pickCharacterName(character),
+      character,
       source.perCharacterEdges[i] ?? [],
       source.consumedMediaIds,
     );
@@ -935,10 +1011,13 @@ function mergeSeriesRow(
       mediaId,
       mediaType,
       title: entry.title,
+      titleSearchTokens: entry.titleSearchTokens,
       coverImage: entry.coverImage,
       characters: [],
     };
     target.set(mediaId, row);
+  } else {
+    row.titleSearchTokens = unionSearchParts(row.titleSearchTokens, entry.titleSearchTokens);
   }
   for (const character of entry.characters) {
     if (!row.characters.some((existing) => existing.id === character.id)) {
@@ -960,4 +1039,30 @@ function sortSeriesRows(
       ),
     }))
     .sort((a, b) => a.title.localeCompare(b.title));
+}
+
+/** Series/character filter using all title languages, synonyms, and name aliases. */
+export function filterFavouritesSeriesRows(
+  rows: FavouritesSeriesRow[],
+  query: string,
+): FavouritesSeriesRow[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) {
+    return rows;
+  }
+  return rows
+    .map((row) => {
+      const titleMatch = matchesListFilter(row.titleSearchTokens, needle);
+      const matchingCharacters = row.characters.filter((character) =>
+        matchesListFilter(character.searchTokens, needle),
+      );
+      if (titleMatch) {
+        return row;
+      }
+      if (matchingCharacters.length === 0) {
+        return null;
+      }
+      return { ...row, characters: matchingCharacters };
+    })
+    .filter((row): row is FavouritesSeriesRow => row !== null);
 }

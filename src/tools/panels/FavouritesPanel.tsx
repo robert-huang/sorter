@@ -16,6 +16,7 @@ import {
   buildVaPercentRankRows,
   FAVOURITES_TOP_N,
   rebuildFavouritesResult,
+  filterFavouritesSeriesRows,
   type FavouriteCharacterRef,
   type FavouritesForm,
   type FavouritesRebuildSource,
@@ -211,31 +212,6 @@ function VaPercentBlock({
   );
 }
 
-function filterSeriesRows(
-  rows: FavouritesSeriesRow[],
-  query: string,
-): FavouritesSeriesRow[] {
-  const needle = query.trim().toLowerCase();
-  if (!needle) {
-    return rows;
-  }
-  return rows
-    .map((row) => {
-      const titleMatch = row.title.toLowerCase().includes(needle);
-      const matchingCharacters = row.characters.filter((character) =>
-        character.name.toLowerCase().includes(needle),
-      );
-      if (titleMatch) {
-        return row;
-      }
-      if (matchingCharacters.length === 0) {
-        return null;
-      }
-      return { ...row, characters: matchingCharacters };
-    })
-    .filter((row): row is FavouritesSeriesRow => row !== null);
-}
-
 function SeriesListBlock({
   title,
   rows,
@@ -246,7 +222,7 @@ function SeriesListBlock({
   onOpenMedia: ToolPanelProps['onOpenMedia'];
 }) {
   const [search, setSearch] = useState('');
-  const filteredRows = useMemo(() => filterSeriesRows(rows, search), [rows, search]);
+  const filteredRows = useMemo(() => filterFavouritesSeriesRows(rows, search), [rows, search]);
 
   if (rows.length === 0) {
     return null;

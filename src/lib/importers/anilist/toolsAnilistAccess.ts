@@ -273,6 +273,8 @@ export async function readFavouriteCharactersFromDb(
       SELECT c.id,
              c.name_full,
              c.name_native,
+             c.name_alternatives_json,
+             c.name_alternatives_spoiler_json,
              c.gender,
              c.favourites,
              c.birth_year,
@@ -293,6 +295,10 @@ export async function readFavouriteCharactersFromDb(
     name: {
       full: (row.name_full as string | null) ?? '',
       native: (row.name_native as string | null) ?? null,
+      alternative: parseJsonStringArray(row.name_alternatives_json as string | null),
+      alternativeSpoiler: parseJsonStringArray(
+        row.name_alternatives_spoiler_json as string | null,
+      ),
     },
     gender: (row.gender as string | null) ?? null,
     favourites: row.favourites != null ? Number(row.favourites) : null,
@@ -351,6 +357,7 @@ export async function readCharacterVoiceEdgesFromDb(
              m.title_romaji,
              m.title_english,
              m.title_native,
+             m.synonyms_json,
              m.type,
              m.format,
              m.cover_image,
@@ -388,6 +395,7 @@ export async function readCharacterVoiceEdgesFromDb(
             native: (row.title_native as string | null) ?? null,
             english: (row.title_english as string | null) ?? null,
           },
+          synonyms: parseJsonStringArray(row.synonyms_json as string | null),
           type: (row.type as string) ?? 'ANIME',
           format: (row.format as string | null) ?? null,
           coverImage: (row.cover_image as string | null)
@@ -889,4 +897,20 @@ export async function readConsumedMediaIdsFromDb(
   ]);
   const merged = new Set([...animeIds, ...mangaIds].map((id) => Number(id)));
   return merged.size > 0 ? merged : null;
+}
+
+function parseJsonStringArray(json: string | null | undefined): string[] | null {
+  if (!json) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(json) as unknown;
+    if (!Array.isArray(parsed)) {
+      return null;
+    }
+    const values = parsed.filter((entry): entry is string => typeof entry === 'string' && !!entry);
+    return values.length > 0 ? values : null;
+  } catch {
+    return null;
+  }
 }

@@ -400,8 +400,7 @@ export async function runFavouritesAnalysis(
     const edges = await fetchCharacterVoiceEdges(character.id, signal, fetchOptions);
     perCharacterEdges.push(edges);
     const processed = processCharacterEdges(
-      character.id,
-      charName,
+      character,
       edges,
       consumedMediaIds,
     );
