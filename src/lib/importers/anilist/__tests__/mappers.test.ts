@@ -104,6 +104,7 @@ describe('mapMediaRow', () => {
       cover_image: 'https://example.test/cover.jpg',
       format: 'TV',
       source: 'LIGHT_NOVEL',
+      source_fetched_at: NOW,
       status: 'FINISHED',
       episodes: 12,
       chapters: null,
@@ -158,6 +159,7 @@ describe('mapMediaRow', () => {
     expect(row.end_day).toBeNull();
     expect(row.country_of_origin).toBeNull();
     expect(row.source).toBeNull();
+    expect(row.source_fetched_at).toBe(NOW);
     // genres_json coerces null → '[]' so JSON queries are uniform.
     expect(row.genres_json).toBe('[]');
     // synonyms_json keeps null as null — no synonym is a real signal vs empty array.

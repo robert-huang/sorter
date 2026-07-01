@@ -1,3 +1,7 @@
+import {
+  hasCharacterMediaExpansion,
+  hasStaffFilmography,
+} from '../../lib/importers/anilist/graphQueries';
 import { depaginate } from '../../lib/importers/anilist/depaginate';
 import {
   TOOLS_CHARACTER_VOICE_MEDIA_QUERY,
@@ -294,8 +298,9 @@ async function fetchCharacterVoiceEdges(
   if (fromDb) {
     return fromDb;
   }
-  // Defensive fallback: expansion ran but the DB read came back empty
-  // (very old schema, partial write, or character with no JP cast).
+  if (await hasCharacterMediaExpansion(ctx.db, charId)) {
+    return [];
+  }
   return fetchCharacterVoiceEdgesLive(charId, signal);
 }
 
@@ -344,8 +349,9 @@ async function fetchVaCharacterEdges(
   if (fromDb) {
     return fromDb;
   }
-  // Defensive fallback when the DB read returns nothing despite a
-  // successful ensure call (rare — e.g. staff with no JP voice roles).
+  if (await hasStaffFilmography(ctx.db, vaId)) {
+    return [];
+  }
   return fetchVaCharacterEdgesLive(vaId, signal);
 }
 

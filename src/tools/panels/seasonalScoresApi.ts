@@ -7,7 +7,7 @@ import {
   ensureUserAnimeListFresh,
   readUserSeasonalShowsFromDb,
 } from '../../lib/importers/anilist/toolsAnilistAccess';
-import { repairListedMediaNullSource } from '../../lib/importers/anilist/lazyExpansion';
+import { repairListedMediaNullSource, listedMediaNeedsSourceRepair } from '../../lib/importers/anilist/lazyExpansion';
 import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportContext';
 import {
   TOOLS_SESSION_TTL_MS,
@@ -129,7 +129,7 @@ async function fetchUserSeasonalShowsResolved(
   const hasAccount = findAnilistAccountByName(username) !== null;
   if (user) {
     let fromDb = await readUserSeasonalShowsFromDb(ctx.db, user.id);
-    if (fromDb.some((show) => show.source == null)) {
+    if (await listedMediaNeedsSourceRepair(ctx.db, user.id)) {
       await repairListedMediaNullSource(ctx, user.id);
       fromDb = await readUserSeasonalShowsFromDb(ctx.db, user.id);
     }

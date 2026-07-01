@@ -190,6 +190,7 @@ const MEDIA_COLS = [
   'cover_image',
   'format',
   'source',
+  'source_fetched_at',
   'status',
   'episodes',
   'chapters',
@@ -261,7 +262,15 @@ const MEDIA_LIST_ENTRY_UPSERT_SQL = buildUpsertSql(
 );
 
 export function mediaRowToParams(row: MediaRow): SqlBindable[] {
-  return MEDIA_COLS.map((c) => (c === 'source' ? (row.source ?? null) : row[c]));
+  return MEDIA_COLS.map((c) => {
+    if (c === 'source') {
+      return row.source ?? null;
+    }
+    if (c === 'source_fetched_at') {
+      return row.source_fetched_at ?? null;
+    }
+    return row[c];
+  });
 }
 
 function listEntryRowToParams(row: MediaListEntryRow): SqlBindable[] {

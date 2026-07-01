@@ -64,6 +64,7 @@ function makeMedia(id: number, overrides: Record<string, unknown> = {}) {
     synonyms_json: null,
     fetched_at: 0,
     updated_at: 0,
+    source_fetched_at: null,
     ...overrides,
   };
 }
@@ -322,6 +323,68 @@ describe('AnilistDetailModal — lazy expansion', () => {
     await flushPromises();
 
     expect(container.textContent).toContain('English Only');
+  });
+});
+
+describe('AnilistDetailModal — metadata', () => {
+  it('shows adaptation source in the metadata row', async () => {
+    mockedGetMediaDetail.mockResolvedValueOnce({
+      ...makeDetail(99750, true),
+      media: makeMedia(99750, { source: 'OTHER', format: 'MOVIE', source_fetched_at: 1 }),
+    });
+
+    await act(async () => {
+      root.render(
+        <AnilistDetailModal
+          mediaId={99750}
+          fallbackTitle="Kimisui"
+          onClose={() => {}}
+        />,
+      );
+    });
+    await flushPromises();
+
+    expect(container.textContent).toContain('Source: Other');
+  });
+
+  it('shows not-imported when source was never fetched', async () => {
+    mockedGetMediaDetail.mockResolvedValueOnce({
+      ...makeDetail(99, true),
+      media: makeMedia(99, { source: null, source_fetched_at: null }),
+    });
+
+    await act(async () => {
+      root.render(
+        <AnilistDetailModal
+          mediaId={99}
+          fallbackTitle="EN-99"
+          onClose={() => {}}
+        />,
+      );
+    });
+    await flushPromises();
+
+    expect(container.textContent).toContain('Source: Not imported');
+  });
+
+  it('shows unknown when source was fetched but AniList returned null', async () => {
+    mockedGetMediaDetail.mockResolvedValueOnce({
+      ...makeDetail(100, true),
+      media: makeMedia(100, { source: null, source_fetched_at: 1 }),
+    });
+
+    await act(async () => {
+      root.render(
+        <AnilistDetailModal
+          mediaId={100}
+          fallbackTitle="EN-100"
+          onClose={() => {}}
+        />,
+      );
+    });
+    await flushPromises();
+
+    expect(container.textContent).toContain('Source: Unknown');
   });
 });
 

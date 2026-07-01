@@ -31,14 +31,20 @@ import type { AnilistStaffLanguage } from './types';
  *     even when format + type are identical.
  *   - `synonyms` is AniList's alternative-title array (SnK, AoT, …);
  *     stored as JSON for the title-search fallback index.
+ *   - `source(version: 3)` — WEB_NOVEL and other v3-only enum values are
+ *     absent from the default (v1) MediaSource field.
  */
+export const ANILIST_MEDIA_SOURCE_VERSION = 3;
+
+const MEDIA_SOURCE_SELECTION = `source(version: ${ANILIST_MEDIA_SOURCE_VERSION})`;
+
 const MEDIA_FIELD_SELECTION = `
   id
   type
   title { english romaji native }
   coverImage { large }
   format
-  source
+  ${MEDIA_SOURCE_SELECTION}
   status
   episodes
   chapters
@@ -599,7 +605,7 @@ query ToolsUserAnimeList(
         id
         title { english romaji native }
         coverImage { large }
-        source
+        ${MEDIA_SOURCE_SELECTION}
         season
         seasonYear
         startDate { year month day }

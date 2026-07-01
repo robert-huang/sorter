@@ -7,7 +7,7 @@
  * a characters×staff cartesian product. See plan § cast pagination.
  */
 
-import type { AnilistImportContext, SqlBindable } from './context';
+import type { AnilistDbExecutor, AnilistImportContext, SqlBindable } from './context';
 import { MEDIA_UPSERT_SQL, mediaRowToParams } from './importer';
 import {
   mapCharacterRow,
@@ -431,8 +431,9 @@ function collectStaffFromStaffEdges(
 }
 
 /**
- * Re-fetch full metadata for listed media whose `source` was nulled by a
- * partial graph upsert (character/staff filmography stubs). Idempotent.
+ * Re-fetch full metadata for listed media that never had `source(version: 3)`
+ * imported (stub clobber, pre-v3 row, or never touched). Idempotent — rows
+ * with `source_fetched_at` set are skipped even when `source` IS NULL.
  */
 export async function repairListedMediaNullSource(
   ctx: AnilistImportContext,
@@ -443,7 +444,7 @@ export async function repairListedMediaNullSource(
        FROM media m
        INNER JOIN media_list_entry mle ON mle.media_id = m.id
       WHERE mle.anilist_user_id = ?
-        AND m.source IS NULL`,
+        AND m.source_fetched_at IS NULL`,
     [anilistUserId],
   );
   let repaired = 0;
@@ -453,6 +454,24 @@ export async function repairListedMediaNullSource(
     repaired += 1;
   }
   return repaired;
+}
+
+/** True when any listed anime row still needs a v3 source import. */
+export async function listedMediaNeedsSourceRepair(
+  db: AnilistDbExecutor,
+  anilistUserId: number,
+): Promise<boolean> {
+  const rows = await db.exec(
+    `SELECT 1
+       FROM media m
+       INNER JOIN media_list_entry mle ON mle.media_id = m.id
+      WHERE mle.anilist_user_id = ?
+        AND m.type = 'ANIME'
+        AND m.source_fetched_at IS NULL
+      LIMIT 1`,
+    [anilistUserId],
+  );
+  return rows.length > 0;
 }
 
 /** Cast junction tables FK to `media` — fetch full metadata when missing or forced. */

@@ -5,7 +5,11 @@ import { migrate } from '../../../db/migration-runner';
 import { _clearDbSyncManifestForTesting } from '../../../db/syncManifest';
 import { anilistSourceDescriptor } from '../anilistSource';
 import type { AnilistDbExecutor, AnilistImportContext } from '../context';
-import { expandAnilistMediaDetail } from '../lazyExpansion';
+import {
+  expandAnilistMediaDetail,
+  listedMediaNeedsSourceRepair,
+  repairListedMediaNullSource,
+} from '../lazyExpansion';
 import type {
   AnilistCharacterGql,
   AnilistMediaCharacterEdgeGql,
@@ -298,8 +302,10 @@ describe('expandAnilistMediaDetail — happy path', () => {
 
     await expandAnilistMediaDetail(h.ctx, 100, { force: true });
 
-    const row = h.db.selectObject('SELECT source FROM media WHERE id = 100');
-    expect(row).toEqual({ source: 'WEB_NOVEL' });
+    const row = h.db.selectObject(
+      'SELECT source, source_fetched_at FROM media WHERE id = 100',
+    );
+    expect(row).toEqual({ source: 'WEB_NOVEL', source_fetched_at: NOW });
     expect(h.executeQuery.mock.calls[0][0]).toContain('AnimeById');
     h.db.close();
   });
@@ -587,5 +593,95 @@ describe('expandAnilistMediaDetail — staff_complete upsert', () => {
     );
     expect(row).toEqual({ staff_complete: 0 });
     h.db.close();
+  });
+});
+
+describe('repairListedMediaNullSource', () => {
+  it('skips listed media whose source was already fetched (even when source IS NULL)', async () => {
+    const db = await freshAnilistDb();
+    const executeQuery = vi.fn();
+    const ctx: AnilistImportContext = {
+      db: makeDbAdapter(db),
+      executeQuery,
+      now: () => NOW,
+    };
+    db.exec(
+      `INSERT INTO anilist_user (id, name, fetched_at, updated_at) VALUES (1, 'user', ?, ?)`,
+      { bind: [NOW, NOW] },
+    );
+    db.exec(
+      `INSERT INTO media (
+         id, type, source, source_fetched_at, fetched_at, updated_at
+       ) VALUES (100, 'ANIME', NULL, ?, ?, ?)`,
+      { bind: [NOW, NOW, NOW] },
+    );
+    db.exec(
+      `INSERT INTO media_list_entry (
+         anilist_user_id, media_id, status, fetched_at, updated_at
+       ) VALUES (1, 100, 'COMPLETED', ?, ?)`,
+      { bind: [NOW, NOW] },
+    );
+
+    expect(await listedMediaNeedsSourceRepair(ctx.db, 1)).toBe(false);
+    expect(await repairListedMediaNullSource(ctx, 1)).toBe(0);
+    expect(executeQuery).not.toHaveBeenCalled();
+    db.close();
+  });
+
+  it('re-fetches listed media missing source_fetched_at', async () => {
+    const db = await freshAnilistDb();
+    const executeQuery = vi.fn().mockResolvedValue({
+      Media: {
+        id: 100,
+        type: 'ANIME',
+        title: { english: 'Test', romaji: 'Test', native: null },
+        coverImage: null,
+        format: 'TV',
+        source: 'WEB_NOVEL',
+        status: 'FINISHED',
+        episodes: 12,
+        chapters: null,
+        startDate: null,
+        endDate: null,
+        season: null,
+        seasonYear: null,
+        meanScore: null,
+        favourites: null,
+        countryOfOrigin: 'JP',
+        genres: null,
+        synonyms: null,
+        studios: { nodes: [] },
+        tags: [],
+      },
+    });
+    const ctx: AnilistImportContext = {
+      db: makeDbAdapter(db),
+      executeQuery,
+      now: () => NOW,
+    };
+    db.exec(
+      `INSERT INTO anilist_user (id, name, fetched_at, updated_at) VALUES (1, 'user', ?, ?)`,
+      { bind: [NOW, NOW] },
+    );
+    db.exec(
+      `INSERT INTO media (id, type, source, fetched_at, updated_at)
+       VALUES (100, 'ANIME', NULL, ?, ?)`,
+      { bind: [NOW, NOW] },
+    );
+    db.exec(
+      `INSERT INTO media_list_entry (
+         anilist_user_id, media_id, status, fetched_at, updated_at
+       ) VALUES (1, 100, 'COMPLETED', ?, ?)`,
+      { bind: [NOW, NOW] },
+    );
+
+    expect(await listedMediaNeedsSourceRepair(ctx.db, 1)).toBe(true);
+    expect(await repairListedMediaNullSource(ctx, 1)).toBe(1);
+    const row = db.selectObject(
+      'SELECT source, source_fetched_at FROM media WHERE id = 100',
+    );
+    expect(row).toEqual({ source: 'WEB_NOVEL', source_fetched_at: NOW });
+    expect(executeQuery.mock.calls[0][0]).toContain('source(version: 3)');
+    db.close();
   });
 });

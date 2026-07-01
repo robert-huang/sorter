@@ -510,6 +510,8 @@ export type MediaRow = {
   format: AnilistMediaFormat | null;
   /** Null when not yet imported or unknown on AniList. */
   source?: AnilistMediaSource | null;
+  /** Set when `source(version: 3)` was imported; null = never fetched. */
+  source_fetched_at?: number | null;
   status: AnilistMediaStatus | null;
   episodes: number | null;
   chapters: number | null;

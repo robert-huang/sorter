@@ -1,3 +1,4 @@
+import { anilistMediaSourceLabel } from '../../lib/importers/anilist/mediaSourceLabel';
 import { parseLinesOnePerLine } from '../parseToolLines';
 import type { AnilistMediaSource } from '../../lib/importers/anilist/types';
 import { ALL_ANILIST_MEDIA_SOURCES } from '../../lib/importers/anilist/types';
@@ -91,38 +92,7 @@ export function normalizeSeasonalSourceFilters(raw: unknown): SeasonalSourceFilt
 const KNOWN_SEASONAL_SOURCE_KEYS = new Set<string>(SEASONAL_SOURCE_FILTER_KEYS);
 
 export function seasonalSourceFilterLabel(key: SeasonalSourceFilterKey): string {
-  switch (key) {
-    case 'ORIGINAL':
-      return 'Original';
-    case 'MANGA':
-      return 'Manga';
-    case 'LIGHT_NOVEL':
-      return 'Light Novel';
-    case 'VISUAL_NOVEL':
-      return 'Visual Novel';
-    case 'NOVEL':
-      return 'Novel';
-    case 'VIDEO_GAME':
-      return 'Video Game';
-    case 'OTHER':
-      return 'Other';
-    case 'DOUJINSHI':
-      return 'Doujinshi';
-    case 'ANIME':
-      return 'Anime';
-    case 'WEB_NOVEL':
-      return 'Web Novel';
-    case 'LIVE_ACTION':
-      return 'Live Action';
-    case 'GAME':
-      return 'Game';
-    case 'COMIC':
-      return 'Comic';
-    case 'MULTIMEDIA_PROJECT':
-      return 'Multimedia';
-    case 'PICTURE_BOOK':
-      return 'Picture Book';
-  }
+  return anilistMediaSourceLabel(key);
 }
 
 export function seasonalSourceFilterBucket(

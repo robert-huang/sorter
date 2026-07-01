@@ -18,6 +18,11 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('../../lib/importers/anilist/graphQueries', () => ({
+  hasCharacterMediaExpansion: vi.fn(),
+  hasStaffFilmography: vi.fn(),
+}));
+
 vi.mock('../../lib/importers/anilist/depaginate', () => ({
   depaginate: vi.fn(),
 }));
@@ -41,6 +46,10 @@ vi.mock('../../lib/importers/anilist/toolsAnilistAccess', () => ({
 }));
 
 import { depaginate } from '../../lib/importers/anilist/depaginate';
+import {
+  hasCharacterMediaExpansion,
+  hasStaffFilmography,
+} from '../../lib/importers/anilist/graphQueries';
 import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportContext';
 import {
   ensureCharacterMediaFresh,
@@ -64,6 +73,8 @@ import type {
 } from '../panels/favouritesLogic';
 
 const depaginateMock = vi.mocked(depaginate);
+const hasCharacterMediaExpansionMock = vi.mocked(hasCharacterMediaExpansion);
+const hasStaffFilmographyMock = vi.mocked(hasStaffFilmography);
 const getCtxMock = vi.mocked(getToolsImportContext);
 const ensureCharacterMediaFreshMock = vi.mocked(ensureCharacterMediaFresh);
 const ensureStaffFilmographyFreshMock = vi.mocked(ensureStaffFilmographyFresh);
@@ -115,6 +126,8 @@ function makeVaEdge(mediaId: number, charId: number, characterRole = 'MAIN'): Va
 beforeEach(() => {
   _clearSessionMemoForTesting();
   depaginateMock.mockReset();
+  hasCharacterMediaExpansionMock.mockReset();
+  hasStaffFilmographyMock.mockReset();
   getCtxMock.mockReset();
   ensureCharacterMediaFreshMock.mockReset();
   ensureStaffFilmographyFreshMock.mockReset();
@@ -131,6 +144,8 @@ beforeEach(() => {
   // Default wiring: DB-backed reads succeed everywhere so we can focus
   // on the ensure-call side of the contract. Individual tests override.
   getCtxMock.mockReturnValue({ db: { exec: vi.fn() } } as never);
+  hasCharacterMediaExpansionMock.mockResolvedValue(false);
+  hasStaffFilmographyMock.mockResolvedValue(false);
   ensureCharacterMediaFreshMock.mockResolvedValue();
   ensureStaffFilmographyFreshMock.mockResolvedValue();
   ensureUserAnimeListFreshMock.mockResolvedValue({
@@ -259,19 +274,28 @@ describe('runFavouritesAnalysis caching', () => {
     ]);
   });
 
-  it('falls back to a full live fetch when the DB read returns null after ensure', async () => {
-    // Simulate ensureCharacterMediaFresh succeeding but the read still
-    // coming back empty (e.g. character with no JP cast in the DB).
+  it('falls back to a full live fetch when the DB read returns null and no expansion marker', async () => {
+    // No character_media_expansion row — rare partial write / old schema.
     readCharacterVoiceEdgesFromDbMock.mockResolvedValue(null);
+    hasCharacterMediaExpansionMock.mockResolvedValue(false);
     depaginateMock.mockResolvedValue([makeCharEdge(100, 9999)]);
 
     await runFavouritesAnalysis(FORM, () => {});
 
-    // Live fallback ran once per character (2 characters).
     expect(depaginateMock).toHaveBeenCalledTimes(2);
-    // ensureCharacterMediaFresh still ran first per character — the
-    // fallback is downstream of the write-through, not a replacement
-    // for it.
     expect(ensureCharacterMediaFreshMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not hit live GraphQL when expansion marker exists but DB read is empty', async () => {
+    readCharacterVoiceEdgesFromDbMock.mockResolvedValue(null);
+    readVaCharacterEdgesFromDbMock.mockResolvedValue(null);
+    hasCharacterMediaExpansionMock.mockResolvedValue(true);
+    hasStaffFilmographyMock.mockResolvedValue(true);
+
+    await runFavouritesAnalysis(FORM, () => {});
+
+    expect(depaginateMock).not.toHaveBeenCalled();
+    expect(ensureCharacterMediaFreshMock).toHaveBeenCalledTimes(2);
+    expect(ensureStaffFilmographyFreshMock).not.toHaveBeenCalled();
   });
 });

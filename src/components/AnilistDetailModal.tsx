@@ -14,6 +14,7 @@ import {
 import type { AnilistProgressEvent } from '../lib/importers/anilist/progress';
 import { filterProductionStaffRows } from '../lib/importers/anilist/staffRoleFilter';
 import { runAnilistMediaLazyExpansion } from '../lib/importers/anilist/runners';
+import { formatMediaSourceForDisplay } from '../lib/importers/anilist/mediaSourceLabel';
 import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
 import { pickCharacterName, pickPersonName } from '../lib/importers/anilist/personDisplayLabel';
 import {
@@ -465,6 +466,20 @@ export function AnilistDetailModal({
                   <span>★ {m.favourites.toLocaleString()}</span>
                 )}
                 {m.country_of_origin && <span>{m.country_of_origin}</span>}
+                <span
+                  title={
+                    m.source_fetched_at != null
+                      ? m.source != null
+                        ? `AniList MediaSource: ${m.source}`
+                        : 'AniList returned no adaptation source for this entry'
+                      : 'Source not stored locally — refresh list or open ↻ Refresh'
+                  }
+                >
+                  Source:{' '}
+                  {formatMediaSourceForDisplay(m.source, {
+                    sourceFetchedAt: m.source_fetched_at,
+                  })}
+                </span>
               </div>
               {(() => {
                 const start = fmtFuzzyDate(m.start_year, m.start_month, m.start_day);
