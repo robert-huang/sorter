@@ -21,7 +21,7 @@ export type DepaginateOptions<TData, TNode> = {
   query: string;
   variables?: Record<string, unknown>;
   perPage?: number;
-  /** Stop after this many pages (Favourites bounded fetches). */
+  /** Stop after this many pages (optional bounded fetches). */
   maxPages?: number;
   /** Optional Bearer token for authenticated list queries. */
   accessToken?: string;

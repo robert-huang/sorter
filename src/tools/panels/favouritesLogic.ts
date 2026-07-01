@@ -182,12 +182,6 @@ export type FavouritesResult = {
     matchedCount: number;
     matchedCharacters: FavouriteCharacterRef[];
   }>;
-  /**
-   * Names of characters whose VA appearances were truncated by the
-   * bounded normal-Analyze fetch. Non-empty means stats may
-   * under-report; UI should suggest Expand Roles for full data.
-   */
-  truncatedCharacterNames?: string[];
 };
 
 export function pickCharacterName(
@@ -707,8 +701,6 @@ export function buildFavouritesResult(input: {
   vaTotalCharacterCounts: Map<number, number>;
   vaMainRoleCharacterCounts: Map<number, number>;
   favouriteStaff: FavouriteStaffInput[];
-  /** Character names whose normal-Analyze VA fetch hit the page cap. */
-  truncatedCharacterNames?: string[];
 }): FavouritesResult {
   const {
     characters,
@@ -717,7 +709,6 @@ export function buildFavouritesResult(input: {
     vaTotalCharacterCounts,
     vaMainRoleCharacterCounts,
     favouriteStaff,
-    truncatedCharacterNames,
   } = input;
 
   const dummyMedian = characters.length / 10;
@@ -878,9 +869,6 @@ export function buildFavouritesResult(input: {
     characterNames,
     favouriteCharacters,
     favouriteStaff: staffRows,
-    ...(truncatedCharacterNames && truncatedCharacterNames.length > 0
-      ? { truncatedCharacterNames }
-      : {}),
   };
 }
 
@@ -891,8 +879,6 @@ export type FavouritesRebuildSource = {
   favouriteStaff: FavouriteStaffInput[];
   vaTotalCharacterCounts: Map<number, number>;
   vaMainRoleCharacterCounts: Map<number, number>;
-  /** Set when a character's bounded VA fetch hit the page cap. */
-  truncatedCharacterIds?: ReadonlySet<number>;
 };
 
 export function rebuildFavouritesResult(
@@ -925,12 +911,6 @@ export function rebuildFavouritesResult(
     });
   }
 
-  const truncatedNames = source.truncatedCharacterIds
-    ? source.characters
-        .filter((c) => source.truncatedCharacterIds!.has(c.id))
-        .map((c) => pickCharacterName(c))
-    : undefined;
-
   return buildFavouritesResult({
     characters: source.characters,
     perCharacterVas,
@@ -938,7 +918,6 @@ export function rebuildFavouritesResult(
     vaTotalCharacterCounts: source.vaTotalCharacterCounts,
     vaMainRoleCharacterCounts: source.vaMainRoleCharacterCounts,
     favouriteStaff: source.favouriteStaff,
-    ...(truncatedNames ? { truncatedCharacterNames: truncatedNames } : {}),
   });
 }
 

@@ -20,7 +20,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../lib/importers/anilist/depaginate', () => ({
   depaginate: vi.fn(),
-  depaginateWithMeta: vi.fn(),
 }));
 
 vi.mock('../../lib/importers/anilist/toolsImportContext', () => ({
@@ -41,7 +40,7 @@ vi.mock('../../lib/importers/anilist/toolsAnilistAccess', () => ({
   countVaMainRoleCharactersOnConsumedMediaFromDb: vi.fn(),
 }));
 
-import { depaginate, depaginateWithMeta } from '../../lib/importers/anilist/depaginate';
+import { depaginate } from '../../lib/importers/anilist/depaginate';
 import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportContext';
 import {
   ensureCharacterMediaFresh,
@@ -65,7 +64,6 @@ import type {
 } from '../panels/favouritesLogic';
 
 const depaginateMock = vi.mocked(depaginate);
-const depaginateWithMetaMock = vi.mocked(depaginateWithMeta);
 const getCtxMock = vi.mocked(getToolsImportContext);
 const ensureCharacterMediaFreshMock = vi.mocked(ensureCharacterMediaFresh);
 const ensureStaffFilmographyFreshMock = vi.mocked(ensureStaffFilmographyFresh);
@@ -117,7 +115,6 @@ function makeVaEdge(mediaId: number, charId: number, characterRole = 'MAIN'): Va
 beforeEach(() => {
   _clearSessionMemoForTesting();
   depaginateMock.mockReset();
-  depaginateWithMetaMock.mockReset();
   getCtxMock.mockReset();
   ensureCharacterMediaFreshMock.mockReset();
   ensureStaffFilmographyFreshMock.mockReset();
@@ -181,7 +178,7 @@ describe('runFavouritesAnalysis caching', () => {
     expect(ensureCharacterMediaFreshMock).toHaveBeenNthCalledWith(1, 1, undefined);
     expect(ensureCharacterMediaFreshMock).toHaveBeenNthCalledWith(2, 2, undefined);
     // DB reads served everything → no live fallback hit AniList.
-    expect(depaginateWithMetaMock).not.toHaveBeenCalled();
+    expect(depaginateMock).not.toHaveBeenCalled();
   });
 
   it('Analyze writes through per-VA filmography too: ensureStaffFilmographyFresh is called per VA (no forceRefresh)', async () => {
@@ -262,20 +259,16 @@ describe('runFavouritesAnalysis caching', () => {
     ]);
   });
 
-  it('falls back to a capped live fetch when the DB read returns null after ensure', async () => {
+  it('falls back to a full live fetch when the DB read returns null after ensure', async () => {
     // Simulate ensureCharacterMediaFresh succeeding but the read still
     // coming back empty (e.g. character with no JP cast in the DB).
     readCharacterVoiceEdgesFromDbMock.mockResolvedValue(null);
-    depaginateWithMetaMock.mockResolvedValue({
-      nodes: [makeCharEdge(100, 9999)],
-      truncated: false,
-      pagesFetched: 1,
-    });
+    depaginateMock.mockResolvedValue([makeCharEdge(100, 9999)]);
 
     await runFavouritesAnalysis(FORM, () => {});
 
     // Live fallback ran once per character (2 characters).
-    expect(depaginateWithMetaMock).toHaveBeenCalledTimes(2);
+    expect(depaginateMock).toHaveBeenCalledTimes(2);
     // ensureCharacterMediaFresh still ran first per character — the
     // fallback is downstream of the write-through, not a replacement
     // for it.

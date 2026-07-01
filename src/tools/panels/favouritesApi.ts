@@ -1,4 +1,4 @@
-import { depaginate, depaginateWithMeta } from '../../lib/importers/anilist/depaginate';
+import { depaginate } from '../../lib/importers/anilist/depaginate';
 import {
   TOOLS_CHARACTER_VOICE_MEDIA_QUERY,
   TOOLS_FAVOURITE_CHARACTERS_QUERY,
@@ -45,15 +45,6 @@ import {
   type FavouritesSeriesMeta,
   type VaMediaEdge,
 } from './favouritesLogic';
-
-/**
- * Cap on the defensive live fallback when the DB read returns nothing
- * AFTER `ensureCharacterMediaFresh` already ran (e.g. the AniList probe
- * said the character exists but the expansion produced zero rows for
- * some reason). Bounded to two pages so a corrupted-cache fallback
- * can't quietly hammer AniList on every Analyze run.
- */
-const FAVOURITES_CHARACTER_MEDIA_MAX_PAGES = 2;
 
 /**
  * Drop the favourites list session memo for a given username. Called by
@@ -259,9 +250,8 @@ async function fetchFavouriteStaff(
 async function fetchCharacterVoiceEdgesLive(
   charId: number,
   signal?: AbortSignal,
-  maxPages?: number,
-): Promise<{ edges: CharacterMediaEdge[]; truncated: boolean }> {
-  const result = await depaginateWithMeta<
+): Promise<CharacterMediaEdge[]> {
+  return depaginate<
     {
       Character: {
         media: {
@@ -275,20 +265,18 @@ async function fetchCharacterVoiceEdgesLive(
     query: TOOLS_CHARACTER_VOICE_MEDIA_QUERY,
     variables: { id: charId },
     signal,
-    maxPages,
     selectPage: (data) => ({
       nodes: data.Character?.media.edges ?? [],
       pageInfo: data.Character?.media.pageInfo ?? { hasNextPage: false },
     }),
   });
-  return { edges: result.nodes, truncated: result.truncated };
 }
 
 async function fetchCharacterVoiceEdges(
   charId: number,
   signal?: AbortSignal,
   options?: FavouritesFetchOptions,
-): Promise<{ edges: CharacterMediaEdge[]; truncated: boolean }> {
+): Promise<CharacterMediaEdge[]> {
   signal?.throwIfAborted();
   const ctx = getToolsImportContext();
 
@@ -297,12 +285,6 @@ async function fetchCharacterVoiceEdges(
   // full live expansion + persists otherwise, and force-refreshes on
   // Expand Roles. Then we read the complete cached rows from the DB.
   //
-  // Previously Analyze had a DB freshness check that required every
-  // appearance media's full cast to be pre-imported, which almost
-  // never holds — so Analyze fell back to a 2-page live fetch that
-  // was thrown away after each run. Result: every Analyze re-paid
-  // the network cost for every favourite character forever.
-  //
   // NOTE: ensureCharacterMediaFresh does not currently accept an
   // AbortSignal — see the cancel-related comment in
   // runFavouritesAnalysis below. throwIfAborted at entry bounds the
@@ -310,17 +292,11 @@ async function fetchCharacterVoiceEdges(
   await ensureCharacterMediaFresh(charId, favouritesGraphForceOptions(options));
   const fromDb = await readCharacterVoiceEdgesFromDb(ctx.db, charId);
   if (fromDb) {
-    return { edges: fromDb, truncated: false };
+    return fromDb;
   }
   // Defensive fallback: expansion ran but the DB read came back empty
   // (very old schema, partial write, or character with no JP cast).
-  // Cap the live fallback so a misbehaving cache doesn't quietly do an
-  // unbounded fetch on every Analyze run.
-  return fetchCharacterVoiceEdgesLive(
-    charId,
-    signal,
-    FAVOURITES_CHARACTER_MEDIA_MAX_PAGES,
-  );
+  return fetchCharacterVoiceEdgesLive(charId, signal);
 }
 
 async function fetchVaCharacterEdgesLive(
@@ -408,8 +384,6 @@ export async function runFavouritesAnalysis(
   }> = [];
   const perCharacterEdges: CharacterMediaEdge[][] = [];
   const vaIds = new Set<number>();
-  const truncatedCharacterIds = new Set<number>();
-  const truncatedCharacterNames: string[] = [];
 
   for (let i = 0; i < characters.length; i += 1) {
     signal?.throwIfAborted();
@@ -423,16 +397,8 @@ export async function runFavouritesAnalysis(
       name: charName,
     });
 
-    const { edges, truncated } = await fetchCharacterVoiceEdges(
-      character.id,
-      signal,
-      fetchOptions,
-    );
+    const edges = await fetchCharacterVoiceEdges(character.id, signal, fetchOptions);
     perCharacterEdges.push(edges);
-    if (truncated) {
-      truncatedCharacterIds.add(character.id);
-      truncatedCharacterNames.push(charName);
-    }
     const processed = processCharacterEdges(
       character.id,
       charName,
@@ -507,7 +473,6 @@ export async function runFavouritesAnalysis(
     favouriteStaff,
     vaTotalCharacterCounts,
     vaMainRoleCharacterCounts,
-    ...(truncatedCharacterIds.size > 0 ? { truncatedCharacterIds } : {}),
   };
   return {
     result: buildFavouritesResult({
@@ -517,7 +482,6 @@ export async function runFavouritesAnalysis(
       vaTotalCharacterCounts,
       vaMainRoleCharacterCounts,
       favouriteStaff,
-      ...(truncatedCharacterNames.length > 0 ? { truncatedCharacterNames } : {}),
     }),
     rebuildSource,
   };
