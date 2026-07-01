@@ -258,6 +258,51 @@ describe('expandAnilistMediaDetail — happy path', () => {
     expect(h.executeQuery.mock.calls[0][0]).toContain('AnimeById');
     h.db.close();
   });
+
+  it('re-fetches full media metadata on force refresh when the row already exists', async () => {
+    const h = await makeHarness();
+    h.db.exec(
+      `UPDATE media SET source = NULL WHERE id = 100`,
+    );
+    h.executeQuery
+      .mockResolvedValueOnce({
+        Media: {
+          id: 100,
+          type: 'ANIME',
+          title: { english: 'Test Show', romaji: 'Test', native: null },
+          coverImage: null,
+          format: 'TV',
+          source: 'WEB_NOVEL',
+          status: 'FINISHED',
+          episodes: 12,
+          chapters: null,
+          startDate: null,
+          endDate: null,
+          season: null,
+          seasonYear: null,
+          meanScore: null,
+          favourites: null,
+          countryOfOrigin: 'JP',
+          genres: null,
+          synonyms: null,
+          studios: { nodes: [] },
+          tags: [],
+        },
+      })
+      .mockResolvedValueOnce(
+        makeDetailResponse([makeCharEdge(1000, [9001])], [], false, false),
+      )
+      .mockResolvedValueOnce(
+        makeDetailResponse([], [makeStaffEdge(9100)], false, false),
+      );
+
+    await expandAnilistMediaDetail(h.ctx, 100, { force: true });
+
+    const row = h.db.selectObject('SELECT source FROM media WHERE id = 100');
+    expect(row).toEqual({ source: 'WEB_NOVEL' });
+    expect(h.executeQuery.mock.calls[0][0]).toContain('AnimeById');
+    h.db.close();
+  });
 });
 
 describe('expandAnilistMediaDetail — pagination cap', () => {

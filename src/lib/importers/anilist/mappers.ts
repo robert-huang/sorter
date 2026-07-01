@@ -129,6 +129,33 @@ export function mapMediaRow(media: AnilistMediaGql, now: number): MediaRow {
   };
 }
 
+/** Partial media row from `TOOLS_CHARACTER_VOICE_MEDIA_QUERY` — no `source`. */
+export function mapMediaStubRow(media: AnilistMediaGql, now: number): {
+  id: number;
+  type: MediaRow['type'];
+  title_english: string | null;
+  title_romaji: string | null;
+  title_native: string | null;
+  cover_image: string | null;
+  format: MediaRow['format'];
+  synonyms_json: string | null;
+  fetched_at: number;
+  updated_at: number;
+} {
+  return {
+    id: media.id,
+    type: media.type,
+    title_english: media.title.english ?? null,
+    title_romaji: media.title.romaji ?? null,
+    title_native: media.title.native ?? null,
+    cover_image: media.coverImage?.large ?? null,
+    format: media.format ?? null,
+    synonyms_json: stringArrayJson(media.synonyms),
+    fetched_at: now,
+    updated_at: now,
+  };
+}
+
 /**
  * Returns one StudioRow per unique studio referenced by the media.
  *
@@ -454,12 +481,12 @@ export function mapCharacterMediaAppearanceData(
   language: AnilistStaffLanguage,
   now: number,
 ): {
-  mediaRows: MediaRow[];
+  mediaRows: ReturnType<typeof mapMediaStubRow>[];
   staffRows: StaffRow[];
   mediaCharacterRows: MediaCharacterRow[];
   cvaRows: CharacterVoiceActorRow[];
 } {
-  const mediaById = new Map<number, MediaRow>();
+  const mediaById = new Map<number, ReturnType<typeof mapMediaStubRow>>();
   const staffById = new Map<number, StaffRow>();
   const mediaCharacterSeen = new Set<string>();
   const mediaCharacterRows: MediaCharacterRow[] = [];
@@ -473,7 +500,7 @@ export function mapCharacterMediaAppearanceData(
       continue;
     }
     if (!mediaById.has(mediaId)) {
-      mediaById.set(mediaId, mapMediaRow(e.node, now));
+      mediaById.set(mediaId, mapMediaStubRow(e.node, now));
     }
     const mcKey = `${mediaId}:${characterId}`;
     if (!mediaCharacterSeen.has(mcKey)) {

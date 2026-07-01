@@ -34,6 +34,7 @@ import type {
   CharacterRow,
   CharacterVoiceActorRow,
   MediaCharacterRow,
+  MediaRow,
   MediaStaffRow,
   StaffRow,
 } from './types';
@@ -101,6 +102,25 @@ export const STAFF_COLS = [
   'updated_at',
 ] as const;
 
+/**
+ * Identity + display fields from `TOOLS_CHARACTER_VOICE_MEDIA_QUERY` only.
+ * Does not touch metadata like `source` that full list/detail imports own.
+ */
+export const MEDIA_STUB_COLS = [
+  'id',
+  'type',
+  'title_english',
+  'title_romaji',
+  'title_native',
+  'cover_image',
+  'format',
+  'synonyms_json',
+  'fetched_at',
+  'updated_at',
+] as const;
+
+export type MediaStubRow = Pick<MediaRow, (typeof MEDIA_STUB_COLS)[number]>;
+
 /** Identity-only staff upsert — does not touch profile fields like gender. */
 export const STAFF_STUB_COLS = [
   'id',
@@ -153,6 +173,22 @@ function buildCharacterUpsertSql(): string {
   );
 }
 
+function buildMediaStubUpsertSql(): string {
+  const placeholders = MEDIA_STUB_COLS.map(() => '?').join(', ');
+  const updates = MEDIA_STUB_COLS.filter((c) => c !== 'id')
+    .map((c) => {
+      if (c === 'cover_image') {
+        return `${c} = COALESCE(excluded.${c}, media.${c})`;
+      }
+      return `${c} = excluded.${c}`;
+    })
+    .join(', ');
+  return (
+    `INSERT INTO media (${MEDIA_STUB_COLS.join(', ')}) VALUES (${placeholders}) ` +
+    `ON CONFLICT(id) DO UPDATE SET ${updates}`
+  );
+}
+
 function buildStaffStubUpsertSql(): string {
   const placeholders = STAFF_STUB_COLS.map(() => '?').join(', ');
   const updates = STAFF_STUB_COLS.filter((c) => c !== 'id')
@@ -187,6 +223,7 @@ function buildCharacterStubUpsertSql(): string {
 
 export const CHARACTER_UPSERT_SQL = buildCharacterUpsertSql();
 export const CHARACTER_STUB_UPSERT_SQL = buildCharacterStubUpsertSql();
+export const MEDIA_STUB_UPSERT_SQL = buildMediaStubUpsertSql();
 export const STAFF_UPSERT_SQL = buildPersonUpsertSql('staff', STAFF_COLS);
 export const STAFF_STUB_UPSERT_SQL = buildStaffStubUpsertSql();
 
@@ -200,6 +237,10 @@ export function staffRowToParams(row: StaffRow): SqlBindable[] {
 
 export function staffStubRowToParams(row: StaffStubRow): SqlBindable[] {
   return STAFF_STUB_COLS.map((c) => row[c]);
+}
+
+export function mediaStubRowToParams(row: MediaStubRow): SqlBindable[] {
+  return MEDIA_STUB_COLS.map((c) => row[c]);
 }
 
 export function characterStubRowToParams(row: CharacterStubRow): SqlBindable[] {
@@ -389,16 +430,18 @@ function collectStaffFromStaffEdges(
   return staffById;
 }
 
-/** Cast junction tables FK to `media` — upsert the parent row when missing. */
+/** Cast junction tables FK to `media` — fetch full metadata when missing or forced. */
 async function ensureMediaRowForCastExpansion(
   ctx: AnilistImportContext,
   mediaId: number,
+  options: { refreshMetadata?: boolean } = {},
 ): Promise<boolean> {
   const rows = await ctx.db.exec(
     'SELECT 1 FROM media WHERE id = ? LIMIT 1',
     [mediaId],
   );
-  if (rows.length > 0) {
+  const exists = rows.length > 0;
+  if (exists && !options.refreshMetadata) {
     return true;
   }
 
@@ -407,7 +450,7 @@ async function ensureMediaRowForCastExpansion(
     { id: mediaId },
   );
   if (!response?.Media) {
-    return false;
+    return exists;
   }
 
   const row = mapMediaRow(response.Media, ctx.now());
@@ -430,7 +473,7 @@ export async function expandAnilistMediaDetail(
   const scope = options.scope ?? 'all';
   const now = ctx.now();
 
-  if (!(await ensureMediaRowForCastExpansion(ctx, mediaId))) {
+  if (!(await ensureMediaRowForCastExpansion(ctx, mediaId, { refreshMetadata: options.force }))) {
     return null;
   }
 

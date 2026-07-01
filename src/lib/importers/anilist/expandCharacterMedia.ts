@@ -6,9 +6,10 @@
 
 import type { AnilistImportContext, SqlBindable } from './context';
 import { mapCharacterMediaAppearanceData } from './mappers';
-import { MEDIA_UPSERT_SQL, mediaRowToParams } from './importer';
 import {
   DEFAULT_VOICE_ACTOR_LANGUAGE,
+  MEDIA_STUB_UPSERT_SQL,
+  mediaStubRowToParams,
   STAFF_STUB_UPSERT_SQL,
   staffStubRowToParams,
 } from './lazyExpansion';
@@ -109,7 +110,7 @@ export async function expandCharacterMedia(
   const stmts: Array<{ sql: string; params: readonly SqlBindable[] }> = [];
 
   for (const row of appearance.mediaRows) {
-    stmts.push({ sql: MEDIA_UPSERT_SQL, params: mediaRowToParams(row) });
+    stmts.push({ sql: MEDIA_STUB_UPSERT_SQL, params: mediaStubRowToParams(row) });
   }
   for (const row of appearance.staffRows) {
     stmts.push({ sql: STAFF_STUB_UPSERT_SQL, params: staffStubRowToParams(row) });
