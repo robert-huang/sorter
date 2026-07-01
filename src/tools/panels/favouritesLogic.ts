@@ -665,24 +665,26 @@ export function buildVaPercentRankRows(
       ? meta.vaMainRoleCharacterCounts
       : meta.vaTotalCharacterCounts;
 
-  const rows: VaRankRow[] = byCountRows.map((row) => {
-    const favoritedCharacters =
-      roleMode === 'mainOnly'
-        ? row.characters.filter(
-            (character) =>
-              meta.characterRoleTierById[character.id] === CharacterRoleTier.Main,
-          )
-        : row.characters;
-    const favorited = favoritedCharacters.length;
-    const total = totalCounts[row.staffId] ?? 0;
-    const pct = total > 0 ? (100 * favorited) / total : 0;
-    return {
-      ...row,
-      displayValue: `${Math.round(pct)}% (${favorited}/${total})`,
-      numericValue: favorited / (total + dummyMedian),
-      characters: favoritedCharacters,
-    };
-  });
+  const rows: VaRankRow[] = byCountRows
+    .map((row) => {
+      const favoritedCharacters =
+        roleMode === 'mainOnly'
+          ? row.characters.filter(
+              (character) =>
+                meta.characterRoleTierById[character.id] === CharacterRoleTier.Main,
+            )
+          : row.characters;
+      const favorited = favoritedCharacters.length;
+      const total = totalCounts[row.staffId] ?? 0;
+      const pct = total > 0 ? (100 * favorited) / total : 0;
+      return {
+        ...row,
+        displayValue: `${Math.round(pct)}% (${favorited}/${total})`,
+        numericValue: favorited / (total + dummyMedian),
+        characters: favoritedCharacters,
+      };
+    })
+    .filter((row) => roleMode === 'all' || row.characters.length > 0);
 
   rows.sort((a, b) => b.numericValue - a.numericValue);
   return rows;

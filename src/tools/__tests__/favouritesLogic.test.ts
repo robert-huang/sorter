@@ -310,6 +310,42 @@ describe('buildVaPercentRankRows', () => {
 
     expect(rows[0]?.numericValue).toBeCloseTo(2 / (20 + 2), 5);
   });
+
+  it('drops VAs with no main-role favourites in main-only mode', () => {
+    const byCount = [
+      {
+        staffId: 10,
+        name: 'VA Main',
+        imageUrl: null,
+        displayValue: '1',
+        numericValue: 1,
+        characters: [{ id: 1, name: 'Main' }],
+      },
+      {
+        staffId: 20,
+        name: 'VA Supporting only',
+        imageUrl: null,
+        displayValue: '1',
+        numericValue: 1,
+        characters: [{ id: 2, name: 'Supporting' }],
+      },
+    ];
+    const meta = {
+      vaTotalCharacterCounts: { 10: 10, 20: 15 },
+      vaMainRoleCharacterCounts: { 10: 4, 20: 6 },
+      characterRoleTierById: {
+        1: CharacterRoleTier.Main,
+        2: CharacterRoleTier.Supporting,
+      },
+      characterCount: 2,
+    };
+
+    const rows = buildVaPercentRankRows(byCount, meta, 'mainOnly');
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.staffId).toBe(10);
+    expect(rows[0]?.displayValue).toBe('25% (1/4)');
+  });
 });
 
 describe('countMainRoleVaCharacters', () => {
