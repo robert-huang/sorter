@@ -143,4 +143,41 @@ describe('expandStaffFilmography', () => {
     expect(row).toEqual({ gender: 'Female' });
     db.close();
   });
+
+  it('does not wipe existing media source when characterMedia nodes omit it', async () => {
+    const db = await freshAnilistDb();
+    const executeQuery = vi.fn().mockResolvedValue(makeFilmographyResponse());
+    const ctx: AnilistImportContext = {
+      db: makeDbAdapter(db),
+      executeQuery,
+      now: () => NOW,
+    };
+
+    db.exec(
+      `INSERT INTO media (
+         id, type, title_romaji, title_english, title_native, cover_image, format,
+         source, status, episodes, chapters, start_year, start_month, start_day,
+         end_year, end_month, end_day, season, season_year, mean_score, favourites,
+         country_of_origin, genres_json, synonyms_json, fetched_at, updated_at
+       ) VALUES (
+         1001, 'ANIME', 'Kimisui', NULL, NULL, NULL, 'MOVIE',
+         'WEB_NOVEL', 'FINISHED', 1, NULL, 2018, 9, 1,
+         2018, 9, 1, 'FALL', 2018, 85, 1000,
+         'JP', '[]', '[]', ?, ?
+       )`,
+      { bind: [NOW, NOW] },
+    );
+    db.exec(
+      `INSERT INTO staff (
+         id, name_full, name_native, image, age, gender, language_v2, favourites, fetched_at, updated_at
+       ) VALUES (?, 'Test VA', NULL, NULL, NULL, 'Female', NULL, NULL, ?, ?)`,
+      { bind: [VA_STAFF_ID, NOW, NOW] },
+    );
+
+    await expandStaffFilmography(ctx, VA_STAFF_ID);
+
+    const row = db.selectObject('SELECT source FROM media WHERE id = 1001');
+    expect(row).toEqual({ source: 'WEB_NOVEL' });
+    db.close();
+  });
 });

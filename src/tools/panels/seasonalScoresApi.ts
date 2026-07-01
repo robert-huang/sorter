@@ -7,6 +7,7 @@ import {
   ensureUserAnimeListFresh,
   readUserSeasonalShowsFromDb,
 } from '../../lib/importers/anilist/toolsAnilistAccess';
+import { repairListedMediaNullSource } from '../../lib/importers/anilist/lazyExpansion';
 import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportContext';
 import {
   TOOLS_SESSION_TTL_MS,
@@ -21,6 +22,15 @@ import {
 } from './seasonalScoresLogic';
 
 export type SeasonalScoresFetchOptions = ToolsFetchOptions;
+
+/** Bust the in-session seasonal list memo after a username ↻ refresh. */
+export function bustSeasonalSessionMemo(username: string): void {
+  const handle = username.trim().toLowerCase();
+  if (!handle) {
+    return;
+  }
+  sessionMemoDelete(`seasonal:list:${handle}`);
+}
 
 type GqlFuzzyDate = {
   year?: number | null;
@@ -118,7 +128,11 @@ async function fetchUserSeasonalShowsResolved(
   const ctx = getToolsImportContext();
   const hasAccount = findAnilistAccountByName(username) !== null;
   if (user) {
-    const fromDb = await readUserSeasonalShowsFromDb(ctx.db, user.id);
+    let fromDb = await readUserSeasonalShowsFromDb(ctx.db, user.id);
+    if (fromDb.some((show) => show.source == null)) {
+      await repairListedMediaNullSource(ctx, user.id);
+      fromDb = await readUserSeasonalShowsFromDb(ctx.db, user.id);
+    }
     if (fromDb.length > 0 || hasAccount) {
       return fromDb;
     }

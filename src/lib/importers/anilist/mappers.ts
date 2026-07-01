@@ -405,12 +405,12 @@ export function mapStaffCharacterAppearanceData(
   language: AnilistStaffLanguage,
   now: number,
 ): {
-  mediaRows: MediaRow[];
+  mediaRows: ReturnType<typeof mapMediaStubRow>[];
   characterRows: CharacterRow[];
   mediaCharacterRows: MediaCharacterRow[];
   cvaRows: CharacterVoiceActorRow[];
 } {
-  const mediaById = new Map<number, MediaRow>();
+  const mediaById = new Map<number, ReturnType<typeof mapMediaStubRow>>();
   const characterById = new Map<number, CharacterRow>();
   const mediaCharacterSeen = new Set<string>();
   const mediaCharacterRows: MediaCharacterRow[] = [];
@@ -424,7 +424,7 @@ export function mapStaffCharacterAppearanceData(
       continue;
     }
     if (!mediaById.has(mediaId)) {
-      mediaById.set(mediaId, mapMediaRow(e.node, now));
+      mediaById.set(mediaId, mapMediaStubRow(e.node, now));
     }
     const role = e.characterRole ?? null;
     for (const character of e.characters ?? []) {

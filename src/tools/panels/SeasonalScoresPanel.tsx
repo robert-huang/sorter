@@ -5,7 +5,7 @@ import { ToolUsernameField } from '../ToolUsernameField';
 import { useUsernameListRefresh } from '../useUsernameListRefresh';
 import { useToolsDisplayLabelRevision } from '../useToolsDisplayLabelRevision';
 import { relabelSeasonalShows } from '../toolsDisplayRelabel';
-import { fetchUserSeasonalShows } from './seasonalScoresApi';
+import { fetchUserSeasonalShows, bustSeasonalSessionMemo } from './seasonalScoresApi';
 import {
   buildSeasonalColumns,
   countSeasonalShowsBySourceBucket,
@@ -260,7 +260,9 @@ function SeasonalColumnsView({
 }
 
 export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
-  const { refreshing: refreshingList, refreshUsernameList } = useUsernameListRefresh();
+  const { refreshing: refreshingList, refreshUsernameList } = useUsernameListRefresh({
+    onAfterRefresh: bustSeasonalSessionMemo,
+  });
   const displayLabelRevision = useToolsDisplayLabelRevision();
   const [form, setForm] = useState<SeasonalScoresForm>(() => loadForm());
   const [sourceFilters, setSourceFilters] = useState<SeasonalSourceFilters>(() =>

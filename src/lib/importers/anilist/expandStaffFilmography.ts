@@ -15,6 +15,8 @@ import {
   CHARACTER_STUB_UPSERT_SQL,
   characterStubRowToParams,
   DEFAULT_VOICE_ACTOR_LANGUAGE,
+  MEDIA_STUB_UPSERT_SQL,
+  mediaStubRowToParams,
   STAFF_UPSERT_SQL,
   staffRowToParams,
 } from './lazyExpansion';
@@ -192,21 +194,6 @@ export async function expandStaffFilmography(
   const appearance = mapStaffCharacterAppearanceData(staffId, characterEdges, language, now);
   const mediaStaffRows = mapStaffFilmographyMediaStaffRows(staffId, staffMediaEdges);
 
-  const mediaById = new Map<number, (typeof appearance.mediaRows)[0]>();
-  for (const m of appearance.mediaRows) {
-    mediaById.set(m.id, m);
-  }
-  for (const e of staffMediaEdges) {
-    const node = e.node;
-    const mediaId = node?.id;
-    if (mediaId === null || mediaId === undefined || !node) {
-      continue;
-    }
-    if (!mediaById.has(mediaId)) {
-      mediaById.set(mediaId, mapMediaRow(node, now));
-    }
-  }
-
   const stmts: Array<{ sql: string; params: readonly SqlBindable[] }> = [];
 
   if (staffProfile) {
@@ -216,8 +203,18 @@ export async function expandStaffFilmography(
     });
   }
 
-  for (const row of mediaById.values()) {
-    stmts.push({ sql: MEDIA_UPSERT_SQL, params: mediaRowToParams(row) });
+  for (const row of appearance.mediaRows) {
+    stmts.push({ sql: MEDIA_STUB_UPSERT_SQL, params: mediaStubRowToParams(row) });
+  }
+  for (const e of staffMediaEdges) {
+    const node = e.node;
+    if (!node?.id) {
+      continue;
+    }
+    stmts.push({
+      sql: MEDIA_UPSERT_SQL,
+      params: mediaRowToParams(mapMediaRow(node, now)),
+    });
   }
   for (const row of appearance.characterRows) {
     stmts.push({ sql: CHARACTER_STUB_UPSERT_SQL, params: characterStubRowToParams(row) });
@@ -257,11 +254,21 @@ export async function expandStaffFilmography(
 
   emitProgress(ctx.onProgress, { kind: 'done' });
 
+  const mediaIds = new Set<number>();
+  for (const row of appearance.mediaRows) {
+    mediaIds.add(row.id);
+  }
+  for (const e of staffMediaEdges) {
+    if (e.node?.id) {
+      mediaIds.add(e.node.id);
+    }
+  }
+
   return {
     staffId,
     characterPagesFetched: charResult.pagesFetched,
     staffMediaPagesFetched: staffMediaResult.pagesFetched,
-    mediaUpserted: mediaById.size,
+    mediaUpserted: mediaIds.size,
     mediaStaffWritten: mediaStaffRows.length,
     cvaWritten: appearance.cvaRows.length,
   };

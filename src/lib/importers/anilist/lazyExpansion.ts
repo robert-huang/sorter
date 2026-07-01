@@ -177,7 +177,7 @@ function buildMediaStubUpsertSql(): string {
   const placeholders = MEDIA_STUB_COLS.map(() => '?').join(', ');
   const updates = MEDIA_STUB_COLS.filter((c) => c !== 'id')
     .map((c) => {
-      if (c === 'cover_image') {
+      if (c === 'cover_image' || c === 'synonyms_json') {
         return `${c} = COALESCE(excluded.${c}, media.${c})`;
       }
       return `${c} = excluded.${c}`;
@@ -430,6 +430,31 @@ function collectStaffFromStaffEdges(
   return staffById;
 }
 
+/**
+ * Re-fetch full metadata for listed media whose `source` was nulled by a
+ * partial graph upsert (character/staff filmography stubs). Idempotent.
+ */
+export async function repairListedMediaNullSource(
+  ctx: AnilistImportContext,
+  anilistUserId: number,
+): Promise<number> {
+  const rows = await ctx.db.exec(
+    `SELECT DISTINCT m.id
+       FROM media m
+       INNER JOIN media_list_entry mle ON mle.media_id = m.id
+      WHERE mle.anilist_user_id = ?
+        AND m.source IS NULL`,
+    [anilistUserId],
+  );
+  let repaired = 0;
+  for (const row of rows) {
+    const mediaId = Number(row.id);
+    await ensureMediaRowForCastExpansion(ctx, mediaId, { refreshMetadata: true });
+    repaired += 1;
+  }
+  return repaired;
+}
+
 /** Cast junction tables FK to `media` — fetch full metadata when missing or forced. */
 async function ensureMediaRowForCastExpansion(
   ctx: AnilistImportContext,
@@ -539,15 +564,16 @@ export async function expandAnilistMediaDetail(
   );
   const mediaStaffRows: MediaStaffRow[] = mapMediaStaffRows(mediaId, staffEdges);
 
-  const staffById = new Map<number, StaffRow>();
+  const staffFromCharacters = new Map<number, StaffRow>();
+  const staffFromStaffEdges = new Map<number, StaffRow>();
   if (scope === 'all' || scope === 'characters') {
     for (const [id, row] of collectStaffFromCharacters(characterEdges, nowTs)) {
-      staffById.set(id, row);
+      staffFromCharacters.set(id, row);
     }
   }
   if (scope === 'all' || scope === 'staff') {
     for (const [id, row] of collectStaffFromStaffEdges(staffEdges, nowTs)) {
-      staffById.set(id, row);
+      staffFromStaffEdges.set(id, row);
     }
   }
 
@@ -569,7 +595,12 @@ export async function expandAnilistMediaDetail(
   for (const row of characterRows) {
     stmts.push({ sql: CHARACTER_UPSERT_SQL, params: characterRowToParams(row) });
   }
-  for (const row of staffById.values()) {
+  for (const [id, row] of staffFromCharacters) {
+    if (!staffFromStaffEdges.has(id)) {
+      stmts.push({ sql: STAFF_STUB_UPSERT_SQL, params: staffStubRowToParams(row) });
+    }
+  }
+  for (const row of staffFromStaffEdges.values()) {
     stmts.push({ sql: STAFF_UPSERT_SQL, params: staffRowToParams(row) });
   }
 
@@ -638,13 +669,17 @@ export async function expandAnilistMediaDetail(
   }
 
   emitProgress(ctx.onProgress, { kind: 'done' });
+  const staffWritten = new Set([
+    ...staffFromCharacters.keys(),
+    ...staffFromStaffEdges.keys(),
+  ]).size;
   return {
     mediaId,
     characterPagesFetched,
     staffPagesFetched,
     charactersWritten: mediaCharacterRows.length,
     staffCreditsWritten: mediaStaffRows.length,
-    staffWritten: staffById.size,
+    staffWritten,
     voiceActorsWritten: voiceActorRows.length,
     charactersComplete,
     staffComplete,

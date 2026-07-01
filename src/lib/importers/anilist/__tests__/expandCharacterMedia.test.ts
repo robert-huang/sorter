@@ -167,4 +167,42 @@ describe('expandCharacterMedia', () => {
     expect(row).toEqual({ source: 'WEB_NOVEL' });
     db.close();
   });
+
+  it('does not wipe existing media synonyms when character-media nodes omit them', async () => {
+    const db = await freshAnilistDb();
+    const executeQuery = vi.fn().mockResolvedValue(makeVoiceMediaResponse());
+    const ctx: AnilistImportContext = {
+      db: makeDbAdapter(db),
+      executeQuery,
+      now: () => NOW,
+    };
+
+    db.exec(
+      `INSERT INTO media (
+         id, type, title_romaji, title_english, title_native, cover_image, format,
+         source, status, episodes, chapters, start_year, start_month, start_day,
+         end_year, end_month, end_day, season, season_year, mean_score, favourites,
+         country_of_origin, genres_json, synonyms_json, fetched_at, updated_at
+       ) VALUES (
+         1001, 'ANIME', 'Kimisui', NULL, NULL, NULL, 'MOVIE',
+         'WEB_NOVEL', 'FINISHED', 1, NULL, 2018, 9, 1,
+         2018, 9, 1, 'FALL', 2018, 85, 1000,
+         'JP', '[]', '["Let Me Eat Your Pancreas"]', ?, ?
+       )`,
+      { bind: [NOW, NOW] },
+    );
+    db.exec(
+      `INSERT INTO character (
+         id, name_full, name_native, name_alternatives_json, name_alternatives_spoiler_json,
+         image, age, gender, favourites, birth_year, birth_month, birth_day, fetched_at, updated_at
+       ) VALUES (?, 'Fav Char', NULL, '[]', '[]', NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?)`,
+      { bind: [FAVOURITE_CHAR_ID, NOW, NOW] },
+    );
+
+    await expandCharacterMedia(ctx, FAVOURITE_CHAR_ID);
+
+    const row = db.selectObject('SELECT synonyms_json FROM media WHERE id = 1001');
+    expect(row).toEqual({ synonyms_json: '["Let Me Eat Your Pancreas"]' });
+    db.close();
+  });
 });

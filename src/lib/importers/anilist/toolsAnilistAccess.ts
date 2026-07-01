@@ -6,6 +6,7 @@
 
 import type { AnilistDbExecutor, AnilistImportContext } from './context';
 import { ensureMediaCastExpanded, ensureCharacterMedia, ensureStaffFilmography } from './ensureGraph';
+import { repairListedMediaNullSource } from './lazyExpansion';
 import {
   getCharacterMediaFetchedAt,
   getProductionCreditsAtMedia,
@@ -182,6 +183,9 @@ export async function ensureUserMediaListFresh(
   if (needsImport) {
     await runAnilistImport(handle, type);
     user = await getAnilistUserByName(ctx.db, handle);
+    if (user) {
+      await repairListedMediaNullSource(ctx, user.id);
+    }
   }
   return user;
 }
