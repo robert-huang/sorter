@@ -6,7 +6,7 @@ interface Props {
   children: ReactNode;
 }
 
-/** Measures stacked `.app-banner` rows and offsets fixed chrome (nav FAB). */
+/** Measures stacked `.app-banner` rows, pins the stack while scrolling, and offsets fixed chrome (nav FAB). */
 export function AppBannerStack({ children }: Props) {
   const ref = useRef<HTMLDivElement>(null);
 

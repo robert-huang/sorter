@@ -152,6 +152,9 @@ html {
   display: flex;
   flex-direction: column;
   width: 100%;
+  position: sticky;
+  top: 0;
+  z-index: 16;
 }
 
 .app-banner {
@@ -391,7 +394,7 @@ html {
   align-items: center;
   padding: 12px 16px 8px;
   position: sticky;
-  top: 0;
+  top: var(--app-banner-height, 0px);
   z-index: 10;
   background: transparent;
   pointer-events: none;
@@ -1842,7 +1845,7 @@ html {
 /* Stay visible while the win screen grows (cached route search auto-scrolls). */
 .anime-to-anime-header.header-toolbar {
   position: sticky;
-  top: 0;
+  top: var(--app-banner-height, 0px);
   z-index: 15;
 }
 
@@ -5324,9 +5327,11 @@ html {
   --tools-season-sticky-top: 6.5rem;
 }
 
-/* Tab strip sits below the sticky app header on Tools pages. */
+/* Tab strip sits below the sticky app header (and any pinned banners) on Tools pages. */
 .tools-app .tools-tabs-wrap {
-  top: var(--tools-tabs-sticky-top, var(--tools-header-height, 49px));
+  top: calc(
+    var(--app-banner-height, 0px) + var(--tools-tabs-sticky-top, var(--tools-header-height, 49px))
+  );
   z-index: 14;
 }
 
