@@ -494,11 +494,90 @@ Reaching the Goal shows **Goal reached!** with **Links used** and the path taken
 
 The Tools page is a tabbed shell (`anime-tools-active-tool` in `localStorage` remembers the last tab). Every tool shares a few behaviors:
 
-- **Username fields** remember the last successful AniList username (`withLastAnilistUsername`) and offer **Refresh username list** to re-import that user's anime list into the cache.
+- **Username fields** remember the last successful AniList username (`withLastAnilistUsername`) and offer a **↻** button beside the input to force-re-import list data into the cache (what each tab imports is tab-specific — see [Tools: ↻ refresh](#tools--refresh-beside-username)).
 - **Display names** (romaji/english/native titles, full/native staff names) relabel cached result rows live when you change the preference in the gear menu.
 - **AniList rate limits** — a top banner counts down when the API returns `429`; long-running compares can be cancelled mid-run.
 - **Form persistence** — each tab saves its own settings to `localStorage` (textarea contents, toggles, filters) so reopening the tool restores your last setup. Per-tool "Clear" buttons wipe only the main text input, not every toggle.
 - **OAuth for writes** — read-only tools work with any public username; **Update List Entry** requires you to be signed in as that user (gear → Database → Sign in to AniList). See [AniList accounts](#anilist-accounts).
+
+### Refresh and click conventions (app-wide)
+
+**Middle-click never refreshes data.** Anywhere the UI mentions middle-click, it only opens the item's AniList page in a new tab (or, for character/studio favourites with no detail panel, middle-click is the *only* way to reach AniList). It does not hit the API, bust caches, or change SQLite.
+
+**Right-click** is used in a few places to force a live re-fetch instead of reading cache. There is no general middle-click refresh pattern.
+
+#### Tools: ↻ beside username
+
+Left-click only (right-click does nothing). Always `forceRefresh` — a full wipe-and-rebuild import for the selected types, then a scoped **source-metadata repair** for that type only (batched `media(id_in: …)` requests for listed rows missing `source_fetched_at`).
+
+| Tab | ↻ refreshes |
+| --- | --- |
+| **Seasonal Scores** | Anime list only |
+| **Shared Credits** | Anime list only (each include/exclude username field has its own ↻) |
+| **Shared Staff** | *(no username field — no ↻)* |
+| **Favourites** | Anime list + manga list + character/staff favourites |
+| **Franchise Scores** | Anime list + manga list |
+| **Update List Entry** | *(no ↻ — username field only)* |
+
+Manga refresh uses the same `MediaListCollection` import as anime (~2–3 API requests per thousand entries). Favourites refresh also re-imports both favourite lists and busts the favourites Analyze session memo.
+
+#### Tools: primary action buttons
+
+Most run buttons are **left-click = use cache** (import only if missing or >90 days stale), **right-click = force live re-fetch** for that run. Implemented via `onContextMenu` on the submit button — middle-click on these buttons does nothing special.
+
+| Tab | Button | Left-click | Right-click |
+| --- | --- | --- | --- |
+| **Seasonal Scores** | Compare | Read user's seasonal list from DB; import anime list only if stale/missing; one-time anime source repair if needed | Force anime list re-import, then chart from fresh DB rows |
+| **Shared Credits** | Compare | Resolve staff ids; read cached filmographies; import anime list if username filter needs it and list is stale | Same, but force-refetch every input staff's filmography from AniList |
+| **Shared Staff** | Compare | Resolve show ids; read cached cast/staff from DB | Same, but force-refetch cast expansion for every input show |
+| **Franchise Scores** | Trace | Walk relations from seed; read cached relation graph + user anime/manga lists (import if stale) | Force anime + manga list re-import and bust relation-graph cache for the walk |
+| **Favourites** | Analyze | Read favourite chars/staff from DB; ensure anime+manga lists if stale; use cached character/VA role expansions when present | Re-import favourite character + staff lists and force both anime + manga list imports; **does not** force per-character graph expansion |
+| **Favourites** | Expand Roles | *(left-click only)* Force full character-media + VA-filmography expansion for every favourite, then rebuild the report — slow by design | — |
+| **Update List Entry** | Save | `SaveMediaListEntry` mutation (no right-click refresh) | — |
+
+Result links in Tools (show titles, staff names, season column headers) follow the same rule as elsewhere: **left-click** opens the detail modal where one exists; **middle-click** opens AniList.
+
+#### Main Sorter (LIST / RANK / RESULT)
+
+| Control | Left-click | Middle-click | Right-click |
+| --- | --- | --- | --- |
+| Thumbnail / **ⓘ** on LIST or RESULT | Open detail panel (AniList media/staff only) | Open AniList page | — |
+| **ⓘ** on RANK comparison card | Open detail panel (does not count as a pick) | — | — |
+| Comparison cards on RANK | Pick / drag (sorting) | — | — |
+
+#### AniList detail panels (media & staff)
+
+| Control | Left-click | Middle-click | Right-click |
+| --- | --- | --- | --- |
+| **↻ Refresh** in panel header | Re-fetch cast + staff (media) or filmography (staff) from AniList into SQLite | — | — |
+| Cast / production / VA names | Open staff detail panel | Open that person's AniList page | — |
+| Staff filmography row | Open media detail panel | Open that show's AniList page | — |
+| Character names (media cast) | — | Open character's AniList page | — |
+| Modal backdrop / **✕** | Close panel | — | — |
+
+On first open, panels **lazily expand** missing graph data (no full-panel spinner if metadata is already cached). The **↻** button turns amber when cached cast/staff/filmography is older than 90 days.
+
+#### Anime to Anime
+
+| Control | Left-click | Middle-click | Right-click |
+| --- | --- | --- | --- |
+| Current anime title / relation chips | — | Open AniList anime page | — |
+| Path step **bubble** (result screen) | Open media detail panel | Open AniList page | — |
+| Path step **title** (multi-show slot) | Open alternate-show picker | Open alternate-show picker | — |
+| VA / filmography hop arrows | Take the hop | Open linked character page(s) on AniList | — |
+| **↻ Refresh cast** (play screen, left-click) | Force re-expand cast (anime round) or filmography (staff round) for the current pick | — | — |
+| Random-user list loader (user icon) | Load list from cache / import if missing | Force full list re-import | — |
+
+#### START → Import from AniList
+
+| Control | Left-click | Notes |
+| --- | --- | --- |
+| **Import anime / manga** | Full `MediaListCollection` import for that type | Button reads **Reimport …** when a cache already exists; still a full wipe-and-rebuild |
+| **Use cached list** | Load preview from SQLite only | No network |
+| **Refresh …** (favourites type) | Import that favourites collection | Separate from list import |
+| **Use cached favourites** | Load from SQLite only | No network |
+
+Gear → Databases **Push/Pull** syncs the whole `anilist.sqlite` file; it is not the same as per-user list refresh above.
 
 ### Shared Credits
 
@@ -549,9 +628,11 @@ Uses cached list scores when available; fetches relation edges and missing entri
 
 ### Favourites
 
-Analyze a user's favourite **characters** and **staff** from the local cache.
+Analyze a user's favourite **characters** and **staff** from the local cache. Uses both **anime and manga** list entries for "seen on your list" / **Characters by manga series** (manga list is ensured on Analyze and force-refreshed on ↻).
 
-- **Analyze** — fast run from cache: rank voice actors by how many of your favourite characters they voice, with **Bayesian rank** and **log score** columns (tooltips explain the formulas), plus a per-series breakdown of favourite characters on each show.
+- **↻** (beside username) — force anime list + manga list + favourite characters + favourite staff re-imports.
+- **Analyze** (left-click) — fast path from cache: rank voice actors, series breakdowns, etc. Imports lists/favourites only if missing or >90d stale; uses cached character/VA expansions when present.
+- **Analyze** (right-click) — re-import favourite lists and force both anime + manga list imports, then Analyze; still does **not** force per-character graph expansion.
 - **Expand roles** — slow full re-fetch: every favourite character's appearances, then VA roles for VAs on those characters, then VA roles for favourite staff. Use when the cache is thin; can take a long time on large favourite lists.
 
 Character/staff/show names in results open detail modals.

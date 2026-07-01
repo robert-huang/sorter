@@ -452,6 +452,8 @@ function FavouriteCharactersBlock({
 export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
   const { refreshing: refreshingList, refreshUsernameList } = useUsernameListRefresh({
     refreshFavourites: true,
+    // Characters by manga series + VA main-role totals need consumed manga ids.
+    refreshManga: true,
   });
   const displayLabelRevision = useToolsDisplayLabelRevision();
   const [form, setForm] = useState<FavouritesForm>(() => loadForm());
@@ -560,7 +562,8 @@ export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
         <code>character_vas.py</code>.
         <br />
         <strong>Analyze</strong> uses cached favourites and local database lookups for a
-        fast run; use the ↻ button to refresh your anime list from AniList.
+        fast run; use ↻ to force-refresh your anime + manga lists and favourites from
+        AniList.
         <br />
         <strong>Expand Roles</strong> fully re-fetches character and VA role data into the
         local database (can take a long time).
