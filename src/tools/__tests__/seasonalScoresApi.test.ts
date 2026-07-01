@@ -202,7 +202,11 @@ describe('fetchUserSeasonalShows', () => {
     const shows = await fetchUserSeasonalShows('rh_test');
 
     expect(listedMediaNeedsSourceRepairMock).toHaveBeenCalledTimes(1);
-    expect(repairListedMediaNullSourceMock).toHaveBeenCalledTimes(1);
+    expect(repairListedMediaNullSourceMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.any(Number),
+      { type: 'ANIME' },
+    );
     expect(shows[0]?.source).toBe('WEB_NOVEL');
     expect(depaginateMock).not.toHaveBeenCalled();
   });

@@ -597,6 +597,29 @@ describe('expandAnilistMediaDetail — staff_complete upsert', () => {
 });
 
 describe('repairListedMediaNullSource', () => {
+  const sampleMediaGql = {
+    id: 100,
+    type: 'ANIME' as const,
+    title: { english: 'Test', romaji: 'Test', native: null },
+    coverImage: null,
+    format: 'TV' as const,
+    source: 'WEB_NOVEL' as const,
+    status: 'FINISHED' as const,
+    episodes: 12,
+    chapters: null,
+    startDate: null,
+    endDate: null,
+    season: null,
+    seasonYear: null,
+    meanScore: null,
+    favourites: null,
+    countryOfOrigin: 'JP' as const,
+    genres: null,
+    synonyms: null,
+    studios: { nodes: [] },
+    tags: [],
+  };
+
   it('skips listed media whose source was already fetched (even when source IS NULL)', async () => {
     const db = await freshAnilistDb();
     const executeQuery = vi.fn();
@@ -628,30 +651,12 @@ describe('repairListedMediaNullSource', () => {
     db.close();
   });
 
-  it('re-fetches listed media missing source_fetched_at', async () => {
+  it('re-fetches listed media missing source_fetched_at via batched MediaByIds', async () => {
     const db = await freshAnilistDb();
     const executeQuery = vi.fn().mockResolvedValue({
-      Media: {
-        id: 100,
-        type: 'ANIME',
-        title: { english: 'Test', romaji: 'Test', native: null },
-        coverImage: null,
-        format: 'TV',
-        source: 'WEB_NOVEL',
-        status: 'FINISHED',
-        episodes: 12,
-        chapters: null,
-        startDate: null,
-        endDate: null,
-        season: null,
-        seasonYear: null,
-        meanScore: null,
-        favourites: null,
-        countryOfOrigin: 'JP',
-        genres: null,
-        synonyms: null,
-        studios: { nodes: [] },
-        tags: [],
+      Page: {
+        pageInfo: { hasNextPage: false, currentPage: 1 },
+        media: [sampleMediaGql],
       },
     });
     const ctx: AnilistImportContext = {
@@ -681,7 +686,88 @@ describe('repairListedMediaNullSource', () => {
       'SELECT source, source_fetched_at FROM media WHERE id = 100',
     );
     expect(row).toEqual({ source: 'WEB_NOVEL', source_fetched_at: NOW });
+    expect(executeQuery).toHaveBeenCalledTimes(1);
+    expect(executeQuery.mock.calls[0][0]).toContain('MediaByIds');
     expect(executeQuery.mock.calls[0][0]).toContain('source(version: 3)');
+    expect(executeQuery.mock.calls[0][1]).toEqual({
+      mediaIds: [100],
+      page: 1,
+      perPage: 50,
+    });
+    db.close();
+  });
+
+  it('only repairs the requested media type when type is set', async () => {
+    const db = await freshAnilistDb();
+    const executeQuery = vi.fn().mockResolvedValue({
+      Page: {
+        pageInfo: { hasNextPage: false, currentPage: 1 },
+        media: [{ ...sampleMediaGql, id: 200, type: 'MANGA' }],
+      },
+    });
+    const ctx: AnilistImportContext = {
+      db: makeDbAdapter(db),
+      executeQuery,
+      now: () => NOW,
+    };
+    db.exec(
+      `INSERT INTO anilist_user (id, name, fetched_at, updated_at) VALUES (1, 'user', ?, ?)`,
+      { bind: [NOW, NOW] },
+    );
+    db.exec(
+      `INSERT INTO media (id, type, source, fetched_at, updated_at)
+       VALUES (100, 'ANIME', NULL, ?, ?), (200, 'MANGA', NULL, ?, ?)`,
+      { bind: [NOW, NOW, NOW, NOW] },
+    );
+    db.exec(
+      `INSERT INTO media_list_entry (
+         anilist_user_id, media_id, status, fetched_at, updated_at
+       ) VALUES (1, 100, 'COMPLETED', ?, ?), (1, 200, 'COMPLETED', ?, ?)`,
+      { bind: [NOW, NOW, NOW, NOW] },
+    );
+
+    expect(await repairListedMediaNullSource(ctx, 1, { type: 'MANGA' })).toBe(1);
+    expect(executeQuery).toHaveBeenCalledTimes(1);
+    expect(executeQuery.mock.calls[0][1].mediaIds).toEqual([200]);
+    db.close();
+  });
+
+  it('batches multiple ids into one MediaByIds request per chunk', async () => {
+    const db = await freshAnilistDb();
+    const executeQuery = vi.fn().mockImplementation(
+      async (_query: string, vars: { mediaIds: number[] }) => ({
+        Page: {
+          pageInfo: { hasNextPage: false, currentPage: 1 },
+          media: vars.mediaIds.map((id) => ({ ...sampleMediaGql, id })),
+        },
+      }),
+    );
+    const ctx: AnilistImportContext = {
+      db: makeDbAdapter(db),
+      executeQuery,
+      now: () => NOW,
+    };
+    db.exec(
+      `INSERT INTO anilist_user (id, name, fetched_at, updated_at) VALUES (1, 'user', ?, ?)`,
+      { bind: [NOW, NOW] },
+    );
+    for (const id of [101, 102, 103]) {
+      db.exec(
+        `INSERT INTO media (id, type, source, fetched_at, updated_at)
+         VALUES (?, 'ANIME', NULL, ?, ?)`,
+        { bind: [id, NOW, NOW] },
+      );
+      db.exec(
+        `INSERT INTO media_list_entry (
+           anilist_user_id, media_id, status, fetched_at, updated_at
+         ) VALUES (1, ?, 'COMPLETED', ?, ?)`,
+        { bind: [id, NOW, NOW] },
+      );
+    }
+
+    expect(await repairListedMediaNullSource(ctx, 1, { type: 'ANIME' })).toBe(3);
+    expect(executeQuery).toHaveBeenCalledTimes(1);
+    expect(executeQuery.mock.calls[0][1].mediaIds).toEqual([101, 102, 103]);
     db.close();
   });
 });

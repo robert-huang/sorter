@@ -18,15 +18,19 @@ import {
   mapStaffRow,
 } from './mappers';
 import { emitProgress } from './progress';
+import { ANILIST_TOOLS_MAX_PAGE_SIZE } from './depaginate';
 import {
   buildAnimeByIdQuery,
   buildMediaDetailQuery,
   buildMediaStaffOnlyQuery,
+  MEDIA_BY_IDS_QUERY,
 } from './queries';
 import type {
   AnilistAnimeByIdResponse,
+  AnilistMediaByIdsResponse,
   AnilistMediaCharacterEdgeGql,
   AnilistMediaDetailResponse,
+  AnilistMediaGql,
   AnilistMediaStaffEdgeGql,
   AnilistMediaStaffOnlyResponse,
   AnilistStaffGql,
@@ -430,29 +434,109 @@ function collectStaffFromStaffEdges(
   return staffById;
 }
 
+/** Max `id_in` size per repair request — matches AniList Page `perPage` cap. */
+export const REPAIR_MEDIA_IDS_PER_REQUEST = ANILIST_TOOLS_MAX_PAGE_SIZE;
+
+export type RepairListedMediaNullSourceOptions = {
+  /** When set, only listed rows of this media type are repaired. */
+  type?: 'ANIME' | 'MANGA';
+};
+
+async function fetchMediaNodesByIds(
+  ctx: AnilistImportContext,
+  mediaIds: readonly number[],
+): Promise<AnilistMediaGql[]> {
+  if (mediaIds.length === 0) {
+    return [];
+  }
+
+  const out: AnilistMediaGql[] = [];
+  let page = 1;
+  const perPage = ANILIST_TOOLS_MAX_PAGE_SIZE;
+
+  while (true) {
+    const response = await ctx.executeQuery<AnilistMediaByIdsResponse>(
+      MEDIA_BY_IDS_QUERY,
+      { mediaIds, page, perPage },
+    );
+    const pageData = response?.Page;
+    out.push(...(pageData?.media ?? []));
+    if (!pageData?.pageInfo?.hasNextPage) {
+      break;
+    }
+    page += 1;
+  }
+
+  return out;
+}
+
+async function upsertRepairedMediaNodes(
+  ctx: AnilistImportContext,
+  mediaNodes: readonly AnilistMediaGql[],
+): Promise<number> {
+  if (mediaNodes.length === 0) {
+    return 0;
+  }
+
+  const now = ctx.now();
+  const stmts = mediaNodes.map((media) => ({
+    sql: MEDIA_UPSERT_SQL,
+    params: mediaRowToParams(mapMediaRow(media, now)),
+  }));
+  await ctx.db.execBatch(stmts);
+  if (ctx.onDirtyIncrement) {
+    await ctx.onDirtyIncrement();
+  }
+  return mediaNodes.length;
+}
+
 /**
  * Re-fetch full metadata for listed media that never had `source(version: 3)`
  * imported (stub clobber, pre-v3 row, or never touched). Idempotent — rows
  * with `source_fetched_at` set are skipped even when `source` IS NULL.
+ *
+ * Uses batched `media(id_in: …)` requests (50 ids each) instead of one
+ * `Media(id:)` per row so large manga backfills stay inside rate limits.
  */
 export async function repairListedMediaNullSource(
   ctx: AnilistImportContext,
   anilistUserId: number,
+  options?: RepairListedMediaNullSourceOptions,
 ): Promise<number> {
+  const typeFilter = options?.type;
   const rows = await ctx.db.exec(
-    `SELECT DISTINCT m.id
-       FROM media m
-       INNER JOIN media_list_entry mle ON mle.media_id = m.id
-      WHERE mle.anilist_user_id = ?
-        AND m.source_fetched_at IS NULL`,
-    [anilistUserId],
+    typeFilter
+      ? `SELECT DISTINCT m.id
+           FROM media m
+           INNER JOIN media_list_entry mle ON mle.media_id = m.id
+          WHERE mle.anilist_user_id = ?
+            AND m.type = ?
+            AND m.source_fetched_at IS NULL`
+      : `SELECT DISTINCT m.id
+           FROM media m
+           INNER JOIN media_list_entry mle ON mle.media_id = m.id
+          WHERE mle.anilist_user_id = ?
+            AND m.source_fetched_at IS NULL`,
+    typeFilter ? [anilistUserId, typeFilter] : [anilistUserId],
   );
+
+  const mediaIds = rows.map((row) => Number(row.id));
   let repaired = 0;
-  for (const row of rows) {
-    const mediaId = Number(row.id);
-    await ensureMediaRowForCastExpansion(ctx, mediaId, { refreshMetadata: true });
-    repaired += 1;
+
+  for (let offset = 0; offset < mediaIds.length; offset += REPAIR_MEDIA_IDS_PER_REQUEST) {
+    const chunk = mediaIds.slice(offset, offset + REPAIR_MEDIA_IDS_PER_REQUEST);
+    const nodes = await fetchMediaNodesByIds(ctx, chunk);
+    const nodeById = new Map(nodes.map((node) => [node.id, node]));
+    const resolved: AnilistMediaGql[] = [];
+    for (const mediaId of chunk) {
+      const node = nodeById.get(mediaId);
+      if (node) {
+        resolved.push(node);
+      }
+    }
+    repaired += await upsertRepairedMediaNodes(ctx, resolved);
   }
+
   return repaired;
 }
 

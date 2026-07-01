@@ -184,7 +184,7 @@ export async function ensureUserMediaListFresh(
     await runAnilistImport(handle, type);
     user = await getAnilistUserByName(ctx.db, handle);
     if (user) {
-      await repairListedMediaNullSource(ctx, user.id);
+      await repairListedMediaNullSource(ctx, user.id, { type });
     }
   }
   return user;

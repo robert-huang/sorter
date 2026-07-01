@@ -422,6 +422,13 @@ export type AnilistAnimeByIdResponse = {
   Media: AnilistMediaGql | null;
 };
 
+export type AnilistMediaByIdsResponse = {
+  Page: {
+    pageInfo: { hasNextPage: boolean; currentPage?: number | null };
+    media: AnilistMediaGql[] | null;
+  } | null;
+};
+
 export type AnilistAnimePageCountResponse = {
   Page: {
     pageInfo: { total: number | null };

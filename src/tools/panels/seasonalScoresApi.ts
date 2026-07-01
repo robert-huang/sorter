@@ -130,7 +130,7 @@ async function fetchUserSeasonalShowsResolved(
   if (user) {
     let fromDb = await readUserSeasonalShowsFromDb(ctx.db, user.id);
     if (await listedMediaNeedsSourceRepair(ctx.db, user.id)) {
-      await repairListedMediaNullSource(ctx, user.id);
+      await repairListedMediaNullSource(ctx, user.id, { type: 'ANIME' });
       fromDb = await readUserSeasonalShowsFromDb(ctx.db, user.id);
     }
     if (fromDb.length > 0 || hasAccount) {

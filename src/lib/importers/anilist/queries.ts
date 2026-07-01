@@ -460,6 +460,18 @@ query AnimeById($id: Int!) {
 `.trim();
 }
 
+/** Batched metadata fetch for listed-media source repair (`id_in` + Page). */
+export const MEDIA_BY_IDS_QUERY = `
+query MediaByIds($mediaIds: [Int], $page: Int!, $perPage: Int!) {
+  Page(page: $page, perPage: $perPage) {
+    pageInfo { hasNextPage currentPage }
+    media(id_in: $mediaIds) {
+      ${MEDIA_FIELD_SELECTION}
+    }
+  }
+}
+`.trim();
+
 /** Total anime count for random page selection. */
 export function buildAnimePageCountQuery(): string {
   return `
