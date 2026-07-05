@@ -447,7 +447,7 @@ export type CompareSectionsOptions = {
 function filterProductionMapToKeyRoles(map: CreditedEntityMap): CreditedEntityMap {
   const out: CreditedEntityMap = {};
   for (const [id, entity] of Object.entries(map)) {
-    const keyRoles = entity.roles.filter(isKeyProductionRole);
+    const keyRoles = entity.roles.filter((role) => isKeyProductionRole(role));
     if (keyRoles.length === 0) {
       continue;
     }

@@ -510,7 +510,7 @@ export function FranchiseScoresPanel({ onOpenMedia }: ToolPanelProps) {
           </div>
           <span className="tool-field-hint">
             Manga relations (source novels, manga adaptations) are pulled in via{' '}
-            <em>Source</em> / <em>Adaptation</em>; scores come from your manga list.
+            <em>Source</em> / <em>Adaptation</em>; scores come from your media list.
           </span>
         </div>
 
