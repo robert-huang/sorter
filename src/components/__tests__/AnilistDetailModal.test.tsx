@@ -29,6 +29,7 @@ import { productionReads } from '../../lib/importers/anilist/readQueries';
 import { runAnilistMediaLazyExpansion } from '../../lib/importers/anilist/runners';
 import {
   anilistUrlForCharacter,
+  anilistUrlForMediaEntry,
   anilistUrlForStaffId,
 } from '../../lib/importers/anilist/anilistLinks';
 import { AnilistDetailModal } from '../AnilistDetailModal';
@@ -621,6 +622,64 @@ describe('AnilistDetailModal — clickable people (staff panel nav)', () => {
     expect(onOpenStaff).not.toHaveBeenCalled();
 
     openSpy.mockRestore();
+  });
+
+  it('middle-click on the cover image opens the media AniList page', async () => {
+    mockedGetMediaDetail.mockResolvedValueOnce({
+      media: makeMedia(74, { cover_image: 'https://example.com/cover.jpg' }),
+      studios: [],
+      tags: [],
+      characters: [],
+      productionStaff: [],
+    });
+    mockedGetExpansionStatus.mockResolvedValueOnce(makeExpansionStatus(74, true));
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+    await act(async () => {
+      root.render(
+        <AnilistDetailModal mediaId={74} fallbackTitle="EN-74" onClose={() => {}} />,
+      );
+    });
+    await flushPromises();
+
+    const cover = container.querySelector<HTMLImageElement>('img.anilist-detail-cover');
+    expect(cover).toBeTruthy();
+    act(() => {
+      cover!.dispatchEvent(new MouseEvent('auxclick', { bubbles: true, button: 1 }));
+    });
+    expect(openSpy).toHaveBeenLastCalledWith(
+      anilistUrlForMediaEntry('ANIME', 74),
+      '_blank',
+      'noopener,noreferrer',
+    );
+
+    openSpy.mockRestore();
+  });
+
+  it('shows manga key production roles in the default key-role filter', async () => {
+    mockedGetMediaDetail.mockResolvedValueOnce({
+      media: makeMedia(75, { type: 'MANGA', format: 'MANGA' }),
+      studios: [],
+      tags: [],
+      characters: [],
+      productionStaff: [
+        { staff: makeStaffRow(210, 'Author A'), role: 'Story', sortOrder: 0 },
+        { staff: makeStaffRow(211, 'Artist B'), role: 'Art', sortOrder: 1 },
+        { staff: makeStaffRow(212, 'Letterer C'), role: 'Lettering', sortOrder: 2 },
+      ],
+    });
+    mockedGetExpansionStatus.mockResolvedValueOnce(makeExpansionStatus(75, true));
+
+    await act(async () => {
+      root.render(
+        <AnilistDetailModal mediaId={75} fallbackTitle="Manga 75" onClose={() => {}} />,
+      );
+    });
+    await flushPromises();
+
+    expect(container.textContent).toContain('Author A');
+    expect(container.textContent).toContain('Artist B');
+    expect(container.textContent).not.toContain('Letterer C');
   });
 
   it('renders staff names as plain text when onOpenStaff is not wired', async () => {

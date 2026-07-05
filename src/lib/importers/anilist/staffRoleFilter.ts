@@ -2,13 +2,16 @@
  * Read-time filter for production staff roles. AniList returns free-form
  * role strings on StaffEdge — there is no server-side filter on Media.staff.
  *
- * Key roles match exactly against {@link KEY_PRODUCTION_ROLES} after:
+ * Key roles match exactly against {@link KEY_ANIME_PRODUCTION_ROLES} or
+ * {@link KEY_MANGA_PRODUCTION_ROLES} (media-type-specific) after:
  *   1. Trimming trailing parentheticals, e.g. `(ep 1)`, `(ED)`
  *   2. Lowercasing
  *   3. Stripping leading `Chief ` / `Assistant ` prefixes (repeat until none)
  */
 
-const KEY_PRODUCTION_ROLES = new Set([
+import type { AnilistMediaType } from './types';
+
+const KEY_ANIME_PRODUCTION_ROLES = new Set([
   'director',
   'series director',
   'animation director',
@@ -33,6 +36,14 @@ const KEY_PRODUCTION_ROLES = new Set([
   'insert song performance',
   'insert song lyrics',
   'insert song composition',
+]);
+
+/** Manga production credits on AniList use a much smaller role vocabulary. */
+const KEY_MANGA_PRODUCTION_ROLES = new Set([
+  'story',
+  'art',
+  'story & art',
+  'illustration',
 ]);
 
 /** Strip a trailing AniList episode/format suffix, e.g. `(ep 1)` or `(ED)`. */
@@ -130,19 +141,26 @@ export function sortProductionRoleRowsByRank(
  * Whether a production credit role counts as a "key" production role for
  * sorter detail panel and anime-to-anime production hops (default).
  */
-export function isKeyProductionRole(role: string | null | undefined): boolean {
+export function isKeyProductionRole(
+  role: string | null | undefined,
+  mediaType: AnilistMediaType = 'ANIME',
+): boolean {
   if (!role) {
     return false;
   }
-  return KEY_PRODUCTION_ROLES.has(normalizeProductionRoleForMatch(role));
+  const normalized = normalizeProductionRoleForMatch(role);
+  const bucket =
+    mediaType === 'MANGA' ? KEY_MANGA_PRODUCTION_ROLES : KEY_ANIME_PRODUCTION_ROLES;
+  return bucket.has(normalized);
 }
 
 export function filterProductionStaffRows<T extends { role: string | null }>(
   rows: readonly T[],
   mode: 'key' | 'all',
+  mediaType: AnilistMediaType = 'ANIME',
 ): T[] {
   if (mode === 'all') {
     return [...rows];
   }
-  return rows.filter((r) => isKeyProductionRole(r.role));
+  return rows.filter((r) => isKeyProductionRole(r.role, mediaType));
 }

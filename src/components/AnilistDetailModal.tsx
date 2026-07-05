@@ -19,6 +19,7 @@ import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
 import { pickCharacterName, pickPersonName } from '../lib/importers/anilist/personDisplayLabel';
 import {
   anilistUrlForCharacter,
+  anilistUrlForMediaEntry,
   anilistUrlForStaffId,
   bindAnilistMiddleClick,
   mergeAnilistLinkClass,
@@ -244,7 +245,11 @@ export function AnilistDetailModal({
     if (!detail) {
       return [];
     }
-    return filterProductionStaffRows(detail.productionStaff, productionRoleMode);
+    return filterProductionStaffRows(
+      detail.productionStaff,
+      productionRoleMode,
+      detail.media.type,
+    );
   }, [detail, productionRoleMode]);
 
   const onProductionRoleModeChange = useCallback((mode: ProductionRoleMode) => {
@@ -362,6 +367,9 @@ export function AnilistDetailModal({
 
   const title = pickTitle(detail, fallbackTitle);
   const m = detail?.media;
+  const coverAnilistLink = m
+    ? bindAnilistMiddleClick(anilistUrlForMediaEntry(m.type, m.id))
+    : bindAnilistMiddleClick(null);
 
   return (
     <div
@@ -439,10 +447,16 @@ export function AnilistDetailModal({
           <div className="anilist-detail-body">
             {m.cover_image && (
               <img
-                className="anilist-detail-cover"
+                className={mergeAnilistLinkClass(
+                  'anilist-detail-cover',
+                  coverAnilistLink.className,
+                )}
                 src={m.cover_image}
                 alt=""
                 loading="lazy"
+                title="Open on AniList (middle-click)"
+                onMouseDown={coverAnilistLink.onMouseDown}
+                onAuxClick={coverAnilistLink.onAuxClick}
               />
             )}
 

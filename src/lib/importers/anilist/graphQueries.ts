@@ -342,6 +342,8 @@ export async function getProductionCreditsAtMedia(
   mediaId: number,
   roleMode: 'key' | 'all' = 'key',
 ): Promise<ProductionCreditRow[]> {
+  const mediaRows = await db.exec('SELECT type FROM media WHERE id = ?', [mediaId]);
+  const mediaType = (mediaRows[0]?.type as 'ANIME' | 'MANGA' | undefined) ?? 'ANIME';
   const rows = await db.exec(
     `
       SELECT st.*, ms.role, ms.sort_order
@@ -357,7 +359,9 @@ export async function getProductionCreditsAtMedia(
     role: reqS(r.role),
     sortOrder: Number(r.sort_order ?? 0),
   }));
-  return groupProductionCreditsByStaff(filterProductionStaffRows(mapped, roleMode));
+  return groupProductionCreditsByStaff(
+    filterProductionStaffRows(mapped, roleMode, mediaType),
+  );
 }
 
 async function getVoiceAnimeFilmographyForStaff(

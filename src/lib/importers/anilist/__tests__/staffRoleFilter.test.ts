@@ -105,4 +105,18 @@ describe('isKeyProductionRole', () => {
     expect(isKeyProductionRole('Theme Song Arrangement (ED)')).toBe(false);
     expect(isKeyProductionRole('Music Producer')).toBe(false);
   });
+
+  it('matches manga key roles when media type is MANGA', () => {
+    expect(isKeyProductionRole('Story', 'MANGA')).toBe(true);
+    expect(isKeyProductionRole('Art', 'MANGA')).toBe(true);
+    expect(isKeyProductionRole('Story & Art', 'MANGA')).toBe(true);
+    expect(isKeyProductionRole('Illustration', 'MANGA')).toBe(true);
+    expect(isKeyProductionRole('Assistant Story', 'MANGA')).toBe(true);
+  });
+
+  it('does not apply anime key roles to manga entries', () => {
+    expect(isKeyProductionRole('Director', 'MANGA')).toBe(false);
+    expect(isKeyProductionRole('Story', 'ANIME')).toBe(false);
+    expect(isKeyProductionRole('Art', 'ANIME')).toBe(false);
+  });
 });
