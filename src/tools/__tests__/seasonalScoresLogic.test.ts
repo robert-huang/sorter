@@ -86,6 +86,9 @@ describe('seasonalScoresLogic', () => {
     expect(formatSeasonalScoreLabel(85)).toBe('85');
     expect(formatSeasonalScoreLabel(85, 'PLANNING')).toBe('P');
     expect(formatSeasonalScoreLabel(null, 'PLANNING')).toBe('P');
+    expect(formatSeasonalScoreLabel(85, 'CURRENT')).toBe('W');
+    expect(formatSeasonalScoreLabel(null, 'CURRENT')).toBe('W');
+    expect(formatSeasonalScoreLabel(70, 'REPEATING')).toBe('W');
   });
 
   it('scoreDisplayTone highlights scores above 80 and below 70', () => {

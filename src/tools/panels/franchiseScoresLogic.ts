@@ -1,5 +1,8 @@
 import type { MediaTitleFields } from '../../lib/importers/anilist/mediaDisplayLabel';
-import { normalizeSeasonalListScore } from './seasonalScoresLogic';
+import {
+  listStatusScoreLabel,
+  normalizeSeasonalListScore,
+} from './seasonalScoresLogic';
 
 /**
  * AniList `MediaRelation` enum values. AniList's GraphQL schema does not
@@ -180,7 +183,8 @@ export function franchiseDateLabel(date: FranchiseNode['startDate']): string {
 
 /**
  * Score cell label. `U` = unwatched (entry isn't on the user's list at all),
- * `P` = PLANNING, `—` = on list but no score, otherwise the score itself.
+ * `P` = PLANNING, `W` = CURRENT / REPEATING, `—` = on list but no score,
+ * otherwise the score itself.
  *
  * Distinct from {@link formatSeasonalScoreLabel} because seasonal-scores only
  * ever shows shows already on the list — there's no "unwatched" bucket there.
@@ -192,8 +196,9 @@ export function formatFranchiseScoreLabel(
   if (listStatus == null) {
     return 'U';
   }
-  if (listStatus === 'PLANNING') {
-    return 'P';
+  const statusLabel = listStatusScoreLabel(listStatus);
+  if (statusLabel != null) {
+    return statusLabel;
   }
   const normalized = normalizeSeasonalListScore(score);
   return normalized == null ? '—' : String(normalized);
@@ -385,9 +390,10 @@ export function buildFranchiseEntries(
  *   2. Rated/unrated bucket. An entry is "rated" iff it's on the
  *      user's list AND has a numeric score > 0 (matches AniList's
  *      POINT_100 convention where 0 = "I haven't scored this").
- *      PLANNING entries are treated as unrated because the table
- *      shows them as "P" regardless of any backing score, so users
- *      filtering by "unrated" expect them in that bucket. Unwatched
+ *      PLANNING / CURRENT / REPEATING entries are treated as unrated
+ *      because the table shows them as "P" / "W" regardless of any
+ *      backing score, so users filtering by "unrated" expect them in
+ *      that bucket. Unwatched
  *      entries (no list row at all) are also unrated.
  *   3. Score range. Only narrows the rated bucket — unrated items
  *      pass the range check by virtue of being filtered out at step
@@ -408,12 +414,12 @@ export function applyFranchiseFilters(
     if (entry.mediaType === 'MANGA' && !filters.includeManga) continue;
 
     const normalized = normalizeSeasonalListScore(entry.score);
-    // PLANNING is bucketed with unrated so the filter agrees with the
-    // displayed "P" label — a PLANNING entry with a stale score still
-    // can't be told apart from a true unrated one in the table.
+    // Status-letter entries are bucketed with unrated so the filter
+    // agrees with the displayed "P" / "W" label — a CURRENT entry with
+    // a stale score still can't be told apart from a true unrated one.
     const isRated =
       entry.listStatus != null &&
-      entry.listStatus !== 'PLANNING' &&
+      listStatusScoreLabel(entry.listStatus) == null &&
       normalized != null;
 
     if (filters.userScoreInclude === 'rated' && !isRated) continue;

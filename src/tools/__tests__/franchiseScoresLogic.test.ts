@@ -89,6 +89,13 @@ describe('formatFranchiseScoreLabel', () => {
     expect(formatFranchiseScoreLabel(70, 'PLANNING')).toBe('P');
   });
 
+  it('marks CURRENT and REPEATING as W regardless of score', () => {
+    expect(formatFranchiseScoreLabel(null, 'CURRENT')).toBe('W');
+    expect(formatFranchiseScoreLabel(85, 'CURRENT')).toBe('W');
+    expect(formatFranchiseScoreLabel(null, 'REPEATING')).toBe('W');
+    expect(formatFranchiseScoreLabel(70, 'REPEATING')).toBe('W');
+  });
+
   it('shows — when on list but no score', () => {
     expect(formatFranchiseScoreLabel(null, 'COMPLETED')).toBe('—');
     expect(formatFranchiseScoreLabel(0, 'COMPLETED')).toBe('—');

@@ -229,12 +229,32 @@ export function isSeasonalPlanningShow(show: Pick<SeasonalShow, 'listStatus'>): 
   return show.listStatus === 'PLANNING';
 }
 
+/** Status letter shown in chart cells instead of a numeric score. */
+export function listStatusScoreLabel(
+  listStatus: string | null | undefined,
+): 'P' | 'W' | null {
+  if (listStatus === 'PLANNING') {
+    return 'P';
+  }
+  if (listStatus === 'CURRENT' || listStatus === 'REPEATING') {
+    return 'W';
+  }
+  return null;
+}
+
+export function isSeasonalStatusLetterShow(
+  show: Pick<SeasonalShow, 'listStatus'>,
+): boolean {
+  return listStatusScoreLabel(show.listStatus) != null;
+}
+
 export function formatSeasonalScoreLabel(
   score: number | null | undefined,
   listStatus?: string | null,
 ): string {
-  if (isSeasonalPlanningShow({ listStatus })) {
-    return 'P';
+  const statusLabel = listStatusScoreLabel(listStatus);
+  if (statusLabel != null) {
+    return statusLabel;
   }
   const normalized = normalizeSeasonalListScore(score);
   return normalized == null ? '—' : String(normalized);
@@ -242,7 +262,7 @@ export function formatSeasonalScoreLabel(
 
 export function countRatedSeasonalShows(shows: SeasonalShow[]): number {
   return shows.reduce((count, show) => {
-    if (isSeasonalPlanningShow(show)) {
+    if (isSeasonalStatusLetterShow(show)) {
       return count;
     }
     return count + (normalizeSeasonalListScore(show.score) == null ? 0 : 1);
@@ -250,7 +270,7 @@ export function countRatedSeasonalShows(shows: SeasonalShow[]): number {
 }
 
 function seasonalShowSortKey(show: SeasonalShow): number {
-  if (isSeasonalPlanningShow(show)) {
+  if (isSeasonalStatusLetterShow(show)) {
     return -1;
   }
   return normalizeSeasonalListScore(show.score) ?? 0;
@@ -635,7 +655,7 @@ export function bucketShowsForSeason(
 
 export function averageScore(shows: SeasonalShow[]): number | null {
   const scored = shows
-    .filter((show) => !isSeasonalPlanningShow(show))
+    .filter((show) => !isSeasonalStatusLetterShow(show))
     .map((s) => normalizeSeasonalListScore(s.score))
     .filter((s): s is number => s !== null);
   if (scored.length === 0) {
