@@ -622,8 +622,22 @@ export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
           <p className="tool-summary">
             {result.characterCount} favourite characters · {result.vaCount} VAs ·{' '}
             {result.numSeen} seen on your list
-            {mainRolePct !== null ? ` · ~${mainRolePct}% main roles` : ''}
-            {femalePct !== null ? ` · ~${femalePct}% female` : ''}
+            {mainRolePct !== null ? (
+              <>
+                {' · '}
+                <span title={`${result.numMain}/${result.numSeen}`}>
+                  ~{mainRolePct}% main roles
+                </span>
+              </>
+            ) : null}
+            {femalePct !== null ? (
+              <>
+                {' · '}
+                <span title={`${result.numFemaleSeen}/${result.numSeen}`}>
+                  ~{femalePct}% female
+                </span>
+              </>
+            ) : null}
           </p>
 
           <VaRankBlock
