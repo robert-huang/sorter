@@ -569,12 +569,14 @@ describe('seasonalScoresLogic', () => {
     }
   });
 
-  it('sorts within a column: scored descending, planning pinned to the bottom, unrated below scored', () => {
+  it('sorts within a column: scored descending, W above P at the bottom, unrated below scored', () => {
     const shows: SeasonalShow[] = [
       { id: 1, title: 'Low',      season: 'WINTER', seasonYear: 2024, score: 60,   notes: null },
       { id: 2, title: 'Planning', season: 'WINTER', seasonYear: 2024, score: 99,   notes: null, listStatus: 'PLANNING' },
       { id: 3, title: 'High',     season: 'WINTER', seasonYear: 2024, score: 90,   notes: null },
       { id: 4, title: 'Unrated',  season: 'WINTER', seasonYear: 2024, score: null, notes: null },
+      { id: 5, title: 'Watching', season: 'WINTER', seasonYear: 2024, score: 85,   notes: null, listStatus: 'CURRENT' },
+      { id: 6, title: 'Repeating', season: 'WINTER', seasonYear: 2024, score: null, notes: null, listStatus: 'REPEATING' },
     ];
     const result = buildSeasonalColumns(shows, {
       username: 'user',
@@ -587,11 +589,13 @@ describe('seasonalScoresLogic', () => {
     });
     expect(result.kind).toBe('columns');
     if (result.kind === 'columns') {
-      // High (90) → Low (60) → Unrated (0) → Planning (-1)
+      // High (90) → Low (60) → Unrated (0) → W (-1) → P (-2)
       expect(result.columns[0]?.shows.map((s) => s.title)).toEqual([
         'High',
         'Low',
         'Unrated',
+        'Watching',
+        'Repeating',
         'Planning',
       ]);
     }

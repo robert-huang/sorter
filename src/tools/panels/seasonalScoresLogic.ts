@@ -270,8 +270,12 @@ export function countRatedSeasonalShows(shows: SeasonalShow[]): number {
 }
 
 function seasonalShowSortKey(show: SeasonalShow): number {
-  if (isSeasonalStatusLetterShow(show)) {
+  const statusLabel = listStatusScoreLabel(show.listStatus);
+  if (statusLabel === 'W') {
     return -1;
+  }
+  if (statusLabel === 'P') {
+    return -2;
   }
   return normalizeSeasonalListScore(show.score) ?? 0;
 }
