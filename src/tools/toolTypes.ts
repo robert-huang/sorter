@@ -6,6 +6,7 @@ export type ToolId =
   | 'seasonal-scores'
   | 'franchise-scores'
   | 'favourites'
+  | 'reorder-favourites'
   | 'update-list-entry';
 
 /** Props every tool panel receives so result rows can open the detail modals. */
@@ -28,6 +29,7 @@ const TOOL_IDS: readonly ToolId[] = [
   'seasonal-scores',
   'franchise-scores',
   'favourites',
+  'reorder-favourites',
   'update-list-entry',
 ];
 
