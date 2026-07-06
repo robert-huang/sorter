@@ -402,6 +402,7 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
 
       <form
         className="tool-form-card"
+        autoComplete="off"
         onSubmit={(e) => {
           e.preventDefault();
           if (!running) {

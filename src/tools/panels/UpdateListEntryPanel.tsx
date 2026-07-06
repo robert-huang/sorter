@@ -139,7 +139,7 @@ export function UpdateListEntryPanel(_props: ToolPanelProps) {
         notes tagging across your whole anime and manga list.
       </p>
 
-      <form className="tool-form-card tool-update-list-entry-form" onSubmit={onSubmit}>
+      <form className="tool-form-card tool-update-list-entry-form" autoComplete="off" onSubmit={onSubmit}>
         <div className="tool-update-list-entry-grid">
           <label className="tool-update-list-entry-label" htmlFor={FIELD_IDS.username}>
             Username
@@ -149,10 +149,15 @@ export function UpdateListEntryPanel(_props: ToolPanelProps) {
               id={FIELD_IDS.username}
               className="slot-search tool-update-list-entry-username-input"
               type="text"
+              name="anilist-username"
               disabled={running}
               placeholder="AL Username"
               value={form.username}
               onChange={(e) => patchForm({ username: e.target.value })}
+              spellCheck={false}
+              autoComplete="off"
+              data-1p-ignore
+              data-lpignore="true"
             />
             {authHint && <span className="tool-field-hint tool-field-hint-inline">{authHint}</span>}
           </div>

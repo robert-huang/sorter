@@ -84,11 +84,14 @@ describe('seasonalScoresLogic', () => {
     expect(normalizeSeasonalListScore(85)).toBe(85);
     expect(formatSeasonalScoreLabel(0)).toBe('—');
     expect(formatSeasonalScoreLabel(85)).toBe('85');
-    expect(formatSeasonalScoreLabel(85, 'PLANNING')).toBe('P');
     expect(formatSeasonalScoreLabel(null, 'PLANNING')).toBe('P');
-    expect(formatSeasonalScoreLabel(85, 'CURRENT')).toBe('W');
+    expect(formatSeasonalScoreLabel(85, 'PLANNING')).toBe('85');
     expect(formatSeasonalScoreLabel(null, 'CURRENT')).toBe('W');
-    expect(formatSeasonalScoreLabel(70, 'REPEATING')).toBe('W');
+    expect(formatSeasonalScoreLabel(85, 'CURRENT')).toBe('85');
+    expect(formatSeasonalScoreLabel(null, 'REPEATING')).toBe('W');
+    expect(formatSeasonalScoreLabel(70, 'REPEATING')).toBe('70');
+    expect(formatSeasonalScoreLabel(null, 'PAUSED')).toBe('H');
+    expect(formatSeasonalScoreLabel(75, 'PAUSED')).toBe('75');
   });
 
   it('scoreDisplayTone highlights scores above 80 and below 70', () => {
@@ -185,7 +188,7 @@ describe('seasonalScoresLogic', () => {
     });
   });
 
-  it('includes planning shows with P label and excludes them from average', () => {
+  it('includes unrated planning shows with P label and excludes them from average', () => {
     const shows: SeasonalShow[] = [
       {
         id: 1,
@@ -200,7 +203,7 @@ describe('seasonalScoresLogic', () => {
         title: 'Planning',
         season: 'WINTER',
         seasonYear: 2024,
-        score: 90,
+        score: null,
         notes: null,
         listStatus: 'PLANNING',
       },
@@ -526,10 +529,10 @@ describe('seasonalScoresLogic', () => {
     }
   });
 
-  it('all-planning column returns null average and zero ratedCount but keeps the shows visible', () => {
+  it('all-planning unrated column returns null average and zero ratedCount but keeps the shows visible', () => {
     const shows: SeasonalShow[] = [
-      { id: 1, title: 'P1', season: 'WINTER', seasonYear: 2024, score: 90, notes: null, listStatus: 'PLANNING' },
-      { id: 2, title: 'P2', season: 'WINTER', seasonYear: 2024, score: 70, notes: null, listStatus: 'PLANNING' },
+      { id: 1, title: 'P1', season: 'WINTER', seasonYear: 2024, score: null, notes: null, listStatus: 'PLANNING' },
+      { id: 2, title: 'P2', season: 'WINTER', seasonYear: 2024, score: null, notes: null, listStatus: 'PLANNING' },
     ];
     const result = buildSeasonalColumns(shows, {
       username: 'user',
@@ -569,14 +572,15 @@ describe('seasonalScoresLogic', () => {
     }
   });
 
-  it('sorts within a column: scored descending, W above P at the bottom, unrated below scored', () => {
+  it('sorts within a column: scored descending, then —, then W, H, P at the bottom', () => {
     const shows: SeasonalShow[] = [
-      { id: 1, title: 'Low',      season: 'WINTER', seasonYear: 2024, score: 60,   notes: null },
-      { id: 2, title: 'Planning', season: 'WINTER', seasonYear: 2024, score: 99,   notes: null, listStatus: 'PLANNING' },
-      { id: 3, title: 'High',     season: 'WINTER', seasonYear: 2024, score: 90,   notes: null },
-      { id: 4, title: 'Unrated',  season: 'WINTER', seasonYear: 2024, score: null, notes: null },
-      { id: 5, title: 'Watching', season: 'WINTER', seasonYear: 2024, score: 85,   notes: null, listStatus: 'CURRENT' },
-      { id: 6, title: 'Repeating', season: 'WINTER', seasonYear: 2024, score: null, notes: null, listStatus: 'REPEATING' },
+      { id: 1, title: 'Low',              season: 'WINTER', seasonYear: 2024, score: 60,   notes: null },
+      { id: 2, title: 'Planning',         season: 'WINTER', seasonYear: 2024, score: null, notes: null, listStatus: 'PLANNING' },
+      { id: 3, title: 'High',             season: 'WINTER', seasonYear: 2024, score: 90,   notes: null },
+      { id: 4, title: 'Unrated',          season: 'WINTER', seasonYear: 2024, score: null, notes: null },
+      { id: 5, title: 'Watching rated',   season: 'WINTER', seasonYear: 2024, score: 85,   notes: null, listStatus: 'CURRENT' },
+      { id: 6, title: 'Repeating unrated', season: 'WINTER', seasonYear: 2024, score: null, notes: null, listStatus: 'REPEATING' },
+      { id: 7, title: 'Paused unrated',   season: 'WINTER', seasonYear: 2024, score: null, notes: null, listStatus: 'PAUSED' },
     ];
     const result = buildSeasonalColumns(shows, {
       username: 'user',
@@ -589,13 +593,13 @@ describe('seasonalScoresLogic', () => {
     });
     expect(result.kind).toBe('columns');
     if (result.kind === 'columns') {
-      // High (90) → Low (60) → Unrated (0) → W (-1) → P (-2)
       expect(result.columns[0]?.shows.map((s) => s.title)).toEqual([
         'High',
+        'Watching rated',
         'Low',
         'Unrated',
-        'Watching',
-        'Repeating',
+        'Repeating unrated',
+        'Paused unrated',
         'Planning',
       ]);
     }

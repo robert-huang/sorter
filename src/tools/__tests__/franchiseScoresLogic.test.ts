@@ -84,16 +84,21 @@ describe('formatFranchiseScoreLabel', () => {
     expect(formatFranchiseScoreLabel(80, null)).toBe('U');
   });
 
-  it('marks PLANNING as P regardless of score', () => {
+  it('marks unrated PLANNING as P', () => {
     expect(formatFranchiseScoreLabel(null, 'PLANNING')).toBe('P');
-    expect(formatFranchiseScoreLabel(70, 'PLANNING')).toBe('P');
+    expect(formatFranchiseScoreLabel(70, 'PLANNING')).toBe('70');
   });
 
-  it('marks CURRENT and REPEATING as W regardless of score', () => {
+  it('marks unrated CURRENT and REPEATING as W', () => {
     expect(formatFranchiseScoreLabel(null, 'CURRENT')).toBe('W');
-    expect(formatFranchiseScoreLabel(85, 'CURRENT')).toBe('W');
+    expect(formatFranchiseScoreLabel(85, 'CURRENT')).toBe('85');
     expect(formatFranchiseScoreLabel(null, 'REPEATING')).toBe('W');
-    expect(formatFranchiseScoreLabel(70, 'REPEATING')).toBe('W');
+    expect(formatFranchiseScoreLabel(70, 'REPEATING')).toBe('70');
+  });
+
+  it('marks unrated PAUSED as H', () => {
+    expect(formatFranchiseScoreLabel(null, 'PAUSED')).toBe('H');
+    expect(formatFranchiseScoreLabel(75, 'PAUSED')).toBe('75');
   });
 
   it('shows — when on list but no score', () => {
@@ -383,8 +388,7 @@ describe('applyFranchiseFilters', () => {
       entry(1, { mediaType: 'ANIME', listStatus: 'COMPLETED', score: 85 }),
       entry(2, { mediaType: 'ANIME', listStatus: null, score: null }),
       entry(3, { mediaType: 'ANIME', listStatus: 'COMPLETED', score: null }),
-      // PLANNING with a non-zero score still groups with unrated — the
-      // table renders 'P' regardless, so the filter mirrors that.
+      // PLANNING with a non-zero score shows the score and counts as rated.
       entry(4, { mediaType: 'ANIME', listStatus: 'PLANNING', score: 70 }),
       entry(5, { mediaType: 'MANGA', listStatus: 'COMPLETED', score: 92 }),
       entry(6, { mediaType: 'MANGA', listStatus: null, score: null }),
@@ -426,17 +430,15 @@ describe('applyFranchiseFilters', () => {
       ...DEFAULT_FRANCHISE_FILTERS,
       userScoreInclude: 'rated',
     });
-    // PLANNING is excluded even though its score is non-zero, matching
-    // how the table labels it.
-    expect(out.map((e) => e.id)).toEqual([1, 5]);
+    expect(out.map((e) => e.id)).toEqual([1, 4, 5]);
   });
 
-  it('unrated pill keeps PLANNING + unwatched + on-list-no-score', () => {
+  it('unrated pill keeps status-letter entries + unwatched + on-list-no-score', () => {
     const out = applyFranchiseFilters(fixture(), {
       ...DEFAULT_FRANCHISE_FILTERS,
       userScoreInclude: 'unrated',
     });
-    expect(out.map((e) => e.id)).toEqual([2, 3, 4, 6]);
+    expect(out.map((e) => e.id)).toEqual([2, 3, 6]);
   });
 
   it('range narrows the rated bucket but ignores unrated items', () => {
@@ -445,9 +447,9 @@ describe('applyFranchiseFilters', () => {
       scoreMin: 90,
       scoreMax: null,
     });
-    // 85 drops out, 92 stays; every unrated entry passes the range
+    // 85 and 70 drop out, 92 stays; every unrated entry passes the range
     // check (range only applies inside the rated bucket).
-    expect(out.map((e) => e.id)).toEqual([2, 3, 4, 5, 6]);
+    expect(out.map((e) => e.id)).toEqual([2, 3, 5, 6]);
   });
 
   it('range + rated pill stack — only rated entries inside the bounds', () => {

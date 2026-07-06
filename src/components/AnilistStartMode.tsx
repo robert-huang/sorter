@@ -1135,6 +1135,7 @@ export function AnilistStartMode({
         <input
           className="anilist-start-input"
           type="text"
+          name="anilist-username"
           value={username}
           placeholder="AniList username"
           onChange={(e) => {
@@ -1143,6 +1144,8 @@ export function AnilistStartMode({
           }}
           spellCheck={false}
           autoComplete="off"
+          data-1p-ignore
+          data-lpignore="true"
           onKeyDown={(e) => {
             // Enter still commits the Import action so muscle memory
             // works the same as when this was wrapped in a <form>

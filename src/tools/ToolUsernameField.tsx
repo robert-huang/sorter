@@ -4,6 +4,8 @@ type ToolUsernameFieldProps = {
   disabled?: boolean;
   placeholder?: string;
   onChange: (value: string) => void;
+  /** Non-standard name so browsers do not treat this as login/payment autofill. */
+  inputName?: string;
   /** Optional hint shown inline to the right of the input (and refresh button). */
   hint?: string | null;
   /** When set, shows a refresh button to the right of the input (a2a style). */
@@ -21,6 +23,7 @@ export function ToolUsernameField({
   disabled,
   placeholder = 'AL Username',
   onChange,
+  inputName = 'anilist-username',
   hint,
   onRefresh,
   refreshing,
@@ -33,10 +36,15 @@ export function ToolUsernameField({
         <input
           className="slot-search anime-to-anime-endpoint-user-input"
           type="text"
+          name={inputName}
           disabled={disabled}
           placeholder={placeholder}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          spellCheck={false}
+          autoComplete="off"
+          data-1p-ignore
+          data-lpignore="true"
         />
         {onRefresh && (
           <button

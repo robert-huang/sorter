@@ -183,8 +183,8 @@ export function franchiseDateLabel(date: FranchiseNode['startDate']): string {
 
 /**
  * Score cell label. `U` = unwatched (entry isn't on the user's list at all),
- * `P` = PLANNING, `W` = CURRENT / REPEATING, `—` = on list but no score,
- * otherwise the score itself.
+ * `P` / `W` / `H` = unrated PLANNING / CURRENT|REPEATING / PAUSED,
+ * `—` = on list but no score and no status letter, otherwise the score itself.
  *
  * Distinct from {@link formatSeasonalScoreLabel} because seasonal-scores only
  * ever shows shows already on the list — there's no "unwatched" bucket there.
@@ -196,7 +196,7 @@ export function formatFranchiseScoreLabel(
   if (listStatus == null) {
     return 'U';
   }
-  const statusLabel = listStatusScoreLabel(listStatus);
+  const statusLabel = listStatusScoreLabel(listStatus, score);
   if (statusLabel != null) {
     return statusLabel;
   }
@@ -390,10 +390,8 @@ export function buildFranchiseEntries(
  *   2. Rated/unrated bucket. An entry is "rated" iff it's on the
  *      user's list AND has a numeric score > 0 (matches AniList's
  *      POINT_100 convention where 0 = "I haven't scored this").
- *      PLANNING / CURRENT / REPEATING entries are treated as unrated
- *      because the table shows them as "P" / "W" regardless of any
- *      backing score, so users filtering by "unrated" expect them in
- *      that bucket. Unwatched
+ *      Unrated status-letter entries (P / W / H) are treated as unrated
+ *      because the table shows a letter instead of a score. Unwatched
  *      entries (no list row at all) are also unrated.
  *   3. Score range. Only narrows the rated bucket — unrated items
  *      pass the range check by virtue of being filtered out at step
@@ -414,12 +412,10 @@ export function applyFranchiseFilters(
     if (entry.mediaType === 'MANGA' && !filters.includeManga) continue;
 
     const normalized = normalizeSeasonalListScore(entry.score);
-    // Status-letter entries are bucketed with unrated so the filter
-    // agrees with the displayed "P" / "W" label — a CURRENT entry with
-    // a stale score still can't be told apart from a true unrated one.
+    const statusLabel = listStatusScoreLabel(entry.listStatus, entry.score);
     const isRated =
       entry.listStatus != null &&
-      listStatusScoreLabel(entry.listStatus) == null &&
+      statusLabel == null &&
       normalized != null;
 
     if (filters.userScoreInclude === 'rated' && !isRated) continue;

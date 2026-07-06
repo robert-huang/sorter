@@ -455,6 +455,7 @@ export function FranchiseScoresPanel({ onOpenMedia }: ToolPanelProps) {
 
       <form
         className="tool-form-card"
+        autoComplete="off"
         onSubmit={(e) => {
           e.preventDefault();
           if (!running) {

@@ -2501,7 +2501,7 @@ export function App() {
         slotName={loadedSlotName}
         onUnhide={doUnhide}
         onRestoreHidden={doRestoreHidden}
-        onDismissHidden={doDismissHidden}
+        onForgetHidden={doForgetHidden}
         onStartOver={requestStartOver}
         onAddOne={doAddItem}
         onAddMany={doAddItemsList}

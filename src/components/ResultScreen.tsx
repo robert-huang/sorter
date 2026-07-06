@@ -22,7 +22,8 @@ interface Props {
   slotName?: string;
   onUnhide: (id: string) => void;
   onRestoreHidden: (id: string) => void;
-  onDismissHidden: (id: string) => void;
+  /** Permanently remove from hidden list and ranking (matches LIST tab Dismiss). */
+  onForgetHidden: (id: string) => void;
   /**
    * Start over from scratch: re-init the sort with the same items but
    * no comparison history. Shows a confirm modal in App.tsx (unless the
@@ -85,7 +86,7 @@ export function ResultScreen({
   dbSyncRevision,
   onUnhide,
   onRestoreHidden,
-  onDismissHidden,
+  onForgetHidden,
   onStartOver,
   onAddOne,
   onAddMany,
@@ -245,8 +246,12 @@ export function ResultScreen({
                       )}
                       <button
                         className="btn danger"
-                        onClick={() => onDismissHidden(id)}
-                        title="Clear from hidden count"
+                        onClick={() => onForgetHidden(id)}
+                        title={
+                          inRanking
+                            ? 'Remove from the sort entirely'
+                            : 'Clear from hidden count'
+                        }
                       >
                         Dismiss
                       </button>

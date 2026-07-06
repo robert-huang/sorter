@@ -201,6 +201,7 @@ export function EndpointPicker({
             <input
               type="text"
               className="slot-search anime-to-anime-endpoint-user-input"
+              name="anilist-username"
               placeholder="AL Username"
               value={username}
               disabled={busy}
@@ -211,6 +212,10 @@ export function EndpointPicker({
                   void onRandomUserList(false);
                 }
               }}
+              spellCheck={false}
+              autoComplete="off"
+              data-1p-ignore
+              data-lpignore="true"
               aria-label="AniList username for random pick"
             />
             <button

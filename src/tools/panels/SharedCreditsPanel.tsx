@@ -278,6 +278,7 @@ export function SharedCreditsPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps)
 
       <form
         className="tool-form-card"
+        autoComplete="off"
         onSubmit={(e) => {
           e.preventDefault();
           if (!running) {
@@ -410,6 +411,7 @@ export function SharedCreditsPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps)
             value={form.usernameInclude}
             disabled={running}
             refreshing={refreshingList}
+            inputName="anilist-username-include"
             onChange={(usernameInclude) => patchForm({ usernameInclude })}
             onRefresh={() => refreshUsernameList(form.usernameInclude, running)}
           />
@@ -418,6 +420,7 @@ export function SharedCreditsPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps)
             value={form.usernameExclude}
             disabled={running}
             refreshing={refreshingList}
+            inputName="anilist-username-exclude"
             onChange={(usernameExclude) => patchForm({ usernameExclude })}
             onRefresh={() => refreshUsernameList(form.usernameExclude, running)}
           />

@@ -229,30 +229,37 @@ export function isSeasonalPlanningShow(show: Pick<SeasonalShow, 'listStatus'>): 
   return show.listStatus === 'PLANNING';
 }
 
-/** Status letter shown in chart cells instead of a numeric score. */
+/** Status letter shown in chart cells when on-list but unrated. */
 export function listStatusScoreLabel(
   listStatus: string | null | undefined,
-): 'P' | 'W' | null {
+  score: number | null | undefined,
+): 'P' | 'W' | 'H' | null {
+  if (normalizeSeasonalListScore(score) != null) {
+    return null;
+  }
   if (listStatus === 'PLANNING') {
     return 'P';
   }
   if (listStatus === 'CURRENT' || listStatus === 'REPEATING') {
     return 'W';
   }
+  if (listStatus === 'PAUSED') {
+    return 'H';
+  }
   return null;
 }
 
 export function isSeasonalStatusLetterShow(
-  show: Pick<SeasonalShow, 'listStatus'>,
+  show: Pick<SeasonalShow, 'listStatus' | 'score'>,
 ): boolean {
-  return listStatusScoreLabel(show.listStatus) != null;
+  return listStatusScoreLabel(show.listStatus, show.score) != null;
 }
 
 export function formatSeasonalScoreLabel(
   score: number | null | undefined,
   listStatus?: string | null,
 ): string {
-  const statusLabel = listStatusScoreLabel(listStatus);
+  const statusLabel = listStatusScoreLabel(listStatus, score);
   if (statusLabel != null) {
     return statusLabel;
   }
@@ -270,12 +277,15 @@ export function countRatedSeasonalShows(shows: SeasonalShow[]): number {
 }
 
 function seasonalShowSortKey(show: SeasonalShow): number {
-  const statusLabel = listStatusScoreLabel(show.listStatus);
+  const statusLabel = listStatusScoreLabel(show.listStatus, show.score);
   if (statusLabel === 'W') {
     return -1;
   }
-  if (statusLabel === 'P') {
+  if (statusLabel === 'H') {
     return -2;
+  }
+  if (statusLabel === 'P') {
+    return -3;
   }
   return normalizeSeasonalListScore(show.score) ?? 0;
 }
