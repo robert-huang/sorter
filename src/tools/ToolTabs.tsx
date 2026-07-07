@@ -37,26 +37,27 @@ export function ToolTabs<T extends string>({
     }
     measure();
     const card = cardRef.current;
-    if (!card || typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(measure);
-    ro.observe(card);
+    if (!card) return;
+
+    const ro =
+      typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    ro?.observe(card);
     for (const t of tabs) {
       const pill = pillRefs.current[t.id];
       if (pill) {
-        ro.observe(pill);
+        ro?.observe(pill);
       }
     }
-    return () => ro.disconnect();
+    window.addEventListener('resize', measure);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener('resize', measure);
+    };
   }, [activeTab, tabs]);
-
-  useLayoutEffect(() => {
-    const pill = pillRefs.current[activeTab];
-    pill?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
-  }, [activeTab]);
 
   return (
     <div className="tabs-card-wrap tools-tabs-wrap">
-      <div className="tabs-card" role="tablist" ref={cardRef}>
+      <div className="tabs-card tools-tabs-card" role="tablist" ref={cardRef}>
         <div
           className="tab-indicator"
           style={{

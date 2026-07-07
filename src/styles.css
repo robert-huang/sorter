@@ -5338,27 +5338,26 @@ html {
 .tools-tabs-wrap {
   margin-top: 12px;
   width: 100%;
-  max-width: 100%;
-  padding-left: 16px;
-  padding-right: 16px;
-  box-sizing: border-box;
 }
 
-/* Tools has many tabs — shrink padding/type first, then scroll horizontally. */
-.tools-tabs-wrap .tabs-card {
+/* Single row; as wide as tabs need, capped by viewport; squish then scroll. */
+.tools-tabs-wrap .tools-tabs-card {
   width: max-content;
-  max-width: min(1100px, 100%);
+  max-width: 100%;
   margin-inline: auto;
+  display: flex;
+  flex-wrap: nowrap;
   overflow-x: auto;
   overflow-y: hidden;
+  box-sizing: border-box;
   -webkit-overflow-scrolling: touch;
 }
 
 .tools-tabs-wrap .tab-pill {
   flex: 0 0 auto;
-  padding: 10px clamp(6px, 1.5vw, 22px);
-  font-size: clamp(11px, 1.55vw, 15px);
-  letter-spacing: clamp(0px, 0.35vw, 0.6px);
+  padding: 10px clamp(6px, 1.2vw, 22px);
+  font-size: clamp(11px, 1.4vw, 15px);
+  letter-spacing: clamp(0px, 0.3vw, 0.6px);
   white-space: nowrap;
 }
 
