@@ -7,7 +7,6 @@ export const FAVOURITE_MUTATION_FIELDS = {
     orderVar: 'animeOrder',
     idsArg: 'animeIds',
     orderArg: 'animeOrder',
-    responseField: 'animeIds',
     toggleVar: 'animeId',
     toggleArg: 'animeId',
     table: 'media_favourite',
@@ -19,7 +18,6 @@ export const FAVOURITE_MUTATION_FIELDS = {
     orderVar: 'mangaOrder',
     idsArg: 'mangaIds',
     orderArg: 'mangaOrder',
-    responseField: 'mangaIds',
     toggleVar: 'mangaId',
     toggleArg: 'mangaId',
     table: 'media_favourite',
@@ -31,7 +29,6 @@ export const FAVOURITE_MUTATION_FIELDS = {
     orderVar: 'characterOrder',
     idsArg: 'characterIds',
     orderArg: 'characterOrder',
-    responseField: 'characterIds',
     toggleVar: 'characterId',
     toggleArg: 'characterId',
     table: 'character_favourite',
@@ -43,7 +40,6 @@ export const FAVOURITE_MUTATION_FIELDS = {
     orderVar: 'staffOrder',
     idsArg: 'staffIds',
     orderArg: 'staffOrder',
-    responseField: 'staffIds',
     toggleVar: 'staffId',
     toggleArg: 'staffId',
     table: 'staff_favourite',
@@ -55,7 +51,6 @@ export const FAVOURITE_MUTATION_FIELDS = {
     orderVar: 'studioOrder',
     idsArg: 'studioIds',
     orderArg: 'studioOrder',
-    responseField: 'studioIds',
     toggleVar: 'studioId',
     toggleArg: 'studioId',
     table: 'studio_favourite',
@@ -69,7 +64,6 @@ export const FAVOURITE_MUTATION_FIELDS = {
     orderVar: string;
     idsArg: string;
     orderArg: string;
-    responseField: string;
     toggleVar: string;
     toggleArg: string;
     table: string;
@@ -78,9 +72,43 @@ export const FAVOURITE_MUTATION_FIELDS = {
   }
 >;
 
+/** Matches AniList's website mutation shape (all type args declared; only active type sent). */
+export const UPDATE_FAVOURITE_ORDER_MUTATION = `
+mutation UpdateFavouriteOrder(
+  $animeIds: [Int],
+  $mangaIds: [Int],
+  $characterIds: [Int],
+  $staffIds: [Int],
+  $studioIds: [Int],
+  $animeOrder: [Int],
+  $mangaOrder: [Int],
+  $characterOrder: [Int],
+  $staffOrder: [Int],
+  $studioOrder: [Int]
+) {
+  UpdateFavouriteOrder(
+    animeIds: $animeIds,
+    mangaIds: $mangaIds,
+    characterIds: $characterIds,
+    staffIds: $staffIds,
+    studioIds: $studioIds,
+    animeOrder: $animeOrder,
+    mangaOrder: $mangaOrder,
+    characterOrder: $characterOrder,
+    staffOrder: $staffOrder,
+    studioOrder: $studioOrder
+  ) {
+    anime {
+      pageInfo {
+        total
+      }
+    }
+  }
+}`.trim();
+
 export type UpdateFavouriteOrderVariables = {
   ids: readonly number[];
-  /** Ascending order integers matching AniList `favouriteOrder` (0-based). */
+  /** Ascending 1-based rank integers matching AniList favourite order. */
   order: readonly number[];
 };
 
@@ -89,24 +117,19 @@ export function buildUpdateFavouriteOrderMutation(
   variables: UpdateFavouriteOrderVariables,
 ): { query: string; variables: Record<string, number[]> } {
   const fields = FAVOURITE_MUTATION_FIELDS[type];
-  const query = `
-mutation UpdateFavouriteOrder($${fields.idsVar}: [Int], $${fields.orderVar}: [Int]) {
-  UpdateFavouriteOrder(${fields.idsArg}: $${fields.idsVar}, ${fields.orderArg}: $${fields.orderVar}) {
-    ${fields.responseField}
-  }
-}`.trim();
-
   return {
-    query,
+    query: UPDATE_FAVOURITE_ORDER_MUTATION,
     variables: {
       [fields.idsVar]: [...variables.ids],
       [fields.orderVar]: [...variables.order],
     },
   };
-};
+}
 
 export type UpdateFavouriteOrderResponse = {
-  UpdateFavouriteOrder: Partial<Record<string, number[] | null>> | null;
+  UpdateFavouriteOrder: {
+    anime: { pageInfo: { total: number } } | null;
+  } | null;
 };
 
 export function buildToggleFavouriteMutation(
@@ -131,12 +154,12 @@ export type ToggleFavouriteResponse = {
   ToggleFavourite: { __typename: string } | null;
 };
 
-/** Build parallel id + ascending order arrays from a list sorted by desired rank. */
+/** Build parallel id + ascending 1-based order arrays from a list sorted by desired rank. */
 export function favouriteOrderPayload(
   orderedIds: readonly number[],
 ): UpdateFavouriteOrderVariables {
   return {
     ids: orderedIds,
-    order: orderedIds.map((_, index) => index),
+    order: orderedIds.map((_, index) => index + 1),
   };
 }

@@ -144,7 +144,7 @@ function makeMedia(id: number, type: 'ANIME' | 'MANGA'): AnilistMediaGql {
     countryOfOrigin: null,
     genres: null,
     synonyms: null,
-    studios: { nodes: [{ id: 10, name: 'Studio-X' }] },
+    studios: null,
     tags: [{ name: 'Tag-Y', rank: 70 }],
   };
 }
@@ -227,7 +227,7 @@ afterEach(() => {
 // ──────────────────────────────────────────────────────────────────────
 
 describe('importAnilistFavourites — ANIME', () => {
-  it('paginates, wipes scoped to (user, ANIME), seeds media + studio + tag + media_favourite, bumps _meta, autopushes', async () => {
+  it('paginates, wipes scoped to (user, ANIME), seeds media + tag + media_favourite, bumps _meta, autopushes', async () => {
     const h = await makeHarness();
     h.enqueueFavPages(
       makeMediaFavPage(
@@ -263,10 +263,11 @@ describe('importAnilistFavourites — ANIME', () => {
       countRows(h.db, 'media_favourite', `WHERE anilist_user_id = ${USER_ID}`),
     ).toBe(3);
     expect(countRows(h.db, 'media')).toBe(3);
-    expect(countRows(h.db, 'studio')).toBe(1);
     expect(countRows(h.db, 'tag')).toBe(1);
-    expect(countRows(h.db, 'media_studio')).toBe(3);
     expect(countRows(h.db, 'media_tag')).toBe(3);
+    // Favourites media query omits studios — junction rows come from list import.
+    expect(countRows(h.db, 'studio')).toBe(0);
+    expect(countRows(h.db, 'media_studio')).toBe(0);
     // sort_order preserved from favouriteOrder
     const ordered = h.db.selectObjects(
       'SELECT media_id, sort_order FROM media_favourite ORDER BY sort_order',

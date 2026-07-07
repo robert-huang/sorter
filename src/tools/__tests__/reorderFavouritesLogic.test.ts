@@ -1,12 +1,22 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, beforeEach } from 'vitest';
+import {
+  _clearAnilistDisplayPreferencesForTesting,
+  saveAnilistDisplayPreferences,
+} from '../../lib/importers/anilist/displayPreferences';
 import {
   applySelectRankOrder,
   batchRankIndexRange,
+  dragInsertIndexAtChip,
+  dragInsertIndexForChipPointer,
+  dragInsertIndexFromPointer,
+  chipInsertSideFromPointer,
   dragPayloadIds,
   EMPTY_SELECT_RANK_STATE,
   handleSelectRankClick,
   hasPendingReorderChanges,
   reorderByDrag,
+  reorderByDragDisplayPreview,
+  relabelFavouriteListItem,
   revertItemsToIdOrder,
   sameIdOrder,
   selectRankLabelForItem,
@@ -146,6 +156,55 @@ describe('reorderByDrag', () => {
   });
 });
 
+describe('reorderByDragDisplayPreview', () => {
+  it('collapses a multi-select drag to one grid slot', () => {
+    const list = items(['A', 'B', 'C', 'D', 'E']);
+    const preview = reorderByDragDisplayPreview(list, [2, 5], 0);
+    expect(preview.map((item) => item.label)).toEqual(['B', 'A', 'C', 'D']);
+  });
+
+  it('keeps single-item drag preview unchanged', () => {
+    const list = items(['A', 'B', 'C', 'D']);
+    const preview = reorderByDragDisplayPreview(list, [3], 1);
+    expect(preview.map((item) => item.label)).toEqual(['A', 'C', 'B', 'D']);
+  });
+});
+
+describe('relabelFavouriteListItem', () => {
+  beforeEach(() => {
+    _clearAnilistDisplayPreferencesForTesting();
+  });
+
+  it('relabels staff from stored name fields when person name mode changes', () => {
+    saveAnilistDisplayPreferences({ personNameMode: 'full' });
+    const item = relabelFavouriteListItem({
+      id: 1,
+      label: 'Yui Horie',
+      imageUrl: null,
+      sortOrder: 0,
+      anilistLabelSource: {
+        kind: 'person',
+        nameFields: { id: 1, name_full: 'Yui Horie', name_native: '堀江由衣' },
+        fallbackLabel: 'Staff',
+      },
+    });
+    expect(item.label).toBe('Yui Horie');
+
+    saveAnilistDisplayPreferences({ personNameMode: 'native' });
+    expect(relabelFavouriteListItem(item).label).toBe('堀江由衣');
+  });
+
+  it('returns the same reference when label is unchanged', () => {
+    const item = {
+      id: 1,
+      label: 'Studio Ghibli',
+      imageUrl: null,
+      sortOrder: 0,
+    };
+    expect(relabelFavouriteListItem(item)).toBe(item);
+  });
+});
+
 describe('dragPayloadIds', () => {
   it('drags the whole selection when the dragged row is selected', () => {
     const list = items(['A', 'B', 'C']);
@@ -209,5 +268,79 @@ describe('hasPendingReorderChanges', () => {
         'drag',
       ),
     ).toBe(false);
+  });
+});
+
+describe('dragInsertIndexAtChip', () => {
+  it('inserts before the chip by default', () => {
+    expect(dragInsertIndexAtChip(2, false, 5)).toBe(2);
+  });
+
+  it('inserts after the chip when requested', () => {
+    expect(dragInsertIndexAtChip(2, true, 5)).toBe(3);
+  });
+
+  it('clamps to list length', () => {
+    expect(dragInsertIndexAtChip(4, true, 5)).toBe(5);
+  });
+});
+
+describe('chipInsertSideFromPointer', () => {
+  it('uses the left band for insert-before', () => {
+    expect(chipInsertSideFromPointer(20, 0, 100)).toBe('before');
+  });
+
+  it('uses the right band for insert-after', () => {
+    expect(chipInsertSideFromPointer(80, 0, 100)).toBe('after');
+  });
+
+  it('holds in the center band to avoid boundary flicker', () => {
+    expect(chipInsertSideFromPointer(50, 0, 100)).toBe('hold');
+  });
+});
+
+describe('dragInsertIndexForChipPointer', () => {
+  it('uses vertical position in the horizontal center band', () => {
+    expect(dragInsertIndexForChipPointer(2, 50, 20, 0, 0, 100, 100, 5)).toBe(2);
+    expect(dragInsertIndexForChipPointer(2, 50, 80, 0, 0, 100, 100, 5)).toBe(3);
+  });
+});
+
+describe('dragInsertIndexFromPointer', () => {
+  const list = items(['A', 'B', 'C', 'D']);
+
+  it('inserts before a chip when pointer is on its left band', () => {
+    const rects = [
+      { id: 1, left: 0, right: 100, top: 0, bottom: 100 },
+      { id: 2, left: 110, right: 210, top: 0, bottom: 100 },
+      { id: 3, left: 220, right: 320, top: 0, bottom: 100 },
+    ];
+    expect(dragInsertIndexFromPointer(list, rects, 240, 50)).toBe(2);
+  });
+
+  it('inserts after the rightmost chip on a row when pointer is past it', () => {
+    const rects = [
+      { id: 1, left: 0, right: 100, top: 0, bottom: 100 },
+      { id: 2, left: 110, right: 210, top: 0, bottom: 100 },
+      { id: 3, left: 0, right: 100, top: 110, bottom: 210 },
+    ];
+    expect(dragInsertIndexFromPointer(list, rects, 200, 50)).toBe(2);
+  });
+
+  it('inserts at end when pointer is below the grid', () => {
+    const rects = [
+      { id: 1, left: 0, right: 100, top: 0, bottom: 100 },
+      { id: 2, left: 110, right: 210, top: 0, bottom: 100 },
+    ];
+    expect(dragInsertIndexFromPointer(list, rects, 50, 250)).toBe(4);
+  });
+
+  it('snaps between rows to the nearest column chip', () => {
+    const rects = [
+      { id: 1, left: 0, right: 100, top: 0, bottom: 100 },
+      { id: 2, left: 110, right: 210, top: 0, bottom: 100 },
+      { id: 3, left: 0, right: 100, top: 110, bottom: 210 },
+    ];
+    expect(dragInsertIndexFromPointer(list, rects, 50, 105)).toBe(2);
   });
 });

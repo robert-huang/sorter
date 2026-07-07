@@ -54,6 +54,7 @@ export async function loadFavouritesFresh(
       label: row.label,
       imageUrl: row.imageUrl,
       sortOrder: index,
+      anilistLabelSource: row.anilistLabelSource,
     })),
   );
 

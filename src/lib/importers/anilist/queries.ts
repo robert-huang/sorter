@@ -62,6 +62,38 @@ const MEDIA_FIELD_SELECTION = `
 `.trim();
 
 /**
+ * Media fields for `User.favourites.anime` / `.manga` pagination.
+ *
+ * Same as {@link MEDIA_FIELD_SELECTION} **except `studios` is omitted**.
+ * Requesting `Media.studios` on favourite-media nodes currently makes
+ * AniList's API return HTTP 500 ("Internal Server Error") — the website
+ * uses a lighter selection (`title { userPreferred }`, no studios). Studio
+ * junction rows for favourited media are therefore not seeded on favourites
+ * import; list import / lazy expansion still populate `media_studio`.
+ */
+export const FAVOURITE_MEDIA_FIELD_SELECTION = `
+  id
+  type
+  title { english romaji native }
+  coverImage { large }
+  format
+  ${MEDIA_SOURCE_SELECTION}
+  status
+  episodes
+  chapters
+  startDate { year month day }
+  endDate { year month day }
+  season
+  seasonYear
+  meanScore
+  favourites
+  countryOfOrigin
+  genres
+  synonyms
+  tags { name rank }
+`.trim();
+
+/**
  * One chunk of a user's full anime / manga list, fetched via the
  * `MediaListCollection` query.
  *
@@ -278,6 +310,8 @@ query MediaStaffOnly($id: Int!, $staffPage: Int!, $perPage: Int!) {
  *     (importer passes 25).
  *   - `favouriteOrder` is per-user mutable on AniList; cached locally as
  *     `<type>_favourite.sort_order` and goes stale until next refresh.
+ *   - Node fields use {@link FAVOURITE_MEDIA_FIELD_SELECTION} — not the
+ *     full {@link MEDIA_FIELD_SELECTION} (see that constant for why).
  */
 export const FAVOURITE_ANIME_QUERY = `
 query FavouriteAnimePage($username: String!, $page: Int!, $perPage: Int!) {
@@ -288,7 +322,7 @@ query FavouriteAnimePage($username: String!, $page: Int!, $perPage: Int!) {
         edges {
           favouriteOrder
           node {
-            ${MEDIA_FIELD_SELECTION}
+            ${FAVOURITE_MEDIA_FIELD_SELECTION}
           }
         }
       }
@@ -306,7 +340,7 @@ query FavouriteMangaPage($username: String!, $page: Int!, $perPage: Int!) {
         edges {
           favouriteOrder
           node {
-            ${MEDIA_FIELD_SELECTION}
+            ${FAVOURITE_MEDIA_FIELD_SELECTION}
           }
         }
       }

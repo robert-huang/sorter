@@ -95,7 +95,7 @@ describe('reorderFavouritesApi', () => {
 
   it('saveFavouriteOrder mutates then patches cache sort_order', async () => {
     executeQueryMock.mockResolvedValueOnce({
-      UpdateFavouriteOrder: { characterIds: [2, 1] },
+      UpdateFavouriteOrder: { anime: { pageInfo: { total: 2 } } },
     });
 
     await saveFavouriteOrder(
@@ -108,7 +108,11 @@ describe('reorderFavouritesApi', () => {
     );
 
     expect(executeQueryMock).toHaveBeenCalledTimes(1);
-    expect(executeQueryMock.mock.calls[0]?.[0]).toContain('UpdateFavouriteOrder');
+    expect(executeQueryMock.mock.calls[0]?.[0]).toContain('pageInfo');
+    expect(executeQueryMock.mock.calls[0]?.[1]).toEqual({
+      characterIds: [2, 1],
+      characterOrder: [1, 2],
+    });
     expect(dbTransactionMock).toHaveBeenCalledTimes(1);
     expect(onDirtyIncrementMock).toHaveBeenCalled();
   });

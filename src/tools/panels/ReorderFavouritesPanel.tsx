@@ -4,19 +4,25 @@ import {
   useMemo,
   useRef,
   useState,
-  type DragEvent,
   type FormEvent,
   type MouseEvent,
+  type PointerEvent as ReactPointerEvent,
 } from 'react';
 import {
   ANILIST_ACCOUNTS_CHANGED,
   findAnilistAccountByName,
 } from '../../lib/importers/anilist/anilistAuth';
 import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
+import { buildAnilistFavouriteUrl } from '../../lib/importers/anilist/anilistSource';
+import {
+  bindAnilistMiddleClick,
+  mergeAnilistLinkClass,
+} from '../../lib/importers/anilist/anilistLinks';
 import { Modal } from '../../components/Modal';
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
 import { ToolUsernameField } from '../ToolUsernameField';
+import { useToolsDisplayLabelRevision } from '../useToolsDisplayLabelRevision';
 import {
   loadFavouritesFresh,
   saveFavouriteOrder,
@@ -26,6 +32,7 @@ import {
   applySelectRankOrder,
   appendRecentlyDeleted,
   DEFAULT_REORDER_FAVOURITES_FORM,
+  dragInsertIndexFromDomPoint,
   dragPayloadIds,
   EMPTY_SELECT_RANK_STATE,
   favouriteIdsInOrder,
@@ -36,6 +43,8 @@ import {
   loadRecentlyDeletedBuckets,
   REORDER_FAVOURITE_TYPE_OPTIONS,
   reorderByDrag,
+  reorderByDragDisplayPreview,
+  relabelFavouriteListItems,
   revertItemsToIdOrder,
   sameIdOrder,
   selectRankLabelForItem,
@@ -46,6 +55,7 @@ import {
   type ReorderFavouritesForm,
   type ReorderInteractionMode,
   type SelectRankState,
+  type DragChipRect,
 } from './reorderFavouritesLogic';
 
 const SELECT_TO_ORDER_TOOLTIP =
@@ -55,6 +65,13 @@ type DragPreviewState = {
   draggedIds: number[];
   insertIndex: number;
 };
+
+type DragPointerState = {
+  x: number;
+  y: number;
+};
+
+const DRAG_START_THRESHOLD_PX = 4;
 
 const LS_KEY = 'anime-tools-reorder-favourites-form';
 
@@ -125,6 +142,7 @@ function filterRecentlyDeleted(
 }
 
 export function ReorderFavouritesPanel(_props: ToolPanelProps) {
+  const displayLabelRevision = useToolsDisplayLabelRevision();
   const [form, setForm] = useState<ReorderFavouritesForm>(() => loadForm());
   const [items, setItems] = useState<FavouriteListItem[]>([]);
   const [savedIds, setSavedIds] = useState<number[]>([]);
@@ -141,6 +159,7 @@ export function ReorderFavouritesPanel(_props: ToolPanelProps) {
   const [success, setSuccess] = useState<string | null>(null);
   const [loadStatus, setLoadStatus] = useState<string | null>(null);
   const [dragPreview, setDragPreview] = useState<DragPreviewState | null>(null);
+  const [dragPointer, setDragPointer] = useState<DragPointerState | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [recentlyDeleted, setRecentlyDeleted] = useState<RecentlyDeletedBucket[]>(() =>
     loadRecentlyDeletedBuckets(),
@@ -148,6 +167,68 @@ export function ReorderFavouritesPanel(_props: ToolPanelProps) {
   const [authRevision, setAuthRevision] = useState(0);
   const dragIdsRef = useRef<number[]>([]);
   const loadAbortRef = useRef<AbortController | null>(null);
+  const gridRef = useRef<HTMLOListElement | null>(null);
+  const dragHitRectsRef = useRef<DragChipRect[]>([]);
+  const itemsRef = useRef(items);
+  const selectedRef = useRef(selected);
+  const dragSessionRef = useRef<DragPreviewState | null>(null);
+  const pointerDragCleanupRef = useRef<(() => void) | null>(null);
+  const pointerDragChipRef = useRef<HTMLLIElement | null>(null);
+  const pointerDragIdRef = useRef<number | null>(null);
+  const pointerDragActiveRef = useRef(false);
+  const pointerDownItemIdRef = useRef<number | null>(null);
+  const modeRef = useRef(mode);
+  itemsRef.current = items;
+  selectedRef.current = selected;
+  modeRef.current = mode;
+
+  const clearPointerDragListeners = useCallback(() => {
+    pointerDragCleanupRef.current?.();
+    pointerDragCleanupRef.current = null;
+  }, []);
+
+  const updateDragInsertIndex = useCallback((insertIndex: number) => {
+    const session = dragSessionRef.current;
+    if (session && session.insertIndex === insertIndex) {
+      return;
+    }
+    if (session) {
+      dragSessionRef.current = {
+        draggedIds: session.draggedIds,
+        insertIndex,
+      };
+    }
+    setDragPreview((prev) => {
+      if (!prev || prev.insertIndex === insertIndex) {
+        return prev;
+      }
+      return {
+        draggedIds: prev.draggedIds,
+        insertIndex,
+      };
+    });
+  }, []);
+
+  const chipRectsFromGrid = useCallback((excludedIds: ReadonlySet<number>): DragChipRect[] => {
+    const grid = gridRef.current;
+    if (!grid) {
+      return [];
+    }
+    return Array.from(
+      grid.querySelectorAll<HTMLElement>('.tool-reorder-favourites-chip[data-item-id]'),
+    )
+      .filter((el) => !excludedIds.has(Number(el.dataset.itemId)))
+      .map((el) => {
+        const rect = el.getBoundingClientRect();
+        return {
+          id: Number(el.dataset.itemId),
+          left: rect.left,
+          right: rect.right,
+          top: rect.top,
+          bottom: rect.bottom,
+        };
+      });
+  }, []);
 
   useEffect(() => {
     saveForm(form);
@@ -190,23 +271,101 @@ export function ReorderFavouritesPanel(_props: ToolPanelProps) {
   const showUnsavedHint =
     isDirty || (mode === 'select-rank' && wouldSelectRankChangeOrder(items, savedIds, selectRankState));
   const selectedCount = selected.size;
+  const draggedIdSet = useMemo(
+    () => new Set(dragPreview?.draggedIds ?? []),
+    [dragPreview?.draggedIds],
+  );
+  const labeledItems = useMemo(
+    () => relabelFavouriteListItems(items),
+    [displayLabelRevision, items],
+  );
+
+  const dragGhostItem = useMemo(() => {
+    if (!dragPreview || dragPreview.draggedIds.length === 0) {
+      return null;
+    }
+    const leadId = dragPreview.draggedIds[0]!;
+    return labeledItems.find((item) => item.id === leadId) ?? null;
+  }, [dragPreview, labeledItems]);
 
   const displayItems = useMemo(() => {
     if (mode !== 'drag' || !dragPreview) {
-      return items;
+      return labeledItems;
     }
-    return reorderByDrag(items, dragPreview.draggedIds, dragPreview.insertIndex);
-  }, [dragPreview, items, mode]);
+    return reorderByDragDisplayPreview(
+      labeledItems,
+      dragPreview.draggedIds,
+      dragPreview.insertIndex,
+    );
+  }, [dragPreview, labeledItems, mode]);
+
+  const updateInsertIndexFromPointer = useCallback(
+    (clientX: number, clientY: number) => {
+      const session = dragSessionRef.current;
+      if (!session) {
+        return;
+      }
+      updateDragInsertIndex(
+        dragInsertIndexFromDomPoint(
+          itemsRef.current,
+          gridRef.current,
+          clientX,
+          clientY,
+          new Set(session.draggedIds),
+        ),
+      );
+    },
+    [updateDragInsertIndex],
+  );
+
+  const finishPointerDrag = useCallback(
+    (commit: boolean) => {
+      clearPointerDragListeners();
+      const chip = pointerDragChipRef.current;
+      const pointerId = pointerDragIdRef.current;
+      if (chip && pointerId != null) {
+        try {
+          chip.releasePointerCapture(pointerId);
+        } catch {
+          /* capture may already be released */
+        }
+      }
+      pointerDragChipRef.current = null;
+      pointerDragIdRef.current = null;
+      pointerDragActiveRef.current = false;
+
+      const session = dragSessionRef.current;
+      if (commit && session && modeRef.current === 'drag') {
+        setItems((prev) =>
+          itemsWithSortOrder(
+            reorderByDrag(prev, session.draggedIds, session.insertIndex),
+          ),
+        );
+      }
+      dragIdsRef.current = [];
+      dragHitRectsRef.current = [];
+      dragSessionRef.current = null;
+      setDragPreview(null);
+      setDragPointer(null);
+    },
+    [clearPointerDragListeners],
+  );
+
+  useEffect(() => () => clearPointerDragListeners(), [clearPointerDragListeners]);
 
   const patchForm = useCallback((patch: Partial<ReorderFavouritesForm>) => {
     setForm((prev) => ({ ...prev, ...patch }));
   }, []);
 
   const resetInteraction = useCallback(() => {
+    clearPointerDragListeners();
+    dragSessionRef.current = null;
     setSelected(new Set());
     setSelectRankState(EMPTY_SELECT_RANK_STATE);
     setDragPreview(null);
-  }, []);
+    setDragPointer(null);
+    dragHitRectsRef.current = [];
+  }, [clearPointerDragListeners]);
 
   const applyLoadedItems = useCallback((loaded: FavouriteListItem[]) => {
     const ordered = itemsWithSortOrder(loaded);
@@ -344,6 +503,10 @@ export function ReorderFavouritesPanel(_props: ToolPanelProps) {
     setError(null);
   }, [items, resetInteraction, savedIds]);
 
+  const onDeselectAll = useCallback(() => {
+    setSelected(new Set());
+  }, []);
+
   const onSelectRankClick = useCallback(
     (index: number, shiftKey: boolean) => {
       setSelectRankState((prev) => handleSelectRankClick(items, index, shiftKey, prev));
@@ -351,70 +514,84 @@ export function ReorderFavouritesPanel(_props: ToolPanelProps) {
     [items],
   );
 
-  const onDragStart = useCallback(
-    (e: DragEvent<HTMLLIElement>, itemId: number) => {
-      if (mode !== 'drag') {
-        e.preventDefault();
+  const onChipPointerDown = useCallback(
+    (e: ReactPointerEvent<HTMLLIElement>, itemId: number) => {
+      if (mode !== 'drag' || e.button !== 0) {
         return;
       }
-      const ids = dragPayloadIds(items, itemId, selected);
+
+      e.preventDefault();
+      clearPointerDragListeners();
+
+      const chip = e.currentTarget;
+      pointerDragChipRef.current = chip;
+      pointerDragActiveRef.current = false;
+      pointerDownItemIdRef.current = itemId;
+
+      const ids = dragPayloadIds(itemsRef.current, itemId, selectedRef.current);
       dragIdsRef.current = ids;
-      const insertIndex = items.findIndex((item) => item.id === itemId);
-      setDragPreview({
+      dragHitRectsRef.current = chipRectsFromGrid(new Set());
+      const insertIndex = itemsRef.current.findIndex((item) => item.id === itemId);
+      const session: DragPreviewState = {
         draggedIds: ids,
         insertIndex: insertIndex >= 0 ? insertIndex : 0,
-      });
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', ids.join(','));
-    },
-    [items, mode, selected],
-  );
+      };
+      dragSessionRef.current = session;
 
-  const onDragOver = useCallback(
-    (e: DragEvent<HTMLLIElement>, itemId: number) => {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      if (mode !== 'drag' || !dragPreview) {
-        return;
-      }
-      const insertIndex = items.findIndex((item) => item.id === itemId);
-      if (insertIndex < 0) {
-        return;
-      }
-      setDragPreview((prev) =>
-        prev
-          ? {
-              draggedIds: prev.draggedIds,
-              insertIndex,
-            }
-          : null,
-      );
-    },
-    [dragPreview, items, mode],
-  );
+      const startX = e.clientX;
+      const startY = e.clientY;
 
-  const onDrop = useCallback(
-    (e: DragEvent<HTMLLIElement>) => {
-      e.preventDefault();
-      if (mode !== 'drag' || !dragPreview) {
-        setDragPreview(null);
-        return;
-      }
-      setItems((prev) =>
-        itemsWithSortOrder(
-          reorderByDrag(prev, dragPreview.draggedIds, dragPreview.insertIndex),
-        ),
-      );
-      dragIdsRef.current = [];
-      setDragPreview(null);
+      const onMove = (ev: globalThis.PointerEvent) => {
+        ev.preventDefault();
+        const dx = ev.clientX - startX;
+        const dy = ev.clientY - startY;
+        if (!pointerDragActiveRef.current) {
+          if (Math.hypot(dx, dy) < DRAG_START_THRESHOLD_PX) {
+            return;
+          }
+          pointerDragActiveRef.current = true;
+          pointerDragIdRef.current = ev.pointerId;
+          try {
+            chip.setPointerCapture(ev.pointerId);
+          } catch {
+            /* capture may fail if the pointer was already released */
+          }
+          setDragPreview(session);
+          setDragPointer({ x: ev.clientX, y: ev.clientY });
+        }
+        setDragPointer({ x: ev.clientX, y: ev.clientY });
+        updateInsertIndexFromPointer(ev.clientX, ev.clientY);
+      };
+      const onEnd = () => {
+        if (!pointerDragActiveRef.current) {
+          clearPointerDragListeners();
+          dragSessionRef.current = null;
+          pointerDragChipRef.current = null;
+          pointerDragIdRef.current = null;
+          pointerDownItemIdRef.current = null;
+          const clickId = itemId;
+          if (modeRef.current === 'drag') {
+            setSelected((prev) => toggleSelectedId(prev, clickId));
+          }
+          return;
+        }
+        pointerDownItemIdRef.current = null;
+        finishPointerDrag(true);
+      };
+      const onCancel = () => {
+        finishPointerDrag(false);
+      };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onEnd, { once: true });
+      window.addEventListener('pointercancel', onCancel, { once: true });
+      pointerDragCleanupRef.current = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onEnd);
+        window.removeEventListener('pointercancel', onCancel);
+      };
     },
-    [dragPreview, mode],
+    [chipRectsFromGrid, clearPointerDragListeners, finishPointerDrag, mode, updateInsertIndexFromPointer],
   );
-
-  const onDragEnd = useCallback(() => {
-    dragIdsRef.current = [];
-    setDragPreview(null);
-  }, []);
 
   const onChipClick = useCallback(
     (e: MouseEvent<HTMLLIElement>, itemId: number) => {
@@ -445,7 +622,15 @@ export function ReorderFavouritesPanel(_props: ToolPanelProps) {
   const busy = loading || saving || deleting;
 
   return (
-    <section className="tool-panel tool-reorder-favourites-panel">
+    <section
+      className={[
+        'tool-panel',
+        'tool-reorder-favourites-panel',
+        items.length > 0 ? 'tool-reorder-favourites-panel--has-toolbar' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
       <p className="tool-panel-lead">
         Load a favourites list from AniList, reorder it locally, then save back with{' '}
         <code>UpdateFavouriteOrder</code>. Each load re-fetches from AniList and updates
@@ -507,82 +692,56 @@ export function ReorderFavouritesPanel(_props: ToolPanelProps) {
 
       {items.length > 0 && (
         <>
-          <div className="tool-reorder-favourites-toolbar">
-            <button
-              type="button"
-              className={`btn${mode === 'select-rank' ? ' primary' : ''}`}
-              disabled={busy}
-              onClick={onToggleMode}
-              title={SELECT_TO_ORDER_TOOLTIP}
-            >
-              {mode === 'select-rank' ? 'Select-to-Order (on)' : 'Select-to-Order'}
-            </button>
-            <button
-              type="button"
-              className="btn primary"
-              disabled={busy || !canSave}
-              onClick={() => {
-                void onSave();
-              }}
-            >
-              {saving ? 'Saving…' : 'Save to Anilist'}
-            </button>
-            <button
-              type="button"
-              className="btn danger"
-              disabled={busy || selectedCount === 0 || anilistUserId == null}
-              onClick={() => setDeleteConfirmOpen(true)}
-            >
-              Delete Selected{selectedCount > 0 ? ` (${selectedCount})` : ''}
-            </button>
-            <button
-              type="button"
-              className="btn"
-              disabled={busy || !hasPendingChanges}
-              onClick={onCancelChanges}
-            >
-              Cancel
-            </button>
-            {showUnsavedHint && (
-              <span className="tool-reorder-favourites-dirty-hint">Unsaved order changes</span>
-            )}
-          </div>
-
-          <ol className="tool-reorder-favourites-grid" aria-label="Favourites order">
+          <ol
+            ref={gridRef}
+            className={[
+              'tool-reorder-favourites-grid',
+              dragPreview != null ? 'is-drag-active' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            aria-label="Favourites order"
+          >
             {displayItems.map((item) => {
               const rankLabel =
                 mode === 'select-rank'
                   ? selectRankLabelForItem(item.id, selectRankState)
                   : null;
               const isSelected = selected.has(item.id);
-              const isDragging =
-                dragPreview != null && dragPreview.draggedIds.includes(item.id);
+              const isDragging = draggedIdSet.has(item.id);
+              const anilistLink = bindAnilistMiddleClick(
+                buildAnilistFavouriteUrl(form.favouriteType, item.id),
+              );
 
               return (
                 <li
                   key={item.id}
-                  className={[
-                    'tool-reorder-favourites-chip',
-                    isSelected ? 'is-selected' : '',
-                    isDragging ? 'is-dragging' : '',
-                    mode === 'select-rank' ? 'is-select-rank' : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' ')}
-                  draggable={mode === 'drag'}
-                  onDragStart={(e) => onDragStart(e, item.id)}
-                  onDragOver={(e) => onDragOver(e, item.id)}
-                  onDrop={onDrop}
-                  onDragEnd={onDragEnd}
+                  data-item-id={item.id}
+                  className={mergeAnilistLinkClass(
+                    [
+                      'tool-reorder-favourites-chip',
+                      isSelected ? 'is-selected' : '',
+                      isDragging ? 'is-dragging' : '',
+                      mode === 'select-rank' ? 'is-select-rank' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' '),
+                    anilistLink.className,
+                  )}
+                  draggable={false}
+                  onMouseDown={anilistLink.onMouseDown}
+                  onAuxClick={anilistLink.onAuxClick}
+                  onPointerDown={(e) => onChipPointerDown(e, item.id)}
                   onClick={(e) => onChipClick(e, item.id)}
+                  title={item.label}
                 >
                   <input
                     type="checkbox"
                     className="tool-reorder-favourites-chip-checkbox"
                     checked={isSelected}
-                    aria-label={`Select ${item.label}`}
-                    onClick={(e) => e.stopPropagation()}
-                    onChange={() => setSelected((prev) => toggleSelectedId(prev, item.id))}
+                    tabIndex={-1}
+                    readOnly
+                    aria-hidden="true"
                   />
                   {rankLabel && (
                     <span className="tool-reorder-favourites-chip-rank" aria-hidden="true">
@@ -605,7 +764,83 @@ export function ReorderFavouritesPanel(_props: ToolPanelProps) {
               );
             })}
           </ol>
+
+          {dragGhostItem && dragPointer && (
+            <div
+              className="tool-reorder-favourites-drag-ghost"
+              style={{ left: `${dragPointer.x}px`, top: `${dragPointer.y}px` }}
+              aria-hidden="true"
+            >
+              {dragGhostItem.imageUrl ? (
+                <img
+                  className="tool-reorder-favourites-chip-media"
+                  src={dragGhostItem.imageUrl}
+                  alt=""
+                  draggable={false}
+                />
+              ) : (
+                <span className="tool-reorder-favourites-chip-media tool-reorder-favourites-chip-media--empty" />
+              )}
+              <span className="tool-reorder-favourites-chip-label">{dragGhostItem.label}</span>
+              {dragPreview != null && dragPreview.draggedIds.length > 1 && (
+                <span className="tool-reorder-favourites-drag-ghost-count">
+                  +{dragPreview.draggedIds.length - 1}
+                </span>
+              )}
+            </div>
+          )}
         </>
+      )}
+
+      {items.length > 0 && (
+        <div className="tool-reorder-favourites-toolbar" role="toolbar" aria-label="Favourites actions">
+          <button
+            type="button"
+            className={`btn${mode === 'select-rank' ? ' primary' : ''}`}
+            disabled={busy}
+            onClick={onToggleMode}
+            title={SELECT_TO_ORDER_TOOLTIP}
+          >
+            {mode === 'select-rank' ? 'Select-to-Order (on)' : 'Select-to-Order'}
+          </button>
+          <button
+            type="button"
+            className="btn primary"
+            disabled={busy || !canSave}
+            onClick={() => {
+              void onSave();
+            }}
+          >
+            {saving ? 'Saving…' : 'Save to Anilist'}
+          </button>
+          <button
+            type="button"
+            className="btn danger"
+            disabled={busy || selectedCount === 0 || anilistUserId == null}
+            onClick={() => setDeleteConfirmOpen(true)}
+          >
+            Delete Selected{selectedCount > 0 ? ` (${selectedCount})` : ''}
+          </button>
+          <button
+            type="button"
+            className="btn"
+            disabled={busy || selectedCount === 0}
+            onClick={onDeselectAll}
+          >
+            Deselect All
+          </button>
+          <button
+            type="button"
+            className="btn"
+            disabled={busy || !hasPendingChanges}
+            onClick={onCancelChanges}
+          >
+            Cancel
+          </button>
+          {showUnsavedHint && (
+            <span className="tool-reorder-favourites-dirty-hint">Unsaved order changes</span>
+          )}
+        </div>
       )}
 
       {recentlyDeleted.length > 0 && (

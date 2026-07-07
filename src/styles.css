@@ -5337,6 +5337,29 @@ html {
 
 .tools-tabs-wrap {
   margin-top: 12px;
+  width: 100%;
+  max-width: 100%;
+  padding-left: 16px;
+  padding-right: 16px;
+  box-sizing: border-box;
+}
+
+/* Tools has many tabs — shrink padding/type first, then scroll horizontally. */
+.tools-tabs-wrap .tabs-card {
+  width: max-content;
+  max-width: min(1100px, 100%);
+  margin-inline: auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+.tools-tabs-wrap .tab-pill {
+  flex: 0 0 auto;
+  padding: 10px clamp(6px, 1.5vw, 22px);
+  font-size: clamp(11px, 1.55vw, 15px);
+  letter-spacing: clamp(0px, 0.35vw, 0.6px);
+  white-space: nowrap;
 }
 
 .tools-wait-banner {
@@ -5754,12 +5777,28 @@ html {
   margin-top: 8px;
 }
 
+.tool-reorder-favourites-panel--has-toolbar {
+  padding-bottom: 5.5rem;
+}
+
 .tool-reorder-favourites-toolbar {
+  position: fixed;
+  bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  left: 50%;
+  z-index: 100;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  margin: 16px 0 8px;
+  max-width: min(960px, calc(100vw - 24px));
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px solid var(--border, #e2e4e8);
+  border-radius: var(--radius, 10px);
+  background: var(--surface, #ffffff);
+  box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.08));
+  transform: translateX(-50%);
 }
 
 .tool-reorder-favourites-mode-hint,
@@ -5780,6 +5819,17 @@ html {
   list-style: none;
   margin: 0;
   padding: 0;
+  overflow: visible;
+}
+
+.tool-reorder-favourites-grid.is-drag-active {
+  position: relative;
+  cursor: grabbing;
+}
+
+.tool-reorder-favourites-grid.is-drag-active .tool-reorder-favourites-chip {
+  overflow: visible;
+  touch-action: none;
 }
 
 .tool-reorder-favourites-chip {
@@ -5799,6 +5849,40 @@ html {
     border-color 120ms ease;
 }
 
+.tool-reorder-favourites-chip.is-dragging {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.tool-reorder-favourites-drag-ghost {
+  position: fixed;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  width: 96px;
+  aspect-ratio: 2 / 3;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 2px solid var(--accent);
+  background: var(--surface-sunken, rgba(0, 0, 0, 0.25));
+  box-shadow: var(--shadow-md, 0 8px 24px rgba(0, 0, 0, 0.2));
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  opacity: 0.95;
+}
+
+.tool-reorder-favourites-drag-ghost-count {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+}
+
 .tool-reorder-favourites-chip:active {
   cursor: grabbing;
 }
@@ -5806,10 +5890,6 @@ html {
 .tool-reorder-favourites-chip.is-selected {
   border-color: var(--accent, #5b8def);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent, #5b8def) 45%, transparent);
-}
-
-.tool-reorder-favourites-chip.is-dragging {
-  opacity: 0.4;
 }
 
 .tool-reorder-favourites-chip.is-select-rank {
@@ -5840,7 +5920,7 @@ html {
   width: 1rem;
   height: 1rem;
   margin: 0;
-  cursor: pointer;
+  pointer-events: none;
 }
 
 .tool-reorder-favourites-chip-rank {
@@ -5871,16 +5951,18 @@ html {
   right: 0;
   bottom: 0;
   z-index: 1;
-  padding: 18px 6px 5px;
+  padding: 22px 6px 5px;
   font-size: 0.6875rem;
   line-height: 1.25;
   text-align: center;
   color: #fff;
   background: linear-gradient(to top, rgba(0, 0, 0, 0.88) 0%, rgba(0, 0, 0, 0.55) 55%, transparent 100%);
   overflow: hidden;
+  overflow-wrap: anywhere;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
+  text-overflow: ellipsis;
   pointer-events: none;
 }
 

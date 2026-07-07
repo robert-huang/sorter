@@ -3,30 +3,34 @@ import {
   buildToggleFavouriteMutation,
   buildUpdateFavouriteOrderMutation,
   favouriteOrderPayload,
+  UPDATE_FAVOURITE_ORDER_MUTATION,
 } from '../favouriteMutations';
 
 describe('buildUpdateFavouriteOrderMutation', () => {
-  it('builds character favourite order mutation', () => {
+  it('uses the full AniList mutation shape with only the active type in variables', () => {
     const built = buildUpdateFavouriteOrderMutation('CHARACTERS', {
       ids: [10, 20],
-      order: [0, 1],
+      order: [1, 2],
     });
-    expect(built.query).toContain('UpdateFavouriteOrder');
+    expect(built.query).toBe(UPDATE_FAVOURITE_ORDER_MUTATION);
     expect(built.query).toContain('$characterIds: [Int]');
-    expect(built.query).toContain('$characterOrder: [Int]');
+    expect(built.query).toContain('$staffOrder: [Int]');
+    expect(built.query).toContain('pageInfo');
     expect(built.variables).toEqual({
       characterIds: [10, 20],
-      characterOrder: [0, 1],
+      characterOrder: [1, 2],
     });
   });
 
-  it('builds anime favourite order mutation', () => {
-    const built = buildUpdateFavouriteOrderMutation('ANIME', {
-      ids: [1],
-      order: [0],
+  it('builds staff variables for staff favourites', () => {
+    const built = buildUpdateFavouriteOrderMutation('STAFF', {
+      ids: [118806, 127117],
+      order: [1, 2],
     });
-    expect(built.query).toContain('$animeIds: [Int]');
-    expect(built.variables.animeIds).toEqual([1]);
+    expect(built.variables).toEqual({
+      staffIds: [118806, 127117],
+      staffOrder: [1, 2],
+    });
   });
 });
 
@@ -40,10 +44,10 @@ describe('buildToggleFavouriteMutation', () => {
 });
 
 describe('favouriteOrderPayload', () => {
-  it('assigns ascending zero-based order', () => {
+  it('assigns ascending one-based order', () => {
     expect(favouriteOrderPayload([5, 9, 2])).toEqual({
       ids: [5, 9, 2],
-      order: [0, 1, 2],
+      order: [1, 2, 3],
     });
   });
 });

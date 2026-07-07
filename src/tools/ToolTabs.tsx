@@ -40,8 +40,19 @@ export function ToolTabs<T extends string>({
     if (!card || typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver(measure);
     ro.observe(card);
+    for (const t of tabs) {
+      const pill = pillRefs.current[t.id];
+      if (pill) {
+        ro.observe(pill);
+      }
+    }
     return () => ro.disconnect();
   }, [activeTab, tabs]);
+
+  useLayoutEffect(() => {
+    const pill = pillRefs.current[activeTab];
+    pill?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+  }, [activeTab]);
 
   return (
     <div className="tabs-card-wrap tools-tabs-wrap">
