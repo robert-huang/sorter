@@ -9,6 +9,8 @@ export type SourceMergeTable = {
 export type SourceMergeSpec = {
   metadataTables: SourceMergeTable[];
   userDataTables: SourceMergeTable[];
+  /** Junction tables merged with INSERT OR IGNORE union semantics after metadata. */
+  junctionUnionTables?: string[];
 };
 
 export type SourceDescriptor = {

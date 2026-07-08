@@ -1,8 +1,10 @@
+import type { Database } from '@sqlite.org/sqlite-wasm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { _clearSessionMemoForTesting } from '../../lib/importers/anilist/toolsSessionMemo';
-import { persistentCacheDeletePrefix } from '../../lib/importers/anilist/toolsPersistentCache';
-import { TOOLS_MEDIA_RELATIONS_CACHE_PREFIX } from '../../lib/importers/anilist/toolsMediaRelationsApi';
-import { _resetAvailabilityCache } from '../../lib/storage';
+import {
+  makeTestAnilistImportContext,
+  openTestAnilistDb,
+} from '../../lib/importers/anilist/__tests__/testAnilistDb';
 
 vi.mock('../../lib/importers/anilist/transport', () => ({
   executeAnilistQuery: vi.fn(),
@@ -65,14 +67,17 @@ function relationsResponse(
   };
 }
 
-beforeEach(() => {
+let sqliteDb: Database;
+
+beforeEach(async () => {
   _clearSessionMemoForTesting();
-  persistentCacheDeletePrefix(TOOLS_MEDIA_RELATIONS_CACHE_PREFIX);
-  _resetAvailabilityCache();
   executeAnilistQueryMock.mockReset();
   ensureUserMediaListFreshMock.mockReset();
   readUserMediaListEntriesFromDbMock.mockReset();
-  getCtxMock.mockReturnValue({ db: { exec: vi.fn() } } as never);
+  sqliteDb = await openTestAnilistDb();
+  getCtxMock.mockReturnValue(
+    makeTestAnilistImportContext(sqliteDb, { now: () => Date.now() }),
+  );
   ensureUserMediaListFreshMock.mockResolvedValue({
     id: 1,
     name: 'tester',
@@ -144,9 +149,16 @@ describe('runAdaptationScores', () => {
       return [];
     });
 
-    executeAnilistQueryMock.mockResolvedValue(
-      relationsResponse(10, [{ relationType: 'SOURCE', nodeId: 5, nodeType: 'MANGA' }]),
-    );
+    executeAnilistQueryMock.mockImplementation(async (_query, variables) => {
+      const mediaId = (variables as { id0?: number }).id0 ?? (variables as { mediaId?: number }).mediaId;
+      if (mediaId === 10) {
+        const payload = relationsResponse(10, [
+          { relationType: 'SOURCE', nodeId: 5, nodeType: 'MANGA' },
+        ]) as { Media: ToolsMediaRelationsResponse['media'] };
+        return { m0: payload.Media };
+      }
+      return null;
+    });
 
     const output = await runAdaptationScores({
       username: 'tester',

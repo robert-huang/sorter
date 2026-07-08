@@ -18,6 +18,7 @@ import * as client from '../../db/client';
 import type { DbRow } from '../../db/rpc';
 import type { AnilistItemLabelSource } from '../../types';
 import { ANILIST_SOURCE_ID } from './anilistSource';
+import { getMediaRelationsExpansionFetchedAt } from './graphQueries';
 import { mediaTitleSearchParts, pickMediaTitle } from './mediaDisplayLabel';
 import {
   characterNameSearchParts,
@@ -1495,6 +1496,8 @@ export const productionReads = {
     getMediaIdsWithCachedCast(defaultDb(), candidateMediaIds),
   getMediaCastExpansionStatus: (mediaId: number) =>
     getMediaCastExpansionStatus(defaultDb(), mediaId),
+  getMediaRelationsExpansionFetchedAt: (mediaId: number) =>
+    getMediaRelationsExpansionFetchedAt(defaultDb(), mediaId),
   getStaffFilmography: (staffId: number) =>
     getStaffFilmography(defaultDb(), staffId),
   getMediaIdsInUserList: (

@@ -3,27 +3,22 @@
  *
  *   - The user's anime + manga lists are read from the source DB via
  *     `ensureUserMediaListFresh` + `readUserMediaListEntriesFromDb`.
- *     They are NOT live-fetched on every Trace — that was the original
- *     cache gap. The username refresh button flows
- *     `forceRefresh: true` through ensureUserMediaListFresh to re-
- *     import.
- *   - Relations are walked through `executeAnilistQuery` and the per-
- *     node response is persisted to localStorage for 90 days. The
- *     walker is wrapped in a session memo + persistent cache so the
- *     second Trace within a session does ZERO network calls, and a
- *     reload still serves the prior walk from localStorage.
- *   - Right-click Trace (forceRefresh) busts BOTH the relation
- *     persistent cache AND triggers a fresh AniList list import.
+ *   - Relations are walked through `fetchToolsMediaRelationsCached`,
+ *     which persists edges in SQLite (`media_relation` +
+ *     `media_relations_expansion`) and only hits AniList when the
+ *     marker is missing or stale (>90d). Session memo dedupes within a
+ *     tab; SQLite survives reloads and Drive sync.
+ *   - Right-click Trace (forceRefresh) busts the SQLite marker and
+ *     triggers a fresh AniList list import.
  */
 
+import type { Database } from '@sqlite.org/sqlite-wasm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { _clearSessionMemoForTesting } from '../../lib/importers/anilist/toolsSessionMemo';
 import {
-  persistentCacheGet,
-  persistentCacheDeletePrefix,
-} from '../../lib/importers/anilist/toolsPersistentCache';
-import { TOOLS_MEDIA_RELATIONS_CACHE_PREFIX } from '../../lib/importers/anilist/toolsMediaRelationsApi';
-import { _resetAvailabilityCache } from '../../lib/storage';
+  makeTestAnilistImportContext,
+  openTestAnilistDb,
+} from '../../lib/importers/anilist/__tests__/testAnilistDb';
 
 vi.mock('../../lib/importers/anilist/transport', () => ({
   executeAnilistQuery: vi.fn(),
@@ -50,6 +45,14 @@ const executeAnilistQueryMock = vi.mocked(executeAnilistQuery);
 const getCtxMock = vi.mocked(getToolsImportContext);
 const ensureUserMediaListFreshMock = vi.mocked(ensureUserMediaListFresh);
 const readUserMediaListEntriesFromDbMock = vi.mocked(readUserMediaListEntriesFromDb);
+
+let sqliteDb: Database;
+
+function wireToolsDb(db: Database): void {
+  getCtxMock.mockReturnValue(
+    makeTestAnilistImportContext(db, { now: () => Date.now() }),
+  );
+}
 
 function relationsResponse(
   selfId: number,
@@ -95,18 +98,15 @@ function dbEntry(
   };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   _clearSessionMemoForTesting();
-  window.localStorage.clear();
-  _resetAvailabilityCache();
-  persistentCacheDeletePrefix(TOOLS_MEDIA_RELATIONS_CACHE_PREFIX);
-  persistentCacheDeletePrefix('franchise:');
   executeAnilistQueryMock.mockReset();
   getCtxMock.mockReset();
   ensureUserMediaListFreshMock.mockReset();
   readUserMediaListEntriesFromDbMock.mockReset();
 
-  getCtxMock.mockReturnValue({ db: { exec: vi.fn() } } as never);
+  sqliteDb = await openTestAnilistDb();
+  wireToolsDb(sqliteDb);
   // Default: user exists in DB and ensureUserMediaListFresh is a no-op
   // (the DB is already fresh). Override per-test to simulate force-
   // refresh / first-import flows.
@@ -220,31 +220,31 @@ describe('runFranchiseScores caching', () => {
 });
 
 describe('franchise relations cross-session cache', () => {
-  it('persists relations to localStorage so a fresh session does not re-fetch', async () => {
+  it('persists relations to SQLite so a fresh session does not re-fetch', async () => {
     executeAnilistQueryMock
-      // First session: search + 2 relation calls.
       .mockResolvedValueOnce({ Media: { id: 100, title: { english: 'Seed', romaji: null } } })
       .mockResolvedValueOnce(relationsResponse(100, [{ relationType: 'SEQUEL', nodeId: 200 }]))
       .mockResolvedValueOnce(relationsResponse(200, []))
-      // Second "session": only the search re-fires; relations come from localStorage.
       .mockResolvedValueOnce({ Media: { id: 100, title: { english: 'Seed', romaji: null } } });
 
     await runFranchiseScores({ seedSearch: 'Seed', username: 'rh_test' });
 
-    expect(persistentCacheGet(`${TOOLS_MEDIA_RELATIONS_CACHE_PREFIX}100`)).toMatchObject({ hit: true });
-    expect(persistentCacheGet(`${TOOLS_MEDIA_RELATIONS_CACHE_PREFIX}200`)).toMatchObject({ hit: true });
+    expect(
+      sqliteDb.selectObject(
+        'SELECT 1 AS ok FROM media_relations_expansion WHERE media_id = 100',
+      ),
+    ).toEqual({ ok: 1 });
 
     _clearSessionMemoForTesting();
     const callsBeforeSecondSession = executeAnilistQueryMock.mock.calls.length;
 
     await runFranchiseScores({ seedSearch: 'Seed', username: 'rh_test' });
 
-    // Only the seed search re-fires; both relation walks come from localStorage.
     const newCalls = executeAnilistQueryMock.mock.calls.length - callsBeforeSecondSession;
     expect(newCalls).toBe(1);
   });
 
-  it('forceRefresh busts the persistent relations cache', async () => {
+  it('forceRefresh re-fetches relation edges from AniList', async () => {
     executeAnilistQueryMock
       .mockResolvedValueOnce({ Media: { id: 100, title: { english: 'Seed', romaji: null } } })
       .mockResolvedValueOnce(relationsResponse(100, []))
@@ -259,7 +259,6 @@ describe('franchise relations cross-session cache', () => {
       fetchOptions: { forceRefresh: true },
     });
 
-    // 4 calls: search + relations × 2 runs (persistent cache busted on second).
     expect(executeAnilistQueryMock).toHaveBeenCalledTimes(4);
   });
 });

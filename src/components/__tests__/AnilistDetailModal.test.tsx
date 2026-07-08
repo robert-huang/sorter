@@ -19,14 +19,19 @@ vi.mock('../../lib/importers/anilist/readQueries', () => ({
   productionReads: {
     getMediaDetail: vi.fn(),
     getMediaCastExpansionStatus: vi.fn(),
+    getMediaRelationsExpansionFetchedAt: vi.fn(),
   },
 }));
 vi.mock('../../lib/importers/anilist/runners', () => ({
   runAnilistMediaLazyExpansion: vi.fn(),
+  runAnilistMediaRelationsRefresh: vi.fn(),
 }));
 
 import { productionReads } from '../../lib/importers/anilist/readQueries';
-import { runAnilistMediaLazyExpansion } from '../../lib/importers/anilist/runners';
+import {
+  runAnilistMediaLazyExpansion,
+  runAnilistMediaRelationsRefresh,
+} from '../../lib/importers/anilist/runners';
 import {
   anilistUrlForCharacter,
   anilistUrlForMediaEntry,
@@ -36,7 +41,9 @@ import { AnilistDetailModal } from '../AnilistDetailModal';
 
 const mockedGetMediaDetail = vi.mocked(productionReads.getMediaDetail);
 const mockedGetExpansionStatus = vi.mocked(productionReads.getMediaCastExpansionStatus);
+const mockedGetRelationsFetchedAt = vi.mocked(productionReads.getMediaRelationsExpansionFetchedAt);
 const mockedExpand = vi.mocked(runAnilistMediaLazyExpansion);
+const mockedRelationsRefresh = vi.mocked(runAnilistMediaRelationsRefresh);
 
 function makeMedia(id: number, overrides: Record<string, unknown> = {}) {
   return {
@@ -127,10 +134,13 @@ function makeExpansionStatus(mediaId: number, complete: boolean) {
 beforeEach(() => {
   mockedGetMediaDetail.mockReset();
   mockedGetExpansionStatus.mockReset();
+  mockedGetRelationsFetchedAt.mockReset();
+  mockedGetRelationsFetchedAt.mockResolvedValue(null);
   mockedGetExpansionStatus.mockImplementation(async (mediaId: number) =>
     makeExpansionStatus(mediaId, true),
   );
   mockedExpand.mockReset();
+  mockedRelationsRefresh.mockReset();
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -200,14 +210,21 @@ describe('AnilistDetailModal — lazy expansion', () => {
     expect(mockedGetMediaDetail).toHaveBeenCalledTimes(1);
   });
 
-  it('refresh button triggers expansion + re-read even when cast is already cached', async () => {
+  it('refresh button triggers expansion + relations refresh + re-read', async () => {
     mockedGetMediaDetail
       .mockResolvedValueOnce(makeDetail(9, true))
       .mockResolvedValueOnce(makeDetail(9, true));
     mockedGetExpansionStatus
       .mockResolvedValueOnce(makeExpansionStatus(9, true))
       .mockResolvedValueOnce(makeExpansionStatus(9, true));
+    mockedGetRelationsFetchedAt
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(1_700_000_000_000);
     mockedExpand.mockResolvedValueOnce(null);
+    mockedRelationsRefresh.mockResolvedValueOnce({
+      media: { id: 9, title: { english: 'EN-9' } },
+      edges: [],
+    });
 
     await act(async () => {
       root.render(
@@ -221,7 +238,6 @@ describe('AnilistDetailModal — lazy expansion', () => {
     await flushPromises();
     expect(mockedExpand).not.toHaveBeenCalled();
 
-    // Find and click the refresh button by its visible label.
     const buttons = Array.from(container.querySelectorAll('button'));
     const refreshBtn = buttons.find((b) => /Refresh/.test(b.textContent ?? ''));
     expect(refreshBtn).toBeDefined();
@@ -234,7 +250,7 @@ describe('AnilistDetailModal — lazy expansion', () => {
       scope: 'all',
       force: true,
     });
-    // Initial read + post-refresh read.
+    expect(mockedRelationsRefresh).toHaveBeenCalledWith(9, expect.any(Function));
     expect(mockedGetMediaDetail).toHaveBeenCalledTimes(2);
   });
 

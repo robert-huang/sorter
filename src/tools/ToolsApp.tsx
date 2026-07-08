@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnilistDetailModal } from '../components/AnilistDetailModal';
 import { AppBannerStack } from '../components/AppBannerStack';
 import { StaffDetailModal } from '../components/StaffDetailModal';
@@ -31,6 +31,7 @@ import { FavouritesPanel } from './panels/FavouritesPanel';
 import { ReorderFavouritesPanel } from './panels/ReorderFavouritesPanel';
 import { UpdateListEntryPanel } from './panels/UpdateListEntryPanel';
 import { AdaptationScoresPanel } from './panels/AdaptationScoresPanel';
+import type { ToolsMediaRelationsResponse } from '../lib/importers/anilist/toolsMediaRelationsApi';
 
 const TOOL_TABS: ReadonlyArray<ToolTab<ToolId>> = [
   {
@@ -99,6 +100,18 @@ export function ToolsApp() {
   const [activeTool, setActiveTool] = useState<ToolId>(() => loadActiveTool());
   const [mediaTarget, setMediaTarget] = useState<MediaTarget | null>(null);
   const [staffTarget, setStaffTarget] = useState<StaffTarget | null>(null);
+  const mediaRelationsRefreshRef = useRef<
+    ((mediaId: number, response: ToolsMediaRelationsResponse) => void) | null
+  >(null);
+
+  const bindMediaRelationsRefreshHandler = useCallback(
+    (
+      handler: ((mediaId: number, response: ToolsMediaRelationsResponse) => void) | null,
+    ) => {
+      mediaRelationsRefreshRef.current = handler;
+    },
+    [],
+  );
 
   const onToggleTheme = useCallback(() => {
     setTheme((prev) => {
@@ -138,8 +151,8 @@ export function ToolsApp() {
   }, []);
 
   const panelProps: ToolPanelProps = useMemo(
-    () => ({ onOpenMedia, onOpenStaff }),
-    [onOpenMedia, onOpenStaff],
+    () => ({ onOpenMedia, onOpenStaff, bindMediaRelationsRefreshHandler }),
+    [bindMediaRelationsRefreshHandler, onOpenMedia, onOpenStaff],
   );
 
   useEffect(() => {
@@ -239,6 +252,9 @@ export function ToolsApp() {
           initialForceRefresh={mediaTarget.forceRefresh}
           onClose={() => setMediaTarget(null)}
           onOpenStaff={onOpenStaff}
+          onMediaRelationsRefreshed={(mediaId, response) => {
+            mediaRelationsRefreshRef.current?.(mediaId, response);
+          }}
         />
       )}
       {staffTarget && (

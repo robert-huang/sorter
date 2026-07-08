@@ -11,7 +11,21 @@ import {
 } from './productionRolePriority';
 import { filterProductionStaffRows } from './staffRoleFilter';
 import { pickCharacterName } from './personDisplayLabel';
+import type {
+  ToolsApiMedia,
+  ToolsMediaRelationsResponse,
+} from './toolsMediaRelationsApi';
 import type { CharacterRow, MediaRow, StaffRow } from './types';
+
+const SQLITE_IN_CHUNK = 500;
+
+function chunkIds(ids: readonly number[]): number[][] {
+  const chunks: number[][] = [];
+  for (let i = 0; i < ids.length; i += SQLITE_IN_CHUNK) {
+    chunks.push(ids.slice(i, i + SQLITE_IN_CHUNK) as number[]);
+  }
+  return chunks;
+}
 
 function placeholders(n: number): string {
   if (n === 0) return '';
@@ -725,4 +739,137 @@ export async function pickRandomAnimeFromUserListCache(
     return null;
   }
   return rowToMediaRow(rows[0]);
+}
+
+export function mediaRowToToolsApiMedia(row: MediaRow): ToolsApiMedia {
+  return {
+    id: row.id,
+    type: row.type,
+    format: row.format,
+    title: {
+      english: row.title_english,
+      romaji: row.title_romaji,
+      native: row.title_native,
+    },
+    coverImage: row.cover_image ? { large: row.cover_image } : null,
+    startDate: {
+      year: row.start_year,
+      month: row.start_month,
+      day: row.start_day,
+    },
+  };
+}
+
+function assembleToolsMediaRelations(
+  selfRow: MediaRow,
+  edgeRows: Array<{ media: MediaRow; relationType: string }>,
+): ToolsMediaRelationsResponse {
+  const media = mediaRowToToolsApiMedia(selfRow);
+  const edges = edgeRows.map((row) => ({
+    relationType: row.relationType,
+    node: mediaRowToToolsApiMedia(row.media),
+  }));
+  return { media, edges };
+}
+
+export async function getMediaRelationsExpansionFetchedAt(
+  db: AnilistDbExecutor,
+  mediaId: number,
+): Promise<number | null> {
+  const rows = await db.exec(
+    'SELECT fetched_at FROM media_relations_expansion WHERE media_id = ?',
+    [mediaId],
+  );
+  if (rows.length === 0) {
+    return null;
+  }
+  return n(rows[0].fetched_at);
+}
+
+export async function getMediaRelationsExpansionFetchedAtBatch(
+  db: AnilistDbExecutor,
+  ids: readonly number[],
+): Promise<Map<number, number>> {
+  const out = new Map<number, number>();
+  if (ids.length === 0) {
+    return out;
+  }
+  for (const chunk of chunkIds(ids)) {
+    const ph = placeholders(chunk.length);
+    const rows = await db.exec(
+      `SELECT media_id, fetched_at FROM media_relations_expansion WHERE media_id IN (${ph})`,
+      chunk,
+    );
+    for (const row of rows) {
+      const mediaId = n(row.media_id);
+      const fetchedAt = n(row.fetched_at);
+      if (mediaId !== null && fetchedAt !== null) {
+        out.set(mediaId, fetchedAt);
+      }
+    }
+  }
+  return out;
+}
+
+export async function getToolsMediaRelationsFromDb(
+  db: AnilistDbExecutor,
+  fromMediaId: number,
+): Promise<ToolsMediaRelationsResponse | null> {
+  const batch = await getToolsMediaRelationsFromDbBatch(db, [fromMediaId]);
+  return batch.get(fromMediaId) ?? null;
+}
+
+export async function getToolsMediaRelationsFromDbBatch(
+  db: AnilistDbExecutor,
+  ids: readonly number[],
+): Promise<Map<number, ToolsMediaRelationsResponse>> {
+  const out = new Map<number, ToolsMediaRelationsResponse>();
+  if (ids.length === 0) {
+    return out;
+  }
+
+  const selfById = new Map<number, MediaRow>();
+  for (const chunk of chunkIds(ids)) {
+    const ph = placeholders(chunk.length);
+    const rows = await db.exec(`SELECT * FROM media WHERE id IN (${ph})`, chunk);
+    for (const row of rows) {
+      const media = rowToMediaRow(row);
+      selfById.set(media.id, media);
+    }
+  }
+
+  const edgesByFrom = new Map<number, Array<{ media: MediaRow; relationType: string }>>();
+  for (const chunk of chunkIds(ids)) {
+    const ph = placeholders(chunk.length);
+    const rows = await db.exec(
+      `
+        SELECT mr.from_media_id, mr.relation_type, m.*
+        FROM media_relation mr
+        JOIN media m ON m.id = mr.to_media_id
+        WHERE mr.from_media_id IN (${ph})
+      `,
+      chunk,
+    );
+    for (const row of rows) {
+      const fromId = reqN(row.from_media_id);
+      const relationType = reqS(row.relation_type);
+      const neighbor = rowToMediaRow(row);
+      let bucket = edgesByFrom.get(fromId);
+      if (!bucket) {
+        bucket = [];
+        edgesByFrom.set(fromId, bucket);
+      }
+      bucket.push({ media: neighbor, relationType });
+    }
+  }
+
+  for (const id of ids) {
+    const selfRow = selfById.get(id);
+    if (!selfRow) {
+      continue;
+    }
+    out.set(id, assembleToolsMediaRelations(selfRow, edgesByFrom.get(id) ?? []));
+  }
+
+  return out;
 }

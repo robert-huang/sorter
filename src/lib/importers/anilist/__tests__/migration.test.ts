@@ -12,7 +12,7 @@ import {
 // Bump this in lock-step with the highest version in
 // anilistSourceDescriptor.migrations so the "applies cleanly" sanity
 // check fails loudly when someone forgets to register a new migration.
-const LATEST_SCHEMA_VERSION = 8;
+const LATEST_SCHEMA_VERSION = 9;
 
 const EXPECTED_TABLES = [
   'anilist_user',
@@ -30,6 +30,7 @@ const EXPECTED_TABLES = [
   'staff_filmography_expansion',
   'character_media_expansion',
   'media_relation',
+  'media_relations_expansion',
   'media_list_entry',
   'custom_list',
   'media_custom_list_membership',
@@ -462,6 +463,34 @@ describe('anilist migration', () => {
     ).toThrow();
     db.close();
   });
+
+  it('migration 009 backfills media_relations_expansion from existing media_relation rows', async () => {
+    const db = await openMemoryDb();
+    db.exec('PRAGMA foreign_keys = ON');
+    migrateTo(db, anilistSourceDescriptor, 8);
+    expect(currentVersion(db)).toBe(8);
+
+    const fetchedAt = 1_700_000_000_000;
+    seedMedia(db, 100);
+    seedMedia(db, 200);
+    db.exec(
+      `INSERT INTO media_relation (from_media_id, to_media_id, relation_type)
+         VALUES (?, ?, 'SEQUEL')`,
+      { bind: [100, 200] },
+    );
+    db.exec('UPDATE media SET fetched_at = ? WHERE id = ?', {
+      bind: [fetchedAt, 100],
+    });
+
+    migrate(db, anilistSourceDescriptor);
+    expect(currentVersion(db)).toBe(LATEST_SCHEMA_VERSION);
+
+    const marker = db.selectObject(
+      'SELECT media_id, fetched_at FROM media_relations_expansion WHERE media_id = 100',
+    );
+    expect(marker).toEqual({ media_id: 100, fetched_at: fetchedAt });
+    db.close();
+  });
 });
 
 describe('anilist source descriptor', () => {
@@ -482,6 +511,7 @@ describe('anilist source descriptor', () => {
       'staff',
       'staff_filmography_expansion',
       'character_media_expansion',
+      'media_relations_expansion',
     ]);
     expect(user).toEqual(['media_list_entry']);
     const listEntry = anilistSourceDescriptor.merge.userDataTables.find(
@@ -493,6 +523,14 @@ describe('anilist source descriptor', () => {
     );
     expect(filmography?.pk).toEqual(['staff_id']);
     expect(filmography?.timestampCol).toBe('fetched_at');
+    const relationsExpansion = anilistSourceDescriptor.merge.metadataTables.find(
+      (t) => t.name === 'media_relations_expansion',
+    );
+    expect(relationsExpansion?.pk).toEqual(['media_id']);
+    expect(relationsExpansion?.timestampCol).toBe('fetched_at');
+    expect(anilistSourceDescriptor.merge.junctionUnionTables).toEqual([
+      'media_relation',
+    ]);
   });
 
   it('intentionally excludes junctions and wipe-and-rebuild tables from the merge spec', () => {
@@ -526,6 +564,8 @@ describe('anilist source descriptor', () => {
     const registered = getSource(ANILIST_SOURCE_ID);
     expect(registered.id).toBe(ANILIST_SOURCE_ID);
     expect(registered.migrations).toHaveLength(LATEST_SCHEMA_VERSION);
-    expect(registered.migrations.map((m) => m.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(registered.migrations.map((m) => m.version)).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8, 9,
+    ]);
   });
 });

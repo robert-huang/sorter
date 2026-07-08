@@ -8,6 +8,7 @@ import { withLastAnilistUsername, writeLastAnilistUsername } from '../../lib/imp
 import { ToolShowButton } from '../toolEntityLinks';
 import { DragScroll } from '../../components/DragScroll';
 import {
+  mergeAdaptationScanFromRelationsRefresh,
   runAdaptationScores,
   type AdaptationRunProgress,
   type AdaptationScanData,
@@ -234,7 +235,15 @@ function AdaptationTable({
       </thead>
       <tbody>
         {rows.map((row, index) => (
-          <tr key={`adaptation-row-${index}`} className="tool-adaptation-row">
+          <tr
+            key={`adaptation-row-${index}`}
+            className={[
+              'tool-adaptation-row',
+              row.hiddenByFilter ? 'tool-adaptation-row-filtered-out' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+          >
             {row.source ? (
               <AdaptationCell column="source" cell={row.source} onOpenMedia={onOpenMedia} />
             ) : null}
@@ -253,13 +262,17 @@ function AdaptationTable({
   );
 }
 
-export function AdaptationScoresPanel({ onOpenMedia }: ToolPanelProps) {
+export function AdaptationScoresPanel({
+  onOpenMedia,
+  bindMediaRelationsRefreshHandler,
+}: ToolPanelProps) {
   const { refreshing: refreshingList, refreshUsernameList } = useUsernameListRefresh({
     refreshManga: true,
   });
   useToolsDisplayLabelRevision();
   const [form, setForm] = useState<AdaptationForm>(() => loadForm());
   const [filters, setFilters] = useState<AdaptationFilters>(() => loadFilters());
+  const [showAllRows, setShowAllRows] = useState(false);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AdaptationScoresResult | null>(null);
@@ -274,6 +287,21 @@ export function AdaptationScoresPanel({ onOpenMedia }: ToolPanelProps) {
   useEffect(() => {
     saveFilters(filters);
   }, [filters]);
+
+  useEffect(() => {
+    if (!bindMediaRelationsRefreshHandler) {
+      return;
+    }
+    bindMediaRelationsRefreshHandler((mediaId, response) => {
+      setScan((prev) => {
+        if (!prev) {
+          return prev;
+        }
+        return mergeAdaptationScanFromRelationsRefresh(prev, mediaId, response);
+      });
+    });
+    return () => bindMediaRelationsRefreshHandler(null);
+  }, [bindMediaRelationsRefreshHandler]);
 
   const patchFilters = useCallback((patch: Partial<AdaptationFilters>) => {
     setFilters((prev) => ({ ...prev, ...patch }));
@@ -342,8 +370,10 @@ export function AdaptationScoresPanel({ onOpenMedia }: ToolPanelProps) {
     if (!scan || scan.pairs.length === 0) {
       return result;
     }
-    return buildAdaptationDisplay(scan.pairs, scan.mediaMap, scan.listScope, filters);
-  }, [filters, result, scan]);
+    return buildAdaptationDisplay(scan.pairs, scan.mediaMap, scan.listScope, filters, {
+      showAllRows,
+    });
+  }, [filters, result, scan, showAllRows]);
 
   const tableRows = useMemo(() => {
     if (displayResult?.kind !== 'table') {
@@ -425,6 +455,14 @@ export function AdaptationScoresPanel({ onOpenMedia }: ToolPanelProps) {
               onChange={(e) => patchFilters({ hideSameMedium: e.target.checked })}
             />
             Hide same-medium adaptations
+          </label>
+          <label className="tool-checkbox">
+            <input
+              type="checkbox"
+              checked={showAllRows}
+              onChange={(e) => setShowAllRows(e.target.checked)}
+            />
+            Show all rows
           </label>
         </div>
         <div className="tool-actions">

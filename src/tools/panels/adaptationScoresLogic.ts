@@ -88,6 +88,8 @@ export type AdaptationTableCell = {
 export type AdaptationTableRow = {
   source: AdaptationTableCell | null;
   adaptation: AdaptationTableCell | null;
+  /** Dimmed when show-all-rows is on but filters exclude this pair. */
+  hiddenByFilter?: boolean;
 };
 
 export type AdaptationDisplayBlock = {
@@ -742,15 +744,37 @@ export function buildAdaptationDisplay(
   mediaMap: ReadonlyMap<number, AdaptationMedia>,
   scope: AdaptationListScope,
   filters: AdaptationFilters,
+  options?: { showAllRows?: boolean },
 ): AdaptationScoresResult {
+  const showAllRows = options?.showAllRows ?? false;
   const filtered = applyAdaptationFilters(pairs, mediaMap, scope, filters);
-  if (filtered.length === 0) {
+  const workingPairs = showAllRows ? pairs : filtered;
+  if (workingPairs.length === 0) {
     return { kind: 'empty', message: 'No adaptation pairs match the current filters.' };
   }
 
-  const blocks = groupPairsIntoBlocks(filtered)
+  const filteredKeys = new Set(filtered.map((pair) => adaptationPairKey(pair)));
+
+  const blocks = groupPairsIntoBlocks(workingPairs)
     .map((blockPairs) => ({
-      rows: buildAdaptationBlockRows(blockPairs, mediaMap),
+      rows: buildAdaptationBlockRows(blockPairs, mediaMap).map((row) => {
+        if (!showAllRows) {
+          return row;
+        }
+        const sourceId = row.source?.skipRender
+          ? null
+          : row.source?.media.id ?? null;
+        const adaptationId = row.adaptation?.skipRender
+          ? null
+          : row.adaptation?.media.id ?? null;
+        if (sourceId == null || adaptationId == null) {
+          return row;
+        }
+        const hiddenByFilter = !filteredKeys.has(
+          adaptationPairKey({ sourceId, adaptationId }),
+        );
+        return hiddenByFilter ? { ...row, hiddenByFilter: true } : row;
+      }),
       sortKey: blockSortKey(blockPairs, mediaMap),
     }))
     .filter((block) => block.rows.length > 0)

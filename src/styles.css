@@ -7229,6 +7229,14 @@ html {
   text-align: left;
 }
 
+.tool-adaptation-row-filtered-out {
+  opacity: 0.45;
+}
+
+.tool-adaptation-row-filtered-out:hover {
+  opacity: 0.75;
+}
+
 .tool-adaptation-table .tool-season-cell-grid {
   min-width: 0;
 }

@@ -263,3 +263,54 @@ export async function runAdaptationScores(
     scan: { pairs, mediaMap, listScope },
   };
 }
+
+export function mergeAdaptationScanFromRelationsRefresh(
+  scan: AdaptationScanData,
+  mediaId: number,
+  response: ToolsMediaRelationsResponse,
+): AdaptationScanData {
+  const pairs = scan.pairs.filter(
+    (pair) => pair.sourceId !== mediaId && pair.adaptationId !== mediaId,
+  );
+  for (const edge of adaptationEdgesFromResponse(response)) {
+    const pair = normalizeAdaptationPair(
+      mediaId,
+      edge.relationType,
+      edge.node.id,
+    );
+    if (pair) {
+      pairs.push(pair);
+    }
+  }
+
+  const mediaMap = new Map(scan.mediaMap);
+  const listStamp = mediaMap.get(mediaId);
+  const ingest = (media: ToolsApiMedia) => {
+    if (mediaMap.has(media.id)) {
+      return;
+    }
+    mediaMap.set(
+      media.id,
+      apiMediaToStub(
+        media,
+        listStamp
+          ? {
+              status: listStamp.listStatus,
+              score: listStamp.score,
+              startedAt: listStamp.startedAt,
+            }
+          : undefined,
+      ),
+    );
+  };
+  ingest(response.media);
+  for (const edge of adaptationEdgesFromResponse(response)) {
+    ingest(edge.node);
+  }
+
+  return {
+    pairs: dedupeAdaptationPairs(pairs),
+    mediaMap,
+    listScope: scan.listScope,
+  };
+}

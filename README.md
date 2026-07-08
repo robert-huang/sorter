@@ -196,8 +196,8 @@ Loads cached metadata immediately and shows: cover, resolved **title**, and chip
 
 - **Cast** — characters with role and **`VA:`** voice actors. VA names are clickable → open that person's **staff** panel.
 - **Production** — staff credits with a **Key roles** / **All credits** toggle (persisted). Staff names are clickable → staff panel.
-- **Lazy expansion** — on first open, cast + production staff are fetched from AniList and cached (metadata stays visible if that fetch fails). Cache lines show `Cast: {date} (complete|incomplete, fresh|stale (>90d))` and the same for staff.
-- **↻ Refresh** re-fetches cast & staff (`Re-fetch cast & staff for this entry (does not auto-push)`).
+- **Lazy expansion** — on first open, cast + production staff are fetched from AniList and cached (metadata stays visible if that fetch fails). Cache lines show `Cast: {date} (complete|incomplete, fresh|stale (>90d))`, the same for staff, and `Relations: {date} (fresh|stale (>90d))` for franchise relation edges.
+- **↻ Refresh** re-fetches cast, staff, and relations (`Re-fetch cast & staff for this entry (does not auto-push)`). Relations refresh also powers Adaptation Scores scan merge when the modal is opened from that tool.
 - The media panel has **no synopsis** and **no relations UI** (relations power the Anime-to-Anime game, not this panel). Reach the AniList page via the card/thumb link or middle-click.
 
 ### Staff detail panel
@@ -227,7 +227,16 @@ The gear menu has a **Slots** tab and a **Databases** tab. The Databases tab sho
 
 When cloud backup is connected, each source row offers manual **Push** / **Pull** of the whole `.sqlite` to a `db/` subfolder of your Drive folder, with a sync status (`in sync` / `drifted` / `local changes` / …), last Pushed/Pulled timestamps, and a `{N} pending change(s) — manual push required.` banner with **Push now**. Push is blocked from a non-persistent (in-memory) tab; Pull is allowed. Conflicts surface plain messages (e.g. `Remote has new changes — pull first.`).
 
-> Full **list/favourites imports auto-push** the DB when cloud is ready. Incremental edits (detail-panel cast/staff/filmography expansions) bump a pending-changes counter and need a manual Push.
+> Full **list/favourites imports auto-push** the DB when cloud is ready. Incremental edits (detail-panel cast/staff/filmography expansions, media relation fetches) bump a pending-changes counter and need a manual Push.
+
+### Media relations cache (Tools + Anime-to-Anime)
+
+`Media.relations` edges for franchise walks, adaptation scans, and Anime-to-Anime hops live in SQLite:
+
+- **`media_relation`** — shared outbound edges (`from_media_id`, `to_media_id`, `relation_type`). Drive sync **unions** edges from both sides (`INSERT OR IGNORE`) so devices keep the superset.
+- **`media_relations_expansion`** — per-seed freshness marker (`media_id`, `fetched_at`). Drive sync uses **newest `fetched_at` wins** per seed. A marker with zero edges is valid (“this seed was checked and has no relations”).
+- **TTL** — Tools and A2A skip AniList when the marker is younger than 90 days unless you force refresh (right-click Trace/Compare, modal ↻, or Compare with force).
+- **Session memo** — in-tab dedup only; durable cache is SQLite. Legacy `tools:relations:v2:*` localStorage entries are migrated once per session on first relation fetch, then deleted.
 
 ### Display names (titles & staff names)
 
@@ -626,7 +635,7 @@ Walk AniList **relations** outward from one or more seed shows and chart the use
 - **Post-fetch filters** — score range chips (rated / unrated / min–max), same semantics as the Sorter FilterBar.
 - **Export** — copy franchise table as CSV or plain text.
 
-Uses cached list scores when available; fetches relation edges and missing entries on demand.
+Uses cached list scores when available; fetches relation edges and missing entries on demand. Relation edges are read from SQLite when fresh; right-click Trace forces a live re-fetch for every node in the walk.
 
 ### Adaptation Scores
 
@@ -636,6 +645,7 @@ Map **source ↔ adaptation** pairs from a user's anime and manga lists using An
 - **List status** — filter which list statuses contribute seed entries (defaults to `CURRENT`, `COMPLETED`, `REPEATING`).
 - **Only rows where both sides are on my list** — hide pairs where the other medium is not on your list.
 - **Hide same-medium adaptations** — drop pairs where source and adaptation share the same medium (e.g. manga → manga).
+- **Show all rows** — keep filtered-out pairs in the table (dimmed) instead of removing them; useful after a relations refresh from the detail modal.
 - **Franchise blocks** — related pairs are grouped into blocks with merged source/adaptation columns (`rowspan`) and release-date ordering within each block.
 - **Consumption dot (•)** — marks the entry you most recently started in each block (by list `startedAt`, then release date).
 

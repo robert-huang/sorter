@@ -11,11 +11,16 @@ import {
   expandAnilistMediaDetail,
   type ExpandAnilistMediaDetailOptions,
 } from './lazyExpansion';
-import { hasCharacterMediaExpansion, hasStaffFilmography } from './graphQueries';
+import {
+  getMediaRelationsExpansionFetchedAt,
+  hasCharacterMediaExpansion,
+  hasStaffFilmography,
+} from './graphQueries';
 import {
   getMediaCastExpansionStatus,
   type MediaCastExpansionStatus,
 } from './readQueries';
+import { needsGraphDataRefresh } from './toolsFetchPolicy';
 
 function needsCharactersSectionExpanded(
   status: MediaCastExpansionStatus | null,
@@ -117,10 +122,20 @@ export async function ensureStaffFilmography(
   return result !== null;
 }
 
+export type EnsureMediaRelationsOptions = {
+  force?: boolean;
+};
+
 export async function ensureMediaRelations(
   ctx: AnilistImportContext,
   mediaId: number,
+  options: EnsureMediaRelationsOptions = {},
 ): Promise<boolean> {
-  const result = await expandMediaRelations(ctx, mediaId);
+  const force = options.force ?? false;
+  const fetchedAt = await getMediaRelationsExpansionFetchedAt(ctx.db, mediaId);
+  if (!needsGraphDataRefresh(fetchedAt, { forceRefresh: force })) {
+    return true;
+  }
+  const result = await expandMediaRelations(ctx, mediaId, { force });
   return result !== null;
 }

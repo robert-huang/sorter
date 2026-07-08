@@ -31,9 +31,16 @@ import { findAnilistAccountByName, resolveAccessTokenForUsername } from './anili
 import { makeAnilistImportContext } from './context';
 import { importAnilistFavourites } from './favourites';
 import { importAnilistList } from './importer';
+import { ensureMediaRelations } from './ensureGraph';
 import { expandCharacterMedia, type ExpandCharacterMediaResult } from './expandCharacterMedia';
 import { expandStaffFilmography, type ExpandStaffFilmographyResult } from './expandStaffFilmography';
 import { expandMediaRelations, type ExpandMediaRelationsResult } from './expandMediaRelations';
+import {
+  getMediaRelationsExpansionFetchedAt,
+  getToolsMediaRelationsFromDb,
+} from './graphQueries';
+import type { ToolsMediaRelationsResponse } from './toolsMediaRelationsApi';
+import { needsGraphDataRefresh } from './toolsFetchPolicy';
 import {
   expandAnilistMediaDetail,
   type ExpandAnilistMediaDetailResult,
@@ -171,7 +178,27 @@ export async function runAnilistMediaRelationsExpansion(
   mediaId: number,
   onProgress?: AnilistProgressReporter,
 ): Promise<ExpandMediaRelationsResult | null> {
-  const result = await expandMediaRelations(buildContext(onProgress), mediaId);
-  if (result) markLocalDbPresent();
+  const ctx = buildContext(onProgress);
+  const fetchedAt = await getMediaRelationsExpansionFetchedAt(ctx.db, mediaId);
+  if (!needsGraphDataRefresh(fetchedAt)) {
+    return { fromMediaId: mediaId, relationsWritten: 0, mediaUpserted: 0 };
+  }
+  const result = await expandMediaRelations(ctx, mediaId);
+  if (result) {
+    markLocalDbPresent();
+  }
   return result;
+}
+
+export async function runAnilistMediaRelationsRefresh(
+  mediaId: number,
+  onProgress?: AnilistProgressReporter,
+): Promise<ToolsMediaRelationsResponse | null> {
+  const ctx = buildContext(onProgress);
+  const ok = await ensureMediaRelations(ctx, mediaId, { force: true });
+  if (!ok) {
+    return null;
+  }
+  markLocalDbPresent();
+  return getToolsMediaRelationsFromDb(ctx.db, mediaId);
 }

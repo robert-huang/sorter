@@ -366,4 +366,39 @@ describe('buildAdaptationDisplay', () => {
     expect(display.blocks[0]?.rows[0]?.adaptation?.media.id).toBe(30);
     expect(display.blocks[1]?.rows[0]?.adaptation?.media.id).toBe(20);
   });
+
+  it('showAllRows keeps filtered-out pairs visible with hiddenByFilter', () => {
+    const pairs: AdaptationPair[] = [
+      { sourceId: 1, adaptationId: 10 },
+      { sourceId: 2, adaptationId: 20 },
+    ];
+    const map = mediaMap([
+      media(1, { mediaType: 'MANGA', listStatus: 'COMPLETED' }),
+      media(2, { mediaType: 'MANGA', listStatus: 'COMPLETED' }),
+      media(10, { mediaType: 'ANIME', listStatus: 'COMPLETED' }),
+      media(20, { mediaType: 'ANIME', listStatus: null }),
+    ]);
+
+    const display = buildAdaptationDisplay(
+      pairs,
+      map,
+      { animeListIds: new Set([10, 20]), mangaListIds: new Set([1, 2]) },
+      {
+        includeAnime: true,
+        includeManga: true,
+        listStatuses: ['COMPLETED'],
+        onlyBothOnList: true,
+        hideSameMedium: false,
+      },
+      { showAllRows: true },
+    );
+
+    expect(display.kind).toBe('table');
+    if (display.kind !== 'table') {
+      return;
+    }
+    const rows = display.blocks.flatMap((block) => block.rows);
+    expect(rows.some((row) => row.hiddenByFilter)).toBe(true);
+    expect(rows.filter((row) => !row.hiddenByFilter)).toHaveLength(1);
+  });
 });

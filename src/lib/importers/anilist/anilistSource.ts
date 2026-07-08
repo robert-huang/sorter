@@ -7,6 +7,7 @@ import migration005 from './migrations/005-character-media-expansion.sql?raw';
 import migration006 from './migrations/006-media-list-entry-notes.sql?raw';
 import migration007 from './migrations/007-media-source.sql?raw';
 import migration008 from './migrations/008-media-source-fetched.sql?raw';
+import migration009 from './migrations/009-media-relations-expansion.sql?raw';
 import type { AnilistFavouriteType, AnilistMediaType } from './types';
 
 export const ANILIST_SOURCE_ID = 'anilist';
@@ -123,6 +124,7 @@ export const anilistSourceDescriptor: SourceDescriptor = {
     { version: 6, sql: migration006 },
     { version: 7, sql: migration007 },
     { version: 8, sql: migration008 },
+    { version: 9, sql: migration009 },
   ],
   merge: {
     metadataTables: [
@@ -137,6 +139,7 @@ export const anilistSourceDescriptor: SourceDescriptor = {
       // visit markers only.
       { name: 'staff_filmography_expansion', pk: ['staff_id'], timestampCol: 'fetched_at' },
       { name: 'character_media_expansion', pk: ['character_id'], timestampCol: 'fetched_at' },
+      { name: 'media_relations_expansion', pk: ['media_id'], timestampCol: 'fetched_at' },
     ],
     userDataTables: [
       {
@@ -145,6 +148,7 @@ export const anilistSourceDescriptor: SourceDescriptor = {
         timestampCol: 'updated_at',
       },
     ],
+    junctionUnionTables: ['media_relation'],
   },
 };
 
