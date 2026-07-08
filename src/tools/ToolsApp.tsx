@@ -30,12 +30,14 @@ import { FranchiseScoresPanel } from './panels/FranchiseScoresPanel';
 import { FavouritesPanel } from './panels/FavouritesPanel';
 import { ReorderFavouritesPanel } from './panels/ReorderFavouritesPanel';
 import { UpdateListEntryPanel } from './panels/UpdateListEntryPanel';
+import { AdaptationScoresPanel } from './panels/AdaptationScoresPanel';
 
 const TOOL_TABS: ReadonlyArray<ToolTab<ToolId>> = [
   { id: 'shared-credits', label: 'Shared Credits' },
   { id: 'shared-staff', label: 'Shared Staff' },
   { id: 'seasonal-scores', label: 'Seasonal Scores' },
   { id: 'franchise-scores', label: 'Franchise Scores' },
+  { id: 'adaptation-scores', label: 'Adaptation Scores' },
   { id: 'favourites', label: 'Favourites' },
   { id: 'reorder-favourites', label: 'Reorder Favourites' },
   { id: 'update-list-entry', label: 'Update List Entry' },
@@ -183,6 +185,9 @@ export function ToolsApp() {
         </div>
         <div hidden={activeTool !== 'franchise-scores'}>
           <FranchiseScoresPanel {...panelProps} />
+        </div>
+        <div hidden={activeTool !== 'adaptation-scores'}>
+          <AdaptationScoresPanel {...panelProps} />
         </div>
         <div hidden={activeTool !== 'favourites'}>
           <FavouritesPanel {...panelProps} />

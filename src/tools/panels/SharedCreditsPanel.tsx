@@ -480,14 +480,16 @@ export function SharedCreditsPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps)
       )}
 
       {result?.kind === 'table' && (
-        <SharedCreditsResultsTable
-          staffIds={result.staffIds}
-          staffNames={result.staffNames}
-          staffImages={result.staffImages}
-          rows={result.rows}
-          onOpenMedia={onOpenMedia}
-          onOpenStaff={onOpenStaff}
-        />
+        <div className="tool-chart-fullbleed">
+          <SharedCreditsResultsTable
+            staffIds={result.staffIds}
+            staffNames={result.staffNames}
+            staffImages={result.staffImages}
+            rows={result.rows}
+            onOpenMedia={onOpenMedia}
+            onOpenStaff={onOpenStaff}
+          />
+        </div>
       )}
     </section>
   );

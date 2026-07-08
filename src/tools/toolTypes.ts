@@ -5,6 +5,7 @@ export type ToolId =
   | 'shared-staff'
   | 'seasonal-scores'
   | 'franchise-scores'
+  | 'adaptation-scores'
   | 'favourites'
   | 'reorder-favourites'
   | 'update-list-entry';
@@ -28,6 +29,7 @@ const TOOL_IDS: readonly ToolId[] = [
   'shared-staff',
   'seasonal-scores',
   'franchise-scores',
+  'adaptation-scores',
   'favourites',
   'reorder-favourites',
   'update-list-entry',

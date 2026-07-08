@@ -1,32 +1,20 @@
 import {
-  TOOLS_FRANCHISE_RELATIONS_QUERY,
   TOOLS_MEDIA_SEARCH_QUERY,
 } from '../../lib/importers/anilist/queries';
+import {
+  fetchToolsMediaRelationsCached,
+  type ToolsApiMedia,
+} from '../../lib/importers/anilist/toolsMediaRelationsApi';
 import { executeAnilistQuery } from '../../lib/importers/anilist/transport';
 import {
   withSessionMemo,
-  withSessionTtlMemo,
 } from '../../lib/importers/anilist/toolsSessionMemo';
-import { withPersistentTtlCache } from '../../lib/importers/anilist/toolsPersistentCache';
 import type { ToolsFetchOptions } from '../../lib/importers/anilist/toolsFetchPolicy';
 import {
   ensureUserMediaListFresh,
   readUserMediaListEntriesFromDb,
 } from '../../lib/importers/anilist/toolsAnilistAccess';
 import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportContext';
-
-/**
- * Franchise relations rarely change once a media id is settled (a brand-new
- * sequel can be picked up by right-clicking Trace to force-refresh), so we
- * persist them across sessions for 90 days. A 90d in-memory TTL is fine too
- * — entries are still bounded by the tab's lifetime, and the persistent
- * cache below survives reloads.
- */
-const FRANCHISE_RELATIONS_TTL_MS = 90 * 24 * 60 * 60 * 1000;
-
-function franchiseRelationsCacheKey(mediaId: number): string {
-  return `franchise:relations:${mediaId}`;
-}
 import { pickMediaTitle } from './sharedCreditsLogic';
 import { normalizeSeasonalListScore } from './seasonalScoresLogic';
 import {
@@ -39,16 +27,7 @@ import {
   type FranchiseRelationsResponse,
 } from './franchiseScoresLogic';
 
-type ApiMedia = {
-  id: number;
-  type?: 'ANIME' | 'MANGA' | null;
-  format?: string | null;
-  title: { english?: string | null; romaji?: string | null; native?: string | null };
-  coverImage?: { large?: string | null } | null;
-  startDate?: { year?: number | null; month?: number | null; day?: number | null } | null;
-};
-
-function mediaToNode(media: ApiMedia): FranchiseNode {
+function mediaToNode(media: ToolsApiMedia): FranchiseNode {
   return {
     id: media.id,
     mediaType: media.type === 'MANGA' ? 'MANGA' : 'ANIME',
@@ -66,6 +45,18 @@ function mediaToNode(media: ApiMedia): FranchiseNode {
       month: media.startDate?.month ?? null,
       day: media.startDate?.day ?? null,
     },
+  };
+}
+
+function toFranchiseRelationsResponse(
+  parsed: NonNullable<Awaited<ReturnType<typeof fetchToolsMediaRelationsCached>>>,
+): FranchiseRelationsResponse {
+  return {
+    self: mediaToNode(parsed.media),
+    edges: parsed.edges.map((edge) => ({
+      relationType: edge.relationType,
+      node: mediaToNode(edge.node),
+    })),
   };
 }
 
@@ -93,63 +84,13 @@ export async function searchFranchiseSeed(
   });
 }
 
-async function fetchFranchiseRelationsLive(
-  mediaId: number,
-  signal?: AbortSignal,
-): Promise<FranchiseRelationsResponse | null> {
-  signal?.throwIfAborted();
-  const data = await executeAnilistQuery<{
-    Media: (ApiMedia & {
-      relations?: {
-        edges: Array<{
-          relationType?: string | null;
-          node: ApiMedia;
-        }>;
-      } | null;
-    }) | null;
-  }>(TOOLS_FRANCHISE_RELATIONS_QUERY, { mediaId });
-  if (!data?.Media) {
-    return null;
-  }
-  const self = mediaToNode(data.Media);
-  const edges = (data.Media.relations?.edges ?? [])
-    .filter((edge) => edge.node?.id != null)
-    .map((edge) => ({
-      relationType: (edge.relationType ?? 'OTHER').trim() || 'OTHER',
-      node: mediaToNode(edge.node),
-    }));
-  return { self, edges };
-}
-
-/**
- * Two-tier cache for the franchise graph:
- *   L1: in-memory session memo — dedups concurrent BFS calls and avoids
- *       re-parsing JSON within a tab.
- *   L2: localStorage — survives reloads, 90-day TTL so a casual revisit
- *       to the same franchise doesn't burn a chain of GraphQL calls.
- * Right-click Trace flows `forceRefresh: true` through both layers so the
- * user can pull in a brand-new sequel that AniList added since the last
- * cache was populated.
- */
-function fetchFranchiseRelations(
+async function fetchFranchiseRelations(
   mediaId: number,
   signal?: AbortSignal,
   options?: ToolsFetchOptions,
 ): Promise<FranchiseRelationsResponse | null> {
-  signal?.throwIfAborted();
-  const key = franchiseRelationsCacheKey(mediaId);
-  return withSessionTtlMemo(
-    key,
-    FRANCHISE_RELATIONS_TTL_MS,
-    () =>
-      withPersistentTtlCache(
-        key,
-        FRANCHISE_RELATIONS_TTL_MS,
-        () => fetchFranchiseRelationsLive(mediaId, signal),
-        { bust: options?.forceRefresh },
-      ),
-    { bust: options?.forceRefresh },
-  );
+  const parsed = await fetchToolsMediaRelationsCached(mediaId, signal, options);
+  return parsed ? toFranchiseRelationsResponse(parsed) : null;
 }
 
 type UserListEntry = { mediaId: number; status: string | null; score: number | null };

@@ -22,6 +22,7 @@ import {
   persistentCacheGet,
   persistentCacheDeletePrefix,
 } from '../../lib/importers/anilist/toolsPersistentCache';
+import { TOOLS_MEDIA_RELATIONS_CACHE_PREFIX } from '../../lib/importers/anilist/toolsMediaRelationsApi';
 import { _resetAvailabilityCache } from '../../lib/storage';
 
 vi.mock('../../lib/importers/anilist/transport', () => ({
@@ -84,13 +85,21 @@ function dbEntry(
   score: number | null,
   status: string | null = 'COMPLETED',
 ) {
-  return { mediaId, status, score };
+  return {
+    mediaId,
+    status,
+    score,
+    startedYear: null,
+    startedMonth: null,
+    startedDay: null,
+  };
 }
 
 beforeEach(() => {
   _clearSessionMemoForTesting();
   window.localStorage.clear();
   _resetAvailabilityCache();
+  persistentCacheDeletePrefix(TOOLS_MEDIA_RELATIONS_CACHE_PREFIX);
   persistentCacheDeletePrefix('franchise:');
   executeAnilistQueryMock.mockReset();
   getCtxMock.mockReset();
@@ -222,8 +231,8 @@ describe('franchise relations cross-session cache', () => {
 
     await runFranchiseScores({ seedSearch: 'Seed', username: 'rh_test' });
 
-    expect(persistentCacheGet('franchise:relations:100')).toMatchObject({ hit: true });
-    expect(persistentCacheGet('franchise:relations:200')).toMatchObject({ hit: true });
+    expect(persistentCacheGet(`${TOOLS_MEDIA_RELATIONS_CACHE_PREFIX}100`)).toMatchObject({ hit: true });
+    expect(persistentCacheGet(`${TOOLS_MEDIA_RELATIONS_CACHE_PREFIX}200`)).toMatchObject({ hit: true });
 
     _clearSessionMemoForTesting();
     const callsBeforeSecondSession = executeAnilistQueryMock.mock.calls.length;

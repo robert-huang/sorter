@@ -33,10 +33,21 @@ import type { AnilistStaffLanguage } from './types';
  *     stored as JSON for the title-search fallback index.
  *   - `source(version: 3)` — WEB_NOVEL and other v3-only enum values are
  *     absent from the default (v1) MediaSource field.
+ *   - `status(version: 2)` — HIATUS and other v2-only MediaStatus values are
+ *     absent from the default (v1) Media.status field.
  */
 export const ANILIST_MEDIA_SOURCE_VERSION = 3;
+export const ANILIST_MEDIA_STATUS_VERSION = 2;
+export const ANILIST_MEDIA_RELATION_TYPE_VERSION = 2;
 
 const MEDIA_SOURCE_SELECTION = `source(version: ${ANILIST_MEDIA_SOURCE_VERSION})`;
+const MEDIA_STATUS_SELECTION = `status(version: ${ANILIST_MEDIA_STATUS_VERSION})`;
+
+/**
+ * MediaRelation v2: adds SOURCE/COMPILATION/CONTAINS and fixes cross-medium
+ * SOURCE/ADAPTATION direction. Use on every tools + graph relation fetch.
+ */
+export const TOOLS_MEDIA_RELATION_TYPE_FIELD = `relationType(version: ${ANILIST_MEDIA_RELATION_TYPE_VERSION})`;
 
 const MEDIA_FIELD_SELECTION = `
   id
@@ -45,7 +56,7 @@ const MEDIA_FIELD_SELECTION = `
   coverImage { large }
   format
   ${MEDIA_SOURCE_SELECTION}
-  status
+  ${MEDIA_STATUS_SELECTION}
   episodes
   chapters
   startDate { year month day }
@@ -78,7 +89,7 @@ export const FAVOURITE_MEDIA_FIELD_SELECTION = `
   coverImage { large }
   format
   ${MEDIA_SOURCE_SELECTION}
-  status
+  ${MEDIA_STATUS_SELECTION}
   episodes
   chapters
   startDate { year month day }
@@ -458,7 +469,7 @@ query MediaRelations($id: Int!) {
     id
     relations {
       edges {
-        relationType
+        ${TOOLS_MEDIA_RELATION_TYPE_FIELD}
         node {
           ${MEDIA_FIELD_SELECTION}
         }
@@ -761,13 +772,51 @@ query ToolsStaffProductionFilmography(
 }
 `.trim();
 
-/** Related shows walk for `--ignore-related` (`compare_staff.py`). */
+/**
+ * Chart/table metadata shared by Franchise + Adaptation relation fetches.
+ */
+export const TOOLS_MEDIA_CHART_METADATA_FIELDS = `
+  id
+  type
+  format
+  title { english romaji native }
+  coverImage { large }
+  startDate { year month day }
+`.trim();
+
+/** Nested relation edges for one media id (v2). Used in single + batched queries. */
+export const TOOLS_MEDIA_RELATIONS_V2_NESTED_FIELDS = `
+  relations {
+    edges {
+      ${TOOLS_MEDIA_RELATION_TYPE_FIELD}
+      node {
+        ${TOOLS_MEDIA_CHART_METADATA_FIELDS}
+      }
+    }
+  }
+`.trim();
+
+/** Media + all v2 relation edges. Shared by Franchise and Adaptation tools. */
+export const TOOLS_MEDIA_RELATIONS_V2_MEDIA_FIELDS = `
+  ${TOOLS_MEDIA_CHART_METADATA_FIELDS}
+  ${TOOLS_MEDIA_RELATIONS_V2_NESTED_FIELDS}
+`.trim();
+
+export const TOOLS_MEDIA_RELATIONS_V2_QUERY = `
+query ToolsMediaRelationsV2($mediaId: Int!) {
+  Media(id: $mediaId) {
+    ${TOOLS_MEDIA_RELATIONS_V2_MEDIA_FIELDS}
+  }
+}
+`.trim();
+
+/** Related shows walk for Shared Staff (`compare_staff.py` parity). */
 export const TOOLS_MEDIA_RELATIONS_QUERY = `
 query ToolsMediaRelations($mediaId: Int!) {
   Media(id: $mediaId) {
     relations {
       edges {
-        relationType
+        ${TOOLS_MEDIA_RELATION_TYPE_FIELD}
         node {
           id
           type
@@ -781,37 +830,14 @@ query ToolsMediaRelations($mediaId: Int!) {
 }
 `.trim();
 
-/**
- * Franchise Scores: full relation edges + chart-ready metadata for one media,
- * both for the seed itself (top-level fields) and for every directly-related
- * node (edges[*].node). The BFS walker iterates this query per media id so
- * each call adds at most one network hop's worth of franchise nodes.
- */
-export const TOOLS_FRANCHISE_RELATIONS_QUERY = `
-query ToolsFranchiseRelations($mediaId: Int!) {
-  Media(id: $mediaId) {
-    id
-    type
-    format
-    title { english romaji native }
-    coverImage { large }
-    startDate { year month day }
-    relations {
-      edges {
-        relationType
-        node {
-          id
-          type
-          format
-          title { english romaji native }
-          coverImage { large }
-          startDate { year month day }
-        }
-      }
-    }
-  }
-}
-`.trim();
+/** @deprecated Use {@link TOOLS_MEDIA_RELATIONS_V2_QUERY} */
+export const TOOLS_FRANCHISE_RELATIONS_QUERY = TOOLS_MEDIA_RELATIONS_V2_QUERY;
+
+/** @deprecated Use {@link TOOLS_MEDIA_RELATIONS_V2_MEDIA_FIELDS} */
+export const TOOLS_ADAPTATION_RELATIONS_MEDIA_FIELDS = TOOLS_MEDIA_RELATIONS_V2_MEDIA_FIELDS;
+
+/** @deprecated Use {@link TOOLS_MEDIA_RELATIONS_V2_QUERY} */
+export const TOOLS_ADAPTATION_RELATIONS_QUERY = TOOLS_MEDIA_RELATIONS_V2_QUERY;
 
 /** User anime/manga list ids (non-planning) for Favourites consumed-media filter. */
 export const TOOLS_USER_CONSUMED_MEDIA_QUERY = `
