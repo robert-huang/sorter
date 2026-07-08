@@ -7146,6 +7146,39 @@ html {
   min-height: 0;
 }
 
+.tool-adaptation-primary-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  margin-bottom: 12px;
+}
+
+.tool-adaptation-primary-filters .tool-field,
+.tool-adaptation-primary-filters .tool-field.tool-field-label-row {
+  margin-bottom: 0;
+}
+
+.tool-adaptation-primary-filters .tool-field-username {
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: none;
+}
+
+.tool-adaptation-primary-filters .anime-to-anime-endpoint-user-input {
+  width: 100px;
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: none;
+  margin: 0;
+}
+
+.tool-adaptation-primary-filters .tool-checkbox,
+.tool-adaptation-primary-filters .filter-chip {
+  align-self: center;
+  margin: 0;
+}
+
 .tool-adaptation-filters {
   display: flex;
   flex-wrap: wrap;

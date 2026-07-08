@@ -37,7 +37,7 @@ const HIDE_SAME_MEDIUM_TOOLTIP =
   'Example: Bakemonogatari (novel) → Bakemonogatari (manga) would be hidden; novel → TV is kept.';
 
 const CONSUMPTION_DOT_TOOLTIP =
-  'You started this entry first in this group (earliest started date on your list).';
+  'You started this entry first in this group (earliest start date on your list).';
 
 type AdaptationForm = {
   username: string;
@@ -366,23 +366,23 @@ export function AdaptationScoresPanel({ onOpenMedia }: ToolPanelProps) {
           }
         }}
       >
-        <ToolUsernameField
-          label="AniList username"
-          value={form.username}
-          disabled={running}
-          refreshing={refreshingList}
-          onChange={(username) => patchForm({ username })}
-          onRefresh={() => refreshUsernameList(form.username, running)}
-          refreshLabel="Refresh anime + manga lists from AniList"
-        />
-        <div className="tool-field-row tool-field-row-wrap tool-adaptation-filters">
+        <div className="tool-adaptation-primary-filters">
+          <ToolUsernameField
+            label="AniList username"
+            value={form.username}
+            disabled={running}
+            refreshing={refreshingList}
+            onChange={(username) => patchForm({ username })}
+            onRefresh={() => refreshUsernameList(form.username, running)}
+            refreshLabel="Refresh anime + manga lists from AniList"
+          />
           <label className="tool-checkbox">
             <input
               type="checkbox"
               checked={filters.includeAnime}
               onChange={(e) => patchFilters({ includeAnime: e.target.checked })}
             />
-            Anime
+            Anime List
           </label>
           <label className="tool-checkbox">
             <input
@@ -390,8 +390,21 @@ export function AdaptationScoresPanel({ onOpenMedia }: ToolPanelProps) {
               checked={filters.includeManga}
               onChange={(e) => patchFilters({ includeManga: e.target.checked })}
             />
-            Manga
+            Manga List
           </label>
+          <MultiSelectChip
+            label="list status"
+            options={ADAPTATION_LIST_STATUS_OPTIONS}
+            selected={filters.listStatuses}
+            onToggle={(status) =>
+              patchFilters({
+                listStatuses: toggleInArray([...filters.listStatuses], status),
+              })
+            }
+            onReplaceAll={(statuses) => patchFilters({ listStatuses: [...statuses] })}
+          />
+        </div>
+        <div className="tool-field-row tool-field-row-wrap tool-adaptation-filters">
           <label className="tool-checkbox">
             <input
               type="checkbox"
@@ -408,17 +421,6 @@ export function AdaptationScoresPanel({ onOpenMedia }: ToolPanelProps) {
             />
             Hide same-medium adaptations
           </label>
-          <MultiSelectChip
-            label="list status"
-            options={ADAPTATION_LIST_STATUS_OPTIONS}
-            selected={filters.listStatuses}
-            onToggle={(status) =>
-              patchFilters({
-                listStatuses: toggleInArray([...filters.listStatuses], status),
-              })
-            }
-            onReplaceAll={(statuses) => patchFilters({ listStatuses: [...statuses] })}
-          />
         </div>
         <div className="tool-actions">
           <ToolRunButton
