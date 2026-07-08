@@ -88,6 +88,8 @@ export type AdaptationTableCell = {
 export type AdaptationTableRow = {
   source: AdaptationTableCell | null;
   adaptation: AdaptationTableCell | null;
+  /** Underlying adaptation pair for this row (survives rowspan merges). */
+  pair?: AdaptationPair;
   /** Dimmed when show-all-rows is on but filters exclude this pair. */
   hiddenByFilter?: boolean;
 };
@@ -109,6 +111,7 @@ type PhysicalSlot = {
 type PhysicalRow = {
   source?: PhysicalSlot;
   adaptation?: PhysicalSlot;
+  pair?: AdaptationPair;
 };
 
 /** Normalize a v2 relation edge from list item L to neighbor N into (source, adaptation). */
@@ -360,6 +363,7 @@ export function buildChainPhysicalRows(
           source: { mediaId: exclusives[j]!, rowSpan: 1 },
           adaptation:
             j === 0 ? { mediaId: adaptation.id, rowSpan: adaptSpan } : undefined,
+          pair: { sourceId: exclusives[j]!, adaptationId: adaptation.id },
         });
       }
       if (hasNext) {
@@ -367,14 +371,25 @@ export function buildChainPhysicalRows(
           rows.push({
             source: { mediaId: lastId(sortedSourceIds)!, rowSpan: 2 },
             adaptation: { mediaId: adaptation.id, rowSpan: 1 },
+            pair: {
+              sourceId: lastId(sortedSourceIds)!,
+              adaptationId: adaptation.id,
+            },
           });
         } else {
-          rows.push({ source: { mediaId: lastId(sortedSourceIds)!, rowSpan: 2 } });
+          rows.push({
+            source: { mediaId: lastId(sortedSourceIds)!, rowSpan: 2 },
+            pair: {
+              sourceId: lastId(sortedSourceIds)!,
+              adaptationId: adaptation.id,
+            },
+          });
         }
       } else if (exclusives.length === 0 && sortedSourceIds.length === 1) {
         rows.push({
           source: { mediaId: sortedSourceIds[0]!, rowSpan: 1 },
           adaptation: { mediaId: adaptation.id, rowSpan: 1 },
+          pair: { sourceId: sortedSourceIds[0]!, adaptationId: adaptation.id },
         });
       }
     } else if (hasNext) {
@@ -406,6 +421,7 @@ function buildDuplicatePhysicalRows(
       rows.push({
         source: { mediaId: source.id, rowSpan: 1 },
         adaptation: { mediaId: adaptation.id, rowSpan: 1 },
+        pair: { sourceId: source.id, adaptationId: adaptation.id },
       });
     }
   }
@@ -420,6 +436,7 @@ function applyDuplicateRowspans(physical: PhysicalRow[]): PhysicalRow[] {
   const out = physical.map((row) => ({
     source: row.source ? { ...row.source } : undefined,
     adaptation: row.adaptation ? { ...row.adaptation } : undefined,
+    pair: row.pair,
   }));
 
   // Adaptation column: merge within consecutive runs per adaptation id
@@ -545,7 +562,7 @@ function physicalRowsToTableRows(
       }
     }
 
-    return { source: sourceCell, adaptation: adaptationCell };
+    return { source: sourceCell, adaptation: adaptationCell, pair: row.pair };
   });
 }
 
@@ -755,24 +772,44 @@ export function buildAdaptationDisplay(
 
   const filteredKeys = new Set(filtered.map((pair) => adaptationPairKey(pair)));
 
+  const resolveRowPair = (
+    row: AdaptationTableRow,
+    blockPairs: readonly AdaptationPair[],
+  ): AdaptationPair | null => {
+    if (row.pair) {
+      return row.pair;
+    }
+    const sourceId = row.source?.media.id ?? null;
+    const adaptationId = row.adaptation?.media.id ?? null;
+    if (sourceId != null && adaptationId != null) {
+      return { sourceId, adaptationId };
+    }
+    if (adaptationId != null) {
+      const matches = blockPairs.filter((pair) => pair.adaptationId === adaptationId);
+      if (matches.length === 1) {
+        return matches[0]!;
+      }
+    }
+    if (sourceId != null) {
+      const matches = blockPairs.filter((pair) => pair.sourceId === sourceId);
+      if (matches.length === 1) {
+        return matches[0]!;
+      }
+    }
+    return null;
+  };
+
   const blocks = groupPairsIntoBlocks(workingPairs)
     .map((blockPairs) => ({
       rows: buildAdaptationBlockRows(blockPairs, mediaMap).map((row) => {
         if (!showAllRows) {
           return row;
         }
-        const sourceId = row.source?.skipRender
-          ? null
-          : row.source?.media.id ?? null;
-        const adaptationId = row.adaptation?.skipRender
-          ? null
-          : row.adaptation?.media.id ?? null;
-        if (sourceId == null || adaptationId == null) {
+        const pair = resolveRowPair(row, blockPairs);
+        if (pair == null) {
           return row;
         }
-        const hiddenByFilter = !filteredKeys.has(
-          adaptationPairKey({ sourceId, adaptationId }),
-        );
+        const hiddenByFilter = !filteredKeys.has(adaptationPairKey(pair));
         return hiddenByFilter ? { ...row, hiddenByFilter: true } : row;
       }),
       sortKey: blockSortKey(blockPairs, mediaMap),

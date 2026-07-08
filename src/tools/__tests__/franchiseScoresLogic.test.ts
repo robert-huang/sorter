@@ -425,6 +425,22 @@ describe('applyFranchiseFilters', () => {
     expect(out.map((e) => e.id)).toEqual([1, 2, 3, 4]);
   });
 
+  it('list status filter keeps only entries whose status is selected', () => {
+    const out = applyFranchiseFilters(fixture(), {
+      ...DEFAULT_FRANCHISE_FILTERS,
+      listStatuses: ['COMPLETED'],
+    });
+    expect(out.map((e) => e.id)).toEqual([1, 3, 5]);
+  });
+
+  it('partial list status filter hides unwatched entries', () => {
+    const out = applyFranchiseFilters(fixture(), {
+      ...DEFAULT_FRANCHISE_FILTERS,
+      listStatuses: ['CURRENT', 'COMPLETED', 'REPEATING'],
+    });
+    expect(out.map((e) => e.id)).toEqual([1, 3, 5]);
+  });
+
   it('rated pill keeps only entries with a numeric score > 0 on the list', () => {
     const out = applyFranchiseFilters(fixture(), {
       ...DEFAULT_FRANCHISE_FILTERS,
@@ -464,6 +480,7 @@ describe('applyFranchiseFilters', () => {
 
   it('media-type + score filters compose', () => {
     const out = applyFranchiseFilters(fixture(), {
+      ...DEFAULT_FRANCHISE_FILTERS,
       includeAnime: false,
       includeManga: true,
       userScoreInclude: 'rated',

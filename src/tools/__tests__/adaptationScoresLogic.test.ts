@@ -401,4 +401,38 @@ describe('buildAdaptationDisplay', () => {
     expect(rows.some((row) => row.hiddenByFilter)).toBe(true);
     expect(rows.filter((row) => !row.hiddenByFilter)).toHaveLength(1);
   });
+
+  it('showAllRows greys every row in a rowspan block, not only the first', () => {
+    const pairs: AdaptationPair[] = [
+      { sourceId: 1, adaptationId: 10 },
+      { sourceId: 1, adaptationId: 20 },
+    ];
+    const map = mediaMap([
+      media(1, { mediaType: 'MANGA', format: 'MANGA', listStatus: 'COMPLETED' }),
+      media(10, { mediaType: 'ANIME', format: 'TV', listStatus: 'COMPLETED' }),
+      media(20, { mediaType: 'ANIME', format: 'MOVIE', listStatus: 'COMPLETED' }),
+    ]);
+
+    const display = buildAdaptationDisplay(
+      pairs,
+      map,
+      { animeListIds: new Set([10, 20]), mangaListIds: new Set([1]) },
+      {
+        includeAnime: false,
+        includeManga: false,
+        listStatuses: [...ADAPTATION_LIST_STATUS_OPTIONS],
+        onlyBothOnList: false,
+        hideSameMedium: false,
+      },
+      { showAllRows: true },
+    );
+
+    expect(display.kind).toBe('table');
+    if (display.kind !== 'table') {
+      return;
+    }
+    const rows = display.blocks[0]?.rows ?? [];
+    expect(rows).toHaveLength(2);
+    expect(rows.every((row) => row.hiddenByFilter)).toBe(true);
+  });
 });

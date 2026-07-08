@@ -6,6 +6,7 @@ import { useUsernameListRefresh } from '../useUsernameListRefresh';
 import { useToolsDisplayLabelRevision } from '../useToolsDisplayLabelRevision';
 import { relabelFranchiseEntries } from '../toolsDisplayRelabel';
 import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
+import { MultiSelectChip, toggleInArray } from '../../lib/importers/anilist/filters';
 import { ToolShowButton } from '../toolEntityLinks';
 import {
   runFranchiseScores,
@@ -22,6 +23,8 @@ import {
   formatFranchiseScoreLabel,
   franchiseDateLabel,
   franchiseFormatLabel,
+  FRANCHISE_LIST_STATUS_OPTIONS,
+  normalizeFranchiseListStatuses,
   type FranchiseEntry,
   type FranchiseFilters,
   type FranchiseForm,
@@ -119,7 +122,8 @@ function normalizeFilters(raw: unknown): FranchiseFilters {
     typeof obj.scoreMax === 'number' && Number.isFinite(obj.scoreMax)
       ? obj.scoreMax
       : null;
-  return { includeAnime, includeManga, userScoreInclude, scoreMin, scoreMax };
+  const listStatuses = normalizeFranchiseListStatuses(obj.listStatuses);
+  return { includeAnime, includeManga, listStatuses, userScoreInclude, scoreMin, scoreMax };
 }
 
 function loadFilters(): FranchiseFilters {
@@ -633,6 +637,17 @@ function FranchiseFilterBar({
           />
           Manga
         </label>
+        <MultiSelectChip
+          label="list status"
+          options={FRANCHISE_LIST_STATUS_OPTIONS}
+          selected={filters.listStatuses}
+          onToggle={(status) =>
+            onPatch({
+              listStatuses: toggleInArray([...filters.listStatuses], status),
+            })
+          }
+          onReplaceAll={(statuses) => onPatch({ listStatuses: [...statuses] })}
+        />
         <ScoreRangeChip
           pill={filters.userScoreInclude}
           min={filters.scoreMin}
