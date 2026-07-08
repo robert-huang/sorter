@@ -5361,6 +5361,29 @@ html {
   white-space: nowrap;
 }
 
+/* Fixed below the hovered tab — native title= is clipped by the scrollable
+ * tab card's overflow, so ToolTabs renders this on hover/focus instead. */
+/* Floating help box anchored under the hovered tab (left/top set inline from
+   the pill's measured rect). Fixed + high z-index so it overlays the page
+   instead of shifting content. */
+.tool-tab-help {
+  position: fixed;
+  z-index: 40;
+  transform: translateX(-50%);
+  max-width: min(320px, calc(100vw - 24px));
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.35;
+  font-weight: 500;
+  text-align: center;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  pointer-events: none;
+}
+
 .tools-wait-banner {
   margin: 0;
 }

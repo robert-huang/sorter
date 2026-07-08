@@ -33,14 +33,46 @@ import { UpdateListEntryPanel } from './panels/UpdateListEntryPanel';
 import { AdaptationScoresPanel } from './panels/AdaptationScoresPanel';
 
 const TOOL_TABS: ReadonlyArray<ToolTab<ToolId>> = [
-  { id: 'shared-credits', label: 'Shared Credits' },
-  { id: 'shared-staff', label: 'Shared Staff' },
-  { id: 'seasonal-scores', label: 'Seasonal Scores' },
-  { id: 'franchise-scores', label: 'Franchise Scores' },
-  { id: 'adaptation-scores', label: 'Adaptation Scores' },
-  { id: 'favourites', label: 'Favourites' },
-  { id: 'reorder-favourites', label: 'Reorder Favourites' },
-  { id: 'update-list-entry', label: 'Update List Entry' },
+  {
+    id: 'shared-credits',
+    label: 'Shared Credits',
+    title: 'Find anime shared between voice actors or production staff.',
+  },
+  {
+    id: 'shared-staff',
+    label: 'Shared Staff',
+    title: 'Compare studios, production staff, and voice actors across shows.',
+  },
+  {
+    id: 'seasonal-scores',
+    label: 'Seasonal Scores',
+    title: "Chart a user's AniList scores across seasons.",
+  },
+  {
+    id: 'franchise-scores',
+    label: 'Franchise Scores',
+    title: 'Walk franchise relations from seed shows and chart your scores.',
+  },
+  {
+    id: 'adaptation-scores',
+    label: 'Adaptation Scores',
+    title: 'Map source and adaptation pairs across your anime and manga lists.',
+  },
+  {
+    id: 'favourites',
+    label: 'Favourites',
+    title: 'Rank voice actors behind your favourite characters and staff.',
+  },
+  {
+    id: 'reorder-favourites',
+    label: 'Reorder Favourites',
+    title: 'Reorder AniList favourite lists locally and save back.',
+  },
+  {
+    id: 'update-list-entry',
+    label: 'Update List Entry',
+    title: "Patch one list entry's status, progress, score, or notes.",
+  },
 ];
 
 interface MediaTarget {

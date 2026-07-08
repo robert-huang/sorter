@@ -355,7 +355,12 @@ export function AdaptationScoresPanel({ onOpenMedia }: ToolPanelProps) {
   const bothMediaOff = !filters.includeAnime && !filters.includeManga;
 
   return (
-    <div className="tool-panel tool-adaptation-scores-panel">
+    <section className="tool-panel tool-adaptation-scores-panel">
+      <p className="tool-panel-lead">
+        Map source and adaptation pairs from your anime and manga lists, grouped
+        into franchise blocks with scores and list status.
+      </p>
+
       <form
         className="tool-form-card"
         autoComplete="off"
@@ -457,6 +462,6 @@ export function AdaptationScoresPanel({ onOpenMedia }: ToolPanelProps) {
           </div>
         </div>
       )}
-    </div>
+    </section>
   );
 }
