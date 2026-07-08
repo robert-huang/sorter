@@ -154,7 +154,11 @@ function AdaptationCell({
   if (cell.skipRender) {
     return null;
   }
-  const scoreLabel = formatFranchiseScoreLabel(cell.media.score, cell.media.listStatus);
+  const scoreLabel = formatFranchiseScoreLabel(
+    cell.media.score,
+    cell.media.listStatus,
+    cell.media.mediaType,
+  );
   const formatLabel = franchiseFormatLabel(cell.media);
   const statusTitle = cell.media.listStatus
     ? `On list: ${cell.media.listStatus}`

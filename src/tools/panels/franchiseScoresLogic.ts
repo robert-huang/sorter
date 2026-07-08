@@ -228,7 +228,7 @@ export function franchiseDateLabel(date: FranchiseNode['startDate']): string {
 
 /**
  * Score cell label. `U` = unwatched (entry isn't on the user's list at all),
- * `P` / `W` / `H` = unrated PLANNING / CURRENT|REPEATING / PAUSED,
+ * `P` / `W` / `R` / `H` = unrated PLANNING / watching / reading / PAUSED,
  * `—` = on list but no score and no status letter, otherwise the score itself.
  *
  * Distinct from {@link formatSeasonalScoreLabel} because seasonal-scores only
@@ -237,11 +237,12 @@ export function franchiseDateLabel(date: FranchiseNode['startDate']): string {
 export function formatFranchiseScoreLabel(
   score: number | null | undefined,
   listStatus: string | null | undefined,
+  mediaType?: string | null,
 ): string {
   if (listStatus == null) {
     return 'U';
   }
-  const statusLabel = listStatusScoreLabel(listStatus, score);
+  const statusLabel = listStatusScoreLabel(listStatus, score, mediaType);
   if (statusLabel != null) {
     return statusLabel;
   }
@@ -288,7 +289,7 @@ export function buildFranchiseCsv(entries: FranchiseEntry[]): string {
       csvEscapeFranchiseCell(entry.title),
       csvEscapeFranchiseCell(franchiseFormatLabel(entry)),
       csvEscapeFranchiseCell(
-        formatFranchiseScoreLabel(entry.score, entry.listStatus),
+        formatFranchiseScoreLabel(entry.score, entry.listStatus, entry.mediaType),
       ),
     ].join(','),
   );
@@ -461,7 +462,7 @@ export function applyFranchiseFilters(
     if (!entryPassesListStatusFilter(entry.listStatus, filters.listStatuses)) continue;
 
     const normalized = normalizeSeasonalListScore(entry.score);
-    const statusLabel = listStatusScoreLabel(entry.listStatus, entry.score);
+    const statusLabel = listStatusScoreLabel(entry.listStatus, entry.score, entry.mediaType);
     const isRated =
       entry.listStatus != null &&
       statusLabel == null &&

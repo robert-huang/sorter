@@ -233,7 +233,8 @@ export function isSeasonalPlanningShow(show: Pick<SeasonalShow, 'listStatus'>): 
 export function listStatusScoreLabel(
   listStatus: string | null | undefined,
   score: number | null | undefined,
-): 'P' | 'W' | 'H' | null {
+  mediaType?: string | null,
+): 'P' | 'W' | 'R' | 'H' | null {
   if (normalizeSeasonalListScore(score) != null) {
     return null;
   }
@@ -241,7 +242,7 @@ export function listStatusScoreLabel(
     return 'P';
   }
   if (listStatus === 'CURRENT' || listStatus === 'REPEATING') {
-    return 'W';
+    return mediaType === 'MANGA' ? 'R' : 'W';
   }
   if (listStatus === 'PAUSED') {
     return 'H';
@@ -278,7 +279,7 @@ export function countRatedSeasonalShows(shows: SeasonalShow[]): number {
 
 function seasonalShowSortKey(show: SeasonalShow): number {
   const statusLabel = listStatusScoreLabel(show.listStatus, show.score);
-  if (statusLabel === 'W') {
+  if (statusLabel === 'W' || statusLabel === 'R') {
     return -1;
   }
   if (statusLabel === 'H') {

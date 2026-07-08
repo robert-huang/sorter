@@ -262,6 +262,7 @@ function FranchiseTable({
             const scoreLabel = formatFranchiseScoreLabel(
               entry.score,
               entry.listStatus,
+              entry.mediaType,
             );
             const statusTitle = entry.listStatus
               ? `On list: ${entry.listStatus}`

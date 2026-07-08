@@ -89,11 +89,16 @@ describe('formatFranchiseScoreLabel', () => {
     expect(formatFranchiseScoreLabel(70, 'PLANNING')).toBe('70');
   });
 
-  it('marks unrated CURRENT and REPEATING as W', () => {
-    expect(formatFranchiseScoreLabel(null, 'CURRENT')).toBe('W');
-    expect(formatFranchiseScoreLabel(85, 'CURRENT')).toBe('85');
-    expect(formatFranchiseScoreLabel(null, 'REPEATING')).toBe('W');
-    expect(formatFranchiseScoreLabel(70, 'REPEATING')).toBe('70');
+  it('marks unrated CURRENT and REPEATING as W for anime', () => {
+    expect(formatFranchiseScoreLabel(null, 'CURRENT', 'ANIME')).toBe('W');
+    expect(formatFranchiseScoreLabel(85, 'CURRENT', 'ANIME')).toBe('85');
+    expect(formatFranchiseScoreLabel(null, 'REPEATING', 'ANIME')).toBe('W');
+    expect(formatFranchiseScoreLabel(70, 'REPEATING', 'ANIME')).toBe('70');
+  });
+
+  it('marks unrated CURRENT and REPEATING as R for manga', () => {
+    expect(formatFranchiseScoreLabel(null, 'CURRENT', 'MANGA')).toBe('R');
+    expect(formatFranchiseScoreLabel(null, 'REPEATING', 'MANGA')).toBe('R');
   });
 
   it('marks unrated PAUSED as H', () => {
