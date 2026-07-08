@@ -11,11 +11,16 @@ import {
   expandAnilistMediaDetail,
   type ExpandAnilistMediaDetailOptions,
 } from './lazyExpansion';
-import { hasCharacterMediaExpansion, hasStaffFilmography } from './graphQueries';
+import {
+  getMediaRelationsExpansionFetchedAt,
+  hasCharacterMediaExpansion,
+  hasStaffFilmography,
+} from './graphQueries';
 import {
   getMediaCastExpansionStatus,
   type MediaCastExpansionStatus,
 } from './readQueries';
+import { needsGraphDataRefresh } from './toolsFetchPolicy';
 
 function needsCharactersSectionExpanded(
   status: MediaCastExpansionStatus | null,
@@ -117,10 +122,22 @@ export async function ensureStaffFilmography(
   return result !== null;
 }
 
+export type EnsureMediaRelationsOptions = {
+  force?: boolean;
+};
+
 export async function ensureMediaRelations(
   ctx: AnilistImportContext,
   mediaId: number,
+  options: EnsureMediaRelationsOptions = {},
 ): Promise<boolean> {
+  const force = options.force ?? false;
+  const fetchedAt = await getMediaRelationsExpansionFetchedAt(ctx.db, mediaId);
+  if (!needsGraphDataRefresh(fetchedAt, { forceRefresh: force })) {
+    return true;
+  }
+  // expandMediaRelations always replaces the outbound edge set from the fresh
+  // response, so the marker gate above is the only thing `force` controls here.
   const result = await expandMediaRelations(ctx, mediaId);
   return result !== null;
 }

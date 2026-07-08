@@ -504,7 +504,7 @@ export function AnimeToAnimeApp() {
             forceRefresh,
           });
           if (rules.allowRelations) {
-            await ensureMediaRelations(ctx, current.mediaId);
+            await ensureMediaRelations(ctx, current.mediaId, { force: forceRefresh });
           }
           const mediaRows = await productionReads.getMediaByIds([current.mediaId]);
           const va = await getVaCreditsAtMedia(ctx.db, current.mediaId);

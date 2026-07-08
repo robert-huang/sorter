@@ -1,7 +1,8 @@
 /**
  * localStorage-backed cross-session cache for tool fetchers. Used by
- * Franchise Scores to keep AniList relation graphs warm across sessions
- * (relations are stable — a 90d TTL avoids hammering AniList every visit).
+ * toolsMediaRelationsApi (Franchise + Adaptation) and Shared Staff to
+ * keep AniList relation graphs warm across sessions (relations are
+ * stable — a 90d TTL avoids hammering AniList every visit).
  *
  * Layered with {@link withSessionTtlMemo}: that layer handles in-memory
  * dedup of concurrent calls within a single session and avoids

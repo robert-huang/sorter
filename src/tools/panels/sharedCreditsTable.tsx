@@ -6,7 +6,11 @@ import {
 import { ToolShowButton, ToolStaffButton } from '../toolEntityLinks';
 import { DragScroll } from '../../components/DragScroll';
 import type { ToolPanelProps } from '../toolTypes';
-import type { SharedCreditsTableRow, StaffRoleEntry } from './sharedCreditsLogic';
+import {
+  expandSharedCreditsTableRows,
+  type SharedCreditsTableRow,
+  type StaffRoleEntry,
+} from './sharedCreditsLogic';
 
 function SharedCreditsRoleName({ role }: { role: StaffRoleEntry }) {
   const anilistUrl =
@@ -28,22 +32,6 @@ function SharedCreditsRoleName({ role }: { role: StaffRoleEntry }) {
   );
 }
 
-function SharedCreditsRoleCell({ roles }: { roles: StaffRoleEntry[] }) {
-  if (roles.length === 0) {
-    return null;
-  }
-  return (
-    <span className="tool-credits-role-cell">
-      {roles.map((role, index) => (
-        <span key={`${role.label}-${index}`}>
-          {index > 0 ? ', ' : null}
-          <SharedCreditsRoleName role={role} />
-        </span>
-      ))}
-    </span>
-  );
-}
-
 export function SharedCreditsResultsTable({
   staffIds,
   staffNames,
@@ -59,6 +47,8 @@ export function SharedCreditsResultsTable({
   onOpenMedia: ToolPanelProps['onOpenMedia'];
   onOpenStaff: ToolPanelProps['onOpenStaff'];
 }) {
+  const physicalRows = expandSharedCreditsTableRows(rows);
+
   return (
     <div className="tool-results tool-credits-table-outer">
       <DragScroll className="tool-credits-table-scroll">
@@ -80,20 +70,26 @@ export function SharedCreditsResultsTable({
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
-              <tr key={row.mediaId}>
-                <th className="tool-credits-col-show" scope="row">
-                  <ToolShowButton
-                    mediaId={row.mediaId}
-                    title={row.title}
-                    coverImage={row.coverImage}
-                    onOpenMedia={onOpenMedia}
-                    compact
-                  />
-                </th>
-                {row.cells.map((roles, colIdx) => (
-                  <td key={`${row.mediaId}-${colIdx}`} className="tool-credits-role-col">
-                    <SharedCreditsRoleCell roles={roles} />
+            {physicalRows.map((row, rowIndex) => (
+              <tr key={`${row.mediaId}-${rowIndex}`}>
+                {!row.showSkipRender ? (
+                  <th
+                    className="tool-credits-col-show"
+                    scope="row"
+                    rowSpan={row.showRowSpan}
+                  >
+                    <ToolShowButton
+                      mediaId={row.mediaId}
+                      title={row.title}
+                      coverImage={row.coverImage}
+                      onOpenMedia={onOpenMedia}
+                      compact
+                    />
+                  </th>
+                ) : null}
+                {row.cells.map((role, colIdx) => (
+                  <td key={`${row.mediaId}-${rowIndex}-${colIdx}`} className="tool-credits-role-col">
+                    {role ? <SharedCreditsRoleName role={role} /> : null}
                   </td>
                 ))}
               </tr>

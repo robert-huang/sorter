@@ -11,7 +11,7 @@ It runs one of **two engines** per slot:
 
 Both engines share the same RANK / LIST / RESULT screens, undo ring, autosave, and save-file format.
 
-Items can come from a pasted/loaded CSV **or be imported from [AniList](https://anilist.co)** — pull a user's anime/manga list or favourites into a local SQLite cache (kept in your browser's OPFS), filter it down, then sort. AniList items get rich **detail panels** (media metadata + cast/voice-actors, and staff filmographies), feed a side game **[Anime to Anime](#anime-to-anime-separate-page)**, and power **[Anime Tools](#anime-tools-separate-page)** — shared-credits/staff comparison, seasonal score charts, franchise walks, favourites analysis, and authenticated list-entry updates.
+Items can come from a pasted/loaded CSV **or be imported from [AniList](https://anilist.co)** — pull a user's anime/manga list or favourites into a local SQLite cache (kept in your browser's OPFS), filter it down, then sort. AniList items get rich **detail panels** (media metadata + cast/voice-actors, and staff filmographies), feed a side game **[Anime to Anime](#anime-to-anime-separate-page)**, and power **[Anime Tools](#anime-tools-separate-page)** — shared-credits/staff comparison, seasonal score charts, franchise walks, adaptation mapping, favourites analysis, and authenticated list-entry updates.
 
 No backend. No telemetry. Optional sign-in (AniList OAuth for your own list mutations / hidden entries; Google Drive for cloud backup) — everything else runs entirely in your browser.
 
@@ -196,8 +196,8 @@ Loads cached metadata immediately and shows: cover, resolved **title**, and chip
 
 - **Cast** — characters with role and **`VA:`** voice actors. VA names are clickable → open that person's **staff** panel.
 - **Production** — staff credits with a **Key roles** / **All credits** toggle (persisted). Staff names are clickable → staff panel.
-- **Lazy expansion** — on first open, cast + production staff are fetched from AniList and cached (metadata stays visible if that fetch fails). Cache lines show `Cast: {date} (complete|incomplete, fresh|stale (>90d))` and the same for staff.
-- **↻ Refresh** re-fetches cast & staff (`Re-fetch cast & staff for this entry (does not auto-push)`).
+- **Lazy expansion** — on first open, cast + production staff are fetched from AniList and cached (metadata stays visible if that fetch fails). Cache lines show `Cast: {date} (complete|incomplete, fresh|stale (>90d))`, the same for staff, and `Relations: {date} (fresh|stale (>90d))` for franchise relation edges.
+- **↻ Refresh** re-fetches cast, staff, and relations (`Re-fetch cast & staff for this entry (does not auto-push)`). Relations refresh also powers Adaptation Scores scan merge when the modal is opened from that tool.
 - The media panel has **no synopsis** and **no relations UI** (relations power the Anime-to-Anime game, not this panel). Reach the AniList page via the card/thumb link or middle-click.
 
 ### Staff detail panel
@@ -227,7 +227,16 @@ The gear menu has a **Slots** tab and a **Databases** tab. The Databases tab sho
 
 When cloud backup is connected, each source row offers manual **Push** / **Pull** of the whole `.sqlite` to a `db/` subfolder of your Drive folder, with a sync status (`in sync` / `drifted` / `local changes` / …), last Pushed/Pulled timestamps, and a `{N} pending change(s) — manual push required.` banner with **Push now**. Push is blocked from a non-persistent (in-memory) tab; Pull is allowed. Conflicts surface plain messages (e.g. `Remote has new changes — pull first.`).
 
-> Full **list/favourites imports auto-push** the DB when cloud is ready. Incremental edits (detail-panel cast/staff/filmography expansions) bump a pending-changes counter and need a manual Push.
+> Full **list/favourites imports auto-push** the DB when cloud is ready. Incremental edits (detail-panel cast/staff/filmography expansions, media relation fetches) bump a pending-changes counter and need a manual Push.
+
+### Media relations cache (Tools + Anime-to-Anime)
+
+`Media.relations` edges for franchise walks, adaptation scans, and Anime-to-Anime hops live in SQLite:
+
+- **`media_relation`** — shared outbound edges (`from_media_id`, `to_media_id`, `relation_type`). Drive sync **unions** edges from both sides (`INSERT OR IGNORE`) so devices keep the superset.
+- **`media_relations_expansion`** — per-seed freshness marker (`media_id`, `fetched_at`). Drive sync uses **newest `fetched_at` wins** per seed. A marker with zero edges is valid (“this seed was checked and has no relations”).
+- **TTL** — Tools and A2A skip AniList when the marker is younger than 90 days unless you force refresh (right-click Trace/Compare, modal ↻, or Compare with force).
+- **Session memo** — in-tab dedup only; durable cache is SQLite. Legacy `tools:relations:v2:*` localStorage entries are migrated once per session on first relation fetch, then deleted.
 
 ### Display names (titles & staff names)
 
@@ -517,6 +526,7 @@ Left-click only (right-click does nothing). Always `forceRefresh` — a full wip
 | **Shared Staff** | *(no username field — no ↻)* |
 | **Favourites** | Anime list + manga list + character/staff favourites |
 | **Franchise Scores** | Anime list + manga list |
+| **Adaptation Scores** | Anime list + manga list |
 | **Update List Entry** | *(no ↻ — username field only)* |
 
 Manga refresh uses the same `MediaListCollection` import as anime (~2–3 API requests per thousand entries). Favourites refresh also re-imports both favourite lists and busts the favourites Analyze session memo.
@@ -531,6 +541,7 @@ Most run buttons are **left-click = use cache** (import only if missing or >90 d
 | **Shared Credits** | Compare | Resolve staff ids; read cached filmographies; import anime list if username filter needs it and list is stale | Same, but force-refetch every input staff's filmography from AniList |
 | **Shared Staff** | Compare | Resolve show ids; read cached cast/staff from DB | Same, but force-refetch cast expansion for every input show |
 | **Franchise Scores** | Trace | Walk relations from seed; read cached relation graph + user anime/manga lists (import if stale) | Force anime + manga list re-import and bust relation-graph cache for the walk |
+| **Adaptation Scores** | Compare | Scan list entries for SOURCE/ADAPTATION relations; read cached relation graph + user anime/manga lists (import if stale) | Force anime + manga list re-import and re-fetch relation edges for every scanned entry |
 | **Favourites** | Analyze | Read favourite chars/staff from DB; ensure anime+manga lists if stale; use cached character/VA role expansions when present | Re-import favourite character + staff lists and force both anime + manga list imports; **does not** force per-character graph expansion |
 | **Favourites** | Expand Roles | *(left-click only)* Force full character-media + VA-filmography expansion for every favourite, then rebuild the report — slow by design | — |
 | **Update List Entry** | Save | `SaveMediaListEntry` mutation (no right-click refresh) | — |
@@ -624,7 +635,21 @@ Walk AniList **relations** outward from one or more seed shows and chart the use
 - **Post-fetch filters** — score range chips (rated / unrated / min–max), same semantics as the Sorter FilterBar.
 - **Export** — copy franchise table as CSV or plain text.
 
-Uses cached list scores when available; fetches relation edges and missing entries on demand.
+Uses cached list scores when available; fetches relation edges and missing entries on demand. Relation edges are read from SQLite when fresh; right-click Trace forces a live re-fetch for every node in the walk.
+
+### Adaptation Scores
+
+Map **source ↔ adaptation** pairs from a user's anime and manga lists using AniList `SOURCE` / `ADAPTATION` relation edges.
+
+- **Anime / manga list toggles** — choose which list types to scan (both on by default).
+- **List status** — filter which list statuses contribute seed entries (defaults to `CURRENT`, `COMPLETED`, `REPEATING`).
+- **Only rows where both sides are on my list** — hide pairs where the other medium is not on your list.
+- **Hide same-medium adaptations** — drop pairs where source and adaptation share the same medium (e.g. manga → manga).
+- **Show all rows** — keep filtered-out pairs in the table (dimmed) instead of removing them; useful after a relations refresh from the detail modal.
+- **Franchise blocks** — related pairs are grouped into blocks with merged source/adaptation columns (`rowspan`) and release-date ordering within each block.
+- **Consumption dot (•)** — marks the entry you most recently started in each block (by list `startedAt`, then release date).
+
+Results open media detail modals from title links.
 
 ### Favourites
 
@@ -803,7 +828,7 @@ Coverage:
 - **Local source DB / OPFS** (`lib/db/__tests__/`): `client`, `workerInit`, `dbWorkerCore`, `dbExec`, `dbTransport`, `opfs` / `opfsLock` / `opfsInstallRetry`, `migration-runner`, `sync`, `syncManifest`, `merge` (row-level pull merge).
 - **AniList UI** (`components/__tests__/`): `AnilistDetailModal`, `StaffDetailModal` (lazy expand / refresh / my-list toggle / stale warning / middle-click), `ItemThumb`, `StagedItemsPanel` (engine split button), `FilterBar`, `listScreenH`, `compareScreenH`.
 - **Anime to Anime** (`animeToAnime/__tests__/`): `cachedGraph` (0–1 BFS shortest-path), `listFilter`, `pathHopLabels`, `vaCreditDisplay`, `preferences`.
-- **Anime Tools** (`tools/__tests__/`): `sharedCreditsLogic` / `sharedCreditsApi`, `sharedStaffLogic` / `sharedStaffRelatedAnime`, `seasonalScoresLogic` / `seasonalScoresApi`, `franchiseScoresLogic` / `franchiseScoresApi`, `favouritesLogic` / `favouritesApi`, `updateListEntryLogic` / `updateListEntryApi`, `parseToolLines`, `staffRoleBuckets`, `toolsDisplayRelabel`.
+- **Anime Tools** (`tools/__tests__/`): `sharedCreditsLogic` / `sharedCreditsApi`, `sharedStaffLogic` / `sharedStaffRelatedAnime`, `seasonalScoresLogic` / `seasonalScoresApi`, `franchiseScoresLogic` / `franchiseScoresApi`, `adaptationScoresLogic` / `adaptationScoresApi`, `favouritesLogic` / `favouritesApi`, `updateListEntryLogic` / `updateListEntryApi`, `parseToolLines`, `staffRoleBuckets`, `toolsDisplayRelabel`.
 - **Hooks** (`hooks/__tests__/`): `useAnilistWaitCountdown` (rate-limit countdown).
 
 ## Save-file format & migration
@@ -838,7 +863,8 @@ src/
   tools/                # Anime Tools (ToolsApp.tsx, ToolsHeader, ToolsSettingsMenu,
                         # ToolTabs, ToolRunButton, ToolUsernameField, toolEntityLinks)
     panels/             # SharedCreditsPanel, SharedStaffPanel, SeasonalScoresPanel,
-                        # FranchiseScoresPanel, FavouritesPanel, UpdateListEntryPanel
+                        # FranchiseScoresPanel, AdaptationScoresPanel, FavouritesPanel,
+                        # ReorderFavouritesPanel, UpdateListEntryPanel
                         # + *Logic.ts / *Api.ts per tool
     toolsPreferences.ts # global Tools prefs (productionAllRoles)
     toolTypes.ts        # ToolId union + active-tab localStorage
@@ -932,7 +958,7 @@ src/
 ## Roadmap
 
 - **AniList integration** — import lists/favourites into a local OPFS SQLite cache, filter + stage to sort, media/staff detail panels, Drive backup of the cache, and OAuth for your own list mutations. (Shipped — see [Importing from AniList](#importing-from-anilist), [AniList detail panels](#anilist-detail-panels), [Local source database](#local-source-database-anilist-cache), and [AniList accounts](#anilist-accounts).) Design notes live in `.cursor/plans/`.
-- **Anime Tools** — shared credits/staff comparison, seasonal score charts, franchise relation walks, favourites VA ranking, and Update List Entry mutations. (Shipped — see [Anime Tools — tabs](#anime-tools--tabs).)
+- **Anime Tools** — shared credits/staff comparison, seasonal score charts, franchise relation walks, adaptation mapping, favourites VA ranking, and Update List Entry mutations. (Shipped — see [Anime Tools — tabs](#anime-tools--tabs).)
 - Additional import sources beyond AniList, reusing the same per-source SQLite cache layer.
 
 ## License

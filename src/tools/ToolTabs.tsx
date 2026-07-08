@@ -3,6 +3,8 @@ import { useLayoutEffect, useRef, useState } from 'react';
 export interface ToolTab<T extends string> {
   id: T;
   label: string;
+  /** One-line description shown in the help strip while the tab is hovered. */
+  title: string;
 }
 
 interface Props<T extends string> {
@@ -27,6 +29,14 @@ export function ToolTabs<T extends string>({
     left: 0,
     width: 0,
   });
+  // Anchor coords (viewport space) for the floating help box, measured from
+  // the hovered pill so the box sits directly beneath it without shifting the
+  // page. `null` = nothing hovered → box hidden.
+  const [hovered, setHovered] = useState<{
+    id: T;
+    left: number;
+    top: number;
+  } | null>(null);
 
   useLayoutEffect(() => {
     function measure(): void {
@@ -55,31 +65,63 @@ export function ToolTabs<T extends string>({
     };
   }, [activeTab, tabs]);
 
+  const showHelp = (id: T): void => {
+    const pill = pillRefs.current[id];
+    if (!pill) return;
+    const r = pill.getBoundingClientRect();
+    // Center under the pill, 8px gap below it.
+    setHovered({ id, left: r.left + r.width / 2, top: r.bottom + 8 });
+  };
+
+  const clearHover = (id: T): void => {
+    setHovered((prev) => (prev && prev.id === id ? null : prev));
+  };
+
+  const hoveredHelp = hovered
+    ? tabs.find((t) => t.id === hovered.id)?.title ?? null
+    : null;
+
   return (
-    <div className="tabs-card-wrap tools-tabs-wrap">
-      <div className="tabs-card tools-tabs-card" role="tablist" ref={cardRef}>
-        <div
-          className="tab-indicator"
-          style={{
-            transform: `translateX(${indicator.left}px)`,
-            width: indicator.width,
-          }}
-        />
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            ref={(el) => {
-              pillRefs.current[t.id] = el;
+    <>
+      <div className="tabs-card-wrap tools-tabs-wrap">
+        <div className="tabs-card tools-tabs-card" role="tablist" ref={cardRef}>
+          <div
+            className="tab-indicator"
+            style={{
+              transform: `translateX(${indicator.left}px)`,
+              width: indicator.width,
             }}
-            role="tab"
-            aria-selected={activeTab === t.id}
-            className={`tab-pill ${activeTab === t.id ? 'active' : ''}`}
-            onClick={() => onTabChange(t.id)}
-          >
-            {t.label}
-          </button>
-        ))}
+          />
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              ref={(el) => {
+                pillRefs.current[t.id] = el;
+              }}
+              role="tab"
+              aria-selected={activeTab === t.id}
+              aria-label={`${t.label}: ${t.title}`}
+              className={`tab-pill ${activeTab === t.id ? 'active' : ''}`}
+              onClick={() => onTabChange(t.id)}
+              onMouseEnter={() => showHelp(t.id)}
+              onMouseLeave={() => clearHover(t.id)}
+              onFocus={() => showHelp(t.id)}
+              onBlur={() => clearHover(t.id)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
       </div>
-    </div>
+      {hovered && hoveredHelp ? (
+        <div
+          className="tool-tab-help"
+          role="tooltip"
+          style={{ left: hovered.left, top: hovered.top }}
+        >
+          {hoveredHelp}
+        </div>
+      ) : null}
+    </>
   );
 }

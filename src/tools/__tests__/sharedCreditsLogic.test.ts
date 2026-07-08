@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildSharedCreditsResult,
+  expandSharedCreditsTableRows,
   filterMainRoles,
   formatStartDateKey,
   type StaffRoleEntry,
@@ -129,6 +130,32 @@ describe('sharedCreditsLogic', () => {
       [role('Alice (MAIN)', 100), role('Bob (SUPPORTING)', 101)],
       [role('Bob (SUPPORTING)', 101)],
     ]);
+  });
+
+  it('expandSharedCreditsTableRows splits multi-role cells into stacked rows with title rowspan', () => {
+    const expanded = expandSharedCreditsTableRows([
+      {
+        mediaId: 1,
+        title: 'Show A',
+        coverImage: null,
+        cells: [
+          [role('Alice (MAIN)', 100), role('Bob (SUPPORTING)', 101)],
+          [role('Carol (MAIN)', 102)],
+        ],
+      },
+    ]);
+
+    expect(expanded).toHaveLength(2);
+    expect(expanded[0]).toMatchObject({
+      showRowSpan: 2,
+      showSkipRender: false,
+      cells: [role('Alice (MAIN)', 100), role('Carol (MAIN)', 102)],
+    });
+    expect(expanded[1]).toMatchObject({
+      showRowSpan: 2,
+      showSkipRender: true,
+      cells: [role('Bob (SUPPORTING)', 101), null],
+    });
   });
 
   it('buildSharedCreditsResult supports diff mode', () => {

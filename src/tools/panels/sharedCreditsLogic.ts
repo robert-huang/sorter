@@ -64,6 +64,37 @@ export type SharedCreditsTableRow = {
   cells: StaffRoleEntry[][];
 };
 
+/** One rendered table row — show title may span multiple slots when a column has several roles. */
+export type SharedCreditsPhysicalTableRow = {
+  mediaId: number;
+  title: string;
+  coverImage: string | null;
+  showRowSpan: number;
+  showSkipRender: boolean;
+  cells: Array<StaffRoleEntry | null>;
+};
+
+/** Expand logical show rows so each role gets its own line; title cell carries rowspan. */
+export function expandSharedCreditsTableRows(
+  rows: readonly SharedCreditsTableRow[],
+): SharedCreditsPhysicalTableRow[] {
+  const physical: SharedCreditsPhysicalTableRow[] = [];
+  for (const row of rows) {
+    const slotCount = Math.max(1, ...row.cells.map((cell) => cell.length));
+    for (let slot = 0; slot < slotCount; slot++) {
+      physical.push({
+        mediaId: row.mediaId,
+        title: row.title,
+        coverImage: row.coverImage,
+        showRowSpan: slotCount,
+        showSkipRender: slot > 0,
+        cells: row.cells.map((roles) => roles[slot] ?? null),
+      });
+    }
+  }
+  return physical;
+}
+
 export type SharedCreditsDiffBlock = {
   staffId: number;
   staffName: string;

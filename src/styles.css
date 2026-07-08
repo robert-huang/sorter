@@ -5361,6 +5361,29 @@ html {
   white-space: nowrap;
 }
 
+/* Fixed below the hovered tab — native title= is clipped by the scrollable
+ * tab card's overflow, so ToolTabs renders this on hover/focus instead. */
+/* Floating help box anchored under the hovered tab (left/top set inline from
+   the pill's measured rect). Fixed + high z-index so it overlays the page
+   instead of shifting content. */
+.tool-tab-help {
+  position: fixed;
+  z-index: 40;
+  transform: translateX(-50%);
+  max-width: min(320px, calc(100vw - 24px));
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.35;
+  font-weight: 500;
+  text-align: center;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  pointer-events: none;
+}
+
 .tools-wait-banner {
   margin: 0;
 }
@@ -6290,13 +6313,14 @@ html {
 .tool-credits-table-outer {
   width: fit-content;
   max-width: 100%;
-  margin: 20px auto 0;
+  margin-top: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
   overflow: hidden;
   display: flex;
   justify-content: center;
+  align-self: center;
 }
 
 .tool-credits-table-scroll {
@@ -6810,8 +6834,8 @@ html {
 }
 
 /* Break wide tool charts out of .tools-main (max-width 1100px) so they
- * can use up to 90vw. Shared Staff compare tables and Seasonal Scores
- * columns both sit inside this wrapper. */
+ * can use up to 90vw. Shared Staff compare tables, Shared Credits, and
+ * Seasonal Scores columns all sit inside this wrapper. */
 .tool-chart-fullbleed {
   width: 90vw;
   max-width: 90vw;
@@ -7114,6 +7138,132 @@ html {
    both elements are present. */
 .tool-franchise-filtered .tool-franchise-result {
   margin-top: 0;
+}
+
+/* Shared column divider between sticky row/column labels and scrollable data. */
+.tool-table-col-divider {
+  border-right: 1px solid var(--border-strong);
+}
+
+.tool-adaptation-fullbleed {
+  max-height: calc(100vh - var(--tools-season-sticky-top, 6.5rem) - 2.5rem);
+}
+
+.tool-adaptation-scroll-card {
+  width: fit-content;
+  max-width: 100%;
+  align-self: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.tool-adaptation-scroll {
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.tool-adaptation-primary-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  margin-bottom: 12px;
+}
+
+.tool-adaptation-primary-filters .tool-field,
+.tool-adaptation-primary-filters .tool-field.tool-field-label-row {
+  margin-bottom: 0;
+}
+
+.tool-adaptation-primary-filters .tool-field-username {
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: none;
+}
+
+.tool-adaptation-primary-filters .anime-to-anime-endpoint-user-input {
+  width: 100px;
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: none;
+  margin: 0;
+}
+
+.tool-adaptation-primary-filters .tool-checkbox,
+.tool-adaptation-primary-filters .filter-chip {
+  align-self: center;
+  margin: 0;
+}
+
+.tool-adaptation-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.tool-adaptation-table {
+  border-collapse: collapse;
+  background: var(--surface);
+  font-size: 13px;
+  width: auto;
+}
+
+.tool-adaptation-scroll .tool-adaptation-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.tool-adaptation-table th,
+.tool-adaptation-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+  text-align: left;
+}
+
+.tool-adaptation-row-filtered-out {
+  opacity: 0.45;
+}
+
+.tool-adaptation-row-filtered-out:hover {
+  opacity: 0.75;
+}
+
+.tool-adaptation-table .tool-season-cell-grid {
+  min-width: 0;
+}
+
+.tool-adaptation-table .tool-franchise-td-title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tool-adaptation-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.tool-adaptation-table th {
+  background: var(--surface-2);
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.tool-adaptation-dot {
+  color: var(--text-muted);
+  font-weight: 700;
+  flex: 0 0 auto;
 }
 
 .settings-tab-scroll--empty {

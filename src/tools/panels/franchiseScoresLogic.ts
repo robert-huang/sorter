@@ -1,8 +1,50 @@
 import type { MediaTitleFields } from '../../lib/importers/anilist/mediaDisplayLabel';
+import type { AnilistMediaListStatus } from '../../lib/importers/anilist/types';
 import {
   listStatusScoreLabel,
   normalizeSeasonalListScore,
 } from './seasonalScoresLogic';
+
+export type FranchiseListStatus = AnilistMediaListStatus;
+
+/** All AniList list statuses available in the status filter chip. */
+export const FRANCHISE_LIST_STATUS_OPTIONS: readonly FranchiseListStatus[] = [
+  'CURRENT',
+  'REPEATING',
+  'COMPLETED',
+  'PLANNING',
+  'PAUSED',
+  'DROPPED',
+];
+
+/** Default status filter — all statuses so unwatched franchise entries stay visible. */
+export const DEFAULT_FRANCHISE_LIST_STATUSES: readonly FranchiseListStatus[] = [
+  ...FRANCHISE_LIST_STATUS_OPTIONS,
+];
+
+export function normalizeFranchiseListStatuses(raw: unknown): FranchiseListStatus[] {
+  if (!Array.isArray(raw)) {
+    return [...DEFAULT_FRANCHISE_LIST_STATUSES];
+  }
+  const selected = FRANCHISE_LIST_STATUS_OPTIONS.filter((status) => raw.includes(status));
+  return selected.length > 0 ? [...selected] : [...DEFAULT_FRANCHISE_LIST_STATUSES];
+}
+
+export function entryPassesListStatusFilter(
+  listStatus: string | null,
+  listStatuses: readonly FranchiseListStatus[],
+): boolean {
+  if (listStatuses.length === 0) {
+    return false;
+  }
+  if (listStatuses.length >= FRANCHISE_LIST_STATUS_OPTIONS.length) {
+    return true;
+  }
+  if (listStatus == null) {
+    return false;
+  }
+  return listStatuses.includes(listStatus as FranchiseListStatus);
+}
 
 /**
  * AniList `MediaRelation` enum values. AniList's GraphQL schema does not
@@ -102,11 +144,13 @@ export type FranchiseForm = {
  * between tools.
  *
  * Defaults ({@link DEFAULT_FRANCHISE_FILTERS}) are "show everything":
- * both media-type checkboxes on, score pill at 'any', range unbounded.
+ * both media-type checkboxes on, all list statuses selected, score pill
+ * at 'any', range unbounded.
  */
 export type FranchiseFilters = {
   includeAnime: boolean;
   includeManga: boolean;
+  listStatuses: readonly FranchiseListStatus[];
   userScoreInclude: 'any' | 'rated' | 'unrated';
   scoreMin: number | null;
   scoreMax: number | null;
@@ -115,6 +159,7 @@ export type FranchiseFilters = {
 export const DEFAULT_FRANCHISE_FILTERS: FranchiseFilters = {
   includeAnime: true,
   includeManga: true,
+  listStatuses: [...DEFAULT_FRANCHISE_LIST_STATUSES],
   userScoreInclude: 'any',
   scoreMin: null,
   scoreMax: null,
@@ -183,7 +228,7 @@ export function franchiseDateLabel(date: FranchiseNode['startDate']): string {
 
 /**
  * Score cell label. `U` = unwatched (entry isn't on the user's list at all),
- * `P` / `W` / `H` = unrated PLANNING / CURRENT|REPEATING / PAUSED,
+ * `P` / `W` / `R` / `H` = unrated PLANNING / watching / reading / PAUSED,
  * `—` = on list but no score and no status letter, otherwise the score itself.
  *
  * Distinct from {@link formatSeasonalScoreLabel} because seasonal-scores only
@@ -192,11 +237,12 @@ export function franchiseDateLabel(date: FranchiseNode['startDate']): string {
 export function formatFranchiseScoreLabel(
   score: number | null | undefined,
   listStatus: string | null | undefined,
+  mediaType?: string | null,
 ): string {
   if (listStatus == null) {
     return 'U';
   }
-  const statusLabel = listStatusScoreLabel(listStatus, score);
+  const statusLabel = listStatusScoreLabel(listStatus, score, mediaType);
   if (statusLabel != null) {
     return statusLabel;
   }
@@ -243,7 +289,7 @@ export function buildFranchiseCsv(entries: FranchiseEntry[]): string {
       csvEscapeFranchiseCell(entry.title),
       csvEscapeFranchiseCell(franchiseFormatLabel(entry)),
       csvEscapeFranchiseCell(
-        formatFranchiseScoreLabel(entry.score, entry.listStatus),
+        formatFranchiseScoreLabel(entry.score, entry.listStatus, entry.mediaType),
       ),
     ].join(','),
   );
@@ -387,13 +433,16 @@ export function buildFranchiseEntries(
  *   1. Media-type gate (anime/manga checkboxes). With both off the
  *      result is empty by design — the panel renders the "no entries"
  *      state in that case.
- *   2. Rated/unrated bucket. An entry is "rated" iff it's on the
+ *   2. List status chip. Passes when the entry's list status is in the
+ *      selected set. Unwatched entries (no list row) pass only when all
+ *      statuses are selected (the default — preserves "show everything").
+ *   3. Rated/unrated bucket. An entry is "rated" iff it's on the
  *      user's list AND has a numeric score > 0 (matches AniList's
  *      POINT_100 convention where 0 = "I haven't scored this").
  *      Unrated status-letter entries (P / W / H) are treated as unrated
  *      because the table shows a letter instead of a score. Unwatched
  *      entries (no list row at all) are also unrated.
- *   3. Score range. Only narrows the rated bucket — unrated items
+ *   4. Score range. Only narrows the rated bucket — unrated items
  *      pass the range check by virtue of being filtered out at step
  *      2 when the pill is 'rated', and pass through unchanged when
  *      the pill is 'any' or 'unrated' (the slider is meaningless
@@ -410,9 +459,10 @@ export function applyFranchiseFilters(
   for (const entry of entries) {
     if (entry.mediaType === 'ANIME' && !filters.includeAnime) continue;
     if (entry.mediaType === 'MANGA' && !filters.includeManga) continue;
+    if (!entryPassesListStatusFilter(entry.listStatus, filters.listStatuses)) continue;
 
     const normalized = normalizeSeasonalListScore(entry.score);
-    const statusLabel = listStatusScoreLabel(entry.listStatus, entry.score);
+    const statusLabel = listStatusScoreLabel(entry.listStatus, entry.score, entry.mediaType);
     const isRated =
       entry.listStatus != null &&
       statusLabel == null &&

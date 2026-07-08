@@ -13,7 +13,8 @@ import {
 } from '../lib/importers/anilist/readQueries';
 import type { AnilistProgressEvent } from '../lib/importers/anilist/progress';
 import { filterProductionStaffRows } from '../lib/importers/anilist/staffRoleFilter';
-import { runAnilistMediaLazyExpansion } from '../lib/importers/anilist/runners';
+import { runAnilistMediaLazyExpansion, runAnilistMediaRelationsRefresh } from '../lib/importers/anilist/runners';
+import type { ToolsMediaRelationsResponse } from '../lib/importers/anilist/toolsMediaRelationsApi';
 import { formatMediaSourceForDisplay } from '../lib/importers/anilist/mediaSourceLabel';
 import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
 import { pickCharacterName, pickPersonName } from '../lib/importers/anilist/personDisplayLabel';
@@ -133,6 +134,11 @@ interface Props {
    * navigation render the names as plain text (see {@link PersonLink}).
    */
   onOpenStaff?: (staffId: number, fallbackName: string) => void;
+  /** Fired after ↻ refresh writes fresh relations for this media id. */
+  onMediaRelationsRefreshed?: (
+    mediaId: number,
+    response: ToolsMediaRelationsResponse,
+  ) => void;
 }
 
 /**
@@ -218,6 +224,7 @@ export function AnilistDetailModal({
   initialForceRefresh = false,
   onClose,
   onOpenStaff,
+  onMediaRelationsRefreshed,
 }: Props) {
   // Re-render the modal when the display preferences change so the
   // title / character / VA / staff names relabel live while it's open.
@@ -238,6 +245,7 @@ export function AnilistDetailModal({
   const [loadTick, setLoadTick] = useState(0);
   const [expansionStatus, setExpansionStatus] =
     useState<MediaCastExpansionStatus | null>(null);
+  const [relationsFetchedAt, setRelationsFetchedAt] = useState<number | null>(null);
   const [productionRoleMode, setProductionRoleMode] =
     useState<ProductionRoleMode>(loadProductionRoleMode);
 
@@ -273,9 +281,12 @@ export function AnilistDetailModal({
       try {
         const d = await productionReads.getMediaDetail(mediaId);
         const status = await productionReads.getMediaCastExpansionStatus(mediaId);
+        const relationsAt =
+          await productionReads.getMediaRelationsExpansionFetchedAt(mediaId);
         if (cancelled) return;
         setDetail(d);
         setExpansionStatus(status);
+        setRelationsFetchedAt(relationsAt);
         setLoading(false);
         const needsExpansion =
           initialForceRefresh ||
@@ -338,8 +349,18 @@ export function AnilistDetailModal({
         scope: 'all',
         force: true,
       });
+      const relationsResponse = await runAnilistMediaRelationsRefresh(
+        mediaId,
+        (e) => setProgress(e),
+      );
       const status = await productionReads.getMediaCastExpansionStatus(mediaId);
+      const relationsAt =
+        await productionReads.getMediaRelationsExpansionFetchedAt(mediaId);
       setExpansionStatus(status);
+      setRelationsFetchedAt(relationsAt);
+      if (relationsResponse) {
+        onMediaRelationsRefreshed?.(mediaId, relationsResponse);
+      }
       setLoadTick((t) => t + 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Refresh failed.');
@@ -347,7 +368,7 @@ export function AnilistDetailModal({
       setExpanding(false);
       setProgress(null);
     }
-  }, [mediaId, expanding]);
+  }, [mediaId, expanding, onMediaRelationsRefreshed]);
 
   // Highlight the Refresh button when either cached section is older than
   // the staleness threshold (>90d) — mirrors the staff modal's affordance
@@ -568,6 +589,15 @@ export function AnilistDetailModal({
                       expansionStatus.staffFetchedAt,
                       expansionStatus.staffComplete,
                     )}
+                  </span>
+                  <span title="Franchise relations cache">
+                    {relationsFetchedAt === null
+                      ? 'Relations: not cached'
+                      : `Relations: ${formatGraphCacheDate(relationsFetchedAt)}${
+                          isGraphTimestampStale(relationsFetchedAt)
+                            ? ' (stale >90d)'
+                            : ' (fresh)'
+                        }`}
                   </span>
                 </div>
               )}

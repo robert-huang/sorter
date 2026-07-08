@@ -8,6 +8,8 @@ import {
   describeAnimeRandomPickFailure,
   getAnimeCacheStats,
   getMediaRelations,
+  getMediaRelationsExpansionFetchedAt,
+  getToolsMediaRelationsFromDbBatch,
   getAnimeFilmographyForStaff,
   getProductionCreditsAtMedia,
   getVaCreditsAtMedia,
@@ -408,6 +410,33 @@ describe('graphQueries cache pick', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].media.id).toBe(51);
     expect(rows[0].relationType).toBe('SEQUEL');
+  });
+
+  it('getToolsMediaRelationsFromDbBatch assembles tools API payloads for many seeds', async () => {
+    seedMedia(sqlite, 70, 'ANIME');
+    seedMedia(sqlite, 71, 'MANGA');
+    seedMedia(sqlite, 72, 'ANIME');
+    sqlite.exec(
+      `INSERT INTO media_relation (from_media_id, to_media_id, relation_type)
+         VALUES (?, ?, ?), (?, ?, ?)`,
+      { bind: [70, 71, 'SOURCE', 72, 71, 'ADAPTATION'] },
+    );
+    sqlite.exec(
+      `INSERT INTO media_relations_expansion (media_id, fetched_at) VALUES (?, ?), (?, ?)`,
+      { bind: [70, NOW, 72, NOW] },
+    );
+
+    const batch = await getToolsMediaRelationsFromDbBatch(adapter, [70, 72, 999]);
+    expect(batch.size).toBe(2);
+    expect(batch.get(70)?.edges[0]).toMatchObject({
+      relationType: 'SOURCE',
+      node: { id: 71 },
+    });
+    expect(batch.get(72)?.edges[0]).toMatchObject({
+      relationType: 'ADAPTATION',
+      node: { id: 71 },
+    });
+    expect(await getMediaRelationsExpansionFetchedAt(adapter, 70)).toBe(NOW);
   });
 
   it('searchAnimeInCache matches romaji and synonyms', async () => {

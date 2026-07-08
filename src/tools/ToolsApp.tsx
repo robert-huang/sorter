@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnilistDetailModal } from '../components/AnilistDetailModal';
 import { AppBannerStack } from '../components/AppBannerStack';
 import { StaffDetailModal } from '../components/StaffDetailModal';
@@ -30,15 +30,50 @@ import { FranchiseScoresPanel } from './panels/FranchiseScoresPanel';
 import { FavouritesPanel } from './panels/FavouritesPanel';
 import { ReorderFavouritesPanel } from './panels/ReorderFavouritesPanel';
 import { UpdateListEntryPanel } from './panels/UpdateListEntryPanel';
+import { AdaptationScoresPanel } from './panels/AdaptationScoresPanel';
+import type { ToolsMediaRelationsResponse } from '../lib/importers/anilist/toolsMediaRelationsApi';
 
 const TOOL_TABS: ReadonlyArray<ToolTab<ToolId>> = [
-  { id: 'shared-credits', label: 'Shared Credits' },
-  { id: 'shared-staff', label: 'Shared Staff' },
-  { id: 'seasonal-scores', label: 'Seasonal Scores' },
-  { id: 'franchise-scores', label: 'Franchise Scores' },
-  { id: 'favourites', label: 'Favourites' },
-  { id: 'reorder-favourites', label: 'Reorder Favourites' },
-  { id: 'update-list-entry', label: 'Update List Entry' },
+  {
+    id: 'shared-credits',
+    label: 'Shared Credits',
+    title: 'Find anime shared between voice actors or production staff.',
+  },
+  {
+    id: 'shared-staff',
+    label: 'Shared Staff',
+    title: 'Compare studios, production staff, and voice actors across shows.',
+  },
+  {
+    id: 'seasonal-scores',
+    label: 'Seasonal Scores',
+    title: "Chart a user's AniList scores across seasons.",
+  },
+  {
+    id: 'franchise-scores',
+    label: 'Franchise Scores',
+    title: 'Walk franchise relations from seed shows and chart your scores.',
+  },
+  {
+    id: 'adaptation-scores',
+    label: 'Adaptation Scores',
+    title: 'Map source and adaptation pairs across your anime and manga lists.',
+  },
+  {
+    id: 'favourites',
+    label: 'Favourites',
+    title: 'Rank voice actors behind your favourite characters and staff.',
+  },
+  {
+    id: 'reorder-favourites',
+    label: 'Reorder Favourites',
+    title: 'Reorder AniList favourite lists locally and save back.',
+  },
+  {
+    id: 'update-list-entry',
+    label: 'Update List Entry',
+    title: "Patch one list entry's status, progress, score, or notes.",
+  },
 ];
 
 interface MediaTarget {
@@ -65,6 +100,18 @@ export function ToolsApp() {
   const [activeTool, setActiveTool] = useState<ToolId>(() => loadActiveTool());
   const [mediaTarget, setMediaTarget] = useState<MediaTarget | null>(null);
   const [staffTarget, setStaffTarget] = useState<StaffTarget | null>(null);
+  const mediaRelationsRefreshRef = useRef<
+    ((mediaId: number, response: ToolsMediaRelationsResponse) => void) | null
+  >(null);
+
+  const bindMediaRelationsRefreshHandler = useCallback(
+    (
+      handler: ((mediaId: number, response: ToolsMediaRelationsResponse) => void) | null,
+    ) => {
+      mediaRelationsRefreshRef.current = handler;
+    },
+    [],
+  );
 
   const onToggleTheme = useCallback(() => {
     setTheme((prev) => {
@@ -104,8 +151,8 @@ export function ToolsApp() {
   }, []);
 
   const panelProps: ToolPanelProps = useMemo(
-    () => ({ onOpenMedia, onOpenStaff }),
-    [onOpenMedia, onOpenStaff],
+    () => ({ onOpenMedia, onOpenStaff, bindMediaRelationsRefreshHandler }),
+    [bindMediaRelationsRefreshHandler, onOpenMedia, onOpenStaff],
   );
 
   useEffect(() => {
@@ -184,6 +231,9 @@ export function ToolsApp() {
         <div hidden={activeTool !== 'franchise-scores'}>
           <FranchiseScoresPanel {...panelProps} />
         </div>
+        <div hidden={activeTool !== 'adaptation-scores'}>
+          <AdaptationScoresPanel {...panelProps} />
+        </div>
         <div hidden={activeTool !== 'favourites'}>
           <FavouritesPanel {...panelProps} />
         </div>
@@ -202,6 +252,9 @@ export function ToolsApp() {
           initialForceRefresh={mediaTarget.forceRefresh}
           onClose={() => setMediaTarget(null)}
           onOpenStaff={onOpenStaff}
+          onMediaRelationsRefreshed={(mediaId, response) => {
+            mediaRelationsRefreshRef.current?.(mediaId, response);
+          }}
         />
       )}
       {staffTarget && (

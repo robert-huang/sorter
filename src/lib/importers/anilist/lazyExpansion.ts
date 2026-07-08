@@ -125,6 +125,31 @@ export const MEDIA_STUB_COLS = [
 
 export type MediaStubRow = Pick<MediaRow, (typeof MEDIA_STUB_COLS)[number]>;
 
+/**
+ * Chart-scoped media columns for relation graph nodes: identity + display
+ * fields (title, cover, format) plus the start date the Franchise/Adaptation
+ * tools need. Deliberately omits list-owned metadata (`source`, `mean_score`,
+ * `genres_json`, `favourites`, `status`, ...) so persisting a relation
+ * neighbor never wipes a rich list-imported row. Unlike {@link MEDIA_STUB_COLS}
+ * this keeps `start_year/month/day`.
+ */
+export const MEDIA_CHART_STUB_COLS = [
+  'id',
+  'type',
+  'title_english',
+  'title_romaji',
+  'title_native',
+  'cover_image',
+  'format',
+  'start_year',
+  'start_month',
+  'start_day',
+  'fetched_at',
+  'updated_at',
+] as const;
+
+export type MediaChartStubRow = Pick<MediaRow, (typeof MEDIA_CHART_STUB_COLS)[number]>;
+
 /** Identity-only staff upsert — does not touch profile fields like gender. */
 export const STAFF_STUB_COLS = [
   'id',
@@ -193,6 +218,33 @@ function buildMediaStubUpsertSql(): string {
   );
 }
 
+function buildMediaChartStubUpsertSql(): string {
+  const placeholders = MEDIA_CHART_STUB_COLS.map(() => '?').join(', ');
+  // COALESCE the nullable display fields so a chart payload missing a value
+  // (e.g. no english title / unknown start date) can't blank an existing row.
+  const coalesceCols = new Set<string>([
+    'title_english',
+    'title_romaji',
+    'title_native',
+    'cover_image',
+    'format',
+    'start_year',
+    'start_month',
+    'start_day',
+  ]);
+  const updates = MEDIA_CHART_STUB_COLS.filter((c) => c !== 'id')
+    .map((c) =>
+      coalesceCols.has(c)
+        ? `${c} = COALESCE(excluded.${c}, media.${c})`
+        : `${c} = excluded.${c}`,
+    )
+    .join(', ');
+  return (
+    `INSERT INTO media (${MEDIA_CHART_STUB_COLS.join(', ')}) VALUES (${placeholders}) ` +
+    `ON CONFLICT(id) DO UPDATE SET ${updates}`
+  );
+}
+
 function buildStaffStubUpsertSql(): string {
   const placeholders = STAFF_STUB_COLS.map(() => '?').join(', ');
   const updates = STAFF_STUB_COLS.filter((c) => c !== 'id')
@@ -228,6 +280,7 @@ function buildCharacterStubUpsertSql(): string {
 export const CHARACTER_UPSERT_SQL = buildCharacterUpsertSql();
 export const CHARACTER_STUB_UPSERT_SQL = buildCharacterStubUpsertSql();
 export const MEDIA_STUB_UPSERT_SQL = buildMediaStubUpsertSql();
+export const MEDIA_CHART_STUB_UPSERT_SQL = buildMediaChartStubUpsertSql();
 export const STAFF_UPSERT_SQL = buildPersonUpsertSql('staff', STAFF_COLS);
 export const STAFF_STUB_UPSERT_SQL = buildStaffStubUpsertSql();
 
@@ -245,6 +298,10 @@ export function staffStubRowToParams(row: StaffStubRow): SqlBindable[] {
 
 export function mediaStubRowToParams(row: MediaStubRow): SqlBindable[] {
   return MEDIA_STUB_COLS.map((c) => row[c]);
+}
+
+export function mediaChartStubRowToParams(row: MediaChartStubRow): SqlBindable[] {
+  return MEDIA_CHART_STUB_COLS.map((c) => row[c]);
 }
 
 export function characterStubRowToParams(row: CharacterStubRow): SqlBindable[] {

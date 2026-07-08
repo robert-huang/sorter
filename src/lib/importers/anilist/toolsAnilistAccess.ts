@@ -560,9 +560,19 @@ export async function readUserMediaListEntriesFromDb(
   db: AnilistDbExecutor,
   anilistUserId: number,
   type: 'ANIME' | 'MANGA',
-): Promise<Array<{ mediaId: number; status: string | null; score: number | null }>> {
+): Promise<
+  Array<{
+    mediaId: number;
+    status: string | null;
+    score: number | null;
+    startedYear: number | null;
+    startedMonth: number | null;
+    startedDay: number | null;
+  }>
+> {
   const rows = await db.exec(
-    `SELECT mle.media_id, mle.status, mle.score
+    `SELECT mle.media_id, mle.status, mle.score,
+            mle.started_year, mle.started_month, mle.started_day
        FROM media_list_entry mle
        JOIN media m ON m.id = mle.media_id
       WHERE mle.anilist_user_id = ?
@@ -575,6 +585,9 @@ export async function readUserMediaListEntriesFromDb(
     // SQL `score` is stored as the raw AniList score (0 = unrated); the
     // caller normalizes via `normalizeSeasonalListScore` so 0 → null.
     score: row.score != null ? Number(row.score) : null,
+    startedYear: row.started_year != null ? Number(row.started_year) : null,
+    startedMonth: row.started_month != null ? Number(row.started_month) : null,
+    startedDay: row.started_day != null ? Number(row.started_day) : null,
   }));
 }
 

@@ -5,9 +5,12 @@ export type ToolId =
   | 'shared-staff'
   | 'seasonal-scores'
   | 'franchise-scores'
+  | 'adaptation-scores'
   | 'favourites'
   | 'reorder-favourites'
   | 'update-list-entry';
+
+import type { ToolsMediaRelationsResponse } from '../lib/importers/anilist/toolsMediaRelationsApi';
 
 /** Props every tool panel receives so result rows can open the detail modals. */
 export interface ToolPanelProps {
@@ -19,6 +22,13 @@ export interface ToolPanelProps {
   ) => void;
   /** Open the staff detail modal for a clicked staff member / VA. */
   onOpenStaff: (staffId: number, fallbackName: string) => void;
+  /**
+   * Adaptation Scores registers a handler so modal ↻ relations refresh can
+   * merge into the in-memory scan without a full re-compare.
+   */
+  bindMediaRelationsRefreshHandler?: (
+    handler: ((mediaId: number, response: ToolsMediaRelationsResponse) => void) | null,
+  ) => void;
 }
 
 export const TOOLS_ACTIVE_TOOL_KEY = 'anime-tools-active-tool';
@@ -28,6 +38,7 @@ const TOOL_IDS: readonly ToolId[] = [
   'shared-staff',
   'seasonal-scores',
   'franchise-scores',
+  'adaptation-scores',
   'favourites',
   'reorder-favourites',
   'update-list-entry',

@@ -14,6 +14,19 @@ function getColumnList(db: Database, tableName: string): string[] {
     .filter((name): name is string => typeof name === 'string');
 }
 
+function unionJunctionTable(
+  localDb: Database,
+  tableName: string,
+  remoteAlias: string,
+): void {
+  const colList = getColumnList(localDb, tableName);
+  const cols = colList.join(', ');
+  localDb.exec(`
+    INSERT OR IGNORE INTO ${tableName} (${cols})
+    SELECT ${cols} FROM ${remoteAlias}.${tableName};
+  `);
+}
+
 function upsertTable(
   localDb: Database,
   table: SourceMergeTable,
@@ -144,6 +157,9 @@ export function pullMerge(
       }
       for (const t of source.merge.userDataTables) {
         upsertTable(localDb, t, 'remote');
+      }
+      for (const tableName of source.merge.junctionUnionTables ?? []) {
+        unionJunctionTable(localDb, tableName, 'remote');
       }
       if (sourceId === ANILIST_SOURCE_ID) {
         mergeMediaCastExpansionSplit(localDb);
