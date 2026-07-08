@@ -22,7 +22,7 @@ import { executeAnilistQuery } from './transport';
 import { needsGraphDataRefresh } from './toolsFetchPolicy';
 import type { ToolsFetchOptions } from './toolsFetchPolicy';
 import { mapMediaRow } from './mappers';
-import { MEDIA_UPSERT_SQL, mediaRowToParams } from './importer';
+import { MEDIA_CHART_STUB_UPSERT_SQL, mediaChartStubRowToParams } from './lazyExpansion';
 import type { AnilistMediaGql, AnilistMediaRelationsResponse } from './types';
 
 /** @deprecated Legacy localStorage TTL — kept for backfill age derivation only. */
@@ -130,7 +130,6 @@ export async function fetchToolsMediaRelationsLive(
 async function fetchAndPersistToolsMediaRelations(
   mediaId: number,
   signal?: AbortSignal,
-  force = false,
 ): Promise<ToolsMediaRelationsResponse | null> {
   signal?.throwIfAborted();
   const live = await fetchToolsMediaRelationsLive(mediaId, signal);
@@ -142,10 +141,8 @@ async function fetchAndPersistToolsMediaRelations(
   if (!gqlResponse) {
     return null;
   }
-  await expandMediaRelations(ctx, mediaId, {
-    force,
-    response: gqlResponse,
-  });
+  // A live fetch is authoritative — expandMediaRelations replaces the edge set.
+  await expandMediaRelations(ctx, mediaId, { response: gqlResponse });
   return getToolsMediaRelationsFromDb(ctx.db, mediaId);
 }
 
@@ -166,11 +163,7 @@ export function fetchToolsMediaRelationsCached(
       if (!needsGraphDataRefresh(fetchedAt, options)) {
         return getToolsMediaRelationsFromDb(ctx.db, mediaId);
       }
-      return fetchAndPersistToolsMediaRelations(
-        mediaId,
-        signal,
-        options?.forceRefresh ?? false,
-      );
+      return fetchAndPersistToolsMediaRelations(mediaId, signal);
     },
     options,
   );
@@ -259,18 +252,11 @@ export async function fetchToolsMediaRelationsBatch(
         if (!gqlResponse) {
           continue;
         }
-        await expandMediaRelations(ctx, mediaId, {
-          force: forceAll,
-          response: gqlResponse,
-        });
+        await expandMediaRelations(ctx, mediaId, { response: gqlResponse });
       }
     } catch {
       for (const mediaId of chunk) {
-        const parsed = await fetchAndPersistToolsMediaRelations(
-          mediaId,
-          signal,
-          forceAll,
-        );
+        const parsed = await fetchAndPersistToolsMediaRelations(mediaId, signal);
         if (parsed) {
           out.set(mediaId, parsed);
           onItem?.(parsed);
@@ -360,7 +346,7 @@ async function writeCachedRelationsToDb(
   }
 
   for (const row of mediaById.values()) {
-    stmts.push({ sql: MEDIA_UPSERT_SQL, params: mediaRowToParams(row) });
+    stmts.push({ sql: MEDIA_CHART_STUB_UPSERT_SQL, params: mediaChartStubRowToParams(row) });
   }
 
   for (const edge of parsed.edges) {

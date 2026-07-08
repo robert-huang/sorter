@@ -136,6 +136,8 @@ export async function ensureMediaRelations(
   if (!needsGraphDataRefresh(fetchedAt, { forceRefresh: force })) {
     return true;
   }
-  const result = await expandMediaRelations(ctx, mediaId, { force });
+  // expandMediaRelations always replaces the outbound edge set from the fresh
+  // response, so the marker gate above is the only thing `force` controls here.
+  const result = await expandMediaRelations(ctx, mediaId);
   return result !== null;
 }

@@ -4,10 +4,10 @@
 
 import type { AnilistImportContext, SqlBindable } from './context';
 import { mapMediaRow } from './mappers';
-import { MEDIA_UPSERT_SQL, mediaRowToParams } from './importer';
+import { MEDIA_CHART_STUB_UPSERT_SQL, mediaChartStubRowToParams } from './lazyExpansion';
 import { emitProgress } from './progress';
 import { buildMediaRelationsQuery } from './queries';
-import type { AnilistMediaRelationsResponse } from './types';
+import type { AnilistMediaRelationsResponse, AnilistMediaType } from './types';
 
 export type ExpandMediaRelationsResult = {
   fromMediaId: number;
@@ -16,8 +16,6 @@ export type ExpandMediaRelationsResult = {
 };
 
 export type ExpandMediaRelationsOptions = {
-  /** Delete existing outbound edges before insert (force refresh). */
-  force?: boolean;
   /** Caller already fetched — skip network. */
   response?: AnilistMediaRelationsResponse;
 };
@@ -44,29 +42,34 @@ export async function expandMediaRelations(
   const edgeStmts: Array<{ sql: string; params: readonly SqlBindable[] }> = [];
   const mediaById = new Map<number, ReturnType<typeof mapMediaRow>>();
 
-  if (options.force) {
-    stmts.push({
-      sql: 'DELETE FROM media_relation WHERE from_media_id = ?',
-      params: [mediaId],
-    });
-  }
+  const seedGql = response.Media as unknown as {
+    title?: { english?: string | null };
+    type?: AnilistMediaType | null;
+  };
+
+  // A fresh response is the authoritative complete edge set for this seed, so
+  // always replace outbound edges — otherwise relations removed on AniList
+  // would linger forever (INSERT OR IGNORE never deletes).
+  stmts.push({
+    sql: 'DELETE FROM media_relation WHERE from_media_id = ?',
+    params: [mediaId],
+  });
 
   // FK targets must exist before edge/marker inserts. OR IGNORE keeps rich
   // seed rows from list import when the relations query only returns id.
   stmts.push({
     sql: `INSERT OR IGNORE INTO media (id, type, fetched_at, updated_at)
-          VALUES (?, 'ANIME', ?, ?)`,
-    params: [mediaId, now, now],
+          VALUES (?, ?, ?, ?)`,
+    params: [mediaId, seedGql.type ?? 'ANIME', now, now],
   });
 
-  const seedGql = response.Media as unknown as { title?: { english?: string | null } };
   if (seedGql.title != null) {
     mediaById.set(mediaId, mapMediaRow(response.Media as never, now));
   }
 
   for (const e of edges) {
     const toId = e.node.id;
-    const relationType = (e.relationType ?? '').trim() || 'OTHER';
+    const relationType = (e.relationType ?? '').trim().toUpperCase() || 'OTHER';
     const key = `${toId}\0${relationType}`;
     if (seen.has(key)) {
       continue;
@@ -82,8 +85,10 @@ export async function expandMediaRelations(
     });
   }
 
+  // Chart-scoped upsert: refreshes title/cover/format/start-date without
+  // clobbering list-owned metadata (source, mean_score, genres, ...).
   for (const row of mediaById.values()) {
-    stmts.push({ sql: MEDIA_UPSERT_SQL, params: mediaRowToParams(row) });
+    stmts.push({ sql: MEDIA_CHART_STUB_UPSERT_SQL, params: mediaChartStubRowToParams(row) });
   }
   stmts.push(...edgeStmts);
 

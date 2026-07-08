@@ -76,7 +76,7 @@ describe('expandMediaRelations', () => {
     expect(marker?.fetched_at).toBe(TEST_ANILIST_NOW);
   });
 
-  it('force deletes existing outbound edges before inserting fresh ones', async () => {
+  it('replaces existing outbound edges on a plain refresh (drops removed relations)', async () => {
     seedMediaRow(db, NEIGHBOR_ID);
     seedMediaRow(db, 201);
     db.exec(
@@ -87,7 +87,6 @@ describe('expandMediaRelations', () => {
 
     const ctx = makeTestAnilistImportContext(db);
     await expandMediaRelations(ctx, SEED_ID, {
-      force: true,
       response: makeRelationsResponse([{ relationType: 'SIDE_STORY', nodeId: NEIGHBOR_ID }]),
     });
 
@@ -96,6 +95,43 @@ describe('expandMediaRelations', () => {
       [SEED_ID],
     );
     expect(edges).toEqual([{ to_media_id: NEIGHBOR_ID, relation_type: 'SIDE_STORY' }]);
+  });
+
+  it('normalizes relation type casing on write', async () => {
+    const ctx = makeTestAnilistImportContext(db);
+    await expandMediaRelations(ctx, SEED_ID, {
+      response: makeRelationsResponse([{ relationType: 'sequel', nodeId: NEIGHBOR_ID }]),
+    });
+
+    const edges = db.selectObjects(
+      'SELECT relation_type FROM media_relation WHERE from_media_id = ?',
+      [SEED_ID],
+    );
+    expect(edges).toEqual([{ relation_type: 'SEQUEL' }]);
+  });
+
+  it('writes chart fields without clobbering list-owned media metadata', async () => {
+    // A rich, list-imported neighbor row that also shows up as a relation.
+    db.exec(
+      `INSERT INTO media (id, type, title_english, source, mean_score, fetched_at, updated_at)
+         VALUES (?, 'ANIME', ?, 'ORIGINAL', 77, ?, ?)`,
+      { bind: [NEIGHBOR_ID, 'Rich Title', TEST_ANILIST_NOW, TEST_ANILIST_NOW] },
+    );
+
+    const ctx = makeTestAnilistImportContext(db);
+    await expandMediaRelations(ctx, SEED_ID, {
+      response: makeRelationsResponse([{ relationType: 'SEQUEL', nodeId: NEIGHBOR_ID }]),
+    });
+
+    const row = db.selectObject(
+      'SELECT source, mean_score, start_year, title_english FROM media WHERE id = ?',
+      [NEIGHBOR_ID],
+    );
+    // List-owned fields survive; chart fields (start date) get filled in.
+    expect(row?.source).toBe('ORIGINAL');
+    expect(row?.mean_score).toBe(77);
+    expect(row?.start_year).toBe(2020);
+    expect(row?.title_english).toBe('Show 200');
   });
 
   it('writes a marker even when the response has zero edges', async () => {
