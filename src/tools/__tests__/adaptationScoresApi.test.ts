@@ -224,6 +224,7 @@ describe('runAdaptationScores', () => {
         listStatuses: ['CURRENT', 'COMPLETED', 'REPEATING'],
         onlyBothOnList: false,
         hideSameMedium: false,
+        showDifference: 'off',
       },
     });
 
@@ -245,6 +246,7 @@ describe('runAdaptationScores', () => {
         listStatuses: ['CURRENT', 'COMPLETED', 'REPEATING'],
         onlyBothOnList: false,
         hideSameMedium: false,
+        showDifference: 'off',
       },
     });
 

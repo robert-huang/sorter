@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, type ReactNode } from 'react';
+import { useCallback, useLayoutEffect, useRef, type ReactNode, type Ref } from 'react';
 import { useDragScroll } from '../lib/hooks/useDragScroll';
 import {
   captureLeftmostVisibleScrollAnchor,
@@ -25,6 +25,10 @@ type DragScrollProps = {
   scrollAnchorSelector?: string;
   scrollAnchorAttribute?: string;
   scrollAnchorYearAttribute?: string;
+  /** Fired on user scroll (after internal anchor bookkeeping). */
+  onUserScroll?: (el: HTMLElement) => void;
+  /** Optional ref to the scroll container element. */
+  scrollRef?: Ref<HTMLDivElement>;
 };
 
 type SavedScrollState = {
@@ -50,6 +54,8 @@ export function DragScroll({
   scrollAnchorSelector,
   scrollAnchorAttribute = 'data-scroll-anchor',
   scrollAnchorYearAttribute = 'data-scroll-anchor-year',
+  onUserScroll,
+  scrollRef,
 }: DragScrollProps) {
   const { ref, ...dragProps } = useDragScroll<HTMLDivElement>();
   const isFirstLayoutRef = useRef(true);
@@ -121,17 +127,32 @@ export function DragScroll({
 
     const onScroll = (): void => {
       saveScrollState(el);
+      onUserScroll?.(el);
     };
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => {
       el.removeEventListener('scroll', onScroll);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- ref is stable; children drives restore
-  }, [children, initialScrollEnd, saveScrollState]);
+  }, [children, initialScrollEnd, onUserScroll, saveScrollState]);
+
+  const setScrollRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      const dragScrollRef = ref as { current: HTMLDivElement | null };
+      dragScrollRef.current = el;
+      if (typeof scrollRef === 'function') {
+        scrollRef(el);
+      } else if (scrollRef) {
+        const externalRef = scrollRef as { current: HTMLDivElement | null };
+        externalRef.current = el;
+      }
+    },
+    [ref, scrollRef],
+  );
 
   return (
     <div
-      ref={ref}
+      ref={setScrollRef}
       className={['tool-drag-scroll', className].filter(Boolean).join(' ')}
       {...dragProps}
     >

@@ -6239,8 +6239,6 @@ html {
    (scroll chaining hands wheel events back to the document after the
    internal scroll bottoms out). */
 .tool-staff-compare-wrap {
-  max-height: min(80vh, 720px);
-  overflow-y: auto;
   /* Shrink the bordered card to its actual data — with only 2 shows
    * the card stops at the second column instead of stretching across
    * the fullbleed area. max-width: 100% caps at the 90vw parent;
@@ -6249,6 +6247,26 @@ html {
   width: fit-content;
   max-width: 100%;
   align-self: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+  max-height: min(80vh, 720px);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.tool-staff-compare-body-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.tool-staff-compare-wrap .tool-staff-compare-table thead th {
+  /* Header row is pinned above the body scroller — no sticky top. */
+  z-index: 1;
+  background: var(--surface-2);
 }
 
 /* Override .tool-result-table { width: 100% } so the SharedStaff
@@ -6257,22 +6275,6 @@ html {
  * (SharedCredits) keep the 100%-width behavior. */
 .tool-staff-compare-table {
   width: auto;
-}
-
-.tool-staff-compare-wrap .tool-staff-compare-table thead th {
-  position: sticky;
-  top: 0;
-  /* Stacking order for the sticky grid:
-   *   3 — sticky-top header cells (regular show columns)
-   *   2 — sticky-left entity column (staff/studio name in tbody)
-   *   4 — corner: header cell of the entity column (overridden below)
-   * The corner needs to sit above BOTH the sticky-top row and the
-   * sticky-left column it intersects. */
-  z-index: 3;
-  /* th already gets var(--surface-2) from the base rule — repeat here
-     so a future theme tweak that drops the background won't suddenly
-     make the pinned row see-through. */
-  background: var(--surface-2);
 }
 
 /* Pin the staff/studio name column when the user scrolls horizontally
@@ -6287,13 +6289,10 @@ html {
   z-index: 2;
 }
 
-/* Top-left intersection: sticky on both axes. The thead rule above
- * already sets position: sticky + top: 0 + the surface-2 background;
- * we just add the left anchor and bump z-index so this single cell
- * sits above both the sticky-top row and the sticky-left column. */
+/* Top-left corner in the pinned header strip — stays at the left edge
+ * of the header row (body entity column is sticky-left separately). */
 .tool-staff-compare-wrap .tool-staff-compare-table thead th.tool-staff-compare-entity {
-  left: 0;
-  z-index: 4;
+  z-index: 2;
 }
 
 /* The corner cell carries the section heading ("Production Staff",
@@ -6873,6 +6872,22 @@ html {
   flex-direction: column;
 }
 
+.tool-season-header-row {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  width: max-content;
+  min-width: 100%;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border-strong);
+  background: var(--surface-2);
+}
+
+.tool-season-header-row .tool-season-column {
+  border-bottom: none;
+}
+
 .tool-season-scroll {
   position: relative;
   z-index: 0;
@@ -6902,14 +6917,9 @@ html {
 }
 
 .tool-season-col-head {
-  position: sticky;
-  top: 0;
-  z-index: 1;
   padding: 10px 12px;
-  border-bottom: 1px solid var(--border-strong);
   background: var(--surface-2);
   font-size: 13px;
-  box-shadow: 0 1px 0 var(--border);
 }
 
 .tool-season-col-title {
@@ -7163,8 +7173,46 @@ html {
   flex-direction: column;
 }
 
-.tool-adaptation-scroll {
+/* Pinned chart header sits above the vertical scroll body so the thumb
+ * starts beneath the title row (same idea as .settings-slots-scroll). */
+.tool-chart-pinned-header {
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border-strong);
+  background: var(--surface-2);
+}
+
+.tool-chart-body-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.tool-chart-split-table {
+  width: max-content;
+  table-layout: auto;
+}
+
+.tool-chart-sort-th {
+  cursor: pointer;
+  user-select: none;
+}
+
+.tool-chart-sort-th:hover {
+  color: var(--text);
+}
+
+.tool-chart-sort-th--active {
+  color: var(--text);
+}
+
+.tool-chart-sort-indicator {
+  font-size: 0.85em;
+  color: var(--text-muted);
+}
+
+.tool-adaptation-scroll {
   flex: 1;
   min-height: 0;
 }
@@ -7188,6 +7236,32 @@ html {
   max-width: none;
 }
 
+.tool-adaptation-filters .tool-adaptation-show-diff-field {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.tool-adaptation-filters .tool-adaptation-show-diff-field .tool-checkbox {
+  margin: 0;
+}
+
+.tool-adaptation-filters .tool-adaptation-show-diff {
+  min-width: 8.5rem;
+  width: auto;
+  margin: 0;
+  flex: 0 0 auto;
+}
+
+.tool-adaptation-filters .tool-checkbox,
+.tool-adaptation-filters .filter-chip {
+  align-self: center;
+  margin: 0;
+}
+
 .tool-adaptation-primary-filters .anime-to-anime-endpoint-user-input {
   width: 100px;
   flex: 0 0 auto;
@@ -7205,6 +7279,7 @@ html {
 .tool-adaptation-filters {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px 16px;
 }
 
@@ -7215,10 +7290,35 @@ html {
   width: auto;
 }
 
-.tool-adaptation-scroll .tool-adaptation-table thead th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
+.tool-adaptation-diff-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.tool-adaptation-diff-tone--positive {
+  color: rgb(189, 234, 171);
+}
+
+.tool-adaptation-diff-tone--negative {
+  color: rgb(225, 128, 178);
+}
+
+.tool-adaptation-diff-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2em;
+}
+
+.tool-adaptation-th.tool-adaptation-col-diff,
+.tool-adaptation-td.tool-adaptation-col-diff {
+  white-space: nowrap;
+  text-align: center;
+  vertical-align: middle;
+  padding-inline: 5px;
+}
+
+.tool-adaptation-th.tool-adaptation-col-diff {
+  letter-spacing: 0.02em;
 }
 
 .tool-adaptation-table th,

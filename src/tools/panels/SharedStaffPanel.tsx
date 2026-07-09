@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
 import { useToolsDisplayLabelRevision } from '../useToolsDisplayLabelRevision';
@@ -11,10 +11,15 @@ import {
   parseShowInputs,
   type SharedStaffForm,
   type SharedStaffResult,
+  type SharedStaffSection,
 } from './sharedStaffLogic';
 import { runSharedStaffCompare, type SharedStaffRunProgress } from './sharedStaffApi';
 import { ToolShowButton, ToolStaffButton } from '../toolEntityLinks';
 import { DragScroll } from '../../components/DragScroll';
+import {
+  applyHeaderScrollbarGutter,
+  syncTableColumnsByIndex,
+} from '../../lib/chartSplitTableSync';
 import { useToolsPreferencesRevision } from '../../hooks/useToolsPreferences';
 import { getProductionAllRoles } from '../toolsPreferences';
 
@@ -117,6 +122,123 @@ function progressLabel(progress: SharedStaffRunProgress | null): string | null {
     default:
       return null;
   }
+}
+
+function StaffCompareSectionTable({
+  section,
+  shows,
+  onOpenMedia,
+  onOpenStaff,
+}: {
+  section: SharedStaffSection;
+  shows: Array<{ id: number; title: string; coverImage: string | null }>;
+  onOpenMedia: ToolPanelProps['onOpenMedia'];
+  onOpenStaff: ToolPanelProps['onOpenStaff'];
+}) {
+  const headerWrapRef = useRef<HTMLDivElement>(null);
+  const headerTableRef = useRef<HTMLTableElement>(null);
+  const bodyTableRef = useRef<HTMLTableElement>(null);
+  const bodyScrollRef = useRef<HTMLDivElement>(null);
+
+  const syncTableLayout = useCallback(() => {
+    const headerWrap = headerWrapRef.current;
+    const bodyScroll = bodyScrollRef.current;
+    const headerTable = headerTableRef.current;
+    const bodyTable = bodyTableRef.current;
+    if (!headerWrap || !bodyScroll || !headerTable || !bodyTable) {
+      return;
+    }
+    applyHeaderScrollbarGutter(headerWrap, bodyScroll);
+    syncTableColumnsByIndex(headerTable, bodyTable);
+  }, []);
+
+  useLayoutEffect(() => {
+    syncTableLayout();
+    const bodyScroll = bodyScrollRef.current;
+    const bodyTable = bodyTableRef.current;
+    if (!bodyScroll) {
+      return;
+    }
+    const observer = new ResizeObserver(() => {
+      syncTableLayout();
+    });
+    observer.observe(bodyScroll);
+    if (bodyTable) {
+      observer.observe(bodyTable);
+    }
+    return () => {
+      observer.disconnect();
+    };
+  }, [section.rows, shows, syncTableLayout]);
+
+  const syncHeaderScroll = useCallback(
+    (el: HTMLElement) => {
+      if (headerWrapRef.current) {
+        headerWrapRef.current.scrollLeft = el.scrollLeft;
+      }
+      syncTableLayout();
+    },
+    [syncTableLayout],
+  );
+
+  return (
+    <div className="tool-results tool-table-wrap tool-staff-compare-wrap">
+      <div ref={headerWrapRef} className="tool-chart-pinned-header">
+        <table ref={headerTableRef} className="tool-result-table tool-staff-compare-table">
+          <thead>
+            <tr>
+              <th className="tool-staff-compare-entity tool-staff-compare-section-th">
+                <h3 className="tool-section-title">{section.title}</h3>
+              </th>
+              {shows.map((show) => (
+                <th key={show.id}>
+                  <ToolShowButton
+                    mediaId={show.id}
+                    title={show.title}
+                    coverImage={show.coverImage}
+                    onOpenMedia={onOpenMedia}
+                    compact
+                  />
+                </th>
+              ))}
+            </tr>
+          </thead>
+        </table>
+      </div>
+      <DragScroll
+        className="tool-staff-compare-body-scroll"
+        scrollRef={bodyScrollRef}
+        onUserScroll={syncHeaderScroll}
+      >
+        <table ref={bodyTableRef} className="tool-result-table tool-staff-compare-table">
+          <tbody>
+            {section.rows.map((row, idx) => (
+              <tr key={`${section.title}-${row.entityId}-${idx}`}>
+                <td className="tool-staff-compare-entity">
+                  {row.name ? (
+                    row.kind === 'studio' ? (
+                      row.name
+                    ) : (
+                      <ToolStaffButton
+                        staffId={row.entityId}
+                        name={row.name}
+                        imageUrl={row.imageUrl}
+                        onOpenStaff={onOpenStaff}
+                        compact
+                      />
+                    )
+                  ) : null}
+                </td>
+                {row.cells.map((cell, colIdx) => (
+                  <td key={`${idx}-${colIdx}`}>{cell}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </DragScroll>
+    </div>
+  );
 }
 
 export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
@@ -427,58 +549,13 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
       {result?.kind === 'compare' && (
         <div className="tool-chart-fullbleed">
           {result.sections.map((section) => (
-            <DragScroll
+            <StaffCompareSectionTable
               key={section.title}
-              className="tool-results tool-table-wrap tool-staff-compare-wrap"
-            >
-              <table className="tool-result-table tool-staff-compare-table">
-                <thead>
-                  {/* Section title lives inside the top-left corner cell so
-                      it inherits the corner's sticky-on-both-axes pinning
-                      — staying visible while either axis scrolls. */}
-                  <tr>
-                    <th className="tool-staff-compare-entity tool-staff-compare-section-th">
-                      <h3 className="tool-section-title">{section.title}</h3>
-                    </th>
-                    {result.shows.map((show) => (
-                      <th key={show.id}>
-                        <ToolShowButton
-                          mediaId={show.id}
-                          title={show.title}
-                          coverImage={show.coverImage}
-                          onOpenMedia={onOpenMedia}
-                          compact
-                        />
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {section.rows.map((row, idx) => (
-                    <tr key={`${section.title}-${row.entityId}-${idx}`}>
-                      <td className="tool-staff-compare-entity">
-                        {row.name ? (
-                          row.kind === 'studio' ? (
-                            row.name
-                          ) : (
-                            <ToolStaffButton
-                              staffId={row.entityId}
-                              name={row.name}
-                              imageUrl={row.imageUrl}
-                              onOpenStaff={onOpenStaff}
-                              compact
-                            />
-                          )
-                        ) : null}
-                      </td>
-                      {row.cells.map((cell, colIdx) => (
-                        <td key={`${idx}-${colIdx}`}>{cell}</td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </DragScroll>
+              section={section}
+              shows={result.shows}
+              onOpenMedia={onOpenMedia}
+              onOpenStaff={onOpenStaff}
+            />
           ))}
         </div>
       )}

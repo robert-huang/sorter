@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
 import { ToolUsernameField } from '../ToolUsernameField';
@@ -30,6 +30,7 @@ import {
 import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
 import { ToolShowButton } from '../toolEntityLinks';
 import { DragScroll } from '../../components/DragScroll';
+import { applyHeaderScrollbarGutter } from '../../lib/chartSplitTableSync';
 import {
   anilistUrlForSeasonSearch,
   bindAnilistMiddleClick,
@@ -167,28 +168,52 @@ function SeasonalColumnsView({
   onOpenMedia: ToolPanelProps['onOpenMedia'];
 }) {
   const topAverageColumnIndices = seasonColumnIndicesWithTopAverage(columns);
+  const headerRef = useRef<HTMLDivElement>(null);
+  const bodyScrollRef = useRef<HTMLDivElement>(null);
+
+  const syncSeasonLayout = useCallback(() => {
+    if (headerRef.current && bodyScrollRef.current) {
+      applyHeaderScrollbarGutter(headerRef.current, bodyScrollRef.current);
+      headerRef.current.scrollLeft = bodyScrollRef.current.scrollLeft;
+    }
+  }, []);
+
+  useLayoutEffect(() => {
+    syncSeasonLayout();
+    const bodyScroll = bodyScrollRef.current;
+    if (!bodyScroll) {
+      return;
+    }
+    const observer = new ResizeObserver(() => {
+      syncSeasonLayout();
+    });
+    observer.observe(bodyScroll);
+    return () => {
+      observer.disconnect();
+    };
+  }, [columns, syncSeasonLayout]);
+
+  const syncHeaderScroll = useCallback(
+    (el: HTMLElement) => {
+      if (headerRef.current) {
+        headerRef.current.scrollLeft = el.scrollLeft;
+      }
+      syncSeasonLayout();
+    },
+    [syncSeasonLayout],
+  );
 
   return (
     <div className="tool-season-columns">
-      <DragScroll
-        className="tool-season-scroll"
-        initialScrollEnd
-        scrollAnchorSelector="[data-scroll-anchor]"
-      >
-        <div className="tool-season-body">
-          {columns.map((col, colIdx) => {
-            const searchLink = bindAnilistMiddleClick(
-              col.matchAll
-                ? anilistUrlForSeasonSearch(null, 0)
-                : anilistUrlForSeasonSearch(col.season, col.year),
-            );
-            return (
-            <div
-              key={`${colIdx}-${col.label}`}
-              className="tool-season-column"
-              data-scroll-anchor={col.label}
-              data-scroll-anchor-year={col.year}
-            >
+      <div ref={headerRef} className="tool-season-header-row">
+        {columns.map((col, colIdx) => {
+          const searchLink = bindAnilistMiddleClick(
+            col.matchAll
+              ? anilistUrlForSeasonSearch(null, 0)
+              : anilistUrlForSeasonSearch(col.season, col.year),
+          );
+          return (
+            <div key={`head-${colIdx}-${col.label}`} className="tool-season-column">
               <div className="tool-season-col-head">
                 <div
                   className={mergeAnilistLinkClass(
@@ -221,6 +246,25 @@ function SeasonalColumnsView({
                   ) : null}
                 </div>
               </div>
+            </div>
+          );
+        })}
+      </div>
+      <DragScroll
+        className="tool-season-scroll"
+        initialScrollEnd
+        scrollAnchorSelector="[data-scroll-anchor]"
+        scrollRef={bodyScrollRef}
+        onUserScroll={syncHeaderScroll}
+      >
+        <div className="tool-season-body">
+          {columns.map((col, colIdx) => (
+            <div
+              key={`${colIdx}-${col.label}`}
+              className="tool-season-column"
+              data-scroll-anchor={col.label}
+              data-scroll-anchor-year={col.year}
+            >
               {col.shows.map((show) => (
                 <div key={show.id} className="tool-season-cell">
                   <div className="tool-season-cell-grid">
@@ -251,8 +295,7 @@ function SeasonalColumnsView({
                 </div>
               ))}
             </div>
-            );
-          })}
+          ))}
         </div>
       </DragScroll>
     </div>

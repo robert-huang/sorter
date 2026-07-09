@@ -6,10 +6,14 @@ import {
   buildAdaptationDisplay,
   canStaggerChain,
   canonicalizeDirectedAdaptationLinks,
+  adaptationDiffDisplayToneClass,
+  computeAdaptationBlockDiff,
   dedupeAdaptationPairs,
   dedupeDirectedAdaptationLinks,
+  DEFAULT_ADAPTATION_FILTERS,
   normalizeAdaptationPair,
   normalizeDirectedAdaptationLink,
+  pickConsumptionDotMediaId,
   relationTypeFromDirectedLink,
   resolveCrossMediumAdaptationPair,
   type AdaptationMedia,
@@ -51,6 +55,10 @@ function link(
   seedId: number,
 ): DirectedAdaptationLink {
   return { sourceId, adaptationId, seedId };
+}
+
+function testFilters(overrides: Partial<typeof DEFAULT_ADAPTATION_FILTERS> = {}) {
+  return { ...DEFAULT_ADAPTATION_FILTERS, ...overrides };
 }
 
 function visibleSourceIds(rows: ReturnType<typeof buildAdaptationBlockRows>): number[] {
@@ -220,13 +228,13 @@ describe('takagi franchise orientation', () => {
   const allStatuses = [...ADAPTATION_LIST_STATUS_OPTIONS];
 
   it('shows ashita|anime pairs with onlyBothOnList when ashita and seasons are on list', () => {
-    const filtered = applyAdaptationFilters(takagiLinks, takagiMap, ashitaPlusAnimeScope, {
+    const filtered = applyAdaptationFilters(takagiLinks, takagiMap, ashitaPlusAnimeScope, testFilters({
       includeAnime: true,
       includeManga: true,
       listStatuses: allStatuses,
       onlyBothOnList: true,
       hideSameMedium: true,
-    });
+    }));
 
     expect(filtered).toEqual([
       { sourceId: ASHITA_MANGA, adaptationId: TAKAGI_S2 },
@@ -235,13 +243,13 @@ describe('takagi franchise orientation', () => {
   });
 
   it('shows main manga|anime from anime seeds when onlyBothOnList is off', () => {
-    const filtered = applyAdaptationFilters(takagiLinks, takagiMap, ashitaPlusAnimeScope, {
+    const filtered = applyAdaptationFilters(takagiLinks, takagiMap, ashitaPlusAnimeScope, testFilters({
       includeAnime: true,
       includeManga: true,
       listStatuses: allStatuses,
       onlyBothOnList: false,
       hideSameMedium: true,
-    });
+    }));
 
     expect(filtered).toEqual(
       expect.arrayContaining([
@@ -274,13 +282,13 @@ describe('takagi franchise orientation', () => {
       media(TAKAGI_S3, { mediaType: 'ANIME', title: 'Takagi-san 3' }),
     ]);
 
-    const filtered = applyAdaptationFilters(links, map, scope, {
+    const filtered = applyAdaptationFilters(links, map, scope, testFilters({
       includeAnime: true,
       includeManga: true,
       listStatuses: allStatuses,
       onlyBothOnList: true,
       hideSameMedium: true,
-    });
+    }));
 
     expect(filtered).toEqual(
       expect.arrayContaining([
@@ -328,13 +336,13 @@ describe('applyAdaptationFilters', () => {
   const allStatuses = [...ADAPTATION_LIST_STATUS_OPTIONS];
 
   it('filters rows by anime list membership when only anime is included', () => {
-    const filtered = applyAdaptationFilters(links, map, scope, {
+    const filtered = applyAdaptationFilters(links, map, scope, testFilters({
       includeAnime: true,
       includeManga: false,
       listStatuses: allStatuses,
       onlyBothOnList: false,
       hideSameMedium: false,
-    });
+    }));
     expect(filtered).toEqual([
       { sourceId: 1, adaptationId: 2 },
       { sourceId: 3, adaptationId: 4 },
@@ -342,13 +350,13 @@ describe('applyAdaptationFilters', () => {
   });
 
   it('filters rows by manga list membership when only manga is included', () => {
-    const filtered = applyAdaptationFilters(links, map, scope, {
+    const filtered = applyAdaptationFilters(links, map, scope, testFilters({
       includeAnime: false,
       includeManga: true,
       listStatuses: allStatuses,
       onlyBothOnList: false,
       hideSameMedium: false,
-    });
+    }));
     expect(filtered).toEqual([
       { sourceId: 1, adaptationId: 2 },
       { sourceId: 5, adaptationId: 6 },
@@ -356,13 +364,13 @@ describe('applyAdaptationFilters', () => {
   });
 
   it('filters to doubly-connected pairs when onlyBothOnList is enabled', () => {
-    const filtered = applyAdaptationFilters(links, map, scope, {
+    const filtered = applyAdaptationFilters(links, map, scope, testFilters({
       includeAnime: true,
       includeManga: true,
       listStatuses: allStatuses,
       onlyBothOnList: true,
       hideSameMedium: false,
-    });
+    }));
     expect(filtered).toEqual([
       { sourceId: 1, adaptationId: 2 },
       { sourceId: 5, adaptationId: 6 },
@@ -370,13 +378,13 @@ describe('applyAdaptationFilters', () => {
   });
 
   it('hides same-medium pairs when requested', () => {
-    const filtered = applyAdaptationFilters(links, map, scope, {
+    const filtered = applyAdaptationFilters(links, map, scope, testFilters({
       includeAnime: true,
       includeManga: true,
       listStatuses: allStatuses,
       onlyBothOnList: false,
       hideSameMedium: true,
-    });
+    }));
     expect(filtered).toEqual([
       { sourceId: 1, adaptationId: 2 },
       { sourceId: 3, adaptationId: 4 },
@@ -384,13 +392,13 @@ describe('applyAdaptationFilters', () => {
   });
 
   it('filters rows when the scanning seed matches a selected list status', () => {
-    const filtered = applyAdaptationFilters(links, map, scope, {
+    const filtered = applyAdaptationFilters(links, map, scope, testFilters({
       includeAnime: true,
       includeManga: true,
       listStatuses: ['COMPLETED'],
       onlyBothOnList: false,
       hideSameMedium: false,
-    });
+    }));
     expect(filtered).toEqual([
       { sourceId: 1, adaptationId: 2 },
       { sourceId: 3, adaptationId: 4 },
@@ -413,13 +421,13 @@ describe('applyAdaptationFilters', () => {
         }),
       ]),
       { animeListIds: new Set([200]), mangaListIds: new Set([100]) },
-      {
+      testFilters({
         includeAnime: true,
         includeManga: false,
         listStatuses: ['PLANNING'],
         onlyBothOnList: false,
         hideSameMedium: false,
-      },
+      }),
     );
     expect(filtered).toEqual([{ sourceId: 100, adaptationId: 200 }]);
   });
@@ -439,13 +447,13 @@ describe('applyAdaptationFilters', () => {
         }),
       ]),
       { animeListIds: new Set([200]), mangaListIds: new Set([100]) },
-      {
+      testFilters({
         includeAnime: true,
         includeManga: false,
         listStatuses: ['PLANNING'],
         onlyBothOnList: false,
         hideSameMedium: false,
-      },
+      }),
     );
     expect(filtered).toEqual([]);
   });
@@ -465,13 +473,13 @@ describe('applyAdaptationFilters', () => {
         }),
       ]),
       { animeListIds: new Set([200]), mangaListIds: new Set([100]) },
-      {
+      testFilters({
         includeAnime: true,
         includeManga: false,
         listStatuses: ['PLANNING'],
         onlyBothOnList: false,
         hideSameMedium: false,
-      },
+      }),
     );
     expect(filtered).toEqual([{ sourceId: 100, adaptationId: 200 }]);
   });
@@ -491,13 +499,13 @@ describe('applyAdaptationFilters', () => {
         }),
       ]),
       { animeListIds: new Set([200]), mangaListIds: new Set([100]) },
-      {
+      testFilters({
         includeAnime: true,
         includeManga: true,
         listStatuses: ['PLANNING'],
         onlyBothOnList: true,
         hideSameMedium: false,
-      },
+      }),
     );
     expect(filtered).toEqual([]);
   });
@@ -769,13 +777,13 @@ describe('buildAdaptationDisplay', () => {
     const display = buildAdaptationDisplay(links, map, {
       animeListIds: new Set([20, 30]),
       mangaListIds: new Set([1, 2]),
-    }, {
+    }, testFilters({
       includeAnime: true,
       includeManga: true,
       listStatuses: [...ADAPTATION_LIST_STATUS_OPTIONS],
       onlyBothOnList: false,
       hideSameMedium: false,
-    });
+    }));
 
     expect(display.kind).toBe('table');
     if (display.kind !== 'table') {
@@ -803,13 +811,13 @@ describe('buildAdaptationDisplay', () => {
       links,
       map,
       { animeListIds: new Set([10, 20]), mangaListIds: new Set([1, 2]) },
-      {
+      testFilters({
         includeAnime: true,
         includeManga: true,
         listStatuses: ['COMPLETED'],
         onlyBothOnList: true,
         hideSameMedium: false,
-      },
+      }),
       { showAllRows: true },
     );
 
@@ -837,13 +845,13 @@ describe('buildAdaptationDisplay', () => {
       links,
       map,
       { animeListIds: new Set([10, 20]), mangaListIds: new Set([1]) },
-      {
+      testFilters({
         includeAnime: false,
         includeManga: false,
         listStatuses: [...ADAPTATION_LIST_STATUS_OPTIONS],
         onlyBothOnList: false,
         hideSameMedium: false,
-      },
+      }),
       { showAllRows: true },
     );
 
@@ -854,5 +862,57 @@ describe('buildAdaptationDisplay', () => {
     const rows = display.blocks[0]?.rows ?? [];
     expect(rows).toHaveLength(2);
     expect(rows.every((row) => row.hiddenByFilter)).toBe(true);
+  });
+});
+
+describe('adaptationDiffDisplayToneClass', () => {
+  it('colors positive diffs green and negative diffs red', () => {
+    expect(adaptationDiffDisplayToneClass(10)).toBe('tool-adaptation-diff-tone--positive');
+    expect(adaptationDiffDisplayToneClass(-5)).toBe('tool-adaptation-diff-tone--negative');
+    expect(adaptationDiffDisplayToneClass(0)).toBe('');
+    expect(adaptationDiffDisplayToneClass(null)).toBe('');
+  });
+});
+
+describe('computeAdaptationBlockDiff', () => {
+  it('SOURCE mode uses highest source minus highest adaptation score', () => {
+    const pairs: AdaptationPair[] = [
+      { sourceId: 1, adaptationId: 10 },
+      { sourceId: 2, adaptationId: 11 },
+    ];
+    const map = mediaMap([
+      media(1, { mediaType: 'MANGA', score: 70 }),
+      media(2, { mediaType: 'MANGA', score: 90 }),
+      media(10, { score: 60 }),
+      media(11, { score: 80 }),
+    ]);
+
+    expect(computeAdaptationBlockDiff('source', pairs, map, null)).toBe(10);
+  });
+
+  it('FIRST mode uses opposite-side max minus the consumption dot score', () => {
+    const pairs: AdaptationPair[] = [{ sourceId: 1, adaptationId: 10 }];
+    const map = mediaMap([
+      media(1, {
+        mediaType: 'MANGA',
+        score: 90,
+        startedAt: { year: 2022, month: 1, day: 1 },
+      }),
+      media(10, {
+        score: 75,
+        startedAt: { year: 2020, month: 1, day: 1 },
+      }),
+    ]);
+    const dotId = pickConsumptionDotMediaId([1, 10], map);
+
+    expect(dotId).toBe(10);
+    expect(computeAdaptationBlockDiff('first', pairs, map, dotId)).toBe(15);
+  });
+
+  it('returns null when show difference is off', () => {
+    const pairs: AdaptationPair[] = [{ sourceId: 1, adaptationId: 10 }];
+    const map = mediaMap([media(1, { mediaType: 'MANGA' }), media(10)]);
+
+    expect(computeAdaptationBlockDiff('off', pairs, map, null)).toBeNull();
   });
 });

@@ -56,12 +56,15 @@ export type AdaptationListScope = {
   mangaListIds: ReadonlySet<number>;
 };
 
+export type ShowDifferenceMode = 'off' | 'source' | 'first';
+
 export type AdaptationFilters = {
   includeAnime: boolean;
   includeManga: boolean;
   listStatuses: readonly AdaptationListStatus[];
   onlyBothOnList: boolean;
   hideSameMedium: boolean;
+  showDifference: ShowDifferenceMode;
 };
 
 export const DEFAULT_ADAPTATION_FILTERS: AdaptationFilters = {
@@ -70,6 +73,7 @@ export const DEFAULT_ADAPTATION_FILTERS: AdaptationFilters = {
   listStatuses: [...DEFAULT_ADAPTATION_LIST_STATUSES],
   onlyBothOnList: false,
   hideSameMedium: false,
+  showDifference: 'off',
 };
 
 export function normalizeAdaptationListStatuses(raw: unknown): AdaptationListStatus[] {
@@ -102,6 +106,8 @@ export type AdaptationTableRow = {
 export type AdaptationDisplayBlock = {
   rows: AdaptationTableRow[];
   sortKey: number;
+  /** Block-level score gap when Show difference is enabled. */
+  diff: number | null;
 };
 
 export type AdaptationScoresResult =
@@ -829,6 +835,69 @@ export function pickConsumptionDotMediaId(
   return bestId;
 }
 
+function maxScoreForSideInBlock(
+  pairs: readonly AdaptationPair[],
+  mediaMap: ReadonlyMap<number, AdaptationMedia>,
+  side: 'source' | 'adaptation',
+): number | null {
+  const ids = new Set<number>();
+  for (const pair of pairs) {
+    ids.add(side === 'source' ? pair.sourceId : pair.adaptationId);
+  }
+  let max: number | null = null;
+  for (const id of ids) {
+    const score = mediaMap.get(id)?.score;
+    if (typeof score === 'number' && (max === null || score > max)) {
+      max = score;
+    }
+  }
+  return max;
+}
+
+/** Score gap for a franchise block (SOURCE / FIRST modes). */
+export function computeAdaptationBlockDiff(
+  mode: ShowDifferenceMode,
+  pairs: readonly AdaptationPair[],
+  mediaMap: ReadonlyMap<number, AdaptationMedia>,
+  consumptionDotId: number | null,
+): number | null {
+  if (mode === 'off') {
+    return null;
+  }
+  if (mode === 'source') {
+    const sourceMax = maxScoreForSideInBlock(pairs, mediaMap, 'source');
+    const adaptMax = maxScoreForSideInBlock(pairs, mediaMap, 'adaptation');
+    if (sourceMax === null || adaptMax === null) {
+      return null;
+    }
+    return sourceMax - adaptMax;
+  }
+  if (consumptionDotId === null) {
+    return null;
+  }
+  const dotMedia = mediaMap.get(consumptionDotId);
+  if (dotMedia?.score == null) {
+    return null;
+  }
+  const dotOnSource = pairs.some((pair) => pair.sourceId === consumptionDotId);
+  const oppositeSide: 'source' | 'adaptation' = dotOnSource ? 'adaptation' : 'source';
+  const oppositeMax = maxScoreForSideInBlock(pairs, mediaMap, oppositeSide);
+  if (oppositeMax === null) {
+    return null;
+  }
+  return oppositeMax - dotMedia.score;
+}
+
+/** Diff column colour: positive green, negative red/pink; zero and null stay default. */
+export function adaptationDiffDisplayToneClass(diff: number | null): string {
+  if (diff == null || diff === 0) {
+    return '';
+  }
+  return diff > 0
+    ? 'tool-adaptation-diff-tone--positive'
+    : 'tool-adaptation-diff-tone--negative';
+}
+
 function pickConsumptionDotForBlock(
   pairs: readonly AdaptationPair[],
   mediaMap: ReadonlyMap<number, AdaptationMedia>,
@@ -1049,20 +1118,29 @@ export function buildAdaptationDisplay(
   };
 
   const blocks = groupPairsIntoBlocks(workingPairs)
-    .map((blockPairs) => ({
-      rows: buildAdaptationBlockRows(blockPairs, mediaMap).map((row) => {
-        if (!showAllRows) {
-          return row;
-        }
-        const pair = resolveRowPair(row, blockPairs);
-        if (pair == null) {
-          return row;
-        }
-        const hiddenByFilter = !filteredKeys.has(adaptationPairKey(pair));
-        return hiddenByFilter ? { ...row, hiddenByFilter: true } : row;
-      }),
-      sortKey: blockSortKey(blockPairs, mediaMap),
-    }))
+    .map((blockPairs) => {
+      const consumptionDotId = pickConsumptionDotForBlock(blockPairs, mediaMap);
+      return {
+        rows: buildAdaptationBlockRows(blockPairs, mediaMap).map((row) => {
+          if (!showAllRows) {
+            return row;
+          }
+          const pair = resolveRowPair(row, blockPairs);
+          if (pair == null) {
+            return row;
+          }
+          const hiddenByFilter = !filteredKeys.has(adaptationPairKey(pair));
+          return hiddenByFilter ? { ...row, hiddenByFilter: true } : row;
+        }),
+        sortKey: blockSortKey(blockPairs, mediaMap),
+        diff: computeAdaptationBlockDiff(
+          filters.showDifference,
+          blockPairs,
+          mediaMap,
+          consumptionDotId,
+        ),
+      };
+    })
     .filter((block) => block.rows.length > 0)
     .sort((a, b) => a.sortKey - b.sortKey);
 

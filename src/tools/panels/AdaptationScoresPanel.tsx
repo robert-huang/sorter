@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
 import { ToolUsernameField } from '../ToolUsernameField';
@@ -8,6 +8,11 @@ import { withLastAnilistUsername, writeLastAnilistUsername } from '../../lib/imp
 import { ToolShowButton } from '../toolEntityLinks';
 import { DragScroll } from '../../components/DragScroll';
 import {
+  applyHeaderScrollbarGutter,
+  syncPairedTableColumnWidth,
+  syncTableColumnsByClass,
+} from '../../lib/chartSplitTableSync';
+import {
   mergeAdaptationScanFromRelationsRefresh,
   runAdaptationScores,
   type AdaptationRunProgress,
@@ -16,12 +21,14 @@ import {
 import {
   DEFAULT_ADAPTATION_FILTERS,
   ADAPTATION_LIST_STATUS_OPTIONS,
+  adaptationDiffDisplayToneClass,
   buildAdaptationDisplay,
   normalizeAdaptationListStatuses,
+  type AdaptationDisplayBlock,
   type AdaptationFilters,
   type AdaptationScoresResult,
   type AdaptationTableCell,
-  type AdaptationTableRow,
+  type ShowDifferenceMode,
 } from './adaptationScoresLogic';
 import {
   formatFranchiseScoreLabel,
@@ -39,6 +46,30 @@ const HIDE_SAME_MEDIUM_TOOLTIP =
 
 const CONSUMPTION_DOT_TOOLTIP =
   'You started this entry first in this group (earliest start date on your list).';
+
+function formatDiffLabel(diff: number | null): string {
+  if (diff === null) {
+    return '—';
+  }
+  if (diff > 0) {
+    return `+${diff}`;
+  }
+  return String(diff);
+}
+
+type DiffSort = 'desc' | 'asc' | null;
+
+const SHOW_DIFFERENCE_MODE_OPTIONS: readonly {
+  value: Exclude<ShowDifferenceMode, 'off'>;
+  label: string;
+}[] = [
+  { value: 'source', label: 'Source' },
+  { value: 'first', label: 'First' },
+];
+
+const SHOW_DIFFERENCE_TOOLTIP =
+  'SOURCE: highest source score in the block minus highest adaptation score. ' +
+  'FIRST: highest score on the opposite side of your consumption dot minus that dot item’s score.';
 
 type AdaptationForm = {
   username: string;
@@ -100,7 +131,15 @@ function normalizeFilters(raw: unknown): AdaptationFilters {
         ? obj.hideSameMedium
         : DEFAULT_ADAPTATION_FILTERS.hideSameMedium,
     listStatuses: normalizeAdaptationListStatuses(obj.listStatuses),
+    showDifference: normalizeShowDifference(obj.showDifference),
   };
+}
+
+function normalizeShowDifference(raw: unknown): ShowDifferenceMode {
+  if (raw === 'source' || raw === 'first') {
+    return raw;
+  }
+  return 'off';
 }
 
 function loadFilters(): AdaptationFilters {
@@ -219,56 +258,232 @@ function AdaptationCell({
   );
 }
 
-function AdaptationTable({
-  rows,
-  onOpenMedia,
+function AdaptationTableColgroup({ showDiff }: { showDiff: boolean }) {
+  return (
+    <colgroup>
+      <col className="tool-adaptation-col-source" />
+      {showDiff ? <col className="tool-adaptation-col-diff" /> : null}
+      <col className="tool-adaptation-col-adaptation" />
+    </colgroup>
+  );
+}
+
+function AdaptationDiffCell({
+  diff,
+  rowSpan,
 }: {
-  rows: AdaptationTableRow[];
-  onOpenMedia: ToolPanelProps['onOpenMedia'];
+  diff: number | null;
+  rowSpan: number;
 }) {
   return (
-    <DragScroll className="tool-adaptation-scroll">
-      <table className="tool-adaptation-table">
-      <thead>
-        <tr>
-          <th className="tool-adaptation-th tool-adaptation-col-source tool-table-col-divider">
-            Source
-          </th>
-          <th className="tool-adaptation-th tool-adaptation-col-adaptation">Adaptation</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row, index) => (
-          <tr
-            key={`adaptation-row-${index}`}
-            className={[
-              'tool-adaptation-row',
-              row.hiddenByFilter ? 'tool-adaptation-row-filtered-out' : '',
-            ]
-              .filter(Boolean)
-              .join(' ')}
-          >
-            {row.leadingSourceGap ? (
-              <td
-                className="tool-adaptation-td tool-adaptation-col-source tool-table-col-divider"
-                aria-hidden="true"
-              />
-            ) : null}
-            {row.source ? (
-              <AdaptationCell column="source" cell={row.source} onOpenMedia={onOpenMedia} />
-            ) : null}
-            {row.adaptation ? (
-              <AdaptationCell
-                column="adaptation"
-                cell={row.adaptation}
-                onOpenMedia={onOpenMedia}
-              />
-            ) : null}
-          </tr>
-        ))}
-      </tbody>
-      </table>
-    </DragScroll>
+    <td
+      className={[
+        'tool-adaptation-td',
+        'tool-adaptation-col-diff',
+        'tool-table-col-divider',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      rowSpan={rowSpan > 1 ? rowSpan : undefined}
+    >
+      <span
+        className={[
+          'tool-adaptation-diff-value',
+          adaptationDiffDisplayToneClass(diff),
+        ]
+          .filter(Boolean)
+          .join(' ')}
+      >
+        {formatDiffLabel(diff)}
+      </span>
+    </td>
+  );
+}
+
+function AdaptationTable({
+  blocks,
+  showDifference,
+  diffSort,
+  onDiffSortClick,
+  onOpenMedia,
+}: {
+  blocks: AdaptationDisplayBlock[];
+  showDifference: ShowDifferenceMode;
+  diffSort: DiffSort;
+  onDiffSortClick: () => void;
+  onOpenMedia: ToolPanelProps['onOpenMedia'];
+}) {
+  const showDiff = showDifference !== 'off';
+  const headerWrapRef = useRef<HTMLDivElement>(null);
+  const headerTableRef = useRef<HTMLTableElement>(null);
+  const bodyTableRef = useRef<HTMLTableElement>(null);
+  const bodyScrollRef = useRef<HTMLDivElement>(null);
+
+  const syncColumnClasses = useMemo(
+    () =>
+      ['tool-adaptation-col-source', 'tool-adaptation-col-adaptation'] as const,
+    [],
+  );
+
+  const syncTableLayout = useCallback(() => {
+    const headerWrap = headerWrapRef.current;
+    const bodyScroll = bodyScrollRef.current;
+    const headerTable = headerTableRef.current;
+    const bodyTable = bodyTableRef.current;
+    if (!headerWrap || !bodyScroll || !headerTable || !bodyTable) {
+      return;
+    }
+    applyHeaderScrollbarGutter(headerWrap, bodyScroll);
+    syncTableColumnsByClass(headerTable, bodyTable, syncColumnClasses, undefined, {
+      setTableWidth: false,
+    });
+    if (showDiff) {
+      syncPairedTableColumnWidth(headerTable, bodyTable, 'tool-adaptation-col-diff');
+    }
+    const tableWidth = Math.max(headerTable.offsetWidth, bodyTable.offsetWidth);
+    if (tableWidth > 0) {
+      const widthPx = `${tableWidth}px`;
+      headerTable.style.width = widthPx;
+      bodyTable.style.width = widthPx;
+    }
+  }, [showDiff, syncColumnClasses]);
+
+  useLayoutEffect(() => {
+    syncTableLayout();
+    const bodyScroll = bodyScrollRef.current;
+    const bodyTable = bodyTableRef.current;
+    if (!bodyScroll) {
+      return;
+    }
+    const observer = new ResizeObserver(() => {
+      syncTableLayout();
+    });
+    observer.observe(bodyScroll);
+    if (bodyTable) {
+      observer.observe(bodyTable);
+    }
+    return () => {
+      observer.disconnect();
+    };
+  }, [blocks, showDiff, diffSort, syncTableLayout]);
+
+  const syncHeaderScroll = useCallback(
+    (el: HTMLElement) => {
+      if (headerWrapRef.current) {
+        headerWrapRef.current.scrollLeft = el.scrollLeft;
+      }
+      syncTableLayout();
+    },
+    [syncTableLayout],
+  );
+
+  const diffSortIndicator =
+    diffSort === 'desc' ? '↓' : diffSort === 'asc' ? '↑' : null;
+
+  return (
+    <>
+      <div ref={headerWrapRef} className="tool-chart-pinned-header">
+        <table
+          ref={headerTableRef}
+          className={[
+            'tool-adaptation-table',
+            'tool-chart-split-table',
+            showDiff ? 'tool-chart-split-table--with-diff' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+        >
+          <AdaptationTableColgroup showDiff={showDiff} />
+          <thead>
+            <tr>
+              <th className="tool-adaptation-th tool-adaptation-col-source tool-table-col-divider">
+                Source
+              </th>
+              {showDiff ? (
+                <th
+                  className={[
+                    'tool-adaptation-th',
+                    'tool-adaptation-col-diff',
+                    'tool-table-col-divider',
+                    'tool-chart-sort-th',
+                    diffSort ? 'tool-chart-sort-th--active' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  onClick={onDiffSortClick}
+                  title="Sort franchise blocks by difference (click to cycle)"
+                >
+                  {diffSortIndicator ? (
+                    <span className="tool-adaptation-diff-head">
+                      Diff
+                      <span className="tool-chart-sort-indicator" aria-hidden="true">
+                        {diffSortIndicator}
+                      </span>
+                    </span>
+                  ) : (
+                    'Diff'
+                  )}
+                </th>
+              ) : null}
+              <th className="tool-adaptation-th tool-adaptation-col-adaptation">Adaptation</th>
+            </tr>
+          </thead>
+        </table>
+      </div>
+      <DragScroll
+        className="tool-adaptation-scroll tool-chart-body-scroll"
+        scrollRef={bodyScrollRef}
+        onUserScroll={syncHeaderScroll}
+      >
+        <table
+          ref={bodyTableRef}
+          className={[
+            'tool-adaptation-table',
+            'tool-chart-split-table',
+            showDiff ? 'tool-chart-split-table--with-diff' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+        >
+          <AdaptationTableColgroup showDiff={showDiff} />
+          <tbody>
+            {blocks.map((block, blockIndex) =>
+              block.rows.map((row, rowIndex) => (
+                <tr
+                  key={`adaptation-block-${blockIndex}-row-${rowIndex}`}
+                  className={[
+                    'tool-adaptation-row',
+                    row.hiddenByFilter ? 'tool-adaptation-row-filtered-out' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                >
+                  {row.leadingSourceGap ? (
+                    <td
+                      className="tool-adaptation-td tool-adaptation-col-source tool-table-col-divider"
+                      aria-hidden="true"
+                    />
+                  ) : null}
+                  {row.source ? (
+                    <AdaptationCell column="source" cell={row.source} onOpenMedia={onOpenMedia} />
+                  ) : null}
+                  {showDiff && rowIndex === 0 ? (
+                    <AdaptationDiffCell diff={block.diff} rowSpan={block.rows.length} />
+                  ) : null}
+                  {row.adaptation ? (
+                    <AdaptationCell
+                      column="adaptation"
+                      cell={row.adaptation}
+                      onOpenMedia={onOpenMedia}
+                    />
+                  ) : null}
+                </tr>
+              )),
+            )}
+          </tbody>
+        </table>
+      </DragScroll>
+    </>
   );
 }
 
@@ -283,6 +498,8 @@ export function AdaptationScoresPanel({
   const [form, setForm] = useState<AdaptationForm>(() => loadForm());
   const [filters, setFilters] = useState<AdaptationFilters>(() => loadFilters());
   const [showAllRows, setShowAllRows] = useState(false);
+  const [diffSort, setDiffSort] = useState<DiffSort>(null);
+  const lastShowDifferenceModeRef = useRef<Exclude<ShowDifferenceMode, 'off'>>('source');
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AdaptationScoresResult | null>(null);
@@ -297,6 +514,30 @@ export function AdaptationScoresPanel({
   useEffect(() => {
     saveFilters(filters);
   }, [filters]);
+
+  useEffect(() => {
+    if (filters.showDifference !== 'off') {
+      lastShowDifferenceModeRef.current = filters.showDifference;
+    }
+  }, [filters.showDifference]);
+
+  useEffect(() => {
+    if (filters.showDifference === 'off') {
+      setDiffSort(null);
+    }
+  }, [filters.showDifference]);
+
+  const cycleDiffSort = useCallback(() => {
+    setDiffSort((prev) => {
+      if (prev === null) {
+        return 'desc';
+      }
+      if (prev === 'desc') {
+        return 'asc';
+      }
+      return null;
+    });
+  }, []);
 
   useEffect(() => {
     if (!bindMediaRelationsRefreshHandler) {
@@ -346,6 +587,7 @@ export function AdaptationScoresPanel({
       setRunning(true);
       setError(null);
       setProgress(null);
+      setDiffSort(null);
 
       try {
         const next = await runAdaptationScores({
@@ -385,12 +627,32 @@ export function AdaptationScoresPanel({
     });
   }, [filters, result, scan, showAllRows]);
 
-  const tableRows = useMemo(() => {
+  const tableBlocks = useMemo(() => {
     if (displayResult?.kind !== 'table') {
       return [];
     }
-    return displayResult.blocks.flatMap((block) => block.rows);
-  }, [displayResult]);
+    let blocks = displayResult.blocks;
+    if (diffSort && filters.showDifference !== 'off') {
+      blocks = [...blocks].sort((a, b) => {
+        const aDiff = a.diff;
+        const bDiff = b.diff;
+        if (aDiff === null && bDiff === null) {
+          return a.sortKey - b.sortKey;
+        }
+        if (aDiff === null) {
+          return 1;
+        }
+        if (bDiff === null) {
+          return -1;
+        }
+        const cmp = diffSort === 'desc' ? bDiff - aDiff : aDiff - bDiff;
+        return cmp !== 0 ? cmp : a.sortKey - b.sortKey;
+      });
+    }
+    return blocks;
+  }, [diffSort, displayResult, filters.showDifference]);
+
+  const hasTableRows = tableBlocks.some((block) => block.rows.length > 0);
 
   const bothMediaOff = !filters.includeAnime && !filters.includeManga;
 
@@ -474,6 +736,41 @@ export function AdaptationScoresPanel({
             />
             Show all rows
           </label>
+          <div className="tool-adaptation-show-diff-field" title={SHOW_DIFFERENCE_TOOLTIP}>
+            <label className="tool-checkbox">
+              <input
+                type="checkbox"
+                checked={filters.showDifference !== 'off'}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    patchFilters({
+                      showDifference: lastShowDifferenceModeRef.current,
+                    });
+                  } else {
+                    patchFilters({ showDifference: 'off' });
+                  }
+                }}
+              />
+              Show score diff
+            </label>
+            {filters.showDifference !== 'off' ? (
+              <select
+                className="slot-search tool-adaptation-show-diff"
+                value={filters.showDifference}
+                onChange={(e) => {
+                  const mode = e.target.value as Exclude<ShowDifferenceMode, 'off'>;
+                  lastShowDifferenceModeRef.current = mode;
+                  patchFilters({ showDifference: mode });
+                }}
+              >
+                {SHOW_DIFFERENCE_MODE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+          </div>
         </div>
         <div className="tool-actions">
           <ToolRunButton
@@ -503,10 +800,16 @@ export function AdaptationScoresPanel({
         <p className="tool-empty">{displayResult.message}</p>
       )}
 
-      {displayResult?.kind === 'table' && tableRows.length > 0 && (
+      {displayResult?.kind === 'table' && hasTableRows && (
         <div className="tool-chart-fullbleed tool-adaptation-fullbleed">
           <div className="tool-adaptation-scroll-card">
-            <AdaptationTable rows={tableRows} onOpenMedia={onOpenMedia} />
+            <AdaptationTable
+              blocks={tableBlocks}
+              showDifference={filters.showDifference}
+              diffSort={diffSort}
+              onDiffSortClick={cycleDiffSort}
+              onOpenMedia={onOpenMedia}
+            />
           </div>
         </div>
       )}
