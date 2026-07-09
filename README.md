@@ -95,6 +95,7 @@ ITEM, URL (optional), IMAGE (optional)
 - Column order is positional. Header row names are not used for mapping.
 - "First row is a header" checkbox defaults **off**. Check it if your CSV has a header. A soft hint appears if the first row looks like a header.
 - Quoted fields (with embedded commas, newlines) are supported.
+- **AniList URL column:** when the optional URL is an AniList entity page (`/anime`, `/manga`, `/character`, `/staff`, or `/studio` + numeric id), import attaches the matching `source` metadata and stable `anilist:*` item id — same as items imported from the AniList tab. Bare `anilist.co/…` paths (no `https://`) are accepted. Search and user-profile URLs are ignored. Linked anime/manga/staff rows show the ⓘ detail button in the CSV import preview and staged panel (including pending preview rows).
 
 Example:
 
@@ -102,6 +103,7 @@ Example:
 Inception,https://imdb.com/title/tt1375666,https://example.com/inception.jpg
 Heat
 "Pit, the card game",,https://example.com/pit.png
+One Piece,https://anilist.co/anime/21
 ```
 
 ## Import modes (START tab)
@@ -178,7 +180,7 @@ Click **Add {N} selected to staged** to append an **unranked** group to the [Sta
 
 - **Labels** follow the global **Display names** preference (title language romaji/english/native; staff names full/native — see [display preferences](#display-names-titles--staff-names)) and update live if you change it, even for already-staged items.
 - **Caching**: imports do a transactional wipe-and-rebuild for that user + type in `anilist.sqlite`, then (when cloud is connected) auto-push the DB to your Drive folder. Incremental edits (detail-panel expansions) require a manual Push.
-- **Rate limits**: requests are serialized; on an AniList `429` the app backs off (honoring `Retry-After`, up to ~5 retries). Only one import can run per source at a time (`An import is already running — wait for it to finish.`).
+- **Rate limits**: requests are serialized; on an AniList `429` the app backs off (honoring `Retry-After`, up to ~5 retries). A yellow top banner counts down while waiting (visible behind detail modals). Only one import can run per source at a time (`An import is already running — wait for it to finish.`).
 
 ## AniList detail panels
 

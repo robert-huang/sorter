@@ -3330,22 +3330,51 @@ html {
   white-space: nowrap;
 }
 
-.preview-items li .icons {
-  color: var(--text-muted);
-  font-size: 12px;
+.preview-items li .preview-item-trailing {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
   flex-shrink: 0;
 }
 
+.preview-items li .preview-item-indicators {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.preview-items li .preview-item-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+}
+
+.preview-items li .preview-item-indicator.anime-to-anime-anilist-link:hover {
+  background: var(--surface);
+}
+
 .preview-item-actions {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 2px;
-  margin-left: auto;
   flex-shrink: 0;
 }
 
 /* Match LIST tab row affordances — always visible, not hover-discovered. */
 .preview-item-actions .icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 22px;
+  min-height: 22px;
   padding: 1px 5px;
   font-size: 13px;
 }
@@ -5407,7 +5436,8 @@ html {
    .x-button (the × / ↺ control) so the pair sits as a tight unit at
    the row's trailing edge rather than reading as two unrelated
    actions. */
-.staged-panel-item-edit {
+.staged-panel-item-edit,
+.staged-panel-item-detail {
   flex-shrink: 0;
 }
 

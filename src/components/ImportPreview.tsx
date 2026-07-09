@@ -1,6 +1,12 @@
 import { useMemo, useState } from 'react';
 import type { CommaInLabelWarning, DedupWarning, ExtraColumnsWarning } from '../lib/types';
 import type { PreviewItem } from '../lib/csv';
+import {
+  bindAnilistMiddleClick,
+  mergeAnilistLinkClass,
+} from '../lib/importers/anilist/anilistLinks';
+import { canOpenItemDetail } from './itemDetailContext';
+import { DetailButton } from './DetailButton';
 
 export interface PreviewSource {
   sourceName: string;
@@ -376,45 +382,77 @@ function SourceBlock({
                 <span className="preview-item-label" title={it.label}>
                   {it.label}
                 </span>
-                <span className="icons">
-                  {it.url && <span title={it.url}>🔗</span>}{' '}
-                  {it.imageUrl && <span title={it.imageUrl}>🖼</span>}
+                <span className="preview-item-trailing">
+                  {(it.url || it.imageUrl) && (
+                    <span className="preview-item-indicators">
+                      {it.url && (
+                        <PreviewItemIndicator href={it.url} kind="url" />
+                      )}
+                      {it.imageUrl && (
+                        <PreviewItemIndicator href={it.imageUrl} kind="image" />
+                      )}
+                    </span>
+                  )}
+                  {(onEditRow || onRemoveRow || canOpenItemDetail(it)) && (
+                    <span className="preview-item-actions">
+                      <DetailButton item={it} variant="row" />
+                      {onEditRow && (
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          onClick={() =>
+                            onEditRow(source.sourceName, pi.sourceRow, it.label)
+                          }
+                          title={`Edit "${it.label}" (row ${pi.sourceRow})`}
+                          aria-label={`Edit ${it.label}`}
+                        >
+                          ✎
+                        </button>
+                      )}
+                      {onRemoveRow && (
+                        <button
+                          type="button"
+                          className="icon-btn danger"
+                          onClick={() =>
+                            onRemoveRow(source.sourceName, pi.sourceRow)
+                          }
+                          title={`Remove "${it.label}" from import`}
+                          aria-label={`Remove ${it.label}`}
+                        >
+                          ×
+                        </button>
+                      )}
+                    </span>
+                  )}
                 </span>
-                {(onEditRow || onRemoveRow) && (
-                  <span className="preview-item-actions">
-                    {onEditRow && (
-                      <button
-                        type="button"
-                        className="icon-btn"
-                        onClick={() =>
-                          onEditRow(source.sourceName, pi.sourceRow, it.label)
-                        }
-                        title={`Edit "${it.label}" (row ${pi.sourceRow})`}
-                        aria-label={`Edit ${it.label}`}
-                      >
-                        ✎
-                      </button>
-                    )}
-                    {onRemoveRow && (
-                      <button
-                        type="button"
-                        className="icon-btn danger"
-                        onClick={() =>
-                          onRemoveRow(source.sourceName, pi.sourceRow)
-                        }
-                        title={`Remove "${it.label}" from import`}
-                        aria-label={`Remove ${it.label}`}
-                      >
-                        ×
-                      </button>
-                    )}
-                  </span>
-                )}
               </li>
             );
           })}
         </ul>
       )}
     </div>
+  );
+}
+
+function PreviewItemIndicator({
+  href,
+  kind,
+}: {
+  href: string;
+  kind: 'url' | 'image';
+}) {
+  const link = bindAnilistMiddleClick(href);
+  const label = kind === 'url' ? 'URL' : 'Image';
+  return (
+    <span
+      className={mergeAnilistLinkClass('preview-item-indicator', link.className)}
+      title={`${label}: ${href} (middle-click to open)`}
+      aria-label={`${label} for this row (middle-click to open)`}
+      onMouseDown={link.onMouseDown}
+      onAuxClick={link.onAuxClick}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {kind === 'url' ? '🔗' : '🖼'}
+    </span>
   );
 }

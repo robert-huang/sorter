@@ -1,6 +1,7 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Item, ItemId } from '../lib/types';
 import { useClickOutside } from '../lib/hooks/useClickOutside';
+import { DetailButton } from './DetailButton';
 
 /**
  * Which engine the current START draft will start in. Non-persisted —
@@ -336,6 +337,24 @@ export function StagedItemsPanel({
   };
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  // Pending groups (live tab content) start expanded so linked-item
+  // affordances (ⓘ, dup badges) are visible without an extra click.
+  useEffect(() => {
+    if (pending.length === 0) return;
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const p of pending) {
+        if (!next.has(p.id)) {
+          next.add(p.id);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [pending]);
+
   const toggleExpanded = (id: string) =>
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -720,6 +739,12 @@ export function StagedItemsPanel({
                             also in {otherOccurrences.length} other
                             {otherOccurrences.length === 1 ? '' : 's'}
                           </span>
+                        )}
+                        {/* ⓘ — AniList-linked items (including CSV URL
+                            enrichment) can open the detail panel before
+                            the sort starts. Shown on pending rows too. */}
+                        {!groupMarked && (
+                          <DetailButton item={it} variant="staged" />
                         )}
                         {/* Edit (pencil) — opens EditItemModal in the
                             parent. Hidden when the group is marked

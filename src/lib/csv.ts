@@ -1,4 +1,5 @@
 import Papa from 'papaparse';
+import { enrichItemFromAnilistUrl } from './importers/anilist/parseAnilistEntityUrl';
 import type { CommaInLabelWarning, DedupWarning, ExtraColumnsWarning, Item, ItemId } from './types';
 
 // ---------- canonical key ----------
@@ -193,6 +194,24 @@ export interface RawRow {
   rawCells?: string[];
 }
 
+/** Build a deduped {@link Item} from one parsed CSV row, enriching AniList URLs. */
+export function materializeItemFromRawRow(row: RawRow): Item {
+  const slugId = canonicalKey(row.label);
+  const baseId = row.idOverride ?? slugId;
+  return enrichItemFromAnilistUrl(
+    {
+      id: baseId,
+      label: row.label,
+      url: row.url,
+      imageUrl: row.imageUrl,
+    },
+    {
+      preserveId: row.idOverride !== undefined,
+      slugId,
+    },
+  );
+}
+
 export interface ParseResult {
   items: Item[]; // deduped within this source
   warnings: DedupWarning[];
@@ -335,28 +354,46 @@ export function dedupRows(rows: RawRow[]): {
   >();
 
   for (const row of rows) {
-    const id = row.idOverride ?? canonicalKey(row.label);
+    const item = materializeItemFromRawRow(row);
+    const id = item.id;
     const existing = byKey.get(id);
     if (!existing) {
       byKey.set(id, {
-        item: {
-          id,
-          label: row.label,
-          url: row.url,
-          imageUrl: row.imageUrl,
-        },
+        item,
         occurrences: [row],
       });
       continue;
     }
     existing.occurrences.push(row);
-    if (!existing.item.url && row.url) {
-      existing.item = { ...existing.item, url: row.url };
-      existing.mergedUrlFrom = row.sourceName;
+    let bucket = existing;
+    if (!bucket.item.url && row.url) {
+      const prevId = bucket.item.id;
+      bucket.item = enrichItemFromAnilistUrl(
+        { ...bucket.item, url: row.url },
+        { slugId: canonicalKey(bucket.item.label) },
+      );
+      bucket.mergedUrlFrom = row.sourceName;
+      if (bucket.item.id !== prevId) {
+        byKey.delete(prevId);
+        const atNewId = byKey.get(bucket.item.id);
+        if (atNewId) {
+          atNewId.occurrences.push(...bucket.occurrences);
+          if (!atNewId.item.url) {
+            atNewId.item = { ...atNewId.item, url: bucket.item.url };
+            atNewId.mergedUrlFrom = bucket.mergedUrlFrom;
+          }
+          if (!atNewId.item.source && bucket.item.source) {
+            atNewId.item = { ...atNewId.item, source: bucket.item.source };
+          }
+          bucket = atNewId;
+        } else {
+          byKey.set(bucket.item.id, bucket);
+        }
+      }
     }
-    if (!existing.item.imageUrl && row.imageUrl) {
-      existing.item = { ...existing.item, imageUrl: row.imageUrl };
-      existing.mergedImageFrom = row.sourceName;
+    if (!bucket.item.imageUrl && row.imageUrl) {
+      bucket.item = { ...bucket.item, imageUrl: row.imageUrl };
+      bucket.mergedImageFrom = row.sourceName;
     }
   }
 
@@ -462,16 +499,11 @@ export function parseSources(sources: SourceParse[]): {
     const seen = new Set<ItemId>();
     const localItems: PreviewItem[] = [];
     for (const r of s.rawRows) {
-      const id = r.idOverride ?? canonicalKey(r.label);
-      if (seen.has(id)) continue;
-      seen.add(id);
+      const item = materializeItemFromRawRow(r);
+      if (seen.has(item.id)) continue;
+      seen.add(item.id);
       localItems.push({
-        item: {
-          id,
-          label: r.label,
-          url: r.url,
-          imageUrl: r.imageUrl,
-        },
+        item,
         sourceRow: r.sourceRow,
       });
     }

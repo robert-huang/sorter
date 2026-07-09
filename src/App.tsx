@@ -164,6 +164,7 @@ import { relabelAnilistItemPreservingFormat } from './lib/importers/anilist/anil
 import { AnilistDetailModal } from './components/AnilistDetailModal';
 import { StaffDetailModal } from './components/StaffDetailModal';
 import { ItemDetailContext } from './components/itemDetailContext';
+import { useAnilistApiWait } from './hooks/useAnilistApiWait';
 import { useKeyboard } from './hooks/useKeyboard';
 import { useHistoryBackGuard } from './hooks/useHistoryBackGuard';
 
@@ -274,6 +275,7 @@ export function App() {
   >(null);
   const [skippedMessage, setSkippedMessage] = useState<string | null>(null);
   const skippedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { apiWait, apiWaitSecondsLeft } = useAnilistApiWait();
   // Settings-backed UI state. Read once on boot; written through
   // updateSettings so the next mount picks them up.
   const [theme, setThemeState] = useState<ThemeName>(
@@ -2689,6 +2691,14 @@ export function App() {
         </div>
       )}
       {skippedMessage && <div className="app-banner">{skippedMessage}</div>}
+      {apiWait && apiWaitSecondsLeft !== null && (
+        <div className="app-banner warn">
+          <span>
+            AniList rate limit — retrying in {apiWaitSecondsLeft}s (attempt{' '}
+            {apiWait.attempt})
+          </span>
+        </div>
+      )}
       </AppBannerStack>
       <Header
         activeTab={activeTab}

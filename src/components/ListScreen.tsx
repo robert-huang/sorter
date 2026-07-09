@@ -1,4 +1,4 @@
-import { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { getPair } from '../lib/engine';
 import {
   canReorderInCurrentMerge,
@@ -13,7 +13,7 @@ import type {
 } from '../lib/types';
 import { AddItemsModal } from './AddItemsModal';
 import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
-import { canOpenItemDetail, ItemDetailContext } from './itemDetailContext';
+import { DetailButton } from './DetailButton';
 import { ItemThumb } from './ItemThumb';
 import {
   activeRankingIds,
@@ -341,39 +341,6 @@ function Thumb({ item }: { item: Item }) {
   // .thumb font styling — matches the prior single-character look but
   // now shows initials and adds onError fallback for broken URLs.
   return <ItemThumb item={item} className="thumb" placeholderClass="" />;
-}
-
-/**
- * Info-icon button that opens the media detail panel (AnilistDetailModal)
- * for `item`, via the app-level ItemDetailContext. Mirrors EditButton's
- * chip/row variants so it slots in right beside it. Renders nothing for
- * non-AniList items (no panel to show) or when no opener is wired (tests /
- * hosts without the provider) — the same gate ItemThumb and ItemCard use.
- * This gives the LIST chips/rows parity with the COMPARE card's detail
- * button.
- */
-function DetailButton({
-  item,
-  variant,
-}: {
-  item: Item;
-  variant: 'chip' | 'row';
-}) {
-  const opener = useContext(ItemDetailContext);
-  if (!opener || !canOpenItemDetail(item)) return null;
-  return (
-    <button
-      className={variant === 'chip' ? 'x detail' : 'icon-btn'}
-      onClick={(e) => {
-        e.stopPropagation();
-        opener(item);
-      }}
-      title={`Details for "${item.label}"`}
-      aria-label={`Details for ${item.label}`}
-    >
-      ⓘ
-    </button>
-  );
 }
 
 /**
