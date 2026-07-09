@@ -41,12 +41,13 @@ const readUserMediaListEntriesFromDbMock = vi.mocked(readUserMediaListEntriesFro
 function relationsResponse(
   selfId: number,
   edges: Array<{ relationType: string; nodeId: number; nodeType?: 'ANIME' | 'MANGA' }> = [],
+  selfType: 'ANIME' | 'MANGA' = 'ANIME',
 ): unknown {
   return {
     Media: {
       id: selfId,
-      type: 'ANIME',
-      format: 'TV',
+      type: selfType,
+      format: selfType === 'MANGA' ? 'MANGA' : 'TV',
       title: { english: `Show ${selfId}`, romaji: null, native: null },
       coverImage: { large: null },
       startDate: { year: 2020, month: 1, day: 1 },
@@ -98,8 +99,9 @@ describe('buildBatchedAdaptationRelationsQuery', () => {
 function relationsMedia(
   selfId: number,
   edges: Array<{ relationType: string; nodeId: number; nodeType?: 'ANIME' | 'MANGA' }> = [],
+  selfType: 'ANIME' | 'MANGA' = 'ANIME',
 ) {
-  const payload = relationsResponse(selfId, edges) as {
+  const payload = relationsResponse(selfId, edges, selfType) as {
     Media: ToolsMediaRelationsResponse['media'];
   };
   return payload.Media;
@@ -119,7 +121,7 @@ describe('linksFromRelationScan', () => {
         20,
         {
           media: relationsMedia(20, [{ relationType: 'ADAPTATION', nodeId: 30 }]),
-          edges: [{ relationType: 'ADAPTATION', node: relationsMedia(30) }],
+          edges: [{ relationType: 'ADAPTATION', node: relationsMedia(30, [], 'MANGA') }],
         },
       ],
     ]);
@@ -128,6 +130,60 @@ describe('linksFromRelationScan', () => {
       { sourceId: 5, adaptationId: 10, seedId: 10 },
       { sourceId: 20, adaptationId: 30, seedId: 20 },
     ]);
+  });
+
+  it('orients bidirectional ADAPTATION to manga|anime after both sides are scanned', () => {
+    const responses = new Map<number, AdaptationRelationsResponse>([
+      [
+        107068,
+        {
+          media: relationsMedia(107068, [], 'ANIME'),
+          edges: [
+            {
+              relationType: 'ADAPTATION',
+              node: relationsMedia(85533, [], 'MANGA'),
+            },
+            {
+              relationType: 'ADAPTATION',
+              node: relationsMedia(87142, [], 'MANGA'),
+            },
+          ],
+        },
+      ],
+      [
+        87142,
+        {
+          media: relationsMedia(87142, [], 'MANGA'),
+          edges: [
+            {
+              relationType: 'ADAPTATION',
+              node: relationsMedia(107068, [], 'ANIME'),
+            },
+          ],
+        },
+      ],
+      [
+        85533,
+        {
+          media: relationsMedia(85533, [], 'MANGA'),
+          edges: [
+            {
+              relationType: 'ADAPTATION',
+              node: relationsMedia(107068, [], 'ANIME'),
+            },
+          ],
+        },
+      ],
+    ]);
+
+    expect(linksFromRelationScan([107068, 87142, 85533], responses)).toEqual(
+      expect.arrayContaining([
+        { sourceId: 85533, adaptationId: 107068, seedId: 107068 },
+        { sourceId: 85533, adaptationId: 107068, seedId: 85533 },
+        { sourceId: 87142, adaptationId: 107068, seedId: 107068 },
+        { sourceId: 87142, adaptationId: 107068, seedId: 87142 },
+      ]),
+    );
   });
 });
 

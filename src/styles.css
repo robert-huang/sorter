@@ -7246,6 +7246,12 @@ html {
   min-width: 0;
 }
 
+.tool-adaptation-td.tool-adaptation-col-source:empty {
+  padding: 0;
+  width: 0;
+  min-width: 0;
+}
+
 .tool-adaptation-table tbody tr:last-child td {
   border-bottom: none;
 }

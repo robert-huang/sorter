@@ -5,10 +5,13 @@ import {
   buildAdaptationBlockRows,
   buildAdaptationDisplay,
   canStaggerChain,
+  canonicalizeDirectedAdaptationLinks,
   dedupeAdaptationPairs,
   dedupeDirectedAdaptationLinks,
   normalizeAdaptationPair,
   normalizeDirectedAdaptationLink,
+  relationTypeFromDirectedLink,
+  resolveCrossMediumAdaptationPair,
   type AdaptationMedia,
   type AdaptationPair,
   type DirectedAdaptationLink,
@@ -75,6 +78,10 @@ describe('normalizeAdaptationPair', () => {
       sourceId: 10,
       adaptationId: 20,
     });
+    expect(normalizeAdaptationPair(107068, 'ADAPTATION', 85533)).toEqual({
+      sourceId: 107068,
+      adaptationId: 85533,
+    });
   });
 
   it('ignores unrelated relation types', () => {
@@ -109,6 +116,157 @@ describe('normalizeDirectedAdaptationLink', () => {
       adaptationId: 20,
       seedId: 10,
     });
+  });
+});
+
+describe('relationTypeFromDirectedLink', () => {
+  it('recovers the raw AniList relation from strict normalization', () => {
+    expect(relationTypeFromDirectedLink({ sourceId: 10, adaptationId: 20, seedId: 10 })).toBe(
+      'ADAPTATION',
+    );
+    expect(relationTypeFromDirectedLink({ sourceId: 5, adaptationId: 10, seedId: 10 })).toBe(
+      'SOURCE',
+    );
+  });
+});
+
+describe('canonicalizeDirectedAdaptationLinks', () => {
+  const types = new Map<number, 'ANIME' | 'MANGA'>([
+    [85533, 'MANGA'],
+    [87142, 'MANGA'],
+    [107068, 'ANIME'],
+    [200, 'ANIME'],
+    [300, 'MANGA'],
+  ]);
+
+  it('resolves bidirectional ADAPTATION to manga|anime (Takagi pattern B)', () => {
+    const strict: DirectedAdaptationLink[] = [
+      { sourceId: 87142, adaptationId: 107068, seedId: 87142 },
+      { sourceId: 107068, adaptationId: 87142, seedId: 107068 },
+    ];
+    expect(canonicalizeDirectedAdaptationLinks(strict, types)).toEqual([
+      { sourceId: 87142, adaptationId: 107068, seedId: 87142 },
+      { sourceId: 87142, adaptationId: 107068, seedId: 107068 },
+    ]);
+  });
+
+  it('keeps anime|manga when manga has SOURCE to anime (spinoff pattern A)', () => {
+    const strict: DirectedAdaptationLink[] = [
+      { sourceId: 200, adaptationId: 300, seedId: 300 },
+      { sourceId: 200, adaptationId: 300, seedId: 200 },
+    ];
+    expect(canonicalizeDirectedAdaptationLinks(strict, types)).toEqual([
+      { sourceId: 200, adaptationId: 300, seedId: 300 },
+      { sourceId: 200, adaptationId: 300, seedId: 200 },
+    ]);
+    expect(
+      resolveCrossMediumAdaptationPair(300, 200, strict),
+    ).toEqual({ sourceId: 200, adaptationId: 300 });
+  });
+
+  it('leaves a single-sided anime ADAPTATION as anime|manga until the manga side is scanned', () => {
+    const strict: DirectedAdaptationLink[] = [
+      { sourceId: 200, adaptationId: 300, seedId: 200 },
+    ];
+    expect(canonicalizeDirectedAdaptationLinks(strict, types)).toEqual(strict);
+  });
+});
+
+describe('takagi franchise orientation', () => {
+  const TAKAGI_MANGA = 85533;
+  const ASHITA_MANGA = 87142;
+  const TAKAGI_S2 = 107068;
+  const TAKAGI_S3 = 138424;
+
+  const takagiLinks: DirectedAdaptationLink[] = [
+    { sourceId: ASHITA_MANGA, adaptationId: TAKAGI_S2, seedId: ASHITA_MANGA },
+    { sourceId: ASHITA_MANGA, adaptationId: TAKAGI_S2, seedId: TAKAGI_S2 },
+    { sourceId: TAKAGI_MANGA, adaptationId: TAKAGI_S2, seedId: TAKAGI_S2 },
+    { sourceId: ASHITA_MANGA, adaptationId: TAKAGI_S3, seedId: ASHITA_MANGA },
+    { sourceId: ASHITA_MANGA, adaptationId: TAKAGI_S3, seedId: TAKAGI_S3 },
+    { sourceId: TAKAGI_MANGA, adaptationId: TAKAGI_S3, seedId: TAKAGI_S3 },
+  ];
+  const takagiMap = mediaMap([
+    media(ASHITA_MANGA, { mediaType: 'MANGA', title: 'Ashita wa Doyoubi' }),
+    media(TAKAGI_MANGA, { mediaType: 'MANGA', title: 'Takagi-san', listStatus: null }),
+    media(TAKAGI_S2, { mediaType: 'ANIME', title: 'Takagi-san 2' }),
+    media(TAKAGI_S3, { mediaType: 'ANIME', title: 'Takagi-san 3' }),
+  ]);
+  const ashitaPlusAnimeScope = {
+    animeListIds: new Set([TAKAGI_S2, TAKAGI_S3]),
+    mangaListIds: new Set([ASHITA_MANGA]),
+  };
+  const allStatuses = [...ADAPTATION_LIST_STATUS_OPTIONS];
+
+  it('shows ashita|anime pairs with onlyBothOnList when ashita and seasons are on list', () => {
+    const filtered = applyAdaptationFilters(takagiLinks, takagiMap, ashitaPlusAnimeScope, {
+      includeAnime: true,
+      includeManga: true,
+      listStatuses: allStatuses,
+      onlyBothOnList: true,
+      hideSameMedium: true,
+    });
+
+    expect(filtered).toEqual([
+      { sourceId: ASHITA_MANGA, adaptationId: TAKAGI_S2 },
+      { sourceId: ASHITA_MANGA, adaptationId: TAKAGI_S3 },
+    ]);
+  });
+
+  it('shows main manga|anime from anime seeds when onlyBothOnList is off', () => {
+    const filtered = applyAdaptationFilters(takagiLinks, takagiMap, ashitaPlusAnimeScope, {
+      includeAnime: true,
+      includeManga: true,
+      listStatuses: allStatuses,
+      onlyBothOnList: false,
+      hideSameMedium: true,
+    });
+
+    expect(filtered).toEqual(
+      expect.arrayContaining([
+        { sourceId: TAKAGI_MANGA, adaptationId: TAKAGI_S2 },
+        { sourceId: TAKAGI_MANGA, adaptationId: TAKAGI_S3 },
+      ]),
+    );
+    expect(filtered).not.toEqual(
+      expect.arrayContaining([
+        { sourceId: TAKAGI_S3, adaptationId: ASHITA_MANGA },
+        { sourceId: TAKAGI_S2, adaptationId: TAKAGI_MANGA },
+      ]),
+    );
+  });
+
+  it('shows main manga|anime with onlyBothOnList when main manga is also on list', () => {
+    const scope = {
+      animeListIds: new Set([TAKAGI_S2, TAKAGI_S3]),
+      mangaListIds: new Set([ASHITA_MANGA, TAKAGI_MANGA]),
+    };
+    const links: DirectedAdaptationLink[] = [
+      ...takagiLinks,
+      { sourceId: TAKAGI_MANGA, adaptationId: TAKAGI_S2, seedId: TAKAGI_MANGA },
+      { sourceId: TAKAGI_MANGA, adaptationId: TAKAGI_S3, seedId: TAKAGI_MANGA },
+    ];
+    const map = mediaMap([
+      media(ASHITA_MANGA, { mediaType: 'MANGA', title: 'Ashita wa Doyoubi' }),
+      media(TAKAGI_MANGA, { mediaType: 'MANGA', title: 'Takagi-san' }),
+      media(TAKAGI_S2, { mediaType: 'ANIME', title: 'Takagi-san 2' }),
+      media(TAKAGI_S3, { mediaType: 'ANIME', title: 'Takagi-san 3' }),
+    ]);
+
+    const filtered = applyAdaptationFilters(links, map, scope, {
+      includeAnime: true,
+      includeManga: true,
+      listStatuses: allStatuses,
+      onlyBothOnList: true,
+      hideSameMedium: true,
+    });
+
+    expect(filtered).toEqual(
+      expect.arrayContaining([
+        { sourceId: TAKAGI_MANGA, adaptationId: TAKAGI_S2 },
+        { sourceId: TAKAGI_MANGA, adaptationId: TAKAGI_S3 },
+      ]),
+    );
   });
 });
 
@@ -412,6 +570,11 @@ describe('buildAdaptationBlockRows', () => {
 
     const boundaryRow = rows.find((row) => row.source?.media.id === 2 && !row.source.skipRender);
     expect(boundaryRow?.source?.rowSpan).toBe(2);
+
+    const sourceAfterAdaptSegment = rows.find(
+      (row) => row.source?.media.id === 3 && !row.source.skipRender,
+    );
+    expect(sourceAfterAdaptSegment?.leadingSourceGap).not.toBe(true);
   });
 
   it('falls back to duplicate rows for non-chain N-to-M overlap', () => {

@@ -15,6 +15,7 @@ import { normalizeSeasonalListScore } from './seasonalScoresLogic';
 import {
   ADAPTATION_EDGE_TYPES,
   buildAdaptationDisplay,
+  canonicalizeDirectedAdaptationLinks,
   dedupeDirectedAdaptationLinks,
   normalizeDirectedAdaptationLink,
   type AdaptationDate,
@@ -69,6 +70,32 @@ export function adaptationEdgesFromResponse(
 ): ToolsMediaRelationsResponse['edges'] {
   return response.edges.filter((edge) =>
     (ADAPTATION_EDGE_TYPES as readonly string[]).includes(edge.relationType),
+  );
+}
+
+function mediaTypesFromResponses(
+  responses: ReadonlyMap<number, ToolsMediaRelationsResponse>,
+): Map<number, 'ANIME' | 'MANGA'> {
+  const types = new Map<number, 'ANIME' | 'MANGA'>();
+  const ingest = (media: ToolsApiMedia) => {
+    if (media.type === 'ANIME' || media.type === 'MANGA') {
+      types.set(media.id, media.type);
+    }
+  };
+  for (const response of responses.values()) {
+    ingest(response.media);
+    for (const edge of adaptationEdgesFromResponse(response)) {
+      ingest(edge.node);
+    }
+  }
+  return types;
+}
+
+function mediaTypesFromAdaptationMediaMap(
+  mediaMap: ReadonlyMap<number, AdaptationMedia>,
+): Map<number, 'ANIME' | 'MANGA'> {
+  return new Map(
+    [...mediaMap.entries()].map(([id, entry]) => [id, entry.mediaType]),
   );
 }
 
@@ -154,7 +181,9 @@ export function linksFromRelationScan(
       }
     }
   }
-  return dedupeDirectedAdaptationLinks(links);
+  return dedupeDirectedAdaptationLinks(
+    canonicalizeDirectedAdaptationLinks(links, mediaTypesFromResponses(responses)),
+  );
 }
 
 export function buildAdaptationMediaMap(
@@ -312,7 +341,9 @@ export function mergeAdaptationScanFromRelationsRefresh(
   }
 
   return {
-    links: dedupeDirectedAdaptationLinks(links),
+    links: dedupeDirectedAdaptationLinks(
+      canonicalizeDirectedAdaptationLinks(links, mediaTypesFromAdaptationMediaMap(mediaMap)),
+    ),
     mediaMap,
     listScope: scan.listScope,
   };

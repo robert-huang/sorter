@@ -248,6 +248,12 @@ function AdaptationTable({
               .filter(Boolean)
               .join(' ')}
           >
+            {row.leadingSourceGap ? (
+              <td
+                className="tool-adaptation-td tool-adaptation-col-source tool-table-col-divider"
+                aria-hidden="true"
+              />
+            ) : null}
             {row.source ? (
               <AdaptationCell column="source" cell={row.source} onOpenMedia={onOpenMedia} />
             ) : null}

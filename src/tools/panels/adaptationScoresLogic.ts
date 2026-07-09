@@ -93,6 +93,8 @@ export type AdaptationTableRow = {
   adaptation: AdaptationTableCell | null;
   /** Underlying adaptation pair for this row (survives rowspan merges). */
   pair?: AdaptationPair;
+  /** Empty source column cell so adaptation-only rows stay in column 2. */
+  leadingSourceGap?: boolean;
   /** Dimmed when show-all-rows is on but filters exclude this pair. */
   hiddenByFilter?: boolean;
 };
@@ -117,7 +119,15 @@ type PhysicalRow = {
   pair?: AdaptationPair;
 };
 
-/** Normalize a v2 relation edge from list item L to neighbor N into (source, adaptation). */
+type CrossMediumType = AdaptationMedia['mediaType'];
+
+/**
+ * Normalize a v2 relation edge from list item L to neighbor N into (source, adaptation).
+ *
+ * AniList v2 semantics relative to the scan seed:
+ * - SOURCE: neighbor is the source of L
+ * - ADAPTATION: neighbor is an adaptation of L
+ */
 export function normalizeAdaptationPair(
   listMediaId: number,
   relationType: string,
@@ -143,6 +153,130 @@ export function normalizeDirectedAdaptationLink(
     return null;
   }
   return { ...pair, seedId: listMediaId };
+}
+
+/** Recover the raw AniList relation type from a strictly-normalized directed link. */
+export function relationTypeFromDirectedLink(
+  link: DirectedAdaptationLink,
+): AdaptationEdgeType {
+  return link.sourceId === link.seedId ? 'ADAPTATION' : 'SOURCE';
+}
+
+function neighborIdFromDirectedLink(link: DirectedAdaptationLink): number {
+  return link.sourceId === link.seedId ? link.adaptationId : link.sourceId;
+}
+
+function undirectedMediaPairKey(a: number, b: number): string {
+  return a < b ? `${a}:${b}` : `${b}:${a}`;
+}
+
+function isCrossMediumPair(
+  leftId: number,
+  rightId: number,
+  mediaTypes: ReadonlyMap<number, CrossMediumType | null | undefined>,
+): boolean {
+  const leftType = mediaTypes.get(leftId);
+  const rightType = mediaTypes.get(rightId);
+  return (
+    (leftType === 'ANIME' && rightType === 'MANGA') ||
+    (leftType === 'MANGA' && rightType === 'ANIME')
+  );
+}
+
+/**
+ * Resolve one cross-medium pair to a single canonical orientation using the raw
+ * relation types observed from each scan seed.
+ *
+ * - manga SOURCE → anime: anime is the original (pattern A spinoff)
+ * - anime SOURCE → manga: manga is the original
+ * - bidirectional ADAPTATION: manga → anime (pattern B; AniList quirk on anime pages)
+ * - otherwise: trust the single observed ADAPTATION direction
+ */
+export function resolveCrossMediumAdaptationPair(
+  mangaId: number,
+  animeId: number,
+  links: readonly DirectedAdaptationLink[],
+): AdaptationPair {
+  let mangaAdaptationToAnime = false;
+  let mangaSourceToAnime = false;
+  let animeAdaptationToManga = false;
+  let animeSourceToManga = false;
+
+  for (const edge of links) {
+    const relationType = relationTypeFromDirectedLink(edge);
+    const neighborId = neighborIdFromDirectedLink(edge);
+    if (edge.seedId === mangaId && neighborId === animeId) {
+      if (relationType === 'ADAPTATION') {
+        mangaAdaptationToAnime = true;
+      } else {
+        mangaSourceToAnime = true;
+      }
+    }
+    if (edge.seedId === animeId && neighborId === mangaId) {
+      if (relationType === 'ADAPTATION') {
+        animeAdaptationToManga = true;
+      } else {
+        animeSourceToManga = true;
+      }
+    }
+  }
+
+  if (mangaSourceToAnime) {
+    return { sourceId: animeId, adaptationId: mangaId };
+  }
+  if (animeSourceToManga) {
+    return { sourceId: mangaId, adaptationId: animeId };
+  }
+  if (mangaAdaptationToAnime && animeAdaptationToManga) {
+    return { sourceId: mangaId, adaptationId: animeId };
+  }
+  if (mangaAdaptationToAnime) {
+    return { sourceId: mangaId, adaptationId: animeId };
+  }
+  if (animeAdaptationToManga) {
+    return { sourceId: animeId, adaptationId: mangaId };
+  }
+
+  return { sourceId: links[0]!.sourceId, adaptationId: links[0]!.adaptationId };
+}
+
+/** Align cross-medium directed links to one canonical pair per relationship. */
+export function canonicalizeDirectedAdaptationLinks(
+  links: readonly DirectedAdaptationLink[],
+  mediaTypes: ReadonlyMap<number, CrossMediumType | null | undefined>,
+): DirectedAdaptationLink[] {
+  const crossMediumGroups = new Map<string, DirectedAdaptationLink[]>();
+  const passthrough: DirectedAdaptationLink[] = [];
+
+  for (const edge of links) {
+    if (!isCrossMediumPair(edge.sourceId, edge.adaptationId, mediaTypes)) {
+      passthrough.push(edge);
+      continue;
+    }
+    const key = undirectedMediaPairKey(edge.sourceId, edge.adaptationId);
+    const group = crossMediumGroups.get(key);
+    if (group) {
+      group.push(edge);
+    } else {
+      crossMediumGroups.set(key, [edge]);
+    }
+  }
+
+  const out: DirectedAdaptationLink[] = [...passthrough];
+  for (const group of crossMediumGroups.values()) {
+    const endpointIds = [group[0]!.sourceId, group[0]!.adaptationId];
+    const mangaId = endpointIds.find((id) => mediaTypes.get(id) === 'MANGA');
+    const animeId = endpointIds.find((id) => mediaTypes.get(id) === 'ANIME');
+    if (mangaId == null || animeId == null) {
+      out.push(...group);
+      continue;
+    }
+    const canonical = resolveCrossMediumAdaptationPair(mangaId, animeId, group);
+    for (const edge of group) {
+      out.push({ ...canonical, seedId: edge.seedId });
+    }
+  }
+  return out;
 }
 
 export function adaptationPairKey(pair: AdaptationPair): string {
@@ -539,6 +673,25 @@ function applyDuplicateRowspans(physical: PhysicalRow[]): PhysicalRow[] {
   return out;
 }
 
+function activeSpanRowCount(spans: ReadonlyMap<number, number>): number {
+  let count = 0;
+  for (const remaining of spans.values()) {
+    count += remaining;
+  }
+  return count;
+}
+
+function consumeImplicitRowspans(spans: Map<number, number>): void {
+  for (const [id, remaining] of [...spans.entries()]) {
+    const next = remaining - 1;
+    if (next <= 0) {
+      spans.delete(id);
+    } else {
+      spans.set(id, next);
+    }
+  }
+}
+
 function physicalRowsToTableRows(
   physical: readonly PhysicalRow[],
   mediaMap: ReadonlyMap<number, AdaptationMedia>,
@@ -548,6 +701,7 @@ function physicalRowsToTableRows(
   const activeAdaptSpans = new Map<number, number>();
 
   return physical.map((row) => {
+    const sourceColumnOccupied = activeSpanRowCount(activeSourceSpans) > 0;
     let sourceCell: AdaptationTableCell | null = null;
     let adaptationCell: AdaptationTableCell | null = null;
 
@@ -603,7 +757,25 @@ function physicalRowsToTableRows(
       }
     }
 
-    return { source: sourceCell, adaptation: adaptationCell, pair: row.pair };
+    const leadingSourceGap =
+      adaptationCell != null &&
+      !adaptationCell.skipRender &&
+      (sourceCell == null || sourceCell.skipRender) &&
+      !sourceColumnOccupied;
+
+    if (row.source == null) {
+      consumeImplicitRowspans(activeSourceSpans);
+    }
+    if (row.adaptation == null) {
+      consumeImplicitRowspans(activeAdaptSpans);
+    }
+
+    return {
+      source: sourceCell,
+      adaptation: adaptationCell,
+      pair: row.pair,
+      leadingSourceGap,
+    };
   });
 }
 
