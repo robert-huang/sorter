@@ -20,7 +20,9 @@ export type UseDragScrollResult<T extends HTMLElement> = {
 };
 
 /** Click-drag anywhere on a scroll container to pan its scroll position. */
-export function useDragScroll<T extends HTMLElement = HTMLDivElement>(): UseDragScrollResult<T> {
+export function useDragScroll<T extends HTMLElement = HTMLDivElement>(
+  onScroll?: (el: T) => void,
+): UseDragScrollResult<T> {
   const ref = useRef<T>(null!);
   const dragRef = useRef<DragState | null>(null);
 
@@ -117,7 +119,8 @@ export function useDragScroll<T extends HTMLElement = HTMLDivElement>(): UseDrag
     event.preventDefault();
     el.scrollLeft = state.scrollLeft - dx;
     el.scrollTop = state.scrollTop - dy;
-  }, []);
+    onScroll?.(el);
+  }, [onScroll]);
 
   const onPointerUp = useCallback<PointerEventHandler<T>>((event) => {
     const state = dragRef.current;

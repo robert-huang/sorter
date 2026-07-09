@@ -6872,16 +6872,16 @@ html {
   flex-direction: column;
 }
 
+.tool-season-header-wrap {
+  background: var(--surface-2);
+}
+
 .tool-season-header-row {
-  flex: 0 0 auto;
   display: flex;
   flex-direction: row;
   align-items: stretch;
   width: max-content;
   min-width: 100%;
-  overflow: hidden;
-  border-bottom: 1px solid var(--border-strong);
-  background: var(--surface-2);
 }
 
 .tool-season-header-row .tool-season-column {
@@ -6894,6 +6894,7 @@ html {
   overflow: auto;
   flex: 1;
   min-height: 0;
+  scrollbar-gutter: stable;
 }
 
 .tool-season-body {

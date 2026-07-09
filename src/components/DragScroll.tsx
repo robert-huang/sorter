@@ -57,7 +57,13 @@ export function DragScroll({
   onUserScroll,
   scrollRef,
 }: DragScrollProps) {
-  const { ref, ...dragProps } = useDragScroll<HTMLDivElement>();
+  const notifyUserScroll = useCallback(
+    (el: HTMLDivElement) => {
+      onUserScroll?.(el);
+    },
+    [onUserScroll],
+  );
+  const { ref, ...dragProps } = useDragScroll<HTMLDivElement>(notifyUserScroll);
   const isFirstLayoutRef = useRef(true);
   const savedScrollRef = useRef<SavedScrollState | null>(null);
   const anchorConfigRef = useRef<AnchorConfig>({

@@ -179,16 +179,24 @@ function SeasonalColumnsView({
   }, []);
 
   useLayoutEffect(() => {
-    syncSeasonLayout();
+    const sync = () => {
+      syncSeasonLayout();
+    };
+    sync();
+    // Run again after DragScroll's initialScrollEnd layout pass.
+    const frameId = requestAnimationFrame(sync);
     const bodyScroll = bodyScrollRef.current;
     if (!bodyScroll) {
-      return;
+      return () => {
+        cancelAnimationFrame(frameId);
+      };
     }
     const observer = new ResizeObserver(() => {
       syncSeasonLayout();
     });
     observer.observe(bodyScroll);
     return () => {
+      cancelAnimationFrame(frameId);
       observer.disconnect();
     };
   }, [columns, syncSeasonLayout]);
@@ -205,7 +213,8 @@ function SeasonalColumnsView({
 
   return (
     <div className="tool-season-columns">
-      <div ref={headerRef} className="tool-season-header-row">
+      <div ref={headerRef} className="tool-chart-pinned-header tool-season-header-wrap">
+        <div className="tool-season-header-row">
         {columns.map((col, colIdx) => {
           const searchLink = bindAnilistMiddleClick(
             col.matchAll
@@ -249,6 +258,7 @@ function SeasonalColumnsView({
             </div>
           );
         })}
+        </div>
       </div>
       <DragScroll
         className="tool-season-scroll"
