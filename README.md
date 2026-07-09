@@ -121,7 +121,7 @@ Paste or upload multiple CSVs. Each list is treated as a sorted sublist (row ord
 Pull a user's anime/manga list (or favourites) from AniList into the local cache, filter it, and stage a subset to sort. See the dedicated [Importing from AniList](#importing-from-anilist) section for the full flow.
 
 ### Sort results
-Import **final rankings** from completed save slots already in this browser's `localStorage`. Select one or more slots, toggle each as **pre-ranked list** (preserve order) or **individual items**, then add to staged or into an active sort via **+ Add item(s) → Sort results**. In-progress slots are listed but not importable. The slot you are currently editing is excluded from the picker. Drive-only copies are out of scope — pull them into local storage first.
+Import **final rankings** from completed save slots already in this browser's `localStorage`. Select one or more slots, toggle each as **pre-ranked list** (preserve order) or **individual items**, then add to staged or into an active sort via **+ Add item(s) → Sort results**. Expand a slot's **Preview** to edit labels, URLs, image URLs, or logical ids (with collision checking) and remove rows before adding — same pre-staging edit model as the CSV import preview. In-progress slots are listed but not importable. The slot you are currently editing is excluded from the picker. Drive-only copies are out of scope — pull them into local storage first.
 
 ### Staged Items panel & choosing an engine
 All four tabs feed one **Staged Items** panel. Each batch you add is a **staged group**:

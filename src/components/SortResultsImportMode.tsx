@@ -1,13 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { SlotResultsImportBatch } from '../lib/completedSortEditH';
 import {
-  filterItemsNotInSort,
+  applySlotImportEdits,
+  applySlotImportItemOverride,
+  effectiveSlotImportItems,
   listSlotImportEntriesFromStorage,
+  slotImportOverlayKey,
   slotImportSourceLabel,
   slotImportStatusLabel,
   type SlotImportEntry,
+  type SlotImportExcludedRows,
+  type SlotImportOverlayMap,
 } from '../lib/slotResultsImport';
 import { isAutosaveAvailable, MANIFEST_KEY } from '../lib/storage';
+import type { Item } from '../lib/types';
+import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
 import type { StagedGroupInput } from './StagedItemsPanel';
 
 type SortResultsImportModeProps = {
@@ -40,11 +47,19 @@ function buildImportBatches(
   asPreRanked: Record<string, boolean>,
   existingIds: Set<string> | undefined,
   showPreRankedToggle: boolean,
+  overrides: SlotImportOverlayMap,
+  excluded: SlotImportExcludedRows,
 ): SlotResultsImportBatch[] {
   const batches: SlotResultsImportBatch[] = [];
   for (const entry of entries) {
     if (!entry.items) continue;
-    const items = filterItemsNotInSort(entry.items, existingIds);
+    const items = effectiveSlotImportItems(
+      entry.meta.id,
+      entry.items,
+      overrides,
+      excluded,
+      existingIds,
+    );
     if (items.length === 0) continue;
     const preRanked =
       showPreRankedToggle && (asPreRanked[entry.meta.id] ?? true);
@@ -67,6 +82,21 @@ export function SortResultsImportMode({
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
   const [asPreRanked, setAsPreRanked] = useState<Record<string, boolean>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [overrides, setOverrides] = useState<SlotImportOverlayMap>(
+    () => new Map(),
+  );
+  const [excluded, setExcluded] = useState<SlotImportExcludedRows>(
+    () => new Set(),
+  );
+  const [editTarget, setEditTarget] = useState<{
+    slotId: string;
+    index: number;
+    currentLabel: string;
+    currentId: string;
+    currentUrl: string | undefined;
+    currentImageUrl: string | undefined;
+    otherIds: Map<string, string>;
+  } | null>(null);
 
   useEffect(() => {
     function onStorage(e: StorageEvent): void {
@@ -77,6 +107,14 @@ export function SortResultsImportMode({
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
   }, []);
+
+  // Slot blobs can change under us (another tab completes a sort). Drop
+  // preview edits so index-keyed overrides never land on wrong rows.
+  useEffect(() => {
+    setOverrides(new Map());
+    setExcluded(new Set());
+    setEditTarget(null);
+  }, [revision]);
 
   const entries = useMemo(
     () =>
@@ -89,6 +127,25 @@ export function SortResultsImportMode({
   const importable = useMemo(
     () => entries.filter((e) => e.status === 'importable'),
     [entries],
+  );
+
+  const selectedImportable = useMemo(
+    () => importable.filter((e) => selected.has(e.meta.id)),
+    [importable, selected],
+  );
+
+  const effectiveItemsForEntry = useCallback(
+    (entry: SlotImportEntry, filterExisting = true): Item[] => {
+      if (!entry.items) return [];
+      return effectiveSlotImportItems(
+        entry.meta.id,
+        entry.items,
+        overrides,
+        excluded,
+        filterExisting ? existingIds : undefined,
+      );
+    },
+    [overrides, excluded, existingIds],
   );
 
   const toggleSelected = useCallback((id: string, on: boolean) => {
@@ -122,24 +179,142 @@ export function SortResultsImportMode({
     setSelected(new Set());
   }, []);
 
-  const selectedImportable = useMemo(
-    () => importable.filter((e) => selected.has(e.meta.id)),
-    [importable, selected],
-  );
-
   const addableCount = useMemo(() => {
     let total = 0;
     for (const entry of selectedImportable) {
-      if (!entry.items) continue;
-      total += filterItemsNotInSort(entry.items, existingIds).length;
+      total += effectiveItemsForEntry(entry).length;
     }
     return total;
-  }, [selectedImportable, existingIds]);
+  }, [selectedImportable, effectiveItemsForEntry]);
 
   function setSlotPreRanked(id: string, value: boolean): void {
     setAsPreRanked((prev) => ({ ...prev, [id]: value }));
     onDraftActivity?.();
   }
+
+  const buildOtherIds = useCallback(
+    (slotId: string, index: number, currentId: string): Map<string, string> => {
+      const otherIds = new Map<string, string>();
+      const sources: SlotImportEntry[] = [...selectedImportable];
+      const currentEntry = entries.find((e) => e.meta.id === slotId);
+      if (currentEntry && !sources.some((e) => e.meta.id === slotId)) {
+        sources.push(currentEntry);
+      }
+      for (const entry of sources) {
+        if (!entry.items) continue;
+        entry.items.forEach((item, idx) => {
+          const key = slotImportOverlayKey(entry.meta.id, idx);
+          if (excluded.has(key)) return;
+          const effective = applySlotImportItemOverride(
+            item,
+            overrides.get(key),
+          );
+          if (entry.meta.id === slotId && idx === index) return;
+          if (effective.id === currentId) return;
+          otherIds.set(effective.id, effective.label);
+        });
+      }
+      return otherIds;
+    },
+    [selectedImportable, entries, overrides, excluded],
+  );
+
+  const openEdit = useCallback(
+    (slotId: string, index: number) => {
+      const entry = entries.find((e) => e.meta.id === slotId);
+      if (!entry?.items?.[index]) return;
+      const item = entry.items[index];
+      const key = slotImportOverlayKey(slotId, index);
+      const effective = applySlotImportItemOverride(item, overrides.get(key));
+      setEditTarget({
+        slotId,
+        index,
+        currentLabel: effective.label,
+        currentId: effective.id,
+        currentUrl: effective.url,
+        currentImageUrl: effective.imageUrl,
+        otherIds: buildOtherIds(slotId, index, effective.id),
+      });
+    },
+    [entries, overrides, buildOtherIds],
+  );
+
+  const removePreviewItem = useCallback(
+    (slotId: string, index: number) => {
+      const key = slotImportOverlayKey(slotId, index);
+      setExcluded((prev) => {
+        const next = new Set(prev);
+        next.add(key);
+        return next;
+      });
+      onDraftActivity?.();
+    },
+    [onDraftActivity],
+  );
+
+  const onEditSave = useCallback(
+    (payload: EditItemSavePayload) => {
+      if (!editTarget) return;
+      const key = slotImportOverlayKey(editTarget.slotId, editTarget.index);
+      const hasChange =
+        (payload.label !== undefined &&
+          payload.label !== editTarget.currentLabel) ||
+        (payload.id !== undefined && payload.id !== editTarget.currentId) ||
+        (payload.url !== undefined &&
+          payload.url !== (editTarget.currentUrl ?? '')) ||
+        (payload.imageUrl !== undefined &&
+          payload.imageUrl !== (editTarget.currentImageUrl ?? ''));
+      setOverrides((prev) => {
+        const next = new Map(prev);
+        const cur = next.get(key) ?? {};
+        const updated = { ...cur };
+        if (
+          payload.label !== undefined &&
+          payload.label !== editTarget.currentLabel
+        ) {
+          updated.label = payload.label;
+        }
+        if (payload.id !== undefined && payload.id !== editTarget.currentId) {
+          updated.id = payload.id;
+        }
+        if (
+          payload.url !== undefined &&
+          payload.url !== (editTarget.currentUrl ?? '')
+        ) {
+          updated.url = payload.url;
+        }
+        if (
+          payload.imageUrl !== undefined &&
+          payload.imageUrl !== (editTarget.currentImageUrl ?? '')
+        ) {
+          updated.imageUrl = payload.imageUrl;
+        }
+        if (
+          updated.label === undefined &&
+          updated.id === undefined &&
+          updated.url === undefined &&
+          updated.imageUrl === undefined
+        ) {
+          next.delete(key);
+        } else {
+          next.set(key, updated);
+        }
+        return next;
+      });
+      if (hasChange) onDraftActivity?.();
+      setEditTarget(null);
+    },
+    [editTarget, onDraftActivity],
+  );
+
+  const editStubItem: Item | null = editTarget
+    ? {
+        id: editTarget.currentId,
+        label: editTarget.currentLabel,
+        url: editTarget.currentUrl,
+        imageUrl: editTarget.currentImageUrl,
+      }
+    : null;
 
   function handleAdd(): void {
     if (selectedImportable.length === 0 || addableCount === 0) return;
@@ -147,8 +322,7 @@ export function SortResultsImportMode({
     if (onAppendToStaged) {
       const groups: StagedGroupInput[] = [];
       for (const entry of selectedImportable) {
-        if (!entry.items) continue;
-        const items = filterItemsNotInSort(entry.items, existingIds);
+        const items = effectiveItemsForEntry(entry);
         if (items.length === 0) continue;
         const preRanked = asPreRanked[entry.meta.id] ?? true;
         groups.push({
@@ -161,6 +335,8 @@ export function SortResultsImportMode({
         onAppendToStaged(groups);
         setSelected(new Set());
         setExpandedId(null);
+        setOverrides(new Map());
+        setExcluded(new Set());
       }
       onComplete?.();
       return;
@@ -171,8 +347,14 @@ export function SortResultsImportMode({
       asPreRanked,
       existingIds,
       showPreRankedToggle,
+      overrides,
+      excluded,
     );
-    if (batches.length > 0) onAddSlotImports!(batches);
+    if (batches.length > 0) {
+      onAddSlotImports!(batches);
+      setOverrides(new Map());
+      setExcluded(new Set());
+    }
     onComplete?.();
   }
 
@@ -206,14 +388,14 @@ export function SortResultsImportMode({
           <p className="csv-hint">
             Import final rankings from completed saves in this browser.
             Combine with clipboard, CSV, or AniList batches in the staged
-            panel below.
+            panel below. Expand a save to edit or remove items before adding.
           </p>
         </>
       )}
       {embedded && (
         <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 0 }}>
           Pick one or more completed saves. Items already in this sort are
-          skipped.
+          skipped. Expand a save to edit labels, URLs, or ids before adding.
         </p>
       )}
 
@@ -255,6 +437,8 @@ export function SortResultsImportMode({
                 asPreRanked={asPreRanked[entry.meta.id] ?? true}
                 showPreRankedToggle={showPreRankedToggle}
                 existingIds={existingIds}
+                overrides={overrides}
+                excluded={excluded}
                 onToggleSelect={(on) => toggleSelected(entry.meta.id, on)}
                 onToggleExpand={() =>
                   setExpandedId((id) =>
@@ -262,6 +446,8 @@ export function SortResultsImportMode({
                   )
                 }
                 onTogglePreRanked={(v) => setSlotPreRanked(entry.meta.id, v)}
+                onEditItem={openEdit}
+                onRemoveItem={removePreviewItem}
               />
             ))}
           </ul>
@@ -278,6 +464,17 @@ export function SortResultsImportMode({
           {addLabel}
         </button>
       </div>
+
+      {editStubItem && editTarget && (
+        <EditItemModal
+          item={editStubItem}
+          onCancel={() => setEditTarget(null)}
+          onSave={onEditSave}
+          allowEditId
+          currentId={editTarget.currentId}
+          otherIds={editTarget.otherIds}
+        />
+      )}
     </div>
   );
 }
@@ -289,9 +486,13 @@ function SlotImportRow({
   asPreRanked,
   showPreRankedToggle,
   existingIds,
+  overrides,
+  excluded,
   onToggleSelect,
   onToggleExpand,
   onTogglePreRanked,
+  onEditItem,
+  onRemoveItem,
 }: {
   entry: SlotImportEntry;
   selected: boolean;
@@ -299,19 +500,39 @@ function SlotImportRow({
   asPreRanked: boolean;
   showPreRankedToggle: boolean;
   existingIds?: Set<string>;
+  overrides: SlotImportOverlayMap;
+  excluded: SlotImportExcludedRows;
   onToggleSelect: (on: boolean) => void;
   onToggleExpand: () => void;
   onTogglePreRanked: (value: boolean) => void;
+  onEditItem: (slotId: string, index: number) => void;
+  onRemoveItem: (slotId: string, index: number) => void;
 }) {
   const importable = entry.status === 'importable';
-  const addableCount =
-    entry.items && existingIds
-      ? filterItemsNotInSort(entry.items, existingIds).length
-      : entry.itemCount;
-  const dupCount =
-    entry.items && existingIds
-      ? entry.itemCount - addableCount
-      : 0;
+  const slotId = entry.meta.id;
+
+  const previewRows = useMemo(() => {
+    if (!entry.items) return [];
+    return entry.items
+      .map((item, index) => {
+        const key = slotImportOverlayKey(slotId, index);
+        if (excluded.has(key)) return null;
+        const effective = applySlotImportItemOverride(
+          item,
+          overrides.get(key),
+        );
+        const skippedBySort = existingIds?.has(effective.id) === true;
+        return { index, effective, skippedBySort };
+      })
+      .filter((row): row is NonNullable<typeof row> => row !== null);
+  }, [entry.items, slotId, overrides, excluded, existingIds]);
+
+  const dupCount = useMemo(() => {
+    if (!entry.items || !existingIds) return 0;
+    return applySlotImportEdits(slotId, entry.items, overrides, excluded).filter(
+      (it) => existingIds.has(it.id),
+    ).length;
+  }, [entry.items, slotId, overrides, excluded, existingIds]);
 
   function onRowClick(e: React.MouseEvent): void {
     if (!importable) return;
@@ -405,16 +626,39 @@ function SlotImportRow({
 
       {importable && expanded && entry.items && (
         <ol className="sort-results-import-preview">
-          {entry.items.map((it) => (
+          {previewRows.map(({ index, effective, skippedBySort }) => (
             <li
-              key={it.id}
-              className={
-                existingIds?.has(it.id)
-                  ? 'sort-results-import-preview--dup'
-                  : undefined
-              }
+              key={`${slotId}:${index}`}
+              className={[
+                'sort-results-import-preview-item',
+                skippedBySort ? 'sort-results-import-preview--dup' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
             >
-              {it.label}
+              <span className="sort-results-import-preview-label" title={effective.label}>
+                {effective.label}
+              </span>
+              <span className="preview-item-actions">
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={() => onEditItem(slotId, index)}
+                  title={`Edit "${effective.label}"`}
+                  aria-label={`Edit ${effective.label}`}
+                >
+                  ✎
+                </button>
+                <button
+                  type="button"
+                  className="icon-btn danger"
+                  onClick={() => onRemoveItem(slotId, index)}
+                  title={`Remove "${effective.label}" from import`}
+                  aria-label={`Remove ${effective.label}`}
+                >
+                  ×
+                </button>
+              </span>
             </li>
           ))}
         </ol>

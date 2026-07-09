@@ -4,10 +4,13 @@ import { initSort } from '../queueMergeSort';
 import type { AutosaveBlob } from '../storage';
 import type { Item, MergeProgress, SlotMeta } from '../types';
 import {
+  applySlotImportEdits,
   classifySlotImport,
+  effectiveSlotImportItems,
   extractCompletedRankingItems,
   filterItemsNotInSort,
   listSlotImportEntries,
+  slotImportOverlayKey,
   slotImportSourceLabel,
   slotImportStatusLabel,
 } from '../slotResultsImport';
@@ -175,5 +178,47 @@ describe('slotImportStatusLabel', () => {
       items: null,
     });
     expect(label).toBe('12 items · in progress (5 comparisons in)');
+  });
+});
+
+describe('applySlotImportEdits', () => {
+  it('applies label/id overrides and drops excluded rows', () => {
+    const overrides = new Map([
+      [slotImportOverlayKey('slot1', 1), { label: 'Renamed Beta', id: 'b2' }],
+    ]);
+    const excluded = new Set([slotImportOverlayKey('slot1', 2)]);
+    const out = applySlotImportEdits('slot1', [A, B, C], overrides, excluded);
+    expect(out.map((it) => it.id)).toEqual(['a', 'b2']);
+    expect(out[1]?.label).toBe('Renamed Beta');
+  });
+
+  it('clears url when override is empty string', () => {
+    const withUrl: Item = { ...B, url: 'https://example.com' };
+    const overrides = new Map([
+      [slotImportOverlayKey('slot1', 0), { url: '' }],
+    ]);
+    const out = applySlotImportEdits(
+      'slot1',
+      [withUrl],
+      overrides,
+      new Set(),
+    );
+    expect(out[0]?.url).toBeUndefined();
+  });
+});
+
+describe('effectiveSlotImportItems', () => {
+  it('chains edits then filters existing sort ids', () => {
+    const overrides = new Map([
+      [slotImportOverlayKey('slot1', 0), { id: 'b' }],
+    ]);
+    const out = effectiveSlotImportItems(
+      'slot1',
+      [A, B, C],
+      overrides,
+      new Set(),
+      new Set(['b']),
+    );
+    expect(out.map((it) => it.id)).toEqual(['c']);
   });
 });

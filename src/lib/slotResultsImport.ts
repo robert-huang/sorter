@@ -51,6 +51,69 @@ export function filterItemsNotInSort(
   return items.filter((it) => !existingIds.has(it.id));
 }
 
+/**
+ * Pre-staging edit overlay for Sort Results import preview. Keyed by
+ * `${slotId}:${index}` where `index` is the item's position in the
+ * slot's completed ranking (0-based). Stable across label/id edits —
+ * same handle pattern as CSV preview's `sourceName:rowNumber`.
+ */
+export type SlotImportItemOverride = {
+  label?: string;
+  id?: string;
+  url?: string;
+  imageUrl?: string;
+};
+
+export type SlotImportOverlayMap = Map<string, SlotImportItemOverride>;
+export type SlotImportExcludedRows = Set<string>;
+
+export function slotImportOverlayKey(slotId: string, index: number): string {
+  return `${slotId}:${index}`;
+}
+
+export function applySlotImportItemOverride(
+  item: Item,
+  override: SlotImportItemOverride | undefined,
+): Item {
+  if (!override) return item;
+  const next: Item = { ...item };
+  if (override.label !== undefined) next.label = override.label;
+  if (override.id !== undefined) next.id = override.id;
+  if (override.url !== undefined) next.url = override.url || undefined;
+  if (override.imageUrl !== undefined) {
+    next.imageUrl = override.imageUrl || undefined;
+  }
+  return next;
+}
+
+/** Apply per-row overrides and drop excluded indices. */
+export function applySlotImportEdits(
+  slotId: string,
+  items: Item[],
+  overrides: SlotImportOverlayMap,
+  excluded: SlotImportExcludedRows,
+): Item[] {
+  const out: Item[] = [];
+  items.forEach((item, index) => {
+    const key = slotImportOverlayKey(slotId, index);
+    if (excluded.has(key)) return;
+    out.push(applySlotImportItemOverride(item, overrides.get(key)));
+  });
+  return out;
+}
+
+/** Ranking items after preview edits, optionally skipping active-sort ids. */
+export function effectiveSlotImportItems(
+  slotId: string,
+  items: Item[],
+  overrides: SlotImportOverlayMap,
+  excluded: SlotImportExcludedRows,
+  existingIds?: Set<string>,
+): Item[] {
+  const edited = applySlotImportEdits(slotId, items, overrides, excluded);
+  return filterItemsNotInSort(edited, existingIds);
+}
+
 export function classifySlotImport(
   meta: SlotMeta,
   blob: AutosaveBlob | null,
