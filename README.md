@@ -106,7 +106,7 @@ Heat
 
 ## Import modes (START tab)
 
-The START tab has three source tabs — **Sort from scratch**, **Merge pre-ranked lists**, and **Import from AniList** — plus a shared **Staged Items** panel at the bottom. Items from any tab stack into the staged panel; you choose the engine when you start the sort.
+The START tab has four source tabs — **Sort from scratch**, **Merge pre-ranked lists**, **Import from AniList**, and **Sort results** — plus a shared **Staged Items** panel at the bottom. Items from any tab stack into the staged panel; you choose the engine when you start the sort.
 
 ### Sort from scratch
 One CSV (paste or file). Items become N singleton sublists in CSV order. The merge sort starts from there.
@@ -120,13 +120,16 @@ Paste or upload multiple CSVs. Each list is treated as a sorted sublist (row ord
 ### Import from AniList
 Pull a user's anime/manga list (or favourites) from AniList into the local cache, filter it, and stage a subset to sort. See the dedicated [Importing from AniList](#importing-from-anilist) section for the full flow.
 
+### Sort results
+Import **final rankings** from completed save slots already in this browser's `localStorage`. Select one or more slots, toggle each as **pre-ranked list** (preserve order) or **individual items**, then add to staged or into an active sort via **+ Add item(s) → Sort results**. In-progress slots are listed but not importable. The slot you are currently editing is excluded from the picker. Drive-only copies are out of scope — pull them into local storage first.
+
 ### Staged Items panel & choosing an engine
-All three tabs feed one **Staged Items** panel. Each batch you add is a **staged group**:
+All four tabs feed one **Staged Items** panel. Each batch you add is a **staged group**:
 
 - **unranked** (`flat`) — every item becomes its own singleton sublist (competes from scratch). Scratch CSVs and **all AniList groups** stage this way.
 - **ranked** (`sublist`) — row order is preserved as an expressed ranking (pre-ranked CSVs, or scratch with "already in ranking order").
 
-Empty state reads: *"Nothing staged yet. Add items from any tab above — clipboard, pre-ranked lists, and AniList all stack into one sort."* You can expand groups, edit labels/URLs, and soft-remove groups or items before starting.
+Empty state reads: *"Nothing staged yet. Add items from any tab above — clipboard, pre-ranked lists, AniList, and saved sort results all stack into one sort."* You can expand groups, edit labels/URLs, and soft-remove groups or items before starting.
 
 Start with the split button (needs ≥ 2 unique items):
 

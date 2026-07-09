@@ -4,6 +4,7 @@ import {
   canReorderInCurrentMerge,
   type CurrentMergeSlice,
 } from '../lib/queueMergeSort';
+import type { SlotResultsImportBatch } from '../lib/completedSortEditH';
 import type {
   InsertionState,
   Item,
@@ -292,6 +293,8 @@ interface Props {
    * only, with the "Treat as pre-ranked sublist" checkbox checked).
    */
   onAppendPreRanked: (items: Item[]) => void;
+  /** Results tab — multiple saved slots in one state update. */
+  onAddSlotImports: (batches: SlotResultsImportBatch[]) => void;
   /** Merge-only: queue a to-be-inserted id for binary-insertion. */
   onManualInsert: (id: string) => void;
   /** Merge-only: drop a to-be-inserted id permanently. */
@@ -712,6 +715,7 @@ export function ListScreen(props: Props) {
 
 function MergeListView({
   state,
+  slotId,
   dbSyncRevision,
   onHide,
   onUnhide,
@@ -721,6 +725,7 @@ function MergeListView({
   onAddItem,
   onAddItems,
   onAppendPreRanked,
+  onAddSlotImports,
   onManualInsert,
   onForget,
   onEditItem,
@@ -920,6 +925,7 @@ function MergeListView({
         <AddItemsModal
           engine="merge"
           existingIds={existingIds}
+          excludeSlotId={slotId || undefined}
           dbSyncRevision={dbSyncRevision}
           onCancel={() => setAddOpen(false)}
           onAddOne={(item) => {
@@ -932,6 +938,10 @@ function MergeListView({
           }}
           onAddPreRanked={(items) => {
             onAppendPreRanked(items);
+            setAddOpen(false);
+          }}
+          onAddSlotImports={(batches) => {
+            onAddSlotImports(batches);
             setAddOpen(false);
           }}
         />
@@ -1317,11 +1327,13 @@ function InsertionPendingGroupView({
 
 function InsertionListView({
   state,
+  slotId,
   dbSyncRevision,
   onHide,
   onUnhide,
   onAddItem,
   onAddItems,
+  onAddSlotImports,
   onReorderInSorted,
   onReturnToPending,
   onEditItem,
@@ -1556,6 +1568,7 @@ function InsertionListView({
         <AddItemsModal
           engine="insertion"
           existingIds={existingIds}
+          excludeSlotId={slotId || undefined}
           dbSyncRevision={dbSyncRevision}
           onCancel={() => setAddOpen(false)}
           onAddOne={(item) => {
@@ -1564,6 +1577,10 @@ function InsertionListView({
           }}
           onAddMany={(items) => {
             onAddItems(items);
+            setAddOpen(false);
+          }}
+          onAddSlotImports={(batches) => {
+            onAddSlotImports(batches);
             setAddOpen(false);
           }}
         />

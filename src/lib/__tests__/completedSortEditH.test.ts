@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyCompletedSortEdit,
+  applySlotImportBatches,
   cloneSortState,
   derivedSlotName,
   resetBranchedSlotComparisonProgress,
@@ -104,5 +105,31 @@ describe('applyCompletedSortEdit', () => {
     expect(state).toBe(base);
     expect(skipped).toEqual(['a']);
     expect(resumed).toBe(false);
+  });
+});
+
+describe('applySlotImportBatches', () => {
+  it('appends multiple pre-ranked sublists in one pass', () => {
+    const done = completeMerge([A, B]);
+    const batchA = [C];
+    const batchB = [X, Y];
+    const { state, skipped } = applySlotImportBatches(
+      done,
+      [
+        { items: batchA, asPreRanked: true },
+        { items: batchB, asPreRanked: true },
+      ],
+      { shuffleAtStart: false },
+    );
+    expect(skipped).toEqual([]);
+    expect(state.done).toBe(false);
+    expect(state.engine).toBe('merge');
+    expect(state.items).toMatchObject({
+      a: A,
+      b: B,
+      c: C,
+      x: X,
+      y: Y,
+    });
   });
 });

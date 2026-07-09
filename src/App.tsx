@@ -44,10 +44,12 @@ import {
 import { seedAsSorted, seedInsertionFromSublists } from './lib/insertionSort';
 import {
   applyCompletedSortEdit,
+  applySlotImportBatches,
   cloneSortState,
   derivedSlotName,
   resetBranchedSlotComparisonProgress,
   type CompletedSortEditAction,
+  type SlotResultsImportBatch,
 } from './lib/completedSortEditH';
 import { listHeaderItemCount } from './lib/sortPopulation';
 import {
@@ -1331,6 +1333,30 @@ export function App() {
     [state, pushUndo, reportSkippedItems, engineOptions, requestCompletedSortEdit],
   );
 
+  const doAddSlotImports = useCallback(
+    (batches: SlotResultsImportBatch[]) => {
+      const nonEmpty = batches.filter((b) => b.items.length > 0);
+      if (!state || nonEmpty.length === 0) return;
+      if (state.done) {
+        requestCompletedSortEdit({ kind: 'slotImports', batches: nonEmpty });
+        return;
+      }
+      setState((cur) => {
+        if (!cur) return cur;
+        const { state: next, skipped } = applySlotImportBatches(
+          cur,
+          nonEmpty,
+          engineOptions,
+        );
+        reportSkippedItems(skipped);
+        if (next === cur) return cur;
+        pushUndo(cur);
+        return next;
+      });
+    },
+    [state, pushUndo, reportSkippedItems, engineOptions, requestCompletedSortEdit],
+  );
+
   // Import a shared payload as a new slot. Branches on payload.kind:
   //
   //  - 'ranking'  → seed an insertion-engine DONE state via `seedAsSorted`.
@@ -2463,6 +2489,7 @@ export function App() {
         onBreakApart={doBreak}
         onAddItem={doAddItem}
         onAddItems={doAddItemsList}
+        onAddSlotImports={doAddSlotImports}
         onAppendPreRanked={doAppendPreRanked}
         onManualInsert={doManualInsert}
         onForget={doForget}
@@ -2499,12 +2526,14 @@ export function App() {
         state={state}
         dbSyncRevision={dbSyncRevision}
         slotName={loadedSlotName}
+        slotId={effectiveLoadedSlotId ?? undefined}
         onUnhide={doUnhide}
         onRestoreHidden={doRestoreHidden}
         onForgetHidden={doForgetHidden}
         onStartOver={requestStartOver}
         onAddOne={doAddItem}
         onAddMany={doAddItemsList}
+        onAddSlotImports={doAddSlotImports}
         onAddPreRanked={doAppendPreRanked}
       />
       </>

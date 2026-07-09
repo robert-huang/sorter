@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import type { SlotResultsImportBatch } from '../lib/completedSortEditH';
 import type { Item, SortState } from '../lib/types';
 import { comparisonsRemaining, getRanking } from '../lib/engine';
 import {
@@ -20,6 +21,8 @@ interface Props {
    * after import (instead of the generic "Shared sort" fallback).
    */
   slotName?: string;
+  /** Active slot id — excluded from Sort results import picker. */
+  slotId?: string;
   onUnhide: (id: string) => void;
   onRestoreHidden: (id: string) => void;
   /** Permanently remove from hidden list and ranking (matches LIST tab Dismiss). */
@@ -52,6 +55,8 @@ interface Props {
    * FIFO either way.
    */
   onAddPreRanked?: (items: Item[]) => void;
+  /** Results tab — multiple saved slots in one state update. */
+  onAddSlotImports: (batches: SlotResultsImportBatch[]) => void;
 }
 
 
@@ -83,6 +88,7 @@ function downloadText(text: string, filename: string, mime: string): void {
 export function ResultScreen({
   state,
   slotName,
+  slotId,
   dbSyncRevision,
   onUnhide,
   onRestoreHidden,
@@ -91,6 +97,7 @@ export function ResultScreen({
   onAddOne,
   onAddMany,
   onAddPreRanked,
+  onAddSlotImports,
 }: Props) {
   const [copied, setCopied] = useState<'csv' | 'md' | 'txt' | null>(null);
   const [showHidden, setShowHidden] = useState(false);
@@ -281,6 +288,7 @@ export function ResultScreen({
         <AddItemsModal
           engine={state.engine}
           existingIds={existingIds}
+          excludeSlotId={slotId}
           dbSyncRevision={dbSyncRevision}
           onCancel={() => setAddOpen(false)}
           onAddOne={(item) => {
@@ -299,6 +307,10 @@ export function ResultScreen({
                 }
               : undefined
           }
+          onAddSlotImports={(batches) => {
+            onAddSlotImports(batches);
+            setAddOpen(false);
+          }}
         />
       )}
       {shareOpen && (

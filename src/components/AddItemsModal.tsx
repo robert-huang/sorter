@@ -10,12 +10,15 @@ import {
 } from '../lib/csv';
 import { AnilistStartMode } from './AnilistStartMode';
 import { Modal } from './Modal';
+import { SortResultsImportMode } from './SortResultsImportMode';
+import type { SlotResultsImportBatch } from '../lib/completedSortEditH';
 
 /**
- * Unified "Add item(s)" modal. Three tabs:
+ * Unified "Add item(s)" modal. Four tabs:
  *  - "Single"  — label + URL + image fields (one item).
  *  - "Multiple" — CSV paste + file upload (N items at once).
  *  - "AniList" — import from a user's list or favourites cache.
+ *  - "Results" — import final rankings from local save slots.
  *
  * On the merge engine, the Multiple tab also offers a checkbox:
  *  "Treat as one pre-ranked sublist". When checked, the items append as
@@ -24,11 +27,13 @@ import { Modal } from './Modal';
  *  (route to onAddMany). On the insertion engine the checkbox is hidden
  *  because there is no pre-ranked concept — pending is FIFO either way.
  */
-type Tab = 'single' | 'multiple' | 'anilist';
+type Tab = 'single' | 'multiple' | 'anilist' | 'sortresults';
 
 interface Props {
   engine: 'merge' | 'insertion';
   existingIds: Set<string>;
+  /** Omit from Sort results picker (active slot). */
+  excludeSlotId?: string;
   /** Bumps when the AniList source DB changes (import, pull, etc.). */
   dbSyncRevision: number;
   onCancel: () => void;
@@ -41,25 +46,33 @@ interface Props {
    * may be omitted when the modal opens on the insertion engine.
    */
   onAddPreRanked?: (items: Item[]) => void;
+  /** Results tab — one batch per selected slot, applied in a single update. */
+  onAddSlotImports: (batches: SlotResultsImportBatch[]) => void;
 }
 
 export function AddItemsModal({
   engine,
   existingIds,
+  excludeSlotId,
   dbSyncRevision,
   onCancel,
   onAddOne,
   onAddMany,
   onAddPreRanked,
+  onAddSlotImports,
 }: Props) {
   const [tab, setTab] = useState<Tab>('single');
 
   const modalClassName = [
     'modal-wide',
     tab === 'anilist' ? 'modal-wide-anilist' : '',
+    tab === 'sortresults' ? 'modal-wide-sort-results' : '',
   ]
     .filter(Boolean)
     .join(' ');
+
+  const showPreRankedToggle =
+    engine === 'merge' && typeof onAddPreRanked === 'function';
 
   return (
     <Modal
@@ -96,6 +109,15 @@ export function AddItemsModal({
         >
           AniList
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'sortresults'}
+          className={`modal-tab${tab === 'sortresults' ? ' active' : ''}`}
+          onClick={() => setTab('sortresults')}
+        >
+          Results
+        </button>
       </div>
 
       {tab === 'single' && (
@@ -123,6 +145,16 @@ export function AddItemsModal({
             onAddMany(items);
             onCancel();
           }}
+        />
+      )}
+      {tab === 'sortresults' && (
+        <SortResultsImportMode
+          embedded
+          excludeSlotId={excludeSlotId}
+          existingIds={existingIds}
+          showPreRankedToggle={showPreRankedToggle}
+          onAddSlotImports={onAddSlotImports}
+          onComplete={onCancel}
         />
       )}
     </Modal>
@@ -357,6 +389,13 @@ function MultipleTab({
               : 'Each item becomes its own singleton sublist.'}
           </span>
         </div>
+      )}
+
+      {engine === 'insertion' && (
+        <p className="header-hint" style={{ marginTop: 8 }}>
+          Pre-ranked sublists are a merge-engine feature. On insertion, each
+          item is queued individually in paste order.
+        </p>
       )}
 
       <div

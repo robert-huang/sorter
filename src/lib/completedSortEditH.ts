@@ -18,12 +18,21 @@ export type CompletedSortEditAction =
   | { kind: 'appendPreRanked'; items: Item[] }
   | { kind: 'mergeToInsertion'; items: Item[] }
   | { kind: 'addOne'; item: Item }
-  | { kind: 'addMany'; items: Item[] };
+  | { kind: 'addMany'; items: Item[] }
+  | { kind: 'slotImports'; batches: SlotResultsImportBatch[] };
+
+/** One slot's items plus how they should land in the sort. */
+export type SlotResultsImportBatch = {
+  items: Item[];
+  asPreRanked: boolean;
+};
 
 export function completedSortEditItemCount(action: CompletedSortEditAction): number {
   switch (action.kind) {
     case 'addOne':
       return 1;
+    case 'slotImports':
+      return action.batches.reduce((sum, b) => sum + b.items.length, 0);
     default:
       return action.items.length;
   }
@@ -84,6 +93,32 @@ export interface ApplyCompletedSortEditResult {
 }
 
 /**
+ * Apply one or more slot-import batches to in-progress state. Pre-ranked
+ * batches use merge sublist append; flat batches use engine addItems.
+ */
+export function applySlotImportBatches(
+  base: SortState,
+  batches: SlotResultsImportBatch[],
+  options: EngineOptions,
+): { state: SortState; skipped: ItemId[] } {
+  let cur = base;
+  const skipped: ItemId[] = [];
+  for (const batch of batches) {
+    if (batch.items.length === 0) continue;
+    if (batch.asPreRanked && cur.engine === 'merge') {
+      const result = appendPreRankedSublist(cur, batch.items, options);
+      cur = result.state;
+      skipped.push(...result.skipped);
+    } else {
+      const result = engineAddItems(cur, batch.items, options);
+      cur = result.state;
+      skipped.push(...result.skipped);
+    }
+  }
+  return { state: cur, skipped };
+}
+
+/**
  * Apply an edit to a sort snapshot. Caller owns undo / slot minting.
  */
 export function applyCompletedSortEdit(
@@ -126,6 +161,12 @@ export function applyCompletedSortEdit(
     }
     case 'addMany': {
       const result = engineAddItems(base, action.items, options);
+      next = result.state;
+      skipped = result.skipped;
+      break;
+    }
+    case 'slotImports': {
+      const result = applySlotImportBatches(base, action.batches, options);
       next = result.state;
       skipped = result.skipped;
       break;

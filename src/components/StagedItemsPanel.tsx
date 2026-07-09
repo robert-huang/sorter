@@ -359,7 +359,7 @@ export function StagedItemsPanel({
       <div className="staged-panel empty" aria-live="polite">
         <span className="staged-panel-empty-hint">
           Nothing staged yet. Add items from any tab above — clipboard,
-          pre-ranked lists, and AniList all stack into one sort.
+          pre-ranked lists, AniList, and saved sort results all stack into one sort.
         </span>
       </div>
     );

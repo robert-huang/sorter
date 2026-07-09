@@ -30,6 +30,7 @@ import {
 import { subscribeAnilistDisplayPreferences } from '../lib/importers/anilist/displayPreferences';
 import { relabelAnilistItemPreservingFormat } from '../lib/importers/anilist/anilistItemLabel';
 import { AnilistStartMode } from './AnilistStartMode';
+import { SortResultsImportMode } from './SortResultsImportMode';
 import { ImportPreview, type PreviewSource } from './ImportPreview';
 import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
 import {
@@ -192,7 +193,7 @@ function dropSourceEdits(
   setExcludedRows((prev) => dropSourceFromExclusions(prev, sourceName));
 }
 
-type Mode = 'scratch' | 'preranked' | 'anilist';
+type Mode = 'scratch' | 'preranked' | 'anilist' | 'sortresults';
 
 /** Which main tabs the current START draft can adopt into. */
 export interface StartDraftCapabilities {
@@ -1187,6 +1188,14 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
     [appendStagedGroups],
   );
 
+  const onAppendSortResultsToStaged = useCallback(
+    (groups: StagedGroupInput[]) => {
+      if (groups.length === 0) return;
+      appendStagedGroups(groups);
+    },
+    [appendStagedGroups],
+  );
+
   // -------- edit-modal wiring (per-occurrence Edit in dedup warnings) --------
   //
   // The modal lives on StartScreen (not on ImportPreview) because we
@@ -1433,6 +1442,14 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
           onClick={() => setMode('anilist')}
         >
           Import from AniList
+        </button>
+        <button
+          role="tab"
+          aria-selected={mode === 'sortresults'}
+          className={mode === 'sortresults' ? 'active' : ''}
+          onClick={() => setMode('sortresults')}
+        >
+          Sort results
         </button>
       </div>
 
@@ -1692,6 +1709,13 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
           onAddToStaged={onAddAnilistToStaged}
           onDraftActivity={notifyDraftActivity}
           dbSyncRevision={dbSyncRevision}
+        />
+      )}
+
+      {mode === 'sortresults' && (
+        <SortResultsImportMode
+          onAppendToStaged={onAppendSortResultsToStaged}
+          onDraftActivity={notifyDraftActivity}
         />
       )}
 

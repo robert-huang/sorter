@@ -53,6 +53,25 @@ function describeAction(action: CompletedSortEditAction, itemCount: number): {
           </>
         ),
       };
+    case 'slotImports': {
+      const sublistCount = action.batches.filter((b) => b.asPreRanked).length;
+      const flatCount = action.batches.length - sublistCount;
+      return {
+        title: 'Add saved sort results?',
+        detail: (
+          <>
+            Adding {itemsPhrase} from {action.batches.length} saved sort
+            {action.batches.length === 1 ? '' : 's'}
+            {sublistCount > 0 && flatCount > 0
+              ? ` (${sublistCount} pre-ranked, ${flatCount} as individual items)`
+              : sublistCount > 0
+                ? ' as pre-ranked sublists'
+                : ' as individual items'}
+            .
+          </>
+        ),
+      };
+    }
   }
 }
 
