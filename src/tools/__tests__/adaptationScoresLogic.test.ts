@@ -65,6 +65,27 @@ function visibleAdaptationIds(rows: ReturnType<typeof buildAdaptationBlockRows>)
     .map((row) => row.adaptation!.media.id);
 }
 
+/** Compact grid snapshot for stagger/overlap layout tests. */
+function rowGrid(rows: ReturnType<typeof buildAdaptationBlockRows>): string[] {
+  return rows.map((row, index) => {
+    const src = row.source
+      ? row.source.skipRender
+        ? '.'
+        : `S${row.source.media.id}${row.source.rowSpan > 1 ? `(rs${row.source.rowSpan})` : ''}`
+      : row.leadingSourceGap
+        ? '_'
+        : '.';
+    const adapt = row.adaptation
+      ? row.adaptation.skipRender
+        ? '.'
+        : `A${row.adaptation.media.id}${row.adaptation.rowSpan > 1 ? `(rs${row.adaptation.rowSpan})` : ''}`
+      : '.';
+    const pair =
+      row.pair != null ? `${row.pair.sourceId}->${row.pair.adaptationId}` : 'no-pair';
+    return `${index}:${src}|${adapt} ${pair}`;
+  });
+}
+
 describe('normalizeAdaptationPair', () => {
   it('maps SOURCE neighbor to source side', () => {
     expect(normalizeAdaptationPair(10, 'SOURCE', 5)).toEqual({
@@ -542,6 +563,43 @@ describe('buildAdaptationBlockRows', () => {
     expect(rows[0]?.adaptation?.rowSpan).toBe(3);
   });
 
+  it('staggers the minimal two-adaptation overlap grid (A|X, A|Y, B|Y)', () => {
+    //  A (rs=2) | X
+    //           | Y (rs=2)
+    //  B        |
+    const A = 1;
+    const B = 2;
+    const X = 10;
+    const Y = 11;
+    const pairs: AdaptationPair[] = [
+      { sourceId: A, adaptationId: X },
+      { sourceId: A, adaptationId: Y },
+      { sourceId: B, adaptationId: Y },
+    ];
+    const map = mediaMap([
+      media(A, { mediaType: 'MANGA', format: 'NOVEL', startDate: { year: 2010, month: 1, day: 1 } }),
+      media(B, { mediaType: 'MANGA', format: 'NOVEL', startDate: { year: 2011, month: 1, day: 1 } }),
+      media(X, { startDate: { year: 2014, month: 1, day: 1 } }),
+      media(Y, { startDate: { year: 2015, month: 1, day: 1 } }),
+    ]);
+
+    expect(canStaggerChain([map.get(X)!, map.get(Y)!], pairs, map)).toBe(true);
+
+    const rows = buildAdaptationBlockRows(pairs, map);
+    expect(rowGrid(rows)).toEqual([
+      '0:S1(rs2)|A10 1->10',
+      '1:.|A11(rs2) no-pair',
+      '2:S2|. no-pair',
+    ]);
+
+    expect(rows[0]?.source?.rowSpan).toBe(2);
+    expect(rows[0]?.adaptation?.media.id).toBe(X);
+    expect(rows[1]?.adaptation?.rowSpan).toBe(2);
+    expect(rows[1]?.adaptation?.skipRender).toBe(false);
+    expect(rows[2]?.source?.media.id).toBe(B);
+    expect(rows[2]?.adaptation).toBeNull();
+  });
+
   it('uses stagger layout for rolling overlap chains', () => {
     const pairs: AdaptationPair[] = [
       { sourceId: 1, adaptationId: 10 },
@@ -624,6 +682,57 @@ describe('buildAdaptationBlockRows', () => {
     const mangaSourceRow = rows.find((row) => row.source?.media.id === 2 && !row.source.skipRender);
     expect(mangaSourceRow?.source?.rowSpan).toBe(2);
     expect(mangaSourceRow?.adaptation?.media.id).toBe(10);
+  });
+
+  it('does not merge a shared source across multi-source adaptations (Takagi-style)', () => {
+    const M = 85533;
+    const A = 87142;
+    const S1 = 99468;
+    const S2 = 107068;
+    const WS = 101426;
+    const S3 = 138424;
+    const pairs: AdaptationPair[] = [
+      { sourceId: M, adaptationId: S1 },
+      { sourceId: M, adaptationId: WS },
+      { sourceId: M, adaptationId: S2 },
+      { sourceId: M, adaptationId: S3 },
+      { sourceId: A, adaptationId: S2 },
+      { sourceId: A, adaptationId: S3 },
+    ];
+    const map = mediaMap([
+      media(M, {
+        mediaType: 'MANGA',
+        format: 'MANGA',
+        title: 'Takagi manga',
+        startDate: { year: 2013, month: 1, day: 1 },
+      }),
+      media(A, {
+        mediaType: 'MANGA',
+        format: 'MANGA',
+        title: 'Ashita',
+        startDate: { year: 2017, month: 1, day: 1 },
+      }),
+      media(S1, { title: 'S1', startDate: { year: 2018, month: 1, day: 8 } }),
+      media(WS, {
+        title: 'Water Slide',
+        format: 'OVA',
+        startDate: { year: 2018, month: 7, day: 10 },
+      }),
+      media(S2, { title: 'S2', startDate: { year: 2019, month: 7, day: 7 } }),
+      media(S3, { title: 'S3', startDate: { year: 2022, month: 1, day: 8 } }),
+    ]);
+
+    const rows = buildAdaptationBlockRows(pairs, map);
+    const mangaS2Row = rows.find(
+      (row) =>
+        row.pair?.sourceId === M &&
+        row.pair.adaptationId === S2 &&
+        row.source &&
+        !row.source.skipRender,
+    );
+    expect(mangaS2Row).toBeDefined();
+    expect(mangaS2Row?.source?.rowSpan).toBe(1);
+    expect(mangaS2Row?.adaptation?.media.id).toBe(S2);
   });
 
   it('marks the earliest startedAt side with the consumption dot', () => {

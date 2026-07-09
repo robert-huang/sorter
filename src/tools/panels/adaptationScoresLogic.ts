@@ -603,7 +603,23 @@ function buildDuplicatePhysicalRows(
   return rows;
 }
 
-function applyDuplicateRowspans(physical: PhysicalRow[]): PhysicalRow[] {
+function countSourcesForAdaptation(
+  adaptationId: number,
+  pairs: readonly AdaptationPair[],
+): number {
+  const sources = new Set<number>();
+  for (const pair of pairs) {
+    if (pair.adaptationId === adaptationId) {
+      sources.add(pair.sourceId);
+    }
+  }
+  return sources.size;
+}
+
+function applyDuplicateRowspans(
+  physical: PhysicalRow[],
+  pairs: readonly AdaptationPair[],
+): PhysicalRow[] {
   if (physical.length === 0) {
     return physical;
   }
@@ -642,7 +658,8 @@ function applyDuplicateRowspans(physical: PhysicalRow[]): PhysicalRow[] {
     adaptStart = adaptEnd;
   }
 
-  // Source column: merge consecutive same sourceId
+  // Source column: merge consecutive same sourceId when each adaptation in the
+  // run is exclusively sourced (multi-source adaptations get their own row).
   let sourceStart = 0;
   while (sourceStart < out.length) {
     const sourceId = out[sourceStart]?.source?.mediaId;
@@ -651,11 +668,16 @@ function applyDuplicateRowspans(physical: PhysicalRow[]): PhysicalRow[] {
       continue;
     }
     let sourceEnd = sourceStart + 1;
-    while (
-      sourceEnd < out.length &&
-      out[sourceEnd]?.source?.mediaId === sourceId &&
-      out[sourceEnd]?.source?.rowSpan === 1
-    ) {
+    while (sourceEnd < out.length) {
+      const next = out[sourceEnd];
+      if (next?.source?.mediaId !== sourceId || next?.source?.rowSpan !== 1) {
+        break;
+      }
+      const adaptationId =
+        next.pair?.adaptationId ?? next.adaptation?.mediaId ?? null;
+      if (adaptationId != null && countSourcesForAdaptation(adaptationId, pairs) > 1) {
+        break;
+      }
       sourceEnd++;
     }
     const span = sourceEnd - sourceStart;
@@ -864,7 +886,7 @@ function buildBlockLayoutRows(
     physical = buildChainPhysicalRows(adaptations, pairs, mediaMap);
   } else {
     physical = buildDuplicatePhysicalRows(adaptations, pairs, mediaMap);
-    physical = applyDuplicateRowspans(physical);
+    physical = applyDuplicateRowspans(physical, pairs);
   }
 
   return physicalRowsToTableRows(physical, mediaMap, consumptionDotId);
