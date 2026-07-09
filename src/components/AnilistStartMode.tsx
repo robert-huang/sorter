@@ -1447,7 +1447,7 @@ export function AnilistStartMode({
             })}
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+          <div className="anilist-start-footer">
             <button
               className="btn primary"
               disabled={(onAddItems ? addableSelectedCount : selectedCount) < 1}

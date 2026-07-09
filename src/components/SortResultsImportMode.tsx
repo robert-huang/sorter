@@ -268,7 +268,7 @@ export function SortResultsImportMode({
         </>
       )}
 
-      <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
+      <div className="sort-results-import-footer">
         <button
           type="button"
           className="btn primary"

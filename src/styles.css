@@ -4602,7 +4602,7 @@ html {
 
 .modal-wide-sort-results .sort-results-import-embedded {
   margin: 0;
-  padding: 14px 16px 0;
+  padding: 14px 16px 16px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: color-mix(in srgb, var(--bg, #f8f8f8) 55%, var(--surface));
@@ -4714,6 +4714,18 @@ html {
   font-style: italic;
 }
 
+.sort-results-import-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.anilist-start-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
 /* Embedded in AddItemsModal — keep breathing room inside the bordered panel. */
 .modal-wide-anilist .anilist-start-embedded {
   margin: 0;
@@ -4722,6 +4734,12 @@ html {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: color-mix(in srgb, var(--bg, #f8f8f8) 55%, var(--surface));
+}
+
+/* Parent flex gap (12px) + this padding-top = 16px above the add button. */
+.modal-wide-anilist .anilist-start-footer {
+  margin-top: 0;
+  padding: 4px 0 0;
 }
 
 .anilist-start-embedded .anilist-start-preview {
