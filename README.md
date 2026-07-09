@@ -359,11 +359,13 @@ Gear menu → checkbox. **On** by default. When off, every popped pair goes thro
 
 ## "+ Add items" after a sort completes (RESULT tab)
 
-On a completed sort you can click **+ Add items** to add more items in one batch:
+On a completed sort you can click **+ Add items** to add more items in one batch. Every finished slot is stored in the same canonical merge-engine `done` shape (including sorts that finished on the insertion engine — those normalize at completion time), so the add-item options are identical regardless of how you sorted:
 
-- **Insertion engine** → the new items append to `pending[]` and the slot re-enters RANK; you binary-insert them one at a time.
-- **Merge engine, done** → the app offers to **switch the slot to insertion mode**: the merge's final ranking becomes the insertion engine's frozen `sorted[]`, and the new items become `pending[]`. This is in-place: the previous merge state goes onto the undo ring (one Undo backs it out), and autosave persists the new shape. A confirmation modal explains the trade-off and reminds you to Download a JSON copy first if you want a long-term safety net.
-- **Merge engine, not done** → the new items append as a pre-ranked sublist to the back of the queue (same behavior as "+ Add pre-ranked list" on LIST).
+- **Individual items** → each new item enters the queue as its own singleton sublist and the slot re-enters RANK for merge sorting against the frozen ranking.
+- **Pre-ranked list** (merge engine only on the Multiple tab; always available on the Sort results import tab) → the batch appends as one sublist to the back of the queue, same as "+ Add pre-ranked list" on LIST.
+- A confirmation modal explains the trade-off and reminds you to Download a JSON copy first if you want a long-term safety net. **Create new slot** (recommended) keeps the finished ranking recoverable; **Modify this slot** changes it in place (one Undo backs it out).
+
+**Mid-sort** (not done): merge engine uses `addItem` / `appendPreRankedSublist`; insertion engine uses binary-insert `addItems`.
 
 ## Undo
 
@@ -826,7 +828,7 @@ Coverage:
 - **Merge algorithm** (`queueMergeSort.test.ts`): init, picks, hide/unhide, addItem / addItems (batch singletons), appendPreRanked, reorder, break-apart, undo round-trips, degenerate-frame skipping, exile-on-close, manual Insert / Forget / Cancel insert, auto-insert heuristic / install / drain / rank-aware bounds / hide-id / forecast.
 - **Binary-insertion primitive** (`binaryInsertion.test.ts`): `startInsert / applyInsertPick`, zero-comparison collapse, lex oracle, tight-bounds.
 - **Insertion engine** (`insertionSort.test.ts`): seed-as-sorted, FIFO drain, add/addItems mid-plan, hide-while-inserting, snapshot/restore.
-- **Engine dispatch** (`engine.test.ts`): polymorphic getPair / comparisonsRemaining / hide / unhide / addItems, `transitionMergeDoneToInsertion`, cross-engine undo round-trip.
+- **Engine dispatch** (`engine.test.ts`): polymorphic getPair / comparisonsRemaining / hide / unhide / addItems, `finalizeCompletedState`, completion normalization + undo round-trip.
 - **CSV** (`csv.test.ts`): canonical key, header detection, dedup with metadata merging, multi-source parsing.
 - **Storage** (`storage.test.ts`): slot CRUD, legacy v1 migration, cap eviction (pin-aware), autosave routing + debounce + force-flush + discard-pending, v1 → v3 and v2 → v3 progress upgrades (including undo ring), v3 round-trip for both engine shapes, two-stage quota recovery (trim undo → evict non-pinned), manifest repair from orphaned slot blobs after manifest corruption.
 - **Share link** (`share.test.ts`): encode/decode round-trip (incl. non-ASCII labels, order preservation, dropped-undefined optional fields), failure modes (bad base64, bad JSON, wrong version, empty items, wrong-type optional fields), URL hash extraction.
@@ -897,7 +899,7 @@ src/
                         # getRanking
     engine.ts           # polymorphic dispatch facade (getPair, comparisonsRemaining,
                         # snapshotProgress, restoreProgress, pickLeft/Right, hide/unhide,
-                        # addItem, addItems, transitionMergeDoneToInsertion)
+                        # addItem, addItems, finalizeCompletedState, seedAsDoneMerge)
     csv.ts              # canonical key, header detection, parse, dedup
     storage.ts          # isAutosaveAvailable, slot CRUD, upgradeProgress (v1/v2/v3 → v4),
                         # migrateLegacyIfNeeded, repairManifestIfCorrupt,

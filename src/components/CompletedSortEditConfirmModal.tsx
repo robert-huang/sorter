@@ -31,25 +31,14 @@ function describeAction(action: CompletedSortEditAction, itemCount: number): {
           </>
         ),
       };
-    case 'mergeToInsertion':
-      return {
-        title: 'Add items to completed sort?',
-        detail: (
-          <>
-            Adding {itemsPhrase} to a completed merge sort switches the new slot to{' '}
-            <strong>insertion mode</strong>: new items are binary-inserted into the
-            frozen ranking. You can still nudge items in the sorted list or pull them
-            back to re-insert.
-          </>
-        ),
-      };
     case 'addOne':
     case 'addMany':
       return {
         title: 'Add items to completed sort?',
         detail: (
           <>
-            Adding {itemsPhrase} queues new binary insertions into your frozen ranking.
+            Adding {itemsPhrase} queues each new item as its own sublist and resumes
+            merge sorting against your frozen ranking.
           </>
         ),
       };

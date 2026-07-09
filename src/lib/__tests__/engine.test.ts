@@ -2,14 +2,16 @@ import { describe, expect, it } from 'vitest';
 import {
   addItems,
   comparisonsRemaining,
+  finalizeCompletedState,
   getPair,
   getRanking,
   hideItem,
+  pickLeft as enginePickLeft,
+  pickRight as enginePickRight,
   restoreProgress,
   returnToPending,
   rewriteIdInProgress,
   snapshotProgress,
-  transitionMergeDoneToInsertion,
   unhideItem,
   updateItem,
   updateItemId,
@@ -20,11 +22,16 @@ import {
   manualInsert,
   pickLeft,
   pickRight,
+  seedAsDoneMerge,
   seedFromSublists,
   type MergeOptions,
 } from '../queueMergeSort';
-import { seedAsSorted, addItems as insertionAddItems } from '../insertionSort';
-import type { InsertionState, Item, MergeState } from '../types';
+import {
+  buildInsertionState,
+  seedAsSorted,
+  addItems as insertionAddItems,
+} from '../insertionSort';
+import type { InsertionState, Item, MergeState, SortProgress, SortState } from '../types';
 
 /** Test helper: deterministic item order (startup shuffle disabled). */
 function initSort(items: Item[], options?: MergeOptions): MergeState {
@@ -36,6 +43,7 @@ const B: Item = { id: 'b', label: 'B' };
 const C: Item = { id: 'c', label: 'C' };
 const X: Item = { id: 'x', label: 'X' };
 const Y: Item = { id: 'y', label: 'Y' };
+const D: Item = { id: 'd', label: 'D' };
 
 describe('engine dispatch', () => {
   it('routes getPair / comparisonsRemaining by engine', () => {
@@ -141,64 +149,162 @@ describe('addItems dispatch', () => {
   });
 });
 
-describe('transitionMergeDoneToInsertion', () => {
-  it('seeds the merge ranking as sorted[], appends pending newItems', () => {
-    // Drive a 3-item merge to done.
-    let m: MergeState = initSort([A, B, C]);
-    while (!m.done) {
-      const p = getPair(m);
-      if (!p) break;
-      const next = p.leftId <= p.rightId ? pickLeft(m) : pickRight(m);
-      m = next as MergeState;
+describe('finalizeCompletedState', () => {
+  it('converts a done insertion state to canonical merge done', () => {
+    const ins = seedAsSorted([A, B, C]);
+    expect(ins.engine).toBe('insertion');
+    const merged = finalizeCompletedState(ins);
+    expect(merged.engine).toBe('merge');
+    expect(merged.done).toBe(true);
+    if (merged.engine === 'merge') {
+      expect(merged.queue).toEqual([['a', 'b', 'c']]);
+      expect(merged.current).toBeNull();
+      expect(merged.comparisons).toBe(ins.comparisons);
+      expect(merged.totalComparisonsEverNeeded).toBe(
+        ins.totalComparisonsEverNeeded,
+      );
     }
-    expect(m.done).toBe(true);
-    expect(getRanking(m)).toEqual(['a', 'b', 'c']);
-
-    const { state, skipped } = transitionMergeDoneToInsertion(m, [X, Y]);
-    expect(skipped).toEqual([]);
-    expect(state.engine).toBe('insertion');
-    expect(state.sorted).toEqual(['a', 'b', 'c']);
-    expect(state.current?.insertingId).toBe('x'); // first probe installed
-    // Total budget for 2 inserts into L=3: 2+2=4
-    // (i=0: ceil(log2(4))=2; i=1: ceil(log2(5))=3 actually = 3)
-    // Wait: after drainPending, current handles x, sortedLen=4 once x
-    // resolves; pending=[y] costs ceil(log2(5))=3. current's frame on
-    // L=3 starts at ceil(log2(4))=2. Total = 2 + 3 = 5.
-    expect(state.totalComparisonsEverNeeded).toBe(5);
+    expect(getRanking(merged)).toEqual(['a', 'b', 'c']);
   });
 
-  it('throws if called on a not-done merge state', () => {
-    const m = initSort([A, B, C]);
-    expect(() => transitionMergeDoneToInsertion(m, [X])).toThrow();
+  it('preserves hidden ids in the merge queue', () => {
+    const ins = seedAsSorted([A, B, C]);
+    ins.hidden = ['b'];
+    const merged = finalizeCompletedState(ins);
+    expect(merged.hidden).toEqual(['b']);
+    if (merged.engine === 'merge') {
+      expect(merged.queue[0]).toEqual(['a', 'b', 'c']);
+    }
+    expect(getRanking(merged)).toEqual(['a', 'c']);
   });
 
-  it('dedups newItems against the merge\'s items dict', () => {
-    let m: MergeState = initSort([A, B]);
-    while (!m.done) {
-      const p = getPair(m);
+  it('is a no-op for in-progress and merge-done states', () => {
+    const inProgress = initSort([A, B, C]);
+    expect(finalizeCompletedState(inProgress)).toBe(inProgress);
+
+    let done = initSort([A, B]);
+    while (!done.done) {
+      const p = getPair(done);
       if (!p) break;
-      m = (p.leftId <= p.rightId ? pickLeft(m) : pickRight(m)) as MergeState;
+      done = (p.leftId <= p.rightId ? pickLeft(done) : pickRight(done)) as MergeState;
     }
-    const { state, skipped } = transitionMergeDoneToInsertion(m, [B, X]);
-    expect(skipped).toEqual(['b']);
-    expect(state.current?.insertingId).toBe('x');
+    expect(finalizeCompletedState(done)).toBe(done);
   });
 
-  it('preserves hidden ids across the transition', () => {
-    // Hide an item before merge completes, ensure it stays hidden in
-    // the insertion state so RESULT can still show it under
-    // "removed during sorting".
-    let m: MergeState = initSort([A, B, C]);
-    m = hideItem(m, 'b') as MergeState;
-    while (!m.done) {
-      const p = getPair(m);
-      if (!p) break;
-      m = (p.leftId <= p.rightId ? pickLeft(m) : pickRight(m)) as MergeState;
+  it('seedAsDoneMerge matches finalize of insertion seedAsSorted', () => {
+    const fromInsertion = finalizeCompletedState(seedAsSorted([A, B, C]));
+    const fromSeed = seedAsDoneMerge([A, B, C]);
+    expect(fromSeed.engine).toBe('merge');
+    expect(fromSeed.done).toBe(true);
+    if (fromSeed.engine === 'merge' && fromInsertion.engine === 'merge') {
+      expect(fromSeed.queue).toEqual(fromInsertion.queue);
     }
-    expect(m.done).toBe(true);
-    expect(m.hidden).toContain('b');
-    const { state } = transitionMergeDoneToInsertion(m, [X]);
-    expect(state.hidden).toContain('b');
+    expect(getRanking(fromSeed)).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('completion normalization on picks', () => {
+  it('finalizes insertion completion without an extra undo snapshot', () => {
+    const { state: ins0 } = buildInsertionState({
+      sortedItems: [A, B],
+      pendingItems: [C, D],
+    });
+    let cur = ins0;
+    let snap = snapshotProgress(cur);
+    let safety = 50;
+    while (!cur.done && safety-- > 0) {
+      const pair = getPair(cur);
+      if (!pair) break;
+      snap = snapshotProgress(cur);
+      const next =
+        pair.leftId <= pair.rightId
+          ? enginePickLeft(cur)
+          : enginePickRight(cur);
+      if (next.done) {
+        expect(next.engine).toBe('merge');
+        expect(getRanking(next)).toEqual(['a', 'b', 'c', 'd']);
+
+        const restored = restoreProgress(next, snap);
+        expect(restored.engine).toBe('insertion');
+        expect(restored.done).toBe(false);
+        return;
+      }
+      cur = next as InsertionState;
+    }
+    throw new Error('insertion sort did not complete');
+  });
+});
+
+/**
+ * Mirrors App.tsx undo wiring: one `snapshotProgress` push per pick/hide,
+ * then `restoreProgress` pops exactly one frame. Normalization must not
+ * add a second frame for the same user action.
+ */
+describe('App undo protocol (single frame per action)', () => {
+  it('counts one undo frame per pick through insertion completion', () => {
+    const { state: ins0 } = buildInsertionState({
+      sortedItems: [A, B],
+      pendingItems: [C, D],
+    });
+    let cur: SortState = ins0;
+    const ring: SortProgress[] = [];
+    let safety = 50;
+    while (!cur.done && safety-- > 0) {
+      const pair = getPair(cur);
+      if (!pair) break;
+      ring.push(snapshotProgress(cur));
+      cur =
+        pair.leftId <= pair.rightId
+          ? enginePickLeft(cur)
+          : enginePickRight(cur);
+    }
+    expect(cur.engine).toBe('merge');
+    expect(cur.done).toBe(true);
+    expect(ring.length).toBeGreaterThan(0);
+
+    const afterOneUndo = restoreProgress(cur, ring[ring.length - 1]!);
+    expect(afterOneUndo.done).toBe(false);
+    expect(afterOneUndo.engine).toBe('insertion');
+  });
+
+  it('counts one undo frame for merge completion picks', () => {
+    let cur: MergeState = initSort([A, B]);
+    const ring: SortProgress[] = [];
+    let safety = 20;
+    while (!cur.done && safety-- > 0) {
+      const pair = getPair(cur);
+      if (!pair) break;
+      ring.push(snapshotProgress(cur));
+      cur = (
+        pair.leftId <= pair.rightId
+          ? enginePickLeft(cur)
+          : enginePickRight(cur)
+      ) as MergeState;
+    }
+    expect(cur.done).toBe(true);
+    expect(cur.engine).toBe('merge');
+
+    const afterOneUndo = restoreProgress(cur, ring[ring.length - 1]!);
+    expect(afterOneUndo.done).toBe(false);
+    expect(afterOneUndo.engine).toBe('merge');
+  });
+
+  it('hide that completes insertion costs one undo frame', () => {
+    const { state: ins0 } = buildInsertionState({
+      sortedItems: [A, B],
+      pendingItems: [C],
+    });
+    const snap = snapshotProgress(ins0);
+    const next = hideItem(ins0, 'c');
+    expect(next.engine).toBe('merge');
+    expect(next.done).toBe(true);
+
+    const restored = restoreProgress(next, snap);
+    expect(restored.engine).toBe('insertion');
+    expect(restored.done).toBe(false);
+    if (restored.engine === 'insertion') {
+      expect(restored.current?.insertingId).toBe('c');
+    }
   });
 });
 
@@ -303,26 +409,34 @@ describe('updateItem (metadata edit)', () => {
 });
 
 describe('cross-engine undo (restoreProgress)', () => {
-  it('snapshotting a merge state then restoring onto an insertion state flips back to merge', () => {
-    let m: MergeState = initSort([A, B, C]);
-    while (!m.done) {
-      const p = getPair(m);
-      if (!p) break;
-      m = (p.leftId <= p.rightId ? pickLeft(m) : pickRight(m)) as MergeState;
-    }
-    const mergeSnap = snapshotProgress(m); // capture done-merge state
-    expect(mergeSnap.engine).toBe('merge');
+  it('undo from normalized completion restores the in-progress insertion snapshot', () => {
+    const { state: ins0 } = buildInsertionState({
+      sortedItems: [A, B],
+      pendingItems: [C, D],
+    });
+    let cur = ins0;
+    let insertionSnap = snapshotProgress(cur);
+    let safety = 50;
+    while (!cur.done && safety-- > 0) {
+      const pair = getPair(cur);
+      if (!pair) break;
+      insertionSnap = snapshotProgress(cur);
+      const next =
+        pair.leftId <= pair.rightId
+          ? enginePickLeft(cur)
+          : enginePickRight(cur);
+      if (next.done) {
+        expect(next.engine).toBe('merge');
+        expect(next.done).toBe(true);
 
-    const { state: ins } = transitionMergeDoneToInsertion(m, [X]);
-    expect(ins.engine).toBe('insertion');
-
-    // Now undo: restoreProgress should flip back to the merge state.
-    const restored = restoreProgress(ins, mergeSnap);
-    expect(restored.engine).toBe('merge');
-    if (restored.engine === 'merge') {
-      expect(restored.done).toBe(true);
-      expect(restored.queue.length).toBe(1);
+        const restored = restoreProgress(next, insertionSnap);
+        expect(restored.engine).toBe('insertion');
+        expect(restored.done).toBe(false);
+        return;
+      }
+      cur = next as InsertionState;
     }
+    throw new Error('insertion sort did not complete');
   });
 });
 

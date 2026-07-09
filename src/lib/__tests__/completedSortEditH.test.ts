@@ -6,7 +6,12 @@ import {
   derivedSlotName,
   resetBranchedSlotComparisonProgress,
 } from '../completedSortEditH';
-import { getPair, initSort as mergeInitSort, pickLeft, pickRight } from '../queueMergeSort';
+import {
+  finalizeCompletedState,
+  restoreProgress,
+  snapshotProgress,
+} from '../engine';
+import { getPair, initSort as mergeInitSort, pickLeft, pickRight, seedAsDoneMerge } from '../queueMergeSort';
 import { seedAsSorted } from '../insertionSort';
 import type { Item, MergeState } from '../types';
 
@@ -94,17 +99,70 @@ describe('applyCompletedSortEdit', () => {
     expect(edited.comparisons).toBe(priorComparisons);
   });
 
-  it('reports duplicate id on addOne for a completed insertion sort', () => {
-    const base = seedAsSorted([A, B]);
-    expect(base.done).toBe(true);
+  it('reports duplicate id on addOne for a legacy completed insertion sort', () => {
+    const raw = seedAsSorted([A, B]);
+    expect(raw.done).toBe(true);
     const { state, skipped, resumed } = applyCompletedSortEdit(
-      base,
+      raw,
       { kind: 'addOne', item: A },
       {},
     );
-    expect(state).toBe(base);
+    expect(state.engine).toBe('merge');
     expect(skipped).toEqual(['a']);
     expect(resumed).toBe(false);
+  });
+});
+
+/** Simulates App.tsx `pushUndo(state)` + edit + single `doUndo`. */
+describe('completed sort edit undo (single frame)', () => {
+  it('one undo restores merge-done after addMany resumes sorting', () => {
+    const done = seedAsDoneMerge([A, B, C]);
+    const undoSnap = snapshotProgress(done);
+    const { state: edited, resumed } = applyCompletedSortEdit(
+      done,
+      { kind: 'addMany', items: [X, Y] },
+      { shuffleAtStart: false },
+    );
+    expect(resumed).toBe(true);
+    expect(edited.done).toBe(false);
+    expect(edited.engine).toBe('merge');
+
+    const restored = restoreProgress(edited, undoSnap);
+    expect(restored.done).toBe(true);
+    expect(restored.engine).toBe('merge');
+    if (restored.engine === 'merge') {
+      expect(restored.queue).toEqual([['a', 'b', 'c']]);
+    }
+  });
+
+  it('one undo restores merge-done after appendPreRanked', () => {
+    const done = seedAsDoneMerge([A, B]);
+    const undoSnap = snapshotProgress(done);
+    const { state: edited, resumed } = applyCompletedSortEdit(
+      done,
+      { kind: 'appendPreRanked', items: [X, Y] },
+      { shuffleAtStart: false },
+    );
+    expect(resumed).toBe(true);
+    const restored = restoreProgress(edited, undoSnap);
+    expect(restored.done).toBe(true);
+    expect(restored.engine).toBe('merge');
+  });
+
+  it('legacy insertion-done input normalizes without needing a second undo frame', () => {
+    const legacyDone = seedAsSorted([A, B, C]);
+    const undoSnap = snapshotProgress(finalizeCompletedState(legacyDone));
+    const { state: edited, resumed } = applyCompletedSortEdit(
+      legacyDone,
+      { kind: 'addOne', item: X },
+      { shuffleAtStart: false },
+    );
+    expect(resumed).toBe(true);
+    expect(edited.engine).toBe('merge');
+
+    const restored = restoreProgress(edited, undoSnap);
+    expect(restored.done).toBe(true);
+    expect(restored.engine).toBe('merge');
   });
 });
 

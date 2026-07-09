@@ -10,8 +10,8 @@
  * make sense for them.
  *
  * Cross-engine undo: `restoreProgress` dispatches on the *snapshotted*
- * progress's engine (not the current state's engine), so an undo across
- * a merge→insertion transition flips the state shape back correctly.
+ * progress's engine (not the current state's engine), so an undo from a
+ * normalized completion restores the in-progress insertion snapshot.
  */
 import * as merge from './queueMergeSort';
 import * as insertion from './insertionSort';
@@ -114,8 +114,8 @@ export function snapshotProgress(state: SortState): SortProgress {
 
 /**
  * Restore the snapshot onto a state. Dispatches on the *snapshot's*
- * engine so an undo across a merge→insertion transition flips state
- * shape back. `items` is shared between snapshots (we never destroy
+ * engine so an undo from normalized completion restores in-progress
+ * insertion. `items` is shared between snapshots (we never destroy
  * items, only add them).
  */
 export function restoreProgress(
@@ -144,18 +144,22 @@ export function pickLeft(
   state: SortState,
   options?: EngineOptions,
 ): SortState {
-  return state.engine === 'insertion'
-    ? insertion.pickLeft(state)
-    : merge.pickLeft(state, options);
+  const next =
+    state.engine === 'insertion'
+      ? insertion.pickLeft(state)
+      : merge.pickLeft(state, options);
+  return finalizeCompletedState(next);
 }
 
 export function pickRight(
   state: SortState,
   options?: EngineOptions,
 ): SortState {
-  return state.engine === 'insertion'
-    ? insertion.pickRight(state)
-    : merge.pickRight(state, options);
+  const next =
+    state.engine === 'insertion'
+      ? insertion.pickRight(state)
+      : merge.pickRight(state, options);
+  return finalizeCompletedState(next);
 }
 
 // ---------- hide / unhide ----------
@@ -165,9 +169,11 @@ export function hideItem(
   id: ItemId,
   options?: EngineOptions,
 ): SortState {
-  return state.engine === 'insertion'
-    ? insertion.hideItem(state, id)
-    : merge.hideItem(state, id, options);
+  const next =
+    state.engine === 'insertion'
+      ? insertion.hideItem(state, id)
+      : merge.hideItem(state, id, options);
+  return finalizeCompletedState(next);
 }
 
 export function unhideItem(state: SortState, id: ItemId): SortState {
@@ -522,48 +528,33 @@ export function reinsertHiddenItem(
   return merge.restoreHiddenItem(state, id, options);
 }
 
-// ---------- engine transition ----------
+// ---------- completion normalization ----------
 
 /**
- * Convert a merge-engine state into an insertion-engine state, using
- * the merge's final ranking as the frozen `sorted[]` and the provided
- * `newItems` as the FIFO `pending[]`. Used by the "+ Add items" button
- * on the RESULT screen when the user wants to insert new items into a
- * completed merge sort without re-running merges over the existing
- * ranking.
+ * Completed sorts use a canonical merge-engine `done` shape so every
+ * finished slot shares the same add-item / pre-ranked / undo semantics.
+ * In-progress states pass through unchanged.
  *
- * Requires the merge state to be `done`. (If the user wants to add
- * items mid-sort, they go through `merge.addItem` instead — that's
- * still queue-based and stays on the merge engine.)
- *
- * Items in `newItems` that match an id already present in `mergeState.items`
- * are dedup-skipped (returned in `skipped`), same contract as
- * appendPreRankedSublist + insertion.addItems.
- *
- * Undo across this boundary works automatically: callers push the
- * merge-state snapshot onto the undo ring before calling this; the
- * undo path's `restoreProgress` dispatches on the snapshot's engine
- * and flips back.
+ * Call synchronously at completion time (after the undo snapshot already
+ * captured the in-progress insertion shape) and when loading legacy
+ * `done + insertion` blobs — never push an extra undo entry for this step.
  */
-export function transitionMergeDoneToInsertion(
-  mergeState: MergeState,
-  newItems: Item[],
-): { state: InsertionState; skipped: ItemId[] } {
-  if (!mergeState.done) {
-    throw new Error(
-      'transitionMergeDoneToInsertion: merge state must be done',
-    );
-  }
-  const ranking = merge.getRanking(mergeState);
-  const sortedItems = ranking
-    .map((id) => mergeState.items[id])
-    .filter((it): it is Item => !!it);
-  // Preserve the hidden bit so removed items are still listed under
-  // the "removed during sorting" toggle on the RESULT screen.
-  const carriedHidden = mergeState.hidden.slice();
-  return insertion.buildInsertionState({
-    sortedItems,
-    pendingItems: newItems,
-    hidden: carriedHidden,
-  });
+export function finalizeCompletedState(state: SortState): SortState {
+  if (!state.done || state.engine === 'merge') return state;
+  const ranking = state.sorted.slice();
+  const mergeState: MergeState = {
+    engine: 'merge',
+    queue: [ranking],
+    current: null,
+    comparisons: state.comparisons,
+    done: true,
+    hidden: state.hidden.slice(),
+    totalComparisonsEverNeeded: state.totalComparisonsEverNeeded,
+    toBeInserted: [],
+    pendingManualInserts: [],
+    currentManualInsert: null,
+    currentAutoInsert: null,
+    items: state.items,
+  };
+  return mergeState;
 }

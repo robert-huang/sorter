@@ -760,6 +760,32 @@ function freshMergeProgress(queue: ItemId[][]): MergeProgress {
 }
 
 /**
+ * Seed a completed merge-engine slot from a pre-sorted list. The ranking
+ * is stored as a single done sublist (`queue = [[...ids]]`). Used for
+ * "use as ranking" START paths, shared ranking imports, and as the
+ * canonical representation for all finished sorts.
+ */
+export function seedAsDoneMerge(items: Item[]): MergeState {
+  const itemsDict: Record<ItemId, Item> = {};
+  for (const it of items) itemsDict[it.id] = it;
+  const ranking = items.map((it) => it.id);
+  return {
+    engine: 'merge',
+    queue: [ranking],
+    current: null,
+    comparisons: 0,
+    done: true,
+    hidden: [],
+    totalComparisonsEverNeeded: 0,
+    toBeInserted: [],
+    pendingManualInserts: [],
+    currentManualInsert: null,
+    currentAutoInsert: null,
+    items: itemsDict,
+  };
+}
+
+/**
  * Sort-from-scratch entry point. Initial queue = N singletons. Item order
  * is shuffled once at startup (see `shuffleAtStart`) so CSV paste order
  * does not dominate the first comparisons.

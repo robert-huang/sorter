@@ -13,6 +13,7 @@ import {
   addItems as engineAddItems,
   comparisonsRemaining as engineComparisonsRemaining,
   dismissHidden as engineDismissHidden,
+  finalizeCompletedState,
   type EngineOptions,
   forgetHiddenItem as engineForgetHiddenItem,
   getRanking as engineGetRanking,
@@ -39,9 +40,10 @@ import {
   manualInsert,
   reorderInSublist,
   reorderInCurrentMerge,
+  seedAsDoneMerge,
   seedFromSublists,
 } from './lib/queueMergeSort';
-import { seedAsSorted, seedInsertionFromSublists } from './lib/insertionSort';
+import { seedInsertionFromSublists } from './lib/insertionSort';
 import {
   applyCompletedSortEdit,
   applySlotImportBatches,
@@ -181,10 +183,11 @@ function deserialize(raw: AutosaveBlob | null): SavedSession | null {
   if (!raw) return null;
   // storage.upgradeProgress has already normalized progress to a v2
   // shape with engine discriminator. Tag the state by engine.
-  const state: SortState =
+  const tagged: SortState =
     raw.progress.engine === 'insertion'
       ? ({ ...raw.progress, items: raw.items } as InsertionState)
       : ({ ...raw.progress, items: raw.items } as MergeState);
+  const state = finalizeCompletedState(tagged);
   return { state, undoRing: raw.undoRing ?? [] };
 }
 
@@ -1292,11 +1295,7 @@ export function App() {
     (item: Item) => {
       if (!state) return;
       if (state.done) {
-        const action: CompletedSortEditAction =
-          state.engine === 'merge'
-            ? { kind: 'mergeToInsertion', items: [item] }
-            : { kind: 'addOne', item };
-        requestCompletedSortEdit(action);
+        requestCompletedSortEdit({ kind: 'addOne', item });
         return;
       }
       setState((cur) => {
@@ -1314,11 +1313,7 @@ export function App() {
     (items: Item[]) => {
       if (!state || items.length === 0) return;
       if (state.done) {
-        const action: CompletedSortEditAction =
-          state.engine === 'merge'
-            ? { kind: 'mergeToInsertion', items }
-            : { kind: 'addMany', items };
-        requestCompletedSortEdit(action);
+        requestCompletedSortEdit({ kind: 'addMany', items });
         return;
       }
       setState((cur) => {
@@ -1359,12 +1354,9 @@ export function App() {
 
   // Import a shared payload as a new slot. Branches on payload.kind:
   //
-  //  - 'ranking'  → seed an insertion-engine DONE state via `seedAsSorted`.
-  //                 Engine choice barely matters since there are no
-  //                 pending comparisons; the user can hit Start over to
-  //                 re-sort with their preferred engine if desired. Land
-  //                 on RESULT so the imported ranking is immediately
-  //                 visible.
+  //  - 'ranking'  → seed a completed merge-engine DONE state via
+  //                 `seedAsDoneMerge`. Land on RESULT so the imported
+  //                 ranking is immediately visible.
   //  - 'template' → seed a fresh sort via `initSort` (respects the
   //                 user's current engine + auto-insert preferences).
   //                 Land on RANK because there is no result yet — the
@@ -1380,7 +1372,7 @@ export function App() {
         const session: SavedSession = { state: next, undoRing: [] };
         adoptNewSession(session, payload.name, 'rank');
       } else {
-        const next = seedAsSorted(payload.items);
+        const next = seedAsDoneMerge(payload.items);
         const session: SavedSession = { state: next, undoRing: [] };
         adoptNewSession(session, payload.name, 'result');
       }
@@ -2018,13 +2010,13 @@ export function App() {
 
   /**
    * CSV-as-sorted entry point: take the parsed items verbatim as a
-   * frozen insertion-mode `sorted[]` with empty `pending[]` (state is
-   * immediately `done`). The user can then "+ Add items" later to
-   * binary-insert new items.
+   * frozen merge-engine done ranking (`queue = [[...ids]]`). The user can
+   * then "+ Add items" later via the same merge resume paths as any
+   * other completed sort.
    */
   const onStartAlreadySorted = useCallback(
     (items: Item[], initialTab?: TabId) => {
-      const next = seedAsSorted(items);
+      const next = seedAsDoneMerge(items);
       const session: SavedSession = { state: next, undoRing: [] };
       adoptNewSession(session, autoNameFromBlob(buildBlob(next, [])), initialTab);
     },

@@ -1061,7 +1061,7 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
     (initialTab?: TabId) => {
       if (combinedAlreadySortedReady) {
         // "Use as ranking" is its own intent (a finished ranking, no
-        // comparisons) and is always insertion-engine seedAsSorted —
+        // comparisons) and seeds canonical merge-engine done state —
         // independent of the merge/insertion split-button choice.
         onStartAlreadySorted(combinedSortInput.sublists[0], initialTab);
       } else if (startMode === 'insertion') {
