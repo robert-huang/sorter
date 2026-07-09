@@ -14,11 +14,9 @@ export const ADAPTATION_LIST_STATUS_OPTIONS: readonly AdaptationListStatus[] = [
   'DROPPED',
 ];
 
-/** Default status filter — matches the main sorter list-status chip. */
+/** Default status filter — all statuses so planning/unwatched seeds stay visible. */
 export const DEFAULT_ADAPTATION_LIST_STATUSES: readonly AdaptationListStatus[] = [
-  'CURRENT',
-  'COMPLETED',
-  'REPEATING',
+  ...ADAPTATION_LIST_STATUS_OPTIONS,
 ];
 
 export const ADAPTATION_EDGE_TYPES = ['SOURCE', 'ADAPTATION'] as const;
@@ -46,6 +44,11 @@ export type AdaptationMedia = {
 export type AdaptationPair = {
   sourceId: number;
   adaptationId: number;
+};
+
+/** A SOURCE/ADAPTATION edge discovered while scanning a specific list entry. */
+export type DirectedAdaptationLink = AdaptationPair & {
+  seedId: number;
 };
 
 export type AdaptationListScope = {
@@ -130,8 +133,24 @@ export function normalizeAdaptationPair(
   return null;
 }
 
+export function normalizeDirectedAdaptationLink(
+  listMediaId: number,
+  relationType: string,
+  neighborId: number,
+): DirectedAdaptationLink | null {
+  const pair = normalizeAdaptationPair(listMediaId, relationType, neighborId);
+  if (!pair) {
+    return null;
+  }
+  return { ...pair, seedId: listMediaId };
+}
+
 export function adaptationPairKey(pair: AdaptationPair): string {
   return `${pair.sourceId}:${pair.adaptationId}`;
+}
+
+export function directedAdaptationLinkKey(link: DirectedAdaptationLink): string {
+  return `${link.sourceId}:${link.adaptationId}:${link.seedId}`;
 }
 
 export function dedupeAdaptationPairs(pairs: readonly AdaptationPair[]): AdaptationPair[] {
@@ -146,6 +165,28 @@ export function dedupeAdaptationPairs(pairs: readonly AdaptationPair[]): Adaptat
     out.push(pair);
   }
   return out;
+}
+
+export function dedupeDirectedAdaptationLinks(
+  links: readonly DirectedAdaptationLink[],
+): DirectedAdaptationLink[] {
+  const seen = new Set<string>();
+  const out: DirectedAdaptationLink[] = [];
+  for (const link of links) {
+    const key = directedAdaptationLinkKey(link);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    out.push(link);
+  }
+  return out;
+}
+
+export function linksToCanonicalPairs(
+  links: readonly DirectedAdaptationLink[],
+): AdaptationPair[] {
+  return dedupeAdaptationPairs(links);
 }
 
 export function compareMediaReleaseDate(
@@ -669,8 +710,8 @@ export function buildAdaptationBlockRows(
   return buildBlockLayoutRows(pairs, mediaMap, consumptionDotId);
 }
 
-export function pairPassesListScopeFilter(
-  pair: AdaptationPair,
+export function linkPassesListScopeFilter(
+  link: DirectedAdaptationLink,
   scope: AdaptationListScope,
   filters: AdaptationFilters,
 ): boolean {
@@ -678,51 +719,40 @@ export function pairPassesListScopeFilter(
     return false;
   }
 
-  const onAnimeList =
-    scope.animeListIds.has(pair.sourceId) || scope.animeListIds.has(pair.adaptationId);
-  const onMangaList =
-    scope.mangaListIds.has(pair.sourceId) || scope.mangaListIds.has(pair.adaptationId);
+  const seedOnAnime = scope.animeListIds.has(link.seedId);
+  const seedOnManga = scope.mangaListIds.has(link.seedId);
 
   if (filters.includeAnime && filters.includeManga) {
-    return onAnimeList || onMangaList;
+    return seedOnAnime || seedOnManga;
   }
   if (filters.includeAnime) {
-    return onAnimeList;
+    return seedOnAnime;
   }
-  return onMangaList;
+  return seedOnManga;
 }
 
-export function pairPassesListStatusFilter(
-  pair: AdaptationPair,
+export function linkPassesListStatusFilter(
+  link: DirectedAdaptationLink,
   mediaMap: ReadonlyMap<number, AdaptationMedia>,
-  listStatuses: readonly AdaptationListStatus[],
+  filters: AdaptationFilters,
 ): boolean {
+  const listStatuses = filters.listStatuses;
   if (listStatuses.length === 0) {
     return false;
   }
   if (listStatuses.length >= ADAPTATION_LIST_STATUS_OPTIONS.length) {
     return true;
   }
-  const allowed = new Set<string>(listStatuses);
-  const sourceStatus = mediaMap.get(pair.sourceId)?.listStatus;
-  const adaptationStatus = mediaMap.get(pair.adaptationId)?.listStatus;
-  return (
-    (sourceStatus != null && allowed.has(sourceStatus)) ||
-    (adaptationStatus != null && allowed.has(adaptationStatus))
-  );
+  const status = mediaMap.get(link.seedId)?.listStatus;
+  return status != null && new Set<string>(listStatuses).has(status);
 }
 
-export function pairPassesListFilter(
+export function pairPassesDoublyConnectedFilter(
   pair: AdaptationPair,
-  mediaMap: ReadonlyMap<number, AdaptationMedia>,
-  onlyBothOnList: boolean,
+  passingLinks: readonly DirectedAdaptationLink[],
 ): boolean {
-  if (!onlyBothOnList) {
-    return true;
-  }
-  const source = mediaMap.get(pair.sourceId);
-  const adaptation = mediaMap.get(pair.adaptationId);
-  return source?.listStatus != null && adaptation?.listStatus != null;
+  const seeds = new Set(passingLinks.map((link) => link.seedId));
+  return seeds.has(pair.sourceId) && seeds.has(pair.adaptationId);
 }
 
 export function pairPassesSameMediumFilter(
@@ -739,7 +769,7 @@ export function pairPassesSameMediumFilter(
 }
 
 export function applyAdaptationFilters(
-  pairs: readonly AdaptationPair[],
+  links: readonly DirectedAdaptationLink[],
   mediaMap: ReadonlyMap<number, AdaptationMedia>,
   scope: AdaptationListScope,
   filters: AdaptationFilters,
@@ -747,25 +777,50 @@ export function applyAdaptationFilters(
   if (!filters.includeAnime && !filters.includeManga) {
     return [];
   }
-  return pairs.filter(
-    (pair) =>
-      pairPassesListScopeFilter(pair, scope, filters) &&
-      pairPassesListStatusFilter(pair, mediaMap, filters.listStatuses) &&
-      pairPassesListFilter(pair, mediaMap, filters.onlyBothOnList) &&
-      pairPassesSameMediumFilter(pair, mediaMap, filters.hideSameMedium),
+
+  const passingLinks = links.filter(
+    (link) =>
+      linkPassesListScopeFilter(link, scope, filters) &&
+      linkPassesListStatusFilter(link, mediaMap, filters) &&
+      pairPassesSameMediumFilter(link, mediaMap, filters.hideSameMedium),
   );
+
+  const byPairKey = new Map<string, DirectedAdaptationLink[]>();
+  for (const link of passingLinks) {
+    const key = adaptationPairKey(link);
+    const group = byPairKey.get(key);
+    if (group) {
+      group.push(link);
+    } else {
+      byPairKey.set(key, [link]);
+    }
+  }
+
+  const out: AdaptationPair[] = [];
+  for (const groupLinks of byPairKey.values()) {
+    const pair = {
+      sourceId: groupLinks[0]!.sourceId,
+      adaptationId: groupLinks[0]!.adaptationId,
+    };
+    if (filters.onlyBothOnList && !pairPassesDoublyConnectedFilter(pair, groupLinks)) {
+      continue;
+    }
+    out.push(pair);
+  }
+  return out;
 }
 
 export function buildAdaptationDisplay(
-  pairs: readonly AdaptationPair[],
+  links: readonly DirectedAdaptationLink[],
   mediaMap: ReadonlyMap<number, AdaptationMedia>,
   scope: AdaptationListScope,
   filters: AdaptationFilters,
   options?: { showAllRows?: boolean },
 ): AdaptationScoresResult {
   const showAllRows = options?.showAllRows ?? false;
-  const filtered = applyAdaptationFilters(pairs, mediaMap, scope, filters);
-  const workingPairs = showAllRows ? pairs : filtered;
+  const filtered = applyAdaptationFilters(links, mediaMap, scope, filters);
+  const allPairs = linksToCanonicalPairs(links);
+  const workingPairs = showAllRows ? allPairs : filtered;
   if (workingPairs.length === 0) {
     return { kind: 'empty', message: 'No adaptation pairs match the current filters.' };
   }

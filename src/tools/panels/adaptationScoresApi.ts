@@ -15,13 +15,13 @@ import { normalizeSeasonalListScore } from './seasonalScoresLogic';
 import {
   ADAPTATION_EDGE_TYPES,
   buildAdaptationDisplay,
-  dedupeAdaptationPairs,
-  normalizeAdaptationPair,
+  dedupeDirectedAdaptationLinks,
+  normalizeDirectedAdaptationLink,
   type AdaptationDate,
   type AdaptationFilters,
   type AdaptationListScope,
   type AdaptationMedia,
-  type AdaptationPair,
+  type DirectedAdaptationLink,
   type AdaptationScoresResult,
 } from './adaptationScoresLogic';
 
@@ -123,7 +123,7 @@ export type RunAdaptationScoresOptions = {
 export type RunAdaptationScoresResult = AdaptationScoresResult;
 
 export type AdaptationScanData = {
-  pairs: AdaptationPair[];
+  links: DirectedAdaptationLink[];
   mediaMap: Map<number, AdaptationMedia>;
   listScope: AdaptationListScope;
 };
@@ -133,28 +133,28 @@ export type RunAdaptationScoresOutput = {
   scan: AdaptationScanData;
 };
 
-export function pairsFromRelationScan(
+export function linksFromRelationScan(
   listMediaIds: readonly number[],
   responses: ReadonlyMap<number, ToolsMediaRelationsResponse>,
-): AdaptationPair[] {
-  const pairs: AdaptationPair[] = [];
+): DirectedAdaptationLink[] {
+  const links: DirectedAdaptationLink[] = [];
   for (const listMediaId of listMediaIds) {
     const response = responses.get(listMediaId);
     if (!response) {
       continue;
     }
     for (const edge of adaptationEdgesFromResponse(response)) {
-      const pair = normalizeAdaptationPair(
+      const link = normalizeDirectedAdaptationLink(
         listMediaId,
         edge.relationType,
         edge.node.id,
       );
-      if (pair) {
-        pairs.push(pair);
+      if (link) {
+        links.push(link);
       }
     }
   }
-  return dedupeAdaptationPairs(pairs);
+  return dedupeDirectedAdaptationLinks(links);
 }
 
 export function buildAdaptationMediaMap(
@@ -220,7 +220,7 @@ export async function runAdaptationScores(
     return {
       display: { kind: 'empty', message: 'No list entries to scan for adaptations.' },
       scan: {
-        pairs: [],
+        links: [],
         mediaMap: new Map(),
         listScope: { animeListIds: new Set(), mangaListIds: new Set() },
       },
@@ -242,15 +242,15 @@ export async function runAdaptationScores(
     },
   });
 
-  const pairs = pairsFromRelationScan(listMediaIds, responses);
-  if (pairs.length === 0) {
+  const links = linksFromRelationScan(listMediaIds, responses);
+  if (links.length === 0) {
     return {
       display: {
         kind: 'empty',
         message: 'No SOURCE/ADAPTATION relations found on your list items.',
       },
       scan: {
-        pairs: [],
+        links: [],
         mediaMap: buildAdaptationMediaMap(listEntries, responses),
         listScope,
       },
@@ -259,8 +259,8 @@ export async function runAdaptationScores(
 
   const mediaMap = buildAdaptationMediaMap(listEntries, responses);
   return {
-    display: buildAdaptationDisplay(pairs, mediaMap, listScope, filters),
-    scan: { pairs, mediaMap, listScope },
+    display: buildAdaptationDisplay(links, mediaMap, listScope, filters),
+    scan: { links, mediaMap, listScope },
   };
 }
 
@@ -269,17 +269,20 @@ export function mergeAdaptationScanFromRelationsRefresh(
   mediaId: number,
   response: ToolsMediaRelationsResponse,
 ): AdaptationScanData {
-  const pairs = scan.pairs.filter(
-    (pair) => pair.sourceId !== mediaId && pair.adaptationId !== mediaId,
+  const links = scan.links.filter(
+    (link) =>
+      link.seedId !== mediaId &&
+      link.sourceId !== mediaId &&
+      link.adaptationId !== mediaId,
   );
   for (const edge of adaptationEdgesFromResponse(response)) {
-    const pair = normalizeAdaptationPair(
+    const link = normalizeDirectedAdaptationLink(
       mediaId,
       edge.relationType,
       edge.node.id,
     );
-    if (pair) {
-      pairs.push(pair);
+    if (link) {
+      links.push(link);
     }
   }
 
@@ -309,7 +312,7 @@ export function mergeAdaptationScanFromRelationsRefresh(
   }
 
   return {
-    pairs: dedupeAdaptationPairs(pairs),
+    links: dedupeDirectedAdaptationLinks(links),
     mediaMap,
     listScope: scan.listScope,
   };

@@ -371,10 +371,10 @@ export function AdaptationScoresPanel({
   );
 
   const displayResult = useMemo(() => {
-    if (!scan || scan.pairs.length === 0) {
+    if (!scan || scan.links.length === 0) {
       return result;
     }
-    return buildAdaptationDisplay(scan.pairs, scan.mediaMap, scan.listScope, filters, {
+    return buildAdaptationDisplay(scan.links, scan.mediaMap, scan.listScope, filters, {
       showAllRows,
     });
   }, [filters, result, scan, showAllRows]);

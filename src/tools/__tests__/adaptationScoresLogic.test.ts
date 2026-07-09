@@ -6,9 +6,12 @@ import {
   buildAdaptationDisplay,
   canStaggerChain,
   dedupeAdaptationPairs,
+  dedupeDirectedAdaptationLinks,
   normalizeAdaptationPair,
+  normalizeDirectedAdaptationLink,
   type AdaptationMedia,
   type AdaptationPair,
+  type DirectedAdaptationLink,
 } from '../panels/adaptationScoresLogic';
 
 function media(
@@ -37,6 +40,14 @@ function media(
 
 function mediaMap(entries: AdaptationMedia[]): Map<number, AdaptationMedia> {
   return new Map(entries.map((entry) => [entry.id, entry]));
+}
+
+function link(
+  sourceId: number,
+  adaptationId: number,
+  seedId: number,
+): DirectedAdaptationLink {
+  return { sourceId, adaptationId, seedId };
 }
 
 function visibleSourceIds(rows: ReturnType<typeof buildAdaptationBlockRows>): number[] {
@@ -86,11 +97,42 @@ describe('dedupeAdaptationPairs', () => {
   });
 });
 
+describe('normalizeDirectedAdaptationLink', () => {
+  it('includes the scanning list entry as seedId', () => {
+    expect(normalizeDirectedAdaptationLink(10, 'SOURCE', 5)).toEqual({
+      sourceId: 5,
+      adaptationId: 10,
+      seedId: 10,
+    });
+    expect(normalizeDirectedAdaptationLink(10, 'ADAPTATION', 20)).toEqual({
+      sourceId: 10,
+      adaptationId: 20,
+      seedId: 10,
+    });
+  });
+});
+
+describe('dedupeDirectedAdaptationLinks', () => {
+  it('keeps distinct seeds for the same canonical pair', () => {
+    const links: DirectedAdaptationLink[] = [
+      { sourceId: 1, adaptationId: 2, seedId: 1 },
+      { sourceId: 1, adaptationId: 2, seedId: 2 },
+      { sourceId: 1, adaptationId: 2, seedId: 1 },
+    ];
+    expect(dedupeDirectedAdaptationLinks(links)).toEqual([
+      { sourceId: 1, adaptationId: 2, seedId: 1 },
+      { sourceId: 1, adaptationId: 2, seedId: 2 },
+    ]);
+  });
+});
+
 describe('applyAdaptationFilters', () => {
-  const pairs: AdaptationPair[] = [
-    { sourceId: 1, adaptationId: 2 },
-    { sourceId: 3, adaptationId: 4 },
-    { sourceId: 5, adaptationId: 6 },
+  const links: DirectedAdaptationLink[] = [
+    link(1, 2, 1),
+    link(1, 2, 2),
+    link(3, 4, 4),
+    link(5, 6, 5),
+    link(5, 6, 6),
   ];
   const map = mediaMap([
     media(1, { mediaType: 'MANGA', listStatus: 'COMPLETED' }),
@@ -107,7 +149,7 @@ describe('applyAdaptationFilters', () => {
   const allStatuses = [...ADAPTATION_LIST_STATUS_OPTIONS];
 
   it('filters rows by anime list membership when only anime is included', () => {
-    const filtered = applyAdaptationFilters(pairs, map, scope, {
+    const filtered = applyAdaptationFilters(links, map, scope, {
       includeAnime: true,
       includeManga: false,
       listStatuses: allStatuses,
@@ -121,7 +163,7 @@ describe('applyAdaptationFilters', () => {
   });
 
   it('filters rows by manga list membership when only manga is included', () => {
-    const filtered = applyAdaptationFilters(pairs, map, scope, {
+    const filtered = applyAdaptationFilters(links, map, scope, {
       includeAnime: false,
       includeManga: true,
       listStatuses: allStatuses,
@@ -134,8 +176,8 @@ describe('applyAdaptationFilters', () => {
     ]);
   });
 
-  it('filters to both-on-list pairs', () => {
-    const filtered = applyAdaptationFilters(pairs, map, scope, {
+  it('filters to doubly-connected pairs when onlyBothOnList is enabled', () => {
+    const filtered = applyAdaptationFilters(links, map, scope, {
       includeAnime: true,
       includeManga: true,
       listStatuses: allStatuses,
@@ -149,7 +191,7 @@ describe('applyAdaptationFilters', () => {
   });
 
   it('hides same-medium pairs when requested', () => {
-    const filtered = applyAdaptationFilters(pairs, map, scope, {
+    const filtered = applyAdaptationFilters(links, map, scope, {
       includeAnime: true,
       includeManga: true,
       listStatuses: allStatuses,
@@ -162,8 +204,8 @@ describe('applyAdaptationFilters', () => {
     ]);
   });
 
-  it('filters rows when either side matches a selected list status', () => {
-    const filtered = applyAdaptationFilters(pairs, map, scope, {
+  it('filters rows when the scanning seed matches a selected list status', () => {
+    const filtered = applyAdaptationFilters(links, map, scope, {
       includeAnime: true,
       includeManga: true,
       listStatuses: ['COMPLETED'],
@@ -175,6 +217,110 @@ describe('applyAdaptationFilters', () => {
       { sourceId: 3, adaptationId: 4 },
       { sourceId: 5, adaptationId: 6 },
     ]);
+  });
+
+  it('anime-only status filter matches anime seeds, not manga seeds', () => {
+    const filtered = applyAdaptationFilters(
+      [
+        link(100, 200, 100),
+        link(100, 200, 200),
+      ],
+      mediaMap([
+        media(100, { mediaType: 'MANGA', format: 'MANGA', listStatus: 'COMPLETED' }),
+        media(200, {
+          mediaType: 'ANIME',
+          format: 'MOVIE',
+          listStatus: 'PLANNING',
+        }),
+      ]),
+      { animeListIds: new Set([200]), mangaListIds: new Set([100]) },
+      {
+        includeAnime: true,
+        includeManga: false,
+        listStatuses: ['PLANNING'],
+        onlyBothOnList: false,
+        hideSameMedium: false,
+      },
+    );
+    expect(filtered).toEqual([{ sourceId: 100, adaptationId: 200 }]);
+  });
+
+  it('anime-only status filter ignores planning manga seeds', () => {
+    const filtered = applyAdaptationFilters(
+      [
+        link(100, 200, 100),
+        link(100, 200, 200),
+      ],
+      mediaMap([
+        media(100, { mediaType: 'MANGA', format: 'MANGA', listStatus: 'PLANNING' }),
+        media(200, {
+          mediaType: 'ANIME',
+          format: 'MOVIE',
+          listStatus: 'COMPLETED',
+        }),
+      ]),
+      { animeListIds: new Set([200]), mangaListIds: new Set([100]) },
+      {
+        includeAnime: true,
+        includeManga: false,
+        listStatuses: ['PLANNING'],
+        onlyBothOnList: false,
+        hideSameMedium: false,
+      },
+    );
+    expect(filtered).toEqual([]);
+  });
+
+  it('anime-only planning filter keeps manga-completed anime seeds (Haikyuu-style)', () => {
+    const filtered = applyAdaptationFilters(
+      [
+        link(100, 200, 100),
+        link(100, 200, 200),
+      ],
+      mediaMap([
+        media(100, { mediaType: 'MANGA', format: 'MANGA', listStatus: 'COMPLETED' }),
+        media(200, {
+          mediaType: 'ANIME',
+          format: 'MOVIE',
+          listStatus: 'PLANNING',
+        }),
+      ]),
+      { animeListIds: new Set([200]), mangaListIds: new Set([100]) },
+      {
+        includeAnime: true,
+        includeManga: false,
+        listStatuses: ['PLANNING'],
+        onlyBothOnList: false,
+        hideSameMedium: false,
+      },
+    );
+    expect(filtered).toEqual([{ sourceId: 100, adaptationId: 200 }]);
+  });
+
+  it('onlyBothOnList requires passing seeds from both sides under status filters', () => {
+    const filtered = applyAdaptationFilters(
+      [
+        link(100, 200, 100),
+        link(100, 200, 200),
+      ],
+      mediaMap([
+        media(100, { mediaType: 'MANGA', format: 'MANGA', listStatus: 'PLANNING' }),
+        media(200, {
+          mediaType: 'ANIME',
+          format: 'TV',
+          listStatus: 'COMPLETED',
+        }),
+      ]),
+      { animeListIds: new Set([200]), mangaListIds: new Set([100]) },
+      {
+        includeAnime: true,
+        includeManga: true,
+        listStatuses: ['PLANNING'],
+        onlyBothOnList: true,
+        hideSameMedium: false,
+      },
+    );
+    expect(filtered).toEqual([]);
   });
 });
 
@@ -337,9 +483,9 @@ describe('buildAdaptationBlockRows', () => {
 
 describe('buildAdaptationDisplay', () => {
   it('sorts blocks by earliest adaptation release date', () => {
-    const pairs: AdaptationPair[] = [
-      { sourceId: 1, adaptationId: 20 },
-      { sourceId: 2, adaptationId: 30 },
+    const links: DirectedAdaptationLink[] = [
+      link(1, 20, 1),
+      link(2, 30, 2),
     ];
     const map = mediaMap([
       media(1, { mediaType: 'MANGA' }),
@@ -348,7 +494,7 @@ describe('buildAdaptationDisplay', () => {
       media(30, { startDate: { year: 2018, month: 1, day: 1 } }),
     ]);
 
-    const display = buildAdaptationDisplay(pairs, map, {
+    const display = buildAdaptationDisplay(links, map, {
       animeListIds: new Set([20, 30]),
       mangaListIds: new Set([1, 2]),
     }, {
@@ -368,9 +514,11 @@ describe('buildAdaptationDisplay', () => {
   });
 
   it('showAllRows keeps filtered-out pairs visible with hiddenByFilter', () => {
-    const pairs: AdaptationPair[] = [
-      { sourceId: 1, adaptationId: 10 },
-      { sourceId: 2, adaptationId: 20 },
+    const links: DirectedAdaptationLink[] = [
+      link(1, 10, 1),
+      link(1, 10, 10),
+      link(2, 20, 2),
+      link(2, 20, 20),
     ];
     const map = mediaMap([
       media(1, { mediaType: 'MANGA', listStatus: 'COMPLETED' }),
@@ -380,7 +528,7 @@ describe('buildAdaptationDisplay', () => {
     ]);
 
     const display = buildAdaptationDisplay(
-      pairs,
+      links,
       map,
       { animeListIds: new Set([10, 20]), mangaListIds: new Set([1, 2]) },
       {
@@ -403,9 +551,9 @@ describe('buildAdaptationDisplay', () => {
   });
 
   it('showAllRows greys every row in a rowspan block, not only the first', () => {
-    const pairs: AdaptationPair[] = [
-      { sourceId: 1, adaptationId: 10 },
-      { sourceId: 1, adaptationId: 20 },
+    const links: DirectedAdaptationLink[] = [
+      link(1, 10, 1),
+      link(1, 20, 1),
     ];
     const map = mediaMap([
       media(1, { mediaType: 'MANGA', format: 'MANGA', listStatus: 'COMPLETED' }),
@@ -414,7 +562,7 @@ describe('buildAdaptationDisplay', () => {
     ]);
 
     const display = buildAdaptationDisplay(
-      pairs,
+      links,
       map,
       { animeListIds: new Set([10, 20]), mangaListIds: new Set([1]) },
       {

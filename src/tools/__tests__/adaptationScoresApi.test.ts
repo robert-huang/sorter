@@ -27,7 +27,7 @@ import {
 } from '../../lib/importers/anilist/toolsAnilistAccess';
 import {
   buildBatchedAdaptationRelationsQuery,
-  pairsFromRelationScan,
+  linksFromRelationScan,
   runAdaptationScores,
   type AdaptationRelationsResponse,
 } from '../panels/adaptationScoresApi';
@@ -105,7 +105,7 @@ function relationsMedia(
   return payload.Media;
 }
 
-describe('pairsFromRelationScan', () => {
+describe('linksFromRelationScan', () => {
   it('normalizes v2 SOURCE/ADAPTATION edges from list items', () => {
     const responses = new Map<number, AdaptationRelationsResponse>([
       [
@@ -124,9 +124,9 @@ describe('pairsFromRelationScan', () => {
       ],
     ]);
 
-    expect(pairsFromRelationScan([10, 20], responses)).toEqual([
-      { sourceId: 5, adaptationId: 10 },
-      { sourceId: 20, adaptationId: 30 },
+    expect(linksFromRelationScan([10, 20], responses)).toEqual([
+      { sourceId: 5, adaptationId: 10, seedId: 10 },
+      { sourceId: 20, adaptationId: 30, seedId: 20 },
     ]);
   });
 });
@@ -171,7 +171,7 @@ describe('runAdaptationScores', () => {
       },
     });
 
-    expect(output.scan.pairs).toEqual([{ sourceId: 5, adaptationId: 10 }]);
+    expect(output.scan.links).toEqual([{ sourceId: 5, adaptationId: 10, seedId: 10 }]);
     expect(output.display.kind).toBe('table');
     if (output.display.kind === 'table') {
       expect(output.display.blocks.length).toBeGreaterThan(0);
@@ -196,6 +196,6 @@ describe('runAdaptationScores', () => {
       kind: 'empty',
       message: 'No list entries to scan for adaptations.',
     });
-    expect(output.scan.pairs).toEqual([]);
+    expect(output.scan.links).toEqual([]);
   });
 });

@@ -625,31 +625,35 @@ Chart one user's AniList scores across seasons.
 - **Include planning** — fetch PLANNING entries (off by default).
 - **Span airing seasons** — bucket shows by broadcast start/end overlap with each season window instead of AniList's single `season` tag.
 
-Columns show rated count, column average, and per-show scores (green > 80, pink < 70). Season headers link to AniList season browse URLs.
+Columns show rated count, column average, and per-show scores (green > 80, pink < 70). Unrated on-list cells show a status letter instead: **P** planning, **W** watching (anime `CURRENT` / `REPEATING`), **R** reading (manga `CURRENT` / `REPEATING`), **H** paused. Season headers link to AniList season browse URLs.
 
 ### Franchise Scores
 
 Walk AniList **relations** outward from one or more seed shows and chart the user's scores across the franchise.
 
 - **Relation toggles** — prequel, sequel, parent, side story, spin-off, alternative, summary, adaptation, source, compilation, contains (on by default); **Other** and **Character** (off by default — noisy cameos / soundtracks).
-- **Post-fetch filters** — score range chips (rated / unrated / min–max), same semantics as the Sorter FilterBar.
+- **Post-fetch filters** — **list status** chip (defaults to all six statuses so unwatched franchise members stay visible), then score range chips (rated / unrated / min–max), same semantics as the Sorter FilterBar.
+- **Score cells** — numeric score when rated; otherwise the same status letters as Seasonal Scores (**P** / **W** / **R** / **H** by list status and medium).
 - **Export** — copy franchise table as CSV or plain text.
 
 Uses cached list scores when available; fetches relation edges and missing entries on demand. Relation edges are read from SQLite when fresh; right-click Trace forces a live re-fetch for every node in the walk.
 
 ### Adaptation Scores
 
-Map **source ↔ adaptation** pairs from a user's anime and manga lists using AniList `SOURCE` / `ADAPTATION` relation edges.
+Map **source ↔ adaptation** pairs from a user's anime and manga lists using AniList `SOURCE` / `ADAPTATION` relation edges. Each list entry is scanned as a **seed**; every qualifying edge is kept as a directed link (seed → neighbor) before pairs are collapsed for display.
 
-- **Anime / manga list toggles** — choose which list types to scan (both on by default).
-- **List status** — filter which list statuses contribute seed entries (defaults to `CURRENT`, `COMPLETED`, `REPEATING`).
-- **Only rows where both sides are on my list** — hide pairs where the other medium is not on your list.
+- **Anime / manga list toggles** — choose which list types contribute seeds (both on by default). Anime-only means only discoveries made while scanning anime list entries count; manga neighbors reached only from a manga seed are ignored unless manga scanning is also on.
+- **List status** — filter which seeds survive (defaults to all six statuses). Status is checked on the **scanning list entry**, not the neighbor's status.
+- **Only rows where both sides are on my list** — keep a pair only when it is **doubly connected**: discovered from the source list entry **and** from the adaptation list entry, and **both** discoveries pass the anime/manga and list-status filters. Example: anime `COMPLETED` + manga `PLANNING` does not appear here when the status filter is `PLANNING` only, because the anime→manga discovery fails the status filter.
 - **Hide same-medium adaptations** — drop pairs where source and adaptation share the same medium (e.g. manga → manga).
 - **Show all rows** — keep filtered-out pairs in the table (dimmed) instead of removing them; useful after a relations refresh from the detail modal.
 - **Franchise blocks** — related pairs are grouped into blocks with merged source/adaptation columns (`rowspan`) and release-date ordering within each block.
 - **Consumption dot (•)** — marks the entry you most recently started in each block (by list `startedAt`, then release date).
+- **Score cells** — same numeric score / status-letter rules as Franchise Scores.
 
-Results open media detail modals from title links.
+Filter toggles (list type, status, both sides, same-medium, show all rows) re-apply **client-side** against the in-memory scan — no new AniList fetch. Re-run **Compare** only after a fresh scan is needed (first load, page refresh, or right-click force refresh).
+
+Results open media detail modals from title links. Relations **↻ Refresh** in a detail modal merges updated edges into the current scan without re-running Compare.
 
 ### Favourites
 
