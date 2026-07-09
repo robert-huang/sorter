@@ -636,6 +636,7 @@ function SlotImportRow({
                 .filter(Boolean)
                 .join(' ')}
             >
+              <span className="rank">{index + 1}.</span>
               <span className="sort-results-import-preview-label" title={effective.label}>
                 {effective.label}
               </span>

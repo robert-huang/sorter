@@ -4711,6 +4711,14 @@ html {
   padding: 2px 0;
 }
 
+.sort-results-import-preview-item .rank {
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  width: 28px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
 .sort-results-import-preview-label {
   flex: 1;
   min-width: 0;
