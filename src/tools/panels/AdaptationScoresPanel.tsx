@@ -135,6 +135,10 @@ function normalizeFilters(raw: unknown): AdaptationFilters {
   };
 }
 
+type ActiveShowDifferenceMode = Exclude<ShowDifferenceMode, 'off'>;
+
+const DEFAULT_SHOW_DIFFERENCE_MODE: ActiveShowDifferenceMode = 'source';
+
 function normalizeShowDifference(raw: unknown): ShowDifferenceMode {
   if (raw === 'source' || raw === 'first') {
     return raw;
@@ -142,21 +146,58 @@ function normalizeShowDifference(raw: unknown): ShowDifferenceMode {
   return 'off';
 }
 
-function loadFilters(): AdaptationFilters {
-  try {
-    const raw = localStorage.getItem(LS_FILTERS_KEY);
-    if (raw) {
-      return normalizeFilters(JSON.parse(raw));
-    }
-  } catch {
-    /* ignore */
+function readShowDifferenceLastMode(
+  raw: Record<string, unknown>,
+): ActiveShowDifferenceMode {
+  if (raw.showDifferenceLastMode === 'first' || raw.showDifferenceLastMode === 'source') {
+    return raw.showDifferenceLastMode;
   }
-  return { ...DEFAULT_ADAPTATION_FILTERS };
+  if (raw.showDifference === 'first' || raw.showDifference === 'source') {
+    return raw.showDifference;
+  }
+  return DEFAULT_SHOW_DIFFERENCE_MODE;
 }
 
-function saveFilters(filters: AdaptationFilters): void {
+type LoadedFilterState = {
+  filters: AdaptationFilters;
+  showDifferenceLastMode: ActiveShowDifferenceMode;
+};
+
+const filterBootstrapRef: { current: LoadedFilterState | null } = { current: null };
+
+function bootstrapFilters(): LoadedFilterState {
+  if (!filterBootstrapRef.current) {
+    try {
+      const raw = localStorage.getItem(LS_FILTERS_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        filterBootstrapRef.current = {
+          filters: normalizeFilters(parsed),
+          showDifferenceLastMode: readShowDifferenceLastMode(parsed),
+        };
+      }
+    } catch {
+      /* ignore */
+    }
+    if (!filterBootstrapRef.current) {
+      filterBootstrapRef.current = {
+        filters: { ...DEFAULT_ADAPTATION_FILTERS },
+        showDifferenceLastMode: DEFAULT_SHOW_DIFFERENCE_MODE,
+      };
+    }
+  }
+  return filterBootstrapRef.current;
+}
+
+function saveFilters(
+  filters: AdaptationFilters,
+  showDifferenceLastMode: ActiveShowDifferenceMode,
+): void {
   try {
-    localStorage.setItem(LS_FILTERS_KEY, JSON.stringify(filters));
+    localStorage.setItem(
+      LS_FILTERS_KEY,
+      JSON.stringify({ ...filters, showDifferenceLastMode }),
+    );
   } catch {
     /* ignore */
   }
@@ -492,10 +533,12 @@ export function AdaptationScoresPanel({
   });
   useToolsDisplayLabelRevision();
   const [form, setForm] = useState<AdaptationForm>(() => loadForm());
-  const [filters, setFilters] = useState<AdaptationFilters>(() => loadFilters());
+  const [filters, setFilters] = useState<AdaptationFilters>(() => bootstrapFilters().filters);
   const [showAllRows, setShowAllRows] = useState(false);
   const [diffSort, setDiffSort] = useState<DiffSort>(null);
-  const lastShowDifferenceModeRef = useRef<Exclude<ShowDifferenceMode, 'off'>>('source');
+  const lastShowDifferenceModeRef = useRef<ActiveShowDifferenceMode>(
+    bootstrapFilters().showDifferenceLastMode,
+  );
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AdaptationScoresResult | null>(null);
@@ -508,7 +551,7 @@ export function AdaptationScoresPanel({
   }, [form]);
 
   useEffect(() => {
-    saveFilters(filters);
+    saveFilters(filters, lastShowDifferenceModeRef.current);
   }, [filters]);
 
   useEffect(() => {
