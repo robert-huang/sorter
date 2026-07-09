@@ -3373,10 +3373,18 @@ html {
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
+  width: 22px;
+  height: 22px;
   min-width: 22px;
   min-height: 22px;
-  padding: 1px 5px;
+  padding: 0;
   font-size: 13px;
+  line-height: 1;
+}
+
+.preview-item-actions .icon-btn.detail {
+  font-size: 14px;
+  transform: translateY(-0.5px);
 }
 
 .preview-totals {
@@ -4484,6 +4492,32 @@ html {
 .icon-btn.danger:hover {
   color: var(--danger);
   border-color: var(--danger);
+}
+
+/* Detail (ⓘ) — fixed square hit target; the circled-i glyph often sits
+   low in the em-box so we nudge it up slightly in flex-centered buttons. */
+.icon-btn.detail,
+.x-button.staged-panel-item-detail.detail {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  min-height: 22px;
+  padding: 0;
+  line-height: 1;
+}
+
+.icon-btn.detail {
+  font-size: 14px;
+  transform: translateY(-0.5px);
+}
+
+.x-button.staged-panel-item-detail.detail {
+  font-size: 15px;
+  transform: translateY(-0.5px);
 }
 
 .add-buttons {

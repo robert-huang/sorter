@@ -6,8 +6,8 @@ export type DetailButtonVariant = 'chip' | 'row' | 'staged';
 
 function classNameForVariant(variant: DetailButtonVariant): string {
   if (variant === 'chip') return 'x detail';
-  if (variant === 'staged') return 'x-button staged-panel-item-detail';
-  return 'icon-btn';
+  if (variant === 'staged') return 'x-button staged-panel-item-detail detail';
+  return 'icon-btn detail';
 }
 
 /**

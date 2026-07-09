@@ -446,7 +446,7 @@ function PreviewItemIndicator({
   return (
     <span
       className={mergeAnilistLinkClass('preview-item-indicator', link.className)}
-      title={`${label}: ${href} (middle-click to open)`}
+      title={`${href} (middle-click to open)`}
       aria-label={`${label} for this row (middle-click to open)`}
       onMouseDown={link.onMouseDown}
       onAuxClick={link.onAuxClick}
