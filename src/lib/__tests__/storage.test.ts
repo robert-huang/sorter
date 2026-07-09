@@ -32,12 +32,15 @@ import {
   setCloudOptIn,
   setCloudPushed,
   scheduleAutosave,
+  persistCanonicalBlobOnLoad,
   setActiveSlot,
   slotBlobKey,
   subscribeAutosaveError,
   updateSlotMeta,
 } from '../storage';
 import type { MergeProgress, SaveFile, SlotMeta } from '../types';
+import { seedAsSorted, snapshotProgress as insertionSnapshot } from '../insertionSort';
+import { finalizeCompletedState, snapshotProgress } from '../engine';
 
 /**
  * Tiny File-like polyfill for jsdom. jsdom does provide File globally
@@ -475,6 +478,47 @@ describe('scheduleAutosave', () => {
     flushAutosave();
     // Nothing under any slot key.
     expect(readManifest().slots.length).toBe(0);
+  });
+});
+
+describe('persistCanonicalBlobOnLoad', () => {
+  it('migrates legacy insertion-done blobs without bumping updatedAt', async () => {
+    const items = [
+      { id: 'a', label: 'A' },
+      { id: 'b', label: 'B' },
+      { id: 'c', label: 'C' },
+    ];
+    const ins = seedAsSorted(items);
+    const legacyBlob: AutosaveBlob = {
+      items: ins.items,
+      progress: insertionSnapshot(ins),
+      undoRing: [],
+    };
+    const canonicalBlob: AutosaveBlob = {
+      items: ins.items,
+      progress: snapshotProgress(finalizeCompletedState(ins)),
+      undoRing: [],
+    };
+    expect(JSON.stringify(legacyBlob)).not.toBe(JSON.stringify(canonicalBlob));
+
+    const slot = mintSlot(legacyBlob, 'Legacy done');
+    const beforeUpdatedAt = readManifest().slots.find((s) => s.id === slot.id)!.updatedAt;
+    expect(readSlotBlob(slot.id)?.progress.engine).toBe('insertion');
+
+    await new Promise((r) => setTimeout(r, 5));
+    persistCanonicalBlobOnLoad(slot.id, canonicalBlob);
+
+    expect(readManifest().slots.find((s) => s.id === slot.id)!.updatedAt).toBe(
+      beforeUpdatedAt,
+    );
+    expect(readSlotBlob(slot.id)?.progress.engine).toBe('merge');
+
+    // Simulates sitting on RESULT: autosave fires but disk already matches.
+    scheduleAutosave(canonicalBlob);
+    flushAutosave();
+    expect(readManifest().slots.find((s) => s.id === slot.id)!.updatedAt).toBe(
+      beforeUpdatedAt,
+    );
   });
 });
 

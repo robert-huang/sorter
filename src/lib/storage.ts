@@ -833,6 +833,45 @@ export function replaceSlotBlob(id: string, blob: AutosaveBlob): boolean {
 }
 
 /**
+ * After loading a slot into memory, persist the canonical blob when
+ * deserialize-time normalization changed the on-disk shape (e.g.
+ * insertion-done → merge-done). Writes without bumping `updatedAt` so
+ * cloud-sync state is not disturbed, and resets autosave bookkeeping so
+ * the next debounced write hits the no-op path instead of re-writing.
+ *
+ * Safe to call when disk already matches — only resets bookkeeping for
+ * the active slot.
+ */
+export function persistCanonicalBlobOnLoad(
+  id: string,
+  blob: AutosaveBlob,
+): void {
+  if (!isAutosaveAvailable()) return;
+
+  const existing = readSlotBlob(id);
+  if (existing && JSON.stringify(existing) === JSON.stringify(blob)) {
+    if (currentActiveId === id) {
+      resetAutosaveBookkeeping(blob.progress.comparisons);
+    }
+    return;
+  }
+
+  if (!existing) return;
+
+  if (currentActiveId === id) {
+    cancelPendingAutosave();
+  }
+  if (!tryWriteSlotBlob(id, blob)) {
+    // Quota failure on a silent migration — leave the legacy blob;
+    // autosave will retry with normal recovery paths on the next edit.
+    return;
+  }
+  if (currentActiveId === id) {
+    resetAutosaveBookkeeping(blob.progress.comparisons);
+  }
+}
+
+/**
  * Wipe all cloud-sync metadata for a slot. Used by:
  *  - Remove-from-cloud (slot kept locally, cloud copy deleted).
  *  - Drive-side-delete recovery (cloud copy was deleted out from

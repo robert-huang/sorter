@@ -79,6 +79,7 @@ import {
   readManifest,
   readSettings,
   readSlotBlob,
+  persistCanonicalBlobOnLoad,
   pinSlot,
   renameSlot,
   replaceSlotBlob,
@@ -197,6 +198,14 @@ function buildBlob(state: SortState, undoRing: SortProgress[]): AutosaveBlob {
     progress: engineSnapshotProgress(state),
     undoRing,
   };
+}
+
+/** Deserialize a slot blob and silently migrate legacy on-disk shapes. */
+function loadSlotSession(id: string): SavedSession | null {
+  const session = deserialize(readSlotBlob(id));
+  if (!session) return null;
+  persistCanonicalBlobOnLoad(id, buildBlob(session.state, session.undoRing));
+  return session;
 }
 
 /**
@@ -682,7 +691,7 @@ export function App() {
   const onMultitabReload = useCallback(() => {
     if (!multitabStaleSlotId) return;
     discardPendingAutosave();
-    const session = deserialize(readSlotBlob(multitabStaleSlotId));
+    const session = loadSlotSession(multitabStaleSlotId);
     if (session) {
       setLoadedSlotId(multitabStaleSlotId);
       setState(session.state);
@@ -1688,7 +1697,7 @@ export function App() {
           // handler in source order) — same source-of-truth, no
           // forward-reference noise.
           if (refreshed.activeId === id) {
-            const session = deserialize(result.blob);
+            const session = loadSlotSession(id);
             if (session) {
               setLoadedSlotId(id);
               setState(session.state);
@@ -2034,7 +2043,7 @@ export function App() {
     // Use the returned manifest — readManifest() after flushAutosave can
     // still see the outgoing activeId if a post-write listener ran first.
     const m = setActiveSlot(id);
-    const session = deserialize(readSlotBlob(id));
+    const session = loadSlotSession(id);
     if (!session) {
       // Bad data — refresh manifest and stay put.
       setManifest(readManifest());
