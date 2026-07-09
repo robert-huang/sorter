@@ -201,15 +201,11 @@ function SeasonalColumnsView({
     };
   }, [columns, syncSeasonLayout]);
 
-  const syncHeaderScroll = useCallback(
-    (el: HTMLElement) => {
-      if (headerRef.current) {
-        headerRef.current.scrollLeft = el.scrollLeft;
-      }
-      syncSeasonLayout();
-    },
-    [syncSeasonLayout],
-  );
+  const syncHeaderScroll = useCallback((el: HTMLElement) => {
+    if (headerRef.current) {
+      headerRef.current.scrollLeft = el.scrollLeft;
+    }
+  }, []);
 
   return (
     <div className="tool-season-columns">

@@ -149,7 +149,10 @@ function StaffCompareSectionTable({
       return;
     }
     applyHeaderScrollbarGutter(headerWrap, bodyScroll);
-    syncTableColumnsByIndex(headerTable, bodyTable);
+    syncTableColumnsByIndex(headerTable, bodyTable, {
+      bodyScroll,
+      headerWrap,
+    });
   }, []);
 
   useLayoutEffect(() => {
@@ -171,15 +174,11 @@ function StaffCompareSectionTable({
     };
   }, [section.rows, shows, syncTableLayout]);
 
-  const syncHeaderScroll = useCallback(
-    (el: HTMLElement) => {
-      if (headerWrapRef.current) {
-        headerWrapRef.current.scrollLeft = el.scrollLeft;
-      }
-      syncTableLayout();
-    },
-    [syncTableLayout],
-  );
+  const syncHeaderScroll = useCallback((el: HTMLElement) => {
+    if (headerWrapRef.current) {
+      headerWrapRef.current.scrollLeft = el.scrollLeft;
+    }
+  }, []);
 
   return (
     <div className="tool-results tool-table-wrap tool-staff-compare-wrap">
@@ -190,8 +189,8 @@ function StaffCompareSectionTable({
               <th className="tool-staff-compare-entity tool-staff-compare-section-th">
                 <h3 className="tool-section-title">{section.title}</h3>
               </th>
-              {shows.map((show) => (
-                <th key={show.id}>
+              {shows.map((show, colIdx) => (
+                <th key={`${show.id}-${colIdx}`}>
                   <ToolShowButton
                     mediaId={show.id}
                     title={show.title}

@@ -367,15 +367,11 @@ function AdaptationTable({
     };
   }, [blocks, showDiff, diffSort, syncTableLayout]);
 
-  const syncHeaderScroll = useCallback(
-    (el: HTMLElement) => {
-      if (headerWrapRef.current) {
-        headerWrapRef.current.scrollLeft = el.scrollLeft;
-      }
-      syncTableLayout();
-    },
-    [syncTableLayout],
-  );
+  const syncHeaderScroll = useCallback((el: HTMLElement) => {
+    if (headerWrapRef.current) {
+      headerWrapRef.current.scrollLeft = el.scrollLeft;
+    }
+  }, []);
 
   const diffSortIndicator =
     diffSort === 'desc' ? '↓' : diffSort === 'asc' ? '↑' : null;

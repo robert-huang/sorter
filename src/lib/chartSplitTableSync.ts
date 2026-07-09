@@ -163,21 +163,43 @@ function clearIndexWidths(table: HTMLTableElement): void {
 export function syncTableColumnsByIndex(
   headerTable: HTMLTableElement,
   bodyTable: HTMLTableElement,
+  scrollContext?: {
+    bodyScroll?: HTMLElement | null;
+    headerWrap?: HTMLElement | null;
+  },
 ): void {
+  const bodyScroll = scrollContext?.bodyScroll ?? null;
+  const headerWrap = scrollContext?.headerWrap ?? null;
+  const savedBodyScrollLeft = bodyScroll?.scrollLeft ?? 0;
+  const savedHeaderScrollLeft = headerWrap?.scrollLeft ?? 0;
+
+  if (bodyScroll) {
+    bodyScroll.scrollLeft = 0;
+  }
+  if (headerWrap) {
+    headerWrap.scrollLeft = 0;
+  }
+
   clearIndexWidths(headerTable);
   clearIndexWidths(bodyTable);
 
   const headerCells = Array.from(headerTable.querySelectorAll('thead th')) as HTMLElement[];
   const bodyRows = Array.from(bodyTable.querySelectorAll('tbody tr'));
   if (headerCells.length === 0) {
+    if (bodyScroll) {
+      bodyScroll.scrollLeft = savedBodyScrollLeft;
+    }
+    if (headerWrap) {
+      headerWrap.scrollLeft = savedHeaderScrollLeft;
+    }
     return;
   }
 
-  const widths: number[] = headerCells.map((cell) => Math.ceil(cell.getBoundingClientRect().width));
+  const widths: number[] = headerCells.map((cell) => Math.ceil(cell.offsetWidth));
   for (const row of bodyRows) {
     const cells = Array.from(row.children) as HTMLElement[];
     for (let index = 0; index < cells.length; index += 1) {
-      widths[index] = Math.max(widths[index] ?? 0, Math.ceil(cells[index]!.getBoundingClientRect().width));
+      widths[index] = Math.max(widths[index] ?? 0, Math.ceil(cells[index]!.offsetWidth));
     }
   }
 
@@ -207,5 +229,12 @@ export function syncTableColumnsByIndex(
     const tableWidth = `${total}px`;
     headerTable.style.width = tableWidth;
     bodyTable.style.width = tableWidth;
+  }
+
+  if (bodyScroll) {
+    bodyScroll.scrollLeft = savedBodyScrollLeft;
+  }
+  if (headerWrap) {
+    headerWrap.scrollLeft = savedHeaderScrollLeft;
   }
 }

@@ -6261,6 +6261,7 @@ html {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 .tool-staff-compare-wrap .tool-staff-compare-table thead th {
@@ -6289,9 +6290,12 @@ html {
   z-index: 2;
 }
 
-/* Top-left corner in the pinned header strip — stays at the left edge
- * of the header row (body entity column is sticky-left separately). */
+/* Pin the section label ("Studios", "Production Staff", …) in the header
+ * row when scrolling horizontally through show columns. */
 .tool-staff-compare-wrap .tool-staff-compare-table thead th.tool-staff-compare-entity {
+  position: sticky;
+  left: 0;
+  background: var(--surface-2);
   z-index: 2;
 }
 
