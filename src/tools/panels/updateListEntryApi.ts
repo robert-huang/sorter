@@ -22,7 +22,6 @@ import {
   planMassNotesUpdates,
   validateAndResolveUpdate,
   validateMassNotesMode,
-  wantsMassNotesMode,
   wantsNotesUpdate,
   type ListEntryNotesRow,
   type UpdateListEntryForm,
@@ -179,7 +178,7 @@ async function fetchAllListNotes(
   return [...byMediaId.values()];
 }
 
-async function massUpdateListEntryNotes(
+async function runMassUpdateListEntryNotes(
   form: UpdateListEntryForm,
   username: string,
   accessToken: string,
@@ -230,7 +229,7 @@ async function massUpdateListEntryNotes(
   };
 }
 
-export async function updateListEntry(
+export async function massUpdateListEntryNotes(
   form: UpdateListEntryForm,
   signal?: AbortSignal,
 ): Promise<UpdateListEntryResult> {
@@ -244,15 +243,28 @@ export async function updateListEntry(
   const account = findAnilistAccountByName(username);
   const accessToken = requireAccessTokenForUsername(username);
 
-  if (wantsMassNotesMode(form)) {
-    return massUpdateListEntryNotes(
-      form,
-      username,
-      accessToken,
-      account?.userId,
-      signal,
-    );
+  return runMassUpdateListEntryNotes(
+    form,
+    username,
+    accessToken,
+    account?.userId,
+    signal,
+  );
+}
+
+export async function updateListEntry(
+  form: UpdateListEntryForm,
+  signal?: AbortSignal,
+): Promise<UpdateListEntryResult> {
+  signal?.throwIfAborted();
+
+  const username = form.username.trim();
+  if (!username) {
+    throw new Error('Username is required.');
   }
+
+  const account = findAnilistAccountByName(username);
+  const accessToken = requireAccessTokenForUsername(username);
 
   const notesInput = { find: form.notesFind, replace: form.notesReplace };
   let currentNotes: string | null | undefined;

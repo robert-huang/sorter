@@ -104,38 +104,13 @@ export function isMediaIdEmpty(mediaId: string): boolean {
   return mediaId.trim() === '';
 }
 
-/** Empty media id + at least one notes field → mass_tagger-style list pass. */
-export function wantsMassNotesMode(form: UpdateListEntryForm): boolean {
-  return (
-    isMediaIdEmpty(form.mediaId) &&
-    wantsNotesUpdate({ find: form.notesFind, replace: form.notesReplace })
-  );
-}
-
-export function hasNonNotesListFields(form: UpdateListEntryForm): boolean {
-  return (
-    form.status.trim().length > 0 ||
-    form.progress.trim().length > 0 ||
-    form.progressVolumes.trim().length > 0 ||
-    form.score.trim().length > 0
-  );
-}
-
 export function validateMassNotesMode(
   form: UpdateListEntryForm,
 ): UpdateListEntryValidationError | { kind: 'ok'; notesInput: NotesUpdateInput } {
-  if (!wantsMassNotesMode(form)) {
+  if (!wantsNotesUpdate({ find: form.notesFind, replace: form.notesReplace })) {
     return {
       kind: 'validation',
-      message:
-        'Leave Media ID empty and fill Notes Find or Replace to run mass notes tagging across your list.',
-    };
-  }
-  if (hasNonNotesListFields(form)) {
-    return {
-      kind: 'validation',
-      message:
-        'Mass notes mode only updates notes — clear status, progress, volumes, and score, or provide a Media ID.',
+      message: 'Fill Notes Find or Replace to mass-update notes across your list.',
     };
   }
   return {
@@ -269,16 +244,9 @@ export function validateAndResolveUpdate(
   currentNotes: string | null | undefined,
 ): ResolvedListEntryUpdate | UpdateListEntryValidationError {
   if (isMediaIdEmpty(form.mediaId)) {
-    if (wantsMassNotesMode(form)) {
-      return {
-        kind: 'validation',
-        message: 'Mass notes updates are handled separately from single-entry updates.',
-      };
-    }
     return {
       kind: 'validation',
-      message:
-        'Media ID is required unless running mass notes tagging (leave Media ID empty and fill Notes Find or Replace).',
+      message: 'Media ID is required for single-entry updates.',
     };
   }
 

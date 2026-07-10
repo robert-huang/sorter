@@ -7,9 +7,10 @@ import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsernam
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolClearableInput } from '../ToolClearableInput';
 import { ToolRunButton } from '../ToolRunButton';
-import { updateListEntry } from './updateListEntryApi';
+import { updateListEntry, massUpdateListEntryNotes } from './updateListEntryApi';
 import {
   MEDIA_LIST_STATUSES,
+  wantsNotesUpdate,
   type UpdateListEntryForm,
 } from './updateListEntryLogic';
 
@@ -82,6 +83,7 @@ function authHintForUsername(username: string): string | null {
 export function UpdateListEntryPanel(_props: ToolPanelProps) {
   const [form, setForm] = useState<UpdateListEntryForm>(() => loadForm());
   const [running, setRunning] = useState(false);
+  const [massConfirmPending, setMassConfirmPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [authRevision, setAuthRevision] = useState(0);
@@ -109,12 +111,18 @@ export function UpdateListEntryPanel(_props: ToolPanelProps) {
     setForm((prev) => ({ ...prev, ...patch }));
   }, []);
 
+  const massNotesReady = useMemo(
+    () => wantsNotesUpdate({ find: form.notesFind, replace: form.notesReplace }),
+    [form.notesFind, form.notesReplace],
+  );
+
   const onSubmit = useCallback(
     async (e: FormEvent) => {
       e.preventDefault();
       setRunning(true);
       setError(null);
       setSuccess(null);
+      setMassConfirmPending(false);
       try {
         const result = await updateListEntry(form);
         setSuccess(result.message);
@@ -127,16 +135,41 @@ export function UpdateListEntryPanel(_props: ToolPanelProps) {
     [form],
   );
 
+  const onMassUpdateNotes = useCallback(async () => {
+    if (running || !massNotesReady) {
+      return;
+    }
+    if (!massConfirmPending) {
+      setMassConfirmPending(true);
+      return;
+    }
+    setMassConfirmPending(false);
+    setRunning(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const result = await massUpdateListEntryNotes(form);
+      setSuccess(result.message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Mass update failed.');
+    } finally {
+      setRunning(false);
+    }
+  }, [form, massConfirmPending, massNotesReady, running]);
+
   return (
     <section className="tool-panel">
       <p className="tool-panel-lead">
         Patch one AniList list entry via <code>SaveMediaListEntry</code>. Only filled
-        fields are sent (blank fields are ignored). Notes support find-and-replace (
+        fields are sent (blank fields are ignored).
+      </p>
+      <p className="tool-panel-lead tool-panel-lead-secondary">
+        Notes support find-and-replace (
         <code>*</code> replaces the entire note).
       </p>
       <p className="tool-panel-lead tool-panel-lead-secondary">
-        Leave Media ID empty and fill Notes Find or Replace to run mass_tagger-style
-        notes tagging across your whole anime and manga list.
+        Use <strong>Mass Update Notes</strong> to run mass_tagger.py-style find/replace rules
+        across your whole anime and manga list (double-click to confirm).
       </p>
 
       <form className="tool-form-card tool-update-list-entry-form" autoComplete="off" onSubmit={onSubmit}>
@@ -295,6 +328,24 @@ export function UpdateListEntryPanel(_props: ToolPanelProps) {
               }}
               forceRefreshTitle=""
             />
+            <button
+              type="button"
+              className={['btn', massConfirmPending ? 'primary' : ''].filter(Boolean).join(' ')}
+              disabled={running || !massNotesReady}
+              title={
+                massNotesReady
+                  ? 'Apply Notes Find/Replace to every list entry (click twice to confirm)'
+                  : 'Fill Notes Find or Replace first'
+              }
+              onClick={() => {
+                void onMassUpdateNotes();
+              }}
+              onMouseLeave={() => {
+                setMassConfirmPending(false);
+              }}
+            >
+              {running ? 'Running…' : massConfirmPending ? 'Are you sure?' : 'Mass Update Notes'}
+            </button>
           </div>
         </div>
       </form>

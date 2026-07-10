@@ -5989,6 +5989,10 @@ html {
 .tool-update-list-entry-actions {
   grid-column: 2;
   margin-top: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
 /* Reorder Favourites tool */

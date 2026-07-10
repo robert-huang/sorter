@@ -680,11 +680,11 @@ Authenticated `SaveMediaListEntry` for **one media id** at a time. Only fields y
 | Field | Behavior |
 | --- | --- |
 | **Username** | Must match a signed-in AniList account for mutations; inline hint shows sign-in status. |
-| **Media ID** | Required positive integer (AniList media id). |
+| **Media ID** | Required positive integer (AniList media id) for **Update**. |
 | **Status** | `CURRENT`, `REPEATING`, `COMPLETED`, `PLANNING`, `PAUSED`, `DROPPED` (same order as the list-status filter chip). |
 | **Progress / Progress volumes** | Non-negative integers. |
 | **Score** | 0–100 integer, or blank to skip. |
-| **Notes find / replace** | mass_tagger-style: empty find + replace sets notes only when current notes are blank; `find = *` replaces entire notes; non-empty find does first match replace (skip if not found). |
+| **Notes find / replace** | mass_tagger-style: empty find + replace sets notes only when current notes are blank; `find = *` replaces entire notes; non-empty find does first match replace (skip if not found). Applies to **Update** (one media id) or **Mass Update Notes** (whole list — click twice to confirm). |
 
 On success the local `media_list_entry` row is patched and the seasonal-scores session cache for that user is busted so the next chart run reflects the change. Incremental DB edits bump the pending-changes counter — manual Push if cloud backup is enabled.
 

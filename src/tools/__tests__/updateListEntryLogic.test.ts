@@ -7,7 +7,6 @@ import {
   resolveNotesUpdate,
   validateAndResolveUpdate,
   validateMassNotesMode,
-  wantsMassNotesMode,
   wantsNotesUpdate,
 } from '../panels/updateListEntryLogic';
 
@@ -143,26 +142,25 @@ describe('resolveNotesUpdate', () => {
 });
 
 describe('validateAndResolveUpdate', () => {
-  it('rejects when media id missing and notes fields empty', () => {
+  it('rejects when media id missing', () => {
     const result = validateAndResolveUpdate(
       { ...BASE_FORM, mediaId: '' },
       null,
     );
     expect(result).toEqual({
       kind: 'validation',
-      message:
-        'Media ID is required unless running mass notes tagging (leave Media ID empty and fill Notes Find or Replace).',
+      message: 'Media ID is required for single-entry updates.',
     });
   });
 
-  it('rejects mass notes mode when routed through single-entry resolver', () => {
+  it('rejects mass notes intent when routed through single-entry resolver', () => {
     const result = validateAndResolveUpdate(
       { ...BASE_FORM, mediaId: '', notesReplace: '#airing' },
       null,
     );
     expect(result).toEqual({
       kind: 'validation',
-      message: 'Mass notes updates are handled separately from single-entry updates.',
+      message: 'Media ID is required for single-entry updates.',
     });
   });
 
@@ -280,26 +278,30 @@ describe('buildSaveMediaListEntryMutation integration', () => {
 });
 
 describe('mass notes mode', () => {
-  it('detects empty media id with notes fields', () => {
+  it('requires notes find or replace', () => {
+    expect(validateMassNotesMode({ ...BASE_FORM })).toEqual({
+      kind: 'validation',
+      message: 'Fill Notes Find or Replace to mass-update notes across your list.',
+    });
     expect(
-      wantsMassNotesMode({ ...BASE_FORM, mediaId: '', notesReplace: '#airing' }),
-    ).toBe(true);
-    expect(wantsMassNotesMode({ ...BASE_FORM, mediaId: '' })).toBe(false);
-    expect(wantsMassNotesMode({ ...BASE_FORM, notesReplace: '#airing' })).toBe(false);
+      validateMassNotesMode({ ...BASE_FORM, notesReplace: '#airing' }),
+    ).toEqual({
+      kind: 'ok',
+      notesInput: { find: '', replace: '#airing' },
+    });
   });
 
-  it('rejects mass mode when other list fields are filled', () => {
+  it('allows mass mode when other list fields are filled (notes-only pass)', () => {
     expect(
       validateMassNotesMode({
         ...BASE_FORM,
-        mediaId: '',
         notesReplace: '#airing',
         status: 'CURRENT',
+        score: '90',
       }),
     ).toEqual({
-      kind: 'validation',
-      message:
-        'Mass notes mode only updates notes — clear status, progress, volumes, and score, or provide a Media ID.',
+      kind: 'ok',
+      notesInput: { find: '', replace: '#airing' },
     });
   });
 

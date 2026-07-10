@@ -43,7 +43,7 @@ vi.mock('../../lib/importers/anilist/toolsSessionMemo', () => ({
   sessionMemoDelete: (...args: unknown[]) => sessionMemoDeleteMock(...args),
 }));
 
-import { updateListEntry } from '../panels/updateListEntryApi';
+import { updateListEntry, massUpdateListEntryNotes } from '../panels/updateListEntryApi';
 
 const BASE_FORM = {
   username: 'testuser',
@@ -130,7 +130,7 @@ describe('updateListEntry', () => {
     expect(sessionMemoDeleteMock).toHaveBeenCalledWith('seasonal:list:testuser');
   });
 
-  it('mass-updates notes across the list when media id is empty', async () => {
+  it('mass-updates notes across the list via massUpdateListEntryNotes', async () => {
     executeQueryMock
       .mockResolvedValueOnce({
         MediaListCollection: {
@@ -155,9 +155,8 @@ describe('updateListEntry', () => {
         SaveMediaListEntry: { id: 1, notes: 'aa #aired' },
       });
 
-    const result = await updateListEntry({
+    const result = await massUpdateListEntryNotes({
       ...BASE_FORM,
-      mediaId: '',
       notesFind: '#airing',
       notesReplace: '#aired',
     });
@@ -170,5 +169,16 @@ describe('updateListEntry', () => {
     });
     expect(result.updatedCount).toBe(1);
     expect(result.message).toContain('Updated notes on 1 entries');
+  });
+
+  it('updateListEntry does not mass-update when media id is empty', async () => {
+    await expect(
+      updateListEntry({
+        ...BASE_FORM,
+        mediaId: '',
+        notesFind: '#airing',
+        notesReplace: '#aired',
+      }),
+    ).rejects.toThrow('Media ID is required');
   });
 });
