@@ -7449,7 +7449,8 @@ html {
   min-height: 0;
 }
 
-.tool-adaptation-primary-filters {
+.tool-adaptation-primary-filters,
+.tool-seasonal-primary-filters {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -7458,11 +7459,14 @@ html {
 }
 
 .tool-adaptation-primary-filters .tool-field,
-.tool-adaptation-primary-filters .tool-field.tool-field-label-row {
+.tool-adaptation-primary-filters .tool-field.tool-field-label-row,
+.tool-seasonal-primary-filters .tool-field,
+.tool-seasonal-primary-filters .tool-field.tool-field-label-row {
   margin-bottom: 0;
 }
 
-.tool-adaptation-primary-filters .tool-field-username {
+.tool-adaptation-primary-filters .tool-field-username,
+.tool-seasonal-primary-filters .tool-field-username {
   flex: 0 0 auto;
   min-width: 0;
   max-width: none;
@@ -7494,7 +7498,8 @@ html {
   margin: 0;
 }
 
-.tool-adaptation-primary-filters .anime-to-anime-endpoint-user-input {
+.tool-adaptation-primary-filters .anime-to-anime-endpoint-user-input,
+.tool-seasonal-primary-filters .anime-to-anime-endpoint-user-input {
   width: 100px;
   flex: 0 0 auto;
   min-width: 0;
@@ -7503,7 +7508,9 @@ html {
 }
 
 .tool-adaptation-primary-filters .tool-checkbox,
-.tool-adaptation-primary-filters .filter-chip {
+.tool-adaptation-primary-filters .filter-chip,
+.tool-seasonal-primary-filters .tool-checkbox,
+.tool-seasonal-primary-filters .filter-chip {
   align-self: center;
   margin: 0;
 }

@@ -1,6 +1,7 @@
+import { encodeSeasonYear } from '../../lib/importers/anilist/filters';
 import { anilistMediaSourceLabel } from '../../lib/importers/anilist/mediaSourceLabel';
 import { parseLinesOnePerLine } from '../parseToolLines';
-import type { AnilistMediaSource } from '../../lib/importers/anilist/types';
+import type { AnilistMediaSeason, AnilistMediaSource } from '../../lib/importers/anilist/types';
 import { ALL_ANILIST_MEDIA_SOURCES } from '../../lib/importers/anilist/types';
 
 export type SeasonalFuzzyDate = {
@@ -124,6 +125,135 @@ export function applySeasonalSourceFilters(
   }
   const allowed = new Set(selected);
   return shows.filter((show) => allowed.has(seasonalSourceFilterBucket(show.source)));
+}
+
+/** AniList list statuses on the status chip — PLANNING is excluded; use Include Planning. */
+export const SEASONAL_LIST_STATUS_OPTIONS = [
+  'COMPLETED',
+  'CURRENT',
+  'REPEATING',
+  'PAUSED',
+] as const;
+
+export type SeasonalListStatus = (typeof SEASONAL_LIST_STATUS_OPTIONS)[number];
+
+export type SeasonalListStatusFilters = SeasonalListStatus[];
+
+export const DEFAULT_SEASONAL_LIST_STATUS_FILTERS: SeasonalListStatusFilters = [
+  ...SEASONAL_LIST_STATUS_OPTIONS,
+];
+
+/** Coerce persisted/localStorage values into a valid list-status selection. */
+export function normalizeSeasonalListStatusFilters(raw: unknown): SeasonalListStatusFilters {
+  if (!Array.isArray(raw)) {
+    return [...DEFAULT_SEASONAL_LIST_STATUS_FILTERS];
+  }
+  const selected = SEASONAL_LIST_STATUS_OPTIONS.filter((status) => raw.includes(status));
+  return selected.length > 0 ? [...selected] : [...DEFAULT_SEASONAL_LIST_STATUS_FILTERS];
+}
+
+export function isAllSeasonalListStatusesSelected(
+  selected: SeasonalListStatusFilters,
+): boolean {
+  if (selected.length < SEASONAL_LIST_STATUS_OPTIONS.length) {
+    return false;
+  }
+  const allowed = new Set(selected);
+  return SEASONAL_LIST_STATUS_OPTIONS.every((status) => allowed.has(status));
+}
+
+export function applySeasonalListStatusFilters(
+  shows: SeasonalShow[],
+  selected: SeasonalListStatusFilters,
+): SeasonalShow[] {
+  if (selected.length === 0) {
+    return [];
+  }
+  if (isAllSeasonalListStatusesSelected(selected)) {
+    return shows;
+  }
+  const allowed = new Set<string>(selected);
+  return shows.filter((show) => {
+    // Planning is gated by the Include Planning checkbox in bucketShowsForSeason.
+    if (show.listStatus === 'PLANNING') {
+      return true;
+    }
+    const status = show.listStatus;
+    return status != null && allowed.has(status);
+  });
+}
+
+/** Encoded (season, seasonYear) for seasonYear range filtering — mirrors AniList import chips. */
+export function encodeSeasonalShowSeasonYear(show: SeasonalShow): number | null {
+  const season = show.season;
+  const year = show.seasonYear;
+  if (season == null || year == null) {
+    return null;
+  }
+  if (season !== 'WINTER' && season !== 'SPRING' && season !== 'SUMMER' && season !== 'FALL') {
+    return null;
+  }
+  return encodeSeasonYear(season as AnilistMediaSeason, year);
+}
+
+/** Distinct encoded season+year tuples in a show list, sorted ascending for the range chip. */
+export function discoverSeasonalSeasonYearEncoded(shows: readonly SeasonalShow[]): number[] {
+  const encoded = new Set<number>();
+  for (const show of shows) {
+    const value = encodeSeasonalShowSeasonYear(show);
+    if (value != null) {
+      encoded.add(value);
+    }
+  }
+  return [...encoded].sort((a, b) => a - b);
+}
+
+export type SeasonalSeasonYearFilter = {
+  seasonYearMin: number | null;
+  seasonYearMax: number | null;
+};
+
+export const DEFAULT_SEASONAL_SEASON_YEAR_FILTER: SeasonalSeasonYearFilter = {
+  seasonYearMin: null,
+  seasonYearMax: null,
+};
+
+/** Coerce persisted/localStorage values into a valid seasonYear range. */
+export function normalizeSeasonalSeasonYearFilter(raw: unknown): SeasonalSeasonYearFilter {
+  if (!raw || typeof raw !== 'object') {
+    return { ...DEFAULT_SEASONAL_SEASON_YEAR_FILTER };
+  }
+  const obj = raw as Record<string, unknown>;
+  const seasonYearMin = typeof obj.seasonYearMin === 'number' ? obj.seasonYearMin : null;
+  const seasonYearMax = typeof obj.seasonYearMax === 'number' ? obj.seasonYearMax : null;
+  return { seasonYearMin, seasonYearMax };
+}
+
+export function isSeasonalSeasonYearFilterActive(filter: SeasonalSeasonYearFilter): boolean {
+  return filter.seasonYearMin !== null || filter.seasonYearMax !== null;
+}
+
+export function applySeasonalSeasonYearFilters(
+  shows: SeasonalShow[],
+  filter: SeasonalSeasonYearFilter,
+): SeasonalShow[] {
+  if (!isSeasonalSeasonYearFilterActive(filter)) {
+    return shows;
+  }
+  const { seasonYearMin, seasonYearMax } = filter;
+  return shows.filter((show) => {
+    const encoded = encodeSeasonalShowSeasonYear(show);
+    if (encoded == null) {
+      return false;
+    }
+    if (seasonYearMin !== null && encoded < seasonYearMin) {
+      return false;
+    }
+    if (seasonYearMax !== null && encoded > seasonYearMax) {
+      return false;
+    }
+    return true;
+  });
 }
 
 /** Per-bucket show counts for source-filter chip labels (e.g. Original (12)). */
@@ -704,6 +834,10 @@ export function seasonColumnIndicesWithTopAverage(
 export type BuildSeasonalColumnsOptions = {
   /** Injectable clock for spanning-mode tests. */
   now?: Date;
+  /** Client-side seasonYear range filter (instant toggle over cached shows). */
+  seasonYearFilter?: SeasonalSeasonYearFilter;
+  /** Client-side list-status filter (instant toggle over cached shows). */
+  listStatusFilters?: SeasonalListStatusFilters;
   /** Client-side adaptation-source filter (instant toggle over cached shows). */
   sourceFilters?: SeasonalSourceFilters;
 };
@@ -714,8 +848,16 @@ export function buildSeasonalColumns(
   options?: BuildSeasonalColumnsOptions,
 ): SeasonalScoresResult {
   const now = options?.now ?? new Date();
-  const filteredShows = applySeasonalSourceFilters(
+  let filteredShows = applySeasonalSeasonYearFilters(
     shows,
+    options?.seasonYearFilter ?? DEFAULT_SEASONAL_SEASON_YEAR_FILTER,
+  );
+  filteredShows = applySeasonalListStatusFilters(
+    filteredShows,
+    options?.listStatusFilters ?? DEFAULT_SEASONAL_LIST_STATUS_FILTERS,
+  );
+  filteredShows = applySeasonalSourceFilters(
+    filteredShows,
     options?.sourceFilters ?? DEFAULT_SEASONAL_SOURCE_FILTERS,
   );
   const specs = parseSeasonSpecs(form.seasonText, filteredShows);

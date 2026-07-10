@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type { AnilistMediaSource } from '../../lib/importers/anilist/types';
 import {
+  applySeasonalListStatusFilters,
+  applySeasonalSeasonYearFilters,
   applySeasonalSourceFilters,
   averageScore,
   buildSeasonalColumns,
   countSeasonalShowsBySourceBucket,
+  discoverSeasonalSeasonYearEncoded,
   DEFAULT_SEASONAL_SOURCE_FILTERS,
   effectiveSeasonalForm,
+  encodeSeasonalShowSeasonYear,
   formatSeasonColumnLabel,
   formatSeasonalScoreLabel,
   normalizeSeasonalListScore,
@@ -19,6 +23,7 @@ import {
   type SeasonalScoresForm,
   type SeasonalShow,
 } from '../panels/seasonalScoresLogic';
+import { encodeSeasonYear } from '../../lib/importers/anilist/filters';
 
 const sampleShows: SeasonalShow[] = [
   {
@@ -373,6 +378,146 @@ describe('seasonalScoresLogic', () => {
     expect(counts.LIGHT_NOVEL).toBe(1);
     expect(counts.OTHER).toBe(1);
     expect(counts.MANGA).toBe(0);
+  });
+
+  it('encodeSeasonalShowSeasonYear encodes season + seasonYear tuples', () => {
+    expect(
+      encodeSeasonalShowSeasonYear({
+        id: 1,
+        title: 'A',
+        season: 'WINTER',
+        seasonYear: 2024,
+        score: 80,
+        notes: null,
+      }),
+    ).toBe(encodeSeasonYear('WINTER', 2024));
+    expect(
+      encodeSeasonalShowSeasonYear({
+        id: 2,
+        title: 'B',
+        season: null,
+        seasonYear: 2024,
+        score: 80,
+        notes: null,
+      }),
+    ).toBeNull();
+  });
+
+  it('applySeasonalSeasonYearFilters keeps only shows in the encoded range', () => {
+    const shows: SeasonalShow[] = [
+      {
+        id: 1,
+        title: 'Winter 2024',
+        season: 'WINTER',
+        seasonYear: 2024,
+        score: 90,
+        notes: null,
+      },
+      {
+        id: 2,
+        title: 'Winter 2023',
+        season: 'WINTER',
+        seasonYear: 2023,
+        score: 80,
+        notes: null,
+      },
+    ];
+    const encoded = discoverSeasonalSeasonYearEncoded(shows);
+    expect(encoded).toEqual([
+      encodeSeasonYear('WINTER', 2023),
+      encodeSeasonYear('WINTER', 2024),
+    ]);
+    const filtered = applySeasonalSeasonYearFilters(shows, {
+      seasonYearMin: encodeSeasonYear('WINTER', 2024),
+      seasonYearMax: null,
+    });
+    expect(filtered.map((show) => show.title)).toEqual(['Winter 2024']);
+  });
+
+  it('applySeasonalListStatusFilters keeps only selected list statuses but not planning', () => {
+    const shows: SeasonalShow[] = [
+      {
+        id: 1,
+        title: 'Done',
+        season: 'WINTER',
+        seasonYear: 2024,
+        score: 90,
+        notes: null,
+        listStatus: 'COMPLETED',
+      },
+      {
+        id: 2,
+        title: 'Plan',
+        season: 'WINTER',
+        seasonYear: 2024,
+        score: null,
+        notes: null,
+        listStatus: 'PLANNING',
+      },
+      {
+        id: 3,
+        title: 'Watching',
+        season: 'WINTER',
+        seasonYear: 2024,
+        score: 70,
+        notes: null,
+        listStatus: 'CURRENT',
+      },
+    ];
+    const filtered = applySeasonalListStatusFilters(shows, ['COMPLETED']);
+    expect(filtered.map((show) => show.title)).toEqual(['Done', 'Plan']);
+  });
+
+  it('buildSeasonalColumns applies seasonYear and list-status filters over cached shows', () => {
+    const shows: SeasonalShow[] = [
+      {
+        id: 1,
+        title: '2024 completed',
+        season: 'WINTER',
+        seasonYear: 2024,
+        score: 90,
+        notes: null,
+        listStatus: 'COMPLETED',
+      },
+      {
+        id: 2,
+        title: '2023 completed',
+        season: 'WINTER',
+        seasonYear: 2023,
+        score: 80,
+        notes: null,
+        listStatus: 'COMPLETED',
+      },
+      {
+        id: 3,
+        title: '2024 planning',
+        season: 'WINTER',
+        seasonYear: 2024,
+        score: null,
+        notes: null,
+        listStatus: 'PLANNING',
+      },
+    ];
+    const form: SeasonalScoresForm = {
+      username: 'tester',
+      seasonText: 'alltime',
+      seasonMode: 'alltime',
+      skipEmpty: false,
+      airingNotesOnly: false,
+      includePlanning: false,
+      spanAiringSeasons: false,
+    };
+    const filtered = buildSeasonalColumns(shows, effectiveSeasonalForm(form), {
+      seasonYearFilter: {
+        seasonYearMin: encodeSeasonYear('WINTER', 2024),
+        seasonYearMax: encodeSeasonYear('FALL', 2024),
+      },
+      listStatusFilters: ['COMPLETED'],
+    });
+    expect(filtered.kind).toBe('columns');
+    if (filtered.kind === 'columns') {
+      expect(filtered.columns[0]?.shows.map((show) => show.title)).toEqual(['2024 completed']);
+    }
   });
 
   it('buildSeasonalColumns applies sourceFilters over cached shows', () => {

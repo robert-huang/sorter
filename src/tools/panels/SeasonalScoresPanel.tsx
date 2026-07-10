@@ -9,16 +9,26 @@ import { fetchUserSeasonalShows, bustSeasonalSessionMemo } from './seasonalScore
 import {
   buildSeasonalColumns,
   countSeasonalShowsBySourceBucket,
+  DEFAULT_SEASONAL_LIST_STATUS_FILTERS,
+  DEFAULT_SEASONAL_SEASON_YEAR_FILTER,
   DEFAULT_SEASONAL_SOURCE_FILTERS,
+  applySeasonalListStatusFilters,
+  applySeasonalSeasonYearFilters,
   applySeasonalSourceFilters,
+  discoverSeasonalSeasonYearEncoded,
   effectiveSeasonalForm,
   formatSeasonColumnLabel,
   formatSeasonalScoreLabel,
+  normalizeSeasonalListStatusFilters,
+  normalizeSeasonalSeasonYearFilter,
   normalizeSeasonalSourceFilters,
   scoreDisplayToneClass,
-  SEASONAL_SOURCE_FILTER_KEYS,
+  SEASONAL_LIST_STATUS_OPTIONS,
   seasonColumnIndicesWithTopAverage,
   seasonalSourceFilterLabel,
+  type SeasonalListStatus,
+  type SeasonalListStatusFilters,
+  type SeasonalSeasonYearFilter,
   type SeasonalSourceFilterKey,
   type SeasonMode,
   type SeasonalScoresForm,
@@ -26,6 +36,7 @@ import {
   type SeasonalSourceFilters,
   type SeasonColumn,
   type SeasonalShow,
+  SEASONAL_SOURCE_FILTER_KEYS,
 } from './seasonalScoresLogic';
 import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
 import { ToolShowButton } from '../toolEntityLinks';
@@ -36,10 +47,11 @@ import {
   bindAnilistMiddleClick,
   mergeAnilistLinkClass,
 } from '../../lib/importers/anilist/anilistLinks';
-import { MultiSelectChip, toggleInArray } from '../../lib/importers/anilist/filters';
+import { MultiSelectChip, SeasonYearChip, toggleInArray } from '../../lib/importers/anilist/filters';
 
 const LS_KEY = 'anime-tools-seasonal-scores-form';
 const LS_SOURCE_FILTERS_KEY = 'anime-tools-seasonal-scores-source-filters';
+const LS_PRIMARY_FILTERS_KEY = 'anime-tools-seasonal-scores-primary-filters';
 /** @deprecated migrated into {@link LS_KEY} */
 const LS_SEASON_TEXT_KEY = 'anime-tools-seasonal-scores-season-text';
 
@@ -87,6 +99,58 @@ function loadSourceFilters(): SeasonalSourceFilters {
 function saveSourceFilters(filters: SeasonalSourceFilters): void {
   try {
     localStorage.setItem(LS_SOURCE_FILTERS_KEY, JSON.stringify(filters));
+  } catch {
+    /* ignore */
+  }
+}
+
+type PersistedPrimaryFilters = {
+  seasonYearMin?: unknown;
+  seasonYearMax?: unknown;
+  listStatuses?: unknown;
+};
+
+function loadPrimaryFilters(): {
+  seasonYearFilter: SeasonalSeasonYearFilter;
+  listStatusFilters: SeasonalListStatusFilters;
+} {
+  try {
+    const raw = localStorage.getItem(LS_PRIMARY_FILTERS_KEY);
+    if (!raw) {
+      return {
+        seasonYearFilter: { ...DEFAULT_SEASONAL_SEASON_YEAR_FILTER },
+        listStatusFilters: normalizeSeasonalListStatusFilters(undefined),
+      };
+    }
+    const parsed = JSON.parse(raw) as PersistedPrimaryFilters;
+    return {
+      seasonYearFilter: normalizeSeasonalSeasonYearFilter({
+        seasonYearMin: parsed.seasonYearMin,
+        seasonYearMax: parsed.seasonYearMax,
+      }),
+      listStatusFilters: normalizeSeasonalListStatusFilters(parsed.listStatuses),
+    };
+  } catch {
+    return {
+      seasonYearFilter: { ...DEFAULT_SEASONAL_SEASON_YEAR_FILTER },
+      listStatusFilters: normalizeSeasonalListStatusFilters(undefined),
+    };
+  }
+}
+
+function savePrimaryFilters(
+  seasonYearFilter: SeasonalSeasonYearFilter,
+  listStatusFilters: SeasonalListStatusFilters,
+): void {
+  try {
+    localStorage.setItem(
+      LS_PRIMARY_FILTERS_KEY,
+      JSON.stringify({
+        seasonYearMin: seasonYearFilter.seasonYearMin,
+        seasonYearMax: seasonYearFilter.seasonYearMax,
+        listStatuses: listStatusFilters,
+      }),
+    );
   } catch {
     /* ignore */
   }
@@ -317,6 +381,21 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
   const [sourceFilters, setSourceFilters] = useState<SeasonalSourceFilters>(() =>
     loadSourceFilters(),
   );
+  const [seasonYearFilter, setSeasonYearFilter] = useState<SeasonalSeasonYearFilter>(
+    () => ({ ...DEFAULT_SEASONAL_SEASON_YEAR_FILTER }),
+  );
+  const [listStatusFilters, setListStatusFilters] = useState<SeasonalListStatusFilters>(() => {
+    try {
+      const raw = localStorage.getItem(LS_PRIMARY_FILTERS_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as PersistedPrimaryFilters;
+        return normalizeSeasonalListStatusFilters(parsed.listStatuses);
+      }
+    } catch {
+      /* ignore */
+    }
+    return [...DEFAULT_SEASONAL_LIST_STATUS_FILTERS];
+  });
   const [cachedShows, setCachedShows] = useState<SeasonalShow[] | null>(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -328,6 +407,7 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
   // doesn't — every fetch includes PLANNING and the checkbox filters
   // client-side via `bucketShowsForSeason`.
   const fetchedUsernameRef = useRef<string | null>(null);
+  const primaryFiltersUsernameRef = useRef<string | null>(null);
 
   useEffect(() => {
     saveForm(form);
@@ -337,12 +417,46 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
     saveSourceFilters(sourceFilters);
   }, [sourceFilters]);
 
+  const relabeledCachedShows = useMemo(
+    () => (cachedShows == null ? null : relabelSeasonalShows(cachedShows)),
+    [cachedShows, displayLabelRevision],
+  );
+
+  const seasonYearEncodedOptions = useMemo(
+    () =>
+      relabeledCachedShows == null
+        ? []
+        : discoverSeasonalSeasonYearEncoded(relabeledCachedShows),
+    [relabeledCachedShows],
+  );
+
+  useEffect(() => {
+    if (relabeledCachedShows == null) {
+      primaryFiltersUsernameRef.current = null;
+      return;
+    }
+    const handle = form.username.trim().toLowerCase();
+    if (primaryFiltersUsernameRef.current === handle) {
+      return;
+    }
+    const persisted = loadPrimaryFilters();
+    setSeasonYearFilter(persisted.seasonYearFilter);
+    setListStatusFilters(persisted.listStatusFilters);
+    primaryFiltersUsernameRef.current = handle;
+  }, [relabeledCachedShows, form.username]);
+
+  useEffect(() => {
+    savePrimaryFilters(seasonYearFilter, listStatusFilters);
+  }, [seasonYearFilter, listStatusFilters]);
+
   const buildColumns = useCallback(
     (shows: SeasonalShow[]) =>
       buildSeasonalColumns(relabelSeasonalShows(shows), effectiveSeasonalForm(form), {
+        seasonYearFilter,
+        listStatusFilters,
         sourceFilters,
       }),
-    [displayLabelRevision, form, sourceFilters],
+    [displayLabelRevision, form, sourceFilters, seasonYearFilter, listStatusFilters],
   );
 
   const result = useMemo((): SeasonalScoresResult | null => {
@@ -419,17 +533,57 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
     }
   }, [form.username, cachedShows]);
 
-  const visibleSourceCount =
-    cachedShows == null
+  const visibleListStatusCount =
+    relabeledCachedShows == null
       ? null
-      : applySeasonalSourceFilters(relabelSeasonalShows(cachedShows), sourceFilters).length;
+      : applySeasonalListStatusFilters(
+          applySeasonalSeasonYearFilters(relabeledCachedShows, seasonYearFilter),
+          listStatusFilters,
+        ).length;
+
+  const visibleSourceCount =
+    relabeledCachedShows == null
+      ? null
+      : applySeasonalSourceFilters(
+          applySeasonalListStatusFilters(
+            applySeasonalSeasonYearFilters(relabeledCachedShows, seasonYearFilter),
+            listStatusFilters,
+          ),
+          sourceFilters,
+        ).length;
 
   const sourceFilterCounts = useMemo(() => {
-    if (!cachedShows) {
+    if (!relabeledCachedShows) {
       return null;
     }
-    return countSeasonalShowsBySourceBucket(relabelSeasonalShows(cachedShows));
-  }, [cachedShows, displayLabelRevision]);
+    return countSeasonalShowsBySourceBucket(relabeledCachedShows);
+  }, [relabeledCachedShows]);
+
+  const listStatusFilterCounts = useMemo(() => {
+    if (!relabeledCachedShows) {
+      return null;
+    }
+    const counts = new Map<SeasonalListStatus, number>();
+    for (const show of relabeledCachedShows) {
+      const status = show.listStatus;
+      if (status == null || !SEASONAL_LIST_STATUS_OPTIONS.includes(status as SeasonalListStatus)) {
+        continue;
+      }
+      const key = status as SeasonalListStatus;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return counts;
+  }, [relabeledCachedShows]);
+
+  const formatListStatusFilterOption = useCallback(
+    (status: SeasonalListStatus) => {
+      if (!listStatusFilterCounts) {
+        return status;
+      }
+      return `${status} (${listStatusFilterCounts.get(status) ?? 0})`;
+    },
+    [listStatusFilterCounts],
+  );
 
   const formatSourceFilterOption = useCallback(
     (key: SeasonalSourceFilterKey) => {
@@ -459,14 +613,44 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
           }
         }}
       >
-        <ToolUsernameField
-          label="AniList username"
-          value={form.username}
-          disabled={running}
-          refreshing={refreshingList}
-          onChange={(username) => patchForm({ username })}
-          onRefresh={() => refreshUsernameList(form.username, running)}
-        />
+        <div className="tool-adaptation-primary-filters tool-seasonal-primary-filters">
+          <ToolUsernameField
+            label="AniList username"
+            value={form.username}
+            disabled={running}
+            refreshing={refreshingList}
+            onChange={(username) => patchForm({ username })}
+            onRefresh={() => refreshUsernameList(form.username, running)}
+          />
+          <SeasonYearChip
+            options={seasonYearEncodedOptions}
+            min={seasonYearFilter.seasonYearMin}
+            max={seasonYearFilter.seasonYearMax}
+            onChange={(patch) =>
+              setSeasonYearFilter((prev) => ({
+                seasonYearMin:
+                  patch.seasonYearMin !== undefined ? patch.seasonYearMin : prev.seasonYearMin,
+                seasonYearMax:
+                  patch.seasonYearMax !== undefined ? patch.seasonYearMax : prev.seasonYearMax,
+              }))
+            }
+          />
+          <MultiSelectChip
+            label="list status"
+            options={SEASONAL_LIST_STATUS_OPTIONS}
+            selected={listStatusFilters}
+            formatOption={formatListStatusFilterOption}
+            menuStatus={
+              relabeledCachedShows != null && visibleListStatusCount != null
+                ? `${visibleListStatusCount} of ${relabeledCachedShows.length}`
+                : undefined
+            }
+            onToggle={(status) =>
+              setListStatusFilters((prev) => toggleInArray(prev, status))
+            }
+            onReplaceAll={(statuses) => setListStatusFilters([...statuses])}
+          />
+        </div>
 
         <div className="tool-field tool-seasonal-mode-field">
           <div
@@ -550,8 +734,8 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
             selected={sourceFilters}
             formatOption={formatSourceFilterOption}
             menuStatus={
-              cachedShows != null && visibleSourceCount != null
-                ? `${visibleSourceCount} of ${cachedShows.length}`
+              relabeledCachedShows != null && visibleSourceCount != null
+                ? `${visibleSourceCount} of ${relabeledCachedShows.length}`
                 : undefined
             }
             onToggle={(value) =>

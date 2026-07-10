@@ -194,7 +194,7 @@ const SEASON_BY_INDEX: AnilistMediaSeason[] = [
   'FALL',
 ];
 
-function encodeSeasonYear(season: AnilistMediaSeason, year: number): number {
+export function encodeSeasonYear(season: AnilistMediaSeason, year: number): number {
   return year * 4 + SEASON_INDEX[season];
 }
 
@@ -1109,7 +1109,7 @@ export function DualRangeSlider({
  * back to "off" — keeps the UI's active vs inactive feel
  * symmetrical between slider drags and explicit clears.
  */
-function SeasonYearChip({
+export function SeasonYearChip({
   options,
   min,
   max,
