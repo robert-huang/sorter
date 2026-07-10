@@ -894,7 +894,31 @@ describe('manualInsert + drainManualInserts (plan §5c)', () => {
     expect(s.toBeInserted).toEqual(['g']);
     s = forgetItem(s, 'g');
     expect(s.toBeInserted).toEqual([]);
+    expect(s.hidden).toEqual([]);
     expect(getRanking(s)).not.toContain('g');
+  });
+
+  it('forgetItem clears hidden when the id is in both buckets', () => {
+    const F: Item = { id: 'f', label: 'F' };
+    const G: Item = { id: 'g', label: 'G' };
+    const H: Item = { id: 'h', label: 'H' };
+    const s0 = seedFromSublists({
+      sublists: [
+        [A, B, C, D, E],
+        [F, G, H],
+      ],
+      extras: [],
+    });
+    let s = hideItem(s0, 'g');
+    s = runUntil(s, ['a', 'b', 'c', 'f', 'd', 'e', 'g', 'h']);
+    expect(s.hidden).toContain('g');
+    expect(s.toBeInserted).toContain('g');
+
+    s = forgetItem(s, 'g');
+
+    expect(s.hidden).not.toContain('g');
+    expect(s.toBeInserted).not.toContain('g');
+    expect(s.items.g).toBeDefined();
   });
 
   it('cancelManualInsert bounces the inserting id back to toBeInserted', () => {

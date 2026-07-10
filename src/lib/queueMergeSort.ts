@@ -1325,6 +1325,12 @@ export function forgetItem(
   options?: MergeOptions,
 ): MergeState {
   if (!state.toBeInserted.includes(id)) return state;
+  // Symmetric with forgetHiddenItem, which already clears toBeInserted
+  // when the id is still in the ranking. Hidden exile items land in both
+  // buckets until the user Forget-dismisses from either panel.
+  if (state.hidden.includes(id)) {
+    return forgetHiddenItem(state, id, options);
+  }
   const opts = resolveOptions(options);
   const next = snapshotProgress(state);
   next.toBeInserted = next.toBeInserted.filter((x) => x !== id);
