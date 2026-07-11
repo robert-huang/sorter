@@ -433,9 +433,16 @@ function InsertContextSection({
   if (!ctx) return null;
   const copy = INSERT_CONTEXT_COPY[ctx.kind];
   const hidden = useMemo(() => new Set(state.hidden), [state.hidden]);
+  const probeRowRef = useRef<HTMLDivElement | null>(null);
 
   const visibleTarget = ctx.targetIds.filter((id) => !hidden.has(id));
   const visibleRemaining = ctx.remainingIds.filter((id) => !hidden.has(id));
+  const probeVisible = !hidden.has(ctx.probeId);
+  const probeItem = state.items[ctx.probeId];
+
+  function jumpToProbe(): void {
+    probeRowRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }
 
   return (
     <div className="list-merging">
@@ -469,6 +476,7 @@ function InsertContextSection({
                 return (
                   <div
                     key={id}
+                    ref={isProbe ? probeRowRef : undefined}
                     className={`queue-item-row list-merge-context-row${isProbe ? ' list-merge-context-active' : ''}`}
                   >
                     <span className="rank">{ii + 1}.</span>
@@ -489,8 +497,23 @@ function InsertContextSection({
           </div>
         </div>
         <div className="list-merge-context-panel">
-          <div className="list-merge-context-heading">
-            {mergeSliceLabel('Still to insert', visibleRemaining.length)}
+          <div className="list-merge-context-heading list-merge-context-heading-row">
+            <span>
+              {mergeSliceLabel('Still to insert', visibleRemaining.length)}
+            </span>
+            <button
+              type="button"
+              className="btn small list-merge-context-jump-probe"
+              onClick={jumpToProbe}
+              disabled={!probeVisible}
+              title={
+                probeVisible
+                  ? `Scroll to probe${probeItem ? `: ${probeItem.label}` : ''}`
+                  : 'Probe is hidden'
+              }
+            >
+              Jump to probe
+            </button>
           </div>
           <div className="queue-sublist">
             <div className="queue-sublist-items">
