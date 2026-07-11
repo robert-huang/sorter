@@ -237,6 +237,8 @@ export function App() {
   // race with setActiveSlot and leave React's activeId one beat behind the
   // loaded session — most visible in document.title after Resume.
   const [loadedSlotId, setLoadedSlotId] = useState<string | null>(null);
+  const loadedSlotIdRef = useRef<string | null>(null);
+  loadedSlotIdRef.current = loadedSlotId;
   const [undoRing, setUndoRing] = useState<SortProgress[]>([]);
   const [activeTab, setActiveTab] = useState<TabId>('start');
   // The most recent user interaction that *changed the current pair*. The
@@ -660,12 +662,12 @@ export function App() {
   // one) when localStorage changes. Two key shapes we care about:
   //  1. Manifest key changed → another tab created/deleted/renamed/pinned
   //     a slot. Re-read the manifest so the LIST tab reflects reality.
-  //  2. Active slot's blob key changed → another tab is sorting in the
-  //     same slot as us. Surface a "stale" banner so the user can reload
-  //     (overwriting their in-memory changes with the other tab's disk
+  //  2. This tab's loaded slot blob changed → another tab is sorting the
+  //     same slot we have in memory. Surface a "stale" banner so the user
+  //     can reload (overwriting in-memory changes with the other tab's disk
   //     state) or dismiss (continue + last-writer-wins on next autosave).
-  // No banner shown when this tab has no in-memory state for the slot
-  // (the next visit will load the fresh blob anyway).
+  // Compare against loadedSlotId, not manifest.activeId — each tab can be
+  // working a different slot while activeId tracks the last global writer.
   useEffect(() => {
     function onStorage(e: StorageEvent): void {
       if (!e.key) return;
@@ -674,16 +676,21 @@ export function App() {
         return;
       }
       if (!e.key.startsWith('sorter:slot:')) return;
-      // Re-read manifest so we use its current activeId, not a stale
-      // closure value. Cheap (one localStorage get + JSON.parse).
-      const m = readManifest();
-      if (m.activeId && e.key === slotBlobKey(m.activeId)) {
-        setMultitabStaleSlotId((prev) => prev ?? m.activeId);
+      const slotId = loadedSlotIdRef.current;
+      if (slotId && e.key === slotBlobKey(slotId)) {
+        setMultitabStaleSlotId((prev) => prev ?? slotId);
       }
     }
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
   }, []);
+
+  // Drop a stale banner when we navigate away from that slot.
+  useEffect(() => {
+    setMultitabStaleSlotId((prev) =>
+      prev && prev !== loadedSlotId ? null : prev,
+    );
+  }, [loadedSlotId]);
 
   // Reload action for the multi-tab stale banner: discard the in-flight
   // autosave (NEVER flush — that would clobber the other tab's writes),
@@ -2666,7 +2673,7 @@ export function App() {
           </button>
         </div>
       )}
-      {multitabStaleSlotId && state && (
+      {multitabStaleSlotId && multitabStaleSlotId === loadedSlotId && state && (
         // Another tab edited the same slot's saved data. Reload pulls the
         // other tab's writes in (discarding our pending autosave so we
         // don't clobber them); Dismiss keeps the current in-memory view
