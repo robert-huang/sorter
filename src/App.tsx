@@ -1086,14 +1086,22 @@ export function App() {
   );
 
   const doUndo = useCallback(() => {
-    setUndoRing((ring) => {
-      if (ring.length === 0) return ring;
-      const last = ring[ring.length - 1];
-      setState((cur) => (cur ? engineRestoreProgress(cur, last) : cur));
-      return ring.slice(0, -1);
-    });
+    if (!state || undoRing.length === 0) return;
+
+    const snapshot = undoRing[undoRing.length - 1];
+    const restored = engineRestoreProgress(state, snapshot);
+
+    setUndoRing((ring) => ring.slice(0, -1));
+    setState(restored);
+
+    // LIST is for inspecting/editing the queue; comparisons live on RANK.
+    // Only jump back when undoing a comparison pick — LIST edits like reorder
+    // leave comparisons unchanged, so stay on LIST even with an active pair.
+    if (activeTab === 'list' && restored.comparisons < state.comparisons) {
+      setActiveTab('rank');
+    }
     setLastInteraction({ kind: 'undo' });
-  }, []);
+  }, [activeTab, state, undoRing]);
 
   // -------- slot mint helpers --------
   /**
@@ -2410,9 +2418,9 @@ export function App() {
 
   useKeyboard(
     {
-      onLeft: () => doPick('left'),
-      onRight: () => doPick('right'),
-      onUp: () => doUndo(),
+      onLeft: rankInProgress ? () => doPick('left') : undefined,
+      onRight: rankInProgress ? () => doPick('right') : undefined,
+      onUp: rankInProgress ? () => doUndo() : undefined,
     },
     rankInProgress,
   );
