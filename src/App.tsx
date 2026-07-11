@@ -1101,10 +1101,17 @@ export function App() {
     setUndoRing((ring) => ring.slice(0, -1));
     setState(restored);
 
-    // LIST is for inspecting/editing the queue; comparisons live on RANK.
-    // Only jump back when undoing a comparison pick — LIST edits like reorder
-    // leave comparisons unchanged, so stay on LIST even with an active pair.
-    if (activeTab === 'list' && restored.comparisons < state.comparisons) {
+    // LIST/RESULT are for inspecting results or hidden items; comparisons
+    // live on RANK. Jump back when undoing a pick (comparisons drop) or when
+    // undo leaves a completed sort (e.g. last pick, hide-to-finish). LIST
+    // edits like reorder leave comparisons unchanged, so stay on LIST.
+    const undoingPick = restored.comparisons < state.comparisons;
+    const leavingCompleted =
+      activeTab === 'result' && state.done && !restored.done;
+    if (
+      (undoingPick && (activeTab === 'list' || activeTab === 'result')) ||
+      leavingCompleted
+    ) {
       setActiveTab('rank');
     }
     setLastInteraction({ kind: 'undo' });
