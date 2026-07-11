@@ -130,14 +130,29 @@ describe('enabledRelationTypes / DEFAULT_RELATION_TOGGLES', () => {
 });
 
 describe('bfsFranchiseRelations', () => {
-  function makeFetcher(
+  function makeBatchFetcher(
     graph: Record<number, FranchiseRelationsResponse | null>,
   ) {
-    return vi.fn(async (id: number) => graph[id] ?? null);
+    return vi.fn(async (ids: readonly number[]) => {
+      const out = new Map<number, FranchiseRelationsResponse | null>();
+      for (const id of ids) {
+        if (Object.prototype.hasOwnProperty.call(graph, id)) {
+          out.set(id, graph[id] ?? null);
+        }
+      }
+      return out;
+    });
+  }
+
+  function batchCallIncludesId(
+    fetcher: ReturnType<typeof makeBatchFetcher>,
+    id: number,
+  ): boolean {
+    return fetcher.mock.calls.some((call) => call[0].includes(id));
   }
 
   it('visits seed and direct relations honouring toggles', async () => {
-    const fetcher = makeFetcher({
+    const fetcher = makeBatchFetcher({
       1: { self: node(1), edges: [
         { relationType: 'SEQUEL', node: node(2) },
         // Default toggles have CHARACTER off — node 3 must NOT appear.
@@ -150,12 +165,12 @@ describe('bfsFranchiseRelations', () => {
     const nodes = await bfsFranchiseRelations(1, DEFAULT_RELATION_TOGGLES, fetcher);
     expect([...nodes.keys()].sort()).toEqual([1, 2]);
     // Fetcher should not have been called for the skipped children.
-    expect(fetcher).not.toHaveBeenCalledWith(3, expect.anything());
-    expect(fetcher).not.toHaveBeenCalledWith(4, expect.anything());
+    expect(batchCallIncludesId(fetcher, 3)).toBe(false);
+    expect(batchCallIncludesId(fetcher, 4)).toBe(false);
   });
 
   it('walks transitively across enabled edges', async () => {
-    const fetcher = makeFetcher({
+    const fetcher = makeBatchFetcher({
       1: { self: node(1), edges: [{ relationType: 'SEQUEL', node: node(2) }] },
       2: { self: node(2), edges: [{ relationType: 'SEQUEL', node: node(3) }] },
       3: { self: node(3), edges: [{ relationType: 'SEQUEL', node: node(4) }] },
@@ -166,18 +181,43 @@ describe('bfsFranchiseRelations', () => {
   });
 
   it('handles cycles (A → B → A) without looping forever', async () => {
-    const fetcher = makeFetcher({
+    const fetcher = makeBatchFetcher({
       1: { self: node(1), edges: [{ relationType: 'SEQUEL', node: node(2) }] },
       2: { self: node(2), edges: [{ relationType: 'PREQUEL', node: node(1) }] },
     });
     const nodes = await bfsFranchiseRelations(1, DEFAULT_RELATION_TOGGLES, fetcher);
     expect([...nodes.keys()].sort()).toEqual([1, 2]);
-    // Each id fetched at most once.
+    // Each id fetched at most once — B's back-edge to A must not re-queue A.
     expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls[0]?.[0]).toEqual([1]);
+    expect(fetcher.mock.calls[1]?.[0]).toEqual([2]);
+    expect(
+      fetcher.mock.calls.some(
+        (call, index) => index > 0 && call[0].includes(1),
+      ),
+    ).toBe(false);
+  });
+
+  it('fetches siblings at the same BFS depth in one batch call', async () => {
+    const fetcher = makeBatchFetcher({
+      1: {
+        self: node(1),
+        edges: [
+          { relationType: 'SEQUEL', node: node(2) },
+          { relationType: 'SEQUEL', node: node(3) },
+        ],
+      },
+      2: { self: node(2), edges: [] },
+      3: { self: node(3), edges: [] },
+    });
+    await bfsFranchiseRelations(1, DEFAULT_RELATION_TOGGLES, fetcher);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls[0]?.[0]).toEqual([1]);
+    expect([...(fetcher.mock.calls[1]?.[0] ?? [])].sort()).toEqual([2, 3]);
   });
 
   it('respects maxNodes cap', async () => {
-    const fetcher = makeFetcher({
+    const fetcher = makeBatchFetcher({
       1: { self: node(1), edges: [
         { relationType: 'SEQUEL', node: node(2) },
         { relationType: 'SEQUEL', node: node(3) },
@@ -191,7 +231,7 @@ describe('bfsFranchiseRelations', () => {
   });
 
   it('includes manga edges from SOURCE/ADAPTATION relations', async () => {
-    const fetcher = makeFetcher({
+    const fetcher = makeBatchFetcher({
       1: { self: node(1), edges: [
         { relationType: 'SOURCE', node: node(10, { year: 2015 }, { mediaType: 'MANGA', format: 'MANGA' }) },
       ]},
@@ -202,7 +242,7 @@ describe('bfsFranchiseRelations', () => {
   });
 
   it('aborts when signal is already aborted', async () => {
-    const fetcher = makeFetcher({
+    const fetcher = makeBatchFetcher({
       1: { self: node(1), edges: [] },
     });
     const controller = new AbortController();

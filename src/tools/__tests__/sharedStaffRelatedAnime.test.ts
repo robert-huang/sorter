@@ -5,9 +5,9 @@
  *     stopping at OTHER edges / MUSIC nodes / Crossover-tagged nodes
  *     (matches Shared Staff "ignore related" semantics).
  *   - The walked set is persisted across sessions in localStorage for
- *     90 days — relations rarely change after release and the BFS
- *     fires one GraphQL call per node, so re-walking on every Compare
- *     was the slow path the user complained about.
+ *     90 days — relations rarely change after release. The BFS walk
+ *     batches up to 15 media per GraphQL call per depth level (same
+ *     pattern as Franchise Trace / Adaptation Scores).
  *   - Force-refresh busts BOTH the session memo and the persistent
  *     cache so the next call walks from scratch (right-click Compare).
  *   - Cross-session reload is simulated by clearing the session memo
@@ -39,12 +39,16 @@ type RelationEdge = {
   };
 };
 
-function relationsResponse(edges: RelationEdge[]): unknown {
-  return {
-    Media: {
-      relations: { edges },
-    },
-  };
+
+/** Batch GraphQL shape used by `fetchRelationsWalkBatch`. */
+function batchWalkRelationsResponse(
+  entries: Array<{ edges: RelationEdge[] }>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  entries.forEach((entry, index) => {
+    out[`m${index}`] = { relations: { edges: entry.edges } };
+  });
+  return out;
 }
 
 function anime(id: number, opts: Partial<RelationEdge['node']> = {}): RelationEdge['node'] {
@@ -61,12 +65,13 @@ beforeEach(() => {
 
 describe('fetchRelatedAnimeIds caching', () => {
   it('walks once and serves the second call from the in-session memo', async () => {
-    executeAnilistQueryMock.mockResolvedValueOnce(
-      relationsResponse([
-        { relationType: 'SEQUEL', node: anime(2) },
-      ]),
-    );
-    executeAnilistQueryMock.mockResolvedValueOnce(relationsResponse([]));
+    executeAnilistQueryMock
+      .mockResolvedValueOnce(
+        batchWalkRelationsResponse([
+          { edges: [{ relationType: 'SEQUEL', node: anime(2) }] },
+        ]),
+      )
+      .mockResolvedValueOnce(batchWalkRelationsResponse([{ edges: [] }]));
 
     const first = await fetchRelatedAnimeIds(1);
     expect([...first].sort((a, b) => a - b)).toEqual([2]);
@@ -80,12 +85,13 @@ describe('fetchRelatedAnimeIds caching', () => {
   });
 
   it('persists across simulated session reloads via localStorage', async () => {
-    executeAnilistQueryMock.mockResolvedValueOnce(
-      relationsResponse([
-        { relationType: 'SEQUEL', node: anime(2) },
-      ]),
-    );
-    executeAnilistQueryMock.mockResolvedValueOnce(relationsResponse([]));
+    executeAnilistQueryMock
+      .mockResolvedValueOnce(
+        batchWalkRelationsResponse([
+          { edges: [{ relationType: 'SEQUEL', node: anime(2) }] },
+        ]),
+      )
+      .mockResolvedValueOnce(batchWalkRelationsResponse([{ edges: [] }]));
 
     await fetchRelatedAnimeIds(1);
     expect(executeAnilistQueryMock).toHaveBeenCalledTimes(2);
@@ -100,27 +106,37 @@ describe('fetchRelatedAnimeIds caching', () => {
   });
 
   it('forceRefresh busts both memo layers and re-walks', async () => {
-    executeAnilistQueryMock.mockResolvedValueOnce(
-      relationsResponse([{ relationType: 'SEQUEL', node: anime(2) }]),
-    );
-    executeAnilistQueryMock.mockResolvedValueOnce(relationsResponse([]));
+    executeAnilistQueryMock
+      .mockResolvedValueOnce(
+        batchWalkRelationsResponse([
+          { edges: [{ relationType: 'SEQUEL', node: anime(2) }] },
+        ]),
+      )
+      .mockResolvedValueOnce(batchWalkRelationsResponse([{ edges: [] }]));
 
     await fetchRelatedAnimeIds(1);
     expect(executeAnilistQueryMock).toHaveBeenCalledTimes(2);
 
     // Refresh now also picks up a brand-new prequel that AniList added.
-    executeAnilistQueryMock.mockResolvedValueOnce(
-      relationsResponse([
-        { relationType: 'SEQUEL', node: anime(2) },
-        { relationType: 'PREQUEL', node: anime(3) },
-      ]),
-    );
-    executeAnilistQueryMock.mockResolvedValueOnce(relationsResponse([]));
-    executeAnilistQueryMock.mockResolvedValueOnce(relationsResponse([]));
+    // Nodes 2 and 3 are siblings at the same depth — one batched call.
+    executeAnilistQueryMock
+      .mockResolvedValueOnce(
+        batchWalkRelationsResponse([
+          {
+            edges: [
+              { relationType: 'SEQUEL', node: anime(2) },
+              { relationType: 'PREQUEL', node: anime(3) },
+            ],
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        batchWalkRelationsResponse([{ edges: [] }, { edges: [] }]),
+      );
 
     const refreshed = await fetchRelatedAnimeIds(1, undefined, { forceRefresh: true });
     expect([...refreshed].sort((a, b) => a - b)).toEqual([2, 3]);
-    expect(executeAnilistQueryMock).toHaveBeenCalledTimes(5);
+    expect(executeAnilistQueryMock).toHaveBeenCalledTimes(4);
   });
 
   it('stops walking at OTHER edges, MUSIC nodes, and Crossover-tagged nodes', async () => {
@@ -128,20 +144,26 @@ describe('fetchRelatedAnimeIds caching', () => {
     // (added to set but not enqueued), a MUSIC sibling (added but
     // not walked), and a Crossover side-story (added but not walked).
     executeAnilistQueryMock.mockResolvedValueOnce(
-      relationsResponse([
-        { relationType: 'SEQUEL', node: anime(2) },
-        { relationType: 'OTHER', node: anime(3) },
-        { relationType: 'SIDE_STORY', node: anime(4, { format: 'MUSIC' }) },
+      batchWalkRelationsResponse([
         {
-          relationType: 'SIDE_STORY',
-          node: anime(5, { tags: [{ name: 'Crossover' }] }),
+          edges: [
+            { relationType: 'SEQUEL', node: anime(2) },
+            { relationType: 'OTHER', node: anime(3) },
+            { relationType: 'SIDE_STORY', node: anime(4, { format: 'MUSIC' }) },
+            {
+              relationType: 'SIDE_STORY',
+              node: anime(5, { tags: [{ name: 'Crossover' }] }),
+            },
+            // Manga node: ignored entirely (different media type).
+            { relationType: 'ADAPTATION', node: { id: 6, type: 'MANGA' } },
+          ],
         },
-        // Manga node: ignored entirely (different media type).
-        { relationType: 'ADAPTATION', node: { id: 6, type: 'MANGA' } },
       ]),
     );
     // Only node 2 (the SEQUEL) should get a follow-up walk.
-    executeAnilistQueryMock.mockResolvedValueOnce(relationsResponse([]));
+    executeAnilistQueryMock.mockResolvedValueOnce(
+      batchWalkRelationsResponse([{ edges: [] }]),
+    );
 
     const related = await fetchRelatedAnimeIds(1);
     expect([...related].sort((a, b) => a - b)).toEqual([2, 3, 4, 5]);

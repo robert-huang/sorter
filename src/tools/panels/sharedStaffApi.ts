@@ -1,7 +1,6 @@
 import { depaginate } from '../../lib/importers/anilist/depaginate';
 import {
   TOOLS_MEDIA_PRODUCTION_STAFF_QUERY,
-  TOOLS_MEDIA_RELATIONS_QUERY,
   TOOLS_MEDIA_SEARCH_QUERY,
   TOOLS_MEDIA_STUDIOS_QUERY,
   TOOLS_MEDIA_VOICE_ACTORS_QUERY,
@@ -291,49 +290,118 @@ function relatedAnimeCacheKey(rootMediaId: number): string {
   return `shared-staff:related-anime:${rootMediaId}`;
 }
 
+type RelatedAnimeWalkEdge = {
+  relationType: string;
+  node: {
+    id: number;
+    type?: string | null;
+    format?: string | null;
+    tags?: Array<{ name: string }> | null;
+  };
+};
+
+const RELATED_ANIME_WALK_BATCH_SIZE = 15;
+
+function buildBatchedMediaRelationsWalkQuery(
+  mediaIds: readonly number[],
+): { query: string; variables: Record<string, number> } {
+  const variables: Record<string, number> = {};
+  const fields = mediaIds
+    .map((id, index) => {
+      variables[`id${index}`] = id;
+      return `m${index}: Media(id: $id${index}) {
+    relations {
+      edges {
+        relationType
+        node {
+          id
+          type
+          format
+          tags { name }
+        }
+      }
+    }
+  }`;
+    })
+    .join('\n');
+  const varDefs = mediaIds.map((_, index) => `$id${index}: Int!`).join(', ');
+  const query = `query ToolsMediaRelationsWalkBatch(${varDefs}) {
+${fields}
+}`;
+  return { query, variables };
+}
+
+async function fetchRelationsWalkBatch(
+  mediaIds: readonly number[],
+  signal?: AbortSignal,
+): Promise<Map<number, RelatedAnimeWalkEdge[]>> {
+  const out = new Map<number, RelatedAnimeWalkEdge[]>();
+  for (let offset = 0; offset < mediaIds.length; offset += RELATED_ANIME_WALK_BATCH_SIZE) {
+    signal?.throwIfAborted();
+    const chunk = mediaIds.slice(offset, offset + RELATED_ANIME_WALK_BATCH_SIZE);
+    if (chunk.length === 0) {
+      continue;
+    }
+    const { query, variables } = buildBatchedMediaRelationsWalkQuery(chunk);
+    const data = await executeAnilistQuery<
+      Record<string, { relations?: { edges: RelatedAnimeWalkEdge[] } } | null>
+    >(query, variables);
+    for (let i = 0; i < chunk.length; i++) {
+      const mediaId = chunk[i]!;
+      out.set(mediaId, data?.[`m${i}`]?.relations?.edges ?? []);
+    }
+  }
+  return out;
+}
+
 async function walkRelatedAnimeIds(
   rootMediaId: number,
   signal?: AbortSignal,
 ): Promise<number[]> {
   const related = new Set<number>([rootMediaId]);
-  const queue = [rootMediaId];
+  const visitedFetches = new Set<number>();
+  let frontier: number[] = [rootMediaId];
 
-  while (queue.length > 0) {
+  while (frontier.length > 0) {
     signal?.throwIfAborted();
-    const curId = queue.pop()!;
-    const data = await executeAnilistQuery<{
-      Media: {
-        relations: {
-          edges: Array<{
-            relationType: string;
-            node: {
-              id: number;
-              type: string;
-              format?: string | null;
-              tags?: Array<{ name: string }> | null;
-            };
-          }>;
-        };
-      } | null;
-    }>(TOOLS_MEDIA_RELATIONS_QUERY, { mediaId: curId });
 
-    for (const edge of data?.Media?.relations.edges ?? []) {
-      const node = edge.node;
-      if (node.type !== 'ANIME' || related.has(node.id)) {
-        continue;
-      }
-      related.add(node.id);
-
-      const isCrossover = (node.tags ?? []).some((t) => t.name === 'Crossover');
-      if (
-        edge.relationType === 'OTHER' ||
-        node.format === 'MUSIC' ||
-        isCrossover
-      ) {
-        continue;
-      }
-      queue.push(node.id);
+    const toFetch = frontier.filter((id) => !visitedFetches.has(id));
+    for (const id of toFetch) {
+      visitedFetches.add(id);
     }
+
+    const responses =
+      toFetch.length > 0
+        ? await fetchRelationsWalkBatch(toFetch, signal)
+        : new Map<number, RelatedAnimeWalkEdge[]>();
+
+    const nextFrontier: number[] = [];
+    const nextFrontierSet = new Set<number>();
+
+    for (const curId of frontier) {
+      for (const edge of responses.get(curId) ?? []) {
+        const node = edge.node;
+        if (node.type !== 'ANIME' || related.has(node.id)) {
+          continue;
+        }
+        related.add(node.id);
+
+        const isCrossover = (node.tags ?? []).some((t) => t.name === 'Crossover');
+        if (
+          edge.relationType === 'OTHER' ||
+          node.format === 'MUSIC' ||
+          isCrossover
+        ) {
+          continue;
+        }
+        if (!visitedFetches.has(node.id) && !nextFrontierSet.has(node.id)) {
+          nextFrontier.push(node.id);
+          nextFrontierSet.add(node.id);
+        }
+      }
+    }
+
+    frontier = nextFrontier;
   }
 
   related.delete(rootMediaId);

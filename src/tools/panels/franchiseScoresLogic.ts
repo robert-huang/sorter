@@ -326,6 +326,12 @@ export type FranchiseRelationsResponse = {
   edges: Array<{ relationType: string; node: FranchiseNode }>;
 };
 
+/** Batch relation fetch — one call per BFS depth level (see {@link bfsFranchiseRelations}). */
+export type FranchiseRelationsBatchFetcher = (
+  ids: readonly number[],
+  signal?: AbortSignal,
+) => Promise<Map<number, FranchiseRelationsResponse | null>>;
+
 export type BfsFranchiseOptions = {
   maxNodes?: number;
   /** Fires once per visited media id so the panel can show progress. */
@@ -337,60 +343,78 @@ export type BfsFranchiseOptions = {
  * Walk franchise relations breadth-first from `seedId`, returning every node
  * reachable via the enabled relation types (bounded by `maxNodes`, default
  * 200, so a runaway "OTHER" web from a popular property can't drown the UI).
- * Pure-ish: relies on the injected `fetcher` so tests can stub the network.
+ *
+ * Fetches one BFS depth level at a time via `batchFetcher` so siblings share
+ * a single batched AniList round-trip (same pattern as Adaptation Scores).
  */
 export async function bfsFranchiseRelations(
   seedId: number,
   toggles: Record<FranchiseRelationType, boolean>,
-  fetcher: (id: number, signal?: AbortSignal) => Promise<FranchiseRelationsResponse | null>,
+  batchFetcher: FranchiseRelationsBatchFetcher,
   options: BfsFranchiseOptions = {},
 ): Promise<Map<number, FranchiseNode>> {
   const enabled = enabledRelationTypes(toggles);
   const maxNodes = options.maxNodes ?? 200;
   const nodes = new Map<number, FranchiseNode>();
   const visitedFetches = new Set<number>();
-  const queue: number[] = [seedId];
+  let frontier: number[] = [seedId];
 
-  while (queue.length > 0 && nodes.size < maxNodes) {
+  while (frontier.length > 0 && nodes.size < maxNodes) {
     options.signal?.throwIfAborted();
-    const id = queue.shift()!;
-    if (visitedFetches.has(id)) {
-      continue;
-    }
-    visitedFetches.add(id);
 
-    const response = await fetcher(id, options.signal);
-    if (!response) {
-      continue;
-    }
-    if (response.self && !nodes.has(response.self.id)) {
-      nodes.set(response.self.id, response.self);
+    const toFetch = frontier.filter((id) => !visitedFetches.has(id));
+    for (const id of toFetch) {
+      visitedFetches.add(id);
     }
 
-    options.onProgress?.({
-      visited: nodes.size,
-      queueDepth: queue.length,
-      lastTitle: response.self?.title ?? String(id),
-    });
+    const responses =
+      toFetch.length > 0
+        ? await batchFetcher(toFetch, options.signal)
+        : new Map<number, FranchiseRelationsResponse | null>();
 
-    for (const edge of response.edges) {
-      if (!enabled.has(edge.relationType)) {
+    const nextFrontier: number[] = [];
+    const nextFrontierSet = new Set<number>();
+
+    for (const id of frontier) {
+      const response = responses.get(id);
+      if (!response) {
         continue;
       }
-      const childId = edge.node.id;
-      if (!nodes.has(childId)) {
-        // Stamp metadata immediately from the edge — we may not get around to
-        // fetching this child before maxNodes is reached, but it can still
-        // appear in the chart with title/date from this edge alone.
-        nodes.set(childId, edge.node);
+      if (response.self && !nodes.has(response.self.id)) {
+        nodes.set(response.self.id, response.self);
+      }
+
+      options.onProgress?.({
+        visited: nodes.size,
+        queueDepth: nextFrontier.length,
+        lastTitle: response.self?.title ?? String(id),
+      });
+
+      for (const edge of response.edges) {
+        if (!enabled.has(edge.relationType)) {
+          continue;
+        }
+        const childId = edge.node.id;
+        if (!nodes.has(childId)) {
+          // Stamp metadata immediately from the edge — we may not get around to
+          // fetching this child before maxNodes is reached, but it can still
+          // appear in the chart with title/date from this edge alone.
+          nodes.set(childId, edge.node);
+        }
+        if (nodes.size >= maxNodes) {
+          break;
+        }
+        if (!visitedFetches.has(childId) && !nextFrontierSet.has(childId)) {
+          nextFrontier.push(childId);
+          nextFrontierSet.add(childId);
+        }
       }
       if (nodes.size >= maxNodes) {
         break;
       }
-      if (!visitedFetches.has(childId)) {
-        queue.push(childId);
-      }
     }
+
+    frontier = nextFrontier;
   }
 
   return nodes;

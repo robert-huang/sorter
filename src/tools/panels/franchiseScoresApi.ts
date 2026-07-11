@@ -2,8 +2,9 @@ import {
   TOOLS_MEDIA_SEARCH_QUERY,
 } from '../../lib/importers/anilist/queries';
 import {
-  fetchToolsMediaRelationsCached,
+  fetchToolsMediaRelationsBatch,
   type ToolsApiMedia,
+  type ToolsMediaRelationsResponse,
 } from '../../lib/importers/anilist/toolsMediaRelationsApi';
 import { executeAnilistQuery } from '../../lib/importers/anilist/transport';
 import {
@@ -49,7 +50,7 @@ function mediaToNode(media: ToolsApiMedia): FranchiseNode {
 }
 
 function toFranchiseRelationsResponse(
-  parsed: NonNullable<Awaited<ReturnType<typeof fetchToolsMediaRelationsCached>>>,
+  parsed: ToolsMediaRelationsResponse,
 ): FranchiseRelationsResponse {
   return {
     self: mediaToNode(parsed.media),
@@ -84,13 +85,24 @@ export async function searchFranchiseSeed(
   });
 }
 
-async function fetchFranchiseRelations(
-  mediaId: number,
+async function fetchFranchiseRelationsBatch(
+  mediaIds: readonly number[],
   signal?: AbortSignal,
   options?: ToolsFetchOptions,
-): Promise<FranchiseRelationsResponse | null> {
-  const parsed = await fetchToolsMediaRelationsCached(mediaId, signal, options);
-  return parsed ? toFranchiseRelationsResponse(parsed) : null;
+): Promise<Map<number, FranchiseRelationsResponse | null>> {
+  if (mediaIds.length === 0) {
+    return new Map();
+  }
+  const responses = await fetchToolsMediaRelationsBatch(mediaIds, {
+    signal,
+    fetchOptions: options,
+  });
+  const out = new Map<number, FranchiseRelationsResponse | null>();
+  for (const id of mediaIds) {
+    const parsed = responses.get(id);
+    out.set(id, parsed ? toFranchiseRelationsResponse(parsed) : null);
+  }
+  return out;
 }
 
 type UserListEntry = { mediaId: number; status: string | null; score: number | null };
@@ -176,7 +188,7 @@ export async function runFranchiseScores(
   const nodes = await bfsFranchiseRelations(
     seed.id,
     relationToggles,
-    (id, sig) => fetchFranchiseRelations(id, sig, fetchOptions),
+    (ids, sig) => fetchFranchiseRelationsBatch(ids, sig, fetchOptions),
     {
       signal,
       maxNodes,

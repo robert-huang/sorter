@@ -3,11 +3,12 @@
  *
  *   - The user's anime + manga lists are read from the source DB via
  *     `ensureUserMediaListFresh` + `readUserMediaListEntriesFromDb`.
- *   - Relations are walked through `fetchToolsMediaRelationsCached`,
+ *   - Relations are walked through `fetchToolsMediaRelationsBatch`,
  *     which persists edges in SQLite (`media_relation` +
  *     `media_relations_expansion`) and only hits AniList when the
- *     marker is missing or stale (>90d). Session memo dedupes within a
- *     tab; SQLite survives reloads and Drive sync.
+ *     marker is missing or stale (>90d). BFS fetches one depth level
+ *     per batch (up to 15 media per GraphQL call). Session memo dedupes
+ *     within a tab; SQLite survives reloads and Drive sync.
  *   - Right-click Trace (forceRefresh) busts the SQLite marker and
  *     triggers a fresh AniList list import.
  */
@@ -54,33 +55,48 @@ function wireToolsDb(db: Database): void {
   );
 }
 
-function relationsResponse(
+function relationsMediaPayload(
   selfId: number,
   edges: Array<{ relationType: string; nodeId: number }> = [],
 ): unknown {
   return {
-    Media: {
-      id: selfId,
-      type: 'ANIME',
-      format: 'TV',
-      title: { english: `Show ${selfId}`, romaji: null, native: null },
-      coverImage: { large: null },
-      startDate: { year: 2020, month: 1, day: 1 },
-      relations: {
-        edges: edges.map((e) => ({
-          relationType: e.relationType,
-          node: {
-            id: e.nodeId,
-            type: 'ANIME',
-            format: 'TV',
-            title: { english: `Show ${e.nodeId}`, romaji: null, native: null },
-            coverImage: { large: null },
-            startDate: { year: 2021, month: 4, day: 7 },
-          },
-        })),
-      },
+    id: selfId,
+    type: 'ANIME',
+    format: 'TV',
+    title: { english: `Show ${selfId}`, romaji: null, native: null },
+    coverImage: { large: null },
+    startDate: { year: 2020, month: 1, day: 1 },
+    relations: {
+      edges: edges.map((e) => ({
+        relationType: e.relationType,
+        node: {
+          id: e.nodeId,
+          type: 'ANIME',
+          format: 'TV',
+          title: { english: `Show ${e.nodeId}`, romaji: null, native: null },
+          coverImage: { large: null },
+          startDate: { year: 2021, month: 4, day: 7 },
+        },
+      })),
     },
   };
+}
+
+/** Batch GraphQL shape returned by `fetchToolsMediaRelationsBatch`. */
+function batchRelationsResponse(
+  entries: Array<{
+    selfId: number;
+    edges?: Array<{ relationType: string; nodeId: number }>;
+  }>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  entries.forEach((entry, index) => {
+    out[`m${index}`] = relationsMediaPayload(
+      entry.selfId,
+      entry.edges ?? [],
+    );
+  });
+  return out;
 }
 
 function dbEntry(
@@ -122,7 +138,7 @@ describe('runFranchiseScores caching', () => {
   it('serves both list types from the DB and does zero list-related GraphQL calls', async () => {
     executeAnilistQueryMock
       .mockResolvedValueOnce({ Media: { id: 100, title: { english: 'Seed', romaji: null } } })
-      .mockResolvedValueOnce(relationsResponse(100, []));
+      .mockResolvedValueOnce(batchRelationsResponse([{ selfId: 100 }]));
     readUserMediaListEntriesFromDbMock.mockImplementation(async (_db, _uid, type) =>
       type === 'ANIME' ? [dbEntry(100, 90)] : [],
     );
@@ -160,9 +176,9 @@ describe('runFranchiseScores caching', () => {
   it('forceRefresh threads through to ensureUserMediaListFresh for BOTH list types', async () => {
     executeAnilistQueryMock
       .mockResolvedValueOnce({ Media: { id: 100, title: { english: 'Seed', romaji: null } } })
-      .mockResolvedValueOnce(relationsResponse(100, []))
+      .mockResolvedValueOnce(batchRelationsResponse([{ selfId: 100 }]))
       .mockResolvedValueOnce({ Media: { id: 100, title: { english: 'Seed', romaji: null } } })
-      .mockResolvedValueOnce(relationsResponse(100, []));
+      .mockResolvedValueOnce(batchRelationsResponse([{ selfId: 100 }]));
     readUserMediaListEntriesFromDbMock.mockResolvedValue([dbEntry(100, 88)]);
 
     await runFranchiseScores({ seedSearch: 'Seed', username: 'rh_test' });
@@ -190,7 +206,7 @@ describe('runFranchiseScores caching', () => {
   it('returns score=null when the user has the show on their list but unrated', async () => {
     executeAnilistQueryMock
       .mockResolvedValueOnce({ Media: { id: 100, title: { english: 'Seed', romaji: null } } })
-      .mockResolvedValueOnce(relationsResponse(100, []));
+      .mockResolvedValueOnce(batchRelationsResponse([{ selfId: 100 }]));
     // AniList POINT_100 stores "not rated" as 0; the DB read returns 0
     // verbatim and the franchise layer normalizes it to null so the
     // chart renders "—" instead of "0".
@@ -206,7 +222,7 @@ describe('runFranchiseScores caching', () => {
   it('handles a missing user gracefully (ensureUserMediaListFresh returns null)', async () => {
     executeAnilistQueryMock
       .mockResolvedValueOnce({ Media: { id: 100, title: { english: 'Seed', romaji: null } } })
-      .mockResolvedValueOnce(relationsResponse(100, []));
+      .mockResolvedValueOnce(batchRelationsResponse([{ selfId: 100 }]));
     // Both type lookups return null → readUserMediaListEntriesFromDb
     // is skipped entirely; the franchise entry shows up with no list
     // info instead of crashing on the missing user id.
@@ -223,8 +239,12 @@ describe('franchise relations cross-session cache', () => {
   it('persists relations to SQLite so a fresh session does not re-fetch', async () => {
     executeAnilistQueryMock
       .mockResolvedValueOnce({ Media: { id: 100, title: { english: 'Seed', romaji: null } } })
-      .mockResolvedValueOnce(relationsResponse(100, [{ relationType: 'SEQUEL', nodeId: 200 }]))
-      .mockResolvedValueOnce(relationsResponse(200, []))
+      .mockResolvedValueOnce(
+        batchRelationsResponse([
+          { selfId: 100, edges: [{ relationType: 'SEQUEL', nodeId: 200 }] },
+        ]),
+      )
+      .mockResolvedValueOnce(batchRelationsResponse([{ selfId: 200 }]))
       .mockResolvedValueOnce({ Media: { id: 100, title: { english: 'Seed', romaji: null } } });
 
     await runFranchiseScores({ seedSearch: 'Seed', username: 'rh_test' });
@@ -247,9 +267,9 @@ describe('franchise relations cross-session cache', () => {
   it('forceRefresh re-fetches relation edges from AniList', async () => {
     executeAnilistQueryMock
       .mockResolvedValueOnce({ Media: { id: 100, title: { english: 'Seed', romaji: null } } })
-      .mockResolvedValueOnce(relationsResponse(100, []))
+      .mockResolvedValueOnce(batchRelationsResponse([{ selfId: 100 }]))
       .mockResolvedValueOnce({ Media: { id: 100, title: { english: 'Seed', romaji: null } } })
-      .mockResolvedValueOnce(relationsResponse(100, []));
+      .mockResolvedValueOnce(batchRelationsResponse([{ selfId: 100 }]));
 
     await runFranchiseScores({ seedSearch: 'Seed', username: 'rh_test' });
     _clearSessionMemoForTesting();
