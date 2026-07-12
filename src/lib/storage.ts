@@ -22,6 +22,46 @@ export function slotBlobKey(id: string): string {
   return `sorter:slot:${id}:v1`;
 }
 
+/** Per-tab writer stamp — paired with each slot blob write for multitab filtering. */
+export function slotBlobWriterKey(id: string): string {
+  return `sorter:slot:${id}:writer:v1`;
+}
+
+const TAB_WRITER_ID_KEY = 'sorter:tab-writer-id:v1';
+
+/** Stable id for this browser tab (sessionStorage — not shared across tabs). */
+export function getTabWriterId(): string {
+  if (typeof window === 'undefined') return 'ssr';
+  try {
+    let id = window.sessionStorage.getItem(TAB_WRITER_ID_KEY);
+    if (!id) {
+      id =
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `tab-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      window.sessionStorage.setItem(TAB_WRITER_ID_KEY, id);
+    }
+    return id;
+  } catch {
+    return `tab-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+}
+
+export function readSlotBlobWriterId(id: string): string | null {
+  if (!isAutosaveAvailable()) return null;
+  try {
+    return window.localStorage.getItem(slotBlobWriterKey(id));
+  } catch {
+    return null;
+  }
+}
+
+/** True when the latest disk write for this slot came from this tab. */
+export function isOwnTabSlotBlobWrite(slotId: string): boolean {
+  const writer = readSlotBlobWriterId(slotId);
+  return writer !== null && writer === getTabWriterId();
+}
+
 export const SETTINGS_KEY = 'sorter:settings:v1';
 
 /** Maximum number of slots kept in browser storage. When a mint would
@@ -614,7 +654,16 @@ export function readSlotBlob(id: string): AutosaveBlob | null {
   if (!isAutosaveAvailable()) return null;
   try {
     const raw = window.localStorage.getItem(slotBlobKey(id));
-    if (!raw) return null;
+    return parseSlotBlobRaw(raw);
+  } catch {
+    return null;
+  }
+}
+
+/** Parse a raw SaveFile JSON string (e.g. from a `storage` event's `newValue`). */
+export function parseSlotBlobRaw(raw: string | null): AutosaveBlob | null {
+  if (!raw) return null;
+  try {
     const file = JSON.parse(raw) as SaveFile;
     if (
       file.version !== 1 &&
@@ -632,6 +681,23 @@ export function readSlotBlob(id: string): AutosaveBlob | null {
   } catch {
     return null;
   }
+}
+
+/** Compare autosave payloads ignoring SaveFile wrapper metadata (`createdAt`). */
+export function autosaveBlobsEqual(a: AutosaveBlob, b: AutosaveBlob): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/**
+ * True when another tab rewrote this slot blob but the payload matches what
+ * we already have in memory (zombie tab echo, canonical re-write, etc.).
+ */
+export function isHarmlessCrossTabSlotBlobWrite(
+  memoryBlob: AutosaveBlob,
+  diskRaw: string | null,
+): boolean {
+  const diskBlob = parseSlotBlobRaw(diskRaw);
+  return diskBlob !== null && autosaveBlobsEqual(memoryBlob, diskBlob);
 }
 
 /**
@@ -660,6 +726,7 @@ function deleteSlotBlob(id: string): void {
   if (!isAutosaveAvailable()) return;
   try {
     window.localStorage.removeItem(slotBlobKey(id));
+    window.localStorage.removeItem(slotBlobWriterKey(id));
   } catch {
     /* ignore */
   }
@@ -1047,6 +1114,7 @@ function notifyError(
 function tryWriteSlotBlob(id: string, blob: AutosaveBlob): boolean {
   try {
     window.localStorage.setItem(slotBlobKey(id), JSON.stringify(buildSaveFile(blob)));
+    window.localStorage.setItem(slotBlobWriterKey(id), getTabWriterId());
     return true;
   } catch {
     return false;

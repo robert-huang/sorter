@@ -79,6 +79,7 @@ import {
   readManifest,
   readSettings,
   readSlotBlob,
+  isHarmlessCrossTabSlotBlobWrite,
   persistCanonicalBlobOnLoad,
   pinSlot,
   renameSlot,
@@ -240,6 +241,8 @@ export function App() {
   const loadedSlotIdRef = useRef<string | null>(null);
   loadedSlotIdRef.current = loadedSlotId;
   const [undoRing, setUndoRing] = useState<SortProgress[]>([]);
+  const undoRingRef = useRef<SortProgress[]>([]);
+  undoRingRef.current = undoRing;
   const [activeTab, setActiveTab] = useState<TabId>('start');
   // The most recent user interaction that *changed the current pair*. The
   // CompareScreen animation reads this so it knows which side to slide the
@@ -666,6 +669,8 @@ export function App() {
   //     same slot we have in memory. Surface a "stale" banner so the user
   //     can reload (overwriting in-memory changes with the other tab's disk
   //     state) or dismiss (continue + last-writer-wins on next autosave).
+  //     Suppress when disk already matches in-memory (zombie tab echoing the
+  //     same autosave).
   // Compare against loadedSlotId, not manifest.activeId — each tab can be
   // working a different slot while activeId tracks the last global writer.
   useEffect(() => {
@@ -677,9 +682,20 @@ export function App() {
       }
       if (!e.key.startsWith('sorter:slot:')) return;
       const slotId = loadedSlotIdRef.current;
-      if (slotId && e.key === slotBlobKey(slotId)) {
-        setMultitabStaleSlotId((prev) => prev ?? slotId);
+      if (!slotId || e.key !== slotBlobKey(slotId)) return;
+
+      const cur = stateRef.current;
+      if (
+        cur &&
+        isHarmlessCrossTabSlotBlobWrite(
+          buildBlob(cur, undoRingRef.current),
+          e.newValue,
+        )
+      ) {
+        return;
       }
+
+      setMultitabStaleSlotId((prev) => prev ?? slotId);
     }
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);

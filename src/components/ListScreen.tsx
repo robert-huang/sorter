@@ -603,9 +603,10 @@ function InsertContextSection({
   const visibleRemaining = ctx.remainingIds.filter((id) => !hidden.has(id));
   const isMergeAutoSource =
     ctx.kind === 'merge-auto' && ctx.sourceSublistIds !== undefined;
-  const insertingSourceIds = isMergeAutoSource
-    ? ctx.sourceSublistIds.filter((id) => !hidden.has(id))
-    : visibleRemaining;
+  const insertingSourceIds =
+    isMergeAutoSource && ctx.sourceSublistIds
+      ? ctx.sourceSublistIds.filter((id) => !hidden.has(id))
+      : visibleRemaining;
   const probeVisible = !hidden.has(ctx.probeId);
   const probeItem = state.items[ctx.probeId];
 

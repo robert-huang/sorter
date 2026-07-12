@@ -36,6 +36,12 @@ import {
   setActiveSlot,
   slotBlobKey,
   subscribeAutosaveError,
+  getTabWriterId,
+  isOwnTabSlotBlobWrite,
+  readSlotBlobWriterId,
+  autosaveBlobsEqual,
+  parseSlotBlobRaw,
+  isHarmlessCrossTabSlotBlobWrite,
   updateSlotMeta,
 } from '../storage';
 import type { MergeProgress, SaveFile, SlotMeta } from '../types';
@@ -96,6 +102,7 @@ function mintSlot(blob: AutosaveBlob, name: string): SlotMeta {
 
 beforeEach(() => {
   window.localStorage.clear();
+  window.sessionStorage.clear();
   _resetAvailabilityCache();
   // Re-prime the in-module active-slot pointer to null since storage was wiped.
   primeActiveSlot();
@@ -103,6 +110,7 @@ beforeEach(() => {
 
 afterEach(() => {
   window.localStorage.clear();
+  window.sessionStorage.clear();
 });
 
 describe('migrateLegacyIfNeeded', () => {
@@ -1488,5 +1496,64 @@ describe('deriveAdoptedCloudSlotTimestamps', () => {
     expect(adopted?.cloudId).toBe('drive-file-AAAA');
     // Synced, not "local changes pending".
     expect((adopted?.updatedAt ?? '') > (adopted?.cloudPushedAt ?? '')).toBe(false);
+  });
+});
+
+describe('multitab slot blob helpers', () => {
+  it('getTabWriterId is stable within a tab session', () => {
+    const a = getTabWriterId();
+    const b = getTabWriterId();
+    expect(a).toBe(b);
+    expect(a.length).toBeGreaterThan(0);
+  });
+
+  it('saveNow stamps the writer id for the active slot', () => {
+    const meta = mintSlot(makeBlob(0), 'writer test');
+    setActiveSlot(meta.id);
+    saveNow(makeBlob(2));
+    expect(readSlotBlobWriterId(meta.id)).toBe(getTabWriterId());
+    expect(isOwnTabSlotBlobWrite(meta.id)).toBe(true);
+  });
+
+  it('deleteSlot clears the writer stamp', () => {
+    const meta = mintSlot(makeBlob(0), 'writer cleanup');
+    setActiveSlot(meta.id);
+    saveNow(makeBlob(3));
+    expect(readSlotBlobWriterId(meta.id)).not.toBeNull();
+    deleteSlot(meta.id);
+    expect(readSlotBlobWriterId(meta.id)).toBeNull();
+  });
+
+  it('autosaveBlobsEqual ignores SaveFile createdAt wrapper', () => {
+    const blob = makeBlob(4);
+    const raw = JSON.stringify({
+      version: 4,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      ...blob,
+    });
+    const parsed = parseSlotBlobRaw(raw);
+    expect(parsed).not.toBeNull();
+    expect(autosaveBlobsEqual(blob, parsed!)).toBe(true);
+  });
+
+  it('isHarmlessCrossTabSlotBlobWrite is true for identical payloads', () => {
+    const blob = makeBlob(9);
+    const raw = JSON.stringify({
+      version: 4,
+      createdAt: '2026-07-12T00:00:00.000Z',
+      ...blob,
+    });
+    expect(isHarmlessCrossTabSlotBlobWrite(blob, raw)).toBe(true);
+  });
+
+  it('isHarmlessCrossTabSlotBlobWrite is false when comparisons differ', () => {
+    const memory = makeBlob(3);
+    const disk = makeBlob(4);
+    const raw = JSON.stringify({
+      version: 4,
+      createdAt: '2026-07-12T00:00:00.000Z',
+      ...disk,
+    });
+    expect(isHarmlessCrossTabSlotBlobWrite(memory, raw)).toBe(false);
   });
 });

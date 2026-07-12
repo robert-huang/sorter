@@ -21,7 +21,6 @@ import {
 import {
   hideItem as mergeHideItem,
   initSort as mergeInitSort,
-  manualInsert,
   pickLeft,
   pickRight,
   restoreHiddenItem,
