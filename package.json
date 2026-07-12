@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "start": "npm run build && npx --yes serve dist -p 3000 --config serve.json",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:live-anilist": "ANILIST_LIVE=1 vitest run src/lib/importers/anilist/__tests__/batchGraphQueries.live.test.ts"
   },
   "dependencies": {
     "@sqlite.org/sqlite-wasm": "^3.53.0-build1",
