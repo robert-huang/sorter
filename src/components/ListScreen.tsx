@@ -330,8 +330,6 @@ interface Props {
   onAppendPreRanked: (items: Item[]) => void;
   /** Results tab — multiple saved slots in one state update. */
   onAddSlotImports: (batches: SlotResultsImportBatch[]) => void;
-  /** Merge-only: queue a to-be-inserted id for binary-insertion. */
-  onManualInsert: (id: string) => void;
   /** Merge-only: drop a to-be-inserted id permanently. */
   onForget: (id: string) => void;
   /**
@@ -983,7 +981,6 @@ function MergeListView({
   onAddItems,
   onAppendPreRanked,
   onAddSlotImports,
-  onManualInsert,
   onEditItem,
   onReturnToPending,
   onReorderInsertTarget,
@@ -1125,10 +1122,9 @@ function MergeListView({
               marginTop: 0,
             }}
           >
-            These items were removed mid-merge and have not been re-inserted
-            into the ranking yet. Click <strong>↻ Insert</strong> to
-            binary-search them into a queue sublist, or{' '}
-            <strong>× Remove</strong> to move them back to Hidden items.
+            These items are queued for binary insertion into the ranking.
+            Use <strong>× Remove</strong> to move them back to Hidden
+            items.
           </p>
           {state.toBeInserted.map((id) => {
             const item = state.items[id];
@@ -1160,23 +1156,14 @@ function MergeListView({
                     variant="row"
                     onEdit={openEdit}
                     trailing={
-                      <>
-                        <LabeledIconButton
-                          glyph="↻"
-                          label="Insert"
-                          onClick={() => onManualInsert(id)}
-                          disabled={queued || inserting}
-                          title="Binary-search this item back into the ranking"
-                        />
-                        <button
-                          className="icon-btn danger"
-                          onClick={() => onHide(id)}
-                          title="Remove — move to Hidden items"
-                          aria-label={`Remove ${item.label}`}
-                        >
-                          <RemoveGlyph />
-                        </button>
-                      </>
+                      <button
+                        className="icon-btn danger"
+                        onClick={() => onHide(id)}
+                        title="Remove — move to Hidden items"
+                        aria-label={`Remove ${item.label}`}
+                      >
+                        <RemoveGlyph />
+                      </button>
                     }
                   />
                 </span>

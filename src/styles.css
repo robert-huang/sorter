@@ -4708,14 +4708,19 @@ html {
 }
 
 .result-bottom {
-  margin-top: 24px;
+  margin-top: 0;
   display: flex;
   justify-content: center;
   gap: 8px;
 }
 
-.result-hidden-section {
-  padding-top: 8px;
+.page-section.result-ranking-panel,
+.page-section.result-hidden-section {
+  margin-bottom: 12px;
+}
+
+.result-hidden-list {
+  margin-top: 8px;
 }
 
 .result-hidden-toggle {

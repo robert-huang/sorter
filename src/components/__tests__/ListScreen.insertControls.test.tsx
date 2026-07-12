@@ -62,7 +62,6 @@ function makeProps(
     onAddItems: vi.fn(),
     onAppendPreRanked: vi.fn(),
     onAddSlotImports: vi.fn(),
-    onManualInsert: vi.fn(),
     onForget: vi.fn(),
     onReorderInSorted: vi.fn(),
     onReturnToPending: vi.fn(),

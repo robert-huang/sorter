@@ -24,6 +24,7 @@ import {
   manualInsert,
   pickLeft,
   pickRight,
+  restoreHiddenItem,
   seedAsDoneMerge,
   seedFromSublists,
   type MergeOptions,
@@ -623,7 +624,7 @@ describe('updateItemId', () => {
     // currentManualInsert. The setup follows queueMergeSort's own
     // "drainManualInserts installs the frame immediately when no
     // merge is running" test: hide X mid-merge → X exiled to
-    // toBeInserted → done → manualInsert(s, 'x') installs the frame.
+    // toBeInserted → done → restoreHiddenItem(s, 'x') installs the frame.
     const X: Item = { id: 'x', label: 'X' };
     let s: MergeState = initSort([A, B, X]);
     s = mergeHideItem(s, 'x') as MergeState;
@@ -633,8 +634,8 @@ describe('updateItemId', () => {
       if (!p) break;
       s = (p.leftId <= p.rightId ? pickLeft(s) : pickRight(s)) as MergeState;
     }
-    expect(s.toBeInserted).toEqual(['x']);
-    s = manualInsert(s, 'x') as MergeState;
+    expect(s.hidden).toContain('x');
+    s = restoreHiddenItem(s, 'x') as MergeState;
     expect(s.currentManualInsert?.insertingId).toBe('x');
     expect(s.currentManualInsert?.frame.insertingId).toBe('x');
 

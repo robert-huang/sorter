@@ -37,7 +37,6 @@ import {
   cancelManualInsert,
   forgetItem,
   initSort,
-  manualInsert,
   reorderInSublist,
   reorderInCurrentMerge,
   reorderInsertTarget,
@@ -1034,18 +1033,6 @@ export function App() {
       }
     },
     [flashSkipped],
-  );
-
-  // ---- manual insert (merge-only) ----
-  const doManualInsert = useCallback(
-    (id: ItemId) => {
-      setState((cur) => {
-        if (!cur || cur.engine !== 'merge') return cur;
-        pushUndo(cur);
-        return manualInsert(cur, id, engineOptions);
-      });
-    },
-    [pushUndo, engineOptions],
   );
 
   const doForget = useCallback(
@@ -2531,7 +2518,6 @@ export function App() {
         onAddItems={doAddItemsList}
         onAddSlotImports={doAddSlotImports}
         onAppendPreRanked={doAppendPreRanked}
-        onManualInsert={doManualInsert}
         onForget={doForget}
         onReorderInSorted={doReorderInSorted}
         onReturnToPending={doReturnToPending}

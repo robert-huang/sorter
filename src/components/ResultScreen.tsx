@@ -144,7 +144,7 @@ export function ResultScreen({
 
   return (
     <div className="page">
-      <div className="page-section">
+      <div className="page-section result-ranking-panel">
         <div className="result-header">
           <h2>Final ranking</h2>
           <div className="result-export">
@@ -207,7 +207,7 @@ export function ResultScreen({
             {hiddenIds.length === 1 ? '' : 's'} removed during sorting
           </button>
           {showHidden && (
-            <ul className="result-list" style={{ marginTop: 8 }}>
+            <ul className="result-list result-hidden-list">
               {hiddenIds.map((id) => {
                 const item = state.items[id];
                 const label = item?.label ?? formatOrphanHiddenId(id);

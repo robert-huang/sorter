@@ -587,10 +587,8 @@ function advance(
  * side's visible ids become `pendingInserts` (preserving their input order
  * — which is also the rank order from the pre-ranked seed if any — for
  * rank-aware bound tightening in `drainAutoInsert`). The larger side's
- * visible ids become `target`. Hidden ids from BOTH sides go straight
- * to `toBeInserted` (same exile rule as merge close), since auto-insert
- * doesn't probe hidden ids — keeping them inside the frame would have
- * no useful effect.
+ * visible ids become `target`. Hidden ids stay in `hidden[]` only (same
+ * exile rule as merge close) — auto-insert doesn't probe them.
  */
 function installAutoInsert(
   progress: MergeProgress,
@@ -606,16 +604,12 @@ function installAutoInsert(
     : [right, left];
   const target: ItemId[] = [];
   const pendingInserts: ItemId[] = [];
-  const exiled: ItemId[] = [];
   for (const id of largerRaw) {
-    if (hidden.has(id)) exiled.push(id);
-    else target.push(id);
+    if (!hidden.has(id)) target.push(id);
   }
   for (const id of smallerRaw) {
-    if (hidden.has(id)) exiled.push(id);
-    else pendingInserts.push(id);
+    if (!hidden.has(id)) pendingInserts.push(id);
   }
-  if (exiled.length > 0) progress.toBeInserted.push(...exiled);
   const sourceSublist = pendingInserts.slice();
   progress.currentAutoInsert = {
     target,
@@ -629,8 +623,9 @@ function installAutoInsert(
 }
 
 /**
- * Push a closed-sublist's visible portion onto the queue, exile its
- * hidden portion into `toBeInserted`. Shared helper used by both `advance`
+ * Push a closed-sublist's visible portion onto the queue. Hidden ids stay
+ * in `hidden[]` only — they are not positioned in the closed sublist and
+ * are not auto-queued for insertion. Shared helper used by both `advance`
  * (degenerate-frame collapse) and `flushIfMergeComplete` (normal close).
  */
 function exileAndPush(
@@ -639,25 +634,20 @@ function exileAndPush(
   hidden: ReadonlySet<ItemId>,
 ): void {
   const visible: ItemId[] = [];
-  const exiled: ItemId[] = [];
   for (const id of all) {
-    if (hidden.has(id)) exiled.push(id);
-    else visible.push(id);
+    if (!hidden.has(id)) visible.push(id);
   }
   if (visible.length > 0) progress.queue.push(visible);
-  if (exiled.length > 0) progress.toBeInserted.push(...exiled);
 }
 
 /**
  * Internal: after a pick, if one side of `current` has no more visible
  * candidates, close the merge.
  *
- * Exile rule: items that are currently hidden when the merge closes are
- * moved into `toBeInserted` rather than ride along inside the closed
- * sublist. This avoids silently positioning a hidden item at an
- * arbitrary slot (`{leftover concat}` tail position) — the user
- * inserting them later can use binary insertion to put them where
- * they belong.
+ * Exile rule: items that are currently hidden when the merge closes stay
+ * in `hidden[]` only — they do not ride along inside the closed sublist
+ * (which would land them at an arbitrary tail slot). The user can
+ * restore them later via `restoreHiddenItem` / `reinsertHiddenItem`.
  *
  * After closing, drain any queued manual inserts before advancing to the
  * next merge — see drainManualInserts / §5c.
@@ -672,8 +662,7 @@ function flushIfMergeComplete(
   const leftVisible = countVisible(left, hidden);
   const rightVisible = countVisible(right, hidden);
   if (leftVisible > 0 && rightVisible > 0) return;
-  // Visible portion → back of queue; hidden portion → toBeInserted bucket.
-  // (The exile rule, plan §5b: don't silently position hidden ids.)
+  // Visible portion → back of queue; hidden ids stay in `hidden[]`.
   exileAndPush(progress, merged.concat(left, right), hidden);
   progress.current = null;
   drainManualInserts(progress, hidden);
@@ -1202,10 +1191,7 @@ function drainAutoInsert(
   }
   if (ai.frame === null && ai.pendingInserts.length === 0) {
     // All items landed — push the grown target back to the queue.
-    // Any ids hidden mid-auto-insert (probe-skipped target items) are
-    // exiled to `toBeInserted` rather than riding along into the merged
-    // sublist, mirroring the merge-close exile rule. Otherwise hidden
-    // items would land at arbitrary positions in the closed sublist.
+    // Hidden target probes stay in `hidden[]` only (merge-close exile rule).
     exileAndPush(progress, ai.target, hidden);
     progress.currentAutoInsert = null;
     advance(progress, hidden, opts);
@@ -1230,7 +1216,7 @@ export function pickRight(
 /**
  * Hide an item (remove from contention). Reversible via undo. If hiding
  * empties one side of the current merge, the merge auto-closes — and
- * the hidden item(s) get exiled into `toBeInserted` (see exile rule above).
+ * hidden item(s) stay in `hidden[]` when the merge closes (exile rule).
  *
  * Hiding the currently-inserting manual-insert item cancels its frame
  * and removes the id from `toBeInserted` (hiding signals "I don't want it
@@ -1494,24 +1480,25 @@ export function reinsertHiddenItem(
   if (!state.hidden.includes(id)) return state;
   if (!state.items[id]) return dismissHidden(state, id);
 
-  const unhidden = unhideItem(state, id);
-
-  const ai = unhidden.currentAutoInsert;
+  const ai = state.currentAutoInsert;
   if (ai?.target.includes(id) && ai.frame?.insertingId !== id) {
-    return reinsertFromAutoInsertTarget(unhidden, id, options);
+    return reinsertFromAutoInsertTarget(unhideItem(state, id), id, options);
   }
 
-  const inQueue = unhidden.queue.some((sub) => sub.includes(id));
-  if (inQueue || unhidden.toBeInserted.includes(id)) {
-    return returnToPending(unhidden, id, options);
+  const inQueue = state.queue.some((sub) => sub.includes(id));
+  if (inQueue || state.toBeInserted.includes(id)) {
+    return returnToPending(unhideItem(state, id), id, options);
   }
 
-  return restoreHiddenItem(unhidden, id, options);
+  // Hidden from `toBeInserted` (hide strips both buckets). `restoreHiddenItem`
+  // must see the id still in `hidden` — unhiding first makes it a no-op.
+  return restoreHiddenItem(state, id, options);
 }
 
 /**
  * Restore a hidden merge item that is not in any queue sublist or
- * `toBeInserted`. When metadata exists, queues it for manual insert.
+ * `toBeInserted`. When metadata exists, appends it to the back of
+ * `toBeInserted` and queues it for binary insertion.
  */
 export function restoreHiddenItem(
   state: MergeState,
@@ -1532,7 +1519,7 @@ export function restoreHiddenItem(
     return { ...next, items: state.items };
   }
   if (state.toBeInserted.includes(id)) {
-    return unhideItem(state, id);
+    return manualInsert(unhideItem(state, id), id, options);
   }
 
   const next = snapshotProgress(state);
@@ -1799,9 +1786,7 @@ export function forgetItem(
   options?: MergeOptions,
 ): MergeState {
   if (!state.toBeInserted.includes(id)) return state;
-  // Symmetric with forgetHiddenItem, which already clears toBeInserted
-  // when the id is still in the ranking. Hidden exile items land in both
-  // buckets until the user Forget-dismisses from either panel.
+  // Symmetric with forgetHiddenItem when the id is also hidden.
   if (state.hidden.includes(id)) {
     return forgetHiddenItem(state, id, options);
   }

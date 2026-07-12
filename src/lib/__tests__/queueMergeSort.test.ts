@@ -694,9 +694,8 @@ describe('snapshot/restore round-trip', () => {
 });
 
 // ============================================================================
-// Exile on merge close (new) — when a merge closes with items hidden, the
-// hidden ids land in `state.toBeInserted` instead of riding along inside the
-// closed sublist. See plan §5b.
+// Exile on merge close (plan §5b) — when a merge closes with items hidden,
+// those ids stay in `hidden[]` only; they are not placed in the closed sublist.
 // ============================================================================
 
 /**
@@ -734,7 +733,7 @@ function runUntil(
 }
 
 describe('exile on merge close (plan §5b)', () => {
-  it('hidden mid-merge ids land in `toBeInserted`, not in the closed sublist', () => {
+  it('hidden mid-merge ids stay in `hidden[]`, not in the closed sublist', () => {
     // Construct the chat-time example via seedFromSublists so we have
     // a deterministic initial merge of [A,B,C,D,E] vs [F,G,H].
     const F: Item = { id: 'f', label: 'F' };
@@ -756,10 +755,11 @@ describe('exile on merge close (plan §5b)', () => {
     // Drive: ABC over F, F over D (so F goes in merged after a/b/c),
     // D, E land. Order in `merged` ends up [a,b,c,f,d,e]; right side
     // tail is [h] (g is hidden). Closing: visible = [a,b,c,f,d,e,h],
-    // exiled = [g] → queue gets [a,b,c,f,d,e,h]; toBeInserted=['g'].
+    // exiled = [g] → queue gets [a,b,c,f,d,e,h]; g stays hidden only.
     s = runUntil(s, ['a', 'b', 'c', 'f', 'd', 'e', 'g', 'h']);
     expect(s.done).toBe(true);
-    expect(s.toBeInserted).toEqual(['g']);
+    expect(s.toBeInserted).toEqual([]);
+    expect(s.hidden).toContain('g');
     expect(s.queue).toEqual([['a', 'b', 'c', 'f', 'd', 'e', 'h']]);
   });
 
@@ -784,7 +784,7 @@ describe('exile on merge close (plan §5b)', () => {
     expect(getRanking(s)).toEqual(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']);
   });
 
-  it('undo across exile restores the pre-close snapshot (hidden, toBeInserted empty)', () => {
+  it('undo across exile restores the pre-close snapshot (hidden only)', () => {
     // 5-vs-3 merge so hiding one right-side item doesn't auto-close.
     // Snapshot mid-merge (G hidden, no exile yet), drive to close
     // (exile happens), restore — should be back to mid-merge / no exile.
@@ -804,7 +804,8 @@ describe('exile on merge close (plan §5b)', () => {
     const snap = snapshotProgress(s);
 
     s = runUntil(s, ['a', 'b', 'c', 'f', 'd', 'e', 'g', 'h']);
-    expect(s.toBeInserted).toEqual(['g']);
+    expect(s.toBeInserted).toEqual([]);
+    expect(s.hidden).toContain('g');
     expect(s.done).toBe(true);
 
     const restored = restoreProgress(s, snap);
@@ -814,10 +815,9 @@ describe('exile on merge close (plan §5b)', () => {
     expect(restored.current).not.toBeNull();
   });
 
-  it('done is gated by pending manual inserts (not by toBeInserted)', () => {
+  it('done is valid with hidden exile items (no manual-insert backlog)', () => {
     // After exile, queue has one sublist and current is null; the
-    // sort IS done — toBeInserted does NOT block done. The user chose
-    // (by hiding) to leave those items out.
+    // sort IS done — hidden items do not block completion.
     const F: Item = { id: 'f', label: 'F' };
     const G: Item = { id: 'g', label: 'G' };
     const H: Item = { id: 'h', label: 'H' };
@@ -831,18 +831,18 @@ describe('exile on merge close (plan §5b)', () => {
     let s = hideItem(s0, 'g');
     s = runUntil(s, ['a', 'b', 'c', 'f', 'd', 'e', 'g', 'h']);
     expect(s.done).toBe(true);
-    expect(s.toBeInserted).toEqual(['g']);
+    expect(s.toBeInserted).toEqual([]);
+    expect(s.hidden).toContain('g');
 
-    // But if we click Insert on G, done flips back to false until G
-    // resolves.
-    const sInserting = manualInsert(s, 'g');
+    // Restoring G queues binary insertion and re-opens the sort.
+    const sInserting = restoreHiddenItem(s, 'g');
     expect(sInserting.done).toBe(false);
     expect(sInserting.currentManualInsert?.insertingId).toBe('g');
   });
 });
 
 describe('manualInsert + drainManualInserts (plan §5c)', () => {
-  it('Insert on G after exile binary-searches G into the closed sublist', () => {
+  it('restoreHiddenItem after exile binary-searches G into the closed sublist', () => {
     const F: Item = { id: 'f', label: 'F' };
     const G: Item = { id: 'g', label: 'G' };
     const H: Item = { id: 'h', label: 'H' };
@@ -855,11 +855,10 @@ describe('manualInsert + drainManualInserts (plan §5c)', () => {
     });
     let s = hideItem(s0, 'g');
     s = runUntil(s, ['a', 'b', 'c', 'f', 'd', 'e', 'g', 'h']);
-    expect(s.toBeInserted).toEqual(['g']);
+    expect(s.toBeInserted).toEqual([]);
+    expect(s.hidden).toContain('g');
 
-    // Click Insert on G; manual-insert frame should appear with G against
-    // some probe from the [a,b,c,f,d,e,h] sublist.
-    s = manualInsert(s, 'g');
+    s = restoreHiddenItem(s, 'g');
     expect(s.currentManualInsert).not.toBeNull();
     expect(s.currentManualInsert!.insertingId).toBe('g');
     expect(getPair(s)?.leftId).toBe('g');
@@ -880,7 +879,7 @@ describe('manualInsert + drainManualInserts (plan §5c)', () => {
     expect(gi).toBeLessThan(hi);
   });
 
-  it('Insert mid-merge queues until the merge closes (deferred drain)', () => {
+  it('restoreHiddenItem mid-merge queues until the merge closes (deferred drain)', () => {
     // Set up: merge [A,B,C] vs [D]; hide B; pick to close merge.
     // Force the classic merge path because auto-insert would intercept
     // this shape (K=1, N=3 → binary insert beats the full merge) and
@@ -893,27 +892,33 @@ describe('manualInsert + drainManualInserts (plan §5c)', () => {
       { autoInsertEnabled: false },
     );
     let s = hideItem(s0, 'b', { autoInsertEnabled: false });
+    s = manualInsert(
+      { ...snapshotProgress(s), toBeInserted: ['b'], items: s.items },
+      'b',
+      { autoInsertEnabled: false },
+    );
+    expect(s.pendingManualInserts).toEqual(['b']);
+    expect(s.toBeInserted).toEqual(['b']);
+    expect(s.currentManualInsert).toBeNull();
     // Pick A → A goes to merged. Now left=[B,C] (visibly [C]).
     // Pick C over D → C to merged; left=[]. flushIfMergeComplete →
-    // visible=[A,C,D], exile=[B]. Done.
+    // visible=[A,C,D]. Done; then deferred drain inserts B.
     s = runUntil(s, ['a', 'c', 'b', 'd'], { autoInsertEnabled: false });
     expect(s.done).toBe(true);
-    expect(s.toBeInserted).toEqual(['b']);
-    expect(s.queue).toEqual([['a', 'c', 'd']]);
+    expect(s.toBeInserted).toEqual([]);
+    expect(s.queue[0]).toContain('b');
   });
 
   it('drainManualInserts installs the manual-insert frame immediately when no merge is running', () => {
-    // s.done with toBeInserted=['x']; insert X → frame installed at once.
     const X: Item = { id: 'x', label: 'X' };
     const s0 = initSort([A, B, X]);
-    // Hide X mid-merge, then drive to close. X gets exiled.
     let s = hideItem(s0, 'x');
     s = runUntil(s, ['a', 'b', 'x']);
     expect(s.done).toBe(true);
-    expect(s.toBeInserted).toEqual(['x']);
+    expect(s.hidden).toContain('x');
     expect(s.currentManualInsert).toBeNull();
 
-    s = manualInsert(s, 'x');
+    s = restoreHiddenItem(s, 'x');
     expect(s.currentManualInsert).not.toBeNull();
     expect(s.currentManualInsert!.insertingId).toBe('x');
   });
@@ -931,7 +936,9 @@ describe('manualInsert + drainManualInserts (plan §5c)', () => {
     });
     let s = hideItem(s0, 'g');
     s = runUntil(s, ['a', 'b', 'c', 'f', 'd', 'e', 'g', 'h']);
-    expect(s.toBeInserted).toEqual(['g']);
+    expect(s.hidden).toContain('g');
+    s = restoreHiddenItem(s, 'g');
+    expect(s.toBeInserted).toContain('g');
     s = forgetItem(s, 'g');
     expect(s.toBeInserted).toEqual([]);
     expect(s.hidden).toEqual([]);
@@ -951,8 +958,9 @@ describe('manualInsert + drainManualInserts (plan §5c)', () => {
     });
     let s = hideItem(s0, 'g');
     s = runUntil(s, ['a', 'b', 'c', 'f', 'd', 'e', 'g', 'h']);
-    expect(s.hidden).toContain('g');
-    expect(s.toBeInserted).toContain('g');
+    s = restoreHiddenItem(s, 'g');
+    // Legacy sessions could hold the same id in both buckets.
+    s = { ...s, hidden: [...s.hidden, 'g'] };
 
     s = forgetItem(s, 'g');
 
@@ -974,7 +982,7 @@ describe('manualInsert + drainManualInserts (plan §5c)', () => {
     });
     let s = hideItem(s0, 'g');
     s = runUntil(s, ['a', 'b', 'c', 'f', 'd', 'e', 'g', 'h']);
-    s = manualInsert(s, 'g');
+    s = restoreHiddenItem(s, 'g');
     expect(s.currentManualInsert?.insertingId).toBe('g');
     s = cancelManualInsert(s);
     expect(s.currentManualInsert).toBeNull();
@@ -1133,9 +1141,8 @@ describe('drainAutoInsert rank-aware bound tightening', () => {
 
   it('exiles hidden target ids when the auto-insert closes', () => {
     // 1-into-5, hide one of the target ids mid-auto-insert. The
-    // probe-skip path keeps the auto-insert running; the exile rule
-    // applies at close time so the hidden id ends up in `toBeInserted`
-    // instead of riding along in the closed sublist at a stale slot.
+    // probe-skip path keeps the auto-insert running; hidden ids stay in
+    // `hidden[]` at close time rather than riding along in the closed sublist.
     const F: Item = { id: 'f', label: 'F' };
     const seed = seedFromSublists({
       sublists: [[A, B, C, D, E], [F]],
@@ -1146,9 +1153,9 @@ describe('drainAutoInsert rank-aware bound tightening', () => {
     // Drive: oracle says F should land between B and C.
     s = runUntil(s, ['a', 'b', 'f', 'c', 'e']);
     expect(s.done).toBe(true);
-    // D should be exiled to toBeInserted (the exile rule on merge close
-    // applies equally to auto-insert close).
-    expect(s.toBeInserted).toContain('d');
+    // D stays in hidden[] (exile rule on auto-insert close).
+    expect(s.toBeInserted).toEqual([]);
+    expect(s.hidden).toContain('d');
     // D should NOT be in the final queue.
     expect(s.queue[0]).not.toContain('d');
   });
@@ -1445,8 +1452,7 @@ describe('getPeekRightIds (merge engine)', () => {
         : pickRight(s, { autoInsertEnabled: false });
     }
     expect(s.done).toBe(true);
-    expect(s.toBeInserted).toContain('g');
-    s = manualInsert(s, 'g');
+    s = restoreHiddenItem(s, 'g');
     expect(s.currentManualInsert).not.toBeNull();
     expect(s.currentManualInsert!.insertingId).toBe('g');
     // The peek is the visible (probe, hi] window inside the target
@@ -1559,7 +1565,7 @@ describe('getPeekLeftIds (merge engine, merge-mode-only)', () => {
         ? pickLeft(s, { autoInsertEnabled: false })
         : pickRight(s, { autoInsertEnabled: false });
     }
-    s = manualInsert(s, 'g');
+    s = restoreHiddenItem(s, 'g');
     expect(s.currentManualInsert).not.toBeNull();
     expect(getPeekLeftIds(s)).toEqual([]);
   });
@@ -1677,7 +1683,7 @@ describe('reorderInsertTarget (cancel-and-restart)', () => {
     });
     s = hideItem(s, 'g');
     s = runUntil(s, ['a', 'b', 'c', 'f', 'd', 'e', 'g', 'h']);
-    s = manualInsert(s, 'g');
+    s = restoreHiddenItem(s, 'g');
     const qi = s.currentManualInsert!.targetQueueIndex;
     const targetLen = s.queue[qi].length;
     // Narrow, then swap the two live window endpoints — this touches [lo,hi]
@@ -1707,7 +1713,7 @@ describe('reorderInsertTarget (cancel-and-restart)', () => {
     });
     s = hideItem(s, 'g');
     s = runUntil(s, ['a', 'b', 'c', 'f', 'd', 'e', 'g', 'h']);
-    s = manualInsert(s, 'g');
+    s = restoreHiddenItem(s, 'g');
     s = pickRight(s);
     const before = { ...s.currentManualInsert!.frame };
     expect(before.lo).toBeGreaterThan(1);
@@ -1940,6 +1946,40 @@ describe('reconcileInFlightInsertFrames', () => {
 });
 
 describe('returnToPending during active manual insert', () => {
+  it('reinsert re-queues a hidden toBeInserted orphan at the back', () => {
+    const ONK: Item = { id: 'onk', label: 'OnK' };
+    const CSM: Item = { id: 'csm', label: 'CSM' };
+    const base = runUntil(
+      seedFromSublists({ sublists: [[A, B, C, D, E]], extras: [] }),
+      ['a', 'b', 'c', 'd', 'e'],
+    );
+    const targetLen = base.queue[0].length;
+    const hidden: MergeState = {
+      ...base,
+      items: { ...base.items, onk: ONK, csm: CSM },
+      done: false,
+      hidden: ['onk'],
+      toBeInserted: ['csm'],
+      pendingManualInserts: [],
+      currentManualInsert: {
+        insertingId: 'csm',
+        targetQueueIndex: 0,
+        frame: {
+          insertingId: 'csm',
+          lo: 0,
+          hi: targetLen,
+          probe: Math.floor(targetLen / 2),
+        },
+      },
+    };
+
+    const reinserted = reinsertHiddenItem(hidden, 'onk');
+    expect(reinserted.hidden).not.toContain('onk');
+    expect(reinserted.toBeInserted).toEqual(['csm', 'onk']);
+    expect(reinserted.pendingManualInserts).toEqual(['onk']);
+    expect(reinserted.currentManualInsert?.insertingId).toBe('csm');
+  });
+
   it('restarts the frame when a probe is pulled from the live target', () => {
     const F: Item = { id: 'f', label: 'F' };
     const G: Item = { id: 'g', label: 'G' };
@@ -1950,7 +1990,7 @@ describe('returnToPending during active manual insert', () => {
     });
     s = hideItem(s, 'g');
     s = runUntil(s, ['a', 'b', 'c', 'f', 'd', 'e', 'g', 'h']);
-    s = manualInsert(s, 'g');
+    s = restoreHiddenItem(s, 'g');
     const before = s.currentManualInsert!.frame;
 
     const hidden = hideItem(s, 'd');
