@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   formatOrphanHiddenId,
+  insertContextBoundTag,
   getInsertContext,
   groupInsertionPending,
   hiddenIdsNotInRanking,
@@ -58,6 +59,10 @@ describe('getInsertContext', () => {
       queueSublistCount: 2,
       insertingId: 'p1',
       probeId: 't2',
+      windowLo: 0,
+      windowHi: 2,
+      loTagId: 't1',
+      hiTagId: 't3',
     });
   });
 
@@ -84,6 +89,10 @@ describe('getInsertContext', () => {
       remainingIds: ['x', 'y', 'z'],
       insertingId: 'x',
       probeId: 'q1',
+      windowLo: 0,
+      windowHi: 2,
+      loTagId: 'q1',
+      hiTagId: 'q3',
     });
   });
 
@@ -110,6 +119,10 @@ describe('getInsertContext', () => {
       remainingIds: ['p1', 'p2'],
       insertingId: 'p1',
       probeId: 's1',
+      windowLo: 0,
+      windowHi: 1,
+      loTagId: 's1',
+      hiTagId: 's2',
     });
   });
 
@@ -123,12 +136,78 @@ describe('getInsertContext', () => {
       ),
     ).toBeNull();
   });
+
+  it('skips hidden endpoints when deriving lo/hi tag ids', () => {
+    const ctx = getInsertContext(
+      mergeState({
+        queue: [['q1', 'q2', 'q3', 'q4']],
+        hidden: ['q1', 'q4'],
+        currentManualInsert: {
+          insertingId: 'x',
+          targetQueueIndex: 0,
+          frame: {
+            insertingId: 'x',
+            lo: 0,
+            hi: 3,
+            probe: 2,
+          },
+        },
+      }),
+    );
+    expect(ctx?.windowLo).toBe(0);
+    expect(ctx?.windowHi).toBe(3);
+    expect(ctx?.loTagId).toBe('q2');
+    expect(ctx?.hiTagId).toBe('q3');
+    expect(ctx?.probeId).toBe('q3');
+  });
 });
 
 describe('mergeSliceLabel', () => {
   it('appends the count in parentheses', () => {
     expect(mergeSliceLabel('Merged so far', 1)).toBe('Merged so far (1)');
     expect(mergeSliceLabel('Left remaining', 4)).toBe('Left remaining (4)');
+  });
+});
+
+describe('insertContextBoundTag', () => {
+  const base = {
+    loTagId: 'a' as const,
+    hiTagId: 'c' as const,
+    probeId: 'b' as const,
+  };
+
+  it('combines lo and probe on the same row', () => {
+    expect(
+      insertContextBoundTag(
+        { loTagId: 'kaguya', hiTagId: 'awajima', probeId: 'kaguya' },
+        'kaguya',
+      ),
+    ).toBe('lo · probe');
+  });
+
+  it('returns single labels when roles do not overlap', () => {
+    expect(insertContextBoundTag(base, 'a')).toBe('lo');
+    expect(insertContextBoundTag(base, 'b')).toBe('probe');
+    expect(insertContextBoundTag(base, 'c')).toBe('hi');
+    expect(insertContextBoundTag(base, 'x')).toBeNull();
+  });
+
+  it('combines probe and hi on the same row', () => {
+    expect(
+      insertContextBoundTag(
+        { loTagId: 'a', hiTagId: 'b', probeId: 'b' },
+        'b',
+      ),
+    ).toBe('probe · hi');
+  });
+
+  it('combines all three when lo, hi, and probe coincide', () => {
+    expect(
+      insertContextBoundTag(
+        { loTagId: 'x', hiTagId: 'x', probeId: 'x' },
+        'x',
+      ),
+    ).toBe('lo · probe · hi');
   });
 });
 
@@ -142,6 +221,10 @@ describe('insertContextInsertingLabel', () => {
           remainingIds: ['a', 'b', 'c'],
           insertingId: 'a',
           probeId: 'x',
+          windowLo: 0,
+          windowHi: 0,
+          loTagId: null,
+          hiTagId: null,
         },
         3,
       ),
@@ -154,6 +237,10 @@ describe('insertContextInsertingLabel', () => {
           remainingIds: ['x', 'y'],
           insertingId: 'x',
           probeId: 'q',
+          windowLo: 0,
+          windowHi: 0,
+          loTagId: null,
+          hiTagId: null,
         },
         2,
       ),
@@ -171,6 +258,10 @@ describe('insertContextInsertingLabel', () => {
           queueSublistCount: 2,
           insertingId: 'p1',
           probeId: 't',
+          windowLo: 0,
+          windowHi: 0,
+          loTagId: null,
+          hiTagId: null,
         },
         2,
       ),
@@ -185,6 +276,10 @@ describe('insertContextInsertingLabel', () => {
           queueSublistCount: 1,
           insertingId: 'p2',
           probeId: 't',
+          windowLo: 0,
+          windowHi: 0,
+          loTagId: null,
+          hiTagId: null,
         },
         1,
       ),

@@ -140,6 +140,27 @@ export function skipHiddenInsertProbes(
 }
 
 /**
+ * First/last visible ids within `[frame.lo, frame.hi]` for LO/HI UI tags.
+ * Hidden endpoints are skipped inward; returns nulls when the window has no
+ * visible rows.
+ */
+export function visibleInsertWindowEndpoints(
+  frame: InsertFrame,
+  sorted: ReadonlyArray<ItemId>,
+  hidden: ReadonlySet<ItemId>,
+): { loId: ItemId | null; hiId: ItemId | null } {
+  let lo = frame.lo;
+  let hi = Math.min(frame.hi, sorted.length - 1);
+  if (lo > hi || lo >= sorted.length) {
+    return { loId: null, hiId: null };
+  }
+  while (lo <= hi && hidden.has(sorted[lo])) lo++;
+  while (hi >= lo && hidden.has(sorted[hi])) hi--;
+  if (lo > hi) return { loId: null, hiId: null };
+  return { loId: sorted[lo], hiId: sorted[hi] };
+}
+
+/**
  * Whether swapping absolute indices `a` and `b` in the target array would
  * disturb an active insert frame's decision.
  *

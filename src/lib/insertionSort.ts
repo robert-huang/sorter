@@ -733,6 +733,8 @@ export function hideItem(
         next.activeRunAnchor = skipped.position;
         next.current = null;
         drainPending(next);
+      } else {
+        next.current = skipped;
       }
     }
   }

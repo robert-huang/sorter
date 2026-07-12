@@ -61,7 +61,7 @@ function assertAliasHasConnection(
 async function runBatchQuery(
   label: string,
   query: string,
-  variables: Record<string, number>,
+  variables: Record<string, unknown>,
   assert: (data: Record<string, unknown> | null) => void,
 ): Promise<void> {
   const data = await executeAnilistQuery<Record<string, unknown>>(query, variables);

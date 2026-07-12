@@ -22,6 +22,7 @@ import {
   autoInsertSourceRowState,
   getInsertContext,
   groupInsertionPending,
+  insertContextBoundTag,
   insertContextInsertingLabel,
   insertionSortFromSublists,
   listHeaderItemCount,
@@ -644,13 +645,17 @@ function InsertContextSection({
                 const item = state.items[id];
                 if (!item) return null;
                 const isProbe = id === ctx.probeId;
+                const boundTag = insertContextBoundTag(ctx, id);
+                const inWindow =
+                  row.absoluteIndex >= ctx.windowLo &&
+                  row.absoluteIndex <= ctx.windowHi;
                 const prevRow = targetRows[ii - 1];
                 const nextRow = targetRows[ii + 1];
                 return (
                   <div
                     key={id}
                     ref={isProbe ? probeRowRef : undefined}
-                    className={`queue-item-row list-merge-context-row${isProbe ? ' list-merge-context-active' : ''}`}
+                    className={`queue-item-row list-merge-context-row${inWindow ? ' list-merge-context-in-window' : ' list-merge-context-out-of-window'}${isProbe ? ' list-merge-context-active' : ''}`}
                   >
                     <span className="rank">{ii + 1}.</span>
                     <Thumb item={item} />
@@ -658,8 +663,8 @@ function InsertContextSection({
                       {item.label}
                     </span>
                     <span className="actions">
-                      {isProbe && (
-                        <span className="list-merge-context-tag">probe</span>
+                      {boundTag && (
+                        <span className="list-merge-context-tag">{boundTag}</span>
                       )}
                       <span className="row-action-glyphs">
                         <ItemRowActions

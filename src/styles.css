@@ -13,6 +13,7 @@
   --accent: #3b5bff;
   --accent-hover: #2a48e6;
   --accent-soft: #e6ecff;
+  --insert-window-bg: color-mix(in srgb, var(--accent-soft) 42%, var(--surface));
   --danger: #c93636;
   --danger-soft: #fde8e8;
   --warn-bg: #fff7d6;
@@ -63,6 +64,7 @@
   --accent: #6b8aff;
   --accent-hover: #8ea4ff;
   --accent-soft: #1a2156;
+  --insert-window-bg: color-mix(in srgb, var(--accent) 9%, var(--surface));
   --danger: #ff7a7a;
   --danger-soft: #4a1f1f;
   --warn-bg: #4a4017;
@@ -4266,10 +4268,23 @@ html {
   flex-shrink: 0;
 }
 
+.list-merge-context-row.list-merge-context-in-window {
+  background: var(--insert-window-bg);
+  border-radius: var(--radius-sm);
+}
+
+.list-merge-context-row.list-merge-context-out-of-window .label-cell {
+  color: var(--text-muted);
+}
+
 .list-merge-context-row.list-merge-context-active {
   background: var(--surface);
   border-radius: var(--radius-sm);
   outline: 1px solid var(--accent);
+}
+
+.list-merge-context-row.list-merge-context-active .label-cell {
+  color: var(--text);
 }
 
 .list-merge-context-row.list-merge-context-queued {

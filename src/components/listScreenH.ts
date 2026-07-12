@@ -1,5 +1,9 @@
 import { getPair } from '../lib/engine';
-import type { InsertionState, ItemId, SortState } from '../lib/types';
+import {
+  skipHiddenInsertProbes,
+  visibleInsertWindowEndpoints,
+} from '../lib/binaryInsertion';
+import type { InsertFrame, InsertionState, ItemId, SortState } from '../lib/types';
 import {
   listHeaderItemCount,
   activeRankingIds,
@@ -127,10 +131,44 @@ export interface InsertContextView {
   remainingIds: ItemId[];
   insertingId: ItemId;
   probeId: ItemId;
+  /** Absolute `[lo, hi]` into `targetIds` after probe-skip (undecided window). */
+  windowLo: number;
+  windowHi: number;
+  /** Visible LO/HI tag targets; null when endpoints are hidden. */
+  loTagId: ItemId | null;
+  hiTagId: ItemId | null;
   /** merge-auto: full smaller sublist in original order (for LIST panel). */
   sourceSublistIds?: ItemId[];
   /** merge-auto: sublist pairs still waiting in the merge queue. */
   queueSublistCount?: number;
+}
+
+function insertContextWindowFields(
+  frame: InsertFrame,
+  targetIds: ItemId[],
+  hidden: ItemId[],
+): Pick<InsertContextView, 'windowLo' | 'windowHi' | 'loTagId' | 'hiTagId'> {
+  const hiddenSet = new Set(hidden);
+  const effective = skipHiddenInsertProbes(frame, targetIds, hiddenSet);
+  if ('done' in effective) {
+    return {
+      windowLo: frame.lo,
+      windowHi: frame.hi,
+      loTagId: null,
+      hiTagId: null,
+    };
+  }
+  const endpoints = visibleInsertWindowEndpoints(
+    effective,
+    targetIds,
+    hiddenSet,
+  );
+  return {
+    windowLo: effective.lo,
+    windowHi: effective.hi,
+    loTagId: endpoints.loId,
+    hiTagId: endpoints.hiId,
+  };
 }
 
 export function getInsertContext(state: SortState): InsertContextView | null {
@@ -155,6 +193,7 @@ export function getInsertContext(state: SortState): InsertContextView | null {
       remainingIds: [pair.leftId, ...state.pendingManualInserts],
       insertingId: pair.leftId,
       probeId: pair.rightId,
+      ...insertContextWindowFields(frame, target, state.hidden),
     };
   }
 
@@ -173,6 +212,7 @@ export function getInsertContext(state: SortState): InsertContextView | null {
       queueSublistCount: state.queue.length,
       insertingId: pair.leftId,
       probeId: pair.rightId,
+      ...insertContextWindowFields(frame, ai.target, state.hidden),
     };
   }
 
@@ -183,13 +223,33 @@ function getInsertionEngineInsertContext(
   state: InsertionState,
   pair: { leftId: ItemId; rightId: ItemId },
 ): InsertContextView {
+  const frame = state.current!;
   return {
     kind: 'insertion',
     targetIds: [...state.sorted],
     remainingIds: [pair.leftId, ...state.pending],
     insertingId: pair.leftId,
     probeId: pair.rightId,
+    ...insertContextWindowFields(frame, state.sorted, state.hidden),
   };
+}
+
+/** Status chip for an insert-context target row (lo / hi / probe combos). */
+export function insertContextBoundTag(
+  ctx: Pick<InsertContextView, 'loTagId' | 'hiTagId' | 'probeId'>,
+  id: ItemId,
+): string | null {
+  const isLo = ctx.loTagId === id;
+  const isHi = ctx.hiTagId === id;
+  const isProbe = ctx.probeId === id;
+  if (isLo && isHi && isProbe) return 'lo · probe · hi';
+  if (isLo && isProbe) return 'lo · probe';
+  if (isHi && isProbe) return 'probe · hi';
+  if (isLo && isHi) return 'lo · hi';
+  if (isProbe) return 'probe';
+  if (isLo) return 'lo';
+  if (isHi) return 'hi';
+  return null;
 }
 
 /** Heading for the right-hand INSERTING panel in {@link InsertContextSection}. */

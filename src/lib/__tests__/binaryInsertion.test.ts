@@ -7,6 +7,7 @@ import {
   skipHiddenInsertProbes,
   startInsert,
   sumLog2InsertCosts,
+  visibleInsertWindowEndpoints,
   worstCaseInsertCost,
   type InsertResult,
 } from '../binaryInsertion';
@@ -153,6 +154,27 @@ describe('skipHiddenInsertProbes', () => {
     expect(isDone(res)).toBe(true);
     if (!isDone(res)) return;
     expect(res.position).toBe(56);
+  });
+});
+
+describe('visibleInsertWindowEndpoints', () => {
+  it('returns first/last visible ids inside [lo, hi]', () => {
+    const frame: InsertFrame = { insertingId: 'x', lo: 1, hi: 4, probe: 2 };
+    const sorted = ['a', 'b', 'c', 'd', 'e'];
+    expect(visibleInsertWindowEndpoints(frame, sorted, new Set())).toEqual({
+      loId: 'b',
+      hiId: 'e',
+    });
+  });
+
+  it('skips hidden endpoints inward', () => {
+    const frame: InsertFrame = { insertingId: 'x', lo: 0, hi: 3, probe: 2 };
+    const sorted = ['a', 'b', 'c', 'd'];
+    const hidden = new Set(['a', 'd']);
+    expect(visibleInsertWindowEndpoints(frame, sorted, hidden)).toEqual({
+      loId: 'b',
+      hiId: 'c',
+    });
   });
 });
 

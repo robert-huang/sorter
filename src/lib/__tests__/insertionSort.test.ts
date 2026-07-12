@@ -358,6 +358,8 @@ describe('hide / unhide', () => {
     const pair = getPair(s1);
     expect(pair?.leftId).toBe('x');
     expect(pair?.rightId).not.toBe('c');
+    expect(s1.current).not.toBeNull();
+    expect(s1.sorted[s1.current!.probe]).toBe(pair?.rightId);
   });
 
   it('unhide clears the hidden bit without re-running comparisons', () => {

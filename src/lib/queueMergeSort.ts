@@ -1319,6 +1319,8 @@ export function hideItem(
       const skipped = skipHiddenInsertProbes(mi.frame, target, hiddenSet);
       if ('done' in skipped) {
         resolveManualInsertAt(next, skipped.position, hiddenSet, opts);
+      } else {
+        mi.frame = skipped;
       }
     }
   } else if (next.currentAutoInsert?.frame) {
@@ -1328,6 +1330,8 @@ export function hideItem(
       const skipped = skipHiddenInsertProbes(frame, ai.target, hiddenSet);
       if ('done' in skipped) {
         resolveAutoInsertAt(next, skipped.position, hiddenSet, opts);
+      } else {
+        ai.frame = skipped;
       }
     }
   }
