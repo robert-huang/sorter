@@ -3,12 +3,39 @@ import {
   applyInsertPick,
   getInsertPair,
   insertComparisonsRemaining,
+  reorderDisturbsInsertFrame,
+  skipHiddenInsertProbes,
   startInsert,
   sumLog2InsertCosts,
   worstCaseInsertCost,
   type InsertResult,
 } from '../binaryInsertion';
 import type { InsertFrame, ItemId } from '../types';
+
+describe('reorderDisturbsInsertFrame', () => {
+  // Active window [lo=3, hi=5]: indices 0-2 rank above, 6+ rank below.
+  const frame: InsertFrame = { insertingId: 'x', lo: 3, hi: 5, probe: 4 };
+
+  it('is safe (false) when both indices sit above the window', () => {
+    expect(reorderDisturbsInsertFrame(frame, 0, 1)).toBe(false);
+    expect(reorderDisturbsInsertFrame(frame, 2, 0)).toBe(false);
+  });
+
+  it('is safe (false) when both indices sit below the window', () => {
+    expect(reorderDisturbsInsertFrame(frame, 6, 7)).toBe(false);
+    expect(reorderDisturbsInsertFrame(frame, 8, 6)).toBe(false);
+  });
+
+  it('disturbs (true) when a swap touches the window or its endpoints', () => {
+    expect(reorderDisturbsInsertFrame(frame, 3, 4)).toBe(true); // inside
+    expect(reorderDisturbsInsertFrame(frame, 2, 3)).toBe(true); // onto lo
+    expect(reorderDisturbsInsertFrame(frame, 5, 6)).toBe(true); // off hi
+  });
+
+  it('disturbs (true) when a swap crosses the window (above ↔ below)', () => {
+    expect(reorderDisturbsInsertFrame(frame, 0, 7)).toBe(true);
+  });
+});
 
 function isDone(
   r: InsertResult,
@@ -33,7 +60,7 @@ function runInsert(
   while (!isDone(res) && safety-- > 0) {
     const probeId = sorted[res.probe];
     prompts += 1;
-    res = applyInsertPick(res, oracle(probeId));
+    res = applyInsertPick(res, oracle(probeId), sorted.length);
   }
   if (!isDone(res)) throw new Error('insert did not terminate');
   return { position: res.position, prompts };
@@ -98,15 +125,34 @@ describe('applyInsertPick', () => {
   it('returns {done, position} when the next pick collapses bounds', () => {
     // lo=2, hi=2, probe=2. Either pick collapses.
     const frame: InsertFrame = { insertingId: 'x', lo: 2, hi: 2, probe: 2 };
-    const left = applyInsertPick(frame, 'inserting');
+    const left = applyInsertPick(frame, 'inserting', 5);
     expect(isDone(left)).toBe(true);
     if (!isDone(left)) return;
     expect(left.position).toBe(2);
 
-    const right = applyInsertPick(frame, 'sorted');
+    const right = applyInsertPick(frame, 'sorted', 5);
     expect(isDone(right)).toBe(true);
     if (!isDone(right)) return;
     expect(right.position).toBe(3);
+  });
+
+  it('returns done when sorted pick pins lo at sorted.length (append)', () => {
+    const frame: InsertFrame = { insertingId: 'x', lo: 4, hi: 5, probe: 5 };
+    const next = applyInsertPick(frame, 'sorted', 6);
+    expect(isDone(next)).toBe(true);
+    if (!isDone(next)) return;
+    expect(next.position).toBe(6);
+  });
+});
+
+describe('skipHiddenInsertProbes', () => {
+  it('resolves a collapsed append frame (probe past tail)', () => {
+    const frame: InsertFrame = { insertingId: 'x', lo: 56, hi: 56, probe: 56 };
+    const sorted = Array.from({ length: 56 }, (_, i) => `id-${i}`);
+    const res = skipHiddenInsertProbes(frame, sorted, new Set());
+    expect(isDone(res)).toBe(true);
+    if (!isDone(res)) return;
+    expect(res.position).toBe(56);
   });
 });
 

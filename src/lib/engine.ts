@@ -519,16 +519,29 @@ export function reinsertHiddenItem(
     }
     return insertion.restoreHiddenItem(state, id);
   }
-  const inRanking =
-    state.queue.some((sub) => sub.includes(id)) ||
-    state.toBeInserted.includes(id);
-  if (inRanking) {
-    return merge.returnToPending(merge.unhideItem(state, id), id, options);
-  }
-  return merge.restoreHiddenItem(state, id, options);
+  return merge.reinsertHiddenItem(state, id, options);
 }
 
 // ---------- completion normalization ----------
+
+/**
+ * Repair stale merge manual-insert buckets and normalize completed sorts
+ * when loading a save. In-progress insertion states pass through except
+ * for merge-engine stale-bucket reconciliation.
+ */
+export function normalizeLoadedState(
+  state: SortState,
+  options?: MergeOptions,
+): SortState {
+  const reconciled =
+    state.engine === 'merge' && !state.done
+      ? merge.reconcileStaleManualInserts(
+          merge.reconcileInFlightInsertFrames(state, options),
+          options,
+        )
+      : state;
+  return finalizeCompletedState(reconciled);
+}
 
 /**
  * Completed sorts use a canonical merge-engine `done` shape so every

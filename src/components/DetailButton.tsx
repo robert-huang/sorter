@@ -39,3 +39,14 @@ export function DetailButton({
     </button>
   );
 }
+
+/** Renders {@link DetailButton} when detail is available; otherwise nothing. */
+export function DetailButtonSlot({
+  item,
+  variant,
+}: {
+  item: Item;
+  variant: DetailButtonVariant;
+}) {
+  return <DetailButton item={item} variant={variant} />;
+}

@@ -6,6 +6,7 @@ import {
   getPair,
   getRanking,
   hideItem,
+  normalizeLoadedState,
   pickLeft as enginePickLeft,
   pickRight as enginePickRight,
   restoreProgress,
@@ -15,6 +16,7 @@ import {
   unhideItem,
   updateItem,
   updateItemId,
+  reinsertHiddenItem,
 } from '../engine';
 import {
   hideItem as mergeHideItem,
@@ -44,6 +46,8 @@ const C: Item = { id: 'c', label: 'C' };
 const X: Item = { id: 'x', label: 'X' };
 const Y: Item = { id: 'y', label: 'Y' };
 const D: Item = { id: 'd', label: 'D' };
+const F: Item = { id: 'f', label: 'F' };
+const E: Item = { id: 'e', label: 'E' };
 
 describe('engine dispatch', () => {
   it('routes getPair / comparisonsRemaining by engine', () => {
@@ -200,6 +204,90 @@ describe('finalizeCompletedState', () => {
       expect(fromSeed.queue).toEqual(fromInsertion.queue);
     }
     expect(getRanking(fromSeed)).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('normalizeLoadedState', () => {
+  it('repairs stale merge buckets on load', () => {
+    const stalled: MergeState = {
+      engine: 'merge',
+      queue: [['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']],
+      current: null,
+      currentManualInsert: null,
+      currentAutoInsert: null,
+      comparisons: 42,
+      done: false,
+      hidden: [],
+      totalComparisonsEverNeeded: 42,
+      toBeInserted: ['g'],
+      pendingManualInserts: ['g'],
+      items: {
+        a: A,
+        b: B,
+        c: C,
+        d: D,
+        e: { id: 'e', label: 'E' },
+        f: { id: 'f', label: 'F' },
+        g: { id: 'g', label: 'G' },
+        h: { id: 'h', label: 'H' },
+      },
+    };
+    expect(getPair(stalled)).toBeNull();
+
+    const loaded = normalizeLoadedState(stalled);
+    expect(loaded.engine).toBe('merge');
+    if (loaded.engine !== 'merge') return;
+    expect(loaded.toBeInserted).toEqual([]);
+    expect(loaded.pendingManualInserts).toEqual([]);
+    expect(loaded.done).toBe(true);
+  });
+
+  it('repairs a collapsed in-flight frame and resumes progress', () => {
+    const stalled: MergeState = {
+      engine: 'merge',
+      queue: [['a', 'b', 'c']],
+      current: null,
+      currentManualInsert: {
+        insertingId: 'x',
+        targetQueueIndex: 0,
+        frame: { insertingId: 'x', lo: 3, hi: 3, probe: 3 },
+      },
+      currentAutoInsert: null,
+      comparisons: 2,
+      done: false,
+      hidden: [],
+      totalComparisonsEverNeeded: 2,
+      toBeInserted: ['x'],
+      pendingManualInserts: [],
+      items: { a: A, b: B, c: C, x: X },
+    };
+    expect(getPair(stalled)).toBeNull();
+
+    const loaded = normalizeLoadedState(stalled);
+    if (loaded.engine !== 'merge') return;
+    expect(loaded.currentManualInsert).toBeNull();
+    expect(loaded.queue[0]).toEqual(['a', 'b', 'c', 'x']);
+    expect(loaded.toBeInserted).not.toContain('x');
+  });
+
+  it('finalizes done insertion blobs after merge reconcile', () => {
+    const ins = seedAsSorted([A, B, C]);
+    const loaded = normalizeLoadedState(ins);
+    expect(loaded.engine).toBe('merge');
+    expect(loaded.done).toBe(true);
+    expect(getRanking(loaded)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('reinsertHiddenItem dispatches to merge reinsert path', () => {
+    const seed = seedFromSublists({ sublists: [[A, B, C, D, E], [F]], extras: [] });
+    expect(seed.currentAutoInsert).not.toBeNull();
+    const hidden = mergeHideItem(seed, 'd');
+    const next = reinsertHiddenItem(hidden, 'd');
+    expect(next.engine).toBe('merge');
+    if (next.engine !== 'merge') return;
+    expect(next.hidden).not.toContain('d');
+    expect(next.toBeInserted).toContain('d');
+    expect(next.currentAutoInsert!.target).not.toContain('d');
   });
 });
 

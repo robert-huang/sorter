@@ -80,6 +80,7 @@ export function startRankAwareInsert(
 export function applyInsertPick(
   frame: InsertFrame,
   picked: 'inserting' | 'sorted',
+  sortedLength?: number,
 ): InsertResult {
   let { lo, hi } = frame;
   const { probe } = frame;
@@ -87,6 +88,10 @@ export function applyInsertPick(
     hi = probe - 1;
   } else {
     lo = probe + 1;
+  }
+  // Insert position pinned at/after the tail — no further probe exists.
+  if (sortedLength !== undefined && lo >= sortedLength) {
+    return { done: true, position: lo };
   }
   if (lo > hi) {
     return { done: true, position: lo };
@@ -97,6 +102,65 @@ export function applyInsertPick(
     hi,
     probe: (lo + hi) >> 1,
   };
+}
+
+/**
+ * Advance `frame` past any hidden probe items so the pair shown/compared
+ * lands on a visible `sorted[probe]`. A hidden probe carries no user
+ * opinion, so we deterministically treat it as if the user picked
+ * 'sorted' (probe ranks above the inserting id) — narrowing the lower
+ * bound past it. Returns a frame whose probe is on a visible item, or
+ * `{ done; position }` when every slot in `[lo, hi]` is hidden (the
+ * caller then splices the inserting id at `position` with no comparison).
+ *
+ * Shared by the insertion engine (`insertionSort.ts`) and the merge
+ * engine's auto-/manual-insert paths (`queueMergeSort.ts`) so hiding a
+ * target/probe item behaves identically in both.
+ */
+export function skipHiddenInsertProbes(
+  frame: InsertFrame,
+  sorted: ReadonlyArray<ItemId>,
+  hidden: ReadonlySet<ItemId>,
+): InsertResult {
+  if (frame.lo >= sorted.length) {
+    return { done: true, position: frame.lo };
+  }
+  let cur: InsertFrame = frame;
+  let safety = sorted.length + 2;
+  while (safety-- > 0) {
+    if (cur.probe >= sorted.length) {
+      return { done: true, position: cur.lo };
+    }
+    if (!hidden.has(sorted[cur.probe])) return cur;
+    const r = applyInsertPick(cur, 'sorted', sorted.length);
+    if ('done' in r) return r;
+    cur = r;
+  }
+  return { done: true, position: cur.lo };
+}
+
+/**
+ * Whether swapping absolute indices `a` and `b` in the target array would
+ * disturb an active insert frame's decision.
+ *
+ * The frame's `[lo, hi]` is the still-undecided candidate window; the probe
+ * sits inside it. Everything at index `< lo` is already decided to rank
+ * ABOVE the inserting item, everything at `> hi` already ranks BELOW it.
+ * A swap is HARMLESS — the probe item and the window contents are untouched,
+ * so the in-flight comparison stays valid — only when BOTH indices sit in
+ * the SAME decided region (both `< lo`, or both `> hi`). Any swap that
+ * touches `[lo, hi]`, or that crosses the window (one above + one below,
+ * which would drop a below-item into the above-region or vice versa),
+ * changes what the frame indexes into and forces a cancel-and-restart.
+ */
+export function reorderDisturbsInsertFrame(
+  frame: InsertFrame,
+  a: number,
+  b: number,
+): boolean {
+  const bothAbove = a < frame.lo && b < frame.lo;
+  const bothBelow = a > frame.hi && b > frame.hi;
+  return !(bothAbove || bothBelow);
 }
 
 /**

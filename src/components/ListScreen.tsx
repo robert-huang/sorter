@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { getPair } from '../lib/engine';
 import {
   canReorderInCurrentMerge,
@@ -13,7 +13,7 @@ import type {
 } from '../lib/types';
 import { AddItemsModal } from './AddItemsModal';
 import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
-import { DetailButton } from './DetailButton';
+import { DetailButtonSlot } from './DetailButton';
 import { ItemThumb } from './ItemThumb';
 import {
   activeRankingIds,
@@ -90,52 +90,50 @@ function CompletedRankingSection({
                 <span className="label-cell" title={item.label}>
                   {item.label}
                 </span>
-                {!isHidden && rankedIds.length > 1 && (
-                  <span className="actions">
-                    <button
-                      className="icon-btn"
-                      onClick={() => onReorder(ii, -1)}
-                      disabled={ii === 0}
-                      title="Nudge up"
-                    >
-                      ↑
-                    </button>
-                    <button
-                      className="icon-btn"
-                      onClick={() => onReorder(ii, 1)}
-                      disabled={ii === rankedIds.length - 1}
-                      title="Nudge down"
-                    >
-                      ↓
-                    </button>
-                    <button
-                      className="icon-btn"
-                      onClick={() => onReturnToPending(id)}
-                      title="Pull this item back out and re-insert it (fresh binary search)"
-                    >
-                      ↻
-                    </button>
-                  </span>
-                )}
                 <span className="actions">
-                  <EditButton item={item} onOpen={onEdit} variant="row" />
-                  {isHidden ? (
-                    <button
-                      className="icon-btn"
-                      onClick={() => onUnhide(id)}
-                      title="Restore"
-                    >
-                      ↺
-                    </button>
-                  ) : (
-                    <button
-                      className="icon-btn danger"
-                      onClick={() => onHide(id)}
-                      title="Remove"
-                    >
-                      ×
-                    </button>
-                  )}
+                  <ItemRowActions
+                    item={item}
+                    variant="row"
+                    onEdit={onEdit}
+                    reorder={
+                      !isHidden && rankedIds.length > 1 ? (
+                        <>
+                          <button
+                            className="icon-btn"
+                            onClick={() => onReorder(ii, -1)}
+                            disabled={ii === 0}
+                            title="Nudge up"
+                          >
+                            ↑
+                          </button>
+                          <button
+                            className="icon-btn"
+                            onClick={() => onReorder(ii, 1)}
+                            disabled={ii === rankedIds.length - 1}
+                            title="Nudge down"
+                          >
+                            ↓
+                          </button>
+                          <button
+                            className="icon-btn"
+                            onClick={() => onReturnToPending(id)}
+                            title="Pull this item back out and re-insert it (fresh binary search)"
+                          >
+                            ↻
+                          </button>
+                        </>
+                      ) : null
+                    }
+                    trailing={
+                      <HideOrRestoreButton
+                        id={id}
+                        isHidden={isHidden}
+                        allowRestore
+                        onHide={onHide}
+                        onUnhide={onUnhide}
+                      />
+                    }
+                  />
                 </span>
               </div>
             );
@@ -160,14 +158,21 @@ function HiddenItemsSection({
   items,
   state,
   rankingSlots,
+  allowInlineRestore,
+  onUnhide,
   onReinsert,
+  onRestoreHidden,
   onForget,
 }: {
   ids: string[];
   items: Record<string, Item>;
   state: SortState;
   rankingSlots: Set<string>;
+  /** When true (sort finished), in-slot hidden ids use ↺ Restore. */
+  allowInlineRestore: boolean;
+  onUnhide: (id: string) => void;
   onReinsert: (id: string) => void;
+  onRestoreHidden: (id: string) => void;
   onForget: (id: string) => void;
 }) {
   const [open, setOpen] = useState(true);
@@ -200,9 +205,12 @@ function HiddenItemsSection({
             }}
           >
             These items stay in the list above at their old rank (struck
-            through). Use <strong>↻ Reinsert</strong> to pull one back out
-            for a fresh binary insert, or <strong>× Dismiss</strong> to
-            remove it from the sort entirely.
+            through) when applicable. While the sort is still running, use{' '}
+            <strong>↻ Reinsert</strong> to pull one back out for a fresh binary
+            insert. After the sort finishes, use <strong>↺ Restore</strong>{' '}
+            (inline or here) to show it at its old rank again — or the row{' '}
+            <strong>↻</strong> on a visible item to binary-search it back in.{' '}
+            <strong>× Dismiss</strong> removes an item from the sort entirely.
           </p>
           <div className="queue-sublist">
             <div className="queue-sublist-items">
@@ -210,15 +218,16 @@ function HiddenItemsSection({
                 const item = items[id];
                 const label = item?.label ?? formatOrphanHiddenId(id);
                 const inRanking = rankingSlots.has(id);
-                const canReinsert = !!item;
+                const canAct = !!item;
                 const rank = inRanking ? rankLabelForHiddenId(state, id) : '—';
+                const useRestore = allowInlineRestore && inRanking;
                 return (
                   <div key={id} className="queue-item-row hidden">
                     <span className="rank">{rank}</span>
                     <Thumb item={item ?? { id, label }} />
                     <span className="label-cell" title={label}>
                       {label}
-                      {!canReinsert && (
+                      {!canAct && (
                         <span style={{ color: 'var(--text-faint)' }}>
                           {' '}
                           · metadata missing — dismiss only
@@ -226,10 +235,21 @@ function HiddenItemsSection({
                       )}
                     </span>
                     <span className="actions">
-                      {canReinsert && (
+                      {canAct && useRestore && (
                         <button
                           className="icon-btn"
-                          onClick={() => onReinsert(id)}
+                          onClick={() => onUnhide(id)}
+                          title="Restore at old rank"
+                        >
+                          ↺ Restore
+                        </button>
+                      )}
+                      {canAct && !useRestore && (
+                        <button
+                          className="icon-btn"
+                          onClick={() =>
+                            inRanking ? onReinsert(id) : onRestoreHidden(id)
+                          }
                           title={
                             inRanking
                               ? 'Pull out and binary-insert again'
@@ -279,6 +299,12 @@ interface Props {
     itemIndex: number,
     dir: -1 | 1,
   ) => void;
+  /**
+   * Merge-only: swap two absolute positions in the active insert target
+   * (the "insert-into" list during auto- or manual-insert). Cancels and
+   * restarts the in-flight insert frame.
+   */
+  onReorderInsertTarget: (indexA: number, indexB: number) => void;
   onBreakApart: (queueIndex: number) => void;
   /** Add a single item (Single tab). */
   onAddItem: (item: Item) => void;
@@ -312,8 +338,8 @@ interface Props {
   /** Clear a hidden id that no longer has a ranking row (ghost / orphan). */
   onDismissHidden: (id: string) => void;
   /**
-   * Re-queue a hidden orphan for sorting. Ids still inline in the ranking
-   * use `onUnhide` instead.
+   * Re-queue a hidden orphan for sorting. In-slot hidden ids during an
+   * active sort use `onReinsertHidden`; `onUnhide` is for completed sorts.
    */
   onRestoreHidden: (id: string) => void;
   /** Pull a hidden item back out for a fresh binary insert (↻). */
@@ -343,15 +369,7 @@ function Thumb({ item }: { item: Item }) {
   return <ItemThumb item={item} className="thumb" placeholderClass="" />;
 }
 
-/**
- * Pencil-icon button that opens the EditItemModal for `item`, paired with
- * the {@link DetailButton} so every editable item row/chip also exposes a
- * media-details affordance (AniList items only). Shared between the chip
- * variant (current merge frame, currently-inserting banner) and the
- * full-row variant (queue sublists, to-be-inserted, sorted, pending). The
- * `chip` variant uses the inline `.x`-style button class already styled
- * for chips; the `row` variant uses `.icon-btn`.
- */
+/** Pencil-icon button that opens the EditItemModal for `item`. */
 function EditButton({
   item,
   onOpen,
@@ -362,20 +380,116 @@ function EditButton({
   variant: 'chip' | 'row';
 }) {
   return (
+    <button
+      className={variant === 'chip' ? 'x edit' : 'icon-btn'}
+      onClick={(e) => {
+        e.stopPropagation();
+        onOpen(item);
+      }}
+      title={`Edit "${item.label}"`}
+      aria-label={`Edit ${item.label}`}
+    >
+      ✎
+    </button>
+  );
+}
+
+/** Standard row/chip action order: [ⓘ?] reorder, edit, trailing. */
+function ItemRowActions({
+  item,
+  variant,
+  onEdit,
+  reorder,
+  trailing,
+}: {
+  item: Item;
+  variant: 'chip' | 'row';
+  onEdit: (item: Item) => void;
+  reorder?: ReactNode;
+  trailing?: ReactNode;
+}) {
+  return (
     <>
-      <DetailButton item={item} variant={variant} />
-      <button
-        className={variant === 'chip' ? 'x edit' : 'icon-btn'}
-        onClick={(e) => {
-          e.stopPropagation();
-          onOpen(item);
-        }}
-        title={`Edit "${item.label}"`}
-        aria-label={`Edit ${item.label}`}
-      >
-        ✎
-      </button>
+      <DetailButtonSlot item={item} variant={variant} />
+      {reorder}
+      <EditButton item={item} onOpen={onEdit} variant={variant} />
+      {trailing}
     </>
+  );
+}
+
+/**
+ * × Remove on visible rows; ↺ Restore only when `allowRestore` (sort
+ * finished). During an active sort, hidden in-slot rows have no inline
+ * recovery — use Hidden items → ↻ Reinsert.
+ */
+function HideOrRestoreButton({
+  id,
+  isHidden,
+  allowRestore,
+  onHide,
+  onUnhide,
+  hideTitle = 'Remove',
+  restoreTitle = 'Restore',
+  variant = 'row',
+  ariaLabel,
+}: {
+  id: string;
+  isHidden: boolean;
+  allowRestore: boolean;
+  onHide: (id: string) => void;
+  onUnhide: (id: string) => void;
+  hideTitle?: string;
+  restoreTitle?: string;
+  variant?: 'chip' | 'row';
+  ariaLabel?: string;
+}) {
+  if (isHidden) {
+    if (!allowRestore) return null;
+    if (variant === 'chip') {
+      return (
+        <button
+          className="x"
+          onClick={() => onUnhide(id)}
+          title={restoreTitle}
+          aria-label={ariaLabel ?? restoreTitle}
+        >
+          ↺
+        </button>
+      );
+    }
+    return (
+      <button
+        className="icon-btn"
+        onClick={() => onUnhide(id)}
+        title={restoreTitle}
+        aria-label={ariaLabel}
+      >
+        ↺
+      </button>
+    );
+  }
+  if (variant === 'chip') {
+    return (
+      <button
+        className="x"
+        onClick={() => onHide(id)}
+        title={hideTitle}
+        aria-label={ariaLabel ?? hideTitle}
+      >
+        ×
+      </button>
+    );
+  }
+  return (
+    <button
+      className="icon-btn danger"
+      onClick={() => onHide(id)}
+      title={hideTitle}
+      aria-label={ariaLabel}
+    >
+      ×
+    </button>
   );
 }
 
@@ -422,12 +536,26 @@ function shouldShowCurrentComparison(state: SortState): boolean {
 function InsertContextSection({
   state,
   onOpenEdit,
-  onHideInserting,
+  onHideRemaining,
+  onHideTarget,
+  onReorderTarget,
 }: {
   state: SortState;
   onOpenEdit: (item: Item) => void;
-  /** Insertion engine: × on the actively-inserting row. */
-  onHideInserting?: (id: string) => void;
+  /**
+   * × on any "still to insert" row — the in-flight inserting item OR a
+   * queued one. Dropping orphans the item into Hidden items (reinsert-only,
+   * it has no rank slot to restore to). Undoable via the ring.
+   */
+  onHideRemaining?: (id: string) => void;
+  /** Merge-only: × on a row of the "insert-into" list (removable target). */
+  onHideTarget?: (id: string) => void;
+  /**
+   * Merge-only: swap two absolute positions in the "insert-into" list.
+   * Passed absolute indices into `ctx.targetIds` (the full target,
+   * including hidden), so swaps preserve hidden items' slots.
+   */
+  onReorderTarget?: (indexA: number, indexB: number) => void;
 }) {
   const ctx = getInsertContext(state);
   if (!ctx) return null;
@@ -435,7 +563,12 @@ function InsertContextSection({
   const hidden = useMemo(() => new Set(state.hidden), [state.hidden]);
   const probeRowRef = useRef<HTMLDivElement | null>(null);
 
-  const visibleTarget = ctx.targetIds.filter((id) => !hidden.has(id));
+  // Visible target rows carry their ABSOLUTE index into ctx.targetIds so
+  // reorder swaps map correctly even with hidden items interleaved.
+  const targetRows = ctx.targetIds
+    .map((id, absoluteIndex) => ({ id, absoluteIndex }))
+    .filter((row) => !hidden.has(row.id));
+  const visibleTarget = targetRows.map((row) => row.id);
   const visibleRemaining = ctx.remainingIds.filter((id) => !hidden.has(id));
   const probeVisible = !hidden.has(ctx.probeId);
   const probeItem = state.items[ctx.probeId];
@@ -469,10 +602,13 @@ function InsertContextSection({
                   (empty)
                 </span>
               )}
-              {visibleTarget.map((id, ii) => {
+              {targetRows.map((row, ii) => {
+                const id = row.id;
                 const item = state.items[id];
                 if (!item) return null;
                 const isProbe = id === ctx.probeId;
+                const prevRow = targetRows[ii - 1];
+                const nextRow = targetRows[ii + 1];
                 return (
                   <div
                     key={id}
@@ -488,7 +624,59 @@ function InsertContextSection({
                       {isProbe && (
                         <span className="list-merge-context-tag">probe</span>
                       )}
-                      <EditButton item={item} onOpen={onOpenEdit} variant="row" />
+                      <ItemRowActions
+                        item={item}
+                        variant="row"
+                        onEdit={onOpenEdit}
+                        reorder={
+                          onReorderTarget ? (
+                            <>
+                              <button
+                                className="icon-btn"
+                                onClick={() =>
+                                  prevRow &&
+                                  onReorderTarget(
+                                    row.absoluteIndex,
+                                    prevRow.absoluteIndex,
+                                  )
+                                }
+                                disabled={!prevRow}
+                                title="Nudge up (restarts the current insert)"
+                                aria-label={`Move ${item.label} up`}
+                              >
+                                ↑
+                              </button>
+                              <button
+                                className="icon-btn"
+                                onClick={() =>
+                                  nextRow &&
+                                  onReorderTarget(
+                                    row.absoluteIndex,
+                                    nextRow.absoluteIndex,
+                                  )
+                                }
+                                disabled={!nextRow}
+                                title="Nudge down (restarts the current insert)"
+                                aria-label={`Move ${item.label} down`}
+                              >
+                                ↓
+                              </button>
+                            </>
+                          ) : null
+                        }
+                        trailing={
+                          onHideTarget ? (
+                            <button
+                              className="icon-btn danger"
+                              onClick={() => onHideTarget(id)}
+                              title="Remove this item from the list being inserted into"
+                              aria-label={`Remove ${item.label}`}
+                            >
+                              ×
+                            </button>
+                          ) : null
+                        }
+                      />
                     </span>
                   </div>
                 );
@@ -540,17 +728,27 @@ function InsertContextSection({
                       {isInserting && (
                         <span className="list-merge-context-tag">inserting</span>
                       )}
-                      <EditButton item={item} onOpen={onOpenEdit} variant="row" />
-                      {onHideInserting && isInserting && (
-                        <button
-                          className="icon-btn danger"
-                          onClick={() => onHideInserting(id)}
-                          title="Remove this item — skip inserting it and move on"
-                          aria-label={`Remove ${item.label}`}
-                        >
-                          ×
-                        </button>
-                      )}
+                      <ItemRowActions
+                        item={item}
+                        variant="row"
+                        onEdit={onOpenEdit}
+                        trailing={
+                          onHideRemaining ? (
+                            <button
+                              className="icon-btn danger"
+                              onClick={() => onHideRemaining(id)}
+                              title={
+                                isInserting
+                                  ? 'Remove this item — skip inserting it and move on'
+                                  : 'Remove this queued item — drops it to Hidden items for later reinsert'
+                              }
+                              aria-label={`Remove ${item.label}`}
+                            >
+                              ×
+                            </button>
+                          ) : null
+                        }
+                      />
                     </span>
                   </div>
                 );
@@ -673,7 +871,7 @@ export function ListScreen(props: Props) {
   const hiddenIds = useMemo(() => state.hidden, [state.hidden]);
 
   return (
-    <div className="page">
+    <div className="page page--list">
       <ListSlotHeader
         slotId={props.slotId}
         slotName={props.slotName}
@@ -691,7 +889,10 @@ export function ListScreen(props: Props) {
         items={items}
         state={state}
         rankingSlots={rankingSlots}
+        allowInlineRestore={state.done}
+        onUnhide={props.onUnhide}
         onReinsert={props.onReinsertHidden}
+        onRestoreHidden={props.onRestoreHidden}
         onForget={props.onForgetHidden}
       />
     </div>
@@ -720,6 +921,7 @@ function MergeListView({
   onForget,
   onEditItem,
   onReturnToPending,
+  onReorderInsertTarget,
 }: Props & { state: MergeState }) {
   const [addOpen, setAddOpen] = useState(false);
   // The item currently open in the EditItemModal. We track by id (not
@@ -748,7 +950,13 @@ function MergeListView({
   return (
     <>
       {shouldShowCurrentComparison(state) && getInsertContext(state) && (
-        <InsertContextSection state={state} onOpenEdit={openEdit} />
+        <InsertContextSection
+          state={state}
+          onOpenEdit={openEdit}
+          onHideRemaining={onHide}
+          onHideTarget={onHide}
+          onReorderTarget={onReorderInsertTarget}
+        />
       )}
       {state.current && (
         <div className="list-merging">
@@ -882,22 +1090,30 @@ function MergeListView({
                   )}
                 </span>
                 <span className="actions">
-                  <EditButton item={item} onOpen={openEdit} variant="row" />
-                  <button
-                    className="icon-btn"
-                    onClick={() => onManualInsert(id)}
-                    disabled={queued || inserting}
-                    title="Binary-search this item back into the ranking"
-                  >
-                    ↺ Insert
-                  </button>
-                  <button
-                    className="icon-btn danger"
-                    onClick={() => onForget(id)}
-                    title="Drop this item from the rank permanently"
-                  >
-                    × Forget
-                  </button>
+                  <ItemRowActions
+                    item={item}
+                    variant="row"
+                    onEdit={openEdit}
+                    trailing={
+                      <>
+                        <button
+                          className="icon-btn"
+                          onClick={() => onManualInsert(id)}
+                          disabled={queued || inserting}
+                          title="Binary-search this item back into the ranking"
+                        >
+                          ↺ Insert
+                        </button>
+                        <button
+                          className="icon-btn danger"
+                          onClick={() => onForget(id)}
+                          title="Drop this item from the rank permanently"
+                        >
+                          × Forget
+                        </button>
+                      </>
+                    }
+                  />
                 </span>
               </div>
             );
@@ -998,48 +1214,50 @@ function CurrentMergeRow({
             >
               <Thumb item={item} />
               {item.label}
-              {ids.length > 1 && (
-                <>
-                  <button
-                    className="x reorder"
-                    onClick={() => onReorder(slice, ii, -1)}
-                    disabled={!canUp}
-                    title="Move up"
-                    aria-label={`Move ${item.label} up`}
-                  >
-                    ↑
-                  </button>
-                  <button
-                    className="x reorder"
-                    onClick={() => onReorder(slice, ii, 1)}
-                    disabled={!canDown}
-                    title="Move down"
-                    aria-label={`Move ${item.label} down`}
-                  >
-                    ↓
-                  </button>
-                </>
-              )}
-              <EditButton item={item} onOpen={onEdit} variant="chip" />
-              {isHidden ? (
-                <button
-                  className="x"
-                  onClick={() => onUnhide(id)}
-                  title="Restore item"
-                  aria-label={`Restore ${item.label}`}
-                >
-                  ↺
-                </button>
-              ) : (
-                <button
-                  className="x"
-                  onClick={() => onHide(id)}
-                  title="Remove item"
-                  aria-label={`Remove ${item.label}`}
-                >
-                  ×
-                </button>
-              )}
+              <ItemRowActions
+                item={item}
+                variant="chip"
+                onEdit={onEdit}
+                reorder={
+                  ids.length > 1 ? (
+                    <>
+                      <button
+                        className="x reorder"
+                        onClick={() => onReorder(slice, ii, -1)}
+                        disabled={!canUp}
+                        title="Move up"
+                        aria-label={`Move ${item.label} up`}
+                      >
+                        ↑
+                      </button>
+                      <button
+                        className="x reorder"
+                        onClick={() => onReorder(slice, ii, 1)}
+                        disabled={!canDown}
+                        title="Move down"
+                        aria-label={`Move ${item.label} down`}
+                      >
+                        ↓
+                      </button>
+                    </>
+                  ) : null
+                }
+                trailing={
+                  <HideOrRestoreButton
+                    id={id}
+                    isHidden={isHidden}
+                    allowRestore={false}
+                    onHide={onHide}
+                    onUnhide={onUnhide}
+                    hideTitle="Remove item"
+                    restoreTitle="Restore item"
+                    variant="chip"
+                    ariaLabel={
+                      isHidden ? `Restore ${item.label}` : `Remove ${item.label}`
+                    }
+                  />
+                }
+              />
             </span>
           );
         })}
@@ -1107,46 +1325,42 @@ function SublistView({
                 {item.label}
               </span>
               <span className="actions">
-                {sub.length > 1 && (
-                  <>
-                    <button
-                      className="icon-btn"
-                      onClick={() => onReorder(queueIndex, ii, -1)}
-                      disabled={ii === 0}
-                      title="Move up"
-                    >
-                      ↑
-                    </button>
-                    <button
-                      className="icon-btn"
-                      onClick={() => onReorder(queueIndex, ii, 1)}
-                      disabled={ii === sub.length - 1}
-                      title="Move down"
-                    >
-                      ↓
-                    </button>
-                  </>
-                )}
-              </span>
-              <span className="actions">
-                <EditButton item={item} onOpen={onEdit} variant="row" />
-                {isHidden ? (
-                  <button
-                    className="icon-btn"
-                    onClick={() => onUnhide(id)}
-                    title="Restore"
-                  >
-                    ↺
-                  </button>
-                ) : (
-                  <button
-                    className="icon-btn danger"
-                    onClick={() => onHide(id)}
-                    title="Remove"
-                  >
-                    ×
-                  </button>
-                )}
+                <ItemRowActions
+                  item={item}
+                  variant="row"
+                  onEdit={onEdit}
+                  reorder={
+                    sub.length > 1 ? (
+                      <>
+                        <button
+                          className="icon-btn"
+                          onClick={() => onReorder(queueIndex, ii, -1)}
+                          disabled={ii === 0}
+                          title="Move up"
+                        >
+                          ↑
+                        </button>
+                        <button
+                          className="icon-btn"
+                          onClick={() => onReorder(queueIndex, ii, 1)}
+                          disabled={ii === sub.length - 1}
+                          title="Move down"
+                        >
+                          ↓
+                        </button>
+                      </>
+                    ) : null
+                  }
+                  trailing={
+                    <HideOrRestoreButton
+                      id={id}
+                      isHidden={isHidden}
+                      allowRestore={false}
+                      onHide={onHide}
+                      onUnhide={onUnhide}
+                    />
+                  }
+                />
               </span>
             </div>
           );
@@ -1186,24 +1400,21 @@ function InsertionPendingItemRow({
         {item.label}
       </span>
       <span className="actions">
-        <EditButton item={item} onOpen={onEdit} variant="row" />
-        {isHidden ? (
-          <button
-            className="icon-btn"
-            onClick={() => onUnhide(item.id)}
-            title="Restore"
-          >
-            ↺
-          </button>
-        ) : (
-          <button
-            className="icon-btn danger"
-            onClick={() => onHide(item.id)}
-            title="Skip this item"
-          >
-            ×
-          </button>
-        )}
+        <ItemRowActions
+          item={item}
+          variant="row"
+          onEdit={onEdit}
+          trailing={
+            <HideOrRestoreButton
+              id={item.id}
+              isHidden={isHidden}
+              allowRestore={false}
+              onHide={onHide}
+              onUnhide={onUnhide}
+              hideTitle="Skip this item"
+            />
+          }
+        />
       </span>
     </div>
   );
@@ -1359,7 +1570,7 @@ function InsertionListView({
         <InsertContextSection
           state={state}
           onOpenEdit={openEdit}
-          onHideInserting={onHide}
+          onHideRemaining={onHide}
         />
       )}
 
@@ -1423,52 +1634,50 @@ function InsertionListView({
                     <span className="label-cell" title={item.label}>
                       {item.label}
                     </span>
-                    {!isHidden && state.sorted.length > 1 && (
-                      <span className="actions">
-                        <button
-                          className="icon-btn"
-                          onClick={() => onReorderInSorted(ii, -1)}
-                          disabled={ii === 0}
-                          title="Nudge up (cancels and restarts the current insert)"
-                        >
-                          ↑
-                        </button>
-                        <button
-                          className="icon-btn"
-                          onClick={() => onReorderInSorted(ii, 1)}
-                          disabled={ii === state.sorted.length - 1}
-                          title="Nudge down (cancels and restarts the current insert)"
-                        >
-                          ↓
-                        </button>
-                        <button
-                          className="icon-btn"
-                          onClick={() => onReturnToPending(id)}
-                          title="Pull this item back out and re-insert it (fresh binary search)"
-                        >
-                          ↻
-                        </button>
-                      </span>
-                    )}
                     <span className="actions">
-                      <EditButton item={item} onOpen={openEdit} variant="row" />
-                      {isHidden ? (
-                        <button
-                          className="icon-btn"
-                          onClick={() => onUnhide(id)}
-                          title="Restore"
-                        >
-                          ↺
-                        </button>
-                      ) : (
-                        <button
-                          className="icon-btn danger"
-                          onClick={() => onHide(id)}
-                          title="Remove"
-                        >
-                          ×
-                        </button>
-                      )}
+                      <ItemRowActions
+                        item={item}
+                        variant="row"
+                        onEdit={openEdit}
+                        reorder={
+                          !isHidden && state.sorted.length > 1 ? (
+                            <>
+                              <button
+                                className="icon-btn"
+                                onClick={() => onReorderInSorted(ii, -1)}
+                                disabled={ii === 0}
+                                title="Nudge up (cancels and restarts the current insert)"
+                              >
+                                ↑
+                              </button>
+                              <button
+                                className="icon-btn"
+                                onClick={() => onReorderInSorted(ii, 1)}
+                                disabled={ii === state.sorted.length - 1}
+                                title="Nudge down (cancels and restarts the current insert)"
+                              >
+                                ↓
+                              </button>
+                              <button
+                                className="icon-btn"
+                                onClick={() => onReturnToPending(id)}
+                                title="Pull this item back out and re-insert it (fresh binary search)"
+                              >
+                                ↻
+                              </button>
+                            </>
+                          ) : null
+                        }
+                        trailing={
+                          <HideOrRestoreButton
+                            id={id}
+                            isHidden={isHidden}
+                            allowRestore={false}
+                            onHide={onHide}
+                            onUnhide={onUnhide}
+                          />
+                        }
+                      />
                     </span>
                   </div>
                 );

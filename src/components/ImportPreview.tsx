@@ -6,7 +6,7 @@ import {
   mergeAnilistLinkClass,
 } from '../lib/importers/anilist/anilistLinks';
 import { canOpenItemDetail } from './itemDetailContext';
-import { DetailButton } from './DetailButton';
+import { DetailButtonSlot } from './DetailButton';
 
 export interface PreviewSource {
   sourceName: string;
@@ -395,7 +395,7 @@ function SourceBlock({
                   )}
                   {(onEditRow || onRemoveRow || canOpenItemDetail(it)) && (
                     <span className="preview-item-actions">
-                      <DetailButton item={it} variant="row" />
+                      <DetailButtonSlot item={it} variant="row" />
                       {onEditRow && (
                         <button
                           type="button"

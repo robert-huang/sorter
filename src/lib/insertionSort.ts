@@ -4,6 +4,8 @@ import {
   countInsertPeekRightOverflow,
   getInsertPeekRightIds,
   insertComparisonsRemaining,
+  reorderDisturbsInsertFrame,
+  skipHiddenInsertProbes,
   startRankAwareInsert,
   worstCaseInsertCost,
 } from './binaryInsertion';
@@ -53,19 +55,9 @@ function skipHiddenProbes(
   sorted: ReadonlyArray<ItemId>,
   hidden: ReadonlySet<ItemId>,
 ): InsertFrame | { done: true; position: number } {
-  let cur: InsertFrame = frame;
-  let safety = sorted.length + 2;
-  while (safety-- > 0) {
-    if (!hidden.has(sorted[cur.probe])) return cur;
-    // Hidden probe: pretend the user picked 'sorted' (probe is below
-    // insertingId) — i.e. skip past it on the lower side. Either side
-    // is fine semantically since the hidden item has no opinion; we
-    // pick a deterministic direction so behaviour is reproducible.
-    const r = applyInsertPick(cur, 'sorted');
-    if ('done' in r) return r;
-    cur = r;
-  }
-  return { done: true, position: cur.lo };
+  // Delegates to the shared primitive so both engines skip hidden probes
+  // with identical semantics (see binaryInsertion.skipHiddenInsertProbes).
+  return skipHiddenInsertProbes(frame, sorted, hidden);
 }
 
 /**
@@ -472,7 +464,7 @@ function applyPick(
   const next = snapshotProgress(state);
   next.current = visibleFrame; // adopt the probe-skipped frame
   const picked = side === 'left' ? 'inserting' : 'sorted';
-  const r = applyInsertPick(visibleFrame, picked);
+  const r = applyInsertPick(visibleFrame, picked, state.sorted.length);
   next.comparisons += 1;
   if ('done' in r) {
     return spliceInsertingAndDrain({ ...next, items: state.items }, r.position);
@@ -581,7 +573,20 @@ export function reorderInSorted(
     newSorted[sortedIndex],
   ];
   next.sorted = newSorted;
-  cancelAndRestartCurrentFrame(next);
+  if (next.current) {
+    if (reorderDisturbsInsertFrame(next.current, sortedIndex, target)) {
+      // The swap touched (or crossed) the active [lo, hi] window, so the
+      // frame's bounds/probe are stale — throw away partial progress.
+      cancelAndRestartCurrentFrame(next);
+    } else {
+      // Swap sat entirely in an already-decided region: the probe is still
+      // valid, so keep the in-flight frame. Only relax run tightening — the
+      // anchor index may now point at a moved item. It's recomputed when
+      // the current item lands (spliceInsertingAndDrain), so this only
+      // affects the rare drop-before-land path.
+      next.activeRunAnchor = null;
+    }
+  }
   bumpTotalComparisons(next);
   return { ...next, items: state.items };
 }

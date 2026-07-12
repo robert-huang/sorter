@@ -4,6 +4,8 @@ import {
   countInsertPeekRightOverflow,
   getInsertPeekRightIds,
   insertComparisonsRemaining,
+  reorderDisturbsInsertFrame,
+  skipHiddenInsertProbes,
   startInsert,
   startRankAwareInsert,
 } from './binaryInsertion';
@@ -140,16 +142,26 @@ function countVisible(ids: ItemId[], hidden: ReadonlySet<ItemId>): number {
  *    is non-null at any time.
  */
 export function getPair(state: MergeState): { leftId: ItemId; rightId: ItemId } | null {
+  const hidden = new Set(state.hidden);
   if (state.currentManualInsert) {
-    const target = state.queue[state.currentManualInsert.targetQueueIndex];
+    const mi = state.currentManualInsert;
+    const target = state.queue[mi.targetQueueIndex];
     if (!target) return null;
-    return getInsertPair(state.currentManualInsert.frame, target);
+    // The inserting id may itself be a previously-exiled (still-hidden)
+    // item being re-placed — that's fine; only skip hidden PROBES on the
+    // target so the compared pair lands on a visible right card.
+    const skipped = skipHiddenInsertProbes(mi.frame, target, hidden);
+    if ('done' in skipped) return null;
+    return getInsertPair(skipped, target);
   }
   if (state.currentAutoInsert && state.currentAutoInsert.frame) {
-    return getInsertPair(state.currentAutoInsert.frame, state.currentAutoInsert.target);
+    const ai = state.currentAutoInsert;
+    const frame = state.currentAutoInsert.frame;
+    const skipped = skipHiddenInsertProbes(frame, ai.target, hidden);
+    if ('done' in skipped) return null;
+    return getInsertPair(skipped, ai.target);
   }
   if (!state.current) return null;
-  const hidden = new Set(state.hidden);
   const li = firstVisibleIndex(state.current.left, hidden);
   const ri = firstVisibleIndex(state.current.right, hidden);
   if (li < 0 || ri < 0) return null;
@@ -170,17 +182,19 @@ export function getPair(state: MergeState): { leftId: ItemId; rightId: ItemId } 
 export function getPeekRightIds(state: MergeState, n = 3): ItemId[] {
   const hidden = new Set(state.hidden);
   if (state.currentManualInsert) {
-    const target = state.queue[state.currentManualInsert.targetQueueIndex];
+    const mi = state.currentManualInsert;
+    const target = state.queue[mi.targetQueueIndex];
     if (!target) return [];
-    return getInsertPeekRightIds(state.currentManualInsert.frame, target, hidden, n);
+    const skipped = skipHiddenInsertProbes(mi.frame, target, hidden);
+    if ('done' in skipped) return [];
+    return getInsertPeekRightIds(skipped, target, hidden, n);
   }
   if (state.currentAutoInsert?.frame) {
-    return getInsertPeekRightIds(
-      state.currentAutoInsert.frame,
-      state.currentAutoInsert.target,
-      hidden,
-      n,
-    );
+    const ai = state.currentAutoInsert;
+    const frame = state.currentAutoInsert.frame;
+    const skipped = skipHiddenInsertProbes(frame, ai.target, hidden);
+    if ('done' in skipped) return [];
+    return getInsertPeekRightIds(skipped, ai.target, hidden, n);
   }
   if (!state.current) return [];
   return peekAfterHead(state.current.right, hidden, n);
@@ -211,22 +225,19 @@ export function getPeekRightOverflowCount(
 ): number {
   const hidden = new Set(state.hidden);
   if (state.currentManualInsert) {
-    const target = state.queue[state.currentManualInsert.targetQueueIndex];
+    const mi = state.currentManualInsert;
+    const target = state.queue[mi.targetQueueIndex];
     if (!target) return 0;
-    return countInsertPeekRightOverflow(
-      state.currentManualInsert.frame,
-      target,
-      hidden,
-      labeledDepth,
-    );
+    const skipped = skipHiddenInsertProbes(mi.frame, target, hidden);
+    if ('done' in skipped) return 0;
+    return countInsertPeekRightOverflow(skipped, target, hidden, labeledDepth);
   }
   if (state.currentAutoInsert?.frame) {
-    return countInsertPeekRightOverflow(
-      state.currentAutoInsert.frame,
-      state.currentAutoInsert.target,
-      hidden,
-      labeledDepth,
-    );
+    const ai = state.currentAutoInsert;
+    const frame = state.currentAutoInsert.frame;
+    const skipped = skipHiddenInsertProbes(frame, ai.target, hidden);
+    if ('done' in skipped) return 0;
+    return countInsertPeekRightOverflow(skipped, ai.target, hidden, labeledDepth);
   }
   if (!state.current) return 0;
   return Math.max(
@@ -507,10 +518,11 @@ function advance(
   // Loop because each "trivial" merge may expose another trivial pair.
   while (progress.current === null && progress.currentAutoInsert === null) {
     if (progress.queue.length <= 1) {
-      // Only proceed to done if there are no pending manual inserts either —
-      // those still need to drain. If we have pending manual inserts but no
-      // queue to drain into, leave them be (they'll surface as an
-      // "pending insert, no target sublist" warning at UI level).
+      // Drain queued manual inserts into the sole remaining sublist before
+      // declaring done — e.g. a probe pulled into `toBeInserted` mid-auto-insert.
+      if (!progress.currentManualInsert) {
+        drainManualInserts(progress, hidden);
+      }
       if (
         progress.pendingManualInserts.length === 0 &&
         progress.currentManualInsert === null
@@ -658,6 +670,73 @@ function flushIfMergeComplete(
 
 // ---------- manual-insert (deferred-drain mechanic) ----------
 
+/**
+ * True when `id` already occupies a merge ranking slot — queue sublists,
+ * in-flight merge slices, or auto-/manual-insert targets. Excludes the
+ * `toBeInserted` / `pendingManualInserts` buckets themselves.
+ */
+function isIdInMergeRankingSlot(
+  progress: MergeProgress,
+  id: ItemId,
+): boolean {
+  if (progress.queue.some((sub) => sub.includes(id))) return true;
+  const cur = progress.current;
+  if (cur) {
+    if (
+      cur.left.includes(id) ||
+      cur.right.includes(id) ||
+      cur.merged.includes(id)
+    ) {
+      return true;
+    }
+  }
+  const ai = progress.currentAutoInsert;
+  if (ai) {
+    if (ai.target.includes(id) || ai.pendingInserts.includes(id)) return true;
+    if (ai.frame?.insertingId === id) return true;
+  }
+  const mi = progress.currentManualInsert;
+  if (mi) {
+    if (mi.insertingId === id) return true;
+    const sub = progress.queue[mi.targetQueueIndex];
+    if (sub?.includes(id)) return true;
+  }
+  return false;
+}
+
+/** True when `id` already sits in a closed queue sublist (not merely an insert target). */
+function isIdInSettledQueue(progress: MergeProgress, id: ItemId): boolean {
+  return progress.queue.some((sub) => sub.includes(id));
+}
+
+/**
+ * Hidden probe sitting in the list being inserted into — not the in-flight
+ * inserting id. `↻ Reinsert` pulls these out; `restoreHiddenItem` unhides
+ * in place (undo an accidental hide mid-insert).
+ */
+function isIdInActiveInsertTargetProbe(
+  progress: MergeProgress,
+  id: ItemId,
+): boolean {
+  const ai = progress.currentAutoInsert;
+  if (ai?.target.includes(id) && ai.frame?.insertingId !== id) {
+    return true;
+  }
+  const mi = progress.currentManualInsert;
+  if (mi && id !== mi.insertingId) {
+    const sub = progress.queue[mi.targetQueueIndex];
+    if (sub?.includes(id)) return true;
+  }
+  return false;
+}
+
+function clearManualInsertBuckets(progress: MergeProgress, id: ItemId): void {
+  progress.toBeInserted = progress.toBeInserted.filter((x) => x !== id);
+  progress.pendingManualInserts = progress.pendingManualInserts.filter(
+    (x) => x !== id,
+  );
+}
+
 interface ManualInsertTarget {
   queueIndex: number;
   sublist: ItemId[];
@@ -679,6 +758,11 @@ function chooseManualInsertTarget(
   _insertingId: ItemId, // unused in MVP — lineage-tracking would key on this
   hidden: ReadonlySet<ItemId>,
 ): ManualInsertTarget | null {
+  // Every item was pulled out of the ranking — seed inserts into an empty
+  // sublist (zero-comparison splice at position 0).
+  if (progress.queue.length === 0) {
+    return { queueIndex: 0, sublist: [], lo: 0, hi: -1 };
+  }
   let bestIdx = -1;
   let bestVisible = -1;
   for (let i = 0; i < progress.queue.length; i++) {
@@ -713,6 +797,13 @@ function drainManualInserts(
   if (progress.currentManualInsert) return;
   while (progress.pendingManualInserts.length > 0) {
     const insertingId = progress.pendingManualInserts[0];
+    // Item already landed in a ranking slot (e.g. auto-insert folded the
+    // target while a stale pending entry remained) — drop the bucket refs.
+    if (isIdInSettledQueue(progress, insertingId)) {
+      progress.pendingManualInserts.shift();
+      clearManualInsertBuckets(progress, insertingId);
+      continue;
+    }
     const target = chooseManualInsertTarget(progress, insertingId, hidden);
     if (!target) {
       // No valid target — leave the insert queued. The user can
@@ -724,11 +815,15 @@ function drainManualInserts(
     if ('done' in res) {
       // Zero-comparison case: bounds collapsed.
       const sub = progress.queue[target.queueIndex];
-      progress.queue[target.queueIndex] = [
-        ...sub.slice(0, res.position),
-        insertingId,
-        ...sub.slice(res.position),
-      ];
+      if (sub) {
+        progress.queue[target.queueIndex] = [
+          ...sub.slice(0, res.position),
+          insertingId,
+          ...sub.slice(res.position),
+        ];
+      } else {
+        progress.queue = [[insertingId]];
+      }
       progress.toBeInserted = progress.toBeInserted.filter((x) => x !== insertingId);
       continue;
     }
@@ -929,6 +1024,55 @@ function applyMergePick(
   return { ...next, items: state.items };
 }
 
+/**
+ * Splice the active manual-insert's id into its target sublist at
+ * `position`, clear the frame, then drain queued manual inserts and
+ * advance. Shared by the normal resolve and the all-probes-hidden edge.
+ */
+function resolveManualInsertAt(
+  next: MergeProgress,
+  position: number,
+  hidden: ReadonlySet<ItemId>,
+  opts: Required<MergeOptions>,
+): void {
+  const mi = next.currentManualInsert!;
+  const sub = next.queue[mi.targetQueueIndex];
+  if (sub) {
+    next.queue[mi.targetQueueIndex] = [
+      ...sub.slice(0, position),
+      mi.insertingId,
+      ...sub.slice(position),
+    ];
+  }
+  next.toBeInserted = next.toBeInserted.filter((x) => x !== mi.insertingId);
+  next.currentManualInsert = null;
+  drainManualInserts(next, hidden);
+  if (!next.currentManualInsert) advance(next, hidden, opts);
+}
+
+/**
+ * Splice the active auto-insert's id into `ai.target` at `position`,
+ * record the anchor, clear the frame, then drain the next pending
+ * insert. Shared by the normal resolve and the all-probes-hidden edge.
+ */
+function resolveAutoInsertAt(
+  next: MergeProgress,
+  position: number,
+  hidden: ReadonlySet<ItemId>,
+  opts: Required<MergeOptions>,
+): void {
+  const ai = next.currentAutoInsert!;
+  const insertingId = ai.frame!.insertingId;
+  ai.target = [
+    ...ai.target.slice(0, position),
+    insertingId,
+    ...ai.target.slice(position),
+  ];
+  ai.lastInsertedPosition = position;
+  ai.frame = null;
+  drainAutoInsert(next, hidden, opts);
+}
+
 function applyManualInsertPick(
   state: MergeState,
   side: 'left' | 'right',
@@ -938,24 +1082,25 @@ function applyManualInsertPick(
   const hidden = new Set(state.hidden);
   const next = snapshotProgress(state);
   const mi = next.currentManualInsert!;
+  const target = next.queue[mi.targetQueueIndex];
+  if (!target) return state;
+  // Skip hidden probes so the pick applies to the visible pair the user
+  // saw. If every candidate in range is hidden, splice at the resolved
+  // position without charging a comparison.
+  const visible = skipHiddenInsertProbes(mi.frame, target, hidden);
+  if ('done' in visible) {
+    resolveManualInsertAt(next, visible.position, hidden, opts);
+    bumpTotalComparisons(next, opts);
+    return { ...next, items: state.items };
+  }
+  mi.frame = visible; // adopt the probe-skipped frame
   // Convention pinned by getInsertPair: leftId = insertingId, rightId
   // = sorted[probe]. So picking left = 'inserting', picking right = 'sorted'.
   const picked = side === 'left' ? 'inserting' : 'sorted';
-  const res = applyInsertPick(mi.frame, picked);
+  const res = applyInsertPick(visible, picked, target.length);
   next.comparisons += 1;
   if ('done' in res) {
-    const sub = next.queue[mi.targetQueueIndex];
-    if (sub) {
-      next.queue[mi.targetQueueIndex] = [
-        ...sub.slice(0, res.position),
-        mi.insertingId,
-        ...sub.slice(res.position),
-      ];
-    }
-    next.toBeInserted = next.toBeInserted.filter((x) => x !== mi.insertingId);
-    next.currentManualInsert = null;
-    drainManualInserts(next, hidden);
-    if (!next.currentManualInsert) advance(next, hidden, opts);
+    resolveManualInsertAt(next, res.position, hidden, opts);
   } else {
     mi.frame = res;
   }
@@ -979,20 +1124,21 @@ function applyAutoInsertPick(
   const hidden = new Set(state.hidden);
   const next = snapshotProgress(state);
   const ai = next.currentAutoInsert!;
+  // Skip hidden probes so the pick applies to the visible pair the user
+  // saw. If every candidate in range is hidden, splice at the resolved
+  // position without charging a comparison.
+  const visible = skipHiddenInsertProbes(ai.frame!, ai.target, hidden);
+  if ('done' in visible) {
+    resolveAutoInsertAt(next, visible.position, hidden, opts);
+    bumpTotalComparisons(next, opts);
+    return { ...next, items: state.items };
+  }
+  ai.frame = visible; // adopt the probe-skipped frame
   const picked = side === 'left' ? 'inserting' : 'sorted';
-  const res = applyInsertPick(ai.frame!, picked);
+  const res = applyInsertPick(visible, picked, ai.target.length);
   next.comparisons += 1;
   if ('done' in res) {
-    // Splice the inserting id into target at the resolved position.
-    const insertingId = ai.frame!.insertingId;
-    ai.target = [
-      ...ai.target.slice(0, res.position),
-      insertingId,
-      ...ai.target.slice(res.position),
-    ];
-    ai.lastInsertedPosition = res.position;
-    ai.frame = null;
-    drainAutoInsert(next, hidden, opts);
+    resolveAutoInsertAt(next, res.position, hidden, opts);
   } else {
     ai.frame = res;
   }
@@ -1056,13 +1202,15 @@ export function pickLeft(
   state: MergeState,
   options?: MergeOptions,
 ): MergeState {
-  return applyPick(state, 'left', resolveOptions(options));
+  const opts = resolveOptions(options);
+  return applyPick(reconcileInFlightInsertFrames(state, opts), 'left', opts);
 }
 export function pickRight(
   state: MergeState,
   options?: MergeOptions,
 ): MergeState {
-  return applyPick(state, 'right', resolveOptions(options));
+  const opts = resolveOptions(options);
+  return applyPick(reconcileInFlightInsertFrames(state, opts), 'right', opts);
 }
 
 /**
@@ -1094,9 +1242,13 @@ export function hideItem(
 
   const next = snapshotProgress(state);
   next.hidden = [...next.hidden, id].sort();
-  // Cancel a manual-insert frame on this id.
+  // Cancel a manual-insert frame on this id (dropping the in-flight left
+  // card). Drain queued manual inserts / resume merging happens after the
+  // toBeInserted + pendingManualInserts filters below.
+  let cancelledManualInsert = false;
   if (next.currentManualInsert && next.currentManualInsert.insertingId === id) {
     next.currentManualInsert = null;
+    cancelledManualInsert = true;
   }
   // Auto-insert: cancel the current insert if it's on this id, OR drop
   // the id from pendingInserts. Target items handled by probe-skip.
@@ -1112,6 +1264,37 @@ export function hideItem(
   next.toBeInserted = next.toBeInserted.filter((x) => x !== id);
   next.pendingManualInserts = next.pendingManualInserts.filter((x) => x !== id);
   const hiddenSet = new Set(next.hidden);
+  // Dropping the in-flight manual insert leaves no active session — pull
+  // the next queued manual insert (or resume the merge) so the sort keeps
+  // progressing instead of stalling on a null pair.
+  if (cancelledManualInsert) {
+    drainManualInserts(next, hiddenSet);
+    if (!next.currentManualInsert) advance(next, hiddenSet, opts);
+  }
+  // Hiding a target/probe item can collapse the active insert frame's
+  // visible range (no comparable candidate left). Resolve it here — splice
+  // the inserting id at the implied position and drain — so getPair won't
+  // return null while the sort is still not done. Mirrors the insertion
+  // engine's hideItem stall-resolution.
+  if (next.currentManualInsert) {
+    const mi = next.currentManualInsert;
+    const target = next.queue[mi.targetQueueIndex];
+    if (target && !hiddenSet.has(mi.insertingId)) {
+      const skipped = skipHiddenInsertProbes(mi.frame, target, hiddenSet);
+      if ('done' in skipped) {
+        resolveManualInsertAt(next, skipped.position, hiddenSet, opts);
+      }
+    }
+  } else if (next.currentAutoInsert?.frame) {
+    const ai = next.currentAutoInsert;
+    const frame = next.currentAutoInsert.frame;
+    if (!hiddenSet.has(frame.insertingId)) {
+      const skipped = skipHiddenInsertProbes(frame, ai.target, hiddenSet);
+      if ('done' in skipped) {
+        resolveAutoInsertAt(next, skipped.position, hiddenSet, opts);
+      }
+    }
+  }
   flushIfMergeComplete(next, hiddenSet, opts);
   // Re-check done in case hiding completed the last merge.
   if (
@@ -1222,6 +1405,58 @@ export function forgetHiddenItem(
 }
 
 /**
+ * Pull a hidden item out of an active auto-insert target for a fresh
+ * binary insert. The id is removed from `currentAutoInsert.target`,
+ * queued in `toBeInserted`, and drained when the auto-insert session
+ * closes.
+ */
+function reinsertFromAutoInsertTarget(
+  state: MergeState,
+  id: ItemId,
+  options?: MergeOptions,
+): MergeState {
+  const progress = snapshotProgress(state);
+  const ai = progress.currentAutoInsert;
+  if (!ai?.target.includes(id)) return state;
+
+  ai.target = ai.target.filter((x) => x !== id);
+  if (!progress.toBeInserted.includes(id)) {
+    progress.toBeInserted.push(id);
+  }
+  const withItems: MergeState = { ...progress, items: state.items };
+  return manualInsert(withItems, id, options);
+}
+
+/**
+ * `↻ Reinsert` during an active sort: pull a hidden id out of whatever
+ * ranking slot it occupies and queue a fresh binary insert. Differs from
+ * `restoreHiddenItem`, which unhides in-place when the id is still a
+ * probe in an active insert target (undo an accidental hide).
+ */
+export function reinsertHiddenItem(
+  state: MergeState,
+  id: ItemId,
+  options?: MergeOptions,
+): MergeState {
+  if (!state.hidden.includes(id)) return state;
+  if (!state.items[id]) return dismissHidden(state, id);
+
+  const unhidden = unhideItem(state, id);
+
+  const ai = state.currentAutoInsert;
+  if (ai?.target.includes(id) && ai.frame?.insertingId !== id) {
+    return reinsertFromAutoInsertTarget(unhidden, id, options);
+  }
+
+  const inQueue = unhidden.queue.some((sub) => sub.includes(id));
+  if (inQueue || unhidden.toBeInserted.includes(id)) {
+    return returnToPending(unhidden, id, options);
+  }
+
+  return restoreHiddenItem(state, id, options);
+}
+
+/**
  * Restore a hidden merge item that is not in any queue sublist or
  * `toBeInserted`. When metadata exists, queues it for manual insert.
  */
@@ -1233,8 +1468,17 @@ export function restoreHiddenItem(
   if (!state.hidden.includes(id)) return state;
   if (!state.items[id]) return dismissHidden(state, id);
 
-  const inQueue = state.queue.some((sub) => sub.includes(id));
-  if (inQueue || state.toBeInserted.includes(id)) {
+  if (isIdInMergeRankingSlot(state, id)) {
+    const next = snapshotProgress(state);
+    next.hidden = next.hidden.filter((h) => h !== id);
+    // Probe still in an active insert target — undo the hide only.
+    if (isIdInActiveInsertTargetProbe(state, id)) {
+      return { ...next, items: state.items };
+    }
+    clearManualInsertBuckets(next, id);
+    return { ...next, items: state.items };
+  }
+  if (state.toBeInserted.includes(id)) {
     return unhideItem(state, id);
   }
 
@@ -1245,6 +1489,102 @@ export function restoreHiddenItem(
   }
   const withItems: MergeState = { ...next, items: state.items };
   return manualInsert(withItems, id, options);
+}
+
+/**
+ * Resolve insert frames whose bounds already collapsed (e.g. append
+ * position `lo === sorted.length` after a corrupting target edit).
+ * Safe on load and at pick time when `getPair` would return null.
+ */
+export function reconcileInFlightInsertFrames(
+  state: MergeState,
+  options?: MergeOptions,
+): MergeState {
+  const opts = resolveOptions(options);
+  const progress = snapshotProgress(state);
+  const hidden = new Set(progress.hidden);
+  let changed = false;
+
+  if (progress.currentManualInsert) {
+    const mi = progress.currentManualInsert;
+    const target = progress.queue[mi.targetQueueIndex];
+    if (!target) {
+      const orphanId = mi.insertingId;
+      progress.currentManualInsert = null;
+      if (!progress.pendingManualInserts.includes(orphanId)) {
+        progress.pendingManualInserts.unshift(orphanId);
+      }
+      changed = true;
+    } else {
+      const skipped = skipHiddenInsertProbes(mi.frame, target, hidden);
+      if ('done' in skipped) {
+        resolveManualInsertAt(progress, skipped.position, hidden, opts);
+        changed = true;
+      }
+    }
+  }
+
+  const ai = progress.currentAutoInsert;
+  if (ai?.frame) {
+    const skipped = skipHiddenInsertProbes(ai.frame, ai.target, hidden);
+    if ('done' in skipped) {
+      resolveAutoInsertAt(progress, skipped.position, hidden, opts);
+      changed = true;
+    }
+  }
+
+  if (!changed) return state;
+  drainManualInserts(progress, hidden);
+  if (
+    !progress.currentManualInsert &&
+    !progress.currentAutoInsert &&
+    progress.current === null
+  ) {
+    advance(progress, hidden, opts);
+  }
+  return { ...progress, items: state.items };
+}
+
+/**
+ * Drop stale `toBeInserted` / `pendingManualInserts` entries whose ids
+ * already sit in ranking slots, then drain/advance if the sort un-stalls.
+ * Safe to call after loading a save or when `getPair` would otherwise
+ * return null despite work apparently remaining.
+ */
+export function reconcileStaleManualInserts(
+  state: MergeState,
+  options?: MergeOptions,
+): MergeState {
+  const opts = resolveOptions(options);
+  const progress = snapshotProgress(state);
+  let changed = false;
+  for (const id of [...progress.pendingManualInserts]) {
+    if (isIdInSettledQueue(progress, id)) {
+      clearManualInsertBuckets(progress, id);
+      changed = true;
+    }
+  }
+  for (const id of [...progress.toBeInserted]) {
+    if (
+      isIdInSettledQueue(progress, id) &&
+      !progress.hidden.includes(id)
+    ) {
+      progress.toBeInserted = progress.toBeInserted.filter((x) => x !== id);
+      changed = true;
+    }
+  }
+  if (!changed) return state;
+
+  const hidden = new Set(progress.hidden);
+  drainManualInserts(progress, hidden);
+  if (
+    !progress.currentManualInsert &&
+    !progress.currentAutoInsert &&
+    progress.current === null
+  ) {
+    advance(progress, hidden, opts);
+  }
+  return { ...progress, items: state.items };
 }
 
 /**
@@ -1274,13 +1614,47 @@ export function returnToPending(
   }
   if (queueIndex < 0) return state;
 
+  const opts = resolveOptions(options);
   const progress = snapshotProgress(state);
+  const removedIndex = progress.queue[queueIndex].indexOf(id);
   const sub = progress.queue[queueIndex].filter((x) => x !== id);
+  const mi = progress.currentManualInsert;
+  const wasManualInsertTarget =
+    mi !== null &&
+    mi.targetQueueIndex === queueIndex &&
+    removedIndex >= 0;
+  const inFlightInsertingId = wasManualInsertTarget ? mi.insertingId : null;
+
   if (sub.length === 0) {
     progress.queue = progress.queue.filter((_, i) => i !== queueIndex);
+    if (mi && mi.targetQueueIndex > queueIndex) {
+      mi.targetQueueIndex -= 1;
+    }
   } else {
     progress.queue[queueIndex] = sub;
   }
+
+  const hidden = new Set(progress.hidden);
+  if (wasManualInsertTarget && inFlightInsertingId) {
+    if (sub.length > 0) {
+      // Pulling a row out of the live manual-insert target invalidates
+      // lo/hi/probe — restart the in-flight insert on the shortened sublist.
+      const res = startInsert(sub, inFlightInsertingId);
+      if ('done' in res) {
+        resolveManualInsertAt(progress, res.position, hidden, opts);
+      } else {
+        mi.frame = res;
+      }
+    } else {
+      // Target sublist removed — bounce the in-flight id back to pending
+      // so drain can seed an empty ranking and continue.
+      progress.currentManualInsert = null;
+      if (!progress.pendingManualInserts.includes(inFlightInsertingId)) {
+        progress.pendingManualInserts.unshift(inFlightInsertingId);
+      }
+    }
+  }
+
   if (!progress.toBeInserted.includes(id)) {
     progress.toBeInserted.push(id);
   }
@@ -1623,6 +1997,97 @@ export function reorderInCurrentMerge(
   if (slice === 'merged') frame.merged = arr;
   else if (slice === 'left') frame.left = arr;
   else frame.right = arr;
+  return { ...next, items: state.items };
+}
+
+/**
+ * The array being inserted INTO for the active insert session:
+ *  - manual-insert → the target queue sublist
+ *  - auto-insert   → the popped, growing `ai.target`
+ * Null when no insert frame is active.
+ */
+function activeInsertTarget(state: MergeState): ItemId[] | null {
+  if (state.currentManualInsert) {
+    return state.queue[state.currentManualInsert.targetQueueIndex] ?? null;
+  }
+  if (state.currentAutoInsert?.frame) return state.currentAutoInsert.target;
+  return null;
+}
+
+/**
+ * Whether two positions in the active insert target can be swapped
+ * (both in range, distinct, and an insert session is live). Drives the
+ * enabled state of the LIST-tab ↑/↓ buttons on the "insert-into" list.
+ */
+export function canReorderInsertTarget(
+  state: MergeState,
+  indexA: number,
+  indexB: number,
+): boolean {
+  const arr = activeInsertTarget(state);
+  if (!arr) return false;
+  if (indexA === indexB) return false;
+  if (indexA < 0 || indexA >= arr.length) return false;
+  if (indexB < 0 || indexB >= arr.length) return false;
+  return true;
+}
+
+/**
+ * Swap two items (by absolute index) within the active insert target —
+ * the list being inserted into during a manual- or auto-insert. Used by
+ * the LIST-tab ↑/↓ controls to correct the frozen order mid-insert.
+ *
+ * A swap that touches (or crosses) the in-flight frame's active `[lo, hi]`
+ * window renumbers slots the `lo`/`hi`/`probe` index into, so those bounds
+ * go stale — we cancel-and-restart the current insert over the full
+ * (reordered) range, throwing away the partial binary-search progress
+ * (already-charged comparisons stay counted). A swap sitting ENTIRELY in an
+ * already-decided region (both `< lo` or both `> hi`) leaves the probe valid,
+ * so we keep the frame and skip the restart. Either way we drop the
+ * auto-insert `lastInsertedPosition` anchor: the rest of the run re-searches
+ * full range rather than tightening against a possibly-moved anchor. This
+ * mirrors the insertion engine's `reorderInSorted`.
+ *
+ * Swapping (rather than moving) preserves the array positions of any
+ * hidden items sitting between the two swapped rows, so they still exile
+ * correctly when the insert closes.
+ */
+export function reorderInsertTarget(
+  state: MergeState,
+  indexA: number,
+  indexB: number,
+  options?: MergeOptions,
+): MergeState {
+  if (!canReorderInsertTarget(state, indexA, indexB)) return state;
+  const opts = resolveOptions(options);
+  const next = snapshotProgress(state);
+  if (next.currentManualInsert) {
+    const mi = next.currentManualInsert;
+    const sub = next.queue[mi.targetQueueIndex].slice();
+    [sub[indexA], sub[indexB]] = [sub[indexB], sub[indexA]];
+    next.queue[mi.targetQueueIndex] = sub;
+    if (!mi.frame || reorderDisturbsInsertFrame(mi.frame, indexA, indexB)) {
+      const res = startInsert(sub, mi.insertingId);
+      if ('done' in res) return state;
+      mi.frame = res;
+    }
+  } else if (next.currentAutoInsert?.frame) {
+    const ai = next.currentAutoInsert;
+    const frame = ai.frame;
+    if (!frame) return state;
+    const arr = ai.target.slice();
+    [arr[indexA], arr[indexB]] = [arr[indexB], arr[indexA]];
+    ai.target = arr;
+    if (reorderDisturbsInsertFrame(frame, indexA, indexB)) {
+      const res = startInsert(arr, frame.insertingId);
+      if ('done' in res) return state;
+      ai.frame = res;
+    }
+    ai.lastInsertedPosition = null;
+  } else {
+    return state;
+  }
+  bumpTotalComparisons(next, opts);
   return { ...next, items: state.items };
 }
 

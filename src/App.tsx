@@ -13,7 +13,7 @@ import {
   addItems as engineAddItems,
   comparisonsRemaining as engineComparisonsRemaining,
   dismissHidden as engineDismissHidden,
-  finalizeCompletedState,
+  normalizeLoadedState,
   type EngineOptions,
   forgetHiddenItem as engineForgetHiddenItem,
   getRanking as engineGetRanking,
@@ -40,6 +40,7 @@ import {
   manualInsert,
   reorderInSublist,
   reorderInCurrentMerge,
+  reorderInsertTarget,
   seedAsDoneMerge,
   seedFromSublists,
 } from './lib/queueMergeSort';
@@ -189,7 +190,7 @@ function deserialize(raw: AutosaveBlob | null): SavedSession | null {
     raw.progress.engine === 'insertion'
       ? ({ ...raw.progress, items: raw.items } as InsertionState)
       : ({ ...raw.progress, items: raw.items } as MergeState);
-  const state = finalizeCompletedState(tagged);
+  const state = normalizeLoadedState(tagged);
   return { state, undoRing: raw.undoRing ?? [] };
 }
 
@@ -992,6 +993,19 @@ export function App() {
       setState((cur) => {
         if (!cur || cur.engine !== 'merge') return cur;
         const next = reorderInCurrentMerge(cur, slice, itemIndex, dir);
+        if (next === cur) return cur;
+        pushUndo(cur);
+        return next;
+      });
+    },
+    [pushUndo],
+  );
+
+  const doReorderInsertTarget = useCallback(
+    (indexA: number, indexB: number) => {
+      setState((cur) => {
+        if (!cur || cur.engine !== 'merge') return cur;
+        const next = reorderInsertTarget(cur, indexA, indexB);
         if (next === cur) return cur;
         pushUndo(cur);
         return next;
@@ -2511,6 +2525,7 @@ export function App() {
         onUnhide={doUnhide}
         onReorder={doReorder}
         onReorderInCurrentMerge={doReorderInCurrentMerge}
+        onReorderInsertTarget={doReorderInsertTarget}
         onBreakApart={doBreak}
         onAddItem={doAddItem}
         onAddItems={doAddItemsList}

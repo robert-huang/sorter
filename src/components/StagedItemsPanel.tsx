@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Item, ItemId } from '../lib/types';
 import { useClickOutside } from '../lib/hooks/useClickOutside';
-import { DetailButton } from './DetailButton';
+import { DetailButtonSlot } from './DetailButton';
 
 /**
  * Which engine the current START draft will start in. Non-persisted —
@@ -744,7 +744,7 @@ export function StagedItemsPanel({
                             enrichment) can open the detail panel before
                             the sort starts. Shown on pending rows too. */}
                         {!groupMarked && (
-                          <DetailButton item={it} variant="staged" />
+                          <DetailButtonSlot item={it} variant="staged" />
                         )}
                         {/* Edit (pencil) — opens EditItemModal in the
                             parent. Hidden when the group is marked

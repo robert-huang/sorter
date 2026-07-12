@@ -460,6 +460,44 @@ describe('reorderInSorted (Phase 1 freeze-relax)', () => {
     expect(s1.pending).toEqual([]);
   });
 
+  it('keeps the in-flight frame when the swap is above the active window', () => {
+    const s0 = buildInsertionState({
+      sortedItems: [A, B, C, D, E],
+      pendingItems: [X],
+    }).state;
+    // Narrow to [lo=3, hi=4] (picking right = probe beats X, lo past probe).
+    const s1 = pickRight(s0);
+    expect(s1.current?.lo).toBe(3);
+    expect(s1.current?.probe).toBe(3);
+
+    // Swap indices 0 & 1 — both in the already-decided "ranks above X"
+    // region, so the probe stays valid and the frame is untouched.
+    const s2 = reorderInSorted(s1, 0, 1);
+    expect(s2.sorted).toEqual(['b', 'a', 'c', 'd', 'e']);
+    expect(s2.current?.lo).toBe(3);
+    expect(s2.current?.hi).toBe(4);
+    expect(s2.current?.probe).toBe(3);
+    expect(s2.current?.insertingId).toBe('x');
+    expect(s2.pending).toEqual([]);
+  });
+
+  it('keeps the in-flight frame when the swap is below the active window', () => {
+    const s0 = buildInsertionState({
+      sortedItems: [A, B, C, D, E],
+      pendingItems: [X],
+    }).state;
+    // Narrow to [lo=0, hi=1] (picking left = X beats probe, hi below probe).
+    const s1 = pickLeft(s0);
+    expect(s1.current?.hi).toBe(1);
+
+    // Swap indices 3 & 4 — both below `hi`, already decided to rank under X.
+    const s2 = reorderInSorted(s1, 3, 1);
+    expect(s2.sorted).toEqual(['a', 'b', 'c', 'e', 'd']);
+    expect(s2.current?.lo).toBe(0);
+    expect(s2.current?.hi).toBe(1);
+    expect(s2.current?.insertingId).toBe('x');
+  });
+
   it('snapshot/restore round-trips a reorder + restart cleanly', () => {
     const s0 = buildInsertionState({
       sortedItems: [A, B, C, D, E],
