@@ -243,17 +243,17 @@ function HiddenItemsSection({
                     </span>
                     <span className="actions">
                       {canAct && useRestore && (
-                        <button
-                          className="icon-btn"
+                        <LabeledIconButton
+                          glyph="↺"
+                          label="Restore"
                           onClick={() => onUnhide(id)}
                           title="Restore at old rank"
-                        >
-                          ↺ Restore
-                        </button>
+                        />
                       )}
                       {canAct && !useRestore && (
-                        <button
-                          className="icon-btn"
+                        <LabeledIconButton
+                          glyph="↻"
+                          label="Reinsert"
                           onClick={() =>
                             allowInlineRestore
                               ? onRestoreHidden(id)
@@ -264,22 +264,19 @@ function HiddenItemsSection({
                               ? 'Pull out and binary-insert again'
                               : 'Queue for sorting again'
                           }
-                        >
-                          ↻ Reinsert
-                        </button>
+                        />
                       )}
-                      <button
+                      <LabeledIconButton
                         className="icon-btn danger icon-btn-text"
+                        glyph={<RemoveGlyph />}
+                        label="Dismiss"
                         onClick={() => onForget(id)}
                         title={
                           inRanking
                             ? 'Remove from the sort entirely'
                             : 'Clear from hidden count'
                         }
-                      >
-                        <RemoveGlyph />
-                        <span>Dismiss</span>
-                      </button>
+                      />
                     </span>
                   </div>
                 );
@@ -377,6 +374,27 @@ function Thumb({ item }: { item: Item }) {
   // .thumb font styling — matches the prior single-character look but
   // now shows initials and adds onError fallback for broken URLs.
   return <ItemThumb item={item} className="thumb" placeholderClass="" />;
+}
+
+/** Labeled row action — glyph slot + label with icon-btn-text gap (× Dismiss pattern). */
+function LabeledIconButton({
+  className = 'icon-btn icon-btn-text',
+  glyph,
+  label,
+  ...props
+}: {
+  className?: string;
+  glyph: ReactNode;
+  label: string;
+} & Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'children'>) {
+  return (
+    <button type="button" className={className} {...props}>
+      <span className="icon-btn-glyph-slot" aria-hidden="true">
+        {glyph}
+      </span>
+      <span>{label}</span>
+    </button>
+  );
 }
 
 /** Pencil-icon button that opens the EditItemModal for `item`. */
@@ -513,8 +531,8 @@ const INSERT_CONTEXT_COPY: Record<
   InsertContextKind,
   { title: string; hint: string; targetHeading: string }
 > = {
-  insertion: {
-    title: 'Inserting',
+  'insertion': {
+    title: 'Insertion mode',
     hint: 'Binary-inserting into the sorted list — highlighted rows match the active pair on RANK.',
     targetHeading: 'Inserting into',
   },
@@ -549,23 +567,26 @@ function InsertContextSection({
   onHideRemaining,
   onHideTarget,
   onReorderTarget,
+  onReturnTargetToPending,
 }: {
   state: SortState;
   onOpenEdit: (item: Item) => void;
   /**
-   * × on any "still to insert" row — the in-flight inserting item OR a
+   * × on any "inserting" row — the in-flight inserting item OR a
    * queued one. Dropping orphans the item into Hidden items (reinsert-only,
    * it has no rank slot to restore to). Undoable via the ring.
    */
   onHideRemaining?: (id: string) => void;
-  /** Merge-only: × on a row of the "insert-into" list (removable target). */
+  /** × on a row of the "insert-into" list (removable target). */
   onHideTarget?: (id: string) => void;
   /**
-   * Merge-only: swap two absolute positions in the "insert-into" list.
+   * Swap two absolute positions in the "insert-into" list.
    * Passed absolute indices into `ctx.targetIds` (the full target,
    * including hidden), so swaps preserve hidden items' slots.
    */
   onReorderTarget?: (indexA: number, indexB: number) => void;
+  /** Insertion-only: pull a target row back out for a fresh binary insert (↻). */
+  onReturnTargetToPending?: (id: string) => void;
 }) {
   const ctx = getInsertContext(state);
   if (!ctx) return null;
@@ -634,43 +655,57 @@ function InsertContextSection({
                       {isProbe && (
                         <span className="list-merge-context-tag">probe</span>
                       )}
-                      <ItemRowActions
-                        item={item}
-                        variant="row"
-                        onEdit={onOpenEdit}
-                        reorder={
-                          onReorderTarget ? (
+                      <span className="row-action-glyphs">
+                        <ItemRowActions
+                          item={item}
+                          variant="row"
+                          onEdit={onOpenEdit}
+                          reorder={
+                          onReorderTarget || onReturnTargetToPending ? (
                             <>
-                              <button
-                                className="icon-btn"
-                                onClick={() =>
-                                  prevRow &&
-                                  onReorderTarget(
-                                    row.absoluteIndex,
-                                    prevRow.absoluteIndex,
-                                  )
-                                }
-                                disabled={!prevRow}
-                                title="Nudge up (restarts the current insert)"
-                                aria-label={`Move ${item.label} up`}
-                              >
-                                ↑
-                              </button>
-                              <button
-                                className="icon-btn"
-                                onClick={() =>
-                                  nextRow &&
-                                  onReorderTarget(
-                                    row.absoluteIndex,
-                                    nextRow.absoluteIndex,
-                                  )
-                                }
-                                disabled={!nextRow}
-                                title="Nudge down (restarts the current insert)"
-                                aria-label={`Move ${item.label} down`}
-                              >
-                                ↓
-                              </button>
+                              {onReorderTarget ? (
+                                <>
+                                  <button
+                                    className="icon-btn"
+                                    onClick={() =>
+                                      prevRow &&
+                                      onReorderTarget(
+                                        row.absoluteIndex,
+                                        prevRow.absoluteIndex,
+                                      )
+                                    }
+                                    disabled={!prevRow}
+                                    title="Nudge up (restarts the current insert)"
+                                    aria-label={`Move ${item.label} up`}
+                                  >
+                                    ↑
+                                  </button>
+                                  <button
+                                    className="icon-btn"
+                                    onClick={() =>
+                                      nextRow &&
+                                      onReorderTarget(
+                                        row.absoluteIndex,
+                                        nextRow.absoluteIndex,
+                                      )
+                                    }
+                                    disabled={!nextRow}
+                                    title="Nudge down (restarts the current insert)"
+                                    aria-label={`Move ${item.label} down`}
+                                  >
+                                    ↓
+                                  </button>
+                                </>
+                              ) : null}
+                              {onReturnTargetToPending ? (
+                                <button
+                                  className="icon-btn"
+                                  onClick={() => onReturnTargetToPending(id)}
+                                  title="Pull this item back out and re-insert it (fresh binary search)"
+                                >
+                                  ↻
+                                </button>
+                              ) : null}
                             </>
                           ) : null
                         }
@@ -686,7 +721,8 @@ function InsertContextSection({
                             </button>
                           ) : null
                         }
-                      />
+                        />
+                      </span>
                     </span>
                   </div>
                 );
@@ -697,7 +733,7 @@ function InsertContextSection({
         <div className="list-merge-context-panel">
           <div className="list-merge-context-heading list-merge-context-heading-row">
             <span>
-              {mergeSliceLabel('Still to insert', visibleRemaining.length)}
+              {mergeSliceLabel('Inserting', visibleRemaining.length)}
             </span>
             <button
               type="button"
@@ -738,27 +774,29 @@ function InsertContextSection({
                       {isInserting && (
                         <span className="list-merge-context-tag">inserting</span>
                       )}
-                      <ItemRowActions
-                        item={item}
-                        variant="row"
-                        onEdit={onOpenEdit}
-                        trailing={
-                          onHideRemaining ? (
-                            <button
-                              className="icon-btn danger"
-                              onClick={() => onHideRemaining(id)}
-                              title={
-                                isInserting
-                                  ? 'Remove this item — skip inserting it and move on'
-                                  : 'Remove this queued item — drops it to Hidden items for later reinsert'
-                              }
-                              aria-label={`Remove ${item.label}`}
-                            >
-                              <RemoveGlyph />
-                            </button>
-                          ) : null
-                        }
-                      />
+                      <span className="row-action-glyphs">
+                        <ItemRowActions
+                          item={item}
+                          variant="row"
+                          onEdit={onOpenEdit}
+                          trailing={
+                            onHideRemaining ? (
+                              <button
+                                className="icon-btn danger"
+                                onClick={() => onHideRemaining(id)}
+                                title={
+                                  isInserting
+                                    ? 'Remove this item — skip inserting it and move on'
+                                    : 'Remove this queued item — drops it to Hidden items for later reinsert'
+                                }
+                                aria-label={`Remove ${item.label}`}
+                              >
+                                <RemoveGlyph />
+                              </button>
+                            ) : null
+                          }
+                        />
+                      </span>
                     </span>
                   </div>
                 );
@@ -1107,14 +1145,13 @@ function MergeListView({
                     onEdit={openEdit}
                     trailing={
                       <>
-                        <button
-                          className="icon-btn icon-btn-text"
+                        <LabeledIconButton
+                          glyph="↺"
+                          label="Insert"
                           onClick={() => onManualInsert(id)}
                           disabled={queued || inserting}
                           title="Binary-search this item back into the ranking"
-                        >
-                          ↺ Insert
-                        </button>
+                        />
                         <button
                           className="icon-btn danger"
                           onClick={() => onHide(id)}
@@ -1583,6 +1620,11 @@ function InsertionListView({
           state={state}
           onOpenEdit={openEdit}
           onHideRemaining={onHide}
+          onHideTarget={onHide}
+          onReorderTarget={(indexA, indexB) =>
+            onReorderInSorted(indexA, indexB > indexA ? 1 : -1)
+          }
+          onReturnTargetToPending={onReturnToPending}
         />
       )}
 

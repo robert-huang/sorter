@@ -4258,6 +4258,14 @@ html {
   flex-shrink: 0;
 }
 
+/* Status chip (probe / inserting) sits beside the glyph cluster, not in it. */
+.list-merge-context-row .actions .row-action-glyphs {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
 .list-merge-context-row.list-merge-context-active {
   background: var(--surface);
   border-radius: var(--radius-sm);
@@ -4526,11 +4534,30 @@ html {
   flex-shrink: 0;
 }
 
+/* ⓘ must share the same grid glyph box as ✎/× — .icon-btn.detail's
+   standalone inline-flex + 14px fight place-items:center on LIST rows. */
+.queue-item-row .actions .icon-btn.detail {
+  display: grid;
+  place-items: center;
+  line-height: 0;
+  font-size: 13px;
+}
+
 .icon-btn-glyph {
   display: block;
 }
 
-/* Padded label buttons (↺ Insert, × Dismiss) — not square glyphs. */
+/* Fixed-width glyph column inside labeled icon buttons (↺ Insert, ↻ Reinsert, × Dismiss). */
+.icon-btn.icon-btn-text .icon-btn-glyph-slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 12px;
+  line-height: 1;
+}
+
+/* Padded label buttons (↺ Insert, ↻ Reinsert, × Dismiss) — not square glyphs. */
 .icon-btn.icon-btn-text {
   display: inline-flex;
   align-items: center;
@@ -4540,6 +4567,7 @@ html {
   height: auto;
   min-height: 0;
   padding: 2px 6px;
+  flex-shrink: 0;
 }
 
 .icon-btn {

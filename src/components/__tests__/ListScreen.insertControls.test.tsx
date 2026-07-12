@@ -94,7 +94,7 @@ describe('ListScreen · insert-context LIST-tab controls (merge auto-insert)', (
     return seedFromSublists({ sublists: [[A, B, C, D, E], [F]], extras: [] });
   }
 
-  it('drops the in-flight inserting item via the × in "Still to insert"', () => {
+  it('drops the in-flight inserting item via the × in "Inserting"', () => {
     const onHide = vi.fn();
     renderList(makeProps(autoInsertState(), { onHide }));
 
@@ -141,7 +141,7 @@ describe('ListScreen · insert-context LIST-tab controls (insertion engine)', ()
     }).state;
   }
 
-  it('drops the in-flight inserting item via the × in "Still to insert"', () => {
+  it('drops the in-flight inserting item via the × in "Inserting"', () => {
     const onHide = vi.fn();
     renderList(makeProps(insertionState(), { onHide }));
 
@@ -149,6 +149,39 @@ describe('ListScreen · insert-context LIST-tab controls (insertion engine)', ()
     expect(btn).not.toBeNull();
     act(() => btn!.click());
     expect(onHide).toHaveBeenCalledWith('x');
+  });
+
+  it('removes a target row via its × in "Inserting into"', () => {
+    const onHide = vi.fn();
+    renderList(makeProps(insertionState(), { onHide }));
+
+    const btn = byAria('Remove A');
+    expect(btn).not.toBeNull();
+    act(() => btn!.click());
+    expect(onHide).toHaveBeenCalledWith('a');
+  });
+
+  it('reorders a target row via ↓ in "Inserting into"', () => {
+    const onReorderInSorted = vi.fn();
+    renderList(makeProps(insertionState(), { onReorderInSorted }));
+
+    const btn = byAria('Move A down');
+    expect(btn).not.toBeNull();
+    act(() => btn!.click());
+    expect(onReorderInSorted).toHaveBeenCalledWith(0, 1);
+  });
+
+  it('pulls a target row back out via ↻ in "Inserting into"', () => {
+    const onReturnToPending = vi.fn();
+    renderList(makeProps(insertionState(), { onReturnToPending }));
+
+    const sortedSection = container.querySelector('.list-merging');
+    const reinsertBtn = sortedSection?.querySelector(
+      'button[title="Pull this item back out and re-insert it (fresh binary search)"]',
+    );
+    expect(reinsertBtn).not.toBeNull();
+    act(() => reinsertBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(onReturnToPending).toHaveBeenCalledWith('a');
   });
 
   it('omits inline ↺ Restore on in-slot hidden rows while sort is active', () => {
