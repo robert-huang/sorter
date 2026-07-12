@@ -2488,6 +2488,13 @@ html {
   margin-bottom: 16px;
 }
 
+.anime-to-anime-recovery {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
 .anime-to-anime-current-title {
   margin: 0 0 12px;
   font-size: 18px;

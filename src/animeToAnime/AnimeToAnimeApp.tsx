@@ -496,6 +496,16 @@ export function AnimeToAnimeApp() {
     let cancelled = false;
     setLoading(true);
     setError(null);
+    // Clear the incoming node's panel data up front. Otherwise a failed
+    // (non-429) load leaves the previous node's panel on screen — hiding the
+    // recovery refresh button and, on anime→anime hops, showing stale
+    // wrong-entry data. With the panel cleared, a failure reliably surfaces
+    // the recovery button so the round isn't lost.
+    if (current.kind === 'anime') {
+      setCurrentMedia(null);
+    } else {
+      setStaffHeader(null);
+    }
     void (async () => {
       const ctx = importCtx.current;
       try {
@@ -724,6 +734,14 @@ export function AnimeToAnimeApp() {
 
   const endpointsSwapDisabled = !startMedia || !goalMedia;
 
+  // The play panel only renders once its load succeeds. When a node is
+  // selected but its panel is absent (initial load, failed load, or a fresh
+  // hop) we surface a standalone recovery refresh button so a non-429 API
+  // failure can be retried without giving up the round.
+  const currentPanelShown =
+    (current?.kind === 'anime' && !!currentMedia) ||
+    (current?.kind === 'staff' && !!staffHeader);
+
   const apiWaitBanner =
     apiWait &&
     apiWaitSecondsLeft !== null && (
@@ -879,7 +897,23 @@ export function AnimeToAnimeApp() {
                 </button>
               </div>
 
-              {loading && <p className="settings-status">Loading…</p>}
+              {loading && currentPanelShown && (
+                <p className="settings-status">Loading…</p>
+              )}
+
+              {current && !currentPanelShown && (
+                <div className="anime-to-anime-recovery">
+                  <button
+                    type="button"
+                    className="btn primary anime-to-anime-recovery-btn"
+                    onClick={onRefreshPlayList}
+                    disabled={loading}
+                    title="Refetch this entry from AniList"
+                  >
+                    {loading ? 'Loading…' : '↻ Refresh from AniList'}
+                  </button>
+                </div>
+              )}
 
               {current?.kind === 'anime' && currentMedia && currentAnimeAnilistLink && (
                 <section className="anime-to-anime-play-panel">
