@@ -24,13 +24,12 @@ import {
 import {
   getPair,
   getPeekRightIds,
-  getRanking,
   hideItem,
   pickLeft,
   pickRight,
   seedFromSublists,
 } from '../queueMergeSort';
-import type { InsertFrame, Item, MergeState } from '../types';
+import type { InsertFrame, Item, ItemId, MergeState } from '../types';
 
 const A: Item = { id: 'a', label: 'A' };
 const B: Item = { id: 'b', label: 'B' };
@@ -253,7 +252,7 @@ describe('hidden insert frame invariants (insertion engine)', () => {
     let s = buildInsertionState({
       sortedItems: items,
       pendingItems: [X, Y],
-      pendingRunIds: ['run', 'run'],
+      pendingRunIds: [0, 0],
     }).state;
     s = hideInsertionItem(s, 'f');
     s = hideInsertionItem(s, 'g');
