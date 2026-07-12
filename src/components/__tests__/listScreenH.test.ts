@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   formatOrphanHiddenId,
-  insertContextBoundTag,
+  insertContextGapLabel,
   getInsertContext,
   groupInsertionPending,
   hiddenIdsNotInRanking,
@@ -61,8 +61,6 @@ describe('getInsertContext', () => {
       probeId: 't2',
       windowLo: 0,
       windowHi: 2,
-      loTagId: 't1',
-      hiTagId: 't3',
     });
   });
 
@@ -91,8 +89,6 @@ describe('getInsertContext', () => {
       probeId: 'q1',
       windowLo: 0,
       windowHi: 2,
-      loTagId: 'q1',
-      hiTagId: 'q3',
     });
   });
 
@@ -121,8 +117,6 @@ describe('getInsertContext', () => {
       probeId: 's1',
       windowLo: 0,
       windowHi: 1,
-      loTagId: 's1',
-      hiTagId: 's2',
     });
   });
 
@@ -137,7 +131,7 @@ describe('getInsertContext', () => {
     ).toBeNull();
   });
 
-  it('skips hidden endpoints when deriving lo/hi tag ids', () => {
+  it('keeps window bounds with hidden endpoints', () => {
     const ctx = getInsertContext(
       mergeState({
         queue: [['q1', 'q2', 'q3', 'q4']],
@@ -156,8 +150,6 @@ describe('getInsertContext', () => {
     );
     expect(ctx?.windowLo).toBe(0);
     expect(ctx?.windowHi).toBe(3);
-    expect(ctx?.loTagId).toBe('q2');
-    expect(ctx?.hiTagId).toBe('q3');
     expect(ctx?.probeId).toBe('q3');
   });
 });
@@ -169,45 +161,20 @@ describe('mergeSliceLabel', () => {
   });
 });
 
-describe('insertContextBoundTag', () => {
-  const base = {
-    loTagId: 'a' as const,
-    hiTagId: 'c' as const,
-    probeId: 'b' as const,
-  };
-
-  it('combines lo and probe on the same row', () => {
-    expect(
-      insertContextBoundTag(
-        { loTagId: 'kaguya', hiTagId: 'awajima', probeId: 'kaguya' },
-        'kaguya',
-      ),
-    ).toBe('lo · probe');
+describe('insertContextGapLabel', () => {
+  it('labels gap 0 as lo and gap n as hi for a full window', () => {
+    expect(insertContextGapLabel(0, 0, 2)).toBe('lo');
+    expect(insertContextGapLabel(3, 0, 2)).toBe('hi');
+    expect(insertContextGapLabel(1, 0, 2)).toBeNull();
   });
 
-  it('returns single labels when roles do not overlap', () => {
-    expect(insertContextBoundTag(base, 'a')).toBe('lo');
-    expect(insertContextBoundTag(base, 'b')).toBe('probe');
-    expect(insertContextBoundTag(base, 'c')).toBe('hi');
-    expect(insertContextBoundTag(base, 'x')).toBeNull();
+  it('labels both ends when the window collapses to one gap', () => {
+    expect(insertContextGapLabel(2, 2, 1)).toBe('lo · hi');
   });
 
-  it('combines probe and hi on the same row', () => {
-    expect(
-      insertContextBoundTag(
-        { loTagId: 'a', hiTagId: 'b', probeId: 'b' },
-        'b',
-      ),
-    ).toBe('probe · hi');
-  });
-
-  it('combines all three when lo, hi, and probe coincide', () => {
-    expect(
-      insertContextBoundTag(
-        { loTagId: 'x', hiTagId: 'x', probeId: 'x' },
-        'x',
-      ),
-    ).toBe('lo · probe · hi');
+  it('labels lo and hi gaps for a narrowed window', () => {
+    expect(insertContextGapLabel(14, 14, 15)).toBe('lo');
+    expect(insertContextGapLabel(16, 14, 15)).toBe('hi');
   });
 });
 
@@ -223,8 +190,6 @@ describe('insertContextInsertingLabel', () => {
           probeId: 'x',
           windowLo: 0,
           windowHi: 0,
-          loTagId: null,
-          hiTagId: null,
         },
         3,
       ),
@@ -239,8 +204,6 @@ describe('insertContextInsertingLabel', () => {
           probeId: 'q',
           windowLo: 0,
           windowHi: 0,
-          loTagId: null,
-          hiTagId: null,
         },
         2,
       ),
@@ -260,8 +223,6 @@ describe('insertContextInsertingLabel', () => {
           probeId: 't',
           windowLo: 0,
           windowHi: 0,
-          loTagId: null,
-          hiTagId: null,
         },
         2,
       ),
@@ -278,8 +239,6 @@ describe('insertContextInsertingLabel', () => {
           probeId: 't',
           windowLo: 0,
           windowHi: 0,
-          loTagId: null,
-          hiTagId: null,
         },
         1,
       ),

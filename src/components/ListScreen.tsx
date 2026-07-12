@@ -22,7 +22,7 @@ import {
   autoInsertSourceRowState,
   getInsertContext,
   groupInsertionPending,
-  insertContextBoundTag,
+  insertContextGapLabel,
   insertContextInsertingLabel,
   insertionSortFromSublists,
   listHeaderItemCount,
@@ -534,17 +534,17 @@ const INSERT_CONTEXT_COPY: Record<
 > = {
   'insertion': {
     title: 'Insertion mode',
-    hint: 'Binary-inserting into the sorted list — highlighted rows match the active pair on RANK.',
+    hint: 'Binary-inserting into the sorted list — highlighted rows are still in play; accent lines mark possible landing slots.',
     targetHeading: 'Inserting into',
   },
   'merge-manual': {
     title: 'Manual insert',
-    hint: 'Inserting an exiled item into a queue sublist — highlighted rows match RANK.',
+    hint: 'Inserting an exiled item into a queue sublist — highlighted rows match RANK; accent lines mark possible landing slots.',
     targetHeading: 'Inserting into',
   },
   'merge-auto': {
     title: 'Sublist merge',
-    hint: 'Inserting the smaller sublist into the larger one — highlighted rows match the active pair on RANK.',
+    hint: 'Inserting the smaller sublist into the larger one — highlighted rows match RANK; accent lines mark possible landing slots.',
     targetHeading: 'Merging into',
   },
 };
@@ -560,6 +560,15 @@ function shouldShowCurrentComparison(state: SortState): boolean {
   if (!getPair(state)) return false;
   if (state.engine === 'insertion') return true;
   return state.current === null;
+}
+
+function InsertContextGapLine({ label }: { label: string }) {
+  return (
+    <div className="list-merge-context-gap" role="presentation">
+      <span className="list-merge-context-gap-label">{label}</span>
+      <div className="list-merge-context-gap-line" aria-hidden="true" />
+    </div>
+  );
 }
 
 function InsertContextSection({
@@ -640,104 +649,123 @@ function InsertContextSection({
                   (empty)
                 </span>
               )}
-              {targetRows.map((row, ii) => {
-                const id = row.id;
-                const item = state.items[id];
-                if (!item) return null;
-                const isProbe = id === ctx.probeId;
-                const boundTag = insertContextBoundTag(ctx, id);
-                const inWindow =
-                  row.absoluteIndex >= ctx.windowLo &&
-                  row.absoluteIndex <= ctx.windowHi;
-                const prevRow = targetRows[ii - 1];
-                const nextRow = targetRows[ii + 1];
-                return (
-                  <div
-                    key={id}
-                    ref={isProbe ? probeRowRef : undefined}
-                    className={`queue-item-row list-merge-context-row${inWindow ? ' list-merge-context-in-window' : ' list-merge-context-out-of-window'}${isProbe ? ' list-merge-context-active' : ''}`}
-                  >
-                    <span className="rank">{ii + 1}.</span>
-                    <Thumb item={item} />
-                    <span className="label-cell" title={item.label}>
-                      {item.label}
-                    </span>
-                    <span className="actions">
-                      {boundTag && (
-                        <span className="list-merge-context-tag">{boundTag}</span>
-                      )}
-                      <span className="row-action-glyphs">
-                        <ItemRowActions
-                          item={item}
-                          variant="row"
-                          onEdit={onOpenEdit}
-                          reorder={
-                          onReorderTarget || onReturnTargetToPending ? (
-                            <>
-                              {onReorderTarget ? (
-                                <>
-                                  <button
-                                    className="icon-btn"
-                                    onClick={() =>
-                                      prevRow &&
-                                      onReorderTarget(
-                                        row.absoluteIndex,
-                                        prevRow.absoluteIndex,
-                                      )
-                                    }
-                                    disabled={!prevRow}
-                                    title="Nudge up (restarts the current insert)"
-                                    aria-label={`Move ${item.label} up`}
-                                  >
-                                    ↑
-                                  </button>
-                                  <button
-                                    className="icon-btn"
-                                    onClick={() =>
-                                      nextRow &&
-                                      onReorderTarget(
-                                        row.absoluteIndex,
-                                        nextRow.absoluteIndex,
-                                      )
-                                    }
-                                    disabled={!nextRow}
-                                    title="Nudge down (restarts the current insert)"
-                                    aria-label={`Move ${item.label} down`}
-                                  >
-                                    ↓
-                                  </button>
-                                </>
-                              ) : null}
-                              {onReturnTargetToPending ? (
-                                <button
-                                  className="icon-btn"
-                                  onClick={() => onReturnTargetToPending(id)}
-                                  title="Pull this item back out and re-insert it (fresh binary search)"
-                                >
-                                  ↻
-                                </button>
-                              ) : null}
-                            </>
-                          ) : null
-                        }
-                        trailing={
-                          onHideTarget ? (
-                            <button
-                              className="icon-btn danger"
-                              onClick={() => onHideTarget(id)}
-                              title="Remove this item from the list being inserted into"
-                              aria-label={`Remove ${item.label}`}
-                            >
-                              <RemoveGlyph />
-                            </button>
-                          ) : null
-                        }
-                        />
+              {(() => {
+                const nodes: ReactNode[] = [];
+                let visibleRank = 0;
+                for (let gap = 0; gap <= ctx.targetIds.length; gap += 1) {
+                  const gapLabel = insertContextGapLabel(
+                    gap,
+                    ctx.windowLo,
+                    ctx.windowHi,
+                  );
+                  if (gapLabel) {
+                    nodes.push(
+                      <InsertContextGapLine
+                        key={`gap-${gap}`}
+                        label={gapLabel}
+                      />,
+                    );
+                  }
+                  if (gap >= ctx.targetIds.length) continue;
+                  const id = ctx.targetIds[gap];
+                  if (hidden.has(id)) continue;
+                  const item = state.items[id];
+                  if (!item) continue;
+                  visibleRank += 1;
+                  const isProbe = id === ctx.probeId;
+                  const inWindow =
+                    gap >= ctx.windowLo && gap <= ctx.windowHi;
+                  const prevRow = targetRows[visibleRank - 2];
+                  const nextRow = targetRows[visibleRank];
+                  nodes.push(
+                    <div
+                      key={id}
+                      ref={isProbe ? probeRowRef : undefined}
+                      className={`queue-item-row list-merge-context-row${inWindow ? ' list-merge-context-in-window' : ' list-merge-context-out-of-window'}${isProbe ? ' list-merge-context-active' : ''}`}
+                    >
+                      <span className="rank">{visibleRank}.</span>
+                      <Thumb item={item} />
+                      <span className="label-cell" title={item.label}>
+                        {item.label}
                       </span>
-                    </span>
-                  </div>
-                );
-              })}
+                      <span className="actions">
+                        {isProbe && (
+                          <span className="list-merge-context-tag">probe</span>
+                        )}
+                        <span className="row-action-glyphs">
+                          <ItemRowActions
+                            item={item}
+                            variant="row"
+                            onEdit={onOpenEdit}
+                            reorder={
+                            onReorderTarget || onReturnTargetToPending ? (
+                              <>
+                                {onReorderTarget ? (
+                                  <>
+                                    <button
+                                      className="icon-btn"
+                                      onClick={() =>
+                                        prevRow &&
+                                        onReorderTarget(
+                                          gap,
+                                          prevRow.absoluteIndex,
+                                        )
+                                      }
+                                      disabled={!prevRow}
+                                      title="Nudge up (restarts the current insert)"
+                                      aria-label={`Move ${item.label} up`}
+                                    >
+                                      ↑
+                                    </button>
+                                    <button
+                                      className="icon-btn"
+                                      onClick={() =>
+                                        nextRow &&
+                                        onReorderTarget(
+                                          gap,
+                                          nextRow.absoluteIndex,
+                                        )
+                                      }
+                                      disabled={!nextRow}
+                                      title="Nudge down (restarts the current insert)"
+                                      aria-label={`Move ${item.label} down`}
+                                    >
+                                      ↓
+                                    </button>
+                                  </>
+                                ) : null}
+                                {onReturnTargetToPending ? (
+                                  <button
+                                    className="icon-btn"
+                                    onClick={() => onReturnTargetToPending(id)}
+                                    title="Pull this item back out and re-insert it (fresh binary search)"
+                                  >
+                                    ↻
+                                  </button>
+                                ) : null}
+                              </>
+                            ) : null
+                          }
+                          trailing={
+                            onHideTarget ? (
+                              <button
+                                className="icon-btn danger"
+                                onClick={() => onHideTarget(id)}
+                                title="Remove this item from the list being inserted into"
+                                aria-label={`Remove ${item.label}`}
+                              >
+                                <RemoveGlyph />
+                              </button>
+                            ) : null
+                          }
+                          />
+                        </span>
+                      </span>
+                    </div>,
+                  );
+                }
+                return nodes;
+              })()}
             </div>
           </div>
         </div>

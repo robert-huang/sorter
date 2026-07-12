@@ -64,7 +64,7 @@
   --accent: #6b8aff;
   --accent-hover: #8ea4ff;
   --accent-soft: #1a2156;
-  --insert-window-bg: color-mix(in srgb, var(--accent) 9%, var(--surface));
+  --insert-window-bg: color-mix(in srgb, var(--accent) 5%, var(--surface));
   --danger: #ff7a7a;
   --danger-soft: #4a1f1f;
   --warn-bg: #4a4017;
@@ -4271,6 +4271,31 @@ html {
 .list-merge-context-row.list-merge-context-in-window {
   background: var(--insert-window-bg);
   border-radius: var(--radius-sm);
+}
+
+.list-merge-context-gap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 6px;
+}
+
+.list-merge-context-gap-label {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.list-merge-context-gap-line {
+  flex: 1;
+  min-width: 0;
+  height: 2px;
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: 1px;
 }
 
 .list-merge-context-row.list-merge-context-out-of-window .label-cell {
