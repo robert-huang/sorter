@@ -308,17 +308,17 @@ export function characterStubRowToParams(row: CharacterStubRow): SqlBindable[] {
   return CHARACTER_STUB_COLS.map((c) => row[c]);
 }
 
-type ExpansionPatch = {
+type MediaCastExpansionPatch = {
   charactersFetchedAt: number | null;
   staffFetchedAt: number | null;
   charactersComplete: boolean;
   staffComplete: boolean;
 };
 
-async function readExpansionPatch(
+export async function readMediaCastExpansionPatch(
   ctx: AnilistImportContext,
   mediaId: number,
-): Promise<ExpansionPatch | null> {
+): Promise<MediaCastExpansionPatch | null> {
   const rows = await ctx.db.exec(
     `SELECT characters_fetched_at, staff_fetched_at, characters_complete, staff_complete
        FROM media_cast_expansion WHERE media_id = ?`,
@@ -616,7 +616,7 @@ export async function listedMediaNeedsSourceRepair(
 }
 
 /** Cast junction tables FK to `media` — fetch full metadata when missing or forced. */
-async function ensureMediaRowForCastExpansion(
+export async function ensureMediaRowForCastExpansion(
   ctx: AnilistImportContext,
   mediaId: number,
   options: { refreshMetadata?: boolean } = {},
@@ -648,68 +648,84 @@ async function ensureMediaRowForCastExpansion(
   return true;
 }
 
-export async function expandAnilistMediaDetail(
+/** Batch variant of {@link ensureMediaRowForCastExpansion}. */
+export async function ensureMediaRowsForCastExpansion(
   ctx: AnilistImportContext,
-  mediaId: number,
-  options: ExpandAnilistMediaDetailOptions = {},
-): Promise<ExpandAnilistMediaDetailResult | null> {
-  const perPage = options.perPage ?? DEFAULT_DETAIL_PER_PAGE;
-  const language = options.voiceActorLanguage ?? DEFAULT_VOICE_ACTOR_LANGUAGE;
-  const scope = options.scope ?? 'all';
-  const now = ctx.now();
-
-  if (!(await ensureMediaRowForCastExpansion(ctx, mediaId, { refreshMetadata: options.force }))) {
-    return null;
+  mediaIds: readonly number[],
+  options: { refreshMetadata?: boolean } = {},
+): Promise<Set<number>> {
+  const unique = [...new Set(mediaIds)];
+  if (unique.length === 0) {
+    return new Set();
   }
 
-  const existing = await readExpansionPatch(ctx, mediaId);
-
-  let characterEdges: AnilistMediaCharacterEdgeGql[] = [];
-  let staffEdges: AnilistMediaStaffEdgeGql[] = [];
-  let characterPagesFetched = 0;
-  let staffPagesFetched = 0;
-  let charactersComplete = existing?.charactersComplete ?? false;
-  let staffComplete = existing?.staffComplete ?? false;
-  let charactersFetchedAt = existing?.charactersFetchedAt ?? null;
-  let staffFetchedAt = existing?.staffFetchedAt ?? null;
-
-  if (scope === 'all' || scope === 'characters') {
-    const charResult = await fetchCharacterPages(
-      ctx,
-      mediaId,
-      perPage,
-      language,
-      options.charactersMaxPages,
-    );
-    if (!charResult) {
-      return null;
+  const placeholders = unique.map(() => '?').join(', ');
+  const existingRows = await ctx.db.exec(
+    `SELECT id FROM media WHERE id IN (${placeholders})`,
+    unique,
+  );
+  const ok = new Set(existingRows.map((row) => Number(row.id)));
+  const toFetch: number[] = [];
+  for (const mediaId of unique) {
+    if (!ok.has(mediaId) || options.refreshMetadata) {
+      toFetch.push(mediaId);
     }
-    characterEdges = charResult.edges;
-    characterPagesFetched = charResult.pagesFetched;
-    charactersComplete = charResult.complete;
-    charactersFetchedAt = now;
   }
 
-  if (scope === 'all' || scope === 'staff') {
-    const staffResult = await fetchStaffPages(
-      ctx,
-      mediaId,
-      perPage,
-      options.staffMaxPages,
-    );
-    if (!staffResult) {
-      if (scope === 'staff') {
-        return null;
+  if (toFetch.length > 0) {
+    const nodes = await fetchMediaNodesByIds(ctx, toFetch);
+    await upsertRepairedMediaNodes(ctx, nodes);
+    for (const node of nodes) {
+      ok.add(node.id);
+    }
+    const found = new Set(nodes.map((node) => node.id));
+    for (const mediaId of toFetch) {
+      if (!found.has(mediaId)) {
+        if (await ensureMediaRowForCastExpansion(ctx, mediaId, options)) {
+          ok.add(mediaId);
+        }
       }
-    } else {
-      staffEdges = staffResult.edges;
-      staffPagesFetched = staffResult.pagesFetched;
-      staffComplete = staffResult.complete;
-      staffFetchedAt = now;
     }
   }
 
+  return ok;
+}
+
+export type PersistMediaCastExpansionInput = {
+  mediaId: number;
+  scope: ExpandAnilistMediaDetailScope;
+  characterEdges: AnilistMediaCharacterEdgeGql[];
+  staffEdges: AnilistMediaStaffEdgeGql[];
+  language: AnilistStaffLanguage;
+  charactersComplete: boolean;
+  staffComplete: boolean;
+  charactersFetchedAt: number | null;
+  staffFetchedAt: number | null;
+  existing: MediaCastExpansionPatch | null;
+  characterPagesFetched?: number;
+  staffPagesFetched?: number;
+};
+
+export async function persistMediaCastExpansion(
+  ctx: AnilistImportContext,
+  input: PersistMediaCastExpansionInput,
+): Promise<ExpandAnilistMediaDetailResult> {
+  const {
+    mediaId,
+    scope,
+    characterEdges,
+    staffEdges,
+    language,
+    charactersComplete,
+    staffComplete,
+    charactersFetchedAt,
+    staffFetchedAt,
+    existing,
+    characterPagesFetched = 0,
+    staffPagesFetched = 0,
+  } = input;
   const nowTs = ctx.now();
+
   const characterRows: CharacterRow[] = characterEdges.map((e) =>
     mapCharacterRow(e.node, nowTs),
   );
@@ -786,7 +802,7 @@ export async function expandAnilistMediaDetail(
   const legacyFetchedAt = Math.max(
     charactersFetchedAt ?? 0,
     staffFetchedAt ?? 0,
-    existing ? 0 : now,
+    existing ? 0 : nowTs,
   );
 
   stmts.push({
@@ -844,4 +860,81 @@ export async function expandAnilistMediaDetail(
     charactersComplete,
     staffComplete,
   };
+}
+
+export async function expandAnilistMediaDetail(
+  ctx: AnilistImportContext,
+  mediaId: number,
+  options: ExpandAnilistMediaDetailOptions = {},
+): Promise<ExpandAnilistMediaDetailResult | null> {
+  const perPage = options.perPage ?? DEFAULT_DETAIL_PER_PAGE;
+  const language = options.voiceActorLanguage ?? DEFAULT_VOICE_ACTOR_LANGUAGE;
+  const scope = options.scope ?? 'all';
+  const now = ctx.now();
+
+  if (!(await ensureMediaRowForCastExpansion(ctx, mediaId, { refreshMetadata: options.force }))) {
+    return null;
+  }
+
+  const existing = await readMediaCastExpansionPatch(ctx, mediaId);
+
+  let characterEdges: AnilistMediaCharacterEdgeGql[] = [];
+  let staffEdges: AnilistMediaStaffEdgeGql[] = [];
+  let characterPagesFetched = 0;
+  let staffPagesFetched = 0;
+  let charactersComplete = existing?.charactersComplete ?? false;
+  let staffComplete = existing?.staffComplete ?? false;
+  let charactersFetchedAt = existing?.charactersFetchedAt ?? null;
+  let staffFetchedAt = existing?.staffFetchedAt ?? null;
+
+  if (scope === 'all' || scope === 'characters') {
+    const charResult = await fetchCharacterPages(
+      ctx,
+      mediaId,
+      perPage,
+      language,
+      options.charactersMaxPages,
+    );
+    if (!charResult) {
+      return null;
+    }
+    characterEdges = charResult.edges;
+    characterPagesFetched = charResult.pagesFetched;
+    charactersComplete = charResult.complete;
+    charactersFetchedAt = now;
+  }
+
+  if (scope === 'all' || scope === 'staff') {
+    const staffResult = await fetchStaffPages(
+      ctx,
+      mediaId,
+      perPage,
+      options.staffMaxPages,
+    );
+    if (!staffResult) {
+      if (scope === 'staff') {
+        return null;
+      }
+    } else {
+      staffEdges = staffResult.edges;
+      staffPagesFetched = staffResult.pagesFetched;
+      staffComplete = staffResult.complete;
+      staffFetchedAt = now;
+    }
+  }
+
+  return persistMediaCastExpansion(ctx, {
+    mediaId,
+    scope,
+    characterEdges,
+    staffEdges,
+    language,
+    charactersComplete,
+    staffComplete,
+    charactersFetchedAt,
+    staffFetchedAt,
+    existing,
+    characterPagesFetched,
+    staffPagesFetched,
+  });
 }

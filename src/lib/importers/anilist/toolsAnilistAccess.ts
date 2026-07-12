@@ -5,7 +5,14 @@
  */
 
 import type { AnilistDbExecutor, AnilistImportContext } from './context';
-import { ensureMediaCastExpanded, ensureCharacterMedia, ensureStaffFilmography } from './ensureGraph';
+import {
+  ensureMediaCastExpanded,
+  ensureMediaCastExpandedBatch,
+  ensureCharacterMedia,
+  ensureCharacterMediaBatch,
+  ensureStaffFilmography,
+  ensureStaffFilmographyBatch,
+} from './ensureGraph';
 import { repairListedMediaNullSource } from './lazyExpansion';
 import {
   getCharacterMediaFetchedAt,
@@ -120,6 +127,18 @@ export async function ensureStaffFilmographyFresh(
   await ensureStaffFilmographyFreshWithContext(getToolsImportContext(), staffId, options);
 }
 
+export async function ensureStaffFilmographyFreshBatch(
+  staffIds: readonly number[],
+  options?: ToolsFetchOptions,
+): Promise<void> {
+  if (staffIds.length === 0) {
+    return;
+  }
+  const ctx = getToolsImportContext();
+  const force = options?.forceRefresh ?? false;
+  await ensureStaffFilmographyBatch(ctx, staffIds, { force });
+}
+
 export async function ensureCharacterMediaFresh(
   characterId: number,
   options?: ToolsFetchOptions,
@@ -132,6 +151,18 @@ export async function ensureCharacterMediaFresh(
     !hasData ||
     needsGraphDataRefresh(fetchedAt, options);
   await ensureCharacterMedia(ctx, characterId, { force });
+}
+
+export async function ensureCharacterMediaFreshBatch(
+  characterIds: readonly number[],
+  options?: ToolsFetchOptions,
+): Promise<void> {
+  if (characterIds.length === 0) {
+    return;
+  }
+  const ctx = getToolsImportContext();
+  const force = options?.forceRefresh ?? false;
+  await ensureCharacterMediaBatch(ctx, characterIds, { force });
 }
 
 export async function ensureMediaCastFreshWithContext(
@@ -155,6 +186,20 @@ export async function ensureMediaCastFresh(
   options?: ToolsFetchOptions,
 ): Promise<void> {
   await ensureMediaCastFreshWithContext(getToolsImportContext(), mediaId, options);
+}
+
+export async function ensureMediaCastFreshBatch(
+  mediaIds: readonly number[],
+  options?: ToolsFetchOptions,
+): Promise<void> {
+  if (mediaIds.length === 0) {
+    return;
+  }
+  const ctx = getToolsImportContext();
+  await ensureMediaCastExpandedBatch(ctx, mediaIds, {
+    force: options?.forceRefresh ?? false,
+    staleRefresh: options,
+  });
 }
 
 /**

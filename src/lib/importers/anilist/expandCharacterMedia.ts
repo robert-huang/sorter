@@ -80,32 +80,17 @@ async function fetchCharacterMediaPages(
   return { edges: allEdges, pagesFetched };
 }
 
-export async function expandCharacterMedia(
+export async function persistCharacterMediaExpansion(
   ctx: AnilistImportContext,
   characterId: number,
-  options: ExpandCharacterMediaOptions = {},
-): Promise<ExpandCharacterMediaResult | null> {
-  const perPage = options.perPage ?? DEFAULT_CHARACTER_MEDIA_PER_PAGE;
+  edges: AnilistCharacterMediaEdgeGql[],
+  options: {
+    voiceActorLanguage?: AnilistStaffLanguage;
+    pagesFetched: number;
+  },
+): Promise<ExpandCharacterMediaResult> {
   const language = options.voiceActorLanguage ?? DEFAULT_VOICE_ACTOR_LANGUAGE;
   const now = ctx.now();
-
-  const { edges, pagesFetched } = await fetchCharacterMediaPages(
-    ctx,
-    characterId,
-    perPage,
-    options.maxPages,
-  );
-
-  if (edges.length === 0) {
-    const probe = await ctx.executeQuery<AnilistCharacterVoiceMediaResponse>(
-      TOOLS_CHARACTER_VOICE_MEDIA_QUERY,
-      { id: characterId, page: 1, perPage },
-    );
-    if (!probe?.Character) {
-      return null;
-    }
-  }
-
   const appearance = mapCharacterMediaAppearanceData(characterId, edges, language, now);
   const stmts: Array<{ sql: string; params: readonly SqlBindable[] }> = [];
 
@@ -146,8 +131,39 @@ export async function expandCharacterMedia(
 
   return {
     characterId,
-    pagesFetched,
+    pagesFetched: options.pagesFetched,
     mediaUpserted: appearance.mediaRows.length,
     cvaWritten: appearance.cvaRows.length,
   };
+}
+
+export async function expandCharacterMedia(
+  ctx: AnilistImportContext,
+  characterId: number,
+  options: ExpandCharacterMediaOptions = {},
+): Promise<ExpandCharacterMediaResult | null> {
+  const perPage = options.perPage ?? DEFAULT_CHARACTER_MEDIA_PER_PAGE;
+  const language = options.voiceActorLanguage ?? DEFAULT_VOICE_ACTOR_LANGUAGE;
+
+  const { edges, pagesFetched } = await fetchCharacterMediaPages(
+    ctx,
+    characterId,
+    perPage,
+    options.maxPages,
+  );
+
+  if (edges.length === 0) {
+    const probe = await ctx.executeQuery<AnilistCharacterVoiceMediaResponse>(
+      TOOLS_CHARACTER_VOICE_MEDIA_QUERY,
+      { id: characterId, page: 1, perPage },
+    );
+    if (!probe?.Character) {
+      return null;
+    }
+  }
+
+  return persistCharacterMediaExpansion(ctx, characterId, edges, {
+    voiceActorLanguage: language,
+    pagesFetched,
+  });
 }

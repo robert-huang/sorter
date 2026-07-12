@@ -155,44 +155,23 @@ async function fetchStaffMediaPages(
   return { edges: allEdges, pagesFetched, staff };
 }
 
-export async function expandStaffFilmography(
+export async function persistStaffFilmographyExpansion(
   ctx: AnilistImportContext,
   staffId: number,
-  options: ExpandStaffFilmographyOptions = {},
-): Promise<ExpandStaffFilmographyResult | null> {
-  const perPage = options.perPage ?? DEFAULT_FILMOGRAPHY_PER_PAGE;
+  characterEdges: AnilistStaffCharacterMediaEdgeGql[],
+  staffMediaEdges: AnilistStaffMediaEdgeGql[],
+  options: {
+    voiceActorLanguage?: AnilistStaffLanguage;
+    staffProfile: AnilistStaffGql | null;
+    characterPagesFetched: number;
+    staffMediaPagesFetched: number;
+  },
+): Promise<ExpandStaffFilmographyResult> {
   const language = options.voiceActorLanguage ?? DEFAULT_VOICE_ACTOR_LANGUAGE;
   const now = ctx.now();
-
-  const charResult = await fetchCharacterPages(
-    ctx,
-    staffId,
-    perPage,
-    options.charactersMaxPages,
-  );
-  const staffMediaResult = await fetchStaffMediaPages(
-    ctx,
-    staffId,
-    perPage,
-    options.staffMediaMaxPages,
-  );
-  const characterEdges = charResult.edges;
-  const staffMediaEdges = staffMediaResult.edges;
-  let staffProfile = charResult.staff ?? staffMediaResult.staff;
-
-  if (characterEdges.length === 0 && staffMediaEdges.length === 0) {
-    const probe = await ctx.executeQuery<AnilistStaffFilmographyResponse>(
-      buildStaffFilmographyQuery(),
-      { id: staffId, charactersPage: 1, staffMediaPage: 1, perPage },
-    );
-    if (!probe?.Staff) {
-      return null;
-    }
-    staffProfile = staffProfile ?? probe.Staff;
-  }
-
   const appearance = mapStaffCharacterAppearanceData(staffId, characterEdges, language, now);
   const mediaStaffRows = mapStaffFilmographyMediaStaffRows(staffId, staffMediaEdges);
+  const staffProfile = options.staffProfile;
 
   const stmts: Array<{ sql: string; params: readonly SqlBindable[] }> = [];
 
@@ -266,10 +245,53 @@ export async function expandStaffFilmography(
 
   return {
     staffId,
-    characterPagesFetched: charResult.pagesFetched,
-    staffMediaPagesFetched: staffMediaResult.pagesFetched,
+    characterPagesFetched: options.characterPagesFetched,
+    staffMediaPagesFetched: options.staffMediaPagesFetched,
     mediaUpserted: mediaIds.size,
     mediaStaffWritten: mediaStaffRows.length,
     cvaWritten: appearance.cvaRows.length,
   };
+}
+
+export async function expandStaffFilmography(
+  ctx: AnilistImportContext,
+  staffId: number,
+  options: ExpandStaffFilmographyOptions = {},
+): Promise<ExpandStaffFilmographyResult | null> {
+  const perPage = options.perPage ?? DEFAULT_FILMOGRAPHY_PER_PAGE;
+  const language = options.voiceActorLanguage ?? DEFAULT_VOICE_ACTOR_LANGUAGE;
+
+  const charResult = await fetchCharacterPages(
+    ctx,
+    staffId,
+    perPage,
+    options.charactersMaxPages,
+  );
+  const staffMediaResult = await fetchStaffMediaPages(
+    ctx,
+    staffId,
+    perPage,
+    options.staffMediaMaxPages,
+  );
+  const characterEdges = charResult.edges;
+  const staffMediaEdges = staffMediaResult.edges;
+  let staffProfile = charResult.staff ?? staffMediaResult.staff;
+
+  if (characterEdges.length === 0 && staffMediaEdges.length === 0) {
+    const probe = await ctx.executeQuery<AnilistStaffFilmographyResponse>(
+      buildStaffFilmographyQuery(),
+      { id: staffId, charactersPage: 1, staffMediaPage: 1, perPage },
+    );
+    if (!probe?.Staff) {
+      return null;
+    }
+    staffProfile = staffProfile ?? probe.Staff;
+  }
+
+  return persistStaffFilmographyExpansion(ctx, staffId, characterEdges, staffMediaEdges, {
+    voiceActorLanguage: language,
+    staffProfile,
+    characterPagesFetched: charResult.pagesFetched,
+    staffMediaPagesFetched: staffMediaResult.pagesFetched,
+  });
 }

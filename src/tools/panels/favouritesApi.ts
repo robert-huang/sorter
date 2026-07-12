@@ -21,8 +21,8 @@ import {
   withSessionTtlMemo,
 } from '../../lib/importers/anilist/toolsSessionMemo';
 import {
-  ensureCharacterMediaFresh,
-  ensureStaffFilmographyFresh,
+  ensureCharacterMediaFreshBatch,
+  ensureStaffFilmographyFreshBatch,
   ensureUserAnimeListFresh,
   ensureUserMangaListFresh,
   ensureUserFavouritesFresh,
@@ -276,24 +276,12 @@ async function fetchCharacterVoiceEdgesLive(
   });
 }
 
-async function fetchCharacterVoiceEdges(
+async function readCharacterVoiceEdgesCached(
   charId: number,
   signal?: AbortSignal,
-  options?: FavouritesFetchOptions,
 ): Promise<CharacterMediaEdge[]> {
   signal?.throwIfAborted();
   const ctx = getToolsImportContext();
-
-  // Single write-through path: ensureCharacterMediaFresh is idempotent
-  // (no-op when character_media_expansion.fetched_at is <90d), runs a
-  // full live expansion + persists otherwise, and force-refreshes on
-  // Expand Roles. Then we read the complete cached rows from the DB.
-  //
-  // NOTE: ensureCharacterMediaFresh does not currently accept an
-  // AbortSignal — see the cancel-related comment in
-  // runFavouritesAnalysis below. throwIfAborted at entry bounds the
-  // damage to one character at a time.
-  await ensureCharacterMediaFresh(charId, favouritesGraphForceOptions(options));
   const fromDb = await readCharacterVoiceEdgesFromDb(ctx.db, charId);
   if (fromDb) {
     return fromDb;
@@ -329,22 +317,12 @@ async function fetchVaCharacterEdgesLive(
   });
 }
 
-async function fetchVaCharacterEdges(
+async function readVaCharacterEdgesCached(
   vaId: number,
   signal?: AbortSignal,
-  options?: FavouritesFetchOptions,
 ): Promise<VaMediaEdge[]> {
   signal?.throwIfAborted();
   const ctx = getToolsImportContext();
-
-  // Same write-through pattern as fetchCharacterVoiceEdges above:
-  // ensureStaffFilmographyFresh is a no-op when staff_filmography_
-  // expansion is <90d, runs a full import + persists otherwise, and
-  // force-refreshes on Expand Roles. Analyze used to skip the
-  // persist and re-fetch every VA's full filmography on every run.
-  //
-  // NOTE: same AbortSignal caveat as fetchCharacterVoiceEdges.
-  await ensureStaffFilmographyFresh(vaId, favouritesGraphForceOptions(options));
   const fromDb = await readVaCharacterEdgesFromDb(ctx.db, vaId);
   if (fromDb) {
     return fromDb;
@@ -380,6 +358,12 @@ export async function runFavouritesAnalysis(
     throw new Error('This user has no favourite characters.');
   }
 
+  const graphOptions = favouritesGraphForceOptions(fetchOptions);
+  await ensureCharacterMediaFreshBatch(
+    characters.map((character) => character.id),
+    graphOptions,
+  );
+
   const perCharacterVas: Array<Array<{ id: number; name: string; imageUrl: string | null }>> = [];
   const perCharacterMeta: Array<{
     charRole: CharacterRoleTier;
@@ -403,7 +387,7 @@ export async function runFavouritesAnalysis(
       name: charName,
     });
 
-    const edges = await fetchCharacterVoiceEdges(character.id, signal, fetchOptions);
+    const edges = await readCharacterVoiceEdgesCached(character.id, signal);
     perCharacterEdges.push(edges);
     const processed = processCharacterEdges(
       character,
@@ -428,11 +412,12 @@ export async function runFavouritesAnalysis(
   const vaTotalCharacterCounts = new Map<number, number>();
   const vaMainRoleCharacterCounts = new Map<number, number>();
   const vaIdList = [...vaIds];
+  await ensureStaffFilmographyFreshBatch(vaIdList, graphOptions);
   for (let i = 0; i < vaIdList.length; i += 1) {
     signal?.throwIfAborted();
     const vaId = vaIdList[i]!;
     onProgress({ phase: 'va-totals', index: i + 1, total: vaIdList.length });
-    const edges = await fetchVaCharacterEdges(vaId, signal, fetchOptions);
+    const edges = await readVaCharacterEdgesCached(vaId, signal);
     const ctx = getToolsImportContext();
     vaTotalCharacterCounts.set(
       vaId,
@@ -452,21 +437,13 @@ export async function runFavouritesAnalysis(
     const staffToExpand = favouriteStaff
       .map((staff) => staff.id)
       .filter((staffId) => !vaIds.has(staffId));
-    for (let i = 0; i < staffToExpand.length; i += 1) {
-      signal?.throwIfAborted();
-      const staffId = staffToExpand[i]!;
+    if (staffToExpand.length > 0) {
       onProgress({
         phase: 'expand-staff-filmography',
-        index: i + 1,
+        index: 1,
         total: staffToExpand.length,
       });
-      // NOTE: ensureStaffFilmographyFresh does not currently accept an
-      // AbortSignal; an in-flight expansion can keep hitting AniList for
-      // minutes after the user clicks Cancel. The between-iteration
-      // throwIfAborted above bounds the damage to "one staff at a time"
-      // but threading the signal down through the importer would be
-      // strictly better. Same applies to ensureCharacterMediaFresh above.
-      await ensureStaffFilmographyFresh(staffId, favouritesGraphForceOptions(fetchOptions));
+      await ensureStaffFilmographyFreshBatch(staffToExpand, graphOptions);
     }
   }
 

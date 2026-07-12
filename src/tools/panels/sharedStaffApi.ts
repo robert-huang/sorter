@@ -16,7 +16,9 @@ import {
 import { withPersistentTtlCache } from '../../lib/importers/anilist/toolsPersistentCache';
 import {
   ensureMediaCastFresh,
+  ensureMediaCastFreshBatch,
   ensureStaffFilmographyFresh,
+  ensureStaffFilmographyFreshBatch,
   readProductionFilmographyFromDb,
   readShowStaffBundleFromDb,
 } from '../../lib/importers/anilist/toolsAnilistAccess';
@@ -573,6 +575,10 @@ export async function runSharedStaffCompare(options: {
   }
 
   const shows: ShowStaffBundle[] = [];
+  await ensureMediaCastFreshBatch(
+    resolved.map((show) => show.id),
+    fetchOptions,
+  );
   for (const show of resolved) {
     onProgress?.({ phase: 'load-show', label: show.title });
     shows.push(await fetchShowStaffBundle(show.id, show.title, signal, fetchOptions));
@@ -595,6 +601,8 @@ export async function runSharedStaffCompare(options: {
   }
 
   const filmographies: Record<number, ProductionFilmographyShow[]> = {};
+  const staffIds = staffEntries.map(([staffKey]) => Number(staffKey));
+  await ensureStaffFilmographyFreshBatch(staffIds, fetchOptions);
   for (let i = 0; i < staffEntries.length; i += 1) {
     const [staffKey, staffInfo] = staffEntries[i]!;
     const staffId = Number(staffKey);

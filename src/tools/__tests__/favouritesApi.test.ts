@@ -2,13 +2,13 @@
  * runFavouritesAnalysis caching contract:
  *
  *   - The per-character VA fetch (Path B / normal Analyze) MUST call
- *     `ensureCharacterMediaFresh` before reading from the DB so the
+ *     `ensureCharacterMediaFreshBatch` before reading from the DB so the
  *     live fetch is written through to `character_media_expansion`
  *     and the next Analyze run is served from cache. Before this
  *     test was added, Analyze fetched live and threw the result
  *     away — every run re-paid the network cost forever.
  *   - The per-VA filmography fetch has the same shape via
- *     `ensureStaffFilmographyFresh`.
+ *     `ensureStaffFilmographyFreshBatch`.
  *   - Expand Roles flows `forceRefresh: true` through both helpers so
  *     a right-click run re-imports even fresh caches.
  *   - When the DB read is non-null, the defensive live fallback
@@ -32,8 +32,8 @@ vi.mock('../../lib/importers/anilist/toolsImportContext', () => ({
 }));
 
 vi.mock('../../lib/importers/anilist/toolsAnilistAccess', () => ({
-  ensureCharacterMediaFresh: vi.fn(),
-  ensureStaffFilmographyFresh: vi.fn(),
+  ensureCharacterMediaFreshBatch: vi.fn(),
+  ensureStaffFilmographyFreshBatch: vi.fn(),
   ensureUserAnimeListFresh: vi.fn(),
   ensureUserMangaListFresh: vi.fn(),
   ensureUserFavouritesFresh: vi.fn(),
@@ -52,8 +52,8 @@ import {
 } from '../../lib/importers/anilist/graphQueries';
 import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportContext';
 import {
-  ensureCharacterMediaFresh,
-  ensureStaffFilmographyFresh,
+  ensureCharacterMediaFreshBatch,
+  ensureStaffFilmographyFreshBatch,
   ensureUserAnimeListFresh,
   ensureUserMangaListFresh,
   ensureUserFavouritesFresh,
@@ -76,8 +76,8 @@ const depaginateMock = vi.mocked(depaginate);
 const hasCharacterMediaExpansionMock = vi.mocked(hasCharacterMediaExpansion);
 const hasStaffFilmographyMock = vi.mocked(hasStaffFilmography);
 const getCtxMock = vi.mocked(getToolsImportContext);
-const ensureCharacterMediaFreshMock = vi.mocked(ensureCharacterMediaFresh);
-const ensureStaffFilmographyFreshMock = vi.mocked(ensureStaffFilmographyFresh);
+const ensureCharacterMediaFreshBatchMock = vi.mocked(ensureCharacterMediaFreshBatch);
+const ensureStaffFilmographyFreshBatchMock = vi.mocked(ensureStaffFilmographyFreshBatch);
 const ensureUserAnimeListFreshMock = vi.mocked(ensureUserAnimeListFresh);
 const ensureUserMangaListFreshMock = vi.mocked(ensureUserMangaListFresh);
 const ensureUserFavouritesFreshMock = vi.mocked(ensureUserFavouritesFresh);
@@ -129,8 +129,8 @@ beforeEach(() => {
   hasCharacterMediaExpansionMock.mockReset();
   hasStaffFilmographyMock.mockReset();
   getCtxMock.mockReset();
-  ensureCharacterMediaFreshMock.mockReset();
-  ensureStaffFilmographyFreshMock.mockReset();
+  ensureCharacterMediaFreshBatchMock.mockReset();
+  ensureStaffFilmographyFreshBatchMock.mockReset();
   ensureUserAnimeListFreshMock.mockReset();
   ensureUserMangaListFreshMock.mockReset();
   ensureUserFavouritesFreshMock.mockReset();
@@ -146,8 +146,8 @@ beforeEach(() => {
   getCtxMock.mockReturnValue({ db: { exec: vi.fn() } } as never);
   hasCharacterMediaExpansionMock.mockResolvedValue(false);
   hasStaffFilmographyMock.mockResolvedValue(false);
-  ensureCharacterMediaFreshMock.mockResolvedValue();
-  ensureStaffFilmographyFreshMock.mockResolvedValue();
+  ensureCharacterMediaFreshBatchMock.mockResolvedValue();
+  ensureStaffFilmographyFreshBatchMock.mockResolvedValue();
   ensureUserAnimeListFreshMock.mockResolvedValue({
     id: 42,
     name: 'user',
@@ -186,33 +186,32 @@ const FORM = {
 } as never;
 
 describe('runFavouritesAnalysis caching', () => {
-  it('Analyze writes through to the DB: ensureCharacterMediaFresh is called per character (no forceRefresh)', async () => {
+  it('Analyze writes through to the DB: ensureCharacterMediaFreshBatch is called once (no forceRefresh)', async () => {
     await runFavouritesAnalysis(FORM, () => {});
 
-    expect(ensureCharacterMediaFreshMock).toHaveBeenCalledTimes(2);
-    expect(ensureCharacterMediaFreshMock).toHaveBeenNthCalledWith(1, 1, undefined);
-    expect(ensureCharacterMediaFreshMock).toHaveBeenNthCalledWith(2, 2, undefined);
+    expect(ensureCharacterMediaFreshBatchMock).toHaveBeenCalledTimes(1);
+    expect(ensureCharacterMediaFreshBatchMock).toHaveBeenCalledWith([1, 2], undefined);
     // DB reads served everything → no live fallback hit AniList.
     expect(depaginateMock).not.toHaveBeenCalled();
   });
 
-  it('Analyze writes through per-VA filmography too: ensureStaffFilmographyFresh is called per VA (no forceRefresh)', async () => {
+  it('Analyze writes through per-VA filmography too: ensureStaffFilmographyFreshBatch is called once (no forceRefresh)', async () => {
     await runFavouritesAnalysis(FORM, () => {});
 
     // Two characters → two unique VAs (id 1001, 1002).
-    expect(ensureStaffFilmographyFreshMock).toHaveBeenCalledTimes(2);
-    expect(ensureStaffFilmographyFreshMock).toHaveBeenCalledWith(1001, undefined);
-    expect(ensureStaffFilmographyFreshMock).toHaveBeenCalledWith(1002, undefined);
+    expect(ensureStaffFilmographyFreshBatchMock).toHaveBeenCalledTimes(1);
+    expect(ensureStaffFilmographyFreshBatchMock).toHaveBeenCalledWith([1001, 1002], undefined);
     expect(depaginateMock).not.toHaveBeenCalled();
   });
 
   it('Expand Roles flows forceRefresh through to both ensure helpers', async () => {
     await runFavouritesAnalysis(FORM, () => {}, undefined, { expandRoles: true });
 
-    expect(ensureCharacterMediaFreshMock).toHaveBeenCalledWith(1, { forceRefresh: true });
-    expect(ensureCharacterMediaFreshMock).toHaveBeenCalledWith(2, { forceRefresh: true });
-    expect(ensureStaffFilmographyFreshMock).toHaveBeenCalledWith(1001, { forceRefresh: true });
-    expect(ensureStaffFilmographyFreshMock).toHaveBeenCalledWith(1002, { forceRefresh: true });
+    expect(ensureCharacterMediaFreshBatchMock).toHaveBeenCalledWith([1, 2], { forceRefresh: true });
+    expect(ensureStaffFilmographyFreshBatchMock).toHaveBeenCalledWith(
+      [1001, 1002],
+      { forceRefresh: true },
+    );
   });
 
   it('forceRefreshFavourites only re-imports the favourites list, NOT the per-character expansion', async () => {
@@ -225,8 +224,8 @@ describe('runFavouritesAnalysis caching', () => {
     // slower per-character / per-VA graph expansions (only Expand Roles
     // should do that). favouritesGraphForceOptions returns undefined
     // when only forceRefreshFavourites is set.
-    expect(ensureCharacterMediaFreshMock).toHaveBeenCalledWith(1, undefined);
-    expect(ensureStaffFilmographyFreshMock).toHaveBeenCalledWith(1001, undefined);
+    expect(ensureCharacterMediaFreshBatchMock).toHaveBeenCalledWith([1, 2], undefined);
+    expect(ensureStaffFilmographyFreshBatchMock).toHaveBeenCalledWith([1001, 1002], undefined);
     expect(ensureUserFavouritesFreshMock).toHaveBeenCalledWith(
       'user',
       expect.any(String),
@@ -283,7 +282,7 @@ describe('runFavouritesAnalysis caching', () => {
     await runFavouritesAnalysis(FORM, () => {});
 
     expect(depaginateMock).toHaveBeenCalledTimes(2);
-    expect(ensureCharacterMediaFreshMock).toHaveBeenCalledTimes(2);
+    expect(ensureCharacterMediaFreshBatchMock).toHaveBeenCalledTimes(1);
   });
 
   it('does not hit live GraphQL when expansion marker exists but DB read is empty', async () => {
@@ -295,7 +294,7 @@ describe('runFavouritesAnalysis caching', () => {
     await runFavouritesAnalysis(FORM, () => {});
 
     expect(depaginateMock).not.toHaveBeenCalled();
-    expect(ensureCharacterMediaFreshMock).toHaveBeenCalledTimes(2);
-    expect(ensureStaffFilmographyFreshMock).not.toHaveBeenCalled();
+    expect(ensureCharacterMediaFreshBatchMock).toHaveBeenCalledTimes(1);
+    expect(ensureStaffFilmographyFreshBatchMock).toHaveBeenCalledTimes(1);
   });
 });
