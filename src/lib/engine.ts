@@ -356,6 +356,13 @@ export function rewriteIdInProgress(
             ...progress.currentAutoInsert,
             target: mapArr(progress.currentAutoInsert.target),
             pendingInserts: mapArr(progress.currentAutoInsert.pendingInserts),
+            sourceSublist: mapArr(
+              progress.currentAutoInsert.sourceSublist ??
+                [
+                  progress.currentAutoInsert.frame?.insertingId,
+                  ...progress.currentAutoInsert.pendingInserts,
+                ].filter((id): id is string => id !== undefined),
+            ),
             frame:
               progress.currentAutoInsert.frame === null
                 ? null

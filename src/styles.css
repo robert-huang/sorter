@@ -3519,7 +3519,7 @@ html {
   grid-template-columns: auto 1fr auto;
 }
 
-/* ↺ Insert sets the row height — stretch glyph buttons (ⓘ ✎ ×) to match. */
+/* ↻ Insert sets the row height — stretch glyph buttons (ⓘ ✎ ×) to match. */
 .list-to-be-inserted .queue-item-row .actions {
   align-items: stretch;
 }
@@ -4276,6 +4276,10 @@ html {
   opacity: 0.72;
 }
 
+.list-merge-context-row.list-merge-context-done {
+  opacity: 0.55;
+}
+
 .list-merge-context-tag {
   font-size: 11px;
   font-weight: 600;
@@ -4547,7 +4551,7 @@ html {
   display: block;
 }
 
-/* Fixed-width glyph column inside labeled icon buttons (↺ Insert, ↻ Reinsert, × Dismiss). */
+/* Fixed-width glyph column inside labeled icon buttons (↻ Insert, ↻ Reinsert, × Dismiss). */
 .icon-btn.icon-btn-text .icon-btn-glyph-slot {
   display: inline-flex;
   align-items: center;
@@ -4557,7 +4561,7 @@ html {
   line-height: 1;
 }
 
-/* Padded label buttons (↺ Insert, ↻ Reinsert, × Dismiss) — not square glyphs. */
+/* Padded label buttons (↻ Insert, ↻ Reinsert, × Dismiss) — not square glyphs. */
 .icon-btn.icon-btn-text {
   display: inline-flex;
   align-items: center;

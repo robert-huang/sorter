@@ -4,6 +4,7 @@ import {
   getInsertContext,
   groupInsertionPending,
   hiddenIdsNotInRanking,
+  insertContextInsertingLabel,
   insertionSortFromSublists,
   listHeaderItemCount,
   mergeSliceLabel,
@@ -34,9 +35,11 @@ describe('getInsertContext', () => {
   it('returns target and remaining ids during auto-insert', () => {
     const ctx = getInsertContext(
       mergeState({
+        queue: [['q-a'], ['q-b']],
         currentAutoInsert: {
           target: ['t1', 't2', 't3'],
           pendingInserts: ['p2', 'p3'],
+          sourceSublist: ['p1', 'p2', 'p3'],
           frame: {
             insertingId: 'p1',
             lo: 0,
@@ -51,6 +54,8 @@ describe('getInsertContext', () => {
       kind: 'merge-auto',
       targetIds: ['t1', 't2', 't3'],
       remainingIds: ['p1', 'p2', 'p3'],
+      sourceSublistIds: ['p1', 'p2', 'p3'],
+      queueSublistCount: 2,
       insertingId: 'p1',
       probeId: 't2',
     });
@@ -124,6 +129,66 @@ describe('mergeSliceLabel', () => {
   it('appends the count in parentheses', () => {
     expect(mergeSliceLabel('Merged so far', 1)).toBe('Merged so far (1)');
     expect(mergeSliceLabel('Left remaining', 4)).toBe('Left remaining (4)');
+  });
+});
+
+describe('insertContextInsertingLabel', () => {
+  it('uses Inserting (n) for manual insert and pure insertion', () => {
+    expect(
+      insertContextInsertingLabel(
+        {
+          kind: 'insertion',
+          targetIds: [],
+          remainingIds: ['a', 'b', 'c'],
+          insertingId: 'a',
+          probeId: 'x',
+        },
+        3,
+      ),
+    ).toBe('Inserting (3)');
+    expect(
+      insertContextInsertingLabel(
+        {
+          kind: 'merge-manual',
+          targetIds: [],
+          remainingIds: ['x', 'y'],
+          insertingId: 'x',
+          probeId: 'q',
+        },
+        2,
+      ),
+    ).toBe('Inserting (2)');
+  });
+
+  it('uses m of n and queue depth for merge-auto', () => {
+    expect(
+      insertContextInsertingLabel(
+        {
+          kind: 'merge-auto',
+          targetIds: [],
+          remainingIds: ['p1', 'p2'],
+          sourceSublistIds: ['p1', 'p2', 'p3'],
+          queueSublistCount: 2,
+          insertingId: 'p1',
+          probeId: 't',
+        },
+        2,
+      ),
+    ).toBe('Inserting (1 of 3 · 2 sublists in queue)');
+    expect(
+      insertContextInsertingLabel(
+        {
+          kind: 'merge-auto',
+          targetIds: [],
+          remainingIds: ['p2'],
+          sourceSublistIds: ['p1', 'p2'],
+          queueSublistCount: 1,
+          insertingId: 'p2',
+          probeId: 't',
+        },
+        1,
+      ),
+    ).toBe('Inserting (2 of 2 · 1 sublist in queue)');
   });
 });
 

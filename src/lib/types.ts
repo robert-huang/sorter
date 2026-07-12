@@ -115,6 +115,12 @@ export interface AutoInsertFrame {
   target: ItemId[];
   /** FIFO of items still to insert, in original (rank) order. */
   pendingInserts: ItemId[];
+  /**
+   * Full smaller-sublist order at auto-insert start (visible ids only).
+   * Used by LIST to show the whole batch with inserting / queued / done
+   * markers instead of a shrinking remainder list.
+   */
+  sourceSublist: ItemId[];
   /** Currently-in-flight binary-insertion frame, or null between inserts. */
   frame: InsertFrame | null;
   /**

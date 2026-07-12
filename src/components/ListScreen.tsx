@@ -19,8 +19,10 @@ import { ItemThumb } from './ItemThumb';
 import {
   activeRankingIds,
   formatOrphanHiddenId,
+  autoInsertSourceRowState,
   getInsertContext,
   groupInsertionPending,
+  insertContextInsertingLabel,
   insertionSortFromSublists,
   listHeaderItemCount,
   mergeSliceLabel,
@@ -601,6 +603,11 @@ function InsertContextSection({
     .filter((row) => !hidden.has(row.id));
   const visibleTarget = targetRows.map((row) => row.id);
   const visibleRemaining = ctx.remainingIds.filter((id) => !hidden.has(id));
+  const isMergeAutoSource =
+    ctx.kind === 'merge-auto' && ctx.sourceSublistIds !== undefined;
+  const insertingSourceIds = isMergeAutoSource
+    ? ctx.sourceSublistIds.filter((id) => !hidden.has(id))
+    : visibleRemaining;
   const probeVisible = !hidden.has(ctx.probeId);
   const probeItem = state.items[ctx.probeId];
 
@@ -733,7 +740,7 @@ function InsertContextSection({
         <div className="list-merge-context-panel">
           <div className="list-merge-context-heading list-merge-context-heading-row">
             <span>
-              {mergeSliceLabel('Inserting', visibleRemaining.length)}
+              {insertContextInsertingLabel(ctx, visibleRemaining.length)}
             </span>
             <button
               type="button"
@@ -751,21 +758,30 @@ function InsertContextSection({
           </div>
           <div className="queue-sublist">
             <div className="queue-sublist-items">
-              {visibleRemaining.length === 0 && (
+              {insertingSourceIds.length === 0 && (
                 <span style={{ fontSize: 13, color: 'var(--text-faint)' }}>
                   (empty)
                 </span>
               )}
-              {visibleRemaining.map((id, ii) => {
+              {insertingSourceIds.map((id, ii) => {
                 const item = state.items[id];
                 if (!item) return null;
-                const isInserting = id === ctx.insertingId;
+                const rowState = isMergeAutoSource
+                  ? autoInsertSourceRowState(ctx, id)
+                  : id === ctx.insertingId
+                    ? 'inserting'
+                    : 'queued';
+                const isInserting = rowState === 'inserting';
+                const isDone = rowState === 'done';
+                const rankNum = isMergeAutoSource
+                  ? ctx.sourceSublistIds!.indexOf(id) + 1
+                  : ii + 1;
                 return (
                   <div
                     key={id}
-                    className={`queue-item-row list-merge-context-row${isInserting ? ' list-merge-context-active' : ''}${!isInserting ? ' list-merge-context-queued' : ''}`}
+                    className={`queue-item-row list-merge-context-row${isInserting ? ' list-merge-context-active' : ''}${!isInserting && !isDone ? ' list-merge-context-queued' : ''}${isDone ? ' list-merge-context-done' : ''}`}
                   >
-                    <span className="rank">{ii + 1}.</span>
+                    <span className="rank">{rankNum}.</span>
                     <Thumb item={item} />
                     <span className="label-cell" title={item.label}>
                       {item.label}
@@ -780,7 +796,7 @@ function InsertContextSection({
                           variant="row"
                           onEdit={onOpenEdit}
                           trailing={
-                            onHideRemaining ? (
+                            onHideRemaining && !isDone ? (
                               <button
                                 className="icon-btn danger"
                                 onClick={() => onHideRemaining(id)}
@@ -1110,7 +1126,7 @@ function MergeListView({
             }}
           >
             These items were removed mid-merge and have not been re-inserted
-            into the ranking yet. Click <strong>↺ Insert</strong> to
+            into the ranking yet. Click <strong>↻ Insert</strong> to
             binary-search them into a queue sublist, or{' '}
             <strong>× Remove</strong> to move them back to Hidden items.
           </p>
@@ -1146,7 +1162,7 @@ function MergeListView({
                     trailing={
                       <>
                         <LabeledIconButton
-                          glyph="↺"
+                          glyph="↻"
                           label="Insert"
                           onClick={() => onManualInsert(id)}
                           disabled={queued || inserting}
@@ -1432,6 +1448,7 @@ function InsertionPendingItemRow({
   onUnhide,
   onEdit,
   rank,
+  insertStatus,
 }: {
   item: Item;
   hidden: Set<string>;
@@ -1439,14 +1456,27 @@ function InsertionPendingItemRow({
   onUnhide: (id: string) => void;
   onEdit: (item: Item) => void;
   rank?: number;
+  /** Shown while an insert compare is active (duplicates the INSERTING panel). */
+  insertStatus?: 'inserting' | 'queued';
 }) {
   const isHidden = hidden.has(item.id);
+  const isInserting = insertStatus === 'inserting';
+  const isQueued = insertStatus === 'queued';
   return (
     <div className={`queue-item-row ${isHidden ? 'hidden' : ''}`}>
       {rank !== undefined && <span className="rank">{rank}.</span>}
       <Thumb item={item} />
       <span className="label-cell" title={item.label}>
         {item.label}
+        {isInserting && (
+          <span style={{ color: 'var(--text-faint)' }}> · inserting now</span>
+        )}
+        {isQueued && (
+          <span style={{ color: 'var(--text-faint)' }}>
+            {' '}
+            · queued for insertion
+          </span>
+        )}
       </span>
       <span className="actions">
         <ItemRowActions
@@ -1478,6 +1508,7 @@ function InsertionPendingGroupView({
   onUnhide,
   onEdit,
   isNext,
+  insertingId,
 }: {
   group: InsertionPendingGroup;
   groupIndex: number;
@@ -1487,7 +1518,14 @@ function InsertionPendingGroupView({
   onUnhide: (id: string) => void;
   onEdit: (item: Item) => void;
   isNext: boolean;
+  insertingId?: string;
 }) {
+  const pendingInsertStatus = (
+    id: string,
+  ): 'inserting' | 'queued' | undefined => {
+    if (!insertingId) return undefined;
+    return id === insertingId ? 'inserting' : 'queued';
+  };
   if (group.kind === 'flat') {
     return (
       <>
@@ -1502,6 +1540,7 @@ function InsertionPendingGroupView({
               onHide={onHide}
               onUnhide={onUnhide}
               onEdit={onEdit}
+              insertStatus={pendingInsertStatus(id)}
             />
           );
         })}
@@ -1529,6 +1568,7 @@ function InsertionPendingGroupView({
                 onHide={onHide}
                 onUnhide={onUnhide}
                 onEdit={onEdit}
+                insertStatus={pendingInsertStatus(id)}
               />
             );
           })}
@@ -1567,6 +1607,7 @@ function InsertionPendingGroupView({
               onUnhide={onUnhide}
               onEdit={onEdit}
               rank={ii + 1}
+              insertStatus={pendingInsertStatus(id)}
             />
           );
         })}
@@ -1612,6 +1653,11 @@ function InsertionListView({
     [state.pending, state.pendingRunIds],
   );
   const pendingUsesRuns = pendingGroups.some((g) => g.kind === 'preranked');
+  const pendingEpisodeCount =
+    state.pending.length + (insertingId !== undefined ? 1 : 0);
+  const flatPendingIds = insertingId
+    ? [insertingId, ...state.pending]
+    : state.pending;
 
   return (
     <>
@@ -1746,16 +1792,16 @@ function InsertionListView({
         </>
       )}
 
-      {state.pending.length > 0 && (
+      {pendingEpisodeCount > 0 && (
         <>
           <div className="list-section-label">
             {pendingUsesRuns
-              ? `Queue (${state.pending.length} item${
-                  state.pending.length === 1 ? '' : 's'
+              ? `Queue (${pendingEpisodeCount} item${
+                  pendingEpisodeCount === 1 ? '' : 's'
                 } in ${pendingGroups.length} group${
                   pendingGroups.length === 1 ? '' : 's'
-                })`
-              : `Pending (${state.pending.length})`}
+                }${insertingId ? ' · 1 inserting now' : ''})`
+              : mergeSliceLabel('Pending', pendingEpisodeCount)}
           </div>
           {pendingUsesRuns && (
             <p
@@ -1771,27 +1817,45 @@ function InsertionListView({
             </p>
           )}
           {pendingUsesRuns ? (
-            pendingGroups.map((group, gi) => (
-              <InsertionPendingGroupView
-                key={
-                  group.kind === 'preranked'
-                    ? `run-${group.runId}`
-                    : group.kind
-                }
-                group={group}
-                groupIndex={gi}
-                state={state}
-                hidden={hidden}
-                onHide={onHide}
-                onUnhide={onUnhide}
-                onEdit={openEdit}
-                isNext={gi === 0 && !insertingId}
-              />
-            ))
+            <>
+              {insertingId && state.items[insertingId] && (
+                <div className="queue-sublist">
+                  <div className="queue-sublist-items">
+                    <InsertionPendingItemRow
+                      item={state.items[insertingId]}
+                      hidden={hidden}
+                      onHide={onHide}
+                      onUnhide={onUnhide}
+                      onEdit={openEdit}
+                      rank={1}
+                      insertStatus="inserting"
+                    />
+                  </div>
+                </div>
+              )}
+              {pendingGroups.map((group, gi) => (
+                <InsertionPendingGroupView
+                  key={
+                    group.kind === 'preranked'
+                      ? `run-${group.runId}`
+                      : group.kind
+                  }
+                  group={group}
+                  groupIndex={gi}
+                  state={state}
+                  hidden={hidden}
+                  onHide={onHide}
+                  onUnhide={onUnhide}
+                  onEdit={openEdit}
+                  isNext={gi === 0 && !insertingId}
+                  insertingId={insertingId}
+                />
+              ))}
+            </>
           ) : (
             <div className="queue-sublist">
               <div className="queue-sublist-items">
-                {state.pending.map((id) => {
+                {flatPendingIds.map((id, ii) => {
                   const item = state.items[id];
                   if (!item) return null;
                   return (
@@ -1802,6 +1866,14 @@ function InsertionListView({
                       onHide={onHide}
                       onUnhide={onUnhide}
                       onEdit={openEdit}
+                      rank={ii + 1}
+                      insertStatus={
+                        insertingId
+                          ? id === insertingId
+                            ? 'inserting'
+                            : 'queued'
+                          : undefined
+                      }
                     />
                   );
                 })}

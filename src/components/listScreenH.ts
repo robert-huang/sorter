@@ -127,6 +127,10 @@ export interface InsertContextView {
   remainingIds: ItemId[];
   insertingId: ItemId;
   probeId: ItemId;
+  /** merge-auto: full smaller sublist in original order (for LIST panel). */
+  sourceSublistIds?: ItemId[];
+  /** merge-auto: sublist pairs still waiting in the merge queue. */
+  queueSublistCount?: number;
 }
 
 export function getInsertContext(state: SortState): InsertContextView | null {
@@ -158,10 +162,15 @@ export function getInsertContext(state: SortState): InsertContextView | null {
     const ai = state.currentAutoInsert;
     const frame = ai.frame;
     if (!frame) return null;
+    const sourceSublistIds =
+      ai.sourceSublist ??
+      [frame.insertingId, ...ai.pendingInserts];
     return {
       kind: 'merge-auto',
       targetIds: [...ai.target],
       remainingIds: [pair.leftId, ...ai.pendingInserts],
+      sourceSublistIds,
+      queueSublistCount: state.queue.length,
       insertingId: pair.leftId,
       probeId: pair.rightId,
     };
@@ -181,5 +190,32 @@ function getInsertionEngineInsertContext(
     insertingId: pair.leftId,
     probeId: pair.rightId,
   };
+}
+
+/** Heading for the right-hand INSERTING panel in {@link InsertContextSection}. */
+export function insertContextInsertingLabel(
+  ctx: InsertContextView,
+  visibleRemainingCount: number,
+): string {
+  if (ctx.kind === 'merge-auto' && ctx.sourceSublistIds) {
+    const n = ctx.sourceSublistIds.length;
+    const m = Math.max(1, ctx.sourceSublistIds.indexOf(ctx.insertingId) + 1);
+    const k = ctx.queueSublistCount ?? 0;
+    const queueLabel = k === 1 ? '1 sublist in queue' : `${k} sublists in queue`;
+    return `Inserting (${m} of ${n} · ${queueLabel})`;
+  }
+  return mergeSliceLabel('Inserting', visibleRemainingCount);
+}
+
+export type AutoInsertSourceRowState = 'inserting' | 'queued' | 'done';
+
+/** Row state for merge-auto source sublist items in the INSERTING panel. */
+export function autoInsertSourceRowState(
+  ctx: InsertContextView,
+  id: ItemId,
+): AutoInsertSourceRowState {
+  if (id === ctx.insertingId) return 'inserting';
+  if (ctx.remainingIds.includes(id)) return 'queued';
+  return 'done';
 }
 

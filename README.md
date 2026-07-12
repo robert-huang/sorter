@@ -278,7 +278,7 @@ The LIST tab is a live, editable view of the engine state — unlike Pub Meeple,
 - **Reorder ↑ / ↓** items within any queued sublist, or within the in-flight merge frame (merged / left remaining / right remaining). Swaps never cross those slices; the visible compare heads on left/right remainders are locked so LIST edits don't change the RANK pair.
 - **Break apart** a queued sublist into singletons appended to the end of the queue (useful when you decide an inferred ordering is wrong).
 - **+ Add item(s)** — see *Add items modal* below.
-- **To be inserted (N) section** — items that were hidden mid-merge and then exiled when the merge (or auto-insert) closed live here. Click **↺ Insert** to binary-search them back into a queue sublist via a manual-insert mini-session, or **× Forget** to drop them from the rank permanently. See *Exile + Insert* below.
+- **To be inserted (N) section** — items that were hidden mid-merge and then exiled when the merge (or auto-insert) closed live here. Click **↻ Insert** to binary-search them back into a queue sublist via a manual-insert mini-session, or **× Forget** to drop them from the rank permanently. See *Exile + Insert* below.
 
 To fix order inside an active merge without using ↑/↓, undo back past the merge start.
 
@@ -308,7 +308,7 @@ On the **insertion engine** the checkbox is hidden — `pending[]` is FIFO eithe
 When a merge or auto-insert closes and one or both sides have **hidden** items at that moment, those items are **exiled** into a separate `toBeInserted[]` bucket rather than positioned silently at the tail of the closed sublist (which was the old behavior; it could land hidden items at arbitrary slots if the user later unhid them).
 
 - The user is free to `done` the sort while items sit in `toBeInserted[]` — exile does not block completion. RESULT just doesn't show those items in the ranking (they appear under "removed during sorting").
-- Clicking **↺ Insert** on a to-be-inserted item opens a binary-insertion mini-session ("manual insert") that searches the largest queue sublist (or, when `done`, the single result sublist) for the right position, then splices the item in.
+- Clicking **↻ Insert** on a to-be-inserted item opens a binary-insertion mini-session ("manual insert") that searches the largest queue sublist (or, when `done`, the single result sublist) for the right position, then splices the item in.
 - Multiple Inserts queue up: if you click Insert mid-merge, the request waits until the merge closes, then drains. While one manual insert is running you'll see an **"Inserting X into queue sublist"** banner on the RANK tab.
 - Cancel an in-flight manual insert with the **Cancel insertion** button on the RANK tab — the item bounces back to the To-be-inserted bucket (comparisons already made for that insert remain "spent"; use Undo to back them out).
 - Forget drops the item permanently.

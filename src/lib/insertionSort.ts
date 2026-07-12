@@ -591,22 +591,35 @@ export function reorderInSorted(
   return { ...next, items: state.items };
 }
 
+function restartInFlightInsertFrame(progress: InsertionProgress): void {
+  if (!progress.current) return;
+  const id = progress.current.insertingId;
+  progress.current = null;
+  const res = startRankAwareInsert(progress.sorted, id, null);
+  if ('done' in res) {
+    progress.sorted = [
+      ...progress.sorted.slice(0, res.position),
+      id,
+      ...progress.sorted.slice(res.position),
+    ];
+    progress.activeRunAnchor = res.position;
+    drainPending(progress);
+    return;
+  }
+  progress.current = res;
+}
+
 /**
- * Move an item from `sorted[]` back to the FRONT of `pending[]`, so it
- * gets re-inserted via a fresh binary-insertion next. Useful when the
- * user realizes an item in the frozen ranking is in the wrong place and
- * wants to rebid it.
+ * Move an item from `sorted[]` back to the back of `pending[]` for a
+ * fresh binary insert later (FIFO queue discipline). Useful when the
+ * user realizes an item in the frozen ranking is in the wrong place.
  *
- * If a current insertion frame is in flight, we cancel it (the frame's
- * bounds index into the OLD sorted array, which has just shrunk by one
- * — bounds are now stale). The in-flight id goes back to pending too,
- * but BEHIND the just-returned id so the returned id is what the user
- * sees next (matches their mental model of "I'm fixing this one right
- * now").
+ * If a current insertion frame is in flight, we restart it (the frame's
+ * bounds index into the OLD sorted array, which has just shrunk) but
+ * keep the in-flight item as the active insert — the returned id waits
+ * at the back of `pending`.
  *
- * Cost: the user pays up to ⌈log2(newSortedLen + 1)⌉ for the returned
- * item's re-insertion (plus any cancel-and-restart cost on the existing
- * frame). No-op if the id isn't in `sorted[]`.
+ * No-op if the id isn't in `sorted[]`.
  */
 export function returnToPending(
   state: InsertionState,
@@ -619,29 +632,19 @@ export function returnToPending(
     ...next.sorted.slice(0, sortedIdx),
     ...next.sorted.slice(sortedIdx + 1),
   ];
-  // Build the new pending in the correct visible order:
-  //   [returned id, (in-flight id if any), ...originalPending]
-  // The returned id MUST be at index 0 so drainPending installs its
-  // frame first — that's what the user expects when they click ↻.
-  const inFlightId = next.current ? next.current.insertingId : null;
-  next.current = null;
-  next.pending = inFlightId === null
-    ? [id, ...next.pending]
-    : [id, inFlightId, ...next.pending];
-  // Re-queue the returned (and any in-flight) id as fresh singleton runs,
-  // and drop the active anchor: removing an item from `sorted` shifts the
-  // indices the anchor referenced, so a full-range re-insert is the safe
-  // fallback. The returned item was never asserted pre-ranked anyway.
+  const hadInFlight = next.current !== null;
+  next.pending = [...next.pending, id];
   if (next.pendingRunIds) {
-    const base = freshRunId(next);
-    next.pendingRunIds = inFlightId === null
-      ? [base, ...next.pendingRunIds]
-      : [base, base + 1, ...next.pendingRunIds];
+    next.pendingRunIds = [...next.pendingRunIds, freshRunId(next)];
   }
   next.activeRunId = null;
   next.activeRunAnchor = null;
   if (next.done) next.done = false;
-  drainPending(next);
+  if (hadInFlight) {
+    restartInFlightInsertFrame(next);
+  } else {
+    drainPending(next);
+  }
   bumpTotalComparisons(next);
   return { ...next, items: state.items };
 }
@@ -804,7 +807,7 @@ export function forgetHiddenItem(
 
 /**
  * Restore a hidden item that no longer sits in `sorted[]` or `pending[]`
- * (typically removed from pending when hidden). Re-queues at the front of
+ * (typically removed from pending when hidden). Re-queues at the back of
  * `pending` for a fresh binary insert. In-ranking hidden ids delegate to
  * `unhideItem`.
  */
@@ -819,9 +822,9 @@ export function restoreHiddenItem(
   }
   const next = snapshotProgress(state);
   next.hidden = next.hidden.filter((h) => h !== id);
-  next.pending = [id, ...next.pending];
+  next.pending = [...next.pending, id];
   if (next.pendingRunIds) {
-    next.pendingRunIds = [freshRunId(next), ...next.pendingRunIds];
+    next.pendingRunIds = [...next.pendingRunIds, freshRunId(next)];
   }
   if (next.done) next.done = false;
   drainPending(next);

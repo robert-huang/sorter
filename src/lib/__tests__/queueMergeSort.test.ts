@@ -581,6 +581,39 @@ describe('breakApartSublist', () => {
     expect(breakApartSublist(s0, 5)).toBe(s0);
     expect(breakApartSublist(s0, -1)).toBe(s0);
   });
+
+  it('cancels an in-flight manual insert when its target sublist is broken apart', () => {
+    const X: Item = { id: 'x', label: 'X' };
+    const stalled: MergeState = {
+      engine: 'merge',
+      queue: [['a', 'b', 'c', 'd', 'e'], ['f']],
+      current: null,
+      currentManualInsert: {
+        insertingId: 'x',
+        targetQueueIndex: 0,
+        frame: { insertingId: 'x', lo: 0, hi: 4, probe: 2 },
+      },
+      currentAutoInsert: null,
+      comparisons: 3,
+      done: false,
+      hidden: [],
+      totalComparisonsEverNeeded: 3,
+      toBeInserted: ['x'],
+      pendingManualInserts: [],
+      items: { a: A, b: B, c: C, d: D, e: E, f: F, x: X },
+    };
+    expect(getPair(stalled)).not.toBeNull();
+
+    const fixed = breakApartSublist(stalled, 0);
+    expect(fixed.currentManualInsert).toBeNull();
+    expect(fixed.pendingManualInserts).toEqual(['x']);
+    expect(fixed.current).not.toBeNull();
+    expect(fixed.current!.left).toEqual(['f']);
+    expect(fixed.current!.right).toEqual(['a']);
+    expect(getPair(fixed)).not.toBeNull();
+    expect(fixed.queue[0]).toEqual(['b']);
+    expect(fixed.queue[fixed.queue.length - 1]).toEqual(['e']);
+  });
 });
 
 describe('advance: degenerate-frame skipping', () => {
@@ -1154,6 +1187,42 @@ describe('drainAutoInsert rank-aware bound tightening', () => {
     // Y is queued (X is in flight). Hide Y; pendingInserts loses Y.
     const s1 = hideItem(s0, 'y');
     expect(s1.currentAutoInsert!.pendingInserts).not.toContain('y');
+    expect(s1.currentAutoInsert!.sourceSublist).not.toContain('y');
+  });
+
+  it('hiding a placed source item pulls it from target and sourceSublist; undo restores', () => {
+    const items: Item[] = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map(
+      (id) => ({ id, label: id.toUpperCase() }),
+    );
+    const X: Item = { id: 'x', label: 'X' };
+    const Y: Item = { id: 'y', label: 'Y' };
+    const s0 = seedFromSublists({
+      sublists: [items, [X, Y]],
+      extras: [],
+    });
+    const oracle = ['a', 'b', 'x', 'c', 'd', 'y', 'e', 'f', 'g', 'h'];
+    const s = runUntil(
+      s0,
+      oracle,
+      (st) =>
+        st.currentAutoInsert !== null &&
+        st.currentAutoInsert.target.includes('x') &&
+        st.currentAutoInsert.frame?.insertingId === 'y',
+    );
+    expect(s.currentAutoInsert!.sourceSublist).toContain('x');
+
+    const snap = snapshotProgress(s);
+    const hidden = hideItem(s, 'x');
+    expect(hidden.hidden).toContain('x');
+    expect(hidden.currentAutoInsert!.target).not.toContain('x');
+    expect(hidden.currentAutoInsert!.sourceSublist).not.toContain('x');
+    expect(hidden.currentAutoInsert!.pendingInserts).not.toContain('x');
+
+    const undone = restoreProgress(hidden, snap);
+    expect(undone.hidden).not.toContain('x');
+    expect(undone.currentAutoInsert!.target).toContain('x');
+    expect(undone.currentAutoInsert!.sourceSublist).toContain('x');
+    expect(undone.currentAutoInsert!.frame?.insertingId).toBe('y');
   });
 
   it('restore during auto-insert unhides in-target probes without re-queuing', () => {
@@ -1194,6 +1263,10 @@ describe('drainAutoInsert rank-aware bound tightening', () => {
     expect(reinserted.pendingManualInserts).toContain('d');
     expect(reinserted.currentAutoInsert!.target).not.toContain('d');
     expect(reinserted.currentManualInsert).toBeNull();
+    // D is a target probe, not a source-episode id — sourceSublist unchanged.
+    expect(reinserted.currentAutoInsert!.sourceSublist).toEqual(
+      hidden.currentAutoInsert!.sourceSublist,
+    );
 
     const done = runUntil(reinserted, ['a', 'b', 'f', 'c', 'd', 'e']);
     expect(done.done).toBe(true);
@@ -1781,10 +1854,53 @@ describe('reconcileInFlightInsertFrames', () => {
     };
 
     const fixed = reconcileInFlightInsertFrames(stalled);
-    expect(fixed.queue).toEqual([['b']]);
-    expect(fixed.currentManualInsert?.insertingId).toBe('a');
+    expect(fixed.queue).toEqual([['a']]);
+    expect(fixed.currentManualInsert?.insertingId).toBe('c');
+    expect(fixed.pendingManualInserts).toEqual(['b']);
     expect(getPair(fixed)).not.toBeNull();
-    expect(getPair(fixed)!.leftId).toBe('a');
+    expect(getPair(fixed)!.leftId).toBe('c');
+  });
+
+  it('re-queues when the live target shrank under a stale insert frame', () => {
+    const stalled: MergeState = {
+      engine: 'merge',
+      queue: [['a']],
+      current: {
+        left: ['y'],
+        right: ['z'],
+        merged: [],
+      },
+      currentManualInsert: {
+        insertingId: 'x',
+        targetQueueIndex: 0,
+        frame: { insertingId: 'x', lo: 0, hi: 27, probe: 13 },
+      },
+      currentAutoInsert: null,
+      comparisons: 10,
+      done: false,
+      hidden: [],
+      totalComparisonsEverNeeded: 10,
+      toBeInserted: ['x'],
+      pendingManualInserts: [],
+      items: {
+        a: A,
+        x: X,
+        y: { id: 'y', label: 'Y' },
+        z: { id: 'z', label: 'Z' },
+      },
+    };
+    expect(getPair(stalled)).toBeNull();
+
+    const fixed = reconcileInFlightInsertFrames(stalled);
+    expect(fixed.current).toBeNull();
+    expect(fixed.queue[0]).toEqual(['y']);
+    expect(fixed.queue[1]).toEqual(['z']);
+    expect(fixed.queue[2]).toEqual(['a']);
+    expect(getPair(fixed)).not.toBeNull();
+    expect(
+      fixed.pendingManualInserts.includes('x') ||
+        fixed.currentManualInsert?.insertingId === 'x',
+    ).toBe(true);
   });
 
   it('pickLeft after reconcile resolves a collapsed append frame', () => {

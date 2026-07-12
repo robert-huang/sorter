@@ -524,7 +524,7 @@ describe('returnToPending (Phase 1 freeze-relax)', () => {
     expect(s1.done).toBe(false);
   });
 
-  it('puts the returned id IN FRONT of any in-flight id (returned id inserts first)', () => {
+  it('appends the returned id behind the in-flight insert (in-flight keeps going)', () => {
     // sorted=[A..E], pending=[X] → current frame for X.
     const s0 = buildInsertionState({
       sortedItems: [A, B, C, D, E],
@@ -532,11 +532,10 @@ describe('returnToPending (Phase 1 freeze-relax)', () => {
     }).state;
     expect(s0.current?.insertingId).toBe('x');
 
-    // Return C from sorted. Expected: C jumps to the front, X behind it.
     const s1 = returnToPending(s0, 'c');
     expect(s1.sorted).toEqual(['a', 'b', 'd', 'e']);
-    expect(s1.current?.insertingId).toBe('c'); // c is next
-    expect(s1.pending).toEqual(['x']); // x bumped to pending
+    expect(s1.current?.insertingId).toBe('x');
+    expect(s1.pending).toEqual(['c']);
   });
 
   it('no-op when the id is not in sorted', () => {
@@ -688,14 +687,14 @@ describe('dismissHidden / restoreHiddenItem / forgetHiddenItem', () => {
     expect(s1.done).toBe(true);
   });
 
-  it('restoreHiddenItem re-queues an orphan hidden pending item', () => {
-    const s0 = build({ sorted: [A, B, C, D, E], pending: [X, Y] });
+  it('restoreHiddenItem re-queues an orphan hidden pending item at the back', () => {
+    const s0 = build({ sorted: [A, B, C, D, E], pending: [X, Y, Z] });
     const hidden = hideItem(s0, 'y');
     expect(hidden.hidden).toContain('y');
     expect(hidden.pending).not.toContain('y');
     const restored = restoreHiddenItem(hidden, 'y');
     expect(restored.hidden).not.toContain('y');
-    expect(restored.pending[0]).toBe('y');
+    expect(restored.pending[restored.pending.length - 1]).toBe('y');
     expect(restored.done).toBe(false);
   });
 
