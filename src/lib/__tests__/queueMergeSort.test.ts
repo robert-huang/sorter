@@ -1606,6 +1606,42 @@ describe('removable target: hiding a probe advances the insert', () => {
     expect(s.done).toBe(true);
     expect(getRanking(s)).toEqual(['f']);
   });
+
+  it('auto-insert: does not stall when a pick lands the probe on a hidden target id', () => {
+    const F: Item = { id: 'f', label: 'F' };
+    let s = seedFromSublists({ sublists: [[A, B, C, D, E], [F]], extras: [] });
+    s = hideItem(s, 'd');
+    expect(getPair(s)).toEqual({ leftId: 'f', rightId: 'c' });
+    // Picking right narrows lo past c; the next probe would land on hidden d.
+    s = pickRight(s);
+    expect(getPair(s)).not.toBeNull();
+    expect(s.currentAutoInsert!.frame!.insertingId).toBe('f');
+  });
+
+  it('manual-insert: does not stall when a pick lands the probe on a hidden target id', () => {
+    const stalled: MergeState = {
+      engine: 'merge',
+      queue: [['a', 'b', 'c', 'f', 'd', 'e', 'h']],
+      current: null,
+      currentManualInsert: {
+        insertingId: 'g',
+        targetQueueIndex: 0,
+        frame: { insertingId: 'g', lo: 2, hi: 6, probe: 2 },
+      },
+      currentAutoInsert: null,
+      comparisons: 10,
+      done: false,
+      hidden: ['d'],
+      totalComparisonsEverNeeded: 10,
+      toBeInserted: [],
+      pendingManualInserts: [],
+      items: { a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H },
+    };
+    expect(getPair(stalled)).toEqual({ leftId: 'g', rightId: 'c' });
+    const resumed = pickRight(stalled);
+    expect(getPair(resumed)).not.toBeNull();
+    expect(resumed.currentManualInsert!.insertingId).toBe('g');
+  });
 });
 
 describe('reorderInsertTarget (cancel-and-restart)', () => {

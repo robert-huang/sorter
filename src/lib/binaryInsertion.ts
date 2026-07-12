@@ -140,6 +140,32 @@ export function skipHiddenInsertProbes(
 }
 
 /**
+ * After `applyInsertPick` or `startRankAwareInsert`, adopt skip-hidden
+ * semantics so the stored frame never points at a hidden probe (which
+ * would make `getPair` return null without resolving the insert).
+ *
+ * When the skip collapses the frame, `onDone` is called with the splice
+ * position and `null` is returned. Otherwise returns the visible frame.
+ */
+export function adoptInsertFrameResult(
+  result: InsertResult,
+  sorted: ItemId[],
+  hidden: ReadonlySet<ItemId>,
+  onDone: (position: number) => void,
+): InsertFrame | null {
+  if ('done' in result) {
+    onDone(result.position);
+    return null;
+  }
+  const skipped = skipHiddenInsertProbes(result, sorted, hidden);
+  if ('done' in skipped) {
+    onDone(skipped.position);
+    return null;
+  }
+  return skipped;
+}
+
+/**
  * First/last visible ids within `[frame.lo, frame.hi]` for LO/HI UI tags.
  * Hidden endpoints are skipped inward; returns nulls when the window has no
  * visible rows.

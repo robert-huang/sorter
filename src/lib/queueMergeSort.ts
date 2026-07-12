@@ -1,4 +1,5 @@
 import {
+  adoptInsertFrameResult,
   applyInsertPick,
   getInsertPair,
   countInsertPeekRightOverflow,
@@ -1102,11 +1103,10 @@ function applyManualInsertPick(
   const picked = side === 'left' ? 'inserting' : 'sorted';
   const res = applyInsertPick(visible, picked, target.length);
   next.comparisons += 1;
-  if ('done' in res) {
-    resolveManualInsertAt(next, res.position, hidden, opts);
-  } else {
-    mi.frame = res;
-  }
+  const frame = adoptInsertFrameResult(res, target, hidden, (position) => {
+    resolveManualInsertAt(next, position, hidden, opts);
+  });
+  if (frame) mi.frame = frame;
   bumpTotalComparisons(next, opts);
   return { ...next, items: state.items };
 }
@@ -1140,11 +1140,10 @@ function applyAutoInsertPick(
   const picked = side === 'left' ? 'inserting' : 'sorted';
   const res = applyInsertPick(visible, picked, ai.target.length);
   next.comparisons += 1;
-  if ('done' in res) {
-    resolveAutoInsertAt(next, res.position, hidden, opts);
-  } else {
-    ai.frame = res;
-  }
+  const frame = adoptInsertFrameResult(res, ai.target, hidden, (position) => {
+    resolveAutoInsertAt(next, position, hidden, opts);
+  });
+  if (frame) ai.frame = frame;
   bumpTotalComparisons(next, opts);
   return { ...next, items: state.items };
 }
@@ -1177,17 +1176,19 @@ function drainAutoInsert(
     // rank order — see startRankAwareInsert / drainPending.
     const res = startRankAwareInsert(ai.target, id, ai.lastInsertedPosition);
     ai.pendingInserts.shift();
-    if ('done' in res) {
+    const frame = adoptInsertFrameResult(res, ai.target, hidden, (position) => {
       ai.target = [
-        ...ai.target.slice(0, res.position),
+        ...ai.target.slice(0, position),
         id,
-        ...ai.target.slice(res.position),
+        ...ai.target.slice(position),
       ];
-      ai.lastInsertedPosition = res.position;
-      continue;
+      ai.lastInsertedPosition = position;
+    });
+    if (frame) {
+      ai.frame = frame;
+      return;
     }
-    ai.frame = res;
-    return;
+    continue;
   }
   if (ai.frame === null && ai.pendingInserts.length === 0) {
     // All items landed — push the grown target back to the queue.

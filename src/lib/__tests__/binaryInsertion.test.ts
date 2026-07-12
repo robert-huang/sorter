@@ -155,6 +155,17 @@ describe('skipHiddenInsertProbes', () => {
     if (!isDone(res)) return;
     expect(res.position).toBe(56);
   });
+
+  it('walks past a chain of hidden probes in the active window', () => {
+    const sorted = ['a', 'hidden-1', 'hidden-2', 'd', 'e'];
+    const hidden = new Set(['hidden-1', 'hidden-2']);
+    const frame: InsertFrame = { insertingId: 'x', lo: 1, hi: 3, probe: 1 };
+    const res = skipHiddenInsertProbes(frame, sorted, hidden);
+    expect(isDone(res)).toBe(false);
+    if (isDone(res)) return;
+    expect(res.probe).toBe(3);
+    expect(hidden.has(sorted[res.probe])).toBe(false);
+  });
 });
 
 describe('visibleInsertWindowEndpoints', () => {

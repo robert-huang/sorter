@@ -1,4 +1,5 @@
 import {
+  adoptInsertFrameResult,
   applyInsertPick,
   getInsertPair as getInsertPairPrimitive,
   countInsertPeekRightOverflow,
@@ -228,6 +229,7 @@ export function restoreProgress(
  * Mutates the passed progress in place; caller owns the undo snapshot.
  */
 function drainPending(progress: InsertionProgress): void {
+  const hidden = new Set(progress.hidden);
   // Convention (matches merge engine's queue → current): when we install
   // a frame, the id is POPPED from pending — it's now "in flight", not
   // "waiting". Splicing the resolved id back into sorted is handled by
@@ -250,24 +252,23 @@ function drainPending(progress: InsertionProgress): void {
     );
     progress.pending.shift();
     if (progress.pendingRunIds) progress.pendingRunIds.shift();
-    if ('done' in res) {
-      // Zero-comparison case (e.g., first insert into an empty sorted,
-      // or a fully bounded run step). Record the landing as the new
-      // anchor so the next same-run item tightens against it.
+    const frame = adoptInsertFrameResult(res, progress.sorted, hidden, (position) => {
       progress.sorted = [
-        ...progress.sorted.slice(0, res.position),
+        ...progress.sorted.slice(0, position),
         id,
-        ...progress.sorted.slice(res.position),
+        ...progress.sorted.slice(position),
       ];
-      progress.activeRunAnchor = res.position;
-      continue;
+      progress.activeRunAnchor = position;
+    });
+    if (frame) {
+      // Real frame: the in-flight item's run is `activeRunId` (already set
+      // above). `activeRunAnchor` keeps the PREVIOUS item's position (it
+      // produced this item's lo); it's overwritten with this item's
+      // landing position when the frame resolves in spliceInsertingAndDrain.
+      progress.current = frame;
+      return;
     }
-    // Real frame: the in-flight item's run is `activeRunId` (already set
-    // above). `activeRunAnchor` keeps the PREVIOUS item's position (it
-    // produced this item's lo); it's overwritten with this item's
-    // landing position when the frame resolves in spliceInsertingAndDrain.
-    progress.current = res;
-    return;
+    continue;
   }
   if (progress.current === null && progress.pending.length === 0) {
     progress.done = true;
@@ -466,10 +467,14 @@ function applyPick(
   const picked = side === 'left' ? 'inserting' : 'sorted';
   const r = applyInsertPick(visibleFrame, picked, state.sorted.length);
   next.comparisons += 1;
-  if ('done' in r) {
-    return spliceInsertingAndDrain({ ...next, items: state.items }, r.position);
+  let splicePosition: number | null = null;
+  const frame = adoptInsertFrameResult(r, next.sorted, hidden, (position) => {
+    splicePosition = position;
+  });
+  if (splicePosition !== null) {
+    return spliceInsertingAndDrain({ ...next, items: state.items }, splicePosition);
   }
-  next.current = r;
+  next.current = frame;
   bumpTotalComparisons(next);
   return { ...next, items: state.items };
 }
