@@ -4243,6 +4243,21 @@ html {
   flex-shrink: 0;
 }
 
+/* Square glyph buttons (↑↓×) — matches .icon-btn.detail hit target so
+   the × sits visually centred beside the probe/inserting tag. */
+.list-merge-context-row .actions .icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  min-height: 22px;
+  padding: 0;
+  line-height: 1;
+}
+
 .list-merge-context-row.list-merge-context-active {
   background: var(--surface);
   border-radius: var(--radius-sm);

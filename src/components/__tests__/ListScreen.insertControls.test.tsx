@@ -3,7 +3,12 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ListScreen } from '../ListScreen';
 import { buildInsertionState, hideItem } from '../../lib/insertionSort';
-import { hideItem as mergeHideItem, seedAsDoneMerge, seedFromSublists } from '../../lib/queueMergeSort';
+import {
+  hideItem as mergeHideItem,
+  seedAsDoneMerge,
+  seedFromSublists,
+} from '../../lib/queueMergeSort';
+import { activeRankingIds, rankingSlotIds } from '../../lib/sortPopulation';
 import type { InsertionState, Item, SortState } from '../../lib/types';
 
 // Bare createRoot/act harness — same style as StagedItemsPanel.test.tsx,
@@ -195,5 +200,54 @@ describe('ListScreen · hidden panel on completed merge sort', () => {
     act(() => restoreBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
     expect(onUnhide).toHaveBeenCalledWith('b');
     expect(onReinsertHidden).not.toHaveBeenCalled();
+  });
+});
+
+describe('ListScreen · to-be-inserted section (merge)', () => {
+  const G: Item = { id: 'g', label: 'G' };
+
+  it('removes a to-be-inserted row via × (onHide → Hidden items)', () => {
+    const base = seedAsDoneMerge([A, B, C, D, E, F]);
+    const s: SortState = {
+      ...base,
+      toBeInserted: ['g'],
+      items: { ...base.items, g: G },
+    };
+
+    const onHide = vi.fn();
+    renderList(makeProps(s, { onHide }));
+
+    expect(container.textContent).toContain('To be inserted');
+    const btn = byAria('Remove G');
+    expect(btn).not.toBeNull();
+    act(() => btn!.click());
+    expect(onHide).toHaveBeenCalledWith('g');
+  });
+});
+
+describe('ListScreen · hidden panel during auto-insert', () => {
+  it('↻ Reinsert calls onReinsertHidden for a probe not in rankingSlotIds', () => {
+    const state = mergeHideItem(
+      seedFromSublists({ sublists: [[A, B, C, D, E], [F]], extras: [] }),
+      'c',
+    );
+    expect(state.currentAutoInsert).not.toBeNull();
+    expect(rankingSlotIds(state).has('c')).toBe(false);
+    expect(activeRankingIds(state).has('c')).toBe(true);
+
+    const onReinsertHidden = vi.fn();
+    const onRestoreHidden = vi.fn();
+    renderList(
+      makeProps(state, { onReinsertHidden, onRestoreHidden }),
+    );
+
+    const hiddenSection = container.querySelector('.list-removed-during-sort');
+    const reinsertBtn = hiddenSection?.querySelector(
+      'button[title="Pull out and binary-insert again"]',
+    );
+    expect(reinsertBtn).not.toBeNull();
+    act(() => reinsertBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(onReinsertHidden).toHaveBeenCalledWith('c');
+    expect(onRestoreHidden).not.toHaveBeenCalled();
   });
 });

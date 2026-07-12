@@ -158,6 +158,7 @@ function HiddenItemsSection({
   items,
   state,
   rankingSlots,
+  activeRankingSlots,
   allowInlineRestore,
   onUnhide,
   onReinsert,
@@ -167,7 +168,10 @@ function HiddenItemsSection({
   ids: string[];
   items: Record<string, Item>;
   state: SortState;
+  /** Settled ranking slots (queue / sorted). */
   rankingSlots: Set<string>;
+  /** In-flight merge + insert targets — used while sort is active. */
+  activeRankingSlots: Set<string>;
   /** When true (sort finished), in-slot hidden ids use ↺ Restore. */
   allowInlineRestore: boolean;
   onUnhide: (id: string) => void;
@@ -217,7 +221,9 @@ function HiddenItemsSection({
               {ids.map((id) => {
                 const item = items[id];
                 const label = item?.label ?? formatOrphanHiddenId(id);
-                const inRanking = rankingSlots.has(id);
+                const inRanking = (
+                  allowInlineRestore ? rankingSlots : activeRankingSlots
+                ).has(id);
                 const canAct = !!item;
                 const rank = inRanking ? rankLabelForHiddenId(state, id) : '—';
                 const useRestore = allowInlineRestore && inRanking;
@@ -248,7 +254,9 @@ function HiddenItemsSection({
                         <button
                           className="icon-btn"
                           onClick={() =>
-                            inRanking ? onReinsert(id) : onRestoreHidden(id)
+                            allowInlineRestore
+                              ? onRestoreHidden(id)
+                              : onReinsert(id)
                           }
                           title={
                             inRanking
@@ -868,6 +876,7 @@ export function ListScreen(props: Props) {
 
   const state = props.state;
   const rankingSlots = useMemo(() => rankingSlotIds(state), [state]);
+  const activeRankingSlots = useMemo(() => activeRankingIds(state), [state]);
   const hiddenIds = useMemo(() => state.hidden, [state.hidden]);
 
   return (
@@ -889,6 +898,7 @@ export function ListScreen(props: Props) {
         items={items}
         state={state}
         rankingSlots={rankingSlots}
+        activeRankingSlots={activeRankingSlots}
         allowInlineRestore={state.done}
         onUnhide={props.onUnhide}
         onReinsert={props.onReinsertHidden}
@@ -901,7 +911,7 @@ export function ListScreen(props: Props) {
 
 // ============================================================================
 // MERGE VIEW — original list screen + "To be inserted (N)" section
-// (items exiled from a merge close, awaiting an explicit Insert or Forget)
+// (items exiled from a merge close, awaiting Insert or Remove → Hidden)
 // ============================================================================
 
 function MergeListView({
@@ -918,7 +928,6 @@ function MergeListView({
   onAppendPreRanked,
   onAddSlotImports,
   onManualInsert,
-  onForget,
   onEditItem,
   onReturnToPending,
   onReorderInsertTarget,
@@ -1063,7 +1072,7 @@ function MergeListView({
             These items were removed mid-merge and have not been re-inserted
             into the ranking yet. Click <strong>↺ Insert</strong> to
             binary-search them into a queue sublist, or{' '}
-            <strong>× Forget</strong> to drop them from the rank.
+            <strong>× Remove</strong> to move them back to Hidden items.
           </p>
           {state.toBeInserted.map((id) => {
             const item = state.items[id];
@@ -1106,10 +1115,11 @@ function MergeListView({
                         </button>
                         <button
                           className="icon-btn danger"
-                          onClick={() => onForget(id)}
-                          title="Drop this item from the rank permanently"
+                          onClick={() => onHide(id)}
+                          title="Remove — move to Hidden items"
+                          aria-label={`Remove ${item.label}`}
                         >
-                          × Forget
+                          ×
                         </button>
                       </>
                     }

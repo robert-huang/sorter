@@ -1443,7 +1443,7 @@ export function reinsertHiddenItem(
 
   const unhidden = unhideItem(state, id);
 
-  const ai = state.currentAutoInsert;
+  const ai = unhidden.currentAutoInsert;
   if (ai?.target.includes(id) && ai.frame?.insertingId !== id) {
     return reinsertFromAutoInsertTarget(unhidden, id, options);
   }
@@ -1453,7 +1453,7 @@ export function reinsertHiddenItem(
     return returnToPending(unhidden, id, options);
   }
 
-  return restoreHiddenItem(state, id, options);
+  return restoreHiddenItem(unhidden, id, options);
 }
 
 /**
