@@ -15,6 +15,7 @@ import {
 import { isAutosaveAvailable, MANIFEST_KEY } from '../lib/storage';
 import type { Item } from '../lib/types';
 import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
+import { RemoveGlyph } from './RemoveGlyph';
 import type { StagedGroupInput } from './StagedItemsPanel';
 
 type SortResultsImportModeProps = {
@@ -657,7 +658,7 @@ function SlotImportRow({
                   title={`Remove "${effective.label}" from import`}
                   aria-label={`Remove ${effective.label}`}
                 >
-                  ×
+                  <RemoveGlyph />
                 </button>
               </span>
             </li>

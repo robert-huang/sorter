@@ -3398,7 +3398,6 @@ html {
 
 .preview-item-actions .icon-btn.detail {
   font-size: 14px;
-  transform: translateY(-0.5px);
 }
 
 .preview-totals {
@@ -3520,12 +3519,15 @@ html {
   grid-template-columns: auto 1fr auto;
 }
 
-.list-to-be-inserted .queue-item-row .actions .icon-btn.icon-btn-text {
-  width: auto;
-  min-width: 0;
+/* ↺ Insert sets the row height — stretch glyph buttons (ⓘ ✎ ×) to match. */
+.list-to-be-inserted .queue-item-row .actions {
+  align-items: stretch;
+}
+
+.list-to-be-inserted .queue-item-row .actions .icon-btn:not(.icon-btn-text) {
   height: auto;
-  min-height: 0;
-  padding: 2px 6px;
+  min-height: 22px;
+  align-self: stretch;
 }
 
 /* ---------- Compare-screen pair transitions ---------- */
@@ -4356,6 +4358,9 @@ html {
 }
 
 .chip .x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
   border: none;
   color: var(--text-faint);
@@ -4509,17 +4514,32 @@ html {
 
 /* Square glyph hit targets (ⓘ ↑ ↓ ✎ × ↻) on LIST rows. */
 .queue-item-row .actions .icon-btn:not(.icon-btn-text) {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: grid;
+  place-items: center;
   box-sizing: border-box;
   width: 22px;
   height: 22px;
   min-width: 22px;
   min-height: 22px;
   padding: 0;
-  line-height: 1;
+  line-height: 0;
   flex-shrink: 0;
+}
+
+.icon-btn-glyph {
+  display: block;
+}
+
+/* Padded label buttons (↺ Insert, × Dismiss) — not square glyphs. */
+.icon-btn.icon-btn-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: auto;
+  min-width: 0;
+  height: auto;
+  min-height: 0;
+  padding: 2px 6px;
 }
 
 .icon-btn {
@@ -4550,8 +4570,6 @@ html {
   border-color: var(--danger);
 }
 
-/* Detail (ⓘ) — fixed square hit target; the circled-i glyph often sits
-   low in the em-box so we nudge it up slightly in flex-centered buttons. */
 .icon-btn.detail,
 .x-button.staged-panel-item-detail.detail {
   display: inline-flex;
@@ -4568,12 +4586,10 @@ html {
 
 .icon-btn.detail {
   font-size: 14px;
-  transform: translateY(-0.5px);
 }
 
 .x-button.staged-panel-item-detail.detail {
   font-size: 15px;
-  transform: translateY(-0.5px);
 }
 
 .add-buttons {

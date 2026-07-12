@@ -7,6 +7,7 @@ import {
 } from '../lib/importers/anilist/anilistLinks';
 import { canOpenItemDetail } from './itemDetailContext';
 import { DetailButtonSlot } from './DetailButton';
+import { RemoveGlyph } from './RemoveGlyph';
 
 export interface PreviewSource {
   sourceName: string;
@@ -419,7 +420,7 @@ function SourceBlock({
                           title={`Remove "${it.label}" from import`}
                           aria-label={`Remove ${it.label}`}
                         >
-                          ×
+                          <RemoveGlyph />
                         </button>
                       )}
                     </span>

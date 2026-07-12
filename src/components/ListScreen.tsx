@@ -14,6 +14,7 @@ import type {
 import { AddItemsModal } from './AddItemsModal';
 import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
 import { DetailButtonSlot } from './DetailButton';
+import { RemoveGlyph } from './RemoveGlyph';
 import { ItemThumb } from './ItemThumb';
 import {
   activeRankingIds,
@@ -268,7 +269,7 @@ function HiddenItemsSection({
                         </button>
                       )}
                       <button
-                        className="icon-btn danger"
+                        className="icon-btn danger icon-btn-text"
                         onClick={() => onForget(id)}
                         title={
                           inRanking
@@ -276,7 +277,8 @@ function HiddenItemsSection({
                             : 'Clear from hidden count'
                         }
                       >
-                        × Dismiss
+                        <RemoveGlyph />
+                        <span>Dismiss</span>
                       </button>
                     </span>
                   </div>
@@ -485,7 +487,7 @@ function HideOrRestoreButton({
         title={hideTitle}
         aria-label={ariaLabel ?? hideTitle}
       >
-        ×
+        <RemoveGlyph size={14} />
       </button>
     );
   }
@@ -496,7 +498,7 @@ function HideOrRestoreButton({
       title={hideTitle}
       aria-label={ariaLabel}
     >
-      ×
+      <RemoveGlyph />
     </button>
   );
 }
@@ -680,7 +682,7 @@ function InsertContextSection({
                               title="Remove this item from the list being inserted into"
                               aria-label={`Remove ${item.label}`}
                             >
-                              ×
+                              <RemoveGlyph />
                             </button>
                           ) : null
                         }
@@ -752,7 +754,7 @@ function InsertContextSection({
                               }
                               aria-label={`Remove ${item.label}`}
                             >
-                              ×
+                              <RemoveGlyph />
                             </button>
                           ) : null
                         }
@@ -1119,7 +1121,7 @@ function MergeListView({
                           title="Remove — move to Hidden items"
                           aria-label={`Remove ${item.label}`}
                         >
-                          ×
+                          <RemoveGlyph />
                         </button>
                       </>
                     }
