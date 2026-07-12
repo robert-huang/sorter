@@ -1106,7 +1106,7 @@ function MergeListView({
                     trailing={
                       <>
                         <button
-                          className="icon-btn"
+                          className="icon-btn icon-btn-text"
                           onClick={() => onManualInsert(id)}
                           disabled={queued || inserting}
                           title="Binary-search this item back into the ranking"

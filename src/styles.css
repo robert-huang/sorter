@@ -3515,6 +3515,19 @@ html {
   background: var(--surface-2);
 }
 
+/* No rank column — thumb · label · actions only. */
+.list-to-be-inserted .queue-item-row {
+  grid-template-columns: auto 1fr auto;
+}
+
+.list-to-be-inserted .queue-item-row .actions .icon-btn.icon-btn-text {
+  width: auto;
+  min-width: 0;
+  height: auto;
+  min-height: 0;
+  padding: 2px 6px;
+}
+
 /* ---------- Compare-screen pair transitions ---------- */
 
 /* In-grid slot. The slot itself is a *stable* DOM node across picks
@@ -4243,21 +4256,6 @@ html {
   flex-shrink: 0;
 }
 
-/* Square glyph buttons (↑↓×) — matches .icon-btn.detail hit target so
-   the × sits visually centred beside the probe/inserting tag. */
-.list-merge-context-row .actions .icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
-  width: 22px;
-  height: 22px;
-  min-width: 22px;
-  min-height: 22px;
-  padding: 0;
-  line-height: 1;
-}
-
 .list-merge-context-row.list-merge-context-active {
   background: var(--surface);
   border-radius: var(--radius-sm);
@@ -4504,7 +4502,24 @@ html {
 
 .queue-item-row .actions {
   display: flex;
+  align-items: center;
   gap: 2px;
+  flex-shrink: 0;
+}
+
+/* Square glyph hit targets (ⓘ ↑ ↓ ✎ × ↻) on LIST rows. */
+.queue-item-row .actions .icon-btn:not(.icon-btn-text) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  min-height: 22px;
+  padding: 0;
+  line-height: 1;
+  flex-shrink: 0;
 }
 
 .icon-btn {
