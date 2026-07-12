@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type {
   InsertionState,
   Item,
@@ -11,7 +11,7 @@ import type {
 import {
   addItem as engineAddItem,
   addItems as engineAddItems,
-  comparisonsRemaining as engineComparisonsRemaining,
+  getCompareProgress,
   dismissHidden as engineDismissHidden,
   normalizeLoadedState,
   type EngineOptions,
@@ -550,7 +550,9 @@ export function App() {
   // CompareScreen progress bar so the tab and bar always agree.
   // `autoInsertEnabled` is in deps because comparisonsRemaining's
   // forecast depends on it; `manifest` so renames re-title immediately.
-  useEffect(() => {
+  // useLayoutEffect so a completing pick flips the tab title to ✓ in the
+  // same paint (not one frame late at 99%).
+  useLayoutEffect(() => {
     if (!state) {
       document.title = 'Sorter';
       return;
@@ -562,16 +564,22 @@ export function App() {
       document.title = `${base} ✓ — Sorter`;
       return;
     }
-    const total = state.totalComparisonsEverNeeded ?? 0;
+    const { total, pct } = getCompareProgress(state, { autoInsertEnabled });
     if (total === 0) {
       document.title = `${base} — Sorter`;
       return;
     }
-    const remaining = engineComparisonsRemaining(state, { autoInsertEnabled });
-    const completed = Math.max(0, total - remaining);
-    const pct = Math.min(100, Math.round((completed / total) * 100));
     document.title = `${base} (${pct}%) — Sorter`;
-  }, [state, loadedSlotId, manifest.slots, manifest.activeId, autoInsertEnabled]);
+  }, [
+    state,
+    state?.done,
+    state?.comparisons,
+    state?.totalComparisonsEverNeeded,
+    loadedSlotId,
+    manifest.slots,
+    manifest.activeId,
+    autoInsertEnabled,
+  ]);
 
   // -------- theme + settings toggles --------
   const toggleTheme = useCallback(() => {

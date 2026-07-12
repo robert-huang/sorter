@@ -53,6 +53,28 @@ export function comparisonsRemaining(
     : merge.comparisonsRemaining(state, options);
 }
 
+/**
+ * Progress for the compare-screen bar and document.title. Uses the
+ * remaining-comparisons forecast while in flight; when `state.done` the
+ * bar/title treat the sort as complete (title shows ✓, not a percent).
+ */
+export function getCompareProgress(
+  state: SortState,
+  options?: EngineOptions,
+): { completed: number; total: number; pct: number } {
+  const total = state.totalComparisonsEverNeeded ?? 0;
+  if (total === 0) {
+    return { completed: 0, total: 0, pct: 0 };
+  }
+  if (state.done) {
+    return { completed: total, total, pct: 100 };
+  }
+  const remaining = comparisonsRemaining(state, options);
+  const completed = Math.max(0, total - remaining);
+  const pct = Math.min(100, Math.round((completed / total) * 100));
+  return { completed, total, pct };
+}
+
 export function getRanking(state: SortState): ItemId[] {
   return state.engine === 'insertion'
     ? insertion.getRanking(state)

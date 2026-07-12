@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Item, ItemId, SortState } from '../lib/types';
 import {
-  comparisonsRemaining,
+  getCompareProgress,
   getPair,
   getPeekLeftIds,
   getPeekLeftOverflowCount,
@@ -517,13 +517,12 @@ export function CompareScreen({
   // rank screen so it's only visible when there's actually a sort in
   // flight. Denominator is the max-so-far ("totalComparisonsEverNeeded")
   // so mid-sort growth (adding items / pre-ranked sublists) bumps the bar
-  // back rather than letting it appear to retreat. The autoInsertEnabled
-  // prop feeds the per-pair forecast so the bar matches what advance()
-  // will actually do.
-  const total = state.totalComparisonsEverNeeded ?? 0;
-  const remaining = comparisonsRemaining(state, { autoInsertEnabled });
-  const completed = Math.max(0, total - remaining);
-  const pct = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0;
+  // back rather than letting it appear to retreat. While in flight the
+  // forecast counts the active pair as remaining, so the last comparison
+  // may sit below 100%; completion is signaled by `state.done` (✓ in title).
+  const { completed, total, pct } = getCompareProgress(state, {
+    autoInsertEnabled,
+  });
 
   // The slot itself is a *stable* DOM node across picks (no key on the
   // wrapper), so the peek deck inside can persist its child elements

@@ -3,6 +3,7 @@ import {
   addItems,
   comparisonsRemaining,
   finalizeCompletedState,
+  getCompareProgress,
   getPair,
   getRanking,
   hideItem,
@@ -58,6 +59,35 @@ describe('engine dispatch', () => {
     const ins = seedAsSorted([A, B, C]);
     expect(getPair(ins)).toBeNull();
     expect(comparisonsRemaining(ins)).toBe(0);
+  });
+
+  it('getCompareProgress stays below 100% on the last in-flight comparison', () => {
+    let s = buildInsertionState({
+      sortedItems: [A],
+      pendingItems: [B, C, D],
+    }).state as SortState;
+    while (!s.done && comparisonsRemaining(s) > 1) {
+      const p = getPair(s);
+      if (!p) break;
+      s = enginePickLeft(s);
+    }
+    expect(s.done).toBe(false);
+    expect(getPair(s)).not.toBeNull();
+    expect(comparisonsRemaining(s)).toBe(1);
+    const progress = getCompareProgress(s);
+    expect(progress.pct).toBeLessThan(100);
+  });
+
+  it('getCompareProgress reports complete only once state.done', () => {
+    let s = buildInsertionState({
+      sortedItems: [A],
+      pendingItems: [B],
+    }).state as SortState;
+    const p = getPair(s);
+    expect(p).not.toBeNull();
+    s = enginePickLeft(s);
+    expect(s.done).toBe(true);
+    expect(getCompareProgress(s).pct).toBe(100);
   });
 
   it('snapshotProgress carries the engine discriminator', () => {

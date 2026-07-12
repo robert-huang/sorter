@@ -162,19 +162,15 @@ describe('mergeSliceLabel', () => {
 });
 
 describe('insertContextGapLabel', () => {
-  it('labels gap 0 as lo and gap n as hi for a full window', () => {
-    expect(insertContextGapLabel(0, 0, 2)).toBe('lo');
-    expect(insertContextGapLabel(3, 0, 2)).toBe('hi');
+  it('labels gap 0 as hi and gap n as lo for a full window', () => {
+    expect(insertContextGapLabel(0, 0, 2)).toBe('hi');
+    expect(insertContextGapLabel(3, 0, 2)).toBe('lo');
     expect(insertContextGapLabel(1, 0, 2)).toBeNull();
   });
 
-  it('labels both ends when the window collapses to one gap', () => {
-    expect(insertContextGapLabel(2, 2, 1)).toBe('lo · hi');
-  });
-
   it('labels lo and hi gaps for a narrowed window', () => {
-    expect(insertContextGapLabel(14, 14, 15)).toBe('lo');
-    expect(insertContextGapLabel(16, 14, 15)).toBe('hi');
+    expect(insertContextGapLabel(14, 14, 15)).toBe('hi');
+    expect(insertContextGapLabel(16, 14, 15)).toBe('lo');
   });
 });
 

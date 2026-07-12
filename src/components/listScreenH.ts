@@ -154,18 +154,19 @@ function insertContextWindowFields(
 
 /**
  * Label for an insertion gap (0 = before first item, n = after last).
- * `lo` marks the earliest slot still in play; `hi` the latest.
+ * Engine `lo`/`hi` index bounds are swapped for display: lower array
+ * index = higher rank, so the upper-rank line reads `hi` and the
+ * lower-rank line reads `lo`.
  */
 export function insertContextGapLabel(
   gap: number,
   windowLo: number,
   windowHi: number,
 ): string | null {
-  const isLo = gap === windowLo;
-  const isHi = gap === windowHi + 1;
-  if (isLo && isHi) return 'lo · hi';
-  if (isLo) return 'lo';
-  if (isHi) return 'hi';
+  const isEngineLo = gap === windowLo;
+  const isEngineHi = gap === windowHi + 1;
+  if (isEngineLo) return 'hi';
+  if (isEngineHi) return 'lo';
   return null;
 }
 
