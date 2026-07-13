@@ -204,12 +204,12 @@ html {
   padding: 0;
   margin: 0;
   box-sizing: border-box;
-  display: grid;
-  place-items: center;
-  line-height: 1;
-  font-size: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+  font-size: 16px;
   font-weight: 400;
-  font-family: system-ui, -apple-system, sans-serif;
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -2823,12 +2823,11 @@ html {
 
 .slot-list-header-left {
   /* Left-side cluster: the "Saved sorts" title plus the bulk
-     push/pull glyph buttons sitting inline next to it. Baseline
-     alignment so the slightly-larger arrow glyphs share a baseline
-     with the small uppercase title text instead of floating
-     mid-line. */
+     push/pull glyph buttons sitting inline next to it. Centering the
+     cluster keeps every glyph in its hit target aligned with the
+     small uppercase title. */
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
 }
 
@@ -2843,12 +2842,17 @@ html {
   border: none;
   color: var(--text-muted);
   cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 20px;
+  height: 20px;
   padding: 0;
   font: inherit;
   font-size: 14px;
   font-weight: 400;
   letter-spacing: 0;
-  line-height: 1;
+  line-height: 0;
 }
 
 .slot-list-bulk-icon:hover:not(:disabled) {
@@ -3159,13 +3163,25 @@ html {
   gap: 6px;
 }
 
+.x-button,
+.icon-button {
+  display: inline-grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  min-height: 22px;
+  padding: 0;
+  line-height: 0;
+  flex-shrink: 0;
+}
+
 .x-button {
   background: transparent;
   border: none;
   font-size: 18px;
-  line-height: 1;
   color: var(--text-faint);
-  padding: 2px 6px;
   border-radius: 4px;
 }
 
@@ -3182,9 +3198,7 @@ html {
   background: transparent;
   border: none;
   font-size: 15px;
-  line-height: 1;
   color: var(--text-faint);
-  padding: 2px 6px;
   border-radius: 4px;
 }
 
@@ -3395,7 +3409,7 @@ html {
   min-height: 22px;
   padding: 0;
   font-size: 13px;
-  line-height: 1;
+  line-height: 0;
 }
 
 .preview-item-actions .icon-btn.detail {
@@ -4044,6 +4058,7 @@ html {
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 0;
   /* SVG icon inside inherits color via currentColor and is sized by the
      `size` prop on <TrashIcon /> — no font-size needed. */
   color: var(--text-muted);
@@ -4122,7 +4137,7 @@ html {
    the icon; the icon stays visible at the ellipsis boundary. */
 .list-slot-title-group {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   gap: 4px;
   max-width: 100%;
   min-width: 0;
@@ -4152,9 +4167,14 @@ html {
 .list-slot-edit {
   background: transparent;
   border: none;
-  padding: 0 2px;
+  display: inline-grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 20px;
+  height: 20px;
+  padding: 0;
   font-size: 13px;
-  line-height: 1;
+  line-height: 0;
   color: var(--text-faint);
   flex-shrink: 0;
   cursor: pointer;
@@ -4410,16 +4430,19 @@ html {
 }
 
 .chip .x {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: inline-grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
   background: transparent;
   border: none;
   color: var(--text-faint);
   font-size: 14px;
-  padding: 0 0 0 4px;
+  padding: 0;
   margin-left: 2px;
-  line-height: 1;
+  line-height: 0;
 }
 
 .chip .x:hover:not(:disabled):not(.reorder) {
@@ -4624,6 +4647,20 @@ html {
   line-height: 1;
 }
 
+/* Shared square geometry for glyph-only controls in every surface. */
+.icon-btn:not(.icon-btn-text) {
+  display: inline-grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  min-height: 22px;
+  padding: 0;
+  line-height: 0;
+  flex-shrink: 0;
+}
+
 .icon-btn:hover:not(:disabled) {
   background: var(--surface);
   border-color: var(--border);
@@ -4644,16 +4681,15 @@ html {
 
 .icon-btn.detail,
 .x-button.staged-panel-item-detail.detail {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: inline-grid;
+  place-items: center;
   box-sizing: border-box;
   width: 22px;
   height: 22px;
   min-width: 22px;
   min-height: 22px;
   padding: 0;
-  line-height: 1;
+  line-height: 0;
 }
 
 .icon-btn.detail {
@@ -5214,16 +5250,21 @@ html {
    surrounding row stretches. Kept narrow so it doesn't compete
    visually with the primary "Import" button next to it. */
 .btn.icon-only {
-  padding: 4px 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 0;
   font-size: 14px;
-  line-height: 1;
+  line-height: 0;
   min-width: 28px;
+  min-height: 28px;
   border-radius: var(--radius-sm);
 }
 
-/* Icon-only "Random from …" triggers in the A2A endpoint header. Centers
-   the glyph since .btn isn't a flex container; both buttons stretch to the
-   same height via the header's flex row. */
+/* Icon-only "Random from …" triggers in the A2A endpoint header. The
+   shared .btn.icon-only geometry centers these; this semantic selector
+   keeps the endpoint-specific intent explicit. */
 .anime-to-anime-random-btn {
   display: inline-flex;
   align-items: center;
