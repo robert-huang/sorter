@@ -453,7 +453,7 @@ function ItemRowActions({
   reorder?: ReactNode;
   trailing?: ReactNode;
 }) {
-  return (
+  const actions = (
     <>
       <DetailButtonSlot item={item} variant={variant} />
       {reorder}
@@ -461,6 +461,10 @@ function ItemRowActions({
       {trailing}
     </>
   );
+  if (variant === 'chip') {
+    return <span className="chip-actions">{actions}</span>;
+  }
+  return actions;
 }
 
 /**

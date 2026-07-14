@@ -194,55 +194,59 @@ export function SlotList({
       <div className="slot-list-header">
         <div className="slot-list-header-left">
           <span className="slot-list-header-title">Saved sorts</span>
-          {showPushAll && (
-            <button
-              type="button"
-              className="slot-list-bulk-icon"
-              onClick={onCloudPushAll}
-              disabled={pushAllEligible === 0}
-              aria-label="Push all opted-in slots to cloud"
-              title={
-                pushAllEligible === 0
-                  ? 'No slots opted in for cloud — toggle the cloud icon on a row first'
-                  : `Push ${pushAllEligible} opted-in slot${pushAllEligible === 1 ? '' : 's'} to cloud`
-              }
-            >
-              ⇡
-            </button>
-          )}
-          {showPullAll && (
-            <button
-              type="button"
-              className="slot-list-bulk-icon"
-              onClick={onCloudPullAll}
-              disabled={pullAllEligible === 0}
-              aria-label="Pull all opted-in slots from cloud"
-              title={
-                pullAllEligible === 0
-                  ? 'No opted-in slots have a cloud copy yet — push at least once first'
-                  : `Pull ${pullAllEligible} opted-in slot${pullAllEligible === 1 ? '' : 's'} from cloud (overwrites local)`
-              }
-            >
-              ⇣
-            </button>
-          )}
-          {onBackupAll && (
-            <button
-              type="button"
-              className={`slot-list-bulk-icon download-icon${
-                showPushAll || showPullAll ? ' slot-list-backup-icon' : ''
-              }`}
-              onClick={onBackupAll}
-              aria-label="Back up all slots as a JSON archive"
-              title="Back up all slots — download every slot in one JSON archive"
-            >
-              {/* "Down arrow above bar" (U+2913) — same glyph as the
-                  per-row download button, signalling "save to a file"
-                  but scoped to every slot at once. Sits to the right of
-                  the bulk cloud push/pull glyphs with an extra gap so it
-                  reads as a separate "local file" action. */}
-              ⤓
-            </button>
+          {(showPushAll || showPullAll || onBackupAll) && (
+            <span className="slot-list-bulk-icons">
+              {showPushAll && (
+                <button
+                  type="button"
+                  className="slot-list-bulk-icon"
+                  onClick={onCloudPushAll}
+                  disabled={pushAllEligible === 0}
+                  aria-label="Push all opted-in slots to cloud"
+                  title={
+                    pushAllEligible === 0
+                      ? 'No slots opted in for cloud — toggle the cloud icon on a row first'
+                      : `Push ${pushAllEligible} opted-in slot${pushAllEligible === 1 ? '' : 's'} to cloud`
+                  }
+                >
+                  ⇡
+                </button>
+              )}
+              {showPullAll && (
+                <button
+                  type="button"
+                  className="slot-list-bulk-icon"
+                  onClick={onCloudPullAll}
+                  disabled={pullAllEligible === 0}
+                  aria-label="Pull all opted-in slots from cloud"
+                  title={
+                    pullAllEligible === 0
+                      ? 'No opted-in slots have a cloud copy yet — push at least once first'
+                      : `Pull ${pullAllEligible} opted-in slot${pullAllEligible === 1 ? '' : 's'} from cloud (overwrites local)`
+                  }
+                >
+                  ⇣
+                </button>
+              )}
+              {onBackupAll && (
+                <button
+                  type="button"
+                  className={`slot-list-bulk-icon download-icon${
+                    showPushAll || showPullAll ? ' slot-list-backup-icon' : ''
+                  }`}
+                  onClick={onBackupAll}
+                  aria-label="Back up all slots as a JSON archive"
+                  title="Back up all slots — download every slot in one JSON archive"
+                >
+                  {/* "Down arrow above bar" (U+2913) — same glyph as the
+                      per-row download button, signalling "save to a file"
+                      but scoped to every slot at once. Sits to the right of
+                      the bulk cloud push/pull glyphs with an extra gap so it
+                      reads as a separate "local file" action. */}
+                  ⤓
+                </button>
+              )}
+            </span>
           )}
         </div>
         {onNewSort && (

@@ -2829,6 +2829,14 @@ html {
   gap: 8px;
 }
 
+/* ⇡⇣⤓ share square hit targets; push/pull touch, download is spaced
+   apart via .slot-list-backup-icon only. */
+.slot-list-bulk-icons {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+}
+
 .slot-list-bulk-icon {
   /* Minimal "no box" treatment for the bulk push (\u21E1) and bulk
      pull (\u21E3) buttons — sit inline next to the "Saved sorts"
@@ -2868,9 +2876,8 @@ html {
 }
 
 .slot-list-backup-icon {
-  /* Extra space on top of the parent's 8px gap so the "download all
-     slots" glyph reads as a separate local-file action, set apart from
-     the bulk cloud push/pull glyphs to its left. */
+  /* Sole gap before the "download all" glyph — push/pull sit flush
+     to its left inside .slot-list-bulk-icons. */
   margin-left: 8px;
 }
 
@@ -4366,6 +4373,14 @@ html {
   border-radius: 100px;
   padding: 4px 10px 4px 6px;
   font-size: 13px;
+}
+
+/* Icon cluster on merge chips — same 2px rhythm as queue row .actions. */
+.chip-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
 }
 
 .chip .thumb {
