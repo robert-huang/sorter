@@ -632,34 +632,42 @@ function lastDayOfPreviousAnilistSeason(
   }
 }
 
-function isInLastWeekOfItsSeason(key: number): boolean {
+export const SEASON_BOUNDARY_OVERFLOW_DAYS = 10;
+
+function isInSeasonEndOverflowWindow(key: number): boolean {
   const { season, year } = anilistSeasonAt(key);
   const bounds = seasonSpecCalendarInterval({ label: '', season, year });
-  const lastWeekStart = addDaysToCalendarKey(bounds.end, -6);
-  return key >= lastWeekStart && key <= bounds.end;
+  const overflowStart = addDaysToCalendarKey(
+    bounds.end,
+    -(SEASON_BOUNDARY_OVERFLOW_DAYS - 1),
+  );
+  return key >= overflowStart && key <= bounds.end;
 }
 
-function isInFirstWeekOfItsSeason(key: number): boolean {
+function isInSeasonStartOverflowWindow(key: number): boolean {
   const { season, year } = anilistSeasonAt(key);
   const bounds = seasonSpecCalendarInterval({ label: '', season, year });
-  const firstWeekEnd = addDaysToCalendarKey(bounds.start, 6);
-  return key >= bounds.start && key <= firstWeekEnd;
+  const overflowEnd = addDaysToCalendarKey(
+    bounds.start,
+    SEASON_BOUNDARY_OVERFLOW_DAYS - 1,
+  );
+  return key >= bounds.start && key <= overflowEnd;
 }
 
 /**
- * Trim boundary leakage: starts in the last week of a season don't count
- * toward that season; ends in the first week don't count toward that season.
+ * Trim boundary leakage: starts in a season's final overflow window don't
+ * count toward it; ends in the next season's opening window don't count there.
  */
 export function clampAiringIntervalSeasonBoundaries(
   interval: AiringInterval,
 ): AiringInterval | null {
   let { start, end } = interval;
 
-  if (isInLastWeekOfItsSeason(start)) {
+  if (isInSeasonEndOverflowWindow(start)) {
     const { season, year } = anilistSeasonAt(start);
     start = firstDayOfNextAnilistSeason(season, year);
   }
-  if (isInFirstWeekOfItsSeason(end)) {
+  if (isInSeasonStartOverflowWindow(end)) {
     const { season, year } = anilistSeasonAt(end);
     end = lastDayOfPreviousAnilistSeason(season, year);
   }

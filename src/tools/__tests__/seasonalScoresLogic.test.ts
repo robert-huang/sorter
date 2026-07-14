@@ -6,6 +6,7 @@ import {
   applySeasonalSourceFilters,
   averageScore,
   buildSeasonalColumns,
+  clampAiringIntervalSeasonBoundaries,
   countSeasonalShowsBySourceBucket,
   discoverSeasonalSeasonYearEncoded,
   DEFAULT_SEASONAL_SOURCE_FILTERS,
@@ -1016,7 +1017,49 @@ describe('seasonalScoresLogic', () => {
       }
     });
 
-    it('does not leak across season boundary weeks (late winter start / early spring end)', () => {
+    it('clamps starts in the final 10 days of a season but not the 11th day', () => {
+      expect(
+        clampAiringIntervalSeasonBoundaries({
+          start: 20240322,
+          end: 20240615,
+        }),
+      ).toEqual({
+        start: 20240401,
+        end: 20240615,
+      });
+      expect(
+        clampAiringIntervalSeasonBoundaries({
+          start: 20240321,
+          end: 20240615,
+        }),
+      ).toEqual({
+        start: 20240321,
+        end: 20240615,
+      });
+    });
+
+    it('clamps ends in the first 10 days of a season but not the 11th day', () => {
+      expect(
+        clampAiringIntervalSeasonBoundaries({
+          start: 20240105,
+          end: 20240410,
+        }),
+      ).toEqual({
+        start: 20240105,
+        end: 20240331,
+      });
+      expect(
+        clampAiringIntervalSeasonBoundaries({
+          start: 20240105,
+          end: 20240411,
+        }),
+      ).toEqual({
+        start: 20240105,
+        end: 20240411,
+      });
+    });
+
+    it('does not leak across season overflow windows (late winter start / early spring end)', () => {
       const shows: SeasonalShow[] = [
         {
           id: 10,
