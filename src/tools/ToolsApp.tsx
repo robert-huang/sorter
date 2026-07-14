@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnilistDetailModal } from '../components/AnilistDetailModal';
 import { AppBannerStack } from '../components/AppBannerStack';
+import { RemoveGlyph } from '../components/RemoveGlyph';
 import { StaffDetailModal } from '../components/StaffDetailModal';
 import { useDbNonPersistentBanner } from '../hooks/useDbNonPersistentBanner';
 import { useSourceDbSync } from '../hooks/useSourceDbSync';
@@ -201,7 +202,7 @@ export function ToolsApp() {
               aria-label="Dismiss non-persistent storage warning"
               title="Dismiss"
             >
-              &times;
+              <RemoveGlyph size={12} />
             </button>
           </div>
         )}

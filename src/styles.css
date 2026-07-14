@@ -204,11 +204,9 @@ html {
   padding: 0;
   margin: 0;
   box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: grid;
+  place-items: center;
   line-height: 0;
-  font-size: 16px;
   font-weight: 400;
   cursor: pointer;
   flex-shrink: 0;
@@ -2842,15 +2840,18 @@ html {
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
   padding: 0;
   font: inherit;
   font-size: 14px;
   font-weight: 400;
   letter-spacing: 0;
-  line-height: 1;
+  line-height: 0;
 }
 
 .slot-list-bulk-icon:hover:not(:disabled) {
@@ -3161,13 +3162,6 @@ html {
   gap: 6px;
 }
 
-.x-button,
-.icon-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
 .x-button {
   background: transparent;
   border: none;
@@ -3358,7 +3352,7 @@ html {
 .preview-items li .preview-item-trailing {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   margin-left: auto;
   flex-shrink: 0;
 }
@@ -3392,11 +3386,10 @@ html {
   flex-shrink: 0;
 }
 
-/* Match LIST tab row affordances — always visible, not hover-discovered. */
+/* Match LIST queue row affordances — always visible, not hover-discovered. */
 .preview-item-actions .icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: grid;
+  place-items: center;
   box-sizing: border-box;
   width: 22px;
   height: 22px;
@@ -3405,10 +3398,11 @@ html {
   padding: 0;
   font-size: 13px;
   line-height: 0;
+  flex-shrink: 0;
 }
 
 .preview-item-actions .icon-btn.detail {
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .preview-totals {
@@ -3528,17 +3522,6 @@ html {
 /* No rank column — thumb · label · actions only. */
 .list-to-be-inserted .queue-item-row {
   grid-template-columns: auto 1fr auto;
-}
-
-/* ↻ Insert sets the row height — stretch glyph buttons (ⓘ ✎ ×) to match. */
-.list-to-be-inserted .queue-item-row .actions {
-  align-items: stretch;
-}
-
-.list-to-be-inserted .queue-item-row .actions .icon-btn:not(.icon-btn-text) {
-  height: auto;
-  min-height: 22px;
-  align-self: stretch;
 }
 
 /* ---------- Compare-screen pair transitions ---------- */
@@ -4053,7 +4036,6 @@ html {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0;
   /* SVG icon inside inherits color via currentColor and is sized by the
      `size` prop on <TrashIcon /> — no font-size needed. */
   color: var(--text-muted);
@@ -4423,16 +4405,20 @@ html {
 }
 
 .chip .x {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  min-height: 22px;
+  padding: 0;
+  line-height: 0;
+  flex-shrink: 0;
   background: transparent;
   border: none;
   color: var(--text-faint);
   font-size: 14px;
-  padding: 0 0 0 4px;
-  margin-left: 2px;
-  line-height: 1;
 }
 
 .chip .x:hover:not(:disabled):not(.reorder) {
@@ -4470,6 +4456,10 @@ html {
 
 /* Details (ⓘ) variant: opens the media detail panel. Like .edit, override
    the base .x danger hover with a neutral ramp — viewing is non-destructive. */
+.chip .x.detail {
+  font-size: 13px;
+}
+
 .chip .x.detail:hover {
   color: var(--text);
   background: var(--surface-2);
@@ -4655,9 +4645,15 @@ html {
   border-color: var(--danger);
 }
 
-.icon-btn.detail,
-.x-button.staged-panel-item-detail.detail {
-  display: inline-grid;
+/* Square glyph hit targets — LIST queue rows are canonical. */
+.slot-actions > .x-button,
+.slot-actions > .icon-button,
+.staged-panel-item-edit,
+.staged-panel-item-remove,
+.staged-panel-group-remove,
+.x-button.staged-panel-item-detail.detail,
+.modal .x-button {
+  display: grid;
   place-items: center;
   box-sizing: border-box;
   width: 22px;
@@ -4666,14 +4662,11 @@ html {
   min-height: 22px;
   padding: 0;
   line-height: 0;
-}
-
-.icon-btn.detail {
-  font-size: 14px;
+  flex-shrink: 0;
 }
 
 .x-button.staged-panel-item-detail.detail {
-  font-size: 15px;
+  font-size: 13px;
 }
 
 .add-buttons {
@@ -5229,10 +5222,13 @@ html {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 4px 8px;
+  box-sizing: border-box;
+  padding: 5px 8px;
   font-size: 14px;
   line-height: 1;
   min-width: 28px;
+  min-height: 30px;
+  overflow: visible;
   border-radius: var(--radius-sm);
 }
 

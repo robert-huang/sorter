@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { RemoveGlyph } from './RemoveGlyph';
 import {
   formatGraphCacheDate,
   graphStaleRefreshTooltip,
@@ -293,7 +294,7 @@ export function StaffDetailModal({
             onClick={onClose}
             aria-label="Close"
           >
-            ×
+            <RemoveGlyph size={12} />
           </button>
         </div>
 

@@ -214,7 +214,8 @@ function HiddenItemsSection({
           >
             These items stay in the list above at their old rank (struck
             through) when applicable. While the sort is still running, use{' '}
-            <strong>↻ Reinsert</strong> to pull one back out for a fresh binary
+            <strong>↺ Restore</strong> to undo a hide in the current merge, or{' '}
+            <strong>↻ Reinsert</strong> to queue an item for a fresh binary
             insert. After the sort finishes, use <strong>↺ Restore</strong>{' '}
             (inline or here) to show it at its old rank again — or the row{' '}
             <strong>↻</strong> on a visible item to binary-search it back in.{' '}
@@ -230,7 +231,14 @@ function HiddenItemsSection({
                 ).has(id);
                 const canAct = !!item;
                 const rank = inRanking ? rankLabelForHiddenId(state, id) : '—';
-                const useRestore = allowInlineRestore && inRanking;
+                const inCurrentMerge =
+                  state.engine === 'merge' &&
+                  state.current !== null &&
+                  (state.current.left.includes(id) ||
+                    state.current.right.includes(id) ||
+                    state.current.merged.includes(id));
+                const useRestore =
+                  (allowInlineRestore && inRanking) || inCurrentMerge;
                 return (
                   <div key={id} className="queue-item-row hidden">
                     <span className="rank">{rank}</span>
@@ -249,8 +257,16 @@ function HiddenItemsSection({
                         <LabeledIconButton
                           glyph="↺"
                           label="Restore"
-                          onClick={() => onUnhide(id)}
-                          title="Restore at old rank"
+                          onClick={() =>
+                            allowInlineRestore
+                              ? onUnhide(id)
+                              : onRestoreHidden(id)
+                          }
+                          title={
+                            allowInlineRestore
+                              ? 'Restore at old rank'
+                              : 'Restore into current merge'
+                          }
                         />
                       )}
                       {canAct && !useRestore && (

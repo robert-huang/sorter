@@ -101,6 +101,7 @@ import {
 } from './lib/storage';
 import type { SlotMeta } from './lib/types';
 import { AppBannerStack } from './components/AppBannerStack';
+import { RemoveGlyph } from './components/RemoveGlyph';
 import { Header, type TabId } from './components/Header';
 import {
   StartScreen,
@@ -2636,7 +2637,7 @@ export function App() {
             aria-label="Dismiss storage-full warning"
             title="Dismiss"
           >
-            ×
+            <RemoveGlyph size={12} />
           </button>
         </div>
       )}
@@ -2670,7 +2671,7 @@ export function App() {
             aria-label="Dismiss non-persistent storage warning"
             title="Dismiss"
           >
-            &times;
+            <RemoveGlyph size={12} />
           </button>
         </div>
       )}
@@ -2701,7 +2702,7 @@ export function App() {
             aria-label="Dismiss cloud session expired warning"
             title="Dismiss"
           >
-            ×
+            <RemoveGlyph size={12} />
           </button>
         </div>
       )}
@@ -2733,7 +2734,7 @@ export function App() {
             aria-label="Dismiss multi-tab warning"
             title="Dismiss"
           >
-            ×
+            <RemoveGlyph size={12} />
           </button>
         </div>
       )}

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Item, ItemId } from '../lib/types';
 import { useClickOutside } from '../lib/hooks/useClickOutside';
 import { DetailButtonSlot } from './DetailButton';
+import { RemoveGlyph } from './RemoveGlyph';
 
 /**
  * Which engine the current START draft will start in. Non-persisted —
@@ -640,7 +641,7 @@ export function StagedItemsPanel({
                       : 'Mark this whole source for removal (undo with ↺ before Start Sort)'
                   }
                 >
-                  {groupMarked ? '↺' : '×'}
+                  {groupMarked ? '↺' : <RemoveGlyph size={12} />}
                 </button>
               )}
 
@@ -792,7 +793,7 @@ export function StagedItemsPanel({
                                 : 'Mark this entry for removal (undo with ↺ before Start Sort)'
                             }
                           >
-                            {itemMarked ? '↺' : '×'}
+                            {itemMarked ? '↺' : <RemoveGlyph size={12} />}
                           </button>
                         )}
                       </li>

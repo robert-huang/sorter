@@ -235,6 +235,45 @@ describe('ListScreen · hidden panel on completed merge sort', () => {
   });
 });
 
+describe('ListScreen · hidden panel during a merge', () => {
+  it('shows ↺ Restore for an item hidden from the current merge', () => {
+    const state = mergeHideItem(
+      seedFromSublists({
+        sublists: [
+          [A, B, C],
+          [D, E, F],
+        ],
+        extras: [],
+      }),
+      'a',
+    );
+    expect(state.current).not.toBeNull();
+    expect(state.current?.left).toContain('a');
+
+    const onRestoreHidden = vi.fn();
+    const onReinsertHidden = vi.fn();
+    renderList(
+      makeProps(state, { onRestoreHidden, onReinsertHidden }),
+    );
+
+    const hiddenSection = container.querySelector('.list-removed-during-sort');
+    const restoreBtn = hiddenSection?.querySelector(
+      'button[title="Restore to current merge"]',
+    );
+    expect(restoreBtn).not.toBeNull();
+    expect(hiddenSection?.textContent).toContain('↺ Restore');
+    expect(
+      hiddenSection?.querySelector(
+        'button[title="Pull out and binary-insert again"]',
+      ),
+    ).toBeNull();
+
+    act(() => restoreBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(onRestoreHidden).toHaveBeenCalledWith('a');
+    expect(onReinsertHidden).not.toHaveBeenCalled();
+  });
+});
+
 describe('ListScreen · to-be-inserted section (merge)', () => {
   const G: Item = { id: 'g', label: 'G' };
 

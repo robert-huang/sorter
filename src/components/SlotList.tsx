@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SlotMeta } from '../lib/types';
+import { RemoveGlyph } from './RemoveGlyph';
 
 interface Props {
   slots: SlotMeta[];
@@ -490,7 +491,7 @@ function SlotRow({
           title={`Delete ${slot.name}`}
           aria-label={`Delete ${slot.name}`}
         >
-          ×
+          <RemoveGlyph size={12} />
         </button>
       </div>
     </div>

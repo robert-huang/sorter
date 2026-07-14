@@ -27,6 +27,7 @@ import {
 } from '../lib/importers/anilist/anilistLinks';
 import { useAnilistDisplayPreferences } from '../hooks/useAnilistDisplayPreferences';
 import { formatAnilistProgress } from './anilistProgressLabel';
+import { RemoveGlyph } from './RemoveGlyph';
 
 const PRODUCTION_ROLE_MODE_KEY = 'anilist-detail-production-roles';
 
@@ -438,7 +439,7 @@ export function AnilistDetailModal({
             onClick={onClose}
             aria-label="Close"
           >
-            ×
+            <RemoveGlyph size={12} />
           </button>
         </div>
 
