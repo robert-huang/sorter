@@ -258,7 +258,7 @@ describe('ListScreen · hidden panel during a merge', () => {
 
     const hiddenSection = container.querySelector('.list-removed-during-sort');
     const restoreBtn = hiddenSection?.querySelector(
-      'button[title="Restore to current merge"]',
+      'button[title="Restore into current merge"]',
     );
     expect(restoreBtn).not.toBeNull();
     expect(hiddenSection?.textContent).toContain('↺ Restore');
