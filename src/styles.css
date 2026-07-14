@@ -2842,17 +2842,15 @@ html {
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  display: inline-grid;
-  place-items: center;
-  box-sizing: border-box;
-  width: 20px;
-  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 0;
   font: inherit;
   font-size: 14px;
   font-weight: 400;
   letter-spacing: 0;
-  line-height: 0;
+  line-height: 1;
 }
 
 .slot-list-bulk-icon:hover:not(:disabled) {
@@ -3165,23 +3163,18 @@ html {
 
 .x-button,
 .icon-button {
-  display: inline-grid;
-  place-items: center;
-  box-sizing: border-box;
-  width: 22px;
-  height: 22px;
-  min-width: 22px;
-  min-height: 22px;
-  padding: 0;
-  line-height: 0;
-  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .x-button {
   background: transparent;
   border: none;
   font-size: 18px;
+  line-height: 1;
   color: var(--text-faint);
+  padding: 2px 6px;
   border-radius: 4px;
 }
 
@@ -3198,7 +3191,9 @@ html {
   background: transparent;
   border: none;
   font-size: 15px;
+  line-height: 1;
   color: var(--text-faint);
+  padding: 2px 6px;
   border-radius: 4px;
 }
 
@@ -4167,14 +4162,12 @@ html {
 .list-slot-edit {
   background: transparent;
   border: none;
-  display: inline-grid;
-  place-items: center;
-  box-sizing: border-box;
-  width: 20px;
-  height: 20px;
-  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 2px;
   font-size: 13px;
-  line-height: 0;
+  line-height: 1;
   color: var(--text-faint);
   flex-shrink: 0;
   cursor: pointer;
@@ -4430,19 +4423,16 @@ html {
 }
 
 .chip .x {
-  display: inline-grid;
-  place-items: center;
-  box-sizing: border-box;
-  width: 18px;
-  height: 18px;
-  min-width: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
   border: none;
   color: var(--text-faint);
   font-size: 14px;
-  padding: 0;
+  padding: 0 0 0 4px;
   margin-left: 2px;
-  line-height: 0;
+  line-height: 1;
 }
 
 .chip .x:hover:not(:disabled):not(.reorder) {
@@ -4645,20 +4635,6 @@ html {
   font-size: 13px;
   color: var(--text-muted);
   line-height: 1;
-}
-
-/* Shared square geometry for glyph-only controls in every surface. */
-.icon-btn:not(.icon-btn-text) {
-  display: inline-grid;
-  place-items: center;
-  box-sizing: border-box;
-  width: 22px;
-  height: 22px;
-  min-width: 22px;
-  min-height: 22px;
-  padding: 0;
-  line-height: 0;
-  flex-shrink: 0;
 }
 
 .icon-btn:hover:not(:disabled) {
@@ -5253,12 +5229,10 @@ html {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  box-sizing: border-box;
-  padding: 0;
+  padding: 4px 8px;
   font-size: 14px;
-  line-height: 0;
+  line-height: 1;
   min-width: 28px;
-  min-height: 28px;
   border-radius: var(--radius-sm);
 }
 
