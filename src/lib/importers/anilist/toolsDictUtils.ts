@@ -135,25 +135,36 @@ export type VaRoleCell = {
   label: string;
 };
 
+export type VaRoleAlignedCell = {
+  characterId: number | null;
+  label: string;
+};
+
+const EMPTY_VA_ROLE_CELL: VaRoleAlignedCell = { characterId: null, label: '' };
+
+function emptyVaRoleCells(showCount: number): VaRoleAlignedCell[] {
+  return Array.from({ length: showCount }, () => ({ ...EMPTY_VA_ROLE_CELL }));
+}
+
 /**
  * Align VA role labels across shows by character id. Cast role (MAIN vs BACKGROUND)
  * may differ; matching characters still share a row. Leftover roles on non-anchor
  * shows are cross-matched so a character only in shows 2+ still aligns.
  */
-export function alignVaRoleCellsAcrossShows(
+function alignVaRoleCellsAcrossShowsInternal(
   roleLists: ReadonlyArray<readonly VaRoleCell[]>,
-): string[][] {
+): VaRoleAlignedCell[][] {
   const showCount = roleLists.length;
   if (showCount === 0) {
     return [];
   }
 
   const remaining = roleLists.map((roles) => [...roles]);
-  const rows: string[][] = [];
+  const rows: VaRoleAlignedCell[][] = [];
 
   for (const anchor of roleLists[0] ?? []) {
-    const cells = Array<string>(showCount).fill('');
-    cells[0] = anchor.label;
+    const cells = emptyVaRoleCells(showCount);
+    cells[0] = { characterId: anchor.characterId, label: anchor.label };
     const anchorPool = remaining[0]!;
     const anchorIdx = anchorPool.findIndex((role) => role.characterId === anchor.characterId);
     if (anchorIdx >= 0) {
@@ -164,7 +175,8 @@ export function alignVaRoleCellsAcrossShows(
       const pool = remaining[showIdx]!;
       const matchIdx = pool.findIndex((role) => role.characterId === anchor.characterId);
       if (matchIdx >= 0) {
-        cells[showIdx] = pool[matchIdx]!.label;
+        const match = pool[matchIdx]!;
+        cells[showIdx] = { characterId: match.characterId, label: match.label };
         pool.splice(matchIdx, 1);
       }
     }
@@ -175,8 +187,8 @@ export function alignVaRoleCellsAcrossShows(
     const pool = remaining[showIdx]!;
     while (pool.length > 0) {
       const role = pool.shift()!;
-      const cells = Array<string>(showCount).fill('');
-      cells[showIdx] = role.label;
+      const cells = emptyVaRoleCells(showCount);
+      cells[showIdx] = { characterId: role.characterId, label: role.label };
       for (let otherIdx = 0; otherIdx < showCount; otherIdx += 1) {
         if (otherIdx === showIdx) {
           continue;
@@ -184,7 +196,8 @@ export function alignVaRoleCellsAcrossShows(
         const otherPool = remaining[otherIdx]!;
         const matchIdx = otherPool.findIndex((other) => other.characterId === role.characterId);
         if (matchIdx >= 0) {
-          cells[otherIdx] = otherPool[matchIdx]!.label;
+          const match = otherPool[matchIdx]!;
+          cells[otherIdx] = { characterId: match.characterId, label: match.label };
           otherPool.splice(matchIdx, 1);
         }
       }
@@ -193,6 +206,21 @@ export function alignVaRoleCellsAcrossShows(
   }
 
   return rows;
+}
+
+export function alignVaRoleCellsAcrossShows(
+  roleLists: ReadonlyArray<readonly VaRoleCell[]>,
+): string[][] {
+  return alignVaRoleCellsAcrossShowsInternal(roleLists).map((row) =>
+    row.map((cell) => cell.label),
+  );
+}
+
+/** Like {@link alignVaRoleCellsAcrossShows} but keeps per-cell character ids for AniList links. */
+export function alignVaRoleCellsAcrossShowsWithIds(
+  roleLists: ReadonlyArray<readonly VaRoleCell[]>,
+): VaRoleAlignedCell[][] {
+  return alignVaRoleCellsAcrossShowsInternal(roleLists);
 }
 
 /** Per-dict keys unique to that dict, preserving each dict's key order. */

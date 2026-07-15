@@ -1,7 +1,8 @@
 import {
   alignRoleCellsAcrossShows,
-  alignVaRoleCellsAcrossShows,
+  alignVaRoleCellsAcrossShowsWithIds,
   dictIntersection,
+  type VaRoleAlignedCell,
   type VaRoleCell,
 } from '../../lib/importers/anilist/toolsDictUtils';
 import { parseLinesOnePerLine } from '../parseToolLines';
@@ -61,6 +62,8 @@ export type SharedStaffSectionRow = {
   imageUrl?: string | null;
   kind: 'studio' | 'staff' | 'va';
   cells: string[];
+  /** Parallel to `cells` for VA rows — AniList character id when the cell is non-empty. */
+  characterIds?: Array<number | null>;
 };
 
 export type SharedStaffSection = {
@@ -204,10 +207,19 @@ function bestCastTierIndexForVaRow(cells: readonly string[]): number {
 export function sortVaRoleRowsByCastTier(
   rows: ReadonlyArray<readonly string[]>,
 ): string[][] {
+  return sortVaRoleAlignedRowsByCastTier(
+    rows.map((cells) => cells.map((label) => ({ characterId: null, label }))),
+  ).map((cells) => cells.map((cell) => cell.label));
+}
+
+/** Like {@link sortVaRoleRowsByCastTier} but preserves aligned character ids. */
+export function sortVaRoleAlignedRowsByCastTier(
+  rows: ReadonlyArray<readonly VaRoleAlignedCell[]>,
+): VaRoleAlignedCell[][] {
   const withMeta = rows.map((cells, originalIdx) => ({
-    cells: [...cells],
+    cells: cells.map((cell) => ({ ...cell })),
     originalIdx,
-    tier: bestCastTierIndexForVaRow(cells),
+    tier: bestCastTierIndexForVaRow(cells.map((cell) => cell.label)),
   }));
   withMeta.sort((a, b) => {
     if (a.tier !== b.tier) {
@@ -371,44 +383,54 @@ function entityRowsForCompare(
   id: string,
   kind: 'studio' | 'staff' | 'va',
 ): SharedStaffSectionRow[] {
-  const roleLists = maps.map((m) => m[id]?.roles ?? []);
-  const aligned =
-    kind === 'va'
-      ? (() => {
-          const rows = alignVaRoleCellsAcrossShows(
-            maps.map((m) => {
-              const entity = m[id];
-              if (!entity) {
-                return [];
-              }
-              const characterIds = entity.roleCharacterIds ?? [];
-              return sortVaRolesForAlignment(
-                entity.roles.map((label, roleIdx) => ({
-                  characterId: characterIds[roleIdx] ?? -(roleIdx + 1),
-                  label,
-                })),
-              );
-            }),
-          );
-          return sortVaRoleRowsByCastTier(rows);
-        })()
-        : kind === 'studio'
-        ? [maps.map((m) => formatStudioRoleCell(m[id]?.roles ?? []))]
-        : (() => {
-          // Production staff: collapse "(...)" scope when aligning so e.g.
-          // `Animation Director (OP1)` shares a row with `Animation Director
-          // (eps 1-4)`, but Chief Animation Director stays on its own row.
-          const aligned = alignRoleCellsAcrossShows(
-            roleLists,
-            normalizeProductionRoleForCompare,
-          );
-          return sortProductionRoleRowsByRank(aligned);
-        })();
-  // Find name/image from any map that has this entity — required for
-  // "include all" mode where the entity may be absent from maps[0].
   const firstHit = maps.find((m) => m[id]);
   const displayName = normalizeStaffName(firstHit?.[id]?.name ?? id);
   const imageUrl = firstHit?.[id]?.image ?? null;
+
+  if (kind === 'va') {
+    const aligned = sortVaRoleAlignedRowsByCastTier(
+      alignVaRoleCellsAcrossShowsWithIds(
+        maps.map((m) => {
+          const entity = m[id];
+          if (!entity) {
+            return [];
+          }
+          const characterIds = entity.roleCharacterIds ?? [];
+          return sortVaRolesForAlignment(
+            entity.roles.map((label, roleIdx) => ({
+              characterId: characterIds[roleIdx] ?? -(roleIdx + 1),
+              label,
+            })),
+          );
+        }),
+      ),
+    );
+    return aligned.map((cells, rowIdx) => ({
+      entityId: Number(id),
+      name: rowIdx === 0 ? displayName : '',
+      imageUrl: rowIdx === 0 ? imageUrl : null,
+      kind,
+      cells: cells.map((cell) => cell.label),
+      characterIds: cells.map((cell) =>
+        cell.characterId != null && cell.characterId > 0 ? cell.characterId : null,
+      ),
+    }));
+  }
+
+  const roleLists = maps.map((m) => m[id]?.roles ?? []);
+  const aligned =
+    kind === 'studio'
+      ? [maps.map((m) => formatStudioRoleCell(m[id]?.roles ?? []))]
+      : (() => {
+          // Production staff: collapse "(...)" scope when aligning so e.g.
+          // `Animation Director (OP1)` shares a row with `Animation Director
+          // (eps 1-4)`, but Chief Animation Director stays on its own row.
+          const alignedRows = alignRoleCellsAcrossShows(
+            roleLists,
+            normalizeProductionRoleForCompare,
+          );
+          return sortProductionRoleRowsByRank(alignedRows);
+        })();
 
   return aligned.map((cells, rowIdx) => ({
     entityId: Number(id),

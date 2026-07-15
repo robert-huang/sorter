@@ -307,6 +307,11 @@ describe('sharedStaffLogic', () => {
       ['SUPPORTING Carol', 'SUPPORTING Carol'],
       ['BACKGROUND Bob', 'BACKGROUND Bob'],
     ]);
+    expect(vas?.rows.map((row) => row.characterIds)).toEqual([
+      [100, 100],
+      [300, 300],
+      [200, 200],
+    ]);
   });
 
   it('sortVaRoleRowsByCastTier promotes MAIN rows above BACKGROUND leftovers', () => {

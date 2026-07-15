@@ -14,7 +14,12 @@ import {
   type SharedStaffSection,
 } from './sharedStaffLogic';
 import { runSharedStaffCompare, type SharedStaffRunProgress } from './sharedStaffApi';
-import { ToolShowButton, ToolStaffButton } from '../toolEntityLinks';
+import {
+  anilistUrlForCharacter,
+  bindAnilistMiddleClick,
+  mergeAnilistLinkClass,
+} from '../../lib/importers/anilist/anilistLinks';
+import { ToolShowButton, ToolStaffButton, ToolStudioName } from '../toolEntityLinks';
 import { DragScroll } from '../../components/DragScroll';
 import {
   applyHeaderScrollbarGutter,
@@ -124,6 +129,32 @@ function progressLabel(progress: SharedStaffRunProgress | null): string | null {
   }
 }
 
+function SharedStaffVaRoleCell({
+  label,
+  characterId,
+}: {
+  label: string;
+  characterId: number | null | undefined;
+}) {
+  const anilistUrl =
+    characterId != null && characterId > 0 ? anilistUrlForCharacter(characterId) : null;
+  const anilistLink = bindAnilistMiddleClick(anilistUrl);
+
+  if (!anilistLink.className) {
+    return <span>{label}</span>;
+  }
+
+  return (
+    <span
+      className={mergeAnilistLinkClass('tool-character-name-link', anilistLink.className)}
+      onMouseDown={anilistLink.onMouseDown}
+      onAuxClick={anilistLink.onAuxClick}
+    >
+      {label}
+    </span>
+  );
+}
+
 function StaffCompareSectionTable({
   section,
   shows,
@@ -216,7 +247,7 @@ function StaffCompareSectionTable({
                 <td className="tool-staff-compare-entity">
                   {row.name ? (
                     row.kind === 'studio' ? (
-                      row.name
+                      <ToolStudioName studioId={row.entityId} name={row.name} />
                     ) : (
                       <ToolStaffButton
                         staffId={row.entityId}
@@ -229,7 +260,16 @@ function StaffCompareSectionTable({
                   ) : null}
                 </td>
                 {row.cells.map((cell, colIdx) => (
-                  <td key={`${idx}-${colIdx}`}>{cell}</td>
+                  <td key={`${idx}-${colIdx}`}>
+                    {row.kind === 'va' && cell ? (
+                      <SharedStaffVaRoleCell
+                        label={cell}
+                        characterId={row.characterIds?.[colIdx]}
+                      />
+                    ) : (
+                      cell
+                    )}
+                  </td>
                 ))}
               </tr>
             ))}

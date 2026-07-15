@@ -2,6 +2,7 @@ import {
   anilistUrlForCharacter,
   anilistUrlForMediaEntry,
   anilistUrlForStaffId,
+  anilistUrlForStudio,
   bindAnilistMiddleClick,
   mergeAnilistLinkClass,
 } from '../lib/importers/anilist/anilistLinks';
@@ -186,6 +187,30 @@ export function ToolCharacterName({ characterId, name, gender }: ToolCharacterNa
           .join(' '),
         anilistLink.className,
       )}
+      onMouseDown={anilistLink.onMouseDown}
+      onAuxClick={anilistLink.onAuxClick}
+    >
+      {name}
+    </span>
+  );
+}
+
+type ToolStudioNameProps = {
+  studioId: number;
+  name: string;
+};
+
+/** Studio name with middle-click to open AniList (no in-app studio modal). */
+export function ToolStudioName({ studioId, name }: ToolStudioNameProps) {
+  const anilistLink = bindAnilistMiddleClick(anilistUrlForStudio(studioId));
+
+  if (!anilistLink.className) {
+    return <span>{name}</span>;
+  }
+
+  return (
+    <span
+      className={mergeAnilistLinkClass('tool-character-name-link', anilistLink.className)}
       onMouseDown={anilistLink.onMouseDown}
       onAuxClick={anilistLink.onAuxClick}
     >

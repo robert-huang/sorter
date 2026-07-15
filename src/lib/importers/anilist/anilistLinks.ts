@@ -12,6 +12,11 @@ export function anilistUrlForStaffId(staffId: number): string {
   return buildAnilistFavouriteUrl('STAFF', staffId);
 }
 
+/** Canonical AniList URL for a studio page (`/studio/<id>`). */
+export function anilistUrlForStudio(studioId: number): string {
+  return buildAnilistFavouriteUrl('STUDIOS', studioId);
+}
+
 /** Canonical AniList URL for a media page (`/anime|manga/<id>`). */
 export function anilistUrlForMediaEntry(type: AnilistMediaType, id: number): string {
   return buildAnilistMediaUrl(type, id);
