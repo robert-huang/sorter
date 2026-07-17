@@ -27,7 +27,6 @@ import {
   getCurrentAnilistSeason,
   getNextAnilistSeason,
   isWeeklyCalendarSeasonScope,
-  normalizeWeeklyCalendarListStatusFilters,
   weeklyCalendarTimezoneToIana,
   WEEKLY_CALENDAR_LIST_STATUS_OPTIONS,
   type WeeklyCalendarForm,
@@ -47,12 +46,7 @@ const LS_KEY = 'anime-tools-weekly-calendar-form';
 
 type PersistedWeeklyCalendarForm = Pick<
   WeeklyCalendarForm,
-  | 'username'
-  | 'weekStartDay'
-  | 'timezone'
-  | 'seasonScope'
-  | 'listStatusFilters'
-  | 'showUnscheduledColumn'
+  'username' | 'weekStartDay' | 'timezone' | 'showUnscheduledColumn'
 >;
 
 const WEEK_START_OPTIONS: WeeklyCalendarWeekStartDay[] = [
@@ -76,17 +70,7 @@ function loadForm(): WeeklyCalendarForm {
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw) as Partial<PersistedWeeklyCalendarForm> & {
-        showCurrentSeasonAiring?: boolean;
-      };
-      const seasonScope: WeeklyCalendarSeasonScope =
-        parsed.seasonScope === 'current' ||
-        parsed.seasonScope === 'next' ||
-        parsed.seasonScope === 'watching'
-          ? parsed.seasonScope
-          : parsed.showCurrentSeasonAiring
-            ? 'current'
-            : DEFAULT_WEEKLY_CALENDAR_FORM.seasonScope;
+      const parsed = JSON.parse(raw) as Partial<PersistedWeeklyCalendarForm>;
       return {
         ...DEFAULT_WEEKLY_CALENDAR_FORM,
         username: withLastAnilistUsername(parsed.username ?? ''),
@@ -98,8 +82,6 @@ function loadForm(): WeeklyCalendarForm {
           parsed.timezone && TIMEZONE_OPTIONS.some((opt) => opt.value === parsed.timezone)
             ? parsed.timezone
             : DEFAULT_WEEKLY_CALENDAR_FORM.timezone,
-        seasonScope,
-        listStatusFilters: normalizeWeeklyCalendarListStatusFilters(parsed.listStatusFilters),
         showUnscheduledColumn: parsed.showUnscheduledColumn ?? false,
       };
     }
@@ -115,8 +97,6 @@ function saveForm(form: WeeklyCalendarForm): void {
       username: form.username,
       weekStartDay: form.weekStartDay,
       timezone: form.timezone,
-      seasonScope: form.seasonScope,
-      listStatusFilters: form.listStatusFilters,
       showUnscheduledColumn: form.showUnscheduledColumn,
     };
     localStorage.setItem(LS_KEY, JSON.stringify(persisted));
