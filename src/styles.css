@@ -7413,6 +7413,97 @@ html {
   opacity: 0.55;
 }
 
+.tool-weekly-cell-grid {
+  display: grid;
+  grid-template-columns: 18px auto minmax(0, 1fr);
+  column-gap: 8px;
+  align-items: stretch;
+}
+
+.tool-weekly-score {
+  flex: 0 0 18px;
+  width: 18px;
+  min-width: 18px;
+  align-self: center;
+}
+
+.tool-weekly-poster-btn {
+  display: flex;
+  align-self: stretch;
+  align-items: stretch;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  min-height: 34px;
+  /* Match title block at 1 title line + 3 detail lines + gaps (see poster max-width). */
+  --weekly-poster-row-max-height: calc(13px * 1.35 * 1 + 11px * 1.35 * 3 + 2px * 3);
+}
+
+.tool-weekly-poster-btn .tool-entity-avatar--poster {
+  width: auto;
+  height: 100%;
+  min-height: 34px;
+  min-width: calc(34px * 2 / 3);
+  max-width: calc(var(--weekly-poster-row-max-height) * 2 / 3);
+  aspect-ratio: 2 / 3;
+}
+
+.tool-weekly-title-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  align-self: center;
+}
+
+.tool-weekly-title.tool-entity-btn {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+}
+
+.tool-weekly-detail {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--muted);
+  word-break: break-word;
+}
+
+.tool-weekly-detail-time {
+  color: var(--text-faint);
+}
+
+.tool-weekly-col-count {
+  font-size: 11px;
+}
+
+.tool-weekly-season-banner {
+  margin: 0 0 8px;
+  padding: 0 4px;
+}
+
+.tool-weekly-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.tool-weekly-filters .tool-adaptation-primary-filters {
+  margin-bottom: 0;
+}
+
+.tool-weekly-primary-filters .tool-weekly-week-start .tool-select {
+  min-width: 6rem;
+  width: 6rem;
+}
+
+.tool-weekly-primary-filters .tool-weekly-season-scope .tool-select {
+  min-width: 7.25rem;
+  width: 7.25rem;
+}
+
 /* Franchise Scores — narrower columns (one row per entry) + format chip. */
 /* ---------- Franchise Scores: vertical table layout ---------- */
 

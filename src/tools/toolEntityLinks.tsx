@@ -51,6 +51,8 @@ type ToolShowButtonProps = {
   mediaType?: AnilistMediaType;
   onOpenMedia: ToolPanelProps['onOpenMedia'];
   compact?: boolean;
+  /** When true, omit the cover/poster (e.g. when rendered in a sibling column). */
+  hideAvatar?: boolean;
   className?: string;
 };
 
@@ -62,6 +64,7 @@ export function ToolShowButton({
   mediaType = 'ANIME',
   onOpenMedia,
   compact = false,
+  hideAvatar = false,
   className,
 }: ToolShowButtonProps) {
   const anilistLink = bindAnilistMiddleClick(anilistUrlForMediaEntry(mediaType, mediaId));
@@ -84,7 +87,9 @@ export function ToolShowButton({
       onMouseDown={anilistLink.onMouseDown}
       onAuxClick={anilistLink.onAuxClick}
     >
-      <ToolEntityAvatar imageUrl={coverImage} label={title} variant="poster" />
+      {hideAvatar ? null : (
+        <ToolEntityAvatar imageUrl={coverImage} label={title} variant="poster" />
+      )}
       <span className="tool-entity-label">
         <strong>{title}</strong>
       </span>

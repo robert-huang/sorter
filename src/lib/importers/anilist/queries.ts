@@ -634,8 +634,7 @@ query ToolsStaffProductionRoles($id: Int!, $page: Int!, $perPage: Int!) {
 }
 `.trim();
 
-/**
- * User anime list for tools — includes `notes` for `#airing` filtering and
+/** User anime list for tools — includes `notes` for `#airing` filtering and
  * `MEDIA_ID` tie-break sort (`compare_vas.py` / `compare_seasons.py`).
  */
 export const TOOLS_USER_ANIME_LIST_QUERY = `
@@ -669,6 +668,72 @@ query ToolsUserAnimeList(
         endDate { year month day }
         duration
       }
+    }
+  }
+}
+`.trim();
+
+const WEEKLY_CALENDAR_MEDIA_FIELDS = `
+  id
+  title { english romaji native userPreferred }
+  coverImage { large }
+  ${MEDIA_STATUS_SELECTION}
+  episodes
+  popularity
+  startDate { year month day }
+  endDate { year month day }
+  nextAiringEpisode { airingAt episode }
+  airingSchedule(notYetAired: false, perPage: 24) {
+    nodes { airingAt episode }
+  }
+`.trim();
+
+/** Watching-list rows for Weekly Calendar — CURRENT/REPEATING with airing metadata. */
+export const TOOLS_WEEKLY_CALENDAR_WATCHING_QUERY = `
+query ToolsWeeklyCalendarWatching(
+  $userName: String
+  $statusIn: [MediaListStatus]
+  $page: Int!
+  $perPage: Int!
+) {
+  Page(page: $page, perPage: $perPage) {
+    pageInfo { hasNextPage currentPage }
+    mediaList(
+      userName: $userName
+      type: ANIME
+      status_in: $statusIn
+      sort: [MEDIA_ID]
+    ) {
+      status
+      score(format: POINT_100)
+      progress
+      media {
+        ${WEEKLY_CALENDAR_MEDIA_FIELDS}
+      }
+    }
+  }
+}
+`.trim();
+
+/** Season browse for Weekly Calendar — live airing/upcoming shows in one status bucket. */
+export const TOOLS_WEEKLY_CALENDAR_SEASON_QUERY = `
+query ToolsWeeklyCalendarSeason(
+  $page: Int!
+  $perPage: Int!
+  $season: MediaSeason!
+  $seasonYear: Int!
+  $status: MediaStatus
+) {
+  Page(page: $page, perPage: $perPage) {
+    pageInfo { hasNextPage currentPage }
+    media(
+      type: ANIME
+      season: $season
+      seasonYear: $seasonYear
+      status: $status
+      sort: [POPULARITY_DESC]
+    ) {
+      ${WEEKLY_CALENDAR_MEDIA_FIELDS}
     }
   }
 }

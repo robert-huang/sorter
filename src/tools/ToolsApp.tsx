@@ -32,6 +32,7 @@ import { FavouritesPanel } from './panels/FavouritesPanel';
 import { ReorderFavouritesPanel } from './panels/ReorderFavouritesPanel';
 import { UpdateListEntryPanel } from './panels/UpdateListEntryPanel';
 import { AdaptationScoresPanel } from './panels/AdaptationScoresPanel';
+import { WeeklyCalendarPanel } from './panels/WeeklyCalendarPanel';
 import type { ToolsMediaRelationsResponse } from '../lib/importers/anilist/toolsMediaRelationsApi';
 
 const TOOL_TABS: ReadonlyArray<ToolTab<ToolId>> = [
@@ -59,6 +60,11 @@ const TOOL_TABS: ReadonlyArray<ToolTab<ToolId>> = [
     id: 'adaptation-scores',
     label: 'Adaptation Scores',
     title: 'Map source and adaptation pairs across your anime and manga lists.',
+  },
+  {
+    id: 'weekly-calendar',
+    label: 'Weekly Calendar',
+    title: "Chart airing shows from a user's watching list by weekday.",
   },
   {
     id: 'favourites',
@@ -228,6 +234,9 @@ export function ToolsApp() {
         </div>
         <div hidden={activeTool !== 'seasonal-scores'}>
           <SeasonalScoresPanel {...panelProps} />
+        </div>
+        <div hidden={activeTool !== 'weekly-calendar'}>
+          <WeeklyCalendarPanel {...panelProps} />
         </div>
         <div hidden={activeTool !== 'franchise-scores'}>
           <FranchiseScoresPanel {...panelProps} />

@@ -4,6 +4,7 @@ export type ToolId =
   | 'shared-credits'
   | 'shared-staff'
   | 'seasonal-scores'
+  | 'weekly-calendar'
   | 'franchise-scores'
   | 'adaptation-scores'
   | 'favourites'
@@ -37,6 +38,7 @@ const TOOL_IDS: readonly ToolId[] = [
   'shared-credits',
   'shared-staff',
   'seasonal-scores',
+  'weekly-calendar',
   'franchise-scores',
   'adaptation-scores',
   'favourites',
