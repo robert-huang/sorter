@@ -1,7 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ConfirmationState, Item, ItemId } from '../lib/types';
 import { getCompareProgress, getPair } from '../lib/engine';
-import { activeRankingIds } from '../lib/sortPopulation';
 import { getInsertContext } from './listScreenH';
 import {
   COMPARE_EXIT_ANIM_NAMES,
@@ -16,8 +15,6 @@ import { ItemCard } from './ItemCard';
 import { ItemThumb } from './ItemThumb';
 import { DetailButtonSlot } from './DetailButton';
 import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
-import { AddItemsModal } from './AddItemsModal';
-import type { SlotResultsImportBatch } from '../lib/completedSortEditH';
 
 interface Props {
   state: ConfirmationState;
@@ -29,11 +26,6 @@ interface Props {
   onReorderConfirmed: (index: number, direction: -1 | 1) => void;
   onReturnToPending: (id: ItemId) => void;
   autoInsertEnabled: boolean;
-  slotId: string;
-  dbSyncRevision: number;
-  onAddItem: (item: Item) => void;
-  onAddItems: (items: Item[]) => void;
-  onAddSlotImports: (batches: SlotResultsImportBatch[]) => void;
 }
 
 interface OutgoingPair {
@@ -79,13 +71,7 @@ export function ConfirmationCompareScreen({
   onReorderConfirmed,
   onReturnToPending,
   autoInsertEnabled,
-  slotId,
-  dbSyncRevision,
-  onAddItem,
-  onAddItems,
-  onAddSlotImports,
 }: Props) {
-  const [addOpen, setAddOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const editingItem = editingId ? state.items[editingId] ?? null : null;
   const otherIds = useMemo(() => {
@@ -96,7 +82,6 @@ export function ConfirmationCompareScreen({
     }
     return m;
   }, [state.items, editingId]);
-  const existingIds = useMemo(() => activeRankingIds(state), [state]);
 
   const pair = getPair(state);
   const hidden = useMemo(() => new Set(state.hidden), [state.hidden]);
@@ -367,11 +352,6 @@ export function ConfirmationCompareScreen({
       <div className="compare-help">
         Which do you prefer? Click a card or use ← / → · ↑ to undo · middle-click to open link
       </div>
-      <div className="add-buttons compare-add-buttons">
-        <button type="button" className="btn" onClick={() => setAddOpen(true)}>
-          + Add item(s)
-        </button>
-      </div>
       <div className="compare compare--confirmation">
         <div className="compare-confirmation-pair">
           <div className={leftSlotClass} data-anim={leftAnimKind}>
@@ -513,27 +493,6 @@ export function ConfirmationCompareScreen({
           </div>
         )}
       </div>
-      {addOpen && (
-        <AddItemsModal
-          engine="confirmation"
-          existingIds={existingIds}
-          excludeSlotId={slotId || undefined}
-          dbSyncRevision={dbSyncRevision}
-          onCancel={() => setAddOpen(false)}
-          onAddOne={(item) => {
-            onAddItem(item);
-            setAddOpen(false);
-          }}
-          onAddMany={(items) => {
-            onAddItems(items);
-            setAddOpen(false);
-          }}
-          onAddSlotImports={(batches) => {
-            onAddSlotImports(batches);
-            setAddOpen(false);
-          }}
-        />
-      )}
       {editingItem && (
         <EditItemModal
           item={editingItem}
