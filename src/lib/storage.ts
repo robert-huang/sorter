@@ -1,4 +1,5 @@
 import type {
+  ConfirmationProgress,
   Item,
   ItemId,
   MergeProgress,
@@ -7,6 +8,7 @@ import type {
   SlotsManifest,
   SortProgress,
 } from './types';
+import { normalizeConfirmationProgress } from './confirmationSort';
 import { activeSortItemCount } from './sortPopulation';
 
 // ---------- keys ----------
@@ -179,7 +181,9 @@ function upgradeProgress(progress: unknown): SortProgress {
     currentAutoInsert?: unknown;
   };
   if (p.engine === 'insertion') return progress as SortProgress;
-  if (p.engine === 'confirmation') return progress as SortProgress;
+  if (p.engine === 'confirmation') {
+    return normalizeConfirmationProgress(progress as ConfirmationProgress);
+  }
   // Current merge blob: engine + v4 field names.
   if (
     p.engine === 'merge' &&

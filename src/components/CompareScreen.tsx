@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { EditItemSavePayload } from './EditItemModal';
 import type { Item, ItemId, SortState } from '../lib/types';
+import type { SlotResultsImportBatch } from '../lib/completedSortEditH';
 import {
   getCompareProgress,
   getPair,
@@ -21,7 +23,6 @@ import { ItemCard } from './ItemCard';
 import { PeekCard } from './PeekCard';
 import { ConfirmationCompareScreen } from './ConfirmationCompareScreen';
 import { isConfirmationState } from '../lib/types';
-import type { EditItemSavePayload } from './EditItemModal';
 
 /**
  * The last user action that *can change the current pair*. Surfaced from
@@ -45,6 +46,11 @@ interface Props {
   onEditItem?: (id: ItemId, patch: EditItemSavePayload) => void;
   onReorderConfirmed?: (index: number, direction: -1 | 1) => void;
   onReturnToPending?: (id: ItemId) => void;
+  slotId?: string;
+  dbSyncRevision?: number;
+  onAddItem?: (item: Item) => void;
+  onAddItems?: (items: Item[]) => void;
+  onAddSlotImports?: (batches: SlotResultsImportBatch[]) => void;
   /**
    * Whether the merge engine may auto-insert popped pairs (engine setting).
    * Threaded through here only to make the progress-bar forecast match what
@@ -145,6 +151,11 @@ export function CompareScreen({
   onEditItem,
   onReorderConfirmed,
   onReturnToPending,
+  slotId = '',
+  dbSyncRevision = 0,
+  onAddItem,
+  onAddItems,
+  onAddSlotImports,
   autoInsertEnabled,
 }: Props) {
   if (isConfirmationState(state)) {
@@ -159,6 +170,11 @@ export function CompareScreen({
         onReorderConfirmed={onReorderConfirmed ?? (() => {})}
         onReturnToPending={onReturnToPending ?? (() => {})}
         autoInsertEnabled={autoInsertEnabled}
+        slotId={slotId}
+        dbSyncRevision={dbSyncRevision}
+        onAddItem={onAddItem ?? (() => {})}
+        onAddItems={onAddItems ?? (() => {})}
+        onAddSlotImports={onAddSlotImports ?? (() => {})}
       />
     );
   }

@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { getPair } from '../lib/engine';
 import {
+  getActivePendingId,
+  getRemainingIds,
+} from '../lib/confirmationSort';
+import {
   canReorderInCurrentMerge,
   type CurrentMergeSlice,
 } from '../lib/queueMergeSort';
@@ -1490,12 +1494,18 @@ function SublistView({
 
 function ConfirmationListView({
   state,
+  slotId,
+  dbSyncRevision,
   onHide,
   onUnhide,
+  onAddItem,
+  onAddItems,
+  onAddSlotImports,
   onEditItem,
   onReorderInSorted,
   onReturnToPending,
 }: Props & { state: ConfirmationState }) {
+  const [addOpen, setAddOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const editingItem = editingId ? state.items[editingId] ?? null : null;
   const openEdit = (it: Item) => setEditingId(it.id);
@@ -1508,7 +1518,9 @@ function ConfirmationListView({
     }
     return m;
   }, [state.items, editingId]);
-  const candidateId = state.phase === 'confirm' ? state.candidate : state.insertFrame?.insertingId ?? null;
+  const existingIds = useMemo(() => activeRankingIds(state), [state]);
+  const activePendingId = getActivePendingId(state);
+  const remainingIds = getRemainingIds(state);
 
   return (
     <>
@@ -1534,28 +1546,32 @@ function ConfirmationListView({
         onReorder={onReorderInSorted}
         onReturnToPending={onReturnToPending}
       />
-      {(candidateId || state.queue.length > 0) && (
+      {remainingIds.length > 0 && (
         <>
           <div className="list-section-label" style={{ marginTop: 16 }}>
-            Remaining ({(candidateId ? 1 : 0) + state.queue.length})
+            Remaining ({remainingIds.length})
           </div>
           <div className="queue-sublist">
             <div className="queue-sublist-items">
-              {[...(candidateId ? [candidateId] : []), ...state.queue].map((id, ii) => {
+              {remainingIds.map((id, ii) => {
                 const item = state.items[id];
                 if (!item) return null;
                 const isHidden = hidden.has(id);
-                const isCurrent = id === candidateId;
+                const isCurrent = id === activePendingId;
                 return (
                   <div
                     key={id}
                     className={`queue-item-row ${isHidden ? 'hidden' : ''} ${isCurrent ? 'confirmation-row--probe' : ''}`}
                   >
                     <span className="rank">{state.confirmed.length + ii + 1}.</span>
-                    <ItemThumb item={item} />
+                    <Thumb item={item} />
                     <span className="label-cell" title={item.label}>
                       {item.label}
-                      {isCurrent ? ' (current)' : ''}
+                    </span>
+                    <span className="actions">
+                      {isCurrent && (
+                        <span className="list-merge-context-tag">current</span>
+                      )}
                     </span>
                   </div>
                 );
@@ -1563,6 +1579,33 @@ function ConfirmationListView({
             </div>
           </div>
         </>
+      )}
+      <div className="add-buttons">
+        <button type="button" className="btn" onClick={() => setAddOpen(true)}>
+          + Add item(s)
+        </button>
+      </div>
+
+      {addOpen && (
+        <AddItemsModal
+          engine="confirmation"
+          existingIds={existingIds}
+          excludeSlotId={slotId || undefined}
+          dbSyncRevision={dbSyncRevision}
+          onCancel={() => setAddOpen(false)}
+          onAddOne={(item) => {
+            onAddItem(item);
+            setAddOpen(false);
+          }}
+          onAddMany={(items) => {
+            onAddItems(items);
+            setAddOpen(false);
+          }}
+          onAddSlotImports={(batches) => {
+            onAddSlotImports(batches);
+            setAddOpen(false);
+          }}
+        />
       )}
       {editingItem && (
         <EditItemModal

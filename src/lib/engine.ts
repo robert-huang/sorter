@@ -610,7 +610,9 @@ export function addItem(
   item: Item,
   options?: EngineOptions,
 ): SortState | null {
-  if (state.engine === 'confirmation') return null;
+  if (state.engine === 'confirmation') {
+    return confirmation.addItem(state, item);
+  }
   return state.engine === 'insertion'
     ? insertion.addItem(state, item)
     : merge.addItem(state, item, options);
@@ -635,7 +637,7 @@ export function addItems(
   options?: EngineOptions,
 ): { state: SortState; skipped: ItemId[] } {
   if (state.engine === 'confirmation') {
-    return { state, skipped: items.map((it) => it.id) };
+    return confirmation.addItems(state, items);
   }
   if (state.engine === 'insertion') {
     return insertion.addItems(state, items);
@@ -694,11 +696,7 @@ export function reinsertHiddenItem(
 ): SortState {
   if (!state.hidden.includes(id)) return state;
   if (state.engine === 'confirmation') {
-    const inRanking =
-      state.confirmed.includes(id) ||
-      state.queue.includes(id) ||
-      state.candidate === id;
-    if (inRanking) {
+    if (state.confirmed.includes(id)) {
       return confirmation.returnCandidateToQueue(
         confirmation.unhideItem(state, id),
         id,

@@ -3535,6 +3535,25 @@ html {
   flex-wrap: nowrap;
 }
 
+/* Mirror `.queue-item-row .thumb` — clickable AniList thumbs use
+ * `.item-thumb-button` (`all: unset`) and must stay 28×28 in this
+ * narrow compare column. */
+.compare-confirmation-list .queue-item-row .thumb,
+.compare-confirmation-list .queue-item-row .item-thumb-button {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-faint);
+  background: var(--surface-2);
+  overflow: hidden;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
 .compare-confirmation-empty {
   display: flex;
   align-items: center;
@@ -4760,6 +4779,11 @@ html {
   display: flex;
   gap: 8px;
   margin-top: 12px;
+}
+
+.compare-add-buttons {
+  margin-top: 0;
+  margin-bottom: 12px;
 }
 
 /* ---------- ResultScreen ---------- */

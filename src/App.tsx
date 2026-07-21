@@ -2597,6 +2597,11 @@ export function App() {
         onEditItem={doEditItem}
         onReorderConfirmed={doReorderInSorted}
         onReturnToPending={doReturnToPending}
+        slotId={effectiveLoadedSlotId ?? ''}
+        dbSyncRevision={dbSyncRevision}
+        onAddItem={doAddItem}
+        onAddItems={doAddItemsList}
+        onAddSlotImports={doAddSlotImports}
         autoInsertEnabled={autoInsertEnabled}
       />
       </>

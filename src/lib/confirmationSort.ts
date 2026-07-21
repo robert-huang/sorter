@@ -27,6 +27,47 @@ export function getCandidateId(state: ConfirmationState): ItemId | null {
   return state.candidate;
 }
 
+/** Active pending item (confirm candidate or insert inserting-id). */
+export function getActivePendingId(state: ConfirmationState): ItemId | null {
+  return getCandidateId(state);
+}
+
+/** Remaining ids for LIST display: active pending first, then queue (deduped). */
+export function getRemainingIds(state: ConfirmationState): ItemId[] {
+  const active = getActivePendingId(state);
+  const ids: ItemId[] = [];
+  const seen = new Set<ItemId>();
+  if (active) {
+    ids.push(active);
+    seen.add(active);
+  }
+  for (const id of state.queue) {
+    if (!seen.has(id)) {
+      seen.add(id);
+      ids.push(id);
+    }
+  }
+  return ids;
+}
+
+function dedupeQueueFromActive(progress: ConfirmationProgress): ItemId[] {
+  const active =
+    progress.phase === 'insert' && progress.insertFrame
+      ? progress.insertFrame.insertingId
+      : progress.candidate;
+  if (!active) return progress.queue.slice();
+  return progress.queue.filter((id) => id !== active);
+}
+
+/** Strip queue entries that duplicate the active pending id (legacy saves). */
+export function normalizeConfirmationProgress(
+  progress: ConfirmationProgress,
+): ConfirmationProgress {
+  const queue = dedupeQueueFromActive(progress);
+  if (queue.length === progress.queue.length) return progress;
+  return { ...progress, queue };
+}
+
 export function getPair(
   state: ConfirmationState,
 ): { leftId: ItemId; rightId: ItemId } | null {
@@ -173,10 +214,11 @@ export function restoreProgress(
   state: ConfirmationState,
   progress: ConfirmationProgress,
 ): ConfirmationState {
+  const queue = dedupeQueueFromActive(progress);
   return {
     ...progress,
     confirmed: progress.confirmed.slice(),
-    queue: progress.queue.slice(),
+    queue,
     insertFrame: progress.insertFrame
       ? {
           insertingId: progress.insertFrame.insertingId,
@@ -432,6 +474,92 @@ export function reorderInConfirmed(
   return { ...next, items: state.items };
 }
 
+function isInConfirmationRanking(
+  state: ConfirmationState,
+  id: ItemId,
+): boolean {
+  return (
+    state.confirmed.includes(id) ||
+    state.queue.includes(id) ||
+    state.candidate === id ||
+    (state.phase === 'insert' && state.insertFrame?.insertingId === id)
+  );
+}
+
+/** Append `id` to the back of the remaining queue without changing the active candidate. */
+function appendToConfirmationQueue(
+  progress: ConfirmationProgress,
+  id: ItemId,
+): void {
+  if (progress.phase === 'insert' && progress.insertFrame) {
+    progress.insertFrame = null;
+    progress.phase = 'confirm';
+  }
+  if (progress.done) progress.done = false;
+  if (progress.candidate === id) return;
+  progress.queue = [...progress.queue.filter((qid) => qid !== id), id];
+}
+
+/** When the sort was idle (done / no candidate), pull the next queued id forward. */
+function resumeQueueIfNeeded(progress: ConfirmationProgress): void {
+  if (
+    progress.candidate === null &&
+    progress.queue.length > 0 &&
+    progress.confirmed.length > 0
+  ) {
+    advanceCandidate(progress);
+  }
+}
+
+function mergeCatalogItem(state: ConfirmationState, item: Item): Item {
+  const existing = state.items[item.id];
+  return existing
+    ? {
+        ...existing,
+        ...item,
+        url: existing.url ?? item.url,
+        imageUrl: existing.imageUrl ?? item.imageUrl,
+      }
+    : item;
+}
+
+export function addItem(
+  state: ConfirmationState,
+  item: Item,
+): ConfirmationState | null {
+  if (isInConfirmationRanking(state, item.id)) return null;
+  const merged = mergeCatalogItem(state, item);
+  const next = snapshotProgress(state);
+  const items = { ...state.items, [merged.id]: merged };
+
+  if (next.confirmed.length === 0) {
+    next.confirmed = [merged.id];
+    next.done = true;
+    bumpTotalComparisons(next);
+    return { ...next, items };
+  }
+
+  appendToConfirmationQueue(next, merged.id);
+  resumeQueueIfNeeded(next);
+  bumpTotalComparisons(next);
+  markDoneIfFinished(next);
+  return { ...next, items };
+}
+
+export function addItems(
+  state: ConfirmationState,
+  items: Item[],
+): { state: ConfirmationState; skipped: ItemId[] } {
+  const skipped: ItemId[] = [];
+  let cur = state;
+  for (const it of items) {
+    const added = addItem(cur, it);
+    if (added === null) skipped.push(it.id);
+    else cur = added;
+  }
+  return { state: cur, skipped };
+}
+
 export function returnCandidateToQueue(
   state: ConfirmationState,
   id: ItemId,
@@ -450,13 +578,7 @@ export function returnCandidateToQueue(
     next.phase = 'confirm';
   }
 
-  next.queue = [...next.queue, id];
-  if (next.candidate === null) {
-    advanceCandidate(next);
-  } else {
-    next.queue = [next.candidate, ...next.queue];
-    next.candidate = id;
-  }
+  appendToConfirmationQueue(next, id);
 
   bumpTotalComparisons(next);
   return { ...next, items: state.items };
@@ -537,7 +659,18 @@ export function restoreHiddenItem(
   state: ConfirmationState,
   id: ItemId,
 ): ConfirmationState {
-  return unhideItem(state, id);
+  if (!state.hidden.includes(id)) return state;
+  if (!state.items[id]) return dismissHidden(state, id);
+  if (isInConfirmationRanking(state, id)) {
+    return unhideItem(state, id);
+  }
+  const next = snapshotProgress(state);
+  next.hidden = next.hidden.filter((h) => h !== id);
+  appendToConfirmationQueue(next, id);
+  resumeQueueIfNeeded(next);
+  bumpTotalComparisons(next);
+  markDoneIfFinished(next);
+  return { ...next, items: state.items };
 }
 
 export function getInsertFrame(state: ConfirmationState): InsertFrame | null {
