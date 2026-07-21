@@ -6355,12 +6355,13 @@ html {
 .tool-reorder-favourites-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  align-items: start;
   gap: 10px;
-  max-width: 90vw;
+  width: 100%;
+  max-width: 100%;
   list-style: none;
   margin: 0;
   padding: 0;
-  overflow: visible;
 }
 
 .tool-reorder-favourites-grid.is-drag-active {
@@ -6369,17 +6370,23 @@ html {
 }
 
 .tool-reorder-favourites-grid.is-drag-active .tool-reorder-favourites-chip {
-  overflow: visible;
   touch-action: none;
+  transition:
+    opacity 120ms ease,
+    border-color 120ms ease;
 }
 
 .tool-reorder-favourites-chip {
   position: relative;
   display: flex;
   flex-direction: column;
+  align-self: start;
+  width: 100%;
+  min-height: 0;
   aspect-ratio: 2 / 3;
   border-radius: 8px;
   overflow: hidden;
+  contain: layout paint;
   border: 2px solid var(--border-subtle, rgba(255, 255, 255, 0.14));
   background: var(--surface-sunken, rgba(0, 0, 0, 0.25));
   cursor: grab;
@@ -6391,7 +6398,7 @@ html {
 }
 
 .tool-reorder-favourites-chip.is-dragging {
-  visibility: hidden;
+  opacity: 0;
   pointer-events: none;
 }
 
@@ -6492,6 +6499,7 @@ html {
   right: 0;
   bottom: 0;
   z-index: 1;
+  max-height: 55%;
   padding: 22px 6px 5px;
   font-size: 0.6875rem;
   line-height: 1.25;
