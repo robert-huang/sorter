@@ -36,6 +36,7 @@ import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
 import {
   StagedItemsPanel,
   buildSortInputFromStaged,
+  isSingleRankedSublistReady,
   type StagedGroup,
   type StagedGroupInput,
   type StartMode,
@@ -236,6 +237,8 @@ interface Props {
    * "+ Add items" on RESULT to binary-insert new items.
    */
   onStartAlreadySorted: (items: Item[], initialTab?: TabId) => void;
+  /** Walk a pre-ranked list front-to-back, confirming or correcting order. */
+  onStartConfirmation: (items: Item[], initialTab?: TabId) => void;
   /** True while a prior slot is loaded in memory — editing START should park it. */
   hasLoadedSession: boolean;
   /** Called on first meaningful START input while `hasLoadedSession` is true. */
@@ -278,6 +281,7 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
     onStartPreranked,
     onStartInsertion,
     onStartAlreadySorted,
+    onStartConfirmation,
     hasLoadedSession,
     onDraftActivity,
     onDraftCapabilitiesChange,
@@ -1043,27 +1047,23 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
   );
 
   /**
-   * True iff the combined draft is one already-sorted sublist with
-   * no flat groups — that's the only shape that maps to the
-   * `seedAsSorted` (skip-the-sort) path.
+   * True iff the combined draft is one ranked sublist (2+ items) with
+   * no flat groups — maps to Confirm order / Use as ranking CTAs.
    */
-  // A soft-removed sublist must NOT trip the "Use as ranking" CTA —
-  // Start Sort would then route through the seed-as-sorted path with
-  // a sublist that's about to be excluded. Mirrors the panel's
-  // `isAlreadySortedReady` so the CTA decision stays in sync.
-  const combinedAlreadySortedReady =
-    combinedGroups.length === 1 &&
-    combinedGroups[0].kind === 'sublist' &&
-    combinedGroups[0].seedAsSortedHint === true &&
-    !combinedGroups[0].markedForRemoval;
+  const combinedSingleRankedSublistReady = isSingleRankedSublistReady(
+    combinedGroups,
+  );
 
   const startFromCombined = useCallback(
     (initialTab?: TabId) => {
-      if (combinedAlreadySortedReady) {
-        // "Use as ranking" is its own intent (a finished ranking, no
-        // comparisons) and seeds canonical merge-engine done state —
-        // independent of the merge/insertion split-button choice.
-        onStartAlreadySorted(combinedSortInput.sublists[0], initialTab);
+      if (
+        startMode === 'confirmation' &&
+        combinedSingleRankedSublistReady
+      ) {
+        onStartConfirmation(
+          combinedSortInput.sublists[0],
+          initialTab ?? 'rank',
+        );
       } else if (startMode === 'insertion') {
         onStartInsertion(
           {
@@ -1081,19 +1081,25 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
           initialTab,
         );
       }
-      // Draft was consumed into a new slot — drop staged/pending so a
-      // return to START doesn't show a stale import queue.
       clearDraftState();
     },
     [
-      combinedAlreadySortedReady,
+      combinedSingleRankedSublistReady,
       combinedSortInput,
-      onStartAlreadySorted,
+      onStartConfirmation,
       onStartPreranked,
       onStartInsertion,
       startMode,
     ],
   );
+
+  // When confirmation is no longer available, fall back to merge so the
+  // primary CTA label doesn't stay on "Confirm order".
+  useEffect(() => {
+    if (!combinedSingleRankedSublistReady) {
+      setStartMode((prev) => (prev === 'confirmation' ? 'merge' : prev));
+    }
+  }, [combinedSingleRankedSublistReady]);
 
   // Capabilities reflect the COMBINED draft (staged + current tab
   // pending). AniList mode's pending selection is NOT pulled in —
@@ -1101,12 +1107,12 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
   // "Add to staged" inside the AniList view, then header tabs work.
   useEffect(() => {
     const hasLosableDraft = draftHasContent();
-    if (combinedAlreadySortedReady) {
-      // Single already-sorted sublist: RANK is meaningless (no
-      // comparisons to schedule), only LIST and RESULT make sense.
+    if (combinedSingleRankedSublistReady) {
+      // Single ranked sublist: RANK starts confirmation; LIST/RESULT
+      // preview the list as a finished ranking.
       onDraftCapabilitiesChange({
         canList: combinedSortInput.uniqueCount >= 1,
-        canRank: false,
+        canRank: combinedSortInput.uniqueCount >= 2,
         canResult: combinedSortInput.uniqueCount >= 1,
         hasLosableDraft,
       });
@@ -1119,7 +1125,7 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
       hasLosableDraft,
     });
   }, [
-    combinedAlreadySortedReady,
+    combinedSingleRankedSublistReady,
     combinedSortInput.uniqueCount,
     staged,
     mode,
@@ -1134,11 +1140,18 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
     () => ({
       tryAdoptDraft(tab: StartDraftAdoptTab): boolean {
         if (!draftHasContent()) return false;
-        if (combinedAlreadySortedReady) {
-          if (tab !== 'result' && tab !== 'list') return false;
-          if (combinedSortInput.uniqueCount < 1) return false;
-          startFromCombined(tab);
-          return true;
+        if (combinedSingleRankedSublistReady) {
+          if (tab === 'rank' && combinedSortInput.uniqueCount >= 2) {
+            startFromCombined('rank');
+            return true;
+          }
+          if (tab === 'list' || tab === 'result') {
+            if (combinedSortInput.uniqueCount < 1) return false;
+            onStartAlreadySorted(combinedSortInput.sublists[0], tab);
+            clearDraftState();
+            return true;
+          }
+          return false;
         }
         if (tab === 'list' && combinedSortInput.uniqueCount >= 1) {
           startFromCombined('list');
@@ -1151,7 +1164,7 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
         return false;
       },
     }),
-    [combinedAlreadySortedReady, combinedSortInput, startFromCombined],
+    [combinedSingleRankedSublistReady, combinedSortInput, startFromCombined, onStartAlreadySorted],
   );
 
   function addPrerankedToStaged(): void {
@@ -1518,12 +1531,13 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
               }}
             />
             <label htmlFor="scratch-already-sorted">
-              These items are already in ranking order (skip the sort)
+              These items are already in ranking order
             </label>
             {scratchAlreadySorted && (
               <span className="header-hint">
-                ⓘ Slot starts in insertion mode; add new items later via
-                "+ Add items".
+                ⓘ Staged as a ranked list — pick <strong>Confirm order</strong>{' '}
+                from the split button to verify, or <strong>Start sort</strong> to
+                merge from scratch.
               </span>
             )}
           </div>
@@ -1727,7 +1741,6 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
         onEditItem={openStagedEdit}
         onClearAll={clearAllStaged}
         onStartSort={() => startFromCombined()}
-        onStartAlreadySorted={() => startFromCombined()}
         startMode={startMode}
         onStartModeChange={setStartMode}
       />

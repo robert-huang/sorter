@@ -2,7 +2,13 @@ import { getPair } from '../lib/engine';
 import {
   skipHiddenInsertProbes,
 } from '../lib/binaryInsertion';
-import type { InsertFrame, InsertionState, ItemId, SortState } from '../lib/types';
+import type {
+  ConfirmationState,
+  InsertFrame,
+  InsertionState,
+  ItemId,
+  SortState,
+} from '../lib/types';
 import {
   listHeaderItemCount,
   activeRankingIds,
@@ -36,6 +42,15 @@ export function rankLabelForHiddenId(state: SortState, id: ItemId): string {
   if (state.engine === 'insertion') {
     const i = state.sorted.indexOf(id);
     if (i >= 0) return `${i + 1}.`;
+  } else if (state.engine === 'confirmation') {
+    const i = state.confirmed.indexOf(id);
+    if (i >= 0) return `${i + 1}.`;
+    if (state.candidate === id) return `${state.confirmed.length + 1}.`;
+    const qi = state.queue.indexOf(id);
+    if (qi >= 0) {
+      const base = state.confirmed.length + (state.candidate ? 2 : 1);
+      return `${base + qi}.`;
+    }
   } else if (state.done && state.queue.length === 1) {
     const i = state.queue[0].indexOf(id);
     if (i >= 0) return `${i + 1}.`;
@@ -178,6 +193,10 @@ export function getInsertContext(state: SortState): InsertContextView | null {
     return getInsertionEngineInsertContext(state, pair);
   }
 
+  if (state.engine === 'confirmation') {
+    return getConfirmationEngineInsertContext(state, pair);
+  }
+
   if (state.current) return null;
 
   if (state.currentManualInsert?.frame) {
@@ -230,6 +249,22 @@ function getInsertionEngineInsertContext(
     insertingId: pair.leftId,
     probeId: pair.rightId,
     ...insertContextWindowFields(frame, state.sorted, state.hidden),
+  };
+}
+
+function getConfirmationEngineInsertContext(
+  state: ConfirmationState,
+  pair: { leftId: ItemId; rightId: ItemId },
+): InsertContextView | null {
+  if (state.phase !== 'insert' || !state.insertFrame) return null;
+  const frame = state.insertFrame;
+  return {
+    kind: 'insertion',
+    targetIds: [...state.confirmed],
+    remainingIds: [pair.leftId, ...state.queue],
+    insertingId: pair.leftId,
+    probeId: pair.rightId,
+    ...insertContextWindowFields(frame, state.confirmed, state.hidden),
   };
 }
 

@@ -13,6 +13,7 @@ import {
   buildSortInputFromStaged,
   countMarkedForRemoval,
   findDuplicateOccurrences,
+  isSingleRankedSublistReady,
   StagedItemsPanel,
   type StagedGroup,
   type StartMode,
@@ -139,10 +140,9 @@ describe('buildSortInputFromStaged', () => {
     expect(out.sublists[0]).toHaveLength(5);
   });
 
-  it('ignores seedAsSortedHint when building the input (it is a panel-level UI hint, not a sort-engine flag)', () => {
-    // seedAsSortedHint is checked by StagedItemsPanel to decide
-    // which CTA to render — not by the sort engine. The shape of
-    // the output here should be identical with or without the hint.
+  it('ignores seedAsSortedHint when building the input (it is a staging hint only, not a sort-engine flag)', () => {
+    // seedAsSortedHint marks the group as sublist-shaped — the sort
+    // builder ignores it. Output should be identical with or without.
     const without = buildSortInputFromStaged([
       sublist('g1', 'ranked.csv', [item('a'), item('b')]),
     ]);
@@ -457,12 +457,14 @@ function SplitButtonHarness({
   onStartSort,
   onModeSpy,
   staged = [flat('g1', 'clipboard', [item('a'), item('b')])],
+  startMode: initialMode = 'merge',
 }: {
   onStartSort: () => void;
   onModeSpy: (mode: StartMode) => void;
   staged?: StagedGroup[];
+  startMode?: StartMode;
 }) {
-  const [mode, setMode] = useState<StartMode>('merge');
+  const [mode, setMode] = useState<StartMode>(initialMode);
   return (
     <StagedItemsPanel
       staged={staged}
@@ -470,7 +472,6 @@ function SplitButtonHarness({
       onToggleRemoveGroup={() => {}}
       onClearAll={() => {}}
       onStartSort={onStartSort}
-      onStartAlreadySorted={() => {}}
       startMode={mode}
       onStartModeChange={(m) => {
         onModeSpy(m);
@@ -520,7 +521,27 @@ describe('StagedItemsPanel · Start Sort split-button', () => {
     expect(caretBtn()!.disabled).toBe(true);
   });
 
-  it('opens the chevron menu with both engines as radio items (merge checked by default)', () => {
+  it('shows Confirmation sort third in the menu for a single ranked sublist', () => {
+    act(() => {
+      root.render(
+        <SplitButtonHarness
+          onStartSort={() => {}}
+          onModeSpy={() => {}}
+          staged={[sublist('g1', 'ranked.csv', [item('a'), item('b')])]}
+          startMode="confirmation"
+        />,
+      );
+    });
+    act(() => caretBtn()!.click());
+    const items = menuItems();
+    expect(items).toHaveLength(3);
+    expect(items[0].textContent).toContain('Merge sort');
+    expect(items[1].textContent).toContain('Insertion sort');
+    expect(items[2].textContent).toContain('Confirmation sort');
+    expect(mainBtn()!.textContent).toContain('Confirm order');
+  });
+
+  it('opens the chevron menu with merge and insertion when not a single ranked sublist', () => {
     act(() => {
       root.render(
         <SplitButtonHarness onStartSort={() => {}} onModeSpy={() => {}} />,
@@ -566,25 +587,77 @@ describe('StagedItemsPanel · Start Sort split-button', () => {
     expect(onStartSort).toHaveBeenCalledTimes(1);
   });
 
-  it('shows the "Use as ranking" CTA instead of the split-button for a single seed-as-sorted sublist', () => {
+  it('picking Confirmation relabels the primary CTA', () => {
+    const onModeSpy = vi.fn();
+    act(() => {
+      root.render(
+        <SplitButtonHarness
+          onStartSort={() => {}}
+          onModeSpy={onModeSpy}
+          staged={[
+            sublist('g1', 'ranked.csv', [item('a'), item('b')]),
+          ]}
+        />,
+      );
+    });
+    act(() => caretBtn()!.click());
+    act(() => menuItems()[2].click());
+    expect(onModeSpy).toHaveBeenCalledWith('confirmation');
+    expect(mainBtn()!.textContent).toContain('Confirm order');
+  });
+
+  it('offers confirmation when extra groups are marked for removal', () => {
     act(() => {
       root.render(
         <SplitButtonHarness
           onStartSort={() => {}}
           onModeSpy={() => {}}
           staged={[
-            sublist('g1', 'ranked.csv', [item('a'), item('b')], {
-              seedAsSortedHint: true,
-            }),
+            sublist('g1', 'ranked.csv', [item('a'), item('b')]),
+            { ...flat('g2', 'extras', [item('x')]), markedForRemoval: true },
           ]}
         />,
       );
     });
-    // The split-button is replaced by the dedicated already-sorted CTA.
-    expect(container.querySelector('.staged-panel-start-split')).toBeNull();
-    const cta = container.querySelector<HTMLButtonElement>(
-      '.staged-panel-actions .btn.primary',
-    );
-    expect(cta!.textContent).toContain('Use as ranking');
+    act(() => caretBtn()!.click());
+    expect(menuItems()).toHaveLength(3);
+    expect(menuItems()[2].textContent).toContain('Confirmation sort');
+  });
+});
+
+describe('isSingleRankedSublistReady', () => {
+  it('is true for one ranked sublist with 2+ items', () => {
+    expect(
+      isSingleRankedSublistReady([
+        sublist('g1', 'ranked.csv', [item('a'), item('b')]),
+      ]),
+    ).toBe(true);
+  });
+
+  it('is true when extra flat groups are marked for removal', () => {
+    expect(
+      isSingleRankedSublistReady([
+        sublist('g1', 'ranked.csv', [item('a'), item('b')]),
+        { ...flat('g2', 'clipboard', [item('x')]), markedForRemoval: true },
+      ]),
+    ).toBe(true);
+  });
+
+  it('is false when unranked extras remain in the effective input', () => {
+    expect(
+      isSingleRankedSublistReady([
+        sublist('g1', 'ranked.csv', [item('a'), item('b')]),
+        flat('g2', 'clipboard', [item('x')]),
+      ]),
+    ).toBe(false);
+  });
+
+  it('is false when two ranked sublists are active', () => {
+    expect(
+      isSingleRankedSublistReady([
+        sublist('g1', 'a.csv', [item('a'), item('b')]),
+        sublist('g2', 'b.csv', [item('c'), item('d')]),
+      ]),
+    ).toBe(false);
   });
 });

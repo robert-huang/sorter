@@ -8,9 +8,20 @@ import {
   getPeekRightIds,
   getPeekRightOverflowCount,
 } from '../lib/engine';
-import { COMPARE_PEEK_DEPTH, peekOverflowLabel } from './compareScreenH';
+import {
+  COMPARE_PEEK_DEPTH,
+  enginePickToVisualSide,
+  insertingItemLanded,
+  peekOverflowLabel,
+  swapsInsertCompareSides,
+  visualComparePair,
+  visualPeekSides,
+} from './compareScreenH';
 import { ItemCard } from './ItemCard';
 import { PeekCard } from './PeekCard';
+import { ConfirmationCompareScreen } from './ConfirmationCompareScreen';
+import { isConfirmationState } from '../lib/types';
+import type { EditItemSavePayload } from './EditItemModal';
 
 /**
  * The last user action that *can change the current pair*. Surfaced from
@@ -31,6 +42,9 @@ interface Props {
   onHide: (id: ItemId) => void;
   /** Cancel an in-flight manual insert (merge engine only). */
   onCancelManualInsert: () => void;
+  onEditItem?: (id: ItemId, patch: EditItemSavePayload) => void;
+  onReorderConfirmed?: (index: number, direction: -1 | 1) => void;
+  onReturnToPending?: (id: ItemId) => void;
   /**
    * Whether the merge engine may auto-insert popped pairs (engine setting).
    * Threaded through here only to make the progress-bar forecast match what
@@ -52,9 +66,10 @@ interface Props {
  *    they hide it.
  *  - 'inserting' — the insertion engine's full-session binary insertion
  */
-type CompareMode = 'merging' | 'manual-insert' | 'auto-insert' | 'inserting';
+type CompareMode = 'merging' | 'manual-insert' | 'auto-insert' | 'inserting' | 'confirming';
 
 function currentMode(state: SortState): CompareMode {
+  if (state.engine === 'confirmation') return 'confirming';
   if (state.engine === 'insertion') return 'inserting';
   if (state.currentManualInsert) return 'manual-insert';
   if (state.currentAutoInsert && state.currentAutoInsert.frame) return 'auto-insert';
@@ -74,14 +89,10 @@ interface OutgoingPair {
   /**
    * How the exiting cards should animate off-screen.
    *  - 'slide' — classic side-ward slide (`cardSlideOutLeft/Right`). Used
-   *    in normal merge mode where the picked card visually goes to the
-   *    "merged pile" on its side.
-   *  - 'fade' — vertical fade-out (`cardFadeOut`). Used whenever EITHER
-   *    side of the transition is in an insert mode (insertion engine,
-   *    auto-insert, or manual-insert). Sliding sideways would imply
-   *    "this card got picked into the merged stream", which is a lie
-   *    when the user is actually narrowing a binary search and the next
-   *    probe could land anywhere in the active range.
+   *    for normal merge picks and for insert-mode probe turnover (probe is
+   *    visual left with a peek deck, same motion language as merge).
+   *  - 'fade' — vertical fade-out (`cardFadeOut`). Reserved for rare cases
+   *    where a sideways exit would misread; not used on the main pick path.
    */
   exitKind: 'slide' | 'fade';
   /** Whether the in-grid left slot was hidden while this exit played.
@@ -102,10 +113,8 @@ interface OutgoingPair {
  *    position (`cardSlideUpFromDeck`). Used when exactly one side's id
  *    changed in normal merge mode — visually, the next-up card the user
  *    was just shown at depth-1 rises into the live slot.
- *  - 'fade' — opacity-only crossfade (`cardFadeIn`). Used while we stay
- *    inside an insert mode probe-to-probe; binary search jumps so the
- *    new probe wasn't necessarily in the prior peek deck and a deck
- *    slide-up would lie about the rank relationship.
+ *  - 'fade' — opacity-only crossfade (`cardFadeIn`). Fallback when a changed
+ *    side has no peek deck to rise from (rare in insert; unused in merge).
  *  - 'none' — no animation. Set on the side that didn't change (its
  *    `popInKey` doesn't bump anyway, so the live card doesn't remount
  *    and stays exactly where it was through the partner's exit).
@@ -133,10 +142,31 @@ export function CompareScreen({
   onPickRight,
   onHide,
   onCancelManualInsert,
+  onEditItem,
+  onReorderConfirmed,
+  onReturnToPending,
   autoInsertEnabled,
 }: Props) {
+  if (isConfirmationState(state)) {
+    return (
+      <ConfirmationCompareScreen
+        state={state}
+        lastInteraction={lastInteraction}
+        onPickLeft={onPickLeft}
+        onPickRight={onPickRight}
+        onHide={onHide}
+        onEditItem={onEditItem ?? (() => {})}
+        onReorderConfirmed={onReorderConfirmed ?? (() => {})}
+        onReturnToPending={onReturnToPending ?? (() => {})}
+        autoInsertEnabled={autoInsertEnabled}
+      />
+    );
+  }
+
   const pair = getPair(state);
   const mode = currentMode(state);
+  const swapsCompareSides = swapsInsertCompareSides(mode);
+  const visualPair = pair ? visualComparePair(pair, swapsCompareSides) : null;
   const insertingId = (() => {
     if (state.engine === 'insertion') return state.current?.insertingId ?? null;
     if (state.currentManualInsert) return state.currentManualInsert.insertingId;
@@ -153,10 +183,9 @@ export function CompareScreen({
   // The pair just rendered on the previous render (for change detection).
   const prevPairRef = useRef<{ leftId: ItemId; rightId: ItemId } | null>(null);
   // The mode (merging / manual-insert / auto-insert / inserting) on the
-  // previous render. Read alongside the pair to decide whether the
-  // outgoing pair should slide off (merge) or fade out (insert), and to
-  // detect transitions in/out of insert modes that always warrant a
-  // fresh full pop-in on both sides.
+  // previous render. Read alongside the pair to decide exit/incoming motion
+  // and to detect transitions in/out of insert modes that warrant a fresh
+  // full pop-in on both sides.
   const prevModeRef = useRef<CompareMode | null>(null);
   // The overlay currently being animated off-screen. There is at most one
   // visible at a time; backed-up exits queue on queueRef.
@@ -202,14 +231,15 @@ export function CompareScreen({
   }>(() => {
     const prev = prevPairRef.current;
     const prevMode = prevModeRef.current;
-    if (!pair || !prev || prevMode === null) {
+    const vp = visualPair;
+    if (!vp || !prev || prevMode === null) {
       // Cold start (no prior pair) — both sides do the dramatic
       // pop-in, which is what the old single-animation behavior did
       // and matches the user's "all 4 cards pop in" feel.
       return { left: 'pop', right: 'pop' };
     }
-    const sameLeft = prev.leftId === pair.leftId;
-    const sameRight = prev.rightId === pair.rightId;
+    const sameLeft = prev.leftId === vp.leftId;
+    const sameRight = prev.rightId === vp.rightId;
     if (sameLeft && sameRight) {
       // Pair didn't change since last commit — neither side animates.
       return { left: 'none', right: 'none' };
@@ -218,10 +248,23 @@ export function CompareScreen({
     const prevIsInsert = prevMode !== 'merging';
     const modeBoundary = newIsInsert !== prevIsInsert;
     if (newIsInsert) {
-      // Insert mode (now): fade out + fade in both sides regardless
-      // of which id technically changed — the inserting id stays put
-      // but we treat the pair as a unit visually.
-      return { left: 'fade', right: 'fade' };
+      if (modeBoundary) {
+        return { left: 'pop', right: 'pop' };
+      }
+      const landed =
+        prevMode !== 'merging' &&
+        insertingItemLanded(prevMode, prev, insertingId);
+      if (landed) {
+        return {
+          left: sameLeft ? 'none' : 'deck',
+          right: 'pop',
+        };
+      }
+      // Probe (visual left) has a peek deck — deck-rise like merge.
+      return {
+        left: sameLeft ? 'none' : 'deck',
+        right: sameRight ? 'none' : 'none',
+      };
     }
     if (modeBoundary || (!sameLeft && !sameRight)) {
       // Just left an insert mode, OR a sublist boundary in pure merge.
@@ -232,7 +275,7 @@ export function CompareScreen({
     if (!sameLeft) return { left: 'deck', right: 'none' };
     return { left: 'none', right: 'deck' };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pair?.leftId, pair?.rightId, mode]);
+  }, [visualPair?.leftId, visualPair?.rightId, mode, lastInteraction, insertingId]);
   // Per-side revealed flag. When a pick starts a leisurely exit on a given
   // side, that side's new card is mounted into the slot but suppressed via
   // .compare-slot--hidden so the user only sees it after the previous card
@@ -286,18 +329,59 @@ export function CompareScreen({
   // paint as the new-pair render. Otherwise the user briefly sees the new
   // cards before they're hidden, producing a flicker on every slow pick.
   useLayoutEffect(() => {
-    if (!pair) {
-      prevPairRef.current = null;
-      prevModeRef.current = null;
-      return;
-    }
     const prev = prevPairRef.current;
     const prevMode = prevModeRef.current;
-    prevPairRef.current = { leftId: pair.leftId, rightId: pair.rightId };
+    const landed =
+      prevMode !== 'merging' &&
+      insertingItemLanded(prevMode, prev, insertingId);
+
+    if (!visualPair) {
+      if (
+        prev &&
+        landed &&
+        lastInteraction?.kind === 'pick'
+      ) {
+        const oldLeft = state.items[prev.leftId] ?? null;
+        const oldRight = state.items[prev.rightId] ?? null;
+        prevPairRef.current = null;
+        prevModeRef.current = null;
+        if (!oldLeft && !oldRight) return;
+
+        const newOutgoing: OutgoingPair = {
+          id: ++outgoingCounterRef.current,
+          leftExiting: oldLeft,
+          rightExiting: oldRight,
+          pickedSide: enginePickToVisualSide(
+            lastInteraction.side,
+            swapsCompareSides,
+          ),
+          exitKind: 'slide',
+          leftHidden: !!oldLeft,
+          rightHidden: !!oldRight,
+        };
+
+        if (outgoingRef.current === null) {
+          incomingAnimatedRef.current = { left: false, right: false };
+          cancelDeferredDeckBumps();
+          setOutgoing(newOutgoing);
+          if (oldLeft) setLeftRevealed(false);
+          if (oldRight) setRightRevealed(false);
+        }
+      } else {
+        prevPairRef.current = null;
+        prevModeRef.current = null;
+      }
+      return;
+    }
+
+    prevPairRef.current = {
+      leftId: visualPair.leftId,
+      rightId: visualPair.rightId,
+    };
     prevModeRef.current = mode;
     if (!prev) return; // first mount — initial 'pop' state covers it
-    const sameLeft = prev.leftId === pair.leftId;
-    const sameRight = prev.rightId === pair.rightId;
+    const sameLeft = prev.leftId === visualPair.leftId;
+    const sameRight = prev.rightId === visualPair.rightId;
     if (sameLeft && sameRight) return;
 
     // The animKind for each side has already been decided at render
@@ -306,15 +390,15 @@ export function CompareScreen({
     // should *bump their popInKey* (i.e., remount their live ItemCard
     // so it replays the keyframe driven by the slot's `data-anim`).
     //
-    // In normal merge that's exactly the changed side(s). In insert
-    // modes — or when crossing the merge ↔ insert mode boundary — we
-    // force both sides to remount so the visual swap covers both cards
-    // even when one technically retained its id.
+    // In normal merge that's exactly the changed side(s). Crossing the
+    // merge ↔ insert mode boundary remounts both sides; within insert
+    // mode only the probe (visual left) typically changes unless the
+    // inserting item just landed (visual right exits too).
     const newIsInsert = mode !== 'merging';
     const prevIsInsert = prevMode !== 'merging';
     const modeBoundary = newIsInsert !== prevIsInsert;
-    const bumpLeft = !sameLeft || newIsInsert || modeBoundary;
-    const bumpRight = !sameRight || newIsInsert || modeBoundary;
+    const bumpLeft = !sameLeft || modeBoundary;
+    const bumpRight = !sameRight || modeBoundary || landed;
 
     // Non-pick pair changes (undo, slot switch, etc.) skip the slide-out
     // overlay entirely — the changed side(s) just remount fresh and
@@ -325,20 +409,20 @@ export function CompareScreen({
       return;
     }
 
-    // Exit kind: insert mode (now or just left) → fade out vertically
-    // (the picked side's card didn't actually go anywhere physical).
-    // Pure merge → classic side-ward slide.
-    const exitKind: 'slide' | 'fade' = newIsInsert || prevIsInsert ? 'fade' : 'slide';
+    // Side-ward slide for every pick — insert probe turnover matches merge.
+    const exitKind: 'slide' | 'fade' = 'slide';
 
-    // Build the outgoing pair. In insert / mode-boundary cases include
-    // BOTH sides as exiting (even the side whose id didn't change), so
-    // the user sees both fade out in unison before the new probe lands.
-    let oldLeft = sameLeft && !newIsInsert && !modeBoundary
-      ? null
-      : state.items[prev.leftId] ?? null;
-    let oldRight = sameRight && !newIsInsert && !modeBoundary
-      ? null
-      : state.items[prev.rightId] ?? null;
+    // Build the outgoing pair. On a mode boundary both sides exit; within
+    // insert mode the probe (visual left) slides out, and the inserting
+    // item (visual right) also slides out when it just landed.
+    let oldLeft =
+      sameLeft && !modeBoundary
+        ? null
+        : state.items[prev.leftId] ?? null;
+    let oldRight =
+      sameRight && !modeBoundary && !landed
+        ? null
+        : state.items[prev.rightId] ?? null;
 
     if (!oldLeft && !oldRight) {
       // Old items missing (rare — e.g. previous items hidden mid-sort).
@@ -353,7 +437,10 @@ export function CompareScreen({
       id: ++outgoingCounterRef.current,
       leftExiting: oldLeft,
       rightExiting: oldRight,
-      pickedSide: lastInteraction.side,
+      pickedSide: enginePickToVisualSide(
+        lastInteraction.side,
+        swapsCompareSides,
+      ),
       exitKind,
       // 'deck' transitions keep the slot visible so the user sees the
       // peek depth shift and the live card rise in parallel with the
@@ -445,7 +532,7 @@ export function CompareScreen({
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pair?.leftId, pair?.rightId, mode, lastInteraction]);
+  }, [visualPair?.leftId, visualPair?.rightId, mode, lastInteraction]);
 
   function handleOverlayAnimationEnd(
     e: React.AnimationEvent<HTMLDivElement>,
@@ -510,8 +597,10 @@ export function CompareScreen({
     );
   }
 
-  const left = state.items[pair.leftId];
-  const right = state.items[pair.rightId];
+  const left = visualPair ? state.items[visualPair.leftId] : undefined;
+  const right = visualPair ? state.items[visualPair.rightId] : undefined;
+  const handlePickLeft = swapsCompareSides ? onPickRight : onPickLeft;
+  const handlePickRight = swapsCompareSides ? onPickLeft : onPickRight;
 
   // Progress bar bookkeeping — moved out of the always-on header into the
   // rank screen so it's only visible when there's actually a sort in
@@ -544,20 +633,41 @@ export function CompareScreen({
     ? rightAnimKind
     : 'none';
 
-  // Rank-adjacent peek decks rendered behind the live cards. Right side
-  // applies in every mode; left side is non-empty only in normal merge
-  // mode (the engine helpers return [] in insert modes so the left
-  // stack is skipped entirely). Filtered through the items dict so any
-  // id missing a backing record (shouldn't happen, but be defensive)
-  // doesn't crash the render.
-  const peekRightItems = getPeekRightIds(state, COMPARE_PEEK_DEPTH)
+  // Rank-adjacent peek decks rendered behind the live cards. In insert
+  // modes the engine exposes probe neighbors on the "right" peek API;
+  // CompareScreen swaps that onto visual left (probe) when sides flip.
+  const enginePeekLeftIds = getPeekLeftIds(state, COMPARE_PEEK_DEPTH);
+  const enginePeekRightIds = getPeekRightIds(state, COMPARE_PEEK_DEPTH);
+  const enginePeekLeftOverflow = getPeekLeftOverflowCount(
+    state,
+    COMPARE_PEEK_DEPTH,
+  );
+  const enginePeekRightOverflow = getPeekRightOverflowCount(
+    state,
+    COMPARE_PEEK_DEPTH,
+  );
+  const {
+    left: visualPeekLeftIds,
+    right: visualPeekRightIds,
+  } = visualPeekSides(
+    enginePeekLeftIds,
+    enginePeekRightIds,
+    swapsCompareSides,
+  );
+  const { left: visualPeekLeftOverflow, right: visualPeekRightOverflow } =
+    visualPeekSides(
+      enginePeekLeftOverflow,
+      enginePeekRightOverflow,
+      swapsCompareSides,
+    );
+  const peekRightItems = visualPeekRightIds
     .map((id) => state.items[id])
     .filter((it): it is Item => !!it);
-  const peekRightOverflow = getPeekRightOverflowCount(state, COMPARE_PEEK_DEPTH);
-  const peekLeftItems = getPeekLeftIds(state, COMPARE_PEEK_DEPTH)
+  const peekRightOverflow = visualPeekRightOverflow;
+  const peekLeftItems = visualPeekLeftIds
     .map((id) => state.items[id])
     .filter((it): it is Item => !!it);
-  const peekLeftOverflow = getPeekLeftOverflowCount(state, COMPARE_PEEK_DEPTH);
+  const peekLeftOverflow = visualPeekLeftOverflow;
 
   // Banner shown above the compare grid identifying the current mode.
   // Drives both UI clarity (user knows whether this is "the merge", a
@@ -662,7 +772,7 @@ export function CompareScreen({
           <ItemCard
             key={popInKeyLeft}
             item={left}
-            onPick={onPickLeft}
+            onPick={handlePickLeft}
             onRemove={() => onHide(left.id)}
           />
         </div>
@@ -713,7 +823,7 @@ export function CompareScreen({
           <ItemCard
             key={popInKeyRight}
             item={right}
-            onPick={onPickRight}
+            onPick={handlePickRight}
             onRemove={() => onHide(right.id)}
           />
         </div>

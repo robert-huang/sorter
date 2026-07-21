@@ -1,15 +1,16 @@
-# Sorter — queue merge sort + binary insertion webapp
+# Sorter — queue merge sort, binary insertion, and confirmation webapp
 
 **Live demo:** [robert-huang.github.io/sorter](https://robert-huang.github.io/sorter/)
 
 A pure-client React + TypeScript app for ranking a list of items by doing repeated A-vs-B comparisons.
 
-It runs one of **two engines** per slot:
+It runs one of **three engines** per slot:
 
 - **Merge** (default): a queue-based merge sort. Items start as singleton sublists, you compare them one pair at a time, merged sublists go to the back of the queue, and after `N - 1` merges the queue collapses to a single sorted list — your final ranking.
 - **Insertion**: a binary-insertion engine. A frozen `sorted[]` is the existing ranking; new items drain through a FIFO `pending[]` and get binary-inserted into `sorted[]` one at a time. Used when you're seeding a slot from an already-sorted CSV or adding new items into a completed merge sort.
+- **Confirmation**: a front-to-back verification engine for a **single pre-ranked list**. Walk the list in order; each step compares the last confirmed item against the next candidate. If the candidate belongs after the frontier, one click appends it; if it belongs earlier in the prefix, the engine binary-inserts it. When the list is already correct, this finishes in `N − 1` comparisons — much faster than re-sorting from scratch. See [On the confirmation engine](#on-the-confirmation-engine).
 
-Both engines share the same RANK / LIST / RESULT screens, undo ring, autosave, and save-file format.
+All three engines share the same RANK / LIST / RESULT screens, undo ring, autosave, and save-file format.
 
 Items can come from a pasted/loaded CSV **or be imported from [AniList](https://anilist.co)** — pull a user's anime/manga list or favourites into a local SQLite cache (kept in your browser's OPFS), filter it down, then sort. AniList items get rich **detail panels** (media metadata + cast/voice-actors, and staff filmographies), feed a side game **[Anime to Anime](#anime-to-anime-separate-page)**, and power **[Anime Tools](#anime-tools-separate-page)** — shared-credits/staff comparison, seasonal score charts, franchise walks, adaptation mapping, favourites analysis, and authenticated list-entry updates.
 
@@ -125,20 +126,23 @@ Pull a user's anime/manga list (or favourites) from AniList into the local cache
 ### Sort results
 Import **final rankings** from completed save slots already in this browser's `localStorage`. Select one or more slots, toggle each as **pre-ranked list** (preserve order) or **individual items**, then add to staged or into an active sort via **+ Add item(s) → Sort results**. Expand a slot's **Preview** to edit labels, URLs, image URLs, or logical ids (with collision checking) and remove rows before adding — same pre-staging edit model as the CSV import preview. In-progress slots are listed but not importable. The slot you are currently editing is excluded from the picker. Drive-only copies are out of scope — pull them into local storage first.
 
+A single imported slot as a **pre-ranked list** is the most common entry into [confirmation mode](#on-the-confirmation-engine): stage it, then **Confirm order** (auto-selected when it's the only ranked group).
+
 ### Staged Items panel & choosing an engine
 All four tabs feed one **Staged Items** panel. Each batch you add is a **staged group**:
 
 - **unranked** (`flat`) — every item becomes its own singleton sublist (competes from scratch). Scratch CSVs and **all AniList groups** stage this way.
-- **ranked** (`sublist`) — row order is preserved as an expressed ranking (pre-ranked CSVs, or scratch with "already in ranking order").
+- **ranked** (`sublist`) — row order is preserved as an expressed ranking (pre-ranked CSVs, sort-result imports, or scratch with "already in ranking order").
 
 Empty state reads: *"Nothing staged yet. Add items from any tab above — clipboard, pre-ranked lists, AniList, and saved sort results all stack into one sort."* You can expand groups, edit labels/URLs, and soft-remove groups or items before starting.
 
-Start with the split button (needs ≥ 2 unique items):
+Start with the split button (needs ≥ 2 unique items). The main button runs the selected mode (defaults to **Start sort** / merge); the **▾** caret opens the engine menu:
 
-- **Start sort** (default) — *"Classic pairwise merge sort — fewest comparisons overall"* (the merge engine).
-- **Insertion sort** — *"Binary-insert items one at a time; pre-ranked lists seed the order"* (the binary-insertion engine; see [the insertion engine](#on-the-insertion-engine)).
+- **Start sort** — merge engine. *"Classic pairwise merge sort — fewest comparisons overall."*
+- **Insertion sort** — insertion engine. *"Binary-insert items one at a time; pre-ranked lists seed the order."* See [On the insertion engine](#on-the-insertion-engine).
+- **Confirm order** — confirmation engine (third item in the menu). Available when the effective staged input is exactly **one** ranked sublist with 2+ items — extra staged groups are fine if they're marked for removal (those items never enter the sort). Primary label becomes **Confirm order (N)** when that mode is selected.
 
-If exactly one ranked group is staged with the "already sorted" hint, the button instead offers **Use as ranking** (skip the sort, opens straight on RESULT).
+If unranked extras remain in the effective input (e.g. a flat clipboard group that isn't marked for removal), confirmation is hidden and a confirmation selection falls back to merge.
 
 ### Dedup behavior (applies everywhere CSVs are parsed)
 
@@ -174,7 +178,7 @@ After data loads into the preview:
 
 ### 3. Stage and sort
 
-Click **Add {N} selected to staged** to append an **unranked** group to the [Staged Items](#staged-items-panel--choosing-an-engine) panel (selection clears so the next batch is explicit). Repeat for multiple batches (e.g. an anime list plus character favourites), optionally mix in CSV/pre-ranked groups, then **Start sort** (merge) or **Insertion sort**.
+Click **Add {N} selected to staged** to append an **unranked** group to the [Staged Items](#staged-items-panel--choosing-an-engine) panel (selection clears so the next batch is explicit). Repeat for multiple batches (e.g. an anime list plus character favourites), optionally mix in CSV/pre-ranked groups, then **Start sort** (merge), **Insertion sort**, or **Confirm order** (when a lone ranked sublist is staged).
 
 ### Labels, caching, and rate limits
 
@@ -266,6 +270,15 @@ Mouse:
 - **× button** in the corner of a card → remove that item from the sort (reversible via undo).
 - **ⓘ button** in the corner of a card (AniList items only) → open its [detail panel](#anilist-detail-panels); does not count as a pick.
 
+### Confirmation layout (RANK tab)
+
+On the confirmation engine the compare screen is asymmetric instead of two equal cards:
+
+- **Left** — hero card for the frontier (last confirmed item) plus the full confirmed list below. Click the hero (or `←`) when the candidate belongs **after** the frontier — append and advance.
+- **Right** — single candidate card. Click it (or `→`) when the candidate belongs **inside** the confirmed prefix — switches to a binary-insert sub-phase for that item, then resumes the front-to-back walk.
+
+During an insert sub-phase the candidate **stays on the right**; the left hero switches to the current binary-search probe (with the full confirmed list below). Click the probe (or `←`) when the candidate belongs **before** it; click the candidate (or `→`) when it belongs **after**. The header stat reads **`Comparison #N · M left`** (no `~` — `M` is the exact item count remaining, `queue.length + (confirm phase ? 1 : 0)`). The progress bar still uses the pessimistic worst-case bound.
+
 ## Mid-sort editing (LIST tab)
 
 The LIST tab is a live, editable view of the engine state — unlike Pub Meeple, opening it does not throw away progress.
@@ -289,7 +302,14 @@ To fix order inside an active merge without using ↑/↓, undo back past the me
 - **Currently inserting** — the active binary-insertion frame, mirrored on the RANK tab.
 - **+ Add item(s)** — see *Add items modal* below.
 
-### Add items modal (LIST tab, both engines)
+### On the confirmation engine
+
+- **Confirmed ranking** — the verified prefix so far. Reorder with ↑/↓, edit labels, hide/unhide, or **↻** an item back into the remaining queue for re-confirmation.
+- **Insert context** — when a candidate is being binary-inserted into the prefix, the same insert-gap highlights as the insertion engine (mirrored on RANK).
+- **Remaining** — the current candidate (if any) plus the tail queue, in walk order.
+- **+ Add item(s)** is disabled mid-confirmation — finish or undo back to START to change the item set.
+
+### Add items modal (LIST tab, merge + insertion engines)
 
 One button, two tabs:
 
@@ -359,15 +379,40 @@ Behavior notes:
 
 Gear menu → checkbox. **On** by default. When off, every popped pair goes through the classic merge. Useful if you'd rather work through a long ranked sublist via comparisons rather than blind binary insertion — but on average the heuristic is a clear win on skewed inputs.
 
+## On the insertion engine
+
+Used when you pick **Insertion sort** from the staged-panel split button, or when scratch is staged with "already in ranking order" and you start an insertion sort.
+
+- One or more pre-ranked sublists seed a frozen `sorted[]`; any flat extras drain through `pending[]` and get binary-inserted FIFO.
+- Each pending item costs up to `⌈log₂(sorted.length + 1)⌉` comparisons in the worst case; rank-aware bound tightening can do better in practice.
+- On completion the slot normalizes to the same merge-engine `done` shape as every other finished sort.
+
+## On the confirmation engine
+
+Used when you pick **Confirm order** with exactly one ranked sublist staged (sort-result re-import is the usual case).
+
+**Seed shape** — for `[1, 2, …, N]` in list order: `confirmed = [1]`, `candidate = 2`, `queue = [3..N]`, `phase = 'confirm'`.
+
+**Confirm phase** — compare frontier (last confirmed) vs candidate:
+
+- **Left / frontier pick** — candidate belongs after the frontier → append to `confirmed`, pull the next item from `queue` as the new candidate. One comparison, no insert.
+- **Right / candidate pick** — candidate belongs inside the prefix → enter **insert phase** and binary-search its slot in `confirmed`, then resume the walk.
+
+If every item is already in the right order, you only ever take left picks and finish in `N − 1` comparisons.
+
+**Progress** — the bar uses a pessimistic worst-case bound (confirm + possible inserts ahead). The RANK banner's `{m} left` uses the optimistic item count (`queue` + current candidate).
+
+**Completion** — like insertion, a finished confirmation sort normalizes to the canonical merge `done` shape for RESULT / "+ Add items" / share-link export.
+
 ## "+ Add items" after a sort completes (RESULT tab)
 
-On a completed sort you can click **+ Add items** to add more items in one batch. Every finished slot is stored in the same canonical merge-engine `done` shape (including sorts that finished on the insertion engine — those normalize at completion time), so the add-item options are identical regardless of how you sorted:
+On a completed sort you can click **+ Add items** to add more items in one batch. Every finished slot is stored in the same canonical merge-engine `done` shape (including sorts that finished on the insertion or confirmation engine — those normalize at completion time), so the add-item options are identical regardless of how you sorted:
 
 - **Individual items** → each new item enters the queue as its own singleton sublist and the slot re-enters RANK for merge sorting against the frozen ranking.
 - **Pre-ranked list** (merge engine only on the Multiple tab; always available on the Sort results import tab) → the batch appends as one sublist to the back of the queue, same as "+ Add pre-ranked list" on LIST.
 - A confirmation modal explains the trade-off and reminds you to Download a JSON copy first if you want a long-term safety net. **Create new slot** (recommended) keeps the finished ranking recoverable; **Modify this slot** changes it in place (one Undo backs it out).
 
-**Mid-sort** (not done): merge engine uses `addItem` / `appendPreRankedSublist`; insertion engine uses binary-insert `addItems`.
+**Mid-sort** (not done): merge engine uses `addItem` / `appendPreRankedSublist`; insertion engine uses binary-insert `addItems`; confirmation engine does not support mid-sort adds.
 
 ## Undo
 
@@ -381,7 +426,8 @@ The header shows **`Comparison #N`** where N is the click you're about to make (
 
 The bar is driven by **comparisons remaining** (worst-case), not merges:
 
-- For each upcoming pair of visible sizes `a` and `b`, the per-pair cost is **`min(merge, auto-insert)`** when auto-insert is enabled (and just merge cost when off): merge = `a + b − 1`; auto-insert worst case = `K · ⌈log₂(N + K)⌉` with `K = min(a, b)`, `N = max(a, b)`. We simulate forward through the FIFO queue (plus the in-flight `current` / `currentAutoInsert` / `currentManualInsert` frames) to compute the worst-case total remaining.
+- **Merge engine** — for each upcoming pair of visible sizes `a` and `b`, the per-pair cost is **`min(merge, auto-insert)`** when auto-insert is enabled (and just merge cost when off): merge = `a + b − 1`; auto-insert worst case = `K · ⌈log₂(N + K)⌉` with `K = min(a, b)`, `N = max(a, b)`. We simulate forward through the FIFO queue (plus the in-flight `current` / `currentAutoInsert` / `currentManualInsert` frames) to compute the worst-case total remaining.
+- **Confirmation engine** — simulates the remaining queue with pessimistic confirm/insert costs per item (`comparisonsRemaining` in `confirmationSort.ts`). The header's `M left` suffix uses the exact optimistic item count instead.
 - This is an **upper bound**: the bar is conservative and never under-promises. Actual merges often finish early when one side is exhausted (one pick auto-appends the entire other side's remainder), and rank-aware bound tightening on auto-insert frames trims their cost below the rank-blind formula above. When that happens the bar visibly **jumps forward**.
 - The denominator is a running maximum (`totalComparisonsEverNeeded`) so adding items / pre-ranked sublists / breaking sublists apart mid-sort can only push the bar back, not erase progress retroactively.
 
@@ -561,7 +607,7 @@ Result links in Tools (show titles, staff names, season column headers) follow t
 | --- | --- | --- | --- |
 | Thumbnail / **ⓘ** on LIST or RESULT | Open detail panel (AniList media/staff only) | Open AniList page | — |
 | **ⓘ** on RANK comparison card | Open detail panel (does not count as a pick) | — | — |
-| Comparison cards on RANK | Pick / drag (sorting) | — | — |
+| Comparison cards on RANK | Pick (merge/insertion) or asymmetric confirm layout (confirmation — see [Confirmation layout](#confirmation-layout-rank-tab)) | — | — |
 
 #### AniList detail panels (media & staff)
 
@@ -830,14 +876,15 @@ Coverage:
 - **Merge algorithm** (`queueMergeSort.test.ts`): init, picks, hide/unhide, addItem / addItems (batch singletons), appendPreRanked, reorder, break-apart, undo round-trips, degenerate-frame skipping, exile-on-close, manual Insert / Forget / Cancel insert, auto-insert heuristic / install / drain / rank-aware bounds / hide-id / forecast.
 - **Binary-insertion primitive** (`binaryInsertion.test.ts`): `startInsert / applyInsertPick`, zero-comparison collapse, lex oracle, tight-bounds.
 - **Insertion engine** (`insertionSort.test.ts`): seed-as-sorted, FIFO drain, add/addItems mid-plan, hide-while-inserting, snapshot/restore.
+- **Confirmation engine** (`confirmationSort.test.ts`): seed shape, all-left fast path on a correct list, right-pick insert into prefix.
 - **Engine dispatch** (`engine.test.ts`): polymorphic getPair / comparisonsRemaining / hide / unhide / addItems, `finalizeCompletedState`, completion normalization + undo round-trip.
 - **CSV** (`csv.test.ts`): canonical key, header detection, dedup with metadata merging, multi-source parsing.
-- **Storage** (`storage.test.ts`): slot CRUD, legacy v1 migration, cap eviction (pin-aware), autosave routing + debounce + force-flush + discard-pending, v1 → v3 and v2 → v3 progress upgrades (including undo ring), v3 round-trip for both engine shapes, two-stage quota recovery (trim undo → evict non-pinned), manifest repair from orphaned slot blobs after manifest corruption.
+- **Storage** (`storage.test.ts`): slot CRUD, legacy v1 migration, cap eviction (pin-aware), autosave routing + debounce + force-flush + discard-pending, v1 → v3 and v2 → v3 progress upgrades (including undo ring), v3/v4 round-trip for merge, insertion, and confirmation engine shapes, two-stage quota recovery (trim undo → evict non-pinned), manifest repair from orphaned slot blobs after manifest corruption.
 - **Share link** (`share.test.ts`): encode/decode round-trip (incl. non-ASCII labels, order preservation, dropped-undefined optional fields), failure modes (bad base64, bad JSON, wrong version, empty items, wrong-type optional fields), URL hash extraction.
 - **Cloud backup** (`cloud.test.ts`): filename build/parse, etag-mismatch handling, provider proxy behavior.
 - **AniList importer & cache** (`lib/importers/anilist/__tests__/`): `importer` / `favourites` (wipe-and-rebuild), `transport` (serialization + 429 backoff), `runners`, `lazyExpansion`, `queries.filmography`, `migration`, `mappers`, `readQueries`, `anilistSource`, `anilistAuth` (OAuth account storage + `requireAccessTokenForUsername`), `listMutations` (dynamic `SaveMediaListEntry` builder), label builders (`mediaDisplayLabel`, `personDisplayLabel`, `anilistItemLabel`, `mediaSort`), and filters (`filters`, `characterStaffFilters`, `staffRoleFilter`).
 - **Local source DB / OPFS** (`lib/db/__tests__/`): `client`, `workerInit`, `dbWorkerCore`, `dbExec`, `dbTransport`, `opfs` / `opfsLock` / `opfsInstallRetry`, `migration-runner`, `sync`, `syncManifest`, `merge` (row-level pull merge).
-- **AniList UI** (`components/__tests__/`): `AnilistDetailModal`, `StaffDetailModal` (lazy expand / refresh / my-list toggle / stale warning / middle-click), `ItemThumb`, `StagedItemsPanel` (engine split button), `FilterBar`, `listScreenH`, `compareScreenH`.
+- **AniList UI** (`components/__tests__/`): `AnilistDetailModal`, `StaffDetailModal` (lazy expand / refresh / my-list toggle / stale warning / middle-click), `ItemThumb`, `StagedItemsPanel` (engine split button + confirmation default for single ranked sublist), `FilterBar`, `listScreenH`, `compareScreenH`.
 - **Anime to Anime** (`animeToAnime/__tests__/`): `cachedGraph` (0–1 BFS shortest-path), `listFilter`, `pathHopLabels`, `vaCreditDisplay`, `preferences`.
 - **Anime Tools** (`tools/__tests__/`): `sharedCreditsLogic` / `sharedCreditsApi`, `sharedStaffLogic` / `sharedStaffRelatedAnime`, `seasonalScoresLogic` / `seasonalScoresApi`, `franchiseScoresLogic` / `franchiseScoresApi`, `adaptationScoresLogic` / `adaptationScoresApi`, `favouritesLogic` / `favouritesApi`, `updateListEntryLogic` / `updateListEntryApi`, `parseToolLines`, `staffRoleBuckets`, `toolsDisplayRelabel`.
 - **Hooks** (`hooks/__tests__/`): `useAnilistWaitCountdown` (rate-limit countdown).
@@ -847,7 +894,7 @@ Coverage:
 Save files (both the in-browser `localStorage` blob and downloaded JSON) are versioned.
 
 - **v1** — original single-engine schema (no `engine` field on `progress`).
-- **v2** — adds the `engine: 'merge' | 'insertion'` discriminator plus the merge engine's `unplaced / pendingPlacements / currentPlacement` fields (the original "Place" vocabulary).
+- **v2** — adds the `engine: 'merge' | 'insertion'` discriminator plus the merge engine's `unplaced / pendingPlacements / currentPlacement` fields (the original "Place" vocabulary). Current builds also persist `engine: 'confirmation'` on in-progress confirmation sorts (same v4 envelope).
 - **v3** — renames the placement fields to **insert** vocabulary (`pendingManualInserts / currentManualInsert`) and adds **`currentAutoInsert`** for the auto-insert frame.
 - **v4** — renames `unplaced → toBeInserted` on merge progress for vocabulary consistency with the rest of the Insert-flavored API.
 
@@ -883,9 +930,9 @@ src/
   main.tsx, App.tsx, styles.css, lib/appRoutes.ts
   lib/
     types.ts            # SortState / SortProgress (discriminated union: MergeProgress
-                        # | InsertionProgress) / Item / MergeFrame / InsertFrame /
-                        # ManualInsertFrame / AutoInsertFrame / SaveFile (v1|v2|v3|v4) /
-                        # SlotMeta / SlotsManifest
+                        # | InsertionProgress | ConfirmationProgress) / Item /
+                        # MergeFrame / InsertFrame / ManualInsertFrame / AutoInsertFrame /
+                        # SaveFile (v1|v2|v3|v4) / SlotMeta / SlotsManifest
     binaryInsertion.ts  # pure primitive: startInsert / applyInsertPick / getInsertPair /
                         # worstCaseInsertCost
     queueMergeSort.ts   # merge engine: initSort, seedFromSublists, pickLeft, pickRight,
@@ -899,6 +946,10 @@ src/
                         # pickRight, addItem, addItems, hideItem, unhideItem,
                         # snapshotProgress, restoreProgress, comparisonsRemaining,
                         # getRanking
+    confirmationSort.ts # confirmation engine: seedConfirmation, confirm + insert phases,
+                        # pickLeft/Right, hide/unhide, reorderInConfirmed,
+                        # returnToPending, comparisonsRemaining /
+                        # optimisticComparisonsRemaining, getRanking
     engine.ts           # polymorphic dispatch facade (getPair, comparisonsRemaining,
                         # snapshotProgress, restoreProgress, pickLeft/Right, hide/unhide,
                         # addItem, addItems, finalizeCompletedState, seedAsDoneMerge)
@@ -942,7 +993,9 @@ src/
                         # SlotList (pin ★ toggle + per-row cloud opt-in /
                         #          Push / Pull controls when cloud is ready),
                         # ListScreen (engine-aware),
-                        # CompareScreen (engine indicator + cancel-placement),
+                        # CompareScreen (engine indicator + cancel-placement;
+                        #   delegates to ConfirmationCompareScreen),
+                        # ConfirmationCompareScreen (asymmetric confirm layout),
                         # ResultScreen (+ Add items, + Share link), ItemCard,
                         # ItemThumb (shared image + onError-fallback initials),
                         # Modal (shared dialog shell: focus trap / Escape /

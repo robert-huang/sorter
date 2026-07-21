@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type {
+  ConfirmationState,
   InsertionState,
   Item,
   ItemId,
@@ -20,6 +21,8 @@ import {
   hideItem as engineHideItem,
   pickLeft as enginePickLeft,
   pickRight as enginePickRight,
+  selectUndoSnapshot,
+  undoSnapshotsEqual,
   reorderInSorted as engineReorderInSorted,
   restoreProgress as engineRestoreProgress,
   restoreHiddenItem as engineRestoreHiddenItem,
@@ -44,6 +47,7 @@ import {
   seedFromSublists,
 } from './lib/queueMergeSort';
 import { seedInsertionFromSublists } from './lib/insertionSort';
+import { seedConfirmation } from './lib/confirmationSort';
 import {
   applyCompletedSortEdit,
   applySlotImportBatches,
@@ -190,7 +194,9 @@ function deserialize(raw: AutosaveBlob | null): SavedSession | null {
   const tagged: SortState =
     raw.progress.engine === 'insertion'
       ? ({ ...raw.progress, items: raw.items } as InsertionState)
-      : ({ ...raw.progress, items: raw.items } as MergeState);
+      : raw.progress.engine === 'confirmation'
+        ? ({ ...raw.progress, items: raw.items } as ConfirmationState)
+        : ({ ...raw.progress, items: raw.items } as MergeState);
   const state = normalizeLoadedState(tagged);
   return { state, undoRing: raw.undoRing ?? [] };
 }
@@ -618,7 +624,10 @@ export function App() {
   // -------- transitions --------
   const pushUndo = useCallback((prior: SortState) => {
     setUndoRing((ring) => {
-      const next = ring.concat(engineSnapshotProgress(prior));
+      const snap = engineSnapshotProgress(prior);
+      const last = ring[ring.length - 1];
+      if (last && undoSnapshotsEqual(snap, last)) return ring;
+      const next = ring.concat(snap);
       if (next.length > UNDO_CAP) next.shift();
       return next;
     });
@@ -844,6 +853,8 @@ export function App() {
         if (!cur) return cur;
         setUndoRing((ring) => {
           const snap = engineSnapshotProgress(cur);
+          const last = ring[ring.length - 1];
+          if (last && undoSnapshotsEqual(snap, last)) return ring;
           let merged = ring.concat(snap);
           while (merged.length > UNDO_CAP) merged.shift();
           return merged;
@@ -1086,8 +1097,13 @@ export function App() {
   const doReorderInSorted = useCallback(
     (sortedIndex: number, dir: -1 | 1) => {
       setState((cur) => {
-        if (!cur || cur.engine !== 'insertion') return cur;
-        const hadFrame = cur.current !== null;
+        if (!cur || (cur.engine !== 'insertion' && cur.engine !== 'confirmation')) {
+          return cur;
+        }
+        const hadFrame =
+          cur.engine === 'insertion'
+            ? cur.current !== null
+            : cur.phase === 'insert' && cur.insertFrame !== null;
         pushUndo(cur);
         const next = engineReorderInSorted(cur, sortedIndex, dir);
         if (hadFrame && next !== cur) {
@@ -1121,10 +1137,13 @@ export function App() {
   const doUndo = useCallback(() => {
     if (!state || undoRing.length === 0) return;
 
-    const snapshot = undoRing[undoRing.length - 1];
+    const selected = selectUndoSnapshot(state, undoRing);
+    if (!selected) return;
+
+    const { snapshot, newRing } = selected;
     const restored = engineRestoreProgress(state, snapshot);
 
-    setUndoRing((ring) => ring.slice(0, -1));
+    setUndoRing(newRing);
     setState(restored);
 
     // LIST/RESULT are for inspecting results or hidden items; comparisons
@@ -2082,6 +2101,15 @@ export function App() {
     [adoptNewSession],
   );
 
+  const onStartConfirmation = useCallback(
+    (items: Item[], initialTab?: TabId) => {
+      const next = seedConfirmation(items);
+      const session: SavedSession = { state: next, undoRing: [] };
+      adoptNewSession(session, autoNameFromBlob(buildBlob(next, [])), initialTab ?? 'rank');
+    },
+    [adoptNewSession],
+  );
+
   // -------- slot management --------
   /**
    * Load (or re-load) a slot into memory and jump to its sort view. Always
@@ -2512,6 +2540,7 @@ export function App() {
         onStartPreranked={onStartPreranked}
         onStartInsertion={onStartInsertion}
         onStartAlreadySorted={onStartAlreadySorted}
+        onStartConfirmation={onStartConfirmation}
         hasLoadedSession={hasState}
         onDraftActivity={parkActiveSession}
         onDraftCapabilitiesChange={setDraftCaps}
@@ -2565,6 +2594,9 @@ export function App() {
         onPickRight={() => doPick('right')}
         onHide={doHide}
         onCancelManualInsert={doCancelManualInsert}
+        onEditItem={doEditItem}
+        onReorderConfirmed={doReorderInSorted}
+        onReturnToPending={doReturnToPending}
         autoInsertEnabled={autoInsertEnabled}
       />
       </>

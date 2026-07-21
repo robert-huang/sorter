@@ -30,7 +30,7 @@ import type { SlotResultsImportBatch } from '../lib/completedSortEditH';
 type Tab = 'single' | 'multiple' | 'anilist' | 'sortresults';
 
 interface Props {
-  engine: 'merge' | 'insertion';
+  engine: 'merge' | 'insertion' | 'confirmation';
   existingIds: Set<string>;
   /** Omit from Sort results picker (active slot). */
   excludeSlotId?: string;
@@ -172,7 +172,7 @@ function SingleTab({
   onAdd,
 }: {
   existingIds: Set<string>;
-  engine: 'merge' | 'insertion';
+  engine: 'merge' | 'insertion' | 'confirmation';
   onCancel: () => void;
   onAdd: (item: Item) => void;
 }) {
@@ -261,7 +261,7 @@ function MultipleTab({
   onAddMany,
   onAddPreRanked,
 }: {
-  engine: 'merge' | 'insertion';
+  engine: 'merge' | 'insertion' | 'confirmation';
   onCancel: () => void;
   onAddMany: (items: Item[]) => void;
   onAddPreRanked?: (items: Item[]) => void;

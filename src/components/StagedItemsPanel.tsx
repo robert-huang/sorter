@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Item, ItemId } from '../lib/types';
 import { useClickOutside } from '../lib/hooks/useClickOutside';
 import { DetailButtonSlot } from './DetailButton';
@@ -10,7 +10,23 @@ import { RemoveGlyph } from './RemoveGlyph';
  * for every new draft. Chosen via the Start Sort split-button's chevron
  * menu; see `seedInsertionFromSublists` for the insertion path.
  */
-export type StartMode = 'merge' | 'insertion';
+export type StartMode = 'merge' | 'insertion' | 'confirmation';
+
+function startModePrimaryLabel(mode: StartMode): string {
+  if (mode === 'insertion') return 'Insertion sort';
+  if (mode === 'confirmation') return 'Confirm order';
+  return 'Start sort';
+}
+
+function startModePrimaryTitle(mode: StartMode): string {
+  if (mode === 'insertion') {
+    return 'Binary-insert each item one at a time into a growing ranked list';
+  }
+  if (mode === 'confirmation') {
+    return 'Verify each item belongs in this order — fast if the list is already correct';
+  }
+  return 'Classic pairwise merge sort — fewest comparisons overall';
+}
 
 /**
  * Soft-removal markers shared by both group variants. Splitting them
@@ -70,15 +86,9 @@ export type StagedGroup =
       source: string;
       items: Item[];
       /**
-       * When true and the staged list contains ONLY this group, the
-       * start CTA offers "Use as ranking" — which routes through
-       * `seedAsSorted` (skip the merge sort entirely; the slot
-       * enters insertion mode immediately).
-       *
-       * Set by the scratch tab when the user ticks the "already in
-       * ranking order" checkbox before adding to staged. Once any
-       * other group is staged, the hint is silently ignored and the
-       * sublist participates in a normal merge instead.
+       * Set by the scratch tab when the user ticks "already in ranking
+       * order" before adding to staged. The group is staged as a
+       * `sublist` (ranked) rather than flat singletons.
        */
       seedAsSortedHint?: boolean;
     } & StagedRemovalMarkers);
@@ -261,7 +271,6 @@ interface Props {
   onClearAll: () => void;
   /** Start the sort using the currently-selected `startMode`. */
   onStartSort: () => void;
-  onStartAlreadySorted: () => void;
   /**
    * Selected engine for the Start Sort split-button. Non-persisted; the
    * parent (StartScreen) owns it so it can also route header-tab draft
@@ -289,18 +298,17 @@ interface Props {
 }
 
 /**
- * The combined list is in "already sorted" mode iff there's exactly
- * one group, it's a sublist, carries the seed-as-sorted hint, and is
- * not marked for removal. Anything else (a second group, a flat
- * group, a sublist without the hint, or a marked-for-removal sublist)
- * demotes the CTA back to the normal merge-sort path — or, in the
- * marked-for-removal case, disables Start Sort entirely.
+ * Confirmation sort is available when the effective sort input (after
+ * dropping soft-removed groups/items) is exactly one ranked sublist
+ * with 2+ items and no unranked extras. Extra staged groups are fine
+ * when marked for removal — they never reach `buildSortInputFromStaged`.
  */
-function isAlreadySortedReady(combined: StagedGroup[]): boolean {
-  if (combined.length !== 1) return false;
-  const g = combined[0];
-  if (g.markedForRemoval) return false;
-  return g.kind === 'sublist' && g.seedAsSortedHint === true;
+export function isSingleRankedSublistReady(groups: StagedGroup[]): boolean {
+  const summary = buildSortInputFromStaged(groups);
+  if (summary.sublistCount !== 1) return false;
+  if (summary.extras.length > 0) return false;
+  const ranked = summary.sublists[0];
+  return ranked !== undefined && ranked.length >= 2;
 }
 
 export function StagedItemsPanel({
@@ -309,7 +317,6 @@ export function StagedItemsPanel({
   onToggleRemoveGroup,
   onClearAll,
   onStartSort,
-  onStartAlreadySorted,
   startMode,
   onStartModeChange,
   onToggleRemoveItem,
@@ -319,7 +326,9 @@ export function StagedItemsPanel({
   const summary = useMemo(() => buildSortInputFromStaged(combined), [combined]);
   const duplicates = useMemo(() => findDuplicateOccurrences(combined), [combined]);
   const markedCount = useMemo(() => countMarkedForRemoval(combined), [combined]);
-  const alreadySortedReady = isAlreadySortedReady(combined);
+  const rankedSublistReady = isSingleRankedSublistReady(combined);
+  const effectiveStartMode: StartMode =
+    startMode === 'confirmation' && !rankedSublistReady ? 'merge' : startMode;
   // Per-group expansion state. Lives here (not as a single
   // currently-expanded id) so the user can fan multiple groups open
   // to compare them side-by-side — useful when chasing a duplicate.
@@ -330,8 +339,28 @@ export function StagedItemsPanel({
   // the split-button group AND the menu so clicking the chevron itself
   // doesn't count as "outside".
   const [startMenuOpen, setStartMenuOpen] = useState(false);
+  const [startMenuOpensUp, setStartMenuOpensUp] = useState(false);
   const startSplitRef = useRef<HTMLDivElement | null>(null);
+  const startMenuRef = useRef<HTMLDivElement | null>(null);
   useClickOutside(startSplitRef, startMenuOpen, () => setStartMenuOpen(false));
+
+  useLayoutEffect(() => {
+    if (!startMenuOpen) {
+      setStartMenuOpensUp(false);
+      return;
+    }
+    const anchor = startSplitRef.current;
+    const menu = startMenuRef.current;
+    if (!anchor || !menu) return;
+    const gap = 6;
+    const anchorRect = anchor.getBoundingClientRect();
+    const menuHeight = menu.offsetHeight;
+    const spaceBelow = window.innerHeight - anchorRect.bottom - gap;
+    const spaceAbove = anchorRect.top - gap;
+    const wouldOverflowBelow = menuHeight > spaceBelow;
+    const fitsAbove = menuHeight <= spaceAbove;
+    setStartMenuOpensUp(wouldOverflowBelow && fitsAbove);
+  }, [startMenuOpen, rankedSublistReady]);
   const chooseStartMode = (mode: StartMode) => {
     onStartModeChange(mode);
     setStartMenuOpen(false);
@@ -426,84 +455,95 @@ export function StagedItemsPanel({
               Clear staged
             </button>
           )}
-          {alreadySortedReady ? (
+          <div className="staged-panel-start-split" ref={startSplitRef}>
             <button
               type="button"
-              className="btn primary"
-              onClick={onStartAlreadySorted}
-              title="Skip the merge sort — treat these as the final ranking and enter insertion mode"
+              className="btn primary staged-panel-start-main"
+              disabled={summary.uniqueCount < 2}
+              onClick={onStartSort}
+              title={startModePrimaryTitle(effectiveStartMode)}
             >
-              Use as ranking ({summary.uniqueCount})
+              {startModePrimaryLabel(effectiveStartMode)} ({summary.uniqueCount})
             </button>
-          ) : (
-            <div className="staged-panel-start-split" ref={startSplitRef}>
-              <button
-                type="button"
-                className="btn primary staged-panel-start-main"
-                disabled={summary.uniqueCount < 2}
-                onClick={onStartSort}
-                title={
-                  startMode === 'insertion'
-                    ? 'Binary-insert each item one at a time into a growing ranked list'
-                    : 'Classic pairwise merge sort — fewest comparisons overall'
+            <button
+              type="button"
+              className="btn primary staged-panel-start-caret"
+              disabled={summary.uniqueCount < 2}
+              aria-haspopup="menu"
+              aria-expanded={startMenuOpen}
+              aria-label="Choose sort method"
+              title="Choose sort method"
+              onClick={() => setStartMenuOpen((v) => !v)}
+            >
+              ▾
+            </button>
+            {startMenuOpen && (
+              <div
+                ref={startMenuRef}
+                className={
+                  'staged-panel-start-menu' +
+                  (startMenuOpensUp ? ' staged-panel-start-menu--up' : '')
                 }
+                role="menu"
               >
-                {startMode === 'insertion' ? 'Insertion sort' : 'Start sort'} (
-                {summary.uniqueCount})
-              </button>
-              <button
-                type="button"
-                className="btn primary staged-panel-start-caret"
-                disabled={summary.uniqueCount < 2}
-                aria-haspopup="menu"
-                aria-expanded={startMenuOpen}
-                aria-label="Choose sort method"
-                title="Choose sort method"
-                onClick={() => setStartMenuOpen((v) => !v)}
-              >
-                ▾
-              </button>
-              {startMenuOpen && (
-                <div className="staged-panel-start-menu" role="menu">
+                <button
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={effectiveStartMode === 'merge'}
+                  className="staged-panel-start-menu-item"
+                  onClick={() => chooseStartMode('merge')}
+                >
+                  <span className="staged-panel-start-menu-check" aria-hidden>
+                    {effectiveStartMode === 'merge' ? '✓' : ''}
+                  </span>
+                  <span className="staged-panel-start-menu-text">
+                    <strong>Merge sort</strong>
+                    <span className="staged-panel-start-menu-hint">
+                      Pairwise tournament — fewest comparisons overall
+                    </span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={effectiveStartMode === 'insertion'}
+                  className="staged-panel-start-menu-item"
+                  onClick={() => chooseStartMode('insertion')}
+                >
+                  <span className="staged-panel-start-menu-check" aria-hidden>
+                    {effectiveStartMode === 'insertion' ? '✓' : ''}
+                  </span>
+                  <span className="staged-panel-start-menu-text">
+                    <strong>Insertion sort</strong>
+                    <span className="staged-panel-start-menu-hint">
+                      Binary-insert items one at a time; pre-ranked lists
+                      seed the order
+                    </span>
+                  </span>
+                </button>
+                {rankedSublistReady && (
                   <button
                     type="button"
                     role="menuitemradio"
-                    aria-checked={startMode === 'merge'}
+                    aria-checked={effectiveStartMode === 'confirmation'}
                     className="staged-panel-start-menu-item"
-                    onClick={() => chooseStartMode('merge')}
+                    onClick={() => chooseStartMode('confirmation')}
                   >
                     <span className="staged-panel-start-menu-check" aria-hidden>
-                      {startMode === 'merge' ? '✓' : ''}
+                      {effectiveStartMode === 'confirmation' ? '✓' : ''}
                     </span>
                     <span className="staged-panel-start-menu-text">
-                      <strong>Merge sort</strong>
+                      <strong>Confirmation sort</strong>
                       <span className="staged-panel-start-menu-hint">
-                        Pairwise tournament — fewest comparisons overall
+                        Walk a ranked list front-to-back — fast when the order
+                        is already right
                       </span>
                     </span>
                   </button>
-                  <button
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={startMode === 'insertion'}
-                    className="staged-panel-start-menu-item"
-                    onClick={() => chooseStartMode('insertion')}
-                  >
-                    <span className="staged-panel-start-menu-check" aria-hidden>
-                      {startMode === 'insertion' ? '✓' : ''}
-                    </span>
-                    <span className="staged-panel-start-menu-text">
-                      <strong>Insertion sort</strong>
-                      <span className="staged-panel-start-menu-hint">
-                        Binary-insert items one at a time; pre-ranked lists
-                        seed the order
-                      </span>
-                    </span>
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

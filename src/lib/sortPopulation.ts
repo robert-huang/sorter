@@ -6,6 +6,10 @@ export function rankingSlotIds(state: SortProgress): Set<ItemId> {
   if (state.engine === 'insertion') {
     for (const id of state.sorted) ranked.add(id);
     for (const id of state.pending) ranked.add(id);
+  } else if (state.engine === 'confirmation') {
+    for (const id of state.confirmed) ranked.add(id);
+    for (const id of state.queue) ranked.add(id);
+    if (state.candidate) ranked.add(state.candidate);
   } else {
     for (const sub of state.queue) {
       for (const id of sub) ranked.add(id);
@@ -23,6 +27,8 @@ export function activeRankingIds(state: SortProgress): Set<ItemId> {
   const ids = rankingSlotIds(state);
   if (state.engine === 'insertion') {
     if (state.current) ids.add(state.current.insertingId);
+  } else if (state.engine === 'confirmation') {
+    if (state.insertFrame) ids.add(state.insertFrame.insertingId);
   } else {
     if (state.current) {
       for (const id of state.current.left) ids.add(id);

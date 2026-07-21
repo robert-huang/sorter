@@ -4,7 +4,8 @@ import { AppNavFab } from './AppNavFab';
 import { SettingsMenu, type CloudMenuStatus } from './SettingsMenu';
 import { CheckIcon, FloppyIcon } from './icons';
 import type { SlotsManifest, SortState } from '../lib/types';
-import { comparisonsRemaining } from '../lib/engine';
+import { isConfirmationState } from '../lib/types';
+import { comparisonsRemaining, optimisticComparisonsRemaining } from '../lib/engine';
 import type { StartDraftCapabilities } from './StartScreen';
 import type { ThemeName } from '../lib/storage';
 
@@ -147,7 +148,9 @@ export function Header({
   // there now. We pass autoInsertEnabled so the per-pair forecast charges
   // the cheaper of merge / auto-insert when the heuristic is enabled.
   const remaining = state
-    ? comparisonsRemaining(state, { autoInsertEnabled })
+    ? isConfirmationState(state)
+      ? optimisticComparisonsRemaining(state)
+      : comparisonsRemaining(state, { autoInsertEnabled })
     : 0;
   const cmps = state?.comparisons ?? 0;
 
@@ -157,9 +160,11 @@ export function Header({
     if (!state) return '';
     if (state.done) return `Done · ${cmps} comparisons`;
     const n = cmps + 1;
-    return showEstimatedRemaining
-      ? `Comparison #${n} · ~${remaining} left`
-      : `Comparison #${n}`;
+    if (!showEstimatedRemaining) return `Comparison #${n}`;
+    if (isConfirmationState(state)) {
+      return `Comparison #${n} · ${remaining} left`;
+    }
+    return `Comparison #${n} · ~${remaining} left`;
   })();
 
   const canList = hasState || draftCaps.canList;

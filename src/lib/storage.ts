@@ -179,6 +179,7 @@ function upgradeProgress(progress: unknown): SortProgress {
     currentAutoInsert?: unknown;
   };
   if (p.engine === 'insertion') return progress as SortProgress;
+  if (p.engine === 'confirmation') return progress as SortProgress;
   // Current merge blob: engine + v4 field names.
   if (
     p.engine === 'merge' &&

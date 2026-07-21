@@ -228,11 +228,29 @@ export interface InsertionProgress extends SortProgressBase {
   activeRunAnchor?: number | null;
 }
 
-export type SortProgress = MergeProgress | InsertionProgress;
+/**
+ * Confirmation-engine progress slice. Walk a pre-ranked list front-to-back:
+ * each item is either confirmed as the next rank (left pick) or binary-
+ * inserted into the confirmed prefix (right pick).
+ */
+export interface ConfirmationProgress extends SortProgressBase {
+  engine: 'confirmation';
+  /** Verified prefix, best→worst. Mutates when inserts land. */
+  confirmed: ItemId[];
+  /** Remaining items in original seed order (excludes `candidate`). */
+  queue: ItemId[];
+  /** Current right-card item during `phase === 'confirm'`, or null. */
+  candidate: ItemId | null;
+  phase: 'confirm' | 'insert';
+  insertFrame: InsertFrame | null;
+}
+
+export type SortProgress = MergeProgress | InsertionProgress | ConfirmationProgress;
 
 export type MergeState = MergeProgress & { items: Record<ItemId, Item> };
 export type InsertionState = InsertionProgress & { items: Record<ItemId, Item> };
-export type SortState = MergeState | InsertionState;
+export type ConfirmationState = ConfirmationProgress & { items: Record<ItemId, Item> };
+export type SortState = MergeState | InsertionState | ConfirmationState;
 
 export type DedupReason =
   | 'duplicate-in-source'
@@ -415,6 +433,10 @@ export interface SlotsManifest {
 /** Discriminate at runtime; useful where TS can't narrow. */
 export function isInsertionState(state: SortState): state is InsertionState {
   return state.engine === 'insertion';
+}
+
+export function isConfirmationState(state: SortState): state is ConfirmationState {
+  return state.engine === 'confirmation';
 }
 
 export function isMergeState(state: SortState): state is MergeState {

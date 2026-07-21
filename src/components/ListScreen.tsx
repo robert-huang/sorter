@@ -6,6 +6,7 @@ import {
 } from '../lib/queueMergeSort';
 import type { SlotResultsImportBatch } from '../lib/completedSortEditH';
 import type {
+  ConfirmationState,
   InsertionState,
   Item,
   MergeState,
@@ -36,6 +37,7 @@ import {
 /** Item ids shown in the unified completed-ranking section (LIST tab). */
 function completedRankingIds(state: SortState): string[] {
   if (state.engine === 'insertion') return state.sorted;
+  if (state.engine === 'confirmation') return state.confirmed;
   if (!state.done || state.queue.length === 0) return [];
   return state.queue[0];
 }
@@ -573,12 +575,16 @@ const INSERT_CONTEXT_COPY: Record<
  * LIST should mirror the RANK tab's active pair via `getPair`, not whatever
  * happens to be in "current sublist" slices. Those slices are empty during
  * merge auto-/manual-insert (`state.current` is null) and insertion only
- * surfaced the inserting item — never the probe on the right card.
+ * surfaced the inserting item — RANK shows probe left, inserting right
+ * (same as the LIST insert-context panel).
  */
 function shouldShowCurrentComparison(state: SortState): boolean {
   if (state.done) return false;
   if (!getPair(state)) return false;
   if (state.engine === 'insertion') return true;
+  if (state.engine === 'confirmation') {
+    return state.phase === 'insert' && state.insertFrame !== null;
+  }
   return state.current === null;
 }
 
@@ -998,6 +1004,8 @@ export function ListScreen(props: Props) {
       />
       {state.engine === 'insertion' ? (
         <InsertionListView {...props} state={state} />
+      ) : state.engine === 'confirmation' ? (
+        <ConfirmationListView {...props} state={state} />
       ) : (
         <MergeListView {...props} state={state} />
       )}
@@ -1473,6 +1481,103 @@ function SublistView({
         })}
       </div>
     </div>
+  );
+}
+
+// ============================================================================
+// CONFIRMATION VIEW — verified prefix + remaining queue
+// ============================================================================
+
+function ConfirmationListView({
+  state,
+  onHide,
+  onUnhide,
+  onEditItem,
+  onReorderInSorted,
+  onReturnToPending,
+}: Props & { state: ConfirmationState }) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const editingItem = editingId ? state.items[editingId] ?? null : null;
+  const openEdit = (it: Item) => setEditingId(it.id);
+  const hidden = useMemo(() => new Set(state.hidden), [state.hidden]);
+  const otherIds = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const it of Object.values(state.items)) {
+      if (it.id === editingId) continue;
+      m.set(it.id, it.label);
+    }
+    return m;
+  }, [state.items, editingId]);
+  const candidateId = state.phase === 'confirm' ? state.candidate : state.insertFrame?.insertingId ?? null;
+
+  return (
+    <>
+      {shouldShowCurrentComparison(state) && getInsertContext(state) && (
+        <InsertContextSection
+          state={state}
+          onOpenEdit={openEdit}
+          onHideRemaining={onHide}
+          onHideTarget={onHide}
+          onReorderTarget={(indexA, indexB) =>
+            onReorderInSorted(indexA, indexB > indexA ? 1 : -1)
+          }
+          onReturnTargetToPending={onReturnToPending}
+        />
+      )}
+      <CompletedRankingSection
+        rankedIds={state.confirmed}
+        items={state.items}
+        hidden={hidden}
+        onHide={onHide}
+        onUnhide={onUnhide}
+        onEdit={openEdit}
+        onReorder={onReorderInSorted}
+        onReturnToPending={onReturnToPending}
+      />
+      {(candidateId || state.queue.length > 0) && (
+        <>
+          <div className="list-section-label" style={{ marginTop: 16 }}>
+            Remaining ({(candidateId ? 1 : 0) + state.queue.length})
+          </div>
+          <div className="queue-sublist">
+            <div className="queue-sublist-items">
+              {[...(candidateId ? [candidateId] : []), ...state.queue].map((id, ii) => {
+                const item = state.items[id];
+                if (!item) return null;
+                const isHidden = hidden.has(id);
+                const isCurrent = id === candidateId;
+                return (
+                  <div
+                    key={id}
+                    className={`queue-item-row ${isHidden ? 'hidden' : ''} ${isCurrent ? 'confirmation-row--probe' : ''}`}
+                  >
+                    <span className="rank">{state.confirmed.length + ii + 1}.</span>
+                    <ItemThumb item={item} />
+                    <span className="label-cell" title={item.label}>
+                      {item.label}
+                      {isCurrent ? ' (current)' : ''}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
+      {editingItem && (
+        <EditItemModal
+          item={editingItem}
+          onCancel={() => setEditingId(null)}
+          onSave={(patch) => {
+            onEditItem(editingItem.id, patch);
+            setEditingId(null);
+          }}
+          allowEditId
+          currentId={editingItem.id}
+          otherIds={otherIds}
+        />
+      )}
+    </>
   );
 }
 

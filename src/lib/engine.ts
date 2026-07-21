@@ -15,8 +15,11 @@
  */
 import * as merge from './queueMergeSort';
 import * as insertion from './insertionSort';
+import * as confirmation from './confirmationSort';
 import type { MergeOptions } from './queueMergeSort';
 import type {
+  ConfirmationProgress,
+  ConfirmationState,
   InsertionProgress,
   InsertionState,
   Item,
@@ -34,23 +37,49 @@ import type {
  */
 export type EngineOptions = MergeOptions;
 
+function byEngine<T>(
+  state: SortState,
+  handlers: {
+    merge: (s: MergeState) => T;
+    insertion: (s: InsertionState) => T;
+    confirmation: (s: ConfirmationState) => T;
+  },
+): T {
+  if (state.engine === 'confirmation') return handlers.confirmation(state);
+  if (state.engine === 'insertion') return handlers.insertion(state);
+  return handlers.merge(state);
+}
+
 // ---------- pure readers ----------
 
 export function getPair(
   state: SortState,
 ): { leftId: ItemId; rightId: ItemId } | null {
-  return state.engine === 'insertion'
-    ? insertion.getPair(state)
-    : merge.getPair(state);
+  return byEngine(state, {
+    merge: (s) => merge.getPair(s),
+    insertion: (s) => insertion.getPair(s),
+    confirmation: (s) => confirmation.getPair(s),
+  });
 }
 
 export function comparisonsRemaining(
   state: SortState,
   options?: EngineOptions,
 ): number {
-  return state.engine === 'insertion'
-    ? insertion.comparisonsRemaining(state)
-    : merge.comparisonsRemaining(state, options);
+  return byEngine(state, {
+    merge: (s) => merge.comparisonsRemaining(s, options),
+    insertion: (s) => insertion.comparisonsRemaining(s),
+    confirmation: (s) => confirmation.comparisonsRemaining(s),
+  });
+}
+
+/** Best-case remaining comparisons (all future left-click confirms). */
+export function optimisticComparisonsRemaining(state: SortState): number {
+  return byEngine(state, {
+    merge: (s) => merge.comparisonsRemaining(s),
+    insertion: (s) => insertion.comparisonsRemaining(s),
+    confirmation: (s) => confirmation.optimisticComparisonsRemaining(s),
+  });
 }
 
 /**
@@ -76,9 +105,11 @@ export function getCompareProgress(
 }
 
 export function getRanking(state: SortState): ItemId[] {
-  return state.engine === 'insertion'
-    ? insertion.getRanking(state)
-    : merge.getRanking(state);
+  return byEngine(state, {
+    merge: (s) => merge.getRanking(s),
+    insertion: (s) => insertion.getRanking(s),
+    confirmation: (s) => confirmation.getRanking(s),
+  });
 }
 
 /**
@@ -89,9 +120,11 @@ export function getRanking(state: SortState): ItemId[] {
  * active probe; merge dispatches manual-insert > auto-insert > merge).
  */
 export function getPeekRightIds(state: SortState, n = 3): ItemId[] {
-  return state.engine === 'insertion'
-    ? insertion.getPeekRightIds(state, n)
-    : merge.getPeekRightIds(state, n);
+  return byEngine(state, {
+    merge: (s) => merge.getPeekRightIds(s, n),
+    insertion: (s) => insertion.getPeekRightIds(s, n),
+    confirmation: (s) => confirmation.getPeekRightIds(s, n),
+  });
 }
 
 /**
@@ -102,9 +135,11 @@ export function getPeekRightIds(state: SortState, n = 3): ItemId[] {
  * rendering the left deck entirely.
  */
 export function getPeekLeftIds(state: SortState, n = 3): ItemId[] {
-  return state.engine === 'insertion'
-    ? insertion.getPeekLeftIds(state, n)
-    : merge.getPeekLeftIds(state, n);
+  return byEngine(state, {
+    merge: (s) => merge.getPeekLeftIds(s, n),
+    insertion: (s) => insertion.getPeekLeftIds(s, n),
+    confirmation: (s) => confirmation.getPeekLeftIds(s, n),
+  });
 }
 
 /** Count of rank-adjacent ids not shown as named peek cards (`...n` tail). */
@@ -112,26 +147,97 @@ export function getPeekRightOverflowCount(
   state: SortState,
   labeledDepth: number,
 ): number {
-  return state.engine === 'insertion'
-    ? insertion.getPeekRightOverflowCount(state, labeledDepth)
-    : merge.getPeekRightOverflowCount(state, labeledDepth);
+  return byEngine(state, {
+    merge: (s) => merge.getPeekRightOverflowCount(s, labeledDepth),
+    insertion: (s) => insertion.getPeekRightOverflowCount(s, labeledDepth),
+    confirmation: (s) => confirmation.getPeekRightOverflowCount(s, labeledDepth),
+  });
 }
 
 export function getPeekLeftOverflowCount(
   state: SortState,
   labeledDepth: number,
 ): number {
-  return state.engine === 'insertion'
-    ? insertion.getPeekLeftOverflowCount(state, labeledDepth)
-    : merge.getPeekLeftOverflowCount(state, labeledDepth);
+  return byEngine(state, {
+    merge: (s) => merge.getPeekLeftOverflowCount(s, labeledDepth),
+    insertion: (s) => insertion.getPeekLeftOverflowCount(s, labeledDepth),
+    confirmation: (s) => confirmation.getPeekLeftOverflowCount(s, labeledDepth),
+  });
 }
 
 // ---------- snapshot / restore ----------
 
 export function snapshotProgress(state: SortState): SortProgress {
-  return state.engine === 'insertion'
-    ? insertion.snapshotProgress(state)
-    : merge.snapshotProgress(state);
+  return byEngine<SortProgress>(state, {
+    merge: (s) => merge.snapshotProgress(s),
+    insertion: (s) => insertion.snapshotProgress(s),
+    confirmation: (s) => confirmation.snapshotProgress(s),
+  });
+}
+
+/** True when two undo frames carry identical engine progress. */
+export function undoSnapshotsEqual(
+  a: SortProgress,
+  b: SortProgress,
+): boolean {
+  if (a.engine !== b.engine) return false;
+  if (a.comparisons !== b.comparisons || a.done !== b.done) return false;
+  if (a.engine === 'confirmation') {
+    const ca = a as ConfirmationProgress;
+    const cb = b as ConfirmationProgress;
+    return (
+      ca.phase === cb.phase &&
+      ca.candidate === cb.candidate &&
+      ca.confirmed.length === cb.confirmed.length &&
+      ca.confirmed.every((id, i) => id === cb.confirmed[i]) &&
+      ca.queue.length === cb.queue.length &&
+      ca.queue.every((id, i) => id === cb.queue[i]) &&
+      ca.hidden.length === cb.hidden.length &&
+      ca.hidden.every((id, i) => id === cb.hidden[i]) &&
+      JSON.stringify(ca.insertFrame) === JSON.stringify(cb.insertFrame)
+    );
+  }
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/**
+ * During confirmation insert, reorder/hide can push undo frames at the same
+ * comparison depth without a new pick. Skip those so one undo exits insert.
+ */
+export function shouldSkipConfirmationInsertUndo(
+  current: SortState,
+  snapshot: SortProgress,
+): boolean {
+  if (current.engine !== 'confirmation' || snapshot.engine !== 'confirmation') {
+    return false;
+  }
+  const cur = current as ConfirmationState;
+  const snap = snapshot as ConfirmationProgress;
+  return (
+    cur.phase === 'insert' &&
+    snap.phase === 'insert' &&
+    snap.comparisons === cur.comparisons
+  );
+}
+
+/**
+ * Pop the undo ring back to a meaningful snapshot — skipping duplicate
+ * confirmation-insert frames at the same comparison depth.
+ */
+export function selectUndoSnapshot(
+  current: SortState,
+  ring: SortProgress[],
+): { snapshot: SortProgress; newRing: SortProgress[] } | null {
+  if (ring.length === 0) return null;
+  let idx = ring.length - 1;
+  while (idx >= 0) {
+    const snapshot = ring[idx]!;
+    if (!shouldSkipConfirmationInsertUndo(current, snapshot)) {
+      return { snapshot, newRing: ring.slice(0, idx) };
+    }
+    idx -= 1;
+  }
+  return null;
 }
 
 /**
@@ -144,9 +250,14 @@ export function restoreProgress(
   state: SortState,
   progress: SortProgress,
 ): SortState {
+  if (progress.engine === 'confirmation') {
+    const placeholder: ConfirmationState = {
+      ...(progress as ConfirmationProgress),
+      items: state.items,
+    };
+    return confirmation.restoreProgress(placeholder, progress as ConfirmationProgress);
+  }
   if (progress.engine === 'insertion') {
-    // Build a placeholder InsertionState so insertion.restoreProgress
-    // can splice items in. items dict comes from `state`.
     const placeholder: InsertionState = {
       ...(progress as InsertionProgress),
       items: state.items,
@@ -166,10 +277,11 @@ export function pickLeft(
   state: SortState,
   options?: EngineOptions,
 ): SortState {
-  const next =
-    state.engine === 'insertion'
-      ? insertion.pickLeft(state)
-      : merge.pickLeft(state, options);
+  const next = byEngine<SortState>(state, {
+    merge: (s) => merge.pickLeft(s, options),
+    insertion: (s) => insertion.pickLeft(s),
+    confirmation: (s) => confirmation.pickLeft(s),
+  });
   return finalizeCompletedState(next);
 }
 
@@ -177,10 +289,11 @@ export function pickRight(
   state: SortState,
   options?: EngineOptions,
 ): SortState {
-  const next =
-    state.engine === 'insertion'
-      ? insertion.pickRight(state)
-      : merge.pickRight(state, options);
+  const next = byEngine<SortState>(state, {
+    merge: (s) => merge.pickRight(s, options),
+    insertion: (s) => insertion.pickRight(s),
+    confirmation: (s) => confirmation.pickRight(s),
+  });
   return finalizeCompletedState(next);
 }
 
@@ -191,24 +304,29 @@ export function hideItem(
   id: ItemId,
   options?: EngineOptions,
 ): SortState {
-  const next =
-    state.engine === 'insertion'
-      ? insertion.hideItem(state, id)
-      : merge.hideItem(state, id, options);
+  const next = byEngine<SortState>(state, {
+    merge: (s) => merge.hideItem(s, id, options),
+    insertion: (s) => insertion.hideItem(s, id),
+    confirmation: (s) => confirmation.hideItem(s, id),
+  });
   return finalizeCompletedState(next);
 }
 
 export function unhideItem(state: SortState, id: ItemId): SortState {
-  return state.engine === 'insertion'
-    ? insertion.unhideItem(state, id)
-    : merge.unhideItem(state, id);
+  return byEngine<SortState>(state, {
+    merge: (s) => merge.unhideItem(s, id),
+    insertion: (s) => insertion.unhideItem(s, id),
+    confirmation: (s) => confirmation.unhideItem(s, id),
+  });
 }
 
 /** Permanently clear a hidden id (no restore). */
 export function dismissHidden(state: SortState, id: ItemId): SortState {
-  return state.engine === 'insertion'
-    ? insertion.dismissHidden(state, id)
-    : merge.dismissHidden(state, id);
+  return byEngine<SortState>(state, {
+    merge: (s) => merge.dismissHidden(s, id),
+    insertion: (s) => insertion.dismissHidden(s, id),
+    confirmation: (s) => confirmation.dismissHidden(s, id),
+  });
 }
 
 /**
@@ -220,9 +338,11 @@ export function forgetHiddenItem(
   id: ItemId,
   options?: MergeOptions,
 ): SortState {
-  return state.engine === 'insertion'
-    ? insertion.forgetHiddenItem(state, id)
-    : merge.forgetHiddenItem(state, id, options);
+  return byEngine<SortState>(state, {
+    merge: (s) => merge.forgetHiddenItem(s, id, options),
+    insertion: (s) => insertion.forgetHiddenItem(s, id),
+    confirmation: (s) => confirmation.forgetHiddenItem(s, id),
+  });
 }
 
 /**
@@ -234,9 +354,11 @@ export function restoreHiddenItem(
   id: ItemId,
   options?: MergeOptions,
 ): SortState {
-  return state.engine === 'insertion'
-    ? insertion.restoreHiddenItem(state, id)
-    : merge.restoreHiddenItem(state, id, options);
+  return byEngine<SortState>(state, {
+    merge: (s) => merge.restoreHiddenItem(s, id, options),
+    insertion: (s) => insertion.restoreHiddenItem(s, id),
+    confirmation: (s) => confirmation.restoreHiddenItem(s, id),
+  });
 }
 
 /**
@@ -345,6 +467,22 @@ export function rewriteIdInProgress(
           : { ...progress.current, insertingId: mapId(progress.current.insertingId) },
     };
   }
+  if (progress.engine === 'confirmation') {
+    return {
+      ...progress,
+      confirmed: mapArr(progress.confirmed),
+      queue: mapArr(progress.queue),
+      candidate: progress.candidate ? mapId(progress.candidate) : null,
+      hidden: mapArr(progress.hidden),
+      insertFrame:
+        progress.insertFrame === null
+          ? null
+          : {
+              ...progress.insertFrame,
+              insertingId: mapId(progress.insertFrame.insertingId),
+            },
+    };
+  }
   // merge engine
   return {
     ...progress,
@@ -450,6 +588,11 @@ function stripItems(state: SortState): SortProgress {
     void _drop;
     return rest as InsertionProgress;
   }
+  if (state.engine === 'confirmation') {
+    const { items: _drop, ...rest } = state;
+    void _drop;
+    return rest as ConfirmationProgress;
+  }
   const { items: _drop, ...rest } = state;
   void _drop;
   return rest as MergeProgress;
@@ -467,6 +610,7 @@ export function addItem(
   item: Item,
   options?: EngineOptions,
 ): SortState | null {
+  if (state.engine === 'confirmation') return null;
   return state.engine === 'insertion'
     ? insertion.addItem(state, item)
     : merge.addItem(state, item, options);
@@ -490,6 +634,9 @@ export function addItems(
   items: Item[],
   options?: EngineOptions,
 ): { state: SortState; skipped: ItemId[] } {
+  if (state.engine === 'confirmation') {
+    return { state, skipped: items.map((it) => it.id) };
+  }
   if (state.engine === 'insertion') {
     return insertion.addItems(state, items);
   }
@@ -511,6 +658,9 @@ export function reorderInSorted(
   sortedIndex: number,
   direction: -1 | 1,
 ): SortState {
+  if (state.engine === 'confirmation') {
+    return confirmation.reorderInConfirmed(state, sortedIndex, direction);
+  }
   if (state.engine !== 'insertion') return state;
   return insertion.reorderInSorted(state, sortedIndex, direction);
 }
@@ -524,6 +674,9 @@ export function reorderInSorted(
  * Used by the per-row ↻ button on the completed Sorted list (LIST tab).
  */
 export function returnToPending(state: SortState, id: ItemId): SortState {
+  if (state.engine === 'confirmation') {
+    return confirmation.returnCandidateToQueue(state, id);
+  }
   return state.engine === 'insertion'
     ? insertion.returnToPending(state, id)
     : merge.returnToPending(state, id);
@@ -540,6 +693,19 @@ export function reinsertHiddenItem(
   options?: MergeOptions,
 ): SortState {
   if (!state.hidden.includes(id)) return state;
+  if (state.engine === 'confirmation') {
+    const inRanking =
+      state.confirmed.includes(id) ||
+      state.queue.includes(id) ||
+      state.candidate === id;
+    if (inRanking) {
+      return confirmation.returnCandidateToQueue(
+        confirmation.unhideItem(state, id),
+        id,
+      );
+    }
+    return confirmation.restoreHiddenItem(state, id);
+  }
   if (state.engine === 'insertion') {
     const inRanking =
       state.sorted.includes(id) || state.pending.includes(id);
@@ -583,7 +749,10 @@ export function normalizeLoadedState(
  */
 export function finalizeCompletedState(state: SortState): SortState {
   if (!state.done || state.engine === 'merge') return state;
-  const ranking = state.sorted.slice();
+  const ranking =
+    state.engine === 'insertion'
+      ? state.sorted.slice()
+      : state.confirmed.slice();
   const mergeState: MergeState = {
     engine: 'merge',
     queue: [ranking],
