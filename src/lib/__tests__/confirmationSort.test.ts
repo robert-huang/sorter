@@ -92,8 +92,12 @@ describe('confirmationSort', () => {
     ];
 
     const selected = selectUndoSnapshot(s, ring);
-    expect(selected?.snapshot.phase).toBe('confirm');
-    expect(selected?.snapshot.comparisons).toBe(3);
+    expect(selected?.snapshot.engine).toBe('confirmation');
+    if (selected?.snapshot.engine !== 'confirmation') {
+      throw new Error('expected confirmation snapshot');
+    }
+    expect(selected.snapshot.phase).toBe('confirm');
+    expect(selected.snapshot.comparisons).toBe(3);
   });
 
   it('hiding the current insert probe advances the frame', () => {

@@ -332,6 +332,7 @@ export function CompareScreen({
     const prev = prevPairRef.current;
     const prevMode = prevModeRef.current;
     const landed =
+      prevMode !== null &&
       prevMode !== 'merging' &&
       insertingItemLanded(prevMode, prev, insertingId);
 
@@ -599,6 +600,18 @@ export function CompareScreen({
 
   const left = visualPair ? state.items[visualPair.leftId] : undefined;
   const right = visualPair ? state.items[visualPair.rightId] : undefined;
+  if (!left || !right) {
+    return (
+      <div className="page">
+        <div className="page-section" style={{ textAlign: 'center' }}>
+          <h2>Nothing to compare</h2>
+          <p style={{ color: 'var(--text-muted)' }}>
+            Add some items on the START tab first.
+          </p>
+        </div>
+      </div>
+    );
+  }
   const handlePickLeft = swapsCompareSides ? onPickRight : onPickLeft;
   const handlePickRight = swapsCompareSides ? onPickLeft : onPickRight;
 
