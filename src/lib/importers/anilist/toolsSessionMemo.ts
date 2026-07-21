@@ -25,6 +25,25 @@ export function sessionMemoDelete(key: string): void {
   inflight.delete(key);
 }
 
+/** Delete every memo entry whose key starts with `prefix`. */
+export function sessionMemoDeletePrefix(prefix: string): void {
+  for (const key of store.keys()) {
+    if (key.startsWith(prefix)) {
+      sessionMemoDelete(key);
+    }
+  }
+  for (const key of ttlStore.keys()) {
+    if (key.startsWith(prefix)) {
+      sessionMemoDelete(key);
+    }
+  }
+  for (const key of inflight.keys()) {
+    if (key.startsWith(prefix)) {
+      sessionMemoDelete(key);
+    }
+  }
+}
+
 /** Test-only: wipe all memoized entries. */
 export function _clearSessionMemoForTesting(): void {
   store.clear();

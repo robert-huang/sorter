@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { encodeSeasonYear } from '../../lib/importers/anilist/filters';
 import {
   buildWeeklyCalendarColumns,
   compareWeeklyCalendarClassicOrder,
@@ -8,11 +9,19 @@ import {
   formatWeeklyCalendarDateRange,
   formatWeeklyCalendarDetailLines,
   formatWeeklyCalendarListStatusFilterLabel,
+  buildWeeklyCalendarCustomSeasonYearOptions,
+  WEEKLY_CALENDAR_CUSTOM_SEASON_PAST_COUNT,
+  defaultWeeklyCalendarCustomSeasonRange,
   getCurrentAnilistSeason,
   getNextAnilistSeason,
+  getPreviousAnilistSeason,
+  weeklyCalendarFetchKey,
   inferWeekdayFromPastAirings,
   orderedWeekdayColumns,
   resolveEntrySchedule,
+  resolveWeeklyCalendarSeasonSpecs,
+  enumerateCustomSeasonSpecs,
+  formatAnilistSeasonRangeLabel,
   WEEKLY_CALENDAR_NOT_ON_LIST_FILTER,
   WEEKLY_CALENDAR_NOT_ON_LIST_LABEL,
   type WeeklyCalendarEntry,
@@ -64,6 +73,112 @@ describe('getNextAnilistSeason', () => {
       season: 'WINTER',
       year: 2027,
     });
+  });
+});
+
+describe('getPreviousAnilistSeason', () => {
+  it('rolls from Spring to Winter in the same year', () => {
+    expect(getPreviousAnilistSeason({ season: 'SPRING', year: 2026 })).toEqual({
+      season: 'WINTER',
+      year: 2026,
+    });
+  });
+});
+
+describe('defaultWeeklyCalendarCustomSeasonRange', () => {
+  it('defaults min and max to the current season', () => {
+    const now = new Date('2026-07-14T12:00:00Z');
+    const range = defaultWeeklyCalendarCustomSeasonRange(now);
+    const encoded = encodeSeasonYear('SUMMER', 2026);
+    expect(range).toEqual({
+      customSeasonMinEncoded: encoded,
+      customSeasonMaxEncoded: encoded,
+    });
+  });
+});
+
+describe('buildWeeklyCalendarCustomSeasonYearOptions', () => {
+  it('spans configured past seasons through next season', () => {
+    const now = new Date('2026-04-15T12:00:00Z');
+    const options = buildWeeklyCalendarCustomSeasonYearOptions(now);
+    expect(options).toHaveLength(WEEKLY_CALENDAR_CUSTOM_SEASON_PAST_COUNT + 2);
+    expect(options[0]).toBe(encodeSeasonYear('SPRING', 2016));
+    expect(options[options.length - 1]).toBe(encodeSeasonYear('SUMMER', 2026));
+  });
+});
+
+describe('resolveWeeklyCalendarSeasonSpecs', () => {
+  it('resolves custom encoded season range within the picker window', () => {
+    const now = new Date('2026-04-15T12:00:00Z');
+    const options = buildWeeklyCalendarCustomSeasonYearOptions(now);
+    const winter2026 = encodeSeasonYear('WINTER', 2026);
+    expect(
+      resolveWeeklyCalendarSeasonSpecs(
+        {
+          seasonScope: 'custom',
+          customSeasonMinEncoded: winter2026,
+          customSeasonMaxEncoded: winter2026,
+        },
+        now,
+      ),
+    ).toEqual([{ season: 'WINTER', year: 2026 }]);
+
+    const spring2016 = options[0]!;
+    const summer2026 = options[options.length - 1]!;
+    expect(
+      resolveWeeklyCalendarSeasonSpecs(
+        {
+          seasonScope: 'custom',
+          customSeasonMinEncoded: spring2016,
+          customSeasonMaxEncoded: summer2026,
+        },
+        now,
+      ),
+    ).toHaveLength(WEEKLY_CALENDAR_CUSTOM_SEASON_PAST_COUNT + 2);
+  });
+});
+
+describe('enumerateCustomSeasonSpecs', () => {
+  it('swaps inverted min/max bounds', () => {
+    const now = new Date('2026-04-15T12:00:00Z');
+    const options = buildWeeklyCalendarCustomSeasonYearOptions(now);
+    const lo = options[1]!;
+    const hi = options[3]!;
+    expect(enumerateCustomSeasonSpecs(hi, lo, options)).toHaveLength(3);
+  });
+});
+
+describe('formatAnilistSeasonRangeLabel', () => {
+  it('collapses when min and max are the same season', () => {
+    expect(
+      formatAnilistSeasonRangeLabel(
+        { season: 'SUMMER', year: 2026 },
+        { season: 'SUMMER', year: 2026 },
+      ),
+    ).toBe('Summer 2026');
+  });
+
+  it('formats a range across seasons', () => {
+    expect(
+      formatAnilistSeasonRangeLabel(
+        { season: 'SPRING', year: 2025 },
+        { season: 'SUMMER', year: 2026 },
+      ),
+    ).toBe('Spring 2025 - Summer 2026');
+  });
+});
+
+describe('weeklyCalendarFetchKey', () => {
+  it('includes encoded min/max values for custom scope', () => {
+    const min = encodeSeasonYear('FALL', 2025);
+    const max = encodeSeasonYear('WINTER', 2026);
+    expect(
+      weeklyCalendarFetchKey({
+        seasonScope: 'custom',
+        customSeasonMinEncoded: min,
+        customSeasonMaxEncoded: max,
+      }),
+    ).toBe(`custom:${min}:${max}`);
   });
 });
 

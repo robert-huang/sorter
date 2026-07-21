@@ -4,7 +4,8 @@ import { ToolRunButton } from '../ToolRunButton';
 import { ToolUsernameField } from '../ToolUsernameField';
 import { useUsernameListRefresh } from '../useUsernameListRefresh';
 import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
-import { MultiSelectChip, toggleInArray } from '../../lib/importers/anilist/filters';
+import { MultiSelectChip, DualRangeSlider, toggleInArray } from '../../lib/importers/anilist/filters';
+import { useClickOutside } from '../../lib/hooks/useClickOutside';
 import { ToolShowButton, ToolEntityAvatar } from '../toolEntityLinks';
 import {
   anilistUrlForMediaEntry,
@@ -14,26 +15,29 @@ import {
 import { DragScroll } from '../../components/DragScroll';
 import { applyHeaderScrollbarGutter } from '../../lib/chartSplitTableSync';
 import {
-  bustWeeklyCalendarSessionMemo,
-  fetchWeeklyCalendarSeasonEntries,
+  bustWeeklyCalendarUserListMemo,
+  fetchWeeklyCalendarSeasonsEntries,
   fetchWeeklyCalendarWatchingEntries,
 } from './weeklyCalendarApi';
 import {
   DEFAULT_WEEKLY_CALENDAR_FORM,
+  buildWeeklyCalendarCustomSeasonYearOptions,
+  decodeAnilistSeasonEncoded,
+  defaultWeeklyCalendarCustomSeasonRange,
   finalizeWeeklyCalendarResult,
   formatAnilistSeasonLabel,
   formatWeeklyCalendarDetailLines,
   formatWeeklyCalendarListStatusFilterLabel,
   getCurrentAnilistSeason,
   getNextAnilistSeason,
-  isWeeklyCalendarSeasonScope,
+  normalizeCustomSeasonRange,
+  resolveWeeklyCalendarSeasonSpecs,
   weeklyCalendarTimezoneToIana,
   WEEKLY_CALENDAR_LIST_STATUS_OPTIONS,
   type WeeklyCalendarForm,
   type WeeklyCalendarListStatusFilter,
   type WeeklyCalendarRawEntry,
   type WeeklyCalendarResult,
-  type WeeklyCalendarSeasonScope,
   type WeeklyCalendarTimezone,
   type WeeklyCalendarWeekStartDay,
 } from './weeklyCalendarLogic';
@@ -73,6 +77,7 @@ function loadForm(): WeeklyCalendarForm {
       const parsed = JSON.parse(raw) as Partial<PersistedWeeklyCalendarForm>;
       return {
         ...DEFAULT_WEEKLY_CALENDAR_FORM,
+        ...defaultWeeklyCalendarCustomSeasonRange(),
         username: withLastAnilistUsername(parsed.username ?? ''),
         weekStartDay:
           parsed.weekStartDay && WEEK_START_OPTIONS.includes(parsed.weekStartDay)
@@ -88,7 +93,11 @@ function loadForm(): WeeklyCalendarForm {
   } catch {
     /* ignore */
   }
-  return { ...DEFAULT_WEEKLY_CALENDAR_FORM, username: withLastAnilistUsername('') };
+  return {
+    ...DEFAULT_WEEKLY_CALENDAR_FORM,
+    ...defaultWeeklyCalendarCustomSeasonRange(),
+    username: withLastAnilistUsername(''),
+  };
 }
 
 function saveForm(form: WeeklyCalendarForm): void {
@@ -103,6 +112,76 @@ function saveForm(form: WeeklyCalendarForm): void {
   } catch {
     /* ignore */
   }
+}
+
+function WeeklyCalendarCustomSeasonChip({
+  options,
+  minEncoded,
+  maxEncoded,
+  onChange,
+}: {
+  options: readonly number[];
+  minEncoded: number;
+  maxEncoded: number;
+  onChange: (patch: {
+    customSeasonMinEncoded: number;
+    customSeasonMaxEncoded: number;
+  }) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  useClickOutside(rootRef, open, () => setOpen(false));
+
+  const range = normalizeCustomSeasonRange(minEncoded, maxEncoded, options);
+  const loIdx = Math.max(0, options.indexOf(range.minEncoded));
+  const hiIdx = Math.max(loIdx, options.indexOf(range.maxEncoded));
+  const loLabel = formatAnilistSeasonLabel(decodeAnilistSeasonEncoded(range.minEncoded));
+  const hiLabel = formatAnilistSeasonLabel(decodeAnilistSeasonEncoded(range.maxEncoded));
+  const chipLabel =
+    range.minEncoded === range.maxEncoded
+      ? `seasonYear · ${loLabel}`
+      : `seasonYear · ${loLabel} - ${hiLabel}`;
+
+  return (
+    <div ref={rootRef} className="filter-chip active">
+      <button
+        type="button"
+        className="filter-chip-button"
+        aria-expanded={open}
+        onClick={() => setOpen((prev) => !prev)}
+        title="Pick a season range"
+      >
+        {chipLabel}
+      </button>
+      {open && options.length > 0 ? (
+        <div className="filter-chip-menu filter-chip-menu-wide" role="menu">
+          <div className="filter-chip-slider-row tool-weekly-custom-season-slider-row">
+            <DualRangeSlider
+              min={0}
+              max={options.length - 1}
+              value={[loIdx, hiIdx]}
+              ariaLabelMin="Custom season range minimum"
+              ariaLabelMax="Custom season range maximum"
+              onChange={([nextLoIdx, nextHiIdx]) => {
+                const nextMin = options[nextLoIdx];
+                const nextMax = options[nextHiIdx];
+                if (nextMin != null && nextMax != null) {
+                  onChange({
+                    customSeasonMinEncoded: nextMin,
+                    customSeasonMaxEncoded: nextMax,
+                  });
+                }
+              }}
+            />
+          </div>
+          <div className="filter-chip-slider-labels">
+            <span>{loLabel}</span>
+            <span>{hiLabel}</span>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function WeeklyCalendarPosterButton({
@@ -267,7 +346,7 @@ function WeeklyCalendarColumnsView({
 
 export function WeeklyCalendarPanel({ onOpenMedia }: ToolPanelProps) {
   const { refreshing: refreshingList, refreshUsernameList } = useUsernameListRefresh({
-    onAfterRefresh: bustWeeklyCalendarSessionMemo,
+    onAfterRefresh: bustWeeklyCalendarUserListMemo,
   });
   const [form, setForm] = useState<WeeklyCalendarForm>(() => loadForm());
   const [running, setRunning] = useState(false);
@@ -277,7 +356,6 @@ export function WeeklyCalendarPanel({ onOpenMedia }: ToolPanelProps) {
   const abortRef = useRef<AbortController | null>(null);
   const chartSessionRef = useRef(0);
   const fetchedUsernameRef = useRef<string | null>(null);
-  const fetchedSeasonScopeRef = useRef<WeeklyCalendarSeasonScope | null>(null);
 
   useEffect(() => {
     saveForm(form);
@@ -290,18 +368,38 @@ export function WeeklyCalendarPanel({ onOpenMedia }: ToolPanelProps) {
 
   const timeZone = weeklyCalendarTimezoneToIana(form.timezone);
 
+  const customSeasonYearOptions = useMemo(() => buildWeeklyCalendarCustomSeasonYearOptions(), []);
+
+  const seasonSegments = useMemo(() => {
+    const now = new Date();
+    const current = getCurrentAnilistSeason(now);
+    const next = getNextAnilistSeason(current);
+    return [
+      { value: 'watching' as const, label: 'User List' },
+      { value: 'current' as const, label: formatAnilistSeasonLabel(current) },
+      { value: 'next' as const, label: formatAnilistSeasonLabel(next) },
+      { value: 'custom' as const, label: 'Custom' },
+    ];
+  }, []);
+
+  const currentSeasonLabel = seasonSegments.find((opt) => opt.value === 'current')?.label ?? '';
+
+  const activeCustomSeasonRange = useMemo(
+    () =>
+      normalizeCustomSeasonRange(
+        form.customSeasonMinEncoded,
+        form.customSeasonMaxEncoded,
+        customSeasonYearOptions,
+      ),
+    [form.customSeasonMinEncoded, form.customSeasonMaxEncoded, customSeasonYearOptions],
+  );
+
   const result = useMemo((): WeeklyCalendarResult | null => {
     if (!rawEntries) {
       return null;
     }
     const handle = form.username.trim().toLowerCase();
     if (fetchedUsernameRef.current !== null && handle !== fetchedUsernameRef.current) {
-      return null;
-    }
-    if (
-      fetchedSeasonScopeRef.current !== null &&
-      form.seasonScope !== fetchedSeasonScopeRef.current
-    ) {
       return null;
     }
     return finalizeWeeklyCalendarResult(rawEntries, form, seasonLabel);
@@ -333,11 +431,11 @@ export function WeeklyCalendarPanel({ onOpenMedia }: ToolPanelProps) {
       setSeasonLabel(null);
 
       try {
-        if (isWeeklyCalendarSeasonScope(form.seasonScope)) {
-          const seasonScope = form.seasonScope;
-          const { entries, seasonLabel: label } = await fetchWeeklyCalendarSeasonEntries(
+        const seasonSpecs = resolveWeeklyCalendarSeasonSpecs(form);
+        if (seasonSpecs) {
+          const { entries, seasonLabel: label } = await fetchWeeklyCalendarSeasonsEntries(
             username,
-            seasonScope,
+            seasonSpecs,
             controller.signal,
             forceRefresh ? { forceRefresh: true } : undefined,
           );
@@ -353,7 +451,6 @@ export function WeeklyCalendarPanel({ onOpenMedia }: ToolPanelProps) {
           setSeasonLabel(null);
         }
         fetchedUsernameRef.current = handle;
-        fetchedSeasonScopeRef.current = form.seasonScope;
         chartSessionRef.current += 1;
       } catch (e) {
         if (e instanceof DOMException && e.name === 'AbortError') {
@@ -367,7 +464,7 @@ export function WeeklyCalendarPanel({ onOpenMedia }: ToolPanelProps) {
         }
       }
     },
-    [form.seasonScope, form.username],
+    [form.customSeasonMaxEncoded, form.customSeasonMinEncoded, form.seasonScope, form.username],
   );
 
   useEffect(() => {
@@ -379,37 +476,8 @@ export function WeeklyCalendarPanel({ onOpenMedia }: ToolPanelProps) {
     ) {
       setRawEntries(null);
       fetchedUsernameRef.current = null;
-      fetchedSeasonScopeRef.current = null;
     }
   }, [form.username, rawEntries]);
-
-  const seasonOptions = useMemo(() => {
-    const now = new Date();
-    const current = getCurrentAnilistSeason(now);
-    const next = getNextAnilistSeason(current);
-    return [
-      { value: 'watching' as const, label: 'User List' },
-      { value: 'current' as const, label: formatAnilistSeasonLabel(current) },
-      { value: 'next' as const, label: formatAnilistSeasonLabel(next) },
-    ];
-  }, []);
-
-  const currentSeasonLabel = seasonOptions.find((opt) => opt.value === 'current')?.label ?? '';
-
-  const prevSeasonScopeRef = useRef(form.seasonScope);
-  useEffect(() => {
-    const prev = prevSeasonScopeRef.current;
-    prevSeasonScopeRef.current = form.seasonScope;
-    if (
-      prev === form.seasonScope ||
-      rawEntries == null ||
-      running ||
-      !form.username.trim()
-    ) {
-      return;
-    }
-    void onRun(false);
-  }, [form.seasonScope, form.username, onRun, rawEntries, running]);
 
   return (
     <section className="tool-panel">
@@ -439,23 +507,63 @@ export function WeeklyCalendarPanel({ onOpenMedia }: ToolPanelProps) {
               onRefresh={() => refreshUsernameList(form.username, running)}
             />
 
-            <label className="tool-field tool-field-label-row tool-weekly-season-scope">
-              <span className="tool-field-label">Season</span>
-              <select
-                className="tool-select"
-                disabled={running}
-                value={form.seasonScope}
-                onChange={(e) =>
-                  patchForm({ seasonScope: e.target.value as WeeklyCalendarSeasonScope })
-                }
-              >
-                {seasonOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
+            <div
+              className="tool-field tool-field-label-row tool-weekly-season-scope"
+              role="group"
+              aria-labelledby="weekly-calendar-season-label"
+            >
+              <span className="tool-field-label" id="weekly-calendar-season-label">
+                Season
+              </span>
+              <div className="tool-segmented tool-weekly-season-segmented">
+                {seasonSegments.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    className={form.seasonScope === opt.value ? 'active' : ''}
+                    aria-pressed={form.seasonScope === opt.value}
+                    disabled={running}
+                    onClick={() => {
+                      if (opt.value === 'custom') {
+                        const range = normalizeCustomSeasonRange(
+                          form.customSeasonMinEncoded,
+                          form.customSeasonMaxEncoded,
+                          customSeasonYearOptions,
+                        );
+                        patchForm({
+                          seasonScope: 'custom',
+                          customSeasonMinEncoded: range.minEncoded,
+                          customSeasonMaxEncoded: range.maxEncoded,
+                        });
+                        return;
+                      }
+                      patchForm({ seasonScope: opt.value });
+                    }}
+                  >
                     {opt.label}
-                  </option>
+                  </button>
                 ))}
-              </select>
-            </label>
+              </div>
+            </div>
+
+            {form.seasonScope === 'custom' ? (
+              <WeeklyCalendarCustomSeasonChip
+                options={customSeasonYearOptions}
+                minEncoded={activeCustomSeasonRange.minEncoded}
+                maxEncoded={activeCustomSeasonRange.maxEncoded}
+                onChange={(patch) => {
+                  const range = normalizeCustomSeasonRange(
+                    patch.customSeasonMinEncoded,
+                    patch.customSeasonMaxEncoded,
+                    customSeasonYearOptions,
+                  );
+                  patchForm({
+                    customSeasonMinEncoded: range.minEncoded,
+                    customSeasonMaxEncoded: range.maxEncoded,
+                  });
+                }}
+              />
+            ) : null}
 
             <MultiSelectChip<WeeklyCalendarListStatusFilter>
               label="list status"

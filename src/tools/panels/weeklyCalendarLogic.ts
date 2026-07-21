@@ -1,3 +1,4 @@
+import { encodeSeasonYear } from '../../lib/importers/anilist/filters';
 import type { AnilistMediaSeason, AnilistMediaStatus } from '../../lib/importers/anilist/types';
 import { TOOLS_SEASONAL_LIST_STATUSES } from '../../lib/importers/anilist/toolsAnilistAccess';
 import {
@@ -74,22 +75,42 @@ export type WeeklyCalendarWeekStartDay =
 
 export type WeeklyCalendarTimezone = 'eastern' | 'pacific' | 'utc' | 'local';
 
-export type WeeklyCalendarSeasonScope = 'watching' | 'current' | 'next';
+export type WeeklyCalendarSeasonScope = 'watching' | 'current' | 'next' | 'custom';
 
 export type WeeklyCalendarForm = {
   username: string;
   weekStartDay: WeeklyCalendarWeekStartDay;
   timezone: WeeklyCalendarTimezone;
   seasonScope: WeeklyCalendarSeasonScope;
+  /** Encoded season+year range when `seasonScope` is `custom` (see `encodeSeasonYear`). */
+  customSeasonMinEncoded: number;
+  customSeasonMaxEncoded: number;
   listStatusFilters: WeeklyCalendarListStatusFilter[];
   showUnscheduledColumn: boolean;
 };
+
+export function defaultWeeklyCalendarCustomSeasonEncoded(now: Date = new Date()): number {
+  const current = getCurrentAnilistSeason(now);
+  return encodeSeasonYear(current.season, current.year);
+}
+
+export function defaultWeeklyCalendarCustomSeasonRange(now: Date = new Date()): Pick<
+  WeeklyCalendarForm,
+  'customSeasonMinEncoded' | 'customSeasonMaxEncoded'
+> {
+  const encoded = defaultWeeklyCalendarCustomSeasonEncoded(now);
+  return { customSeasonMinEncoded: encoded, customSeasonMaxEncoded: encoded };
+}
+
+const defaultCustomSeasonRange = defaultWeeklyCalendarCustomSeasonRange();
 
 export const DEFAULT_WEEKLY_CALENDAR_FORM: WeeklyCalendarForm = {
   username: '',
   weekStartDay: 'MONDAY',
   timezone: 'eastern',
   seasonScope: 'watching',
+  customSeasonMinEncoded: defaultCustomSeasonRange.customSeasonMinEncoded,
+  customSeasonMaxEncoded: defaultCustomSeasonRange.customSeasonMaxEncoded,
   listStatusFilters: [...DEFAULT_WEEKLY_CALENDAR_LIST_STATUS_FILTERS],
   showUnscheduledColumn: false,
 };
@@ -195,26 +216,180 @@ export function getNextAnilistSeason(spec: AnilistSeasonAt): AnilistSeasonAt {
   return { season: ANILIST_SEASON_CYCLE[index + 1]!, year: spec.year };
 }
 
-export function resolveWeeklyCalendarSeasonSpec(
-  scope: WeeklyCalendarSeasonScope,
+export function getPreviousAnilistSeason(spec: AnilistSeasonAt): AnilistSeasonAt {
+  const index = ANILIST_SEASON_CYCLE.indexOf(spec.season);
+  if (index <= 0) {
+    return { season: 'FALL', year: spec.year - 1 };
+  }
+  return { season: ANILIST_SEASON_CYCLE[index - 1]!, year: spec.year };
+}
+
+export function decodeAnilistSeasonEncoded(encoded: number): AnilistSeasonAt {
+  return {
+    season: ANILIST_SEASON_CYCLE[encoded & 0b11]!,
+    year: Math.floor(encoded / 4),
+  };
+}
+
+export function compareAnilistSeasonAt(a: AnilistSeasonAt, b: AnilistSeasonAt): number {
+  if (a.year !== b.year) {
+    return a.year - b.year;
+  }
+  return ANILIST_SEASON_CYCLE.indexOf(a.season) - ANILIST_SEASON_CYCLE.indexOf(b.season);
+}
+
+export function isAnilistSeasonBeforeCurrent(spec: AnilistSeasonAt, now: Date = new Date()): boolean {
+  return compareAnilistSeasonAt(spec, getCurrentAnilistSeason(now)) < 0;
+}
+
+/** Past seasons available in the custom picker (plus current through next). */
+export const WEEKLY_CALENDAR_CUSTOM_SEASON_PAST_COUNT = 40;
+
+/** Custom season picker: {@link WEEKLY_CALENDAR_CUSTOM_SEASON_PAST_COUNT} seasons ago through next. */
+export function buildWeeklyCalendarCustomSeasonYearOptions(now: Date = new Date()): number[] {
+  const current = getCurrentAnilistSeason(now);
+  const next = getNextAnilistSeason(current);
+  let min = current;
+  for (let i = 0; i < WEEKLY_CALENDAR_CUSTOM_SEASON_PAST_COUNT; i++) {
+    min = getPreviousAnilistSeason(min);
+  }
+  const options: number[] = [];
+  let cursor = min;
+  while (true) {
+    options.push(encodeSeasonYear(cursor.season, cursor.year));
+    if (cursor.season === next.season && cursor.year === next.year) {
+      break;
+    }
+    cursor = getNextAnilistSeason(cursor);
+  }
+  return options;
+}
+
+export function normalizeCustomSeasonEncoded(
+  encoded: number,
+  options: readonly number[],
   now: Date = new Date(),
-): AnilistSeasonAt | null {
-  if (scope === 'watching') {
+): number {
+  if (options.length === 0) {
+    return encoded;
+  }
+  if (options.includes(encoded)) {
+    return encoded;
+  }
+  if (encoded === 0) {
+    const currentEncoded = defaultWeeklyCalendarCustomSeasonEncoded(now);
+    if (options.includes(currentEncoded)) {
+      return currentEncoded;
+    }
+  }
+  let best = options[0]!;
+  let bestDistance = Math.abs(encoded - best);
+  for (const option of options) {
+    const distance = Math.abs(encoded - option);
+    if (distance < bestDistance) {
+      best = option;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+export function normalizeCustomSeasonRange(
+  minEncoded: number,
+  maxEncoded: number,
+  options: readonly number[],
+): { minEncoded: number; maxEncoded: number } {
+  const min = normalizeCustomSeasonEncoded(minEncoded, options);
+  const max = normalizeCustomSeasonEncoded(maxEncoded, options);
+  const minIdx = options.indexOf(min);
+  const maxIdx = options.indexOf(max);
+  if (minIdx <= maxIdx) {
+    return { minEncoded: min, maxEncoded: max };
+  }
+  return { minEncoded: max, maxEncoded: min };
+}
+
+export function enumerateCustomSeasonSpecs(
+  minEncoded: number,
+  maxEncoded: number,
+  options: readonly number[],
+): AnilistSeasonAt[] {
+  if (options.length === 0) {
+    return [];
+  }
+  const range = normalizeCustomSeasonRange(minEncoded, maxEncoded, options);
+  const loIdx = options.indexOf(range.minEncoded);
+  const hiIdx = options.indexOf(range.maxEncoded);
+  if (loIdx < 0 || hiIdx < 0) {
+    return [];
+  }
+  return options.slice(loIdx, hiIdx + 1).map((encoded) => decodeAnilistSeasonEncoded(encoded));
+}
+
+export function resolveWeeklyCalendarSeasonSpecs(
+  form: Pick<
+    WeeklyCalendarForm,
+    'seasonScope' | 'customSeasonMinEncoded' | 'customSeasonMaxEncoded'
+  >,
+  now: Date = new Date(),
+): AnilistSeasonAt[] | null {
+  if (form.seasonScope === 'watching') {
     return null;
   }
   const current = getCurrentAnilistSeason(now);
-  return scope === 'next' ? getNextAnilistSeason(current) : current;
+  if (form.seasonScope === 'next') {
+    return [getNextAnilistSeason(current)];
+  }
+  if (form.seasonScope === 'current') {
+    return [current];
+  }
+  const options = buildWeeklyCalendarCustomSeasonYearOptions(now);
+  return enumerateCustomSeasonSpecs(
+    form.customSeasonMinEncoded,
+    form.customSeasonMaxEncoded,
+    options,
+  );
+}
+
+export function weeklyCalendarFetchKey(
+  form: Pick<
+    WeeklyCalendarForm,
+    'seasonScope' | 'customSeasonMinEncoded' | 'customSeasonMaxEncoded'
+  >,
+): string {
+  if (form.seasonScope === 'watching') {
+    return 'watching';
+  }
+  if (form.seasonScope === 'current') {
+    return 'current';
+  }
+  if (form.seasonScope === 'next') {
+    return 'next';
+  }
+  return `custom:${form.customSeasonMinEncoded}:${form.customSeasonMaxEncoded}`;
 }
 
 export function isWeeklyCalendarSeasonScope(
   scope: WeeklyCalendarSeasonScope,
-): scope is 'current' | 'next' {
-  return scope === 'current' || scope === 'next';
+): scope is 'current' | 'next' | 'custom' {
+  return scope === 'current' || scope === 'next' || scope === 'custom';
 }
 
 export function formatAnilistSeasonLabel(spec: AnilistSeasonAt): string {
   const name = spec.season[0] + spec.season.slice(1).toLowerCase();
   return `${name} ${spec.year}`;
+}
+
+export function formatAnilistSeasonRangeLabel(
+  minSpec: AnilistSeasonAt,
+  maxSpec: AnilistSeasonAt,
+): string {
+  const minLabel = formatAnilistSeasonLabel(minSpec);
+  const maxLabel = formatAnilistSeasonLabel(maxSpec);
+  if (minSpec.season === maxSpec.season && minSpec.year === maxSpec.year) {
+    return minLabel;
+  }
+  return `${minLabel} - ${maxLabel}`;
 }
 
 export function isWeeklyCalendarAiringMediaStatus(status: string | null | undefined): boolean {

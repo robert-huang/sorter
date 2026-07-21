@@ -8,6 +8,10 @@ import {
 import { TOOLS_SEASONAL_LIST_STATUSES } from '../../lib/importers/anilist/toolsAnilistAccess';
 import type { ToolsFetchOptions } from '../../lib/importers/anilist/toolsFetchPolicy';
 import {
+  persistentCacheGet,
+  persistentCacheSet,
+} from '../../lib/importers/anilist/toolsPersistentCache';
+import {
   TOOLS_SESSION_TTL_MS,
   sessionMemoDelete,
   withSessionTtlMemo,
@@ -17,11 +21,11 @@ import { pickMediaTitle } from './sharedCreditsLogic';
 import {
   computeAiredEpisodeCount,
   formatAnilistSeasonLabel,
+  formatAnilistSeasonRangeLabel,
+  isAnilistSeasonBeforeCurrent,
   isWeeklyCalendarAiringMediaStatus,
-  resolveWeeklyCalendarSeasonSpec,
   type AnilistSeasonAt,
   type WeeklyCalendarRawEntry,
-  type WeeklyCalendarSeasonScope,
   WEEKLY_CALENDAR_AIRING_MEDIA_STATUSES,
 } from './weeklyCalendarLogic';
 import {
@@ -30,6 +34,9 @@ import {
 } from './seasonalScoresLogic';
 
 export type WeeklyCalendarFetchOptions = ToolsFetchOptions;
+
+/** Finished seasons — airing metadata is stable enough to persist across sessions. */
+const WEEKLY_CALENDAR_HISTORICAL_SEASON_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 type GqlFuzzyDate = {
   year?: number | null;
@@ -56,6 +63,8 @@ type GqlMedia = {
     nodes?: Array<{ airingAt?: number | null; episode?: number | null } | null> | null;
   } | null;
 };
+
+type SeasonFetchResult = { entries: WeeklyCalendarRawEntry[]; seasonLabel: string };
 
 function mapFuzzyDate(date: GqlFuzzyDate): SeasonalFuzzyDate | null {
   if (!date || date.year == null) {
@@ -212,6 +221,21 @@ async function fetchUserListEntryMap(
   return map;
 }
 
+async function fetchUserListEntryMapCached(
+  username: string,
+  signal?: AbortSignal,
+  options?: WeeklyCalendarFetchOptions,
+): Promise<UserListEntryMap> {
+  const handle = username.trim().toLowerCase();
+  const key = `weekly-calendar:list-map:${handle}`;
+  return withSessionTtlMemo(
+    key,
+    TOOLS_SESSION_TTL_MS,
+    () => fetchUserListEntryMap(username, signal),
+    { bust: options?.forceRefresh },
+  );
+}
+
 async function fetchSeasonMediaByStatus(
   season: string,
   seasonYear: number,
@@ -241,13 +265,14 @@ async function fetchSeasonAiringEntriesLive(
   username: string,
   seasonSpec: AnilistSeasonAt,
   signal?: AbortSignal,
-): Promise<{ entries: WeeklyCalendarRawEntry[]; seasonLabel: string }> {
+  options?: WeeklyCalendarFetchOptions,
+): Promise<SeasonFetchResult> {
   signal?.throwIfAborted();
   const { season, year } = seasonSpec;
   const seasonLabel = formatAnilistSeasonLabel(seasonSpec);
 
   const [listMap, releasing, upcoming] = await Promise.all([
-    fetchUserListEntryMap(username, signal),
+    fetchUserListEntryMapCached(username, signal, options),
     fetchSeasonMediaByStatus(season, year, 'RELEASING', signal),
     fetchSeasonMediaByStatus(season, year, 'NOT_YET_RELEASED', signal),
   ]);
@@ -269,15 +294,48 @@ async function fetchSeasonAiringEntriesLive(
   return { entries, seasonLabel };
 }
 
-export function bustWeeklyCalendarSessionMemo(username: string): void {
+function weeklyCalendarSeasonCacheKey(handle: string, seasonSpec: AnilistSeasonAt): string {
+  return `weekly-calendar:season:${handle}:${seasonSpec.season}:${seasonSpec.year}`;
+}
+
+async function fetchSeasonAiringEntriesCached(
+  username: string,
+  seasonSpec: AnilistSeasonAt,
+  signal?: AbortSignal,
+  options?: WeeklyCalendarFetchOptions,
+): Promise<SeasonFetchResult> {
+  const handle = username.trim().toLowerCase();
+  const cacheKey = weeklyCalendarSeasonCacheKey(handle, seasonSpec);
+  const historical = isAnilistSeasonBeforeCurrent(seasonSpec);
+
+  return withSessionTtlMemo(
+    cacheKey,
+    TOOLS_SESSION_TTL_MS,
+    async () => {
+      if (historical && !options?.forceRefresh) {
+        const hit = persistentCacheGet<SeasonFetchResult>(cacheKey);
+        if (hit.hit) {
+          return hit.value;
+        }
+      }
+      const result = await fetchSeasonAiringEntriesLive(username, seasonSpec, signal, options);
+      if (historical) {
+        persistentCacheSet(cacheKey, result, WEEKLY_CALENDAR_HISTORICAL_SEASON_TTL_MS);
+      }
+      return result;
+    },
+    { bust: options?.forceRefresh },
+  );
+}
+
+/** Bust session memo for user-list-derived weekly calendar data only. */
+export function bustWeeklyCalendarUserListMemo(username: string): void {
   const handle = username.trim().toLowerCase();
   if (!handle) {
     return;
   }
   sessionMemoDelete(`weekly-calendar:watching:${handle}`);
-  for (const scope of ['current', 'next'] as const) {
-    sessionMemoDelete(`weekly-calendar:season:${handle}:${scope}`);
-  }
+  sessionMemoDelete(`weekly-calendar:list-map:${handle}`);
 }
 
 export async function fetchWeeklyCalendarWatchingEntries(
@@ -297,22 +355,45 @@ export async function fetchWeeklyCalendarWatchingEntries(
 
 export async function fetchWeeklyCalendarSeasonEntries(
   username: string,
-  seasonScope: Exclude<WeeklyCalendarSeasonScope, 'watching'>,
+  seasonSpec: AnilistSeasonAt,
   signal?: AbortSignal,
   options?: WeeklyCalendarFetchOptions,
-): Promise<{ entries: WeeklyCalendarRawEntry[]; seasonLabel: string }> {
-  const handle = username.trim().toLowerCase();
-  const key = `weekly-calendar:season:${handle}:${seasonScope}`;
-  const seasonSpec = resolveWeeklyCalendarSeasonSpec(seasonScope);
-  if (!seasonSpec) {
-    throw new Error('Season scope is required.');
+): Promise<SeasonFetchResult> {
+  return fetchSeasonAiringEntriesCached(username, seasonSpec, signal, options);
+}
+
+export async function fetchWeeklyCalendarSeasonsEntries(
+  username: string,
+  seasonSpecs: readonly AnilistSeasonAt[],
+  signal?: AbortSignal,
+  options?: WeeklyCalendarFetchOptions,
+): Promise<SeasonFetchResult> {
+  if (seasonSpecs.length === 0) {
+    return { entries: [], seasonLabel: '' };
   }
-  return withSessionTtlMemo(
-    key,
-    TOOLS_SESSION_TTL_MS,
-    () => fetchSeasonAiringEntriesLive(username, seasonSpec, signal),
-    { bust: options?.forceRefresh },
+  if (seasonSpecs.length === 1) {
+    return fetchSeasonAiringEntriesCached(username, seasonSpecs[0]!, signal, options);
+  }
+
+  const results = await Promise.all(
+    seasonSpecs.map((spec) =>
+      fetchSeasonAiringEntriesCached(username, spec, signal, options),
+    ),
   );
+
+  const byId = new Map<number, WeeklyCalendarRawEntry>();
+  for (const result of results) {
+    for (const entry of result.entries) {
+      byId.set(entry.id, entry);
+    }
+  }
+
+  const minSpec = seasonSpecs[0]!;
+  const maxSpec = seasonSpecs[seasonSpecs.length - 1]!;
+  return {
+    entries: [...byId.values()],
+    seasonLabel: formatAnilistSeasonRangeLabel(minSpec, maxSpec),
+  };
 }
 
 export { WEEKLY_CALENDAR_AIRING_MEDIA_STATUSES };

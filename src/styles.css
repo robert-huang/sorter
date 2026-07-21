@@ -7595,9 +7595,18 @@ html {
   width: 6rem;
 }
 
-.tool-weekly-primary-filters .tool-weekly-season-scope .tool-select {
-  min-width: 7.25rem;
-  width: 7.25rem;
+.tool-weekly-season-segmented {
+  flex-wrap: wrap;
+}
+
+.tool-weekly-custom-season-slider-row {
+  padding: 10px 12px 6px;
+}
+
+.tool-weekly-custom-season-slider-row .dual-range-slider {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
 }
 
 /* Franchise Scores — narrower columns (one row per entry) + format chip. */
