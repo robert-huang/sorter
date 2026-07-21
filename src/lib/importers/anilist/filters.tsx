@@ -1017,12 +1017,16 @@ export function MultiSelectChip<T extends string | number>({
   );
 }
 
+/** Normalized [min, max] emitted to callers after a drag step. */
+export function sortedDualRangePair(a: number, b: number): [number, number] {
+  return a <= b ? [a, b] : [b, a];
+}
+
 /**
  * Dual-handle range slider. Two `<input type="range">` are absolutely
- * positioned over a shared track + fill bar; each onChange clamps the
- * value against the other handle so the pair never crosses. Pure
- * presentation — the caller owns the [lo, hi] state and decides
- * what (if anything) to do when a handle is at the slider's edge.
+ * positioned over a shared track + fill bar. Handles may cross while
+ * dragging — the dragged thumb follows the pointer and start/end swap
+ * once it moves past the anchored partner.
  *
  * The pointer-events trick: the range inputs cover the whole width
  * but only the thumb pseudo-elements re-enable pointer events, so
@@ -1047,15 +1051,70 @@ export function DualRangeSlider({
   ariaLabelMax?: string;
 }): ReactNode {
   const [lo, hi] = value;
+  const [activeHandle, setActiveHandle] = useState<'lo' | 'hi' | null>(null);
+  const [dragValue, setDragValue] = useState<number | null>(null);
+  const dragAnchorRef = useRef(0);
+
   // Clamp into [min, max] for display — a stale chip state (e.g.
   // candidates changed and the stored bound is now outside the new
   // slider universe) shouldn't crash, just pin to the nearest edge.
   const safeLo = Math.min(Math.max(lo, min), max);
   const safeHi = Math.min(Math.max(hi, min), max);
   const span = Math.max(0, max - min);
-  const loPct = span === 0 ? 0 : ((safeLo - min) / span) * 100;
-  const hiPct = span === 0 ? 100 : ((safeHi - min) / span) * 100;
   const disabled = span === 0;
+
+  const endDrag = (): void => {
+    setActiveHandle(null);
+    setDragValue(null);
+  };
+
+  useEffect(() => {
+    if (activeHandle === null) {
+      return;
+    }
+    window.addEventListener('pointerup', endDrag);
+    window.addEventListener('pointercancel', endDrag);
+    return () => {
+      window.removeEventListener('pointerup', endDrag);
+      window.removeEventListener('pointercancel', endDrag);
+    };
+  }, [activeHandle]);
+
+  let loThumb = safeLo;
+  let hiThumb = safeHi;
+  if (activeHandle === 'lo' && dragValue !== null) {
+    loThumb = dragValue;
+    hiThumb = dragAnchorRef.current;
+  } else if (activeHandle === 'hi' && dragValue !== null) {
+    hiThumb = dragValue;
+    loThumb = dragAnchorRef.current;
+  }
+
+  const [fillLo, fillHi] = sortedDualRangePair(loThumb, hiThumb);
+  const loPct = span === 0 ? 0 : ((fillLo - min) / span) * 100;
+  const hiPct = span === 0 ? 100 : ((fillHi - min) / span) * 100;
+
+  const beginLoDrag = (): void => {
+    dragAnchorRef.current = safeHi;
+    setActiveHandle('lo');
+    setDragValue(safeLo);
+  };
+
+  const beginHiDrag = (): void => {
+    dragAnchorRef.current = safeLo;
+    setActiveHandle('hi');
+    setDragValue(safeHi);
+  };
+
+  const handleLoChange = (v: number): void => {
+    setDragValue(v);
+    onChange(sortedDualRangePair(v, dragAnchorRef.current));
+  };
+
+  const handleHiChange = (v: number): void => {
+    setDragValue(v);
+    onChange(sortedDualRangePair(v, dragAnchorRef.current));
+  };
 
   return (
     <div className={`dual-range-slider ${disabled ? 'disabled' : ''}`}>
@@ -1066,27 +1125,29 @@ export function DualRangeSlider({
       />
       <input
         type="range"
+        className={activeHandle === 'lo' ? 'dual-range-active' : undefined}
         min={min}
         max={max}
         step={step}
-        value={safeLo}
+        value={loThumb}
         disabled={disabled}
+        onPointerDown={beginLoDrag}
         onChange={(e) => {
-          const v = Number(e.target.value);
-          onChange([Math.min(v, safeHi), safeHi]);
+          handleLoChange(Number(e.target.value));
         }}
         aria-label={ariaLabelMin ?? 'range minimum'}
       />
       <input
         type="range"
+        className={activeHandle === 'hi' ? 'dual-range-active' : undefined}
         min={min}
         max={max}
         step={step}
-        value={safeHi}
+        value={hiThumb}
         disabled={disabled}
+        onPointerDown={beginHiDrag}
         onChange={(e) => {
-          const v = Number(e.target.value);
-          onChange([safeLo, Math.max(v, safeLo)]);
+          handleHiChange(Number(e.target.value));
         }}
         aria-label={ariaLabelMax ?? 'range maximum'}
       />

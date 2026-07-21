@@ -1364,6 +1364,11 @@ html {
   pointer-events: none;
   -webkit-appearance: none;
   appearance: none;
+  z-index: 1;
+}
+
+.dual-range-slider input[type='range'].dual-range-active {
+  z-index: 2;
 }
 
 .dual-range-slider input[type='range']::-webkit-slider-runnable-track {

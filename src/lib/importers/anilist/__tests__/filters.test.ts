@@ -24,6 +24,7 @@ import {
   formatOptionsForType,
   isInitialState,
   setFilterDbForTesting,
+  sortedDualRangePair,
   toggleScoreBucket,
   type AnilistFilterChipState,
 } from '../filters';
@@ -1061,5 +1062,12 @@ describe('computeAllowedMediaIds', () => {
     // subquery, no media_character JOIN, just whatever other chips
     // contributed (here: nothing → null).
     expect(out?.sql ?? '').not.toMatch(/character_voice_actor/);
+  });
+});
+
+describe('sortedDualRangePair', () => {
+  it('orders crossed drag values into [min, max]', () => {
+    expect(sortedDualRangePair(2020, 2022)).toEqual([2020, 2022]);
+    expect(sortedDualRangePair(2022, 2020)).toEqual([2020, 2022]);
   });
 });
