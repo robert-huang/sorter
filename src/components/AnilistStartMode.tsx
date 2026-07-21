@@ -26,6 +26,7 @@ import {
   productionReads,
   type FavouriteAsItem,
 } from '../lib/importers/anilist/readQueries';
+import { bumpCharacterStaffFilterChipOptions } from '../lib/importers/anilist/characterStaffFilters';
 import {
   runAnilistFavourites,
   runAnilistImport,
@@ -844,10 +845,13 @@ export function AnilistStartMode({
    */
   const loadFavouritesIntoCandidates = useCallback(
     async (name: string, favTypeArg: AnilistFavouriteType): Promise<number> => {
+      const bumpChipOptions =
+        favTypeArg === 'CHARACTERS' || favTypeArg === 'STAFF';
       const user = await productionReads.getAnilistUserByName(name);
       if (!user) {
         setCandidates([]);
         setCandidateSource(null);
+        if (bumpChipOptions) bumpCharacterStaffFilterChipOptions();
         return 0;
       }
       const favs = await productionReads.getFavouritesAsItems(user.id, favTypeArg);
@@ -863,6 +867,7 @@ export function AnilistStartMode({
       });
       setSelectedIds(selectionAfterCandidateLoad(next, selectAllOnLoad));
       setSearch('');
+      if (bumpChipOptions) bumpCharacterStaffFilterChipOptions();
       return next.length;
     },
     [includeFormatInLabel, selectAllOnLoad],

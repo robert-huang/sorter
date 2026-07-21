@@ -27,6 +27,7 @@ import {
   recordSourceDbDirtyWrite,
 } from '../../db/syncManifest';
 import { ANILIST_SOURCE_ID } from './anilistSource';
+import { bumpCharacterStaffFilterChipOptions } from './characterStaffFilters';
 import { findAnilistAccountByName, resolveAccessTokenForUsername } from './anilistAuth';
 import { makeAnilistImportContext } from './context';
 import { importAnilistFavourites } from './favourites';
@@ -139,6 +140,9 @@ export async function runAnilistFavourites(
 ): Promise<ImportAnilistFavouritesResult> {
   const result = await importAnilistFavourites(buildContext(onProgress), { username, type });
   markLocalDbPresent();
+  if (type === 'CHARACTERS' || type === 'STAFF') {
+    bumpCharacterStaffFilterChipOptions();
+  }
   return result;
 }
 

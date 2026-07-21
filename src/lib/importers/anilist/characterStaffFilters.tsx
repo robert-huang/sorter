@@ -97,6 +97,34 @@ function defaultDbForFilters(): AnilistDbExecutor {
 }
 
 // ---------------------------------------------------------------------
+// Chip-options refresh — rank slider max (`totalFavourites`) is read
+// from the DB, not from `externalIds`, so a favourites import that
+// doesn't change the candidate id set still needs to re-run discovery.
+// ---------------------------------------------------------------------
+
+let chipOptionsRevision = 0;
+const chipOptionsListeners = new Set<() => void>();
+
+export function bumpCharacterStaffFilterChipOptions(): void {
+  chipOptionsRevision += 1;
+  for (const listener of chipOptionsListeners) {
+    listener();
+  }
+}
+
+function useCharacterStaffChipOptionsRevision(): number {
+  const [revision, setRevision] = useState(chipOptionsRevision);
+  useEffect(() => {
+    const listener = () => setRevision(chipOptionsRevision);
+    chipOptionsListeners.add(listener);
+    return () => {
+      chipOptionsListeners.delete(listener);
+    };
+  }, []);
+  return revision;
+}
+
+// ---------------------------------------------------------------------
 // Shared chip primitive: numeric-range chip (used by "favourites" on
 // both characters and staff). Same UX as the user-score range on
 // media (typed bound inputs + dual-handle slider) but the universe
@@ -552,6 +580,7 @@ function CharacterChips({
     voiceActors: [],
   });
   const idsKey = externalIdsArray.slice().sort((a, b) => a - b).join(',');
+  const chipOptionsRevision = useCharacterStaffChipOptionsRevision();
   useEffect(() => {
     let cancelled = false;
     void loadCharacterChipOptions(externalIdsArray).then((next) => {
@@ -561,7 +590,7 @@ function CharacterChips({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idsKey]);
+  }, [idsKey, chipOptionsRevision]);
 
   const set = (patch: Partial<CharacterFilterChipState>) =>
     onChipStateChange({ ...state, ...patch });
@@ -858,6 +887,7 @@ function StaffChips({
     voicedInMedia: [],
   });
   const idsKey = externalIdsArray.slice().sort((a, b) => a - b).join(',');
+  const chipOptionsRevision = useCharacterStaffChipOptionsRevision();
   useEffect(() => {
     let cancelled = false;
     void loadStaffChipOptions(externalIdsArray).then((next) => {
@@ -867,7 +897,7 @@ function StaffChips({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idsKey]);
+  }, [idsKey, chipOptionsRevision]);
 
   const set = (patch: Partial<StaffFilterChipState>) =>
     onChipStateChange({ ...state, ...patch });
