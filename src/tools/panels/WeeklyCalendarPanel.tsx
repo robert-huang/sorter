@@ -482,8 +482,9 @@ export function WeeklyCalendarPanel({ onOpenMedia }: ToolPanelProps) {
   return (
     <section className="tool-panel">
       <p className="tool-panel-lead">
-        Chart airing and upcoming shows from a user&apos;s watching list by weekday — or browse
-        a season ({currentSeasonLabel}).
+        Chart airing and upcoming shows from a user&apos;s watching list by weekday — or browse a season ({currentSeasonLabel}).
+        <br />
+        Enable <strong>NOT ON LIST</strong> in the list status filter to show all shows from those seasons.
       </p>
 
       <form
