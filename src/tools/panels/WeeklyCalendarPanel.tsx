@@ -30,9 +30,13 @@ import {
   type MediaThemeSongsPayload,
   type ThemeSongType,
 } from '../../lib/importers/anilist/themeSongs/types';
-import { aggregatePlaylistMatchForRows, matchThemeRowToPlaylist } from '../../lib/spotify/spotifyPlaylistMatch';
+import {
+  aggregatePlaylistMatchForRows,
+  matchThemeRowToPlaylist,
+  type PlaylistAggregateStatus,
+} from '../../lib/spotify/spotifyPlaylistMatch';
 import { useSpotifyPlaylistCache } from '../../lib/spotify/useSpotifyPlaylistCache';
-import { ThemeSongPlaylistDot, ThemeSongRowC } from '../../components/themeSongRowC';
+import { ThemeSongRowC } from '../../components/themeSongRowC';
 import {
   DEFAULT_WEEKLY_CALENDAR_FORM,
   buildWeeklyCalendarCustomSeasonYearOptions,
@@ -71,7 +75,12 @@ const LS_KEY = 'anime-tools-weekly-calendar-form';
 
 type PersistedWeeklyCalendarForm = Pick<
   WeeklyCalendarForm,
-  'username' | 'weekStartDay' | 'timezone' | 'mediaStatusFilters' | 'showUnscheduledColumn'
+  | 'username'
+  | 'weekStartDay'
+  | 'timezone'
+  | 'mediaStatusFilters'
+  | 'showUnscheduledColumn'
+  | 'showThemeSongs'
 >;
 
 const WEEK_START_OPTIONS: WeeklyCalendarWeekStartDay[] = [
@@ -110,6 +119,7 @@ function loadForm(): WeeklyCalendarForm {
             : DEFAULT_WEEKLY_CALENDAR_FORM.timezone,
         mediaStatusFilters: normalizeWeeklyCalendarMediaStatusFilters(parsed.mediaStatusFilters),
         showUnscheduledColumn: parsed.showUnscheduledColumn ?? false,
+        showThemeSongs: parsed.showThemeSongs ?? false,
       };
     }
   } catch {
@@ -130,6 +140,7 @@ function saveForm(form: WeeklyCalendarForm): void {
       timezone: form.timezone,
       mediaStatusFilters: form.mediaStatusFilters,
       showUnscheduledColumn: form.showUnscheduledColumn,
+      showThemeSongs: form.showThemeSongs,
     };
     localStorage.setItem(LS_KEY, JSON.stringify(persisted));
   } catch {
@@ -243,6 +254,32 @@ function compareThemeSongRows(a: MediaThemeSongRow, b: MediaThemeSongRow): numbe
   return a.sortOrder - b.sortOrder;
 }
 
+function WeeklyCalendarThemeSongShowTitle({
+  show,
+  songCount,
+  onOpenMedia,
+}: {
+  show: WeeklyCalendarEntry;
+  songCount?: number;
+  onOpenMedia: ToolPanelProps['onOpenMedia'];
+}) {
+  return (
+    <button
+      type="button"
+      className="tool-weekly-theme-songs-show-title"
+      onClick={() => onOpenMedia(show.id, show.title)}
+    >
+      <ToolEntityAvatar imageUrl={show.coverImage} label={show.title} variant="poster" />
+      <span className="tool-weekly-theme-songs-show-title-text">
+        {show.title}
+        {songCount != null ? (
+          <span className="tool-weekly-theme-songs-show-count">({songCount})</span>
+        ) : null}
+      </span>
+    </button>
+  );
+}
+
 function WeeklyCalendarThemeSongGroups({
   rows,
   playlistCache,
@@ -321,14 +358,11 @@ function WeeklyCalendarThemeSongsPanel({
             const rows = themeSongCache.get(show.id)?.rows ?? [];
             return (
               <div key={show.id} className="tool-weekly-theme-songs-show">
-                <button
-                  type="button"
-                  className="tool-weekly-theme-songs-show-title"
-                  onClick={() => onOpenMedia(show.id, show.title)}
-                >
-                  {show.title}
-                  <span className="tool-weekly-theme-songs-show-count">({rows.length})</span>
-                </button>
+                <WeeklyCalendarThemeSongShowTitle
+                  show={show}
+                  songCount={rows.length}
+                  onOpenMedia={onOpenMedia}
+                />
                 <WeeklyCalendarThemeSongGroups rows={rows} playlistCache={playlistCache} />
               </div>
             );
@@ -336,18 +370,44 @@ function WeeklyCalendarThemeSongsPanel({
         </div>
       )}
       {withoutCache.length > 0 ? (
-        <p className="tool-muted tool-weekly-theme-songs-pending">
-          Not loaded yet ({withoutCache.length}):{' '}
-          {withoutCache.map((show) => show.title).join(', ')}
-        </p>
+        <div className="tool-weekly-theme-songs-pending">
+          <p className="tool-weekly-theme-songs-pending-label">
+            Not loaded yet ({withoutCache.length})
+          </p>
+          <ul className="tool-weekly-theme-songs-pending-list">
+            {withoutCache.map((show) => (
+              <li key={show.id}>
+                <WeeklyCalendarThemeSongShowTitle show={show} onOpenMedia={onOpenMedia} />
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : null}
     </section>
   );
 }
 
+function themeSongBadgeTitle(
+  count: number,
+  playlistStatus: PlaylistAggregateStatus | null,
+): string {
+  const base = `${count} cached theme song${count === 1 ? '' : 's'}`;
+  if (playlistStatus === 'in') {
+    return `${base} — all on your Spotify playlist`;
+  }
+  if (playlistStatus === 'out') {
+    return `${base} — none on your Spotify playlist`;
+  }
+  if (playlistStatus === 'mixed') {
+    return `${base} — some on your Spotify playlist`;
+  }
+  return base;
+}
+
 function WeeklyCalendarColumnsView({
   result,
   timeZone,
+  showThemeSongs,
   themeSongCounts,
   themeSongCache,
   playlistCache,
@@ -355,6 +415,7 @@ function WeeklyCalendarColumnsView({
 }: {
   result: Extract<WeeklyCalendarResult, { kind: 'columns' }>;
   timeZone: string | undefined;
+  showThemeSongs: boolean;
   themeSongCounts: ReadonlyMap<number, number>;
   themeSongCache: Map<number, MediaThemeSongsPayload>;
   playlistCache: ReturnType<typeof useSpotifyPlaylistCache>;
@@ -431,10 +492,14 @@ function WeeklyCalendarColumnsView({
                   show,
                   timeZone,
                 );
-                const playlistStatus = aggregatePlaylistMatchForRows(
-                  themeSongCache.get(show.id)?.rows ?? [],
-                  playlistCache,
-                );
+                const songCount = showThemeSongs ? themeSongCounts.get(show.id) : undefined;
+                const playlistStatus =
+                  showThemeSongs && songCount
+                    ? aggregatePlaylistMatchForRows(
+                        themeSongCache.get(show.id)?.rows ?? [],
+                        playlistCache,
+                      )
+                    : null;
                 return (
                   <div key={show.id} className="tool-season-cell tool-weekly-cell">
                     <div className="tool-season-cell-grid tool-weekly-cell-grid">
@@ -465,17 +530,17 @@ function WeeklyCalendarColumnsView({
                             hideAvatar
                             className="tool-season-title tool-weekly-title"
                           />
-                          {themeSongCounts.get(show.id) ? (
-                            <span className="tool-weekly-theme-song-row-meta">
-                              <span
-                                className="tool-weekly-theme-song-badge"
-                                title={`${themeSongCounts.get(show.id)} cached theme songs`}
-                              >
-                                🎵 {themeSongCounts.get(show.id)}
-                              </span>
-                              {playlistStatus ? (
-                                <ThemeSongPlaylistDot status={playlistStatus} />
-                              ) : null}
+                          {songCount ? (
+                            <span
+                              className={[
+                                'tool-weekly-theme-song-badge',
+                                playlistStatus ? `is-${playlistStatus}` : '',
+                              ]
+                                .filter(Boolean)
+                                .join(' ')}
+                              title={themeSongBadgeTitle(songCount, playlistStatus)}
+                            >
+                              🎵 {songCount}
                             </span>
                           ) : null}
                         </div>
@@ -586,7 +651,7 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
   }, [result]);
 
   useEffect(() => {
-    if (result?.kind !== 'columns') {
+    if (!form.showThemeSongs || result?.kind !== 'columns') {
       setThemeSongCache(new Map());
       return;
     }
@@ -600,7 +665,7 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
     return () => {
       cancelled = true;
     };
-  }, [result, dbSyncRevision]);
+  }, [form.showThemeSongs, result, dbSyncRevision]);
 
   const onCancel = useCallback(() => {
     abortRef.current?.abort();
@@ -791,20 +856,22 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
           <div className="tool-adaptation-primary-filters tool-seasonal-primary-filters tool-weekly-primary-filters">
             <label className="tool-field tool-field-label-row tool-weekly-week-start">
               <span className="tool-field-label">Week starts on</span>
-              <select
-                className="tool-select"
-                disabled={running}
-                value={form.weekStartDay}
-                onChange={(e) =>
-                  patchForm({ weekStartDay: e.target.value as WeeklyCalendarWeekStartDay })
-                }
-              >
-                {WEEK_START_OPTIONS.map((day) => (
-                  <option key={day} value={day}>
-                    {day[0] + day.slice(1).toLowerCase()}
-                  </option>
-                ))}
-              </select>
+              <div className="tool-weekly-week-start-field">
+                <select
+                  className="settings-spotify-select"
+                  disabled={running}
+                  value={form.weekStartDay}
+                  onChange={(e) =>
+                    patchForm({ weekStartDay: e.target.value as WeeklyCalendarWeekStartDay })
+                  }
+                >
+                  {WEEK_START_OPTIONS.map((day) => (
+                    <option key={day} value={day}>
+                      {day[0] + day.slice(1).toLowerCase()}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </label>
 
             <div
@@ -840,6 +907,16 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
               />
               Unknown Airing Day Column
             </label>
+
+            <label className="tool-checkbox">
+              <input
+                type="checkbox"
+                checked={form.showThemeSongs}
+                disabled={running}
+                onChange={(e) => patchForm({ showThemeSongs: e.target.checked })}
+              />
+              Show theme songs
+            </label>
           </div>
         </div>
 
@@ -858,25 +935,30 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
       {result?.kind === 'empty' ? <p className="tool-muted">{result.message}</p> : null}
 
       {result?.kind === 'columns' ? (
-        <div className="tool-chart-fullbleed tool-season-fullbleed" key={chartSessionRef.current}>
-          {result.seasonLabel ? (
-            <p className="tool-muted tool-weekly-season-banner">{result.seasonLabel}</p>
+        <>
+          <div className="tool-chart-fullbleed tool-season-fullbleed" key={chartSessionRef.current}>
+            {result.seasonLabel ? (
+              <p className="tool-muted tool-weekly-season-banner">{result.seasonLabel}</p>
+            ) : null}
+            <WeeklyCalendarColumnsView
+              result={result}
+              timeZone={timeZone}
+              showThemeSongs={form.showThemeSongs}
+              themeSongCounts={themeSongCounts}
+              themeSongCache={themeSongCache}
+              playlistCache={playlistCache}
+              onOpenMedia={onOpenMedia}
+            />
+          </div>
+          {form.showThemeSongs ? (
+            <WeeklyCalendarThemeSongsPanel
+              shows={chartShows}
+              themeSongCache={themeSongCache}
+              playlistCache={playlistCache}
+              onOpenMedia={onOpenMedia}
+            />
           ) : null}
-          <WeeklyCalendarColumnsView
-            result={result}
-            timeZone={timeZone}
-            themeSongCounts={themeSongCounts}
-            themeSongCache={themeSongCache}
-            playlistCache={playlistCache}
-            onOpenMedia={onOpenMedia}
-          />
-          <WeeklyCalendarThemeSongsPanel
-            shows={chartShows}
-            themeSongCache={themeSongCache}
-            playlistCache={playlistCache}
-            onOpenMedia={onOpenMedia}
-          />
-        </div>
+        </>
       ) : null}
     </section>
   );

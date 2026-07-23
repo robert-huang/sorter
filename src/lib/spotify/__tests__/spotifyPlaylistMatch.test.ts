@@ -54,20 +54,28 @@ describe('matchThemeRowToPlaylist', () => {
 });
 
 describe('aggregatePlaylistMatchForRows', () => {
-  it('returns out when any row is missing from the playlist', () => {
+  it('returns mixed when some resolvable rows match and some do not', () => {
     const rows = [
       makeRow({ spotifyTrackIds: ['track-a'], hasResolvableTrackId: true }),
       makeRow({ spotifyTrackIds: ['missing'], hasResolvableTrackId: true }),
     ];
-    expect(aggregatePlaylistMatchForRows(rows, cache)).toBe('out');
+    expect(aggregatePlaylistMatchForRows(rows, cache)).toBe('mixed');
   });
 
-  it('returns in when all resolvable rows match and none are out', () => {
+  it('returns in when all resolvable rows match', () => {
     const rows = [
       makeRow({ spotifyTrackIds: ['track-a'], hasResolvableTrackId: true }),
       makeRow({ spotifyIsrc: null, spotifyTrackIds: [], hasResolvableTrackId: false }),
     ];
     expect(aggregatePlaylistMatchForRows(rows, cache)).toBe('in');
+  });
+
+  it('returns out when every resolvable row is missing from the playlist', () => {
+    const rows = [
+      makeRow({ spotifyTrackIds: ['missing'], hasResolvableTrackId: true }),
+      makeRow({ spotifyTrackIds: ['also-missing'], hasResolvableTrackId: true }),
+    ];
+    expect(aggregatePlaylistMatchForRows(rows, cache)).toBe('out');
   });
 
   it('returns null when every row is unknown', () => {

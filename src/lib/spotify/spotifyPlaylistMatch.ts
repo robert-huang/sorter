@@ -3,6 +3,9 @@ import type { SpotifyPlaylistCache } from './spotifyPlaylist';
 
 export type PlaylistMatchStatus = 'in' | 'out' | 'unknown';
 
+/** Show-level aggregate over resolvable theme rows (unknown rows excluded). */
+export type PlaylistAggregateStatus = 'in' | 'out' | 'mixed';
+
 type PlaylistIndex = {
   trackIds: Set<string>;
   isrcs: Set<string>;
@@ -23,31 +26,43 @@ function buildPlaylistIndex(cache: SpotifyPlaylistCache): PlaylistIndex {
   return { trackIds, isrcs };
 }
 
-/** Row-level aggregate for chart badges: red if any track is missing, green if any matched. */
+/**
+ * Show-level aggregate for chart badges. Only rows with a resolvable Spotify
+ * link count (in/out); rows without a link are ignored. Mixed when some match
+ * and some do not.
+ */
 export function aggregatePlaylistMatchForRows(
   rows: readonly MediaThemeSongRow[],
   cache: SpotifyPlaylistCache | null,
-): PlaylistMatchStatus | null {
+): PlaylistAggregateStatus | null {
   if (!cache || rows.length === 0) {
     return null;
   }
   let anyIn = false;
   let anyOut = false;
+  let anyResolvable = false;
   for (const row of rows) {
     const status = matchThemeRowToPlaylist(row, cache);
+    if (status === 'unknown') {
+      continue;
+    }
+    anyResolvable = true;
     if (status === 'out') {
       anyOut = true;
     } else if (status === 'in') {
       anyIn = true;
     }
   }
+  if (!anyResolvable) {
+    return null;
+  }
+  if (anyIn && anyOut) {
+    return 'mixed';
+  }
   if (anyOut) {
     return 'out';
   }
-  if (anyIn) {
-    return 'in';
-  }
-  return null;
+  return 'in';
 }
 
 export function matchThemeRowToPlaylist(

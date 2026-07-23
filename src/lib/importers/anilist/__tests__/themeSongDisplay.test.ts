@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  extractNativeFromMalText,
+  pickBestNativeCandidate,
+  resolveThemeSongArtist,
+  resolveThemeSongTitle,
+  stripNativeParenthetical,
   themeSongInsertEpisodeLine,
   themeSongTypeBadge,
   groupThemeRowsByType,
@@ -56,6 +61,45 @@ describe('themeSongInsertEpisodeLine', () => {
 
   it('returns null for non-insert rows', () => {
     expect(themeSongInsertEpisodeLine(row({ type: 'Opening', songKey: 'OP' }))).toBeNull();
+  });
+});
+
+describe('native theme song labels', () => {
+  it('strips native parentheticals in english mode', () => {
+    const themed = row({
+      type: 'Ending',
+      displayTitle: 'Kanjou Glass (感情グラス)',
+      malTitle: 'Kanjou Glass (感情グラス)',
+    });
+    expect(resolveThemeSongTitle(themed, 'english')).toBe('Kanjou Glass');
+  });
+
+  it('prefers aniplaylist native titles in native mode', () => {
+    const themed = row({
+      type: 'Ending',
+      displayTitle: 'Kanjou Glass (感情グラス)',
+      malTitle: 'Kanjou Glass (感情グラス)',
+      aniTitles: ['Kanjou Glass', '感情グラス'],
+    });
+    expect(resolveThemeSongTitle(themed, 'native')).toBe('感情グラス');
+  });
+
+  it('extracts nested native text from mal titles', () => {
+    expect(extractNativeFromMalText('Kanade (奏（かなで）)')).toBe('奏（かなで）');
+    expect(stripNativeParenthetical('Kanade (奏（かなで）)')).toBe('Kanade');
+  });
+
+  it('picks the most CJK-heavy candidate', () => {
+    expect(pickBestNativeCandidate(['Kanjou Glass', '感情グラス', 'Glass'])).toBe('感情グラス');
+  });
+
+  it('resolves native artist from aniplaylist names', () => {
+    const themed = row({
+      type: 'Opening',
+      displayArtist: 'Chin-lan Chang (CV: Maki Kawase)',
+      aniArtists: ['Chin-lan Chang', 'チン・ラン・チャン'],
+    });
+    expect(resolveThemeSongArtist(themed, 'native')).toBe('チン・ラン・チャン');
   });
 });
 

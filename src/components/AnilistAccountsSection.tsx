@@ -120,7 +120,7 @@ export function AnilistAccountsSection() {
               {badge && configured && (
                 <button
                   type="button"
-                  className="settings-item"
+                  className="settings-item settings-item-status-text"
                   disabled={signingIn}
                   onClick={() => void onSignIn()}
                 >
@@ -129,7 +129,7 @@ export function AnilistAccountsSection() {
               )}
               <button
                 type="button"
-                className="settings-item"
+                className="settings-item settings-item-status-text"
                 onClick={() => onSignOut(account.userId)}
               >
                 Sign out @{account.userName}
@@ -141,7 +141,7 @@ export function AnilistAccountsSection() {
       {configured && (
         <button
           type="button"
-          className="settings-item"
+          className="settings-item settings-item-status-text"
           disabled={signingIn}
           onClick={() => void onSignIn()}
         >
@@ -149,8 +149,8 @@ export function AnilistAccountsSection() {
         </button>
       )}
       <div className="settings-status settings-anilist-hint">
-        Opens AniList in a pop-up, then returns automatically. Signed-in imports
-        include hidden list entries; other usernames still use public lists.
+        Opens AniList in a pop-up, then auto-returns. Signed-in accounts
+        can import hidden list entries and enables mutations.
       </div>
       {error && (
         <div className="settings-source-db-error" role="alert">

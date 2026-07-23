@@ -27,6 +27,99 @@ function titlesRoughlyMatch(a: string, b: string): boolean {
   return na === nb || na.includes(nb) || nb.includes(na);
 }
 
+const CV_CREDIT_RE = /\(CV:\s*([^)]+)\)/i;
+
+function extractCvCredit(artist: string): string | null {
+  const match = CV_CREDIT_RE.exec(artist);
+  return match?.[1]?.trim() ?? null;
+}
+
+/** Drop parenthetical credits so token sets compare performer names only. */
+function stripArtistParentheticals(artist: string): string {
+  return artist
+    .replace(/\(CV:[^)]*\)/gi, ' ')
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function tokenizeArtistName(artist: string): Set<string> {
+  const stripped = stripArtistParentheticals(artist).toLowerCase();
+  const tokens = stripped.split(/[\s,]+/).filter((token) => token.length > 0);
+  return new Set(tokens);
+}
+
+function artistTokenSetsMatch(a: string, b: string): boolean {
+  const tokensA = tokenizeArtistName(a);
+  const tokensB = tokenizeArtistName(b);
+  if (tokensA.size === 0 || tokensB.size === 0 || tokensA.size !== tokensB.size) {
+    return false;
+  }
+  for (const token of tokensA) {
+    if (!tokensB.has(token)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** Looser artist match: substring, CV credits, and token-set (word-order insensitive). */
+export function artistsRoughlyMatch(a: string, b: string): boolean {
+  if (titlesRoughlyMatch(a, b)) {
+    return true;
+  }
+  const cvA = extractCvCredit(a);
+  const cvB = extractCvCredit(b);
+  if (cvA && cvB && titlesRoughlyMatch(cvA, cvB)) {
+    return true;
+  }
+  if (artistTokenSetsMatch(a, b)) {
+    return true;
+  }
+  if (cvA && artistTokenSetsMatch(cvA, b)) {
+    return true;
+  }
+  if (cvB && artistTokenSetsMatch(cvB, a)) {
+    return true;
+  }
+  return false;
+}
+
+/** Map AniPlaylist `song_key` (OP/ED/IN) to MAL-style zero-based sort order. */
+export function sortOrderFromAniplaylistSongKey(
+  songKey: string,
+  type: ThemeSongType,
+): number | null {
+  const key = songKey.trim();
+  if (type === 'Opening') {
+    const match = /^OP\s*(\d*)$/i.exec(key);
+    if (match) {
+      const num = match[1] === '' ? 1 : Number(match[1]);
+      return Number.isFinite(num) && num >= 1 ? num - 1 : null;
+    }
+  }
+  if (type === 'Ending') {
+    const match = /^ED\s*(\d*)$/i.exec(key);
+    if (match) {
+      const num = match[1] === '' ? 1 : Number(match[1]);
+      return Number.isFinite(num) && num >= 1 ? num - 1 : null;
+    }
+  }
+  if (type === 'Insert') {
+    const match = /^IN\s+ep\s*(\d+)/i.exec(key);
+    if (match) {
+      const ep = Number(match[1]);
+      return Number.isFinite(ep) ? ep - 1 : null;
+    }
+  }
+  return null;
+}
+
+function resolveOrphanAniplaylistSortOrder(hit: AniplaylistHit, orphanIndex: number): number {
+  const fromKey = sortOrderFromAniplaylistSongKey(hit.song_key, hit.song_type as ThemeSongType);
+  return fromKey ?? 1000 + orphanIndex;
+}
+
 function malMatchesAni(mal: ParsedMalTheme, hit: AniplaylistHit): boolean {
   if (mal.type !== hit.song_type) {
     return false;
@@ -39,7 +132,7 @@ function malMatchesAni(mal: ParsedMalTheme, hit: AniplaylistHit): boolean {
     return true;
   }
   return (hit.artists ?? []).some((a) =>
-    (a.names ?? []).some((n) => titlesRoughlyMatch(n, mal.artist ?? '')),
+    (a.names ?? []).some((n) => artistsRoughlyMatch(n, mal.artist ?? '')),
   );
 }
 
@@ -140,7 +233,7 @@ export function mergeThemeSongs(
     if (matchedAni.has(hit.id)) {
       return;
     }
-    rows.push(hitToPartialRow(hit, 1000 + index));
+    rows.push(hitToPartialRow(hit, resolveOrphanAniplaylistSortOrder(hit, index)));
   });
 
   rows.sort((a, b) => {
@@ -179,7 +272,7 @@ export function malAniKeysMatch(malKey: string, aniKey: string): boolean {
   if (!malArtist) {
     return true;
   }
-  return titlesRoughlyMatch(malArtist, aniArtist);
+  return artistsRoughlyMatch(malArtist, aniArtist);
 }
 
 export { parseSpotifyTrackIdFromUrl };

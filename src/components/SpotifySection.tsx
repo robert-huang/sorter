@@ -7,7 +7,9 @@ import {
   signOutSpotify,
   subscribeSpotifyAuth,
 } from '../lib/spotify/spotifyAuth';
+import { useThemeSongDisplayPreferences } from '../hooks/useThemeSongDisplayPreferences';
 import {
+  clearSelectedSpotifyPlaylist,
   getPlaylistCache,
   getSelectedSpotifyPlaylist,
   isPlaylistCacheStale,
@@ -17,6 +19,12 @@ import {
   subscribeSpotifyPlaylist,
   type StoredSpotifyPlaylist,
 } from '../lib/spotify/spotifyPlaylist';
+import type { ThemeSongNameDisplayMode } from '../lib/spotify/themeSongDisplayPreferences';
+
+const THEME_SONG_NAME_OPTIONS: { value: ThemeSongNameDisplayMode; label: string }[] = [
+  { value: 'english', label: 'English' },
+  { value: 'native', label: 'Native' },
+];
 
 function formatFetchedAt(ms: number): string {
   try {
@@ -36,6 +44,8 @@ function formatFetchedAt(ms: number): string {
  * Playlist cache is manual-refresh only (15m stale hint).
  */
 export function SpotifySection() {
+  const { mode: themeSongNameMode, setMode: setThemeSongNameMode } =
+    useThemeSongDisplayPreferences();
   const [auth, setAuth] = useState(() => getStoredSpotifyAuth());
   const [selectedPlaylist, setSelectedPlaylist] = useState(() => getSelectedSpotifyPlaylist());
   const [playlists, setPlaylists] = useState<StoredSpotifyPlaylist[]>([]);
@@ -102,6 +112,11 @@ export function SpotifySection() {
   }, []);
 
   const onSelectPlaylist = useCallback((playlistId: string) => {
+    if (!playlistId) {
+      clearSelectedSpotifyPlaylist();
+      setError(null);
+      return;
+    }
     const match = playlists.find((p) => p.id === playlistId);
     if (!match) {
       return;
@@ -128,6 +143,24 @@ export function SpotifySection() {
   return (
     <div className="settings-spotify-section">
       <div className="settings-status settings-section-label">Spotify (theme songs)</div>
+      <div className="settings-anilist-display-prefs settings-spotify-theme-names">
+        <div className="filter-chip-range-row">
+          <span>title</span>
+          <div className="filter-chip-segmented" role="group" aria-label="Theme song title">
+            {THEME_SONG_NAME_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={themeSongNameMode === option.value ? 'active' : ''}
+                aria-pressed={themeSongNameMode === option.value}
+                onClick={() => setThemeSongNameMode(option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
       {!configured && (
         <div className="settings-status settings-anilist-hint" style={{ color: 'var(--text-muted)' }}>
           Spotify sign-in is not configured for this build (
@@ -160,7 +193,7 @@ export function SpotifySection() {
           <div className="settings-status">
             {auth.displayName ? `Signed in as ${auth.displayName}` : 'Signed in to Spotify'}
           </div>
-          <button type="button" className="settings-item" onClick={onSignOut}>
+          <button type="button" className="settings-item settings-item-status-text" onClick={onSignOut}>
             Sign out of Spotify
           </button>
           <div className="settings-status settings-section-label" style={{ marginTop: 8 }}>
@@ -169,24 +202,25 @@ export function SpotifySection() {
           {loadingPlaylists ? (
             <div className="settings-status settings-anilist-hint">Loading playlists…</div>
           ) : (
-            <label className="settings-item" style={{ display: 'block' }}>
-              <span className="settings-item-hint" style={{ display: 'block', marginBottom: 4 }}>
-                Pick a playlist you own (or collaborate on) to match against theme songs in detail
-                modals.
-              </span>
-              <select
-                value={selectedPlaylist?.id ?? ''}
-                onChange={(e) => onSelectPlaylist(e.target.value)}
-                style={{ width: '100%', maxWidth: 320 }}
-              >
-                <option value="">— select playlist —</option>
-                {playlists.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <>
+              <div className="settings-status settings-anilist-hint" style={{ color: 'var(--text-muted)' }}>
+                Pick a playlist to see if the songs are on that playlist.
+              </div>
+              <div className="settings-spotify-playlist-field">
+                <select
+                  className="settings-spotify-select"
+                  value={selectedPlaylist?.id ?? ''}
+                  onChange={(e) => onSelectPlaylist(e.target.value)}
+                >
+                  <option value="">— select playlist —</option>
+                  {playlists.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </>
           )}
           {selectedPlaylist && (
             <>
@@ -201,7 +235,7 @@ export function SpotifySection() {
               {cache && cache.playlistId === selectedPlaylist.id ? (
                 <div className="settings-status settings-anilist-hint">
                   {cache.tracks.length} tracks cached · {formatFetchedAt(cache.fetchedAt)}
-                  {isPlaylistCacheStale(cache.fetchedAt) ? ' · stale (refresh recommended)' : ''}
+                  {isPlaylistCacheStale(cache.fetchedAt) ? ' · stale (>15m)' : ''}
                 </div>
               ) : (
                 <div className="settings-status settings-anilist-hint" style={{ color: 'var(--text-muted)' }}>

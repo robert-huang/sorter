@@ -1,7 +1,32 @@
 import { describe, expect, it } from 'vitest';
 import { parseMalThemes } from '../themeSongs/malThemeParser';
-import { mergeThemeSongs } from '../themeSongs/mergeThemeSongs';
+import {
+  artistsRoughlyMatch,
+  mergeThemeSongs,
+  sortOrderFromAniplaylistSongKey,
+} from '../themeSongs/mergeThemeSongs';
 import type { AniplaylistHit } from '../themeSongs/aniplaylistApi';
+
+describe('artistsRoughlyMatch', () => {
+  it('matches flipped Latin name order with shared CV credit', () => {
+    expect(
+      artistsRoughlyMatch(
+        'Chin-lan Chang (CV: Maki Kawase)',
+        'Chang Chin-lan (CV: Maki Kawase)',
+      ),
+    ).toBe(true);
+  });
+
+  it('does not match different performers on the same title', () => {
+    expect(artistsRoughlyMatch('Artist A', 'Artist B')).toBe(false);
+  });
+});
+
+describe('sortOrderFromAniplaylistSongKey', () => {
+  it('maps ED6 to sort order 5', () => {
+    expect(sortOrderFromAniplaylistSongKey('ED6', 'Ending')).toBe(5);
+  });
+});
 
 describe('mergeThemeSongs', () => {
   it('outer-joins mal-only and aniplaylist-only rows', () => {
@@ -47,5 +72,53 @@ describe('mergeThemeSongs', () => {
     expect(rows[0]?.songKey).toBe('OP');
     expect(rows[0]?.malTitle).toBe('Kore Kaite Shine');
     expect(rows[0]?.hasResolvableTrackId).toBe(true);
+  });
+
+  it('merges when aniplaylist artist name order differs from MAL', () => {
+    const mal = parseMalThemes(
+      [],
+      ['6: "Kanjou Glass (感情グラス)" by Chin-lan Chang (CV: Maki Kawase)'],
+    );
+    const aniHit: AniplaylistHit = {
+      id: 3,
+      anime_id: 101,
+      score: 55,
+      titles: ['Kanjou Glass'],
+      song_key: 'ED6',
+      song_type: 'Ending',
+      artists: [{ names: ['Chang Chin-lan (CV: Maki Kawase)'] }],
+      links: [
+        {
+          platform: 'spotify',
+          main: true,
+          link: 'https://open.spotify.com/track/abc123def456ghi789jkl',
+        },
+      ],
+      other_link_ids: ['abc123def456ghi789jkl'],
+    };
+
+    const rows = mergeThemeSongs(mal, [aniHit]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.malTitle).toBe('Kanjou Glass (感情グラス)');
+    expect(rows[0]?.songKey).toBe('ED6');
+    expect(rows[0]?.hasResolvableTrackId).toBe(true);
+  });
+
+  it('uses aniplaylist song_key sort order for orphan rows', () => {
+    const aniHit: AniplaylistHit = {
+      id: 4,
+      anime_id: 102,
+      score: 40,
+      titles: ['Orphan ED'],
+      song_key: 'ED6',
+      song_type: 'Ending',
+      artists: [{ names: ['Singer'] }],
+      links: [],
+    };
+
+    const rows = mergeThemeSongs([], [aniHit]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.sortOrder).toBe(5);
+    expect(rows[0]?.songKey).toBe('ED6');
   });
 });

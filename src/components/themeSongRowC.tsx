@@ -2,10 +2,13 @@ import type { ReactNode } from 'react';
 import type { MediaThemeSongRow } from '../lib/importers/anilist/themeSongs/types';
 import { normalizeSpotifySearchUrl } from '../lib/importers/anilist/themeSongs/spotifyLinks';
 import {
+  resolveThemeSongArtist,
+  resolveThemeSongTitle,
   themeSongInsertEpisodeLine,
   themeSongTypeBadge,
 } from '../lib/importers/anilist/themeSongs/themeSongDisplay';
 import type { PlaylistMatchStatus } from '../lib/spotify/spotifyPlaylistMatch';
+import { useThemeSongDisplayPreferences } from '../hooks/useThemeSongDisplayPreferences';
 
 type Props = {
   row: MediaThemeSongRow;
@@ -43,7 +46,13 @@ function themeSongPlaylistIndicator(status: PlaylistMatchStatus): ReactNode {
   return null;
 }
 
-function ThemeSongTitleLink({ row }: { row: MediaThemeSongRow }) {
+function ThemeSongTitleLink({
+  row,
+  title,
+}: {
+  row: MediaThemeSongRow;
+  title: string;
+}) {
   if (row.spotifyUrl) {
     return (
       <a
@@ -52,18 +61,25 @@ function ThemeSongTitleLink({ row }: { row: MediaThemeSongRow }) {
         rel="noopener noreferrer"
         onClick={(e) => e.stopPropagation()}
       >
-        {row.displayTitle}
+        {title}
       </a>
     );
   }
-  return <>{row.displayTitle}</>;
+  return <>{title}</>;
 }
 
-function ThemeSongOpEdLine({ row }: { row: MediaThemeSongRow }) {
-  const artist = row.displayArtist?.trim();
+function ThemeSongOpEdLine({
+  row,
+  title,
+  artist,
+}: {
+  row: MediaThemeSongRow;
+  title: string;
+  artist: string | null;
+}) {
   return (
     <span className="anilist-detail-theme-song-line">
-      <ThemeSongTitleLink row={row} />
+      <ThemeSongTitleLink row={row} title={title} />
       {artist ? (
         <>
           <span className="anilist-detail-theme-song-sep"> - </span>
@@ -74,13 +90,20 @@ function ThemeSongOpEdLine({ row }: { row: MediaThemeSongRow }) {
   );
 }
 
-function ThemeSongInsertLines({ row }: { row: MediaThemeSongRow }) {
-  const artist = row.displayArtist?.trim();
+function ThemeSongInsertLines({
+  row,
+  title,
+  artist,
+}: {
+  row: MediaThemeSongRow;
+  title: string;
+  artist: string | null;
+}) {
   const episodeLine = themeSongInsertEpisodeLine(row);
   return (
     <div className="anilist-detail-theme-song-insert-body">
       <span className="anilist-detail-theme-song-line">
-        <ThemeSongTitleLink row={row} />
+        <ThemeSongTitleLink row={row} title={title} />
         {artist ? (
           <>
             <span className="anilist-detail-theme-song-sep"> - </span>
@@ -96,6 +119,9 @@ function ThemeSongInsertLines({ row }: { row: MediaThemeSongRow }) {
 }
 
 export function ThemeSongRowC({ row, playlistStatus, showPlaylistMatch }: Props) {
+  const { mode } = useThemeSongDisplayPreferences();
+  const title = resolveThemeSongTitle(row, mode);
+  const artist = resolveThemeSongArtist(row, mode);
   const isInsert = row.type === 'Insert';
   return (
     <li
@@ -106,7 +132,11 @@ export function ThemeSongRowC({ row, playlistStatus, showPlaylistMatch }: Props)
       </div>
       <div className="anilist-detail-theme-song-text">
         {showPlaylistMatch ? themeSongPlaylistIndicator(playlistStatus) : null}
-        {isInsert ? <ThemeSongInsertLines row={row} /> : <ThemeSongOpEdLine row={row} />}
+        {isInsert ? (
+          <ThemeSongInsertLines row={row} title={title} artist={artist} />
+        ) : (
+          <ThemeSongOpEdLine row={row} title={title} artist={artist} />
+        )}
       </div>
     </li>
   );

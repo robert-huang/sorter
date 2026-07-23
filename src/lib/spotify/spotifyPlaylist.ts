@@ -38,6 +38,9 @@ type SpotifyPlaylistListItem = {
 type SpotifyPlaylistsResponse = {
   items?: Array<SpotifyPlaylistListItem | null>;
   next?: string | null;
+  total?: number;
+  offset?: number;
+  limit?: number;
 };
 
 type SpotifyPlaylistTrackItem = {
@@ -199,12 +202,21 @@ export async function listUserSpotifyPlaylists(
 
   const spotifyUserId = getStoredSpotifyAuth()?.spotifyUserId ?? null;
   const out: SpotifyPlaylistSummary[] = [];
-  let url: string | null =
-    'https://api.spotify.com/v1/me/playlists?limit=50';
+  const pageSize = 50;
+  let offset = 0;
+  let total = Number.POSITIVE_INFINITY;
 
-  while (url) {
+  // Paginate with explicit offset — Spotify's `next` URL may point at removed endpoints and
+  // the API does not expose the user's custom sidebar sort order (order is preserved as returned).
+  while (offset < total) {
+    const url =
+      `https://api.spotify.com/v1/me/playlists?limit=${pageSize}&offset=${offset}`;
     const page: SpotifyPlaylistsResponse = await fetchJson<SpotifyPlaylistsResponse>(url, token);
-    for (const item of page.items ?? []) {
+    const items = page.items ?? [];
+    if (typeof page.total === 'number') {
+      total = page.total;
+    }
+    for (const item of items) {
       if (!item?.id || !item.name) {
         continue;
       }
@@ -213,7 +225,10 @@ export async function listUserSpotifyPlaylists(
       }
       out.push({ id: item.id, name: item.name });
     }
-    url = page.next ?? null;
+    if (items.length < pageSize) {
+      break;
+    }
+    offset += pageSize;
   }
 
   return out;
