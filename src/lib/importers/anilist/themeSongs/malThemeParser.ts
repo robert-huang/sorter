@@ -9,6 +9,19 @@ export type ParsedMalTheme = {
 
 const EPISODES_RE = /\((eps?\.?\s*[^)]+)\)\s*$/i;
 const NUMBERED_PREFIX_RE = /^#?(\d+)\s*:\s*/;
+const WRAPPING_QUOTE_RE = /^["'`\u2018\u2019\u201c\u201d]|["'`\u2018\u2019\u201c\u201d]$/;
+
+/** Strip mismatched / doubled quote wrappers from Jikan/MAL theme titles. */
+function stripWrappingQuotes(title: string): string {
+  let out = title.trim();
+  while (WRAPPING_QUOTE_RE.test(out)) {
+    out = out
+      .replace(/^["'`\u2018\u2019\u201c\u201d]/, '')
+      .replace(/["'`\u2018\u2019\u201c\u201d]$/, '')
+      .trim();
+  }
+  return out;
+}
 
 /**
  * Parse a MAL/Jikan theme string like:
@@ -45,7 +58,7 @@ export function parseMalThemeString(
     artist = text.slice(byIdx + 4).trim() || null;
   }
 
-  title = title.replace(/^["']|["']$/g, '').trim();
+  title = stripWrappingQuotes(title);
 
   return {
     type,

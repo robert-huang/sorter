@@ -222,6 +222,47 @@ describe('mergeThemeSongs', () => {
     expect(duplicateEd?.hasResolvableTrackId).toBe(true);
     expect(realEd?.hasResolvableTrackId).toBe(false);
   });
+
+  it('merges Jikan malformed ED quotes with AniPlaylist', () => {
+    const mal = parseMalThemes(
+      ['"Eureka Evrika (ユーレカ・エヴリカ)" by Luna Goami (五阿弥ルナ)'],
+      [`''Soarin\u2019'' by Ginger Root`],
+    );
+    const hits: AniplaylistHit[] = [
+      {
+        id: 1,
+        anime_id: 62856,
+        score: 50,
+        titles: ['ユーレカ・エヴリカ'],
+        song_key: 'OP',
+        song_type: 'Opening',
+        artists: [{ names: ['五阿弥ルナ'] }],
+        links: [],
+      },
+      {
+        id: 2,
+        anime_id: 62856,
+        score: 49,
+        titles: ["Soarin'"],
+        song_key: 'ED',
+        song_type: 'Ending',
+        artists: [{ names: ['Ginger Root'] }],
+        links: [
+          {
+            platform: 'spotify',
+            main: true,
+            link: 'https://open.spotify.com/track/soarinTrackId12',
+          },
+        ],
+        other_link_ids: ['soarinTrackId12'],
+      },
+    ];
+
+    const rows = mergeThemeSongs(mal, hits);
+    expect(rows).toHaveLength(2);
+    expect(rows.filter((r) => r.type === 'Ending')).toHaveLength(1);
+    expect(rows.find((r) => r.type === 'Ending')?.hasResolvableTrackId).toBe(true);
+  });
 });
 
 describe('borrowSharedSpotifyMetadata', () => {

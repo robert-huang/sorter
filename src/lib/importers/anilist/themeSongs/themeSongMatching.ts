@@ -23,7 +23,10 @@ export function foldJapaneseRomanization(s: string): string {
 }
 
 function normalizeKey(s: string): string {
-  return foldJapaneseRomanization(s).replace(/\s+/g, ' ').trim();
+  return foldJapaneseRomanization(s)
+    .replace(/[\u2018\u2019\u201b]/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function comparableKey(s: string): string {

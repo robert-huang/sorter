@@ -41,6 +41,18 @@ describe('parseMalThemeString', () => {
       artist: 'ryo (supercell) feat. Mafumafu, gaku',
     });
   });
+
+  it('strips doubled / mismatched quote wrappers from Jikan theme strings', () => {
+    const parsed = parseMalThemeString(
+      `''Soarin\u2019'' by Ginger Root`,
+      'Ending',
+      0,
+    );
+    expect(parsed).toMatchObject({
+      title: 'Soarin',
+      artist: 'Ginger Root',
+    });
+  });
 });
 
 describe('parseMalThemes', () => {
