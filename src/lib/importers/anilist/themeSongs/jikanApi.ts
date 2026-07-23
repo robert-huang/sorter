@@ -1,3 +1,6 @@
+import { parseMalThemeString } from './malThemeParser';
+import { foldJapaneseRomanization } from './themeSongMatching';
+
 const JIKAN_BASE = 'https://api.jikan.moe/v4';
 
 export type JikanThemesData = {
@@ -41,70 +44,110 @@ async function fetchJson<T>(url: string): Promise<{ status: number; body: T | nu
   return { status: res.status, body };
 }
 
-function packThemes(openings: string[], endings: string[]): JikanThemesFetchResult {
-  if (openings.length === 0 && endings.length === 0) {
-    return {
-      data: { openings, endings },
-      status: 'empty',
-    };
+function themeStringDedupeKey(raw: string): string {
+  const parsed = parseMalThemeString(raw, 'Opening', 0);
+  const title = foldJapaneseRomanization(parsed.title.toLowerCase()).replace(
+    /[\u2018\u2019\u201b]/g,
+    "'",
+  );
+  const artist = foldJapaneseRomanization((parsed.artist ?? '').toLowerCase()).replace(
+    /[\u2018\u2019\u201b]/g,
+    "'",
+  );
+  return `${title}|${artist}`;
+}
+
+/** Union theme strings from multiple sources, deduping by parsed title + artist. */
+export function dedupeThemeStrings(strings: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of strings) {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const key = themeStringDedupeKey(trimmed);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    out.push(trimmed);
+  }
+  return out;
+}
+
+export function unionJikanThemesData(
+  ...sources: readonly (JikanThemesData | null | undefined)[]
+): JikanThemesData {
+  const openings: string[] = [];
+  const endings: string[] = [];
+  for (const source of sources) {
+    if (!source) {
+      continue;
+    }
+    openings.push(...source.openings);
+    endings.push(...source.endings);
   }
   return {
-    data: { openings, endings },
-    status: 'ok',
+    openings: dedupeThemeStrings(openings),
+    endings: dedupeThemeStrings(endings),
   };
 }
 
+function endpointReachable(status: number, hasPayload: boolean): boolean {
+  return hasPayload || status < 400;
+}
+
+/**
+ * Fetch Jikan `/themes` and `/full` in parallel and union openings/endings.
+ * Either endpoint can supply themes the other missed (504 vs empty endings).
+ */
 export async function fetchJikanThemes(malId: number): Promise<JikanThemesFetchResult> {
   const themesUrl = `${JIKAN_BASE}/anime/${malId}/themes`;
-  const themesRes = await fetchJson<JikanThemesResponse>(themesUrl);
-
-  if (themesRes.status === 504 || themesRes.status === 502 || themesRes.status === 503) {
-    const full = await fetchJikanThemesFromFull(malId);
-    return {
-      ...full,
-      themesHttpStatus: themesRes.status,
-    };
-  }
-
-  if (themesRes.body?.data) {
-    const result = packThemes(
-      themesRes.body.data.openings ?? [],
-      themesRes.body.data.endings ?? [],
-    );
-    return { ...result, themesHttpStatus: themesRes.status };
-  }
-
-  if (themesRes.status >= 400) {
-    const full = await fetchJikanThemesFromFull(malId);
-    return {
-      ...full,
-      themesHttpStatus: themesRes.status,
-    };
-  }
-
-  return {
-    data: { openings: [], endings: [] },
-    status: 'empty',
-    themesHttpStatus: themesRes.status,
-  };
-}
-
-async function fetchJikanThemesFromFull(malId: number): Promise<JikanThemesFetchResult> {
   const fullUrl = `${JIKAN_BASE}/anime/${malId}/full`;
-  const fullRes = await fetchJson<JikanFullResponse>(fullUrl);
-  if (!fullRes.body?.data?.theme) {
+
+  const [themesRes, fullRes] = await Promise.all([
+    fetchJson<JikanThemesResponse>(themesUrl),
+    fetchJson<JikanFullResponse>(fullUrl),
+  ]);
+
+  const themesData = themesRes.body?.data;
+  const fullTheme = fullRes.body?.data?.theme;
+  const merged = unionJikanThemesData(
+    themesData
+      ? { openings: themesData.openings ?? [], endings: themesData.endings ?? [] }
+      : null,
+    fullTheme
+      ? { openings: fullTheme.openings ?? [], endings: fullTheme.endings ?? [] }
+      : null,
+  );
+
+  const themesReachable = endpointReachable(themesRes.status, themesData != null);
+  const fullReachable = endpointReachable(fullRes.status, fullTheme != null);
+  const base = {
+    themesHttpStatus: themesRes.status,
+    fullHttpStatus: fullRes.status,
+  };
+
+  if (merged.openings.length === 0 && merged.endings.length === 0) {
+    if (!themesReachable && !fullReachable) {
+      return {
+        data: null,
+        status: 'failed',
+        ...base,
+      };
+    }
     return {
-      data: null,
-      status: 'failed',
-      fullHttpStatus: fullRes.status,
+      data: merged,
+      status: 'empty',
+      ...base,
     };
   }
-  const theme = fullRes.body.data.theme;
-  const result = packThemes(theme.openings ?? [], theme.endings ?? []);
+
   return {
-    ...result,
-    fullHttpStatus: fullRes.status,
-    status: result.status === 'empty' ? 'empty' : result.status,
+    data: merged,
+    status: 'ok',
+    ...base,
   };
 }
 

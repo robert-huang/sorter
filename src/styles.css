@@ -7820,9 +7820,25 @@ html {
 }
 
 .tool-weekly-theme-songs-heading {
-  margin: 0 0 10px;
+  margin: 0;
   font-size: 13px;
   font-weight: 600;
+}
+
+.tool-weekly-theme-songs-heading-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+.tool-weekly-theme-songs-heading-row .tool-weekly-theme-songs-heading {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tool-weekly-theme-songs-refresh {
+  flex: 0 0 auto;
 }
 
 .tool-weekly-theme-songs-groups {
@@ -7870,6 +7886,9 @@ html {
 .tool-weekly-theme-songs-pending-label {
   margin: 0 0 6px;
   color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .tool-weekly-theme-songs-pending-list {

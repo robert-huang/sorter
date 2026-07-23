@@ -12,7 +12,11 @@ import {
   searchAniplaylist,
   AniplaylistSearchError,
 } from './themeSongs/aniplaylistApi';
-import { fetchMalThemeStrings, formatMalThemeFailureDetail } from './themeSongs/malThemeFetch';
+import {
+  enrichMalThemesWithOfficialIfNeeded,
+  fetchMalThemeStrings,
+  formatMalThemeFailureDetail,
+} from './themeSongs/malThemeFetch';
 import { parseMalThemes } from './themeSongs/malThemeParser';
 import { mergeThemeSongs } from './themeSongs/mergeThemeSongs';
 import { enrichRowsWithSpotifyIsrc } from './themeSongs/spotifyIsrc';
@@ -229,8 +233,8 @@ export async function expandMediaThemeSongs(
     return { mediaId, malId: null, rowsWritten: 0, aniplaylistAvailable: true };
   }
 
-  const themeResult = await fetchMalThemeStrings(malId);
-  const malThemes = parseMalThemes(
+  let themeResult = await fetchMalThemeStrings(malId);
+  let malThemes = parseMalThemes(
     themeResult.data?.openings ?? [],
     themeResult.data?.endings ?? [],
   );
@@ -262,6 +266,21 @@ export async function expandMediaThemeSongs(
         const animeId = cluster[0]?.anime_id;
         aniHits = allHits.filter(
           (h) => h.anime_id === animeId && ['Opening', 'Ending', 'Insert'].includes(h.song_type),
+        );
+      }
+
+      const enriched = await enrichMalThemesWithOfficialIfNeeded(themeResult, malId, {
+        aniplaylistThemeCount: aniHits.length,
+        aniplaylistEndingCount: aniHits.filter((h) => h.song_type === 'Ending').length,
+      });
+      if (enriched !== themeResult) {
+        themeResult = enriched;
+        if (themeResult.status !== 'failed') {
+          sources.jikan = okSource();
+        }
+        malThemes = parseMalThemes(
+          themeResult.data?.openings ?? [],
+          themeResult.data?.endings ?? [],
         );
       }
     } catch (err) {

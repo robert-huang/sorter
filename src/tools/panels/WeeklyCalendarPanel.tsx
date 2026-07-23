@@ -20,6 +20,7 @@ import {
   fetchWeeklyCalendarWatchingEntries,
 } from './weeklyCalendarApi';
 import { productionReads } from '../../lib/importers/anilist/readQueries';
+import { runAnilistMediaThemeSongsExpansion } from '../../lib/importers/anilist/runners';
 import {
   groupThemeRowsByType,
   THEME_SONG_SECTION_LABEL,
@@ -325,11 +326,17 @@ function WeeklyCalendarThemeSongsPanel({
   themeSongCache,
   playlistCache,
   onOpenMedia,
+  onRefreshThemeSongs,
+  refreshingCached,
+  refreshingPending,
 }: {
   shows: WeeklyCalendarEntry[];
   themeSongCache: Map<number, MediaThemeSongsPayload>;
   playlistCache: ReturnType<typeof useSpotifyPlaylistCache>;
   onOpenMedia: ToolPanelProps['onOpenMedia'];
+  onRefreshThemeSongs: (mediaIds: number[], kind: 'cached' | 'pending') => void;
+  refreshingCached: boolean;
+  refreshingPending: boolean;
 }) {
   if (shows.length === 0) {
     return null;
@@ -343,7 +350,21 @@ function WeeklyCalendarThemeSongsPanel({
 
   return (
     <section className="tool-weekly-theme-songs-panel">
-      <h3 className="tool-weekly-theme-songs-heading">Theme songs (cached)</h3>
+      <div className="tool-weekly-theme-songs-heading-row">
+        <h3 className="tool-weekly-theme-songs-heading">Theme songs (cached)</h3>
+        {withCache.length > 0 ? (
+          <button
+            type="button"
+            className="btn small tool-weekly-theme-songs-refresh"
+            onClick={() => onRefreshThemeSongs(withCache.map((show) => show.id), 'cached')}
+            disabled={refreshingCached || refreshingPending}
+            title="Re-fetch theme songs for all cached shows"
+            aria-label="Refresh all cached theme songs"
+          >
+            {refreshingCached ? '…' : '↻'}
+          </button>
+        ) : null}
+      </div>
       {withCache.length === 0 ? (
         <p className="tool-muted">
           No cached theme songs for shows in this chart. Open a show&apos;s detail modal to load
@@ -369,7 +390,19 @@ function WeeklyCalendarThemeSongsPanel({
       {withoutCache.length > 0 ? (
         <div className="tool-weekly-theme-songs-pending">
           <p className="tool-weekly-theme-songs-pending-label">
-            Not loaded yet ({withoutCache.length})
+            <span>Not loaded yet ({withoutCache.length})</span>
+            <button
+              type="button"
+              className="btn small tool-weekly-theme-songs-refresh"
+              onClick={() =>
+                onRefreshThemeSongs(withoutCache.map((show) => show.id), 'pending')
+              }
+              disabled={refreshingCached || refreshingPending}
+              title="Fetch theme songs for all not-yet-loaded shows"
+              aria-label="Refresh all not loaded theme songs"
+            >
+              {refreshingPending ? '…' : '↻'}
+            </button>
           </p>
           <ul className="tool-weekly-theme-songs-pending-list">
             {withoutCache.map((show) => (
@@ -578,6 +611,8 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
   const [themeSongCache, setThemeSongCache] = useState<Map<number, MediaThemeSongsPayload>>(
     () => new Map(),
   );
+  const [refreshingThemeSongsCached, setRefreshingThemeSongsCached] = useState(false);
+  const [refreshingThemeSongsPending, setRefreshingThemeSongsPending] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const chartSessionRef = useRef(0);
   const fetchedUsernameRef = useRef<string | null>(null);
@@ -663,6 +698,35 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
       cancelled = true;
     };
   }, [form.showThemeSongs, result, dbSyncRevision]);
+
+  const onRefreshThemeSongs = useCallback(
+    (mediaIds: number[], kind: 'cached' | 'pending') => {
+      if (mediaIds.length === 0) {
+        return;
+      }
+      const setRefreshing =
+        kind === 'cached' ? setRefreshingThemeSongsCached : setRefreshingThemeSongsPending;
+      void (async () => {
+        setRefreshing(true);
+        try {
+          for (const mediaId of mediaIds) {
+            await runAnilistMediaThemeSongsExpansion(mediaId, undefined, { force: true });
+            const expansion = await productionReads.getMediaThemeSongsExpansion(mediaId);
+            if (expansion) {
+              setThemeSongCache((prev) => {
+                const next = new Map(prev);
+                next.set(mediaId, expansion.payload);
+                return next;
+              });
+            }
+          }
+        } finally {
+          setRefreshing(false);
+        }
+      })();
+    },
+    [],
+  );
 
   const onCancel = useCallback(() => {
     abortRef.current?.abort();
@@ -953,6 +1017,9 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
               themeSongCache={themeSongCache}
               playlistCache={playlistCache}
               onOpenMedia={onOpenMedia}
+              onRefreshThemeSongs={onRefreshThemeSongs}
+              refreshingCached={refreshingThemeSongsCached}
+              refreshingPending={refreshingThemeSongsPending}
             />
           ) : null}
         </>
