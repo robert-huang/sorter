@@ -33,8 +33,7 @@ import { ThemeSongRowC } from './themeSongRowC';
 import { formatAnilistProgress } from './anilistProgressLabel';
 import { RemoveGlyph } from './RemoveGlyph';
 import {
-  getPlaylistCache,
-  getSelectedSpotifyPlaylist,
+  getActivePlaylistCache,
   subscribeSpotifyPlaylist,
 } from '../lib/spotify/spotifyPlaylist';
 import {
@@ -321,12 +320,7 @@ export function AnilistDetailModal({
 
   const playlistCache = useMemo(() => {
     void playlistCacheRevision;
-    const selected = getSelectedSpotifyPlaylist();
-    const cache = getPlaylistCache();
-    if (!selected || !cache || cache.playlistId !== selected.id) {
-      return null;
-    }
-    return cache;
+    return getActivePlaylistCache();
   }, [playlistCacheRevision]);
 
   useEffect(() => {

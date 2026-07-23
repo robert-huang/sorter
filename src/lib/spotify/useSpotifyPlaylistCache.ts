@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  getPlaylistCache,
-  getSelectedSpotifyPlaylist,
+  getActivePlaylistCache,
   subscribeSpotifyPlaylist,
   type SpotifyPlaylistCache,
 } from './spotifyPlaylist';
 
-/** Selected playlist cache, refreshed when the user picks a playlist or refreshes tracks. */
+/** Active playlist cache for matching — null when no playlist is selected. */
 export function useSpotifyPlaylistCache(): SpotifyPlaylistCache | null {
   const [revision, setRevision] = useState(0);
 
@@ -14,11 +13,6 @@ export function useSpotifyPlaylistCache(): SpotifyPlaylistCache | null {
 
   return useMemo(() => {
     void revision;
-    const selected = getSelectedSpotifyPlaylist();
-    const cache = getPlaylistCache();
-    if (!selected || !cache || cache.playlistId !== selected.id) {
-      return null;
-    }
-    return cache;
+    return getActivePlaylistCache();
   }, [revision]);
 }

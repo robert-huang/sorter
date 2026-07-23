@@ -444,6 +444,9 @@ export function signOutSpotify(): void {
     /* ignore */
   }
   emitChange();
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('spotify-playlist-changed'));
+  }
 }
 
 export function subscribeSpotifyAuth(listener: () => void): () => void {
