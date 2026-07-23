@@ -2,6 +2,11 @@ import type { AniplaylistHit } from './aniplaylistApi';
 import { isAniplaylistThemeType } from './aniplaylistApi';
 import type { ParsedMalTheme } from './malThemeParser';
 import {
+  artistsRoughlyMatch,
+  malThemeMatchesAniplaylistHit,
+  titlesRoughlyMatch,
+} from './themeSongMatching';
+import {
   buildSpotifySearchUrl,
   collectSpotifyTrackIds,
   parseSpotifyTrackIdFromUrl,
@@ -18,72 +23,7 @@ function malMatchKey(theme: ParsedMalTheme): string {
   return `${theme.type}\0${normalizeKey(theme.title)}\0${normalizeKey(theme.artist ?? '')}`;
 }
 
-function titlesRoughlyMatch(a: string, b: string): boolean {
-  const na = normalizeKey(a);
-  const nb = normalizeKey(b);
-  if (!na || !nb) {
-    return false;
-  }
-  return na === nb || na.includes(nb) || nb.includes(na);
-}
-
-const CV_CREDIT_RE = /\(CV:\s*([^)]+)\)/i;
-
-function extractCvCredit(artist: string): string | null {
-  const match = CV_CREDIT_RE.exec(artist);
-  return match?.[1]?.trim() ?? null;
-}
-
-/** Drop parenthetical credits so token sets compare performer names only. */
-function stripArtistParentheticals(artist: string): string {
-  return artist
-    .replace(/\(CV:[^)]*\)/gi, ' ')
-    .replace(/\([^)]*\)/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function tokenizeArtistName(artist: string): Set<string> {
-  const stripped = stripArtistParentheticals(artist).toLowerCase();
-  const tokens = stripped.split(/[\s,]+/).filter((token) => token.length > 0);
-  return new Set(tokens);
-}
-
-function artistTokenSetsMatch(a: string, b: string): boolean {
-  const tokensA = tokenizeArtistName(a);
-  const tokensB = tokenizeArtistName(b);
-  if (tokensA.size === 0 || tokensB.size === 0 || tokensA.size !== tokensB.size) {
-    return false;
-  }
-  for (const token of tokensA) {
-    if (!tokensB.has(token)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-/** Looser artist match: substring, CV credits, and token-set (word-order insensitive). */
-export function artistsRoughlyMatch(a: string, b: string): boolean {
-  if (titlesRoughlyMatch(a, b)) {
-    return true;
-  }
-  const cvA = extractCvCredit(a);
-  const cvB = extractCvCredit(b);
-  if (cvA && cvB && titlesRoughlyMatch(cvA, cvB)) {
-    return true;
-  }
-  if (artistTokenSetsMatch(a, b)) {
-    return true;
-  }
-  if (cvA && artistTokenSetsMatch(cvA, b)) {
-    return true;
-  }
-  if (cvB && artistTokenSetsMatch(cvB, a)) {
-    return true;
-  }
-  return false;
-}
+export { artistsRoughlyMatch, titlesRoughlyMatch } from './themeSongMatching';
 
 /** Map AniPlaylist `song_key` (OP/ED/IN) to MAL-style zero-based sort order. */
 export function sortOrderFromAniplaylistSongKey(
@@ -171,19 +111,7 @@ function resolveOrphanAniplaylistSortOrder(hit: AniplaylistHit, orphanIndex: num
 }
 
 function malMatchesAni(mal: ParsedMalTheme, hit: AniplaylistHit): boolean {
-  if (mal.type !== hit.song_type) {
-    return false;
-  }
-  const titleOk = hit.titles.some((t) => titlesRoughlyMatch(t, mal.title));
-  if (!titleOk) {
-    return false;
-  }
-  if (!mal.artist) {
-    return true;
-  }
-  return (hit.artists ?? []).some((a) =>
-    (a.names ?? []).some((n) => artistsRoughlyMatch(n, mal.artist ?? '')),
-  );
+  return malThemeMatchesAniplaylistHit(mal, hit);
 }
 
 function hitToPartialRow(hit: AniplaylistHit, sortOrder: number): MediaThemeSongRow {

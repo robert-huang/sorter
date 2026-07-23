@@ -252,6 +252,11 @@ export async function expandMediaThemeSongs(
       const cluster = findMatchingAnimeCluster(
         clusters,
         malThemes.map((t) => ({ type: t.type, title: t.title, artist: t.artist })),
+        {
+          english: media.title_english,
+          romaji: media.title_romaji,
+          native: media.title_native,
+        },
       );
       if (cluster) {
         const animeId = cluster[0]?.anime_id;

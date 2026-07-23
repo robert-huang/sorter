@@ -20,6 +20,10 @@ describe('artistsRoughlyMatch', () => {
   it('does not match different performers on the same title', () => {
     expect(artistsRoughlyMatch('Artist A', 'Artist B')).toBe(false);
   });
+
+  it('matches Japanese romanization variants on artist tokens', () => {
+    expect(artistsRoughlyMatch('Yuiko Oohara', 'Yuiko Ohara')).toBe(true);
+  });
 });
 
 describe('sortOrderFromAniplaylistSongKey', () => {
@@ -105,6 +109,32 @@ describe('mergeThemeSongs', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.malTitle).toBe('Kanjou Glass (感情グラス)');
     expect(rows[0]?.songKey).toBe('ED6');
+    expect(rows[0]?.hasResolvableTrackId).toBe(true);
+  });
+
+  it('merges Takagi OP despite Oohara vs Ohara romanization', () => {
+    const mal = parseMalThemes(['"Zero Centimeter" by Yuiko Oohara'], []);
+    const aniHit: AniplaylistHit = {
+      id: 5,
+      anime_id: 1483,
+      score: 60,
+      titles: ['Zero Centimeter'],
+      song_key: 'OP',
+      song_type: 'Opening',
+      artists: [{ names: ['Yuiko Ohara'] }],
+      links: [
+        {
+          platform: 'spotify',
+          main: true,
+          link: 'https://open.spotify.com/track/abc123def456ghi789jkl',
+        },
+      ],
+      other_link_ids: ['abc123def456ghi789jkl'],
+    };
+
+    const rows = mergeThemeSongs(mal, [aniHit]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.malTitle).toBe('Zero Centimeter');
     expect(rows[0]?.hasResolvableTrackId).toBe(true);
   });
 
