@@ -11,6 +11,7 @@ export type JikanThemesFetchResult = {
   status: 'ok' | 'empty' | 'failed';
   themesHttpStatus?: number;
   fullHttpStatus?: number;
+  malHttpStatus?: number;
 };
 
 type JikanThemesResponse = {
@@ -114,6 +115,9 @@ export function formatJikanFailureDetail(result: JikanThemesFetchResult): string
   }
   if (result.fullHttpStatus !== undefined) {
     parts.push(`full ${result.fullHttpStatus}`);
+  }
+  if (result.malHttpStatus !== undefined) {
+    parts.push(`mal ${result.malHttpStatus}`);
   }
   return parts.length > 0 ? parts.join(', ') : 'unavailable';
 }

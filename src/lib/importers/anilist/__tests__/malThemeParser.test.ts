@@ -27,6 +27,20 @@ describe('parseMalThemeString', () => {
       episodes: 'eps 1',
     });
   });
+
+  it('parses official MAL API hash-prefixed theme numbers', () => {
+    const parsed = parseMalThemeString(
+      '#1: "takt (タクト)" by ryo (supercell) feat. Mafumafu, gaku',
+      'Opening',
+      0,
+    );
+    expect(parsed).toMatchObject({
+      type: 'Opening',
+      sortOrder: 0,
+      title: 'takt (タクト)',
+      artist: 'ryo (supercell) feat. Mafumafu, gaku',
+    });
+  });
 });
 
 describe('parseMalThemes', () => {

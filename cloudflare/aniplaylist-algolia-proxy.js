@@ -3,7 +3,7 @@
  * referer (browser apps cannot set that header; Algolia blocks localhost/GH Pages).
  *
  * Deploy: `npx wrangler deploy cloudflare/aniplaylist-algolia-proxy.js`
- * Build: set `VITE_ANIPLAYLIST_PROXY_URL` to the worker URL (e.g. in GitHub secrets).
+ * Build: set `VITE_ANIPLAYLIST_PROXY_URL` (see scripts/worker-urls.mjs). Local prod-parity dev: `npm run dev:workers`.
  */
 
 const ALGOLIA_URL = 'https://p4b7ht5p18-dsn.algolia.net/1/indexes/*/queries';

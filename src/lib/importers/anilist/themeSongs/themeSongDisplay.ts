@@ -1,4 +1,5 @@
 import type { ThemeSongNameDisplayMode } from '../../../spotify/themeSongDisplayPreferences';
+import { parseAniplaylistSongKey } from './mergeThemeSongs';
 import type { MediaThemeSongRow, ThemeSongType } from './types';
 
 const CJK_CHAR_RE = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uff66-\uff9f]/;
@@ -143,14 +144,12 @@ export function themeSongTypeBadge(row: MediaThemeSongRow): string {
   if (row.type === 'Insert') {
     return 'IN';
   }
-  if (row.songKey) {
-    const key = row.songKey.trim();
-    if (row.type === 'Opening' && /^OP\d*$/i.test(key)) {
-      return key.toUpperCase();
+  if (row.songKey?.trim()) {
+    const parsed = parseAniplaylistSongKey(row.songKey, row.type);
+    if (parsed.badge) {
+      return parsed.badge;
     }
-    if (row.type === 'Ending' && /^ED\d*$/i.test(key)) {
-      return key.toUpperCase();
-    }
+    return row.songKey.trim();
   }
   if (row.type === 'Opening') {
     return row.sortOrder === 0 ? 'OP' : `OP${row.sortOrder + 1}`;
@@ -159,22 +158,29 @@ export function themeSongTypeBadge(row: MediaThemeSongRow): string {
 }
 
 /**
- * Episode line for inserts from AniPlaylist `song_key` (e.g. "IN ep 12" → "ep 12").
- * Falls back to MAL episode text when present.
+ * Episode appearance line from AniPlaylist `song_key` suffix or MAL episode text.
+ * e.g. `ED6 (ep 1)` → `ep 1`, `IN ep 12` → `ep 12`, MAL `(eps 1-12)` → `eps 1-12`.
  */
-export function themeSongInsertEpisodeLine(row: MediaThemeSongRow): string | null {
-  if (row.type !== 'Insert') {
-    return null;
-  }
-  if (row.songKey) {
-    const key = row.songKey.trim();
-    const match = /^IN\s+(.+)$/i.exec(key);
-    if (match) {
-      return match[1].trim();
+export function themeSongEpisodeLine(row: MediaThemeSongRow): string | null {
+  if (row.songKey?.trim()) {
+    const parsed = parseAniplaylistSongKey(row.songKey, row.type);
+    if (parsed.episodeLine) {
+      return parsed.episodeLine;
     }
   }
   if (row.malEpisodes) {
     return row.malEpisodes;
   }
   return null;
+}
+
+/**
+ * Episode line for inserts (legacy helper — prefer `themeSongEpisodeLine`).
+ * Falls back to MAL episode text when present.
+ */
+export function themeSongInsertEpisodeLine(row: MediaThemeSongRow): string | null {
+  if (row.type !== 'Insert') {
+    return null;
+  }
+  return themeSongEpisodeLine(row);
 }

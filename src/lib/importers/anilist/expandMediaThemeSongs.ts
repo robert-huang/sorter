@@ -1,5 +1,5 @@
 /**
- * Lazy theme-song expansion: AniList idMal → Jikan themes → AniPlaylist merge.
+ * Lazy theme-song expansion: AniList idMal → Jikan/MAL themes → AniPlaylist merge.
  */
 
 import type { AnilistImportContext } from './context';
@@ -12,7 +12,7 @@ import {
   searchAniplaylist,
   AniplaylistSearchError,
 } from './themeSongs/aniplaylistApi';
-import { fetchJikanThemes, formatJikanFailureDetail } from './themeSongs/jikanApi';
+import { fetchMalThemeStrings, formatMalThemeFailureDetail } from './themeSongs/malThemeFetch';
 import { parseMalThemes } from './themeSongs/malThemeParser';
 import { mergeThemeSongs } from './themeSongs/mergeThemeSongs';
 import { enrichRowsWithSpotifyIsrc } from './themeSongs/spotifyIsrc';
@@ -229,16 +229,16 @@ export async function expandMediaThemeSongs(
     return { mediaId, malId: null, rowsWritten: 0, aniplaylistAvailable: true };
   }
 
-  const jikanResult = await fetchJikanThemes(malId);
+  const themeResult = await fetchMalThemeStrings(malId);
   const malThemes = parseMalThemes(
-    jikanResult.data?.openings ?? [],
-    jikanResult.data?.endings ?? [],
+    themeResult.data?.openings ?? [],
+    themeResult.data?.endings ?? [],
   );
 
   const sources: ThemeSongSourcesHealth = {
     jikan:
-      jikanResult.status === 'failed'
-        ? failedSource(formatJikanFailureDetail(jikanResult))
+      themeResult.status === 'failed'
+        ? failedSource(formatMalThemeFailureDetail(themeResult))
         : okSource(),
     aniplaylist: okSource(),
   };

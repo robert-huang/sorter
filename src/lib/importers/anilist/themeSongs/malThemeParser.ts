@@ -8,7 +8,7 @@ export type ParsedMalTheme = {
 };
 
 const EPISODES_RE = /\((eps?\.?\s*[^)]+)\)\s*$/i;
-const NUMBERED_PREFIX_RE = /^(\d+)\s*:\s*/;
+const NUMBERED_PREFIX_RE = /^#?(\d+)\s*:\s*/;
 
 /**
  * Parse a MAL/Jikan theme string like:

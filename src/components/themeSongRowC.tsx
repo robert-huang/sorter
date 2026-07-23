@@ -4,7 +4,7 @@ import { normalizeSpotifySearchUrl } from '../lib/importers/anilist/themeSongs/s
 import {
   resolveThemeSongArtist,
   resolveThemeSongTitle,
-  themeSongInsertEpisodeLine,
+  themeSongEpisodeLine,
   themeSongTypeBadge,
 } from '../lib/importers/anilist/themeSongs/themeSongDisplay';
 import type { PlaylistMatchStatus } from '../lib/spotify/spotifyPlaylistMatch';
@@ -68,7 +68,7 @@ function ThemeSongTitleLink({
   return <>{title}</>;
 }
 
-function ThemeSongOpEdLine({
+function ThemeSongBody({
   row,
   title,
   artist,
@@ -77,31 +77,10 @@ function ThemeSongOpEdLine({
   title: string;
   artist: string | null;
 }) {
+  const episodeLine = themeSongEpisodeLine(row);
+  const useStackedLayout = row.type === 'Insert' || episodeLine !== null;
   return (
-    <span className="anilist-detail-theme-song-line">
-      <ThemeSongTitleLink row={row} title={title} />
-      {artist ? (
-        <>
-          <span className="anilist-detail-theme-song-sep"> - </span>
-          <span>{artist}</span>
-        </>
-      ) : null}
-    </span>
-  );
-}
-
-function ThemeSongInsertLines({
-  row,
-  title,
-  artist,
-}: {
-  row: MediaThemeSongRow;
-  title: string;
-  artist: string | null;
-}) {
-  const episodeLine = themeSongInsertEpisodeLine(row);
-  return (
-    <div className="anilist-detail-theme-song-insert-body">
+    <div className={useStackedLayout ? 'anilist-detail-theme-song-insert-body' : undefined}>
       <span className="anilist-detail-theme-song-line">
         <ThemeSongTitleLink row={row} title={title} />
         {artist ? (
@@ -132,11 +111,7 @@ export function ThemeSongRowC({ row, playlistStatus, showPlaylistMatch }: Props)
       </div>
       <div className="anilist-detail-theme-song-text">
         {showPlaylistMatch ? themeSongPlaylistIndicator(playlistStatus) : null}
-        {isInsert ? (
-          <ThemeSongInsertLines row={row} title={title} artist={artist} />
-        ) : (
-          <ThemeSongOpEdLine row={row} title={title} artist={artist} />
-        )}
+        <ThemeSongBody row={row} title={title} artist={artist} />
       </div>
     </li>
   );

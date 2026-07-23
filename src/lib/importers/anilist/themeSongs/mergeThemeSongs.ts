@@ -90,34 +90,84 @@ export function sortOrderFromAniplaylistSongKey(
   songKey: string,
   type: ThemeSongType,
 ): number | null {
+  return parseAniplaylistSongKey(songKey, type).sortOrder;
+}
+
+export type ParsedAniplaylistSongKey = {
+  sortOrder: number | null;
+  /** Badge label: OP, OP2, ED, ED6, IN, etc. */
+  badge: string | null;
+  /** Episode appearance text from trailing `song_key` suffix, e.g. `ep 1`. */
+  episodeLine: string | null;
+};
+
+function episodeLineFromSongKeySuffix(suffix: string): string | null {
+  const trimmed = suffix.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const paren = /^\((.+)\)$/.exec(trimmed);
+  const line = (paren?.[1] ?? trimmed).trim();
+  return line.length > 0 ? line : null;
+}
+
+function parseOpEdAniplaylistSongKey(
+  key: string,
+  prefix: 'OP' | 'ED',
+): ParsedAniplaylistSongKey | null {
+  const match = new RegExp(`^${prefix}\\s*(\\d*)(.*)$`, 'i').exec(key);
+  if (!match) {
+    return null;
+  }
+  const num = match[1] === '' ? 1 : Number(match[1]);
+  return {
+    sortOrder: Number.isFinite(num) && num >= 1 ? num - 1 : null,
+    badge: match[1] ? `${prefix}${match[1]}` : prefix,
+    episodeLine: episodeLineFromSongKeySuffix(match[2] ?? ''),
+  };
+}
+
+/**
+ * Parse AniPlaylist `song_key` prefix (allows trailing episode text like `ED6 (ep 1)`).
+ */
+export function parseAniplaylistSongKey(
+  songKey: string,
+  type: ThemeSongType,
+): ParsedAniplaylistSongKey {
   const key = songKey.trim();
+  if (!key) {
+    return { sortOrder: null, badge: null, episodeLine: null };
+  }
+
   if (type === 'Opening') {
-    const match = /^OP\s*(\d*)$/i.exec(key);
-    if (match) {
-      const num = match[1] === '' ? 1 : Number(match[1]);
-      return Number.isFinite(num) && num >= 1 ? num - 1 : null;
-    }
+    return parseOpEdAniplaylistSongKey(key, 'OP') ?? { sortOrder: null, badge: null, episodeLine: null };
   }
+
   if (type === 'Ending') {
-    const match = /^ED\s*(\d*)$/i.exec(key);
-    if (match) {
-      const num = match[1] === '' ? 1 : Number(match[1]);
-      return Number.isFinite(num) && num >= 1 ? num - 1 : null;
-    }
+    return parseOpEdAniplaylistSongKey(key, 'ED') ?? { sortOrder: null, badge: null, episodeLine: null };
   }
+
   if (type === 'Insert') {
-    const match = /^IN\s+ep\s*(\d+)/i.exec(key);
+    const match = /^IN\s+(.+)$/i.exec(key);
     if (match) {
-      const ep = Number(match[1]);
-      return Number.isFinite(ep) ? ep - 1 : null;
+      const episodeLine = match[1].trim();
+      const epNum = /^ep\s*(\d+)/i.exec(episodeLine);
+      const ep = epNum ? Number(epNum[1]) : NaN;
+      return {
+        sortOrder: Number.isFinite(ep) ? ep - 1 : null,
+        badge: 'IN',
+        episodeLine: episodeLine.length > 0 ? episodeLine : null,
+      };
     }
+    return { sortOrder: null, badge: 'IN', episodeLine: null };
   }
-  return null;
+
+  return { sortOrder: null, badge: null, episodeLine: null };
 }
 
 function resolveOrphanAniplaylistSortOrder(hit: AniplaylistHit, orphanIndex: number): number {
-  const fromKey = sortOrderFromAniplaylistSongKey(hit.song_key, hit.song_type as ThemeSongType);
-  return fromKey ?? 1000 + orphanIndex;
+  const fromKey = parseAniplaylistSongKey(hit.song_key, hit.song_type as ThemeSongType).sortOrder;
+  return fromKey ?? orphanIndex;
 }
 
 function malMatchesAni(mal: ParsedMalTheme, hit: AniplaylistHit): boolean {
@@ -206,6 +256,11 @@ export function mergeThemeSongs(
   const matchedAni = new Set<number>();
   const matchedMal = new Set<string>();
   const rows: MediaThemeSongRow[] = [];
+  const orphanIndexByType: Record<ThemeSongType, number> = {
+    Opening: 0,
+    Ending: 0,
+    Insert: 0,
+  };
 
   for (const mal of malThemes) {
     const key = malMatchKey(mal);
@@ -229,11 +284,14 @@ export function mergeThemeSongs(
     }
   }
 
-  themeHits.forEach((hit, index) => {
+  themeHits.forEach((hit) => {
     if (matchedAni.has(hit.id)) {
       return;
     }
-    rows.push(hitToPartialRow(hit, resolveOrphanAniplaylistSortOrder(hit, index)));
+    const type = hit.song_type as ThemeSongType;
+    const orphanIndex = orphanIndexByType[type];
+    orphanIndexByType[type] += 1;
+    rows.push(hitToPartialRow(hit, resolveOrphanAniplaylistSortOrder(hit, orphanIndex)));
   });
 
   rows.sort((a, b) => {

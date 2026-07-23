@@ -5,6 +5,7 @@ import {
   resolveThemeSongArtist,
   resolveThemeSongTitle,
   stripNativeParenthetical,
+  themeSongEpisodeLine,
   themeSongInsertEpisodeLine,
   themeSongTypeBadge,
   groupThemeRowsByType,
@@ -28,6 +29,12 @@ describe('themeSongTypeBadge', () => {
   it('uses aniplaylist song_key for openings and endings', () => {
     expect(themeSongTypeBadge(row({ type: 'Opening', songKey: 'OP2' }))).toBe('OP2');
     expect(themeSongTypeBadge(row({ type: 'Ending', songKey: 'ED' }))).toBe('ED');
+    expect(themeSongTypeBadge(row({ type: 'Ending', songKey: 'ED6 (ep 1)' }))).toBe('ED6');
+  });
+
+  it('allows multiple rows to share the same aniplaylist ED label', () => {
+    const badge = themeSongTypeBadge(row({ type: 'Ending', songKey: 'ED1 (ep 1)', sortOrder: 1002 }));
+    expect(badge).toBe('ED1');
   });
 
   it('shows IN for inserts regardless of song_key detail', () => {
@@ -41,26 +48,46 @@ describe('themeSongTypeBadge', () => {
   });
 });
 
-describe('themeSongInsertEpisodeLine', () => {
-  it('parses episode text from aniplaylist song_key', () => {
+describe('themeSongEpisodeLine', () => {
+  it('parses episode text from aniplaylist insert song_key', () => {
     expect(
-      themeSongInsertEpisodeLine(row({ type: 'Insert', songKey: 'IN ep 12' })),
+      themeSongEpisodeLine(row({ type: 'Insert', songKey: 'IN ep 12' })),
     ).toBe('ep 12');
     expect(
-      themeSongInsertEpisodeLine(row({ type: 'Insert', songKey: 'IN ep 4 & 12' })),
+      themeSongEpisodeLine(row({ type: 'Insert', songKey: 'IN ep 4 & 12' })),
     ).toBe('ep 4 & 12');
+  });
+
+  it('parses episode suffix from aniplaylist OP/ED song_key', () => {
+    expect(
+      themeSongEpisodeLine(row({ type: 'Ending', songKey: 'ED6 (ep 1)' })),
+    ).toBe('ep 1');
+    expect(
+      themeSongEpisodeLine(row({ type: 'Ending', songKey: 'ED2 (eps 3-4)' })),
+    ).toBe('eps 3-4');
+    expect(themeSongEpisodeLine(row({ type: 'Opening', songKey: 'OP' }))).toBeNull();
   });
 
   it('falls back to mal episode text', () => {
     expect(
-      themeSongInsertEpisodeLine(
+      themeSongEpisodeLine(
         row({ type: 'Insert', malEpisodes: 'Episode 5' }),
       ),
     ).toBe('Episode 5');
+    expect(
+      themeSongEpisodeLine(row({ type: 'Ending', malEpisodes: 'eps 1-12' })),
+    ).toBe('eps 1-12');
   });
+});
 
-  it('returns null for non-insert rows', () => {
-    expect(themeSongInsertEpisodeLine(row({ type: 'Opening', songKey: 'OP' }))).toBeNull();
+describe('themeSongInsertEpisodeLine', () => {
+  it('only returns lines for inserts', () => {
+    expect(
+      themeSongInsertEpisodeLine(row({ type: 'Insert', songKey: 'IN ep 12' })),
+    ).toBe('ep 12');
+    expect(
+      themeSongInsertEpisodeLine(row({ type: 'Ending', songKey: 'ED6 (ep 1)' })),
+    ).toBeNull();
   });
 });
 
