@@ -1,0 +1,108 @@
+import type { ReactNode } from 'react';
+import type { MediaThemeSongRow } from '../lib/importers/anilist/themeSongs/types';
+import {
+  themeSongInsertEpisodeLine,
+  themeSongTypeBadge,
+} from '../lib/importers/anilist/themeSongs/themeSongDisplay';
+import type { PlaylistMatchStatus } from '../lib/spotify/spotifyPlaylistMatch';
+
+type Props = {
+  row: MediaThemeSongRow;
+  playlistStatus: PlaylistMatchStatus;
+  showPlaylistMatch: boolean;
+};
+
+function themeSongPlaylistIndicator(status: PlaylistMatchStatus): ReactNode {
+  if (status === 'in') {
+    return (
+      <span
+        title="In your Spotify playlist"
+        aria-label="In your Spotify playlist"
+        className="anilist-detail-theme-song-playlist-dot is-in"
+      >
+        ●
+      </span>
+    );
+  }
+  if (status === 'out') {
+    return (
+      <span
+        title="Not in your Spotify playlist"
+        aria-label="Not in your Spotify playlist"
+        className="anilist-detail-theme-song-playlist-dot is-out"
+      >
+        ●
+      </span>
+    );
+  }
+  return null;
+}
+
+function ThemeSongTitleLink({ row }: { row: MediaThemeSongRow }) {
+  if (row.spotifyUrl) {
+    return (
+      <a
+        href={row.spotifyUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {row.displayTitle}
+      </a>
+    );
+  }
+  return <>{row.displayTitle}</>;
+}
+
+function ThemeSongOpEdLine({ row }: { row: MediaThemeSongRow }) {
+  const artist = row.displayArtist?.trim();
+  return (
+    <span className="anilist-detail-theme-song-line">
+      <ThemeSongTitleLink row={row} />
+      {artist ? (
+        <>
+          <span className="anilist-detail-theme-song-sep"> - </span>
+          <span>{artist}</span>
+        </>
+      ) : null}
+    </span>
+  );
+}
+
+function ThemeSongInsertLines({ row }: { row: MediaThemeSongRow }) {
+  const artist = row.displayArtist?.trim();
+  const episodeLine = themeSongInsertEpisodeLine(row);
+  return (
+    <div className="anilist-detail-theme-song-insert-body">
+      <span className="anilist-detail-theme-song-line">
+        <ThemeSongTitleLink row={row} />
+        {artist ? (
+          <>
+            <span className="anilist-detail-theme-song-sep"> - </span>
+            <span>{artist}</span>
+          </>
+        ) : null}
+      </span>
+      {episodeLine ? (
+        <div className="anilist-detail-theme-song-insert-ep">{episodeLine}</div>
+      ) : null}
+    </div>
+  );
+}
+
+export function ThemeSongRowC({ row, playlistStatus, showPlaylistMatch }: Props) {
+  const isInsert = row.type === 'Insert';
+  return (
+    <li
+      className={`anilist-detail-theme-song-item${isInsert ? ' is-insert' : ''}`}
+    >
+      <div className="anilist-detail-theme-song-type" aria-hidden="true">
+        {themeSongTypeBadge(row)}
+      </div>
+      <div className="anilist-detail-theme-song-text">
+        {showPlaylistMatch ? themeSongPlaylistIndicator(playlistStatus) : null}
+        {isInsert ? <ThemeSongInsertLines row={row} /> : <ThemeSongOpEdLine row={row} />}
+      </div>
+    </li>
+  );
+}

@@ -4,6 +4,7 @@ import { SettingsGitHubLink } from './SettingsGitHubLink';
 import { SlotList } from './SlotList';
 import { CloudBackupSection } from './CloudBackupSection';
 import { AnilistAccountsSection } from './AnilistAccountsSection';
+import { SpotifySection } from './SpotifySection';
 import { SourceDatabasesSection } from './sourceDatabasesSection';
 import type { SlotsManifest } from '../lib/types';
 
@@ -402,6 +403,7 @@ export function SettingsMenu({
                       a http(s) origin to enable it.
                     </div>
                     <AnilistAccountsSection />
+                    <SpotifySection />
                   </>
                 ) : (
                   <SourceDatabasesSection
@@ -477,13 +479,19 @@ export function SettingsMenu({
                 >
                   Sign out of cloud
                 </button>
-                {tab === 'databases' && <AnilistAccountsSection />}
+                {tab === 'databases' && (
+                  <>
+                    <AnilistAccountsSection />
+                    <SpotifySection />
+                  </>
+                )}
               </>
             )}
             {tab === 'databases' && cloudStatus !== 'ready' && cloudStatus !== 'unavailable' && (
               <>
                 <div className="settings-divider" />
                 <AnilistAccountsSection />
+                <SpotifySection />
               </>
             )}
             <div className="settings-divider" />

@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import type { ProxyOptions } from 'vite';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
@@ -10,6 +11,23 @@ const crossOriginIsolationHeaders = {
   'Cross-Origin-Embedder-Policy': 'credentialless',
 };
 
+/**
+ * AniPlaylist's Algolia key is referer-locked to aniplaylist.com. Browsers
+ * cannot spoof Origin/Referer on fetch, so dev/preview proxy server-side.
+ */
+const aniplaylistAlgoliaProxy: ProxyOptions = {
+  target: 'https://p4b7ht5p18-dsn.algolia.net',
+  changeOrigin: true,
+  secure: true,
+  rewrite: () => '/1/indexes/*/queries',
+  configure: (proxy) => {
+    proxy.on('proxyReq', (proxyReq) => {
+      proxyReq.setHeader('Origin', 'https://aniplaylist.com');
+      proxyReq.setHeader('Referer', 'https://aniplaylist.com/');
+    });
+  },
+};
+
 // base: './' so the built dist/ works both when served over http(s)://
 // and when opened directly as a file:// URL (double-click index.html).
 export default defineConfig({
@@ -17,9 +35,15 @@ export default defineConfig({
   base: './',
   server: {
     headers: crossOriginIsolationHeaders,
+    proxy: {
+      '/api/aniplaylist/algolia': aniplaylistAlgoliaProxy,
+    },
   },
   preview: {
     headers: crossOriginIsolationHeaders,
+    proxy: {
+      '/api/aniplaylist/algolia': aniplaylistAlgoliaProxy,
+    },
   },
   optimizeDeps: {
     exclude: ['@sqlite.org/sqlite-wasm'],
@@ -36,6 +60,7 @@ export default defineConfig({
         animeToAnime: resolve(__dirname, 'anime-to-anime.html'),
         tools: resolve(__dirname, 'tools.html'),
         anilistOAuthCallback: resolve(__dirname, 'anilist-oauth-callback.html'),
+        spotifyOAuthCallback: resolve(__dirname, 'spotify-oauth-callback.html'),
       },
     },
   },

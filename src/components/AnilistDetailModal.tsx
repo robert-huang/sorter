@@ -11,9 +11,11 @@ import {
   type MediaDetail,
   productionReads,
 } from '../lib/importers/anilist/readQueries';
+import type { MediaThemeSongsPayload } from '../lib/importers/anilist/themeSongs/types';
+import { THEME_SONG_TYPE_ORDER, type ThemeSongType } from '../lib/importers/anilist/themeSongs/types';
 import type { AnilistProgressEvent } from '../lib/importers/anilist/progress';
 import { filterProductionStaffRows } from '../lib/importers/anilist/staffRoleFilter';
-import { runAnilistMediaLazyExpansion, runAnilistMediaRelationsRefresh } from '../lib/importers/anilist/runners';
+import { runAnilistMediaLazyExpansion, runAnilistMediaRelationsRefresh, runAnilistMediaThemeSongsExpansion } from '../lib/importers/anilist/runners';
 import type { ToolsMediaRelationsResponse } from '../lib/importers/anilist/toolsMediaRelationsApi';
 import { formatMediaSourceForDisplay } from '../lib/importers/anilist/mediaSourceLabel';
 import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
@@ -26,10 +28,30 @@ import {
   mergeAnilistLinkClass,
 } from '../lib/importers/anilist/anilistLinks';
 import { useAnilistDisplayPreferences } from '../hooks/useAnilistDisplayPreferences';
+import { ThemeSongRowC } from './themeSongRowC';
 import { formatAnilistProgress } from './anilistProgressLabel';
 import { RemoveGlyph } from './RemoveGlyph';
+import {
+  getPlaylistCache,
+  getSelectedSpotifyPlaylist,
+  subscribeSpotifyPlaylist,
+} from '../lib/spotify/spotifyPlaylist';
+import {
+  matchThemeRowToPlaylist,
+} from '../lib/spotify/spotifyPlaylistMatch';
+import { subscribeSpotifyAuth } from '../lib/spotify/spotifyAuth';
+import {
+  allThemeSongSourcesFailed,
+  themeSongsSourceNotes,
+} from '../lib/importers/anilist/themeSongs/themeSongSources';
 
 const PRODUCTION_ROLE_MODE_KEY = 'anilist-detail-production-roles';
+
+const THEME_SONG_SECTION_LABEL: Record<ThemeSongType, string> = {
+  Opening: 'Openings',
+  Ending: 'Endings',
+  Insert: 'Inserts',
+};
 
 type ProductionRoleMode = 'key' | 'all';
 
@@ -73,6 +95,30 @@ function castEmptyMessage(status: MediaCastExpansionStatus | null): string {
     return 'No cast listed for this entry on AniList.';
   }
   return 'No cast cached yet. Click ↻ Refresh to pull from AniList.';
+}
+
+/**
+ * Empty-state copy for the Theme Songs section.
+ */
+function themeSongsEmptyMessage(
+  mediaType: string,
+  fetchedAt: number | null,
+  loading: boolean,
+  sourcesFailed: boolean,
+): string {
+  if (mediaType !== 'ANIME') {
+    return 'Theme songs are only available for anime.';
+  }
+  if (loading) {
+    return 'Loading theme songs…';
+  }
+  if (sourcesFailed) {
+    return 'Theme song sources unavailable (MAL/Jikan and AniPlaylist). Try ↻ Refresh later.';
+  }
+  if (fetchedAt === null) {
+    return 'No theme songs cached yet. Click ↻ Refresh.';
+  }
+  return 'No theme songs found for this entry.';
 }
 
 /**
@@ -247,6 +293,11 @@ export function AnilistDetailModal({
   const [expansionStatus, setExpansionStatus] =
     useState<MediaCastExpansionStatus | null>(null);
   const [relationsFetchedAt, setRelationsFetchedAt] = useState<number | null>(null);
+  const [themeSongsPayload, setThemeSongsPayload] =
+    useState<MediaThemeSongsPayload | null>(null);
+  const [themeSongsFetchedAt, setThemeSongsFetchedAt] = useState<number | null>(null);
+  const [themeSongsLoading, setThemeSongsLoading] = useState(false);
+  const [playlistCacheRevision, setPlaylistCacheRevision] = useState(0);
   const [productionRoleMode, setProductionRoleMode] =
     useState<ProductionRoleMode>(loadProductionRoleMode);
 
@@ -260,6 +311,44 @@ export function AnilistDetailModal({
       detail.media.type,
     );
   }, [detail, productionRoleMode]);
+
+  const themeRowsByType = useMemo(() => {
+    const groups: Record<ThemeSongType, MediaThemeSongsPayload['rows']> = {
+      Opening: [],
+      Ending: [],
+      Insert: [],
+    };
+    for (const row of themeSongsPayload?.rows ?? []) {
+      groups[row.type].push(row);
+    }
+    return groups;
+  }, [themeSongsPayload]);
+
+  const playlistCache = useMemo(() => {
+    void playlistCacheRevision;
+    const selected = getSelectedSpotifyPlaylist();
+    const cache = getPlaylistCache();
+    if (!selected || !cache || cache.playlistId !== selected.id) {
+      return null;
+    }
+    return cache;
+  }, [playlistCacheRevision]);
+
+  useEffect(() => {
+    const bump = () => setPlaylistCacheRevision((n) => n + 1);
+    const unsubPlaylist = subscribeSpotifyPlaylist(bump);
+    const unsubAuth = subscribeSpotifyAuth(bump);
+    return () => {
+      unsubPlaylist();
+      unsubAuth();
+    };
+  }, []);
+
+  const refreshThemeSongsFromDb = useCallback(async () => {
+    const expansion = await productionReads.getMediaThemeSongsExpansion(mediaId);
+    setThemeSongsPayload(expansion?.payload ?? null);
+    setThemeSongsFetchedAt(expansion?.fetchedAt ?? null);
+  }, [mediaId]);
 
   const onProductionRoleModeChange = useCallback((mode: ProductionRoleMode) => {
     setProductionRoleMode(mode);
@@ -288,6 +377,7 @@ export function AnilistDetailModal({
         setDetail(d);
         setExpansionStatus(status);
         setRelationsFetchedAt(relationsAt);
+        await refreshThemeSongsFromDb();
         setLoading(false);
         const needsExpansion =
           initialForceRefresh ||
@@ -329,6 +419,40 @@ export function AnilistDetailModal({
             }
           }
         }
+
+        if (!cancelled && d?.media.type === 'ANIME') {
+          const themeFetchedAt =
+            await productionReads.getMediaThemeSongsExpansionFetchedAt(mediaId);
+          const needsThemeExpansion =
+            initialForceRefresh ||
+            themeFetchedAt === null ||
+            isGraphTimestampStale(themeFetchedAt);
+          if (needsThemeExpansion) {
+            setThemeSongsLoading(true);
+            try {
+              await runAnilistMediaThemeSongsExpansion(
+                mediaId,
+                (e) => {
+                  if (!cancelled) setProgress(e);
+                },
+                initialForceRefresh ? { force: true } : undefined,
+              );
+              if (!cancelled) {
+                await refreshThemeSongsFromDb();
+              }
+            } catch {
+              if (!cancelled) {
+                await refreshThemeSongsFromDb();
+              }
+            } finally {
+              if (!cancelled) {
+                setThemeSongsLoading(false);
+              }
+            }
+          } else {
+            await refreshThemeSongsFromDb();
+          }
+        }
       } catch (err) {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : 'Could not load media.');
@@ -338,7 +462,7 @@ export function AnilistDetailModal({
     return () => {
       cancelled = true;
     };
-  }, [mediaId, loadTick, initialForceRefresh]);
+  }, [mediaId, loadTick, initialForceRefresh, refreshThemeSongsFromDb]);
 
   const onRefresh = useCallback(async () => {
     if (expanding) return;
@@ -354,6 +478,9 @@ export function AnilistDetailModal({
         mediaId,
         (e) => setProgress(e),
       );
+      await runAnilistMediaThemeSongsExpansion(mediaId, (e) => setProgress(e), {
+        force: true,
+      });
       const status = await productionReads.getMediaCastExpansionStatus(mediaId);
       const relationsAt =
         await productionReads.getMediaRelationsExpansionFetchedAt(mediaId);
@@ -362,6 +489,7 @@ export function AnilistDetailModal({
       if (relationsResponse) {
         onMediaRelationsRefreshed?.(mediaId, relationsResponse);
       }
+      await refreshThemeSongsFromDb();
       setLoadTick((t) => t + 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Refresh failed.');
@@ -369,23 +497,24 @@ export function AnilistDetailModal({
       setExpanding(false);
       setProgress(null);
     }
-  }, [mediaId, expanding, onMediaRelationsRefreshed]);
+  }, [mediaId, expanding, onMediaRelationsRefreshed, refreshThemeSongsFromDb]);
 
-  // Highlight the Refresh button when either cached section is older than
-  // the staleness threshold (>90d) — mirrors the staff modal's affordance
-  // so the freshness text isn't the only stale signal.
   const isCastStale =
     !!expansionStatus &&
     ((expansionStatus.charactersFetchedAt !== null &&
       isGraphTimestampStale(expansionStatus.charactersFetchedAt)) ||
       (expansionStatus.staffFetchedAt !== null &&
         isGraphTimestampStale(expansionStatus.staffFetchedAt)));
+  const isThemeSongsStale =
+    themeSongsFetchedAt !== null && isGraphTimestampStale(themeSongsFetchedAt);
+  const isModalCacheStale = isCastStale || isThemeSongsStale;
   const castStaleFetchedAt = expansionStatus
     ? oldestStaleGraphTimestamp([
         expansionStatus.charactersFetchedAt,
         expansionStatus.staffFetchedAt,
+        themeSongsFetchedAt,
       ])
-    : null;
+    : themeSongsFetchedAt;
 
   const title = pickTitle(detail, fallbackTitle);
   const m = detail?.media;
@@ -418,17 +547,17 @@ export function AnilistDetailModal({
           <button
             type="button"
             className={`btn small${
-              isCastStale && !expanding ? ' anilist-detail-refresh-stale' : ''
+              isModalCacheStale && !expanding ? ' anilist-detail-refresh-stale' : ''
             }`}
             onClick={() => void onRefresh()}
             disabled={expanding}
             title={
-              isCastStale && castStaleFetchedAt !== null
+              isModalCacheStale && castStaleFetchedAt !== null
                 ? graphStaleRefreshTooltip(
                     castStaleFetchedAt,
-                    "This entry's cached cast/staff",
+                    "This entry's cached details",
                   )
-                : 'Re-fetch cast & staff for this entry (does not auto-push)'
+                : 'Re-fetch cast, staff, relations & theme songs (does not auto-push)'
             }
           >
             {expanding ? 'Refreshing…' : '↻ Refresh'}
@@ -600,6 +729,17 @@ export function AnilistDetailModal({
                             : ' (fresh)'
                         }`}
                   </span>
+                  {m.type === 'ANIME' && (
+                    <span title="Theme songs cache">
+                      {themeSongsFetchedAt === null
+                        ? 'Theme songs: not cached'
+                        : `Theme songs: ${formatGraphCacheDate(themeSongsFetchedAt)}${
+                            isGraphTimestampStale(themeSongsFetchedAt)
+                              ? ' (stale >90d)'
+                              : ' (fresh)'
+                          }`}
+                    </span>
+                  )}
                 </div>
               )}
 
@@ -779,6 +919,74 @@ export function AnilistDetailModal({
                       </li>
                     ))}
                   </ul>
+                )}
+              </div>
+
+              <div className="anilist-detail-section">
+                <h4>
+                  Theme songs{' '}
+                  {themeSongsLoading && (
+                    <span
+                      style={{ color: 'var(--text-muted)', fontSize: 12, fontWeight: 'normal' }}
+                      aria-live="polite"
+                    >
+                      (loading…)
+                    </span>
+                  )}
+                </h4>
+                {themeSongsSourceNotes(themeSongsPayload?.sources).map((note) => (
+                  <p
+                    key={note}
+                    style={{ color: 'var(--text-muted)', fontSize: 12, margin: '0 0 8px' }}
+                  >
+                    {note}
+                  </p>
+                ))}
+                {themeSongsPayload &&
+                  !themeSongsPayload.sources &&
+                  !themeSongsPayload.aniplaylistAvailable && (
+                  <p
+                    style={{ color: 'var(--text-muted)', fontSize: 12, margin: '0 0 8px' }}
+                  >
+                    AniPlaylist unavailable — Spotify links not enriched.
+                  </p>
+                )}
+                {(themeSongsPayload?.rows.length ?? 0) === 0 && !themeSongsLoading && (
+                  <p style={{ color: 'var(--text-muted)', fontSize: 12, margin: 0 }}>
+                    {themeSongsEmptyMessage(
+                      m.type,
+                      themeSongsFetchedAt,
+                      themeSongsLoading,
+                      allThemeSongSourcesFailed(themeSongsPayload?.sources),
+                    )}
+                  </p>
+                )}
+                {(themeSongsPayload?.rows.length ?? 0) > 0 && (
+                  <div className="anilist-detail-theme-songs">
+                    {THEME_SONG_TYPE_ORDER.map((type) => {
+                      const rows = themeRowsByType[type];
+                      if (rows.length === 0) {
+                        return null;
+                      }
+                      return (
+                        <div key={type} className="anilist-detail-theme-group">
+                          <div className="anilist-detail-theme-group-label">
+                            {THEME_SONG_SECTION_LABEL[type]}
+                          </div>
+                          <ul className="anilist-detail-theme-song-list">
+                            {rows.map((row, index) => (
+                              <ThemeSongRowC
+                                key={`${type}-${row.songKey ?? row.displayTitle}-${index}`}
+                                row={row}
+                                playlistStatus={matchThemeRowToPlaylist(row, playlistCache)}
+                                showPlaylistMatch={playlistCache !== null}
+                              />
+                            ))}
+                          </ul>
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
 

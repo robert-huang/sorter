@@ -60,6 +60,9 @@ jobs:
       # token in redirect hash — no /oauth/token call). Callback URL defaults
       # to GITHUB_PAGES_URL/anilist-oauth-callback.html.
       #
+      # VITE_ANIPLAYLIST_PROXY_URL — Cloudflare Worker URL that forwards Algolia
+      # with aniplaylist.com referer (required for GitHub Pages; see cloudflare/).
+      #
       # If any repo secret is unset, ${{ secrets.X }} resolves to ''
       # and the deployed app falls back to its "not configured" banner;
       # everything except that feature still works.
@@ -68,6 +71,9 @@ jobs:
           VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
           VITE_GOOGLE_CLIENT_SECRET: ${{ secrets.VITE_GOOGLE_CLIENT_SECRET }}
           VITE_ANILIST_CLIENT_ID: ${{ secrets.VITE_ANILIST_CLIENT_ID }}
+          VITE_ANIPLAYLIST_PROXY_URL: ${{ secrets.VITE_ANIPLAYLIST_PROXY_URL }}
+          VITE_SPOTIFY_CLIENT_ID: ${{ secrets.VITE_SPOTIFY_CLIENT_ID }}
+          VITE_SPOTIFY_CLIENT_SECRET: ${{ secrets.VITE_SPOTIFY_CLIENT_SECRET }}
 
       - uses: actions/upload-pages-artifact@v5
         with:
