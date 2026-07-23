@@ -143,8 +143,9 @@ export function AnilistAccountsSection() {
         </button>
       )}
       <div className="settings-status settings-anilist-hint">
-        Opens AniList in a pop-up, then auto-returns. Signed-in accounts
-        can import hidden list entries and enables mutations.
+        Opens AniList in a pop-up, then auto-returns.
+        <br />
+        Sign in to import hidden entries and enable mutations.
       </div>
       {error && (
         <div className="settings-source-db-error" role="alert">
