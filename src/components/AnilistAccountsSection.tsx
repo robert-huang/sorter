@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { SettingsAccountRow } from './SettingsAccountRow';
 import {
   getAnilistOAuthCallbackUrl,
   isAnilistOAuthConfigured,
@@ -95,9 +96,9 @@ export function AnilistAccountsSection() {
           const badge = accountStatusLabel(account);
           return (
             <div key={account.userId}>
-              <div
-                className="settings-status"
-                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+              <SettingsAccountRow
+                onSignOut={() => onSignOut(account.userId)}
+                signOutLabel={`Sign out @${account.userName}`}
               >
                 {account.avatarUrl ? (
                   <img
@@ -116,7 +117,7 @@ export function AnilistAccountsSection() {
                     {badge ? ` · ${badge}` : ''}
                   </span>
                 </span>
-              </div>
+              </SettingsAccountRow>
               {badge && configured && (
                 <button
                   type="button"
@@ -127,13 +128,6 @@ export function AnilistAccountsSection() {
                   Re-login @{account.userName}
                 </button>
               )}
-              <button
-                type="button"
-                className="settings-item settings-item-status-text"
-                onClick={() => onSignOut(account.userId)}
-              >
-                Sign out @{account.userName}
-              </button>
             </div>
           );
         })
@@ -157,7 +151,6 @@ export function AnilistAccountsSection() {
           {error}
         </div>
       )}
-      <div className="settings-divider" />
     </div>
   );
 }

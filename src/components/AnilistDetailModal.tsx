@@ -108,10 +108,10 @@ function themeSongsEmptyMessage(
     return 'Loading theme songs…';
   }
   if (sourcesFailed) {
-    return 'Theme song sources unavailable (MAL/Jikan and AniPlaylist). Try ↻ Refresh later.';
+    return 'Theme song sources unavailable (MAL/Jikan and AniPlaylist). Try ↻ next to Theme songs.';
   }
   if (fetchedAt === null) {
-    return 'No theme songs cached yet. Click ↻ Refresh.';
+    return 'No theme songs cached yet. Click ↻ next to Theme songs.';
   }
   return 'No theme songs found for this entry.';
 }
@@ -494,6 +494,22 @@ export function AnilistDetailModal({
     }
   }, [mediaId, expanding, onMediaRelationsRefreshed, refreshThemeSongsFromDb]);
 
+  const onRefreshThemeSongs = useCallback(async () => {
+    if (themeSongsLoading || expanding) {
+      return;
+    }
+    setThemeSongsLoading(true);
+    setError(null);
+    try {
+      await runAnilistMediaThemeSongsExpansion(mediaId, undefined, { force: true });
+      await refreshThemeSongsFromDb();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Theme song refresh failed.');
+    } finally {
+      setThemeSongsLoading(false);
+    }
+  }, [mediaId, themeSongsLoading, expanding, refreshThemeSongsFromDb]);
+
   const isCastStale =
     !!expansionStatus &&
     ((expansionStatus.charactersFetchedAt !== null &&
@@ -726,13 +742,18 @@ export function AnilistDetailModal({
                   </span>
                   {m.type === 'ANIME' && (
                     <span title="Theme songs cache">
-                      {themeSongsFetchedAt === null
-                        ? 'Theme songs: not cached'
-                        : `Theme songs: ${formatGraphCacheDate(themeSongsFetchedAt)}${
-                            isGraphTimestampStale(themeSongsFetchedAt)
-                              ? ' (stale >90d)'
-                              : ' (fresh)'
-                          }`}
+                      {themeSongsFetchedAt === null ? (
+                        'Theme songs: not cached'
+                      ) : (
+                        <>
+                          {`Theme songs: ${formatGraphCacheDate(themeSongsFetchedAt)}`}
+                          {isGraphTimestampStale(themeSongsFetchedAt) ? (
+                            <span className="settings-cache-stale"> (stale &gt;90d)</span>
+                          ) : (
+                            ' (fresh)'
+                          )}
+                        </>
+                      )}
                     </span>
                   )}
                 </div>
@@ -918,15 +939,31 @@ export function AnilistDetailModal({
               </div>
 
               <div className="anilist-detail-section">
-                <h4>
-                  Theme songs{' '}
+                <h4 className="anilist-detail-section-heading">
+                  <span>Theme songs</span>
                   {themeSongsLoading && (
                     <span
-                      style={{ color: 'var(--text-muted)', fontSize: 12, fontWeight: 'normal' }}
+                      style={{ fontSize: 12, fontWeight: 'normal', textTransform: 'none' }}
                       aria-live="polite"
                     >
                       (loading…)
                     </span>
+                  )}
+                  {m.type === 'ANIME' && (
+                    <button
+                      type="button"
+                      className={`btn small${
+                        isThemeSongsStale && !themeSongsLoading
+                          ? ' anilist-detail-refresh-stale'
+                          : ''
+                      }`}
+                      onClick={() => void onRefreshThemeSongs()}
+                      disabled={themeSongsLoading || expanding}
+                      title="Re-fetch theme songs only (MAL/Jikan + AniPlaylist)"
+                      aria-label="Refresh theme songs"
+                    >
+                      {themeSongsLoading ? '…' : '↻'}
+                    </button>
                   )}
                 </h4>
                 {themeSongsSourceNotes(themeSongsPayload?.sources).map((note) => (

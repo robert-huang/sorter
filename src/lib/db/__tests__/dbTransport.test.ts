@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RpcRequest } from '../rpc';
-import { TEST_SOURCE_ID } from '../testSource';
+import { ensureTestSourceRegistered, TEST_SOURCE_ID } from '../testSource';
 import { MockWorker, stubNavigatorLocks } from './mockDbWorker';
 
 class MockSharedWorker {
@@ -14,6 +14,7 @@ class MockSharedWorker {
 
 describe('db transport', () => {
   beforeEach(() => {
+    ensureTestSourceRegistered();
     vi.resetModules();
     MockWorker.instances = [];
     MockSharedWorker.instances = [];

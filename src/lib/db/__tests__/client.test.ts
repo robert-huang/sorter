@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MockWorker, stubNavigatorLocks } from './mockDbWorker';
-import { TEST_SOURCE_ID } from '../testSource';
+import { ensureTestSourceRegistered, TEST_SOURCE_ID } from '../testSource';
 
 describe('db client worker init', () => {
   beforeEach(() => {
+    ensureTestSourceRegistered();
     vi.resetModules();
     MockWorker.instances = [];
     stubNavigatorLocks();

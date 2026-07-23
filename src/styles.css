@@ -826,12 +826,10 @@ html {
    under the source header. The left indent reinforces that they're a
    sub-section of the AniList source settings. */
 .settings-anilist-display-prefs {
-  margin-top: 4px;
+  margin-top: 8px;
   padding-left: 14px;
 }
 
-/* Spacing lives above the "Display names" title (separating it from the
-   Push/Pull row), not below it — the entry rows sit tight underneath. */
 .settings-anilist-display-prefs-title {
   padding-top: 8px;
   padding-bottom: 0;
@@ -894,6 +892,47 @@ html {
 }
 
 /* AniList accounts block: full-width hints (not the 12em inline ellipsis). */
+.settings-account-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+}
+
+.settings-account-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.settings-account-sign-out {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 6px;
+  color: var(--text-faint);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.settings-account-sign-out-label {
+  font-size: 11px;
+}
+
+.settings-account-sign-out:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
 .settings-anilist-accounts .settings-anilist-hint {
   max-width: none;
   display: block;
@@ -1514,6 +1553,14 @@ html {
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--text-muted);
+}
+
+.anilist-detail-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  text-transform: uppercase;
 }
 
 .anilist-detail-cast-list,
@@ -7850,6 +7897,15 @@ html {
   padding: 4px 10px 8px;
 }
 
+.settings-spotify-playlist-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 10px 8px;
+  box-sizing: border-box;
+}
+
 .settings-spotify-select {
   display: block;
   width: 100%;
@@ -7859,6 +7915,22 @@ html {
   background: var(--surface);
   color: var(--text);
   font-size: 12px;
+}
+
+.settings-spotify-select-compact {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  padding: 4px 6px;
+  font-size: 11px;
+}
+
+.settings-spotify-playlist-row .btn.small {
+  flex: 0 0 auto;
+}
+
+.settings-cache-stale {
+  color: var(--warn-text);
 }
 
 .settings-spotify-select option {

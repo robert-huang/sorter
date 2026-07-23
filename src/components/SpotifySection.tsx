@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { SettingsAccountRow } from './SettingsAccountRow';
 import {
   getStoredSpotifyAuth,
   getSpotifyOAuthCallbackUrl,
@@ -190,60 +191,56 @@ export function SpotifySection() {
         </>
       ) : (
         <>
-          <div className="settings-status">
-            {auth.displayName ? `Signed in as ${auth.displayName}` : 'Signed in to Spotify'}
-          </div>
-          <button type="button" className="settings-item settings-item-status-text" onClick={onSignOut}>
-            Sign out of Spotify
-          </button>
-          <div className="settings-status settings-section-label" style={{ marginTop: 8 }}>
-            Anime themes playlist
-          </div>
+          <SettingsAccountRow onSignOut={onSignOut} signOutLabel="Sign out of Spotify">
+            <span>
+              {auth.displayName ? `Signed in as ${auth.displayName}` : 'Signed in to Spotify'}
+            </span>
+          </SettingsAccountRow>
+          <div className="settings-status settings-section-label">Anime themes playlist</div>
           {loadingPlaylists ? (
             <div className="settings-status settings-anilist-hint">Loading playlists…</div>
           ) : (
-            <>
-              <div className="settings-status settings-anilist-hint" style={{ color: 'var(--text-muted)' }}>
-                Pick a playlist to see if the songs are on that playlist.
-              </div>
-              <div className="settings-spotify-playlist-field">
-                <select
-                  className="settings-spotify-select"
-                  value={selectedPlaylist?.id ?? ''}
-                  onChange={(e) => onSelectPlaylist(e.target.value)}
-                >
-                  <option value="">— select playlist —</option>
-                  {playlists.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </>
-          )}
-          {selectedPlaylist && (
-            <>
-              <button
-                type="button"
-                className="settings-item"
-                disabled={refreshingCache}
-                onClick={() => void onRefreshCache()}
+            <div className="settings-spotify-playlist-row">
+              <select
+                className="settings-spotify-select settings-spotify-select-compact"
+                value={selectedPlaylist?.id ?? ''}
+                onChange={(e) => onSelectPlaylist(e.target.value)}
+                aria-label="Anime themes playlist"
               >
-                {refreshingCache ? 'Refreshing playlist…' : '↻ Refresh playlist cache'}
-              </button>
-              {cache && cache.playlistId === selectedPlaylist.id ? (
-                <div className="settings-status settings-anilist-hint">
-                  {cache.tracks.length} tracks cached · {formatFetchedAt(cache.fetchedAt)}
-                  {isPlaylistCacheStale(cache.fetchedAt) ? ' · stale (>15m)' : ''}
-                </div>
-              ) : (
-                <div className="settings-status settings-anilist-hint" style={{ color: 'var(--text-muted)' }}>
-                  No cache yet — refresh to load tracks for matching.
-                </div>
+                <option value="">— select playlist —</option>
+                {playlists.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+              {selectedPlaylist && (
+                <button
+                  type="button"
+                  className="btn small"
+                  disabled={refreshingCache}
+                  onClick={() => void onRefreshCache()}
+                  title="Refresh playlist cache"
+                  aria-label="Refresh playlist cache"
+                >
+                  {refreshingCache ? '…' : '↻'}
+                </button>
               )}
-            </>
+            </div>
           )}
+          {selectedPlaylist &&
+            (cache && cache.playlistId === selectedPlaylist.id ? (
+              <div className="settings-status settings-anilist-hint">
+                {cache.tracks.length} tracks cached · {formatFetchedAt(cache.fetchedAt)}
+                {isPlaylistCacheStale(cache.fetchedAt) ? (
+                  <span className="settings-cache-stale"> · stale (&gt;15m)</span>
+                ) : null}
+              </div>
+            ) : (
+              <div className="settings-status settings-anilist-hint" style={{ color: 'var(--text-muted)' }}>
+                No cache yet — refresh to load tracks for matching.
+              </div>
+            ))}
         </>
       )}
       {error && (
@@ -251,7 +248,6 @@ export function SpotifySection() {
           {error}
         </div>
       )}
-      <div className="settings-divider" />
     </div>
   );
 }

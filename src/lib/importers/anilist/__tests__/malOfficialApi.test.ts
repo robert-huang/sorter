@@ -1,15 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { normalizeMalOfficialThemeLine } from '../themeSongs/malOfficialApi';
 
 describe('normalizeMalOfficialThemeLine', () => {
-  it('strips hash prefix from official MAL API theme numbers', () => {
+  it('strips hash prefix from official MAL API theme numbers', async () => {
+    const { normalizeMalOfficialThemeLine } = await import('../themeSongs/malOfficialApi');
     expect(normalizeMalOfficialThemeLine('#1: "takt" by ryo')).toBe('1: "takt" by ryo');
     expect(normalizeMalOfficialThemeLine('  #2: "ending" by artist  ')).toBe(
       '2: "ending" by artist',
     );
   });
 
-  it('leaves Jikan-style numbered lines unchanged', () => {
+  it('leaves Jikan-style numbered lines unchanged', async () => {
+    const { normalizeMalOfficialThemeLine } = await import('../themeSongs/malOfficialApi');
     expect(normalizeMalOfficialThemeLine('1: "Kanade" by Takagi-san')).toBe(
       '1: "Kanade" by Takagi-san',
     );
@@ -23,7 +24,9 @@ describe('resolveMalApiBaseUrl', () => {
   });
 
   it('uses the local Vite proxy path in dev', async () => {
-    vi.stubEnv('DEV', 'true');
+    vi.resetModules();
+    vi.stubEnv('VITE_MAL_PROXY_URL', '');
+    vi.stubEnv('DEV', true);
     const { resolveMalApiBaseUrl, MAL_LOCAL_PROXY_PATH } = await import(
       '../themeSongs/malOfficialApi'
     );
@@ -35,8 +38,10 @@ describe('fetchMalOfficialThemes', () => {
   const fetchMock = vi.fn();
 
   beforeEach(() => {
+    vi.resetModules();
     vi.stubEnv('VITE_MAL_CLIENT_ID', 'test-mal-client-id');
-    vi.stubEnv('DEV', 'true');
+    vi.stubEnv('VITE_MAL_PROXY_URL', '');
+    vi.stubEnv('DEV', true);
     vi.stubGlobal('fetch', fetchMock);
     fetchMock.mockReset();
   });

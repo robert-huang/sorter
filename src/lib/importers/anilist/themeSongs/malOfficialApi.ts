@@ -5,12 +5,19 @@ const MAL_API_DIRECT_BASE = 'https://api.myanimelist.net';
 /** Same-origin Vite dev/preview proxy — see vite.config.ts */
 export const MAL_LOCAL_PROXY_PATH = '/api/mal';
 
-function malEnv(): Record<string, string | undefined> {
-  return ((import.meta as unknown as { env?: Record<string, string | undefined> }).env) ?? {};
+/** Dynamic key lookup so Vitest `vi.stubEnv` can override values in CI (no .env.local). */
+function malEnvString(key: string): string {
+  const raw = (import.meta.env as Record<string, string | boolean | undefined>)[key];
+  return typeof raw === 'string' ? raw : '';
+}
+
+function malEnvBool(key: string): boolean {
+  const raw = (import.meta.env as Record<string, string | boolean | undefined>)[key];
+  return raw === true || raw === 'true';
 }
 
 function malClientId(): string {
-  return malEnv().VITE_MAL_CLIENT_ID ?? '';
+  return malEnvString('VITE_MAL_CLIENT_ID');
 }
 
 type MalThemeEntry = {
@@ -27,12 +34,11 @@ type MalAnimeThemesResponse = {
  * (unlike Jikan). Use the Vite proxy locally or `VITE_MAL_PROXY_URL` in prod.
  */
 export function resolveMalApiBaseUrl(): string {
-  const env = malEnv();
-  const configured = env.VITE_MAL_PROXY_URL?.trim();
+  const configured = malEnvString('VITE_MAL_PROXY_URL').trim();
   if (configured) {
     return configured.replace(/\/$/, '');
   }
-  if (env.DEV) {
+  if (malEnvBool('DEV')) {
     return MAL_LOCAL_PROXY_PATH;
   }
   if (typeof window !== 'undefined') {
@@ -50,8 +56,7 @@ export function isMalRemoteProxyUrl(baseUrl: string): boolean {
 }
 
 export function isMalOfficialApiConfigured(): boolean {
-  const env = malEnv();
-  return Boolean(env.VITE_MAL_PROXY_URL?.trim() || malClientId().length > 0);
+  return Boolean(malEnvString('VITE_MAL_PROXY_URL').trim() || malClientId().length > 0);
 }
 
 /** Normalize official MAL API theme lines to Jikan-style strings for `parseMalThemes`. */

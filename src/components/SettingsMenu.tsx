@@ -468,7 +468,7 @@ export function SettingsMenu({
                 <div className="settings-divider" />
                 <button
                   type="button"
-                  className="settings-item"
+                  className="settings-item settings-item-status-text"
                   onClick={() => {
                     setOpen(false);
                     onCloudPickFolder();
@@ -478,7 +478,7 @@ export function SettingsMenu({
                 </button>
                 <button
                   type="button"
-                  className="settings-item"
+                  className="settings-item settings-item-status-text"
                   onClick={() => {
                     setOpen(false);
                     onCloudSignOut();
