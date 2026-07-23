@@ -36,10 +36,12 @@ import { ensureMediaRelations } from './ensureGraph';
 import { expandCharacterMedia, type ExpandCharacterMediaResult } from './expandCharacterMedia';
 import { expandStaffFilmography, type ExpandStaffFilmographyResult } from './expandStaffFilmography';
 import {
+  excludeMediaThemeSongRow,
   expandMediaThemeSongs,
   type ExpandMediaThemeSongsOptions,
   type ExpandMediaThemeSongsResult,
 } from './expandMediaThemeSongs';
+import type { MediaThemeSongsPayload } from './themeSongs/types';
 import { expandMediaRelations, type ExpandMediaRelationsResult } from './expandMediaRelations';
 import {
   getMediaRelationsExpansionFetchedAt,
@@ -193,6 +195,17 @@ export async function runAnilistMediaThemeSongsExpansion(
     markLocalDbPresent();
   }
   return result;
+}
+
+export async function runAnilistExcludeMediaThemeSongRow(
+  mediaId: number,
+  rowKey: string,
+): Promise<MediaThemeSongsPayload | null> {
+  const payload = await excludeMediaThemeSongRow(buildContext(), mediaId, rowKey);
+  if (payload) {
+    markLocalDbPresent();
+  }
+  return payload;
 }
 
 export async function runAnilistMediaRelationsExpansion(

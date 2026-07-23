@@ -21,6 +21,10 @@ import { parseMalThemes } from './themeSongs/malThemeParser';
 import { mergeThemeSongs } from './themeSongs/mergeThemeSongs';
 import { enrichRowsWithSpotifyIsrc } from './themeSongs/spotifyIsrc';
 import {
+  applyThemeSongExclusions,
+  mergeExcludedRowKeys,
+} from './themeSongs/themeSongExclusions';
+import {
   deriveLegacyAniplaylistAvailable,
   failedSource,
   okSource,
@@ -195,6 +199,9 @@ export async function expandMediaThemeSongs(
     return null;
   }
 
+  const existingExpansion = await getMediaThemeSongsExpansion(ctx.db, mediaId);
+  const preservedExcludedRowKeys = existingExpansion?.payload.excludedRowKeys ?? [];
+
   const fetchedAt = await getMediaThemeSongsExpansionFetchedAt(ctx.db, mediaId);
   if (!needsGraphDataRefresh(fetchedAt, { forceRefresh: options.force })) {
     const existing = await getMediaThemeSongsExpansion(ctx.db, mediaId);
@@ -227,6 +234,8 @@ export async function expandMediaThemeSongs(
       version: 1,
       aniplaylistAvailable: true,
       sources,
+      excludedRowKeys:
+        preservedExcludedRowKeys.length > 0 ? [...preservedExcludedRowKeys] : undefined,
       rows: [],
     };
     await persistThemeSongsExpansion(ctx, mediaId, null, payload);
@@ -298,12 +307,15 @@ export async function expandMediaThemeSongs(
 
   let rows = mergeThemeSongs(malThemes, aniHits);
   rows = await enrichRowsWithSpotifyIsrc(rows);
+  rows = applyThemeSongExclusions(rows, preservedExcludedRowKeys);
 
   const aniplaylistAvailable = deriveLegacyAniplaylistAvailable(sources);
   const payload: MediaThemeSongsPayload = {
     version: 1,
     aniplaylistAvailable,
     sources,
+    excludedRowKeys:
+      preservedExcludedRowKeys.length > 0 ? [...preservedExcludedRowKeys] : undefined,
     rows,
   };
   await persistThemeSongsExpansion(ctx, mediaId, malId, payload);
@@ -316,4 +328,26 @@ export async function expandMediaThemeSongs(
     rowsWritten: rows.length,
     aniplaylistAvailable,
   };
+}
+
+/** Remove one theme row from a media entry; persists across re-fetch. */
+export async function excludeMediaThemeSongRow(
+  ctx: AnilistImportContext,
+  mediaId: number,
+  rowKey: string,
+): Promise<MediaThemeSongsPayload | null> {
+  const existing = await getMediaThemeSongsExpansion(ctx.db, mediaId);
+  if (!existing) {
+    return null;
+  }
+
+  const excludedRowKeys = mergeExcludedRowKeys(existing.payload.excludedRowKeys, rowKey);
+  const rows = applyThemeSongExclusions(existing.payload.rows, excludedRowKeys);
+  const payload: MediaThemeSongsPayload = {
+    ...existing.payload,
+    excludedRowKeys,
+    rows,
+  };
+  await persistThemeSongsExpansion(ctx, mediaId, existing.malId, payload);
+  return payload;
 }

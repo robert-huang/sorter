@@ -1706,6 +1706,13 @@ html {
   color: #e91429;
 }
 
+.anilist-detail-theme-song-exclude {
+  flex-shrink: 0;
+  min-width: 28px;
+  padding: 0 6px;
+  line-height: 1;
+}
+
 /* Inline name button used in the media modal so a cast VA / production
    staff name opens the StaffDetailModal. Reset the native button chrome
    so it reads as a link inside the surrounding text. */

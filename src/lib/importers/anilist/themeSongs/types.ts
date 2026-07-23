@@ -35,6 +35,8 @@ export type MediaThemeSongsPayload = {
   /** Legacy flag — kept in sync with `sources.aniplaylist.ok` when present. */
   aniplaylistAvailable: boolean;
   sources?: ThemeSongSourcesHealth;
+  /** Row keys the user removed; filtered out on display and after re-fetch. */
+  excludedRowKeys?: string[];
   rows: MediaThemeSongRow[];
 };
 

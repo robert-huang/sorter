@@ -154,6 +154,30 @@ describe('findMatchingAnimeCluster', () => {
     );
     expect(picked?.[0]?.anime_id).toBe(TAKAGI_S2_ID);
   });
+
+  it('rejects a sole Algolia cluster when media titles do not match (Mofusand)', () => {
+    const fluffyHits: AniplaylistHit[] = [
+      hit({
+        id: 901,
+        anime_id: 7777,
+        score: 58.73,
+        anime_titles: [
+          'Fluffy Paradise',
+          'Isekai de Mofumofu Nadenade suru Mahou ni Tensei shitaken',
+        ],
+        titles: ['Massugu'],
+        song_type: 'Opening',
+        song_key: 'OP',
+      }),
+    ];
+    const clusters = groupHitsByAnimeId(fluffyHits);
+    const picked = findMatchingAnimeCluster(clusters, [], {
+      english: 'Mofusand',
+      romaji: 'Mofusand',
+      native: 'モフサンド',
+    });
+    expect(picked).toBeNull();
+  });
 });
 
 describe('buildAniplaylistSearchParams', () => {

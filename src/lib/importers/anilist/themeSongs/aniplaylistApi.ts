@@ -364,6 +364,12 @@ export function scoreClusterForMediaTitles(
   return best;
 }
 
+/**
+ * Minimum `scoreMediaToAnimeTitle` for accepting an AniPlaylist cluster.
+ * Matches the weakest intentional tier in that scorer: same franchise base with
+ * no season on either side (50). Rejects substring-only matches (40) and
+ * one-sided season hints (35). Algolia hit scores are unrelated.
+ */
 const TITLE_MATCH_THRESHOLD = 50;
 
 function countMalThemeOverlaps(
@@ -437,9 +443,6 @@ export function findMatchingAnimeCluster(
   if (clusters.size === 0) {
     return null;
   }
-  if (clusters.size === 1) {
-    return [...clusters.values()][0];
-  }
 
   const titleStrings = collectMediaTitleStrings(mediaTitles);
   const scored = [...clusters.values()].map((hits) => ({
@@ -462,6 +465,6 @@ export function findMatchingAnimeCluster(
     return malOnly;
   }
 
-  // Do not fall back to highest Algolia score when multiple franchise clusters exist.
+  // Do not fall back to highest Algolia score when titles do not match.
   return null;
 }

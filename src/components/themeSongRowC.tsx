@@ -14,6 +14,7 @@ type Props = {
   row: MediaThemeSongRow;
   playlistStatus: PlaylistMatchStatus;
   showPlaylistMatch: boolean;
+  onExclude?: (row: MediaThemeSongRow) => void;
 };
 
 export function ThemeSongPlaylistDot({ status }: { status: PlaylistMatchStatus }) {
@@ -97,7 +98,7 @@ function ThemeSongBody({
   );
 }
 
-export function ThemeSongRowC({ row, playlistStatus, showPlaylistMatch }: Props) {
+export function ThemeSongRowC({ row, playlistStatus, showPlaylistMatch, onExclude }: Props) {
   const { mode } = useThemeSongDisplayPreferences();
   const title = resolveThemeSongTitle(row, mode);
   const artist = resolveThemeSongArtist(row, mode);
@@ -113,6 +114,17 @@ export function ThemeSongRowC({ row, playlistStatus, showPlaylistMatch }: Props)
         {showPlaylistMatch ? themeSongPlaylistIndicator(playlistStatus) : null}
         <ThemeSongBody row={row} title={title} artist={artist} />
       </div>
+      {onExclude ? (
+        <button
+          type="button"
+          className="btn small anilist-detail-theme-song-exclude"
+          onClick={() => onExclude(row)}
+          title="Remove this song from this entry"
+          aria-label="Remove this song from this entry"
+        >
+          ×
+        </button>
+      ) : null}
     </li>
   );
 }

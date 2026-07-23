@@ -13,10 +13,11 @@ import {
 } from '../lib/importers/anilist/readQueries';
 import type { MediaThemeSongsPayload } from '../lib/importers/anilist/themeSongs/types';
 import { THEME_SONG_SECTION_LABEL } from '../lib/importers/anilist/themeSongs/themeSongDisplay';
+import { themeSongRowKey } from '../lib/importers/anilist/themeSongs/themeSongRowKey';
 import { THEME_SONG_TYPE_ORDER, type ThemeSongType } from '../lib/importers/anilist/themeSongs/types';
 import type { AnilistProgressEvent } from '../lib/importers/anilist/progress';
 import { filterProductionStaffRows } from '../lib/importers/anilist/staffRoleFilter';
-import { runAnilistMediaLazyExpansion, runAnilistMediaRelationsRefresh, runAnilistMediaThemeSongsExpansion } from '../lib/importers/anilist/runners';
+import { runAnilistExcludeMediaThemeSongRow, runAnilistMediaLazyExpansion, runAnilistMediaRelationsRefresh, runAnilistMediaThemeSongsExpansion } from '../lib/importers/anilist/runners';
 import type { ToolsMediaRelationsResponse } from '../lib/importers/anilist/toolsMediaRelationsApi';
 import { formatMediaSourceForDisplay } from '../lib/importers/anilist/mediaSourceLabel';
 import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
@@ -503,6 +504,25 @@ export function AnilistDetailModal({
       setThemeSongsLoading(false);
     }
   }, [mediaId, themeSongsLoading, expanding, refreshThemeSongsFromDb]);
+
+  const onExcludeThemeSong = useCallback(
+    async (row: MediaThemeSongsPayload['rows'][number]) => {
+      if (themeSongsLoading || expanding) {
+        return;
+      }
+      setThemeSongsLoading(true);
+      setError(null);
+      try {
+        await runAnilistExcludeMediaThemeSongRow(mediaId, themeSongRowKey(row));
+        await refreshThemeSongsFromDb();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to remove theme song.');
+      } finally {
+        setThemeSongsLoading(false);
+      }
+    },
+    [mediaId, themeSongsLoading, expanding, refreshThemeSongsFromDb],
+  );
 
   const isCastStale =
     !!expansionStatus &&
@@ -1006,6 +1026,7 @@ export function AnilistDetailModal({
                                 row={row}
                                 playlistStatus={matchThemeRowToPlaylist(row, playlistCache)}
                                 showPlaylistMatch={playlistCache !== null}
+                                onExclude={(songRow) => void onExcludeThemeSong(songRow)}
                               />
                             ))}
                           </ul>

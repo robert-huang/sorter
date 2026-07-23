@@ -20,7 +20,8 @@ import {
   fetchWeeklyCalendarWatchingEntries,
 } from './weeklyCalendarApi';
 import { productionReads } from '../../lib/importers/anilist/readQueries';
-import { runAnilistMediaThemeSongsExpansion } from '../../lib/importers/anilist/runners';
+import { runAnilistExcludeMediaThemeSongRow, runAnilistMediaThemeSongsExpansion } from '../../lib/importers/anilist/runners';
+import { themeSongRowKey } from '../../lib/importers/anilist/themeSongs/themeSongRowKey';
 import {
   groupThemeRowsByType,
   THEME_SONG_SECTION_LABEL,
@@ -282,11 +283,15 @@ function WeeklyCalendarThemeSongShowTitle({
 }
 
 function WeeklyCalendarThemeSongGroups({
+  mediaId,
   rows,
   playlistCache,
+  onExcludeThemeSong,
 }: {
+  mediaId: number;
   rows: readonly MediaThemeSongRow[];
   playlistCache: ReturnType<typeof useSpotifyPlaylistCache>;
+  onExcludeThemeSong?: (mediaId: number, row: MediaThemeSongRow) => void;
 }) {
   const sortedRows = [...rows].sort(compareThemeSongRows);
   const rowsByType = groupThemeRowsByType(sortedRows);
@@ -311,6 +316,11 @@ function WeeklyCalendarThemeSongGroups({
                   row={row}
                   playlistStatus={matchThemeRowToPlaylist(row, playlistCache)}
                   showPlaylistMatch={showPlaylistMatch}
+                  onExclude={
+                    onExcludeThemeSong
+                      ? (songRow) => onExcludeThemeSong(mediaId, songRow)
+                      : undefined
+                  }
                 />
               ))}
             </ul>
@@ -327,6 +337,7 @@ function WeeklyCalendarThemeSongsPanel({
   playlistCache,
   onOpenMedia,
   onRefreshThemeSongs,
+  onExcludeThemeSong,
   refreshingCached,
   refreshingPending,
 }: {
@@ -335,6 +346,7 @@ function WeeklyCalendarThemeSongsPanel({
   playlistCache: ReturnType<typeof useSpotifyPlaylistCache>;
   onOpenMedia: ToolPanelProps['onOpenMedia'];
   onRefreshThemeSongs: (mediaIds: number[], kind: 'cached' | 'pending') => void;
+  onExcludeThemeSong: (mediaId: number, row: MediaThemeSongRow) => void;
   refreshingCached: boolean;
   refreshingPending: boolean;
 }) {
@@ -381,7 +393,12 @@ function WeeklyCalendarThemeSongsPanel({
                   songCount={rows.length}
                   onOpenMedia={onOpenMedia}
                 />
-                <WeeklyCalendarThemeSongGroups rows={rows} playlistCache={playlistCache} />
+                <WeeklyCalendarThemeSongGroups
+                  mediaId={show.id}
+                  rows={rows}
+                  playlistCache={playlistCache}
+                  onExcludeThemeSong={onExcludeThemeSong}
+                />
               </div>
             );
           })}
@@ -728,6 +745,19 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
     [],
   );
 
+  const onExcludeThemeSong = useCallback((mediaId: number, row: MediaThemeSongRow) => {
+    void (async () => {
+      const payload = await runAnilistExcludeMediaThemeSongRow(mediaId, themeSongRowKey(row));
+      if (payload) {
+        setThemeSongCache((prev) => {
+          const next = new Map(prev);
+          next.set(mediaId, payload);
+          return next;
+        });
+      }
+    })();
+  }, []);
+
   const onCancel = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
@@ -1018,6 +1048,7 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
               playlistCache={playlistCache}
               onOpenMedia={onOpenMedia}
               onRefreshThemeSongs={onRefreshThemeSongs}
+              onExcludeThemeSong={onExcludeThemeSong}
               refreshingCached={refreshingThemeSongsCached}
               refreshingPending={refreshingThemeSongsPending}
             />
