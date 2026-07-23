@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { encodeSeasonYear } from '../../lib/importers/anilist/filters';
 import {
   buildWeeklyCalendarColumns,
+  collectWeeklyCalendarMediaIds,
+  collectWeeklyCalendarShows,
   compareWeeklyCalendarClassicOrder,
   computeAiredEpisodeCount,
   finalizeWeeklyCalendarResult,
@@ -461,5 +463,55 @@ describe('resolveEntrySchedule', () => {
     );
     expect(schedule.inferredWeekday).toBe(false);
     expect(schedule.weekdayJs).not.toBeNull();
+  });
+});
+
+describe('collectWeeklyCalendarMediaIds', () => {
+  it('returns unique media ids across columns', () => {
+    const result = {
+      kind: 'columns' as const,
+      seasonLabel: null,
+      columns: [
+        {
+          key: 'mon',
+          label: 'Mon',
+          weekdayJs: 1,
+          shows: [entry({ id: 10, title: 'A' }), entry({ id: 20, title: 'B' })],
+        },
+        {
+          key: 'tue',
+          label: 'Tue',
+          weekdayJs: 2,
+          shows: [entry({ id: 20, title: 'B' }), entry({ id: 30, title: 'C' })],
+        },
+      ],
+    };
+    expect(collectWeeklyCalendarMediaIds(result).sort((a, b) => a - b)).toEqual([10, 20, 30]);
+  });
+});
+
+describe('collectWeeklyCalendarShows', () => {
+  it('dedupes shows by id and sorts by title', () => {
+    const result = {
+      kind: 'columns' as const,
+      seasonLabel: null,
+      columns: [
+        {
+          key: 'mon',
+          label: 'Mon',
+          weekdayJs: 1,
+          shows: [entry({ id: 2, title: 'Beta' })],
+        },
+        {
+          key: 'tue',
+          label: 'Tue',
+          weekdayJs: 2,
+          shows: [entry({ id: 1, title: 'Alpha' }), entry({ id: 2, title: 'Beta' })],
+        },
+      ],
+    };
+    const shows = collectWeeklyCalendarShows(result);
+    expect(shows.map((show) => show.id)).toEqual([1, 2]);
+    expect(shows.map((show) => show.title)).toEqual(['Alpha', 'Beta']);
   });
 });

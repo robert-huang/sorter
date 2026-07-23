@@ -104,6 +104,36 @@ export async function getMediaThemeSongsExpansion(
   };
 }
 
+const THEME_SONGS_BATCH_CHUNK_SIZE = 400;
+
+/** Read cached theme-song payloads for many media ids (DB only, no fetch). */
+export async function getMediaThemeSongsExpansionsBatch(
+  db: AnilistDbExecutor,
+  mediaIds: readonly number[],
+): Promise<Map<number, MediaThemeSongsPayload>> {
+  const out = new Map<number, MediaThemeSongsPayload>();
+  const unique = [...new Set(mediaIds)].filter((id) => id > 0);
+  for (let i = 0; i < unique.length; i += THEME_SONGS_BATCH_CHUNK_SIZE) {
+    const chunk = unique.slice(i, i + THEME_SONGS_BATCH_CHUNK_SIZE);
+    const placeholders = chunk.map(() => '?').join(',');
+    const rows = await db.exec(
+      `SELECT media_id, payload_json
+         FROM media_theme_songs_expansion
+        WHERE media_id IN (${placeholders})`,
+      chunk,
+    );
+    for (const row of rows) {
+      try {
+        const payload = JSON.parse(String(row.payload_json)) as MediaThemeSongsPayload;
+        out.set(Number(row.media_id), payload);
+      } catch {
+        /* skip corrupt rows */
+      }
+    }
+  }
+  return out;
+}
+
 async function readMediaLite(
   db: AnilistDbExecutor,
   mediaId: number,

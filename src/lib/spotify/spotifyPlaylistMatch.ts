@@ -23,6 +23,33 @@ function buildPlaylistIndex(cache: SpotifyPlaylistCache): PlaylistIndex {
   return { trackIds, isrcs };
 }
 
+/** Row-level aggregate for chart badges: red if any track is missing, green if any matched. */
+export function aggregatePlaylistMatchForRows(
+  rows: readonly MediaThemeSongRow[],
+  cache: SpotifyPlaylistCache | null,
+): PlaylistMatchStatus | null {
+  if (!cache || rows.length === 0) {
+    return null;
+  }
+  let anyIn = false;
+  let anyOut = false;
+  for (const row of rows) {
+    const status = matchThemeRowToPlaylist(row, cache);
+    if (status === 'out') {
+      anyOut = true;
+    } else if (status === 'in') {
+      anyIn = true;
+    }
+  }
+  if (anyOut) {
+    return 'out';
+  }
+  if (anyIn) {
+    return 'in';
+  }
+  return null;
+}
+
 export function matchThemeRowToPlaylist(
   row: MediaThemeSongRow,
   cache: SpotifyPlaylistCache | null,

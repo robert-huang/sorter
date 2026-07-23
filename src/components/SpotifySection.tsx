@@ -171,7 +171,8 @@ export function SpotifySection() {
           ) : (
             <label className="settings-item" style={{ display: 'block' }}>
               <span className="settings-item-hint" style={{ display: 'block', marginBottom: 4 }}>
-                Pick a playlist to match against theme songs in detail modals.
+                Pick a playlist you own (or collaborate on) to match against theme songs in detail
+                modals.
               </span>
               <select
                 value={selectedPlaylist?.id ?? ''}

@@ -1,4 +1,24 @@
-import type { MediaThemeSongRow } from './types';
+import type { MediaThemeSongRow, ThemeSongType } from './types';
+
+export const THEME_SONG_SECTION_LABEL: Record<ThemeSongType, string> = {
+  Opening: 'Openings',
+  Ending: 'Endings',
+  Insert: 'Inserts',
+};
+
+export function groupThemeRowsByType(
+  rows: readonly MediaThemeSongRow[],
+): Record<ThemeSongType, MediaThemeSongRow[]> {
+  const groups: Record<ThemeSongType, MediaThemeSongRow[]> = {
+    Opening: [],
+    Ending: [],
+    Insert: [],
+  };
+  for (const row of rows) {
+    groups[row.type].push(row);
+  }
+  return groups;
+}
 
 /** Left-column badge: OP, OP2, ED, IN, etc. */
 export function themeSongTypeBadge(row: MediaThemeSongRow): string {

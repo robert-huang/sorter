@@ -21,6 +21,7 @@ import { ANILIST_SOURCE_ID } from './anilistSource';
 import {
   getMediaThemeSongsExpansion,
   getMediaThemeSongsExpansionFetchedAt,
+  getMediaThemeSongsExpansionsBatch,
 } from './expandMediaThemeSongs';
 import { getMediaRelationsExpansionFetchedAt } from './graphQueries';
 import { mediaTitleSearchParts, pickMediaTitle } from './mediaDisplayLabel';
@@ -1508,6 +1509,8 @@ export const productionReads = {
     getMediaThemeSongsExpansion(defaultDb(), mediaId),
   getMediaThemeSongsExpansionFetchedAt: (mediaId: number) =>
     getMediaThemeSongsExpansionFetchedAt(defaultDb(), mediaId),
+  getMediaThemeSongsExpansionsBatch: (mediaIds: readonly number[]) =>
+    getMediaThemeSongsExpansionsBatch(defaultDb(), mediaIds),
   getStaffFilmography: (staffId: number) =>
     getStaffFilmography(defaultDb(), staffId),
   getMediaIdsInUserList: (

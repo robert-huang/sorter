@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   themeSongInsertEpisodeLine,
   themeSongTypeBadge,
+  groupThemeRowsByType,
 } from '../themeSongs/themeSongDisplay';
 import type { MediaThemeSongRow } from '../themeSongs/types';
 
@@ -55,5 +56,18 @@ describe('themeSongInsertEpisodeLine', () => {
 
   it('returns null for non-insert rows', () => {
     expect(themeSongInsertEpisodeLine(row({ type: 'Opening', songKey: 'OP' }))).toBeNull();
+  });
+});
+
+describe('groupThemeRowsByType', () => {
+  it('groups rows by theme type', () => {
+    const groups = groupThemeRowsByType([
+      row({ type: 'Ending', displayTitle: 'ED' }),
+      row({ type: 'Opening', displayTitle: 'OP' }),
+      row({ type: 'Insert', displayTitle: 'IN' }),
+    ]);
+    expect(groups.Opening.map((r) => r.displayTitle)).toEqual(['OP']);
+    expect(groups.Ending.map((r) => r.displayTitle)).toEqual(['ED']);
+    expect(groups.Insert.map((r) => r.displayTitle)).toEqual(['IN']);
   });
 });

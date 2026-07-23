@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MediaThemeSongRow } from '../../importers/anilist/themeSongs/types';
-import { matchThemeRowToPlaylist } from '../spotifyPlaylistMatch';
+import { aggregatePlaylistMatchForRows, matchThemeRowToPlaylist } from '../spotifyPlaylistMatch';
 import type { SpotifyPlaylistCache } from '../spotifyPlaylist';
 
 function makeRow(overrides: Partial<MediaThemeSongRow> = {}): MediaThemeSongRow {
@@ -50,5 +50,28 @@ describe('matchThemeRowToPlaylist', () => {
   it('returns unknown without cache', () => {
     const row = makeRow({ spotifyTrackIds: ['track-a'], hasResolvableTrackId: true });
     expect(matchThemeRowToPlaylist(row, null)).toBe('unknown');
+  });
+});
+
+describe('aggregatePlaylistMatchForRows', () => {
+  it('returns out when any row is missing from the playlist', () => {
+    const rows = [
+      makeRow({ spotifyTrackIds: ['track-a'], hasResolvableTrackId: true }),
+      makeRow({ spotifyTrackIds: ['missing'], hasResolvableTrackId: true }),
+    ];
+    expect(aggregatePlaylistMatchForRows(rows, cache)).toBe('out');
+  });
+
+  it('returns in when all resolvable rows match and none are out', () => {
+    const rows = [
+      makeRow({ spotifyTrackIds: ['track-a'], hasResolvableTrackId: true }),
+      makeRow({ spotifyIsrc: null, spotifyTrackIds: [], hasResolvableTrackId: false }),
+    ];
+    expect(aggregatePlaylistMatchForRows(rows, cache)).toBe('in');
+  });
+
+  it('returns null when every row is unknown', () => {
+    const rows = [makeRow({ hasResolvableTrackId: false })];
+    expect(aggregatePlaylistMatchForRows(rows, cache)).toBeNull();
   });
 });

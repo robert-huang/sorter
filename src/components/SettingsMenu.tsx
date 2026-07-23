@@ -416,6 +416,13 @@ export function SettingsMenu({
                     onPullSource={onDbPullSource}
                   />
                 )}
+                {cloudStatus !== 'unavailable' ? (
+                  <>
+                    <div className="settings-divider" />
+                    <AnilistAccountsSection />
+                    <SpotifySection />
+                  </>
+                ) : null}
                 <div className="settings-status settings-source-refresh-hint">
                   To refresh a source's data, open the Start tab and pick
                   the source's import mode.
@@ -479,19 +486,6 @@ export function SettingsMenu({
                 >
                   Sign out of cloud
                 </button>
-                {tab === 'databases' && (
-                  <>
-                    <AnilistAccountsSection />
-                    <SpotifySection />
-                  </>
-                )}
-              </>
-            )}
-            {tab === 'databases' && cloudStatus !== 'ready' && cloudStatus !== 'unavailable' && (
-              <>
-                <div className="settings-divider" />
-                <AnilistAccountsSection />
-                <SpotifySection />
               </>
             )}
             <div className="settings-divider" />

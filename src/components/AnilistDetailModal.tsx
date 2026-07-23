@@ -12,6 +12,7 @@ import {
   productionReads,
 } from '../lib/importers/anilist/readQueries';
 import type { MediaThemeSongsPayload } from '../lib/importers/anilist/themeSongs/types';
+import { THEME_SONG_SECTION_LABEL } from '../lib/importers/anilist/themeSongs/themeSongDisplay';
 import { THEME_SONG_TYPE_ORDER, type ThemeSongType } from '../lib/importers/anilist/themeSongs/types';
 import type { AnilistProgressEvent } from '../lib/importers/anilist/progress';
 import { filterProductionStaffRows } from '../lib/importers/anilist/staffRoleFilter';
@@ -46,12 +47,6 @@ import {
 } from '../lib/importers/anilist/themeSongs/themeSongSources';
 
 const PRODUCTION_ROLE_MODE_KEY = 'anilist-detail-production-roles';
-
-const THEME_SONG_SECTION_LABEL: Record<ThemeSongType, string> = {
-  Opening: 'Openings',
-  Ending: 'Endings',
-  Insert: 'Inserts',
-};
 
 type ProductionRoleMode = 'key' | 'all';
 

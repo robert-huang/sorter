@@ -12,6 +12,10 @@ type Props = {
   showPlaylistMatch: boolean;
 };
 
+export function ThemeSongPlaylistDot({ status }: { status: PlaylistMatchStatus }) {
+  return themeSongPlaylistIndicator(status);
+}
+
 function themeSongPlaylistIndicator(status: PlaylistMatchStatus): ReactNode {
   if (status === 'in') {
     return (

@@ -1,4 +1,4 @@
-import { ensureSpotifyAccessToken } from './spotifyAuth';
+import { ensureSpotifyAccessToken, getStoredSpotifyAuth } from './spotifyAuth';
 
 export const PLAYLIST_STORAGE_KEY = 'spotify:playlist:v1';
 export const PLAYLIST_CACHE_STORAGE_KEY = 'spotify:playlist-cache:v1';
@@ -28,14 +28,29 @@ type SpotifyPlaylistSummary = {
   name: string;
 };
 
+type SpotifyPlaylistListItem = {
+  id?: string;
+  name?: string;
+  owner?: { id?: string };
+  collaborative?: boolean;
+};
+
 type SpotifyPlaylistsResponse = {
-  items?: Array<{ id?: string; name?: string } | null>;
+  items?: Array<SpotifyPlaylistListItem | null>;
   next?: string | null;
 };
 
 type SpotifyPlaylistTrackItem = {
+  /** Legacy field (pre–Feb 2026). */
   track?: {
     id?: string;
+    type?: string;
+    external_ids?: { isrc?: string | null };
+  } | null;
+  /** Current field (`GET /playlists/{id}/items`). */
+  item?: {
+    id?: string;
+    type?: string;
     external_ids?: { isrc?: string | null };
   } | null;
   linked_from?: { id?: string } | null;
@@ -142,9 +157,36 @@ async function fetchJson<T>(url: string, accessToken: string): Promise<T> {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
-    throw new Error(`Spotify API ${res.status}: ${url}`);
+    let detail = '';
+    try {
+      const body = (await res.json()) as { error?: { message?: string } };
+      if (body.error?.message) {
+        detail = `: ${body.error.message}`;
+      }
+    } catch {
+      /* ignore non-JSON bodies */
+    }
+    if (res.status === 403 && url.includes('/items')) {
+      throw new Error(
+        `Spotify API 403${detail} — playlist tracks are only available for playlists you own or collaborate on. Pick a different playlist.`,
+      );
+    }
+    throw new Error(`Spotify API ${res.status}${detail}: ${url}`);
   }
   return (await res.json()) as T;
+}
+
+function playlistIsReadableByUser(
+  playlist: SpotifyPlaylistListItem,
+  spotifyUserId: string | null,
+): boolean {
+  if (!spotifyUserId) {
+    return true;
+  }
+  if (playlist.owner?.id === spotifyUserId) {
+    return true;
+  }
+  return playlist.collaborative === true;
 }
 
 export async function listUserSpotifyPlaylists(
@@ -155,6 +197,7 @@ export async function listUserSpotifyPlaylists(
     return [];
   }
 
+  const spotifyUserId = getStoredSpotifyAuth()?.spotifyUserId ?? null;
   const out: SpotifyPlaylistSummary[] = [];
   let url: string | null =
     'https://api.spotify.com/v1/me/playlists?limit=50';
@@ -162,9 +205,13 @@ export async function listUserSpotifyPlaylists(
   while (url) {
     const page: SpotifyPlaylistsResponse = await fetchJson<SpotifyPlaylistsResponse>(url, token);
     for (const item of page.items ?? []) {
-      if (item?.id && item.name) {
-        out.push({ id: item.id, name: item.name });
+      if (!item?.id || !item.name) {
+        continue;
       }
+      if (!playlistIsReadableByUser(item, spotifyUserId)) {
+        continue;
+      }
+      out.push({ id: item.id, name: item.name });
     }
     url = page.next ?? null;
   }
@@ -172,9 +219,22 @@ export async function listUserSpotifyPlaylists(
   return out;
 }
 
+function resolvePlaylistTrackObject(
+  item: SpotifyPlaylistTrackItem,
+): { id: string; external_ids?: { isrc?: string | null } } | null {
+  const candidate = item.item ?? item.track;
+  if (!candidate?.id) {
+    return null;
+  }
+  if (candidate.type && candidate.type !== 'track') {
+    return null;
+  }
+  return { id: candidate.id, external_ids: candidate.external_ids };
+}
+
 function parsePlaylistTrackItem(item: SpotifyPlaylistTrackItem): CachedPlaylistTrack | null {
-  const trackId = item.track?.id;
-  if (!trackId) {
+  const track = resolvePlaylistTrackObject(item);
+  if (!track) {
     return null;
   }
   const linkedFromIds: string[] = [];
@@ -182,10 +242,17 @@ function parsePlaylistTrackItem(item: SpotifyPlaylistTrackItem): CachedPlaylistT
     linkedFromIds.push(item.linked_from.id);
   }
   return {
-    id: trackId,
-    isrc: item.track?.external_ids?.isrc ?? null,
+    id: track.id,
+    isrc: track.external_ids?.isrc ?? null,
     linkedFromIds,
   };
+}
+
+/** Exported for unit tests. */
+export function parsePlaylistTrackItemForTesting(
+  item: SpotifyPlaylistTrackItem,
+): CachedPlaylistTrack | null {
+  return parsePlaylistTrackItem(item);
 }
 
 export async function fetchPlaylistTracks(
@@ -198,8 +265,10 @@ export async function fetchPlaylistTracks(
   }
 
   const tracks: CachedPlaylistTrack[] = [];
-  let url: string | null =
-    `https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}/tracks?limit=100`;
+  const base =
+    `https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}/items` +
+    '?limit=50&additional_types=track';
+  let url: string | null = base;
 
   while (url) {
     const page: SpotifyPlaylistTracksResponse = await fetchJson<SpotifyPlaylistTracksResponse>(

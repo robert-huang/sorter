@@ -4,6 +4,7 @@ import { HistoryBackGuardSetting } from '../components/HistoryBackGuardSetting';
 import { SettingsGitHubLink } from '../components/SettingsGitHubLink';
 import { SourceDatabasesSection } from '../components/sourceDatabasesSection';
 import { AnilistAccountsSection } from '../components/AnilistAccountsSection';
+import { SpotifySection } from '../components/SpotifySection';
 import type { CloudMenuStatus } from '../components/SettingsMenu';
 import type { RoundConfig, StaffGenderFilter, VaListImageMode } from './preferences';
 
@@ -227,10 +228,14 @@ export function AnimeToAnimeSettingsMenu({
             {tab === 'database' && (
               <div className="settings-tab-scroll">
                 {dbSync.cloudStatus === 'unavailable' ? (
-                  <div className="settings-status">
-                    Database sync needs autosave enabled. Open the app from a http(s) origin to
-                    enable it.
-                  </div>
+                  <>
+                    <div className="settings-status">
+                      Database sync needs autosave enabled. Open the app from a http(s) origin to
+                      enable it.
+                    </div>
+                    <AnilistAccountsSection />
+                    <SpotifySection />
+                  </>
                 ) : (
                   <>
                     {dbSync.cloudStatus !== 'ready' && (
@@ -256,7 +261,6 @@ export function AnimeToAnimeSettingsMenu({
                             {dbSync.cloudActionError}
                           </div>
                         )}
-                        <AnilistAccountsSection />
                         <div className="settings-divider" />
                       </>
                     )}
@@ -288,7 +292,9 @@ export function AnimeToAnimeSettingsMenu({
                         />
                       </>
                     )}
-                    {dbSync.cloudStatus === 'ready' && <AnilistAccountsSection />}
+                    <div className="settings-divider" />
+                    <AnilistAccountsSection />
+                    <SpotifySection />
                   </>
                 )}
               </div>
