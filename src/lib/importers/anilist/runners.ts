@@ -35,6 +35,11 @@ import { importAnilistList } from './importer';
 import { ensureMediaRelations } from './ensureGraph';
 import { expandCharacterMedia, type ExpandCharacterMediaResult } from './expandCharacterMedia';
 import { expandStaffFilmography, type ExpandStaffFilmographyResult } from './expandStaffFilmography';
+import {
+  expandMediaThemeSongs,
+  type ExpandMediaThemeSongsOptions,
+  type ExpandMediaThemeSongsResult,
+} from './expandMediaThemeSongs';
 import { expandMediaRelations, type ExpandMediaRelationsResult } from './expandMediaRelations';
 import {
   getMediaRelationsExpansionFetchedAt,
@@ -175,6 +180,18 @@ export async function runAnilistCharacterMediaExpansion(
 ): Promise<ExpandCharacterMediaResult | null> {
   const result = await expandCharacterMedia(buildContext(onProgress), characterId);
   if (result) markLocalDbPresent();
+  return result;
+}
+
+export async function runAnilistMediaThemeSongsExpansion(
+  mediaId: number,
+  onProgress?: AnilistProgressReporter,
+  options?: ExpandMediaThemeSongsOptions,
+): Promise<ExpandMediaThemeSongsResult | null> {
+  const result = await expandMediaThemeSongs(buildContext(onProgress), mediaId, options);
+  if (result) {
+    markLocalDbPresent();
+  }
   return result;
 }
 

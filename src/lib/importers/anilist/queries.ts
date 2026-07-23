@@ -506,6 +506,16 @@ query AnimeById($id: Int!) {
 `.trim();
 }
 
+/** MAL id only — used by theme-song lazy expansion. */
+export const MEDIA_ID_MAL_QUERY = `
+query MediaIdMal($id: Int!) {
+  Media(id: $id) {
+    id
+    idMal
+  }
+}
+`.trim();
+
 /** Batched metadata fetch for listed-media source repair (`id_in` + Page). */
 export const MEDIA_BY_IDS_QUERY = `
 query MediaByIds($mediaIds: [Int], $page: Int!, $perPage: Int!) {

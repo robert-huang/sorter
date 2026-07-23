@@ -12,7 +12,7 @@ import {
 // Bump this in lock-step with the highest version in
 // anilistSourceDescriptor.migrations so the "applies cleanly" sanity
 // check fails loudly when someone forgets to register a new migration.
-const LATEST_SCHEMA_VERSION = 9;
+const LATEST_SCHEMA_VERSION = 10;
 
 const EXPECTED_TABLES = [
   'anilist_user',
@@ -31,6 +31,7 @@ const EXPECTED_TABLES = [
   'character_media_expansion',
   'media_relation',
   'media_relations_expansion',
+  'media_theme_songs_expansion',
   'media_list_entry',
   'custom_list',
   'media_custom_list_membership',
@@ -512,6 +513,7 @@ describe('anilist source descriptor', () => {
       'staff_filmography_expansion',
       'character_media_expansion',
       'media_relations_expansion',
+      'media_theme_songs_expansion',
     ]);
     expect(user).toEqual(['media_list_entry']);
     const listEntry = anilistSourceDescriptor.merge.userDataTables.find(
@@ -565,7 +567,7 @@ describe('anilist source descriptor', () => {
     expect(registered.id).toBe(ANILIST_SOURCE_ID);
     expect(registered.migrations).toHaveLength(LATEST_SCHEMA_VERSION);
     expect(registered.migrations.map((m) => m.version)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
     ]);
   });
 });

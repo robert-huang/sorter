@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Spotify sign-in</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 2rem;
+        line-height: 1.5;
+      }
+    </style>
+  </head>
+  <body>
+    <p id="status">Completing Spotify sign-in…</p>
+    <script>
+      (function () {
+        var MESSAGE_TYPE = 'spotify-oauth-callback';
+        var status = document.getElementById('status');
+        var params = new URLSearchParams(window.location.search);
+        var code = params.get('code');
+        var error = params.get('error') || params.get('error_description');
+        var stateRaw = params.get('state');
+        var targetOrigin = null;
+        var nonce = null;
+
+        if (stateRaw) {
+          try {
+            var padded = stateRaw.replace(/-/g, '+').replace(/_/g, '/');
+            while (padded.length % 4 !== 0) {
+              padded += '=';
+            }
+            var state = JSON.parse(atob(padded));
+            targetOrigin = state.origin;
+            nonce = state.nonce;
+          } catch (e) {
+            /* ignore malformed state */
+          }
+        }
+
+        var payload = {
+          type: MESSAGE_TYPE,
+          code: code,
+          error: error,
+          nonce: nonce,
+        };
+
+        if (window.opener && targetOrigin) {
+          window.opener.postMessage(payload, targetOrigin);
+          status.textContent = 'Signed in — you can close this window.';
+          window.setTimeout(function () {
+            window.close();
+          }, 600);
+          return;
+        }
+
+        if (error) {
+          status.textContent = 'Sign-in failed: ' + error;
+          return;
+        }
+
+        status.textContent =
+          'Could not return to the app automatically. Close this window and try again ' +
+          '(allow pop-ups, and use gear menu → Databases → Sign in to Spotify).';
+      })();
+    </script>
+  </body>
+</html>

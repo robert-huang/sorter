@@ -8,9 +8,7 @@ import {
   queryIsOpfsLockHeld,
 } from './opfsLock';
 import type { DbRow, RpcReply, RpcRequest, RpcRequestBody, SqlParam, WorkerReadyMessage } from './rpc';
-import { ensureTestSourceRegistered } from './testSource';
 
-ensureTestSourceRegistered();
 ensureAnilistSourceRegistered();
 
 const WORKER_DIED_MESSAGE = 'Worker died; retry your operation';

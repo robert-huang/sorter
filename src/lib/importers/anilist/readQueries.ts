@@ -18,6 +18,11 @@ import * as client from '../../db/client';
 import type { DbRow } from '../../db/rpc';
 import type { AnilistItemLabelSource } from '../../types';
 import { ANILIST_SOURCE_ID } from './anilistSource';
+import {
+  getMediaThemeSongsExpansion,
+  getMediaThemeSongsExpansionFetchedAt,
+  getMediaThemeSongsExpansionsBatch,
+} from './expandMediaThemeSongs';
 import { getMediaRelationsExpansionFetchedAt } from './graphQueries';
 import { mediaTitleSearchParts, pickMediaTitle } from './mediaDisplayLabel';
 import {
@@ -368,6 +373,8 @@ export async function getMediaDetail(
 
   return { media, studios, tags, characters, productionStaff };
 }
+
+export type { MediaThemeSongsExpansion } from './themeSongs/types';
 
 export interface MediaCastExpansionStatus {
   mediaId: number;
@@ -1498,6 +1505,12 @@ export const productionReads = {
     getMediaCastExpansionStatus(defaultDb(), mediaId),
   getMediaRelationsExpansionFetchedAt: (mediaId: number) =>
     getMediaRelationsExpansionFetchedAt(defaultDb(), mediaId),
+  getMediaThemeSongsExpansion: (mediaId: number) =>
+    getMediaThemeSongsExpansion(defaultDb(), mediaId),
+  getMediaThemeSongsExpansionFetchedAt: (mediaId: number) =>
+    getMediaThemeSongsExpansionFetchedAt(defaultDb(), mediaId),
+  getMediaThemeSongsExpansionsBatch: (mediaIds: readonly number[]) =>
+    getMediaThemeSongsExpansionsBatch(defaultDb(), mediaIds),
   getStaffFilmography: (staffId: number) =>
     getStaffFilmography(defaultDb(), staffId),
   getMediaIdsInUserList: (

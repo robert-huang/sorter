@@ -34,7 +34,14 @@ export function formatAnilistProgress(event: AnilistProgressEvent): string {
 }
 
 function whatLabel(
-  what: 'list' | 'favourites' | 'characters' | 'staff' | 'filmography' | 'relations',
+  what:
+    | 'list'
+    | 'favourites'
+    | 'characters'
+    | 'staff'
+    | 'filmography'
+    | 'relations'
+    | 'theme-songs',
 ): string {
   switch (what) {
     case 'list':
@@ -49,5 +56,7 @@ function whatLabel(
       return 'filmography';
     case 'relations':
       return 'relations';
+    case 'theme-songs':
+      return 'theme songs';
   }
 }

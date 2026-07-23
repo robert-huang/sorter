@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { SettingsAccountRow } from './SettingsAccountRow';
 import {
   getAnilistOAuthCallbackUrl,
   isAnilistOAuthConfigured,
@@ -95,9 +96,9 @@ export function AnilistAccountsSection() {
           const badge = accountStatusLabel(account);
           return (
             <div key={account.userId}>
-              <div
-                className="settings-status"
-                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+              <SettingsAccountRow
+                onSignOut={() => onSignOut(account.userId)}
+                signOutLabel={`Sign out @${account.userName}`}
               >
                 {account.avatarUrl ? (
                   <img
@@ -116,24 +117,17 @@ export function AnilistAccountsSection() {
                     {badge ? ` · ${badge}` : ''}
                   </span>
                 </span>
-              </div>
+              </SettingsAccountRow>
               {badge && configured && (
                 <button
                   type="button"
-                  className="settings-item"
+                  className="settings-item settings-item-status-text"
                   disabled={signingIn}
                   onClick={() => void onSignIn()}
                 >
                   Re-login @{account.userName}
                 </button>
               )}
-              <button
-                type="button"
-                className="settings-item"
-                onClick={() => onSignOut(account.userId)}
-              >
-                Sign out @{account.userName}
-              </button>
             </div>
           );
         })
@@ -141,7 +135,7 @@ export function AnilistAccountsSection() {
       {configured && (
         <button
           type="button"
-          className="settings-item"
+          className="settings-item settings-item-status-text"
           disabled={signingIn}
           onClick={() => void onSignIn()}
         >
@@ -149,15 +143,15 @@ export function AnilistAccountsSection() {
         </button>
       )}
       <div className="settings-status settings-anilist-hint">
-        Opens AniList in a pop-up, then returns automatically. Signed-in imports
-        include hidden list entries; other usernames still use public lists.
+        Opens AniList in a pop-up, then auto-returns.
+        <br />
+        Sign in to import hidden entries and enable mutations.
       </div>
       {error && (
         <div className="settings-source-db-error" role="alert">
           {error}
         </div>
       )}
-      <div className="settings-divider" />
     </div>
   );
 }

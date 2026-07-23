@@ -20,17 +20,21 @@ vi.mock('../../lib/importers/anilist/readQueries', () => ({
     getMediaDetail: vi.fn(),
     getMediaCastExpansionStatus: vi.fn(),
     getMediaRelationsExpansionFetchedAt: vi.fn(),
+    getMediaThemeSongsExpansion: vi.fn(),
+    getMediaThemeSongsExpansionFetchedAt: vi.fn(),
   },
 }));
 vi.mock('../../lib/importers/anilist/runners', () => ({
   runAnilistMediaLazyExpansion: vi.fn(),
   runAnilistMediaRelationsRefresh: vi.fn(),
+  runAnilistMediaThemeSongsExpansion: vi.fn(),
 }));
 
 import { productionReads } from '../../lib/importers/anilist/readQueries';
 import {
   runAnilistMediaLazyExpansion,
   runAnilistMediaRelationsRefresh,
+  runAnilistMediaThemeSongsExpansion,
 } from '../../lib/importers/anilist/runners';
 import {
   anilistUrlForCharacter,
@@ -42,8 +46,13 @@ import { AnilistDetailModal } from '../AnilistDetailModal';
 const mockedGetMediaDetail = vi.mocked(productionReads.getMediaDetail);
 const mockedGetExpansionStatus = vi.mocked(productionReads.getMediaCastExpansionStatus);
 const mockedGetRelationsFetchedAt = vi.mocked(productionReads.getMediaRelationsExpansionFetchedAt);
+const mockedGetThemeSongs = vi.mocked(productionReads.getMediaThemeSongsExpansion);
+const mockedGetThemeSongsFetchedAt = vi.mocked(
+  productionReads.getMediaThemeSongsExpansionFetchedAt,
+);
 const mockedExpand = vi.mocked(runAnilistMediaLazyExpansion);
 const mockedRelationsRefresh = vi.mocked(runAnilistMediaRelationsRefresh);
+const mockedThemeExpand = vi.mocked(runAnilistMediaThemeSongsExpansion);
 
 function makeMedia(id: number, overrides: Record<string, unknown> = {}) {
   return {
@@ -135,7 +144,23 @@ beforeEach(() => {
   mockedGetMediaDetail.mockReset();
   mockedGetExpansionStatus.mockReset();
   mockedGetRelationsFetchedAt.mockReset();
+  mockedGetThemeSongs.mockReset();
+  mockedGetThemeSongsFetchedAt.mockReset();
   mockedGetRelationsFetchedAt.mockResolvedValue(null);
+  mockedGetThemeSongsFetchedAt.mockResolvedValue(1_700_000_000_000);
+  mockedGetThemeSongs.mockResolvedValue({
+    mediaId: 1,
+    malId: 1,
+    fetchedAt: 1_700_000_000_000,
+    payload: { version: 1, aniplaylistAvailable: true, rows: [] },
+  });
+  mockedThemeExpand.mockReset();
+  mockedThemeExpand.mockResolvedValue({
+    mediaId: 1,
+    malId: 1,
+    rowsWritten: 0,
+    aniplaylistAvailable: true,
+  });
   mockedGetExpansionStatus.mockImplementation(async (mediaId: number) =>
     makeExpansionStatus(mediaId, true),
   );

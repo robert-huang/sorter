@@ -125,6 +125,7 @@ export type WeeklyCalendarForm = {
   listStatusFilters: WeeklyCalendarListStatusFilter[];
   mediaStatusFilters: WeeklyCalendarMediaStatusFilter[];
   showUnscheduledColumn: boolean;
+  showThemeSongs: boolean;
 };
 
 export function defaultWeeklyCalendarCustomSeasonEncoded(now: Date = new Date()): number {
@@ -152,6 +153,7 @@ export const DEFAULT_WEEKLY_CALENDAR_FORM: WeeklyCalendarForm = {
   listStatusFilters: [...DEFAULT_WEEKLY_CALENDAR_LIST_STATUS_FILTERS],
   mediaStatusFilters: [...DEFAULT_WEEKLY_CALENDAR_MEDIA_STATUS_FILTERS],
   showUnscheduledColumn: false,
+  showThemeSongs: false,
 };
 
 export type WeeklyCalendarEntry = {
@@ -878,4 +880,28 @@ export function finalizeWeeklyCalendarResult(
   }
 
   return { kind: 'columns', columns, seasonLabel };
+}
+
+export function collectWeeklyCalendarMediaIds(
+  result: Extract<WeeklyCalendarResult, { kind: 'columns' }>,
+): number[] {
+  const ids = new Set<number>();
+  for (const col of result.columns) {
+    for (const show of col.shows) {
+      ids.add(show.id);
+    }
+  }
+  return [...ids];
+}
+
+export function collectWeeklyCalendarShows(
+  result: Extract<WeeklyCalendarResult, { kind: 'columns' }>,
+): WeeklyCalendarEntry[] {
+  const byId = new Map<number, WeeklyCalendarEntry>();
+  for (const col of result.columns) {
+    for (const show of col.shows) {
+      byId.set(show.id, show);
+    }
+  }
+  return [...byId.values()].sort((a, b) => a.title.localeCompare(b.title));
 }

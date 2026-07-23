@@ -2,6 +2,7 @@
   --bg: #f4f5f7;
   --surface: #ffffff;
   --surface-2: #f9fafb;
+  --bg-subtle: #f3f4f6;
   --border: #e2e4e8;
   --border-strong: #cdd0d6;
   --text: #1f2328;
@@ -53,6 +54,7 @@
   --bg: #121212;
   --surface: #1e1e1e;
   --surface-2: #2a2a2a;
+  --bg-subtle: #2a2a2a;
   --border: #333333;
   --border-strong: #424242;
   --text: #ffffff;
@@ -783,6 +785,12 @@ html {
   color: var(--text-muted);
 }
 
+/* Secondary actions directly under a status line (e.g. Sign out of Spotify). */
+.settings-item.settings-item-status-text {
+  font-size: 12px;
+  padding: 6px 10px;
+}
+
 .settings-github-link {
   display: inline-flex;
   align-items: center;
@@ -818,12 +826,10 @@ html {
    under the source header. The left indent reinforces that they're a
    sub-section of the AniList source settings. */
 .settings-anilist-display-prefs {
-  margin-top: 4px;
+  margin-top: 8px;
   padding-left: 14px;
 }
 
-/* Spacing lives above the "Display names" title (separating it from the
-   Push/Pull row), not below it — the entry rows sit tight underneath. */
 .settings-anilist-display-prefs-title {
   padding-top: 8px;
   padding-bottom: 0;
@@ -886,6 +892,47 @@ html {
 }
 
 /* AniList accounts block: full-width hints (not the 12em inline ellipsis). */
+.settings-account-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+}
+
+.settings-account-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.settings-account-sign-out {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 6px;
+  color: var(--text-faint);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.settings-account-sign-out-label {
+  font-size: 11px;
+}
+
+.settings-account-sign-out:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
 .settings-anilist-accounts .settings-anilist-hint {
   max-width: none;
   display: block;
@@ -1508,6 +1555,14 @@ html {
   color: var(--text-muted);
 }
 
+.anilist-detail-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  text-transform: uppercase;
+}
+
 .anilist-detail-cast-list,
 .anilist-detail-tag-list,
 .anilist-detail-staff-list {
@@ -1556,6 +1611,99 @@ html {
   display: flex;
   flex-direction: column;
   min-width: 0;
+}
+
+.anilist-detail-theme-songs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.anilist-detail-theme-group-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.anilist-detail-theme-song-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.anilist-detail-theme-song-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border, #e5e5e5);
+  padding: 4px 6px 4px 4px;
+  border-radius: 6px;
+  font-size: 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.anilist-detail-theme-song-type {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background: var(--bg-subtle, #f3f4f6);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.1;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.anilist-detail-theme-song-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.anilist-detail-theme-song-line {
+  min-width: 0;
+}
+
+.anilist-detail-theme-song-sep {
+  color: var(--text-muted);
+}
+
+.anilist-detail-theme-song-insert-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.anilist-detail-theme-song-insert-ep {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.3;
+}
+
+.anilist-detail-theme-song-playlist-dot {
+  flex-shrink: 0;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.anilist-detail-theme-song-playlist-dot.is-in {
+  color: #1db954;
+}
+
+.anilist-detail-theme-song-playlist-dot.is-out {
+  color: #e91429;
 }
 
 /* Inline name button used in the media modal so a cast VA / production
@@ -7603,9 +7751,16 @@ html {
   margin-bottom: 0;
 }
 
-.tool-weekly-primary-filters .tool-weekly-week-start .tool-select {
+.tool-weekly-week-start-field {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.tool-weekly-week-start-field .settings-spotify-select {
+  width: 100%;
   min-width: 6rem;
-  width: 6rem;
 }
 
 .tool-weekly-season-segmented {
@@ -7620,6 +7775,167 @@ html {
   flex: 1 1 auto;
   width: 100%;
   min-width: 0;
+}
+
+.tool-weekly-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tool-weekly-title-row .tool-weekly-title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tool-weekly-theme-song-badge {
+  flex: 0 0 auto;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.tool-weekly-theme-song-badge.is-in {
+  color: #1db954;
+}
+
+.tool-weekly-theme-song-badge.is-out {
+  color: #e91429;
+}
+
+.tool-weekly-theme-song-badge.is-mixed {
+  color: #d4a017;
+}
+
+.tool-weekly-theme-songs-panel .anilist-detail-theme-songs {
+  margin-top: 4px;
+}
+
+.tool-weekly-theme-songs-panel {
+  margin: 16px 4px 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.tool-weekly-theme-songs-heading {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.tool-weekly-theme-songs-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tool-weekly-theme-songs-show-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0 0 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tool-weekly-theme-songs-show-title:hover .tool-weekly-theme-songs-show-title-text {
+  text-decoration: underline;
+}
+
+.tool-weekly-theme-songs-show-title-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tool-weekly-theme-songs-show-count {
+  margin-left: 4px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.tool-weekly-theme-songs-pending {
+  margin: 12px 0 0;
+  font-size: 11px;
+}
+
+.tool-weekly-theme-songs-pending-label {
+  margin: 0 0 6px;
+  color: var(--muted);
+}
+
+.tool-weekly-theme-songs-pending-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settings-spotify-section .settings-anilist-hint {
+  max-width: none;
+  display: block;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+}
+
+.settings-spotify-section .settings-spotify-theme-names {
+  margin-top: 0;
+}
+
+.settings-spotify-playlist-field {
+  padding: 4px 10px 8px;
+}
+
+.settings-spotify-playlist-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 10px 8px;
+  box-sizing: border-box;
+}
+
+.settings-spotify-select {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 4px);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.settings-spotify-select-compact {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  padding: 4px 6px;
+  font-size: 11px;
+}
+
+.settings-spotify-playlist-row .btn.small {
+  flex: 0 0 auto;
+}
+
+.settings-cache-stale {
+  color: var(--warn-text);
+}
+
+.settings-spotify-select option {
+  background: var(--surface);
+  color: var(--text);
 }
 
 /* Franchise Scores — narrower columns (one row per entry) + format chip. */

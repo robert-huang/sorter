@@ -4,6 +4,7 @@ import { SettingsGitHubLink } from './SettingsGitHubLink';
 import { SlotList } from './SlotList';
 import { CloudBackupSection } from './CloudBackupSection';
 import { AnilistAccountsSection } from './AnilistAccountsSection';
+import { SpotifySection } from './SpotifySection';
 import { SourceDatabasesSection } from './sourceDatabasesSection';
 import type { SlotsManifest } from '../lib/types';
 
@@ -402,6 +403,7 @@ export function SettingsMenu({
                       a http(s) origin to enable it.
                     </div>
                     <AnilistAccountsSection />
+                    <SpotifySection />
                   </>
                 ) : (
                   <SourceDatabasesSection
@@ -414,6 +416,13 @@ export function SettingsMenu({
                     onPullSource={onDbPullSource}
                   />
                 )}
+                {cloudStatus !== 'unavailable' ? (
+                  <>
+                    <div className="settings-divider" />
+                    <AnilistAccountsSection />
+                    <SpotifySection />
+                  </>
+                ) : null}
                 <div className="settings-status settings-source-refresh-hint">
                   To refresh a source's data, open the Start tab and pick
                   the source's import mode.
@@ -459,7 +468,7 @@ export function SettingsMenu({
                 <div className="settings-divider" />
                 <button
                   type="button"
-                  className="settings-item"
+                  className="settings-item settings-item-status-text"
                   onClick={() => {
                     setOpen(false);
                     onCloudPickFolder();
@@ -469,7 +478,7 @@ export function SettingsMenu({
                 </button>
                 <button
                   type="button"
-                  className="settings-item"
+                  className="settings-item settings-item-status-text"
                   onClick={() => {
                     setOpen(false);
                     onCloudSignOut();
@@ -477,13 +486,6 @@ export function SettingsMenu({
                 >
                   Sign out of cloud
                 </button>
-                {tab === 'databases' && <AnilistAccountsSection />}
-              </>
-            )}
-            {tab === 'databases' && cloudStatus !== 'ready' && cloudStatus !== 'unavailable' && (
-              <>
-                <div className="settings-divider" />
-                <AnilistAccountsSection />
               </>
             )}
             <div className="settings-divider" />

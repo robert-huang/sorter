@@ -30,6 +30,8 @@ export interface ToolPanelProps {
   bindMediaRelationsRefreshHandler?: (
     handler: ((mediaId: number, response: ToolsMediaRelationsResponse) => void) | null,
   ) => void;
+  /** Bumps when the local AniList DB changes (e.g. theme-song expansion from a detail modal). */
+  dbSyncRevision: number;
 }
 
 export const TOOLS_ACTIVE_TOOL_KEY = 'anime-tools-active-tool';

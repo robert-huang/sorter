@@ -22,9 +22,7 @@ import { OPFS_INIT_MAX_ATTEMPTS, withOpfsInstallRetry } from './opfsInstallRetry
 import { locateSqliteFile } from './sqliteLocateFile';
 import type { DbRow, RpcReply, RpcRequest, WorkerReadyMessage } from './rpc';
 import { getSource } from './source-registry';
-import { ensureTestSourceRegistered } from './testSource';
 
-ensureTestSourceRegistered();
 ensureAnilistSourceRegistered();
 
 const OPFS_SAH_POOL_VFS = 'opfs-sahpool';

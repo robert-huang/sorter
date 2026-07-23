@@ -158,8 +158,13 @@ export function ToolsApp() {
   }, []);
 
   const panelProps: ToolPanelProps = useMemo(
-    () => ({ onOpenMedia, onOpenStaff, bindMediaRelationsRefreshHandler }),
-    [bindMediaRelationsRefreshHandler, onOpenMedia, onOpenStaff],
+    () => ({
+      onOpenMedia,
+      onOpenStaff,
+      bindMediaRelationsRefreshHandler,
+      dbSyncRevision: dbSync.dbSyncRevision,
+    }),
+    [bindMediaRelationsRefreshHandler, dbSync.dbSyncRevision, onOpenMedia, onOpenStaff],
   );
 
   useEffect(() => {
