@@ -3,7 +3,9 @@ import { isAniplaylistThemeType } from './aniplaylistApi';
 import type { ParsedMalTheme } from './malThemeParser';
 import {
   artistsRoughlyMatch,
+  collectTitleMatchCandidates,
   malThemeMatchesAniplaylistHit,
+  titlesMatchStronglyAny,
   titlesRoughlyMatch,
 } from './themeSongMatching';
 import {
@@ -231,7 +233,69 @@ export function mergeThemeSongs(
     return a.sortOrder - b.sortOrder;
   });
 
-  return rows;
+  return borrowSharedSpotifyMetadata(rows);
+}
+
+function themeSongTitleVariants(row: MediaThemeSongRow): string[] {
+  const variants = new Set<string>();
+  for (const title of [row.malTitle, row.displayTitle, ...(row.aniTitles ?? [])]) {
+    if (!title?.trim()) {
+      continue;
+    }
+    for (const candidate of collectTitleMatchCandidates(title)) {
+      variants.add(candidate);
+    }
+  }
+  return [...variants];
+}
+
+function themeSongArtist(row: MediaThemeSongRow): string | null {
+  return row.malArtist ?? row.displayArtist ?? row.aniArtists?.[0] ?? null;
+}
+
+/** Same recording within a show — ignores OP/ED role. */
+export function rowsShareSongIdentity(a: MediaThemeSongRow, b: MediaThemeSongRow): boolean {
+  const titlesA = themeSongTitleVariants(a);
+  const titlesB = themeSongTitleVariants(b);
+  if (titlesA.length === 0 || titlesB.length === 0) {
+    return false;
+  }
+  if (!titlesMatchStronglyAny(titlesA, titlesB)) {
+    return false;
+  }
+  const artistA = themeSongArtist(a);
+  const artistB = themeSongArtist(b);
+  if (!artistA || !artistB) {
+    return true;
+  }
+  return artistsRoughlyMatch(artistA, artistB);
+}
+
+/**
+ * Rows that missed AniPlaylist pairing (e.g. MAL ED ep-1 OP pollution) still share
+ * the same Spotify track when title+artist identify the same recording.
+ */
+export function borrowSharedSpotifyMetadata(rows: MediaThemeSongRow[]): MediaThemeSongRow[] {
+  const donors = rows.filter((row) => row.spotifyTrackIds.length > 0);
+  if (donors.length === 0) {
+    return rows;
+  }
+  return rows.map((row) => {
+    if (row.spotifyTrackIds.length > 0) {
+      return row;
+    }
+    const donor = donors.find((candidate) => rowsShareSongIdentity(row, candidate));
+    if (!donor) {
+      return row;
+    }
+    return {
+      ...row,
+      spotifyUrl: donor.spotifyUrl,
+      spotifyTrackIds: [...donor.spotifyTrackIds],
+      spotifyIsrc: donor.spotifyIsrc,
+      hasResolvableTrackId: true,
+    };
+  });
 }
 
 export function sortThemeRows(rows: readonly MediaThemeSongRow[]): MediaThemeSongRow[] {

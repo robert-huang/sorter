@@ -339,10 +339,7 @@ function WeeklyCalendarThemeSongsPanel({
     const payload = themeSongCache.get(show.id);
     return payload != null && payload.rows.length > 0;
   });
-  const withoutCache = shows.filter((show) => {
-    const payload = themeSongCache.get(show.id);
-    return payload == null || payload.rows.length === 0;
-  });
+  const withoutCache = shows.filter((show) => !themeSongCache.has(show.id));
 
   return (
     <section className="tool-weekly-theme-songs-panel">

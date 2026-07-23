@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { parseMalThemes } from '../themeSongs/malThemeParser';
 import {
   artistsRoughlyMatch,
+  borrowSharedSpotifyMetadata,
   mergeThemeSongs,
   sortOrderFromAniplaylistSongKey,
 } from '../themeSongs/mergeThemeSongs';
+import type { MediaThemeSongRow } from '../themeSongs/types';
 import type { AniplaylistHit } from '../themeSongs/aniplaylistApi';
 
 describe('artistsRoughlyMatch', () => {
@@ -183,5 +185,69 @@ describe('mergeThemeSongs', () => {
     const rows = mergeThemeSongs([], hits);
     expect(rows.map((r) => r.sortOrder)).toEqual([0, 1]);
     expect(rows.every((r) => r.sortOrder < 100)).toBe(true);
+  });
+
+  it('borrows Spotify metadata when MAL duplicates the same song across OP and ED', () => {
+    const mal = parseMalThemes(
+      ['"終宵" by マカロニえんぴつ'],
+      ['"終宵" by マカロニえんぴつ (ep 1)', '"名もない花" by 黒子首 (eps 1-)'],
+    );
+    const aniHit: AniplaylistHit = {
+      id: 20,
+      anime_id: 200,
+      score: 60,
+      titles: ['終宵'],
+      song_key: 'OP',
+      song_type: 'Opening',
+      artists: [{ names: ['マカロニえんぴつ'] }],
+      links: [
+        {
+          platform: 'spotify',
+          main: true,
+          link: 'https://open.spotify.com/track/shuuyoiTrackId12',
+        },
+      ],
+      other_link_ids: ['shuuyoiTrackId12'],
+    };
+
+    const rows = mergeThemeSongs(mal, [aniHit]);
+    const op = rows.find((row) => row.type === 'Opening');
+    const duplicateEd = rows.find(
+      (row) => row.type === 'Ending' && row.displayTitle === '終宵',
+    );
+    const realEd = rows.find((row) => row.displayTitle === '名もない花');
+
+    expect(op?.hasResolvableTrackId).toBe(true);
+    expect(duplicateEd?.spotifyTrackIds).toEqual(op?.spotifyTrackIds);
+    expect(duplicateEd?.hasResolvableTrackId).toBe(true);
+    expect(realEd?.hasResolvableTrackId).toBe(false);
+  });
+});
+
+describe('borrowSharedSpotifyMetadata', () => {
+  it('does not borrow across different songs', () => {
+    const donor: MediaThemeSongRow = {
+      type: 'Opening',
+      sortOrder: 0,
+      displayTitle: 'Song A',
+      displayArtist: 'Artist A',
+      spotifyUrl: 'https://open.spotify.com/track/a',
+      spotifyTrackIds: ['track-a'],
+      spotifyIsrc: null,
+      hasResolvableTrackId: true,
+    };
+    const recipient: MediaThemeSongRow = {
+      type: 'Ending',
+      sortOrder: 0,
+      displayTitle: 'Song B',
+      displayArtist: 'Artist B',
+      spotifyUrl: null,
+      spotifyTrackIds: [],
+      spotifyIsrc: null,
+      hasResolvableTrackId: false,
+    };
+
+    const rows = borrowSharedSpotifyMetadata([donor, recipient]);
+    expect(rows[1]?.spotifyTrackIds).toEqual([]);
   });
 });
