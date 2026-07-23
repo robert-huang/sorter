@@ -112,11 +112,29 @@ export function setSelectedSpotifyPlaylist(playlist: StoredSpotifyPlaylist): voi
 export function clearSelectedSpotifyPlaylist(): void {
   try {
     localStorage.removeItem(PLAYLIST_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+  emitPlaylistChange();
+}
+
+export function clearPlaylistCache(): void {
+  try {
     localStorage.removeItem(PLAYLIST_CACHE_STORAGE_KEY);
   } catch {
     /* ignore */
   }
   emitPlaylistChange();
+}
+
+/** Selected playlist's track cache — null when nothing is selected or ids do not match. */
+export function getActivePlaylistCache(): SpotifyPlaylistCache | null {
+  const selected = getSelectedSpotifyPlaylist();
+  const cache = getPlaylistCache();
+  if (!selected || !cache || cache.playlistId !== selected.id) {
+    return null;
+  }
+  return cache;
 }
 
 export function getPlaylistCache(): SpotifyPlaylistCache | null {
@@ -303,6 +321,7 @@ export async function fetchPlaylistTracks(
 }
 
 export async function refreshPlaylistCache(options?: {
+  /** When true, re-fetch from Spotify even if a fresh cache exists. */
   force?: boolean;
 }): Promise<SpotifyPlaylistCache | null> {
   const selected = getSelectedSpotifyPlaylist();
@@ -334,9 +353,8 @@ export async function refreshPlaylistCache(options?: {
 export function _clearSpotifyPlaylistForTesting(): void {
   try {
     localStorage.removeItem(PLAYLIST_STORAGE_KEY);
-    localStorage.removeItem(PLAYLIST_CACHE_STORAGE_KEY);
+    clearPlaylistCache();
   } catch {
     /* ignore */
   }
-  emitPlaylistChange();
 }
