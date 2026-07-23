@@ -35,13 +35,14 @@ export function pickSpotifyLink(links: readonly AniplaylistLink[]): string | nul
   }
   const japan = spotify.find((l) => l.detail === 'Japan link');
   if (japan?.link) {
-    return japan.link;
+    return normalizeSpotifySearchUrl(japan.link);
   }
   const main = spotify.find((l) => l.main);
   if (main?.link) {
-    return main.link;
+    return normalizeSpotifySearchUrl(main.link);
   }
-  return spotify[0]?.link ?? null;
+  const fallback = spotify[0]?.link ?? null;
+  return fallback ? normalizeSpotifySearchUrl(fallback) : null;
 }
 
 export function collectSpotifyTrackIds(
@@ -73,7 +74,50 @@ export function collectSpotifyTrackIds(
   return [...ids];
 }
 
+/**
+ * `encodeURIComponent` leaves `( ) * '` unescaped. Spotify web search paths break on
+ * raw parentheses — encode them explicitly for `/search/{query}` links.
+ */
+export function encodeSpotifySearchPathSegment(query: string): string {
+  return encodeURIComponent(query).replace(/\(/g, '%28').replace(/\)/g, '%29');
+}
+
+/** Drop parenthetical tags (TV sizes, edit names) for cleaner Spotify text search. */
+export function sanitizeSpotifySearchQuery(title: string, artist: string | null): string {
+  const stripParens = (s: string): string =>
+    s.replace(/\s*\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
+  const normalizedTitle = stripParens(title.trim());
+  if (!artist?.trim()) {
+    return normalizedTitle;
+  }
+  return `${normalizedTitle} ${stripParens(artist.trim())}`.replace(/\s+/g, ' ').trim();
+}
+
+/** Re-encode stored/external Spotify search URLs that have raw path characters. */
+export function normalizeSpotifySearchUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (!parsed.hostname.includes('spotify.com')) {
+      return url;
+    }
+    const match = parsed.pathname.match(/^\/search\/(.+)$/);
+    if (!match?.[1]) {
+      return url;
+    }
+    let decoded = match[1];
+    try {
+      decoded = decodeURIComponent(match[1]);
+    } catch {
+      /* keep raw segment */
+    }
+    const cleaned = decoded.replace(/\s*\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
+    return `https://open.spotify.com/search/${encodeSpotifySearchPathSegment(cleaned)}`;
+  } catch {
+    return url;
+  }
+}
+
 export function buildSpotifySearchUrl(title: string, artist: string | null): string {
-  const q = artist ? `${title} ${artist}` : title;
-  return `https://open.spotify.com/search/${encodeURIComponent(q)}`;
+  const q = sanitizeSpotifySearchQuery(title, artist);
+  return `https://open.spotify.com/search/${encodeSpotifySearchPathSegment(q)}`;
 }

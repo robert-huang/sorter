@@ -15,7 +15,7 @@ const ENV = ((import.meta as unknown as { env?: Record<string, string | undefine
 /**
  * Algolia only accepts aniplaylist.com as Origin/Referer. Browsers always send
  * the real page origin on fetch, so local/GH Pages direct calls get 403.
- * Use the Vite proxy (dev) or `VITE_ANIPLAYLIST_PROXY_URL` (production).
+ * Use the Vite proxy (dev/preview on localhost) or `VITE_ANIPLAYLIST_PROXY_URL`.
  */
 export function resolveAniplaylistSearchUrl(): string {
   const configured = ENV.VITE_ANIPLAYLIST_PROXY_URL?.trim();
@@ -25,7 +25,31 @@ export function resolveAniplaylistSearchUrl(): string {
   if (ENV.DEV) {
     return ANIPLAYLIST_LOCAL_PROXY_PATH;
   }
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    if (host === 'localhost' || host === '127.0.0.1') {
+      // `vite preview` runs with mode production but still serves the dev proxy.
+      return ANIPLAYLIST_LOCAL_PROXY_PATH;
+    }
+  }
   return DIRECT_ALGOLIA_URL;
+}
+
+/** Cloudflare worker URL — cross-origin; omit client Algolia headers (worker adds them). */
+export function isAniplaylistRemoteProxyUrl(url: string): boolean {
+  return url !== ANIPLAYLIST_LOCAL_PROXY_PATH && url !== DIRECT_ALGOLIA_URL;
+}
+
+function buildAniplaylistRequestHeaders(url: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    Accept: '*/*',
+    'Content-Type': 'application/json',
+  };
+  if (!isAniplaylistRemoteProxyUrl(url)) {
+    headers['x-algolia-application-id'] = ANIPLAYLIST_ALGOLIA_APP_ID;
+    headers['x-algolia-api-key'] = ANIPLAYLIST_ALGOLIA_API_KEY;
+  }
+  return headers;
 }
 
 export type AniplaylistArtist = {
@@ -134,14 +158,10 @@ export async function searchAniplaylist(query: string): Promise<AniplaylistHit[]
       ],
     };
 
-    const res = await fetch(resolveAniplaylistSearchUrl(), {
+    const searchUrl = resolveAniplaylistSearchUrl();
+    const res = await fetch(searchUrl, {
       method: 'POST',
-      headers: {
-        Accept: '*/*',
-        'Content-Type': 'application/json',
-        'x-algolia-application-id': ANIPLAYLIST_ALGOLIA_APP_ID,
-        'x-algolia-api-key': ANIPLAYLIST_ALGOLIA_API_KEY,
-      },
+      headers: buildAniplaylistRequestHeaders(searchUrl),
       body: JSON.stringify(body),
     });
 

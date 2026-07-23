@@ -12,7 +12,8 @@ const ANIPLAYLIST_ORIGIN = 'https://aniplaylist.com';
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Accept',
+  'Access-Control-Allow-Headers':
+    'Content-Type, Accept, x-algolia-application-id, x-algolia-api-key',
 };
 
 export default {

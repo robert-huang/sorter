@@ -1,16 +1,60 @@
 import type { MediaThemeSongRow } from './types';
 import { ensureSpotifyAccessToken } from '../../../spotify/spotifyAuth';
 
-type SpotifyTracksResponse = {
-  tracks?: Array<{
-    id: string;
-    external_ids?: { isrc?: string | null };
-  } | null>;
+type SpotifyTrackResponse = {
+  id?: string;
+  external_ids?: { isrc?: string | null };
 };
 
+/** Spotify removed batch `GET /tracks?ids=` in Feb 2026; fetch one track per request. */
+const TRACK_FETCH_CONCURRENCY = 5;
+
+async function fetchSpotifyTrackIsrc(
+  trackId: string,
+  token: string,
+): Promise<{ id: string; isrc: string } | null> {
+  const url = `https://api.spotify.com/v1/tracks/${encodeURIComponent(trackId)}`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    return null;
+  }
+  const track = (await res.json()) as SpotifyTrackResponse;
+  if (!track.id) {
+    return null;
+  }
+  const isrc = track.external_ids?.isrc;
+  return isrc ? { id: track.id, isrc } : null;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) {
+    return [];
+  }
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+
+  async function worker(): Promise<void> {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await fn(items[index]!);
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, () => worker());
+  await Promise.all(workers);
+  return results;
+}
+
 /**
- * Batch-fetch ISRC for Spotify track IDs. No-ops when no access token is
- * stored (stretch-2 OAuth). Called at theme-song save time.
+ * Fetch ISRC for Spotify track IDs. No-ops when no access token is stored.
+ * Called at theme-song save time.
  */
 export async function fetchSpotifyIsrcByTrackIds(
   trackIds: readonly string[],
@@ -24,24 +68,12 @@ export async function fetchSpotifyIsrcByTrackIds(
   const unique = [...new Set(trackIds)];
   const out = new Map<string, string>();
 
-  for (let offset = 0; offset < unique.length; offset += 50) {
-    const chunk = unique.slice(offset, offset + 50);
-    const url = `https://api.spotify.com/v1/tracks?ids=${chunk.join(',')}`;
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) {
-      break;
-    }
-    const json = (await res.json()) as SpotifyTracksResponse;
-    for (const track of json.tracks ?? []) {
-      if (!track?.id) {
-        continue;
-      }
-      const isrc = track.external_ids?.isrc;
-      if (isrc) {
-        out.set(track.id, isrc);
-      }
+  const rows = await mapWithConcurrency(unique, TRACK_FETCH_CONCURRENCY, (trackId) =>
+    fetchSpotifyTrackIsrc(trackId, token),
+  );
+  for (const row of rows) {
+    if (row) {
+      out.set(row.id, row.isrc);
     }
   }
 

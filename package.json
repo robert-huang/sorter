@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:aniplaylist-worker": "VITE_ANIPLAYLIST_PROXY_URL=https://sorter.sorter-aniplaylist-proxy.workers.dev vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "start": "npm run build && npx --yes serve dist -p 3000 --config serve.json",

@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildSpotifySearchUrl,
   collectSpotifyTrackIds,
+  encodeSpotifySearchPathSegment,
+  normalizeSpotifySearchUrl,
   parseSpotifyTrackIdFromUrl,
   pickSpotifyLink,
+  sanitizeSpotifySearchQuery,
 } from '../themeSongs/spotifyLinks';
 
 describe('spotifyLinks', () => {
@@ -28,6 +32,38 @@ describe('spotifyLinks', () => {
       },
     ]);
     expect(url).toContain('63ZUSqv3yd19ko7ChvzgAj');
+  });
+
+  it('encodes parentheses in spotify search path segments', () => {
+    expect(encodeSpotifySearchPathSegment('foo (bar)')).toBe('foo%20%28bar%29');
+  });
+
+  it('strips parenthetical edit tags from search queries', () => {
+    expect(
+      sanitizeSpotifySearchQuery(
+        'Hawatari Nioku Centi (Zentai Suitei 70% Kaikin edit)',
+        'MAXIMUM THE HORMONE',
+      ),
+    ).toBe('Hawatari Nioku Centi MAXIMUM THE HORMONE');
+  });
+
+  it('builds spotify search urls without raw parentheses', () => {
+    expect(
+      buildSpotifySearchUrl(
+        'Hawatari Nioku Centi (Zentai Suitei 70% Kaikin edit)',
+        'MAXIMUM THE HORMONE',
+      ),
+    ).toBe(
+      'https://open.spotify.com/search/Hawatari%20Nioku%20Centi%20MAXIMUM%20THE%20HORMONE',
+    );
+  });
+
+  it('normalizes legacy spotify search urls with raw parentheses', () => {
+    const legacy =
+      'https://open.spotify.com/search/Hawatari%20Nioku%20Centi%20(Zentai%20Suitei%2070%25%20Kaikin%20edit)%20MAXIMUM%20THE%20HORMONE';
+    expect(normalizeSpotifySearchUrl(legacy)).toBe(
+      'https://open.spotify.com/search/Hawatari%20Nioku%20Centi%20MAXIMUM%20THE%20HORMONE',
+    );
   });
 
   it('collects track ids from links and other_link_ids', () => {

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import type { MediaThemeSongRow } from '../lib/importers/anilist/themeSongs/types';
+import { normalizeSpotifySearchUrl } from '../lib/importers/anilist/themeSongs/spotifyLinks';
 import {
   themeSongInsertEpisodeLine,
   themeSongTypeBadge,
@@ -46,7 +47,7 @@ function ThemeSongTitleLink({ row }: { row: MediaThemeSongRow }) {
   if (row.spotifyUrl) {
     return (
       <a
-        href={row.spotifyUrl}
+        href={normalizeSpotifySearchUrl(row.spotifyUrl)}
         target="_blank"
         rel="noopener noreferrer"
         onClick={(e) => e.stopPropagation()}
