@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   PLAYLIST_CACHE_STORAGE_KEY,
-  PLAYLIST_STORAGE_KEY,
   _clearSpotifyPlaylistForTesting,
   clearSelectedSpotifyPlaylist,
   getActivePlaylistCache,
