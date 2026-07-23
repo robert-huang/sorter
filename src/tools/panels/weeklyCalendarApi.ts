@@ -8,6 +8,7 @@ import {
 import { TOOLS_SEASONAL_LIST_STATUSES } from '../../lib/importers/anilist/toolsAnilistAccess';
 import type { ToolsFetchOptions } from '../../lib/importers/anilist/toolsFetchPolicy';
 import {
+  persistentCacheDelete,
   persistentCacheGet,
   persistentCacheSet,
 } from '../../lib/importers/anilist/toolsPersistentCache';
@@ -34,6 +35,13 @@ export type WeeklyCalendarFetchOptions = ToolsFetchOptions;
 
 /** Finished seasons — airing metadata is stable enough to persist across sessions. */
 const WEEKLY_CALENDAR_HISTORICAL_SEASON_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * User list snapshots (status/score/progress + watching rows) — live
+ * AniList data that must include progress, so we cache the API response
+ * in localStorage instead of the imported DB.
+ */
+const WEEKLY_CALENDAR_USER_LIST_TTL_MS = 24 * 60 * 60 * 1000;
 
 type GqlFuzzyDate = {
   year?: number | null;
@@ -62,6 +70,46 @@ type GqlMedia = {
 };
 
 type SeasonFetchResult = { entries: WeeklyCalendarRawEntry[]; seasonLabel: string };
+
+export type UserListEntryMap = Map<
+  number,
+  { status: string | null; score: number | null; progress: number }
+>;
+
+type SerializedUserListEntryMap = Array<
+  [number, { status: string | null; score: number | null; progress: number }]
+>;
+
+function serializeUserListEntryMap(map: UserListEntryMap): SerializedUserListEntryMap {
+  return [...map.entries()];
+}
+
+function deserializeUserListEntryMap(data: SerializedUserListEntryMap): UserListEntryMap {
+  return new Map(data);
+}
+
+async function withWeeklyCalendarUserListCache<T>(
+  key: string,
+  fetcher: () => Promise<T>,
+  options?: WeeklyCalendarFetchOptions,
+): Promise<T> {
+  return withSessionTtlMemo(
+    key,
+    TOOLS_SESSION_TTL_MS,
+    async () => {
+      if (!options?.forceRefresh) {
+        const hit = persistentCacheGet<T>(key);
+        if (hit.hit) {
+          return hit.value;
+        }
+      }
+      const value = await fetcher();
+      persistentCacheSet(key, value, WEEKLY_CALENDAR_USER_LIST_TTL_MS);
+      return value;
+    },
+    { bust: options?.forceRefresh },
+  );
+}
 
 function mapFuzzyDate(date: GqlFuzzyDate): SeasonalFuzzyDate | null {
   if (!date || date.year == null) {
@@ -162,12 +210,7 @@ async function fetchWatchingEntriesLive(
   return entries.map((entry) => mapMediaToRawEntry(entry.media, entry));
 }
 
-export type UserListEntryMap = Map<
-  number,
-  { status: string | null; score: number | null; progress: number }
->;
-
-async function fetchUserListEntryMap(
+async function fetchUserListEntryMapLive(
   username: string,
   signal?: AbortSignal,
 ): Promise<UserListEntryMap> {
@@ -223,12 +266,12 @@ async function fetchUserListEntryMapCached(
 ): Promise<UserListEntryMap> {
   const handle = username.trim().toLowerCase();
   const key = `weekly-calendar:list-map:${handle}`;
-  return withSessionTtlMemo(
+  const serialized = await withWeeklyCalendarUserListCache(
     key,
-    TOOLS_SESSION_TTL_MS,
-    () => fetchUserListEntryMap(username, signal),
-    { bust: options?.forceRefresh },
+    async () => serializeUserListEntryMap(await fetchUserListEntryMapLive(username, signal)),
+    options,
   );
+  return deserializeUserListEntryMap(serialized);
 }
 
 async function fetchSeasonMedia(
@@ -311,14 +354,18 @@ async function fetchSeasonAiringEntriesCached(
   );
 }
 
-/** Bust session memo for user-list-derived weekly calendar data only. */
+/** Bust session + localStorage cache for user-list-derived weekly calendar data. */
 export function bustWeeklyCalendarUserListMemo(username: string): void {
   const handle = username.trim().toLowerCase();
   if (!handle) {
     return;
   }
-  sessionMemoDelete(`weekly-calendar:watching:${handle}`);
-  sessionMemoDelete(`weekly-calendar:list-map:${handle}`);
+  const watchingKey = `weekly-calendar:watching:${handle}`;
+  const listMapKey = `weekly-calendar:list-map:${handle}`;
+  sessionMemoDelete(watchingKey);
+  sessionMemoDelete(listMapKey);
+  persistentCacheDelete(watchingKey);
+  persistentCacheDelete(listMapKey);
 }
 
 export async function fetchWeeklyCalendarWatchingEntries(
@@ -328,11 +375,10 @@ export async function fetchWeeklyCalendarWatchingEntries(
 ): Promise<WeeklyCalendarRawEntry[]> {
   const handle = username.trim().toLowerCase();
   const key = `weekly-calendar:watching:${handle}`;
-  return withSessionTtlMemo(
+  return withWeeklyCalendarUserListCache(
     key,
-    TOOLS_SESSION_TTL_MS,
     () => fetchWatchingEntriesLive(username, signal),
-    { bust: options?.forceRefresh },
+    options,
   );
 }
 
