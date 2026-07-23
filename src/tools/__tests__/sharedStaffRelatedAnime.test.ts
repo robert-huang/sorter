@@ -2,7 +2,7 @@
  * fetchRelatedAnimeIds caching contract:
  *
  *   - Walks the AniList relations graph starting from `rootMediaId`,
- *     stopping at OTHER edges / MUSIC nodes / Crossover-tagged nodes
+ *     stopping at OTHER / SAME_UNIVERSE edges / MUSIC nodes / Crossover-tagged nodes
  *     (matches Shared Staff "ignore related" semantics).
  *   - The walked set is persisted across sessions in localStorage for
  *     90 days — relations rarely change after release. The BFS walk
@@ -139,16 +139,18 @@ describe('fetchRelatedAnimeIds caching', () => {
     expect(executeAnilistQueryMock).toHaveBeenCalledTimes(4);
   });
 
-  it('stops walking at OTHER edges, MUSIC nodes, and Crossover-tagged nodes', async () => {
-    // Root has 4 children: a normal sequel (walked), an OTHER edge
-    // (added to set but not enqueued), a MUSIC sibling (added but
-    // not walked), and a Crossover side-story (added but not walked).
+  it('stops walking at OTHER, SAME_UNIVERSE, MUSIC, and Crossover nodes', async () => {
+    // Root has 5 children: a normal sequel (walked), an OTHER edge
+    // (added to set but not enqueued), a SAME_UNIVERSE edge (same),
+    // a MUSIC sibling (added but not walked), and a Crossover side-story
+    // (added but not walked).
     executeAnilistQueryMock.mockResolvedValueOnce(
       batchWalkRelationsResponse([
         {
           edges: [
             { relationType: 'SEQUEL', node: anime(2) },
             { relationType: 'OTHER', node: anime(3) },
+            { relationType: 'SAME_UNIVERSE', node: anime(7) },
             { relationType: 'SIDE_STORY', node: anime(4, { format: 'MUSIC' }) },
             {
               relationType: 'SIDE_STORY',
@@ -166,8 +168,8 @@ describe('fetchRelatedAnimeIds caching', () => {
     );
 
     const related = await fetchRelatedAnimeIds(1);
-    expect([...related].sort((a, b) => a - b)).toEqual([2, 3, 4, 5]);
-    // 2 calls: root + node 2. Nodes 3/4/5 were added to the set but
+    expect([...related].sort((a, b) => a - b)).toEqual([2, 3, 4, 5, 7]);
+    // 2 calls: root + node 2. Nodes 3/4/5/7 were added to the set but
     // their relations weren't fetched. Node 6 was skipped entirely.
     expect(executeAnilistQueryMock).toHaveBeenCalledTimes(2);
   });

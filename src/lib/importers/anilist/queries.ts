@@ -38,14 +38,15 @@ import type { AnilistStaffLanguage } from './types';
  */
 export const ANILIST_MEDIA_SOURCE_VERSION = 3;
 export const ANILIST_MEDIA_STATUS_VERSION = 2;
-export const ANILIST_MEDIA_RELATION_TYPE_VERSION = 2;
+export const ANILIST_MEDIA_RELATION_TYPE_VERSION = 3;
 
 const MEDIA_SOURCE_SELECTION = `source(version: ${ANILIST_MEDIA_SOURCE_VERSION})`;
 const MEDIA_STATUS_SELECTION = `status(version: ${ANILIST_MEDIA_STATUS_VERSION})`;
 
 /**
- * MediaRelation v2: adds SOURCE/COMPILATION/CONTAINS and fixes cross-medium
- * SOURCE/ADAPTATION direction. Use on every tools + graph relation fetch.
+ * MediaRelation v3: adds SAME_UNIVERSE (split from OTHER). v2 added
+ * SOURCE/COMPILATION/CONTAINS and fixes cross-medium SOURCE/ADAPTATION
+ * direction. Use on every tools + graph relation fetch.
  */
 export const TOOLS_MEDIA_RELATION_TYPE_FIELD = `relationType(version: ${ANILIST_MEDIA_RELATION_TYPE_VERSION})`;
 

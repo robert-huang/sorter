@@ -1,6 +1,7 @@
 import { depaginate } from '../../lib/importers/anilist/depaginate';
 import {
   TOOLS_MEDIA_PRODUCTION_STAFF_QUERY,
+  TOOLS_MEDIA_RELATION_TYPE_FIELD,
   TOOLS_MEDIA_SEARCH_QUERY,
   TOOLS_MEDIA_STUDIOS_QUERY,
   TOOLS_MEDIA_VOICE_ACTORS_QUERY,
@@ -304,6 +305,11 @@ type RelatedAnimeWalkEdge = {
 
 const RELATED_ANIME_WALK_BATCH_SIZE = 15;
 
+/** Weak franchise links — include in the related set but do not walk further. */
+function isNonWalkRelationType(relationType: string): boolean {
+  return relationType === 'OTHER' || relationType === 'SAME_UNIVERSE';
+}
+
 function buildBatchedMediaRelationsWalkQuery(
   mediaIds: readonly number[],
 ): { query: string; variables: Record<string, number> } {
@@ -314,7 +320,7 @@ function buildBatchedMediaRelationsWalkQuery(
       return `m${index}: Media(id: $id${index}) {
     relations {
       edges {
-        relationType
+        ${TOOLS_MEDIA_RELATION_TYPE_FIELD}
         node {
           id
           type
@@ -390,7 +396,7 @@ async function walkRelatedAnimeIds(
 
         const isCrossover = (node.tags ?? []).some((t) => t.name === 'Crossover');
         if (
-          edge.relationType === 'OTHER' ||
+          isNonWalkRelationType(edge.relationType) ||
           node.format === 'MUSIC' ||
           isCrossover
         ) {

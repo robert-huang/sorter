@@ -28,7 +28,7 @@ describe('AniList versioned Media fields', () => {
     expect(FAVOURITE_ANIME_QUERY).toContain(FAVOURITE_MEDIA_FIELD_SELECTION);
   });
 
-  it('uses relationType(version: 2) on every relation fetch query', () => {
+  it('uses relationType(version: 3) on every relation fetch query', () => {
     expect(TOOLS_MEDIA_RELATION_TYPE_FIELD).toBe(
       `relationType(version: ${ANILIST_MEDIA_RELATION_TYPE_VERSION})`,
     );

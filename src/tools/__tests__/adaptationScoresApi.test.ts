@@ -91,7 +91,7 @@ describe('buildBatchedAdaptationRelationsQuery', () => {
     const { query, variables } = buildBatchedAdaptationRelationsQuery([10, 20]);
     expect(query).toContain('m0: Media(id: $id0)');
     expect(query).toContain('m1: Media(id: $id1)');
-    expect(query).toContain('relationType(version: 2)');
+    expect(query).toContain('relationType(version: 3)');
     expect(variables).toEqual({ id0: 10, id1: 20 });
   });
 });

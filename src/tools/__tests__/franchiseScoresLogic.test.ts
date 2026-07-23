@@ -117,13 +117,13 @@ describe('formatFranchiseScoreLabel', () => {
 });
 
 describe('enabledRelationTypes / DEFAULT_RELATION_TOGGLES', () => {
-  it('defaults canon franchise relations ON but excludes CHARACTER + OTHER', () => {
-    // CHARACTER drags in cameos; OTHER is AniList's catch-all noise bucket
-    // (soundtracks, promos) — both off by default per user preference.
+  it('defaults canon franchise relations ON but excludes CHARACTER + SAME_UNIVERSE + OTHER', () => {
+    // CHARACTER drags in cameos; SAME_UNIVERSE / OTHER are weak or noisy — off by default.
     const enabled = enabledRelationTypes(DEFAULT_RELATION_TOGGLES);
     expect(enabled.has('SEQUEL')).toBe(true);
     expect(enabled.has('SOURCE')).toBe(true);
     expect(enabled.has('ADAPTATION')).toBe(true);
+    expect(enabled.has('SAME_UNIVERSE')).toBe(false);
     expect(enabled.has('OTHER')).toBe(false);
     expect(enabled.has('CHARACTER')).toBe(false);
   });
@@ -157,8 +157,9 @@ describe('bfsFranchiseRelations', () => {
         { relationType: 'SEQUEL', node: node(2) },
         // Default toggles have CHARACTER off — node 3 must NOT appear.
         { relationType: 'CHARACTER', node: node(3) },
-        // OTHER is also off by default — node 4 must NOT appear.
+        // OTHER / SAME_UNIVERSE are off by default — nodes 4 and 5 must NOT appear.
         { relationType: 'OTHER', node: node(4) },
+        { relationType: 'SAME_UNIVERSE', node: node(5) },
       ]},
       2: { self: node(2), edges: [] },
     });
@@ -167,6 +168,7 @@ describe('bfsFranchiseRelations', () => {
     // Fetcher should not have been called for the skipped children.
     expect(batchCallIncludesId(fetcher, 3)).toBe(false);
     expect(batchCallIncludesId(fetcher, 4)).toBe(false);
+    expect(batchCallIncludesId(fetcher, 5)).toBe(false);
   });
 
   it('walks transitively across enabled edges', async () => {

@@ -55,6 +55,7 @@ export function entryPassesListStatusFilter(
  * - SOURCE / ADAPTATION: cross-medium pair (manga ↔ anime, novel ↔ anime, ...)
  * - COMPILATION / CONTAINS: collection / contains relationships
  * - CHARACTER: shares a character (often cameos)
+ * - SAME_UNIVERSE: same world, independent plots (v3; was lumped into OTHER)
  * - OTHER: AniList's catch-all when nothing else fits (soundtracks,
  *   special editions, promos, etc.)
  */
@@ -70,6 +71,7 @@ export const FRANCHISE_RELATION_TYPES = [
   'SOURCE',
   'COMPILATION',
   'CONTAINS',
+  'SAME_UNIVERSE',
   'OTHER',
   'CHARACTER',
 ] as const;
@@ -98,6 +100,10 @@ export const FRANCHISE_RELATION_LABELS: Record<
   },
   COMPILATION: { label: 'Compilation', hint: 'A compilation containing the seed.' },
   CONTAINS: { label: 'Contains', hint: 'The seed contains this entry.' },
+  SAME_UNIVERSE: {
+    label: 'Same universe',
+    hint: 'Same world but independent stories — weak franchise link. Off by default.',
+  },
   OTHER: {
     label: 'Other',
     hint: "AniList's catch-all bucket (soundtracks, promos, specials) — often noisy. Off by default.",
@@ -109,10 +115,10 @@ export const FRANCHISE_RELATION_LABELS: Record<
 };
 
 /**
- * Default relation toggles: the strong franchise links are ON; CHARACTER
- * and OTHER are OFF because they tend to drag in unrelated noise (cameos,
- * soundtrack-only entries, promo videos) that bloats the chart without
- * being "the same story".
+ * Default relation toggles: the strong franchise links are ON; CHARACTER,
+ * SAME_UNIVERSE, and OTHER are OFF because they tend to drag in unrelated
+ * noise (cameos, same-universe spin-offs, soundtrack-only entries) that
+ * bloats the chart without being "the same story".
  */
 export const DEFAULT_RELATION_TOGGLES: Record<FranchiseRelationType, boolean> = {
   PREQUEL: true,
@@ -126,6 +132,7 @@ export const DEFAULT_RELATION_TOGGLES: Record<FranchiseRelationType, boolean> = 
   SOURCE: true,
   COMPILATION: true,
   CONTAINS: true,
+  SAME_UNIVERSE: false,
   OTHER: false,
   CHARACTER: false,
 };
