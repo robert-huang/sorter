@@ -200,7 +200,10 @@ export async function expandMediaThemeSongs(
   }
 
   const existingExpansion = await getMediaThemeSongsExpansion(ctx.db, mediaId);
-  const preservedExcludedRowKeys = existingExpansion?.payload.excludedRowKeys ?? [];
+  // Explicit ↻ refresh re-fetches from sources and drops manual × exclusions.
+  const preservedExcludedRowKeys = options.force
+    ? []
+    : (existingExpansion?.payload.excludedRowKeys ?? []);
 
   const fetchedAt = await getMediaThemeSongsExpansionFetchedAt(ctx.db, mediaId);
   if (!needsGraphDataRefresh(fetchedAt, { forceRefresh: options.force })) {
