@@ -24,6 +24,10 @@ import {
   formatAnilistSeasonRangeLabel,
   WEEKLY_CALENDAR_NOT_ON_LIST_FILTER,
   WEEKLY_CALENDAR_NOT_ON_LIST_LABEL,
+  entryMatchesWeeklyMediaStatusFilters,
+  formatWeeklyCalendarMediaStatusFilterLabel,
+  normalizeWeeklyCalendarMediaStatusFilters,
+  DEFAULT_WEEKLY_CALENDAR_MEDIA_STATUS_FILTERS,
   type WeeklyCalendarEntry,
   type WeeklyCalendarRawEntry,
   DEFAULT_WEEKLY_CALENDAR_FORM,
@@ -294,6 +298,59 @@ describe('finalizeWeeklyCalendarResult', () => {
       null,
     );
     expect(result.kind).toBe('empty');
+  });
+
+  it('excludes FINISHED media by default airing status filter', () => {
+    const raw: WeeklyCalendarRawEntry = {
+      ...entry({
+        id: 1,
+        title: 'Replica Datte, Koi wo Suru.',
+        listStatus: 'REPEATING',
+        mediaStatus: 'FINISHED',
+        progress: 10,
+        totalEpisodes: 13,
+      }),
+      pastAiringAts: [1775572200, 1776177000],
+    };
+    const excluded = finalizeWeeklyCalendarResult(
+      [raw],
+      {
+        ...DEFAULT_WEEKLY_CALENDAR_FORM,
+        listStatusFilters: ['REPEATING'],
+        showUnscheduledColumn: true,
+      },
+      null,
+      new Date('2026-07-22T12:00:00Z'),
+    );
+    expect(excluded.kind).toBe('empty');
+
+    const included = finalizeWeeklyCalendarResult(
+      [raw],
+      {
+        ...DEFAULT_WEEKLY_CALENDAR_FORM,
+        listStatusFilters: ['REPEATING'],
+        mediaStatusFilters: ['FINISHED'],
+        showUnscheduledColumn: true,
+      },
+      null,
+      new Date('2026-07-22T12:00:00Z'),
+    );
+    expect(included.kind).toBe('columns');
+  });
+
+  it('defaults airing status filters to RELEASING and NOT_YET_RELEASED', () => {
+    expect(DEFAULT_WEEKLY_CALENDAR_MEDIA_STATUS_FILTERS).toEqual(['RELEASING', 'NOT_YET_RELEASED']);
+    expect(normalizeWeeklyCalendarMediaStatusFilters(undefined)).toEqual(
+      DEFAULT_WEEKLY_CALENDAR_MEDIA_STATUS_FILTERS,
+    );
+    expect(entryMatchesWeeklyMediaStatusFilters('FINISHED', ['RELEASING'])).toBe(false);
+    expect(
+      entryMatchesWeeklyMediaStatusFilters(
+        'RELEASING',
+        DEFAULT_WEEKLY_CALENDAR_MEDIA_STATUS_FILTERS,
+      ),
+    ).toBe(true);
+    expect(formatWeeklyCalendarMediaStatusFilterLabel('HIATUS')).toBe('HIATUS');
   });
 
   it('includes NOT ON LIST shows when that filter is selected', () => {

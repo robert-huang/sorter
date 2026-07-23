@@ -28,14 +28,18 @@ import {
   formatAnilistSeasonLabel,
   formatWeeklyCalendarDetailLines,
   formatWeeklyCalendarListStatusFilterLabel,
+  formatWeeklyCalendarMediaStatusFilterLabel,
   getCurrentAnilistSeason,
   getNextAnilistSeason,
   normalizeCustomSeasonRange,
+  normalizeWeeklyCalendarMediaStatusFilters,
   resolveWeeklyCalendarSeasonSpecs,
   weeklyCalendarTimezoneToIana,
   WEEKLY_CALENDAR_LIST_STATUS_OPTIONS,
+  WEEKLY_CALENDAR_MEDIA_STATUS_OPTIONS,
   type WeeklyCalendarForm,
   type WeeklyCalendarListStatusFilter,
+  type WeeklyCalendarMediaStatusFilter,
   type WeeklyCalendarRawEntry,
   type WeeklyCalendarResult,
   type WeeklyCalendarTimezone,
@@ -50,7 +54,7 @@ const LS_KEY = 'anime-tools-weekly-calendar-form';
 
 type PersistedWeeklyCalendarForm = Pick<
   WeeklyCalendarForm,
-  'username' | 'weekStartDay' | 'timezone' | 'showUnscheduledColumn'
+  'username' | 'weekStartDay' | 'timezone' | 'mediaStatusFilters' | 'showUnscheduledColumn'
 >;
 
 const WEEK_START_OPTIONS: WeeklyCalendarWeekStartDay[] = [
@@ -87,6 +91,7 @@ function loadForm(): WeeklyCalendarForm {
           parsed.timezone && TIMEZONE_OPTIONS.some((opt) => opt.value === parsed.timezone)
             ? parsed.timezone
             : DEFAULT_WEEKLY_CALENDAR_FORM.timezone,
+        mediaStatusFilters: normalizeWeeklyCalendarMediaStatusFilters(parsed.mediaStatusFilters),
         showUnscheduledColumn: parsed.showUnscheduledColumn ?? false,
       };
     }
@@ -106,6 +111,7 @@ function saveForm(form: WeeklyCalendarForm): void {
       username: form.username,
       weekStartDay: form.weekStartDay,
       timezone: form.timezone,
+      mediaStatusFilters: form.mediaStatusFilters,
       showUnscheduledColumn: form.showUnscheduledColumn,
     };
     localStorage.setItem(LS_KEY, JSON.stringify(persisted));
@@ -574,6 +580,18 @@ export function WeeklyCalendarPanel({ onOpenMedia }: ToolPanelProps) {
               onToggle={(status) =>
                 patchForm({
                   listStatusFilters: toggleInArray(form.listStatusFilters, status),
+                })
+              }
+            />
+
+            <MultiSelectChip<WeeklyCalendarMediaStatusFilter>
+              label="airing status"
+              options={[...WEEKLY_CALENDAR_MEDIA_STATUS_OPTIONS]}
+              selected={form.mediaStatusFilters}
+              formatOption={formatWeeklyCalendarMediaStatusFilterLabel}
+              onToggle={(status) =>
+                patchForm({
+                  mediaStatusFilters: toggleInArray(form.mediaStatusFilters, status),
                 })
               }
             />

@@ -716,14 +716,13 @@ query ToolsWeeklyCalendarWatching(
 }
 `.trim();
 
-/** Season browse for Weekly Calendar — live airing/upcoming shows in one status bucket. */
+/** Season browse for Weekly Calendar — all shows in a season (status filtered client-side). */
 export const TOOLS_WEEKLY_CALENDAR_SEASON_QUERY = `
 query ToolsWeeklyCalendarSeason(
   $page: Int!
   $perPage: Int!
   $season: MediaSeason!
   $seasonYear: Int!
-  $status: MediaStatus
 ) {
   Page(page: $page, perPage: $perPage) {
     pageInfo { hasNextPage currentPage }
@@ -731,7 +730,6 @@ query ToolsWeeklyCalendarSeason(
       type: ANIME
       season: $season
       seasonYear: $seasonYear
-      status: $status
       sort: [POPULARITY_DESC]
     ) {
       ${WEEKLY_CALENDAR_MEDIA_FIELDS}

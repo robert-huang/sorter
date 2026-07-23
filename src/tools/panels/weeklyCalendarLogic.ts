@@ -59,10 +59,47 @@ export function entryMatchesWeeklyListStatusFilters(
   return filters.includes(listStatus as WeeklyCalendarAnilistListStatus);
 }
 
-export const WEEKLY_CALENDAR_AIRING_MEDIA_STATUSES: AnilistMediaStatus[] = [
+export const WEEKLY_CALENDAR_MEDIA_STATUS_OPTIONS = [
+  'RELEASING',
+  'NOT_YET_RELEASED',
+  'FINISHED',
+  'HIATUS',
+  'CANCELLED',
+] as const satisfies readonly AnilistMediaStatus[];
+
+export type WeeklyCalendarMediaStatusFilter = (typeof WEEKLY_CALENDAR_MEDIA_STATUS_OPTIONS)[number];
+
+/** Default: actively airing or upcoming. */
+export const DEFAULT_WEEKLY_CALENDAR_MEDIA_STATUS_FILTERS: WeeklyCalendarMediaStatusFilter[] = [
   'RELEASING',
   'NOT_YET_RELEASED',
 ];
+
+export function formatWeeklyCalendarMediaStatusFilterLabel(
+  status: WeeklyCalendarMediaStatusFilter,
+): string {
+  return status;
+}
+
+export function normalizeWeeklyCalendarMediaStatusFilters(
+  raw: unknown,
+): WeeklyCalendarMediaStatusFilter[] {
+  if (!Array.isArray(raw)) {
+    return [...DEFAULT_WEEKLY_CALENDAR_MEDIA_STATUS_FILTERS];
+  }
+  const selected = WEEKLY_CALENDAR_MEDIA_STATUS_OPTIONS.filter((status) => raw.includes(status));
+  return selected.length > 0 ? [...selected] : [...DEFAULT_WEEKLY_CALENDAR_MEDIA_STATUS_FILTERS];
+}
+
+export function entryMatchesWeeklyMediaStatusFilters(
+  mediaStatus: string | null | undefined,
+  filters: readonly WeeklyCalendarMediaStatusFilter[],
+): boolean {
+  if (mediaStatus == null) {
+    return false;
+  }
+  return filters.includes(mediaStatus as WeeklyCalendarMediaStatusFilter);
+}
 
 export type WeeklyCalendarWeekStartDay =
   | 'MONDAY'
@@ -86,6 +123,7 @@ export type WeeklyCalendarForm = {
   customSeasonMinEncoded: number;
   customSeasonMaxEncoded: number;
   listStatusFilters: WeeklyCalendarListStatusFilter[];
+  mediaStatusFilters: WeeklyCalendarMediaStatusFilter[];
   showUnscheduledColumn: boolean;
 };
 
@@ -112,6 +150,7 @@ export const DEFAULT_WEEKLY_CALENDAR_FORM: WeeklyCalendarForm = {
   customSeasonMinEncoded: defaultCustomSeasonRange.customSeasonMinEncoded,
   customSeasonMaxEncoded: defaultCustomSeasonRange.customSeasonMaxEncoded,
   listStatusFilters: [...DEFAULT_WEEKLY_CALENDAR_LIST_STATUS_FILTERS],
+  mediaStatusFilters: [...DEFAULT_WEEKLY_CALENDAR_MEDIA_STATUS_FILTERS],
   showUnscheduledColumn: false,
 };
 
@@ -390,10 +429,6 @@ export function formatAnilistSeasonRangeLabel(
     return minLabel;
   }
   return `${minLabel} - ${maxLabel}`;
-}
-
-export function isWeeklyCalendarAiringMediaStatus(status: string | null | undefined): boolean {
-  return status === 'RELEASING' || status === 'NOT_YET_RELEASED';
 }
 
 export function isWeeklyCalendarWatchingListStatus(status: string | null | undefined): boolean {
@@ -800,14 +835,16 @@ export function finalizeWeeklyCalendarResult(
   now: Date = new Date(),
 ): WeeklyCalendarResult {
   const seasonMode = isWeeklyCalendarSeasonScope(form.seasonScope);
-  const filtered = entries.filter((entry) =>
-    entryMatchesWeeklyListStatusFilters(entry.listStatus, form.listStatusFilters),
+  const filtered = entries.filter(
+    (entry) =>
+      entryMatchesWeeklyListStatusFilters(entry.listStatus, form.listStatusFilters) &&
+      entryMatchesWeeklyMediaStatusFilters(entry.mediaStatus, form.mediaStatusFilters),
   );
 
   if (filtered.length === 0) {
     const scope = seasonMode
-      ? `No airing shows found for ${seasonLabel ?? 'the selected season'} with the selected list statuses.`
-      : 'No airing shows on the watching list with the selected list statuses.';
+      ? `No shows found for ${seasonLabel ?? 'the selected season'} with the selected list and airing statuses.`
+      : 'No shows on the list match the selected list and airing statuses.';
     return { kind: 'empty', message: scope };
   }
 

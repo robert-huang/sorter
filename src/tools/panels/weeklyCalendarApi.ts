@@ -16,17 +16,14 @@ import {
   sessionMemoDelete,
   withSessionTtlMemo,
 } from '../../lib/importers/anilist/toolsSessionMemo';
-import type { AnilistMediaStatus } from '../../lib/importers/anilist/types';
 import { pickMediaTitle } from './sharedCreditsLogic';
 import {
   computeAiredEpisodeCount,
   formatAnilistSeasonLabel,
   formatAnilistSeasonRangeLabel,
   isAnilistSeasonBeforeCurrent,
-  isWeeklyCalendarAiringMediaStatus,
   type AnilistSeasonAt,
   type WeeklyCalendarRawEntry,
-  WEEKLY_CALENDAR_AIRING_MEDIA_STATUSES,
 } from './weeklyCalendarLogic';
 import {
   normalizeSeasonalListScore,
@@ -162,9 +159,7 @@ async function fetchWatchingEntriesLive(
     }),
   });
 
-  return entries
-    .map((entry) => mapMediaToRawEntry(entry.media, entry))
-    .filter((entry) => isWeeklyCalendarAiringMediaStatus(entry.mediaStatus));
+  return entries.map((entry) => mapMediaToRawEntry(entry.media, entry));
 }
 
 export type UserListEntryMap = Map<
@@ -236,10 +231,9 @@ async function fetchUserListEntryMapCached(
   );
 }
 
-async function fetchSeasonMediaByStatus(
+async function fetchSeasonMedia(
   season: string,
   seasonYear: number,
-  status: AnilistMediaStatus,
   signal?: AbortSignal,
 ): Promise<GqlMedia[]> {
   return depaginate<
@@ -252,7 +246,7 @@ async function fetchSeasonMediaByStatus(
     GqlMedia
   >({
     query: TOOLS_WEEKLY_CALENDAR_SEASON_QUERY,
-    variables: { season, seasonYear, status },
+    variables: { season, seasonYear },
     signal,
     selectPage: (data) => ({
       nodes: data.Page?.media ?? [],
@@ -271,31 +265,20 @@ async function fetchSeasonAiringEntriesLive(
   const { season, year } = seasonSpec;
   const seasonLabel = formatAnilistSeasonLabel(seasonSpec);
 
-  const [listMap, releasing, upcoming] = await Promise.all([
+  const [listMap, media] = await Promise.all([
     fetchUserListEntryMapCached(username, signal, options),
-    fetchSeasonMediaByStatus(season, year, 'RELEASING', signal),
-    fetchSeasonMediaByStatus(season, year, 'NOT_YET_RELEASED', signal),
+    fetchSeasonMedia(season, year, signal),
   ]);
 
-  const byId = new Map<number, GqlMedia>();
-  for (const media of [...releasing, ...upcoming]) {
-    byId.set(media.id, media);
-  }
-
-  const entries: WeeklyCalendarRawEntry[] = [];
-  for (const media of byId.values()) {
-    if (!isWeeklyCalendarAiringMediaStatus(media.status)) {
-      continue;
-    }
-    const list = listMap.get(media.id) ?? null;
-    entries.push(mapMediaToRawEntry(media, list));
-  }
+  const entries: WeeklyCalendarRawEntry[] = media.map((item) =>
+    mapMediaToRawEntry(item, listMap.get(item.id) ?? null),
+  );
 
   return { entries, seasonLabel };
 }
 
 function weeklyCalendarSeasonCacheKey(handle: string, seasonSpec: AnilistSeasonAt): string {
-  return `weekly-calendar:season:${handle}:${seasonSpec.season}:${seasonSpec.year}`;
+  return `weekly-calendar:season:v2:${handle}:${seasonSpec.season}:${seasonSpec.year}`;
 }
 
 async function fetchSeasonAiringEntriesCached(
@@ -395,5 +378,3 @@ export async function fetchWeeklyCalendarSeasonsEntries(
     seasonLabel: formatAnilistSeasonRangeLabel(minSpec, maxSpec),
   };
 }
-
-export { WEEKLY_CALENDAR_AIRING_MEDIA_STATUSES };
