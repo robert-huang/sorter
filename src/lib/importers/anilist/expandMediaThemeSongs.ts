@@ -18,7 +18,7 @@ import {
   formatMalThemeFailureDetail,
 } from './themeSongs/malThemeFetch';
 import { parseMalThemes } from './themeSongs/malThemeParser';
-import { mergeThemeSongs } from './themeSongs/mergeThemeSongs';
+import { borrowSharedSpotifyMetadata, mergeThemeSongs } from './themeSongs/mergeThemeSongs';
 import { enrichRowsWithSpotifyIsrc } from './themeSongs/spotifyIsrc';
 import {
   applyThemeSongExclusions,
@@ -310,6 +310,7 @@ export async function expandMediaThemeSongs(
 
   let rows = mergeThemeSongs(malThemes, aniHits);
   rows = await enrichRowsWithSpotifyIsrc(rows);
+  rows = borrowSharedSpotifyMetadata(rows);
   rows = applyThemeSongExclusions(rows, preservedExcludedRowKeys);
 
   const aniplaylistAvailable = deriveLegacyAniplaylistAvailable(sources);

@@ -247,15 +247,6 @@ function WeeklyCalendarPosterButton({
   );
 }
 
-function compareThemeSongRows(a: MediaThemeSongRow, b: MediaThemeSongRow): number {
-  const typeDiff =
-    THEME_SONG_TYPE_ORDER.indexOf(a.type) - THEME_SONG_TYPE_ORDER.indexOf(b.type);
-  if (typeDiff !== 0) {
-    return typeDiff;
-  }
-  return a.sortOrder - b.sortOrder;
-}
-
 function WeeklyCalendarThemeSongShowTitle({
   show,
   songCount,
@@ -293,8 +284,7 @@ function WeeklyCalendarThemeSongGroups({
   playlistCache: ReturnType<typeof useSpotifyPlaylistCache>;
   onExcludeThemeSong?: (mediaId: number, row: MediaThemeSongRow) => void;
 }) {
-  const sortedRows = [...rows].sort(compareThemeSongRows);
-  const rowsByType = groupThemeRowsByType(sortedRows);
+  const rowsByType = groupThemeRowsByType(rows);
   const showPlaylistMatch = playlistCache !== null;
 
   return (
@@ -568,6 +558,19 @@ function WeeklyCalendarColumnsView({
                         onOpenMedia={onOpenMedia}
                       />
                       <div className="tool-weekly-title-block">
+                        {songCount ? (
+                          <span
+                            className={[
+                              'tool-weekly-theme-song-badge',
+                              playlistStatus ? `is-${playlistStatus}` : '',
+                            ]
+                              .filter(Boolean)
+                              .join(' ')}
+                            title={themeSongBadgeTitle(songCount, playlistStatus)}
+                          >
+                            🎵 {songCount}
+                          </span>
+                        ) : null}
                         <div className="tool-weekly-title-row">
                           <ToolShowButton
                             mediaId={show.id}
@@ -577,19 +580,6 @@ function WeeklyCalendarColumnsView({
                             hideAvatar
                             className="tool-season-title tool-weekly-title"
                           />
-                          {songCount ? (
-                            <span
-                              className={[
-                                'tool-weekly-theme-song-badge',
-                                playlistStatus ? `is-${playlistStatus}` : '',
-                              ]
-                                .filter(Boolean)
-                                .join(' ')}
-                              title={themeSongBadgeTitle(songCount, playlistStatus)}
-                            >
-                              🎵 {songCount}
-                            </span>
-                          ) : null}
                         </div>
                         {primary ? (
                           <div className="tool-weekly-detail tool-weekly-detail-time">{primary}</div>

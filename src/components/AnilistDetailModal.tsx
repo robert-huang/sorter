@@ -12,9 +12,9 @@ import {
   productionReads,
 } from '../lib/importers/anilist/readQueries';
 import type { MediaThemeSongsPayload } from '../lib/importers/anilist/themeSongs/types';
-import { THEME_SONG_SECTION_LABEL } from '../lib/importers/anilist/themeSongs/themeSongDisplay';
+import { groupThemeRowsByType, THEME_SONG_SECTION_LABEL } from '../lib/importers/anilist/themeSongs/themeSongDisplay';
 import { themeSongRowKey } from '../lib/importers/anilist/themeSongs/themeSongRowKey';
-import { THEME_SONG_TYPE_ORDER, type ThemeSongType } from '../lib/importers/anilist/themeSongs/types';
+import { THEME_SONG_TYPE_ORDER } from '../lib/importers/anilist/themeSongs/types';
 import type { AnilistProgressEvent } from '../lib/importers/anilist/progress';
 import { filterProductionStaffRows } from '../lib/importers/anilist/staffRoleFilter';
 import { runAnilistExcludeMediaThemeSongRow, runAnilistMediaLazyExpansion, runAnilistMediaRelationsRefresh, runAnilistMediaThemeSongsExpansion } from '../lib/importers/anilist/runners';
@@ -111,7 +111,7 @@ function themeSongsEmptyMessage(
     return 'Theme song sources unavailable (MAL/Jikan and AniPlaylist). Try ↻ next to Theme songs.';
   }
   if (fetchedAt === null) {
-    return 'No theme songs cached yet. Click ↻ next to Theme songs.';
+    return 'Click Load next to Theme songs to fetch from MAL and AniPlaylist.';
   }
   return 'No theme songs found for this entry.';
 }
@@ -307,17 +307,10 @@ export function AnilistDetailModal({
     );
   }, [detail, productionRoleMode]);
 
-  const themeRowsByType = useMemo(() => {
-    const groups: Record<ThemeSongType, MediaThemeSongsPayload['rows']> = {
-      Opening: [],
-      Ending: [],
-      Insert: [],
-    };
-    for (const row of themeSongsPayload?.rows ?? []) {
-      groups[row.type].push(row);
-    }
-    return groups;
-  }, [themeSongsPayload]);
+  const themeRowsByType = useMemo(
+    () => groupThemeRowsByType(themeSongsPayload?.rows ?? []),
+    [themeSongsPayload],
+  );
 
   const playlistCache = useMemo(() => {
     void playlistCacheRevision;
@@ -410,39 +403,6 @@ export function AnilistDetailModal({
           }
         }
 
-        if (!cancelled && d?.media.type === 'ANIME') {
-          const themeFetchedAt =
-            await productionReads.getMediaThemeSongsExpansionFetchedAt(mediaId);
-          const needsThemeExpansion =
-            initialForceRefresh ||
-            themeFetchedAt === null ||
-            isGraphTimestampStale(themeFetchedAt);
-          if (needsThemeExpansion) {
-            setThemeSongsLoading(true);
-            try {
-              await runAnilistMediaThemeSongsExpansion(
-                mediaId,
-                (e) => {
-                  if (!cancelled) setProgress(e);
-                },
-                initialForceRefresh ? { force: true } : undefined,
-              );
-              if (!cancelled) {
-                await refreshThemeSongsFromDb();
-              }
-            } catch {
-              if (!cancelled) {
-                await refreshThemeSongsFromDb();
-              }
-            } finally {
-              if (!cancelled) {
-                setThemeSongsLoading(false);
-              }
-            }
-          } else {
-            await refreshThemeSongsFromDb();
-          }
-        }
       } catch (err) {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : 'Could not load media.');
@@ -468,9 +428,6 @@ export function AnilistDetailModal({
         mediaId,
         (e) => setProgress(e),
       );
-      await runAnilistMediaThemeSongsExpansion(mediaId, (e) => setProgress(e), {
-        force: true,
-      });
       const status = await productionReads.getMediaCastExpansionStatus(mediaId);
       const relationsAt =
         await productionReads.getMediaRelationsExpansionFetchedAt(mediaId);
@@ -479,7 +436,6 @@ export function AnilistDetailModal({
       if (relationsResponse) {
         onMediaRelationsRefreshed?.(mediaId, relationsResponse);
       }
-      await refreshThemeSongsFromDb();
       setLoadTick((t) => t + 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Refresh failed.');
@@ -487,7 +443,7 @@ export function AnilistDetailModal({
       setExpanding(false);
       setProgress(null);
     }
-  }, [mediaId, expanding, onMediaRelationsRefreshed, refreshThemeSongsFromDb]);
+  }, [mediaId, expanding, onMediaRelationsRefreshed]);
 
   const onRefreshThemeSongs = useCallback(async () => {
     if (themeSongsLoading || expanding) {
@@ -496,14 +452,19 @@ export function AnilistDetailModal({
     setThemeSongsLoading(true);
     setError(null);
     try {
-      await runAnilistMediaThemeSongsExpansion(mediaId, undefined, { force: true });
+      const forceRefresh = themeSongsFetchedAt !== null;
+      await runAnilistMediaThemeSongsExpansion(
+        mediaId,
+        undefined,
+        forceRefresh ? { force: true } : undefined,
+      );
       await refreshThemeSongsFromDb();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Theme song refresh failed.');
     } finally {
       setThemeSongsLoading(false);
     }
-  }, [mediaId, themeSongsLoading, expanding, refreshThemeSongsFromDb]);
+  }, [mediaId, themeSongsLoading, expanding, themeSongsFetchedAt, refreshThemeSongsFromDb]);
 
   const onExcludeThemeSong = useCallback(
     async (row: MediaThemeSongsPayload['rows'][number]) => {
@@ -532,14 +493,13 @@ export function AnilistDetailModal({
         isGraphTimestampStale(expansionStatus.staffFetchedAt)));
   const isThemeSongsStale =
     themeSongsFetchedAt !== null && isGraphTimestampStale(themeSongsFetchedAt);
-  const isModalCacheStale = isCastStale || isThemeSongsStale;
+  const isModalCacheStale = isCastStale;
   const castStaleFetchedAt = expansionStatus
     ? oldestStaleGraphTimestamp([
         expansionStatus.charactersFetchedAt,
         expansionStatus.staffFetchedAt,
-        themeSongsFetchedAt,
       ])
-    : themeSongsFetchedAt;
+    : null;
 
   const title = pickTitle(detail, fallbackTitle);
   const m = detail?.media;
@@ -582,7 +542,7 @@ export function AnilistDetailModal({
                     castStaleFetchedAt,
                     "This entry's cached details",
                   )
-                : 'Re-fetch cast, staff, relations & theme songs (does not auto-push)'
+                : 'Re-fetch cast, staff & relations (does not auto-push)'
             }
           >
             {expanding ? 'Refreshing…' : '↻ Refresh'}
@@ -967,16 +927,22 @@ export function AnilistDetailModal({
                     <button
                       type="button"
                       className={`btn small${
-                        isThemeSongsStale && !themeSongsLoading
+                        isThemeSongsStale && !themeSongsLoading && themeSongsFetchedAt !== null
                           ? ' anilist-detail-refresh-stale'
                           : ''
                       }`}
                       onClick={() => void onRefreshThemeSongs()}
                       disabled={themeSongsLoading || expanding}
-                      title="Re-fetch theme songs only (MAL/Jikan + AniPlaylist)"
-                      aria-label="Refresh theme songs"
+                      title={
+                        themeSongsFetchedAt === null
+                          ? 'Load theme songs from MAL/Jikan + AniPlaylist'
+                          : 'Re-fetch theme songs (MAL/Jikan + AniPlaylist)'
+                      }
+                      aria-label={
+                        themeSongsFetchedAt === null ? 'Load theme songs' : 'Refresh theme songs'
+                      }
                     >
-                      {themeSongsLoading ? '…' : '↻'}
+                      {themeSongsLoading ? '…' : themeSongsFetchedAt === null ? 'Load' : '↻'}
                     </button>
                   )}
                 </h4>

@@ -7,6 +7,7 @@ import {
   malThemeMatchesAniplaylistHit,
   titlesMatchStronglyAny,
   titlesRoughlyMatch,
+  titlesRoughlyMatchAny,
 } from './themeSongMatching';
 import {
   buildSpotifySearchUrl,
@@ -105,6 +106,73 @@ export function parseAniplaylistSongKey(
   }
 
   return { sortOrder: null, badge: null, episodeLine: null };
+}
+
+function themeSongEpisodeLineForSort(row: MediaThemeSongRow): string | null {
+  if (row.songKey?.trim()) {
+    const parsed = parseAniplaylistSongKey(row.songKey, row.type);
+    if (parsed.episodeLine) {
+      return parsed.episodeLine;
+    }
+  }
+  return row.malEpisodes ?? null;
+}
+
+/** Episode numbers parsed from theme episode text for within-type sorting. */
+export function parseThemeSongEpisodeNumbers(episodeLine: string | null): number[] {
+  if (!episodeLine?.trim()) {
+    return [];
+  }
+  const nums: number[] = [];
+  const re = /\d+/g;
+  let match: RegExpExecArray | null = re.exec(episodeLine);
+  while (match) {
+    const n = Number(match[0]);
+    if (Number.isFinite(n)) {
+      nums.push(n);
+    }
+    match = re.exec(episodeLine);
+  }
+  return nums;
+}
+
+export function themeSongMinEpisode(row: MediaThemeSongRow): number {
+  const nums = parseThemeSongEpisodeNumbers(themeSongEpisodeLineForSort(row));
+  if (nums.length === 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return Math.min(...nums);
+}
+
+/** Sort within one OP/ED/IN bucket: appearance index, then earliest episode. */
+export function compareThemeSongRowsWithinType(
+  a: MediaThemeSongRow,
+  b: MediaThemeSongRow,
+): number {
+  const orderCmp = a.sortOrder - b.sortOrder;
+  if (orderCmp !== 0) {
+    return orderCmp;
+  }
+  const epCmp = themeSongMinEpisode(a) - themeSongMinEpisode(b);
+  if (epCmp !== 0) {
+    return epCmp;
+  }
+  const titleA = a.displayTitle?.trim() ?? '';
+  const titleB = b.displayTitle?.trim() ?? '';
+  return titleA.localeCompare(titleB, undefined, { sensitivity: 'base' });
+}
+
+export function compareThemeSongRows(a: MediaThemeSongRow, b: MediaThemeSongRow): number {
+  const typeCmp =
+    THEME_SONG_TYPE_ORDER.indexOf(a.type) - THEME_SONG_TYPE_ORDER.indexOf(b.type);
+  if (typeCmp !== 0) {
+    return typeCmp;
+  }
+  return compareThemeSongRowsWithinType(a, b);
+}
+
+export function sortThemeSongRows(rows: readonly MediaThemeSongRow[]): MediaThemeSongRow[] {
+  return [...rows].sort(compareThemeSongRows);
 }
 
 function resolveOrphanAniplaylistSortOrder(hit: AniplaylistHit, orphanIndex: number): number {
@@ -224,14 +292,7 @@ export function mergeThemeSongs(
     rows.push(hitToPartialRow(hit, resolveOrphanAniplaylistSortOrder(hit, orphanIndex)));
   });
 
-  rows.sort((a, b) => {
-    const typeCmp =
-      THEME_SONG_TYPE_ORDER.indexOf(a.type) - THEME_SONG_TYPE_ORDER.indexOf(b.type);
-    if (typeCmp !== 0) {
-      return typeCmp;
-    }
-    return a.sortOrder - b.sortOrder;
-  });
+  rows.sort(compareThemeSongRows);
 
   return borrowSharedSpotifyMetadata(rows);
 }
@@ -249,8 +310,26 @@ function themeSongTitleVariants(row: MediaThemeSongRow): string[] {
   return [...variants];
 }
 
-function themeSongArtist(row: MediaThemeSongRow): string | null {
-  return row.malArtist ?? row.displayArtist ?? row.aniArtists?.[0] ?? null;
+function themeSongArtistCandidates(row: MediaThemeSongRow): string[] {
+  const names = new Set<string>();
+  for (const candidate of [row.malArtist, row.displayArtist, ...(row.aniArtists ?? [])]) {
+    const trimmed = candidate?.trim();
+    if (trimmed) {
+      names.add(trimmed);
+    }
+  }
+  return [...names];
+}
+
+function artistsRoughlyMatchAny(left: readonly string[], right: readonly string[]): boolean {
+  for (const a of left) {
+    for (const b of right) {
+      if (artistsRoughlyMatch(a, b)) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 /** Same recording within a show — ignores OP/ED role. */
@@ -260,15 +339,18 @@ export function rowsShareSongIdentity(a: MediaThemeSongRow, b: MediaThemeSongRow
   if (titlesA.length === 0 || titlesB.length === 0) {
     return false;
   }
-  if (!titlesMatchStronglyAny(titlesA, titlesB)) {
+  const strongTitleMatch = titlesMatchStronglyAny(titlesA, titlesB);
+  if (!strongTitleMatch && !titlesRoughlyMatchAny(titlesA, titlesB)) {
     return false;
   }
-  const artistA = themeSongArtist(a);
-  const artistB = themeSongArtist(b);
-  if (!artistA || !artistB) {
-    return true;
+
+  const artistsA = themeSongArtistCandidates(a);
+  const artistsB = themeSongArtistCandidates(b);
+  if (artistsA.length === 0 || artistsB.length === 0) {
+    // Only skip artist when we cannot compare — and only on an exact title match.
+    return strongTitleMatch;
   }
-  return artistsRoughlyMatch(artistA, artistB);
+  return artistsRoughlyMatchAny(artistsA, artistsB);
 }
 
 /**
@@ -276,7 +358,9 @@ export function rowsShareSongIdentity(a: MediaThemeSongRow, b: MediaThemeSongRow
  * the same Spotify track when title+artist identify the same recording.
  */
 export function borrowSharedSpotifyMetadata(rows: MediaThemeSongRow[]): MediaThemeSongRow[] {
-  const donors = rows.filter((row) => row.spotifyTrackIds.length > 0);
+  const donors = rows.filter(
+    (row) => row.spotifyTrackIds.length > 0 || row.spotifyIsrc !== null,
+  );
   if (donors.length === 0) {
     return rows;
   }
@@ -290,23 +374,16 @@ export function borrowSharedSpotifyMetadata(rows: MediaThemeSongRow[]): MediaThe
     }
     return {
       ...row,
-      spotifyUrl: donor.spotifyUrl,
+      spotifyUrl: donor.spotifyUrl ?? row.spotifyUrl,
       spotifyTrackIds: [...donor.spotifyTrackIds],
-      spotifyIsrc: donor.spotifyIsrc,
-      hasResolvableTrackId: true,
+      spotifyIsrc: donor.spotifyIsrc ?? row.spotifyIsrc,
+      hasResolvableTrackId: donor.spotifyTrackIds.length > 0,
     };
   });
 }
 
 export function sortThemeRows(rows: readonly MediaThemeSongRow[]): MediaThemeSongRow[] {
-  return [...rows].sort((a, b) => {
-    const typeCmp =
-      THEME_SONG_TYPE_ORDER.indexOf(a.type) - THEME_SONG_TYPE_ORDER.indexOf(b.type);
-    if (typeCmp !== 0) {
-      return typeCmp;
-    }
-    return a.sortOrder - b.sortOrder;
-  });
+  return sortThemeSongRows(rows);
 }
 
 /** Exported for tests — detect loose duplicate keys between MAL and AniPlaylist. */

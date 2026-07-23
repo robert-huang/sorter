@@ -1665,7 +1665,7 @@ html {
 
 .anilist-detail-theme-song-text {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
   min-width: 0;
   flex: 1;
@@ -1694,6 +1694,11 @@ html {
 
 .anilist-detail-theme-song-playlist-dot {
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 10px;
+  height: calc(12px * 1.35);
   font-size: 10px;
   line-height: 1;
 }
@@ -1708,9 +1713,6 @@ html {
 
 .anilist-detail-theme-song-exclude {
   flex-shrink: 0;
-  min-width: 28px;
-  padding: 0 6px;
-  line-height: 1;
 }
 
 /* Inline name button used in the media modal so a cast VA / production
@@ -4918,6 +4920,7 @@ html {
 .staged-panel-item-remove,
 .staged-panel-group-remove,
 .x-button.staged-panel-item-detail.detail,
+.anilist-detail-theme-song-exclude,
 .modal .x-button {
   display: grid;
   place-items: center;
@@ -7716,9 +7719,15 @@ html {
 .tool-weekly-title-block {
   display: flex;
   flex-direction: column;
+  justify-content: center;
   gap: 2px;
   min-width: 0;
-  align-self: center;
+  align-self: stretch;
+  position: relative;
+}
+
+.tool-weekly-title-block:has(.tool-weekly-theme-song-badge) .tool-weekly-title {
+  padding-right: 2.1em;
 }
 
 .tool-weekly-title.tool-entity-btn {
@@ -7785,23 +7794,23 @@ html {
 }
 
 .tool-weekly-title-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
   min-width: 0;
 }
 
 .tool-weekly-title-row .tool-weekly-title {
-  flex: 1 1 auto;
   min-width: 0;
 }
 
 .tool-weekly-theme-song-badge {
-  flex: 0 0 auto;
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 1;
   font-size: 11px;
   line-height: 1.35;
   color: var(--muted);
   white-space: nowrap;
+  pointer-events: auto;
 }
 
 .tool-weekly-theme-song-badge.is-in {

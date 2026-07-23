@@ -9,6 +9,7 @@ import {
 } from '../lib/importers/anilist/themeSongs/themeSongDisplay';
 import type { PlaylistMatchStatus } from '../lib/spotify/spotifyPlaylistMatch';
 import { useThemeSongDisplayPreferences } from '../hooks/useThemeSongDisplayPreferences';
+import { RemoveGlyph } from './RemoveGlyph';
 
 type Props = {
   row: MediaThemeSongRow;
@@ -117,12 +118,12 @@ export function ThemeSongRowC({ row, playlistStatus, showPlaylistMatch, onExclud
       {onExclude ? (
         <button
           type="button"
-          className="btn small anilist-detail-theme-song-exclude"
+          className="x-button anilist-detail-theme-song-exclude"
           onClick={() => onExclude(row)}
           title="Remove this song from this entry"
           aria-label="Remove this song from this entry"
         >
-          ×
+          <RemoveGlyph size={12} />
         </button>
       ) : null}
     </li>

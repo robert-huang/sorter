@@ -276,6 +276,7 @@ describe('AnilistDetailModal — lazy expansion', () => {
       force: true,
     });
     expect(mockedRelationsRefresh).toHaveBeenCalledWith(9, expect.any(Function));
+    expect(mockedThemeExpand).not.toHaveBeenCalled();
     expect(mockedGetMediaDetail).toHaveBeenCalledTimes(2);
   });
 
@@ -744,5 +745,94 @@ describe('AnilistDetailModal — clickable people (staff panel nav)', () => {
 
     expect(container.querySelector('button.anilist-detail-person-link')).toBeNull();
     expect(container.textContent).toContain('Shinichiro Watanabe');
+  });
+
+  it('does not auto-fetch theme songs on open when never cached', async () => {
+    mockedGetMediaDetail.mockResolvedValueOnce(makeDetail(11, true));
+    mockedGetExpansionStatus.mockResolvedValueOnce(makeExpansionStatus(11, true));
+    mockedGetThemeSongsFetchedAt.mockResolvedValueOnce(null);
+    mockedGetThemeSongs.mockResolvedValueOnce(null);
+
+    await act(async () => {
+      root.render(
+        <AnilistDetailModal mediaId={11} fallbackTitle="EN-11" onClose={() => {}} />,
+      );
+    });
+    await flushPromises();
+
+    expect(mockedThemeExpand).not.toHaveBeenCalled();
+    expect(mockedGetThemeSongs).toHaveBeenCalledWith(11);
+    expect(container.textContent).toMatch(/Click Load next to Theme songs/);
+  });
+
+  it('Load button fetches theme songs without force on first load', async () => {
+    mockedGetMediaDetail.mockResolvedValueOnce(makeDetail(12, true));
+    mockedGetExpansionStatus.mockResolvedValueOnce(makeExpansionStatus(12, true));
+    mockedGetThemeSongsFetchedAt
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(1_700_000_000_000);
+    mockedGetThemeSongs
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        mediaId: 12,
+        malId: 12,
+        fetchedAt: 1_700_000_000_000,
+        payload: { version: 1, aniplaylistAvailable: true, rows: [] },
+      });
+    mockedThemeExpand.mockResolvedValueOnce({
+      mediaId: 12,
+      malId: 12,
+      rowsWritten: 0,
+      aniplaylistAvailable: true,
+    });
+
+    await act(async () => {
+      root.render(
+        <AnilistDetailModal mediaId={12} fallbackTitle="EN-12" onClose={() => {}} />,
+      );
+    });
+    await flushPromises();
+
+    const loadBtn = Array.from(container.querySelectorAll('button')).find(
+      (b) => b.getAttribute('aria-label') === 'Load theme songs',
+    );
+    expect(loadBtn).toBeDefined();
+    await act(async () => {
+      loadBtn!.click();
+    });
+    await flushPromises();
+
+    expect(mockedThemeExpand).toHaveBeenCalledTimes(1);
+    expect(mockedThemeExpand).toHaveBeenCalledWith(12, undefined, undefined);
+  });
+
+  it('theme refresh button re-fetches with force after first load', async () => {
+    mockedGetMediaDetail.mockResolvedValueOnce(makeDetail(13, true));
+    mockedGetExpansionStatus.mockResolvedValueOnce(makeExpansionStatus(13, true));
+    mockedThemeExpand.mockResolvedValueOnce({
+      mediaId: 13,
+      malId: 13,
+      rowsWritten: 0,
+      aniplaylistAvailable: true,
+    });
+
+    await act(async () => {
+      root.render(
+        <AnilistDetailModal mediaId={13} fallbackTitle="EN-13" onClose={() => {}} />,
+      );
+    });
+    await flushPromises();
+
+    const refreshBtn = Array.from(container.querySelectorAll('button')).find(
+      (b) => b.getAttribute('aria-label') === 'Refresh theme songs',
+    );
+    expect(refreshBtn).toBeDefined();
+    await act(async () => {
+      refreshBtn!.click();
+    });
+    await flushPromises();
+
+    expect(mockedThemeExpand).toHaveBeenCalledTimes(1);
+    expect(mockedThemeExpand).toHaveBeenCalledWith(13, undefined, { force: true });
   });
 });

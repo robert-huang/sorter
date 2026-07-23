@@ -1,6 +1,7 @@
 import type { ThemeSongNameDisplayMode } from '../../../spotify/themeSongDisplayPreferences';
-import { parseAniplaylistSongKey } from './mergeThemeSongs';
+import { compareThemeSongRowsWithinType, parseAniplaylistSongKey } from './mergeThemeSongs';
 import type { MediaThemeSongRow, ThemeSongType } from './types';
+import { THEME_SONG_TYPE_ORDER } from './types';
 
 const CJK_CHAR_RE = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uff66-\uff9f]/;
 
@@ -135,6 +136,9 @@ export function groupThemeRowsByType(
   };
   for (const row of rows) {
     groups[row.type].push(row);
+  }
+  for (const type of THEME_SONG_TYPE_ORDER) {
+    groups[type].sort(compareThemeSongRowsWithinType);
   }
   return groups;
 }

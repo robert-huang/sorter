@@ -3,8 +3,10 @@ import { parseMalThemes } from '../themeSongs/malThemeParser';
 import {
   artistsRoughlyMatch,
   borrowSharedSpotifyMetadata,
+  compareThemeSongRowsWithinType,
   mergeThemeSongs,
   sortOrderFromAniplaylistSongKey,
+  themeSongMinEpisode,
 } from '../themeSongs/mergeThemeSongs';
 import type { MediaThemeSongRow } from '../themeSongs/types';
 import type { AniplaylistHit } from '../themeSongs/aniplaylistApi';
@@ -223,6 +225,38 @@ describe('mergeThemeSongs', () => {
     expect(realEd?.hasResolvableTrackId).toBe(false);
   });
 
+  it('borrows Spotify metadata when OP uses romanized MAL strings (World Is Dancing)', () => {
+    const mal = parseMalThemes(
+      ['"Shuushou" by Macaroni Empitsu'],
+      ['"終宵" by マカロニえんぴつ (ep 1)', '"名もない花" by 黒子首 (eps 1-)'],
+    );
+    const aniHit: AniplaylistHit = {
+      id: 21,
+      anime_id: 201,
+      score: 60,
+      titles: ['終宵', 'Shuushou'],
+      song_key: 'OP',
+      song_type: 'Opening',
+      artists: [{ names: ['マカロニえんぴつ', 'Macaroni Empitsu'] }],
+      links: [
+        {
+          platform: 'spotify',
+          main: true,
+          link: 'https://open.spotify.com/track/shuuyoiTrackId12',
+        },
+      ],
+      other_link_ids: ['shuuyoiTrackId12'],
+    };
+
+    const rows = mergeThemeSongs(mal, [aniHit]);
+    const duplicateEd = rows.find(
+      (row) => row.type === 'Ending' && row.displayTitle === '終宵',
+    );
+
+    expect(duplicateEd?.spotifyTrackIds).toEqual(['shuuyoiTrackId12']);
+    expect(duplicateEd?.hasResolvableTrackId).toBe(true);
+  });
+
   it('merges Jikan malformed ED quotes with AniPlaylist', () => {
     const mal = parseMalThemes(
       ['"Eureka Evrika (ユーレカ・エヴリカ)" by Luna Goami (五阿弥ルナ)'],
@@ -265,6 +299,62 @@ describe('mergeThemeSongs', () => {
   });
 });
 
+describe('compareThemeSongRowsWithinType', () => {
+  function endingRow(
+    partial: Partial<MediaThemeSongRow> & Pick<MediaThemeSongRow, 'displayTitle'>,
+  ): MediaThemeSongRow {
+    return {
+      type: 'Ending',
+      sortOrder: 0,
+      displayArtist: null,
+      spotifyUrl: null,
+      spotifyTrackIds: [],
+      spotifyIsrc: null,
+      hasResolvableTrackId: false,
+      ...partial,
+    };
+  }
+
+  it('sorts by appearance index then earliest episode number', () => {
+    const rows = [
+      endingRow({ displayTitle: '感情グラス', songKey: 'ED (ep 6 & 8)' }),
+      endingRow({ displayTitle: '感情グラス', songKey: 'ED (ep 1 & 12)' }),
+      endingRow({ displayTitle: '感情グラス', songKey: 'ED (ep 4)' }),
+      endingRow({ displayTitle: '茜色の夕日', songKey: 'ED (ep 10)' }),
+      endingRow({ displayTitle: '感情グラス', songKey: 'ED (ep 3 & 9)' }),
+    ].sort(compareThemeSongRowsWithinType);
+
+    expect(rows.map((row) => themeSongMinEpisode(row))).toEqual([1, 3, 4, 6, 10]);
+  });
+
+  it('sorts OP before OP2', () => {
+    const rows = [
+      {
+        type: 'Opening' as const,
+        sortOrder: 1,
+        displayTitle: 'OP2',
+        displayArtist: null,
+        spotifyUrl: null,
+        spotifyTrackIds: [],
+        spotifyIsrc: null,
+        hasResolvableTrackId: false,
+      },
+      {
+        type: 'Opening' as const,
+        sortOrder: 0,
+        displayTitle: 'OP',
+        displayArtist: null,
+        spotifyUrl: null,
+        spotifyTrackIds: [],
+        spotifyIsrc: null,
+        hasResolvableTrackId: false,
+      },
+    ].sort(compareThemeSongRowsWithinType);
+
+    expect(rows.map((row) => row.displayTitle)).toEqual(['OP', 'OP2']);
+  });
+});
+
 describe('borrowSharedSpotifyMetadata', () => {
   it('does not borrow across different songs', () => {
     const donor: MediaThemeSongRow = {
@@ -282,6 +372,36 @@ describe('borrowSharedSpotifyMetadata', () => {
       sortOrder: 0,
       displayTitle: 'Song B',
       displayArtist: 'Artist B',
+      spotifyUrl: null,
+      spotifyTrackIds: [],
+      spotifyIsrc: null,
+      hasResolvableTrackId: false,
+    };
+
+    const rows = borrowSharedSpotifyMetadata([donor, recipient]);
+    expect(rows[1]?.spotifyTrackIds).toEqual([]);
+  });
+
+  it('does not borrow when titles match but artists differ', () => {
+    const donor: MediaThemeSongRow = {
+      type: 'Opening',
+      sortOrder: 0,
+      displayTitle: 'Go',
+      displayArtist: 'Artist A',
+      malTitle: 'Go',
+      malArtist: 'Artist A',
+      spotifyUrl: 'https://open.spotify.com/track/go-a',
+      spotifyTrackIds: ['track-go-a'],
+      spotifyIsrc: null,
+      hasResolvableTrackId: true,
+    };
+    const recipient: MediaThemeSongRow = {
+      type: 'Ending',
+      sortOrder: 0,
+      displayTitle: 'Go',
+      displayArtist: 'Artist B',
+      malTitle: 'Go',
+      malArtist: 'Artist B',
       spotifyUrl: null,
       spotifyTrackIds: [],
       spotifyIsrc: null,
