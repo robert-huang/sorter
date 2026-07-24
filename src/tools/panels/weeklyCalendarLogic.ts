@@ -59,6 +59,35 @@ export function entryMatchesWeeklyListStatusFilters(
   return filters.includes(listStatus as WeeklyCalendarAnilistListStatus);
 }
 
+export type WeeklyCalendarScoreFilters = {
+  userScoreInclude: 'any' | 'rated' | 'unrated';
+  scoreMin: number | null;
+  scoreMax: number | null;
+};
+
+export function entryMatchesWeeklyScoreFilters(
+  score: number | null | undefined,
+  filters: WeeklyCalendarScoreFilters,
+): boolean {
+  const normalized = normalizeSeasonalListScore(score);
+  const isRated = normalized !== null;
+  if (filters.userScoreInclude === 'rated' && !isRated) {
+    return false;
+  }
+  if (filters.userScoreInclude === 'unrated' && isRated) {
+    return false;
+  }
+  if (normalized !== null) {
+    if (filters.scoreMin !== null && normalized < filters.scoreMin) {
+      return false;
+    }
+    if (filters.scoreMax !== null && normalized > filters.scoreMax) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export const WEEKLY_CALENDAR_MEDIA_STATUS_OPTIONS = [
   'RELEASING',
   'NOT_YET_RELEASED',
@@ -123,6 +152,9 @@ export type WeeklyCalendarForm = {
   customSeasonMinEncoded: number;
   customSeasonMaxEncoded: number;
   listStatusFilters: WeeklyCalendarListStatusFilter[];
+  userScoreInclude: WeeklyCalendarScoreFilters['userScoreInclude'];
+  scoreMin: number | null;
+  scoreMax: number | null;
   mediaStatusFilters: WeeklyCalendarMediaStatusFilter[];
   showUnscheduledColumn: boolean;
   showThemeSongs: boolean;
@@ -151,6 +183,9 @@ export const DEFAULT_WEEKLY_CALENDAR_FORM: WeeklyCalendarForm = {
   customSeasonMinEncoded: defaultCustomSeasonRange.customSeasonMinEncoded,
   customSeasonMaxEncoded: defaultCustomSeasonRange.customSeasonMaxEncoded,
   listStatusFilters: [...DEFAULT_WEEKLY_CALENDAR_LIST_STATUS_FILTERS],
+  userScoreInclude: 'any',
+  scoreMin: null,
+  scoreMax: null,
   mediaStatusFilters: [...DEFAULT_WEEKLY_CALENDAR_MEDIA_STATUS_FILTERS],
   showUnscheduledColumn: false,
   showThemeSongs: false,
@@ -840,13 +875,14 @@ export function finalizeWeeklyCalendarResult(
   const filtered = entries.filter(
     (entry) =>
       entryMatchesWeeklyListStatusFilters(entry.listStatus, form.listStatusFilters) &&
+      entryMatchesWeeklyScoreFilters(entry.score, form) &&
       entryMatchesWeeklyMediaStatusFilters(entry.mediaStatus, form.mediaStatusFilters),
   );
 
   if (filtered.length === 0) {
     const scope = seasonMode
-      ? `No shows found for ${seasonLabel ?? 'the selected season'} with the selected list and airing statuses.`
-      : 'No shows on the list match the selected list and airing statuses.';
+      ? `No shows found for ${seasonLabel ?? 'the selected season'} with the selected filters.`
+      : 'No shows on the list match the selected filters.';
     return { kind: 'empty', message: scope };
   }
 

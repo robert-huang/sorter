@@ -4,7 +4,12 @@ import { ToolRunButton } from '../ToolRunButton';
 import { ToolUsernameField } from '../ToolUsernameField';
 import { useUsernameListRefresh } from '../useUsernameListRefresh';
 import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
-import { MultiSelectChip, DualRangeSlider, toggleInArray } from '../../lib/importers/anilist/filters';
+import {
+  MultiSelectChip,
+  DualRangeSlider,
+  ScoreRangeChip,
+  toggleInArray,
+} from '../../lib/importers/anilist/filters';
 import { useClickOutside } from '../../lib/hooks/useClickOutside';
 import { ToolShowButton, ToolEntityAvatar } from '../toolEntityLinks';
 import {
@@ -928,6 +933,13 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
                   listStatusFilters: toggleInArray(form.listStatusFilters, status),
                 })
               }
+            />
+
+            <ScoreRangeChip
+              pill={form.userScoreInclude ?? 'any'}
+              min={form.scoreMin ?? null}
+              max={form.scoreMax ?? null}
+              onChange={(patch) => patchForm(patch)}
             />
 
             <MultiSelectChip<WeeklyCalendarMediaStatusFilter>

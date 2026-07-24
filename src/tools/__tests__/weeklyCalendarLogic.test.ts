@@ -27,6 +27,7 @@ import {
   WEEKLY_CALENDAR_NOT_ON_LIST_FILTER,
   WEEKLY_CALENDAR_NOT_ON_LIST_LABEL,
   entryMatchesWeeklyMediaStatusFilters,
+  entryMatchesWeeklyScoreFilters,
   formatWeeklyCalendarMediaStatusFilterLabel,
   normalizeWeeklyCalendarMediaStatusFilters,
   DEFAULT_WEEKLY_CALENDAR_MEDIA_STATUS_FILTERS,
@@ -300,6 +301,47 @@ describe('finalizeWeeklyCalendarResult', () => {
       null,
     );
     expect(result.kind).toBe('empty');
+  });
+
+  it('filters rated shows by score range', () => {
+    const raw: WeeklyCalendarRawEntry[] = [
+      {
+        ...entry({ id: 1, title: 'Below range', score: 70 }),
+        nextAiringAt: 1704153600,
+        pastAiringAts: [],
+      },
+      {
+        ...entry({ id: 2, title: 'In range', score: 85 }),
+        nextAiringAt: 1704153600,
+        pastAiringAts: [],
+      },
+    ];
+    const result = finalizeWeeklyCalendarResult(
+      raw,
+      {
+        ...DEFAULT_WEEKLY_CALENDAR_FORM,
+        userScoreInclude: 'rated',
+        scoreMin: 80,
+      },
+      null,
+    );
+    expect(result.kind).toBe('columns');
+    if (result.kind === 'columns') {
+      expect(result.columns.flatMap((column) => column.shows).map((show) => show.title)).toEqual([
+        'In range',
+      ]);
+    }
+  });
+
+  it('treats missing and zero scores as unrated', () => {
+    const unratedOnly = {
+      userScoreInclude: 'unrated' as const,
+      scoreMin: null,
+      scoreMax: null,
+    };
+    expect(entryMatchesWeeklyScoreFilters(null, unratedOnly)).toBe(true);
+    expect(entryMatchesWeeklyScoreFilters(0, unratedOnly)).toBe(true);
+    expect(entryMatchesWeeklyScoreFilters(85, unratedOnly)).toBe(false);
   });
 
   it('excludes FINISHED media by default airing status filter', () => {
