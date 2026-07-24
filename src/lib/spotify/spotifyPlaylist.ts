@@ -28,8 +28,10 @@ export type SpotifyPlaylistCache = {
   playlistId: string;
   fetchedAt: number;
   tracks: CachedPlaylistTrack[];
-  /** Spotify-reported playlist size; used to detect truncated legacy caches. */
+  /** Spotify-reported item count, including local files. */
   trackTotal?: number;
+  /** Number of playlist items fetched, including local files skipped from `tracks`. */
+  playlistItemsFetched?: number;
 };
 
 type SpotifyPlaylistSummary = {
@@ -77,6 +79,7 @@ type SpotifyPlaylistTracksResponse = {
 export type FetchPlaylistTracksResult = {
   tracks: CachedPlaylistTrack[];
   trackTotal: number | null;
+  playlistItemsFetched: number;
 };
 
 export const SPOTIFY_PLAYLIST_CHANGED = 'spotify-playlist-changed';
@@ -161,6 +164,8 @@ function parsePlaylistCacheEntry(raw: unknown): SpotifyPlaylistCache | null {
     playlistId: parsed.playlistId,
     fetchedAt: parsed.fetchedAt,
     trackTotal: typeof parsed.trackTotal === 'number' ? parsed.trackTotal : undefined,
+    playlistItemsFetched:
+      typeof parsed.playlistItemsFetched === 'number' ? parsed.playlistItemsFetched : undefined,
     tracks: parsed.tracks.filter(
       (t): t is CachedPlaylistTrack =>
         !!t && typeof t.id === 'string' && Array.isArray(t.linkedFromIds),
@@ -283,13 +288,17 @@ export function isPlaylistCacheStale(fetchedAt: number, now = Date.now()): boole
   return now - fetchedAt >= PLAYLIST_CACHE_STALE_MS;
 }
 
-/** True when the cached track list is shorter than Spotify reports (or a legacy 50-track page). */
+/** True when fewer playlist items were fetched than Spotify reports (or a legacy cache hit 50). */
 export function isPlaylistCacheIncomplete(cache: SpotifyPlaylistCache): boolean {
-  if (typeof cache.trackTotal === 'number' && cache.tracks.length < cache.trackTotal) {
+  if (
+    typeof cache.trackTotal === 'number' &&
+    typeof cache.playlistItemsFetched === 'number' &&
+    cache.playlistItemsFetched < cache.trackTotal
+  ) {
     return true;
   }
   // Pagination regression (Jul 2026): `fields` filter dropped `next`, so caches capped at 50.
-  if (cache.trackTotal == null && cache.tracks.length === 50) {
+  if (cache.trackTotal == null && cache.playlistItemsFetched == null && cache.tracks.length === 50) {
     return true;
   }
   return false;
@@ -414,7 +423,7 @@ export async function fetchPlaylistTracks(
 ): Promise<FetchPlaylistTracksResult> {
   const token = accessToken ?? (await ensureSpotifyAccessToken());
   if (!token) {
-    return { tracks: [], trackTotal: null };
+    return { tracks: [], trackTotal: null, playlistItemsFetched: 0 };
   }
 
   const tracks: CachedPlaylistTrack[] = [];
@@ -423,6 +432,7 @@ export async function fetchPlaylistTracks(
   const pageSize = 50;
   let offset = 0;
   let trackTotal: number | null = null;
+  let playlistItemsFetched = 0;
 
   // Paginate with explicit offset — a `fields` filter omits `next`, and Spotify's
   // `next` URL may point at removed endpoints anyway (see listUserSpotifyPlaylists).
@@ -438,6 +448,7 @@ export async function fetchPlaylistTracks(
       trackTotal = page.total;
     }
     const items = page.items ?? [];
+    playlistItemsFetched += items.length;
     for (const item of items) {
       const parsed = parsePlaylistTrackItem(item);
       if (parsed) {
@@ -450,7 +461,7 @@ export async function fetchPlaylistTracks(
     offset += pageSize;
   }
 
-  return { tracks, trackTotal };
+  return { tracks, trackTotal, playlistItemsFetched };
 }
 
 export async function refreshPlaylistCache(options?: {
@@ -477,12 +488,16 @@ export async function refreshPlaylistCache(options?: {
     return null;
   }
 
-  const { tracks: rawTracks, trackTotal } = await fetchPlaylistTracks(selected.id, token);
+  const { tracks: rawTracks, trackTotal, playlistItemsFetched } = await fetchPlaylistTracks(
+    selected.id,
+    token,
+  );
   const tracks = applyTrackIsrcStoreToPlaylistTracks(rawTracks);
   const cache: SpotifyPlaylistCache = {
     playlistId: selected.id,
     fetchedAt: Date.now(),
     tracks,
+    playlistItemsFetched,
     ...(trackTotal != null ? { trackTotal } : {}),
   };
   writePlaylistCache(cache);

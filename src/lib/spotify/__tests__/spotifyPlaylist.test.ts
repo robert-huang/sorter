@@ -70,10 +70,43 @@ describe('fetchPlaylistTracks', () => {
       } as Response;
     });
 
-    const { tracks } = await fetchPlaylistTracks('pl-big', 'token');
+    const { tracks, playlistItemsFetched } = await fetchPlaylistTracks('pl-big', 'token');
 
     expect(tracks).toHaveLength(75);
+    expect(playlistItemsFetched).toBe(75);
     expect(spotifyApiFetch).toHaveBeenCalledTimes(2);
     expect(vi.mocked(spotifyApiFetch).mock.calls[1]?.[0]).toContain('offset=50');
+  });
+
+  it('counts local files as fetched playlist items without caching them as Spotify tracks', async () => {
+    vi.mocked(spotifyApiFetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        total: 3,
+        items: [
+          {
+            item: {
+              id: 'track-1',
+              type: 'track',
+              external_ids: { isrc: null },
+            },
+          },
+          { item: { type: 'track' } },
+          {
+            item: {
+              id: 'track-2',
+              type: 'track',
+              external_ids: { isrc: null },
+            },
+          },
+        ],
+      }),
+    } as Response);
+
+    const result = await fetchPlaylistTracks('pl-local', 'token');
+
+    expect(result.tracks).toHaveLength(2);
+    expect(result.trackTotal).toBe(3);
+    expect(result.playlistItemsFetched).toBe(3);
   });
 });

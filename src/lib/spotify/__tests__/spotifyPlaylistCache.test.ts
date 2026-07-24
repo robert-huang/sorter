@@ -121,11 +121,12 @@ describe('isPlaylistCacheIncomplete', () => {
     expect(isPlaylistCacheIncomplete(cache)).toBe(true);
   });
 
-  it('is complete when trackTotal matches cached length', () => {
+  it('is complete when all reported playlist items were fetched', () => {
     const cache: SpotifyPlaylistCache = {
       playlistId: 'pl1',
       fetchedAt: Date.now(),
       trackTotal: 50,
+      playlistItemsFetched: 50,
       tracks: Array.from({ length: 50 }, (_, index) => ({
         id: `track-${index}`,
         isrc: null,
@@ -135,11 +136,27 @@ describe('isPlaylistCacheIncomplete', () => {
     expect(isPlaylistCacheIncomplete(cache)).toBe(false);
   });
 
-  it('flags when fewer tracks were cached than Spotify reports', () => {
+  it('does not treat skipped local files as missing playlist items', () => {
+    const cache: SpotifyPlaylistCache = {
+      playlistId: 'pl1',
+      fetchedAt: Date.now(),
+      trackTotal: 52,
+      playlistItemsFetched: 52,
+      tracks: Array.from({ length: 50 }, (_, index) => ({
+        id: `track-${index}`,
+        isrc: null,
+        linkedFromIds: [],
+      })),
+    };
+    expect(isPlaylistCacheIncomplete(cache)).toBe(false);
+  });
+
+  it('flags when fewer playlist items were fetched than Spotify reports', () => {
     const cache: SpotifyPlaylistCache = {
       playlistId: 'pl1',
       fetchedAt: Date.now(),
       trackTotal: 120,
+      playlistItemsFetched: 50,
       tracks: Array.from({ length: 50 }, (_, index) => ({
         id: `track-${index}`,
         isrc: null,
@@ -147,5 +164,19 @@ describe('isPlaylistCacheIncomplete', () => {
       })),
     };
     expect(isPlaylistCacheIncomplete(cache)).toBe(true);
+  });
+
+  it('does not reinterpret an existing cache with a reported total as incomplete', () => {
+    const cache: SpotifyPlaylistCache = {
+      playlistId: 'pl1',
+      fetchedAt: Date.now(),
+      trackTotal: 52,
+      tracks: Array.from({ length: 50 }, (_, index) => ({
+        id: `track-${index}`,
+        isrc: null,
+        linkedFromIds: [],
+      })),
+    };
+    expect(isPlaylistCacheIncomplete(cache)).toBe(false);
   });
 });
