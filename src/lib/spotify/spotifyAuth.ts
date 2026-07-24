@@ -11,7 +11,7 @@
  */
 
 import { GITHUB_PAGES_URL } from '../appRoutes';
-import { clearSpotifyApiBan } from './spotifyApi';
+import { clearSpotifyApiBans, spotifyApiFetch } from './spotifyApi';
 import {
   LEGACY_PLAYLIST_CACHE_STORAGE_KEY,
   PLAYLIST_CACHE_STORAGE_KEY,
@@ -270,9 +270,7 @@ async function persistTokensFromResponse(json: TokenResponse): Promise<StoredSpo
   };
   writeStoredAuth(auth);
   try {
-    const profileRes = await fetch(`${API_BASE}/me`, {
-      headers: { Authorization: `Bearer ${auth.accessToken}` },
-    });
+    const profileRes = await spotifyApiFetch(`${API_BASE}/me`, auth.accessToken);
     if (profileRes.ok) {
       const profile = (await profileRes.json()) as SpotifyProfile;
       auth.displayName = profile.display_name ?? null;
@@ -449,7 +447,7 @@ export function signOutSpotify(): void {
     localStorage.removeItem(PLAYLIST_STORAGE_KEY);
     localStorage.removeItem(PLAYLIST_CACHE_STORAGE_KEY);
     localStorage.removeItem(LEGACY_PLAYLIST_CACHE_STORAGE_KEY);
-    clearSpotifyApiBan();
+    clearSpotifyApiBans();
   } catch {
     /* ignore */
   }

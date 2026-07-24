@@ -1,12 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  SPOTIFY_API_BAN_STORAGE_KEY,
+  LEGACY_SPOTIFY_API_BAN_STORAGE_KEY,
+  SPOTIFY_API_BANS_STORAGE_KEY,
+  SPOTIFY_UNKNOWN_RETRY_BACKOFF_SEC,
   SpotifyApiRateLimitedError,
   _clearSpotifyApiBanForTesting,
   computeSpotifyRetryWaitMs,
+  getSpotifyApiBan,
   getSpotifyApiBannedUntil,
+  inferSpotifyApiScope,
   isSpotifyApiBanned,
   parseRetryAfterSeconds,
+  resolveSpotifyApiRequestUrl,
   setSpotifyApiBan,
   spotifyApiFetch,
 } from '../spotifyApi';
@@ -24,6 +29,7 @@ function jsonResponse(status: number, body: unknown, headers?: Record<string, st
 afterEach(() => {
   _clearSpotifyApiBanForTesting();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe('parseRetryAfterSeconds', () => {
@@ -44,19 +50,75 @@ describe('computeSpotifyRetryWaitMs', () => {
   });
 });
 
+describe('setSpotifyApiBan', () => {
+  it('keeps the later bannedUntil within one endpoint scope', () => {
+    const now = Date.now();
+    setSpotifyApiBan('tracks', now + 120_000, 'RATE_LIMITED');
+    setSpotifyApiBan('tracks', now + 4_500_000, 'QUOTA_EXCEEDED');
+
+    expect(getSpotifyApiBannedUntil('tracks', now)).toBe(now + 4_500_000);
+    expect(getSpotifyApiBannedUntil('playlist-list', now)).toBeNull();
+  });
+
+  it('drops the legacy global cooldown instead of applying it to every endpoint', () => {
+    localStorage.setItem(
+      LEGACY_SPOTIFY_API_BAN_STORAGE_KEY,
+      JSON.stringify({ bannedUntil: Date.now() + 60_000 }),
+    );
+
+    expect(getSpotifyApiBan('tracks')).toBeNull();
+    expect(localStorage.getItem(LEGACY_SPOTIFY_API_BAN_STORAGE_KEY)).toBeNull();
+  });
+});
+
+describe('Spotify API routing', () => {
+  it('infers independent endpoint scopes', () => {
+    expect(inferSpotifyApiScope('https://api.spotify.com/v1/tracks/abc')).toBe('tracks');
+    expect(inferSpotifyApiScope('https://api.spotify.com/v1/me/playlists')).toBe(
+      'playlist-list',
+    );
+    expect(inferSpotifyApiScope('https://api.spotify.com/v1/playlists/abc/items')).toBe(
+      'playlist-items',
+    );
+    expect(inferSpotifyApiScope('https://api.spotify.com/v1/me')).toBe('profile');
+  });
+
+  it('uses the local proxy on localhost', () => {
+    expect(
+      resolveSpotifyApiRequestUrl('https://api.spotify.com/v1/tracks/abc?market=CA'),
+    ).toBe('/api/spotify/v1/tracks/abc?market=CA');
+  });
+});
+
 describe('spotifyApiFetch', () => {
   beforeEach(() => {
     vi.spyOn(globalThis, 'fetch');
   });
 
-  it('short-circuits when a ban is active', async () => {
+  it('blocks only the endpoint scope that received the 429', async () => {
     const bannedUntil = Date.now() + 60_000;
-    setSpotifyApiBan(bannedUntil, 'QUOTA_EXCEEDED');
+    setSpotifyApiBan('tracks', bannedUntil, 'QUOTA_EXCEEDED');
 
     await expect(spotifyApiFetch('https://api.spotify.com/v1/tracks/x', 'token')).rejects.toBeInstanceOf(
       SpotifyApiRateLimitedError,
     );
-    expect(fetch).not.toHaveBeenCalled();
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { items: [] }));
+    await expect(
+      spotifyApiFetch('https://api.spotify.com/v1/me/playlists', 'token'),
+    ).resolves.toHaveProperty('status', 200);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps playlist listing and playlist items cooldowns independent', async () => {
+    setSpotifyApiBan('playlist-list', Date.now() + 60_000, 'RATE_LIMITED');
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { items: [] }));
+
+    await expect(
+      spotifyApiFetch('https://api.spotify.com/v1/me/playlists', 'token'),
+    ).rejects.toBeInstanceOf(SpotifyApiRateLimitedError);
+    await expect(
+      spotifyApiFetch('https://api.spotify.com/v1/playlists/abc/items', 'token'),
+    ).resolves.toHaveProperty('status', 200);
   });
 
   it('sets a circuit breaker on QUOTA_EXCEEDED', async () => {
@@ -72,8 +134,30 @@ describe('spotifyApiFetch', () => {
       spotifyApiFetch('https://api.spotify.com/v1/tracks/x', 'token'),
     ).rejects.toBeInstanceOf(SpotifyApiRateLimitedError);
 
-    expect(isSpotifyApiBanned()).toBe(true);
-    expect(getSpotifyApiBannedUntil()).toBeGreaterThan(Date.now());
+    expect(isSpotifyApiBanned('tracks')).toBe(true);
+    expect(getSpotifyApiBannedUntil('tracks')).toBeGreaterThan(Date.now());
+    expect(isSpotifyApiBanned('playlist-list')).toBe(false);
+  });
+
+  it('uses a marked local backoff when Retry-After is unavailable', async () => {
+    const now = 1_700_000_000_000;
+    vi.spyOn(Date, 'now').mockReturnValue(now);
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(429, {
+        error: { status: 429, message: 'Too many requests', reason: 'QUOTA_EXCEEDED' },
+      }),
+    );
+
+    await expect(
+      spotifyApiFetch('https://api.spotify.com/v1/tracks/x', 'token'),
+    ).rejects.toBeInstanceOf(SpotifyApiRateLimitedError);
+
+    expect(getSpotifyApiBan('tracks', now)).toEqual({
+      scope: 'tracks',
+      bannedUntil: now + SPOTIFY_UNKNOWN_RETRY_BACKOFF_SEC * 1000,
+      reason: 'QUOTA_EXCEEDED',
+      retryAfterKnown: false,
+    });
   });
 
   it('retries a short 429 then succeeds', async () => {
@@ -90,7 +174,31 @@ describe('spotifyApiFetch', () => {
 
     expect(res.status).toBe(200);
     expect(fetch).toHaveBeenCalledTimes(2);
-    vi.useRealTimers();
+  });
+
+  it('sets a short ban when short 429 retries are exhausted', async () => {
+    vi.useFakeTimers();
+    const now = 1_700_000_000_000;
+    vi.setSystemTime(now);
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse(429, { error: { message: 'slow down' } }, { 'Retry-After': '3' }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(429, { error: { message: 'slow down' } }, { 'Retry-After': '3' }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(429, { error: { message: 'slow down' } }, { 'Retry-After': '3' }),
+      );
+
+    const promise = spotifyApiFetch('https://api.spotify.com/v1/tracks/x', 'token');
+    const expectation = expect(promise).rejects.toBeInstanceOf(SpotifyApiRateLimitedError);
+    await vi.runAllTimersAsync();
+    await expectation;
+    const bannedUntil = getSpotifyApiBannedUntil('tracks');
+    expect(bannedUntil).not.toBeNull();
+    const remainingSec = Math.ceil((bannedUntil! - Date.now()) / 1000);
+    expect(remainingSec).toBe(3);
   });
 
   it('does not retry when Retry-After exceeds the short window', async () => {
@@ -103,6 +211,7 @@ describe('spotifyApiFetch', () => {
     ).rejects.toBeInstanceOf(SpotifyApiRateLimitedError);
 
     expect(fetch).toHaveBeenCalledTimes(1);
-    expect(localStorage.getItem(SPOTIFY_API_BAN_STORAGE_KEY)).not.toBeNull();
+    expect(localStorage.getItem(SPOTIFY_API_BANS_STORAGE_KEY)).not.toBeNull();
+    expect(getSpotifyApiBan('tracks')?.retryAfterKnown).toBe(true);
   });
 });

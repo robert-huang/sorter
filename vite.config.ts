@@ -46,6 +46,19 @@ function malApiProxy(malClientId: string): ProxyOptions {
   };
 }
 
+/**
+ * Proxy Spotify locally so Retry-After is readable by browser JavaScript.
+ * Production uses the restricted Cloudflare Worker.
+ */
+function spotifyApiProxy(): ProxyOptions {
+  return {
+    target: 'https://api.spotify.com',
+    changeOrigin: true,
+    secure: true,
+    rewrite: (path) => path.replace(/^\/api\/spotify/, ''),
+  };
+}
+
 // base: './' so the built dist/ works both when served over http(s)://
 // and when opened directly as a file:// URL (double-click index.html).
 export default defineConfig(({ mode }) => {
@@ -60,6 +73,7 @@ export default defineConfig(({ mode }) => {
       proxy: {
         '/api/aniplaylist/algolia': aniplaylistAlgoliaProxy(),
         '/api/mal': malApiProxy(malClientId),
+        '/api/spotify': spotifyApiProxy(),
       },
     },
     preview: {
@@ -67,6 +81,7 @@ export default defineConfig(({ mode }) => {
       proxy: {
         '/api/aniplaylist/algolia': aniplaylistAlgoliaProxy(),
         '/api/mal': malApiProxy(malClientId),
+        '/api/spotify': spotifyApiProxy(),
       },
     },
     optimizeDeps: {

@@ -1,9 +1,9 @@
 /**
- * Spotify Web API fetch with short-window 429 retries and a circuit breaker
- * for extended quota bans (QUOTA_EXCEEDED / large Retry-After).
+ * Spotify Web API fetch with short-window retries and endpoint-scoped cooldowns.
  */
 
-export const SPOTIFY_API_BAN_STORAGE_KEY = 'spotify:api-ban:v1';
+export const SPOTIFY_API_BANS_STORAGE_KEY = 'spotify:api-bans:v2';
+export const LEGACY_SPOTIFY_API_BAN_STORAGE_KEY = 'spotify:api-ban:v1';
 
 /** Max automatic retries after a short 429 (not counting the first attempt). */
 export const SPOTIFY_API_MAX_RETRIES = 2;
@@ -11,8 +11,19 @@ export const SPOTIFY_API_MAX_RETRIES = 2;
 /** Only honor Retry-After at or below this — larger values trip the breaker. */
 export const SPOTIFY_API_MAX_RETRY_AFTER_SEC = 120;
 
-/** Default wait when Spotify 429s without Retry-After (seconds). */
+/**
+ * Local backoff when Retry-After is unavailable. This is explicitly our retry
+ * delay, not an estimate of Spotify's actual cooldown.
+ */
+export const SPOTIFY_UNKNOWN_RETRY_BACKOFF_SEC = 60;
+
+/** Default wait when a short 429 has no Retry-After (seconds). */
 const SPOTIFY_DEFAULT_RETRY_AFTER_SEC = 5;
+const SPOTIFY_API_ORIGIN = 'https://api.spotify.com';
+const SPOTIFY_API_BASE = `${SPOTIFY_API_ORIGIN}/v1`;
+const ENV = ((import.meta as unknown as { env?: Record<string, string | undefined> }).env) ?? {};
+
+export type SpotifyApiScope = 'tracks' | 'playlist-list' | 'playlist-items' | 'profile';
 
 type SpotifyApiErrorBody = {
   error?: {
@@ -22,72 +33,192 @@ type SpotifyApiErrorBody = {
   };
 };
 
-type StoredBan = {
+export type SpotifyApiBan = {
+  scope: SpotifyApiScope;
   bannedUntil: number;
   reason?: string | null;
+  /** True only when this deadline came from Spotify's Retry-After header. */
+  retryAfterKnown: boolean;
 };
 
 export class SpotifyApiRateLimitedError extends Error {
+  readonly scope: SpotifyApiScope;
   readonly bannedUntil: number;
   readonly retryAfterSec: number | null;
+  readonly retryAfterKnown: boolean;
 
-  constructor(message: string, bannedUntil: number, retryAfterSec: number | null) {
+  constructor(
+    message: string,
+    scope: SpotifyApiScope,
+    bannedUntil: number,
+    retryAfterSec: number | null,
+    retryAfterKnown: boolean,
+  ) {
     super(message);
     this.name = 'SpotifyApiRateLimitedError';
+    this.scope = scope;
     this.bannedUntil = bannedUntil;
     this.retryAfterSec = retryAfterSec;
+    this.retryAfterKnown = retryAfterKnown;
   }
 }
 
-function readStoredBan(): StoredBan | null {
+type StoredBans = Partial<Record<SpotifyApiScope, Omit<SpotifyApiBan, 'scope'>>>;
+
+function readStoredBans(): StoredBans {
   try {
-    const raw = localStorage.getItem(SPOTIFY_API_BAN_STORAGE_KEY);
+    // A global v1 cooldown cannot be safely assigned to any endpoint family.
+    localStorage.removeItem(LEGACY_SPOTIFY_API_BAN_STORAGE_KEY);
+    const raw = localStorage.getItem(SPOTIFY_API_BANS_STORAGE_KEY);
     if (!raw) {
-      return null;
+      return {};
     }
-    const parsed = JSON.parse(raw) as Partial<StoredBan>;
-    if (typeof parsed.bannedUntil !== 'number') {
-      return null;
+    const parsed = JSON.parse(raw) as StoredBans;
+    if (!parsed || typeof parsed !== 'object') {
+      return {};
     }
-    return {
-      bannedUntil: parsed.bannedUntil,
-      reason: parsed.reason ?? null,
-    };
+    return parsed;
   } catch {
-    return null;
+    return {};
   }
 }
 
-function writeStoredBan(ban: StoredBan | null): void {
+function writeStoredBans(bans: StoredBans): void {
   try {
-    if (!ban) {
-      localStorage.removeItem(SPOTIFY_API_BAN_STORAGE_KEY);
+    if (Object.keys(bans).length === 0) {
+      localStorage.removeItem(SPOTIFY_API_BANS_STORAGE_KEY);
       return;
     }
-    localStorage.setItem(SPOTIFY_API_BAN_STORAGE_KEY, JSON.stringify(ban));
+    localStorage.setItem(SPOTIFY_API_BANS_STORAGE_KEY, JSON.stringify(bans));
   } catch {
     /* ignore quota */
   }
 }
 
-/** Milliseconds until the Spotify API ban lifts, or null when not banned. */
-export function getSpotifyApiBannedUntil(now = Date.now()): number | null {
-  const ban = readStoredBan();
-  if (!ban || ban.bannedUntil <= now) {
+export function getSpotifyApiBan(
+  scope: SpotifyApiScope,
+  now = Date.now(),
+): SpotifyApiBan | null {
+  const bans = readStoredBans();
+  const ban = bans[scope];
+  if (!ban || typeof ban.bannedUntil !== 'number' || ban.bannedUntil <= now) {
     if (ban) {
-      writeStoredBan(null);
+      delete bans[scope];
+      writeStoredBans(bans);
     }
     return null;
   }
-  return ban.bannedUntil;
+  return {
+    scope,
+    bannedUntil: ban.bannedUntil,
+    reason: ban.reason ?? null,
+    retryAfterKnown: ban.retryAfterKnown === true,
+  };
 }
 
-export function isSpotifyApiBanned(now = Date.now()): boolean {
-  return getSpotifyApiBannedUntil(now) !== null;
+/** Milliseconds until this endpoint family can be retried, or null when clear. */
+export function getSpotifyApiBannedUntil(
+  scope: SpotifyApiScope,
+  now = Date.now(),
+): number | null {
+  return getSpotifyApiBan(scope, now)?.bannedUntil ?? null;
 }
 
-export function setSpotifyApiBan(bannedUntil: number, reason?: string | null): void {
-  writeStoredBan({ bannedUntil, reason: reason ?? null });
+export function isSpotifyApiBanned(scope: SpotifyApiScope, now = Date.now()): boolean {
+  return getSpotifyApiBan(scope, now) !== null;
+}
+
+/** Persist a cooldown, keeping the later deadline for this endpoint family. */
+export function setSpotifyApiBan(
+  scope: SpotifyApiScope,
+  bannedUntil: number,
+  reason?: string | null,
+  retryAfterKnown = true,
+  now = Date.now(),
+): SpotifyApiBan {
+  const bans = readStoredBans();
+  const existing = bans[scope];
+  const activeExisting =
+    existing && existing.bannedUntil > now ? existing.bannedUntil : 0;
+  const keepExisting = activeExisting >= bannedUntil;
+  const merged: Omit<SpotifyApiBan, 'scope'> = {
+    bannedUntil: Math.max(bannedUntil, activeExisting),
+    reason: keepExisting ? existing?.reason ?? null : reason ?? null,
+    retryAfterKnown: keepExisting
+      ? existing?.retryAfterKnown === true
+      : retryAfterKnown,
+  };
+  bans[scope] = merged;
+  writeStoredBans(bans);
+  return {
+    scope,
+    ...merged,
+  };
+}
+
+function setBanFromRetryAfter(
+  scope: SpotifyApiScope,
+  retryAfterSec: number | null,
+  reason?: string | null,
+  now = Date.now(),
+): SpotifyApiBan {
+  const retryAfterKnown = retryAfterSec !== null;
+  const waitSec = retryAfterSec ?? SPOTIFY_UNKNOWN_RETRY_BACKOFF_SEC;
+  return setSpotifyApiBan(
+    scope,
+    now + waitSec * 1000,
+    reason,
+    retryAfterKnown,
+    now,
+  );
+}
+
+export function clearSpotifyApiBans(): void {
+  try {
+    localStorage.removeItem(SPOTIFY_API_BANS_STORAGE_KEY);
+    localStorage.removeItem(LEGACY_SPOTIFY_API_BAN_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function inferSpotifyApiScope(url: string): SpotifyApiScope {
+  const pathname = new URL(url, SPOTIFY_API_BASE).pathname;
+  if (/\/v1\/tracks\//.test(pathname)) {
+    return 'tracks';
+  }
+  if (pathname === '/v1/me/playlists') {
+    return 'playlist-list';
+  }
+  if (/\/v1\/playlists\/[^/]+\/items$/.test(pathname)) {
+    return 'playlist-items';
+  }
+  return 'profile';
+}
+
+function isLocalSpotifyProxyAvailable(): boolean {
+  if (ENV.DEV === 'true') {
+    return true;
+  }
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  return window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+}
+
+/** Route Spotify Web API URLs through the configured proxy when available. */
+export function resolveSpotifyApiRequestUrl(url: string): string {
+  const parsed = new URL(url, SPOTIFY_API_BASE);
+  if (parsed.origin !== SPOTIFY_API_ORIGIN) {
+    return url;
+  }
+
+  const configuredProxy = ENV.VITE_SPOTIFY_PROXY_URL?.trim().replace(/\/$/, '');
+  const proxyBase = configuredProxy || (isLocalSpotifyProxyAvailable() ? '/api/spotify' : '');
+  if (!proxyBase) {
+    return url;
+  }
+  return `${proxyBase}${parsed.pathname}${parsed.search}`;
 }
 
 export function formatSpotifyApiBanMessage(bannedUntil: number, now = Date.now()): string {
@@ -104,13 +235,9 @@ export function formatSpotifyApiBanMessage(bannedUntil: number, now = Date.now()
   return `Spotify API rate limited — try again in ${remainingSec}s.`;
 }
 
-export function clearSpotifyApiBan(): void {
-  writeStoredBan(null);
-}
-
 /** Test-only reset. */
 export function _clearSpotifyApiBanForTesting(): void {
-  clearSpotifyApiBan();
+  clearSpotifyApiBans();
 }
 
 export function parseRetryAfterSeconds(header: string | null): number | null {
@@ -154,14 +281,16 @@ async function parseErrorBody(res: Response): Promise<SpotifyApiErrorBody> {
 
 function buildRateLimitError(
   body: SpotifyApiErrorBody,
-  bannedUntil: number,
+  ban: SpotifyApiBan,
   retryAfterSec: number | null,
 ): SpotifyApiRateLimitedError {
   const detail = body.error?.message ?? 'Too many requests';
   return new SpotifyApiRateLimitedError(
     `Spotify API rate limited: ${detail}`,
-    bannedUntil,
+    ban.scope,
+    ban.bannedUntil,
     retryAfterSec,
+    ban.retryAfterKnown,
   );
 }
 
@@ -174,14 +303,15 @@ export async function spotifyApiFetch(
   accessToken: string,
   init?: RequestInit,
 ): Promise<Response> {
-  const bannedUntil = getSpotifyApiBannedUntil();
-  if (bannedUntil !== null) {
-    throw buildRateLimitError({}, bannedUntil, null);
+  const scope = inferSpotifyApiScope(url);
+  const activeBan = getSpotifyApiBan(scope);
+  if (activeBan) {
+    throw buildRateLimitError({}, activeBan, null);
   }
 
   let attempt = 0;
   while (true) {
-    const res = await fetch(url, {
+    const res = await fetch(resolveSpotifyApiRequestUrl(url), {
       ...init,
       headers: {
         ...(init?.headers ?? {}),
@@ -197,16 +327,21 @@ export async function spotifyApiFetch(
     const retryAfterSec = parseRetryAfterSeconds(res.headers.get('Retry-After'));
 
     if (isExtendedSpotifyBan(retryAfterSec, body)) {
-      const banUntil =
-        Date.now() + (retryAfterSec ?? SPOTIFY_API_MAX_RETRY_AFTER_SEC) * 1000;
-      setSpotifyApiBan(banUntil, body.error?.reason ?? 'QUOTA_EXCEEDED');
-      throw buildRateLimitError(body, banUntil, retryAfterSec);
+      const ban = setBanFromRetryAfter(
+        scope,
+        retryAfterSec,
+        body.error?.reason ?? 'QUOTA_EXCEEDED',
+      );
+      throw buildRateLimitError(body, ban, retryAfterSec);
     }
 
     if (attempt >= SPOTIFY_API_MAX_RETRIES) {
-      throw new Error(
-        `Spotify API 429${body.error?.message ? `: ${body.error.message}` : ''}: ${url}`,
+      const ban = setBanFromRetryAfter(
+        scope,
+        retryAfterSec,
+        body.error?.reason ?? 'RATE_LIMITED',
       );
+      throw buildRateLimitError(body, ban, retryAfterSec);
     }
 
     const waitSec = retryAfterSec ?? SPOTIFY_DEFAULT_RETRY_AFTER_SEC;

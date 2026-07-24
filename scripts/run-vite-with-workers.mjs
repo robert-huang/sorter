@@ -6,7 +6,11 @@
  *   npm run preview:workers
  */
 import { spawn } from 'node:child_process';
-import { ANIPLAYLIST_PROXY_URL, MAL_PROXY_URL } from './worker-urls.mjs';
+import {
+  ANIPLAYLIST_PROXY_URL,
+  MAL_PROXY_URL,
+  SPOTIFY_PROXY_URL,
+} from './worker-urls.mjs';
 
 const viteArgs = process.argv.slice(2);
 const command = viteArgs[0] === 'preview' ? ['vite', 'preview', ...viteArgs.slice(1)] : ['vite', ...viteArgs];
@@ -17,6 +21,7 @@ const child = spawn('npx', command, {
     ...process.env,
     VITE_ANIPLAYLIST_PROXY_URL: ANIPLAYLIST_PROXY_URL,
     VITE_MAL_PROXY_URL: MAL_PROXY_URL,
+    VITE_SPOTIFY_PROXY_URL: SPOTIFY_PROXY_URL,
   },
   shell: true,
 });

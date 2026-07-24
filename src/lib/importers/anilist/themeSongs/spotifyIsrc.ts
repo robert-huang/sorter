@@ -22,7 +22,7 @@ async function fetchSpotifyTrackIsrc(
   trackId: string,
   token: string,
 ): Promise<{ id: string; isrc: string } | null> {
-  if (isSpotifyApiBanned()) {
+  if (isSpotifyApiBanned('tracks')) {
     return null;
   }
   const url = `https://api.spotify.com/v1/tracks/${encodeURIComponent(trackId)}`;
@@ -59,7 +59,7 @@ async function mapWithConcurrency<T, R>(
 
   async function worker(): Promise<void> {
     while (nextIndex < items.length) {
-      if (isSpotifyApiBanned()) {
+      if (isSpotifyApiBanned('tracks')) {
         return;
       }
       const index = nextIndex;
@@ -82,7 +82,7 @@ export async function fetchSpotifyIsrcByTrackIds(
   accessToken?: string | null,
 ): Promise<Map<string, string>> {
   const token = accessToken ?? (await ensureSpotifyAccessToken());
-  if (!token || trackIds.length === 0 || isSpotifyApiBanned()) {
+  if (!token || trackIds.length === 0 || isSpotifyApiBanned('tracks')) {
     return new Map();
   }
 
@@ -95,7 +95,7 @@ export async function fetchSpotifyIsrcByTrackIds(
   }
 
   const uncached = [...new Set(trackIds)].filter((trackId) => !getCachedTrackIsrc(trackId));
-  if (uncached.length > 0 && !isSpotifyApiBanned()) {
+  if (uncached.length > 0 && !isSpotifyApiBanned('tracks')) {
     const rows = await mapWithConcurrency(uncached, TRACK_FETCH_CONCURRENCY, (trackId) =>
       fetchSpotifyTrackIsrc(trackId, token),
     );

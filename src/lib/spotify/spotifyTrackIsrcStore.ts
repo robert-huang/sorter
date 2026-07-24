@@ -103,7 +103,7 @@ export async function ensureTrackIsrcsCached(
 ): Promise<ReadonlyMap<string, string>> {
   const store = readStore();
   const missing = [...new Set(trackIds)].filter((id) => !store[id]);
-  if (missing.length > 0 && !isSpotifyApiBanned()) {
+  if (missing.length > 0 && !isSpotifyApiBanned('tracks')) {
     const fetched = await fetchSpotifyIsrcByTrackIds(missing, accessToken);
     mergeTrackIsrcsIntoStore(fetched);
   }

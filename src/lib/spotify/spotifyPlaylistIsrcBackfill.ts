@@ -118,7 +118,7 @@ async function runPlaylistIsrcBackfill(
   });
 
   while (missing.length > 0 && token === runToken) {
-    if (isSpotifyApiBanned()) {
+    if (isSpotifyApiBanned('tracks')) {
       setState({ status: 'paused', playlistId, total: initialMissing, completed: initialMissing - missing.length });
       return;
     }
@@ -147,7 +147,7 @@ async function runPlaylistIsrcBackfill(
       break;
     }
 
-    if (isSpotifyApiBanned()) {
+    if (isSpotifyApiBanned('tracks')) {
       setState({ status: 'paused', playlistId, total: initialMissing, completed: initialMissing - missing.length });
       return;
     }
