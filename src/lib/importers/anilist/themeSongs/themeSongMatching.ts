@@ -1,4 +1,5 @@
 import type { AniplaylistArtist, AniplaylistHit } from './aniplaylistApi';
+import { normalizeAniplaylistThemeType } from './aniplaylistApi';
 
 /**
  * Fold common Japanese romanization variants so `Oohara` / `Ohara`, `Yuuko` / `Yuko`,
@@ -233,9 +234,10 @@ export type MalThemeMatchInput = {
 /** Shared MAL ↔ AniPlaylist hit match used by merge and cluster selection. */
 export function malThemeMatchesAniplaylistHit(
   mal: MalThemeMatchInput,
-  hit: Pick<AniplaylistHit, 'song_type' | 'titles' | 'artists'>,
+  hit: Pick<AniplaylistHit, 'song_type' | 'song_key' | 'titles' | 'artists'>,
 ): boolean {
-  if (mal.type !== hit.song_type) {
+  const aniType = normalizeAniplaylistThemeType(hit.song_type, hit.song_key);
+  if (!aniType || mal.type !== aniType) {
     return false;
   }
 

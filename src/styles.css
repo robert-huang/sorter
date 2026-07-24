@@ -7717,13 +7717,22 @@ html {
 }
 
 .tool-weekly-title-block {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  min-width: 0;
+  align-self: stretch;
+}
+
+.tool-weekly-title-block-content {
+  grid-column: 1;
+  grid-row: 1;
   display: flex;
   flex-direction: column;
   justify-content: center;
   gap: 2px;
   min-width: 0;
-  align-self: stretch;
-  position: relative;
+  align-self: center;
 }
 
 .tool-weekly-title-block:has(.tool-weekly-theme-song-badge) .tool-weekly-title {
@@ -7802,9 +7811,10 @@ html {
 }
 
 .tool-weekly-theme-song-badge {
-  position: absolute;
-  top: 0;
-  right: 0;
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: end;
+  align-self: start;
   z-index: 1;
   font-size: 11px;
   line-height: 1.35;

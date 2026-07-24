@@ -86,6 +86,34 @@ describe('mergeThemeSongs', () => {
     expect(rows[0]?.hasResolvableTrackId).toBe(true);
   });
 
+  it('merges MAL opening with AniPlaylist Theme Song / TS (Chainsaw Man Reze-hen)', () => {
+    const mal = parseMalThemes(['"IRIS OUT" by Kenshi Yonezu (米津玄師)'], []);
+    const aniHit: AniplaylistHit = {
+      id: 25459,
+      anime_id: 7113,
+      score: 70.33,
+      titles: ['IRIS OUT'],
+      song_key: 'TS',
+      song_type: 'Theme Song',
+      artists: [{ names: ['Kenshi Yonezu', '米津玄師'] }],
+      links: [
+        {
+          platform: 'spotify',
+          main: true,
+          link: 'https://open.spotify.com/track/59hVbgr8rfYkDbHfr8RcGI',
+        },
+      ],
+      other_link_ids: ['3540533651'],
+    };
+
+    const rows = mergeThemeSongs(mal, [aniHit]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.malTitle).toBe('IRIS OUT');
+    expect(rows[0]?.type).toBe('Opening');
+    expect(rows[0]?.spotifyTrackIds).toContain('59hVbgr8rfYkDbHfr8RcGI');
+    expect(rows[0]?.hasResolvableTrackId).toBe(true);
+  });
+
   it('merges when aniplaylist artist name order differs from MAL', () => {
     const mal = parseMalThemes(
       [],

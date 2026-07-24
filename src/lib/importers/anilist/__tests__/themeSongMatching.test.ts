@@ -22,6 +22,24 @@ describe('collectTitleMatchCandidates', () => {
 });
 
 describe('malThemeMatchesAniplaylistHit', () => {
+  it('matches MAL opening to AniPlaylist Theme Song / TS', () => {
+    expect(
+      malThemeMatchesAniplaylistHit(
+        {
+          type: 'Opening',
+          title: 'IRIS OUT',
+          artist: 'Kenshi Yonezu (米津玄師)',
+        },
+        {
+          song_type: 'Theme Song',
+          song_key: 'TS',
+          titles: ['IRIS OUT'],
+          artists: [{ names: ['Kenshi Yonezu', '米津玄師'] }],
+        },
+      ),
+    ).toBe(true);
+  });
+
   it('matches when any AniPlaylist title variant matches any MAL title variant', () => {
     expect(
       malThemeMatchesAniplaylistHit(

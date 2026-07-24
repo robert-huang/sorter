@@ -1,5 +1,5 @@
 import type { AniplaylistHit } from './aniplaylistApi';
-import { isAniplaylistThemeType } from './aniplaylistApi';
+import { isAniplaylistThemeType, normalizeAniplaylistThemeType } from './aniplaylistApi';
 import type { ParsedMalTheme } from './malThemeParser';
 import {
   artistsRoughlyMatch,
@@ -83,7 +83,14 @@ export function parseAniplaylistSongKey(
   }
 
   if (type === 'Opening') {
-    return parseOpEdAniplaylistSongKey(key, 'OP') ?? { sortOrder: null, badge: null, episodeLine: null };
+    const opEd = parseOpEdAniplaylistSongKey(key, 'OP');
+    if (opEd) {
+      return opEd;
+    }
+    if (/^TS$/i.test(key)) {
+      return { sortOrder: 0, badge: 'OP', episodeLine: null };
+    }
+    return { sortOrder: null, badge: null, episodeLine: null };
   }
 
   if (type === 'Ending') {
@@ -176,7 +183,8 @@ export function sortThemeSongRows(rows: readonly MediaThemeSongRow[]): MediaThem
 }
 
 function resolveOrphanAniplaylistSortOrder(hit: AniplaylistHit, orphanIndex: number): number {
-  const fromKey = parseAniplaylistSongKey(hit.song_key, hit.song_type as ThemeSongType).sortOrder;
+  const type = normalizeAniplaylistThemeType(hit.song_type, hit.song_key) ?? 'Opening';
+  const fromKey = parseAniplaylistSongKey(hit.song_key, type).sortOrder;
   return fromKey ?? orphanIndex;
 }
 
@@ -185,6 +193,7 @@ function malMatchesAni(mal: ParsedMalTheme, hit: AniplaylistHit): boolean {
 }
 
 function hitToPartialRow(hit: AniplaylistHit, sortOrder: number): MediaThemeSongRow {
+  const type = normalizeAniplaylistThemeType(hit.song_type, hit.song_key) ?? 'Opening';
   const spotifyUrl = pickSpotifyLink(hit.links ?? []);
   const trackIds = collectSpotifyTrackIds(hit.links ?? [], hit.other_link_ids, spotifyUrl);
   const primaryTitle = hit.titles[0] ?? hit.song_key;
@@ -194,7 +203,7 @@ function hitToPartialRow(hit: AniplaylistHit, sortOrder: number): MediaThemeSong
     buildSpotifySearchUrl(primaryTitle, artist);
 
   return {
-    type: hit.song_type as ThemeSongType,
+    type,
     sortOrder,
     songKey: hit.song_key,
     aniTitles: hit.titles,
@@ -250,7 +259,7 @@ export function mergeThemeSongs(
   malThemes: readonly ParsedMalTheme[],
   aniHits: readonly AniplaylistHit[],
 ): MediaThemeSongRow[] {
-  const themeHits = aniHits.filter((h) => isAniplaylistThemeType(h.song_type));
+  const themeHits = aniHits.filter((h) => isAniplaylistThemeType(h.song_type, h.song_key));
   const matchedAni = new Set<number>();
   const matchedMal = new Set<string>();
   const rows: MediaThemeSongRow[] = [];
@@ -286,7 +295,7 @@ export function mergeThemeSongs(
     if (matchedAni.has(hit.id)) {
       return;
     }
-    const type = hit.song_type as ThemeSongType;
+    const type = normalizeAniplaylistThemeType(hit.song_type, hit.song_key) ?? 'Opening';
     const orphanIndex = orphanIndexByType[type];
     orphanIndexByType[type] += 1;
     rows.push(hitToPartialRow(hit, resolveOrphanAniplaylistSortOrder(hit, orphanIndex)));

@@ -1,4 +1,5 @@
 import { malThemeMatchesAniplaylistHit } from './themeSongMatching';
+import type { ThemeSongType } from './types';
 
 export const ANIPLAYLIST_ALGOLIA_APP_ID = 'P4B7HT5P18';
 export const ANIPLAYLIST_ALGOLIA_API_KEY = 'cd90c9c918df8b42327310ade1f599bd';
@@ -85,7 +86,23 @@ type AlgoliaResponse = {
   }>;
 };
 
-const THEME_SONG_TYPES = new Set(['Opening', 'Ending', 'Insert']);
+const THEME_SONG_TYPES = new Set<ThemeSongType>(['Opening', 'Ending', 'Insert']);
+
+/**
+ * AniPlaylist uses `Theme Song` / `song_key: TS` for movie themes that MAL lists as openings.
+ */
+export function normalizeAniplaylistThemeType(
+  songType: string,
+  songKey?: string,
+): ThemeSongType | null {
+  if (THEME_SONG_TYPES.has(songType as ThemeSongType)) {
+    return songType as ThemeSongType;
+  }
+  if (songType === 'Theme Song' || songKey?.trim().toUpperCase() === 'TS') {
+    return 'Opening';
+  }
+  return null;
+}
 
 export class AniplaylistSearchError extends Error {
   readonly httpStatus: number;
@@ -97,8 +114,8 @@ export class AniplaylistSearchError extends Error {
   }
 }
 
-export function isAniplaylistThemeType(songType: string): boolean {
-  return THEME_SONG_TYPES.has(songType);
+export function isAniplaylistThemeType(songType: string, songKey?: string): boolean {
+  return normalizeAniplaylistThemeType(songType, songKey) !== null;
 }
 
 function getAniplaylistUserToken(): string {
@@ -187,7 +204,7 @@ export async function searchAniplaylist(query: string): Promise<AniplaylistHit[]
 export function groupHitsByAnimeId(hits: readonly AniplaylistHit[]): Map<number, AniplaylistHit[]> {
   const map = new Map<number, AniplaylistHit[]>();
   for (const hit of hits) {
-    if (!isAniplaylistThemeType(hit.song_type)) {
+    if (!isAniplaylistThemeType(hit.song_type, hit.song_key)) {
       continue;
     }
     const list = map.get(hit.anime_id) ?? [];

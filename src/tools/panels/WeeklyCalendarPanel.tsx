@@ -558,6 +558,29 @@ function WeeklyCalendarColumnsView({
                         onOpenMedia={onOpenMedia}
                       />
                       <div className="tool-weekly-title-block">
+                        <div className="tool-weekly-title-block-content">
+                          <div className="tool-weekly-title-row">
+                            <ToolShowButton
+                              mediaId={show.id}
+                              title={show.title}
+                              coverImage={show.coverImage}
+                              onOpenMedia={onOpenMedia}
+                              hideAvatar
+                              className="tool-season-title tool-weekly-title"
+                            />
+                          </div>
+                          {primary ? (
+                            <div className="tool-weekly-detail tool-weekly-detail-time">{primary}</div>
+                          ) : null}
+                          {episodesLeft ? (
+                            <div className="tool-weekly-detail tool-weekly-detail-time">{episodesLeft}</div>
+                          ) : null}
+                          {secondary ? (
+                            <div className="tool-weekly-detail tool-weekly-detail-time">
+                              {secondary}
+                            </div>
+                          ) : null}
+                        </div>
                         {songCount ? (
                           <span
                             className={[
@@ -570,27 +593,6 @@ function WeeklyCalendarColumnsView({
                           >
                             🎵 {songCount}
                           </span>
-                        ) : null}
-                        <div className="tool-weekly-title-row">
-                          <ToolShowButton
-                            mediaId={show.id}
-                            title={show.title}
-                            coverImage={show.coverImage}
-                            onOpenMedia={onOpenMedia}
-                            hideAvatar
-                            className="tool-season-title tool-weekly-title"
-                          />
-                        </div>
-                        {primary ? (
-                          <div className="tool-weekly-detail tool-weekly-detail-time">{primary}</div>
-                        ) : null}
-                        {episodesLeft ? (
-                          <div className="tool-weekly-detail tool-weekly-detail-time">{episodesLeft}</div>
-                        ) : null}
-                        {secondary ? (
-                          <div className="tool-weekly-detail tool-weekly-detail-time">
-                            {secondary}
-                          </div>
                         ) : null}
                       </div>
                     </div>
