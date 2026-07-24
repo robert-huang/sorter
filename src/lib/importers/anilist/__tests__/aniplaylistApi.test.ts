@@ -201,6 +201,124 @@ describe('findMatchingAnimeCluster', () => {
     });
     expect(picked).toBeNull();
   });
+
+  it('merges split AniPlaylist airings when each cluster matches different MAL themes (YaniSuu)', () => {
+    const mainHits: AniplaylistHit[] = [
+      hit({
+        id: 27326,
+        anime_id: 7813,
+        score: 64,
+        anime_titles: ['Smoking Behind the Supermarket with You', 'YaniSuu'],
+        titles: ['イチジク煙', 'Ichijiku Kemuri'],
+        song_type: 'Opening',
+        song_key: 'OP',
+        artists: [{ names: ['ZUTOMAYO'] }],
+      }),
+      hit({
+        id: 27381,
+        anime_id: 7813,
+        score: 74,
+        anime_titles: ['Smoking Behind the Supermarket with You'],
+        titles: ['Fiction'],
+        song_type: 'Ending',
+        song_key: 'ED',
+        artists: [{ names: ['imase'] }],
+      }),
+    ];
+    const miniHits: AniplaylistHit[] = [
+      hit({
+        id: 26970,
+        anime_id: 8038,
+        score: 66,
+        anime_titles: ['Smoking Behind the Supermarket with You Mini Episodes', 'YaniSuu Mini Episodes'],
+        titles: ['クズリ念', 'Kuzuri'],
+        song_type: 'Opening',
+        song_key: 'OP',
+        artists: [{ names: ['ZUTOMAYO'] }],
+      }),
+      hit({
+        id: 26971,
+        anime_id: 8038,
+        score: 63,
+        anime_titles: ['YaniSuu Mini Episodes'],
+        titles: ['NIGHT DANCER'],
+        song_type: 'Ending',
+        song_key: 'ED',
+        artists: [{ names: ['imase'] }],
+      }),
+    ];
+    const malThemes = [
+      { type: 'Opening', title: 'イチジク煙', artist: 'ずっと真夜中でいいのに。' },
+      { type: 'Opening', title: 'クズリ念', artist: 'ずっと真夜中でいいのに。' },
+      { type: 'Ending', title: 'Fiction', artist: 'imase' },
+      { type: 'Ending', title: 'NIGHT DANCER', artist: 'imase (Abema ver.)' },
+    ];
+    const clusters = groupHitsByAnimeId([...mainHits, ...miniHits]);
+    const picked = findMatchingAnimeCluster(clusters, malThemes, {
+      english: 'Smoking Behind the Supermarket with You',
+      romaji: 'Super no Ura de Yani Suu Futari',
+      native: 'スーパーの裏でヤニ吸うふたり',
+    });
+    expect(picked?.map((h) => h.id).sort((a, b) => a - b)).toEqual([26970, 26971, 27326, 27381]);
+  });
+
+  it('does not merge split clusters when union MAL coverage does not beat the best single cluster', () => {
+    const season1Hits: AniplaylistHit[] = [
+      hit({
+        id: 1,
+        anime_id: 100,
+        score: 60,
+        anime_titles: ['Example Show'],
+        titles: ['Season 1 OP'],
+        song_type: 'Opening',
+        song_key: 'OP',
+        artists: [{ names: ['Artist A'] }],
+      }),
+      hit({
+        id: 2,
+        anime_id: 100,
+        score: 58,
+        anime_titles: ['Example Show'],
+        titles: ['Shared ED'],
+        song_type: 'Ending',
+        song_key: 'ED',
+        artists: [{ names: ['Artist B'] }],
+      }),
+    ];
+    const season2Hits: AniplaylistHit[] = [
+      hit({
+        id: 3,
+        anime_id: 200,
+        score: 65,
+        anime_titles: ['Example Show'],
+        titles: ['Season 2 OP'],
+        song_type: 'Opening',
+        song_key: 'OP',
+        artists: [{ names: ['Artist C'] }],
+      }),
+      hit({
+        id: 4,
+        anime_id: 200,
+        score: 62,
+        anime_titles: ['Example Show'],
+        titles: ['Shared ED'],
+        song_type: 'Ending',
+        song_key: 'ED',
+        artists: [{ names: ['Artist B'] }],
+      }),
+    ];
+    const malThemes = [
+      { type: 'Opening', title: 'Season 1 OP', artist: 'Artist A' },
+      { type: 'Ending', title: 'Shared ED', artist: 'Artist B' },
+    ];
+    const clusters = groupHitsByAnimeId([...season1Hits, ...season2Hits]);
+    const picked = findMatchingAnimeCluster(clusters, malThemes, {
+      english: 'Example Show',
+      romaji: null,
+      native: null,
+    });
+    expect(picked?.map((h) => h.id).sort((a, b) => a - b)).toEqual([1, 2]);
+  });
 });
 
 describe('buildAniplaylistSearchParams', () => {

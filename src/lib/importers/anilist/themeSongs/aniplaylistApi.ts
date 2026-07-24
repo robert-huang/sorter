@@ -389,9 +389,11 @@ export function scoreClusterForMediaTitles(
  */
 const TITLE_MATCH_THRESHOLD = 50;
 
+type MalThemeRef = { type: string; title: string; artist: string | null };
+
 function countMalThemeOverlaps(
   hits: readonly AniplaylistHit[],
-  malThemes: ReadonlyArray<{ type: string; title: string; artist: string | null }>,
+  malThemes: ReadonlyArray<MalThemeRef>,
 ): number {
   let matches = 0;
   for (const hit of hits) {
@@ -405,22 +407,70 @@ function countMalThemeOverlaps(
   return matches;
 }
 
+/** How many distinct MAL theme rows are matched by at least one hit. */
+function countUniqueMalThemesMatched(
+  hits: readonly AniplaylistHit[],
+  malThemes: ReadonlyArray<MalThemeRef>,
+): number {
+  let matched = 0;
+  for (const mal of malThemes) {
+    for (const hit of hits) {
+      if (malThemeMatchesAniplaylistHit(mal, hit)) {
+        matched += 1;
+        break;
+      }
+    }
+  }
+  return matched;
+}
+
+function pickBestMalOverlapCluster(
+  clusterList: readonly AniplaylistHit[][],
+  malThemes: ReadonlyArray<MalThemeRef>,
+): AniplaylistHit[] | null {
+  let best: { hits: AniplaylistHit[]; coverage: number } | null = null;
+  for (const hits of clusterList) {
+    const coverage = countUniqueMalThemesMatched(hits, malThemes);
+    if (coverage > 0 && (!best || coverage > best.coverage)) {
+      best = { hits: [...hits], coverage };
+    }
+  }
+  return best?.hits ?? null;
+}
+
+function findClustersWithMalOverlap(
+  clusterList: readonly AniplaylistHit[][],
+  malThemes: ReadonlyArray<MalThemeRef>,
+): AniplaylistHit[][] {
+  if (malThemes.length === 0) {
+    return [];
+  }
+  return clusterList.filter((hits) => countMalThemeOverlaps(hits, malThemes) > 0);
+}
+
+function mergeAniplaylistHits(clusters: readonly AniplaylistHit[][]): AniplaylistHit[] {
+  const seen = new Set<number>();
+  const merged: AniplaylistHit[] = [];
+  for (const hits of clusters) {
+    for (const row of hits) {
+      if (seen.has(row.id)) {
+        continue;
+      }
+      seen.add(row.id);
+      merged.push(row);
+    }
+  }
+  return merged;
+}
+
 function findClusterWithMalOverlap(
   clusterList: readonly AniplaylistHit[][],
-  malThemes: ReadonlyArray<{ type: string; title: string; artist: string | null }>,
+  malThemes: ReadonlyArray<MalThemeRef>,
 ): AniplaylistHit[] | null {
   if (malThemes.length === 0) {
     return null;
   }
-
-  let best: { hits: AniplaylistHit[]; count: number } | null = null;
-  for (const hits of clusterList) {
-    const count = countMalThemeOverlaps(hits, malThemes);
-    if (count > 0 && (!best || count > best.count)) {
-      best = { hits: [...hits], count };
-    }
-  }
-  return best?.hits ?? null;
+  return pickBestMalOverlapCluster(clusterList, malThemes);
 }
 
 function pickBestTitleCluster(
@@ -449,7 +499,9 @@ function pickBestTitleCluster(
 }
 
 /**
- * Pick one AniPlaylist `anime_id` cluster for the media being expanded.
+ * Pick AniPlaylist cluster hit(s) for the media being expanded.
+ * When MAL themes exist, unions every title-qualified cluster that matches at
+ * least one MAL row (e.g. main + mini-episode airings split on AniPlaylist).
  * Media titles are the primary signal — Algolia relevance must not override season.
  */
 export function findMatchingAnimeCluster(
@@ -471,6 +523,27 @@ export function findMatchingAnimeCluster(
   const titleCandidates = scored
     .filter((c) => c.titleScore >= TITLE_MATCH_THRESHOLD)
     .sort((a, b) => b.titleScore - a.titleScore || b.algoliaScore - a.algoliaScore);
+
+  if (malThemes.length > 0) {
+    const overlapping = findClustersWithMalOverlap(
+      titleCandidates.map((c) => c.hits),
+      malThemes,
+    );
+    if (overlapping.length > 0) {
+      const bestSingleCoverage = Math.max(
+        ...overlapping.map((hits) => countUniqueMalThemesMatched(hits, malThemes)),
+      );
+      const merged = mergeAniplaylistHits(overlapping);
+      const unionCoverage = countUniqueMalThemesMatched(merged, malThemes);
+      if (unionCoverage > bestSingleCoverage) {
+        return merged;
+      }
+      const bestSingle = pickBestMalOverlapCluster(overlapping, malThemes);
+      if (bestSingle) {
+        return bestSingle;
+      }
+    }
+  }
 
   const titlePick = pickBestTitleCluster(titleCandidates, malThemes);
   if (titlePick) {

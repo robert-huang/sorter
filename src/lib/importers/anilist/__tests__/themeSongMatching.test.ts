@@ -50,6 +50,7 @@ describe('malThemeMatchesAniplaylistHit', () => {
         },
         {
           song_type: 'Ending',
+          song_key: 'ED',
           titles: ['奏（かなで）'],
           artists: [{ names: ['Takagi-san (Rie Takahashi)'] }],
         },
@@ -67,6 +68,7 @@ describe('malThemeMatchesAniplaylistHit', () => {
         },
         {
           song_type: 'Ending',
+          song_key: 'ED',
           titles: ['Over Drive'],
           artists: [{ names: ['Takagi-san (Rie Takahashi)'] }],
         },
@@ -84,6 +86,7 @@ describe('malThemeMatchesAniplaylistHit', () => {
         },
         {
           song_type: 'Opening',
+          song_key: 'OP',
           titles: ['Zero Centimeter'],
           artists: [{ names: ['Yuiko Ohara'] }],
         },
@@ -101,6 +104,7 @@ describe('malThemeMatchesAniplaylistHit', () => {
         },
         {
           song_type: 'Opening',
+          song_key: 'OP',
           titles: ['Zero Centimeter'],
           artists: [{ names: ['Yuiko Oohara'] }],
         },
@@ -118,6 +122,7 @@ describe('malThemeMatchesAniplaylistHit', () => {
         },
         {
           song_type: 'Opening',
+          song_key: 'OP',
           titles: ['零センチメートル', 'Zero Centimeter'],
           artists: [{ names: ['大原ゆい子'] }],
         },

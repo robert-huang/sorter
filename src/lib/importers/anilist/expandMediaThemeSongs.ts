@@ -9,7 +9,6 @@ import { needsGraphDataRefresh } from './toolsFetchPolicy';
 import {
   findMatchingAnimeCluster,
   groupHitsByAnimeId,
-  isAniplaylistThemeType,
   searchAniplaylist,
   AniplaylistSearchError,
 } from './themeSongs/aniplaylistApi';
@@ -276,10 +275,7 @@ export async function expandMediaThemeSongs(
         },
       );
       if (cluster) {
-        const animeId = cluster[0]?.anime_id;
-        aniHits = allHits.filter(
-          (h) => h.anime_id === animeId && isAniplaylistThemeType(h.song_type, h.song_key),
-        );
+        aniHits = cluster;
       }
 
       const enriched = await enrichMalThemesWithOfficialIfNeeded(themeResult, malId, {
