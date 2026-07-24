@@ -595,6 +595,7 @@ html {
    doesn't push the footer (or tabs) off-screen. */
 .settings-tabs {
   display: flex;
+  align-items: center;
   gap: 2px;
   padding: 2px;
   margin: -4px -4px 6px;
@@ -605,13 +606,17 @@ html {
 .settings-tab {
   flex: 1 1 0;
   appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
   border: none;
   border-radius: calc(var(--radius-sm) - 2px);
-  padding: 6px 8px;
+  padding: 5px 8px;
   font: inherit;
   font-size: 13px;
   font-weight: 500;
+  line-height: 1;
   color: var(--text-muted);
   cursor: pointer;
 }
@@ -623,7 +628,11 @@ html {
 .settings-tab.active {
   background: var(--surface);
   color: var(--text);
-  box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.06));
+  /* Symmetric halo so the raised pill reads centered in the track;
+     a downward-only shadow made it look sunk too low in the box. */
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--border) 65%, transparent),
+    0 1px 1px rgba(0, 0, 0, 0.05);
 }
 
 .settings-tab-body {

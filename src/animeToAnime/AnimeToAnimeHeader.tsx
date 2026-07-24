@@ -61,7 +61,7 @@ export function AnimeToAnimeHeader({
       <div className="header-toolbar-right">
         <button
           type="button"
-          className="toolbar-button"
+          className="toolbar-button gear"
           onClick={onToggleTheme}
           title={themeBtnTitle}
           aria-label={themeBtnTitle}
