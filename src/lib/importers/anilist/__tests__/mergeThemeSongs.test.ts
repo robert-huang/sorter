@@ -609,3 +609,61 @@ describe('borrowSharedSpotifyMetadata', () => {
     expect(rows[1]?.spotifyTrackIds).toEqual([]);
   });
 });
+
+describe('mergeThemeSongs Houkiboshi (Futsutsuka na Akujo)', () => {
+  it('collects Japan and global Spotify ids and prefers Japan display url', () => {
+    const mal = parseMalThemes(
+      ['"Sunny" by milet'],
+      ['"ホウキボシ" by ロクデナシ'],
+    );
+    const hits: AniplaylistHit[] = [
+      {
+        id: 1,
+        anime_id: 61240,
+        score: 70,
+        titles: ['Sunny'],
+        song_key: 'OP',
+        song_type: 'Opening',
+        artists: [{ names: ['milet'] }],
+        links: [
+          {
+            platform: 'spotify',
+            main: true,
+            link: 'https://open.spotify.com/track/6nmRFTaSwwoZ2e2Q45Pa9l',
+          },
+        ],
+        other_link_ids: ['6nmRFTaSwwoZ2e2Q45Pa9l'],
+      },
+      {
+        id: 2,
+        anime_id: 61240,
+        score: 70,
+        titles: ['ホウキボシ'],
+        song_key: 'ED',
+        song_type: 'Ending',
+        artists: [{ names: ['ロクデナシ'] }],
+        links: [
+          {
+            platform: 'spotify',
+            main: true,
+            link: 'https://open.spotify.com/track/1ZD4E53dzpTyjkcrYZcdQB',
+          },
+          {
+            platform: 'spotify',
+            detail: 'Japan link',
+            link: 'https://open.spotify.com/track/6gYV0M8HLVwW6tKQfzv7Jk',
+          },
+        ],
+        other_link_ids: ['1ZD4E53dzpTyjkcrYZcdQB', '6gYV0M8HLVwW6tKQfzv7Jk'],
+      },
+    ];
+
+    const rows = mergeThemeSongs(mal, hits);
+    const ed = rows.find((row) => row.type === 'Ending');
+    expect(ed?.spotifyTrackIds).toEqual(
+      expect.arrayContaining(['1ZD4E53dzpTyjkcrYZcdQB', '6gYV0M8HLVwW6tKQfzv7Jk']),
+    );
+    expect(ed?.spotifyUrl).toContain('6gYV0M8HLVwW6tKQfzv7Jk');
+    expect(ed?.hasResolvableTrackId).toBe(true);
+  });
+});

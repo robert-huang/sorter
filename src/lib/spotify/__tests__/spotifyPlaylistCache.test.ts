@@ -5,6 +5,7 @@ import {
   clearSelectedSpotifyPlaylist,
   getActivePlaylistCache,
   getPlaylistCache,
+  isPlaylistCacheIncomplete,
   getSelectedSpotifyPlaylist,
   mergeSelectedPlaylistIntoOptions,
   setSelectedSpotifyPlaylist,
@@ -65,5 +66,48 @@ describe('mergeSelectedPlaylistIntoOptions', () => {
     const playlists = [{ id: 'playlist-2', name: 'Other' }];
     expect(mergeSelectedPlaylistIntoOptions(playlists, null)).toEqual(playlists);
     expect(mergeSelectedPlaylistIntoOptions(playlists, null)).not.toBe(playlists);
+  });
+});
+
+describe('isPlaylistCacheIncomplete', () => {
+  it('flags legacy 50-track caches without trackTotal', () => {
+    const cache: SpotifyPlaylistCache = {
+      playlistId: 'pl1',
+      fetchedAt: Date.now(),
+      tracks: Array.from({ length: 50 }, (_, index) => ({
+        id: `track-${index}`,
+        isrc: null,
+        linkedFromIds: [],
+      })),
+    };
+    expect(isPlaylistCacheIncomplete(cache)).toBe(true);
+  });
+
+  it('is complete when trackTotal matches cached length', () => {
+    const cache: SpotifyPlaylistCache = {
+      playlistId: 'pl1',
+      fetchedAt: Date.now(),
+      trackTotal: 50,
+      tracks: Array.from({ length: 50 }, (_, index) => ({
+        id: `track-${index}`,
+        isrc: null,
+        linkedFromIds: [],
+      })),
+    };
+    expect(isPlaylistCacheIncomplete(cache)).toBe(false);
+  });
+
+  it('flags when fewer tracks were cached than Spotify reports', () => {
+    const cache: SpotifyPlaylistCache = {
+      playlistId: 'pl1',
+      fetchedAt: Date.now(),
+      trackTotal: 120,
+      tracks: Array.from({ length: 50 }, (_, index) => ({
+        id: `track-${index}`,
+        isrc: null,
+        linkedFromIds: [],
+      })),
+    };
+    expect(isPlaylistCacheIncomplete(cache)).toBe(true);
   });
 });

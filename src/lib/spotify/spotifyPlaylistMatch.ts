@@ -1,3 +1,4 @@
+import { mergeSpotifyTrackIdSources } from '../importers/anilist/themeSongs/spotifyLinks';
 import type { MediaThemeSongRow } from '../importers/anilist/themeSongs/types';
 import type { SpotifyPlaylistCache } from './spotifyPlaylist';
 
@@ -22,6 +23,10 @@ function normalizeIsrc(isrc: string): string {
   return isrc.toLowerCase();
 }
 
+function rowSpotifyTrackIds(row: MediaThemeSongRow): string[] {
+  return mergeSpotifyTrackIdSources(row.spotifyTrackIds, row.spotifyUrl);
+}
+
 function collectRowIsrcs(
   row: MediaThemeSongRow,
   trackIsrcById?: ReadonlyMap<string, string>,
@@ -30,7 +35,7 @@ function collectRowIsrcs(
   if (row.spotifyIsrc) {
     isrcs.add(normalizeIsrc(row.spotifyIsrc));
   }
-  for (const trackId of row.spotifyTrackIds) {
+  for (const trackId of rowSpotifyTrackIds(row)) {
     const isrc = trackIsrcById?.get(trackId);
     if (isrc) {
       isrcs.add(normalizeIsrc(isrc));
@@ -105,7 +110,7 @@ export function matchThemeRowToPlaylist(
 
   const index = buildPlaylistIndex(cache);
 
-  for (const trackId of row.spotifyTrackIds) {
+  for (const trackId of rowSpotifyTrackIds(row)) {
     if (index.trackIds.has(trackId)) {
       return 'in';
     }
@@ -118,7 +123,8 @@ export function matchThemeRowToPlaylist(
     }
   }
 
-  if (row.hasResolvableTrackId) {
+  const hasResolvableLink = rowSpotifyTrackIds(row).length > 0 || row.spotifyIsrc != null;
+  if (hasResolvableLink) {
     if (options?.isrcLookupReady === false && rowIsrcs.size === 0) {
       return 'unknown';
     }

@@ -3,6 +3,7 @@ import {
   buildSpotifySearchUrl,
   collectSpotifyTrackIds,
   encodeSpotifySearchPathSegment,
+  mergeSpotifyTrackIdSources,
   normalizeSpotifySearchUrl,
   parseSpotifyTrackIdFromUrl,
   pickSpotifyLink,
@@ -81,5 +82,14 @@ describe('spotifyLinks', () => {
     expect(ids).toContain('3EXRwq9SPcToT8MfPAgRxN');
     expect(ids).toContain('63ZUSqv3yd19ko7ChvzgAj');
     expect(ids).not.toContain('1887446344');
+  });
+
+  it('mergeSpotifyTrackIdSources adds id from display url', () => {
+    expect(
+      mergeSpotifyTrackIdSources(
+        [],
+        'https://open.spotify.com/track/6gYV0M8HLVwW6tKQfzv7Jk?utm_source=aniplaylist',
+      ),
+    ).toEqual(['6gYV0M8HLVwW6tKQfzv7Jk']);
   });
 });

@@ -70,7 +70,7 @@ describe('fetchPlaylistTracks', () => {
       } as Response;
     });
 
-    const tracks = await fetchPlaylistTracks('pl-big', 'token');
+    const { tracks } = await fetchPlaylistTracks('pl-big', 'token');
 
     expect(tracks).toHaveLength(75);
     expect(spotifyApiFetch).toHaveBeenCalledTimes(2);

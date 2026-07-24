@@ -45,6 +45,21 @@ export function pickSpotifyLink(links: readonly AniplaylistLink[]): string | nul
   return fallback ? normalizeSpotifySearchUrl(fallback) : null;
 }
 
+/** Theme-row track IDs plus any `/track/{id}` parsed from the display URL. */
+export function mergeSpotifyTrackIdSources(
+  trackIds: readonly string[],
+  spotifyUrl: string | null | undefined,
+): string[] {
+  const ids = new Set(trackIds);
+  if (spotifyUrl) {
+    const fromUrl = parseSpotifyTrackIdFromUrl(spotifyUrl);
+    if (fromUrl) {
+      ids.add(fromUrl);
+    }
+  }
+  return [...ids];
+}
+
 export function collectSpotifyTrackIds(
   links: readonly AniplaylistLink[],
   otherLinkIds: readonly string[] | undefined,

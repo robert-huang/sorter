@@ -13,6 +13,7 @@ import {
 import {
   buildSpotifySearchUrl,
   collectSpotifyTrackIds,
+  mergeSpotifyTrackIdSources,
   parseSpotifyTrackIdFromUrl,
   pickSpotifyLink,
 } from './spotifyLinks';
@@ -247,7 +248,7 @@ function hitToPartialRow(hit: AniplaylistHit, sortOrder: number): MediaThemeSong
     spotifyUrl: resolvedUrl,
     spotifyTrackIds: trackIds,
     spotifyIsrc: null,
-    hasResolvableTrackId: trackIds.length > 0,
+    hasResolvableTrackId: mergeSpotifyTrackIdSources(trackIds, resolvedUrl).length > 0,
   };
 }
 
@@ -421,7 +422,10 @@ export function borrowSharedSpotifyMetadata(rows: MediaThemeSongRow[]): MediaThe
       spotifyUrl: donor.spotifyUrl ?? row.spotifyUrl,
       spotifyTrackIds: [...donor.spotifyTrackIds],
       spotifyIsrc: donor.spotifyIsrc ?? row.spotifyIsrc,
-      hasResolvableTrackId: donor.spotifyTrackIds.length > 0,
+      hasResolvableTrackId: mergeSpotifyTrackIdSources(
+        donor.spotifyTrackIds,
+        donor.spotifyUrl,
+      ).length > 0,
     };
   });
 }

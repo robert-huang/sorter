@@ -83,6 +83,70 @@ describe('matchThemeRowToPlaylist', () => {
       }),
     ).toBe('unknown');
   });
+
+  it('matches track id parsed from spotifyUrl when spotifyTrackIds is empty', () => {
+    const row = makeRow({
+      spotifyTrackIds: [],
+      spotifyUrl: 'https://open.spotify.com/track/1ZD4E53dzpTyjkcrYZcdQB',
+      hasResolvableTrackId: true,
+    });
+    const houkiboshiCache: SpotifyPlaylistCache = {
+      playlistId: '0DBQIhCzeRJ1jqRmSO2Xdr',
+      fetchedAt: Date.now(),
+      tracks: [{ id: '1ZD4E53dzpTyjkcrYZcdQB', isrc: null, linkedFromIds: [] }],
+    };
+    expect(matchThemeRowToPlaylist(row, houkiboshiCache)).toBe('in');
+  });
+
+  it('bridges Japan vs global Houkiboshi catalog ids via ISRC', () => {
+    const sharedIsrc = 'JPCO02503650';
+    const row = makeRow({
+      spotifyTrackIds: ['1ZD4E53dzpTyjkcrYZcdQB', '6gYV0M8HLVwW6tKQfzv7Jk'],
+      spotifyUrl: 'https://open.spotify.com/track/6gYV0M8HLVwW6tKQfzv7Jk',
+      hasResolvableTrackId: true,
+    });
+    const playlistCache: SpotifyPlaylistCache = {
+      playlistId: '0DBQIhCzeRJ1jqRmSO2Xdr',
+      fetchedAt: Date.now(),
+      tracks: [{ id: '1ZD4E53dzpTyjkcrYZcdQB', isrc: sharedIsrc, linkedFromIds: [] }],
+    };
+    expect(
+      matchThemeRowToPlaylist(row, playlistCache, {
+        trackIsrcById: new Map([
+          ['6gYV0M8HLVwW6tKQfzv7Jk', sharedIsrc],
+          ['1ZD4E53dzpTyjkcrYZcdQB', sharedIsrc],
+        ]),
+        isrcLookupReady: true,
+      }),
+    ).toBe('in');
+  });
+
+  it('reports out when only spotifyUrl has a track id', () => {
+    const row = makeRow({
+      spotifyTrackIds: [],
+      spotifyUrl: 'https://open.spotify.com/track/missing-from-playlist',
+      hasResolvableTrackId: false,
+    });
+    expect(matchThemeRowToPlaylist(row, cache)).toBe('out');
+  });
+
+  it('reports out when track is beyond a truncated 50-track playlist cache', () => {
+    const row = makeRow({
+      spotifyTrackIds: ['1ZD4E53dzpTyjkcrYZcdQB'],
+      spotifyUrl: 'https://open.spotify.com/track/1ZD4E53dzpTyjkcrYZcdQB',
+      hasResolvableTrackId: true,
+    });
+    const truncatedCache: SpotifyPlaylistCache = {
+      playlistId: '0DBQIhCzeRJ1jqRmSO2Xdr',
+      fetchedAt: Date.now(),
+      tracks: Array.from({ length: 50 }, (_, index) => ({
+        id: `filler-track-${index}`,
+        isrc: null,
+        linkedFromIds: [],
+      })),
+    };
+    expect(matchThemeRowToPlaylist(row, truncatedCache)).toBe('out');
+  });
 });
 
 describe('aggregatePlaylistMatchForRows', () => {
@@ -113,5 +177,29 @@ describe('aggregatePlaylistMatchForRows', () => {
   it('returns null when every row is unknown', () => {
     const rows = [makeRow({ hasResolvableTrackId: false })];
     expect(aggregatePlaylistMatchForRows(rows, cache)).toBeNull();
+  });
+
+  it('houkiboshi show is mixed when ED is on playlist and OP is not', () => {
+    const playlistCache: SpotifyPlaylistCache = {
+      playlistId: '0DBQIhCzeRJ1jqRmSO2Xdr',
+      fetchedAt: Date.now(),
+      tracks: [{ id: '6gYV0M8HLVwW6tKQfzv7Jk', isrc: 'JPCO02503650', linkedFromIds: [] }],
+    };
+    const rows = [
+      makeRow({
+        type: 'Opening',
+        spotifyTrackIds: ['6nmRFTaSwwoZ2e2Q45Pa9l'],
+        hasResolvableTrackId: true,
+      }),
+      makeRow({
+        type: 'Ending',
+        spotifyTrackIds: ['1ZD4E53dzpTyjkcrYZcdQB', '6gYV0M8HLVwW6tKQfzv7Jk'],
+        spotifyUrl: 'https://open.spotify.com/track/6gYV0M8HLVwW6tKQfzv7Jk',
+        hasResolvableTrackId: true,
+      }),
+    ];
+    expect(aggregatePlaylistMatchForRows(rows, playlistCache)).toBe('mixed');
+    expect(matchThemeRowToPlaylist(rows[1]!, playlistCache)).toBe('in');
+    expect(matchThemeRowToPlaylist(rows[0]!, playlistCache)).toBe('out');
   });
 });

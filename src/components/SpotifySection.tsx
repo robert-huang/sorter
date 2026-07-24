@@ -16,6 +16,7 @@ import {
   getActivePlaylistCache,
   getPlaylistCache,
   getSelectedSpotifyPlaylist,
+  isPlaylistCacheIncomplete,
   isPlaylistCacheStale,
   listUserSpotifyPlaylists,
   mergeSelectedPlaylistIntoOptions,
@@ -289,6 +290,9 @@ export function SpotifySection() {
                 {activeCache.tracks.length} tracks cached · {formatFetchedAt(activeCache.fetchedAt)}
                 {isPlaylistCacheStale(activeCache.fetchedAt) ? (
                   <span className="settings-cache-stale"> · stale (&gt;15m)</span>
+                ) : null}
+                {isPlaylistCacheIncomplete(activeCache) ? (
+                  <span className="settings-cache-stale"> · incomplete — refresh to load all tracks</span>
                 ) : null}
                 {isrcBackfill.status === 'running' &&
                 isrcBackfill.playlistId === selectedPlaylist.id ? (

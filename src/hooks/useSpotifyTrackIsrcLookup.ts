@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { mergeSpotifyTrackIdSources } from '../lib/importers/anilist/themeSongs/spotifyLinks';
 import type { MediaThemeSongRow } from '../lib/importers/anilist/themeSongs/types';
 import { ensureSpotifyAccessToken } from '../lib/spotify/spotifyAuth';
 import {
@@ -11,7 +12,7 @@ const EMPTY_TRACK_IDS: string[] = [];
 function collectThemeTrackIds(rows: readonly MediaThemeSongRow[]): string[] {
   const ids = new Set<string>();
   for (const row of rows) {
-    for (const trackId of row.spotifyTrackIds) {
+    for (const trackId of mergeSpotifyTrackIdSources(row.spotifyTrackIds, row.spotifyUrl)) {
       ids.add(trackId);
     }
   }
