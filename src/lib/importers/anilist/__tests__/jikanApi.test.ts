@@ -13,6 +13,15 @@ describe('dedupeThemeStrings', () => {
     ]);
     expect(merged).toHaveLength(1);
   });
+
+  it('dedupes EN/JP Stay Alive credits on the same episode', () => {
+    const merged = dedupeThemeStrings([
+      '"Stay Alive ~Regain~" by Emilia (CV: Rie Takahashi) (ep 11)',
+      '"Stay Alive 〜Regain〜" by エミリア (CV: 高橋李依) (ep 11)',
+      '"Stay Alive ~Regain~" by エミリア (CV: 高橋李依) (ep 11)',
+    ]);
+    expect(merged).toHaveLength(1);
+  });
 });
 
 describe('unionJikanThemesData', () => {

@@ -23,11 +23,18 @@ export function foldJapaneseRomanization(s: string): string {
   return out;
 }
 
+/** MAL uses ASCII `~`; AniPlaylist/JP credits often use wave dash `〜` / fullwidth `～`. */
+export function normalizeThemeDashes(s: string): string {
+  return s.replace(/[~〜～−–—]/g, '~');
+}
+
 function normalizeKey(s: string): string {
-  return foldJapaneseRomanization(s)
-    .replace(/[\u2018\u2019\u201b]/g, "'")
-    .replace(/\s+/g, ' ')
-    .trim();
+  return normalizeThemeDashes(
+    foldJapaneseRomanization(s)
+      .replace(/[\u2018\u2019\u201b]/g, "'")
+      .replace(/\s+/g, ' ')
+      .trim(),
+  );
 }
 
 function comparableKey(s: string): string {

@@ -1,5 +1,5 @@
 import { parseMalThemeString } from './malThemeParser';
-import { foldJapaneseRomanization } from './themeSongMatching';
+import { foldJapaneseRomanization, normalizeThemeDashes } from './themeSongMatching';
 
 const JIKAN_BASE = 'https://api.jikan.moe/v4';
 
@@ -44,12 +44,33 @@ async function fetchJson<T>(url: string): Promise<{ status: number; body: T | nu
   return { status: res.status, body };
 }
 
+function episodeNumsFromMalEpisodes(episodes: string | null): string {
+  if (!episodes?.trim()) {
+    return '';
+  }
+  const nums: number[] = [];
+  const re = /\d+/g;
+  let match: RegExpExecArray | null = re.exec(episodes);
+  while (match) {
+    const n = Number(match[0]);
+    if (Number.isFinite(n)) {
+      nums.push(n);
+    }
+    match = re.exec(episodes);
+  }
+  return nums.join(',');
+}
+
 function themeStringDedupeKey(raw: string): string {
   const parsed = parseMalThemeString(raw, 'Opening', 0);
-  const title = foldJapaneseRomanization(parsed.title.toLowerCase()).replace(
-    /[\u2018\u2019\u201b]/g,
-    "'",
+  const title = normalizeThemeDashes(
+    foldJapaneseRomanization(parsed.title.toLowerCase()).replace(/[\u2018\u2019\u201b]/g, "'"),
   );
+  const episodeKey = episodeNumsFromMalEpisodes(parsed.episodes);
+  if (episodeKey) {
+    // Same ED on the same episode with EN vs JP performer credits (Re:Zero Stay Alive).
+    return `${title}|${episodeKey}`;
+  }
   const artist = foldJapaneseRomanization((parsed.artist ?? '').toLowerCase()).replace(
     /[\u2018\u2019\u201b]/g,
     "'",

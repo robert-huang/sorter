@@ -10,6 +10,7 @@ import {
 } from '../themeSongs/mergeThemeSongs';
 import type { MediaThemeSongRow } from '../themeSongs/types';
 import type { AniplaylistHit } from '../themeSongs/aniplaylistApi';
+import { dedupeThemeStrings } from '../themeSongs/jikanApi';
 
 describe('artistsRoughlyMatch', () => {
   it('matches flipped Latin name order with shared CV credit', () => {
@@ -423,6 +424,75 @@ describe('mergeThemeSongs', () => {
     expect(rows).toHaveLength(2);
     expect(rows.filter((r) => r.type === 'Ending')).toHaveLength(1);
     expect(rows.find((r) => r.type === 'Ending')?.hasResolvableTrackId).toBe(true);
+  });
+
+  it('merges Re:Zero Stay Alive after MAL theme dedupe (production path)', () => {
+    const dedupedEndings = dedupeThemeStrings([
+      '"Ender Ember" by TK from Ling tosite Sigure',
+      '"Stay Alive ~Regain~" by Emilia (CV: Rie Takahashi) (ep 11)',
+      '"Stay Alive 〜Regain〜" by エミリア (CV: 高橋李依) (ep 11)',
+      '"Stay Alive ~Regain~" by エミリア (CV: 高橋李依) (ep 11)',
+    ]);
+    expect(dedupedEndings).toHaveLength(2);
+
+    const mal = parseMalThemes(['"Recollect" by Konomi Suzuki'], dedupedEndings);
+    const hits: AniplaylistHit[] = [
+      {
+        id: 1,
+        anime_id: 7704,
+        score: 70,
+        titles: ['Recollect'],
+        song_key: 'OP',
+        song_type: 'Opening',
+        artists: [{ names: ['鈴木このみ'] }],
+        links: [
+          {
+            platform: 'spotify',
+            main: true,
+            link: 'https://open.spotify.com/track/recollectTrack',
+          },
+        ],
+        other_link_ids: ['recollectTrack'],
+      },
+      {
+        id: 2,
+        anime_id: 7704,
+        score: 65,
+        titles: ['Ender Ember'],
+        song_key: 'ED',
+        song_type: 'Ending',
+        artists: [{ names: ['TK from 凛として時雨'] }],
+        links: [],
+      },
+      {
+        id: 3,
+        anime_id: 7704,
+        score: 60,
+        titles: ['Stay Alive ~Regain~'],
+        song_key: 'ED ep 11',
+        song_type: 'Ending',
+        artists: [{ names: ['エミリア (CV: 高橋李依)'] }],
+        links: [
+          {
+            platform: 'spotify',
+            main: true,
+            link: 'https://open.spotify.com/track/stayAliveTrack',
+          },
+        ],
+        other_link_ids: ['stayAliveTrack'],
+      },
+    ];
+
+    const rows = mergeThemeSongs(mal, hits);
+    const endingRows = rows.filter((row) => row.type === 'Ending');
+    expect(endingRows).toHaveLength(2);
+    expect(endingRows.map((row) => row.displayTitle)).toEqual([
+      'Ender Ember',
+      'Stay Alive ~Regain~',
+    ]);
+    expect(endingRows.find((row) => row.displayTitle.includes('Stay Alive'))?.hasResolvableTrackId).toBe(
+      true,
+    );
   });
 });
 
