@@ -143,11 +143,34 @@ export function groupThemeRowsByType(
   return groups;
 }
 
+/** Badge from zero-based MAL / merged `sortOrder` (OP, OP2, ED3, …). */
+export function themeSongSortOrderBadge(type: ThemeSongType, sortOrder: number): string {
+  if (type === 'Insert') {
+    return 'IN';
+  }
+  if (type === 'Opening') {
+    return sortOrder === 0 ? 'OP' : `OP${sortOrder + 1}`;
+  }
+  return sortOrder === 0 ? 'ED' : `ED${sortOrder + 1}`;
+}
+
+function rowHasMalThemeData(row: MediaThemeSongRow): boolean {
+  return Boolean(row.malRaw?.trim() || row.malTitle?.trim());
+}
+
 /** Left-column badge: OP, OP2, ED, IN, etc. */
 export function themeSongTypeBadge(row: MediaThemeSongRow): string {
   if (row.type === 'Insert') {
     return 'IN';
   }
+
+  // MAL numbering is authoritative when we have a MAL row (merged or MAL-only).
+  // AniPlaylist often uses bare `ED` / `ED (ep N)` without an ordinal; sortOrder
+  // from MAL's `#N:` prefix or list index supplies OP2 / ED3 etc.
+  if (rowHasMalThemeData(row)) {
+    return themeSongSortOrderBadge(row.type, row.sortOrder);
+  }
+
   if (row.songKey?.trim()) {
     const parsed = parseAniplaylistSongKey(row.songKey, row.type);
     if (parsed.badge) {
@@ -155,10 +178,8 @@ export function themeSongTypeBadge(row: MediaThemeSongRow): string {
     }
     return row.songKey.trim();
   }
-  if (row.type === 'Opening') {
-    return row.sortOrder === 0 ? 'OP' : `OP${row.sortOrder + 1}`;
-  }
-  return row.sortOrder === 0 ? 'ED' : `ED${row.sortOrder + 1}`;
+
+  return themeSongSortOrderBadge(row.type, row.sortOrder);
 }
 
 /**

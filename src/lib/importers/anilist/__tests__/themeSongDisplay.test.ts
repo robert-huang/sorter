@@ -46,6 +46,24 @@ describe('themeSongTypeBadge', () => {
     expect(themeSongTypeBadge(row({ type: 'Opening', sortOrder: 1 }))).toBe('OP2');
     expect(themeSongTypeBadge(row({ type: 'Ending', sortOrder: 2 }))).toBe('ED3');
   });
+
+  it('prefers MAL sort order over unnumbered aniplaylist song_key', () => {
+    expect(
+      themeSongTypeBadge(
+        row({ type: 'Ending', sortOrder: 2, songKey: 'ED (ep 4)', malTitle: 'Song' }),
+      ),
+    ).toBe('ED3');
+    expect(
+      themeSongTypeBadge(
+        row({ type: 'Opening', sortOrder: 1, songKey: 'OP', malTitle: 'Song' }),
+      ),
+    ).toBe('OP2');
+    expect(
+      themeSongTypeBadge(
+        row({ type: 'Ending', sortOrder: 0, songKey: 'ED6 (ep 1)', malTitle: 'Song' }),
+      ),
+    ).toBe('ED');
+  });
 });
 
 describe('themeSongEpisodeLine', () => {
