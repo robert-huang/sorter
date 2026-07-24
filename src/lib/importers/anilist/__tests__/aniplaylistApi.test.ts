@@ -6,6 +6,7 @@ import {
   extractSeasonNumber,
   findMatchingAnimeCluster,
   groupHitsByAnimeId,
+  isAniplaylistThemeType,
   isAniplaylistRemoteProxyUrl,
   resolveAniplaylistSearchUrl,
   scoreMediaToAnimeTitle,
@@ -118,6 +119,28 @@ describe('scoreMediaToAnimeTitle', () => {
         'Teasing Master Takagi-san 2',
       ),
     ).toBeGreaterThanOrEqual(90);
+  });
+});
+
+describe('isAniplaylistThemeType', () => {
+  it('includes AniPlaylist Theme Song / TS (movie openings)', () => {
+    expect(isAniplaylistThemeType('Theme Song', 'TS')).toBe(true);
+    expect(isAniplaylistThemeType('OST', 'OST')).toBe(false);
+  });
+});
+
+describe('groupHitsByAnimeId', () => {
+  it('keeps Theme Song hits in the anime cluster', () => {
+    const irisOut = hit({
+      id: 25459,
+      anime_id: 7113,
+      score: 70,
+      titles: ['IRIS OUT'],
+      song_type: 'Theme Song',
+      song_key: 'TS',
+    });
+    const map = groupHitsByAnimeId([irisOut]);
+    expect(map.get(7113)?.map((h) => h.titles[0])).toEqual(['IRIS OUT']);
   });
 });
 
