@@ -310,6 +310,29 @@ export function collectMediaTitleStrings(candidates: MediaTitleCandidates): stri
   return out;
 }
 
+/** Remove decorative dash framing that Algolia can interpret as query syntax. */
+export function normalizeAniplaylistSearchQuery(title: string): string {
+  return title
+    .replace(/(^|\s)[-\u2010-\u2015]+(?=\S)/g, '$1')
+    .replace(/[-\u2010-\u2015]+(?=\s|$)/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function collectAniplaylistSearchQueries(candidates: MediaTitleCandidates): string[] {
+  const seen = new Set<string>();
+  const queries: string[] = [];
+  for (const title of collectMediaTitleStrings(candidates)) {
+    const query = normalizeAniplaylistSearchQuery(title);
+    const key = query.toLowerCase();
+    if (query && !seen.has(key)) {
+      seen.add(key);
+      queries.push(query);
+    }
+  }
+  return queries;
+}
+
 /**
  * Search AniPlaylist with each query string until one returns hits.
  * `search` is injectable for tests (same-module calls cannot be spied via namespace).
@@ -334,8 +357,9 @@ export async function searchAniplaylistQueriesUntilHits(
  */
 export async function searchAniplaylistForMediaTitles(
   mediaTitles: MediaTitleCandidates,
+  search: (query: string) => Promise<AniplaylistHit[]> = searchAniplaylist,
 ): Promise<AniplaylistHit[]> {
-  return searchAniplaylistQueriesUntilHits(collectMediaTitleStrings(mediaTitles));
+  return searchAniplaylistQueriesUntilHits(collectAniplaylistSearchQueries(mediaTitles), search);
 }
 
 export function clusterAnimeTitles(hits: readonly AniplaylistHit[]): string[] {

@@ -3,6 +3,7 @@ import {
   buildAniplaylistSearchParams,
   ANIPLAYLIST_HITS_PER_PAGE,
   ANIPLAYLIST_LOCAL_PROXY_PATH,
+  collectAniplaylistSearchQueries,
   collectMediaTitleStrings,
   extractSeasonNumber,
   findMatchingAnimeCluster,
@@ -11,6 +12,7 @@ import {
   isAniplaylistRemoteProxyUrl,
   resolveAniplaylistSearchUrl,
   scoreMediaToAnimeTitle,
+  searchAniplaylistForMediaTitles,
   searchAniplaylistQueriesUntilHits,
   type AniplaylistHit,
 } from '../themeSongs/aniplaylistApi';
@@ -370,6 +372,44 @@ describe('searchAniplaylistForMediaTitles', () => {
         native: null,
       }),
     ).toEqual(['Example Show Season 1', 'Example Romaji']);
+  });
+
+  it('removes decorative dashes and deduplicates equivalent search titles', () => {
+    expect(
+      collectAniplaylistSearchQueries({
+        english: 'Tamako -love story-',
+        romaji: 'Tamako Love Story',
+        native: 'たまこラブストーリー',
+      }),
+    ).toEqual(['Tamako love story', 'たまこラブストーリー']);
+  });
+
+  it('preserves intra-word hyphens', () => {
+    expect(
+      collectAniplaylistSearchQueries({
+        english: 'K-ON!',
+        romaji: 'Teasing Master Takagi-san 2',
+        native: null,
+      }),
+    ).toEqual(['K-ON!', 'Teasing Master Takagi-san 2']);
+  });
+
+  it('sends the normalized title to Algolia first', async () => {
+    const search = vi
+      .fn<(query: string) => Promise<AniplaylistHit[]>>()
+      .mockResolvedValueOnce([hit({ anime_id: 1, score: 50 })]);
+
+    await searchAniplaylistForMediaTitles(
+      {
+        english: 'Tamako -love story-',
+        romaji: 'Tamako Love Story',
+        native: null,
+      },
+      search,
+    );
+
+    expect(search).toHaveBeenCalledOnce();
+    expect(search).toHaveBeenCalledWith('Tamako love story');
   });
 });
 
