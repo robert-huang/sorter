@@ -107,6 +107,13 @@ button {
   cursor: pointer;
 }
 
+/* Native form controls don't inherit font-family on all platforms (esp. Windows). */
+input,
+select,
+textarea {
+  font: inherit;
+}
+
 a {
   color: var(--accent);
 }
@@ -1713,9 +1720,16 @@ html {
   align-items: center;
   justify-content: center;
   width: 10px;
-  height: calc(12px * 1.35);
-  font-size: 10px;
-  line-height: 1;
+  height: 10px;
+}
+
+/* Drawn circle — avoids Windows/macOS font-metric differences for ●. */
+.anilist-detail-theme-song-playlist-dot::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
 }
 
 .anilist-detail-theme-song-playlist-dot.is-in {
@@ -1726,7 +1740,7 @@ html {
   color: #e91429;
 }
 
-.anilist-detail-theme-song-playlist-dot.is-placeholder {
+.anilist-detail-theme-song-playlist-dot.is-placeholder::before {
   visibility: hidden;
 }
 

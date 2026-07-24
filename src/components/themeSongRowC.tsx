@@ -29,9 +29,7 @@ function themeSongPlaylistIndicator(status: PlaylistMatchStatus): ReactNode {
         title="In your Spotify playlist"
         aria-label="In your Spotify playlist"
         className="anilist-detail-theme-song-playlist-dot is-in"
-      >
-        ●
-      </span>
+      />
     );
   }
   if (status === 'out') {
@@ -40,9 +38,7 @@ function themeSongPlaylistIndicator(status: PlaylistMatchStatus): ReactNode {
         title="Not in your Spotify playlist"
         aria-label="Not in your Spotify playlist"
         className="anilist-detail-theme-song-playlist-dot is-out"
-      >
-        ●
-      </span>
+      />
     );
   }
   return null;
@@ -62,9 +58,7 @@ function ThemeSongPlaylistDotSlot({
   return (
     <div className="anilist-detail-theme-song-playlist-dot-slot">
       {dot ?? (
-        <span className="anilist-detail-theme-song-playlist-dot is-placeholder" aria-hidden="true">
-          ●
-        </span>
+        <span className="anilist-detail-theme-song-playlist-dot is-placeholder" aria-hidden="true" />
       )}
     </div>
   );

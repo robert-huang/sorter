@@ -966,7 +966,7 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
                 disabled={running}
                 onChange={(e) => patchForm({ showUnscheduledColumn: e.target.checked })}
               />
-              Unknown Airing Day Column
+              Unknown Airing Day column
             </label>
 
             <label className="tool-checkbox">

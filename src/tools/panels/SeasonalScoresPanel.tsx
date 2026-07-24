@@ -726,7 +726,7 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
               onChange={(e) => patchForm({ spanAiringSeasons: e.target.checked })}
               title="Place shows in every season column their broadcast dates overlap (ongoing shows extend through today)."
             />
-            Span Airing Seasons
+            Span airing seasons
           </label>
           <MultiSelectChip<SeasonalSourceFilterKey>
             label="source"
