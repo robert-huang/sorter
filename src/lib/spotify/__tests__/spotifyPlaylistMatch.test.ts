@@ -51,6 +51,38 @@ describe('matchThemeRowToPlaylist', () => {
     const row = makeRow({ spotifyTrackIds: ['track-a'], hasResolvableTrackId: true });
     expect(matchThemeRowToPlaylist(row, null)).toBe('unknown');
   });
+
+  it('matches alternate spotify id via lazy track isrc lookup', () => {
+    const row = makeRow({
+      spotifyTrackIds: ['2ReLy6MAZB0lw65E7utuIt'],
+      hasResolvableTrackId: true,
+    });
+    const connectCache: SpotifyPlaylistCache = {
+      playlistId: 'pl1',
+      fetchedAt: Date.now(),
+      tracks: [{ id: '6SrKLkuqWyKxSxzvtRWvX5', isrc: 'JPU901001861', linkedFromIds: [] }],
+    };
+    const lookup = new Map([['2ReLy6MAZB0lw65E7utuIt', 'JPU901001861']]);
+    expect(
+      matchThemeRowToPlaylist(row, connectCache, {
+        trackIsrcById: lookup,
+        isrcLookupReady: true,
+      }),
+    ).toBe('in');
+  });
+
+  it('waits for lazy isrc lookup before reporting out', () => {
+    const row = makeRow({
+      spotifyTrackIds: ['2ReLy6MAZB0lw65E7utuIt'],
+      hasResolvableTrackId: true,
+    });
+    expect(
+      matchThemeRowToPlaylist(row, cache, {
+        trackIsrcById: new Map(),
+        isrcLookupReady: false,
+      }),
+    ).toBe('unknown');
+  });
 });
 
 describe('aggregatePlaylistMatchForRows', () => {

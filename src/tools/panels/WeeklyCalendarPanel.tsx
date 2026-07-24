@@ -35,8 +35,10 @@ import {
   aggregatePlaylistMatchForRows,
   matchThemeRowToPlaylist,
   type PlaylistAggregateStatus,
+  type PlaylistMatchOptions,
 } from '../../lib/spotify/spotifyPlaylistMatch';
 import { useSpotifyPlaylistCache } from '../../lib/spotify/useSpotifyPlaylistCache';
+import { useSpotifyTrackIsrcLookup } from '../../hooks/useSpotifyTrackIsrcLookup';
 import { ThemeSongRowC } from '../../components/themeSongRowC';
 import {
   DEFAULT_WEEKLY_CALENDAR_FORM,
@@ -280,9 +282,11 @@ function WeeklyCalendarThemeSongShowTitle({
 function WeeklyCalendarThemeSongGroups({
   rows,
   playlistCache,
+  playlistMatchOptions,
 }: {
   rows: readonly MediaThemeSongRow[];
   playlistCache: ReturnType<typeof useSpotifyPlaylistCache>;
+  playlistMatchOptions: PlaylistMatchOptions;
 }) {
   const rowsByType = groupThemeRowsByType(rows);
   const showPlaylistMatch = playlistCache !== null;
@@ -304,7 +308,7 @@ function WeeklyCalendarThemeSongGroups({
                 <ThemeSongRowC
                   key={`${type}-${row.songKey ?? row.displayTitle}-${index}`}
                   row={row}
-                  playlistStatus={matchThemeRowToPlaylist(row, playlistCache)}
+                  playlistStatus={matchThemeRowToPlaylist(row, playlistCache, playlistMatchOptions)}
                   showPlaylistMatch={showPlaylistMatch}
                 />
               ))}
@@ -320,6 +324,7 @@ function WeeklyCalendarThemeSongsPanel({
   shows,
   themeSongCache,
   playlistCache,
+  playlistMatchOptions,
   onOpenMedia,
   onRefreshThemeSongs,
   refreshingCached,
@@ -328,6 +333,7 @@ function WeeklyCalendarThemeSongsPanel({
   shows: WeeklyCalendarEntry[];
   themeSongCache: Map<number, MediaThemeSongsPayload>;
   playlistCache: ReturnType<typeof useSpotifyPlaylistCache>;
+  playlistMatchOptions: PlaylistMatchOptions;
   onOpenMedia: ToolPanelProps['onOpenMedia'];
   onRefreshThemeSongs: (mediaIds: number[], kind: 'cached' | 'pending') => void;
   refreshingCached: boolean;
@@ -379,6 +385,7 @@ function WeeklyCalendarThemeSongsPanel({
                 <WeeklyCalendarThemeSongGroups
                   rows={rows}
                   playlistCache={playlistCache}
+                  playlistMatchOptions={playlistMatchOptions}
                 />
               </div>
             );
@@ -439,6 +446,7 @@ function WeeklyCalendarColumnsView({
   themeSongCounts,
   themeSongCache,
   playlistCache,
+  playlistMatchOptions,
   onOpenMedia,
 }: {
   result: Extract<WeeklyCalendarResult, { kind: 'columns' }>;
@@ -447,6 +455,7 @@ function WeeklyCalendarColumnsView({
   themeSongCounts: ReadonlyMap<number, number>;
   themeSongCache: Map<number, MediaThemeSongsPayload>;
   playlistCache: ReturnType<typeof useSpotifyPlaylistCache>;
+  playlistMatchOptions: PlaylistMatchOptions;
   onOpenMedia: ToolPanelProps['onOpenMedia'];
 }) {
   const headerRef = useRef<HTMLDivElement>(null);
@@ -526,6 +535,7 @@ function WeeklyCalendarColumnsView({
                     ? aggregatePlaylistMatchForRows(
                         themeSongCache.get(show.id)?.rows ?? [],
                         playlistCache,
+                        playlistMatchOptions,
                       )
                     : null;
                 return (
@@ -674,6 +684,25 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
     }
     return counts;
   }, [themeSongCache]);
+
+  const allCachedThemeRows = useMemo(() => {
+    const rows: MediaThemeSongRow[] = [];
+    for (const payload of themeSongCache.values()) {
+      rows.push(...payload.rows);
+    }
+    return rows;
+  }, [themeSongCache]);
+
+  const { lookup: trackIsrcLookup, ready: trackIsrcLookupReady } =
+    useSpotifyTrackIsrcLookup(allCachedThemeRows);
+
+  const playlistMatchOptions = useMemo(
+    (): PlaylistMatchOptions => ({
+      trackIsrcById: trackIsrcLookup,
+      isrcLookupReady: trackIsrcLookupReady,
+    }),
+    [trackIsrcLookup, trackIsrcLookupReady],
+  );
 
   const chartShows = useMemo(() => {
     if (result?.kind !== 'columns') {
@@ -1008,6 +1037,7 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
               themeSongCounts={themeSongCounts}
               themeSongCache={themeSongCache}
               playlistCache={playlistCache}
+              playlistMatchOptions={playlistMatchOptions}
               onOpenMedia={onOpenMedia}
             />
           </div>
@@ -1016,6 +1046,7 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
               shows={chartShows}
               themeSongCache={themeSongCache}
               playlistCache={playlistCache}
+              playlistMatchOptions={playlistMatchOptions}
               onOpenMedia={onOpenMedia}
               onRefreshThemeSongs={onRefreshThemeSongs}
               refreshingCached={refreshingThemeSongsCached}

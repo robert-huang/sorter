@@ -39,8 +39,10 @@ import {
 } from '../lib/spotify/spotifyPlaylist';
 import {
   matchThemeRowToPlaylist,
+  type PlaylistMatchOptions,
 } from '../lib/spotify/spotifyPlaylistMatch';
 import { subscribeSpotifyAuth } from '../lib/spotify/spotifyAuth';
+import { useSpotifyTrackIsrcLookup } from '../hooks/useSpotifyTrackIsrcLookup';
 import {
   allThemeSongSourcesFailed,
   themeSongsSourceNotes,
@@ -316,6 +318,18 @@ export function AnilistDetailModal({
     void playlistCacheRevision;
     return getActivePlaylistCache();
   }, [playlistCacheRevision]);
+
+  const { lookup: trackIsrcLookup, ready: trackIsrcLookupReady } = useSpotifyTrackIsrcLookup(
+    themeSongsPayload?.rows ?? [],
+  );
+
+  const playlistMatchOptions = useMemo(
+    (): PlaylistMatchOptions => ({
+      trackIsrcById: trackIsrcLookup,
+      isrcLookupReady: trackIsrcLookupReady,
+    }),
+    [trackIsrcLookup, trackIsrcLookupReady],
+  );
 
   useEffect(() => {
     const bump = () => setPlaylistCacheRevision((n) => n + 1);
@@ -992,7 +1006,11 @@ export function AnilistDetailModal({
                               <ThemeSongRowC
                                 key={`${type}-${row.songKey ?? row.displayTitle}-${index}`}
                                 row={row}
-                                playlistStatus={matchThemeRowToPlaylist(row, playlistCache)}
+                                playlistStatus={matchThemeRowToPlaylist(
+                                  row,
+                                  playlistCache,
+                                  playlistMatchOptions,
+                                )}
                                 showPlaylistMatch={playlistCache !== null}
                                 onExclude={(songRow) => void onExcludeThemeSong(songRow)}
                               />

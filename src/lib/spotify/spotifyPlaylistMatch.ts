@@ -6,10 +6,38 @@ export type PlaylistMatchStatus = 'in' | 'out' | 'unknown';
 /** Show-level aggregate over resolvable theme rows (unknown rows excluded). */
 export type PlaylistAggregateStatus = 'in' | 'out' | 'mixed';
 
+export type PlaylistMatchOptions = {
+  /** Theme track ID → ISRC (lazy cache / persisted expansion). */
+  trackIsrcById?: ReadonlyMap<string, string>;
+  /** False while lazy theme ISRC fetches are still in flight. */
+  isrcLookupReady?: boolean;
+};
+
 type PlaylistIndex = {
   trackIds: Set<string>;
   isrcs: Set<string>;
 };
+
+function normalizeIsrc(isrc: string): string {
+  return isrc.toLowerCase();
+}
+
+function collectRowIsrcs(
+  row: MediaThemeSongRow,
+  trackIsrcById?: ReadonlyMap<string, string>,
+): Set<string> {
+  const isrcs = new Set<string>();
+  if (row.spotifyIsrc) {
+    isrcs.add(normalizeIsrc(row.spotifyIsrc));
+  }
+  for (const trackId of row.spotifyTrackIds) {
+    const isrc = trackIsrcById?.get(trackId);
+    if (isrc) {
+      isrcs.add(normalizeIsrc(isrc));
+    }
+  }
+  return isrcs;
+}
 
 function buildPlaylistIndex(cache: SpotifyPlaylistCache): PlaylistIndex {
   const trackIds = new Set<string>();
@@ -34,6 +62,7 @@ function buildPlaylistIndex(cache: SpotifyPlaylistCache): PlaylistIndex {
 export function aggregatePlaylistMatchForRows(
   rows: readonly MediaThemeSongRow[],
   cache: SpotifyPlaylistCache | null,
+  options?: PlaylistMatchOptions,
 ): PlaylistAggregateStatus | null {
   if (!cache || rows.length === 0) {
     return null;
@@ -42,7 +71,7 @@ export function aggregatePlaylistMatchForRows(
   let anyOut = false;
   let anyResolvable = false;
   for (const row of rows) {
-    const status = matchThemeRowToPlaylist(row, cache);
+    const status = matchThemeRowToPlaylist(row, cache, options);
     if (status === 'unknown') {
       continue;
     }
@@ -68,6 +97,7 @@ export function aggregatePlaylistMatchForRows(
 export function matchThemeRowToPlaylist(
   row: MediaThemeSongRow,
   cache: SpotifyPlaylistCache | null,
+  options?: PlaylistMatchOptions,
 ): PlaylistMatchStatus {
   if (!cache || cache.tracks.length === 0) {
     return 'unknown';
@@ -81,11 +111,17 @@ export function matchThemeRowToPlaylist(
     }
   }
 
-  if (row.spotifyIsrc && index.isrcs.has(row.spotifyIsrc.toLowerCase())) {
-    return 'in';
+  const rowIsrcs = collectRowIsrcs(row, options?.trackIsrcById);
+  for (const isrc of rowIsrcs) {
+    if (index.isrcs.has(isrc)) {
+      return 'in';
+    }
   }
 
   if (row.hasResolvableTrackId) {
+    if (options?.isrcLookupReady === false && rowIsrcs.size === 0) {
+      return 'unknown';
+    }
     return 'out';
   }
 

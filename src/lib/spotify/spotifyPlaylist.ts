@@ -1,4 +1,6 @@
+import { fetchSpotifyIsrcByTrackIds } from '../importers/anilist/themeSongs/spotifyIsrc';
 import { ensureSpotifyAccessToken, getStoredSpotifyAuth } from './spotifyAuth';
+import { mergeTrackIsrcsIntoStore } from './spotifyTrackIsrcStore';
 
 export const PLAYLIST_STORAGE_KEY = 'spotify:playlist:v1';
 export const PLAYLIST_CACHE_STORAGE_KEY = 'spotify:playlist-cache:v1';
@@ -288,6 +290,28 @@ export function parsePlaylistTrackItemForTesting(
   return parsePlaylistTrackItem(item);
 }
 
+/** Backfill ISRC when playlist items omit external_ids. */
+export async function enrichPlaylistTracksWithIsrc(
+  tracks: readonly CachedPlaylistTrack[],
+  accessToken: string,
+): Promise<CachedPlaylistTrack[]> {
+  const missingIds = tracks.filter((track) => !track.isrc).map((track) => track.id);
+  if (missingIds.length === 0) {
+    return [...tracks];
+  }
+
+  const isrcById = await fetchSpotifyIsrcByTrackIds(missingIds, accessToken);
+  mergeTrackIsrcsIntoStore(isrcById);
+  if (isrcById.size === 0) {
+    return [...tracks];
+  }
+
+  return tracks.map((track) => {
+    const isrc = track.isrc ?? isrcById.get(track.id) ?? null;
+    return isrc === track.isrc ? track : { ...track, isrc };
+  });
+}
+
 export async function fetchPlaylistTracks(
   playlistId: string,
   accessToken?: string | null,
@@ -298,9 +322,11 @@ export async function fetchPlaylistTracks(
   }
 
   const tracks: CachedPlaylistTrack[] = [];
+  const fields =
+    'items(item(id,type,external_ids),track(id,type,external_ids),linked_from(id))';
   const base =
     `https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}/items` +
-    '?limit=50&additional_types=track';
+    `?limit=50&additional_types=track&fields=${encodeURIComponent(fields)}`;
   let url: string | null = base;
 
   while (url) {
@@ -339,7 +365,13 @@ export async function refreshPlaylistCache(options?: {
     return existing;
   }
 
-  const tracks = await fetchPlaylistTracks(selected.id);
+  const token = await ensureSpotifyAccessToken();
+  if (!token) {
+    return null;
+  }
+
+  const rawTracks = await fetchPlaylistTracks(selected.id, token);
+  const tracks = await enrichPlaylistTracksWithIsrc(rawTracks, token);
   const cache: SpotifyPlaylistCache = {
     playlistId: selected.id,
     fetchedAt: Date.now(),

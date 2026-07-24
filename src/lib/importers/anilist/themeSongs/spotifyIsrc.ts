@@ -1,5 +1,6 @@
 import type { MediaThemeSongRow } from './types';
 import { ensureSpotifyAccessToken } from '../../../spotify/spotifyAuth';
+import { mergeTrackIsrcsIntoStore } from '../../../spotify/spotifyTrackIsrcStore';
 
 type SpotifyTrackResponse = {
   id?: string;
@@ -77,6 +78,7 @@ export async function fetchSpotifyIsrcByTrackIds(
     }
   }
 
+  mergeTrackIsrcsIntoStore(out);
   return out;
 }
 
