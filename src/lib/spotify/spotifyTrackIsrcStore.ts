@@ -1,3 +1,5 @@
+import type { CachedPlaylistTrack } from './spotifyPlaylist';
+import { isSpotifyApiBanned } from './spotifyApi';
 import { fetchSpotifyIsrcByTrackIds } from '../importers/anilist/themeSongs/spotifyIsrc';
 
 const STORAGE_KEY = 'spotify:track-isrc:v1';
@@ -59,6 +61,41 @@ export function mergeTrackIsrcsIntoStore(isrcById: ReadonlyMap<string, string>):
   }
 }
 
+export function applyIsrcMapToPlaylistTracks(
+  tracks: readonly CachedPlaylistTrack[],
+  isrcById: ReadonlyMap<string, string>,
+): CachedPlaylistTrack[] {
+  if (isrcById.size === 0) {
+    return [...tracks];
+  }
+  return tracks.map((track) => {
+    const isrc = track.isrc ?? isrcById.get(track.id) ?? null;
+    return isrc === track.isrc ? track : { ...track, isrc };
+  });
+}
+
+/** Apply persisted track→ISRC mappings without hitting Spotify. */
+export function applyTrackIsrcStoreToPlaylistTracks(
+  tracks: readonly CachedPlaylistTrack[],
+): CachedPlaylistTrack[] {
+  const store = readStore();
+  if (Object.keys(store).length === 0) {
+    return [...tracks];
+  }
+  const isrcById = new Map<string, string>();
+  for (const track of tracks) {
+    const isrc = store[track.id];
+    if (isrc) {
+      isrcById.set(track.id, isrc);
+    }
+  }
+  return applyIsrcMapToPlaylistTracks(tracks, isrcById);
+}
+
+export function listPlaylistTracksMissingIsrc(tracks: readonly CachedPlaylistTrack[]): string[] {
+  return tracks.filter((track) => !track.isrc).map((track) => track.id);
+}
+
 /** Fetch missing ISRCs from Spotify and persist in localStorage. */
 export async function ensureTrackIsrcsCached(
   trackIds: readonly string[],
@@ -66,7 +103,7 @@ export async function ensureTrackIsrcsCached(
 ): Promise<ReadonlyMap<string, string>> {
   const store = readStore();
   const missing = [...new Set(trackIds)].filter((id) => !store[id]);
-  if (missing.length > 0) {
+  if (missing.length > 0 && !isSpotifyApiBanned()) {
     const fetched = await fetchSpotifyIsrcByTrackIds(missing, accessToken);
     mergeTrackIsrcsIntoStore(fetched);
   }

@@ -11,15 +11,21 @@ import {
 import { useThemeSongDisplayPreferences } from '../hooks/useThemeSongDisplayPreferences';
 import {
   clearSelectedSpotifyPlaylist,
+  formatSpotifyApiBanMessage,
   getPlaylistCache,
   getSelectedSpotifyPlaylist,
   isPlaylistCacheStale,
   listUserSpotifyPlaylists,
   refreshPlaylistCache,
   setSelectedSpotifyPlaylist,
+  SpotifyApiRateLimitedError,
   subscribeSpotifyPlaylist,
   type StoredSpotifyPlaylist,
 } from '../lib/spotify/spotifyPlaylist';
+import {
+  getPlaylistIsrcBackfillState,
+  subscribePlaylistIsrcBackfill,
+} from '../lib/spotify/spotifyPlaylistIsrcBackfill';
 import type { ThemeSongNameDisplayMode } from '../lib/spotify/themeSongDisplayPreferences';
 
 const THEME_SONG_NAME_OPTIONS: { value: ThemeSongNameDisplayMode; label: string }[] = [
@@ -53,6 +59,7 @@ export function SpotifySection() {
   const [cacheRevision, setCacheRevision] = useState(0);
   const [loadingPlaylists, setLoadingPlaylists] = useState(false);
   const [refreshingCache, setRefreshingCache] = useState(false);
+  const [isrcBackfill, setIsrcBackfill] = useState(() => getPlaylistIsrcBackfillState());
   const [signingIn, setSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -71,6 +78,13 @@ export function SpotifySection() {
   useEffect(() => {
     return subscribeSpotifyPlaylist(() => {
       setSelectedPlaylist(getSelectedSpotifyPlaylist());
+      setCacheRevision((n) => n + 1);
+    });
+  }, []);
+
+  useEffect(() => {
+    return subscribePlaylistIsrcBackfill(() => {
+      setIsrcBackfill(getPlaylistIsrcBackfillState());
       setCacheRevision((n) => n + 1);
     });
   }, []);
@@ -135,7 +149,11 @@ export function SpotifySection() {
     try {
       await refreshPlaylistCache({ force: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to refresh playlist cache');
+      if (err instanceof SpotifyApiRateLimitedError) {
+        setError(formatSpotifyApiBanMessage(err.bannedUntil));
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to refresh playlist cache');
+      }
     } finally {
       setRefreshingCache(false);
     }
@@ -234,6 +252,17 @@ export function SpotifySection() {
                 {cache.tracks.length} tracks cached · {formatFetchedAt(cache.fetchedAt)}
                 {isPlaylistCacheStale(cache.fetchedAt) ? (
                   <span className="settings-cache-stale"> · stale (&gt;15m)</span>
+                ) : null}
+                {isrcBackfill.status === 'running' &&
+                isrcBackfill.playlistId === selectedPlaylist.id ? (
+                  <span>
+                    {' '}
+                    · ISRC backfill {isrcBackfill.completed}/{isrcBackfill.total}
+                  </span>
+                ) : null}
+                {isrcBackfill.status === 'paused' &&
+                isrcBackfill.playlistId === selectedPlaylist.id ? (
+                  <span className="settings-cache-stale"> · ISRC backfill paused (rate limit)</span>
                 ) : null}
               </div>
             ) : (

@@ -1,23 +1,46 @@
 import type { MediaThemeSongRow } from './types';
+import {
+  isSpotifyApiBanned,
+  spotifyApiFetch,
+  SpotifyApiRateLimitedError,
+} from '../../../spotify/spotifyApi';
 import { ensureSpotifyAccessToken } from '../../../spotify/spotifyAuth';
-import { mergeTrackIsrcsIntoStore } from '../../../spotify/spotifyTrackIsrcStore';
+import {
+  getCachedTrackIsrc,
+  mergeTrackIsrcsIntoStore,
+} from '../../../spotify/spotifyTrackIsrcStore';
 
 type SpotifyTrackResponse = {
   id?: string;
   external_ids?: { isrc?: string | null };
 };
 
-/** Spotify removed batch `GET /tracks?ids=` in Feb 2026; fetch one track per request. */
+type SpotifyTracksBatchResponse = {
+  tracks?: Array<SpotifyTrackResponse | null>;
+};
+
+/** Spotify allows up to 50 track IDs per `GET /tracks?ids=` request. */
+export const SPOTIFY_TRACKS_BATCH_SIZE = 50;
+
 const TRACK_FETCH_CONCURRENCY = 5;
 
 async function fetchSpotifyTrackIsrc(
   trackId: string,
   token: string,
 ): Promise<{ id: string; isrc: string } | null> {
+  if (isSpotifyApiBanned()) {
+    return null;
+  }
   const url = `https://api.spotify.com/v1/tracks/${encodeURIComponent(trackId)}`;
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  let res: Response;
+  try {
+    res = await spotifyApiFetch(url, token);
+  } catch (err) {
+    if (err instanceof SpotifyApiRateLimitedError) {
+      return null;
+    }
+    throw err;
+  }
   if (!res.ok) {
     return null;
   }
@@ -27,6 +50,52 @@ async function fetchSpotifyTrackIsrc(
   }
   const isrc = track.external_ids?.isrc;
   return isrc ? { id: track.id, isrc } : null;
+}
+
+async function fetchSpotifyTrackIsrcBatch(
+  trackIds: readonly string[],
+  token: string,
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (trackIds.length === 0 || isSpotifyApiBanned()) {
+    return out;
+  }
+
+  const idsParam = trackIds.join(',');
+  const url = `https://api.spotify.com/v1/tracks?ids=${encodeURIComponent(idsParam)}`;
+  let res: Response;
+  try {
+    res = await spotifyApiFetch(url, token);
+  } catch (err) {
+    if (err instanceof SpotifyApiRateLimitedError) {
+      return out;
+    }
+    throw err;
+  }
+
+  if (!res.ok) {
+    const rows = await mapWithConcurrency(trackIds, TRACK_FETCH_CONCURRENCY, (trackId) =>
+      fetchSpotifyTrackIsrc(trackId, token),
+    );
+    for (const row of rows) {
+      if (row) {
+        out.set(row.id, row.isrc);
+      }
+    }
+    return out;
+  }
+
+  const body = (await res.json()) as SpotifyTracksBatchResponse;
+  for (const track of body.tracks ?? []) {
+    if (!track?.id) {
+      continue;
+    }
+    const isrc = track.external_ids?.isrc;
+    if (isrc) {
+      out.set(track.id, isrc);
+    }
+  }
+  return out;
 }
 
 async function mapWithConcurrency<T, R>(
@@ -42,6 +111,9 @@ async function mapWithConcurrency<T, R>(
 
   async function worker(): Promise<void> {
     while (nextIndex < items.length) {
+      if (isSpotifyApiBanned()) {
+        return;
+      }
       const index = nextIndex;
       nextIndex += 1;
       results[index] = await fn(items[index]!);
@@ -55,26 +127,35 @@ async function mapWithConcurrency<T, R>(
 
 /**
  * Fetch ISRC for Spotify track IDs. No-ops when no access token is stored.
- * Called at theme-song save time.
+ * Batches up to {@link SPOTIFY_TRACKS_BATCH_SIZE} IDs per API call; falls back
+ * to per-track requests when a batch fails.
  */
 export async function fetchSpotifyIsrcByTrackIds(
   trackIds: readonly string[],
   accessToken?: string | null,
 ): Promise<Map<string, string>> {
   const token = accessToken ?? (await ensureSpotifyAccessToken());
-  if (!token || trackIds.length === 0) {
+  if (!token || trackIds.length === 0 || isSpotifyApiBanned()) {
     return new Map();
   }
 
-  const unique = [...new Set(trackIds)];
   const out = new Map<string, string>();
+  for (const trackId of trackIds) {
+    const cached = getCachedTrackIsrc(trackId);
+    if (cached) {
+      out.set(trackId, cached);
+    }
+  }
 
-  const rows = await mapWithConcurrency(unique, TRACK_FETCH_CONCURRENCY, (trackId) =>
-    fetchSpotifyTrackIsrc(trackId, token),
-  );
-  for (const row of rows) {
-    if (row) {
-      out.set(row.id, row.isrc);
+  const uncached = [...new Set(trackIds)].filter((trackId) => !getCachedTrackIsrc(trackId));
+  for (let offset = 0; offset < uncached.length; offset += SPOTIFY_TRACKS_BATCH_SIZE) {
+    if (isSpotifyApiBanned()) {
+      break;
+    }
+    const chunk = uncached.slice(offset, offset + SPOTIFY_TRACKS_BATCH_SIZE);
+    const batch = await fetchSpotifyTrackIsrcBatch(chunk, token);
+    for (const [trackId, isrc] of batch) {
+      out.set(trackId, isrc);
     }
   }
 

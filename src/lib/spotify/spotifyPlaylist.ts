@@ -1,6 +1,8 @@
-import { fetchSpotifyIsrcByTrackIds } from '../importers/anilist/themeSongs/spotifyIsrc';
+import { spotifyApiFetch } from './spotifyApi';
 import { ensureSpotifyAccessToken, getStoredSpotifyAuth } from './spotifyAuth';
-import { mergeTrackIsrcsIntoStore } from './spotifyTrackIsrcStore';
+import { applyTrackIsrcStoreToPlaylistTracks } from './spotifyTrackIsrcStore';
+
+export { formatSpotifyApiBanMessage, SpotifyApiRateLimitedError } from './spotifyApi';
 
 export const PLAYLIST_STORAGE_KEY = 'spotify:playlist:v1';
 export const PLAYLIST_CACHE_STORAGE_KEY = 'spotify:playlist-cache:v1';
@@ -171,14 +173,31 @@ function writePlaylistCache(cache: SpotifyPlaylistCache): void {
   emitPlaylistChange();
 }
 
+/** Patch playlist track rows in cache (e.g. background ISRC backfill). */
+export function updatePlaylistCacheTracks(
+  playlistId: string,
+  tracks: CachedPlaylistTrack[],
+): boolean {
+  const cache = getPlaylistCache();
+  if (!cache || cache.playlistId !== playlistId) {
+    return false;
+  }
+  writePlaylistCache({ ...cache, tracks });
+  return true;
+}
+
+function schedulePlaylistIsrcBackfill(playlistId: string, accessToken: string): void {
+  void import('./spotifyPlaylistIsrcBackfill').then(({ startPlaylistIsrcBackfill }) => {
+    startPlaylistIsrcBackfill(playlistId, accessToken);
+  });
+}
+
 export function isPlaylistCacheStale(fetchedAt: number, now = Date.now()): boolean {
   return now - fetchedAt >= PLAYLIST_CACHE_STALE_MS;
 }
 
 async function fetchJson<T>(url: string, accessToken: string): Promise<T> {
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+  const res = await spotifyApiFetch(url, accessToken);
   if (!res.ok) {
     let detail = '';
     try {
@@ -290,28 +309,6 @@ export function parsePlaylistTrackItemForTesting(
   return parsePlaylistTrackItem(item);
 }
 
-/** Backfill ISRC when playlist items omit external_ids. */
-export async function enrichPlaylistTracksWithIsrc(
-  tracks: readonly CachedPlaylistTrack[],
-  accessToken: string,
-): Promise<CachedPlaylistTrack[]> {
-  const missingIds = tracks.filter((track) => !track.isrc).map((track) => track.id);
-  if (missingIds.length === 0) {
-    return [...tracks];
-  }
-
-  const isrcById = await fetchSpotifyIsrcByTrackIds(missingIds, accessToken);
-  mergeTrackIsrcsIntoStore(isrcById);
-  if (isrcById.size === 0) {
-    return [...tracks];
-  }
-
-  return tracks.map((track) => {
-    const isrc = track.isrc ?? isrcById.get(track.id) ?? null;
-    return isrc === track.isrc ? track : { ...track, isrc };
-  });
-}
-
 export async function fetchPlaylistTracks(
   playlistId: string,
   accessToken?: string | null,
@@ -371,13 +368,14 @@ export async function refreshPlaylistCache(options?: {
   }
 
   const rawTracks = await fetchPlaylistTracks(selected.id, token);
-  const tracks = await enrichPlaylistTracksWithIsrc(rawTracks, token);
+  const tracks = applyTrackIsrcStoreToPlaylistTracks(rawTracks);
   const cache: SpotifyPlaylistCache = {
     playlistId: selected.id,
     fetchedAt: Date.now(),
     tracks,
   };
   writePlaylistCache(cache);
+  schedulePlaylistIsrcBackfill(selected.id, token);
   return cache;
 }
 

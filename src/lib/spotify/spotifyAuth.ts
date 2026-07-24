@@ -11,6 +11,8 @@
  */
 
 import { GITHUB_PAGES_URL } from '../appRoutes';
+import { clearSpotifyApiBan } from './spotifyApi';
+import { stopPlaylistIsrcBackfill } from './spotifyPlaylistIsrcBackfill';
 
 const ENV = ((import.meta as unknown as { env?: Record<string, string | undefined> }).env) ?? {};
 const SPOTIFY_CLIENT_ID: string = ENV.VITE_SPOTIFY_CLIENT_ID ?? '';
@@ -436,10 +438,12 @@ export function signInToSpotify(): Promise<StoredSpotifyAuth> {
 }
 
 export function signOutSpotify(): void {
+  stopPlaylistIsrcBackfill();
   try {
     localStorage.removeItem(SPOTIFY_AUTH_STORAGE_KEY);
     localStorage.removeItem('spotify:playlist:v1');
     localStorage.removeItem('spotify:playlist-cache:v1');
+    clearSpotifyApiBan();
   } catch {
     /* ignore */
   }
