@@ -217,7 +217,7 @@ export function SpotifySection() {
               {selectedPlaylist && (
                 <button
                   type="button"
-                  className="btn small"
+                  className="btn small icon-only"
                   disabled={refreshingCache}
                   onClick={() => void onRefreshCache()}
                   title="Refresh playlist cache"

@@ -345,7 +345,7 @@ function WeeklyCalendarThemeSongsPanel({
         {withCache.length > 0 ? (
           <button
             type="button"
-            className="btn small tool-weekly-theme-songs-refresh"
+            className="btn small icon-only tool-weekly-theme-songs-refresh"
             onClick={() => onRefreshThemeSongs(withCache.map((show) => show.id), 'cached')}
             disabled={refreshingCached || refreshingPending}
             title="Re-fetch theme songs for all cached shows"
@@ -386,7 +386,7 @@ function WeeklyCalendarThemeSongsPanel({
             <span>Not loaded yet ({withoutCache.length})</span>
             <button
               type="button"
-              className="btn small tool-weekly-theme-songs-refresh"
+              className="btn small icon-only tool-weekly-theme-songs-refresh"
               onClick={() =>
                 onRefreshThemeSongs(withoutCache.map((show) => show.id), 'pending')
               }

@@ -927,6 +927,8 @@ export function AnilistDetailModal({
                     <button
                       type="button"
                       className={`btn small${
+                        themeSongsFetchedAt !== null || themeSongsLoading ? ' icon-only' : ''
+                      }${
                         isThemeSongsStale && !themeSongsLoading && themeSongsFetchedAt !== null
                           ? ' anilist-detail-refresh-stale'
                           : ''
