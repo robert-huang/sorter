@@ -9,8 +9,9 @@ import { needsGraphDataRefresh } from './toolsFetchPolicy';
 import {
   findMatchingAnimeCluster,
   groupHitsByAnimeId,
-  searchAniplaylist,
+  searchAniplaylistForMediaTitles,
   AniplaylistSearchError,
+  collectMediaTitleStrings,
 } from './themeSongs/aniplaylistApi';
 import {
   enrichMalThemesWithOfficialIfNeeded,
@@ -60,15 +61,6 @@ export type ExpandMediaThemeSongsResult = {
 export type ExpandMediaThemeSongsOptions = {
   force?: boolean;
 };
-
-function pickSearchTitle(media: MediaRowLite): string {
-  return (
-    media.title_english?.trim() ||
-    media.title_romaji?.trim() ||
-    media.title_native?.trim() ||
-    ''
-  );
-}
 
 export async function getMediaThemeSongsExpansionFetchedAt(
   db: AnilistDbExecutor,
@@ -259,20 +251,20 @@ export async function expandMediaThemeSongs(
     aniplaylist: okSource(),
   };
 
-  let aniHits: Awaited<ReturnType<typeof searchAniplaylist>> = [];
-  const searchTitle = pickSearchTitle(media);
-  if (searchTitle) {
+  let aniHits: Awaited<ReturnType<typeof searchAniplaylistForMediaTitles>> = [];
+  const mediaTitles = {
+    english: media.title_english,
+    romaji: media.title_romaji,
+    native: media.title_native,
+  };
+  if (collectMediaTitleStrings(mediaTitles).length > 0) {
     try {
-      const allHits = await searchAniplaylist(searchTitle);
+      const allHits = await searchAniplaylistForMediaTitles(mediaTitles);
       const clusters = groupHitsByAnimeId(allHits);
       const cluster = findMatchingAnimeCluster(
         clusters,
         malThemes.map((t) => ({ type: t.type, title: t.title, artist: t.artist })),
-        {
-          english: media.title_english,
-          romaji: media.title_romaji,
-          native: media.title_native,
-        },
+        mediaTitles,
       );
       if (cluster) {
         aniHits = cluster;

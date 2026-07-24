@@ -310,6 +310,24 @@ export function collectMediaTitleStrings(candidates: MediaTitleCandidates): stri
   return out;
 }
 
+/**
+ * Search AniPlaylist with each media title variant until one returns hits.
+ * Algolia often misses on English marketing titles (e.g. Re:ZERO Season 4) but
+ * matches romaji/native forms that AniPlaylist indexes more reliably.
+ */
+export async function searchAniplaylistForMediaTitles(
+  mediaTitles: MediaTitleCandidates,
+): Promise<AniplaylistHit[]> {
+  const queries = collectMediaTitleStrings(mediaTitles);
+  for (const query of queries) {
+    const hits = await searchAniplaylist(query);
+    if (hits.length > 0) {
+      return hits;
+    }
+  }
+  return [];
+}
+
 export function clusterAnimeTitles(hits: readonly AniplaylistHit[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
