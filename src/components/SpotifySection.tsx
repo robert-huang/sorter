@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { SettingsAccountRow } from './SettingsAccountRow';
 import {
   getStoredSpotifyAuth,
@@ -8,14 +8,17 @@ import {
   signOutSpotify,
   subscribeSpotifyAuth,
 } from '../lib/spotify/spotifyAuth';
+import { useSpotifyApiBannedUntil } from '../hooks/useSpotifyApiBannedUntil';
 import { useThemeSongDisplayPreferences } from '../hooks/useThemeSongDisplayPreferences';
 import {
   clearSelectedSpotifyPlaylist,
   formatSpotifyApiBanMessage,
+  getActivePlaylistCache,
   getPlaylistCache,
   getSelectedSpotifyPlaylist,
   isPlaylistCacheStale,
   listUserSpotifyPlaylists,
+  mergeSelectedPlaylistIntoOptions,
   refreshPlaylistCache,
   setSelectedSpotifyPlaylist,
   SpotifyApiRateLimitedError,
@@ -66,8 +69,29 @@ export function SpotifySection() {
   const configured = isSpotifyOAuthConfigured();
   const callbackUrl = getSpotifyOAuthCallbackUrl();
   const cache = getPlaylistCache();
+  const activeCache = getActivePlaylistCache();
+  const spotifyBannedUntil = useSpotifyApiBannedUntil();
+  const spotifyBanMessage = spotifyBannedUntil
+    ? formatSpotifyApiBanMessage(spotifyBannedUntil)
+    : null;
+  const playlistOptions = useMemo(
+    () => mergeSelectedPlaylistIntoOptions(playlists, selectedPlaylist),
+    [playlists, selectedPlaylist],
+  );
   void cacheRevision;
   const showDevSetup = import.meta.env.DEV && configured;
+
+  useEffect(() => {
+    if (!spotifyBannedUntil) {
+      return;
+    }
+    setError((current) =>
+      current?.startsWith('Spotify API rate limited') ||
+      current?.startsWith('Spotify API quota exceeded')
+        ? null
+        : current,
+    );
+  }, [spotifyBannedUntil]);
 
   useEffect(() => {
     return subscribeSpotifyAuth(() => {
@@ -96,7 +120,11 @@ export function SpotifySection() {
       const items = await listUserSpotifyPlaylists();
       setPlaylists(items);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load Spotify playlists');
+      if (err instanceof SpotifyApiRateLimitedError) {
+        setError(formatSpotifyApiBanMessage(err.bannedUntil));
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to load Spotify playlists');
+      }
     } finally {
       setLoadingPlaylists(false);
     }
@@ -132,13 +160,13 @@ export function SpotifySection() {
       setError(null);
       return;
     }
-    const match = playlists.find((p) => p.id === playlistId);
+    const match = playlistOptions.find((p) => p.id === playlistId);
     if (!match) {
       return;
     }
     setSelectedSpotifyPlaylist(match);
     setError(null);
-  }, [playlists]);
+  }, [playlistOptions]);
 
   const onRefreshCache = useCallback(async () => {
     if (!selectedPlaylist) {
@@ -226,7 +254,7 @@ export function SpotifySection() {
                 aria-label="Anime themes playlist"
               >
                 <option value="">— select playlist —</option>
-                {playlists.map((p) => (
+                {playlistOptions.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
                   </option>
@@ -236,9 +264,13 @@ export function SpotifySection() {
                 <button
                   type="button"
                   className="btn small icon-only"
-                  disabled={refreshingCache}
+                  disabled={refreshingCache || spotifyBannedUntil !== null}
                   onClick={() => void onRefreshCache()}
-                  title="Refresh playlist cache"
+                  title={
+                    spotifyBannedUntil !== null
+                      ? 'Spotify API rate limited'
+                      : 'Refresh playlist cache'
+                  }
                   aria-label="Refresh playlist cache"
                 >
                   {refreshingCache ? '…' : '↻'}
@@ -246,11 +278,16 @@ export function SpotifySection() {
               )}
             </div>
           )}
+          {spotifyBanMessage ? (
+            <div className="settings-status settings-anilist-hint settings-cache-stale" role="status">
+              {spotifyBanMessage}
+            </div>
+          ) : null}
           {selectedPlaylist &&
-            (cache && cache.playlistId === selectedPlaylist.id ? (
+            (activeCache ? (
               <div className="settings-status settings-anilist-hint">
-                {cache.tracks.length} tracks cached · {formatFetchedAt(cache.fetchedAt)}
-                {isPlaylistCacheStale(cache.fetchedAt) ? (
+                {activeCache.tracks.length} tracks cached · {formatFetchedAt(activeCache.fetchedAt)}
+                {isPlaylistCacheStale(activeCache.fetchedAt) ? (
                   <span className="settings-cache-stale"> · stale (&gt;15m)</span>
                 ) : null}
                 {isrcBackfill.status === 'running' &&
@@ -265,6 +302,10 @@ export function SpotifySection() {
                   <span className="settings-cache-stale"> · ISRC backfill paused (rate limit)</span>
                 ) : null}
               </div>
+            ) : cache && cache.playlistId === selectedPlaylist.id ? (
+              <div className="settings-status settings-anilist-hint" style={{ color: 'var(--text-muted)' }}>
+                Playlist list unavailable — cached tracks still used for matching.
+              </div>
             ) : (
               <div className="settings-status settings-anilist-hint" style={{ color: 'var(--text-muted)' }}>
                 No cache yet — refresh to load tracks for matching.
@@ -272,7 +313,7 @@ export function SpotifySection() {
             ))}
         </>
       )}
-      {error && (
+      {error && !spotifyBanMessage && (
         <div className="settings-source-db-error" role="alert">
           {error}
         </div>

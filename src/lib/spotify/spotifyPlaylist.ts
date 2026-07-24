@@ -2,7 +2,7 @@ import { spotifyApiFetch } from './spotifyApi';
 import { ensureSpotifyAccessToken, getStoredSpotifyAuth } from './spotifyAuth';
 import { applyTrackIsrcStoreToPlaylistTracks } from './spotifyTrackIsrcStore';
 
-export { formatSpotifyApiBanMessage, SpotifyApiRateLimitedError } from './spotifyApi';
+export { formatSpotifyApiBanMessage, getSpotifyApiBannedUntil, SpotifyApiRateLimitedError } from './spotifyApi';
 
 export const PLAYLIST_STORAGE_KEY = 'spotify:playlist:v1';
 export const PLAYLIST_CACHE_STORAGE_KEY = 'spotify:playlist-cache:v1';
@@ -120,6 +120,20 @@ export function clearSelectedSpotifyPlaylist(): void {
     /* ignore */
   }
   emitPlaylistChange();
+}
+
+/** Keep the stored selection visible when the playlist list API call fails. */
+export function mergeSelectedPlaylistIntoOptions(
+  playlists: readonly StoredSpotifyPlaylist[],
+  selected: StoredSpotifyPlaylist | null,
+): StoredSpotifyPlaylist[] {
+  if (!selected) {
+    return [...playlists];
+  }
+  if (playlists.some((playlist) => playlist.id === selected.id)) {
+    return [...playlists];
+  }
+  return [selected, ...playlists];
 }
 
 export function clearPlaylistCache(): void {

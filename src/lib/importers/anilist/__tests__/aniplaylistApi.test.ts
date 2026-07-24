@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import * as aniplaylistApi from '../themeSongs/aniplaylistApi';
 import {
   buildAniplaylistSearchParams,
   ANIPLAYLIST_HITS_PER_PAGE,
   ANIPLAYLIST_LOCAL_PROXY_PATH,
+  collectMediaTitleStrings,
   extractSeasonNumber,
   findMatchingAnimeCluster,
   groupHitsByAnimeId,
@@ -11,6 +11,7 @@ import {
   isAniplaylistRemoteProxyUrl,
   resolveAniplaylistSearchUrl,
   scoreMediaToAnimeTitle,
+  searchAniplaylistQueriesUntilHits,
   type AniplaylistHit,
 } from '../themeSongs/aniplaylistApi';
 
@@ -322,22 +323,20 @@ describe('findMatchingAnimeCluster', () => {
   });
 });
 
-describe('searchAniplaylistForMediaTitles', () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it('falls back to romaji when the english Algolia query returns no hits', async () => {
+describe('searchAniplaylistQueriesUntilHits', () => {
+  it('falls back to the next query when earlier queries return no hits', async () => {
     const search = vi
-      .spyOn(aniplaylistApi, 'searchAniplaylist')
+      .fn<(query: string) => Promise<AniplaylistHit[]>>()
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([hit({ anime_id: 7704, score: 70, titles: ['Recollect'] })]);
 
-    const result = await aniplaylistApi.searchAniplaylistForMediaTitles({
-      english: 'Re:ZERO -Starting Life in Another World- Season 4',
-      romaji: 'Re:Zero kara Hajimeru Isekai Seikatsu 4th Season',
-      native: 'Re:ゼロから始める異世界生活 4th season',
-    });
+    const result = await searchAniplaylistQueriesUntilHits(
+      [
+        'Re:ZERO -Starting Life in Another World- Season 4',
+        'Re:Zero kara Hajimeru Isekai Seikatsu 4th Season',
+      ],
+      search,
+    );
 
     expect(search).toHaveBeenCalledTimes(2);
     expect(search.mock.calls[0]?.[0]).toBe(
@@ -347,19 +346,30 @@ describe('searchAniplaylistForMediaTitles', () => {
     expect(result).toHaveLength(1);
   });
 
-  it('stops after the first title variant that returns hits', async () => {
+  it('stops after the first query that returns hits', async () => {
     const search = vi
-      .spyOn(aniplaylistApi, 'searchAniplaylist')
+      .fn<(query: string) => Promise<AniplaylistHit[]>>()
       .mockResolvedValueOnce([hit({ anime_id: 1, score: 50 })]);
 
-    await aniplaylistApi.searchAniplaylistForMediaTitles({
-      english: 'Example Show Season 1',
-      romaji: 'Example Romaji',
-      native: null,
-    });
+    await searchAniplaylistQueriesUntilHits(
+      ['Example Show Season 1', 'Example Romaji'],
+      search,
+    );
 
     expect(search).toHaveBeenCalledTimes(1);
     expect(search.mock.calls[0]?.[0]).toBe('Example Show Season 1');
+  });
+});
+
+describe('searchAniplaylistForMediaTitles', () => {
+  it('uses collectMediaTitleStrings order for title variants', () => {
+    expect(
+      collectMediaTitleStrings({
+        english: 'Example Show Season 1',
+        romaji: 'Example Romaji',
+        native: null,
+      }),
+    ).toEqual(['Example Show Season 1', 'Example Romaji']);
   });
 });
 

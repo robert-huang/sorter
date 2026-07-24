@@ -92,12 +92,16 @@ export function setSpotifyApiBan(bannedUntil: number, reason?: string | null): v
 
 export function formatSpotifyApiBanMessage(bannedUntil: number, now = Date.now()): string {
   const remainingMs = Math.max(0, bannedUntil - now);
-  const remainingMin = Math.ceil(remainingMs / 60_000);
-  if (remainingMin >= 120) {
-    const hours = Math.ceil(remainingMin / 60);
+  const remainingSec = Math.ceil(remainingMs / 1000);
+  if (remainingSec >= 7200) {
+    const hours = Math.ceil(remainingSec / 3600);
     return `Spotify API quota exceeded — try again in about ${hours} hour${hours === 1 ? '' : 's'}.`;
   }
-  return `Spotify API rate limited — try again in about ${remainingMin} minute${remainingMin === 1 ? '' : 's'}.`;
+  if (remainingSec >= 120) {
+    const remainingMin = Math.ceil(remainingSec / 60);
+    return `Spotify API rate limited — try again in about ${remainingMin} minute${remainingMin === 1 ? '' : 's'}.`;
+  }
+  return `Spotify API rate limited — try again in ${remainingSec}s.`;
 }
 
 export function clearSpotifyApiBan(): void {

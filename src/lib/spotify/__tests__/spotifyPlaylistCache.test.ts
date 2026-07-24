@@ -6,6 +6,7 @@ import {
   getActivePlaylistCache,
   getPlaylistCache,
   getSelectedSpotifyPlaylist,
+  mergeSelectedPlaylistIntoOptions,
   setSelectedSpotifyPlaylist,
   type SpotifyPlaylistCache,
 } from '../spotifyPlaylist';
@@ -43,5 +44,26 @@ describe('spotify playlist cache selection', () => {
     setSelectedSpotifyPlaylist({ id: 'playlist-2', name: 'Other' });
     expect(getActivePlaylistCache()).toBeNull();
     expect(getPlaylistCache()).toEqual(SAMPLE_CACHE);
+  });
+});
+
+describe('mergeSelectedPlaylistIntoOptions', () => {
+  it('prepends stored selection when the fetched list is empty', () => {
+    const selected = { id: 'playlist-1', name: 'Anime OPs' };
+    expect(mergeSelectedPlaylistIntoOptions([], selected)).toEqual([selected]);
+  });
+
+  it('does not duplicate when selection is already in the list', () => {
+    const playlists = [
+      { id: 'playlist-1', name: 'Anime OPs' },
+      { id: 'playlist-2', name: 'Other' },
+    ];
+    expect(mergeSelectedPlaylistIntoOptions(playlists, playlists[0])).toEqual(playlists);
+  });
+
+  it('returns a copy when there is no selection', () => {
+    const playlists = [{ id: 'playlist-2', name: 'Other' }];
+    expect(mergeSelectedPlaylistIntoOptions(playlists, null)).toEqual(playlists);
+    expect(mergeSelectedPlaylistIntoOptions(playlists, null)).not.toBe(playlists);
   });
 });

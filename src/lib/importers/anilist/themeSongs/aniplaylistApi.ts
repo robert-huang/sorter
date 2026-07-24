@@ -311,6 +311,23 @@ export function collectMediaTitleStrings(candidates: MediaTitleCandidates): stri
 }
 
 /**
+ * Search AniPlaylist with each query string until one returns hits.
+ * `search` is injectable for tests (same-module calls cannot be spied via namespace).
+ */
+export async function searchAniplaylistQueriesUntilHits(
+  queries: readonly string[],
+  search: (query: string) => Promise<AniplaylistHit[]> = searchAniplaylist,
+): Promise<AniplaylistHit[]> {
+  for (const query of queries) {
+    const hits = await search(query);
+    if (hits.length > 0) {
+      return hits;
+    }
+  }
+  return [];
+}
+
+/**
  * Search AniPlaylist with each media title variant until one returns hits.
  * Algolia often misses on English marketing titles (e.g. Re:ZERO Season 4) but
  * matches romaji/native forms that AniPlaylist indexes more reliably.
@@ -318,14 +335,7 @@ export function collectMediaTitleStrings(candidates: MediaTitleCandidates): stri
 export async function searchAniplaylistForMediaTitles(
   mediaTitles: MediaTitleCandidates,
 ): Promise<AniplaylistHit[]> {
-  const queries = collectMediaTitleStrings(mediaTitles);
-  for (const query of queries) {
-    const hits = await searchAniplaylist(query);
-    if (hits.length > 0) {
-      return hits;
-    }
-  }
-  return [];
+  return searchAniplaylistQueriesUntilHits(collectMediaTitleStrings(mediaTitles));
 }
 
 export function clusterAnimeTitles(hits: readonly AniplaylistHit[]): string[] {
