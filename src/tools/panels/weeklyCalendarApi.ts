@@ -34,14 +34,14 @@ import {
 export type WeeklyCalendarFetchOptions = ToolsFetchOptions;
 
 /** Finished seasons — airing metadata is stable enough to persist across sessions. */
-const WEEKLY_CALENDAR_HISTORICAL_SEASON_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const WEEKLY_CALENDAR_HISTORICAL_SEASON_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
 
 /**
  * User list snapshots (status/score/progress + watching rows) — live
  * AniList data that must include progress, so we cache the API response
  * in localStorage instead of the imported DB.
  */
-const WEEKLY_CALENDAR_USER_LIST_TTL_MS = 24 * 60 * 60 * 1000;
+const WEEKLY_CALENDAR_USER_LIST_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 type GqlFuzzyDate = {
   year?: number | null;
