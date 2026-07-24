@@ -335,23 +335,30 @@ export async function fetchPlaylistTracks(
   const tracks: CachedPlaylistTrack[] = [];
   const fields =
     'items(item(id,type,external_ids),track(id,type,external_ids),linked_from(id))';
-  const base =
-    `https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}/items` +
-    `?limit=50&additional_types=track&fields=${encodeURIComponent(fields)}`;
-  let url: string | null = base;
+  const pageSize = 50;
+  let offset = 0;
 
-  while (url) {
+  // Paginate with explicit offset — a `fields` filter omits `next`, and Spotify's
+  // `next` URL may point at removed endpoints anyway (see listUserSpotifyPlaylists).
+  while (true) {
+    const url =
+      `https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}/items` +
+      `?limit=${pageSize}&offset=${offset}&additional_types=track&fields=${encodeURIComponent(fields)}`;
     const page: SpotifyPlaylistTracksResponse = await fetchJson<SpotifyPlaylistTracksResponse>(
       url,
       token,
     );
-    for (const item of page.items ?? []) {
+    const items = page.items ?? [];
+    for (const item of items) {
       const parsed = parsePlaylistTrackItem(item);
       if (parsed) {
         tracks.push(parsed);
       }
     }
-    url = page.next ?? null;
+    if (items.length < pageSize) {
+      break;
+    }
+    offset += pageSize;
   }
 
   return tracks;
