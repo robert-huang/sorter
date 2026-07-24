@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fetchSpotifyIsrcByTrackIds, SPOTIFY_TRACKS_BATCH_SIZE } from '../../importers/anilist/themeSongs/spotifyIsrc';
+import { fetchSpotifyIsrcByTrackIds } from '../../importers/anilist/themeSongs/spotifyIsrc';
 import { spotifyApiFetch } from '../spotifyApi';
 import { _clearTrackIsrcStoreForTesting, mergeTrackIsrcsIntoStore } from '../spotifyTrackIsrcStore';
 
@@ -18,31 +18,34 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe('fetchSpotifyIsrcByTrackIds batching', () => {
+describe('fetchSpotifyIsrcByTrackIds', () => {
   beforeEach(() => {
     vi.mocked(spotifyApiFetch).mockImplementation(async (url: string) => {
-      const ids = new URL(url).searchParams.get('ids')?.split(',') ?? [];
+      const trackId = url.split('/tracks/')[1]?.split('?')[0] ?? '';
       return {
         ok: true,
         json: async () => ({
-          tracks: ids.map((id) => ({
-            id,
-            external_ids: { isrc: `ISRC-${id}` },
-          })),
+          id: trackId,
+          external_ids: { isrc: `ISRC-${trackId}` },
         }),
       } as Response;
     });
   });
 
-  it('requests up to 50 track IDs per batch call', async () => {
-    const trackIds = Array.from({ length: SPOTIFY_TRACKS_BATCH_SIZE + 10 }, (_, i) => `track-${i}`);
-
-    const result = await fetchSpotifyIsrcByTrackIds(trackIds, 'token');
+  it('fetches each uncached track via GET /tracks/{id}', async () => {
+    const result = await fetchSpotifyIsrcByTrackIds(['track-a', 'track-b'], 'token');
 
     expect(spotifyApiFetch).toHaveBeenCalledTimes(2);
-    expect(result.size).toBe(SPOTIFY_TRACKS_BATCH_SIZE + 10);
-    expect(result.get('track-0')).toBe('ISRC-track-0');
-    expect(result.get(`track-${SPOTIFY_TRACKS_BATCH_SIZE}`)).toBe(`ISRC-track-${SPOTIFY_TRACKS_BATCH_SIZE}`);
+    expect(spotifyApiFetch).toHaveBeenCalledWith(
+      'https://api.spotify.com/v1/tracks/track-a',
+      'token',
+    );
+    expect(spotifyApiFetch).not.toHaveBeenCalledWith(
+      expect.stringContaining('/tracks?ids='),
+      expect.anything(),
+    );
+    expect(result.get('track-a')).toBe('ISRC-track-a');
+    expect(result.get('track-b')).toBe('ISRC-track-b');
   });
 
   it('skips API calls for IDs already in the local store', async () => {
@@ -53,27 +56,5 @@ describe('fetchSpotifyIsrcByTrackIds batching', () => {
     expect(spotifyApiFetch).toHaveBeenCalledTimes(1);
     expect(result.get('cached-track')).toBe('USRC111');
     expect(result.get('new-track')).toBe('ISRC-new-track');
-  });
-
-  it('falls back to per-track requests when a batch call fails', async () => {
-    vi.mocked(spotifyApiFetch).mockImplementation(async (url: string) => {
-      if (url.includes('/tracks?ids=')) {
-        return { ok: false, status: 404 } as Response;
-      }
-      const trackId = url.split('/tracks/')[1] ?? '';
-      return {
-        ok: true,
-        json: async () => ({
-          id: trackId,
-          external_ids: { isrc: `SINGLE-${trackId}` },
-        }),
-      } as Response;
-    });
-
-    const result = await fetchSpotifyIsrcByTrackIds(['a', 'b'], 'token');
-
-    expect(result.get('a')).toBe('SINGLE-a');
-    expect(result.get('b')).toBe('SINGLE-b');
-    expect(spotifyApiFetch).toHaveBeenCalledTimes(3);
   });
 });

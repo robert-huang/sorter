@@ -5,7 +5,10 @@ import { applyTrackIsrcStoreToPlaylistTracks } from './spotifyTrackIsrcStore';
 export { formatSpotifyApiBanMessage, getSpotifyApiBannedUntil, SpotifyApiRateLimitedError } from './spotifyApi';
 
 export const PLAYLIST_STORAGE_KEY = 'spotify:playlist:v1';
-export const PLAYLIST_CACHE_STORAGE_KEY = 'spotify:playlist-cache:v1';
+/** Legacy single-playlist blob — migrated into {@link PLAYLIST_CACHE_STORAGE_KEY} on read. */
+export const LEGACY_PLAYLIST_CACHE_STORAGE_KEY = 'spotify:playlist-cache:v1';
+/** Keyed by playlist id so switching playlists reuses prior refreshes. */
+export const PLAYLIST_CACHE_STORAGE_KEY = 'spotify:playlist-cache:v2';
 
 /** Stale hint only — no auto-refetch. */
 export const PLAYLIST_CACHE_STALE_MS = 15 * 60 * 1000;
@@ -144,55 +147,116 @@ export function mergeSelectedPlaylistIntoOptions(
   return [selected, ...playlists];
 }
 
+type PlaylistCacheStore = Record<string, SpotifyPlaylistCache>;
+
+function parsePlaylistCacheEntry(raw: unknown): SpotifyPlaylistCache | null {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const parsed = raw as Partial<SpotifyPlaylistCache>;
+  if (!parsed.playlistId || typeof parsed.fetchedAt !== 'number' || !Array.isArray(parsed.tracks)) {
+    return null;
+  }
+  return {
+    playlistId: parsed.playlistId,
+    fetchedAt: parsed.fetchedAt,
+    trackTotal: typeof parsed.trackTotal === 'number' ? parsed.trackTotal : undefined,
+    tracks: parsed.tracks.filter(
+      (t): t is CachedPlaylistTrack =>
+        !!t && typeof t.id === 'string' && Array.isArray(t.linkedFromIds),
+    ),
+  };
+}
+
+function readLegacyPlaylistCache(): SpotifyPlaylistCache | null {
+  try {
+    const raw = localStorage.getItem(LEGACY_PLAYLIST_CACHE_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+    return parsePlaylistCacheEntry(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+function readPlaylistCacheStore(): PlaylistCacheStore {
+  try {
+    const raw = localStorage.getItem(PLAYLIST_CACHE_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const store: PlaylistCacheStore = {};
+        for (const [playlistId, entry] of Object.entries(parsed)) {
+          const cache = parsePlaylistCacheEntry(entry);
+          if (cache) {
+            store[playlistId] = cache;
+          }
+        }
+        if (Object.keys(store).length > 0) {
+          return store;
+        }
+      }
+    }
+  } catch {
+    /* fall through to legacy migration */
+  }
+
+  const legacy = readLegacyPlaylistCache();
+  if (!legacy) {
+    return {};
+  }
+
+  const migrated: PlaylistCacheStore = { [legacy.playlistId]: legacy };
+  writePlaylistCacheStore(migrated);
+  try {
+    localStorage.removeItem(LEGACY_PLAYLIST_CACHE_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+  return migrated;
+}
+
+function writePlaylistCacheStore(store: PlaylistCacheStore): void {
+  try {
+    localStorage.setItem(PLAYLIST_CACHE_STORAGE_KEY, JSON.stringify(store));
+  } catch {
+    /* ignore */
+  }
+}
+
 export function clearPlaylistCache(): void {
   try {
     localStorage.removeItem(PLAYLIST_CACHE_STORAGE_KEY);
+    localStorage.removeItem(LEGACY_PLAYLIST_CACHE_STORAGE_KEY);
   } catch {
     /* ignore */
   }
   emitPlaylistChange();
 }
 
-/** Selected playlist's track cache — null when nothing is selected or ids do not match. */
+/** Selected playlist's track cache — null when nothing is selected or not cached yet. */
 export function getActivePlaylistCache(): SpotifyPlaylistCache | null {
   const selected = getSelectedSpotifyPlaylist();
-  const cache = getPlaylistCache();
-  if (!selected || !cache || cache.playlistId !== selected.id) {
+  if (!selected) {
     return null;
   }
-  return cache;
+  return getPlaylistCache(selected.id);
 }
 
-export function getPlaylistCache(): SpotifyPlaylistCache | null {
-  try {
-    const raw = localStorage.getItem(PLAYLIST_CACHE_STORAGE_KEY);
-    if (!raw) {
-      return null;
-    }
-    const parsed = JSON.parse(raw) as Partial<SpotifyPlaylistCache>;
-    if (!parsed.playlistId || typeof parsed.fetchedAt !== 'number' || !Array.isArray(parsed.tracks)) {
-      return null;
-    }
-    return {
-      playlistId: parsed.playlistId,
-      fetchedAt: parsed.fetchedAt,
-      trackTotal: typeof parsed.trackTotal === 'number' ? parsed.trackTotal : undefined,
-      tracks: parsed.tracks.filter(
-        (t): t is CachedPlaylistTrack =>
-          !!t && typeof t.id === 'string' && Array.isArray(t.linkedFromIds),
-      ),
-    };
-  } catch {
+/** Cached tracks for a playlist — defaults to the currently selected playlist. */
+export function getPlaylistCache(playlistId?: string): SpotifyPlaylistCache | null {
+  const id = playlistId ?? getSelectedSpotifyPlaylist()?.id;
+  if (!id) {
     return null;
   }
+  return readPlaylistCacheStore()[id] ?? null;
 }
 
 function writePlaylistCache(cache: SpotifyPlaylistCache): void {
-  try {
-    localStorage.setItem(PLAYLIST_CACHE_STORAGE_KEY, JSON.stringify(cache));
-  } catch {
-    /* ignore */
-  }
+  const store = readPlaylistCacheStore();
+  store[cache.playlistId] = cache;
+  writePlaylistCacheStore(store);
   emitPlaylistChange();
 }
 
@@ -201,8 +265,8 @@ export function updatePlaylistCacheTracks(
   playlistId: string,
   tracks: CachedPlaylistTrack[],
 ): boolean {
-  const cache = getPlaylistCache();
-  if (!cache || cache.playlistId !== playlistId) {
+  const cache = getPlaylistCache(playlistId);
+  if (!cache) {
     return false;
   }
   writePlaylistCache({ ...cache, tracks });
@@ -398,11 +462,10 @@ export async function refreshPlaylistCache(options?: {
     return null;
   }
 
-  const existing = getPlaylistCache();
+  const existing = getPlaylistCache(selected.id);
   if (
     !options?.force &&
     existing &&
-    existing.playlistId === selected.id &&
     !isPlaylistCacheStale(existing.fetchedAt) &&
     !isPlaylistCacheIncomplete(existing)
   ) {

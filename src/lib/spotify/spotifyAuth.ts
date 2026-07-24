@@ -12,6 +12,11 @@
 
 import { GITHUB_PAGES_URL } from '../appRoutes';
 import { clearSpotifyApiBan } from './spotifyApi';
+import {
+  LEGACY_PLAYLIST_CACHE_STORAGE_KEY,
+  PLAYLIST_CACHE_STORAGE_KEY,
+  PLAYLIST_STORAGE_KEY,
+} from './spotifyPlaylist';
 import { stopPlaylistIsrcBackfill } from './spotifyPlaylistIsrcBackfill';
 
 const ENV = ((import.meta as unknown as { env?: Record<string, string | undefined> }).env) ?? {};
@@ -441,8 +446,9 @@ export function signOutSpotify(): void {
   stopPlaylistIsrcBackfill();
   try {
     localStorage.removeItem(SPOTIFY_AUTH_STORAGE_KEY);
-    localStorage.removeItem('spotify:playlist:v1');
-    localStorage.removeItem('spotify:playlist-cache:v1');
+    localStorage.removeItem(PLAYLIST_STORAGE_KEY);
+    localStorage.removeItem(PLAYLIST_CACHE_STORAGE_KEY);
+    localStorage.removeItem(LEGACY_PLAYLIST_CACHE_STORAGE_KEY);
     clearSpotifyApiBan();
   } catch {
     /* ignore */

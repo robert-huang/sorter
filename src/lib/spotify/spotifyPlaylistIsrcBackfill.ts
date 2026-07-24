@@ -7,8 +7,8 @@ import {
 } from './spotifyTrackIsrcStore';
 import { getPlaylistCache, updatePlaylistCacheTracks } from './spotifyPlaylist';
 
-/** Tracks fetched per background ISRC backfill iteration (Spotify batch max). */
-export const PLAYLIST_ISRC_BACKFILL_BATCH_SIZE = 50;
+/** Tracks per backfill iteration — each ID is a separate `GET /tracks/{id}` call. */
+export const PLAYLIST_ISRC_BACKFILL_BATCH_SIZE = 10;
 
 /** Pause between batched ISRC API calls during background backfill. */
 export const PLAYLIST_ISRC_BACKFILL_DELAY_MS = 250;
@@ -95,8 +95,8 @@ async function runPlaylistIsrcBackfill(
   accessToken: string,
   token: number,
 ): Promise<void> {
-  const cache = getPlaylistCache();
-  if (!cache || cache.playlistId !== playlistId) {
+  const cache = getPlaylistCache(playlistId);
+  if (!cache) {
     return;
   }
 

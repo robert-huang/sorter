@@ -14,7 +14,6 @@ import {
   clearSelectedSpotifyPlaylist,
   formatSpotifyApiBanMessage,
   getActivePlaylistCache,
-  getPlaylistCache,
   getSelectedSpotifyPlaylist,
   isPlaylistCacheIncomplete,
   isPlaylistCacheStale,
@@ -69,7 +68,6 @@ export function SpotifySection() {
 
   const configured = isSpotifyOAuthConfigured();
   const callbackUrl = getSpotifyOAuthCallbackUrl();
-  const cache = getPlaylistCache();
   const activeCache = getActivePlaylistCache();
   const spotifyBannedUntil = useSpotifyApiBannedUntil();
   const spotifyBanMessage = spotifyBannedUntil
@@ -305,10 +303,6 @@ export function SpotifySection() {
                 isrcBackfill.playlistId === selectedPlaylist.id ? (
                   <span className="settings-cache-stale"> · ISRC backfill paused (rate limit)</span>
                 ) : null}
-              </div>
-            ) : cache && cache.playlistId === selectedPlaylist.id ? (
-              <div className="settings-status settings-anilist-hint" style={{ color: 'var(--text-muted)' }}>
-                Playlist list unavailable — cached tracks still used for matching.
               </div>
             ) : (
               <div className="settings-status settings-anilist-hint" style={{ color: 'var(--text-muted)' }}>

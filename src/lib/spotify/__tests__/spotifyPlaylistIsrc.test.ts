@@ -28,13 +28,14 @@ vi.mock('../../importers/anilist/themeSongs/spotifyIsrc', () => ({
     }
     return out;
   }),
-  SPOTIFY_TRACKS_BATCH_SIZE: 50,
 }));
 
 function writePlaylistCacheForTest(playlistId: string, tracks: CachedPlaylistTrack[]): void {
   localStorage.setItem(
     PLAYLIST_CACHE_STORAGE_KEY,
-    JSON.stringify({ playlistId, fetchedAt: Date.now(), tracks }),
+    JSON.stringify({
+      [playlistId]: { playlistId, fetchedAt: Date.now(), tracks },
+    }),
   );
 }
 
@@ -69,7 +70,7 @@ describe('startPlaylistIsrcBackfill', () => {
     vi.useRealTimers();
   });
 
-  it('backfills missing playlist ISRCs in batches of 50', async () => {
+  it('backfills missing playlist ISRCs in small chunks', async () => {
     const tracks: CachedPlaylistTrack[] = Array.from(
       { length: PLAYLIST_ISRC_BACKFILL_BATCH_SIZE + 5 },
       (_, i) => ({
@@ -91,9 +92,9 @@ describe('startPlaylistIsrcBackfill', () => {
     expect(secondBatch).toHaveLength(5);
     expect(getPlaylistIsrcBackfillState().status).toBe('idle');
 
-    const cache = JSON.parse(localStorage.getItem(PLAYLIST_CACHE_STORAGE_KEY) ?? '{}') as {
-      tracks: CachedPlaylistTrack[];
+    const store = JSON.parse(localStorage.getItem(PLAYLIST_CACHE_STORAGE_KEY) ?? '{}') as {
+      'playlist-1'?: { tracks: CachedPlaylistTrack[] };
     };
-    expect(cache.tracks.every((track) => track.isrc === 'USRC999')).toBe(true);
+    expect(store['playlist-1']?.tracks.every((track) => track.isrc === 'USRC999')).toBe(true);
   });
 });
