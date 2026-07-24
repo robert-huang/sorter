@@ -6,6 +6,8 @@ import {
   getTrackIsrcStoreSnapshot,
 } from '../lib/spotify/spotifyTrackIsrcStore';
 
+const EMPTY_TRACK_IDS: string[] = [];
+
 function collectThemeTrackIds(rows: readonly MediaThemeSongRow[]): string[] {
   const ids = new Set<string>();
   for (const row of rows) {
@@ -14,6 +16,16 @@ function collectThemeTrackIds(rows: readonly MediaThemeSongRow[]): string[] {
     }
   }
   return [...ids];
+}
+
+/** Stable string key so callers can pass a fresh `[]` without retriggering effects. */
+function themeTrackIdsKey(rows: readonly MediaThemeSongRow[]): string {
+  const ids = collectThemeTrackIds(rows);
+  if (ids.length === 0) {
+    return '';
+  }
+  ids.sort();
+  return ids.join(',');
 }
 
 export type SpotifyTrackIsrcLookup = {
@@ -28,13 +40,16 @@ export type SpotifyTrackIsrcLookup = {
 export function useSpotifyTrackIsrcLookup(
   rows: readonly MediaThemeSongRow[],
 ): SpotifyTrackIsrcLookup {
-  const trackIds = useMemo(() => collectThemeTrackIds(rows), [rows]);
-  const trackIdsKey = trackIds.join(',');
+  const trackIdsKey = themeTrackIdsKey(rows);
+  const trackIds = useMemo(
+    () => (trackIdsKey.length === 0 ? EMPTY_TRACK_IDS : trackIdsKey.split(',')),
+    [trackIdsKey],
+  );
   const [lookup, setLookup] = useState(() => getTrackIsrcStoreSnapshot());
   const [ready, setReady] = useState(true);
 
   useEffect(() => {
-    if (trackIds.length === 0) {
+    if (trackIdsKey.length === 0) {
       setLookup(getTrackIsrcStoreSnapshot());
       setReady(true);
       return;
@@ -61,7 +76,7 @@ export function useSpotifyTrackIsrcLookup(
     return () => {
       cancelled = true;
     };
-  }, [trackIdsKey, trackIds]);
+  }, [trackIdsKey]);
 
   return { lookup, ready };
 }

@@ -309,19 +309,20 @@ export function AnilistDetailModal({
     );
   }, [detail, productionRoleMode]);
 
-  const themeRowsByType = useMemo(
-    () => groupThemeRowsByType(themeSongsPayload?.rows ?? []),
+  const themeSongRows = useMemo(
+    () => themeSongsPayload?.rows ?? [],
     [themeSongsPayload],
   );
+
+  const themeRowsByType = useMemo(() => groupThemeRowsByType(themeSongRows), [themeSongRows]);
 
   const playlistCache = useMemo(() => {
     void playlistCacheRevision;
     return getActivePlaylistCache();
   }, [playlistCacheRevision]);
 
-  const { lookup: trackIsrcLookup, ready: trackIsrcLookupReady } = useSpotifyTrackIsrcLookup(
-    themeSongsPayload?.rows ?? [],
-  );
+  const { lookup: trackIsrcLookup, ready: trackIsrcLookupReady } =
+    useSpotifyTrackIsrcLookup(themeSongRows);
 
   const playlistMatchOptions = useMemo(
     (): PlaylistMatchOptions => ({
