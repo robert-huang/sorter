@@ -48,6 +48,28 @@ function themeSongPlaylistIndicator(status: PlaylistMatchStatus): ReactNode {
   return null;
 }
 
+function ThemeSongPlaylistDotSlot({
+  status,
+  show,
+}: {
+  status: PlaylistMatchStatus;
+  show: boolean;
+}) {
+  if (!show) {
+    return null;
+  }
+  const dot = themeSongPlaylistIndicator(status);
+  return (
+    <div className="anilist-detail-theme-song-playlist-dot-slot">
+      {dot ?? (
+        <span className="anilist-detail-theme-song-playlist-dot is-placeholder" aria-hidden="true">
+          ●
+        </span>
+      )}
+    </div>
+  );
+}
+
 function ThemeSongTitleLink({
   row,
   title,
@@ -111,8 +133,8 @@ export function ThemeSongRowC({ row, playlistStatus, showPlaylistMatch, onExclud
       <div className="anilist-detail-theme-song-type" aria-hidden="true">
         {themeSongTypeBadge(row)}
       </div>
+      <ThemeSongPlaylistDotSlot status={playlistStatus} show={showPlaylistMatch} />
       <div className="anilist-detail-theme-song-text">
-        {showPlaylistMatch ? themeSongPlaylistIndicator(playlistStatus) : null}
         <ThemeSongBody row={row} title={title} artist={artist} />
       </div>
       {onExclude ? (

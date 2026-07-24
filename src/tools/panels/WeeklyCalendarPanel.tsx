@@ -255,11 +255,16 @@ function WeeklyCalendarThemeSongShowTitle({
   songCount?: number;
   onOpenMedia: ToolPanelProps['onOpenMedia'];
 }) {
+  const anilistLink = bindAnilistMiddleClick(anilistUrlForMediaEntry('ANIME', show.id));
+
   return (
     <button
       type="button"
-      className="tool-weekly-theme-songs-show-title"
+      className={mergeAnilistLinkClass('tool-weekly-theme-songs-show-title', anilistLink.className)}
+      title={`${show.title} (middle-click for AniList)`}
       onClick={() => onOpenMedia(show.id, show.title)}
+      onMouseDown={anilistLink.onMouseDown}
+      onAuxClick={anilistLink.onAuxClick}
     >
       <ToolEntityAvatar imageUrl={show.coverImage} label={show.title} variant="poster" />
       <span className="tool-weekly-theme-songs-show-title-text">

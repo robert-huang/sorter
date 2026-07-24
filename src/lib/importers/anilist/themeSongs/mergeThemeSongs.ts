@@ -3,6 +3,7 @@ import { isAniplaylistThemeType, normalizeAniplaylistThemeType } from './aniplay
 import type { ParsedMalTheme } from './malThemeParser';
 import {
   artistsRoughlyMatch,
+  artistsRoughlyMatchAny as hitArtistsMatchMalArtist,
   collectTitleMatchCandidates,
   malThemeMatchesAniplaylistHit,
   titlesMatchStronglyAny,
@@ -188,8 +189,40 @@ function resolveOrphanAniplaylistSortOrder(hit: AniplaylistHit, orphanIndex: num
   return fromKey ?? orphanIndex;
 }
 
-function malMatchesAni(mal: ParsedMalTheme, hit: AniplaylistHit): boolean {
-  return malThemeMatchesAniplaylistHit(mal, hit);
+/**
+ * Rank MAL ↔ AniPlaylist candidates when several hits share a title (rotating EDs).
+ * Episode overlap and performer/CV beat first-hit-wins on title alone.
+ */
+export function scoreMalAniplaylistMatch(mal: ParsedMalTheme, hit: AniplaylistHit): number {
+  if (!malThemeMatchesAniplaylistHit(mal, hit)) {
+    return -1;
+  }
+
+  let score = 0;
+  const malTitleVariants = collectTitleMatchCandidates(mal.title);
+  if (titlesMatchStronglyAny(hit.titles, malTitleVariants)) {
+    score += 1;
+  }
+
+  if (mal.artist && hitArtistsMatchMalArtist(hit.artists ?? [], mal.artist)) {
+    score += 100;
+  }
+
+  const malEps = parseThemeSongEpisodeNumbers(mal.episodes ?? null);
+  if (malEps.length > 0) {
+    const aniType = normalizeAniplaylistThemeType(hit.song_type, hit.song_key) ?? mal.type;
+    const aniEpLine = parseAniplaylistSongKey(hit.song_key, aniType).episodeLine;
+    const aniEps = parseThemeSongEpisodeNumbers(aniEpLine);
+    if (aniEps.length > 0) {
+      const overlap = malEps.filter((ep) => aniEps.includes(ep)).length;
+      if (overlap === 0) {
+        return -1;
+      }
+      score += 50 + overlap * 10;
+    }
+  }
+
+  return score;
 }
 
 function hitToPartialRow(hit: AniplaylistHit, sortOrder: number): MediaThemeSongRow {
@@ -272,16 +305,18 @@ export function mergeThemeSongs(
   for (const mal of malThemes) {
     const key = malMatchKey(mal);
     let bestHit: AniplaylistHit | null = null;
+    let bestScore = -1;
     for (const hit of themeHits) {
       if (matchedAni.has(hit.id)) {
         continue;
       }
-      if (malMatchesAni(mal, hit)) {
+      const score = scoreMalAniplaylistMatch(mal, hit);
+      if (score > bestScore) {
+        bestScore = score;
         bestHit = hit;
-        break;
       }
     }
-    if (bestHit) {
+    if (bestHit && bestScore >= 0) {
       matchedAni.add(bestHit.id);
       matchedMal.add(key);
       rows.push(mergePair(mal, hitToPartialRow(bestHit, mal.sortOrder)));

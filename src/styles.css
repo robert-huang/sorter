@@ -1673,11 +1673,17 @@ html {
 }
 
 .anilist-detail-theme-song-text {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
   min-width: 0;
   flex: 1;
+}
+
+.anilist-detail-theme-song-playlist-dot-slot {
+  flex-shrink: 0;
+  width: 10px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .anilist-detail-theme-song-line {
@@ -1718,6 +1724,10 @@ html {
 
 .anilist-detail-theme-song-playlist-dot.is-out {
   color: #e91429;
+}
+
+.anilist-detail-theme-song-playlist-dot.is-placeholder {
+  visibility: hidden;
 }
 
 .anilist-detail-theme-song-exclude {

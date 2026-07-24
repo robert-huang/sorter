@@ -285,6 +285,105 @@ describe('mergeThemeSongs', () => {
     expect(duplicateEd?.hasResolvableTrackId).toBe(true);
   });
 
+  it('pairs rotating Kanjou Glass endings to the correct MAL slot (Kamiina Botan)', () => {
+    const mal = parseMalThemes(
+      ['"Mebuku Toki (芽吹くとき)" by yonige'],
+      [
+        '1: "Kanjou Glass (感情グラス)" by Botan Kamiina (CV: Sayumi Suzushiro) (eps 1)',
+        '2: "Kanjou Glass (感情グラス)" by Yaeka Kitamori (CV: Miyu Tomita) (eps 2,7)',
+        '3: "Kanjou Glass (感情グラス)" by Kanade Gujou (CV: Minako Kotobuki) (eps 3,9)',
+        '4: "Kanjou Glass (感情グラス)" by Akane Yusa (CV: Yurina Amami) (eps 4)',
+        '5: "Kanjou Glass (感情グラス)" by Ibuki Tonami (CV: Yoshino Aoyama) (eps 5)',
+        '6: "Kanjou Glass (感情グラス)" by Chin-lan Chang (CV: Maki Kawase) (eps 6,8)',
+        '7: "Akaneiro no Yuuhi (茜色の夕日)" by Fujifabric (フジファブリック) (eps 10)',
+      ],
+    );
+    const hits: AniplaylistHit[] = [
+      {
+        id: 26848,
+        anime_id: 7610,
+        score: 60,
+        titles: ['Kanjou Glass', '感情グラス'],
+        song_key: 'ED ep 2 & 7',
+        song_type: 'Ending',
+        artists: [{ names: ['Yaeka Kitamori (CV: Miyu Tomita)', '北杜やえか (CV: 富田美憂)'] }],
+        links: [],
+      },
+      {
+        id: 26791,
+        anime_id: 7610,
+        score: 61,
+        titles: ['Kanjou Glass', '感情グラス'],
+        song_key: 'ED ep 1 & 12',
+        song_type: 'Ending',
+        artists: [{ names: ['Botan Kamiina (CV: Sayumi Suzushiro)', '上伊那ぼたん (CV: 鈴代紗弓)'] }],
+        links: [],
+      },
+      {
+        id: 26944,
+        anime_id: 7610,
+        score: 59,
+        titles: ['Kanjou Glass', '感情グラス'],
+        song_key: 'ED ep 6 & 8',
+        song_type: 'Ending',
+        artists: [{ names: ['Chang Chin-lan (CV: Maki Kawase)', '張景嵐 (CV: 河瀬茉希)'] }],
+        links: [],
+      },
+      {
+        id: 26923,
+        anime_id: 7610,
+        score: 58,
+        titles: ['Kanjou Glass', '感情グラス'],
+        song_key: 'ED ep 5 & 11',
+        song_type: 'Ending',
+        artists: [{ names: ['Ibuki Tonami (CV: Yoshino Aoyama)', '砺波いぶき (CV: 青山吉能)'] }],
+        links: [],
+      },
+      {
+        id: 26885,
+        anime_id: 7610,
+        score: 57,
+        titles: ['Kanjou Glass', '感情グラス'],
+        song_key: 'ED ep 3 & 9',
+        song_type: 'Ending',
+        artists: [{ names: ['Kanade Gujou (CV: Minako Kotobuki)', '郡上かなで (CV: 寿美菜子)'] }],
+        links: [],
+      },
+      {
+        id: 26900,
+        anime_id: 7610,
+        score: 56,
+        titles: ['Kanjou Glass', '感情グラス'],
+        song_key: 'ED ep 4',
+        song_type: 'Ending',
+        artists: [{ names: ['Akane Yusa (CV: Yurina Amami)', '遊佐あかね (CV: 天海由梨奈)'] }],
+        links: [],
+      },
+      {
+        id: 27056,
+        anime_id: 7610,
+        score: 55,
+        titles: ['Akaneiro no Yuuhi', '茜色の夕日'],
+        song_key: 'ED ep 10',
+        song_type: 'Ending',
+        artists: [{ names: ['Fujifabric', 'フジファブリック'] }],
+        links: [],
+      },
+    ];
+
+    const rows = mergeThemeSongs(mal, hits).filter((row) => row.type === 'Ending');
+    expect(rows.map((row) => row.songKey)).toEqual([
+      'ED ep 1 & 12',
+      'ED ep 2 & 7',
+      'ED ep 3 & 9',
+      'ED ep 4',
+      'ED ep 5 & 11',
+      'ED ep 6 & 8',
+      'ED ep 10',
+    ]);
+    expect(rows.map((row) => row.sortOrder)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+  });
+
   it('merges Jikan malformed ED quotes with AniPlaylist', () => {
     const mal = parseMalThemes(
       ['"Eureka Evrika (ユーレカ・エヴリカ)" by Luna Goami (五阿弥ルナ)'],
