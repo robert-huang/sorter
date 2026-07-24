@@ -1,5 +1,42 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 
+const TOOL_TAB_HELP_VIEWPORT_GAP = 12;
+const TOOL_TAB_HELP_MIN_WIDTH = 200;
+
+export type ToolTabHelpPlacement = {
+  left: number;
+  width: number;
+};
+
+/** Squish toward 200px while centered, then shift inward only when necessary. */
+export function getToolTabHelpPlacement(
+  center: number,
+  viewportWidth: number,
+  preferredWidth: number,
+): ToolTabHelpPlacement {
+  if (viewportWidth <= TOOL_TAB_HELP_VIEWPORT_GAP * 2) {
+    return { left: viewportWidth / 2, width: 0 };
+  }
+  const availableWidth = viewportWidth - TOOL_TAB_HELP_VIEWPORT_GAP * 2;
+  const fullWidth = Math.min(preferredWidth, availableWidth);
+  const minimumWidth = Math.min(TOOL_TAB_HELP_MIN_WIDTH, fullWidth);
+  const centeredWidth = Math.max(
+    0,
+    2 *
+      Math.min(
+        center - TOOL_TAB_HELP_VIEWPORT_GAP,
+        viewportWidth - TOOL_TAB_HELP_VIEWPORT_GAP - center,
+      ),
+  );
+  const width = Math.max(minimumWidth, Math.min(fullWidth, centeredWidth));
+  const minCenter = TOOL_TAB_HELP_VIEWPORT_GAP + width / 2;
+  const maxCenter = viewportWidth - minCenter;
+  return {
+    left: Math.min(maxCenter, Math.max(minCenter, center)),
+    width,
+  };
+}
+
 export interface ToolTab<T extends string> {
   id: T;
   label: string;
@@ -24,6 +61,7 @@ export function ToolTabs<T extends string>({
   onTabChange,
 }: Props<T>) {
   const cardRef = useRef<HTMLDivElement | null>(null);
+  const helpRef = useRef<HTMLDivElement | null>(null);
   const pillRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const [indicator, setIndicator] = useState<{ left: number; width: number }>({
     left: 0,
@@ -37,6 +75,7 @@ export function ToolTabs<T extends string>({
     left: number;
     top: number;
   } | null>(null);
+  const [helpPlacement, setHelpPlacement] = useState<ToolTabHelpPlacement | null>(null);
 
   useLayoutEffect(() => {
     function measure(): void {
@@ -65,12 +104,35 @@ export function ToolTabs<T extends string>({
     };
   }, [activeTab, tabs]);
 
+  useLayoutEffect(() => {
+    const help = helpRef.current;
+    if (!hovered || !help) {
+      return;
+    }
+    const preferredWidth = help.getBoundingClientRect().width;
+    const positionHelp = (): void => {
+      setHelpPlacement(
+        getToolTabHelpPlacement(hovered.left, window.innerWidth, preferredWidth),
+      );
+    };
+    positionHelp();
+    window.addEventListener('resize', positionHelp);
+    return () => {
+      window.removeEventListener('resize', positionHelp);
+    };
+  }, [hovered]);
+
   const showHelp = (id: T): void => {
     const pill = pillRefs.current[id];
     if (!pill) return;
     const r = pill.getBoundingClientRect();
     // Center under the pill, 8px gap below it.
-    setHovered({ id, left: r.left + r.width / 2, top: r.bottom + 8 });
+    setHovered({
+      id,
+      left: r.left + r.width / 2,
+      top: r.bottom + 8,
+    });
+    setHelpPlacement(null);
   };
 
   const clearHover = (id: T): void => {
@@ -115,9 +177,14 @@ export function ToolTabs<T extends string>({
       </div>
       {hovered && hoveredHelp ? (
         <div
+          ref={helpRef}
           className="tool-tab-help"
           role="tooltip"
-          style={{ left: hovered.left, top: hovered.top }}
+          style={{
+            left: helpPlacement?.left ?? hovered.left,
+            top: hovered.top,
+            width: helpPlacement?.width,
+          }}
         >
           {hoveredHelp}
         </div>

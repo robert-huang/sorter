@@ -83,10 +83,12 @@ describe('Spotify API routing', () => {
     expect(inferSpotifyApiScope('https://api.spotify.com/v1/me')).toBe('profile');
   });
 
-  it('uses the local proxy on localhost', () => {
+  it('uses the configured proxy before the localhost fallback', () => {
+    const proxyBase =
+      import.meta.env.VITE_SPOTIFY_PROXY_URL?.replace(/\/$/, '') || '/api/spotify';
     expect(
       resolveSpotifyApiRequestUrl('https://api.spotify.com/v1/tracks/abc?market=CA'),
-    ).toBe('/api/spotify/v1/tracks/abc?market=CA');
+    ).toBe(`${proxyBase}/v1/tracks/abc?market=CA`);
   });
 });
 

@@ -278,9 +278,9 @@ export function updatePlaylistCacheTracks(
   return true;
 }
 
-function schedulePlaylistIsrcBackfill(playlistId: string, accessToken: string): void {
+function schedulePlaylistIsrcBackfill(playlistId: string): void {
   void import('./spotifyPlaylistIsrcBackfill').then(({ startPlaylistIsrcBackfill }) => {
-    startPlaylistIsrcBackfill(playlistId, accessToken);
+    startPlaylistIsrcBackfill(playlistId);
   });
 }
 
@@ -501,7 +501,7 @@ export async function refreshPlaylistCache(options?: {
     ...(trackTotal != null ? { trackTotal } : {}),
   };
   writePlaylistCache(cache);
-  schedulePlaylistIsrcBackfill(selected.id, token);
+  schedulePlaylistIsrcBackfill(selected.id);
   return cache;
 }
 

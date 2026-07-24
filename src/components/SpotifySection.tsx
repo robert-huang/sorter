@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SettingsAccountRow } from './SettingsAccountRow';
 import {
   getStoredSpotifyAuth,
@@ -8,6 +8,7 @@ import {
   signOutSpotify,
   subscribeSpotifyAuth,
 } from '../lib/spotify/spotifyAuth';
+import { isSpotifyApiBanned } from '../lib/spotify/spotifyApi';
 import { useSpotifyApiBan } from '../hooks/useSpotifyApiBannedUntil';
 import { useThemeSongDisplayPreferences } from '../hooks/useThemeSongDisplayPreferences';
 import {
@@ -27,6 +28,7 @@ import {
 } from '../lib/spotify/spotifyPlaylist';
 import {
   getPlaylistIsrcBackfillState,
+  startPlaylistIsrcBackfill,
   subscribePlaylistIsrcBackfill,
 } from '../lib/spotify/spotifyPlaylistIsrcBackfill';
 import type { ThemeSongNameDisplayMode } from '../lib/spotify/themeSongDisplayPreferences';
@@ -79,10 +81,16 @@ export function SpotifySection() {
   const [isrcBackfill, setIsrcBackfill] = useState(() => getPlaylistIsrcBackfillState());
   const [signingIn, setSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const attemptedBackfillCaches = useRef(new Set<string>());
 
   const configured = isSpotifyOAuthConfigured();
   const callbackUrl = getSpotifyOAuthCallbackUrl();
   const activeCache = getActivePlaylistCache();
+  const activeCacheKey = activeCache
+    ? `${activeCache.playlistId}:${activeCache.fetchedAt}`
+    : null;
+  const activeCacheNeedsIsrcBackfill =
+    activeCache?.tracks.some((track) => !track.isrc) === true;
   const trackApiBan = useSpotifyApiBan('tracks');
   const playlistListApiBan = useSpotifyApiBan('playlist-list');
   const playlistItemsApiBan = useSpotifyApiBan('playlist-items');
@@ -145,6 +153,41 @@ export function SpotifySection() {
       setCacheRevision((n) => n + 1);
     });
   }, []);
+
+  useEffect(() => {
+    if (
+      !auth ||
+      !selectedPlaylist ||
+      !activeCache ||
+      !activeCacheKey ||
+      !activeCacheNeedsIsrcBackfill ||
+      trackApiBan ||
+      isrcBackfill.status === 'running'
+    ) {
+      return;
+    }
+
+    const resumingPausedBackfill =
+      isrcBackfill.status === 'paused' && isrcBackfill.playlistId === activeCache.playlistId;
+    if (!resumingPausedBackfill && attemptedBackfillCaches.current.has(activeCacheKey)) {
+      return;
+    }
+
+    if (isSpotifyApiBanned('tracks')) {
+      return;
+    }
+    attemptedBackfillCaches.current.add(activeCacheKey);
+    startPlaylistIsrcBackfill(activeCache.playlistId);
+  }, [
+    activeCacheKey,
+    activeCacheNeedsIsrcBackfill,
+    activeCache?.playlistId,
+    auth,
+    isrcBackfill.playlistId,
+    isrcBackfill.status,
+    selectedPlaylist,
+    trackApiBan,
+  ]);
 
   const loadPlaylists = useCallback(async () => {
     setLoadingPlaylists(true);

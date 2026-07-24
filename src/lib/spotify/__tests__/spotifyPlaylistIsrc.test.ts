@@ -6,6 +6,7 @@ import {
   getPlaylistIsrcBackfillState,
   startPlaylistIsrcBackfill,
 } from '../spotifyPlaylistIsrcBackfill';
+import { setSpotifyApiBan } from '../spotifyApi';
 import {
   PLAYLIST_CACHE_STORAGE_KEY,
   type CachedPlaylistTrack,
@@ -81,7 +82,7 @@ describe('startPlaylistIsrcBackfill', () => {
     );
     writePlaylistCacheForTest('playlist-1', tracks);
 
-    startPlaylistIsrcBackfill('playlist-1', 'token');
+    startPlaylistIsrcBackfill('playlist-1');
 
     await vi.runAllTimersAsync();
 
@@ -96,5 +97,24 @@ describe('startPlaylistIsrcBackfill', () => {
       'playlist-1'?: { tracks: CachedPlaylistTrack[] };
     };
     expect(store['playlist-1']?.tracks.every((track) => track.isrc === 'USRC999')).toBe(true);
+  });
+
+  it('automatically resumes from cached tracks after the track cooldown', async () => {
+    writePlaylistCacheForTest('playlist-1', [
+      { id: 'missing-1', isrc: null, linkedFromIds: [] },
+    ]);
+    const now = Date.now();
+    setSpotifyApiBan('tracks', now + 1_000, 'RATE_LIMITED', true, now);
+
+    startPlaylistIsrcBackfill('playlist-1');
+
+    expect(getPlaylistIsrcBackfillState().status).toBe('paused');
+    expect(fetchSpotifyIsrcByTrackIds).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(fetchSpotifyIsrcByTrackIds).toHaveBeenCalledOnce();
+    expect(fetchSpotifyIsrcByTrackIds).toHaveBeenCalledWith(['missing-1']);
+    expect(getPlaylistIsrcBackfillState().status).toBe('idle');
   });
 });

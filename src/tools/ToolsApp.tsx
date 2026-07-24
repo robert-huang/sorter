@@ -64,7 +64,7 @@ const TOOL_TABS: ReadonlyArray<ToolTab<ToolId>> = [
   {
     id: 'weekly-calendar',
     label: 'Weekly Calendar',
-    title: "Chart airing shows from a user's watching list by weekday.",
+    title: "Chart shows from a user's watching list by weekday. Also shows songs for each show and their status on a given playlist (set in Spotify settings).",
   },
   {
     id: 'favourites',

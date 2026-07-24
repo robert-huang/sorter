@@ -1,6 +1,6 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { ToolTabs, type ToolTab } from '../ToolTabs';
+import { getToolTabHelpPlacement, ToolTabs, type ToolTab } from '../ToolTabs';
 
 // React 18 requires this flag for act() outside of a test renderer.
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
@@ -10,6 +10,15 @@ const TABS: ReadonlyArray<ToolTab<'a' | 'b'>> = [
   { id: 'a', label: 'Alpha', title: 'Alpha description' },
   { id: 'b', label: 'Beta', title: 'Beta description' },
 ];
+
+describe('getToolTabHelpPlacement', () => {
+  it('squishes while centered before shifting inward at both edges', () => {
+    expect(getToolTabHelpPlacement(160, 500, 320)).toEqual({ left: 160, width: 296 });
+    expect(getToolTabHelpPlacement(80, 500, 320)).toEqual({ left: 112, width: 200 });
+    expect(getToolTabHelpPlacement(340, 500, 320)).toEqual({ left: 340, width: 296 });
+    expect(getToolTabHelpPlacement(420, 500, 320)).toEqual({ left: 388, width: 200 });
+  });
+});
 
 function findButton(container: HTMLElement, label: string): HTMLButtonElement {
   const btn = Array.from(container.querySelectorAll('button')).find(

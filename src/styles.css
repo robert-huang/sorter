@@ -6092,7 +6092,9 @@ html {
   position: fixed;
   z-index: 40;
   transform: translateX(-50%);
-  max-width: min(320px, calc(100vw - 24px));
+  width: max-content;
+  max-width: 320px;
+  box-sizing: border-box;
   padding: 6px 10px;
   font-size: 12px;
   line-height: 1.35;

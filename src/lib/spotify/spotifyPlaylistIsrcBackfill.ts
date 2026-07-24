@@ -1,5 +1,5 @@
 import { fetchSpotifyIsrcByTrackIds } from '../importers/anilist/themeSongs/spotifyIsrc';
-import { isSpotifyApiBanned } from './spotifyApi';
+import { getSpotifyApiBannedUntil, isSpotifyApiBanned } from './spotifyApi';
 import {
   applyIsrcMapToPlaylistTracks,
   applyTrackIsrcStoreToPlaylistTracks,
@@ -36,6 +36,7 @@ let state: PlaylistIsrcBackfillState = {
 };
 
 let runToken = 0;
+let resumeTimer: ReturnType<typeof setTimeout> | null = null;
 
 function emitState(): void {
   for (const listener of listeners) {
@@ -65,6 +66,10 @@ export function subscribePlaylistIsrcBackfill(listener: () => void): () => void 
 /** Cancel any in-flight background ISRC backfill. */
 export function stopPlaylistIsrcBackfill(): void {
   runToken += 1;
+  if (resumeTimer !== null) {
+    clearTimeout(resumeTimer);
+    resumeTimer = null;
+  }
   if (state.status !== 'idle') {
     setState({ status: 'idle', playlistId: null, total: 0, completed: 0 });
   }
@@ -78,21 +83,46 @@ function patchPlaylistCacheTracks(
 }
 
 /**
- * Fill playlist-track ISRCs in the background after a playlist refresh.
+ * Fill missing playlist-track ISRCs in the background from the existing cache.
  * Applies the local track-ISRC store first, then batches Spotify API lookups.
  */
-export function startPlaylistIsrcBackfill(playlistId: string, accessToken: string): void {
+export function startPlaylistIsrcBackfill(playlistId: string): void {
   if (state.status === 'running' && state.playlistId === playlistId) {
     return;
   }
 
+  if (resumeTimer !== null) {
+    clearTimeout(resumeTimer);
+    resumeTimer = null;
+  }
   const token = ++runToken;
-  void runPlaylistIsrcBackfill(playlistId, accessToken, token);
+  void runPlaylistIsrcBackfill(playlistId, token);
+}
+
+function pauseUntilTrackCooldownEnds(
+  playlistId: string,
+  token: number,
+  total: number,
+  completed: number,
+): void {
+  setState({ status: 'paused', playlistId, total, completed });
+  const bannedUntil = getSpotifyApiBannedUntil('tracks');
+  const waitMs = Math.max(1_000, (bannedUntil ?? Date.now()) - Date.now() + 1_000);
+  resumeTimer = setTimeout(() => {
+    resumeTimer = null;
+    if (token !== runToken) {
+      return;
+    }
+    if (isSpotifyApiBanned('tracks')) {
+      pauseUntilTrackCooldownEnds(playlistId, token, total, completed);
+      return;
+    }
+    void runPlaylistIsrcBackfill(playlistId, token);
+  }, waitMs);
 }
 
 async function runPlaylistIsrcBackfill(
   playlistId: string,
-  accessToken: string,
   token: number,
 ): Promise<void> {
   const cache = getPlaylistCache(playlistId);
@@ -119,12 +149,18 @@ async function runPlaylistIsrcBackfill(
 
   while (missing.length > 0 && token === runToken) {
     if (isSpotifyApiBanned('tracks')) {
-      setState({ status: 'paused', playlistId, total: initialMissing, completed: initialMissing - missing.length });
+      pauseUntilTrackCooldownEnds(
+        playlistId,
+        token,
+        initialMissing,
+        initialMissing - missing.length,
+      );
       return;
     }
 
     const batch = missing.slice(0, PLAYLIST_ISRC_BACKFILL_BATCH_SIZE);
-    const fetched = await fetchSpotifyIsrcByTrackIds(batch, accessToken);
+    // Resolve auth for each chunk so a long cooldown cannot resume with an expired token.
+    const fetched = await fetchSpotifyIsrcByTrackIds(batch);
     if (token !== runToken) {
       return;
     }
@@ -148,7 +184,12 @@ async function runPlaylistIsrcBackfill(
     }
 
     if (isSpotifyApiBanned('tracks')) {
-      setState({ status: 'paused', playlistId, total: initialMissing, completed: initialMissing - missing.length });
+      pauseUntilTrackCooldownEnds(
+        playlistId,
+        token,
+        initialMissing,
+        initialMissing - missing.length,
+      );
       return;
     }
 
