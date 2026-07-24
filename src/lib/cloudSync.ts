@@ -15,6 +15,11 @@ export function deriveCloudSyncState(slot: SlotMeta): CloudSyncState {
   return slot.updatedAt > slot.cloudPushedAt ? 'pending' : 'synced';
 }
 
+/** Bulk push only opted-in slots with local changes or no cloud copy yet. */
+export function shouldBulkPushCloudSlot(slot: SlotMeta): boolean {
+  return deriveCloudSyncState(slot) === 'pending';
+}
+
 /**
  * True when the local slot matches the cloud-library listing row —
  * safe to remove the local copy and keep the Drive backup.

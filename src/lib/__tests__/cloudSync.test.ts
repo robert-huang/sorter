@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { CloudSlotMeta } from '../cloud';
 import type { SlotMeta } from '../types';
-import { deriveCloudSyncState, isFullySyncedWithCloudListing } from '../cloudSync';
+import {
+  deriveCloudSyncState,
+  isFullySyncedWithCloudListing,
+  shouldBulkPushCloudSlot,
+} from '../cloudSync';
 
 function slot(overrides: Partial<SlotMeta> = {}): SlotMeta {
   return {
@@ -46,6 +50,32 @@ describe('deriveCloudSyncState', () => {
         }),
       ),
     ).toBe('pending');
+  });
+});
+
+describe('shouldBulkPushCloudSlot', () => {
+  it('skips synced and opted-out slots', () => {
+    expect(shouldBulkPushCloudSlot(slot())).toBe(false);
+    expect(shouldBulkPushCloudSlot(slot({ cloudOptIn: false }))).toBe(false);
+  });
+
+  it('includes changed and never-pushed opted-in slots', () => {
+    expect(
+      shouldBulkPushCloudSlot(
+        slot({
+          updatedAt: '2024-06-02T00:00:00.000Z',
+          cloudPushedAt: '2024-06-01T12:00:00.000Z',
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      shouldBulkPushCloudSlot(
+        slot({
+          cloudId: undefined,
+          cloudPushedAt: undefined,
+        }),
+      ),
+    ).toBe(true);
   });
 });
 

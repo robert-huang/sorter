@@ -143,6 +143,7 @@ import {
   signOut as cloudSignOut,
   subscribeAuthChange as cloudSubscribeAuthChange,
 } from './lib/cloud';
+import { shouldBulkPushCloudSlot } from './lib/cloudSync';
 import { GoogleDriveProvider } from './lib/cloud/googleDrive';
 import { InFlightTracker } from './lib/inFlightTracker';
 import {
@@ -1786,13 +1787,11 @@ export function App() {
   );
 
   /**
-   * Bulk push every opted-in slot to the cloud. Reads the manifest at
-   * call time (rather than closing over a stale `manifest` snapshot)
-   * and fans out to the per-slot `onCloudPushSlot` handler — that
-   * means every slot inherits the same re-entrancy guard, conflict
-   * modal flow, and spinner UI as a single-row Push. Slots that are
-   * not opted in are skipped (we don't want bulk to silently auto-
-   * opt-in slots the user hasn't explicitly chosen to back up).
+   * Bulk push every opted-in slot with local changes (or no cloud copy)
+   * to the cloud. Flush autosave before reading the manifest so the
+   * active slot's latest in-memory changes participate in that decision.
+   * Synced slots are skipped; their per-row Push remains available for
+   * explicit verification or Drive-side recovery.
    *
    * Concurrency note: per-slot calls are fired without awaiting, so
    * they run in parallel. Drive's quota is per-user so a handful of
@@ -1812,9 +1811,10 @@ export function App() {
    * anyway).
    */
   const onCloudPushAllSlots = useCallback(() => {
+    flushAutosave();
     const m = readManifest();
     for (const slot of m.slots) {
-      if (slot.cloudOptIn) onCloudPushSlot(slot.id);
+      if (shouldBulkPushCloudSlot(slot)) onCloudPushSlot(slot.id);
     }
   }, [onCloudPushSlot]);
 
