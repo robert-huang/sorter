@@ -7984,9 +7984,9 @@ html {
 }
 
 .tool-weekly-theme-songs-heading-row .tool-weekly-theme-songs-heading {
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-width: 0;
-  transform: translateY(-1px);
+  transform: translateY(-4px);
 }
 
 .tool-weekly-playlist-filter {
