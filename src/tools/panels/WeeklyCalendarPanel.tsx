@@ -871,7 +871,9 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
               onChange={(username) => patchForm({ username })}
               onRefresh={() => refreshUsernameList(form.username, running)}
             />
+          </div>
 
+          <div className="tool-adaptation-primary-filters tool-seasonal-primary-filters tool-weekly-primary-filters">
             <div
               className="tool-field tool-field-label-row tool-weekly-season-scope"
               role="group"
