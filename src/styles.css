@@ -7986,9 +7986,11 @@ html {
 }
 
 .tool-weekly-theme-songs-heading-row .tool-weekly-theme-songs-heading {
+  font-size: 16px;
+  font-weight: 600;
   flex: 1 1 auto;
   min-width: 0;
-  transform: translateY(-4px);
+  transform: translateY(-3px);
 }
 
 .tool-weekly-playlist-filter {
@@ -8003,7 +8005,7 @@ html {
 .tool-weekly-theme-songs-groups {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
 }
 
 .tool-weekly-theme-songs-show-title {
@@ -8027,6 +8029,7 @@ html {
 }
 
 .tool-weekly-theme-songs-show-title-text {
+  font-size: 13px;
   flex: 1 1 auto;
   min-width: 0;
 }
