@@ -26,10 +26,14 @@ import {
   formatAnilistSeasonRangeLabel,
   WEEKLY_CALENDAR_NOT_ON_LIST_FILTER,
   WEEKLY_CALENDAR_NOT_ON_LIST_LABEL,
+  entryMatchesWeeklyFormatFilters,
   entryMatchesWeeklyMediaStatusFilters,
   entryMatchesWeeklyScoreFilters,
+  formatWeeklyCalendarFormatFilterLabel,
   formatWeeklyCalendarMediaStatusFilterLabel,
+  normalizeWeeklyCalendarFormatFilters,
   normalizeWeeklyCalendarMediaStatusFilters,
+  DEFAULT_WEEKLY_CALENDAR_FORMAT_FILTERS,
   DEFAULT_WEEKLY_CALENDAR_MEDIA_STATUS_FILTERS,
   type WeeklyCalendarEntry,
   type WeeklyCalendarRawEntry,
@@ -41,6 +45,7 @@ function entry(
 ): WeeklyCalendarEntry {
   return {
     coverImage: null,
+    format: 'TV',
     score: null,
     listStatus: 'CURRENT',
     progress: 0,
@@ -395,6 +400,57 @@ describe('finalizeWeeklyCalendarResult', () => {
       ),
     ).toBe(true);
     expect(formatWeeklyCalendarMediaStatusFilterLabel('HIATUS')).toBe('HIATUS');
+  });
+
+  it('defaults to all anime formats and preserves a persisted subset', () => {
+    expect(DEFAULT_WEEKLY_CALENDAR_FORMAT_FILTERS).toEqual([
+      'TV',
+      'TV_SHORT',
+      'MOVIE',
+      'SPECIAL',
+      'OVA',
+      'ONA',
+      'MUSIC',
+    ]);
+    expect(normalizeWeeklyCalendarFormatFilters(undefined)).toEqual(
+      DEFAULT_WEEKLY_CALENDAR_FORMAT_FILTERS,
+    );
+    expect(normalizeWeeklyCalendarFormatFilters(['TV', 'OVA', 'INVALID'])).toEqual(['TV', 'OVA']);
+    expect(formatWeeklyCalendarFormatFilterLabel('TV_SHORT')).toBe('TV_SHORT');
+  });
+
+  it('filters movies when MOVIE is deselected', () => {
+    const formatFilters = DEFAULT_WEEKLY_CALENDAR_FORMAT_FILTERS.filter(
+      (format) => format !== 'MOVIE',
+    );
+    expect(entryMatchesWeeklyFormatFilters('TV', formatFilters)).toBe(true);
+    expect(entryMatchesWeeklyFormatFilters('MOVIE', formatFilters)).toBe(false);
+
+    const result = finalizeWeeklyCalendarResult(
+      [
+        {
+          ...entry({ id: 1, title: 'Series', format: 'TV' }),
+          nextAiringAt: 1704153600,
+        },
+        {
+          ...entry({ id: 2, title: 'Movie', format: 'MOVIE' }),
+          nextAiringAt: 1704153600,
+        },
+      ],
+      {
+        ...DEFAULT_WEEKLY_CALENDAR_FORM,
+        formatFilters,
+      },
+      null,
+      new Date('2024-01-01T00:00:00Z'),
+    );
+
+    expect(result.kind).toBe('columns');
+    if (result.kind === 'columns') {
+      expect(result.columns.flatMap((column) => column.shows).map((show) => show.title)).toEqual([
+        'Series',
+      ]);
+    }
   });
 
   it('includes NOT ON LIST shows when that filter is selected', () => {

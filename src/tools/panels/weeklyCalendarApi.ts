@@ -17,6 +17,7 @@ import {
   sessionMemoDelete,
   withSessionTtlMemo,
 } from '../../lib/importers/anilist/toolsSessionMemo';
+import type { AnilistMediaFormat } from '../../lib/importers/anilist/types';
 import { pickMediaTitle } from './sharedCreditsLogic';
 import {
   computeAiredEpisodeCount,
@@ -58,6 +59,7 @@ type GqlMedia = {
     userPreferred?: string | null;
   };
   coverImage?: { large?: string | null } | null;
+  format?: AnilistMediaFormat | null;
   status?: string | null;
   episodes?: number | null;
   popularity?: number | null;
@@ -151,6 +153,7 @@ function mapMediaToRawEntry(
     id: media.id,
     title: pickWeeklyTitle(media),
     coverImage: media.coverImage?.large ?? null,
+    format: media.format ?? null,
     score: normalizeSeasonalListScore(list?.score),
     listStatus: list?.status ?? null,
     progress,
@@ -321,7 +324,7 @@ async function fetchSeasonAiringEntriesLive(
 }
 
 function weeklyCalendarSeasonCacheKey(handle: string, seasonSpec: AnilistSeasonAt): string {
-  return `weekly-calendar:season:v2:${handle}:${seasonSpec.season}:${seasonSpec.year}`;
+  return `weekly-calendar:season:v3:${handle}:${seasonSpec.season}:${seasonSpec.year}`;
 }
 
 async function fetchSeasonAiringEntriesCached(
@@ -360,7 +363,7 @@ export function bustWeeklyCalendarUserListMemo(username: string): void {
   if (!handle) {
     return;
   }
-  const watchingKey = `weekly-calendar:watching:${handle}`;
+  const watchingKey = `weekly-calendar:watching:v2:${handle}`;
   const listMapKey = `weekly-calendar:list-map:${handle}`;
   sessionMemoDelete(watchingKey);
   sessionMemoDelete(listMapKey);
@@ -374,7 +377,7 @@ export async function fetchWeeklyCalendarWatchingEntries(
   options?: WeeklyCalendarFetchOptions,
 ): Promise<WeeklyCalendarRawEntry[]> {
   const handle = username.trim().toLowerCase();
-  const key = `weekly-calendar:watching:${handle}`;
+  const key = `weekly-calendar:watching:v2:${handle}`;
   return withWeeklyCalendarUserListCache(
     key,
     () => fetchWatchingEntriesLive(username, signal),

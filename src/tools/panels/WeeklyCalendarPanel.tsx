@@ -55,17 +55,21 @@ import {
   finalizeWeeklyCalendarResult,
   formatAnilistSeasonLabel,
   formatWeeklyCalendarDetailLines,
+  formatWeeklyCalendarFormatFilterLabel,
   formatWeeklyCalendarListStatusFilterLabel,
   formatWeeklyCalendarMediaStatusFilterLabel,
   getCurrentAnilistSeason,
   getNextAnilistSeason,
   normalizeCustomSeasonRange,
+  normalizeWeeklyCalendarFormatFilters,
   normalizeWeeklyCalendarMediaStatusFilters,
   resolveWeeklyCalendarSeasonSpecs,
   weeklyCalendarTimezoneToIana,
   WEEKLY_CALENDAR_LIST_STATUS_OPTIONS,
+  WEEKLY_CALENDAR_FORMAT_OPTIONS,
   WEEKLY_CALENDAR_MEDIA_STATUS_OPTIONS,
   type WeeklyCalendarForm,
+  type WeeklyCalendarFormatFilter,
   type WeeklyCalendarListStatusFilter,
   type WeeklyCalendarMediaStatusFilter,
   type WeeklyCalendarEntry,
@@ -86,6 +90,7 @@ type PersistedWeeklyCalendarForm = Pick<
   | 'username'
   | 'weekStartDay'
   | 'timezone'
+  | 'formatFilters'
   | 'mediaStatusFilters'
   | 'showUnscheduledColumn'
   | 'showThemeSongs'
@@ -125,6 +130,7 @@ function loadForm(): WeeklyCalendarForm {
           parsed.timezone && TIMEZONE_OPTIONS.some((opt) => opt.value === parsed.timezone)
             ? parsed.timezone
             : DEFAULT_WEEKLY_CALENDAR_FORM.timezone,
+        formatFilters: normalizeWeeklyCalendarFormatFilters(parsed.formatFilters),
         mediaStatusFilters: normalizeWeeklyCalendarMediaStatusFilters(parsed.mediaStatusFilters),
         showUnscheduledColumn: parsed.showUnscheduledColumn ?? false,
         showThemeSongs: parsed.showThemeSongs ?? false,
@@ -146,6 +152,7 @@ function saveForm(form: WeeklyCalendarForm): void {
       username: form.username,
       weekStartDay: form.weekStartDay,
       timezone: form.timezone,
+      formatFilters: form.formatFilters,
       mediaStatusFilters: form.mediaStatusFilters,
       showUnscheduledColumn: form.showUnscheduledColumn,
       showThemeSongs: form.showThemeSongs,
@@ -950,6 +957,18 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
               onToggle={(status) =>
                 patchForm({
                   mediaStatusFilters: toggleInArray(form.mediaStatusFilters, status),
+                })
+              }
+            />
+
+            <MultiSelectChip<WeeklyCalendarFormatFilter>
+              label="format"
+              options={[...WEEKLY_CALENDAR_FORMAT_OPTIONS]}
+              selected={form.formatFilters}
+              formatOption={formatWeeklyCalendarFormatFilterLabel}
+              onToggle={(format) =>
+                patchForm({
+                  formatFilters: toggleInArray(form.formatFilters, format),
                 })
               }
             />

@@ -1148,7 +1148,7 @@ export function AnilistStartMode({
             if (e.target.value.trim()) onDraftActivity();
           }}
           spellCheck={false}
-          autoComplete="section-anilist-import username"
+          autoComplete="one-time-code"
           data-1p-ignore
           data-lpignore="true"
           onKeyDown={(e) => {

@@ -1,5 +1,9 @@
 import { encodeSeasonYear } from '../../lib/importers/anilist/filters';
-import type { AnilistMediaSeason, AnilistMediaStatus } from '../../lib/importers/anilist/types';
+import type {
+  AnilistMediaFormat,
+  AnilistMediaSeason,
+  AnilistMediaStatus,
+} from '../../lib/importers/anilist/types';
 import { TOOLS_SEASONAL_LIST_STATUSES } from '../../lib/importers/anilist/toolsAnilistAccess';
 import {
   fuzzyDateToCalendarKey,
@@ -130,6 +134,46 @@ export function entryMatchesWeeklyMediaStatusFilters(
   return filters.includes(mediaStatus as WeeklyCalendarMediaStatusFilter);
 }
 
+export const WEEKLY_CALENDAR_FORMAT_OPTIONS = [
+  'TV',
+  'TV_SHORT',
+  'MOVIE',
+  'SPECIAL',
+  'OVA',
+  'ONA',
+  'MUSIC',
+] as const satisfies readonly AnilistMediaFormat[];
+
+export type WeeklyCalendarFormatFilter = (typeof WEEKLY_CALENDAR_FORMAT_OPTIONS)[number];
+
+/** Default to every anime format so adding this filter preserves existing results. */
+export const DEFAULT_WEEKLY_CALENDAR_FORMAT_FILTERS: WeeklyCalendarFormatFilter[] = [
+  ...WEEKLY_CALENDAR_FORMAT_OPTIONS,
+];
+
+export function formatWeeklyCalendarFormatFilterLabel(
+  format: WeeklyCalendarFormatFilter,
+): string {
+  return format;
+}
+
+export function normalizeWeeklyCalendarFormatFilters(
+  raw: unknown,
+): WeeklyCalendarFormatFilter[] {
+  if (!Array.isArray(raw)) {
+    return [...DEFAULT_WEEKLY_CALENDAR_FORMAT_FILTERS];
+  }
+  const selected = WEEKLY_CALENDAR_FORMAT_OPTIONS.filter((format) => raw.includes(format));
+  return selected.length > 0 ? [...selected] : [...DEFAULT_WEEKLY_CALENDAR_FORMAT_FILTERS];
+}
+
+export function entryMatchesWeeklyFormatFilters(
+  format: AnilistMediaFormat | null | undefined,
+  filters: readonly WeeklyCalendarFormatFilter[],
+): boolean {
+  return format != null && filters.includes(format as WeeklyCalendarFormatFilter);
+}
+
 export type WeeklyCalendarWeekStartDay =
   | 'MONDAY'
   | 'TUESDAY'
@@ -156,6 +200,7 @@ export type WeeklyCalendarForm = {
   scoreMin: number | null;
   scoreMax: number | null;
   mediaStatusFilters: WeeklyCalendarMediaStatusFilter[];
+  formatFilters: WeeklyCalendarFormatFilter[];
   showUnscheduledColumn: boolean;
   showThemeSongs: boolean;
 };
@@ -187,6 +232,7 @@ export const DEFAULT_WEEKLY_CALENDAR_FORM: WeeklyCalendarForm = {
   scoreMin: null,
   scoreMax: null,
   mediaStatusFilters: [...DEFAULT_WEEKLY_CALENDAR_MEDIA_STATUS_FILTERS],
+  formatFilters: [...DEFAULT_WEEKLY_CALENDAR_FORMAT_FILTERS],
   showUnscheduledColumn: false,
   showThemeSongs: false,
 };
@@ -195,6 +241,7 @@ export type WeeklyCalendarEntry = {
   id: number;
   title: string;
   coverImage: string | null;
+  format: AnilistMediaFormat | null;
   score: number | null;
   listStatus: string | null;
   progress: number;
@@ -876,7 +923,8 @@ export function finalizeWeeklyCalendarResult(
     (entry) =>
       entryMatchesWeeklyListStatusFilters(entry.listStatus, form.listStatusFilters) &&
       entryMatchesWeeklyScoreFilters(entry.score, form) &&
-      entryMatchesWeeklyMediaStatusFilters(entry.mediaStatus, form.mediaStatusFilters),
+      entryMatchesWeeklyMediaStatusFilters(entry.mediaStatus, form.mediaStatusFilters) &&
+      entryMatchesWeeklyFormatFilters(entry.format, form.formatFilters),
   );
 
   if (filtered.length === 0) {

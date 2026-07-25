@@ -688,6 +688,7 @@ const WEEKLY_CALENDAR_MEDIA_FIELDS = `
   id
   title { english romaji native userPreferred }
   coverImage { large }
+  format
   ${MEDIA_STATUS_SELECTION}
   episodes
   popularity

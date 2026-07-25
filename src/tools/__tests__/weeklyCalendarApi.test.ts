@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { _resetAvailabilityCache } from '../../lib/storage';
 import {
   persistentCacheGet,
+  persistentCacheSet,
 } from '../../lib/importers/anilist/toolsPersistentCache';
 import {
   _clearSessionMemoForTesting,
@@ -37,6 +38,7 @@ function watchingEntry(id: number) {
         userPreferred: `Show ${id}`,
       },
       coverImage: { large: `cover-${id}` },
+      format: 'TV',
       status: 'RELEASING',
       episodes: 12,
       popularity: 1000,
@@ -72,9 +74,9 @@ describe('fetchWeeklyCalendarWatchingEntries', () => {
 
     const second = await fetchWeeklyCalendarWatchingEntries('rh_test');
 
-    expect(second[0]?.progress).toBe(5);
+    expect(second[0]).toMatchObject({ progress: 5, format: 'TV' });
     expect(depaginateMock).toHaveBeenCalledTimes(1);
-    expect(persistentCacheGet('weekly-calendar:watching:rh_test')).toEqual({
+    expect(persistentCacheGet('weekly-calendar:watching:v2:rh_test')).toEqual({
       hit: true,
       value: second,
     });
@@ -93,15 +95,35 @@ describe('fetchWeeklyCalendarWatchingEntries', () => {
     expect(depaginateMock).toHaveBeenCalledTimes(2);
   });
 
+  it('ignores pre-format cache entries from the previous key version', async () => {
+    persistentCacheSet(
+      'weekly-calendar:watching:rh_test',
+      [{ id: 99, title: 'Stale entry without format' }],
+      60_000,
+    );
+
+    const result = await fetchWeeklyCalendarWatchingEntries('rh_test');
+
+    expect(result[0]).toMatchObject({ id: 1, format: 'TV' });
+    expect(depaginateMock).toHaveBeenCalledTimes(1);
+  });
+
   it('bustWeeklyCalendarUserListMemo clears persistent cache', async () => {
     await fetchWeeklyCalendarWatchingEntries('rh_test');
     bustWeeklyCalendarUserListMemo('rh_test');
 
-    expect(persistentCacheGet('weekly-calendar:watching:rh_test')).toEqual({ hit: false });
+    expect(persistentCacheGet('weekly-calendar:watching:v2:rh_test')).toEqual({ hit: false });
 
     _clearSessionMemoForTesting();
     await fetchWeeklyCalendarWatchingEntries('rh_test');
 
     expect(depaginateMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('requests and maps media format', async () => {
+    const result = await fetchWeeklyCalendarWatchingEntries('rh_test');
+
+    expect(result[0]?.format).toBe('TV');
+    expect(depaginateMock.mock.calls[0]?.[0].query).toMatch(/\bformat\b/);
   });
 });

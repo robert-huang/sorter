@@ -213,7 +213,7 @@ export function EndpointPicker({
                 }
               }}
               spellCheck={false}
-              autoComplete="section-anime-to-anime username"
+              autoComplete="one-time-code"
               data-1p-ignore
               data-lpignore="true"
               aria-label="AniList username for random pick"
