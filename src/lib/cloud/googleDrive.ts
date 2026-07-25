@@ -848,10 +848,13 @@ export class GoogleDriveProvider implements CloudProvider {
     await this.refreshTokenIfNeeded();
     const resp = await this.authedFetch(
       `${DRIVE_API}/files/${encodeURIComponent(cloudId)}`,
-      { method: 'DELETE' },
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trashed: true }),
+      },
     );
-    // 204 No Content on success; 404 is fine too (file already gone is
-    // the desired end state).
+    // 404 is fine too: already absent is the desired end state.
     if (resp.status === 404 || resp.ok) return;
     throw new Error(`removeCloudSlot failed: ${resp.status} ${await safeText(resp)}`);
   }

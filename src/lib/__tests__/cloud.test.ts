@@ -1237,20 +1237,24 @@ describe('GoogleDriveProvider.pushSlot', () => {
 });
 
 describe('GoogleDriveProvider.removeCloudSlot', () => {
-  it('issues a DELETE and resolves on 204 No Content', async () => {
+  it('moves the file to Drive trash', async () => {
     localStorage.setItem(
       'sorter:cloud:tokens:v1',
       JSON.stringify({ accessToken: 'A', refreshToken: 'R', expiresAt: Date.now() + 30 * 60_000 }),
     );
-    // Response body must be null for 204 No Content per Fetch spec.
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(new Response(null, { status: 204 }));
+      .mockResolvedValue(new Response('{}', { status: 200 }));
     const p = new GoogleDriveProvider();
     await p.removeCloudSlot('DELETEME');
     const [url, init] = fetchSpy.mock.calls[0];
     expect(String(url)).toContain('/files/DELETEME');
-    expect((init as RequestInit | undefined)?.method).toBe('DELETE');
+    expect((init as RequestInit | undefined)?.method).toBe('PATCH');
+    const headers = new Headers((init as RequestInit | undefined)?.headers);
+    expect(headers.get('content-type')).toBe('application/json');
+    expect((init as RequestInit | undefined)?.body).toBe(
+      JSON.stringify({ trashed: true }),
+    );
   });
 
   it('resolves silently on 404 (file already gone is the desired end state)', async () => {

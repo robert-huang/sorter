@@ -751,6 +751,68 @@ html {
   border-color: var(--accent, var(--text));
 }
 
+.slot-list-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-bottom: 6px;
+}
+
+.slot-list-filter-row .slot-search {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+}
+
+.slot-done-filter,
+.tool-weekly-playlist-filter {
+  flex: 0 0 auto;
+  height: 24px;
+  margin-left: auto;
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+}
+
+.slot-done-filter.is-done,
+.tool-weekly-playlist-filter.is-in {
+  border-color: var(--success);
+  background: color-mix(in srgb, var(--success) 14%, var(--surface));
+  color: var(--success);
+}
+
+.slot-done-filter.is-incomplete,
+.tool-weekly-playlist-filter.is-out {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 14%, var(--surface));
+  color: var(--danger);
+}
+
+.slot-done-filter:hover,
+.tool-weekly-playlist-filter:hover:not(:disabled) {
+  filter: brightness(0.96);
+}
+
+.slot-done-filter:focus-visible,
+.tool-weekly-playlist-filter:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.tool-weekly-playlist-filter:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .settings-item {
   display: block;
   width: 100%;
@@ -3715,8 +3777,15 @@ html {
 }
 
 .compare-confirmation-list {
+  /* Fallback until the component measures the space below the image pair. */
   max-height: min(52vh, 520px);
   overflow-y: auto;
+}
+
+/* Override `.queue-sublist`'s later 10px bottom margin: the page already
+ * supplies the measured 48px footer space. */
+.compare-confirmation-list.queue-sublist {
+  margin-bottom: 0;
 }
 
 /* Narrow left column — keep action glyphs on one row (same as LIST). */
@@ -7915,12 +7984,18 @@ html {
 }
 
 .tool-weekly-theme-songs-heading-row .tool-weekly-theme-songs-heading {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
+  transform: translateY(-1px);
+}
+
+.tool-weekly-playlist-filter {
+  margin-left: 0;
 }
 
 .tool-weekly-theme-songs-refresh {
   flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .tool-weekly-theme-songs-groups {

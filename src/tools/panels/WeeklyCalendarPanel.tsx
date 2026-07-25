@@ -113,6 +113,32 @@ const TIMEZONE_OPTIONS: Array<{ value: WeeklyCalendarTimezone; label: string }> 
   { value: 'local', label: 'Local' },
 ];
 
+type ThemeSongPlaylistFilter = 'all' | 'in' | 'out';
+
+const NEXT_THEME_SONG_PLAYLIST_FILTER: Record<
+  ThemeSongPlaylistFilter,
+  ThemeSongPlaylistFilter
+> = {
+  all: 'in',
+  in: 'out',
+  out: 'all',
+};
+
+const PREVIOUS_THEME_SONG_PLAYLIST_FILTER: Record<
+  ThemeSongPlaylistFilter,
+  ThemeSongPlaylistFilter
+> = {
+  all: 'out',
+  in: 'all',
+  out: 'in',
+};
+
+const THEME_SONG_PLAYLIST_FILTER_LABELS: Record<ThemeSongPlaylistFilter, string> = {
+  all: 'Playlist filter off. Click to show songs on the playlist; right-click to show songs not on the playlist.',
+  in: 'Showing songs on the playlist. Click to show songs not on the playlist; right-click to clear.',
+  out: 'Showing songs not on the playlist. Click to clear; right-click to show songs on the playlist.',
+};
+
 function loadForm(): WeeklyCalendarForm {
   try {
     const raw = localStorage.getItem(LS_KEY);
@@ -351,6 +377,14 @@ function WeeklyCalendarThemeSongsPanel({
   refreshingCached: boolean;
   refreshingPending: boolean;
 }) {
+  const [playlistFilter, setPlaylistFilter] = useState<ThemeSongPlaylistFilter>('all');
+
+  useEffect(() => {
+    if (playlistCache === null) {
+      setPlaylistFilter('all');
+    }
+  }, [playlistCache]);
+
   if (shows.length === 0) {
     return null;
   }
@@ -360,11 +394,50 @@ function WeeklyCalendarThemeSongsPanel({
     return payload != null && payload.rows.length > 0;
   });
   const withoutCache = shows.filter((show) => !themeSongCache.has(show.id));
+  const visibleCachedShows: Array<{
+    show: WeeklyCalendarEntry;
+    rows: MediaThemeSongRow[];
+  }> = [];
+
+  for (const show of withCache) {
+    const rows = themeSongCache.get(show.id)?.rows ?? [];
+    const visibleRows =
+      playlistFilter === 'all'
+        ? rows
+        : rows.filter(
+            (row) =>
+              matchThemeRowToPlaylist(row, playlistCache, playlistMatchOptions) === playlistFilter,
+          );
+    if (visibleRows.length > 0) {
+      visibleCachedShows.push({ show, rows: visibleRows });
+    }
+  }
+
+  const playlistFilterLabel =
+    playlistCache === null
+      ? 'Select a Spotify playlist to filter theme songs'
+      : THEME_SONG_PLAYLIST_FILTER_LABELS[playlistFilter];
 
   return (
     <section className="tool-weekly-theme-songs-panel">
       <div className="tool-weekly-theme-songs-heading-row">
         <h3 className="tool-weekly-theme-songs-heading">Theme songs (cached)</h3>
+        <button
+          type="button"
+          className={`tool-weekly-playlist-filter is-${playlistFilter}`}
+          onClick={() =>
+            setPlaylistFilter(NEXT_THEME_SONG_PLAYLIST_FILTER[playlistFilter])
+          }
+          onContextMenu={(event) => {
+            event.preventDefault();
+            setPlaylistFilter(PREVIOUS_THEME_SONG_PLAYLIST_FILTER[playlistFilter]);
+          }}
+          disabled={playlistCache === null}
+          aria-label={playlistFilterLabel}
+          title={playlistFilterLabel}
+        >
+          ON PLAYLIST
+        </button>
         {withCache.length > 0 ? (
           <button
             type="button"
@@ -383,10 +456,13 @@ function WeeklyCalendarThemeSongsPanel({
           No cached theme songs for shows in this chart. Open a show&apos;s detail modal to load
           them.
         </p>
+      ) : visibleCachedShows.length === 0 ? (
+        <p className="tool-muted">
+          No cached theme songs match the playlist filter.
+        </p>
       ) : (
         <div className="tool-weekly-theme-songs-groups">
-          {withCache.map((show) => {
-            const rows = themeSongCache.get(show.id)?.rows ?? [];
+          {visibleCachedShows.map(({ show, rows }) => {
             return (
               <div key={show.id} className="tool-weekly-theme-songs-show">
                 <WeeklyCalendarThemeSongShowTitle

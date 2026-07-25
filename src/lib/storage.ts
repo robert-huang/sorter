@@ -72,7 +72,7 @@ export const SETTINGS_KEY = 'sorter:settings:v1';
  *  toast / pre-flight confirm. The App layer is expected to prompt the
  *  user *before* calling createSlot at the cap so eviction is not a
  *  surprise; the eviction loop here is the unconditional safety net. */
-export const SLOT_CAP = 30;
+export const SLOT_CAP = 50;
 
 export const AUTOSAVE_DEBOUNCE_MS = 500;
 export const AUTOSAVE_MAX_WAIT_MS = 10_000;
@@ -945,7 +945,7 @@ export function persistCanonicalBlobOnLoad(
 
 /**
  * Wipe all cloud-sync metadata for a slot. Used by:
- *  - Remove-from-cloud (slot kept locally, cloud copy deleted).
+ *  - Cloud unlink (slot kept locally; cloud copy may be preserved or trashed).
  *  - Drive-side-delete recovery (cloud copy was deleted out from
  *    under us; clear the stale cloudId so the next push creates a
  *    fresh file).

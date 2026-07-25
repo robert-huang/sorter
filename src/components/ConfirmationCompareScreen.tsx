@@ -126,6 +126,11 @@ export function ConfirmationCompareScreen({
   const [rightRevealed, setRightRevealed] = useState(true);
   const incomingAnimatedRef = useRef({ left: false, right: false });
   const overlayContainerRef = useRef<HTMLDivElement | null>(null);
+  const pairContainerRef = useRef<HTMLDivElement | null>(null);
+  const confirmedListRef = useRef<HTMLDivElement | null>(null);
+  const [confirmedListMaxHeight, setConfirmedListMaxHeight] = useState<
+    number | null
+  >(null);
   const deckBumpRafRef = useRef<{ left?: number; right?: number }>({});
 
   function cancelDeferredDeckBumps(): void {
@@ -169,6 +174,59 @@ export function ConfirmationCompareScreen({
   useEffect(() => {
     outgoingRef.current = outgoing;
   }, [outgoing]);
+
+  // The card pair changes height with image dimensions, viewport width,
+  // and browser zoom. Measure the list's actual remaining viewport space,
+  // but keep up to five confirmed rows visible even on a short viewport.
+  useLayoutEffect(() => {
+    const pairContainer = pairContainerRef.current;
+    const confirmedList = confirmedListRef.current;
+    if (!showList || !pairContainer || !confirmedList) return;
+
+    function measure(): void {
+      const list = confirmedListRef.current;
+      if (!list) return;
+      const page = list.closest<HTMLElement>('.page');
+      const pageBottomPadding = page
+        ? Number.parseFloat(window.getComputedStyle(page).paddingBottom) || 0
+        : 0;
+      const viewport = window.visualViewport;
+      const viewportBottom = viewport
+        ? viewport.offsetTop + viewport.height
+        : window.innerHeight;
+      const available =
+        viewportBottom - list.getBoundingClientRect().top - pageBottomPadding;
+      const visibleRows = Array.from(
+        list.querySelectorAll<HTMLElement>('.queue-item-row'),
+      ).slice(0, 5);
+      const lastVisibleRow = visibleRows[visibleRows.length - 1];
+      const listStyles = window.getComputedStyle(list);
+      const fiveRowMinimum = lastVisibleRow
+        ? lastVisibleRow.getBoundingClientRect().bottom -
+          list.getBoundingClientRect().top +
+          (Number.parseFloat(listStyles.paddingBottom) || 0) +
+          (Number.parseFloat(listStyles.borderBottomWidth) || 0)
+        : 0;
+      setConfirmedListMaxHeight(
+        Math.max(Math.ceil(fiveRowMinimum), Math.floor(available)),
+      );
+    }
+
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(pairContainer);
+    const listItems = confirmedList.querySelector<HTMLElement>(
+      '.queue-sublist-items',
+    );
+    if (listItems) observer.observe(listItems);
+    window.addEventListener('resize', measure);
+    window.visualViewport?.addEventListener('resize', measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', measure);
+      window.visualViewport?.removeEventListener('resize', measure);
+    };
+  }, [showList]);
 
   useLayoutEffect(() => {
     const prev = prevPairRef.current;
@@ -353,7 +411,7 @@ export function ConfirmationCompareScreen({
         Which do you prefer? Click a card or use ← / → · ↑ to undo · middle-click to open link
       </div>
       <div className="compare compare--confirmation">
-        <div className="compare-confirmation-pair">
+        <div ref={pairContainerRef} className="compare-confirmation-pair">
           <div className={leftSlotClass} data-anim={leftAnimKind}>
             {heroItem ? (
               <ItemCard
@@ -416,7 +474,15 @@ export function ConfirmationCompareScreen({
         </div>
         {showList && (
           <div className="compare-confirmation-list-col">
-            <div className="compare-confirmation-list queue-sublist">
+            <div
+              ref={confirmedListRef}
+              className="compare-confirmation-list queue-sublist"
+              style={
+                confirmedListMaxHeight === null
+                  ? undefined
+                  : { maxHeight: `${confirmedListMaxHeight}px` }
+              }
+            >
               <div className="queue-sublist-items">
                 {listIds.map((id, index) => {
                   const item = state.items[id];

@@ -114,6 +114,26 @@ function pluralize(n: number, word: string): string {
  */
 const SEARCH_THRESHOLD = 5;
 
+type DoneFilter = 'all' | 'done' | 'incomplete';
+
+const NEXT_DONE_FILTER: Record<DoneFilter, DoneFilter> = {
+  all: 'done',
+  done: 'incomplete',
+  incomplete: 'all',
+};
+
+const PREVIOUS_DONE_FILTER: Record<DoneFilter, DoneFilter> = {
+  all: 'incomplete',
+  done: 'all',
+  incomplete: 'done',
+};
+
+const DONE_FILTER_LABELS: Record<DoneFilter, string> = {
+  all: 'Done filter off. Click to show completed; right-click to show incomplete.',
+  done: 'Showing completed slots. Click to show incomplete; right-click to clear.',
+  incomplete: 'Showing incomplete slots. Click to clear; right-click to show completed.',
+};
+
 export function SlotList({
   slots,
   loadedSlotId,
@@ -135,9 +155,10 @@ export function SlotList({
   onCloudPullAll,
   listScrollClassName = 'slot-list-scroll',
 }: Props) {
-  // Local-only state — search is a render filter, never persisted.
+  // Local-only state — search and completion are render filters, never persisted.
   // Reset is implicit (close + reopen the gear menu remounts SlotList).
   const [query, setQuery] = useState('');
+  const [doneFilter, setDoneFilter] = useState<DoneFilter>('all');
 
   if (slots.length === 0) {
     return (
@@ -165,11 +186,20 @@ export function SlotList({
   // row to zero results.
   const showSearch = slots.length >= SEARCH_THRESHOLD;
   const trimmedQuery = query.trim();
-  const filtered = trimmedQuery
+  const nameFiltered = trimmedQuery
     ? ordered.filter((s) =>
         s.name.toLowerCase().includes(trimmedQuery.toLowerCase()),
       )
     : ordered;
+  const filtered = nameFiltered.filter((slot) => {
+    if (doneFilter === 'done') {
+      return slot.done;
+    }
+    if (doneFilter === 'incomplete') {
+      return !slot.done;
+    }
+    return true;
+  });
 
   // Bulk cloud actions are only meaningful when (a) cloud is wired up
   // (`cloudControlsVisible` mirrors the App-level 'ready' gate) AND
@@ -188,6 +218,14 @@ export function SlotList({
   }
   const showPushAll = cloudControlsVisible && !!onCloudPushAll;
   const showPullAll = cloudControlsVisible && !!onCloudPullAll;
+  let emptyMessage = 'No saved sorts yet.';
+  if (trimmedQuery) {
+    emptyMessage = `No slots match “${trimmedQuery}”.`;
+  } else if (doneFilter === 'done') {
+    emptyMessage = 'No completed slots.';
+  } else if (doneFilter === 'incomplete') {
+    emptyMessage = 'No incomplete slots.';
+  }
 
   return (
     <div className="slot-list">
@@ -260,23 +298,34 @@ export function SlotList({
           </button>
         )}
       </div>
-      {showSearch && (
-        <input
-          type="search"
-          className="slot-search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={`Search ${slots.length} slot${slots.length === 1 ? '' : 's'}…`}
-          aria-label="Filter saved sorts by name"
-        />
-      )}
+      <div className="slot-list-filter-row">
+        {showSearch && (
+          <input
+            type="search"
+            className="slot-search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={`Search ${slots.length} slot${slots.length === 1 ? '' : 's'}…`}
+            aria-label="Filter saved sorts by name"
+          />
+        )}
+        <button
+          type="button"
+          className={`slot-done-filter is-${doneFilter}`}
+          onClick={() => setDoneFilter(NEXT_DONE_FILTER[doneFilter])}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            setDoneFilter(PREVIOUS_DONE_FILTER[doneFilter]);
+          }}
+          aria-label={DONE_FILTER_LABELS[doneFilter]}
+          title={DONE_FILTER_LABELS[doneFilter]}
+        >
+          DONE
+        </button>
+      </div>
       <div className={listScrollClassName}>
         {filtered.length === 0 ? (
-          <div className="slot-list-empty">
-            {trimmedQuery
-              ? <>No slots match &ldquo;{trimmedQuery}&rdquo;.</>
-              : 'No saved sorts yet.'}
-          </div>
+          <div className="slot-list-empty">{emptyMessage}</div>
         ) : (
           filtered.map((s) => (
             <SlotRow
@@ -569,7 +618,7 @@ function CloudRowControls({
     ? `Sync in progress for "${slot.name}"…`
     : optedIn
       ? hasCloudBinding
-        ? `Stop backing up "${slot.name}" to cloud (deletes the cloud copy; local stays)`
+        ? `Stop backing up "${slot.name}" to cloud (choose whether to keep the cloud copy)`
         : `Stop backing up "${slot.name}" to cloud`
       : `Back up "${slot.name}" to cloud`;
 

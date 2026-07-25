@@ -6,7 +6,7 @@ interface Props {
   /**
    * True when the slot has an established cloud binding. Switches the
    * modal to the two-button variant — "Remove from device" (keeps the
-   * cloud copy) vs "Delete everywhere" (also wipes the cloud copy).
+   * cloud copy) vs "Delete everywhere" (moves the cloud copy to trash).
    *
    * When false (most slots), the original single-button confirm is
    * shown, complete with the "Don't ask again" preference for users
@@ -63,8 +63,8 @@ export function SlotDeleteConfirmModal({
             Pull it back from the cloud library later.
           </li>
           <li>
-            <strong>Delete everywhere</strong> also wipes the cloud copy. The
-            cloud copy is gone for good (Drive&rsquo;s trash counts).
+            <strong>Delete everywhere</strong> also moves the cloud copy to
+            Drive&rsquo;s Trash, where it can be restored for up to 30 days.
           </li>
         </ul>
         <div className="modal-actions">

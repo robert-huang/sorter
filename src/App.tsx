@@ -375,14 +375,17 @@ export function App() {
   const [cloudConflict, setCloudConflict] = useState<
     { slotName: string; onConfirm: () => void; onCancel: () => void } | null
   >(null);
-  // Pending cloud-unlink confirmation. Only triggers when the user
-  // clicks the cloud-icon toggle on a slot that has a cloud binding
-  // (cloudId set) — opt-in → opt-out is destructive (deletes the
-  // Drive file) and is too easy to misclick into without a guard.
-  // The opt-IN direction never opens this modal; that path is
-  // non-destructive (just sets the local flag).
+  // Pending cloud-unlink choice. Only triggers when the user clicks
+  // the cloud-icon toggle on a slot that has a cloud binding
+  // (cloudId set), so they can choose whether the Drive copy stays or
+  // moves to Trash. The opt-IN direction never opens this modal; that
+  // path is non-destructive (just sets the local flag).
   const [cloudUnlinkPending, setCloudUnlinkPending] = useState<
-    { slotName: string; onConfirm: () => void } | null
+    {
+      slotName: string;
+      onConfirmKeepCloud: () => void;
+      onConfirmTrashCloud: () => void;
+    } | null
   >(null);
   // Per-slot Push / Pull in-flight tracking. Two trackers so a slot
   // could (in principle) be pushing one button while pulling a
@@ -1513,10 +1516,9 @@ export function App() {
   /**
    * Toggle the cloud opt-in flag on a slot. Just flips the manifest
    * bit — does NOT immediately push (the user can do that explicitly
-   * via the Push button). When toggling OFF, we also call
-   * `removeCloudSlot` to delete the cloud copy so the local choice
-   * stays honest with what's in Drive. On a failed remove, we keep
-   * the local cloud binding so the user can retry.
+   * via the Push button). When toggling OFF with an existing cloud
+   * binding, the user chooses whether to preserve the Drive copy or
+   * move it to Trash.
    */
   const onCloudToggleOptInSlot = useCallback((id: string, optIn: boolean) => {
     const m = readManifest();
@@ -1538,17 +1540,19 @@ export function App() {
       setManifest(readManifest());
       return;
     }
-    // Opt-OUT with a cloud binding present: this WILL delete the
-    // Drive file. Gate on a confirm modal so a stray click on the
-    // cloud icon can't silently nuke a backup. The async work
-    // (cloud delete + local meta clear) only runs after explicit
-    // confirmation.
-    const performUnlink = async () => {
+    // Opt-OUT with a cloud binding present: offer a local-only unlink
+    // as well as the destructive Drive-trash path.
+    const performUnlinkKeepCloud = () => {
       setCloudUnlinkPending(null);
       setCloudOptIn(id, false);
+      clearCloudBinding(id);
       setManifest(readManifest());
+    };
+    const performUnlinkTrashCloud = async () => {
+      setCloudUnlinkPending(null);
       try {
         await cloudRemoveCloudSlot(slot.cloudId!);
+        setCloudOptIn(id, false);
         clearCloudBinding(id);
         setManifest(readManifest());
       } catch (err) {
@@ -1558,7 +1562,8 @@ export function App() {
     };
     setCloudUnlinkPending({
       slotName: slot.name,
-      onConfirm: () => void performUnlink(),
+      onConfirmKeepCloud: performUnlinkKeepCloud,
+      onConfirmTrashCloud: () => void performUnlinkTrashCloud(),
     });
     // flashSkipped is stable; suppress exhaustive-deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2920,7 +2925,8 @@ export function App() {
         <CloudUnlinkConfirmModal
           slotName={cloudUnlinkPending.slotName}
           onCancel={() => setCloudUnlinkPending(null)}
-          onConfirm={cloudUnlinkPending.onConfirm}
+          onConfirmKeepCloud={cloudUnlinkPending.onConfirmKeepCloud}
+          onConfirmTrashCloud={cloudUnlinkPending.onConfirmTrashCloud}
         />
       )}
       {cloudConflict && (

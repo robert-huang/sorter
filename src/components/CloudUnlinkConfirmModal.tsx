@@ -4,45 +4,55 @@ interface Props {
   slotName: string;
   onCancel: () => void;
   /**
-   * Proceed with unlinking: deletes the cloud copy and clears the
-   * slot's cloudId binding. Local copy is preserved.
+   * Clear the slot's cloud binding while leaving the Drive file in place.
    */
-  onConfirm: () => void;
+  onConfirmKeepCloud: () => void;
+  /**
+   * Move the Drive file to Trash, then clear the slot's cloud binding.
+   */
+  onConfirmTrashCloud: () => void;
 }
 
 /**
  * Surfaced when the user clicks the cloud-icon toggle on a slot that
- * has an established cloud binding (cloudId set). Opting out is
- * destructive — `onCloudToggleOptInSlot` deletes the corresponding
- * Drive file — and a stray click on the icon could otherwise nuke a
- * push you wanted to keep, with no obvious recovery (Drive's Trash
- * does keep the file for 30 days, but pulling it back from there is
- * a manual chore in Drive's own UI).
+ * has an established cloud binding (cloudId set). The user can unlink
+ * while preserving the Drive file, or move that file to Drive's Trash.
  *
  * Sibling to `SlotDeleteConfirmModal` but semantically distinct:
  * "remove from cloud" preserves the local slot, while delete-modal
  * variants are about removing the slot itself.
  */
-export function CloudUnlinkConfirmModal({ slotName, onCancel, onConfirm }: Props) {
+export function CloudUnlinkConfirmModal({
+  slotName,
+  onCancel,
+  onConfirmKeepCloud,
+  onConfirmTrashCloud,
+}: Props) {
   return (
     <Modal label="Unlink slot from cloud confirmation" onClose={onCancel}>
       <h3>Stop backing up &ldquo;{slotName}&rdquo; to cloud?</h3>
       <p style={{ color: 'var(--text-muted)' }}>
-        This deletes <strong>{slotName}</strong>&rsquo;s cloud copy from your Drive
-        folder. The local slot stays put &mdash; you can re-enable cloud backup
-        for it later, which will create a fresh cloud copy.
+        The local slot stays on this device either way.
       </p>
-      <p style={{ color: 'var(--text-muted)' }}>
-        Drive&rsquo;s Trash holds the deleted file for 30 days if you change
-        your mind, but pulling it back into the app afterwards is a manual
-        chore.
-      </p>
+      <ul style={{ color: 'var(--text-muted)', paddingLeft: '1.25em' }}>
+        <li>
+          <strong>Unlink only</strong> leaves the cloud copy in your Drive
+          folder. You can Pull it from the cloud library later.
+        </li>
+        <li>
+          <strong>Unlink and move to Trash</strong> removes the cloud copy from
+          the folder. Drive keeps it in Trash for up to 30 days.
+        </li>
+      </ul>
       <div className="modal-actions">
         <button className="btn" onClick={onCancel}>
           Cancel
         </button>
-        <button className="btn danger" onClick={onConfirm}>
-          Unlink and delete cloud copy
+        <button className="btn" onClick={onConfirmKeepCloud}>
+          Unlink only
+        </button>
+        <button className="btn danger" onClick={onConfirmTrashCloud}>
+          Unlink and move to Trash
         </button>
       </div>
     </Modal>
