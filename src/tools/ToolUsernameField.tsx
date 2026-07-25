@@ -4,7 +4,7 @@ type ToolUsernameFieldProps = {
   disabled?: boolean;
   placeholder?: string;
   onChange: (value: string) => void;
-  /** Non-standard name so browsers do not treat this as login/payment autofill. */
+  /** Distinct field name used to isolate autocomplete sections. */
   inputName?: string;
   /** Optional hint shown inline to the right of the input (and refresh button). */
   hint?: string | null;
@@ -42,7 +42,7 @@ export function ToolUsernameField({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           spellCheck={false}
-          autoComplete="off"
+          autoComplete={`section-${inputName} username`}
           data-1p-ignore
           data-lpignore="true"
         />

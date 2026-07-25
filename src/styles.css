@@ -733,10 +733,12 @@ html {
 
 .slot-search {
   width: 100%;
+  height: 30px;
   margin: 0 0 6px;
   flex-shrink: 0;
-  padding: 6px 8px;
+  padding: 0 8px;
   font-size: 13px;
+  line-height: 28px;
   border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--surface);
@@ -6863,12 +6865,15 @@ html {
 
 .tool-input {
   width: 100%;
-  padding: 6px 8px;
+  height: 30px;
+  padding: 0 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm, 4px);
   background: var(--surface-2);
   color: var(--text);
   font: inherit;
+  font-size: 13px;
+  line-height: 28px;
   box-sizing: border-box;
 }
 

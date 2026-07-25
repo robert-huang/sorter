@@ -188,7 +188,7 @@ export function UpdateListEntryPanel(_props: ToolPanelProps) {
               value={form.username}
               onChange={(e) => patchForm({ username: e.target.value })}
               spellCheck={false}
-              autoComplete="off"
+              autoComplete="section-update-list-entry username"
               data-1p-ignore
               data-lpignore="true"
             />
