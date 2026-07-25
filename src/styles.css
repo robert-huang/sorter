@@ -1696,7 +1696,7 @@ html {
 .anilist-detail-theme-songs {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 4px;
 }
 
 .anilist-detail-theme-group-label {
@@ -1704,6 +1704,7 @@ html {
   font-weight: 600;
   color: var(--text-muted);
   margin-bottom: 4px;
+  margin-left: -8px;
 }
 
 .anilist-detail-theme-song-list {
@@ -7285,7 +7286,7 @@ html {
 
 .tool-entity-avatar--poster {
   width: 24px;
-  height: 34px;
+  height: 36px;
   border-radius: 4px;
 }
 
@@ -7962,6 +7963,7 @@ html {
 
 .tool-weekly-theme-songs-panel .anilist-detail-theme-songs {
   margin-top: 4px;
+  margin-left: 36px;
 }
 
 .tool-weekly-theme-songs-panel {
@@ -8001,7 +8003,7 @@ html {
 .tool-weekly-theme-songs-groups {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
 }
 
 .tool-weekly-theme-songs-show-title {
