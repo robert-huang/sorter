@@ -6,7 +6,6 @@ import type {
 } from '../../lib/importers/anilist/types';
 import { TOOLS_SEASONAL_LIST_STATUSES } from '../../lib/importers/anilist/toolsAnilistAccess';
 import {
-  fuzzyDateToCalendarKey,
   normalizeSeasonalListScore,
   type SeasonalFuzzyDate,
 } from './seasonalScoresLogic';
@@ -519,16 +518,13 @@ export function isWeeklyCalendarWatchingListStatus(status: string | null | undef
   return status === 'CURRENT' || status === 'REPEATING';
 }
 
-function calendarKeyToIso(key: number): string {
-  const year = Math.floor(key / 10_000);
-  const month = Math.floor((key % 10_000) / 100);
-  const day = key % 100;
-  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-}
-
 export function formatFuzzyDateIso(date: SeasonalFuzzyDate | null | undefined): string | null {
-  const key = fuzzyDateToCalendarKey(date, 'start');
-  return key == null ? null : calendarKeyToIso(key);
+  if (!date || date.year == null) {
+    return null;
+  }
+  const month = date.month == null ? '??' : String(date.month).padStart(2, '0');
+  const day = date.day == null ? '??' : String(date.day).padStart(2, '0');
+  return `${date.year}-${month}-${day}`;
 }
 
 export function computeAiredEpisodeCount(

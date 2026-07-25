@@ -516,6 +516,15 @@ describe('formatWeeklyCalendarDateRange', () => {
     ).toBe('2026-01-05 - 2026-03-28');
   });
 
+  it('preserves unknown fuzzy-date components', () => {
+    expect(formatWeeklyCalendarDateRange({ year: 2026, month: 10, day: null }, null)).toBe(
+      '2026-10-?? - ?',
+    );
+    expect(formatWeeklyCalendarDateRange({ year: 2026, month: null, day: null }, null)).toBe(
+      '2026-??-?? - ?',
+    );
+  });
+
   it('uses ? when end date is missing', () => {
     expect(formatWeeklyCalendarDateRange({ year: 2026, month: 1, day: 5 }, null)).toBe(
       '2026-01-05 - ?',
