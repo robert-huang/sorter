@@ -558,36 +558,35 @@ export function App() {
   // CompareScreen progress bar so the tab and bar always agree.
   // `autoInsertEnabled` is in deps because comparisonsRemaining's
   // forecast depends on it; `manifest` so renames re-title immediately.
-  // useLayoutEffect so a completing pick flips the tab title to ✓ in the
-  // same paint (not one frame late at 99%).
+  // The callback is also used by the pick commit path so the external
+  // document state changes with the completed engine state, without waiting
+  // for React to commit the render.
+  const updateDocumentTitle = useCallback(
+    (nextState: SortState | null) => {
+      if (!nextState) {
+        document.title = 'Sorter';
+        return;
+      }
+      const titleSlotId = loadedSlotId ?? manifest.activeId;
+      const slotName = manifest.slots.find((s) => s.id === titleSlotId)?.name;
+      const base = slotName ?? 'Untitled sort';
+      if (nextState.done) {
+        document.title = `${base} ✓ — Sorter`;
+        return;
+      }
+      const { total, pct } = getCompareProgress(nextState, { autoInsertEnabled });
+      if (total === 0) {
+        document.title = `${base} — Sorter`;
+        return;
+      }
+      document.title = `${base} (${pct}%) — Sorter`;
+    },
+    [autoInsertEnabled, loadedSlotId, manifest.activeId, manifest.slots],
+  );
+
   useLayoutEffect(() => {
-    if (!state) {
-      document.title = 'Sorter';
-      return;
-    }
-    const titleSlotId = loadedSlotId ?? manifest.activeId;
-    const slotName = manifest.slots.find((s) => s.id === titleSlotId)?.name;
-    const base = slotName ?? 'Untitled sort';
-    if (state.done) {
-      document.title = `${base} ✓ — Sorter`;
-      return;
-    }
-    const { total, pct } = getCompareProgress(state, { autoInsertEnabled });
-    if (total === 0) {
-      document.title = `${base} — Sorter`;
-      return;
-    }
-    document.title = `${base} (${pct}%) — Sorter`;
-  }, [
-    state,
-    state?.done,
-    state?.comparisons,
-    state?.totalComparisonsEverNeeded,
-    loadedSlotId,
-    manifest.slots,
-    manifest.activeId,
-    autoInsertEnabled,
-  ]);
+    updateDocumentTitle(state);
+  }, [state, updateDocumentTitle]);
 
   // -------- theme + settings toggles --------
   const toggleTheme = useCallback(() => {
@@ -850,23 +849,20 @@ export function App() {
 
   const applyPendingPick = useCallback(
     (side: 'left' | 'right') => {
-      setState((cur) => {
-        if (!cur) return cur;
-        setUndoRing((ring) => {
-          const snap = engineSnapshotProgress(cur);
-          const last = ring[ring.length - 1];
-          if (last && undoSnapshotsEqual(snap, last)) return ring;
-          let merged = ring.concat(snap);
-          while (merged.length > UNDO_CAP) merged.shift();
-          return merged;
-        });
-        return side === 'left'
+      const cur = stateRef.current;
+      if (!cur) return;
+      const next =
+        side === 'left'
           ? enginePickLeft(cur, engineOptions)
           : enginePickRight(cur, engineOptions);
-      });
+      if (next === cur) return;
+      pushUndo(cur);
+      stateRef.current = next;
+      setState(next);
+      updateDocumentTitle(next);
       setLastInteraction({ kind: 'pick', side });
     },
-    [engineOptions],
+    [engineOptions, pushUndo, updateDocumentTitle],
   );
 
   const flushPendingPicks = useCallback(() => {

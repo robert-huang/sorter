@@ -76,6 +76,12 @@ describe('engine dispatch', () => {
     expect(comparisonsRemaining(s)).toBe(1);
     const progress = getCompareProgress(s);
     expect(progress.pct).toBeLessThan(100);
+
+    const longRunningSort = {
+      ...s,
+      totalComparisonsEverNeeded: 1000,
+    };
+    expect(getCompareProgress(longRunningSort).pct).toBe(99);
   });
 
   it('getCompareProgress reports complete only once state.done', () => {
