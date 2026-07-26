@@ -7970,6 +7970,7 @@ html {
 
 .tool-weekly-theme-songs-heading {
   margin: 0;
+  margin-left: 8px;
   font-size: 13px;
   font-weight: 600;
 }
@@ -7986,7 +7987,7 @@ html {
   font-weight: 600;
   flex: 1 1 auto;
   min-width: 0;
-  transform: translateY(-3px);
+  transform: translateY(-2px);
 }
 
 .tool-weekly-playlist-filter {
