@@ -294,16 +294,31 @@ describe('groupInsertionPending', () => {
     ]);
   });
 
-  it('splits pre-ranked runs from trailing singleton extras', () => {
-    // Run 0: two-item sublist; runs 1–2: shuffled extras.
+  it('keeps singleton extras inline with pre-ranked runs', () => {
     expect(
       groupInsertionPending(
-        ['a1', 'a2', 'x', 'y'],
-        [0, 0, 1, 2],
+        ['a1', 'a2', 'x', 'y', 'b1', 'b2', 'z'],
+        [0, 0, 1, 2, 3, 3, 4],
       ),
     ).toEqual([
       { kind: 'preranked', runId: 0, ids: ['a1', 'a2'] },
-      { kind: 'extras', ids: ['x', 'y'] },
+      { kind: 'extras', runId: 1, ids: ['x'] },
+      { kind: 'extras', runId: 2, ids: ['y'] },
+      { kind: 'preranked', runId: 3, ids: ['b1', 'b2'] },
+      { kind: 'extras', runId: 4, ids: ['z'] },
+    ]);
+  });
+
+  it('excludes the active run prefix from the displayed queue', () => {
+    expect(
+      groupInsertionPending(
+        ['active2', 'active3', 'x', 'b1', 'b2'],
+        [0, 0, 1, 2, 2],
+        0,
+      ),
+    ).toEqual([
+      { kind: 'extras', runId: 1, ids: ['x'] },
+      { kind: 'preranked', runId: 2, ids: ['b1', 'b2'] },
     ]);
   });
 

@@ -1742,7 +1742,14 @@ function InsertionPendingGroupView({
       <div className="queue-sublist">
         <div className="queue-sublist-header">
           <span className="index">
-            Unranked extras ({group.ids.length})
+            #{groupIndex + 1}{' '}
+            <span style={{ fontWeight: 400 }}>unranked item</span>
+            {isNext && (
+              <span style={{ fontWeight: 400, color: 'var(--text-faint)' }}>
+                {' '}
+                · next in queue
+              </span>
+            )}
           </span>
         </div>
         <div className="queue-sublist-items">
@@ -1838,15 +1845,18 @@ function InsertionListView({
   const insertingId = state.current?.insertingId;
   const fromSublists = insertionSortFromSublists(state.pendingRunIds);
   const pendingGroups = useMemo(
-    () => groupInsertionPending(state.pending, state.pendingRunIds),
-    [state.pending, state.pendingRunIds],
+    () =>
+      groupInsertionPending(
+        state.pending,
+        state.pendingRunIds,
+        state.activeRunId,
+      ),
+    [state.pending, state.pendingRunIds, state.activeRunId],
   );
-  const pendingUsesRuns = pendingGroups.some((g) => g.kind === 'preranked');
-  const pendingEpisodeCount =
-    state.pending.length + (insertingId !== undefined ? 1 : 0);
-  const flatPendingIds = insertingId
-    ? [insertingId, ...state.pending]
-    : state.pending;
+  const pendingEpisodeCount = pendingGroups.reduce(
+    (count, group) => count + group.ids.length,
+    0,
+  );
 
   return (
     <>
@@ -1878,7 +1888,7 @@ function InsertionListView({
         <>
           <div className="list-section-label">
             {fromSublists
-              ? mergeSliceLabel('Seed sublist (sorted)', state.sorted.length)
+              ? mergeSliceLabel('Anchor sublist (sorted)', state.sorted.length)
               : `Sorted (${state.sorted.length})`}
           </div>
           <p
@@ -1984,15 +1994,15 @@ function InsertionListView({
       {pendingEpisodeCount > 0 && (
         <>
           <div className="list-section-label">
-            {pendingUsesRuns
+            {fromSublists
               ? `Queue (${pendingEpisodeCount} item${
                   pendingEpisodeCount === 1 ? '' : 's'
                 } in ${pendingGroups.length} group${
                   pendingGroups.length === 1 ? '' : 's'
-                }${insertingId ? ' · 1 inserting now' : ''})`
+                })`
               : mergeSliceLabel('Pending', pendingEpisodeCount)}
           </div>
-          {pendingUsesRuns && (
+          {fromSublists && (
             <p
               style={{
                 fontSize: 13,
@@ -2001,34 +2011,15 @@ function InsertionListView({
               }}
             >
               Pre-ranked sublists keep their internal order; only comparisons
-              between sublists are needed. Unranked extras drain after the
-              sublists.
+              between sublists are needed. Unranked items are singleton queue
+              entries, and every queued entity stays in shuffled order.
             </p>
           )}
-          {pendingUsesRuns ? (
+          {fromSublists ? (
             <>
-              {insertingId && state.items[insertingId] && (
-                <div className="queue-sublist">
-                  <div className="queue-sublist-items">
-                    <InsertionPendingItemRow
-                      item={state.items[insertingId]}
-                      hidden={hidden}
-                      onHide={onHide}
-                      onUnhide={onUnhide}
-                      onEdit={openEdit}
-                      rank={1}
-                      insertStatus="inserting"
-                    />
-                  </div>
-                </div>
-              )}
               {pendingGroups.map((group, gi) => (
                 <InsertionPendingGroupView
-                  key={
-                    group.kind === 'preranked'
-                      ? `run-${group.runId}`
-                      : group.kind
-                  }
+                  key={`run-${group.runId ?? gi}`}
                   group={group}
                   groupIndex={gi}
                   state={state}
@@ -2036,7 +2027,7 @@ function InsertionListView({
                   onHide={onHide}
                   onUnhide={onUnhide}
                   onEdit={openEdit}
-                  isNext={gi === 0 && !insertingId}
+                  isNext={gi === 0}
                   insertingId={insertingId}
                 />
               ))}
@@ -2044,7 +2035,7 @@ function InsertionListView({
           ) : (
             <div className="queue-sublist">
               <div className="queue-sublist-items">
-                {flatPendingIds.map((id, ii) => {
+                {state.pending.map((id, ii) => {
                   const item = state.items[id];
                   if (!item) return null;
                   return (
@@ -2056,13 +2047,7 @@ function InsertionListView({
                       onUnhide={onUnhide}
                       onEdit={openEdit}
                       rank={ii + 1}
-                      insertStatus={
-                        insertingId
-                          ? id === insertingId
-                            ? 'inserting'
-                            : 'queued'
-                          : undefined
-                      }
+                      insertStatus={insertingId ? 'queued' : undefined}
                     />
                   );
                 })}

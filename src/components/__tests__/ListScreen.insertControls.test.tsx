@@ -140,7 +140,7 @@ describe('ListScreen · insert-context LIST-tab controls (insertion engine)', ()
     }).state;
   }
 
-  it('shows only the active run in "Inserting", not later queued runs', () => {
+  it('shows the active run in "Inserting" and only later runs in the queue', () => {
     const state = buildInsertionState({
       sortedItems: [A, B, C],
       pendingItems: [D, E, F, X],
@@ -157,6 +157,15 @@ describe('ListScreen · insert-context LIST-tab controls (insertion engine)', ()
     expect(insertingPanel?.textContent).toContain('E');
     expect(insertingPanel?.textContent).toContain('F');
     expect(insertingPanel?.textContent).not.toContain('X');
+
+    const queueHeaders = container.querySelectorAll('.queue-sublist-header');
+    expect(queueHeaders).toHaveLength(1);
+    const queuedGroup = queueHeaders[0].closest('.queue-sublist');
+    expect(queueHeaders[0].textContent).toContain('unranked item');
+    expect(queuedGroup?.textContent).toContain('X');
+    expect(queuedGroup?.textContent).not.toContain('D');
+    expect(queuedGroup?.textContent).not.toContain('E');
+    expect(queuedGroup?.textContent).not.toContain('F');
   });
 
   it('drops the in-flight inserting item via the × in "Inserting"', () => {

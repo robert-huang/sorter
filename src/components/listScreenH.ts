@@ -75,13 +75,16 @@ export interface InsertionPendingGroup {
 /**
  * Split insertion-mode `pending[]` into display groups. When
  * `pendingRunIds` is present (seeded via `seedInsertionFromSublists`),
- * multi-item runs render as pre-ranked sublist blocks; trailing
- * singleton runs collapse into one extras bucket. Without run metadata
- * the whole pending list stays flat (legacy / flat-from-scratch path).
+ * multi-item runs render as pre-ranked sublist blocks and singleton runs
+ * render as individual unranked items in their actual shuffled positions.
+ * The active run's pending prefix is excluded because LIST already shows
+ * that complete run in the INSERTING panel. Without run metadata the whole
+ * pending list stays flat (legacy / flat-from-scratch path).
  */
 export function groupInsertionPending(
   pending: ItemId[],
   pendingRunIds: number[] | undefined,
+  activeRunId?: number | null,
 ): InsertionPendingGroup[] {
   if (pending.length === 0) return [];
   if (!pendingRunIds) {
@@ -97,8 +100,18 @@ export function groupInsertionPending(
     return [{ kind: 'flat', ids: [...pending] }];
   }
 
+  let queueStart = 0;
+  if (activeRunId !== null && activeRunId !== undefined) {
+    while (
+      queueStart < pendingRunIds.length &&
+      pendingRunIds[queueStart] === activeRunId
+    ) {
+      queueStart += 1;
+    }
+  }
+
   const raw: { runId: number; ids: ItemId[] }[] = [];
-  for (let i = 0; i < pending.length; i++) {
+  for (let i = queueStart; i < pending.length; i++) {
     const rid = pendingRunIds[i];
     const tail = raw[raw.length - 1];
     if (tail && tail.runId === rid) {
@@ -108,19 +121,11 @@ export function groupInsertionPending(
     }
   }
 
-  const out: InsertionPendingGroup[] = [];
-  const singletonIds: ItemId[] = [];
-  for (const g of raw) {
-    if (g.ids.length >= 2) {
-      out.push({ kind: 'preranked', runId: g.runId, ids: g.ids });
-    } else {
-      singletonIds.push(g.ids[0]);
-    }
-  }
-  if (singletonIds.length > 0) {
-    out.push({ kind: 'extras', ids: singletonIds });
-  }
-  return out;
+  return raw.map((group) => ({
+    kind: group.ids.length >= 2 ? 'preranked' : 'extras',
+    runId: group.runId,
+    ids: group.ids,
+  }));
 }
 
 /** True when this insertion sort was seeded from multiple pre-ranked sublists. */
