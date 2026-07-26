@@ -24,6 +24,7 @@ interface Props {
   onPickLeft: () => void;
   onPickRight: () => void;
   onHide: (id: ItemId) => void;
+  onUnhide: (id: ItemId) => void;
   onEditItem: (id: ItemId, patch: EditItemSavePayload) => void;
   onReorderConfirmed: (index: number, direction: -1 | 1) => void;
   onReturnToPending: (id: ItemId) => void;
@@ -69,6 +70,7 @@ export function ConfirmationCompareScreen({
   onPickLeft,
   onPickRight,
   onHide,
+  onUnhide,
   onEditItem,
   onReorderConfirmed,
   onReturnToPending,
@@ -490,6 +492,7 @@ export function ConfirmationCompareScreen({
                   const item = state.items[id];
                   if (!item) return null;
                   const isProbe = insertCtx?.probeId === id;
+                  const isHidden = hidden.has(id);
                   return (
                     <div
                       key={id}
@@ -505,35 +508,39 @@ export function ConfirmationCompareScreen({
                           <span className="list-merge-context-tag">probe</span>
                         )}
                         <DetailButtonSlot item={item} variant="row" />
-                        <button
-                          type="button"
-                          className="icon-btn"
-                          disabled={index === 0}
-                          onClick={() => onReorderConfirmed(index, -1)}
-                          title="Move up"
-                          aria-label={`Move ${item.label} up`}
-                        >
-                          ↑
-                        </button>
-                        <button
-                          type="button"
-                          className="icon-btn"
-                          disabled={index === listIds.length - 1}
-                          onClick={() => onReorderConfirmed(index, 1)}
-                          title="Move down"
-                          aria-label={`Move ${item.label} down`}
-                        >
-                          ↓
-                        </button>
-                        <button
-                          type="button"
-                          className="icon-btn"
-                          onClick={() => onReturnToPending(id)}
-                          title="Pull out and re-confirm"
-                          aria-label={`Re-confirm ${item.label}`}
-                        >
-                          <CircularArrowGlyph />
-                        </button>
+                        {!isHidden && (
+                          <>
+                            <button
+                              type="button"
+                              className="icon-btn"
+                              disabled={index === 0}
+                              onClick={() => onReorderConfirmed(index, -1)}
+                              title="Move up"
+                              aria-label={`Move ${item.label} up`}
+                            >
+                              ↑
+                            </button>
+                            <button
+                              type="button"
+                              className="icon-btn"
+                              disabled={index === listIds.length - 1}
+                              onClick={() => onReorderConfirmed(index, 1)}
+                              title="Move down"
+                              aria-label={`Move ${item.label} down`}
+                            >
+                              ↓
+                            </button>
+                            <button
+                              type="button"
+                              className="icon-btn"
+                              onClick={() => onReturnToPending(id)}
+                              title="Pull out and re-confirm"
+                              aria-label={`Re-confirm ${item.label}`}
+                            >
+                              <CircularArrowGlyph />
+                            </button>
+                          </>
+                        )}
                         <button
                           type="button"
                           className="icon-btn"
@@ -543,15 +550,27 @@ export function ConfirmationCompareScreen({
                         >
                           ✎
                         </button>
-                        <button
-                          type="button"
-                          className="icon-btn"
-                          onClick={() => onHide(id)}
-                          title="Remove"
-                          aria-label={`Remove ${item.label}`}
-                        >
-                          <RemoveGlyph size={12} />
-                        </button>
+                        {isHidden ? (
+                          <button
+                            type="button"
+                            className="icon-btn"
+                            onClick={() => onUnhide(id)}
+                            title="Restore"
+                            aria-label={`Restore ${item.label}`}
+                          >
+                            <CircularArrowGlyph direction="counterclockwise" />
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="icon-btn"
+                            onClick={() => onHide(id)}
+                            title="Remove"
+                            aria-label={`Remove ${item.label}`}
+                          >
+                            <RemoveGlyph size={12} />
+                          </button>
+                        )}
                       </span>
                     </div>
                   );

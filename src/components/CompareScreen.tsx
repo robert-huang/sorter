@@ -40,6 +40,7 @@ interface Props {
   onPickLeft: () => void;
   onPickRight: () => void;
   onHide: (id: ItemId) => void;
+  onUnhide: (id: ItemId) => void;
   /** Cancel an in-flight manual insert (merge engine only). */
   onCancelManualInsert: () => void;
   onEditItem?: (id: ItemId, patch: EditItemSavePayload) => void;
@@ -141,6 +142,7 @@ export function CompareScreen({
   onPickLeft,
   onPickRight,
   onHide,
+  onUnhide,
   onCancelManualInsert,
   onEditItem,
   onReorderConfirmed,
@@ -155,6 +157,7 @@ export function CompareScreen({
         onPickLeft={onPickLeft}
         onPickRight={onPickRight}
         onHide={onHide}
+        onUnhide={onUnhide}
         onEditItem={onEditItem ?? (() => {})}
         onReorderConfirmed={onReorderConfirmed ?? (() => {})}
         onReturnToPending={onReturnToPending ?? (() => {})}

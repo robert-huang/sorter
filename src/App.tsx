@@ -2594,6 +2594,7 @@ export function App() {
         onPickLeft={() => doPick('left')}
         onPickRight={() => doPick('right')}
         onHide={doHide}
+        onUnhide={doUnhide}
         onCancelManualInsert={doCancelManualInsert}
         onEditItem={doEditItem}
         onReorderConfirmed={doReorderInSorted}
