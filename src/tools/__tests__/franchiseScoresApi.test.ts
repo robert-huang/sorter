@@ -41,6 +41,7 @@ import {
   readUserMediaListEntriesFromDb,
 } from '../../lib/importers/anilist/toolsAnilistAccess';
 import { runFranchiseScores } from '../panels/franchiseScoresApi';
+import { DEFAULT_RELATION_TOGGLES } from '../panels/franchiseScoresLogic';
 
 const executeAnilistQueryMock = vi.mocked(executeAnilistQuery);
 const getCtxMock = vi.mocked(getToolsImportContext);
@@ -236,6 +237,36 @@ describe('runFranchiseScores caching', () => {
 });
 
 describe('franchise relations cross-session cache', () => {
+  it('re-walks cached relations when toggles change without refetching AniList', async () => {
+    executeAnilistQueryMock
+      .mockResolvedValueOnce({ Media: { id: 100, title: { english: 'Seed', romaji: null } } })
+      .mockResolvedValueOnce(
+        batchRelationsResponse([
+          { selfId: 100, edges: [{ relationType: 'SEQUEL', nodeId: 200 }] },
+        ]),
+      )
+      .mockResolvedValueOnce(batchRelationsResponse([{ selfId: 200 }]));
+
+    const initial = await runFranchiseScores({
+      seedSearch: 'Seed',
+      username: 'rh_test',
+    });
+    expect(initial.entries.map((entry) => entry.id)).toEqual([100, 200]);
+
+    const callsBeforeToggle = executeAnilistQueryMock.mock.calls.length;
+    const updated = await runFranchiseScores({
+      seedSearch: 'Seed',
+      username: 'rh_test',
+      relationToggles: {
+        ...DEFAULT_RELATION_TOGGLES,
+        SEQUEL: false,
+      },
+    });
+
+    expect(updated.entries.map((entry) => entry.id)).toEqual([100]);
+    expect(executeAnilistQueryMock).toHaveBeenCalledTimes(callsBeforeToggle);
+  });
+
   it('persists relations to SQLite so a fresh session does not re-fetch', async () => {
     executeAnilistQueryMock
       .mockResolvedValueOnce({ Media: { id: 100, title: { english: 'Seed', romaji: null } } })

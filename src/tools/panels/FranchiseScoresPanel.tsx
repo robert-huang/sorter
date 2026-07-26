@@ -343,6 +343,17 @@ export function FranchiseScoresPanel({ onOpenMedia }: ToolPanelProps) {
     entries: FranchiseEntry[];
     seed: { id: number; title: string };
   } | null>(null);
+  const completedRunRef = useRef<{ username: string; showText: string } | null>(
+    null,
+  );
+  const relationTypesKey = useMemo(
+    () =>
+      FRANCHISE_RELATION_TYPES.map((type) =>
+        form.relationTypes[type] ? `${type}:1` : `${type}:0`,
+      ).join('|'),
+    [form.relationTypes],
+  );
+  const previousRelationTypesKeyRef = useRef(relationTypesKey);
 
   useEffect(() => {
     saveForm(form);
@@ -376,10 +387,14 @@ export function FranchiseScoresPanel({ onOpenMedia }: ToolPanelProps) {
     setProgress(null);
   }, []);
 
-  const onRun = useCallback(
-    async (forceRefresh = false) => {
-      const username = form.username.trim();
-      const showText = form.showText.trim();
+  const runForForm = useCallback(
+    async (
+      runForm: FranchiseForm,
+      forceRefresh = false,
+      preserveResult = false,
+    ) => {
+      const username = runForm.username.trim();
+      const showText = runForm.showText.trim();
       if (!username) {
         setError('Enter an AniList username.');
         setResult(null);
@@ -397,20 +412,23 @@ export function FranchiseScoresPanel({ onOpenMedia }: ToolPanelProps) {
 
       setRunning(true);
       setError(null);
-      setResult(null);
       setProgress(null);
-      entriesRef.current = null;
+      if (!preserveResult) {
+        setResult(null);
+        entriesRef.current = null;
+      }
 
       try {
         const run = await runFranchiseScores({
           seedSearch: showText,
           username,
-          relationToggles: form.relationTypes,
+          relationToggles: runForm.relationTypes,
           signal: controller.signal,
           onProgress: setProgress,
           fetchOptions: forceRefresh ? { forceRefresh: true } : undefined,
         });
         entriesRef.current = { entries: run.entries, seed: run.seed };
+        completedRunRef.current = { username, showText };
         if (run.entries.length === 0) {
           setResult({
             kind: 'empty',
@@ -436,8 +454,38 @@ export function FranchiseScoresPanel({ onOpenMedia }: ToolPanelProps) {
         }
       }
     },
-    [form],
+    [],
   );
+
+  const onRun = useCallback(
+    (forceRefresh = false) => runForForm(form, forceRefresh),
+    [form, runForForm],
+  );
+
+  // Once a franchise has been traced, changing relation types immediately
+  // re-walks that same graph. Relation reads stay DB-first; only newly reached
+  // nodes whose expansion is missing or stale can require AniList.
+  useEffect(() => {
+    const previousKey = previousRelationTypesKeyRef.current;
+    previousRelationTypesKeyRef.current = relationTypesKey;
+    if (previousKey === relationTypesKey) {
+      return;
+    }
+
+    const completedRun = completedRunRef.current;
+    const username = form.username.trim();
+    const showText = form.showText.trim();
+    if (
+      !completedRun ||
+      !entriesRef.current ||
+      completedRun.username !== username ||
+      completedRun.showText !== showText
+    ) {
+      return;
+    }
+
+    void runForForm(form, false, true);
+  }, [form, relationTypesKey, runForForm]);
 
   // Display-language preference changes — relabel cached entries.
   useEffect(() => {
@@ -517,6 +565,8 @@ export function FranchiseScoresPanel({ onOpenMedia }: ToolPanelProps) {
           <span className="tool-field-hint">
             Manga relations (source novels, manga adaptations) are pulled in via{' '}
             <em>Source</em> / <em>Adaptation</em>; scores come from your media list.
+            After the first trace, changing these types updates the results
+            immediately.
           </span>
         </div>
 
