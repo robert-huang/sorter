@@ -159,6 +159,29 @@ export function buildSortInputFromStaged(groups: StagedGroup[]): {
 }
 
 /**
+ * Find the staged group that supplies insertion mode's frozen seed. Mirrors
+ * `buildSortInputFromStaged` removal and first-occurrence dedup rules so the
+ * ANCHOR badge always identifies the sublist the engine will actually receive
+ * first.
+ */
+export function findInsertionAnchorGroupId(
+  groups: readonly StagedGroup[],
+): string | null {
+  const seen = new Set<ItemId>();
+  for (const group of groups) {
+    if (group.markedForRemoval) continue;
+    let effectiveItemCount = 0;
+    for (const item of group.items) {
+      if (group.markedItemIds?.has(item.id) || seen.has(item.id)) continue;
+      seen.add(item.id);
+      effectiveItemCount += 1;
+    }
+    if (group.kind === 'sublist' && effectiveItemCount > 0) return group.id;
+  }
+  return null;
+}
+
+/**
  * One occurrence of an item id across the staged groups. Order
  * mirrors group iteration order, so `occurrences[0]` is the "winner"
  * that `buildSortInputFromStaged` will keep — every entry past
@@ -330,6 +353,13 @@ export function StagedItemsPanel({
   const rankedSublistReady = isSingleRankedSublistReady(combined);
   const effectiveStartMode: StartMode =
     startMode === 'confirmation' && !rankedSublistReady ? 'merge' : startMode;
+  const insertionAnchorGroupId = useMemo(
+    () =>
+      effectiveStartMode === 'insertion'
+        ? findInsertionAnchorGroupId(combined)
+        : null,
+    [combined, effectiveStartMode],
+  );
   // Per-group expansion state. Lives here (not as a single
   // currently-expanded id) so the user can fan multiple groups open
   // to compare them side-by-side — useful when chasing a duplicate.
@@ -622,12 +652,20 @@ export function StagedItemsPanel({
                   className={`staged-panel-kind kind-${g.kind}`}
                   title={
                     g.kind === 'sublist'
-                      ? 'Pre-ranked — order preserved during merge'
+                      ? 'Pre-ranked — relative order preserved during sorting'
                       : 'Unranked — items compete from scratch'
                   }
                 >
                   {g.kind === 'sublist' ? 'ranked' : 'unranked'}
                 </span>
+                {g.id === insertionAnchorGroupId && (
+                  <span
+                    className="staged-panel-group-anchor"
+                    title="This first pre-ranked sublist seeds the insertion ranking"
+                  >
+                    anchor
+                  </span>
+                )}
                 <span className="staged-panel-source">{g.source}</span>
                 <span className="staged-panel-count">
                   {g.items.length} item{g.items.length === 1 ? '' : 's'}

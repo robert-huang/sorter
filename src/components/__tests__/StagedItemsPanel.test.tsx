@@ -13,6 +13,7 @@ import {
   buildSortInputFromStaged,
   countMarkedForRemoval,
   findDuplicateOccurrences,
+  findInsertionAnchorGroupId,
   isSingleRankedSublistReady,
   StagedItemsPanel,
   type StagedGroup,
@@ -152,6 +153,36 @@ describe('buildSortInputFromStaged', () => {
       }),
     ]);
     expect(withHint).toEqual(without);
+  });
+});
+
+describe('findInsertionAnchorGroupId', () => {
+  it('selects the first effective ranked sublist regardless of size', () => {
+    expect(
+      findInsertionAnchorGroupId([
+        flat('flat', 'clipboard', [item('loose')]),
+        sublist('first', 'short.csv', [item('a'), item('b')]),
+        sublist('second', 'long.csv', [
+          item('c'),
+          item('d'),
+          item('e'),
+        ]),
+      ]),
+    ).toBe('first');
+  });
+
+  it('skips removed and fully deduplicated sublists', () => {
+    expect(
+      findInsertionAnchorGroupId([
+        flat('flat', 'clipboard', [item('a')]),
+        sublist('deduped', 'duplicate.csv', [item('a')]),
+        {
+          ...sublist('removed', 'removed.csv', [item('b')]),
+          markedForRemoval: true,
+        },
+        sublist('anchor', 'anchor.csv', [item('c')]),
+      ]),
+    ).toBe('anchor');
   });
 });
 
@@ -539,6 +570,7 @@ describe('StagedItemsPanel · Start Sort split-button', () => {
     expect(items[1].textContent).toContain('Insertion sort');
     expect(items[2].textContent).toContain('Confirmation sort');
     expect(mainBtn()!.textContent).toContain('Confirm order');
+    expect(container.querySelector('.staged-panel-group-anchor')).toBeNull();
   });
 
   it('opens the chevron menu with merge and insertion when not a single ranked sublist', () => {
@@ -574,6 +606,36 @@ describe('StagedItemsPanel · Start Sort split-button', () => {
     // unambiguous.
     expect(mainBtn()!.textContent).toContain('Insertion sort');
     expect(mainBtn()!.textContent).toContain('(2)');
+  });
+
+  it('shows ANCHOR on only the first ranked sublist in insertion mode', () => {
+    act(() => {
+      root.render(
+        <SplitButtonHarness
+          onStartSort={() => {}}
+          onModeSpy={() => {}}
+          staged={[
+            sublist('first', 'short.csv', [item('a'), item('b')]),
+            sublist('second', 'long.csv', [
+              item('c'),
+              item('d'),
+              item('e'),
+            ]),
+          ]}
+        />,
+      );
+    });
+    expect(container.querySelector('.staged-panel-group-anchor')).toBeNull();
+
+    act(() => caretBtn()!.click());
+    act(() => menuItems()[1].click());
+
+    const badges = container.querySelectorAll('.staged-panel-group-anchor');
+    expect(badges).toHaveLength(1);
+    expect(badges[0].textContent).toBe('anchor');
+    expect(badges[0].closest('.staged-panel-group')?.textContent).toContain(
+      'short.csv',
+    );
   });
 
   it('the primary click fires onStartSort (the parent routes on its own startMode)', () => {

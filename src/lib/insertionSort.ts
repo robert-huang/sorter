@@ -369,12 +369,16 @@ export interface InsertionSeedOptions {
  * START entry point: seed an insertion-mode sort from a mix of pre-ranked
  * sublists and unranked extras.
  *
- * The LARGEST pre-ranked sublist becomes the frozen `sorted[]` seed — it
- * reuses the most already-ordered work, so the fewest binary inserts
- * remain. The other sublists drain into `pending[]` as rank-aware RUNS
- * (each tightens its own search, item 2+ inserting only into the suffix
- * after the previous same-run item landed — see `drainPending` /
- * `startRankAwareInsert`). Extras drain as singleton runs (full-range).
+ * The FIRST pre-ranked sublist becomes the frozen `sorted[]` seed. The
+ * other sublists drain into `pending[]` as rank-aware RUNS (each tightens
+ * its own search, item 2+ inserting only into the suffix after the previous
+ * same-run item landed — see `drainPending` / `startRankAwareInsert`).
+ * Extras are singleton runs (full-range).
+ *
+ * Startup shuffling operates on whole runs, not individual items: a
+ * pre-ranked sublist stays contiguous and keeps its internal order while
+ * competing with other sublists and loose-item singleton runs for queue
+ * position.
  *
  * Run ids are only emitted when at least one non-seed sublist has 2+
  * items (otherwise every run is a singleton and tightening is moot — we
@@ -390,35 +394,28 @@ export function seedInsertionFromSublists(
   const { sublists, extras } = args;
   const { shuffle = true, random } = options ?? {};
 
-  // Largest sublist seeds the frozen list (first-wins on ties).
-  let seedIdx = -1;
-  let seedLen = 0;
-  sublists.forEach((sub, i) => {
-    if (sub.length > seedLen) {
-      seedLen = sub.length;
-      seedIdx = i;
-    }
-  });
-  const seed = seedIdx >= 0 ? sublists[seedIdx] : [];
-  const rest = sublists.filter((_, i) => i !== seedIdx);
+  const nonEmptySublists = sublists.filter((sub) => sub.length > 0);
+  const seed = nonEmptySublists[0] ?? [];
+  const rest = nonEmptySublists.slice(1);
 
-  // Remaining sublists first (each a tightening run), then extras
-  // (singleton runs). Run ids are dense integers; equal ids = one run.
+  // Shuffle whole ranked runs and loose-item singleton runs, then flatten.
+  // Equal ids remain contiguous and identify one rank-tightening run.
+  const pendingRuns: Array<{ items: Item[]; runId: number }> = [];
+  rest.forEach((items, runId) => pendingRuns.push({ items, runId }));
+  extras.forEach((item, index) => {
+    pendingRuns.push({ items: [item], runId: rest.length + index });
+  });
+  const orderedRuns =
+    shuffle && pendingRuns.length > 1
+      ? shuffledCopy(pendingRuns, random)
+      : pendingRuns;
   const pendingItems: Item[] = [];
   const runIds: number[] = [];
-  let nextRun = 0;
-  for (const sub of rest) {
-    const rid = nextRun++;
-    for (const it of sub) {
-      pendingItems.push(it);
-      runIds.push(rid);
+  for (const run of orderedRuns) {
+    for (const item of run.items) {
+      pendingItems.push(item);
+      runIds.push(run.runId);
     }
-  }
-  const orderedExtras =
-    shuffle && extras.length > 1 ? shuffledCopy(extras, random) : extras;
-  for (const it of orderedExtras) {
-    pendingItems.push(it);
-    runIds.push(nextRun++);
   }
 
   const hasMultiItemRun = rest.some((sub) => sub.length >= 2);

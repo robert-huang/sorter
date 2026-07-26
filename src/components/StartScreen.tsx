@@ -223,7 +223,7 @@ interface Props {
   ) => void;
   /**
    * Insertion-mode start. Same combined draft as `onStartPreranked`, but
-   * seeds the binary-insertion engine (largest pre-ranked sublist becomes
+   * seeds the binary-insertion engine (first pre-ranked sublist becomes
    * the frozen `sorted[]`, everything else binary-inserts one at a time).
    * Chosen via the Start Sort split-button's "Insertion sort" option.
    */

@@ -125,19 +125,35 @@ describe('initInsertionSort (flat from scratch)', () => {
 });
 
 describe('seedInsertionFromSublists', () => {
-  it('uses the LARGEST sublist as the frozen seed', () => {
+  it('uses the first sublist as the frozen seed regardless of size', () => {
     const { state } = seedInsertionFromSublists(
       { sublists: [[X, Y, Z], [A, B, C, D, E]], extras: [] },
       { shuffle: false },
     );
-    // The 5-item sublist seeds `sorted`; the 3-item sublist drains. The
-    // first run item (x) is already popped into `current` (in flight), so
+    // The first 3-item sublist seeds `sorted`; the larger sublist drains. The
+    // first run item (a) is already popped into `current` (in flight), so
     // pending / pendingRunIds list only what's still waiting.
-    expect(state.sorted).toEqual(['a', 'b', 'c', 'd', 'e']);
-    expect(state.current?.insertingId).toBe('x');
-    expect(state.pending).toEqual(['y', 'z']);
-    // It is a real run (3 items) so tightening metadata is present.
-    expect(state.pendingRunIds).toEqual([0, 0]);
+    expect(state.sorted).toEqual(['x', 'y', 'z']);
+    expect(state.current?.insertingId).toBe('a');
+    expect(state.pending).toEqual(['b', 'c', 'd', 'e']);
+    expect(state.pendingRunIds).toEqual([0, 0, 0, 0]);
+  });
+
+  it('shuffles whole ranked runs with loose-item singleton runs', () => {
+    const { state } = seedInsertionFromSublists(
+      {
+        sublists: [[A, B], [X, Y, Z]],
+        extras: [P],
+      },
+      { random: () => 0 },
+    );
+
+    expect(state.sorted).toEqual(['a', 'b']);
+    // Fisher–Yates moves the loose singleton ahead of the ranked run.
+    expect(state.current?.insertingId).toBe('p');
+    expect(state.pending).toEqual(['x', 'y', 'z']);
+    // The ranked sublist remains one contiguous tightening run.
+    expect(state.pendingRunIds).toEqual([0, 0, 0]);
   });
 
   it('omits run ids when no non-seed sublist has 2+ items', () => {

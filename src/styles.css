@@ -5957,6 +5957,18 @@ html {
   flex-shrink: 0;
 }
 
+.staged-panel-group-anchor {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+  color: var(--success);
+  flex-shrink: 0;
+}
+
 .staged-panel-dup-warning {
   padding: 8px 10px;
   border-radius: var(--radius-sm);

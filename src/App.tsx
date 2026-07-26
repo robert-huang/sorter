@@ -2072,7 +2072,7 @@ export function App() {
   /**
    * Insertion-mode START entry point. Same combined `{ sublists, extras }`
    * draft as the merge path, but seeds the binary-insertion engine: the
-   * largest pre-ranked sublist becomes the frozen `sorted[]` and
+   * first pre-ranked sublist becomes the frozen `sorted[]` and
    * everything else binary-inserts one item at a time (rank-aware
    * tightening for the remaining sublists). Chosen via the Start Sort
    * split-button's "Insertion sort" option — a per-draft, non-persisted

@@ -1891,8 +1891,8 @@ function InsertionListView({
           >
             {fromSublists ? (
               <>
-                The largest pre-ranked sublist, frozen best→worst. Other
-                sublists wait in the queue below and binary-insert one item at
+                The first pre-ranked sublist, frozen best→worst. Other
+                sublists wait in the queue below and binary-insert one sublist at
                 a time. You can still nudge with <strong>↑ / ↓</strong>,
                 re-insert with <strong>↻</strong>, or <strong>× Remove</strong>{' '}
                 any row.
