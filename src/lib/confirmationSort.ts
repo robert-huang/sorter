@@ -152,6 +152,36 @@ export function comparisonsRemaining(state: ConfirmationState): number {
   return comparisonsRemainingFromProgress(state);
 }
 
+/**
+ * Confirmation progress gives every item requiring a decision an equal
+ * section. Once a rejection starts binary insertion, that item's section is
+ * split across the rejection and its worst-case insertion comparisons.
+ */
+export function getItemProgress(
+  state: ConfirmationState,
+): { completed: number; total: number; pct: number } {
+  const activeCount =
+    (state.phase === 'insert' && state.insertFrame) || state.candidate ? 1 : 0;
+  const total = Math.max(
+    0,
+    state.confirmed.length + activeCount + state.queue.length - 1,
+  );
+
+  if (state.done) return { completed: total, total, pct: 100 };
+  if (total === 0) return { completed: 0, total: 0, pct: 0 };
+
+  let completed = Math.max(0, state.confirmed.length - 1);
+  if (state.phase === 'insert' && state.insertFrame) {
+    const insertTotal = worstCaseInsertCost(state.confirmed.length);
+    const insertRemaining = insertComparisonsRemaining(state.insertFrame);
+    const insertCompleted = Math.max(0, insertTotal - insertRemaining);
+    completed += (1 + insertCompleted) / (1 + insertTotal);
+  }
+
+  const pct = Math.min(99, Math.round((completed / total) * 100));
+  return { completed, total, pct };
+}
+
 function comparisonsRemainingFromProgress(
   progress: ConfirmationProgress,
 ): number {
@@ -164,15 +194,19 @@ function comparisonsRemainingFromProgress(
     confirmedLen += 1;
   } else if (progress.candidate) {
     total += 1;
+    // The first candidate can be prepended directly, but every later
+    // rejection may require a full-range binary insertion.
+    if (confirmedLen > 1) {
+      total += worstCaseInsertCost(confirmedLen);
+    }
+    confirmedLen += 1;
   }
 
-  const tail =
-    progress.phase === 'insert'
-      ? progress.queue.length
-      : Math.max(0, progress.queue.length);
-  for (let i = 0; i < tail; i++) {
+  for (let i = 0; i < progress.queue.length; i++) {
     total += 1;
-    total += worstCaseInsertCost(confirmedLen);
+    if (confirmedLen > 1) {
+      total += worstCaseInsertCost(confirmedLen);
+    }
     confirmedLen += 1;
   }
   return total;

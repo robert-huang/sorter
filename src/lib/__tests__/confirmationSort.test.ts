@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   addItem,
   addItems,
+  comparisonsRemaining,
   getPair,
   hideItem,
   optimisticComparisonsRemaining,
@@ -14,7 +15,7 @@ import {
   snapshotProgress,
 } from '../confirmationSort';
 import type { ConfirmationProgress, Item } from '../types';
-import { selectUndoSnapshot } from '../engine';
+import { getCompareProgress, selectUndoSnapshot } from '../engine';
 
 const item = (id: string, label: string): Item => ({ id, label });
 
@@ -38,6 +39,72 @@ describe('confirmationSort', () => {
     }
     expect(s.confirmed).toEqual(['1', '2', '3', '4']);
     expect(s.comparisons).toBe(3);
+  });
+
+  it('includes active-candidate insertion in the worst-case progress forecast', () => {
+    const items = ['1', '2', '3', '4'].map((id) => item(id, id));
+    let s = seedConfirmation(items);
+    expect(s.totalComparisonsEverNeeded).toBe(7);
+    expect(comparisonsRemaining(s)).toBe(7);
+
+    s = pickLeft(s);
+    const remainingBeforeRejection = comparisonsRemaining(s);
+    const percentageBeforeRejection = getCompareProgress(s).pct;
+    s = pickRight(s);
+
+    expect(s.phase).toBe('insert');
+    expect(comparisonsRemaining(s)).toBe(remainingBeforeRejection - 1);
+    expect(getCompareProgress(s).pct).toBeGreaterThanOrEqual(
+      percentageBeforeRejection,
+    );
+  });
+
+  it('gives each actionable item an equal progress section', () => {
+    const items = ['1', '2', '3', '4', '5'].map((id) => item(id, id));
+    let s = seedConfirmation(items);
+
+    expect(getCompareProgress(s)).toMatchObject({
+      completed: 0,
+      total: 4,
+      pct: 0,
+    });
+
+    s = pickLeft(s);
+    expect(getCompareProgress(s)).toMatchObject({
+      completed: 1,
+      total: 4,
+      pct: 25,
+    });
+
+    s = pickRight(s);
+    expect(s.phase).toBe('insert');
+    expect(getCompareProgress(s)).toMatchObject({ total: 4, pct: 33 });
+
+    s = pickLeft(s);
+    expect(s.phase).toBe('insert');
+    expect(getCompareProgress(s)).toMatchObject({ total: 4, pct: 42 });
+
+    s = pickLeft(s);
+    expect(s.phase).toBe('confirm');
+    expect(getCompareProgress(s)).toMatchObject({
+      completed: 2,
+      total: 4,
+      pct: 50,
+    });
+
+    s = pickLeft(s);
+    expect(getCompareProgress(s)).toMatchObject({
+      completed: 3,
+      total: 4,
+      pct: 75,
+    });
+
+    s = pickLeft(s);
+    expect(getCompareProgress(s)).toMatchObject({
+      completed: 4,
+      total: 4,
+      pct: 100,
+    });
   });
 
   it('first right pick prepends candidate when only one item is confirmed', () => {

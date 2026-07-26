@@ -83,14 +83,17 @@ export function optimisticComparisonsRemaining(state: SortState): number {
 }
 
 /**
- * Progress for the compare-screen bar and document.title. Uses the
- * remaining-comparisons forecast while in flight; when `state.done` the
- * bar/title treat the sort as complete (title shows ✓, not a percent).
+ * Progress for the compare-screen bar and document.title. Confirmation mode
+ * uses equal per-item sections, while the other engines use their remaining-
+ * comparisons forecast. When `state.done`, the sort is complete.
  */
 export function getCompareProgress(
   state: SortState,
   options?: EngineOptions,
 ): { completed: number; total: number; pct: number } {
+  if (state.engine === 'confirmation') {
+    return confirmation.getItemProgress(state);
+  }
   const total = state.totalComparisonsEverNeeded ?? 0;
   if (total === 0) {
     return { completed: 0, total: 0, pct: 0 };

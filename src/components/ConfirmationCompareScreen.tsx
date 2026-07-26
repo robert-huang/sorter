@@ -15,6 +15,7 @@ import { ItemCard } from './ItemCard';
 import { ItemThumb } from './ItemThumb';
 import { DetailButtonSlot } from './DetailButton';
 import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
+import { RemoveGlyph } from './RemoveGlyph';
 
 interface Props {
   state: ConfirmationState;
@@ -548,7 +549,7 @@ export function ConfirmationCompareScreen({
                           title="Remove"
                           aria-label={`Remove ${item.label}`}
                         >
-                          ×
+                          <RemoveGlyph size={12} />
                         </button>
                       </span>
                     </div>
