@@ -17,6 +17,7 @@ import type {
   SortState,
 } from '../lib/types';
 import { AddItemsModal } from './AddItemsModal';
+import { CircularArrowGlyph } from './CircularArrowGlyph';
 import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
 import { DetailButtonSlot } from './DetailButton';
 import { RemoveGlyph } from './RemoveGlyph';
@@ -129,7 +130,7 @@ function CompletedRankingSection({
                             onClick={() => onReturnToPending(id)}
                             title="Pull this item back out and re-insert it (fresh binary search)"
                           >
-                            ↻
+                            <CircularArrowGlyph />
                           </button>
                         </>
                       ) : null
@@ -261,7 +262,7 @@ function HiddenItemsSection({
                     <span className="actions">
                       {canAct && useRestore && (
                         <LabeledIconButton
-                          glyph="↺"
+                          glyph={<CircularArrowGlyph direction="counterclockwise" />}
                           label="Restore"
                           onClick={() =>
                             allowInlineRestore
@@ -277,7 +278,7 @@ function HiddenItemsSection({
                       )}
                       {canAct && !useRestore && (
                         <LabeledIconButton
-                          glyph="↻"
+                          glyph={<CircularArrowGlyph />}
                           label="Reinsert"
                           onClick={() =>
                             allowInlineRestore
@@ -509,7 +510,7 @@ function HideOrRestoreButton({
           title={restoreTitle}
           aria-label={ariaLabel ?? restoreTitle}
         >
-          ↺
+          <CircularArrowGlyph direction="counterclockwise" />
         </button>
       );
     }
@@ -520,7 +521,7 @@ function HideOrRestoreButton({
         title={restoreTitle}
         aria-label={ariaLabel}
       >
-        ↺
+        <CircularArrowGlyph direction="counterclockwise" />
       </button>
     );
   }
@@ -770,7 +771,7 @@ function InsertContextSection({
                                     onClick={() => onReturnTargetToPending(id)}
                                     title="Pull this item back out and re-insert it (fresh binary search)"
                                   >
-                                    ↻
+                                    <CircularArrowGlyph />
                                   </button>
                                 ) : null}
                               </>
@@ -1952,7 +1953,7 @@ function InsertionListView({
                                 onClick={() => onReturnToPending(id)}
                                 title="Pull this item back out and re-insert it (fresh binary search)"
                               >
-                                ↻
+                                <CircularArrowGlyph />
                               </button>
                             </>
                           ) : null

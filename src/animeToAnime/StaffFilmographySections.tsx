@@ -2,6 +2,7 @@ import type { AnimeFilmographyRow } from '../lib/importers/anilist/graphQueries'
 import { graphStaleRefreshTooltip } from '../lib/importers/anilist/graphConstants';
 import { anilistUrlForStaff, bindAnilistMiddleClick, mergeAnilistLinkClass } from './anilistMiddleClick';
 import { AnimeFilmographyHopButton } from './AnimeFilmographyHopButton';
+import { CircularArrowGlyph } from '../components/CircularArrowGlyph';
 
 function partitionFilmography(rows: readonly AnimeFilmographyRow[]): {
   voice: AnimeFilmographyRow[];
@@ -109,7 +110,7 @@ export function StaffFilmographySections({
           title={refreshLabel}
           aria-label={refreshLabel}
         >
-          ↻
+          <CircularArrowGlyph />
         </button>
       </div>
 

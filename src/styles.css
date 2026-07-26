@@ -1887,6 +1887,11 @@ html {
   font-size: 12px;
 }
 
+.anilist-detail-refresh-label {
+  margin-left: -3px;
+  padding: 2px 0;
+}
+
 /* ---------- StartScreen anilist mode (Phase D) ---------- */
 
 .anilist-start {
@@ -3307,6 +3312,33 @@ html {
   font-weight: 600;
   font-size: 14px;
   color: var(--text);
+}
+
+.circular-arrow-glyph {
+  display: block;
+  flex: 0 0 auto;
+  width: calc(1em - 2px);
+  height: calc(1em - 2px);
+  overflow: visible;
+}
+
+.btn.circular-arrow-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  line-height: 1;
+}
+
+.x-button .circular-arrow-glyph,
+.chip .x .circular-arrow-glyph {
+  width: 12px;
+  height: 12px;
+}
+
+.icon-btn-glyph-slot .circular-arrow-glyph {
+  width: 11px;
+  height: 11px;
 }
 
 .btn:hover:not(:disabled) {
@@ -5611,7 +5643,7 @@ html {
   padding: 5px 6px;
   font-size: 14px;
   line-height: 1;
-  min-width: 28px;
+  min-width: 30px;
   min-height: 30px;
   overflow: visible;
   border-radius: var(--radius-sm);

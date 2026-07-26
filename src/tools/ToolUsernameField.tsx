@@ -1,3 +1,5 @@
+import { CircularArrowGlyph } from '../components/CircularArrowGlyph';
+
 type ToolUsernameFieldProps = {
   label: string;
   value: string;
@@ -55,7 +57,7 @@ export function ToolUsernameField({
             title={refreshLabel}
             aria-label={refreshLabel}
           >
-            ↻
+            <CircularArrowGlyph />
           </button>
         )}
       </div>

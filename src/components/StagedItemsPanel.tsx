@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Item, ItemId } from '../lib/types';
 import { useClickOutside } from '../lib/hooks/useClickOutside';
+import { CircularArrowGlyph } from './CircularArrowGlyph';
 import { DetailButtonSlot } from './DetailButton';
 import { RemoveGlyph } from './RemoveGlyph';
 
@@ -681,7 +682,11 @@ export function StagedItemsPanel({
                       : 'Mark this whole source for removal (undo with ↺ before Start Sort)'
                   }
                 >
-                  {groupMarked ? '↺' : <RemoveGlyph size={12} />}
+                  {groupMarked ? (
+                    <CircularArrowGlyph direction="counterclockwise" />
+                  ) : (
+                    <RemoveGlyph size={12} />
+                  )}
                 </button>
               )}
 
@@ -833,7 +838,11 @@ export function StagedItemsPanel({
                                 : 'Mark this entry for removal (undo with ↺ before Start Sort)'
                             }
                           >
-                            {itemMarked ? '↺' : <RemoveGlyph size={12} />}
+                            {itemMarked ? (
+                              <CircularArrowGlyph direction="counterclockwise" />
+                            ) : (
+                              <RemoveGlyph size={12} />
+                            )}
                           </button>
                         )}
                       </li>

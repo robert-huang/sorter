@@ -11,6 +11,7 @@ import {
 import { isSpotifyApiBanned } from '../lib/spotify/spotifyApi';
 import { useSpotifyApiBan } from '../hooks/useSpotifyApiBannedUntil';
 import { useThemeSongDisplayPreferences } from '../hooks/useThemeSongDisplayPreferences';
+import { CircularArrowGlyph } from './CircularArrowGlyph';
 import {
   clearSelectedSpotifyPlaylist,
   formatSpotifyApiBanMessage,
@@ -353,7 +354,7 @@ export function SpotifySection() {
                   }
                   aria-label="Refresh playlist cache"
                 >
-                  {refreshingCache ? '…' : '↻'}
+                  {refreshingCache ? '…' : <CircularArrowGlyph />}
                 </button>
               )}
             </div>

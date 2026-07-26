@@ -18,6 +18,7 @@ import {
   mergeAnilistLinkClass,
 } from '../../lib/importers/anilist/anilistLinks';
 import { DragScroll } from '../../components/DragScroll';
+import { CircularArrowGlyph } from '../../components/CircularArrowGlyph';
 import { applyHeaderScrollbarGutter } from '../../lib/chartSplitTableSync';
 import {
   bustWeeklyCalendarUserListMemo,
@@ -453,7 +454,7 @@ function WeeklyCalendarThemeSongsPanel({
             title="Re-fetch theme songs for all cached shows"
             aria-label="Refresh all cached theme songs"
           >
-            {refreshingCached ? '…' : '↻'}
+            {refreshingCached ? '…' : <CircularArrowGlyph />}
           </button>
         ) : null}
       </div>
@@ -500,7 +501,7 @@ function WeeklyCalendarThemeSongsPanel({
               title="Fetch theme songs for all not-yet-loaded shows"
               aria-label="Refresh all not loaded theme songs"
             >
-              {refreshingPending ? '…' : '↻'}
+              {refreshingPending ? '…' : <CircularArrowGlyph />}
             </button>
           </p>
           <ul className="tool-weekly-theme-songs-pending-list">

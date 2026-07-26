@@ -28,6 +28,7 @@ import { productionReads } from '../lib/importers/anilist/readQueries';
 import type { MediaRow, StaffRow } from '../lib/importers/anilist/types';
 import { useAnilistDisplayPreferences } from '../hooks/useAnilistDisplayPreferences';
 import { useHistoryBackGuard } from '../hooks/useHistoryBackGuard';
+import { CircularArrowGlyph } from '../components/CircularArrowGlyph';
 import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
 import { pickPersonName } from '../lib/importers/anilist/personDisplayLabel';
 import {
@@ -913,12 +914,19 @@ export function AnimeToAnimeApp() {
                 <div className="anime-to-anime-recovery">
                   <button
                     type="button"
-                    className="btn primary anime-to-anime-recovery-btn"
+                    className="btn primary circular-arrow-label anime-to-anime-recovery-btn"
                     onClick={onRefreshPlayList}
                     disabled={loading}
                     title="Refetch this entry from AniList"
                   >
-                    {loading ? 'Loading…' : '↻ Refresh from AniList'}
+                    {loading ? (
+                      'Loading…'
+                    ) : (
+                      <>
+                        <CircularArrowGlyph />
+                        <span>Refresh from AniList</span>
+                      </>
+                    )}
                   </button>
                 </div>
               )}
@@ -946,7 +954,7 @@ export function AnimeToAnimeApp() {
                       title={currentCastRefreshLabel}
                       aria-label={currentCastRefreshLabel}
                     >
-                      ↻
+                      <CircularArrowGlyph />
                     </button>
                   </div>
                   {activeRoundConfig?.allowRelations && (

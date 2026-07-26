@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { CircularArrowGlyph } from './CircularArrowGlyph';
 import {
   formatGraphCacheDate,
   graphStaleRefreshTooltip,
@@ -546,7 +547,7 @@ export function AnilistDetailModal({
           <h3 style={{ margin: 0, flex: 1, minWidth: 0 }}>{title}</h3>
           <button
             type="button"
-            className={`btn small${
+            className={`btn small circular-arrow-label${
               isModalCacheStale && !expanding ? ' anilist-detail-refresh-stale' : ''
             }`}
             onClick={() => void onRefresh()}
@@ -560,7 +561,14 @@ export function AnilistDetailModal({
                 : 'Re-fetch cast, staff & relations (does not auto-push)'
             }
           >
-            {expanding ? 'Refreshing…' : '↻ Refresh'}
+            {expanding ? (
+              'Refreshing…'
+            ) : (
+              <>
+                <CircularArrowGlyph />
+                <span className="anilist-detail-refresh-label">Refresh</span>
+              </>
+            )}
           </button>
           <button
             type="button"
@@ -959,7 +967,13 @@ export function AnilistDetailModal({
                         themeSongsFetchedAt === null ? 'Load theme songs' : 'Refresh theme songs'
                       }
                     >
-                      {themeSongsLoading ? '…' : themeSongsFetchedAt === null ? 'Load' : '↻'}
+                      {themeSongsLoading ? (
+                        '…'
+                      ) : themeSongsFetchedAt === null ? (
+                        'Load'
+                      ) : (
+                        <CircularArrowGlyph />
+                      )}
                     </button>
                   )}
                 </h4>

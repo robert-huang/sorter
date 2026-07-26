@@ -15,6 +15,7 @@ import { ItemCard } from './ItemCard';
 import { ItemThumb } from './ItemThumb';
 import { DetailButtonSlot } from './DetailButton';
 import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
+import { CircularArrowGlyph } from './CircularArrowGlyph';
 import { RemoveGlyph } from './RemoveGlyph';
 
 interface Props {
@@ -531,7 +532,7 @@ export function ConfirmationCompareScreen({
                           title="Pull out and re-confirm"
                           aria-label={`Re-confirm ${item.label}`}
                         >
-                          ↻
+                          <CircularArrowGlyph />
                         </button>
                         <button
                           type="button"

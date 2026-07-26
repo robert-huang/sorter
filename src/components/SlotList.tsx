@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SlotMeta } from '../lib/types';
+import { CircularArrowGlyph } from './CircularArrowGlyph';
 import { RemoveGlyph } from './RemoveGlyph';
 
 interface Props {
@@ -624,13 +625,6 @@ function CloudRowControls({
 
   const cloudIcon = '☁';
 
-  // Per-button glyph swap during in-flight calls. The spinner is a
-  // simple text glyph rather than an SVG/Lottie so it stays in the
-  // monochrome icon-button column (matches ★ / ⇡ / ⇣ / ⤓ / ×) and
-  // doesn't require any asset pipeline work. Rotation comes from the
-  // `.spinning` CSS class — see `styles.css`.
-  const SPINNER_GLYPH = '↻';
-
   const cloudClassExtra =
     syncState === 'synced'
       ? ' cloud-on cloud-synced'
@@ -679,7 +673,7 @@ function CloudRowControls({
           aria-busy={pushing}
           disabled={pushing}
         >
-          {pushing ? SPINNER_GLYPH : '⇡'}
+          {pushing ? <CircularArrowGlyph /> : '⇡'}
         </button>
       )}
       {optedIn && hasCloudBinding && (
@@ -702,7 +696,7 @@ function CloudRowControls({
           aria-busy={pulling}
           disabled={pulling}
         >
-          {pulling ? SPINNER_GLYPH : '⇣'}
+          {pulling ? <CircularArrowGlyph /> : '⇣'}
         </button>
       )}
     </>
