@@ -64,6 +64,7 @@ import {
   normalizeWeeklyCalendarFormatFilters,
   normalizeWeeklyCalendarMediaStatusFilters,
   resolveWeeklyCalendarSeasonSpecs,
+  weeklyCalendarFetchKey,
   weeklyCalendarTimezoneToIana,
   WEEKLY_CALENDAR_LIST_STATUS_OPTIONS,
   WEEKLY_CALENDAR_FORMAT_OPTIONS,
@@ -95,6 +96,11 @@ type PersistedWeeklyCalendarForm = Pick<
   | 'showUnscheduledColumn'
   | 'showThemeSongs'
 >;
+
+type WeeklyCalendarFetchIdentity = {
+  username: string;
+  sourceKey: string;
+};
 
 const WEEK_START_OPTIONS: WeeklyCalendarWeekStartDay[] = [
   'MONDAY',
@@ -698,9 +704,6 @@ function WeeklyCalendarColumnsView({
 
 export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelProps) {
   const playlistCache = useSpotifyPlaylistCache();
-  const { refreshing: refreshingList, refreshUsernameList } = useUsernameListRefresh({
-    onAfterRefresh: bustWeeklyCalendarUserListMemo,
-  });
   const [form, setForm] = useState<WeeklyCalendarForm>(() => loadForm());
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -713,7 +716,21 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
   const [refreshingThemeSongsPending, setRefreshingThemeSongsPending] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const chartSessionRef = useRef(0);
-  const fetchedUsernameRef = useRef<string | null>(null);
+  const fetchedIdentityRef = useRef<WeeklyCalendarFetchIdentity | null>(null);
+
+  const onAfterListRefresh = useCallback((username: string) => {
+    bustWeeklyCalendarUserListMemo(username);
+    const handle = username.trim().toLowerCase();
+    if (fetchedIdentityRef.current?.username === handle) {
+      setRawEntries(null);
+      setSeasonLabel(null);
+      fetchedIdentityRef.current = null;
+    }
+  }, []);
+
+  const { refreshing: refreshingList, refreshUsernameList } = useUsernameListRefresh({
+    onAfterRefresh: onAfterListRefresh,
+  });
 
   useEffect(() => {
     saveForm(form);
@@ -752,16 +769,23 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
     [form.customSeasonMinEncoded, form.customSeasonMaxEncoded, customSeasonYearOptions],
   );
 
+  const requestedUsername = form.username.trim().toLowerCase();
+  const requestedSourceKey = weeklyCalendarFetchKey(form);
+
   const result = useMemo((): WeeklyCalendarResult | null => {
     if (!rawEntries) {
       return null;
     }
-    const handle = form.username.trim().toLowerCase();
-    if (fetchedUsernameRef.current !== null && handle !== fetchedUsernameRef.current) {
+    const fetchedIdentity = fetchedIdentityRef.current;
+    if (
+      fetchedIdentity === null ||
+      requestedUsername !== fetchedIdentity.username ||
+      requestedSourceKey !== fetchedIdentity.sourceKey
+    ) {
       return null;
     }
     return finalizeWeeklyCalendarResult(rawEntries, form, seasonLabel);
-  }, [rawEntries, form, seasonLabel]);
+  }, [rawEntries, form, requestedSourceKey, requestedUsername, seasonLabel]);
 
   const themeSongCounts = useMemo(() => {
     const counts = new Map<number, number>();
@@ -857,6 +881,8 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
       if (!username) {
         setError('Enter an AniList username.');
         setRawEntries(null);
+        setSeasonLabel(null);
+        fetchedIdentityRef.current = null;
         return;
       }
 
@@ -869,8 +895,10 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
       setError(null);
       setRawEntries(null);
       setSeasonLabel(null);
+      fetchedIdentityRef.current = null;
 
       try {
+        const sourceKey = weeklyCalendarFetchKey(form);
         const seasonSpecs = resolveWeeklyCalendarSeasonSpecs(form);
         if (seasonSpecs) {
           const { entries, seasonLabel: label } = await fetchWeeklyCalendarSeasonsEntries(
@@ -879,6 +907,7 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
             controller.signal,
             forceRefresh ? { forceRefresh: true } : undefined,
           );
+          fetchedIdentityRef.current = { username: handle, sourceKey };
           setRawEntries(entries);
           setSeasonLabel(label);
         } else {
@@ -887,10 +916,10 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
             controller.signal,
             forceRefresh ? { forceRefresh: true } : undefined,
           );
+          fetchedIdentityRef.current = { username: handle, sourceKey };
           setRawEntries(entries);
           setSeasonLabel(null);
         }
-        fetchedUsernameRef.current = handle;
         chartSessionRef.current += 1;
       } catch (e) {
         if (e instanceof DOMException && e.name === 'AbortError') {
@@ -908,16 +937,20 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
   );
 
   useEffect(() => {
-    const handle = form.username.trim().toLowerCase();
-    if (
-      rawEntries != null &&
-      fetchedUsernameRef.current !== null &&
-      handle !== fetchedUsernameRef.current
-    ) {
-      setRawEntries(null);
-      fetchedUsernameRef.current = null;
+    if (rawEntries === null) {
+      return;
     }
-  }, [form.username, rawEntries]);
+    const fetchedIdentity = fetchedIdentityRef.current;
+    const sourceChanged =
+      fetchedIdentity === null ||
+      requestedUsername !== fetchedIdentity.username ||
+      requestedSourceKey !== fetchedIdentity.sourceKey;
+    if (sourceChanged) {
+      setRawEntries(null);
+      setSeasonLabel(null);
+      fetchedIdentityRef.current = null;
+    }
+  }, [rawEntries, requestedSourceKey, requestedUsername]);
 
   return (
     <section className="tool-panel">

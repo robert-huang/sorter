@@ -181,6 +181,16 @@ describe('formatAnilistSeasonRangeLabel', () => {
 });
 
 describe('weeklyCalendarFetchKey', () => {
+  it('distinguishes each fetched calendar source', () => {
+    const base = {
+      customSeasonMinEncoded: encodeSeasonYear('FALL', 2025),
+      customSeasonMaxEncoded: encodeSeasonYear('WINTER', 2026),
+    };
+    expect(weeklyCalendarFetchKey({ ...base, seasonScope: 'watching' })).toBe('watching');
+    expect(weeklyCalendarFetchKey({ ...base, seasonScope: 'current' })).toBe('current');
+    expect(weeklyCalendarFetchKey({ ...base, seasonScope: 'next' })).toBe('next');
+  });
+
   it('includes encoded min/max values for custom scope', () => {
     const min = encodeSeasonYear('FALL', 2025);
     const max = encodeSeasonYear('WINTER', 2026);
