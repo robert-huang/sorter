@@ -92,7 +92,7 @@ describe('getInsertContext', () => {
     });
   });
 
-  it('returns insertion-engine sorted list and pending queue', () => {
+  it('returns only the active insertion-engine entity', () => {
     const ctx = getInsertContext({
       engine: 'insertion',
       items: {},
@@ -112,12 +112,39 @@ describe('getInsertContext', () => {
     expect(ctx).toEqual({
       kind: 'insertion',
       targetIds: ['s1', 's2'],
-      remainingIds: ['p1', 'p2'],
+      remainingIds: ['p1'],
+      sourceSublistIds: ['p1'],
       insertingId: 'p1',
       probeId: 's1',
       windowLo: 0,
       windowHi: 1,
     });
+  });
+
+  it('keeps the full active insertion run separate from later queued runs', () => {
+    const ctx = getInsertContext({
+      engine: 'insertion',
+      items: {},
+      sorted: ['s1', 'done1', 's2'],
+      pending: ['p2', 'p3', 'later1'],
+      current: {
+        insertingId: 'p1',
+        lo: 1,
+        hi: 2,
+        probe: 1,
+      },
+      comparisons: 1,
+      done: false,
+      hidden: [],
+      totalComparisonsEverNeeded: 5,
+      pendingRunIds: [0, 0, 1],
+      activeRunId: 0,
+      activeRunAnchor: 1,
+      activeRunSourceIds: ['done1', 'p1', 'p2', 'p3'],
+    });
+    expect(ctx?.remainingIds).toEqual(['p1', 'p2', 'p3']);
+    expect(ctx?.sourceSublistIds).toEqual(['done1', 'p1', 'p2', 'p3']);
+    expect(ctx?.sourceSublistIds).not.toContain('later1');
   });
 
   it('returns null outside an active insert frame', () => {
@@ -204,6 +231,24 @@ describe('insertContextInsertingLabel', () => {
         2,
       ),
     ).toBe('Inserting (2)');
+  });
+
+  it('uses progress within the active run for insertion sublists', () => {
+    expect(
+      insertContextInsertingLabel(
+        {
+          kind: 'insertion',
+          targetIds: [],
+          remainingIds: ['p2', 'p3'],
+          sourceSublistIds: ['p1', 'p2', 'p3'],
+          insertingId: 'p2',
+          probeId: 't',
+          windowLo: 0,
+          windowHi: 0,
+        },
+        2,
+      ),
+    ).toBe('Inserting (2 of 3)');
   });
 
   it('uses m of n and queue depth for merge-auto', () => {

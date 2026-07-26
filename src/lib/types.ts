@@ -226,6 +226,13 @@ export interface InsertionProgress extends SortProgressBase {
    * of its run (or there's no tightening) ⇒ full-range search.
    */
   activeRunAnchor?: number | null;
+  /**
+   * Full item order of the active run at the moment that run starts.
+   * LIST uses this to keep the current sublist together and mark already
+   * inserted rows as done, matching merge auto-insert. Optional so older
+   * saves can derive the still-pending portion from `pendingRunIds`.
+   */
+  activeRunSourceIds?: ItemId[];
 }
 
 /**

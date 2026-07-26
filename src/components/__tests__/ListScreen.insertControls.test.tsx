@@ -140,6 +140,25 @@ describe('ListScreen · insert-context LIST-tab controls (insertion engine)', ()
     }).state;
   }
 
+  it('shows only the active run in "Inserting", not later queued runs', () => {
+    const state = buildInsertionState({
+      sortedItems: [A, B, C],
+      pendingItems: [D, E, F, X],
+      pendingRunIds: [0, 0, 0, 1],
+    }).state;
+    renderList(makeProps(state));
+
+    const contextPanels = container.querySelectorAll(
+      '.list-merging .list-merge-context-panel',
+    );
+    const insertingPanel = contextPanels[1];
+    expect(insertingPanel?.textContent).toContain('Inserting (1 of 3)');
+    expect(insertingPanel?.textContent).toContain('D');
+    expect(insertingPanel?.textContent).toContain('E');
+    expect(insertingPanel?.textContent).toContain('F');
+    expect(insertingPanel?.textContent).not.toContain('X');
+  });
+
   it('drops the in-flight inserting item via the × in "Inserting"', () => {
     const onHide = vi.fn();
     renderList(makeProps(insertionState(), { onHide }));

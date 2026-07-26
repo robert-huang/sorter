@@ -464,6 +464,9 @@ export function rewriteIdInProgress(
       sorted: mapArr(progress.sorted),
       pending: mapArr(progress.pending),
       hidden: mapArr(progress.hidden),
+      activeRunSourceIds: progress.activeRunSourceIds
+        ? mapArr(progress.activeRunSourceIds)
+        : undefined,
       current:
         progress.current === null
           ? null

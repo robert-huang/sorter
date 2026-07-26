@@ -148,7 +148,7 @@ export interface InsertContextView {
   /** Absolute `[lo, hi]` into `targetIds` after probe-skip (undecided window). */
   windowLo: number;
   windowHi: number;
-  /** merge-auto: full smaller sublist in original order (for LIST panel). */
+  /** Full active source sublist/run in original order (for LIST panel). */
   sourceSublistIds?: ItemId[];
   /** merge-auto: sublist pairs still waiting in the merge queue. */
   queueSublistCount?: number;
@@ -242,10 +242,22 @@ function getInsertionEngineInsertContext(
   pair: { leftId: ItemId; rightId: ItemId },
 ): InsertContextView {
   const frame = state.current!;
+  const storedSourceIds = state.activeRunSourceIds;
+  const activePendingIds = storedSourceIds
+    ? state.pending.filter((id) => storedSourceIds.includes(id))
+    : state.activeRunId !== null &&
+        state.activeRunId !== undefined &&
+        state.pendingRunIds?.length === state.pending.length
+      ? state.pending.filter(
+          (_id, index) => state.pendingRunIds?.[index] === state.activeRunId,
+        )
+      : [];
+  const remainingIds = [pair.leftId, ...activePendingIds];
   return {
     kind: 'insertion',
     targetIds: [...state.sorted],
-    remainingIds: [pair.leftId, ...state.pending],
+    remainingIds,
+    sourceSublistIds: storedSourceIds ?? remainingIds,
     insertingId: pair.leftId,
     probeId: pair.rightId,
     ...insertContextWindowFields(frame, state.sorted, state.hidden),
@@ -273,9 +285,12 @@ export function insertContextInsertingLabel(
   ctx: InsertContextView,
   visibleRemainingCount: number,
 ): string {
-  if (ctx.kind === 'merge-auto' && ctx.sourceSublistIds) {
+  if (ctx.sourceSublistIds) {
     const n = ctx.sourceSublistIds.length;
     const m = Math.max(1, ctx.sourceSublistIds.indexOf(ctx.insertingId) + 1);
+    if (ctx.kind !== 'merge-auto') {
+      return `Inserting (${m} of ${n})`;
+    }
     const k = ctx.queueSublistCount ?? 0;
     const queueLabel = k === 1 ? '1 sublist in queue' : `${k} sublists in queue`;
     return `Inserting (${m} of ${n} · ${queueLabel})`;
@@ -283,13 +298,13 @@ export function insertContextInsertingLabel(
   return mergeSliceLabel('Inserting', visibleRemainingCount);
 }
 
-export type AutoInsertSourceRowState = 'inserting' | 'queued' | 'done';
+export type InsertSourceRowState = 'inserting' | 'queued' | 'done';
 
-/** Row state for merge-auto source sublist items in the INSERTING panel. */
-export function autoInsertSourceRowState(
+/** Row state for source sublist/run items in the INSERTING panel. */
+export function insertSourceRowState(
   ctx: InsertContextView,
   id: ItemId,
-): AutoInsertSourceRowState {
+): InsertSourceRowState {
   if (id === ctx.insertingId) return 'inserting';
   if (ctx.remainingIds.includes(id)) return 'queued';
   return 'done';

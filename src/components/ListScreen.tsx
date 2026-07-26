@@ -25,7 +25,7 @@ import { ItemThumb } from './ItemThumb';
 import {
   activeRankingIds,
   formatOrphanHiddenId,
-  autoInsertSourceRowState,
+  insertSourceRowState,
   getInsertContext,
   groupInsertionPending,
   insertContextGapLabel,
@@ -642,10 +642,9 @@ function InsertContextSection({
     .filter((row) => !hidden.has(row.id));
   const visibleTarget = targetRows.map((row) => row.id);
   const visibleRemaining = ctx.remainingIds.filter((id) => !hidden.has(id));
-  const isMergeAutoSource =
-    ctx.kind === 'merge-auto' && ctx.sourceSublistIds !== undefined;
+  const hasSourceSublist = ctx.sourceSublistIds !== undefined;
   const insertingSourceIds =
-    isMergeAutoSource && ctx.sourceSublistIds
+    hasSourceSublist && ctx.sourceSublistIds
       ? ctx.sourceSublistIds.filter((id) => !hidden.has(id))
       : visibleRemaining;
   const probeVisible = !hidden.has(ctx.probeId);
@@ -829,14 +828,14 @@ function InsertContextSection({
               {insertingSourceIds.map((id, ii) => {
                 const item = state.items[id];
                 if (!item) return null;
-                const rowState = isMergeAutoSource
-                  ? autoInsertSourceRowState(ctx, id)
+                const rowState = hasSourceSublist
+                  ? insertSourceRowState(ctx, id)
                   : id === ctx.insertingId
                     ? 'inserting'
                     : 'queued';
                 const isInserting = rowState === 'inserting';
                 const isDone = rowState === 'done';
-                const rankNum = isMergeAutoSource
+                const rankNum = hasSourceSublist
                   ? ctx.sourceSublistIds!.indexOf(id) + 1
                   : ii + 1;
                 return (

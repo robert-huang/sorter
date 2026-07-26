@@ -183,6 +183,7 @@ export function snapshotProgress(state: InsertionState): InsertionProgress {
     pendingRunIds: state.pendingRunIds ? state.pendingRunIds.slice() : undefined,
     activeRunId: state.activeRunId ?? null,
     activeRunAnchor: state.activeRunAnchor ?? null,
+    activeRunSourceIds: state.activeRunSourceIds?.slice(),
   };
 }
 
@@ -206,6 +207,7 @@ export function restoreProgress(
     pendingRunIds: progress.pendingRunIds
       ? progress.pendingRunIds.slice()
       : undefined,
+    activeRunSourceIds: progress.activeRunSourceIds?.slice(),
     items: state.items,
   };
 }
@@ -244,6 +246,13 @@ function drainPending(progress: InsertionProgress): void {
     if (!continuesRun) {
       progress.activeRunId = runId ?? null;
       progress.activeRunAnchor = null;
+      progress.activeRunSourceIds = [id];
+      if (runId !== undefined && progress.pendingRunIds) {
+        for (let i = 1; i < progress.pending.length; i++) {
+          if (progress.pendingRunIds[i] !== runId) break;
+          progress.activeRunSourceIds.push(progress.pending[i]);
+        }
+      }
     }
     const res = startRankAwareInsert(
       progress.sorted,
@@ -331,6 +340,7 @@ export function buildInsertionState(args: {
     pendingRunIds: pendingRunIds ? survivingRunIds : undefined,
     activeRunId: null,
     activeRunAnchor: null,
+    activeRunSourceIds: undefined,
   };
   drainPending(progress);
   // Set the initial worst-case budget AFTER draining so zero-comparison
@@ -696,6 +706,9 @@ export function hideItem(
   if (state.hidden.includes(id)) return state;
   const next = snapshotProgress(state);
   next.hidden = [...next.hidden, id].sort();
+  next.activeRunSourceIds = next.activeRunSourceIds?.filter(
+    (sourceId) => sourceId !== id,
+  );
   // If the id was the currently-inserting item, cancel its frame and
   // drain the next pending. drainPending already shifted the id off
   // pending when it installed the frame, so we just drop `current`.

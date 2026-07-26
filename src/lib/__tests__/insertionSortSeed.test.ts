@@ -137,6 +137,7 @@ describe('seedInsertionFromSublists', () => {
     expect(state.current?.insertingId).toBe('a');
     expect(state.pending).toEqual(['b', 'c', 'd', 'e']);
     expect(state.pendingRunIds).toEqual([0, 0, 0, 0]);
+    expect(state.activeRunSourceIds).toEqual(['a', 'b', 'c', 'd', 'e']);
   });
 
   it('shuffles whole ranked runs with loose-item singleton runs', () => {
@@ -275,7 +276,7 @@ describe('insertion run tracking under edits', () => {
 });
 
 describe('snapshot/restore carries run metadata', () => {
-  it('round-trips pendingRunIds / activeRunId / activeRunAnchor', () => {
+  it('round-trips run ids, anchor, and the full active source', () => {
     const { state } = seedInsertionFromSublists(
       { sublists: [[A, B, C, D, E], [X, Y, Z]], extras: [] },
       { shuffle: false },
@@ -289,9 +290,12 @@ describe('snapshot/restore carries run metadata', () => {
     expect(restored.pendingRunIds).toEqual(mid.pendingRunIds);
     expect(restored.activeRunId).toBe(mid.activeRunId);
     expect(restored.activeRunAnchor).toBe(mid.activeRunAnchor);
+    expect(restored.activeRunSourceIds).toEqual(['x', 'y', 'z']);
     // Mutating the restored array must not bleed into the snapshot.
     restored.pendingRunIds?.push(99);
     expect(snap.pendingRunIds).not.toEqual(restored.pendingRunIds);
+    restored.activeRunSourceIds?.push('p');
+    expect(snap.activeRunSourceIds).not.toEqual(restored.activeRunSourceIds);
   });
 });
 
