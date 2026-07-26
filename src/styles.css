@@ -2760,14 +2760,6 @@ html {
   font-size: 18px;
 }
 
-.anime-to-anime-list-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 16px 0 8px;
-}
-
 .anime-to-anime-list-header-title {
   margin: 0;
   flex: 1;
@@ -2777,22 +2769,22 @@ html {
   flex-shrink: 0;
 }
 
-.btn.icon-only.anime-to-anime-refresh-btn--compact {
-  padding: 3px 6px 5px;
-  font-size: 12px;
-  min-width: 24px;
-  line-height: 1.4;
-}
-
-.anime-to-anime-staff-heading {
+.anime-to-anime-current-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+.anime-to-anime-current-heading--show {
+  margin: 0 0 12px;
+}
+
+.anime-to-anime-current-heading--staff {
   margin: 0 0 4px;
 }
 
-.anime-to-anime-staff-heading-title {
+.anime-to-anime-current-heading-title {
   margin: 0;
   flex: 1;
   min-width: 0;
@@ -5613,7 +5605,7 @@ html {
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  padding: 5px 8px;
+  padding: 5px 6px;
   font-size: 14px;
   line-height: 1;
   min-width: 28px;
@@ -6312,19 +6304,23 @@ html {
   margin-bottom: 12px;
 }
 
-.tool-field-username .anime-to-anime-endpoint-user {
+.tool-username-input-group {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
   flex: 0 0 auto;
 }
 
-.tool-field-username .anime-to-anime-refresh-btn {
+.tool-username-refresh {
   align-self: center;
 }
 
-.tool-field-username .anime-to-anime-endpoint-user-input {
+.tool-username-input {
   width: 100px;
   flex: 0 0 auto;
   min-width: 0;
   max-width: none;
+  margin: 0;
 }
 
 .tool-field-label-row .tool-field-label {

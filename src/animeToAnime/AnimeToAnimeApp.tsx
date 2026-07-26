@@ -85,7 +85,6 @@ import {
 } from './theme';
 import { bindAnilistMiddleClick, anilistUrlForMedia, mergeAnilistLinkClass } from './anilistMiddleClick';
 import { StaffFilmographySections } from './StaffFilmographySections';
-import { PlayListSectionHeader } from './PlayListSectionHeader';
 import { ProductionCreditHopButton } from './ProductionCreditHopButton';
 import { VaCreditHopButton } from './VaCreditHopButton';
 import {
@@ -741,6 +740,15 @@ export function AnimeToAnimeApp() {
   const currentPanelShown =
     (current?.kind === 'anime' && !!currentMedia) ||
     (current?.kind === 'staff' && !!staffHeader);
+  const currentCastIsStale = currentCastStaleFetchedAt !== null && !loading;
+  const currentCastRefreshLabel =
+    currentCastIsStale && currentCastStaleFetchedAt !== null
+      ? graphStaleRefreshTooltip(
+          currentCastStaleFetchedAt,
+          "This entry's cached cast",
+          'refresh',
+        )
+      : 'Refresh cast from AniList';
 
   const apiWaitBanner =
     apiWait &&
@@ -917,16 +925,30 @@ export function AnimeToAnimeApp() {
 
               {current?.kind === 'anime' && currentMedia && currentAnimeAnilistLink && (
                 <section className="anime-to-anime-play-panel">
-                  <h2
-                    className={mergeAnilistLinkClass(
-                      'anime-to-anime-current-title',
-                      currentAnimeAnilistLink.className,
-                    )}
-                    onMouseDown={currentAnimeAnilistLink.onMouseDown}
-                    onAuxClick={currentAnimeAnilistLink.onAuxClick}
-                  >
-                    {pickMediaTitle(currentMedia)}
-                  </h2>
+                  <div className="anime-to-anime-current-heading anime-to-anime-current-heading--show">
+                    <h2
+                      className={mergeAnilistLinkClass(
+                        'anime-to-anime-current-title anime-to-anime-current-heading-title',
+                        currentAnimeAnilistLink.className,
+                      )}
+                      onMouseDown={currentAnimeAnilistLink.onMouseDown}
+                      onAuxClick={currentAnimeAnilistLink.onAuxClick}
+                    >
+                      {pickMediaTitle(currentMedia)}
+                    </h2>
+                    <button
+                      type="button"
+                      className={`btn icon-only anime-to-anime-refresh-btn${
+                        currentCastIsStale ? ' anilist-detail-refresh-stale' : ''
+                      }`}
+                      onClick={onRefreshPlayList}
+                      disabled={loading}
+                      title={currentCastRefreshLabel}
+                      aria-label={currentCastRefreshLabel}
+                    >
+                      ↻
+                    </button>
+                  </div>
                   {activeRoundConfig?.allowRelations && (
                     <>
                       <h3 className="anime-to-anime-subheading">Related anime</h3>
@@ -954,26 +976,12 @@ export function AnimeToAnimeApp() {
                       </ul>
                     </>
                   )}
-                  <PlayListSectionHeader
-                    title={playListTitleWithStaffGenderFilter(
-                      'Voice actors',
-                      genderFilter,
-                    )}
-                    titleHint={staffGenderFilterListHint(genderFilter)}
-                    onRefresh={onRefreshPlayList}
-                    refreshing={loading}
-                    refreshLabel="Refresh cast from AniList"
-                    stale={currentCastStaleFetchedAt !== null}
-                    staleRefreshLabel={
-                      currentCastStaleFetchedAt !== null
-                        ? graphStaleRefreshTooltip(
-                            currentCastStaleFetchedAt,
-                            "This entry's cached cast",
-                            'refresh',
-                          )
-                        : undefined
-                    }
-                  />
+                  <h3
+                    className="anime-to-anime-subheading"
+                    title={staffGenderFilterListHint(genderFilter)}
+                  >
+                    {playListTitleWithStaffGenderFilter('Voice actors', genderFilter)}
+                  </h3>
                   <ul className="anime-to-anime-hop-list">
                     {filteredVa.map((group: GroupedVaCreditRow) => (
                       <li

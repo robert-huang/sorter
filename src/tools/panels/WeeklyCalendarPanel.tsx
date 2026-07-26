@@ -947,6 +947,35 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
               onChange={(username) => patchForm({ username })}
               onRefresh={() => refreshUsernameList(form.username, running)}
             />
+
+            <MultiSelectChip<WeeklyCalendarListStatusFilter>
+              label="list status"
+              options={[...WEEKLY_CALENDAR_LIST_STATUS_OPTIONS]}
+              selected={form.listStatusFilters}
+              formatOption={formatWeeklyCalendarListStatusFilterLabel}
+              onToggle={(status) =>
+                patchForm({
+                  listStatusFilters: toggleInArray(form.listStatusFilters, status),
+                })
+              }
+            />
+
+            <ScoreRangeChip
+              pill={form.userScoreInclude ?? 'any'}
+              min={form.scoreMin ?? null}
+              max={form.scoreMax ?? null}
+              onChange={(patch) => patchForm(patch)}
+            />
+
+            <label className="tool-checkbox">
+              <input
+                type="checkbox"
+                checked={form.showThemeSongs}
+                disabled={running}
+                onChange={(e) => patchForm({ showThemeSongs: e.target.checked })}
+              />
+              Show theme songs
+            </label>
           </div>
 
           <div className="tool-adaptation-primary-filters tool-seasonal-primary-filters tool-weekly-primary-filters">
@@ -1007,25 +1036,6 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
                 }}
               />
             ) : null}
-
-            <MultiSelectChip<WeeklyCalendarListStatusFilter>
-              label="list status"
-              options={[...WEEKLY_CALENDAR_LIST_STATUS_OPTIONS]}
-              selected={form.listStatusFilters}
-              formatOption={formatWeeklyCalendarListStatusFilterLabel}
-              onToggle={(status) =>
-                patchForm({
-                  listStatusFilters: toggleInArray(form.listStatusFilters, status),
-                })
-              }
-            />
-
-            <ScoreRangeChip
-              pill={form.userScoreInclude ?? 'any'}
-              min={form.scoreMin ?? null}
-              max={form.scoreMax ?? null}
-              onChange={(patch) => patchForm(patch)}
-            />
 
             <MultiSelectChip<WeeklyCalendarMediaStatusFilter>
               label="airing status"
@@ -1105,16 +1115,6 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
                 onChange={(e) => patchForm({ showUnscheduledColumn: e.target.checked })}
               />
               Unknown Airing Day column
-            </label>
-
-            <label className="tool-checkbox">
-              <input
-                type="checkbox"
-                checked={form.showThemeSongs}
-                disabled={running}
-                onChange={(e) => patchForm({ showThemeSongs: e.target.checked })}
-              />
-              Show theme songs
             </label>
           </div>
         </div>

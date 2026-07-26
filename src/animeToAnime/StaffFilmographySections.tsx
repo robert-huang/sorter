@@ -88,10 +88,10 @@ export function StaffFilmographySections({
 
   return (
     <>
-      <div className="anime-to-anime-staff-heading">
+      <div className="anime-to-anime-current-heading anime-to-anime-current-heading--staff">
         <h2
           className={mergeAnilistLinkClass(
-            'anime-to-anime-current-title anime-to-anime-staff-heading-title',
+            'anime-to-anime-current-title anime-to-anime-current-heading-title',
             staffTitleLink.className,
           )}
           onMouseDown={staffTitleLink.onMouseDown}
@@ -101,7 +101,7 @@ export function StaffFilmographySections({
         </h2>
         <button
           type="button"
-          className={`btn icon-only anime-to-anime-refresh-btn anime-to-anime-refresh-btn--compact${
+          className={`btn icon-only anime-to-anime-refresh-btn${
             isStale ? ' anilist-detail-refresh-stale' : ''
           }`}
           onClick={onRefresh}

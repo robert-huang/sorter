@@ -220,7 +220,7 @@ export function EndpointPicker({
             />
             <button
               type="button"
-              className="btn small icon-only anime-to-anime-random-btn"
+              className="btn icon-only anime-to-anime-random-btn"
               disabled={busy || username.trim().length === 0}
               onClick={() => void onRandomUserList(false)}
               onContextMenu={(e) => {
@@ -235,7 +235,7 @@ export function EndpointPicker({
           </div>
           <button
             type="button"
-            className="btn small icon-only anime-to-anime-random-btn"
+            className="btn icon-only anime-to-anime-random-btn"
             disabled={busy}
             onClick={onRandomFromCache}
             title="Random from cache"
@@ -245,7 +245,7 @@ export function EndpointPicker({
           </button>
           <button
             type="button"
-            className="btn small icon-only anime-to-anime-random-btn"
+            className="btn icon-only anime-to-anime-random-btn"
             disabled={busy}
             onClick={() => void onRandomApi()}
             title="Random from AniList"
