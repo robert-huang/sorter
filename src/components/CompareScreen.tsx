@@ -11,7 +11,6 @@ import {
 } from '../lib/engine';
 import {
   COMPARE_PEEK_DEPTH,
-  enginePickToVisualSide,
   insertingItemLanded,
   peekOverflowLabel,
   swapsInsertCompareSides,
@@ -28,6 +27,7 @@ import { isConfirmationState } from '../lib/types';
  * App so both click and keyboard pickers feed the same animation pipeline,
  * and so a same-side pick twice in a row still re-runs the effect (same
  * side, same kind — React re-fires because the object identity is fresh).
+ * `side` is always the on-screen side; App translates it at the engine boundary.
  */
 export type LastInteraction =
   | { kind: 'pick'; side: 'left' | 'right' }
@@ -355,10 +355,7 @@ export function CompareScreen({
           id: ++outgoingCounterRef.current,
           leftExiting: oldLeft,
           rightExiting: oldRight,
-          pickedSide: enginePickToVisualSide(
-            lastInteraction.side,
-            swapsCompareSides,
-          ),
+          pickedSide: lastInteraction.side,
           exitKind: 'slide',
           leftHidden: !!oldLeft,
           rightHidden: !!oldRight,
@@ -441,10 +438,7 @@ export function CompareScreen({
       id: ++outgoingCounterRef.current,
       leftExiting: oldLeft,
       rightExiting: oldRight,
-      pickedSide: enginePickToVisualSide(
-        lastInteraction.side,
-        swapsCompareSides,
-      ),
+      pickedSide: lastInteraction.side,
       exitKind,
       // 'deck' transitions keep the slot visible so the user sees the
       // peek depth shift and the live card rise in parallel with the
@@ -615,9 +609,6 @@ export function CompareScreen({
       </div>
     );
   }
-  const handlePickLeft = swapsCompareSides ? onPickRight : onPickLeft;
-  const handlePickRight = swapsCompareSides ? onPickLeft : onPickRight;
-
   // Progress bar bookkeeping — moved out of the always-on header into the
   // rank screen so it's only visible when there's actually a sort in
   // flight. Denominator is the max-so-far ("totalComparisonsEverNeeded")
@@ -788,7 +779,7 @@ export function CompareScreen({
           <ItemCard
             key={popInKeyLeft}
             item={left}
-            onPick={handlePickLeft}
+            onPick={onPickLeft}
             onRemove={() => onHide(left.id)}
           />
         </div>
@@ -839,7 +830,7 @@ export function CompareScreen({
           <ItemCard
             key={popInKeyRight}
             item={right}
-            onPick={handlePickRight}
+            onPick={onPickRight}
             onRemove={() => onHide(right.id)}
           />
         </div>

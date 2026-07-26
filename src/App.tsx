@@ -19,8 +19,7 @@ import {
   forgetHiddenItem as engineForgetHiddenItem,
   getRanking as engineGetRanking,
   hideItem as engineHideItem,
-  pickLeft as enginePickLeft,
-  pickRight as enginePickRight,
+  pickVisualSide as enginePickVisualSide,
   selectUndoSnapshot,
   undoSnapshotsEqual,
   reorderInSorted as engineReorderInSorted,
@@ -843,10 +842,12 @@ export function App() {
     window.history.replaceState(null, '', `${origin}${pathname}${search}`);
   }
 
-  // Batch rapid same-side picks into one microtask chain, but apply them one
-  // engine step per commit so CompareScreen can play deck → boundary pop like
-  // separate clicks. When the side changes (peek preview → LEFT then RIGHT),
-  // flush pending first so each direction gets its own animation.
+  // Batch rapid same-side picks (stored as on-screen sides) into one microtask
+  // chain, but apply them one engine step per commit so CompareScreen can play
+  // deck → boundary pop like separate clicks. Mapping at apply time also keeps
+  // queued picks correct if an insert comparison ends between two choices.
+  // When the side changes (peek preview → LEFT then RIGHT), flush pending first
+  // so each direction gets its own animation.
   const pendingPicksRef = useRef<Array<'left' | 'right'>>([]);
   const pickFlushQueuedRef = useRef(false);
 
@@ -854,10 +855,7 @@ export function App() {
     (side: 'left' | 'right') => {
       const cur = stateRef.current;
       if (!cur) return;
-      const next =
-        side === 'left'
-          ? enginePickLeft(cur, engineOptions)
-          : enginePickRight(cur, engineOptions);
+      const next = enginePickVisualSide(cur, side, engineOptions);
       if (next === cur) return;
       pushUndo(cur);
       stateRef.current = next;

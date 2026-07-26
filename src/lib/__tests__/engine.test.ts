@@ -4,12 +4,14 @@ import {
   comparisonsRemaining,
   finalizeCompletedState,
   getCompareProgress,
+  getEnginePickSideForVisualSide,
   getPair,
   getRanking,
   hideItem,
   normalizeLoadedState,
   pickLeft as enginePickLeft,
   pickRight as enginePickRight,
+  pickVisualSide,
   restoreProgress,
   returnToPending,
   rewriteIdInProgress,
@@ -34,7 +36,15 @@ import {
   seedAsSorted,
   addItems as insertionAddItems,
 } from '../insertionSort';
-import type { InsertionState, Item, MergeState, SortProgress, SortState } from '../types';
+import { seedConfirmation } from '../confirmationSort';
+import type {
+  ConfirmationState,
+  InsertionState,
+  Item,
+  MergeState,
+  SortProgress,
+  SortState,
+} from '../types';
 
 /** Test helper: deterministic item order (startup shuffle disabled). */
 function initSort(items: Item[], options?: MergeOptions): MergeState {
@@ -143,6 +153,93 @@ describe('engine dispatch', () => {
     expect(insHidden.hidden).toContain('b');
     const insRestored = unhideItem(insHidden, 'b');
     expect(insRestored.hidden).toEqual([]);
+  });
+
+  it('maps displayed sides for every comparison mode', () => {
+    const normalMerge = initSort([A, B, C]);
+    expect(getEnginePickSideForVisualSide(normalMerge, 'left')).toBe('left');
+    expect(getEnginePickSideForVisualSide(normalMerge, 'right')).toBe('right');
+
+    const insertion = buildInsertionState({
+      sortedItems: [A, B],
+      pendingItems: [C],
+    }).state;
+    expect(getEnginePickSideForVisualSide(insertion, 'left')).toBe('right');
+    expect(getEnginePickSideForVisualSide(insertion, 'right')).toBe('left');
+
+    const frame = { insertingId: 'c', lo: 0, hi: 1, probe: 0 };
+    const manualInsert: MergeState = {
+      ...normalMerge,
+      queue: [['a', 'b']],
+      current: null,
+      currentManualInsert: {
+        insertingId: 'c',
+        targetQueueIndex: 0,
+        frame,
+      },
+      currentAutoInsert: null,
+    };
+    expect(getEnginePickSideForVisualSide(manualInsert, 'left')).toBe('right');
+    expect(getEnginePickSideForVisualSide(manualInsert, 'right')).toBe('left');
+
+    const autoInsert: MergeState = {
+      ...normalMerge,
+      queue: [],
+      current: null,
+      currentManualInsert: null,
+      currentAutoInsert: {
+        target: ['a', 'b'],
+        pendingInserts: [],
+        sourceSublist: ['c'],
+        frame,
+        lastInsertedPosition: null,
+      },
+    };
+    expect(getEnginePickSideForVisualSide(autoInsert, 'left')).toBe('right');
+    expect(getEnginePickSideForVisualSide(autoInsert, 'right')).toBe('left');
+
+    const confirmation = seedConfirmation([A, B, C, D]);
+    expect(getEnginePickSideForVisualSide(confirmation, 'left')).toBe('left');
+    expect(getEnginePickSideForVisualSide(confirmation, 'right')).toBe('right');
+
+    const confirmationWithPrefix = enginePickLeft(
+      confirmation,
+    ) as ConfirmationState;
+    const confirmationInsert = enginePickRight(
+      confirmationWithPrefix,
+    ) as ConfirmationState;
+    expect(confirmationInsert.phase).toBe('insert');
+    expect(getEnginePickSideForVisualSide(confirmationInsert, 'left')).toBe(
+      'left',
+    );
+    expect(getEnginePickSideForVisualSide(confirmationInsert, 'right')).toBe(
+      'right',
+    );
+  });
+
+  it('applies picks by displayed side across engine conventions', () => {
+    const insertion = buildInsertionState({
+      sortedItems: [A, B],
+      pendingItems: [C],
+    }).state;
+
+    expect(pickVisualSide(insertion, 'left')).toEqual(enginePickRight(insertion));
+    expect(pickVisualSide(insertion, 'right')).toEqual(enginePickLeft(insertion));
+
+    const confirmation = seedConfirmation([A, B, C, D]);
+    const confirmationWithPrefix = enginePickLeft(
+      confirmation,
+    ) as ConfirmationState;
+    const confirmationInsert = enginePickRight(
+      confirmationWithPrefix,
+    ) as ConfirmationState;
+
+    expect(pickVisualSide(confirmationInsert, 'left')).toEqual(
+      enginePickLeft(confirmationInsert),
+    );
+    expect(pickVisualSide(confirmationInsert, 'right')).toEqual(
+      enginePickRight(confirmationInsert),
+    );
   });
 });
 

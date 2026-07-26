@@ -1,7 +1,6 @@
 /**
- * Engine-dispatching facade. Wraps the two engines (queueMergeSort,
- * insertionSort) behind a small set of polymorphic operations keyed on
- * `state.engine`.
+ * Engine-dispatching facade. Wraps the merge, insertion, and confirmation
+ * engines behind a small set of polymorphic operations keyed on `state.engine`.
  *
  * App.tsx and screen components use these helpers so they don't have to
  * narrow at every call site. Engine-specific operations (queue
@@ -298,6 +297,41 @@ export function pickRight(
     confirmation: (s) => confirmation.pickRight(s),
   });
   return finalizeCompletedState(next);
+}
+
+export type PickSide = 'left' | 'right';
+
+/**
+ * Translate an on-screen pick to the engine facade action that represents it.
+ *
+ * Binary-insertion pairs expose inserting-left / probe-right, while the UI
+ * displays probe-left / inserting-right. Confirmation already defines its
+ * pickLeft / pickRight facade in visual terms, including its insert phase.
+ */
+export function getEnginePickSideForVisualSide(
+  state: SortState,
+  visualSide: PickSide,
+): PickSide {
+  if (state.engine === 'confirmation') return visualSide;
+
+  const swapsSides =
+    state.engine === 'insertion' ||
+    state.currentManualInsert !== null ||
+    state.currentAutoInsert?.frame != null;
+  if (!swapsSides) return visualSide;
+  return visualSide === 'left' ? 'right' : 'left';
+}
+
+/** Apply a comparison choice by the side currently displayed to the user. */
+export function pickVisualSide(
+  state: SortState,
+  visualSide: PickSide,
+  options?: EngineOptions,
+): SortState {
+  const engineSide = getEnginePickSideForVisualSide(state, visualSide);
+  return engineSide === 'left'
+    ? pickLeft(state, options)
+    : pickRight(state, options);
 }
 
 // ---------- hide / unhide ----------

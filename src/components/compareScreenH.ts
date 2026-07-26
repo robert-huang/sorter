@@ -23,15 +23,6 @@ export function visualComparePair<T extends { leftId: string; rightId: string }>
   return { ...pair, leftId: pair.rightId, rightId: pair.leftId };
 }
 
-/** Map engine pick side to the side the user clicked on screen. */
-export function enginePickToVisualSide(
-  engineSide: 'left' | 'right',
-  swapsSides: boolean,
-): 'left' | 'right' {
-  if (!swapsSides) return engineSide;
-  return engineSide === 'left' ? 'right' : 'left';
-}
-
 /** Map engine peek decks to on-screen left/right when insert sides are swapped. */
 export function visualPeekSides<T>(
   engineLeft: T,

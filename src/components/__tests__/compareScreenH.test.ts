@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   confirmationAnimKinds,
-  enginePickToVisualSide,
   insertingItemLanded,
   peekOverflowLabel,
   swapsInsertCompareSides,
@@ -34,12 +33,6 @@ describe('insert compare display helpers', () => {
       leftId: 'probe',
       rightId: 'inserting',
     });
-  });
-
-  it('maps engine pick side to visual side when swapped', () => {
-    expect(enginePickToVisualSide('left', false)).toBe('left');
-    expect(enginePickToVisualSide('right', true)).toBe('left');
-    expect(enginePickToVisualSide('left', true)).toBe('right');
   });
 
   it('maps engine peek decks to visual sides when swapped', () => {
