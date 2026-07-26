@@ -53,7 +53,7 @@ const LS_LEGACY_QUERY_KEY = 'anime-tools-shared-credits-query';
 type PersistedSharedCreditsForm = SharedCreditsForm;
 
 function normalizeRoleMode(value: unknown): SharedCreditsForm['roleMode'] {
-  return value === 'production' ? 'production' : 'voice';
+  return value === 'production' || value === 'all' ? value : 'voice';
 }
 
 function normalizeMinMatches(value: unknown): number | null {
@@ -68,15 +68,16 @@ function loadForm(): SharedCreditsForm {
     const raw = localStorage.getItem(LS_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<PersistedSharedCreditsForm>;
+      const roleMode = normalizeRoleMode(parsed.roleMode);
       return {
         ...DEFAULT_FORM,
         staffText: typeof parsed.staffText === 'string' ? parsed.staffText : '',
         useIds: typeof parsed.useIds === 'boolean' ? parsed.useIds : DEFAULT_FORM.useIds,
-        roleMode: normalizeRoleMode(parsed.roleMode),
+        roleMode,
         minMatches:
           parsed.minMatches === null ? null : normalizeMinMatches(parsed.minMatches),
         mainRoleOnly:
-          typeof parsed.mainRoleOnly === 'boolean'
+          roleMode === 'voice' && typeof parsed.mainRoleOnly === 'boolean'
             ? parsed.mainRoleOnly
             : DEFAULT_FORM.mainRoleOnly,
         usernameInclude:
@@ -336,15 +337,23 @@ export function SharedCreditsPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps)
                 disabled={running}
                 onClick={() => patchForm({ roleMode: 'voice' })}
               >
-                Voice acting
+                Voice Acting
               </button>
               <button
                 type="button"
                 className={form.roleMode === 'production' ? 'active' : ''}
                 disabled={running}
-                onClick={() => patchForm({ roleMode: 'production' })}
+                onClick={() => patchForm({ roleMode: 'production', mainRoleOnly: false })}
               >
                 Production
+              </button>
+              <button
+                type="button"
+                className={form.roleMode === 'all' ? 'active' : ''}
+                disabled={running}
+                onClick={() => patchForm({ roleMode: 'all', mainRoleOnly: false })}
+              >
+                All
               </button>
             </div>
           </div>
@@ -352,7 +361,7 @@ export function SharedCreditsPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps)
             <input
               type="checkbox"
               checked={form.mainRoleOnly}
-              disabled={running || form.roleMode === 'production'}
+              disabled={running || form.roleMode !== 'voice'}
               onChange={(e) => patchForm({ mainRoleOnly: e.target.checked })}
             />
             Main Roles Only

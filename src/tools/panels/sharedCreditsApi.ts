@@ -25,6 +25,7 @@ import {
 import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportContext';
 import {
   formatStartDateKey,
+  mergeStaffShowMaps,
   pickMediaTitle,
   type StaffRoleMode,
   type StaffShowMap,
@@ -318,6 +319,12 @@ async function fetchStaffShowMapLive(
   roleMode: StaffRoleMode,
   signal?: AbortSignal,
 ): Promise<StaffShowMap> {
+  if (roleMode === 'all') {
+    const voiceMap = await fetchStaffShowMapLive(staffId, 'voice', signal);
+    const productionMap = await fetchStaffShowMapLive(staffId, 'production', signal);
+    return mergeStaffShowMaps(voiceMap, productionMap);
+  }
+
   if (roleMode === 'voice') {
     const edges = await depaginate<
       {

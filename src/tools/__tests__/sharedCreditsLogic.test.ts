@@ -4,6 +4,7 @@ import {
   expandSharedCreditsTableRows,
   filterMainRoles,
   formatStartDateKey,
+  mergeStaffShowMaps,
   type StaffRoleEntry,
 } from '../panels/sharedCreditsLogic';
 
@@ -129,6 +130,60 @@ describe('sharedCreditsLogic', () => {
     expect(result.rows[0]?.cells).toEqual([
       [role('Alice (MAIN)', 100), role('Bob (SUPPORTING)', 101)],
       [role('Bob (SUPPORTING)', 101)],
+    ]);
+  });
+
+  it('combines voice and production credits into one shared chart', () => {
+    const staffAVoice = {
+      '1': {
+        title: 'Show A',
+        coverImage: null,
+        roles: [role('Alice (MAIN)', 100)],
+        startDate: '20200101',
+      },
+    };
+    const staffAProduction = {
+      '1': {
+        title: 'Show A',
+        coverImage: null,
+        roles: [role('Director')],
+        startDate: '20200101',
+      },
+    };
+    const staffBProduction = {
+      '1': {
+        title: 'Show A',
+        coverImage: null,
+        roles: [role('Series Composition')],
+        startDate: '20200101',
+      },
+    };
+
+    const result = buildSharedCreditsResult(
+      [10, 20],
+      staffNameFields({ 10: 'Staff A', 20: 'Staff B' }),
+      [
+        mergeStaffShowMaps(staffAVoice, staffAProduction),
+        mergeStaffShowMaps({}, staffBProduction),
+      ],
+      {
+        minMatches: null,
+        mainRoleOnly: false,
+        diffMode: false,
+        oldestFirst: false,
+      },
+      null,
+      null,
+    );
+
+    expect(result.kind).toBe('table');
+    if (result.kind !== 'table') {
+      return;
+    }
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]?.cells).toEqual([
+      [role('Alice (MAIN)', 100), role('Director')],
+      [role('Series Composition')],
     ]);
   });
 

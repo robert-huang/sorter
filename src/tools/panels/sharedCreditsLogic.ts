@@ -21,7 +21,7 @@ export type StaffRoleLabelSource =
     }
   | { kind: 'production'; staffRole: string };
 
-export type StaffRoleMode = 'voice' | 'production';
+export type StaffRoleMode = 'voice' | 'production' | 'all';
 
 export type StaffRoleEntry = {
   label: string;
@@ -43,6 +43,31 @@ export function formatStaffRoleLabel(role: StaffRoleEntry): string {
 
 /** Map of media id (string) → show + roles for one staff member. */
 export type StaffShowMap = Record<string, StaffShowEntry>;
+
+/** Merge role maps so a show can contain both voice and production credits. */
+export function mergeStaffShowMaps(...maps: Array<StaffShowMap | null>): StaffShowMap {
+  const merged: StaffShowMap = {};
+  for (const map of maps) {
+    if (!map) {
+      continue;
+    }
+    for (const [mediaId, entry] of Object.entries(map)) {
+      const existing = merged[mediaId];
+      if (!existing) {
+        merged[mediaId] = { ...entry, roles: [...entry.roles] };
+        continue;
+      }
+      existing.roles.push(...entry.roles);
+      if (!existing.coverImage && entry.coverImage) {
+        existing.coverImage = entry.coverImage;
+      }
+      if (!existing.titleSource && entry.titleSource) {
+        existing.titleSource = entry.titleSource;
+      }
+    }
+  }
+  return merged;
+}
 
 export type SharedCreditsForm = {
   staffText: string;

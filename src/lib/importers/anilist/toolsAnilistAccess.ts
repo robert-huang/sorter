@@ -43,6 +43,7 @@ import {
 import type { AnilistFavouriteType } from './types';
 import {
   formatStartDateKey,
+  mergeStaffShowMaps,
   pickMediaTitle,
   type StaffRoleMode,
   type StaffShowMap,
@@ -743,14 +744,14 @@ export async function readStaffShowMapFromDb(
     return null;
   }
 
-  if (roleMode === 'production') {
-    const map: StaffShowMap = {};
+  const productionMap: StaffShowMap = {};
+  if (roleMode !== 'voice') {
     for (const credit of filmography.credits) {
       if (credit.productionRoles.length === 0) {
         continue;
       }
       const mediaId = String(credit.media.id);
-      map[mediaId] = {
+      productionMap[mediaId] = {
         title: pickMediaRowTitle(credit.media),
         roles: credit.productionRoles.map((role) => ({
           label: role,
@@ -766,7 +767,9 @@ export async function readStaffShowMapFromDb(
         },
       };
     }
-    return Object.keys(map).length > 0 ? map : null;
+    if (roleMode === 'production') {
+      return Object.keys(productionMap).length > 0 ? productionMap : null;
+    }
   }
 
   const voiceRows = await db.exec(
@@ -795,7 +798,7 @@ export async function readStaffShowMapFromDb(
   );
 
   if (voiceRows.length === 0) {
-    return null;
+    return Object.keys(productionMap).length > 0 ? productionMap : null;
   }
 
   const map: StaffShowMap = {};
@@ -849,7 +852,7 @@ export async function readStaffShowMapFromDb(
       },
     });
   }
-  return map;
+  return roleMode === 'all' ? mergeStaffShowMaps(map, productionMap) : map;
 }
 
 export async function readShowStaffBundleFromDb(
