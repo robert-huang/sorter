@@ -7,7 +7,9 @@ import {
   insertComparisonsRemaining,
   reorderDisturbsInsertFrame,
   skipHiddenInsertProbes,
+  startInsert,
   startRankAwareInsert,
+  type InsertResult,
   worstCaseInsertCost,
 } from './binaryInsertion';
 import { isItemInActiveRanking } from './sortPopulation';
@@ -136,6 +138,83 @@ export function comparisonsRemaining(state: InsertionState): number {
   return comparisonsRemainingFromProgress(state);
 }
 
+/** Worst-case cost for one pending insert using the active run's bounds. */
+function forecastActiveRunInsertCost(
+  sortedLen: number,
+  insertingId: ItemId,
+  lowerAnchor: number | null,
+  upperAnchorId: ItemId | null,
+  upperPlacedIndex: number | null,
+): number {
+  if (upperPlacedIndex !== null && insertingId !== upperAnchorId) {
+    const lo = lowerAnchor === null ? 0 : lowerAnchor + 1;
+    const hi = upperPlacedIndex - 1;
+    if (lo > hi) {
+      return 0;
+    }
+    return worstCaseInsertCost(sortedLen, lo, hi);
+  }
+  const lo = lowerAnchor === null ? 0 : lowerAnchor + 1;
+  return worstCaseInsertCost(sortedLen, lo, sortedLen - 1);
+}
+
+/**
+ * Count pending inserts using the same bound tightening as `drainPending`.
+ * Once both ranked endpoints are bracketed with no room between them, interior
+ * items forecast to zero cost so the progress bar can jump forward.
+ */
+function forecastPendingInsertCosts(
+  progress: InsertionProgress,
+  sortedLen: number,
+): number {
+  const sorted = progress.sorted;
+  let total = 0;
+  let lowerAnchor = progress.activeRunAnchor ?? null;
+  let upperAnchorId = progress.activeRunUpperAnchorId ?? null;
+  let activeRunId = progress.activeRunId ?? null;
+  let upperPlacedIndex: number | null =
+    upperAnchorId !== null && sorted.includes(upperAnchorId)
+      ? sorted.indexOf(upperAnchorId)
+      : null;
+
+  for (let i = 0; i < progress.pending.length; i++) {
+    const id = progress.pending[i];
+    const runId = progress.pendingRunIds?.[i];
+    if (runId !== undefined && runId !== activeRunId) {
+      activeRunId = runId;
+      lowerAnchor = null;
+      upperAnchorId = null;
+      upperPlacedIndex = null;
+      if (progress.pendingRunIds) {
+        let runLen = 0;
+        for (let j = i; j < progress.pending.length; j++) {
+          if (progress.pendingRunIds[j] !== runId) {
+            break;
+          }
+          runLen++;
+        }
+        if (runLen >= 3) {
+          upperAnchorId = progress.pending[i + runLen - 1] ?? null;
+        }
+      }
+    }
+
+    total += forecastActiveRunInsertCost(
+      sortedLen,
+      id,
+      lowerAnchor,
+      upperAnchorId,
+      upperPlacedIndex,
+    );
+    sortedLen += 1;
+
+    if (upperPlacedIndex !== null && id !== upperAnchorId) {
+      lowerAnchor = upperPlacedIndex - 1;
+    }
+  }
+  return total;
+}
+
 function comparisonsRemainingFromProgress(
   progress: InsertionProgress,
 ): number {
@@ -144,13 +223,9 @@ function comparisonsRemainingFromProgress(
   let sortedLen = progress.sorted.length;
   if (progress.current) {
     total += insertComparisonsRemaining(progress.current);
-    // After current resolves, sorted grows by 1.
     sortedLen += 1;
   }
-  for (let i = 0; i < progress.pending.length; i++) {
-    total += worstCaseInsertCost(sortedLen);
-    sortedLen += 1;
-  }
+  total += forecastPendingInsertCosts(progress, sortedLen);
   return total;
 }
 
@@ -183,6 +258,7 @@ export function snapshotProgress(state: InsertionState): InsertionProgress {
     pendingRunIds: state.pendingRunIds ? state.pendingRunIds.slice() : undefined,
     activeRunId: state.activeRunId ?? null,
     activeRunAnchor: state.activeRunAnchor ?? null,
+    activeRunUpperAnchorId: state.activeRunUpperAnchorId ?? null,
     activeRunSourceIds: state.activeRunSourceIds?.slice(),
   };
 }
@@ -207,12 +283,85 @@ export function restoreProgress(
     pendingRunIds: progress.pendingRunIds
       ? progress.pendingRunIds.slice()
       : undefined,
+    activeRunUpperAnchorId: progress.activeRunUpperAnchorId ?? null,
     activeRunSourceIds: progress.activeRunSourceIds?.slice(),
     items: state.items,
   };
 }
 
 // ---------- internal: drain pending into current ----------
+
+/**
+ * Initialize one ranked run. For runs with an interior (3+ items), schedule
+ * best → worst → interior so the first two placements bracket every item
+ * between them. `activeRunSourceIds` retains the asserted original order for
+ * LIST even though `pending` adopts the optimized execution order.
+ */
+function initializeActiveRun(
+  progress: InsertionProgress,
+  runId: number | undefined,
+): void {
+  progress.activeRunId = runId ?? null;
+  progress.activeRunAnchor = null;
+  progress.activeRunUpperAnchorId = null;
+
+  const sourceIds: ItemId[] = [];
+  if (runId !== undefined && progress.pendingRunIds) {
+    for (let i = 0; i < progress.pending.length; i++) {
+      if (progress.pendingRunIds[i] !== runId) break;
+      sourceIds.push(progress.pending[i]);
+    }
+  } else if (progress.pending.length > 0) {
+    sourceIds.push(progress.pending[0]);
+  }
+  progress.activeRunSourceIds = sourceIds;
+
+  if (sourceIds.length < 3) {
+    return;
+  }
+
+  const upperAnchorId = sourceIds[sourceIds.length - 1];
+  progress.activeRunUpperAnchorId = upperAnchorId;
+  progress.pending.splice(
+    0,
+    sourceIds.length,
+    sourceIds[0],
+    upperAnchorId,
+    ...sourceIds.slice(1, -1),
+  );
+}
+
+/** Start the next active-run insert with every currently-known bound. */
+function startActiveRunInsert(
+  progress: InsertionProgress,
+  insertingId: ItemId,
+): InsertResult {
+  const lowerAnchor = progress.activeRunAnchor ?? null;
+  const upperAnchorId = progress.activeRunUpperAnchorId ?? null;
+  const upperAnchorIndex =
+    upperAnchorId !== null && upperAnchorId !== insertingId
+      ? progress.sorted.indexOf(upperAnchorId)
+      : -1;
+  if (upperAnchorIndex < 0) {
+    return startRankAwareInsert(progress.sorted, insertingId, lowerAnchor);
+  }
+  const lo = lowerAnchor === null ? 0 : lowerAnchor + 1;
+  return startInsert(progress.sorted, insertingId, lo, upperAnchorIndex - 1);
+}
+
+/**
+ * Interior/top placements advance the lower bound. The worst endpoint is the
+ * fixed upper sentinel, so landing it must not replace the top-side anchor.
+ */
+function recordActiveRunLanding(
+  progress: InsertionProgress,
+  insertingId: ItemId,
+  position: number,
+): void {
+  if (insertingId !== progress.activeRunUpperAnchorId) {
+    progress.activeRunAnchor = position;
+  }
+}
 
 /**
  * If `current` is null and `pending` has items, install a frame for the
@@ -238,27 +387,16 @@ function drainPending(progress: InsertionProgress): void {
   // spliceInsertingAndDrain. This means `pending` always lists items
   // strictly behind `current` in the FIFO order.
   while (progress.current === null && progress.pending.length > 0) {
-    const id = progress.pending[0];
+    let id = progress.pending[0];
     const runId = progress.pendingRunIds ? progress.pendingRunIds[0] : undefined;
     // New run (or no run info) ⇒ drop the anchor so this item searches
     // the full range. Same run ⇒ keep the anchor for tightening.
     const continuesRun = runId !== undefined && runId === progress.activeRunId;
     if (!continuesRun) {
-      progress.activeRunId = runId ?? null;
-      progress.activeRunAnchor = null;
-      progress.activeRunSourceIds = [id];
-      if (runId !== undefined && progress.pendingRunIds) {
-        for (let i = 1; i < progress.pending.length; i++) {
-          if (progress.pendingRunIds[i] !== runId) break;
-          progress.activeRunSourceIds.push(progress.pending[i]);
-        }
-      }
+      initializeActiveRun(progress, runId);
+      id = progress.pending[0];
     }
-    const res = startRankAwareInsert(
-      progress.sorted,
-      id,
-      progress.activeRunAnchor ?? null,
-    );
+    const res = startActiveRunInsert(progress, id);
     progress.pending.shift();
     if (progress.pendingRunIds) progress.pendingRunIds.shift();
     const frame = adoptInsertFrameResult(res, progress.sorted, hidden, (position) => {
@@ -267,7 +405,7 @@ function drainPending(progress: InsertionProgress): void {
         id,
         ...progress.sorted.slice(position),
       ];
-      progress.activeRunAnchor = position;
+      recordActiveRunLanding(progress, id, position);
     });
     if (frame) {
       // Real frame: the in-flight item's run is `activeRunId` (already set
@@ -340,6 +478,7 @@ export function buildInsertionState(args: {
     pendingRunIds: pendingRunIds ? survivingRunIds : undefined,
     activeRunId: null,
     activeRunAnchor: null,
+    activeRunUpperAnchorId: null,
     activeRunSourceIds: undefined,
   };
   drainPending(progress);
@@ -506,7 +645,7 @@ function spliceInsertingAndDrain(
   // The in-flight item belonged to `activeRunId`; record where it landed
   // so the next same-run pending item tightens against it. (No-op for the
   // flat path where activeRunId is null and nothing continues the run.)
-  next.activeRunAnchor = position;
+  recordActiveRunLanding(next, insertingId, position);
   // No pending.shift here — drainPending already shifted when it
   // installed the frame; the inserting id lived only on `current`.
   next.current = null;
@@ -556,6 +695,7 @@ function cancelAndRestartCurrentFrame(progress: InsertionProgress): void {
   }
   progress.activeRunId = null;
   progress.activeRunAnchor = null;
+  progress.activeRunUpperAnchorId = null;
   drainPending(progress);
 }
 
@@ -597,6 +737,7 @@ export function reorderInSorted(
       // the current item lands (spliceInsertingAndDrain), so this only
       // affects the rare drop-before-land path.
       next.activeRunAnchor = null;
+      next.activeRunUpperAnchorId = null;
     }
   }
   bumpTotalComparisons(next);
@@ -607,14 +748,14 @@ function restartInFlightInsertFrame(progress: InsertionProgress): void {
   if (!progress.current) return;
   const id = progress.current.insertingId;
   progress.current = null;
-  const res = startRankAwareInsert(progress.sorted, id, null);
+  const res = startActiveRunInsert(progress, id);
   if ('done' in res) {
     progress.sorted = [
       ...progress.sorted.slice(0, res.position),
       id,
       ...progress.sorted.slice(res.position),
     ];
-    progress.activeRunAnchor = res.position;
+    recordActiveRunLanding(progress, id, res.position);
     drainPending(progress);
     return;
   }
@@ -651,6 +792,7 @@ export function returnToPending(
   }
   next.activeRunId = null;
   next.activeRunAnchor = null;
+  next.activeRunUpperAnchorId = null;
   if (next.done) next.done = false;
   if (hadInFlight) {
     restartInFlightInsertFrame(next);
@@ -709,6 +851,12 @@ export function hideItem(
   next.activeRunSourceIds = next.activeRunSourceIds?.filter(
     (sourceId) => sourceId !== id,
   );
+  if (
+    next.activeRunUpperAnchorId === id &&
+    !next.sorted.includes(id)
+  ) {
+    next.activeRunUpperAnchorId = null;
+  }
   // If the id was the currently-inserting item, cancel its frame and
   // drain the next pending. drainPending already shifted the id off
   // pending when it installed the frame, so we just drop `current`.
@@ -743,9 +891,9 @@ export function hideItem(
           insertingId,
           ...next.sorted.slice(skipped.position),
         ];
-        // The in-flight item just force-landed; anchor the active run to
-        // it so a following same-run item still tightens correctly.
-        next.activeRunAnchor = skipped.position;
+        // Preserve endpoint bracketing when a hidden-window collapse lands
+        // the active item without a comparison.
+        recordActiveRunLanding(next, insertingId, skipped.position);
         next.current = null;
         drainPending(next);
       } else {
@@ -803,11 +951,15 @@ export function forgetHiddenItem(
   const next = snapshotProgress(state);
   next.hidden = next.hidden.filter((h) => h !== id);
   const si = next.sorted.indexOf(id);
+  const removedFromSortedDuringInsert = si >= 0 && next.current !== null;
   if (si >= 0) {
     next.sorted = [
       ...next.sorted.slice(0, si),
       ...next.sorted.slice(si + 1),
     ];
+    if (next.activeRunUpperAnchorId === id) {
+      next.activeRunUpperAnchorId = null;
+    }
   }
   const pi = next.pending.indexOf(id);
   if (pi >= 0) {
@@ -817,6 +969,13 @@ export function forgetHiddenItem(
   if (next.current?.insertingId === id) {
     next.current = null;
     drainPending(next);
+  } else if (removedFromSortedDuringInsert) {
+    // The frame indexes the pre-removal sorted array. Restart full-range
+    // rather than retaining stale lo/hi/probe or endpoint anchors.
+    next.activeRunId = null;
+    next.activeRunAnchor = null;
+    next.activeRunUpperAnchorId = null;
+    restartInFlightInsertFrame(next);
   }
   bumpTotalComparisons(next);
   return { ...next, items: state.items };

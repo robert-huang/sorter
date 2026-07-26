@@ -135,8 +135,11 @@ describe('seedInsertionFromSublists', () => {
     // pending / pendingRunIds list only what's still waiting.
     expect(state.sorted).toEqual(['x', 'y', 'z']);
     expect(state.current?.insertingId).toBe('a');
-    expect(state.pending).toEqual(['b', 'c', 'd', 'e']);
+    // The worst endpoint is scheduled second; the canonical source order
+    // remains available separately for LIST.
+    expect(state.pending).toEqual(['e', 'b', 'c', 'd']);
     expect(state.pendingRunIds).toEqual([0, 0, 0, 0]);
+    expect(state.activeRunUpperAnchorId).toBe('e');
     expect(state.activeRunSourceIds).toEqual(['a', 'b', 'c', 'd', 'e']);
   });
 
@@ -167,7 +170,7 @@ describe('seedInsertionFromSublists', () => {
     expect(state.pendingRunIds).toBeUndefined();
   });
 
-  it('tightens the lower bound for later items in a pre-ranked run', () => {
+  it('places both endpoints before draining a pre-ranked run interior', () => {
     const { state } = seedInsertionFromSublists(
       { sublists: [[A, B, C, D, E], [X, Y, Z]], extras: [] },
       { shuffle: false },
@@ -178,13 +181,108 @@ describe('seedInsertionFromSublists', () => {
     const { state: done, installLo } = runCapturingInstallBounds(state, desired);
     expect(done.done).toBe(true);
     expect(getRanking(done)).toEqual(desired);
-    // First run item searches the full range...
+    // First run item searches the full range.
     expect(installLo.get('x')).toBe(0);
-    // ...later run items start AFTER where the previous one landed.
+    // The worst endpoint is inserted second from immediately after X.
     const xIdx = done.sorted.indexOf('x');
-    const yIdx = done.sorted.indexOf('y');
+    expect(installLo.get('z')).toBe(xIdx + 1);
+    // The interior then reuses X as its lower endpoint; Z remains the
+    // upper endpoint rather than replacing the lower anchor.
     expect(installLo.get('y')).toBe(xIdx + 1);
-    expect(installLo.get('z')).toBe(yIdx + 1);
+  });
+
+  it('uses the placed worst endpoint as the interior upper bound', () => {
+    const { state } = seedInsertionFromSublists(
+      { sublists: [[A, B, C, D, E], [X, Y, Z]], extras: [] },
+      { shuffle: false },
+    );
+    const desired = ['a', 'x', 'b', 'c', 'y', 'd', 'z', 'e'];
+    const atY = driveUntilInserting(state, desired, 'y');
+
+    expect(atY.current?.insertingId).toBe('y');
+    expect(atY.activeRunUpperAnchorId).toBe('z');
+    expect(atY.current?.lo).toBe(atY.sorted.indexOf('x') + 1);
+    expect(atY.current?.hi).toBe(atY.sorted.indexOf('z') - 1);
+  });
+
+  it('collapses a contiguous 50-item run after its endpoints land', () => {
+    const anchor = [
+      ...Array.from({ length: 50 }, (_, index) => ({
+        id: `anchor-${index + 1}`,
+        label: `Anchor ${index + 1}`,
+      })),
+      ...Array.from({ length: 50 }, (_, index) => ({
+        id: `anchor-${index + 101}`,
+        label: `Anchor ${index + 101}`,
+      })),
+    ];
+    const run = Array.from({ length: 50 }, (_, index) => ({
+      id: `run-${index + 51}`,
+      label: `Run ${index + 51}`,
+    }));
+    const desired = [
+      ...anchor.slice(0, 50).map((item) => item.id),
+      ...run.map((item) => item.id),
+      ...anchor.slice(50).map((item) => item.id),
+    ];
+    const state = seedInsertionFromSublists(
+      { sublists: [anchor, run], extras: [] },
+      { shuffle: false },
+    ).state;
+
+    const result = runWithOracle(state, desired);
+
+    expect(result.state.done).toBe(true);
+    expect(getRanking(result.state)).toEqual(desired);
+    expect(result.prompts).toBe(11);
+  });
+
+  it('preserves correctness for every 4-into-5 ranked interleaving', () => {
+    const anchor = Array.from({ length: 5 }, (_, index) => ({
+      id: `anchor-${index}`,
+      label: `Anchor ${index}`,
+    }));
+    const run = Array.from({ length: 4 }, (_, index) => ({
+      id: `run-${index}`,
+      label: `Run ${index}`,
+    }));
+    const runPositions: number[][] = [];
+    const collectPositions = (
+      start: number,
+      remaining: number,
+      selected: number[],
+    ): void => {
+      if (remaining === 0) {
+        runPositions.push([...selected]);
+        return;
+      }
+      for (let index = start; index <= 9 - remaining; index++) {
+        selected.push(index);
+        collectPositions(index + 1, remaining - 1, selected);
+        selected.pop();
+      }
+    };
+    collectPositions(0, run.length, []);
+
+    for (const positions of runPositions) {
+      const runPositionSet = new Set(positions);
+      const desired: string[] = [];
+      let anchorIndex = 0;
+      let runIndex = 0;
+      for (let index = 0; index < anchor.length + run.length; index++) {
+        desired.push(
+          runPositionSet.has(index)
+            ? run[runIndex++].id
+            : anchor[anchorIndex++].id,
+        );
+      }
+      const state = seedInsertionFromSublists(
+        { sublists: [anchor, run], extras: [] },
+        { shuffle: false },
+      ).state;
+      const result = runWithOracle(state, desired);
+      expect(getRanking(result.state)).toEqual(desired);
+    }
   });
 
   it('resets the anchor between a run and a following singleton', () => {
@@ -241,10 +339,10 @@ describe('insertion run tracking under edits', () => {
     const atY = driveUntilInserting(state, desired, 'y');
     expect(atY.current?.insertingId).toBe('y');
     const afterHide = hideItem(atY, 'y');
-    // y is gone; z drains next and is STILL bounded by x's landing
-    // position (the anchor survives — y simply never landed).
-    expect(afterHide.current?.insertingId).toBe('z');
-    expect(afterHide.current?.lo).toBe(afterHide.sorted.indexOf('x') + 1);
+    // Z was already placed as the upper endpoint. Removing the sole
+    // interior item therefore completes the run immediately.
+    expect(afterHide.current).toBeNull();
+    expect(afterHide.done).toBe(true);
     const { state: done } = runWithOracle(afterHide, desired);
     expect(getRanking(done)).not.toContain('y');
     expect(getRanking(done)).toEqual(['a', 'x', 'b', 'c', 'z', 'd', 'e']);
@@ -255,12 +353,29 @@ describe('insertion run tracking under edits', () => {
       { sublists: [[A, B, C, D, E], [X, Y, Z]], extras: [] },
       { shuffle: false },
     );
-    // x is in flight; y and z are waiting in run 0.
-    expect(state.pending).toEqual(['y', 'z']);
+    // x is in flight; z is the queued upper endpoint and y the interior.
+    expect(state.pending).toEqual(['z', 'y']);
     expect(state.pendingRunIds).toEqual([0, 0]);
     const next = hideItem(state, 'y');
     expect(next.pending).toEqual(['z']);
     expect(next.pendingRunIds).toEqual([0]);
+  });
+
+  it('falls back to lower-bound tightening when the queued upper endpoint is hidden', () => {
+    const { state } = seedInsertionFromSublists(
+      { sublists: [[A, B, C, D, E], [X, Y, Z]], extras: [] },
+      { shuffle: false },
+    );
+    expect(state.pending).toEqual(['z', 'y']);
+
+    const withoutUpper = hideItem(state, 'z');
+
+    expect(withoutUpper.activeRunUpperAnchorId).toBeNull();
+    expect(withoutUpper.pending).toEqual(['y']);
+    const desired = ['a', 'x', 'b', 'c', 'y', 'd', 'e'];
+    const result = runWithOracle(withoutUpper, desired);
+    expect(result.state.done).toBe(true);
+    expect(getRanking(result.state)).toEqual(desired);
   });
 
   it('added items append as full-range singleton runs', () => {
@@ -290,6 +405,7 @@ describe('snapshot/restore carries run metadata', () => {
     expect(restored.pendingRunIds).toEqual(mid.pendingRunIds);
     expect(restored.activeRunId).toBe(mid.activeRunId);
     expect(restored.activeRunAnchor).toBe(mid.activeRunAnchor);
+    expect(restored.activeRunUpperAnchorId).toBe('z');
     expect(restored.activeRunSourceIds).toEqual(['x', 'y', 'z']);
     // Mutating the restored array must not bleed into the snapshot.
     restored.pendingRunIds?.push(99);
@@ -312,5 +428,28 @@ describe('estimate stays a valid upper bound with tightening', () => {
     // Actual comparisons never exceed the initial worst-case budget.
     expect(prompts).toBeLessThanOrEqual(budget);
     expect(comparisonsRemaining(done)).toBe(0);
+  });
+
+  it('drops the remaining estimate once both ranked endpoints land', () => {
+    const { state } = seedInsertionFromSublists(
+      { sublists: [[A, B], [X, Y, Z]], extras: [] },
+      { shuffle: false },
+    );
+    const desired = ['a', 'x', 'z', 'y', 'b'];
+    const rank = new Map(desired.map((id, index) => [id, index]));
+    let s = driveUntilInserting(state, desired, 'z');
+    while (s.current?.insertingId === 'z') {
+      const pair = getPair(s);
+      if (!pair) break;
+      const leftRank = rank.get(pair.leftId) ?? Number.MAX_SAFE_INTEGER;
+      const rightRank = rank.get(pair.rightId) ?? Number.MAX_SAFE_INTEGER;
+      s = leftRank <= rightRank ? pickLeft(s) : pickRight(s);
+    }
+    // Endpoints are adjacent; the sole interior item auto-splices with no probes.
+    expect(s.sorted).toContain('z');
+    expect(s.sorted).toContain('y');
+    expect(s.pending).toEqual([]);
+    expect(s.current).toBeNull();
+    expect(comparisonsRemaining(s)).toBe(0);
   });
 });

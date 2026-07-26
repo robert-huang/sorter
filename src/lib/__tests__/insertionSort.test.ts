@@ -726,6 +726,18 @@ describe('dismissHidden / restoreHiddenItem / forgetHiddenItem', () => {
     expect(s2.sorted).not.toContain('c');
     expect(s2.items.c).toBeDefined();
   });
+
+  it('restarts an in-flight frame after forgetting a sorted probe', () => {
+    const s0 = build({ sorted: [A, B, C, D, E], pending: [X] });
+    const hidden = hideItem(s0, 'c');
+    const forgotten = forgetHiddenItem(hidden, 'c');
+
+    expect(forgotten.sorted).toEqual(['a', 'b', 'd', 'e']);
+    expect(forgotten.current?.insertingId).toBe('x');
+    expect(forgotten.current?.lo).toBe(0);
+    expect(forgotten.current?.hi).toBe(3);
+    expect(forgotten.current?.probe).toBe(1);
+  });
 });
 
 describe('getPeekLeftIds (insertion engine)', () => {

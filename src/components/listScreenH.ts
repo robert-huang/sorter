@@ -292,7 +292,12 @@ export function insertContextInsertingLabel(
 ): string {
   if (ctx.sourceSublistIds) {
     const n = ctx.sourceSublistIds.length;
-    const m = Math.max(1, ctx.sourceSublistIds.indexOf(ctx.insertingId) + 1);
+    // The insertion engine may schedule best → worst → interior for endpoint
+    // bracketing, so source-array index is no longer its execution ordinal.
+    const m =
+      ctx.kind === 'insertion'
+        ? Math.min(n, Math.max(1, n - ctx.remainingIds.length + 1))
+        : Math.max(1, ctx.sourceSublistIds.indexOf(ctx.insertingId) + 1);
     if (ctx.kind !== 'merge-auto') {
       return `Inserting (${m} of ${n})`;
     }

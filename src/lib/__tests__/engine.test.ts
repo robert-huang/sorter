@@ -34,6 +34,7 @@ import {
 import {
   buildInsertionState,
   seedAsSorted,
+  seedInsertionFromSublists,
   addItems as insertionAddItems,
 } from '../insertionSort';
 import { seedConfirmation } from '../confirmationSort';
@@ -718,6 +719,22 @@ describe('updateItemId', () => {
     // current.insertingId untouched ('x', not 'b'), pending stays put.
     expect(renamed.current?.insertingId).toBe('x');
     expect(renamed.pending).toEqual(['y']);
+  });
+
+  it('rewrites the insertion run upper-endpoint sentinel', () => {
+    const state = seedInsertionFromSublists(
+      { sublists: [[A, B, C], [X, Y, D]], extras: [] },
+      { shuffle: false },
+    ).state;
+    expect(state.activeRunUpperAnchorId).toBe('d');
+
+    const renamed = updateItemId(state, 'd', 'delta');
+
+    expect(renamed?.engine).toBe('insertion');
+    if (!renamed || renamed.engine !== 'insertion') return;
+    expect(renamed.activeRunUpperAnchorId).toBe('delta');
+    expect(renamed.pending).toContain('delta');
+    expect(renamed.activeRunSourceIds).toContain('delta');
   });
 
   it('rejects empty / collision / unknown ids by returning null', () => {

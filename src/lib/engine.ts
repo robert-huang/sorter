@@ -501,6 +501,9 @@ export function rewriteIdInProgress(
       activeRunSourceIds: progress.activeRunSourceIds
         ? mapArr(progress.activeRunSourceIds)
         : undefined,
+      activeRunUpperAnchorId: progress.activeRunUpperAnchorId
+        ? mapId(progress.activeRunUpperAnchorId)
+        : progress.activeRunUpperAnchorId,
       current:
         progress.current === null
           ? null

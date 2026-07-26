@@ -227,6 +227,16 @@ export interface InsertionProgress extends SortProgressBase {
    */
   activeRunAnchor?: number | null;
   /**
+   * Worst-ranked endpoint of an active 3+-item ranked run. The insertion
+   * engine places this item second, then uses its current position as the
+   * exclusive upper bound while draining the run's interior. Stored by id
+   * because interior splices continually shift its numeric index.
+   *
+   * Optional for save compatibility. Missing/null preserves the legacy
+   * lower-bound-only insertion order.
+   */
+  activeRunUpperAnchorId?: ItemId | null;
+  /**
    * Full item order of the active run at the moment that run starts.
    * LIST uses this to keep the current sublist together and mark already
    * inserted rows as done, matching merge auto-insert. Optional so older
