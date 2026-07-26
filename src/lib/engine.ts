@@ -103,7 +103,7 @@ export function getCompareProgress(
   }
   const remaining = comparisonsRemaining(state, options);
   const completed = Math.max(0, total - remaining);
-  const pct = Math.min(99, Math.round((completed / total) * 100));
+  const pct = Math.min(99.9, Math.round((completed / total) * 1000) / 10);
   return { completed, total, pct };
 }
 

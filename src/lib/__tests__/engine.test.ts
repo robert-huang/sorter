@@ -81,7 +81,7 @@ describe('engine dispatch', () => {
       ...s,
       totalComparisonsEverNeeded: 1000,
     };
-    expect(getCompareProgress(longRunningSort).pct).toBe(99);
+    expect(getCompareProgress(longRunningSort).pct).toBe(99.9);
   });
 
   it('getCompareProgress reports complete only once state.done', () => {

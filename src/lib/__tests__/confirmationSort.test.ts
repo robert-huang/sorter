@@ -78,11 +78,11 @@ describe('confirmationSort', () => {
 
     s = pickRight(s);
     expect(s.phase).toBe('insert');
-    expect(getCompareProgress(s)).toMatchObject({ total: 4, pct: 33 });
+    expect(getCompareProgress(s)).toMatchObject({ total: 4, pct: 33.3 });
 
     s = pickLeft(s);
     expect(s.phase).toBe('insert');
-    expect(getCompareProgress(s)).toMatchObject({ total: 4, pct: 42 });
+    expect(getCompareProgress(s)).toMatchObject({ total: 4, pct: 41.7 });
 
     s = pickLeft(s);
     expect(s.phase).toBe('confirm');

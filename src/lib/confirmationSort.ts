@@ -178,7 +178,7 @@ export function getItemProgress(
     completed += (1 + insertCompleted) / (1 + insertTotal);
   }
 
-  const pct = Math.min(99, Math.round((completed / total) * 100));
+  const pct = Math.min(99.9, Math.round((completed / total) * 1000) / 10);
   return { completed, total, pct };
 }
 
