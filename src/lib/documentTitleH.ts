@@ -2,6 +2,20 @@ import { getCompareProgress, type EngineOptions } from './engine';
 import type { SortState } from './types';
 
 /**
+ * Pick path can commit `done` on the held ref before React state flushes.
+ * Committed state wins once it is done so the tab title stays aligned with
+ * the header ("Done · N comparisons").
+ */
+export function resolveDocumentTitleState(
+  candidate: SortState | null,
+  committed: SortState | null,
+): SortState | null {
+  if (committed?.done) return committed;
+  if (candidate?.done) return candidate;
+  return committed ?? candidate;
+}
+
+/**
  * Whether React's committed sort state should replace the held title
  * state. Blocks the one-comparison-behind stale render that can appear
  * between `applyPendingPick` (ref already done) and `setState` flush.

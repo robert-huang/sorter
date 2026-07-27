@@ -57,6 +57,7 @@ import {
 } from './lib/completedSortEditH';
 import {
   formatDocumentTitle,
+  resolveDocumentTitleState,
   shouldAdvanceTitleState,
 } from './lib/documentTitleH';
 import { listHeaderItemCount } from './lib/sortPopulation';
@@ -572,14 +573,15 @@ export function App() {
   // document state changes with the completed engine state, without waiting
   // for React to commit the render.
   const updateDocumentTitle = useCallback(
-    (nextState: SortState | null) => {
+    (candidate: SortState | null) => {
       const titleSlotId = loadedSlotId ?? manifestRef.current.activeId;
       const slotName = manifestRef.current.slots.find((s) => s.id === titleSlotId)?.name;
-      document.title = formatDocumentTitle(nextState, slotName, {
+      const effective = resolveDocumentTitleState(candidate, state);
+      document.title = formatDocumentTitle(effective, slotName, {
         autoInsertEnabled,
       });
     },
-    [autoInsertEnabled, loadedSlotId],
+    [autoInsertEnabled, loadedSlotId, state],
   );
 
   const pinTitleState = useCallback(
@@ -592,23 +594,17 @@ export function App() {
 
   const syncTitleFromCommittedState = useCallback(
     (committed: SortState | null) => {
-      if (!shouldAdvanceTitleState(committed, titleSortStateRef.current)) {
-        return;
+      if (shouldAdvanceTitleState(committed, titleSortStateRef.current)) {
+        titleSortStateRef.current = committed;
       }
-      titleSortStateRef.current = committed;
-      updateDocumentTitle(committed);
+      updateDocumentTitle(titleSortStateRef.current);
     },
     [updateDocumentTitle],
   );
 
   useLayoutEffect(() => {
     syncTitleFromCommittedState(state);
-  }, [state, syncTitleFromCommittedState]);
-
-  // Slot rename / manifest refresh: reformat without touching held progress.
-  useLayoutEffect(() => {
-    updateDocumentTitle(titleSortStateRef.current);
-  }, [manifest.slots, loadedSlotId, updateDocumentTitle]);
+  }, [state, syncTitleFromCommittedState, manifest.slots, loadedSlotId]);
 
   // -------- theme + settings toggles --------
   const toggleTheme = useCallback(() => {

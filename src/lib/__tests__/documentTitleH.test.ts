@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatDocumentTitle, shouldAdvanceTitleState } from '../documentTitleH';
+import { formatDocumentTitle, resolveDocumentTitleState, shouldAdvanceTitleState } from '../documentTitleH';
 import { getCompareProgress } from '../engine';
 import type { MergeState } from '../types';
 
@@ -24,6 +24,20 @@ const penult289: MergeState = {
   comparisons: 289,
   currentAutoInsert: done290.currentAutoInsert,
 };
+
+describe('resolveDocumentTitleState', () => {
+  it('prefers committed state once React has done', () => {
+    expect(resolveDocumentTitleState(penult289, done290)).toBe(done290);
+  });
+
+  it('uses pick-ahead candidate before React commits done', () => {
+    expect(resolveDocumentTitleState(done290, penult289)).toBe(done290);
+  });
+
+  it('uses committed in-progress state when both candidate and committed are in progress', () => {
+    expect(resolveDocumentTitleState(penult289, penult289)).toBe(penult289);
+  });
+});
 
 describe('shouldAdvanceTitleState', () => {
   it('blocks stale render one comparison behind a done pick', () => {
