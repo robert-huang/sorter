@@ -551,37 +551,41 @@ export function App() {
   }, [autosaveOn]);
 
   // -------- document.title --------
-  // Title format: "<slot name> (NN%) — Sorter" while sorting,
-  //               "<slot name> ✓ — Sorter" when done,
-  //               "<slot name> — Sorter" when there's no work yet
-  //                                       (total === 0; no meaningful pct),
-  //               "Sorter" when no slot is loaded.
-  // Slot name comes first so users running multiple sorter tabs in
-  // parallel can tell them apart at a glance — the percent is a
-  // secondary signal in parens. The pct uses the SAME formula as the
-  // CompareScreen progress bar so the tab and bar always agree.
-  // `autoInsertEnabled` is in deps because comparisonsRemaining's
-  // forecast depends on it; `manifest` so renames re-title immediately.
-  // The callback is also used by the pick commit path so the external
-  // document state changes with the completed engine state, without waiting
-  // for React to commit the render.
+  // Format matches CompareScreen progress. Slot id comes from refs (not
+  // loadedSlotId state) so the writer stays stable across Resume — otherwise
+  // a callback identity change re-runs the layout effect with a stale stateRef.
   const updateDocumentTitle = useCallback(
-    (nextState: SortState | null) => {
-      const titleSlotId = loadedSlotId ?? manifestRef.current.activeId;
-      const slotName = manifestRef.current.slots.find((s) => s.id === titleSlotId)?.name;
+    (nextState: SortState | null, titleSlotId?: string | null) => {
+      const slotId =
+        titleSlotId ?? loadedSlotIdRef.current ?? manifestRef.current.activeId;
+      const slotName = manifestRef.current.slots.find((s) => s.id === slotId)?.name;
       document.title = formatDocumentTitle(nextState, slotName, {
         autoInsertEnabled,
       });
     },
-    [autoInsertEnabled, loadedSlotId],
+    [autoInsertEnabled],
   );
 
-  // Read stateRef (not render `state`) so a manifest-only re-render from
-  // subscribeAfterWrite cannot rewind the tab title to a pre-pick forecast
-  // after applyPendingPick already committed the completed engine state.
+  // stateRef (not render state) so manifest-only re-renders cannot rewind the
+  // title after applyPendingPick already committed a pick.
   useLayoutEffect(() => {
     updateDocumentTitle(stateRef.current);
-  }, [state, updateDocumentTitle]);
+  }, [state, manifest.slots, updateDocumentTitle]);
+
+  const activateLoadedSession = useCallback(
+    (id: string, session: SavedSession, tab?: TabId) => {
+      loadedSlotIdRef.current = id;
+      stateRef.current = session.state;
+      setLoadedSlotId(id);
+      setState(session.state);
+      setUndoRing(session.undoRing);
+      if (tab !== undefined) {
+        setActiveTab(tab);
+      }
+      updateDocumentTitle(session.state, id);
+    },
+    [updateDocumentTitle],
+  );
 
   // -------- theme + settings toggles --------
   const toggleTheme = useCallback(() => {
@@ -731,9 +735,7 @@ export function App() {
     discardPendingAutosave();
     const session = loadSlotSession(multitabStaleSlotId);
     if (session) {
-      setLoadedSlotId(multitabStaleSlotId);
-      setState(session.state);
-      setUndoRing(session.undoRing);
+      activateLoadedSession(multitabStaleSlotId, session);
     } else {
       // Other tab deleted the slot between the event and the click.
       // Drop in-memory state and return to START so the user picks
@@ -745,7 +747,7 @@ export function App() {
     }
     setManifest(readManifest());
     setMultitabStaleSlotId(null);
-  }, [multitabStaleSlotId]);
+  }, [multitabStaleSlotId, activateLoadedSession]);
 
   // -------- boot: cloud auth redirect + share-link recipient --------
   // Order matters: cloud auth redirect runs FIRST because it restores
@@ -1214,10 +1216,9 @@ export function App() {
         updateSlotMeta(result.meta.id, { updatedAt: cloudBinding.cloudUpdatedAt });
       }
       setManifest(readManifest());
-      setLoadedSlotId(result.meta.id);
-      setState(session.state);
-      setUndoRing(session.undoRing);
-      setActiveTab(
+      activateLoadedSession(
+        result.meta.id,
+        session,
         initialTab ?? (session.state.done ? 'result' : 'rank'),
       );
       // Eviction is loud: the user gave consent via the modal in the
@@ -1231,7 +1232,7 @@ export function App() {
         );
       }
     },
-    [flashSkipped],
+    [flashSkipped, activateLoadedSession],
   );
 
   /**
@@ -1761,9 +1762,7 @@ export function App() {
           if (refreshed.activeId === id) {
             const session = loadSlotSession(id);
             if (session) {
-              setLoadedSlotId(id);
-              setState(session.state);
-              setUndoRing(session.undoRing);
+              activateLoadedSession(id, session);
             }
           }
         } catch (err) {
@@ -1775,7 +1774,7 @@ export function App() {
       })();
       // eslint-disable-next-line react-hooks/exhaustive-deps
     },
-    [autosaveOn],
+    [autosaveOn, activateLoadedSession, flashSkipped],
   );
 
   /**
@@ -2119,12 +2118,9 @@ export function App() {
       setManifest(readManifest());
       return;
     }
-    setLoadedSlotId(id);
     setManifest(m);
-    setState(session.state);
-    setUndoRing(session.undoRing);
-    setActiveTab(session.state.done ? 'result' : 'rank');
-  }, []);
+    activateLoadedSession(id, session, session.state.done ? 'result' : 'rank');
+  }, [activateLoadedSession]);
 
   const localCloudSlotByCloudId = useMemo(() => {
     const index = new Map<string, SlotMeta>();
@@ -2298,8 +2294,7 @@ export function App() {
     if (!state) return;
     saveNow(buildBlob(state, undoRing));
     setManifest(readManifest());
-    updateDocumentTitle(stateRef.current);
-  }, [state, undoRing, updateDocumentTitle]);
+  }, [state, undoRing]);
 
   const onLoadFile = useCallback(
     (file: File) => {
@@ -2627,11 +2622,10 @@ export function App() {
     prevDoneRef.current = isDone;
 
     if (isDone && !wasDone) {
-      updateDocumentTitle(stateRef.current);
       if (autosaveOn) {
         flushAutosave();
       }
-      const slotId = loadedSlotId ?? manifestRef.current.activeId;
+      const slotId = loadedSlotIdRef.current ?? manifestRef.current.activeId;
       const cur = stateRef.current;
       if (slotId && cur) {
         setManifest(
@@ -2648,7 +2642,7 @@ export function App() {
     } else if (wasDone && state && !isDone) {
       setActiveTab('rank');
     }
-  }, [state, activeTab, autosaveOn, loadedSlotId, updateDocumentTitle]);
+  }, [state, activeTab, autosaveOn]);
 
   return (
     <ItemDetailContext.Provider value={openItemDetail}>
