@@ -1,24 +1,49 @@
 import { describe, expect, it } from 'vitest';
-import { formatDocumentTitle } from '../documentTitleH';
+import { formatDocumentTitle, pickDocumentTitleState } from '../documentTitleH';
 import { getCompareProgress } from '../engine';
 import type { MergeState } from '../types';
 
+const doneState: MergeState = {
+  engine: 'merge',
+  queue: [['a']],
+  current: null,
+  comparisons: 290,
+  done: true,
+  hidden: [],
+  totalComparisonsEverNeeded: 235,
+  toBeInserted: [],
+  pendingManualInserts: [],
+  currentManualInsert: null,
+  currentAutoInsert: null,
+  items: { a: { id: 'a', label: 'A' } },
+};
+
+const inProgressState: MergeState = {
+  ...doneState,
+  comparisons: 90,
+  done: false,
+};
+
+describe('pickDocumentTitleState', () => {
+  it('keeps a completed in-memory session over a stale in-progress candidate', () => {
+    expect(pickDocumentTitleState(inProgressState, doneState)).toBe(doneState);
+  });
+
+  it('keeps a further-along in-progress session', () => {
+    const ahead: MergeState = { ...inProgressState, comparisons: 120 };
+    const behind: MergeState = { ...inProgressState, comparisons: 90 };
+    expect(pickDocumentTitleState(behind, ahead)).toBe(ahead);
+  });
+
+  it('accepts a candidate that advances the committed session', () => {
+    const next: MergeState = { ...inProgressState, comparisons: 120 };
+    expect(pickDocumentTitleState(next, inProgressState)).toBe(next);
+  });
+});
+
 describe('formatDocumentTitle', () => {
   it('shows checkmark when state.done is true', () => {
-    const state: MergeState = {
-      engine: 'merge',
-      queue: [['a']],
-      current: null,
-      comparisons: 290,
-      done: true,
-      hidden: [],
-      totalComparisonsEverNeeded: 235,
-      toBeInserted: [],
-      pendingManualInserts: [],
-      currentManualInsert: null,
-      currentAutoInsert: null,
-      items: { a: { id: 'a', label: 'A' } },
-    };
+    const state = doneState;
     expect(getCompareProgress(state, { autoInsertEnabled: true }).pct).toBe(100);
     expect(formatDocumentTitle(state, 'My sort', { autoInsertEnabled: true })).toBe(
       'My sort ✓ — Sorter',

@@ -55,7 +55,7 @@ import {
   type CompletedSortEditAction,
   type SlotResultsImportBatch,
 } from './lib/completedSortEditH';
-import { formatDocumentTitle } from './lib/documentTitleH';
+import { formatDocumentTitle, pickDocumentTitleState } from './lib/documentTitleH';
 import { listHeaderItemCount } from './lib/sortPopulation';
 import {
   type AutosaveBlob,
@@ -504,6 +504,15 @@ export function App() {
     scheduleAutosave(buildBlob(state, undoRing));
   }, [state, undoRing, autosaveOn]);
 
+  // Drop any debounced write queued for the outgoing slot when Resume
+  // switches slots — setActiveSlot flushes synchronously, but a timer
+  // armed just before the click can still fire ~500ms later on Windows.
+  useEffect(() => {
+    return () => {
+      discardPendingAutosave();
+    };
+  }, [loadedSlotId]);
+
   useEffect(() => {
     function onBeforeUnload(): void {
       flushAutosave();
@@ -520,29 +529,6 @@ export function App() {
   }, []);
 
   // -------- keep React manifest in sync with autosave writes --------
-  // Each successful autosave bumps the slot's `updatedAt` (and counters)
-  // in localStorage but NOT in React state. Without this subscription
-  // the slot-row meta in the gear menu would render stale values —
-  // most visibly, the cloud-sync indicator would stay on "synced" (✓)
-  // forever because `slot.updatedAt > slot.cloudPushedAt` never
-  // becomes true from React's point of view.
-  //
-  // Re-reading the whole manifest is cheap (small JSON parse on a
-  // handful of slot metas) and runs at most once per AUTOSAVE_DEBOUNCE_MS
-  // — same cadence as the underlying write, well below render budget.
-  // We deliberately reuse the `subscribeAfterWrite` seam that was
-  // built for the eventual Tier 1 autosave-to-cloud subscriber; a
-  // UI-refresh subscriber is a valid second client.
-  // -------- keep React manifest in sync with autosave writes --------
-  // Each successful autosave bumps the slot's `updatedAt` (and
-  // counters) in localStorage but NOT in React state. Without this
-  // subscription the slot-row meta in the gear menu would render
-  // stale values — most visibly, the cloud-sync indicator would
-  // stay on "synced" (✓) forever because `slot.updatedAt >
-  // slot.cloudPushedAt` never becomes true from React's point of
-  // view. Re-reading the whole manifest is cheap (small JSON parse
-  // on a handful of metas) and runs at most once per autosave
-  // debounce cycle.
   useEffect(() => {
     if (!autosaveOn) return;
     return subscribeAfterWrite(() => {
@@ -550,12 +536,17 @@ export function App() {
     });
   }, [autosaveOn]);
 
+  const loadedSlotName = useMemo(
+    () =>
+      manifest.slots.find((s) => s.id === (loadedSlotId ?? manifest.activeId))?.name ??
+      'Untitled sort',
+    [manifest.slots, loadedSlotId, manifest.activeId],
+  );
+
   // -------- document.title --------
-  // Format matches CompareScreen progress. Slot id comes from refs (not
-  // loadedSlotId state) so the writer stays stable across Resume — otherwise
-  // a callback identity change re-runs the layout effect with a stale stateRef.
   const updateDocumentTitle = useCallback(
-    (nextState: SortState | null, titleSlotId?: string | null) => {
+    (candidate: SortState | null, titleSlotId?: string | null) => {
+      const nextState = pickDocumentTitleState(candidate, stateRef.current);
       const slotId =
         titleSlotId ?? loadedSlotIdRef.current ?? manifestRef.current.activeId;
       const slotName = manifestRef.current.slots.find((s) => s.id === slotId)?.name;
@@ -566,11 +557,9 @@ export function App() {
     [autoInsertEnabled],
   );
 
-  // stateRef (not render state) so manifest-only re-renders cannot rewind the
-  // title after applyPendingPick already committed a pick.
   useLayoutEffect(() => {
-    updateDocumentTitle(stateRef.current);
-  }, [state, manifest.slots, updateDocumentTitle]);
+    updateDocumentTitle(state);
+  }, [state, loadedSlotName, updateDocumentTitle]);
 
   const activateLoadedSession = useCallback(
     (id: string, session: SavedSession, tab?: TabId) => {
@@ -2498,9 +2487,6 @@ export function App() {
   // Slot whose blob is in memory — null when parked / after refresh.
   const effectiveLoadedSlotId = hasState ? loadedSlotId : null;
   const loadedSlotItemCount = state ? listHeaderItemCount(state) : null;
-  const loadedSlotName =
-    manifest.slots.find((s) => s.id === (loadedSlotId ?? manifest.activeId))?.name ??
-    'Untitled sort';
 
   // The single-slot Resume CTA on START. Only shown when there's no
   // in-memory session AND we have a previously-active slot to resume.
