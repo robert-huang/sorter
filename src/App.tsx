@@ -2583,28 +2583,12 @@ export function App() {
     const isDone = state?.done ?? false;
     prevDoneRef.current = isDone;
 
-    if (isDone && !wasDone) {
-      if (autosaveOn) {
-        flushAutosave();
-      }
-      const slotId = loadedSlotId ?? manifest.activeId;
-      const cur = stateRef.current;
-      if (slotId && cur) {
-        setManifest(
-          updateSlotMeta(slotId, {
-            done: true,
-            comparisons: cur.comparisons,
-          }),
-        );
-      }
-    }
-
     if (isDone && activeTab === 'rank') {
       setActiveTab('result');
     } else if (wasDone && state && !isDone) {
       setActiveTab('rank');
     }
-  }, [state, activeTab, autosaveOn, loadedSlotId, manifest.activeId]);
+  }, [state, activeTab]);
 
   return (
     <ItemDetailContext.Provider value={openItemDetail}>
