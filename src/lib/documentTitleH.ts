@@ -9,7 +9,9 @@ import type { SortState } from './types';
 export function pickDocumentTitleState(
   candidate: SortState | null,
   committed: SortState | null,
+  acceptBackwardTransition = false,
 ): SortState | null {
+  if (acceptBackwardTransition) return candidate;
   if (!committed) return candidate;
   if (!candidate) return committed;
   if (committed.done && !candidate.done) return committed;

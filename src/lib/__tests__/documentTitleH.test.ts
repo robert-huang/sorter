@@ -39,6 +39,22 @@ describe('pickDocumentTitleState', () => {
     const next: MergeState = { ...inProgressState, comparisons: 120 };
     expect(pickDocumentTitleState(next, inProgressState)).toBe(next);
   });
+
+  it('keeps a completed committed title over a later stale in-progress candidate', () => {
+    const stale: MergeState = { ...doneState, comparisons: 289, done: false };
+    expect(pickDocumentTitleState(stale, doneState)).toBe(doneState);
+  });
+
+  it('accepts an intentional undo to a lower comparison count', () => {
+    const restored: MergeState = { ...inProgressState, comparisons: 89 };
+    expect(pickDocumentTitleState(restored, inProgressState, true)).toBe(restored);
+  });
+
+  it('accepts an intentional undo from completed to in progress', () => {
+    expect(pickDocumentTitleState(inProgressState, doneState, true)).toBe(
+      inProgressState,
+    );
+  });
 });
 
 describe('formatDocumentTitle', () => {

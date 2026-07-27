@@ -240,6 +240,10 @@ export function App() {
   const [state, setState] = useState<SortState | null>(null);
   const stateRef = useRef<SortState | null>(null);
   stateRef.current = state;
+  // Title uses its own committed state + slot name so manifest/autosave
+  // refreshes cannot rewind the tab label after Resume or completion.
+  const titleStateRef = useRef<SortState | null>(null);
+  const titleSlotNameRef = useRef<string>('Untitled sort');
   // Slot whose blob is currently in memory. Tracked explicitly (not via
   // manifest.activeId) because autosave's post-write manifest refresh can
   // race with setActiveSlot and leave React's activeId one beat behind the
@@ -545,33 +549,44 @@ export function App() {
 
   // -------- document.title --------
   const updateDocumentTitle = useCallback(
-    (candidate: SortState | null, titleSlotId?: string | null) => {
-      const nextState = pickDocumentTitleState(candidate, stateRef.current);
-      const slotId =
-        titleSlotId ?? loadedSlotIdRef.current ?? manifestRef.current.activeId;
-      const slotName = manifestRef.current.slots.find((s) => s.id === slotId)?.name;
-      document.title = formatDocumentTitle(nextState, slotName, {
+    (candidate: SortState | null, acceptBackwardTransition = false) => {
+      const nextState = pickDocumentTitleState(
+        candidate,
+        titleStateRef.current,
+        acceptBackwardTransition,
+      );
+      titleStateRef.current = nextState;
+      document.title = formatDocumentTitle(nextState, titleSlotNameRef.current, {
         autoInsertEnabled,
       });
     },
     [autoInsertEnabled],
   );
 
+  const clearDocumentTitle = useCallback(() => {
+    titleStateRef.current = null;
+    titleSlotNameRef.current = 'Untitled sort';
+    document.title = 'Sorter';
+  }, []);
+
   useLayoutEffect(() => {
     updateDocumentTitle(state);
-  }, [state, loadedSlotName, updateDocumentTitle]);
+  }, [state, updateDocumentTitle]);
 
   const activateLoadedSession = useCallback(
     (id: string, session: SavedSession, tab?: TabId) => {
       loadedSlotIdRef.current = id;
       stateRef.current = session.state;
+      titleStateRef.current = session.state;
+      titleSlotNameRef.current =
+        manifestRef.current.slots.find((s) => s.id === id)?.name ?? 'Untitled sort';
       setLoadedSlotId(id);
       setState(session.state);
       setUndoRing(session.undoRing);
       if (tab !== undefined) {
         setActiveTab(tab);
       }
-      updateDocumentTitle(session.state, id);
+      updateDocumentTitle(session.state);
     },
     [updateDocumentTitle],
   );
@@ -733,10 +748,11 @@ export function App() {
       setState(null);
       setUndoRing([]);
       setActiveTab('start');
+      clearDocumentTitle();
     }
     setManifest(readManifest());
     setMultitabStaleSlotId(null);
-  }, [multitabStaleSlotId, activateLoadedSession]);
+  }, [multitabStaleSlotId, activateLoadedSession, clearDocumentTitle]);
 
   // -------- boot: cloud auth redirect + share-link recipient --------
   // Order matters: cloud auth redirect runs FIRST because it restores
@@ -834,6 +850,13 @@ export function App() {
   // so each direction gets its own animation.
   const pendingPicksRef = useRef<Array<'left' | 'right'>>([]);
   const pickFlushQueuedRef = useRef(false);
+
+  // Drop queued compare picks when switching slots — otherwise a microtask
+  // from the outgoing slot can rewrite document.title after Resume.
+  useEffect(() => {
+    pendingPicksRef.current = [];
+    pickFlushQueuedRef.current = false;
+  }, [loadedSlotId]);
 
   const applyPendingPick = useCallback(
     (side: 'left' | 'right') => {
@@ -1126,6 +1149,7 @@ export function App() {
     const restored = engineRestoreProgress(state, snapshot);
 
     setUndoRing(newRing);
+    updateDocumentTitle(restored, true);
     setState(restored);
 
     // LIST/RESULT are for inspecting results or hidden items; comparisons
@@ -1142,7 +1166,7 @@ export function App() {
       setActiveTab('rank');
     }
     setLastInteraction({ kind: 'undo' });
-  }, [activeTab, state, undoRing]);
+  }, [activeTab, state, undoRing, updateDocumentTitle]);
 
   // -------- slot mint helpers --------
   /**
@@ -2016,8 +2040,9 @@ export function App() {
     setLoadedSlotId(null);
     setState(null);
     setUndoRing([]);
+    clearDocumentTitle();
     setManifest(readManifest());
-  }, []);
+  }, [clearDocumentTitle]);
 
   const handleTabChange = useCallback(
     (tab: TabId) => {
@@ -2190,9 +2215,10 @@ export function App() {
         setState(null);
         setUndoRing([]);
         setActiveTab('start');
+        clearDocumentTitle();
       }
     },
-    [loadedSlotId],
+    [loadedSlotId, clearDocumentTitle],
   );
 
   /** Cloud library: drop local copy when listing shows a full sync. */
@@ -2248,10 +2274,18 @@ export function App() {
 
   const onDeleteSlot = requestDeleteSlot;
 
-  const onRenameSlot = useCallback((id: string, name: string) => {
-    const m = renameSlot(id, name);
-    setManifest(m);
-  }, []);
+  const onRenameSlot = useCallback(
+    (id: string, name: string) => {
+      const m = renameSlot(id, name);
+      setManifest(m);
+      if (id === loadedSlotIdRef.current) {
+        titleSlotNameRef.current =
+          m.slots.find((s) => s.id === id)?.name ?? 'Untitled sort';
+        updateDocumentTitle(stateRef.current);
+      }
+    },
+    [updateDocumentTitle],
+  );
 
   const onTogglePinSlot = useCallback((id: string, pinned: boolean) => {
     const m = pinSlot(id, pinned);
@@ -2386,6 +2420,7 @@ export function App() {
         setState(null);
         setUndoRing([]);
         setActiveTab('start');
+        clearDocumentTitle();
       }
       setManifest(readManifest());
       const parts: string[] = [
@@ -2401,7 +2436,7 @@ export function App() {
       }
       flashSkipped(`${parts.join(' · ')}.`);
     },
-    [restorePending, flashSkipped],
+    [restorePending, flashSkipped, clearDocumentTitle],
   );
 
   // -------- start over (RESULT tab: mint a NEW slot seeded from results)

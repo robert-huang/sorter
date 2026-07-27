@@ -1387,7 +1387,13 @@ export function flushAutosave(): void {
     clearTimeout(debounceTimer);
     debounceTimer = null;
   }
-  if (pendingBlob) performWrite(pendingBlob);
+  if (!pendingBlob) return;
+  if (pendingWriteSlotId !== currentActiveId) {
+    pendingBlob = null;
+    pendingWriteSlotId = null;
+    return;
+  }
+  performWrite(pendingBlob);
 }
 
 /**
