@@ -1,64 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { formatDocumentTitle, resolveDocumentTitleState, shouldAdvanceTitleState } from '../documentTitleH';
+import { formatDocumentTitle } from '../documentTitleH';
 import { getCompareProgress } from '../engine';
 import type { MergeState } from '../types';
 
-const done290: MergeState = {
-  engine: 'merge',
-  queue: [['a']],
-  current: null,
-  comparisons: 290,
-  done: true,
-  hidden: [],
-  totalComparisonsEverNeeded: 235,
-  toBeInserted: [],
-  pendingManualInserts: [],
-  currentManualInsert: null,
-  currentAutoInsert: null,
-  items: { a: { id: 'a', label: 'A' } },
-};
-
-const penult289: MergeState = {
-  ...done290,
-  done: false,
-  comparisons: 289,
-  currentAutoInsert: done290.currentAutoInsert,
-};
-
-describe('resolveDocumentTitleState', () => {
-  it('prefers committed state once React has done', () => {
-    expect(resolveDocumentTitleState(penult289, done290)).toBe(done290);
-  });
-
-  it('uses pick-ahead candidate before React commits done', () => {
-    expect(resolveDocumentTitleState(done290, penult289)).toBe(done290);
-  });
-
-  it('uses committed in-progress state when both candidate and committed are in progress', () => {
-    expect(resolveDocumentTitleState(penult289, penult289)).toBe(penult289);
-  });
-});
-
-describe('shouldAdvanceTitleState', () => {
-  it('blocks stale render one comparison behind a done pick', () => {
-    expect(shouldAdvanceTitleState(penult289, done290)).toBe(false);
-  });
-
-  it('allows committed completion to catch up', () => {
-    expect(shouldAdvanceTitleState(done290, penult289)).toBe(true);
-    expect(shouldAdvanceTitleState(done290, done290)).toBe(false);
-  });
-
-  it('allows leaving completed via add-item (same comparisons, not done)', () => {
-    const reopened = { ...done290, done: false };
-    expect(shouldAdvanceTitleState(reopened, done290)).toBe(true);
-  });
-});
-
 describe('formatDocumentTitle', () => {
   it('shows checkmark when state.done is true', () => {
-    expect(getCompareProgress(done290, { autoInsertEnabled: true }).pct).toBe(100);
-    expect(formatDocumentTitle(done290, 'My sort', { autoInsertEnabled: true })).toBe(
+    const state: MergeState = {
+      engine: 'merge',
+      queue: [['a']],
+      current: null,
+      comparisons: 290,
+      done: true,
+      hidden: [],
+      totalComparisonsEverNeeded: 235,
+      toBeInserted: [],
+      pendingManualInserts: [],
+      currentManualInsert: null,
+      currentAutoInsert: null,
+      items: { a: { id: 'a', label: 'A' } },
+    };
+    expect(getCompareProgress(state, { autoInsertEnabled: true }).pct).toBe(100);
+    expect(formatDocumentTitle(state, 'My sort', { autoInsertEnabled: true })).toBe(
       'My sort ✓ — Sorter',
     );
   });
