@@ -207,10 +207,9 @@ function forecastPendingInsertCosts(
       upperPlacedIndex,
     );
     sortedLen += 1;
-
-    if (upperPlacedIndex !== null && id !== upperAnchorId) {
-      lowerAnchor = upperPlacedIndex - 1;
-    }
+    // Do not advance `lowerAnchor` toward the upper endpoint here. We do not
+    // know where this pending item will land; assuming it lands just before
+    // the upper sentinel collapses the window and undercounts later interiors.
   }
   return total;
 }

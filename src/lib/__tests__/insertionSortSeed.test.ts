@@ -452,4 +452,30 @@ describe('estimate stays a valid upper bound with tightening', () => {
     expect(s.current).toBeNull();
     expect(comparisonsRemaining(s)).toBe(0);
   });
+
+  it('never undercounts mid-run when endpoints bracket a wide interior window', () => {
+    const V: Item = { id: 'v', label: 'V' };
+    const W: Item = { id: 'w', label: 'W' };
+    const { state } = seedInsertionFromSublists(
+      { sublists: [[A, B, C, D, E], [X, V, Y, W, Z]], extras: [] },
+      { shuffle: false },
+    );
+    const desired = ['a', 'x', 'b', 'v', 'c', 'y', 'd', 'w', 'z', 'e'];
+    const rank = new Map(desired.map((id, i) => [id, i]));
+    let s = state;
+    let safety = 500;
+    while (!s.done && safety-- > 0) {
+      if (s.sorted.includes('z')) break;
+      const pair = getPair(s);
+      if (!pair) break;
+      const leftRank = rank.get(pair.leftId) ?? Number.MAX_SAFE_INTEGER;
+      const rightRank = rank.get(pair.rightId) ?? Number.MAX_SAFE_INTEGER;
+      s = leftRank <= rightRank ? pickLeft(s) : pickRight(s);
+    }
+    expect(s.sorted).toContain('x');
+    expect(s.sorted).toContain('z');
+    const remaining = comparisonsRemaining(s);
+    const { prompts } = runWithOracle(s, desired);
+    expect(prompts).toBeLessThanOrEqual(remaining);
+  });
 });
