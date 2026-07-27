@@ -12,7 +12,6 @@ import type {
 import {
   addItem as engineAddItem,
   addItems as engineAddItems,
-  getCompareProgress,
   dismissHidden as engineDismissHidden,
   normalizeLoadedState,
   type EngineOptions,
@@ -56,6 +55,7 @@ import {
   type CompletedSortEditAction,
   type SlotResultsImportBatch,
 } from './lib/completedSortEditH';
+import { formatDocumentTitle } from './lib/documentTitleH';
 import { listHeaderItemCount } from './lib/sortPopulation';
 import {
   type AutosaveBlob,
@@ -261,6 +261,8 @@ export function App() {
     activeId: null,
     slots: [],
   }));
+  const manifestRef = useRef(manifest);
+  manifestRef.current = manifest;
   // A pending slot-delete confirmation. When non-null, SlotDeleteConfirmModal
   // is shown. Driven by the per-row trashcan in the gear-popover slot list,
   // which goes through requestDeleteSlot so the modal and the "Don't ask
@@ -565,29 +567,20 @@ export function App() {
   // for React to commit the render.
   const updateDocumentTitle = useCallback(
     (nextState: SortState | null) => {
-      if (!nextState) {
-        document.title = 'Sorter';
-        return;
-      }
-      const titleSlotId = loadedSlotId ?? manifest.activeId;
-      const slotName = manifest.slots.find((s) => s.id === titleSlotId)?.name;
-      const base = slotName ?? 'Untitled sort';
-      if (nextState.done) {
-        document.title = `${base} ✓ — Sorter`;
-        return;
-      }
-      const { total, pct } = getCompareProgress(nextState, { autoInsertEnabled });
-      if (total === 0) {
-        document.title = `${base} — Sorter`;
-        return;
-      }
-      document.title = `${base} (${pct}%) — Sorter`;
+      const titleSlotId = loadedSlotId ?? manifestRef.current.activeId;
+      const slotName = manifestRef.current.slots.find((s) => s.id === titleSlotId)?.name;
+      document.title = formatDocumentTitle(nextState, slotName, {
+        autoInsertEnabled,
+      });
     },
-    [autoInsertEnabled, loadedSlotId, manifest.activeId, manifest.slots],
+    [autoInsertEnabled, loadedSlotId],
   );
 
+  // Read stateRef (not render `state`) so a manifest-only re-render from
+  // subscribeAfterWrite cannot rewind the tab title to a pre-pick forecast
+  // after applyPendingPick already committed the completed engine state.
   useLayoutEffect(() => {
-    updateDocumentTitle(state);
+    updateDocumentTitle(stateRef.current);
   }, [state, updateDocumentTitle]);
 
   // -------- theme + settings toggles --------
@@ -2305,7 +2298,8 @@ export function App() {
     if (!state) return;
     saveNow(buildBlob(state, undoRing));
     setManifest(readManifest());
-  }, [state, undoRing]);
+    updateDocumentTitle(stateRef.current);
+  }, [state, undoRing, updateDocumentTitle]);
 
   const onLoadFile = useCallback(
     (file: File) => {
@@ -2632,12 +2626,29 @@ export function App() {
     const isDone = state?.done ?? false;
     prevDoneRef.current = isDone;
 
+    if (isDone && !wasDone) {
+      updateDocumentTitle(stateRef.current);
+      if (autosaveOn) {
+        flushAutosave();
+      }
+      const slotId = loadedSlotId ?? manifestRef.current.activeId;
+      const cur = stateRef.current;
+      if (slotId && cur) {
+        setManifest(
+          updateSlotMeta(slotId, {
+            done: true,
+            comparisons: cur.comparisons,
+          }),
+        );
+      }
+    }
+
     if (isDone && activeTab === 'rank') {
       setActiveTab('result');
     } else if (wasDone && state && !isDone) {
       setActiveTab('rank');
     }
-  }, [state, activeTab]);
+  }, [state, activeTab, autosaveOn, loadedSlotId, updateDocumentTitle]);
 
   return (
     <ItemDetailContext.Provider value={openItemDetail}>
