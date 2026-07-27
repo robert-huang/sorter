@@ -55,7 +55,10 @@ import {
   type CompletedSortEditAction,
   type SlotResultsImportBatch,
 } from './lib/completedSortEditH';
-import { formatDocumentTitle } from './lib/documentTitleH';
+import {
+  formatDocumentTitle,
+  shouldAdvanceTitleState,
+} from './lib/documentTitleH';
 import { listHeaderItemCount } from './lib/sortPopulation';
 import {
   type AutosaveBlob,
@@ -240,6 +243,9 @@ export function App() {
   const [state, setState] = useState<SortState | null>(null);
   const stateRef = useRef<SortState | null>(null);
   stateRef.current = state;
+  // Title state can run ahead of React's committed `state` for one pick
+  // (applyPendingPick writes here before setState flushes).
+  const titleSortStateRef = useRef<SortState | null>(null);
   // Slot whose blob is currently in memory. Tracked explicitly (not via
   // manifest.activeId) because autosave's post-write manifest refresh can
   // race with setActiveSlot and leave React's activeId one beat behind the
@@ -576,12 +582,33 @@ export function App() {
     [autoInsertEnabled, loadedSlotId],
   );
 
-  // Read stateRef (not render `state`) so a manifest-only re-render from
-  // subscribeAfterWrite cannot rewind the tab title to a pre-pick forecast
-  // after applyPendingPick already committed the completed engine state.
+  const pinTitleState = useCallback(
+    (nextState: SortState | null) => {
+      titleSortStateRef.current = nextState;
+      updateDocumentTitle(nextState);
+    },
+    [updateDocumentTitle],
+  );
+
+  const syncTitleFromCommittedState = useCallback(
+    (committed: SortState | null) => {
+      if (!shouldAdvanceTitleState(committed, titleSortStateRef.current)) {
+        return;
+      }
+      titleSortStateRef.current = committed;
+      updateDocumentTitle(committed);
+    },
+    [updateDocumentTitle],
+  );
+
   useLayoutEffect(() => {
-    updateDocumentTitle(stateRef.current);
-  }, [state, updateDocumentTitle]);
+    syncTitleFromCommittedState(state);
+  }, [state, syncTitleFromCommittedState]);
+
+  // Slot rename / manifest refresh: reformat without touching held progress.
+  useLayoutEffect(() => {
+    updateDocumentTitle(titleSortStateRef.current);
+  }, [manifest.slots, loadedSlotId, updateDocumentTitle]);
 
   // -------- theme + settings toggles --------
   const toggleTheme = useCallback(() => {
@@ -732,6 +759,7 @@ export function App() {
     const session = loadSlotSession(multitabStaleSlotId);
     if (session) {
       setLoadedSlotId(multitabStaleSlotId);
+      pinTitleState(session.state);
       setState(session.state);
       setUndoRing(session.undoRing);
     } else {
@@ -739,13 +767,14 @@ export function App() {
       // Drop in-memory state and return to START so the user picks
       // their next move explicitly.
       setLoadedSlotId(null);
+      pinTitleState(null);
       setState(null);
       setUndoRing([]);
       setActiveTab('start');
     }
     setManifest(readManifest());
     setMultitabStaleSlotId(null);
-  }, [multitabStaleSlotId]);
+  }, [multitabStaleSlotId, pinTitleState]);
 
   // -------- boot: cloud auth redirect + share-link recipient --------
   // Order matters: cloud auth redirect runs FIRST because it restores
@@ -852,11 +881,11 @@ export function App() {
       if (next === cur) return;
       pushUndo(cur);
       stateRef.current = next;
+      pinTitleState(next);
       setState(next);
-      updateDocumentTitle(next);
       setLastInteraction({ kind: 'pick', side });
     },
-    [engineOptions, pushUndo, updateDocumentTitle],
+    [engineOptions, pushUndo, pinTitleState],
   );
 
   const flushPendingPicks = useCallback(() => {
@@ -1134,6 +1163,7 @@ export function App() {
     const { snapshot, newRing } = selected;
     const restored = engineRestoreProgress(state, snapshot);
 
+    pinTitleState(restored);
     setUndoRing(newRing);
     setState(restored);
 
@@ -1151,7 +1181,7 @@ export function App() {
       setActiveTab('rank');
     }
     setLastInteraction({ kind: 'undo' });
-  }, [activeTab, state, undoRing]);
+  }, [activeTab, pinTitleState, state, undoRing]);
 
   // -------- slot mint helpers --------
   /**
@@ -1215,6 +1245,7 @@ export function App() {
       }
       setManifest(readManifest());
       setLoadedSlotId(result.meta.id);
+      pinTitleState(session.state);
       setState(session.state);
       setUndoRing(session.undoRing);
       setActiveTab(
@@ -1231,7 +1262,7 @@ export function App() {
         );
       }
     },
-    [flashSkipped],
+    [flashSkipped, pinTitleState],
   );
 
   /**
@@ -2121,10 +2152,11 @@ export function App() {
     }
     setLoadedSlotId(id);
     setManifest(m);
+    pinTitleState(session.state);
     setState(session.state);
     setUndoRing(session.undoRing);
     setActiveTab(session.state.done ? 'result' : 'rank');
-  }, []);
+  }, [pinTitleState]);
 
   const localCloudSlotByCloudId = useMemo(() => {
     const index = new Map<string, SlotMeta>();
@@ -2202,12 +2234,13 @@ export function App() {
       setManifest(m);
       if (wasLoaded) {
         setLoadedSlotId(null);
+        pinTitleState(null);
         setState(null);
         setUndoRing([]);
         setActiveTab('start');
       }
     },
-    [loadedSlotId],
+    [loadedSlotId, pinTitleState],
   );
 
   /** Cloud library: drop local copy when listing shows a full sync. */
@@ -2298,8 +2331,8 @@ export function App() {
     if (!state) return;
     saveNow(buildBlob(state, undoRing));
     setManifest(readManifest());
-    updateDocumentTitle(stateRef.current);
-  }, [state, undoRing, updateDocumentTitle]);
+    syncTitleFromCommittedState(state);
+  }, [state, undoRing, syncTitleFromCommittedState]);
 
   const onLoadFile = useCallback(
     (file: File) => {
@@ -2627,7 +2660,6 @@ export function App() {
     prevDoneRef.current = isDone;
 
     if (isDone && !wasDone) {
-      updateDocumentTitle(stateRef.current);
       if (autosaveOn) {
         flushAutosave();
       }
@@ -2648,7 +2680,7 @@ export function App() {
     } else if (wasDone && state && !isDone) {
       setActiveTab('rank');
     }
-  }, [state, activeTab, autosaveOn, loadedSlotId, updateDocumentTitle]);
+  }, [state, activeTab, autosaveOn, loadedSlotId]);
 
   return (
     <ItemDetailContext.Provider value={openItemDetail}>

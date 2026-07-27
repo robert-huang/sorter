@@ -2,6 +2,28 @@ import { getCompareProgress, type EngineOptions } from './engine';
 import type { SortState } from './types';
 
 /**
+ * Whether React's committed sort state should replace the held title
+ * state. Blocks the one-comparison-behind stale render that can appear
+ * between `applyPendingPick` (ref already done) and `setState` flush.
+ */
+export function shouldAdvanceTitleState(
+  committed: SortState | null,
+  held: SortState | null,
+): boolean {
+  if (committed === held) return false;
+  if (!held) return committed !== null;
+  if (!committed) return true;
+  if (
+    held.done &&
+    !committed.done &&
+    committed.comparisons === held.comparisons - 1
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * Browser tab title for the active sort session. Matches CompareScreen
  * progress semantics: `done` shows ✓, in-progress shows forecast %, and
  * a loaded slot with no work yet omits the percent.
