@@ -292,8 +292,8 @@ export function insertContextInsertingLabel(
 ): string {
   if (ctx.sourceSublistIds) {
     const n = ctx.sourceSublistIds.length;
-    // The insertion engine may schedule best → worst → interior for endpoint
-    // bracketing, so source-array index is no longer its execution ordinal.
+    // The insertion engine may alternate best/worst remaining endpoints, so
+    // source-array index is no longer its execution ordinal.
     const m =
       ctx.kind === 'insertion'
         ? Math.min(n, Math.max(1, n - ctx.remainingIds.length + 1))

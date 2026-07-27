@@ -385,6 +385,7 @@ Used when you pick **Insertion sort** from the staged-panel split button, or whe
 
 - One or more pre-ranked sublists seed a frozen `sorted[]`; any flat extras drain through `pending[]` and get binary-inserted FIFO.
 - Each pending item costs up to `⌈log₂(sorted.length + 1)⌉` comparisons in the worst case; rank-aware bound tightening can do better in practice.
+- Pre-ranked runs of three or more items insert in alternating best/worst order. Each landed endpoint tightens one side of the remaining binary-search window, which is especially useful when a run has outliers at either end.
 - On completion the slot normalizes to the same merge-engine `done` shape as every other finished sort.
 
 ## On the confirmation engine

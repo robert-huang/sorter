@@ -198,11 +198,9 @@ export interface InsertionProgress extends SortProgressBase {
   /**
    * OPTIONAL rank-aware tightening metadata. Parallel array to `pending`:
    * equal consecutive values mark a ranked RUN (e.g. items from one
-   * pre-ranked sublist seeded via `seedInsertionFromSublists`). Within a
-   * run, item 2+ binary-inserts only into the suffix after the previous
-   * same-run item landed — the same `lastInsertedPosition + 1` trick the
-   * merge engine's auto-insert uses (`drainAutoInsert`), shared via
-   * `startRankAwareInsert`.
+   * pre-ranked sublist seeded via `seedInsertionFromSublists`). Run metadata
+   * permits lower-bound tightening and, for new alternating runs, a landed
+   * upper bound as well.
    *
    * Absent ⇒ no tightening (every pending item is its own run / full
    * range), which is exactly the pre-v4-additive behavior. This is why
@@ -227,13 +225,17 @@ export interface InsertionProgress extends SortProgressBase {
    */
   activeRunAnchor?: number | null;
   /**
-   * Worst-ranked endpoint of an active 3+-item ranked run. The insertion
-   * engine places this item second, then uses its current position as the
-   * exclusive upper bound while draining the run's interior. Stored by id
-   * because interior splices continually shift its numeric index.
+   * New 3+-item runs alternate best/worst remaining endpoints and advance
+   * both search bounds. Missing/false preserves the pending order and bound
+   * behavior already stored by an older save.
+   */
+  activeRunAlternatingBounds?: boolean;
+  /**
+   * Current landed worst-side endpoint of an active 3+-item ranked run.
+   * Stored by id because later splices continually shift its numeric index.
    *
-   * Optional for save compatibility. Missing/null preserves the legacy
-   * lower-bound-only insertion order.
+   * Optional for save compatibility. Missing/null preserves legacy
+   * lower-bound-only search behavior.
    */
   activeRunUpperAnchorId?: ItemId | null;
   /**

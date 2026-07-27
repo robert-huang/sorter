@@ -257,6 +257,7 @@ export function snapshotProgress(state: InsertionState): InsertionProgress {
     pendingRunIds: state.pendingRunIds ? state.pendingRunIds.slice() : undefined,
     activeRunId: state.activeRunId ?? null,
     activeRunAnchor: state.activeRunAnchor ?? null,
+    activeRunAlternatingBounds: state.activeRunAlternatingBounds ?? false,
     activeRunUpperAnchorId: state.activeRunUpperAnchorId ?? null,
     activeRunSourceIds: state.activeRunSourceIds?.slice(),
   };
@@ -291,10 +292,12 @@ export function restoreProgress(
 // ---------- internal: drain pending into current ----------
 
 /**
- * Initialize one ranked run. For runs with an interior (3+ items), schedule
- * best → worst → interior so the first two placements bracket every item
- * between them. `activeRunSourceIds` retains the asserted original order for
- * LIST even though `pending` adopts the optimized execution order.
+ * Initialize one ranked run. For runs with an interior (3+ items), alternate
+ * the best and worst remaining endpoints. Each landing tightens one side of
+ * the window that contains every still-unplaced run item.
+ *
+ * `activeRunSourceIds` retains the asserted original order for LIST even
+ * though `pending` adopts the optimized execution order.
  */
 function initializeActiveRun(
   progress: InsertionProgress,
@@ -302,6 +305,7 @@ function initializeActiveRun(
 ): void {
   progress.activeRunId = runId ?? null;
   progress.activeRunAnchor = null;
+  progress.activeRunAlternatingBounds = false;
   progress.activeRunUpperAnchorId = null;
 
   const sourceIds: ItemId[] = [];
@@ -319,15 +323,22 @@ function initializeActiveRun(
     return;
   }
 
+  const alternatingIds: ItemId[] = [];
+  let bestIndex = 0;
+  let worstIndex = sourceIds.length - 1;
+  while (bestIndex <= worstIndex) {
+    alternatingIds.push(sourceIds[bestIndex]);
+    bestIndex += 1;
+    if (bestIndex <= worstIndex) {
+      alternatingIds.push(sourceIds[worstIndex]);
+      worstIndex -= 1;
+    }
+  }
+
+  progress.activeRunAlternatingBounds = true;
   const upperAnchorId = sourceIds[sourceIds.length - 1];
   progress.activeRunUpperAnchorId = upperAnchorId;
-  progress.pending.splice(
-    0,
-    sourceIds.length,
-    sourceIds[0],
-    upperAnchorId,
-    ...sourceIds.slice(1, -1),
-  );
+  progress.pending.splice(0, sourceIds.length, ...alternatingIds);
 }
 
 /** Start the next active-run insert with every currently-known bound. */
@@ -349,14 +360,26 @@ function startActiveRunInsert(
 }
 
 /**
- * Interior/top placements advance the lower bound. The worst endpoint is the
- * fixed upper sentinel, so landing it must not replace the top-side anchor.
+ * Record a landed run endpoint. New alternating runs advance the best-side
+ * numeric anchor or replace the worst-side id anchor according to the
+ * asserting source order. Legacy saved runs retain the fixed-upper behavior
+ * that matches their best→worst→interior pending order.
  */
 function recordActiveRunLanding(
   progress: InsertionProgress,
   insertingId: ItemId,
   position: number,
 ): void {
+  if (progress.activeRunAlternatingBounds && progress.activeRunSourceIds) {
+    const sourceIndex = progress.activeRunSourceIds.indexOf(insertingId);
+    if (sourceIndex >= Math.ceil(progress.activeRunSourceIds.length / 2)) {
+      progress.activeRunUpperAnchorId = insertingId;
+    } else if (sourceIndex >= 0) {
+      progress.activeRunAnchor = position;
+    }
+    return;
+  }
+
   if (insertingId !== progress.activeRunUpperAnchorId) {
     progress.activeRunAnchor = position;
   }
@@ -477,6 +500,7 @@ export function buildInsertionState(args: {
     pendingRunIds: pendingRunIds ? survivingRunIds : undefined,
     activeRunId: null,
     activeRunAnchor: null,
+    activeRunAlternatingBounds: false,
     activeRunUpperAnchorId: null,
     activeRunSourceIds: undefined,
   };
@@ -694,7 +718,9 @@ function cancelAndRestartCurrentFrame(progress: InsertionProgress): void {
   }
   progress.activeRunId = null;
   progress.activeRunAnchor = null;
+  progress.activeRunAlternatingBounds = false;
   progress.activeRunUpperAnchorId = null;
+  progress.activeRunSourceIds = undefined;
   drainPending(progress);
 }
 
