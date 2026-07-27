@@ -242,7 +242,8 @@ export function App() {
   stateRef.current = state;
   // Slot whose blob is currently in memory. Tracked explicitly (not via
   // manifest.activeId) because autosave's post-write manifest refresh can
-  // race with setActiveSlot and leave React's activeId one beat behind.
+  // race with setActiveSlot and leave React's activeId one beat behind the
+  // loaded session — most visible in document.title after Resume.
   const [loadedSlotId, setLoadedSlotId] = useState<string | null>(null);
   const loadedSlotIdRef = useRef<string | null>(null);
   loadedSlotIdRef.current = loadedSlotId;
@@ -517,6 +518,10 @@ export function App() {
   }, []);
 
   // -------- keep React manifest in sync with autosave writes --------
+  // Each successful autosave bumps the slot's `updatedAt` (and counters)
+  // in localStorage but NOT in React state. Without this subscription,
+  // slot metadata such as the cloud-sync indicator would remain stale.
+  // Re-reading the small manifest runs at most once per autosave cycle.
   useEffect(() => {
     if (!autosaveOn) return;
     return subscribeAfterWrite(() => {

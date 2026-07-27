@@ -16,7 +16,8 @@ export function scheduleDocumentTitle(title: string): () => void {
 /**
  * Browser tab title for the active sort session. Matches CompareScreen
  * progress semantics: `done` shows ✓, in-progress shows forecast %, and
- * a loaded slot with no work yet omits the percent.
+ * a loaded slot with no work yet omits the percent. The slot name leads
+ * so parallel sorter tabs remain distinguishable at a glance.
  */
 export function formatDocumentTitle(
   nextState: SortState | null,
