@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { formatDocumentTitle, pickDocumentTitleState } from '../documentTitleH';
+import { describe, expect, it, vi } from 'vitest';
+import { formatDocumentTitle, scheduleDocumentTitle } from '../documentTitleH';
 import { getCompareProgress } from '../engine';
 import type { MergeState } from '../types';
 
@@ -18,42 +18,31 @@ const doneState: MergeState = {
   items: { a: { id: 'a', label: 'A' } },
 };
 
-const inProgressState: MergeState = {
-  ...doneState,
-  comparisons: 90,
-  done: false,
-};
+describe('scheduleDocumentTitle', () => {
+  it('updates the title on the next animation frame', () => {
+    let callback: FrameRequestCallback | undefined;
+    const requestFrame = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((next) => {
+        callback = next;
+        return 17;
+      });
+    const cancelFrame = vi
+      .spyOn(window, 'cancelAnimationFrame')
+      .mockImplementation(() => {});
+    document.title = 'Old title';
 
-describe('pickDocumentTitleState', () => {
-  it('keeps a completed in-memory session over a stale in-progress candidate', () => {
-    expect(pickDocumentTitleState(inProgressState, doneState)).toBe(doneState);
-  });
+    const cancel = scheduleDocumentTitle('New title');
 
-  it('keeps a further-along in-progress session', () => {
-    const ahead: MergeState = { ...inProgressState, comparisons: 120 };
-    const behind: MergeState = { ...inProgressState, comparisons: 90 };
-    expect(pickDocumentTitleState(behind, ahead)).toBe(ahead);
-  });
+    expect(requestFrame).toHaveBeenCalledOnce();
+    expect(document.title).toBe('Old title');
+    callback?.(0);
+    expect(document.title).toBe('New title');
 
-  it('accepts a candidate that advances the committed session', () => {
-    const next: MergeState = { ...inProgressState, comparisons: 120 };
-    expect(pickDocumentTitleState(next, inProgressState)).toBe(next);
-  });
-
-  it('keeps a completed committed title over a later stale in-progress candidate', () => {
-    const stale: MergeState = { ...doneState, comparisons: 289, done: false };
-    expect(pickDocumentTitleState(stale, doneState)).toBe(doneState);
-  });
-
-  it('accepts an intentional undo to a lower comparison count', () => {
-    const restored: MergeState = { ...inProgressState, comparisons: 89 };
-    expect(pickDocumentTitleState(restored, inProgressState, true)).toBe(restored);
-  });
-
-  it('accepts an intentional undo from completed to in progress', () => {
-    expect(pickDocumentTitleState(inProgressState, doneState, true)).toBe(
-      inProgressState,
-    );
+    cancel();
+    expect(cancelFrame).toHaveBeenCalledWith(17);
+    requestFrame.mockRestore();
+    cancelFrame.mockRestore();
   });
 });
 

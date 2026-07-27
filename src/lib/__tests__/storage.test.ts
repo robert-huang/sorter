@@ -401,19 +401,6 @@ describe('setActiveSlot', () => {
     expect(readManifest().activeId).toBe(slotA.id);
   });
 
-  it('drops a debounced write scheduled for the outgoing slot after Resume', async () => {
-    const slotA = mintSlot(makeBlob(10), 'A');
-    const slotB = mintSlot(makeBlob(0), 'B');
-    setActiveSlot(slotA.id);
-    scheduleAutosave(makeBlob(25));
-    // Simulate Resume without letting the debounced callback run first.
-    setActiveSlot(slotB.id);
-    scheduleAutosave(makeBlob(3));
-    await new Promise((r) => setTimeout(r, AUTOSAVE_DEBOUNCE_MS + 50));
-    expect(readSlotBlob(slotA.id)?.progress.comparisons).toBe(25);
-    expect(readSlotBlob(slotB.id)?.progress.comparisons).toBe(3);
-  });
-
   it('no-ops when given an unknown id', () => {
     const slot = mintSlot(makeBlob(), 'A');
     setActiveSlot('this-id-does-not-exist');

@@ -2,21 +2,15 @@ import { getCompareProgress, type EngineOptions } from './engine';
 import type { SortState } from './types';
 
 /**
- * Pick which sort state should drive the tab title. Blocks stale
- * candidates (e.g. a debounced autosave manifest refresh landing after
- * Resume) from rewinding a further-along or completed in-memory session.
+ * Defer the title mutation to the next browser frame. Chromium on Windows
+ * can update the DOM title without repainting the tab label when the
+ * mutation lands before its tab-strip render.
  */
-export function pickDocumentTitleState(
-  candidate: SortState | null,
-  committed: SortState | null,
-  acceptBackwardTransition = false,
-): SortState | null {
-  if (acceptBackwardTransition) return candidate;
-  if (!committed) return candidate;
-  if (!candidate) return committed;
-  if (committed.done && !candidate.done) return committed;
-  if (candidate.comparisons < committed.comparisons) return committed;
-  return candidate;
+export function scheduleDocumentTitle(title: string): () => void {
+  const frameId = window.requestAnimationFrame(() => {
+    document.title = title;
+  });
+  return () => window.cancelAnimationFrame(frameId);
 }
 
 /**

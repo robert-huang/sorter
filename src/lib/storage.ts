@@ -1036,8 +1036,6 @@ export function _clearPostWriteListeners(): void {
 // ---------- autosave (debounced with max-wait) ----------
 
 let pendingBlob: AutosaveBlob | null = null;
-/** Slot that owns `pendingBlob`; debounced writes are dropped after a switch. */
-let pendingWriteSlotId: string | null = null;
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let lastFlushTime = 0;
 let comparisonsAtLastFlush = 0;
@@ -1139,7 +1137,6 @@ function tryWriteSlotBlob(id: string, blob: AutosaveBlob): boolean {
  */
 function resetAutosaveBookkeeping(initialComparisons = 0): void {
   pendingBlob = null;
-  pendingWriteSlotId = null;
   if (debounceTimer !== null) {
     clearTimeout(debounceTimer);
     debounceTimer = null;
@@ -1154,7 +1151,6 @@ function cancelPendingAutosave(): void {
     debounceTimer = null;
   }
   pendingBlob = null;
-  pendingWriteSlotId = null;
 }
 
 /**
@@ -1230,7 +1226,6 @@ function performWrite(blob: AutosaveBlob, options?: { touchLastUsed?: boolean })
   if (!isAutosaveAvailable()) return;
   if (currentActiveId === null) return;
   pendingBlob = null;
-  pendingWriteSlotId = null;
 
   // No-op write skip: when the autosave-on-state-change effect fires
   // because state/undoRing got rebound to identical content (e.g. the
@@ -1334,16 +1329,9 @@ function performWrite(blob: AutosaveBlob, options?: { touchLastUsed?: boolean })
 
 function scheduleFlush(): void {
   if (debounceTimer !== null) clearTimeout(debounceTimer);
-  // Capture the target slot + blob when the timer is armed. A switch can
-  // overwrite `pendingBlob` before the callback runs; without this, a
-  // stale outgoing-slot write can land on the new active id.
-  const blob = pendingBlob;
-  const slotId = pendingWriteSlotId;
   debounceTimer = setTimeout(() => {
     debounceTimer = null;
-    if (!blob || slotId === null) return;
-    if (slotId !== currentActiveId) return;
-    performWrite(blob);
+    if (pendingBlob) performWrite(pendingBlob);
   }, AUTOSAVE_DEBOUNCE_MS);
 }
 
@@ -1360,7 +1348,6 @@ export function scheduleAutosave(blob: AutosaveBlob): void {
   if (!isAutosaveAvailable()) return;
   if (currentActiveId === null) return;
   pendingBlob = blob;
-  pendingWriteSlotId = currentActiveId;
   const now = Date.now();
   const timeSinceFlush = now - lastFlushTime;
   const cmpsSinceFlush = blob.progress.comparisons - comparisonsAtLastFlush;
@@ -1387,13 +1374,7 @@ export function flushAutosave(): void {
     clearTimeout(debounceTimer);
     debounceTimer = null;
   }
-  if (!pendingBlob) return;
-  if (pendingWriteSlotId !== currentActiveId) {
-    pendingBlob = null;
-    pendingWriteSlotId = null;
-    return;
-  }
-  performWrite(pendingBlob);
+  if (pendingBlob) performWrite(pendingBlob);
 }
 
 /**
@@ -1410,7 +1391,6 @@ export function saveNow(blob: AutosaveBlob): void {
     debounceTimer = null;
   }
   pendingBlob = null;
-  pendingWriteSlotId = null;
   performWrite(blob, { touchLastUsed: true });
 }
 
