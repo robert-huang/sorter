@@ -44,6 +44,28 @@ describe('scheduleDocumentTitle', () => {
     requestFrame.mockRestore();
     cancelFrame.mockRestore();
   });
+
+  it('forces a mutation when reasserting the current title', () => {
+    let callback: FrameRequestCallback | undefined;
+    const requestFrame = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((next) => {
+        callback = next;
+        return 18;
+      });
+    document.title = 'Current title';
+    const titleSetter = vi.spyOn(document, 'title', 'set');
+
+    scheduleDocumentTitle('Current title');
+    callback?.(0);
+
+    expect(titleSetter).toHaveBeenNthCalledWith(1, '');
+    expect(titleSetter).toHaveBeenNthCalledWith(2, 'Current title');
+    expect(document.title).toBe('Current title');
+
+    titleSetter.mockRestore();
+    requestFrame.mockRestore();
+  });
 });
 
 describe('formatDocumentTitle', () => {

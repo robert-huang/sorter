@@ -547,7 +547,7 @@ export function App() {
 
   useEffect(
     () => scheduleDocumentTitle(nextDocumentTitle),
-    [nextDocumentTitle],
+    [nextDocumentTitle, activeTab],
   );
 
   // -------- theme + settings toggles --------

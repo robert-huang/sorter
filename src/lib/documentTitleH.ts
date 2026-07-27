@@ -8,6 +8,11 @@ import type { SortState } from './types';
  */
 export function scheduleDocumentTitle(title: string): () => void {
   const frameId = window.requestAnimationFrame(() => {
+    // Chromium can retain a stale tab-strip label even though the DOM already
+    // contains `title`. Force a real mutation when reasserting the same value.
+    if (document.title === title) {
+      document.title = '';
+    }
     document.title = title;
   });
   return () => window.cancelAnimationFrame(frameId);
