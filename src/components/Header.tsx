@@ -268,8 +268,10 @@ export function Header({
     return () => ro.disconnect();
   }, [activeTab]);
 
+  // Keep the sticky tabs outside the short toolbar header; otherwise the
+  // header's bottom edge pushes them away as soon as the toolbar scrolls out.
   return (
-    <header className="header">
+    <>
       <div className="tabs-card-wrap">
         <div className="app-nav-links--tabs-row">
           <AppNavFab
@@ -304,7 +306,7 @@ export function Header({
           ))}
         </div>
       </div>
-      <div className="header-toolbar">
+      <header className="header-toolbar">
         <div className="header-toolbar-left">
           <button
             className="toolbar-button"
@@ -391,7 +393,7 @@ export function Header({
             onNewSort={onNewSort}
           />
         </div>
-      </div>
-    </header>
+      </header>
+    </>
   );
 }

@@ -390,11 +390,6 @@ html {
 
 /* ---------- Header ---------- */
 
-.header {
-  display: flex;
-  flex-direction: column;
-}
-
 /* Floating tabs card — only the tab strip is floating; everything else below
    is full-width normal flow. Sticky so it stays visible while scrolling. */
 .tabs-card-wrap {
