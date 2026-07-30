@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, Fragment } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, Fragment } from 'react';
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
 import { ToolUsernameField } from '../ToolUsernameField';
@@ -30,6 +30,7 @@ import {
   bustStatsSessionMemo,
   expandStatsCast,
   fetchStatsData,
+  statsCachedNeedsCast,
   type StatsFetchProgress,
 } from './statsApi';
 import {
@@ -846,9 +847,9 @@ export function StatsPanel({
       setError(null);
       setProgress(null);
       try {
+        const needsCast = options?.expandCast === true;
         const fetchOptions = {
           forceRefresh: options?.forceRefresh,
-          expandCast: options?.expandCast,
           onProgress: setProgress,
           signal: controller.signal,
         };
@@ -856,7 +857,7 @@ export function StatsPanel({
         if (controller.signal.aborted) {
           return;
         }
-        if (options?.expandCast && !options.forceRefresh) {
+        if (needsCast && statsCachedNeedsCast(data)) {
           const expanded = await expandStatsCast(data, fetchOptions);
           if (controller.signal.aborted) {
             return;
@@ -886,7 +887,11 @@ export function StatsPanel({
     abortRef.current = null;
     setRunning(false);
     setProgress(null);
-  }, []);
+    const handle = form.username.trim().toLowerCase();
+    if (handle) {
+      bustStatsSessionMemo(handle, form.mediaType);
+    }
+  }, [form.mediaType, form.username]);
 
   const onRun = useCallback(
     (forceRefresh = false) => {
@@ -898,6 +903,9 @@ export function StatsPanel({
   const onExpandCast = useCallback(() => {
     if (!cached) {
       void runFetch({ expandCast: true });
+      return;
+    }
+    if (!statsCachedNeedsCast(cached)) {
       return;
     }
     abortRef.current?.abort();
@@ -929,6 +937,30 @@ export function StatsPanel({
         }
       });
   }, [cached, runFetch]);
+
+  useEffect(() => {
+    if (!cached) {
+      return;
+    }
+    const handle = form.username.trim().toLowerCase();
+    if (
+      handle !== cached.username.trim().toLowerCase() ||
+      cached.mediaType !== form.mediaType
+    ) {
+      setCached(null);
+    }
+  }, [cached, form.mediaType, form.username]);
+
+  useEffect(() => {
+    if (!cached || running) {
+      return;
+    }
+    const needsCastAggregation =
+      form.aggregationType === 'STAFF' || form.aggregationType === 'VA';
+    if (needsCastAggregation && statsCachedNeedsCast(cached)) {
+      onExpandCast();
+    }
+  }, [cached, form.aggregationType, onExpandCast, running]);
 
   const displayCached = useMemo(() => {
     if (!cached) {
@@ -1006,6 +1038,11 @@ export function StatsPanel({
     return [...STATS_LIST_STATUS_OPTIONS];
   }, [form.aggregationType]);
 
+  const showResults =
+    built != null &&
+    cached != null &&
+    cached.mediaType === form.mediaType &&
+    cached.username.trim().toLowerCase() === form.username.trim().toLowerCase();
   const aggregationOptions = availableStatsAggregationTypes(form.mediaType);
   const staffRoleOptions =
     form.mediaType === 'MANGA' ? statsMangaStaffRoleOptions() : statsAnimeStaffRoleOptions();
@@ -1183,7 +1220,12 @@ export function StatsPanel({
         <div className="tool-actions">
           <ToolRunButton label="Run" running={running} onRun={(force) => onRun(force)} />
           {(form.aggregationType === 'STAFF' || form.aggregationType === 'VA') && (
-            <button type="button" className="btn" disabled={running} onClick={onExpandCast}>
+            <button
+              type="button"
+              className="btn"
+              disabled={running || (cached != null && !statsCachedNeedsCast(cached))}
+              onClick={onExpandCast}
+            >
               Expand all cast
             </button>
           )}
@@ -1198,7 +1240,7 @@ export function StatsPanel({
         {error && <p className="tool-error">{error}</p>}
       </form>
 
-      {built && (
+      {showResults && built && (
         <div className="tool-chart-fullbleed">
           {built.summary && (
             <StatsSummarySection

@@ -261,6 +261,8 @@ export type StatsCachedData = {
   username: string;
   mediaType: StatsMediaType;
   entries: StatsEntry[];
+  /** True after {@link expandStatsCast} has attached staff/VA credits to every entry. */
+  castExpanded?: boolean;
 };
 
 export type StatsBuildResult = {
@@ -369,6 +371,16 @@ export function formatStatsMediaStatusLabel(status: StatsMediaStatusFilter): str
 }
 
 export function formatStatsFormatLabel(format: StatsFormatFilter | StatsMangaFormatFilter): string {
+  if (format === 'MANGA' || format === 'NOVEL' || format === 'ONE_SHOT') {
+    switch (format) {
+      case 'MANGA':
+        return 'Manga';
+      case 'NOVEL':
+        return 'Novel';
+      case 'ONE_SHOT':
+        return 'One Shot';
+    }
+  }
   return formatWeeklyCalendarFormatFilterLabel(format as WeeklyCalendarFormatFilter);
 }
 

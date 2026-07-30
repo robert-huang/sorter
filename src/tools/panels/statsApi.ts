@@ -39,7 +39,6 @@ export type StatsFetchProgress = {
 };
 
 export type StatsFetchOptions = ToolsFetchOptions & {
-  expandCast?: boolean;
   onProgress?: (progress: StatsFetchProgress) => void;
   signal?: AbortSignal;
 };
@@ -328,9 +327,6 @@ async function buildStatsEntries(
       studios: db.studios,
     };
   });
-  if (options?.expandCast) {
-    return attachCastToEntries(merged, options);
-  }
   return merged;
 }
 
@@ -358,7 +354,22 @@ export async function fetchStatsData(
     username: handle,
     mediaType,
     entries,
+    castExpanded: false,
   };
+}
+
+function statsEntriesLookUnexpanded(entries: readonly StatsEntry[]): boolean {
+  if (entries.length === 0) {
+    return false;
+  }
+  return entries.every((entry) => entry.staffCredits.length === 0 && entry.vaCredits.length === 0);
+}
+
+export function statsCachedNeedsCast(cached: StatsCachedData): boolean {
+  if (cached.castExpanded) {
+    return false;
+  }
+  return statsEntriesLookUnexpanded(cached.entries);
 }
 
 export async function expandStatsCast(
@@ -366,5 +377,5 @@ export async function expandStatsCast(
   options?: StatsFetchOptions,
 ): Promise<StatsCachedData> {
   const entries = await attachCastToEntries(cached.entries, options);
-  return { ...cached, entries };
+  return { ...cached, entries, castExpanded: true };
 }

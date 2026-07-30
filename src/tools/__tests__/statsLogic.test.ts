@@ -8,11 +8,14 @@ import {
   DEFAULT_STATS_MEDIA_STATUS_FILTERS,
   filterStatsPool,
   filterStatsPoolByRatingScore,
+  formatStatsFormatLabel,
   parseCustomTagsFromNotes,
   statsAnimeStaffRoleOptions,
+  type StatsCachedData,
   type StatsEntry,
   type StatsForm,
 } from '../panels/statsLogic';
+import { statsCachedNeedsCast } from '../panels/statsApi';
 
 function entry(overrides: Partial<StatsEntry> & Pick<StatsEntry, 'mediaId' | 'title'>): StatsEntry {
   return {
@@ -177,6 +180,57 @@ describe('filterStatsPoolByRatingScore', () => {
       entry({ mediaId: 3, title: 'C', score: null, listStatus: 'PLANNING' }),
     ];
     expect(filterStatsPoolByRatingScore(pool, 80).map((e) => e.mediaId)).toEqual([1]);
+  });
+});
+
+describe('formatStatsFormatLabel', () => {
+  it('uses title case for manga formats', () => {
+    expect(formatStatsFormatLabel('MANGA')).toBe('Manga');
+    expect(formatStatsFormatLabel('NOVEL')).toBe('Novel');
+    expect(formatStatsFormatLabel('ONE_SHOT')).toBe('One Shot');
+  });
+});
+
+describe('statsCachedNeedsCast', () => {
+  const cachedBase = (entries: StatsEntry[]): StatsCachedData => ({
+    username: 'tester',
+    mediaType: 'ANIME',
+    entries,
+    castExpanded: false,
+  });
+
+  it('returns false when cast is already expanded', () => {
+    expect(
+      statsCachedNeedsCast({
+        username: 'tester',
+        mediaType: 'ANIME',
+        entries: [entry({ mediaId: 1, title: 'A' })],
+        castExpanded: true,
+      }),
+    ).toBe(false);
+  });
+
+  it('returns true when every entry still has empty cast arrays', () => {
+    expect(statsCachedNeedsCast(cachedBase([entry({ mediaId: 1, title: 'A' })]))).toBe(true);
+  });
+
+  it('returns false when cast arrays are populated', () => {
+    const expanded = entry({
+      mediaId: 1,
+      title: 'A',
+      vaCredits: [
+        {
+          staffId: 1,
+          staffName: 'VA',
+          staffImage: null,
+          staffGender: null,
+          characterId: 1,
+          characterName: 'Hero',
+          characterRole: 'MAIN',
+        },
+      ],
+    });
+    expect(statsCachedNeedsCast(cachedBase([expanded]))).toBe(false);
   });
 });
 
