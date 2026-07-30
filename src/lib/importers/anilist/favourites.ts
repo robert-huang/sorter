@@ -67,6 +67,7 @@ import {
 } from './mappers';
 import { buildSetMetaStmt, favCharactersDobSchemaKey, lastFavouritesRefreshKey } from './meta';
 import { emitProgress } from './progress';
+import { normalizeFavouriteEdgesForStorage } from './favouriteOrderStorage';
 import {
   FAVOURITE_ANIME_QUERY,
   FAVOURITE_CHARACTERS_QUERY,
@@ -207,7 +208,7 @@ function buildMediaFavouritesTransaction(
   // blow PK constraints on `media_favourite`, `media_studio` /
   // `media_tag` (per-media junctions inserted twice). Favourites
   // can't legitimately appear twice on a user's list.
-  edges = dedupFavouriteEdgesByNodeId(edges);
+  edges = normalizeFavouriteEdgesForStorage(dedupFavouriteEdgesByNodeId(edges));
 
   const stmts: Statement[] = [];
 
@@ -296,7 +297,7 @@ function buildCharacterFavouritesTransaction(
   anilistUser: AnilistUserRow,
   now: number,
 ): Statement[] {
-  edges = dedupFavouriteEdgesByNodeId(edges);
+  edges = normalizeFavouriteEdgesForStorage(dedupFavouriteEdgesByNodeId(edges));
   const stmts: Statement[] = [];
   stmts.push(anilistUserUpsertStmt(anilistUser));
   stmts.push({
@@ -327,7 +328,7 @@ function buildStaffFavouritesTransaction(
   anilistUser: AnilistUserRow,
   now: number,
 ): Statement[] {
-  edges = dedupFavouriteEdgesByNodeId(edges);
+  edges = normalizeFavouriteEdgesForStorage(dedupFavouriteEdgesByNodeId(edges));
   const stmts: Statement[] = [];
   stmts.push(anilistUserUpsertStmt(anilistUser));
   stmts.push({
@@ -353,7 +354,7 @@ function buildStudioFavouritesTransaction(
   anilistUser: AnilistUserRow,
   now: number,
 ): Statement[] {
-  edges = dedupFavouriteEdgesByNodeId(edges);
+  edges = normalizeFavouriteEdgesForStorage(dedupFavouriteEdgesByNodeId(edges));
   const stmts: Statement[] = [];
   stmts.push(anilistUserUpsertStmt(anilistUser));
   stmts.push({

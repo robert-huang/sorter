@@ -11,6 +11,7 @@ import {
   type ToggleFavouriteResponse,
   type UpdateFavouriteOrderResponse,
 } from '../../lib/importers/anilist/favouriteMutations';
+import { sortOrderFromReorderIndex } from '../../lib/importers/anilist/favouriteOrderStorage';
 import { getAnilistUserByName, getFavouritesAsItems } from '../../lib/importers/anilist/readQueries';
 import { runAnilistFavourites } from '../../lib/importers/anilist/runners';
 import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportContext';
@@ -81,7 +82,13 @@ export async function patchFavouriteSortOrderInCache(
             SET sort_order = ?, fetched_at = ?
           WHERE anilist_user_id = ?
             AND ${fields.idColumn} = ?${mediaTypeClause}`,
-    params: [index, now, anilistUserId, entityId, ...mediaTypeParams] as const,
+    params: [
+      sortOrderFromReorderIndex(index),
+      now,
+      anilistUserId,
+      entityId,
+      ...mediaTypeParams,
+    ] as const,
   }));
 
   await ctx.db.execBatch(statements);

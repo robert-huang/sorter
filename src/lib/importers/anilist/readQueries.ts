@@ -31,6 +31,10 @@ import {
   pickCharacterName,
   pickPersonName,
 } from './personDisplayLabel';
+import {
+  displayRankFromSortOrder,
+  rankOffsetForMinSortOrder,
+} from './favouriteOrderStorage';
 import type { AnilistDbExecutor, SqlBindable } from './context';
 import { PRODUCTION_CREDITS_ORDER_BY } from './graphQueries';
 import {
@@ -1376,10 +1380,31 @@ export async function getFavouriteCount(
  * ranks 1..50, not 0..49). Ids not in the favourites table are
  * omitted from the Map — callers treat absence as "not a favourite".
  *
- * AniList stores `favouriteOrder` 0-indexed and we cache it verbatim
- * in `sort_order`. The +1 happens once here so chip code never has to
- * remember which convention is which.
+ * Cached `sort_order` is 0-indexed after import (`normalizeFavouriteEdgesForStorage`).
+ * Legacy rows may still store AniList's 1-based `favouriteOrder` verbatim
+ * (common after `UpdateFavouriteOrder` or pre-normalization imports). We
+ * detect that per (user, entity) via MIN(sort_order) and skip the +1 when
+ * the table is already 1-indexed.
  */
+async function favouriteRankOffsetForUser(
+  db: AnilistDbExecutor,
+  anilistUserId: number,
+  entity: FavouriteRankEntity,
+): Promise<number> {
+  const { table } = favouriteTableFor(entity);
+  const rows = await db.exec(
+    `SELECT MIN(sort_order) AS min_so FROM ${table} WHERE anilist_user_id = ?`,
+    [anilistUserId],
+  );
+  if (rows.length === 0) {
+    return rankOffsetForMinSortOrder(null);
+  }
+  const minSo = rows[0]!.min_so;
+  return rankOffsetForMinSortOrder(
+    minSo === null || minSo === undefined ? null : Number(minSo),
+  );
+}
+
 export async function getFavouriteRanksForIds(
   db: AnilistDbExecutor,
   anilistUserId: number,
@@ -1389,6 +1414,7 @@ export async function getFavouriteRanksForIds(
   const out = new Map<number, number>();
   if (ids.length === 0) return out;
   const { table, entityIdCol } = favouriteTableFor(entity);
+  const rankOffset = await favouriteRankOffsetForUser(db, anilistUserId, entity);
   const sql = `
     SELECT ${entityIdCol} AS entity_id, sort_order
       FROM ${table}
@@ -1400,7 +1426,10 @@ export async function getFavouriteRanksForIds(
     ...ids,
   ] as readonly SqlBindable[]);
   for (const r of rows) {
-    out.set(reqN(r.entity_id), reqN(r.sort_order) + 1);
+    out.set(
+      reqN(r.entity_id),
+      displayRankFromSortOrder(reqN(r.sort_order), rankOffset),
+    );
   }
   return out;
 }

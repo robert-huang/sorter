@@ -395,6 +395,44 @@ describe('importAnilistFavourites — CHARACTERS', () => {
     h.db.close();
   });
 
+  it('normalizes 1-based favouriteOrder from AniList to contiguous 0-based sort_order', async () => {
+    const h = await makeHarness();
+    const charA: AnilistCharacterGql = {
+      id: 1,
+      name: { full: 'A', native: null, alternative: null, alternativeSpoiler: null },
+      image: null,
+      age: null,
+      gender: null,
+      favourites: null,
+    };
+    const charB: AnilistCharacterGql = {
+      id: 2,
+      name: { full: 'B', native: null, alternative: null, alternativeSpoiler: null },
+      image: null,
+      age: null,
+      gender: null,
+      favourites: null,
+    };
+    h.enqueueFavPages(
+      makeCharFavPage(
+        [
+          { favouriteOrder: 2, node: charB },
+          { favouriteOrder: 1, node: charA },
+        ],
+        false,
+      ),
+    );
+    await importAnilistFavourites(h.ctx, { username: USER_NAME, type: 'CHARACTERS' });
+    const ordered = h.db.selectObjects(
+      'SELECT character_id, sort_order FROM character_favourite ORDER BY sort_order',
+    );
+    expect(ordered).toEqual([
+      { character_id: 1, sort_order: 0 },
+      { character_id: 2, sort_order: 1 },
+    ]);
+    h.db.close();
+  });
+
   it('persists dateOfBirth parts on the character row', async () => {
     const h = await makeHarness();
     const char: AnilistCharacterGql = {
@@ -453,6 +491,46 @@ describe('importAnilistFavourites — STAFF', () => {
     const row = h.db.selectObject('SELECT language_v2 FROM staff WHERE id = 5000');
     expect(row?.language_v2).toBe('Japanese');
     expect(selectMetaValue(h.db, lastFavouritesRefreshKey(USER_ID, 'STAFF'))).toBe(String(NOW));
+    h.db.close();
+  });
+
+  it('normalizes 1-based favouriteOrder from AniList to contiguous 0-based sort_order', async () => {
+    const h = await makeHarness();
+    const staffA: AnilistStaffGql = {
+      id: 1,
+      name: { full: 'A', native: null },
+      languageV2: null,
+      image: null,
+      age: null,
+      gender: null,
+      favourites: null,
+    };
+    const staffB: AnilistStaffGql = {
+      id: 2,
+      name: { full: 'B', native: null },
+      languageV2: null,
+      image: null,
+      age: null,
+      gender: null,
+      favourites: null,
+    };
+    h.enqueueFavPages(
+      makeStaffFavPage(
+        [
+          { favouriteOrder: 2, node: staffB },
+          { favouriteOrder: 1, node: staffA },
+        ],
+        false,
+      ),
+    );
+    await importAnilistFavourites(h.ctx, { username: USER_NAME, type: 'STAFF' });
+    const ordered = h.db.selectObjects(
+      'SELECT staff_id, sort_order FROM staff_favourite ORDER BY sort_order',
+    );
+    expect(ordered).toEqual([
+      { staff_id: 1, sort_order: 0 },
+      { staff_id: 2, sort_order: 1 },
+    ]);
     h.db.close();
   });
 });

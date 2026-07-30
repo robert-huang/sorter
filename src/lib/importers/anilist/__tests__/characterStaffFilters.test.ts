@@ -723,4 +723,19 @@ describe('favourite-rank filter (staff)', () => {
     );
     expect(Array.from(allowed).sort((a, b) => a - b)).toEqual([1, 2]);
   });
+
+  it('legacy 1-based sort_order: rankMax 10 includes exactly 10 staff', async () => {
+    seedAnilistUser(db, 7, 'me');
+    for (let i = 1; i <= 76; i++) {
+      seedStaff(db, i);
+      seedStaffFavourite(db, 7, i, i);
+    }
+    const allowed = await computeAllowedStaffIds(
+      Array.from({ length: 76 }, (_, j) => j + 1),
+      staffChips({ favouriteRankMax: 10 }),
+    );
+    expect(allowed.size).toBe(10);
+    const ranks = Array.from(allowed).sort((a, b) => a - b);
+    expect(ranks).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  });
 });
