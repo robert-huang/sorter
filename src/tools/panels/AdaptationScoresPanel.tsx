@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
 import { ToolUsernameField } from '../ToolUsernameField';
+import { ToolSegmentedFilter, type ToolSegmentedOption } from '../ToolSegmentedFilter';
 import { useUsernameListRefresh } from '../useUsernameListRefresh';
 import { useToolsDisplayLabelRevision } from '../useToolsDisplayLabelRevision';
 import { withLastAnilistUsername, writeLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
@@ -22,10 +23,13 @@ import {
   DEFAULT_ADAPTATION_FILTERS,
   ADAPTATION_LIST_STATUS_OPTIONS,
   adaptationDiffDisplayToneClass,
+  adaptationFiltersFromListMediaMode,
+  adaptationListMediaModeFromFilters,
   buildAdaptationDisplay,
   normalizeAdaptationListStatuses,
   type AdaptationDisplayBlock,
   type AdaptationFilters,
+  type AdaptationListMediaMode,
   type AdaptationScoresResult,
   type AdaptationTableCell,
   type ShowDifferenceMode,
@@ -46,6 +50,12 @@ const HIDE_SAME_MEDIUM_TOOLTIP =
 
 const CONSUMPTION_DOT_TOOLTIP =
   'You started this entry first in this group (earliest start date on your list).';
+
+const ADAPTATION_LIST_MEDIA_OPTIONS: readonly ToolSegmentedOption<AdaptationListMediaMode>[] = [
+  { value: 'anime', label: 'Anime' },
+  { value: 'manga', label: 'Manga' },
+  { value: 'both', label: 'Both' },
+];
 
 function formatDiffLabel(diff: number | null): string {
   if (diff === null) {
@@ -351,7 +361,7 @@ function AdaptationTable({
   blocks: AdaptationDisplayBlock[];
   showDifference: ShowDifferenceMode;
   diffSort: DiffSort;
-  onDiffSortClick: () => void;
+  onDiffSortClick: (backward?: boolean) => void;
   onOpenMedia: ToolPanelProps['onOpenMedia'];
 }) {
   const showDiff = showDifference !== 'off';
@@ -447,8 +457,12 @@ function AdaptationTable({
                   ]
                     .filter(Boolean)
                     .join(' ')}
-                  onClick={onDiffSortClick}
-                  title="Sort franchise blocks by difference (click to cycle)"
+                  onClick={() => onDiffSortClick(false)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    onDiffSortClick(true);
+                  }}
+                  title="Sort franchise blocks by difference (click to cycle; right-click cycles backward)"
                 >
                   {diffSortIndicator ? (
                     <span className="tool-adaptation-diff-head">
@@ -566,8 +580,17 @@ export function AdaptationScoresPanel({
     }
   }, [filters.showDifference]);
 
-  const cycleDiffSort = useCallback(() => {
+  const cycleDiffSort = useCallback((backward = false) => {
     setDiffSort((prev) => {
+      if (backward) {
+        if (prev === null) {
+          return 'asc';
+        }
+        if (prev === 'asc') {
+          return 'desc';
+        }
+        return null;
+      }
       if (prev === null) {
         return 'desc';
       }
@@ -722,22 +745,13 @@ export function AdaptationScoresPanel({
             onRefresh={() => refreshUsernameList(form.username, running)}
             refreshLabel="Refresh anime + manga lists from AniList"
           />
-          <label className="tool-checkbox">
-            <input
-              type="checkbox"
-              checked={filters.includeAnime}
-              onChange={(e) => patchFilters({ includeAnime: e.target.checked })}
-            />
-            Anime List
-          </label>
-          <label className="tool-checkbox">
-            <input
-              type="checkbox"
-              checked={filters.includeManga}
-              onChange={(e) => patchFilters({ includeManga: e.target.checked })}
-            />
-            Manga List
-          </label>
+          <ToolSegmentedFilter
+            label="Lists"
+            options={ADAPTATION_LIST_MEDIA_OPTIONS}
+            value={adaptationListMediaModeFromFilters(filters)}
+            disabled={running}
+            onChange={(mode) => patchFilters(adaptationFiltersFromListMediaMode(mode))}
+          />
           <MultiSelectChip
             label="list status"
             options={ADAPTATION_LIST_STATUS_OPTIONS}

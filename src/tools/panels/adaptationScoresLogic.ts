@@ -76,6 +76,33 @@ export const DEFAULT_ADAPTATION_FILTERS: AdaptationFilters = {
   showDifference: 'off',
 };
 
+/** Segmented control for which user lists seed adaptation pairs. */
+export type AdaptationListMediaMode = 'anime' | 'manga' | 'both';
+
+export function adaptationListMediaModeFromFilters(filters: Pick<AdaptationFilters, 'includeAnime' | 'includeManga'>): AdaptationListMediaMode {
+  if (filters.includeAnime && filters.includeManga) {
+    return 'both';
+  }
+  if (filters.includeAnime) {
+    return 'anime';
+  }
+  if (filters.includeManga) {
+    return 'manga';
+  }
+  return 'both';
+}
+
+export function adaptationFiltersFromListMediaMode(mode: AdaptationListMediaMode): Pick<AdaptationFilters, 'includeAnime' | 'includeManga'> {
+  switch (mode) {
+    case 'anime':
+      return { includeAnime: true, includeManga: false };
+    case 'manga':
+      return { includeAnime: false, includeManga: true };
+    case 'both':
+      return { includeAnime: true, includeManga: true };
+  }
+}
+
 export function normalizeAdaptationListStatuses(raw: unknown): AdaptationListStatus[] {
   if (!Array.isArray(raw)) {
     return [...DEFAULT_ADAPTATION_LIST_STATUSES];

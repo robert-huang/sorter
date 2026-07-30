@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
 import { ToolUsernameField } from '../ToolUsernameField';
+import { ToolSegmentedFilter } from '../ToolSegmentedFilter';
 import { useUsernameListRefresh } from '../useUsernameListRefresh';
 import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
 import {
@@ -1013,44 +1014,31 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
           </div>
 
           <div className="tool-adaptation-primary-filters tool-seasonal-primary-filters tool-weekly-primary-filters">
-            <div
-              className="tool-field tool-field-label-row tool-weekly-season-scope"
-              role="group"
-              aria-labelledby="weekly-calendar-season-label"
-            >
-              <span className="tool-field-label" id="weekly-calendar-season-label">
-                Season
-              </span>
-              <div className="tool-segmented tool-weekly-season-segmented">
-                {seasonSegments.map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    className={form.seasonScope === opt.value ? 'active' : ''}
-                    aria-pressed={form.seasonScope === opt.value}
-                    disabled={running}
-                    onClick={() => {
-                      if (opt.value === 'custom') {
-                        const range = normalizeCustomSeasonRange(
-                          form.customSeasonMinEncoded,
-                          form.customSeasonMaxEncoded,
-                          customSeasonYearOptions,
-                        );
-                        patchForm({
-                          seasonScope: 'custom',
-                          customSeasonMinEncoded: range.minEncoded,
-                          customSeasonMaxEncoded: range.maxEncoded,
-                        });
-                        return;
-                      }
-                      patchForm({ seasonScope: opt.value });
-                    }}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <ToolSegmentedFilter
+              label="Season"
+              labelId="weekly-calendar-season-label"
+              className="tool-weekly-season-scope"
+              segmentedClassName="tool-weekly-season-segmented"
+              options={seasonSegments}
+              value={form.seasonScope}
+              disabled={running}
+              onChange={(seasonScope) => {
+                if (seasonScope === 'custom') {
+                  const range = normalizeCustomSeasonRange(
+                    form.customSeasonMinEncoded,
+                    form.customSeasonMaxEncoded,
+                    customSeasonYearOptions,
+                  );
+                  patchForm({
+                    seasonScope: 'custom',
+                    customSeasonMinEncoded: range.minEncoded,
+                    customSeasonMaxEncoded: range.maxEncoded,
+                  });
+                  return;
+                }
+                patchForm({ seasonScope });
+              }}
+            />
 
             {form.seasonScope === 'custom' ? (
               <WeeklyCalendarCustomSeasonChip
@@ -1117,29 +1105,15 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
               </div>
             </label>
 
-            <div
-              className="tool-field tool-field-label-row tool-weekly-timezone"
-              role="group"
-              aria-labelledby="weekly-calendar-tz-label"
-            >
-              <span className="tool-field-label" id="weekly-calendar-tz-label">
-                Time zone
-              </span>
-              <div className="tool-segmented">
-                {TIMEZONE_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    className={form.timezone === opt.value ? 'active' : ''}
-                    aria-pressed={form.timezone === opt.value}
-                    disabled={running}
-                    onClick={() => patchForm({ timezone: opt.value })}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <ToolSegmentedFilter
+              label="Time zone"
+              labelId="weekly-calendar-tz-label"
+              className="tool-weekly-timezone"
+              options={TIMEZONE_OPTIONS}
+              value={form.timezone}
+              disabled={running}
+              onChange={(timezone) => patchForm({ timezone })}
+            />
 
             <label className="tool-checkbox">
               <input

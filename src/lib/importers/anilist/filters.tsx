@@ -1657,7 +1657,7 @@ export function rangeLabel<T>(
  * tag` chips. Kept separate from the `tag` chip itself so the tag
  * dropdown stays focused on name selection.
  */
-function TagOptionsChip({
+export function TagOptionsChip({
   mode,
   minRank,
   onChange,

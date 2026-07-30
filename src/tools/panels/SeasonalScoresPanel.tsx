@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
 import { ToolUsernameField } from '../ToolUsernameField';
+import { ToolSegmentedFilter } from '../ToolSegmentedFilter';
 import { useUsernameListRefresh } from '../useUsernameListRefresh';
 import { useToolsDisplayLabelRevision } from '../useToolsDisplayLabelRevision';
 import { relabelSeasonalShows } from '../toolsDisplayRelabel';
@@ -653,25 +654,14 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
         </div>
 
         <div className="tool-field tool-seasonal-mode-field">
-          <div
-            className="tool-segmented"
-            role="group"
-            aria-labelledby="seasonal-scores-mode-label"
-          >
-            {SEASON_MODE_OPTIONS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                className={form.seasonMode === option.value ? 'active' : ''}
-                aria-pressed={form.seasonMode === option.value}
-                disabled={running}
-                title={option.title}
-                onClick={() => patchForm({ seasonMode: option.value })}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
+          <ToolSegmentedFilter
+            labelId="seasonal-scores-mode-label"
+            options={SEASON_MODE_OPTIONS}
+            value={form.seasonMode}
+            disabled={running}
+            unlabeled
+            onChange={(seasonMode) => patchForm({ seasonMode })}
+          />
           {form.seasonMode === 'custom' && (
             <>
               <span className="tool-field-hint">

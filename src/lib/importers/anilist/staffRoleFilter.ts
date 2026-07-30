@@ -11,7 +11,7 @@
 
 import type { AnilistMediaType } from './types';
 
-const KEY_ANIME_PRODUCTION_ROLES = new Set([
+export const KEY_ANIME_PRODUCTION_ROLES = new Set([
   'director',
   'series director',
   'animation director',
@@ -39,7 +39,7 @@ const KEY_ANIME_PRODUCTION_ROLES = new Set([
 ]);
 
 /** Manga production credits on AniList use a much smaller role vocabulary. */
-const KEY_MANGA_PRODUCTION_ROLES = new Set([
+export const KEY_MANGA_PRODUCTION_ROLES = new Set([
   'story',
   'art',
   'story & art',

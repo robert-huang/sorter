@@ -12,6 +12,7 @@ import {
 } from '../lib/importers/anilist/toolsAnilistAccess';
 import type { FranchiseEntry } from './panels/franchiseScoresLogic';
 import type { SeasonalShow } from './panels/seasonalScoresLogic';
+import type { StatsCachedData } from './panels/statsLogic';
 import {
   buildSharedCreditsResult,
   type SharedCreditsForm,
@@ -96,6 +97,16 @@ export function relabelSeasonalShows(shows: SeasonalShow[]): SeasonalShow[] {
       title: pickMediaTitle(show.titleSource),
     };
   });
+}
+
+export function relabelStatsEntries(cached: StatsCachedData): StatsCachedData {
+  return {
+    ...cached,
+    entries: cached.entries.map((entry) => ({
+      ...entry,
+      title: pickMediaTitle(entry.titleSource),
+    })),
+  };
 }
 
 export async function reloadStaffShowMapsFromDb(
