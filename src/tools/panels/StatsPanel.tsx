@@ -110,7 +110,7 @@ const DEFAULT_FORM: StatsForm = {
   scoreMin: null,
   scoreMax: null,
   minCount: 0,
-  showSummary: true,
+  showSummary: false,
   aggregationType: 'VA',
   staffRoleFilters: statsDefaultStaffRoleFilters('ANIME'),
   vaRoleFilters: [...STATS_CHARACTER_ROLE_OPTIONS],
@@ -141,10 +141,10 @@ function loadForm(): StatsForm {
   try {
     const raw = localStorage.getItem(LS_KEY);
     const filtersRaw = localStorage.getItem(LS_FILTERS_KEY);
-    const parsed = raw ? (JSON.parse(raw) as Partial<PersistedStatsForm>) : {};
+    const parsed = raw ? (JSON.parse(raw) as Partial<PersistedStatsForm> & { showSummary?: boolean }) : {};
     const filters = filtersRaw ? (JSON.parse(filtersRaw) as Partial<PersistedStatsFilters>) : {};
     const mediaType = parsed.mediaType === 'MANGA' ? 'MANGA' : 'ANIME';
-    return {
+    const form: StatsForm = {
       ...DEFAULT_FORM,
       username: typeof parsed.username === 'string' ? parsed.username : '',
       mediaType,
@@ -172,7 +172,13 @@ function loadForm(): StatsForm {
       vaRoleFilters: normalizeStatsVaRoleFilters(filters.vaRoleFilters),
       tagOptions: normalizeStatsTagOptions(filters.tagOptions),
       studioKindFilters: normalizeStatsStudioKindFilters(filters.studioKindFilters),
+      // Session-only — never restore from localStorage (legacy blobs may still carry showSummary).
+      showSummary: false,
     };
+    if (raw && 'showSummary' in parsed) {
+      saveForm(form);
+    }
+    return form;
   } catch {
     return { ...DEFAULT_FORM };
   }
