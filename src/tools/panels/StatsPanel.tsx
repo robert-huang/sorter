@@ -64,7 +64,6 @@ import {
   statsDefaultStaffRoleFilters,
   statsEffectiveEpisodes,
   statsEntryScoreSortValue,
-  statsRatedScore,
   STATS_ANIME_FORMAT_OPTIONS,
   STATS_CHARACTER_ROLE_OPTIONS,
   STATS_LIST_STATUS_OPTIONS,
