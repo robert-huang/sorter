@@ -1521,6 +1521,7 @@ html {
   white-space: normal;
   overflow-wrap: anywhere;
   line-height: 1.35;
+  align-self: center;
 }
 
 /* Layout for "input ┼ slider ┼ input" used by range chips. The two
