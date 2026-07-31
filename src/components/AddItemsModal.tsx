@@ -71,9 +71,6 @@ export function AddItemsModal({
     .filter(Boolean)
     .join(' ');
 
-  const showPreRankedToggle =
-    engine === 'merge' && typeof onAddPreRanked === 'function';
-
   return (
     <Modal
       label={`Add item${tab === 'multiple' ? 's' : ''}`}
@@ -152,7 +149,7 @@ export function AddItemsModal({
           embedded
           excludeSlotId={excludeSlotId}
           existingIds={existingIds}
-          showPreRankedToggle={showPreRankedToggle}
+          showPreRankedToggle
           onAddSlotImports={onAddSlotImports}
           onComplete={onCancel}
         />

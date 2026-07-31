@@ -359,9 +359,30 @@ export function SortResultsImportMode({
     onComplete?.();
   }
 
-  const addLabel = onAppendToStaged
-    ? `Add to staged (${addableCount} item${addableCount === 1 ? '' : 's'})`
-    : `Add ${addableCount} item${addableCount === 1 ? '' : 's'}`;
+  const addLabel = (() => {
+    if (onAppendToStaged) {
+      return `Add to staged (${addableCount} item${addableCount === 1 ? '' : 's'})`;
+    }
+    if (addableCount === 0) {
+      return 'Add items';
+    }
+    if (showPreRankedToggle && selectedImportable.length > 0) {
+      const modes = selectedImportable.map(
+        (entry) => asPreRanked[entry.meta.id] ?? true,
+      );
+      const allPreRanked = modes.every(Boolean);
+      const allSingletons = modes.every((mode) => !mode);
+      if (allPreRanked) {
+        const sublistLabel =
+          selectedImportable.length === 1 ? 'sublist' : 'sublists';
+        return `Add ${addableCount} as pre-ranked ${sublistLabel}`;
+      }
+      if (allSingletons) {
+        return `Add ${addableCount} item${addableCount === 1 ? '' : 's'} (individual entries)`;
+      }
+    }
+    return `Add ${addableCount} item${addableCount === 1 ? '' : 's'}`;
+  })();
 
   if (!isAutosaveAvailable()) {
     return (
@@ -390,6 +411,8 @@ export function SortResultsImportMode({
             Import final rankings from completed saves in this browser.
             Combine with clipboard, CSV, or AniList batches in the staged
             panel below. Expand a save to edit or remove items before adding.
+            Uncheck “Treat as one pre-ranked sublist” on a save to queue each
+            item as its own singleton.
           </p>
         </>
       )}
@@ -397,6 +420,9 @@ export function SortResultsImportMode({
         <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 0 }}>
           Pick one or more completed saves. Items already in this sort are
           skipped. Expand a save to edit labels, URLs, or ids before adding.
+          {showPreRankedToggle
+            ? ' Uncheck “Treat as one pre-ranked sublist” on a save to queue each item as its own singleton.'
+            : null}
         </p>
       )}
 
@@ -603,7 +629,7 @@ function SlotImportRow({
         )}
       </div>
 
-      {importable && selected && showPreRankedToggle && (
+      {importable && showPreRankedToggle && (selected || expanded) && (
         <div
           className="checkbox-row sort-results-import-mode-row"
           onClick={(e) => e.stopPropagation()}
@@ -615,12 +641,12 @@ function SlotImportRow({
             onChange={(e) => onTogglePreRanked(e.target.checked)}
           />
           <label htmlFor={`sort-import-preranked-${entry.meta.id}`}>
-            Pre-ranked list (preserve order)
+            Treat as one pre-ranked sublist (preserve order)
           </label>
           <span className="header-hint">
             {asPreRanked
-              ? 'Merges as one ordered sublist.'
-              : 'Each item becomes its own singleton.'}
+              ? 'Items merge as a single sorted sublist at the back of the queue.'
+              : 'Each item becomes its own singleton sublist.'}
           </span>
         </div>
       )}
