@@ -12,7 +12,7 @@ It runs one of **three engines** per slot:
 
 All three engines share the same RANK / LIST / RESULT screens, undo ring, autosave, and save-file format.
 
-Items can come from a pasted/loaded CSV **or be imported from [AniList](https://anilist.co)** — pull a user's anime/manga list or favourites into a local SQLite cache (kept in your browser's OPFS), filter it down, then sort. AniList items get rich **detail panels** (media metadata + cast/voice-actors, and staff filmographies), feed a side game **[Anime to Anime](#anime-to-anime-separate-page)**, and power **[Anime Tools](#anime-tools-separate-page)** — shared-credits/staff comparison, seasonal score charts, franchise walks, adaptation mapping, favourites analysis, and authenticated list-entry updates.
+Items can come from a pasted/loaded CSV **or be imported from [AniList](https://anilist.co)** — pull a user's anime/manga list or favourites into a local SQLite cache (kept in your browser's OPFS), filter it down, then sort. AniList items get rich **detail panels** (media metadata + cast/voice-actors, and staff filmographies), feed a side game **[Anime to Anime](#anime-to-anime-separate-page)**, and power **[Anime Tools](#anime-tools-separate-page)** — shared-credits/staff comparison, seasonal score charts, franchise walks, adaptation mapping, list statistics, favourites analysis, and authenticated list-entry updates.
 
 No backend. No telemetry. Optional sign-in (AniList OAuth for your own list mutations / hidden entries; Google Drive for cloud backup) — everything else runs entirely in your browser.
 
@@ -569,6 +569,8 @@ The Tools page is a tabbed shell (`anime-tools-active-tool` in `localStorage` re
 
 **Right-click** is used in a few places to force a live re-fetch instead of reading cache. There is no general middle-click refresh pattern.
 
+**Stale cache (>90 days)** — graph expansions (cast, staff filmography) and imported user lists are **served from SQLite until you explicitly refresh**. Normal tool runs only auto-fetch when data is **missing or incomplete** (`fetchedAt === null`), not because a timestamp is old. Use ↻ beside the username, detail-panel ↻, or right-click on the tool's run button to pull fresh data. Detail panels still turn the ↻ button amber when cached cast/filmography is >90d old.
+
 #### Tools: ↻ beside username
 
 Left-click only (right-click does nothing). Always `forceRefresh` — a full wipe-and-rebuild import for the selected types, then a scoped **source-metadata repair** for that type only (batched `media(id_in: …)` requests for listed rows missing `source_fetched_at`).
@@ -581,6 +583,8 @@ Left-click only (right-click does nothing). Always `forceRefresh` — a full wip
 | **Favourites** | Anime list + manga list + character/staff favourites |
 | **Franchise Scores** | Anime list + manga list |
 | **Adaptation Scores** | Anime list + manga list |
+| **Stats** | Anime list or manga list (matches media type) |
+| **Weekly Calendar** | Anime list only |
 | **Update List Entry** | *(no ↻ — username field only)* |
 
 Manga refresh uses the same `MediaListCollection` import as anime (~2–3 API requests per thousand entries). Favourites refresh also re-imports both favourite lists and busts the favourites Analyze session memo.
@@ -596,6 +600,9 @@ Most run buttons are **left-click = use cache** (import only if missing or >90 d
 | **Shared Staff** | Compare | Resolve show ids; read cached cast/staff from DB | Same, but force-refetch cast expansion for every input show |
 | **Franchise Scores** | Trace | Walk relations from seed; read cached relation graph + user anime/manga lists (import if stale) | Force anime + manga list re-import and bust relation-graph cache for the walk |
 | **Adaptation Scores** | Compare | Scan list entries for SOURCE/ADAPTATION relations; read cached relation graph + user anime/manga lists (import if stale) | Force anime + manga list re-import and re-fetch relation edges for every scanned entry |
+| **Stats** | Run | Read list from DB (import if missing/empty); lazy-expand cast for VA/Staff when needed | Force list re-import; on VA/Staff aggregation also expands cast for filtered pool |
+| **Stats** | Expand all cast | *(left-click only)* Force cast expansion for every entry in the current cached pool | — |
+| **Weekly Calendar** | Run | Read watching list or season catalog from DB (import list if missing) | Force anime list re-import, then chart |
 | **Favourites** | Analyze | Read favourite chars/staff from DB; ensure anime+manga lists if stale; use cached character/VA role expansions when present | Re-import favourite character + staff lists and force both anime + manga list imports; **does not** force per-character graph expansion |
 | **Favourites** | Expand Roles | *(left-click only)* Force full character-media + VA-filmography expansion for every favourite, then rebuild the report — slow by design | — |
 | **Update List Entry** | Save | `SaveMediaListEntry` mutation (no right-click refresh) | — |
@@ -681,6 +688,8 @@ Chart one user's AniList scores across seasons.
 
 Columns show rated count, column average, and per-show scores (green > 80, pink < 70). Unrated on-list cells show a status letter instead: **P** planning, **W** watching (anime `CURRENT` / `REPEATING`), **R** reading (manga `CURRENT` / `REPEATING`), **H** paused. Season headers link to AniList season browse URLs.
 
+When the username matches a **linked AniList account** (gear → Sign in), seasonal data is read from a live `Page.media` query so scores and notes match AniList immediately. Third-party usernames still use the imported DB (with live fallback when the cache is empty).
+
 ### Franchise Scores
 
 Walk AniList **relations** outward from one or more seed shows and chart the user's scores across the franchise.
@@ -709,9 +718,38 @@ Filter toggles (list type, status, both sides, same-medium, show all rows) re-ap
 
 Results open media detail modals from title links. Relations **↻ Refresh** in a detail modal merges updated edges into the current scan without re-running Compare.
 
+### Stats
+
+Aggregate list statistics for a filtered pool — inspired by Automail's More Stats. Choose **anime** or **manga**, apply the same filter chips as other tools (list status, score range, airing status, format, staff/VA roles, tag options, studio kind, etc.), then chart by aggregation type:
+
+- **Voice Actors** — count, mean user score, AniList mean, optional main-role columns, optional score diff, episodes/time watched and remaining (anime).
+- **Staff** — production credits with role filters.
+- **Genres & Tags** — three separate tables (genres, AniList tags, custom `#tags` from notes).
+- **Studios** — animation vs non-animation studio filters.
+
+**User Stats Summary** — toggle replaces the chart area with AniList-style totals (on list, rated, mean, weighted mean, median, global difference/deviation, rating entropy, most common score, time watched). Clickable fields open modals (shows at that score, time-watched breakdown chart).
+
+**Tables** — expandable parent rows with per-show subrows (thumbnail + title; user score in Mean Score column). **Left-click** column headers sort **parent rows** (asc/desc toggle). **Right-click** sorts **subrows only** within fixed parent order (desc → asc → off, where off = release date oldest-first). Each chart keeps its own sort state until the next Run. **Min count** chip (click to open, like tag min rank) filters parent rows after other filters. Staff name clicks open the staff modal without expanding the row. CSV/JSON export per table.
+
+**Run** (left-click) uses cache; right-click force-refreshes the list. VA/Staff runs lazy-expand cast when needed; **Expand all cast** forces cast for the whole cached pool. ↻ beside username re-imports the list for the active media type. Linked accounts can use live list reads where applicable (same pattern as Seasonal Scores).
+
+Form settings persist in `localStorage` (`anime-tools-stats-form`, `anime-tools-stats-filters`); table sort resets on each Run.
+
+### Weekly Calendar
+
+Chart **airing and upcoming anime** by weekday, or browse **seasonal catalogs** (current season, next season, user list only, or a custom season-year range). Uses the user's **anime list** for watching-list mode; season modes can include shows **not on the list** when **NOT ON LIST** is enabled in the list status filter.
+
+- **Week start** — Monday through Sunday.
+- **Timezone** — Eastern, Pacific, UTC, or local (for broadcast time bucketing).
+- **Filters** — list status, score range, format, airing status (same chip patterns as Stats/Seasonal).
+- **Show theme songs** — optional per-show theme song blocks under each cell, with Spotify playlist match indicators when a playlist URL is configured in gear → Spotify settings. Click/right-click the playlist filter chip to show songs on / not on the playlist.
+- **Unscheduled column** — optional column for shows without a known weekday slot.
+
+Results use the seasonal-scores-style column chart (weekday columns, score coloring, show count per day). Show titles open media detail modals.
+
 ### Favourites
 
-Analyze a user's favourite **characters** and **staff** from the local cache. Uses both **anime and manga** list entries for "seen on your list" / **Characters by manga series** (manga list is ensured on Analyze and force-refreshed on ↻).
+Analyze a user's favourite **characters** and **staff** from the local cache. Uses both **anime and manga** list entries for "seen on your list" / **Characters by manga series** (manga list is ensured on Analyze and force-refreshed on ↻). When the username matches a **linked AniList account**, consumed-media ids for those features are read from live list queries instead of stale DB rows.
 
 - **↻** (beside username) — force anime list + manga list + favourite characters + favourite staff re-imports.
 - **Analyze** (left-click) — fast path from cache: rank voice actors, series breakdowns, etc. Imports lists/favourites only if missing or >90d stale; uses cached character/VA expansions when present.
@@ -887,7 +925,7 @@ Coverage:
 - **Local source DB / OPFS** (`lib/db/__tests__/`): `client`, `workerInit`, `dbWorkerCore`, `dbExec`, `dbTransport`, `opfs` / `opfsLock` / `opfsInstallRetry`, `migration-runner`, `sync`, `syncManifest`, `merge` (row-level pull merge).
 - **AniList UI** (`components/__tests__/`): `AnilistDetailModal`, `StaffDetailModal` (lazy expand / refresh / my-list toggle / stale warning / middle-click), `ItemThumb`, `StagedItemsPanel` (engine split button + confirmation default for single ranked sublist), `FilterBar`, `listScreenH`, `compareScreenH`.
 - **Anime to Anime** (`animeToAnime/__tests__/`): `cachedGraph` (0–1 BFS shortest-path), `listFilter`, `pathHopLabels`, `vaCreditDisplay`, `preferences`.
-- **Anime Tools** (`tools/__tests__/`): `sharedCreditsLogic` / `sharedCreditsApi`, `sharedStaffLogic` / `sharedStaffRelatedAnime`, `seasonalScoresLogic` / `seasonalScoresApi`, `franchiseScoresLogic` / `franchiseScoresApi`, `adaptationScoresLogic` / `adaptationScoresApi`, `favouritesLogic` / `favouritesApi`, `updateListEntryLogic` / `updateListEntryApi`, `parseToolLines`, `staffRoleBuckets`, `toolsDisplayRelabel`.
+- **Anime Tools** (`tools/__tests__/`): `sharedCreditsLogic` / `sharedCreditsApi`, `sharedStaffLogic` / `sharedStaffRelatedAnime`, `seasonalScoresLogic` / `seasonalScoresApi`, `franchiseScoresLogic` / `franchiseScoresApi`, `adaptationScoresLogic` / `adaptationScoresApi`, `statsLogic` / `statsApi`, `weeklyCalendarLogic` / `weeklyCalendarApi`, `favouritesLogic` / `favouritesApi`, `updateListEntryLogic` / `updateListEntryApi`, `parseToolLines`, `staffRoleBuckets`, `toolsDisplayRelabel`, `toolsFetchPolicy`.
 - **Hooks** (`hooks/__tests__/`): `useAnilistWaitCountdown` (rate-limit countdown).
 
 ## Save-file format & migration
@@ -922,7 +960,8 @@ src/
   tools/                # Anime Tools (ToolsApp.tsx, ToolsHeader, ToolsSettingsMenu,
                         # ToolTabs, ToolRunButton, ToolUsernameField, toolEntityLinks)
     panels/             # SharedCreditsPanel, SharedStaffPanel, SeasonalScoresPanel,
-                        # FranchiseScoresPanel, AdaptationScoresPanel, FavouritesPanel,
+                        # FranchiseScoresPanel, AdaptationScoresPanel, StatsPanel,
+                        # WeeklyCalendarPanel, FavouritesPanel,
                         # ReorderFavouritesPanel, UpdateListEntryPanel
                         # + *Logic.ts / *Api.ts per tool
     toolsPreferences.ts # global Tools prefs (productionAllRoles)
@@ -1023,7 +1062,7 @@ src/
 ## Roadmap
 
 - **AniList integration** — import lists/favourites into a local OPFS SQLite cache, filter + stage to sort, media/staff detail panels, Drive backup of the cache, and OAuth for your own list mutations. (Shipped — see [Importing from AniList](#importing-from-anilist), [AniList detail panels](#anilist-detail-panels), [Local source database](#local-source-database-anilist-cache), and [AniList accounts](#anilist-accounts).) Design notes live in `.cursor/plans/`.
-- **Anime Tools** — shared credits/staff comparison, seasonal score charts, franchise relation walks, adaptation mapping, favourites VA ranking, and Update List Entry mutations. (Shipped — see [Anime Tools — tabs](#anime-tools--tabs).)
+- **Anime Tools** — shared credits/staff comparison, seasonal score charts, franchise relation walks, adaptation mapping, list statistics (Stats), favourites VA ranking, and Update List Entry mutations. (Shipped — see [Anime Tools — tabs](#anime-tools--tabs).)
 - Additional import sources beyond AniList, reusing the same per-source SQLite cache layer.
 
 ## License

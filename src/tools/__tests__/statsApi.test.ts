@@ -25,7 +25,6 @@ vi.mock('../../lib/importers/anilist/toolsAnilistAccess', async (importOriginal)
   const actual = await importOriginal<typeof import('../../lib/importers/anilist/toolsAnilistAccess')>();
   return {
     ...actual,
-    ensureUserMediaListFresh: vi.fn(),
     ensureMediaCastFreshBatch: vi.fn(),
     readShowStaffBundleFromDb: vi.fn(),
   };
@@ -36,14 +35,12 @@ vi.mock('../../lib/importers/anilist/readQueries', async (importOriginal) => {
   return {
     ...actual,
     getMediaDetail: vi.fn(),
+    getMediaCastExpansionStatus: vi.fn(),
   };
 });
 
 import { depaginate } from '../../lib/importers/anilist/depaginate';
 import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportContext';
-import {
-  ensureUserMediaListFresh,
-} from '../../lib/importers/anilist/toolsAnilistAccess';
 import { getMediaDetail } from '../../lib/importers/anilist/readQueries';
 import {
   bustStatsSessionMemo,
@@ -52,7 +49,6 @@ import {
 
 const depaginateMock = vi.mocked(depaginate);
 const getCtxMock = vi.mocked(getToolsImportContext);
-const ensureUserMediaListFreshMock = vi.mocked(ensureUserMediaListFresh);
 const getMediaDetailMock = vi.mocked(getMediaDetail);
 
 function gqlListEntry(mediaId: number) {
@@ -82,15 +78,9 @@ beforeEach(() => {
   _clearSessionMemoForTesting();
   depaginateMock.mockReset();
   getCtxMock.mockReset();
-  ensureUserMediaListFreshMock.mockReset();
   getMediaDetailMock.mockReset();
 
   getCtxMock.mockReturnValue({ db: {} } as never);
-  ensureUserMediaListFreshMock.mockResolvedValue({
-    id: 1,
-    name: 'tester',
-    fetched_at: Date.now(),
-  } as never);
   getMediaDetailMock.mockResolvedValue(null);
   depaginateMock.mockResolvedValue([gqlListEntry(101)]);
 });
@@ -100,7 +90,6 @@ describe('fetchStatsData', () => {
     await fetchStatsData('tester', 'ANIME');
     await fetchStatsData('tester', 'ANIME');
 
-    expect(ensureUserMediaListFreshMock).toHaveBeenCalledTimes(1);
     expect(depaginateMock).toHaveBeenCalledTimes(1);
   });
 

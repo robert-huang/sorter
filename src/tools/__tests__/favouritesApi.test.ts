@@ -27,6 +27,10 @@ vi.mock('../../lib/importers/anilist/depaginate', () => ({
   depaginate: vi.fn(),
 }));
 
+vi.mock('../../lib/importers/anilist/anilistAuth', () => ({
+  findAnilistAccountByName: vi.fn(() => null),
+}));
+
 vi.mock('../../lib/importers/anilist/toolsImportContext', () => ({
   getToolsImportContext: vi.fn(),
 }));

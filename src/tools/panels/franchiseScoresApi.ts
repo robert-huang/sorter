@@ -113,13 +113,14 @@ type UserListEntry = { mediaId: number; status: string | null; score: number | n
  * a 15-min session memo) — meaning every revisit re-paid the cost of
  * both anime + manga list fetches. Now we go through the same shared
  * `media_list_entry` cache the other tools use:
- *   - `ensureUserMediaListFresh` is idempotent: no-op when the user's
- *     list was imported <90d ago, else runs a full import + persists.
+ *   - `ensureUserMediaListFresh` imports on cold start (missing/empty list)
+ *     or when force-refresh is requested — not on age alone.
  *   - `readUserMediaListEntriesFromDb` returns rows directly with
  *     status + score so we can stamp watched/scored onto franchise
  *     nodes without a network round trip.
  * Force-refresh threads through `ensureUserMediaListFresh` and re-runs
- * the AniList import.
+ * the AniList import. For day-to-day score/status updates on a linked
+ * account, use the username ↻ refresh button.
  */
 async function fetchUserMediaList(
   username: string,

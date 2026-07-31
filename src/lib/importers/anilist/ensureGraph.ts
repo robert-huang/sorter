@@ -104,7 +104,7 @@ export async function ensureMediaCastExpanded(
 
 export type EnsureMediaCastBatchOptions = ExpandAnilistMediaDetailOptions &
   Pick<ExpandMediaCastBatchOptions, 'batchSize'> & {
-    /** When set, applies the same 90d staleness gate as `ensureMediaCastFresh`. */
+    /** When set, applies the same missing/incomplete gate as `ensureMediaCastFresh`. */
     staleRefresh?: ToolsFetchOptions;
   };
 

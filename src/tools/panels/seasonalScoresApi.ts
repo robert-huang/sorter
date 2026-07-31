@@ -124,36 +124,37 @@ async function fetchUserSeasonalShowsResolved(
   options?: SeasonalScoresFetchOptions,
 ): Promise<SeasonalShow[]> {
   signal?.throwIfAborted();
+  const hasAccount = findAnilistAccountByName(username) !== null;
+  if (hasAccount) {
+    return fetchUserSeasonalShowsLive(username, signal);
+  }
   const user = await ensureUserAnimeListFresh(username, options);
   const ctx = getToolsImportContext();
-  const hasAccount = findAnilistAccountByName(username) !== null;
   if (user) {
     let fromDb = await readUserSeasonalShowsFromDb(ctx.db, user.id);
     if (await listedMediaNeedsSourceRepair(ctx.db, user.id)) {
       await repairListedMediaNullSource(ctx, user.id, { type: 'ANIME' });
       fromDb = await readUserSeasonalShowsFromDb(ctx.db, user.id);
     }
-    if (fromDb.length > 0 || hasAccount) {
+    if (fromDb.length > 0) {
       return fromDb;
     }
-  }
-  if (hasAccount) {
-    return [];
   }
   return fetchUserSeasonalShowsLive(username, signal);
 }
 
 /**
- * Seasonal scores read list-entry notes and scores from the imported DB when
- * available (authenticated import via MediaListCollection). Live
- * `Page.mediaList` is the fallback for unauthenticated third-party usernames.
+ * Seasonal scores read list-entry notes and scores from a live AniList query
+ * when the username matches a linked account (same as Stats). Third-party
+ * usernames fall back to the imported DB when available, else live
+ * `Page.mediaList`.
  *
  * Always fetched with PLANNING included; the "Include Planning"
  * checkbox is a client-side filter (see `bucketShowsForSeason`) so
  * toggling it is instant instead of triggering another network round
  * trip. Results are memoized in-session for {@link TOOLS_SESSION_TTL_MS};
- * force refresh busts the memo and re-imports the DB list via
- * {@link ensureUserAnimeListFresh}.
+ * force refresh busts the memo and re-fetches live (linked account) or
+ * re-imports the DB list (third-party cold path).
  */
 export async function fetchUserSeasonalShows(
   username: string,

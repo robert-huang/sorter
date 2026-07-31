@@ -13,9 +13,9 @@ describe('needsGraphDataRefresh', () => {
     expect(needsGraphDataRefresh(null)).toBe(true);
   });
 
-  it('returns true when data is older than 90 days', () => {
+  it('returns false when data is older than 90 days (stale is manual refresh only)', () => {
     const stale = now - GRAPH_STALE_MS - 1;
-    expect(needsGraphDataRefresh(stale)).toBe(true);
+    expect(needsGraphDataRefresh(stale)).toBe(false);
   });
 
   it('returns false when data is fresh', () => {

@@ -30,6 +30,7 @@ import {
   normalizeSeasonalListScore,
   scoreDisplayToneClass,
 } from './seasonalScoresLogic';
+import { franchiseDateSortKey } from './franchiseScoresLogic';
 
 export type StatsMediaType = AnilistMediaType;
 
@@ -100,6 +101,12 @@ export const DEFAULT_STATS_TAG_OPTIONS: StatsTagOptions = {
   tagMinRank: 0,
 };
 
+export type StatsStartDate = {
+  year: number | null;
+  month: number | null;
+  day: number | null;
+};
+
 export type StatsForm = {
   username: string;
   mediaType: StatsMediaType;
@@ -109,6 +116,8 @@ export type StatsForm = {
   userScoreInclude: WeeklyCalendarScoreFilters['userScoreInclude'];
   scoreMin: number | null;
   scoreMax: number | null;
+  /** Minimum parent-row count after aggregation (0 = no filter). */
+  minCount: number;
   showSummary: boolean;
   aggregationType: StatsAggregationType;
   staffRoleFilters: StatsStaffRoleKey[];
@@ -167,6 +176,7 @@ export type StatsEntry = {
   volumes: number | null;
   duration: number | null;
   meanScore: number | null;
+  startDate: StatsStartDate;
   genres: string[];
   tags: StatsMediaTag[];
   studios: StatsStudioLink[];
@@ -241,6 +251,46 @@ export type StatsSortState = {
   direction: StatsSortDirection;
 } | null;
 
+/** Default parent-row sort: highest count first. */
+export const DEFAULT_STATS_TABLE_SORT: StatsSortState = {
+  column: 'count',
+  direction: 'desc',
+};
+
+export type StatsTableChartId =
+  | 'staff'
+  | 'va'
+  | 'genres'
+  | 'tags'
+  | 'customTags'
+  | 'studios';
+
+export type StatsTableSortConfig = {
+  parent: StatsSortState;
+  /** `null` = subrows sorted by release date (oldest first). */
+  subrow: StatsSortState;
+};
+
+export const DEFAULT_STATS_CHART_SORT: StatsTableSortConfig = {
+  parent: DEFAULT_STATS_TABLE_SORT,
+  subrow: null,
+};
+
+export function createDefaultStatsChartSorts(): Record<StatsTableChartId, StatsTableSortConfig> {
+  const blank = (): StatsTableSortConfig => ({
+    parent: { ...DEFAULT_STATS_TABLE_SORT! },
+    subrow: null,
+  });
+  return {
+    staff: blank(),
+    va: blank(),
+    genres: blank(),
+    tags: blank(),
+    customTags: blank(),
+    studios: blank(),
+  };
+}
+
 export type StatsSummary = {
   onList: number;
   rated: number;
@@ -264,6 +314,8 @@ export type StatsCachedData = {
   entries: StatsEntry[];
   /** True after {@link expandStatsCast} has attached staff/VA credits to every entry. */
   castExpanded?: boolean;
+  /** Shows with cast cache older than 90d (set after cast expansion). */
+  staleCastMediaCount?: number;
 };
 
 export type StatsBuildResult = {
@@ -478,6 +530,16 @@ export function filterStatsPool(entries: readonly StatsEntry[], form: StatsForm)
   );
 }
 
+export function filterStatsParentRowsByMinCount(
+  rows: readonly StatsParentRow[],
+  minCount: number,
+): StatsParentRow[] {
+  if (minCount <= 0) {
+    return [...rows];
+  }
+  return rows.filter((row) => row.metrics.count >= minCount);
+}
+
 export function statsEffectiveEpisodes(entry: StatsEntry): number {
   const progress = entry.progress ?? 0;
   const total = entry.episodes ?? progress;
@@ -502,16 +564,22 @@ function entryTimeWatchedMinutes(entry: StatsEntry): number {
   return minutes;
 }
 
-function entryEpisodesRemaining(entry: StatsEntry): number {
+export function entryEpisodesRemaining(entry: StatsEntry): number {
   if (entry.mediaType !== 'ANIME') {
     return 0;
   }
-  const total = entry.episodes ?? 0;
+  if (entry.listStatus === 'COMPLETED') {
+    return 0;
+  }
+  const total = entry.episodes;
+  if (total == null || total <= 0) {
+    return 0;
+  }
   const progress = entry.progress ?? 0;
   return Math.max(0, total - progress);
 }
 
-function entryTimeRemainingMinutes(entry: StatsEntry): number {
+export function entryTimeRemainingMinutes(entry: StatsEntry): number {
   if (entry.mediaType !== 'ANIME') {
     return 0;
   }
@@ -519,13 +587,13 @@ function entryTimeRemainingMinutes(entry: StatsEntry): number {
   return entryEpisodesRemaining(entry) * duration;
 }
 
-function entryChaptersRemaining(entry: StatsEntry): number {
+export function entryChaptersRemaining(entry: StatsEntry): number {
   const total = entry.chapters ?? 0;
   const progress = entry.progress ?? 0;
   return Math.max(0, total - progress);
 }
 
-function entryVolumesRemaining(entry: StatsEntry): number {
+export function entryVolumesRemaining(entry: StatsEntry): number {
   const total = entry.volumes ?? 0;
   const progress = entry.progressVolumes ?? 0;
   return Math.max(0, total - progress);
@@ -1037,9 +1105,14 @@ export function statsEntryScoreSortValue(entry: StatsEntry): number | null {
   return normalizeSeasonalListScore(entry.score);
 }
 
+export function statsEntryStartDateSortKey(date: StatsStartDate): number {
+  return franchiseDateSortKey(date);
+}
+
 export function compareStatsSortValues(
   a: number | string | null,
   b: number | string | null,
+  direction: StatsSortDirection = 'asc',
 ): number {
   if (a == null && b == null) {
     return 0;
@@ -1050,10 +1123,210 @@ export function compareStatsSortValues(
   if (b == null) {
     return -1;
   }
+  let cmp = 0;
   if (typeof a === 'string' && typeof b === 'string') {
-    return a.localeCompare(b);
+    cmp = a.localeCompare(b);
+  } else {
+    cmp = (a as number) - (b as number);
   }
-  return (a as number) - (b as number);
+  return direction === 'asc' ? cmp : -cmp;
+}
+
+function stableSort<T>(items: readonly T[], compare: (a: T, b: T) => number): T[] {
+  const indexed = items.map((item, index) => ({ item, index }));
+  indexed.sort((left, right) => {
+    const cmp = compare(left.item, right.item);
+    return cmp !== 0 ? cmp : left.index - right.index;
+  });
+  return indexed.map((row) => row.item);
+}
+
+function effectiveParentSort(sort: StatsSortState): {
+  column: StatsSortColumn;
+  direction: StatsSortDirection;
+} {
+  return sort ?? DEFAULT_STATS_TABLE_SORT!;
+}
+
+function sortMetricValue(row: StatsParentRow, column: StatsSortColumn): number | string | null {
+  const m = row.metrics;
+  switch (column) {
+    case 'name':
+      return row.name.toLowerCase();
+    case 'count':
+      return m.count;
+    case 'meanScore':
+      return m.meanScore;
+    case 'anilistMeanScore':
+      return m.anilistMeanScore;
+    case 'mainRoleCount':
+      return m.mainRoleCount;
+    case 'mainRoleMeanScore':
+      return m.mainRoleMeanScore;
+    case 'mainRoleAnilistMeanScore':
+      return m.mainRoleAnilistMeanScore;
+    case 'scoreDiff':
+      return m.scoreDiff;
+    case 'episodesWatched':
+      return m.episodesWatched;
+    case 'timeWatched':
+      return m.timeWatchedMinutes;
+    case 'episodesRemaining':
+      return m.episodesRemaining;
+    case 'timeRemaining':
+      return m.timeRemainingMinutes;
+    case 'chaptersRead':
+      return m.chaptersRead;
+    case 'chaptersRemaining':
+      return m.chaptersRemaining;
+    case 'volumesRead':
+      return m.volumesRead;
+    case 'volumesRemaining':
+      return m.volumesRemaining;
+    default:
+      return null;
+  }
+}
+
+type StatsSubrowSortOptions = {
+  mediaType: StatsMediaType;
+  vaShowDiff?: boolean;
+};
+
+function subrowIsMainRole(sub: StatsSubrow): boolean {
+  return sub.link?.characterRole === 'MAIN';
+}
+
+function subrowScoreDiff(entry: StatsEntry, vaShowDiff: boolean): number | null {
+  if (!vaShowDiff) {
+    return null;
+  }
+  const rated = ratedScore(entry);
+  const anilist = entry.meanScore;
+  if (rated == null || anilist == null || anilist <= 0) {
+    return null;
+  }
+  return rated - anilist;
+}
+
+function sortSubrowMetricValue(
+  sub: StatsSubrow,
+  column: StatsSortColumn,
+  options: StatsSubrowSortOptions,
+): number | string | null {
+  const entry = sub.entry;
+  const isMain = subrowIsMainRole(sub);
+  switch (column) {
+    case 'name':
+      return entry.title.toLowerCase();
+    case 'count':
+      return 1;
+    case 'meanScore':
+      return statsEntryScoreSortValue(entry);
+    case 'anilistMeanScore':
+      return entry.meanScore;
+    case 'mainRoleCount':
+      return isMain ? 1 : null;
+    case 'mainRoleMeanScore':
+      return isMain ? ratedScore(entry) : null;
+    case 'mainRoleAnilistMeanScore':
+      return isMain ? entry.meanScore : null;
+    case 'scoreDiff':
+      return subrowScoreDiff(entry, options.vaShowDiff ?? false);
+    case 'episodesWatched':
+      return entry.mediaType === 'ANIME' ? statsEffectiveEpisodes(entry) : entry.progress ?? 0;
+    case 'timeWatched':
+      return entry.mediaType === 'ANIME' ? entryTimeWatchedMinutes(entry) : null;
+    case 'episodesRemaining':
+      return entry.mediaType === 'ANIME' ? entryEpisodesRemaining(entry) : null;
+    case 'timeRemaining':
+      return entry.mediaType === 'ANIME' ? entryTimeRemainingMinutes(entry) : null;
+    case 'chaptersRead':
+      return entry.mediaType === 'MANGA' ? entry.progress ?? 0 : null;
+    case 'chaptersRemaining':
+      return entry.mediaType === 'MANGA' ? entryChaptersRemaining(entry) : null;
+    case 'volumesRead':
+      return entry.mediaType === 'MANGA' ? entry.progressVolumes ?? 0 : null;
+    case 'volumesRemaining':
+      return entry.mediaType === 'MANGA' ? entryVolumesRemaining(entry) : null;
+    default:
+      return null;
+  }
+}
+
+function sortSubrowsByReleaseDate(subrows: readonly StatsSubrow[]): StatsSubrow[] {
+  return stableSort(subrows, (a, b) =>
+    compareStatsSortValues(
+      statsEntryStartDateSortKey(a.entry.startDate),
+      statsEntryStartDateSortKey(b.entry.startDate),
+      'asc',
+    ),
+  );
+}
+
+export function sortStatsSubrows(
+  subrows: readonly StatsSubrow[],
+  sort: StatsSortState,
+  options: StatsSubrowSortOptions,
+): StatsSubrow[] {
+  if (!sort) {
+    return sortSubrowsByReleaseDate(subrows);
+  }
+  return stableSort(subrows, (a, b) =>
+    compareStatsSortValues(
+      sortSubrowMetricValue(a, sort.column, options),
+      sortSubrowMetricValue(b, sort.column, options),
+      sort.direction,
+    ),
+  );
+}
+
+export function sortStatsParentRows(
+  rows: readonly StatsParentRow[],
+  parentSort: StatsSortState,
+): StatsParentRow[] {
+  const sort = effectiveParentSort(parentSort);
+  return stableSort(rows, (a, b) =>
+    compareStatsSortValues(sortMetricValue(a, sort.column), sortMetricValue(b, sort.column), sort.direction),
+  );
+}
+
+export function applyStatsTableSort(
+  rows: readonly StatsParentRow[],
+  config: StatsTableSortConfig,
+  options: StatsSubrowSortOptions,
+): StatsParentRow[] {
+  const sortedParents = sortStatsParentRows(rows, config.parent);
+  return sortedParents.map((row) => ({
+    ...row,
+    subrows: sortStatsSubrows(row.subrows, config.subrow, options),
+  }));
+}
+
+/** Left-click parent header: toggle asc/desc on the active column. */
+export function cycleStatsParentSort(
+  current: StatsSortState,
+  column: StatsSortColumn,
+): StatsSortState {
+  const sort = effectiveParentSort(current);
+  if (sort.column !== column) {
+    return { column, direction: 'desc' };
+  }
+  return { column, direction: sort.direction === 'desc' ? 'asc' : 'desc' };
+}
+
+/** Right-click header: cycle subrow sort desc → asc → release-date default. */
+export function cycleStatsSubrowSort(
+  current: StatsSortState,
+  column: StatsSortColumn,
+): StatsSortState {
+  if (!current || current.column !== column) {
+    return { column, direction: 'desc' };
+  }
+  if (current.direction === 'desc') {
+    return { column, direction: 'asc' };
+  }
+  return null;
 }
 
 export function buildStatsScoreHistogram(pool: readonly StatsEntry[]): number[] {
@@ -1117,98 +1390,6 @@ export function buildStatsResult(entries: readonly StatsEntry[], form: StatsForm
     studioRows,
     summary,
   };
-}
-
-function sortMetricValue(row: StatsParentRow, column: StatsSortColumn): number | string | null {
-  const m = row.metrics;
-  switch (column) {
-    case 'name':
-      return row.name.toLowerCase();
-    case 'count':
-      return m.count;
-    case 'meanScore':
-      return m.meanScore;
-    case 'anilistMeanScore':
-      return m.anilistMeanScore;
-    case 'mainRoleCount':
-      return m.mainRoleCount;
-    case 'mainRoleMeanScore':
-      return m.mainRoleMeanScore;
-    case 'mainRoleAnilistMeanScore':
-      return m.mainRoleAnilistMeanScore;
-    case 'scoreDiff':
-      return m.scoreDiff;
-    case 'episodesWatched':
-      return m.episodesWatched;
-    case 'timeWatched':
-      return m.timeWatchedMinutes;
-    case 'episodesRemaining':
-      return m.episodesRemaining;
-    case 'timeRemaining':
-      return m.timeRemainingMinutes;
-    case 'chaptersRead':
-      return m.chaptersRead;
-    case 'chaptersRemaining':
-      return m.chaptersRemaining;
-    case 'volumesRead':
-      return m.volumesRead;
-    case 'volumesRemaining':
-      return m.volumesRemaining;
-    default:
-      return null;
-  }
-}
-
-export function sortStatsRows(
-  rows: readonly StatsParentRow[],
-  sort: StatsSortState,
-): StatsParentRow[] {
-  if (!sort) {
-    return [...rows].sort((a, b) => a.name.localeCompare(b.name));
-  }
-  const sorted = [...rows].sort((a, b) => {
-    const cmp = compareStatsSortValues(sortMetricValue(a, sort.column), sortMetricValue(b, sort.column));
-    return sort.direction === 'asc' ? cmp : -cmp;
-  });
-  return sorted.map((row) => ({
-    ...row,
-    subrows: [...row.subrows].sort((a, b) => {
-      const cmp = compareStatsSortValues(
-        sortMetricValue(
-          { ...row, metrics: computeMetricsForEntries([a.entry], { mediaType: a.entry.mediaType }) },
-          sort.column,
-        ),
-        sortMetricValue(
-          { ...row, metrics: computeMetricsForEntries([b.entry], { mediaType: b.entry.mediaType }) },
-          sort.column,
-        ),
-      );
-      return sort.direction === 'asc' ? cmp : -cmp;
-    }),
-  }));
-}
-
-export function cycleStatsSort(
-  current: StatsSortState,
-  column: StatsSortColumn,
-  backward = false,
-): StatsSortState {
-  if (!current || current.column !== column) {
-    return backward ? { column, direction: 'asc' } : { column, direction: 'desc' };
-  }
-  if (backward) {
-    if (current.direction === 'desc') {
-      return null;
-    }
-    if (current.direction === 'asc') {
-      return { column, direction: 'desc' };
-    }
-    return { column, direction: 'asc' };
-  }
-  if (current.direction === 'desc') {
-    return { column, direction: 'asc' };
-  }
-  return null;
 }
 
 export function formatStatsDuration(minutes: number): string {

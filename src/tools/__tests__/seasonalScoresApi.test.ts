@@ -2,6 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { _clearSessionMemoForTesting } from '../../lib/importers/anilist/toolsSessionMemo';
 import { fetchUserSeasonalShows } from '../panels/seasonalScoresApi';
 
+vi.mock('../../lib/importers/anilist/anilistAuth', () => ({
+  findAnilistAccountByName: vi.fn(() => null),
+  resolveAccessTokenForUsername: vi.fn(() => null),
+}));
+
 vi.mock('../../lib/importers/anilist/depaginate', () => ({
   depaginate: vi.fn(),
 }));

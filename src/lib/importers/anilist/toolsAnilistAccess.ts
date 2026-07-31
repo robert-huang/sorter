@@ -1,7 +1,9 @@
 /**
  * DB-first AniList data access for Tools — prefers the shared source DB
- * when fresh (<90d), auto-refreshes stale graph data on normal runs, and
- * falls back to live GraphQL when the DB has no rows.
+ * when populated, auto-expands missing/incomplete graph data on normal runs,
+ * and falls back to live GraphQL when the DB has no rows. Cached graph data
+ * older than 90d is served until an explicit refresh (↻ username, modals,
+ * or tool force-refresh).
  */
 
 import type { AnilistDbExecutor, AnilistImportContext } from './context';
@@ -206,7 +208,7 @@ export async function ensureMediaCastFreshBatch(
 
 /**
  * Ensure the user's anime OR manga list exists in the source DB — imports
- * when missing, empty, stale (>90d), or force-refresh was requested.
+ * when missing, empty, or force-refresh was requested.
  * Generic over MediaType so the Franchise Scores tool can refresh both
  * lists through the same code path.
  */
@@ -282,8 +284,8 @@ async function needsCharacterFavouritesDobBackfill(
 
 /**
  * Ensure the user's character or staff favourites exist in the source DB —
- * imports when missing, empty, stale (>90d), force-refresh was requested,
- * or character favourites predate birth-date schema.
+ * imports when missing, empty, force-refresh was requested, or character
+ * favourites predate birth-date schema.
  */
 export async function ensureUserFavouritesFresh(
   username: string,

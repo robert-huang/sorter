@@ -3,6 +3,7 @@ import {
   hasStaffFilmography,
 } from '../../lib/importers/anilist/graphQueries';
 import { depaginate } from '../../lib/importers/anilist/depaginate';
+import { findAnilistAccountByName } from '../../lib/importers/anilist/anilistAuth';
 import {
   TOOLS_CHARACTER_VOICE_MEDIA_QUERY,
   TOOLS_FAVOURITE_CHARACTERS_QUERY,
@@ -103,6 +104,13 @@ async function fetchConsumedMediaIds(
   options?: FavouritesFetchOptions,
 ): Promise<Set<number>> {
   signal?.throwIfAborted();
+  if (findAnilistAccountByName(username) !== null) {
+    const [animeIds, mangaIds] = await Promise.all([
+      fetchConsumedMediaListLive(username, 'ANIME', signal),
+      fetchConsumedMediaListLive(username, 'MANGA', signal),
+    ]);
+    return new Set([...animeIds, ...mangaIds]);
+  }
   const importOptions = favouritesImportOptions(options);
   // List imports share the per-source AniList scrape lock — run sequentially
   // (same as the ↻ refresh button) so parallel ensure* calls don't race.

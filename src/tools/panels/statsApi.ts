@@ -1,10 +1,10 @@
 import { depaginate } from '../../lib/importers/anilist/depaginate';
 import { resolveAccessTokenForUsername } from '../../lib/importers/anilist/anilistAuth';
+import { isGraphTimestampStale } from '../../lib/importers/anilist/graphConstants';
 import { TOOLS_STATS_LIST_QUERY } from '../../lib/importers/anilist/queries';
 import type { ToolsFetchOptions } from '../../lib/importers/anilist/toolsFetchPolicy';
 import {
   ensureMediaCastFreshBatch,
-  ensureUserMediaListFresh,
   readShowStaffBundleFromDb,
 } from '../../lib/importers/anilist/toolsAnilistAccess';
 import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportContext';
@@ -15,7 +15,11 @@ import {
 } from '../../lib/importers/anilist/toolsSessionMemo';
 import { pickMediaTitle } from './sharedCreditsLogic';
 import { pickCharacterName, pickPersonName } from '../../lib/importers/anilist/personDisplayLabel';
-import { getMediaDetail } from '../../lib/importers/anilist/readQueries';
+import {
+  getMediaCastExpansionStatus,
+  getMediaDetail,
+  type MediaCastExpansionStatus,
+} from '../../lib/importers/anilist/readQueries';
 import {
   getProductionCreditsAtMedia,
   getVaCreditsAtMedia,
@@ -29,7 +33,11 @@ import type {
   StatsStudioLink,
   StatsVaCredit,
 } from './statsLogic';
-import { normalizeCharacterRoleForStats, statsStudioIsAnimation } from './statsLogic';
+import {
+  normalizeCharacterRoleForStats,
+  statsStudioIsAnimation,
+  type StatsStartDate,
+} from './statsLogic';
 import { normalizeSeasonalListScore } from './seasonalScoresLogic';
 
 export type StatsFetchProgress = {
@@ -62,6 +70,7 @@ type GqlStatsListMedia = {
   volumes?: number | null;
   duration?: number | null;
   meanScore?: number | null;
+  startDate?: { year?: number | null; month?: number | null; day?: number | null } | null;
 };
 
 type GqlStatsListEntry = {
@@ -86,6 +95,60 @@ function parseGenresJson(json: string | null | undefined): string[] {
   }
 }
 
+function isStatsCastExpansionStale(status: MediaCastExpansionStatus): boolean {
+  if (!status.charactersComplete && !status.staffComplete) {
+    return false;
+  }
+  return (
+    isGraphTimestampStale(status.charactersFetchedAt) ||
+    isGraphTimestampStale(status.staffFetchedAt)
+  );
+}
+
+export async function countStaleStatsCastMedia(mediaIds: readonly number[]): Promise<number> {
+  if (mediaIds.length === 0) {
+    return 0;
+  }
+  const ctx = getToolsImportContext();
+  let count = 0;
+  for (const mediaId of mediaIds) {
+    const status = await getMediaCastExpansionStatus(ctx.db, mediaId);
+    if (status && isStatsCastExpansionStale(status)) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+function emptyStatsStartDate(): StatsStartDate {
+  return { year: null, month: null, day: null };
+}
+
+function mapStatsStartDate(
+  raw?: { year?: number | null; month?: number | null; day?: number | null } | null,
+): StatsStartDate {
+  if (!raw) {
+    return emptyStatsStartDate();
+  }
+  return {
+    year: raw.year ?? null,
+    month: raw.month ?? null,
+    day: raw.day ?? null,
+  };
+}
+
+function startDateFromMediaRow(media: {
+  start_year: number | null;
+  start_month: number | null;
+  start_day: number | null;
+}): StatsStartDate {
+  return {
+    year: media.start_year,
+    month: media.start_month,
+    day: media.start_day,
+  };
+}
+
 async function readMediaMetadataFromDb(
   mediaIds: readonly number[],
   signal?: AbortSignal,
@@ -102,6 +165,7 @@ async function readMediaMetadataFromDb(
       episodes: number | null;
       chapters: number | null;
       volumes: number | null;
+      startDate: StatsStartDate;
     }
   >
 > {
@@ -118,6 +182,7 @@ async function readMediaMetadataFromDb(
       episodes: number | null;
       chapters: number | null;
       volumes: number | null;
+      startDate: StatsStartDate;
     }
   >();
   for (const mediaId of mediaIds) {
@@ -141,6 +206,7 @@ async function readMediaMetadataFromDb(
       episodes: detail.media.episodes,
       chapters: detail.media.chapters,
       volumes: null,
+      startDate: startDateFromMediaRow(detail.media),
     });
   }
   return out;
@@ -289,6 +355,7 @@ function mapGqlEntry(entry: GqlStatsListEntry, mediaType: StatsMediaType): Stats
     studios: [],
     staffCredits: [],
     vaCredits: [],
+    startDate: mapStatsStartDate(media.startDate),
   };
 }
 
@@ -297,11 +364,6 @@ async function buildStatsEntries(
   mediaType: StatsMediaType,
   options?: StatsFetchOptions,
 ): Promise<StatsEntry[]> {
-  options?.signal?.throwIfAborted();
-  const user = await ensureUserMediaListFresh(username, mediaType, options);
-  if (!user) {
-    throw new Error(`Could not find AniList user "${username.trim()}".`);
-  }
   options?.signal?.throwIfAborted();
   options?.onProgress?.({ phase: 'list', index: 0, total: 1 });
   const liveEntries = await fetchStatsListLive(username, mediaType, options?.signal);
@@ -324,6 +386,7 @@ async function buildStatsEntries(
       genres: db.genres,
       tags: db.tags,
       studios: db.studios,
+      startDate: db.startDate,
     };
   });
   return merged;
@@ -376,5 +439,6 @@ export async function expandStatsCast(
   options?: StatsFetchOptions,
 ): Promise<StatsCachedData> {
   const entries = await attachCastToEntries(cached.entries, options);
-  return { ...cached, entries, castExpanded: true };
+  const staleCastMediaCount = await countStaleStatsCastMedia(entries.map((e) => e.mediaId));
+  return { ...cached, entries, castExpanded: true, staleCastMediaCount };
 }

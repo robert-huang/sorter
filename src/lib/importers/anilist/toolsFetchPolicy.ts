@@ -1,5 +1,3 @@
-import { isGraphTimestampStale } from './graphConstants';
-
 /** Shared fetch options for Tools panels (DB-first + live API fallback). */
 export type ToolsFetchOptions = {
   /** Right-click / explicit bust — always re-fetch from AniList. */
@@ -35,11 +33,12 @@ export function favouritesGraphForceOptions(
 }
 
 /**
- * Whether graph-backed data (cast, staff filmography, user list) should
- * be pulled from AniList before reading the local DB.
+ * Whether graph-backed data should be pulled from AniList before reading
+ * the local DB on a normal (non-force) tool run.
  *
- * Normal run: missing or >90d stale timestamps trigger refresh (matches
- * py CLI; differs from A2A which serves stale until explicit refresh).
+ * Only missing expansion (`fetchedAt === null`) triggers auto-refresh.
+ * Age-based staleness (>90d) is surfaced in the UI; refresh via ↻ username,
+ * media/staff modals, or explicit force-refresh on the tool.
  */
 export function needsGraphDataRefresh(
   fetchedAt: number | null,
@@ -48,8 +47,5 @@ export function needsGraphDataRefresh(
   if (options?.forceRefresh) {
     return true;
   }
-  if (fetchedAt === null) {
-    return true;
-  }
-  return isGraphTimestampStale(fetchedAt);
+  return fetchedAt === null;
 }

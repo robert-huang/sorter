@@ -4,7 +4,12 @@ import {
   buildVaStatsRows,
   buildStatsTimeWatchedRows,
   compareStatsSortValues,
-  cycleStatsSort,
+  cycleStatsParentSort,
+  cycleStatsSubrowSort,
+  entryEpisodesRemaining,
+  filterStatsParentRowsByMinCount,
+  sortStatsParentRows,
+  sortStatsSubrows,
   DEFAULT_STATS_LIST_STATUS_FILTERS,
   DEFAULT_STATS_MEDIA_STATUS_FILTERS,
   filterStatsPool,
@@ -20,6 +25,7 @@ import {
   type StatsCachedData,
   type StatsEntry,
   type StatsForm,
+  type StatsParentRow,
 } from '../panels/statsLogic';
 import { statsCachedNeedsCast } from '../panels/statsApi';
 
@@ -46,6 +52,7 @@ function entry(overrides: Partial<StatsEntry> & Pick<StatsEntry, 'mediaId' | 'ti
     volumes: null,
     duration: 24,
     meanScore: 75,
+    startDate: { year: null, month: null, day: null },
     genres: [],
     tags: [],
     studios: [],
@@ -64,6 +71,7 @@ const baseForm: StatsForm = {
   userScoreInclude: 'any',
   scoreMin: null,
   scoreMax: null,
+  minCount: 0,
   showSummary: false,
   aggregationType: 'VA',
   staffRoleFilters: statsDefaultStaffRoleFilters('ANIME'),
@@ -164,23 +172,153 @@ describe('buildVaStatsRows', () => {
   });
 });
 
-describe('cycleStatsSort', () => {
-  it('cycles forward desc → asc → off', () => {
-    expect(cycleStatsSort(null, 'count', false)).toEqual({ column: 'count', direction: 'desc' });
-    expect(cycleStatsSort({ column: 'count', direction: 'desc' }, 'count', false)).toEqual({
+describe('cycleStatsParentSort', () => {
+  it('toggles asc/desc on the active column and starts desc on new columns', () => {
+    expect(cycleStatsParentSort(null, 'count')).toEqual({ column: 'count', direction: 'asc' });
+    expect(cycleStatsParentSort({ column: 'count', direction: 'desc' }, 'count')).toEqual({
       column: 'count',
       direction: 'asc',
     });
-    expect(cycleStatsSort({ column: 'count', direction: 'asc' }, 'count', false)).toBeNull();
-  });
-
-  it('cycles backward off → asc → desc', () => {
-    expect(cycleStatsSort(null, 'count', true)).toEqual({ column: 'count', direction: 'asc' });
-    expect(cycleStatsSort({ column: 'count', direction: 'asc' }, 'count', true)).toEqual({
+    expect(cycleStatsParentSort({ column: 'count', direction: 'asc' }, 'count')).toEqual({
       column: 'count',
       direction: 'desc',
     });
-    expect(cycleStatsSort({ column: 'count', direction: 'desc' }, 'count', true)).toBeNull();
+    expect(cycleStatsParentSort({ column: 'count', direction: 'desc' }, 'meanScore')).toEqual({
+      column: 'meanScore',
+      direction: 'desc',
+    });
+  });
+});
+
+describe('cycleStatsSubrowSort', () => {
+  it('cycles desc → asc → release-date default', () => {
+    expect(cycleStatsSubrowSort(null, 'meanScore')).toEqual({ column: 'meanScore', direction: 'desc' });
+    expect(
+      cycleStatsSubrowSort({ column: 'meanScore', direction: 'desc' }, 'meanScore'),
+    ).toEqual({ column: 'meanScore', direction: 'asc' });
+    expect(
+      cycleStatsSubrowSort({ column: 'meanScore', direction: 'asc' }, 'meanScore'),
+    ).toBeNull();
+  });
+});
+
+describe('compareStatsSortValues', () => {
+  it('puts null values last regardless of direction', () => {
+    expect(compareStatsSortValues(null, 1, 'asc')).toBeGreaterThan(0);
+    expect(compareStatsSortValues(null, 1, 'desc')).toBeGreaterThan(0);
+    expect(compareStatsSortValues(1, null, 'asc')).toBeLessThan(0);
+    expect(compareStatsSortValues(1, null, 'desc')).toBeLessThan(0);
+  });
+});
+
+describe('entryEpisodesRemaining', () => {
+  it('returns 0 for completed shows', () => {
+    expect(
+      entryEpisodesRemaining(
+        entry({
+          mediaId: 1,
+          title: 'Done',
+          listStatus: 'COMPLETED',
+          episodes: 12,
+          progress: 10,
+        }),
+      ),
+    ).toBe(0);
+  });
+
+  it('returns remaining episodes for in-progress shows', () => {
+    expect(
+      entryEpisodesRemaining(
+        entry({
+          mediaId: 2,
+          title: 'Watching',
+          listStatus: 'CURRENT',
+          episodes: 12,
+          progress: 5,
+        }),
+      ),
+    ).toBe(7);
+  });
+});
+
+describe('filterStatsParentRowsByMinCount', () => {
+  const metrics = (count: number): StatsParentRow['metrics'] => ({
+    count,
+    meanScore: null,
+    anilistMeanScore: null,
+    mainRoleCount: null,
+    mainRoleMeanScore: null,
+    mainRoleAnilistMeanScore: null,
+    scoreDiff: null,
+    episodesWatched: 0,
+    timeWatchedMinutes: 0,
+    episodesRemaining: 0,
+    timeRemainingMinutes: 0,
+    chaptersRead: 0,
+    chaptersRemaining: 0,
+    volumesRead: 0,
+    volumesRemaining: 0,
+  });
+
+  it('filters parent rows below the minimum count', () => {
+    const rows: StatsParentRow[] = [
+      { key: 'a', name: 'A', metrics: metrics(1), subrows: [] },
+      { key: 'b', name: 'B', metrics: metrics(3), subrows: [] },
+    ];
+    expect(filterStatsParentRowsByMinCount(rows, 2).map((r) => r.key)).toEqual(['b']);
+  });
+});
+
+describe('sortStatsParentRows', () => {
+  const metrics = (
+    overrides: Partial<StatsParentRow['metrics']> & Pick<StatsParentRow['metrics'], 'count' | 'meanScore'>,
+  ): StatsParentRow['metrics'] => ({
+    anilistMeanScore: null,
+    mainRoleCount: null,
+    mainRoleMeanScore: null,
+    mainRoleAnilistMeanScore: null,
+    scoreDiff: null,
+    episodesWatched: 0,
+    timeWatchedMinutes: 0,
+    episodesRemaining: 0,
+    timeRemainingMinutes: 0,
+    chaptersRead: 0,
+    chaptersRemaining: 0,
+    volumesRead: 0,
+    volumesRemaining: 0,
+    ...overrides,
+  });
+
+  it('uses stable ordering for ties', () => {
+    const rows: StatsParentRow[] = [
+      { key: 'first', name: 'First', metrics: metrics({ count: 2, meanScore: 80 }), subrows: [] },
+      { key: 'second', name: 'Second', metrics: metrics({ count: 2, meanScore: 80 }), subrows: [] },
+    ];
+    const sorted = sortStatsParentRows(rows, { column: 'meanScore', direction: 'desc' });
+    expect(sorted.map((r) => r.key)).toEqual(['first', 'second']);
+  });
+});
+
+describe('sortStatsSubrows', () => {
+  it('defaults to oldest release date first when subrow sort is off', () => {
+    const subrows = [
+      {
+        entry: entry({
+          mediaId: 1,
+          title: 'Old',
+          startDate: { year: 2010, month: 1, day: 1 },
+        }),
+      },
+      {
+        entry: entry({
+          mediaId: 2,
+          title: 'New',
+          startDate: { year: 2020, month: 1, day: 1 },
+        }),
+      },
+    ];
+    const sorted = sortStatsSubrows(subrows, null, { mediaType: 'ANIME', vaShowDiff: false });
+    expect(sorted.map((s) => s.entry.mediaId)).toEqual([1, 2]);
   });
 });
 

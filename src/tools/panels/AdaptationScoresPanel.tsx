@@ -461,7 +461,7 @@ function AdaptationTable({
                   {diffSortIndicator ? (
                     <span className="tool-adaptation-diff-head">
                       Diff
-                      <span className="tool-chart-sort-indicator" aria-hidden="true">
+                      <span className="tool-chart-sort-indicator tool-chart-sort-indicator--parent" aria-hidden="true">
                         {diffSortIndicator}
                       </span>
                     </span>

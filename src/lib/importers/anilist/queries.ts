@@ -946,6 +946,7 @@ query ToolsStatsList(
         volumes
         duration
         meanScore
+        startDate { year month day }
       }
     }
   }
