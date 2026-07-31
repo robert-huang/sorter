@@ -65,8 +65,8 @@ export type ToolAnimeMangaMediaTypeFilterProps = {
   );
 
 export function ToolAnimeMangaMediaTypeFilter(props: ToolAnimeMangaMediaTypeFilterProps): ReactElement {
-  const { disabled, className, allowMultiple = false, label = 'Media' } = props;
-  if (allowMultiple) {
+  const { disabled, className, label = 'Media' } = props;
+  if (props.allowMultiple) {
     return (
       <ToolSegmentedFilter
         label={label}
@@ -101,24 +101,22 @@ export function ToolSegmentedFilter<T extends string>(props: ToolSegmentedFilter
     className,
     segmentedClassName,
     unlabeled = false,
-    allowMultiple = false,
   } = props;
 
   const resolvedLabelId =
     labelId ?? (label ? `tool-segmented-${label.replace(/\s+/g, '-').toLowerCase()}` : undefined);
 
   const handleOptionClick = (optionValue: T) => {
-    if (allowMultiple) {
-      const selected = props.value as readonly T[];
-      props.onChange(toggleInArray([...selected], optionValue));
+    if (props.allowMultiple) {
+      props.onChange(toggleInArray([...props.value], optionValue));
       return;
     }
-    (props.onChange as (value: T) => void)(optionValue);
+    props.onChange(optionValue);
   };
 
   const isOptionActive = (optionValue: T): boolean => {
-    if (allowMultiple) {
-      return (props.value as readonly T[]).includes(optionValue);
+    if (props.allowMultiple) {
+      return props.value.includes(optionValue);
     }
     return props.value === optionValue;
   };
