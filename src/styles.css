@@ -8306,6 +8306,17 @@ html {
   gap: 12px;
 }
 
+.tool-franchise-filterbar-controls .tool-field,
+.tool-franchise-filterbar-controls .tool-field.tool-field-label-row {
+  margin-bottom: 0;
+}
+
+.tool-franchise-filterbar-controls .filter-chip {
+  flex: 0 0 auto;
+  align-self: center;
+  margin: 0;
+}
+
 .tool-franchise-filterbar-count {
   font-size: 12px;
   color: var(--text-muted);
@@ -8600,11 +8611,24 @@ html {
   min-height: 0;
 }
 
+.tool-stats-summary-rows {
+  margin: 24px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
 .tool-stats-summary-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px 28px;
-  margin: 24px 0 0;
+  margin: 0;
+}
+
+@media (max-width: 900px) {
+  .tool-stats-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .tool-stats-summary-grid div {
@@ -8619,6 +8643,10 @@ html {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--text-muted);
+}
+
+.tool-stats-summary-grid dt[title] {
+  cursor: help;
 }
 
 .tool-stats-summary-grid dd {
@@ -8849,8 +8877,8 @@ html {
 }
 
 .modal-stats-time-watched {
-  width: min(90vw, calc(100% - 32px));
-  max-width: 90vw;
+  width: fit-content;
+  max-width: min(90vw, calc(100% - 32px));
 }
 
 .tool-stats-time-chart-scroll {
@@ -8860,8 +8888,8 @@ html {
 
 .tool-stats-time-chart {
   border-collapse: collapse;
-  width: 100%;
-  min-width: max-content;
+  width: max-content;
+  max-width: 100%;
   font-size: 13px;
 }
 
@@ -8873,21 +8901,24 @@ html {
 }
 
 .tool-stats-time-chart-score-head {
-  min-width: 52px;
   white-space: nowrap;
+  text-align: right;
+  padding-right: 8px;
 }
 
 .tool-stats-time-chart-score {
-  width: 24px;
-  min-width: 24px;
-  padding-right: 0;
+  padding-right: 8px;
   text-align: right;
   vertical-align: middle;
 }
 
+/* inline-flex so text-align:right on the td positions the badge at the column edge */
 .tool-stats-time-chart-score .tool-season-score {
-  width: 24px;
+  display: inline-flex;
+  width: auto;
   min-width: 24px;
+  height: auto;
+  flex: none;
 }
 
 .tool-stats-time-chart-show-head,

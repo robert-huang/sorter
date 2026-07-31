@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
 import { ToolUsernameField } from '../ToolUsernameField';
-import { ToolSegmentedFilter, type ToolSegmentedOption } from '../ToolSegmentedFilter';
+import { ToolAnimeMangaMediaTypeFilter } from '../ToolSegmentedFilter';
 import { useUsernameListRefresh } from '../useUsernameListRefresh';
 import { useToolsDisplayLabelRevision } from '../useToolsDisplayLabelRevision';
 import { relabelFranchiseEntries } from '../toolsDisplayRelabel';
@@ -21,11 +21,14 @@ import {
   DEFAULT_RELATION_TOGGLES,
   FRANCHISE_RELATION_LABELS,
   FRANCHISE_RELATION_TYPES,
+  formatFranchiseFormatFilterLabel,
   formatFranchiseScoreLabel,
   franchiseDateLabel,
   franchiseFormatLabel,
+  FRANCHISE_FORMAT_OPTIONS,
   FRANCHISE_LIST_STATUS_OPTIONS,
   normalizeFranchiseListStatuses,
+  normalizeFranchiseFormatFilters,
   type FranchiseEntry,
   type FranchiseFilters,
   type FranchiseForm,
@@ -33,17 +36,10 @@ import {
 } from './franchiseScoresLogic';
 import { scoreDisplayToneClass } from './seasonalScoresLogic';
 import {
-  adaptationFiltersFromListMediaMode,
-  adaptationListMediaModeFromFilters,
-  type AdaptationListMediaMode,
+  adaptationListMediaTypesToFilters,
+  adaptationSelectedListMediaTypes,
 } from './adaptationScoresLogic';
 import { ScoreRangeChip } from '../../lib/importers/anilist/filters';
-
-const FRANCHISE_LIST_MEDIA_OPTIONS: readonly ToolSegmentedOption<AdaptationListMediaMode>[] = [
-  { value: 'anime', label: 'Anime' },
-  { value: 'manga', label: 'Manga' },
-  { value: 'both', label: 'Both' },
-];
 
 const LS_KEY = 'anime-tools-franchise-scores-form';
 const LS_FILTERS_KEY = 'anime-tools-franchise-scores-filters';
@@ -135,7 +131,16 @@ function normalizeFilters(raw: unknown): FranchiseFilters {
       ? obj.scoreMax
       : null;
   const listStatuses = normalizeFranchiseListStatuses(obj.listStatuses);
-  return { includeAnime, includeManga, listStatuses, userScoreInclude, scoreMin, scoreMax };
+  const formatFilters = normalizeFranchiseFormatFilters(obj.formatFilters);
+  return {
+    includeAnime,
+    includeManga,
+    listStatuses,
+    formatFilters,
+    userScoreInclude,
+    scoreMin,
+    scoreMax,
+  };
 }
 
 function loadFilters(): FranchiseFilters {
@@ -684,11 +689,10 @@ function FranchiseFilterBar({
   return (
     <div className="tool-franchise-filterbar">
       <div className="tool-franchise-filterbar-controls">
-        <ToolSegmentedFilter
-          label="Media"
-          options={FRANCHISE_LIST_MEDIA_OPTIONS}
-          value={adaptationListMediaModeFromFilters(filters)}
-          onChange={(mode) => onPatch(adaptationFiltersFromListMediaMode(mode))}
+        <ToolAnimeMangaMediaTypeFilter
+          allowMultiple
+          value={adaptationSelectedListMediaTypes(filters)}
+          onChange={(types) => onPatch(adaptationListMediaTypesToFilters(types))}
         />
         <MultiSelectChip
           label="list status"
@@ -706,6 +710,18 @@ function FranchiseFilterBar({
           min={filters.scoreMin}
           max={filters.scoreMax}
           onChange={(patch) => onPatch(patch)}
+        />
+        <MultiSelectChip
+          label="format"
+          options={FRANCHISE_FORMAT_OPTIONS}
+          selected={filters.formatFilters}
+          formatOption={formatFranchiseFormatFilterLabel}
+          onToggle={(format) =>
+            onPatch({
+              formatFilters: toggleInArray([...filters.formatFilters], format),
+            })
+          }
+          onReplaceAll={(formats) => onPatch({ formatFilters: [...formats] })}
         />
       </div>
       <span className="tool-franchise-filterbar-count">

@@ -1,4 +1,5 @@
 import type { ReactElement } from 'react';
+import { toggleInArray } from '../lib/importers/anilist/filters';
 
 export type ToolSegmentedOption<T extends string> = {
   value: T;
@@ -7,13 +8,18 @@ export type ToolSegmentedOption<T extends string> = {
   disabled?: boolean;
 };
 
-type ToolSegmentedFilterProps<T extends string> = {
+export type ToolAnimeMangaMediaType = 'ANIME' | 'MANGA';
+
+export const TOOL_ANIME_MANGA_MEDIA_TYPE_OPTIONS: readonly ToolSegmentedOption<ToolAnimeMangaMediaType>[] = [
+  { value: 'ANIME', label: 'Anime' },
+  { value: 'MANGA', label: 'Manga' },
+];
+
+type ToolSegmentedFilterCommonProps<T extends string> = {
   label?: string;
   labelId?: string;
   options: readonly ToolSegmentedOption<T>[];
-  value: T;
   disabled?: boolean;
-  onChange: (value: T) => void;
   /** Classes on the outer wrapper (labeled layout only). */
   className?: string;
   /** Classes on the inner `tool-segmented` element. */
@@ -22,20 +28,100 @@ type ToolSegmentedFilterProps<T extends string> = {
   unlabeled?: boolean;
 };
 
+export type ToolSegmentedFilterProps<T extends string> = ToolSegmentedFilterCommonProps<T> &
+  (
+    | {
+        /** Single-select: exactly one option is active at a time. */
+        allowMultiple?: false;
+        value: T;
+        onChange: (value: T) => void;
+      }
+    | {
+        /** Multi-select: toggle options independently (e.g. anime + manga lists). */
+        allowMultiple: true;
+        value: readonly T[];
+        onChange: (value: T[]) => void;
+      }
+  );
+
+/** Shared anime/manga media-type control (Stats single-select, Adaptation multi-select). */
+export type ToolAnimeMangaMediaTypeFilterProps = {
+  /** Row label; defaults to "Media". Adaptation Scores uses "Lists". */
+  label?: string;
+  disabled?: boolean;
+  className?: string;
+} &
+  (
+    | {
+        allowMultiple?: false;
+        value: ToolAnimeMangaMediaType;
+        onChange: (value: ToolAnimeMangaMediaType) => void;
+      }
+    | {
+        allowMultiple: true;
+        value: readonly ToolAnimeMangaMediaType[];
+        onChange: (value: ToolAnimeMangaMediaType[]) => void;
+      }
+  );
+
+export function ToolAnimeMangaMediaTypeFilter(props: ToolAnimeMangaMediaTypeFilterProps): ReactElement {
+  const { disabled, className, allowMultiple = false, label = 'Media' } = props;
+  if (allowMultiple) {
+    return (
+      <ToolSegmentedFilter
+        label={label}
+        options={TOOL_ANIME_MANGA_MEDIA_TYPE_OPTIONS}
+        allowMultiple
+        value={props.value}
+        disabled={disabled}
+        className={className}
+        onChange={props.onChange}
+      />
+    );
+  }
+  return (
+    <ToolSegmentedFilter
+      label={label}
+      options={TOOL_ANIME_MANGA_MEDIA_TYPE_OPTIONS}
+      value={props.value}
+      disabled={disabled}
+      className={className}
+      onChange={props.onChange}
+    />
+  );
+}
+
 /** Label + `tool-segmented` button group used across tool filter rows. */
-export function ToolSegmentedFilter<T extends string>({
-  label,
-  labelId,
-  options,
-  value,
-  disabled = false,
-  onChange,
-  className,
-  segmentedClassName,
-  unlabeled = false,
-}: ToolSegmentedFilterProps<T>): ReactElement {
+export function ToolSegmentedFilter<T extends string>(props: ToolSegmentedFilterProps<T>): ReactElement {
+  const {
+    label,
+    labelId,
+    options,
+    disabled = false,
+    className,
+    segmentedClassName,
+    unlabeled = false,
+    allowMultiple = false,
+  } = props;
+
   const resolvedLabelId =
     labelId ?? (label ? `tool-segmented-${label.replace(/\s+/g, '-').toLowerCase()}` : undefined);
+
+  const handleOptionClick = (optionValue: T) => {
+    if (allowMultiple) {
+      const selected = props.value as readonly T[];
+      props.onChange(toggleInArray([...selected], optionValue));
+      return;
+    }
+    (props.onChange as (value: T) => void)(optionValue);
+  };
+
+  const isOptionActive = (optionValue: T): boolean => {
+    if (allowMultiple) {
+      return (props.value as readonly T[]).includes(optionValue);
+    }
+    return props.value === optionValue;
+  };
 
   const segmented = (
     <div
@@ -43,19 +129,22 @@ export function ToolSegmentedFilter<T extends string>({
       role="group"
       aria-labelledby={resolvedLabelId}
     >
-      {options.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          className={value === option.value ? 'active' : ''}
-          aria-pressed={value === option.value}
-          disabled={disabled || option.disabled}
-          title={option.title}
-          onClick={() => onChange(option.value)}
-        >
-          {option.label}
-        </button>
-      ))}
+      {options.map((option) => {
+        const active = isOptionActive(option.value);
+        return (
+          <button
+            key={option.value}
+            type="button"
+            className={active ? 'active' : ''}
+            aria-pressed={active}
+            disabled={disabled || option.disabled}
+            title={option.title}
+            onClick={() => handleOptionClick(option.value)}
+          >
+            {option.label}
+          </button>
+        );
+      })}
     </div>
   );
 

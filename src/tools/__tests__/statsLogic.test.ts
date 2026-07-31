@@ -6,6 +6,7 @@ import {
   compareStatsSortValues,
   cycleStatsParentSort,
   cycleStatsSubrowSort,
+  entryChaptersRemaining,
   entryEpisodesRemaining,
   filterStatsParentRowsByMinCount,
   sortStatsParentRows,
@@ -170,6 +171,52 @@ describe('buildVaStatsRows', () => {
     expect(rows[0]?.metrics.count).toBe(1);
     expect(rows[0]?.subrows[0]?.entry.mediaId).toBe(1);
   });
+
+  it('lists every matching role on one subrow when a VA voices multiple characters on the same show', () => {
+    const pool = [
+      entry({
+        mediaId: 1,
+        title: 'Show A',
+        vaCredits: [
+          {
+            staffId: 10,
+            staffName: 'VA One',
+            staffImage: null,
+            staffGender: 'Female',
+            characterId: 100,
+            characterName: 'Hero',
+            characterRole: 'MAIN',
+          },
+          {
+            staffId: 10,
+            staffName: 'VA One',
+            staffImage: null,
+            staffGender: 'Female',
+            characterId: 101,
+            characterName: 'Side',
+            characterRole: 'SUPPORTING',
+          },
+        ],
+      }),
+    ];
+    const rows = buildVaStatsRows(pool, baseForm);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.metrics.count).toBe(1);
+    expect(rows[0]?.subrows).toHaveLength(1);
+    expect(rows[0]?.subrows[0]?.link?.characters).toEqual([
+      {
+        characterId: 100,
+        characterName: 'Hero',
+        characterRole: 'MAIN',
+      },
+      {
+        characterId: 101,
+        characterName: 'Side',
+        characterRole: 'SUPPORTING',
+      },
+    ]);
+    expect(rows[0]?.metrics.mainRoleCount).toBe(1);
+  });
 });
 
 describe('cycleStatsParentSort', () => {
@@ -238,6 +285,53 @@ describe('entryEpisodesRemaining', () => {
         }),
       ),
     ).toBe(7);
+  });
+});
+
+describe('entryChaptersRemaining', () => {
+  it('returns chapters left for in-progress manga with a chapter total', () => {
+    expect(
+      entryChaptersRemaining(
+        entry({
+          mediaId: 1,
+          title: 'Manga A',
+          mediaType: 'MANGA',
+          listStatus: 'CURRENT',
+          chapters: 100,
+          progress: 40,
+        }),
+      ),
+    ).toBe(60);
+  });
+
+  it('ignores manga without a chapter total', () => {
+    expect(
+      entryChaptersRemaining(
+        entry({
+          mediaId: 2,
+          title: 'Ongoing',
+          mediaType: 'MANGA',
+          listStatus: 'CURRENT',
+          chapters: null,
+          progress: 40,
+        }),
+      ),
+    ).toBe(0);
+  });
+
+  it('returns 0 for completed manga', () => {
+    expect(
+      entryChaptersRemaining(
+        entry({
+          mediaId: 3,
+          title: 'Done',
+          mediaType: 'MANGA',
+          listStatus: 'COMPLETED',
+          chapters: 100,
+          progress: 100,
+        }),
+      ),
+    ).toBe(0);
   });
 });
 
@@ -353,10 +447,10 @@ describe('filterStatsPoolByRatingScore', () => {
 });
 
 describe('formatStatsFormatLabel', () => {
-  it('uses title case for manga formats', () => {
-    expect(formatStatsFormatLabel('MANGA')).toBe('Manga');
-    expect(formatStatsFormatLabel('NOVEL')).toBe('Novel');
-    expect(formatStatsFormatLabel('ONE_SHOT')).toBe('One Shot');
+  it('uses AniList-style labels for manga formats', () => {
+    expect(formatStatsFormatLabel('MANGA')).toBe('MANGA');
+    expect(formatStatsFormatLabel('NOVEL')).toBe('LIGHT_NOVEL');
+    expect(formatStatsFormatLabel('ONE_SHOT')).toBe('ONE_SHOT');
   });
 });
 
@@ -444,12 +538,21 @@ describe('statsEntryScoreSortValue', () => {
 });
 
 describe('formatStatsDurationWithDayCount', () => {
-  it('appends day count when at least one full day', () => {
-    expect(formatStatsDurationWithDayCount(60 * 24 * 5 + 30)).toBe('120h 30m (5 days)');
+  it('appends day count rounded to two decimal places', () => {
+    expect(formatStatsDurationWithDayCount(60 * 24 * 5 + 30)).toBe('120h 30m (5.02 days)');
   });
 
   it('omits day count under one day', () => {
     expect(formatStatsDurationWithDayCount(90)).toBe('1h 30m');
+    expect(formatStatsDurationWithDayCount(60 * 24 - 1)).toBe('23h 59m');
+  });
+
+  it('shows day count from one day upward', () => {
+    expect(formatStatsDurationWithDayCount(60 * 24)).toBe('24h (1 days)');
+  });
+
+  it('omits day count when zero', () => {
+    expect(formatStatsDurationWithDayCount(0)).toBe('0m');
   });
 });
 

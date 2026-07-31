@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, Fragment } from 'rea
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
 import { ToolUsernameField } from '../ToolUsernameField';
-import { ToolSegmentedFilter, type ToolSegmentedOption } from '../ToolSegmentedFilter';
+import { ToolAnimeMangaMediaTypeFilter, ToolSegmentedFilter } from '../ToolSegmentedFilter';
 import { useUsernameListRefresh } from '../useUsernameListRefresh';
 import { useToolsDisplayLabelRevision } from '../useToolsDisplayLabelRevision';
 import { relabelStatsEntries } from '../toolsDisplayRelabel';
@@ -69,6 +69,7 @@ import {
   normalizeStatsTagOptions,
   normalizeStatsVaRoleFilters,
   statsRatedScore,
+  statsSubrowHasMainRole,
   statsAggregationEmptyHint,
   statsDefaultStaffRoleFilters,
   statsEffectiveEpisodes,
@@ -119,7 +120,7 @@ const DEFAULT_FORM: StatsForm = {
   studioKindFilters: [...STATS_STUDIO_KIND_OPTIONS],
 };
 
-type PersistedStatsForm = Pick<StatsForm, 'username' | 'mediaType' | 'showSummary' | 'aggregationType' | 'vaShowMainRoleInfo' | 'vaShowDiff'>;
+type PersistedStatsForm = Pick<StatsForm, 'username' | 'mediaType' | 'aggregationType' | 'vaShowMainRoleInfo' | 'vaShowDiff'>;
 
 type PersistedStatsFilters = Pick<
   StatsForm,
@@ -147,7 +148,6 @@ function loadForm(): StatsForm {
       ...DEFAULT_FORM,
       username: typeof parsed.username === 'string' ? parsed.username : '',
       mediaType,
-      showSummary: parsed.showSummary !== false,
       aggregationType: normalizeStatsAggregationType(parsed.aggregationType, mediaType),
       vaShowMainRoleInfo:
         parsed.vaShowMainRoleInfo === true || (parsed as { vaMainOnly?: boolean }).vaMainOnly === true,
@@ -183,7 +183,6 @@ function saveForm(form: StatsForm): void {
     const persisted: PersistedStatsForm = {
       username: form.username,
       mediaType: form.mediaType,
-      showSummary: form.showSummary,
       aggregationType: form.aggregationType,
       vaShowMainRoleInfo: form.vaShowMainRoleInfo,
       vaShowDiff: form.vaShowDiff,
@@ -233,10 +232,20 @@ const STATS_GLOBAL_DEVIATION_TOOLTIP =
   'Root mean square of (your score − AniList mean score) across rated entries with a known global mean. ' +
   'Measures how far your ratings typically diverge from AniList averages.';
 
-const STATS_MEDIA_TYPE_OPTIONS: readonly ToolSegmentedOption<'ANIME' | 'MANGA'>[] = [
-  { value: 'ANIME', label: 'Anime' },
-  { value: 'MANGA', label: 'Manga' },
-];
+const STATS_TIME_WEIGHTED_MEAN_TOOLTIP =
+  'Mean score weighted by total length: anime uses episode length × episode count; manga uses chapter count. ' +
+  'Longer entries contribute more than shorts.';
+
+const STATS_RATING_ENTROPY_TOOLTIP =
+  'Shannon entropy of your score distribution, in bits. Higher values mean ratings spread across more distinct scores; ' +
+  'lower values mean they cluster on fewer scores.';
+
+const STATS_EPISODES_REMAINING_TOOLTIP =
+  'Episodes left on currently airing or in-progress shows in the filtered pool. Completed shows count as 0.';
+
+const STATS_CHAPTERS_REMAINING_TOOLTIP =
+  'Chapters left on currently releasing or in-progress manga in the filtered pool with a known chapter count. ' +
+  'Completed entries and manga without a chapter total count as 0.';
 
 function StatsToggleChip({
   label,
@@ -271,6 +280,23 @@ function StatsMetricCell(value: number | null, formatter?: (n: number) => string
     return '—';
   }
   return formatter ? formatter(value) : String(Math.round(value * 100) / 100);
+}
+
+function StatsSummaryTerm({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}): React.ReactElement {
+  return (
+    <div>
+      <dt title={hint}>{label}</dt>
+      <dd>{children}</dd>
+    </div>
+  );
 }
 
 type StatsSummaryModal = 'score-list' | 'time-chart' | null;
@@ -341,7 +367,9 @@ function StatsSubrowNameCell({
   );
   const repeatSuffix =
     entry.repeat != null && entry.repeat > 0 ? ` ×${entry.repeat + 1}` : '';
-  const hasCharacter = link?.characterName != null;
+  const vaCharacters = link?.characters ?? [];
+  const hasVaCharacters = vaCharacters.length > 0;
+  const hasLegacyCharacter = link?.characterName != null;
   const staffRole = link?.staffRole;
 
   return (
@@ -360,7 +388,20 @@ function StatsSubrowNameCell({
             {entry.title}
             {repeatSuffix ? <span className="tool-stats-repeat">{repeatSuffix}</span> : null}
           </span>
-          {hasCharacter ? (
+          {hasVaCharacters ? (
+            <span className="tool-stats-subrow-show-meta">
+              {vaCharacters.map((character, index) => (
+                <span key={character.characterId}>
+                  {index > 0 ? ', ' : ''}
+                  <ToolCharacterName
+                    characterId={character.characterId}
+                    name={character.characterName}
+                  />
+                  {character.characterRole ? ` (${character.characterRole})` : ''}
+                </span>
+              ))}
+            </span>
+          ) : hasLegacyCharacter ? (
             <span className="tool-stats-subrow-show-meta">
               <ToolCharacterName
                 characterId={link?.characterId ?? 0}
@@ -591,7 +632,8 @@ function StatsTimeWatchedChartModal({
               );
             })}
             <tr className="tool-stats-time-chart-total-row">
-              <td className="tool-stats-time-chart-total-label" colSpan={2}>Sum</td>
+              <td className="tool-stats-time-chart-score"></td>
+              <td className="tool-stats-time-chart-total-label">Sum</td>
               <td className="tool-stats-time-chart-metric">{totals.episodes}</td>
               <td className="tool-stats-time-chart-metric">—</td>
               <td className="tool-stats-time-chart-metric">
@@ -617,54 +659,74 @@ function StatsSummarySection({
   onOpenTimeChart: () => void;
 }) {
   return (
-    <dl className="tool-stats-summary-grid">
-      <div><dt>On list</dt><dd>{summary.onList}</dd></div>
-        <div><dt>Rated</dt><dd>{summary.rated}</dd></div>
-        <div><dt>Mean score</dt><dd>{StatsMetricCell(summary.meanScore)}</dd></div>
-        <div><dt>Weighted mean</dt><dd>{StatsMetricCell(summary.weightedMeanScore)}</dd></div>
-        <div><dt>Median</dt><dd>{StatsMetricCell(summary.medianScore)}</dd></div>
-        <div>
-          <dt title={STATS_GLOBAL_DIFFERENCE_TOOLTIP}>Global difference</dt>
-          <dd>{StatsMetricCell(summary.globalDifference)}</dd>
-        </div>
-        <div>
-          <dt title={STATS_GLOBAL_DEVIATION_TOOLTIP}>Global deviation</dt>
-          <dd>{StatsMetricCell(summary.globalDeviation)}</dd>
-        </div>
-        <div><dt>Rating entropy</dt><dd>{StatsMetricCell(summary.ratingEntropy)}</dd></div>
-        <div>
-          <dt>Most common score</dt>
-          <dd>
-            {summary.mostCommonScore != null ? (
-              <button
-                type="button"
-                className="tool-stats-summary-link"
-                onClick={onOpenScoreList}
-              >
-                {summary.mostCommonScore} ({summary.mostCommonScoreCount})
-              </button>
-            ) : (
-              '—'
-            )}
-          </dd>
-        </div>
-        <div>
-          <dt>Time watched</dt>
-          <dd>
-            {mediaType === 'ANIME' && summary.timeWatchedMinutes > 0 ? (
-              <button
-                type="button"
-                className="tool-stats-summary-link"
-                onClick={onOpenTimeChart}
-              >
-                {formatStatsDurationWithDayCount(summary.timeWatchedMinutes)}
-              </button>
-            ) : (
-              formatStatsDurationWithDayCount(summary.timeWatchedMinutes)
-            )}
-          </dd>
-        </div>
+    <div className="tool-stats-summary-rows">
+      <dl className="tool-stats-summary-grid">
+        <StatsSummaryTerm label="On list">{summary.onList}</StatsSummaryTerm>
+        <StatsSummaryTerm label="Rated">{summary.rated}</StatsSummaryTerm>
+        <StatsSummaryTerm label="Mean score">{StatsMetricCell(summary.meanScore)}</StatsSummaryTerm>
+        <StatsSummaryTerm label="Median">{StatsMetricCell(summary.medianScore)}</StatsSummaryTerm>
       </dl>
+      <dl className="tool-stats-summary-grid">
+        <StatsSummaryTerm
+          label={mediaType === 'ANIME' ? 'Duration-weighted mean' : 'Chapter-weighted mean'}
+          hint={STATS_TIME_WEIGHTED_MEAN_TOOLTIP}
+        >
+          {StatsMetricCell(summary.weightedMeanScore)}
+        </StatsSummaryTerm>
+        <StatsSummaryTerm label="Global difference" hint={STATS_GLOBAL_DIFFERENCE_TOOLTIP}>
+          {StatsMetricCell(summary.globalDifference)}
+        </StatsSummaryTerm>
+        <StatsSummaryTerm label="Global deviation" hint={STATS_GLOBAL_DEVIATION_TOOLTIP}>
+          {StatsMetricCell(summary.globalDeviation)}
+        </StatsSummaryTerm>
+        <StatsSummaryTerm label="Rating entropy" hint={STATS_RATING_ENTROPY_TOOLTIP}>
+          {StatsMetricCell(summary.ratingEntropy)} bits/rating
+        </StatsSummaryTerm>
+      </dl>
+      <dl className="tool-stats-summary-grid">
+        <StatsSummaryTerm label="Most common score">
+          {summary.mostCommonScore != null ? (
+            <button
+              type="button"
+              className="tool-stats-summary-link"
+              onClick={onOpenScoreList}
+            >
+              {summary.mostCommonScore} ({summary.mostCommonScoreCount})
+            </button>
+          ) : (
+            '—'
+          )}
+        </StatsSummaryTerm>
+        {mediaType === 'ANIME' ? (
+          <>
+            <StatsSummaryTerm label="Time watched">
+              {summary.timeWatchedMinutes > 0 ? (
+                <button
+                  type="button"
+                  className="tool-stats-summary-link"
+                  onClick={onOpenTimeChart}
+                >
+                  {formatStatsDurationWithDayCount(summary.timeWatchedMinutes)}
+                </button>
+              ) : (
+                formatStatsDurationWithDayCount(summary.timeWatchedMinutes)
+              )}
+            </StatsSummaryTerm>
+            <StatsSummaryTerm label="Episodes watched">{summary.episodesWatched}</StatsSummaryTerm>
+            <StatsSummaryTerm label="Episodes remaining" hint={STATS_EPISODES_REMAINING_TOOLTIP}>
+              {summary.episodesRemaining}
+            </StatsSummaryTerm>
+          </>
+        ) : (
+          <>
+            <StatsSummaryTerm label="Chapters read">{summary.chaptersRead}</StatsSummaryTerm>
+            <StatsSummaryTerm label="Chapters remaining" hint={STATS_CHAPTERS_REMAINING_TOOLTIP}>
+              {summary.chaptersRemaining}
+            </StatsSummaryTerm>
+          </>
+        )}
+      </dl>
+    </div>
   );
 }
 
@@ -954,7 +1016,7 @@ function StatsSubrowTr({
   onOpenMedia: ToolPanelProps['onOpenMedia'];
 }) {
   const entry = sub.entry;
-  const isMainRole = sub.link?.characterRole === 'MAIN';
+  const isMainRole = statsSubrowHasMainRole(sub.link);
   const rated = statsRatedScore(entry);
   const scoreDiff =
     showDiff && rated != null && entry.meanScore != null && entry.meanScore > 0
@@ -1339,9 +1401,7 @@ export function StatsPanel({
         </div>
 
         <div className="tool-adaptation-primary-filters tool-seasonal-primary-filters">
-          <ToolSegmentedFilter
-            label="Media type"
-            options={STATS_MEDIA_TYPE_OPTIONS}
+          <ToolAnimeMangaMediaTypeFilter
             value={form.mediaType}
             disabled={running}
             onChange={(mediaType) =>
@@ -1383,7 +1443,7 @@ export function StatsPanel({
 
         <div className="tool-adaptation-primary-filters tool-seasonal-primary-filters tool-stats-type-filters">
           <ToolSegmentedFilter
-            label="Type"
+            label="Stats Chart"
             options={aggregationOptions.map((type) => ({
               value: type,
               label: AGGREGATION_LABELS[type],

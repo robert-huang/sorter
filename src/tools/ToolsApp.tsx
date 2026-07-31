@@ -50,7 +50,7 @@ const TOOL_TABS: ReadonlyArray<ToolTab<ToolId>> = [
   {
     id: 'seasonal-scores',
     label: 'Seasonal Scores',
-    title: "Chart a user's AniList scores across seasons.",
+    title: "Chart a user's AniList anime scores across seasons.",
   },
   {
     id: 'franchise-scores',

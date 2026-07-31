@@ -30,7 +30,6 @@ import {
   normalizeSeasonalListScore,
   scoreDisplayToneClass,
 } from './seasonalScoresLogic';
-import { franchiseDateSortKey } from './franchiseScoresLogic';
 
 export type StatsMediaType = AnilistMediaType;
 
@@ -184,7 +183,15 @@ export type StatsEntry = {
   vaCredits: StatsVaCredit[];
 };
 
+export type StatsVaSubrowCharacter = {
+  characterId: number;
+  characterName: string;
+  characterRole: StatsCharacterRoleFilter;
+};
+
 export type StatsSubrowLink = {
+  /** VA chart: all voiced characters on this show (one subrow per show). */
+  characters?: readonly StatsVaSubrowCharacter[];
   characterId?: number;
   characterName?: string;
   characterRole?: string;
@@ -304,7 +311,9 @@ export type StatsSummary = {
   mostCommonScoreCount: number;
   timeWatchedMinutes: number;
   episodesWatched: number;
+  episodesRemaining: number;
   chaptersRead: number;
+  chaptersRemaining: number;
   volumesRead: number;
 };
 
@@ -430,11 +439,11 @@ export function formatStatsFormatLabel(format: StatsFormatFilter | StatsMangaFor
   if (format === 'MANGA' || format === 'NOVEL' || format === 'ONE_SHOT') {
     switch (format) {
       case 'MANGA':
-        return 'Manga';
+        return 'MANGA';
       case 'NOVEL':
-        return 'Novel';
+        return 'LIGHT_NOVEL';
       case 'ONE_SHOT':
-        return 'One Shot';
+        return 'ONE_SHOT';
     }
   }
   return formatWeeklyCalendarFormatFilterLabel(format as WeeklyCalendarFormatFilter);
@@ -588,7 +597,16 @@ export function entryTimeRemainingMinutes(entry: StatsEntry): number {
 }
 
 export function entryChaptersRemaining(entry: StatsEntry): number {
-  const total = entry.chapters ?? 0;
+  if (entry.mediaType !== 'MANGA') {
+    return 0;
+  }
+  if (entry.listStatus === 'COMPLETED') {
+    return 0;
+  }
+  const total = entry.chapters;
+  if (total == null || total <= 0) {
+    return 0;
+  }
   const progress = entry.progress ?? 0;
   return Math.max(0, total - progress);
 }
@@ -821,37 +839,63 @@ export function buildVaStatsRows(pool: readonly StatsEntry[], form: StatsForm): 
     if (matchedCredits.length === 0) {
       continue;
     }
-    const seenVa = new Set<number>();
+
+    const creditsByVa = new Map<number, StatsVaCredit[]>();
     for (const credit of matchedCredits) {
-      if (seenVa.has(credit.staffId)) {
-        continue;
+      const list = creditsByVa.get(credit.staffId);
+      if (list) {
+        list.push(credit);
+      } else {
+        creditsByVa.set(credit.staffId, [credit]);
       }
-      seenVa.add(credit.staffId);
-      let bucket = byVa.get(credit.staffId);
+    }
+
+    for (const [staffId, credits] of creditsByVa) {
+      let bucket = byVa.get(staffId);
       if (!bucket) {
+        const first = credits[0];
         bucket = {
-          name: credit.staffName,
-          image: credit.staffImage,
-          gender: credit.staffGender,
+          name: first.staffName,
+          image: first.staffImage,
+          gender: first.staffGender,
           entries: [],
           subrows: [],
           mainRoleMediaIds: new Set(),
         };
-        byVa.set(credit.staffId, bucket);
+        byVa.set(staffId, bucket);
       }
+
       if (!bucket.entries.some((e) => e.mediaId === entry.mediaId)) {
         bucket.entries.push(entry);
-        bucket.subrows.push({
-          entry,
-          link: {
-            characterId: credit.characterId,
-            characterName: credit.characterName,
-            characterRole: credit.characterRole,
-          },
-        });
       }
-      if (credit.characterRole === 'MAIN') {
-        bucket.mainRoleMediaIds.add(entry.mediaId);
+
+      let subrow = bucket.subrows.find((s) => s.entry.mediaId === entry.mediaId);
+      if (!subrow) {
+        subrow = {
+          entry,
+          link: { characters: [] },
+        };
+        bucket.subrows.push(subrow);
+      }
+
+      const mergedCharacters: StatsVaSubrowCharacter[] = [...(subrow.link?.characters ?? [])];
+      const seenCharacterIds = new Set(mergedCharacters.map((character) => character.characterId));
+      for (const credit of credits) {
+        if (seenCharacterIds.has(credit.characterId)) {
+          continue;
+        }
+        seenCharacterIds.add(credit.characterId);
+        mergedCharacters.push({
+          characterId: credit.characterId,
+          characterName: credit.characterName,
+          characterRole: credit.characterRole,
+        });
+        if (credit.characterRole === 'MAIN') {
+          bucket.mainRoleMediaIds.add(entry.mediaId);
+        }
+      }
+      if (subrow.link) {
+        subrow.link.characters = mergedCharacters;
       }
     }
   }
@@ -1055,14 +1099,18 @@ export function buildStatsSummary(pool: readonly StatsEntry[]): StatsSummary {
 
   let timeWatchedMinutes = 0;
   let episodesWatched = 0;
+  let episodesRemaining = 0;
   let chaptersRead = 0;
+  let chaptersRemaining = 0;
   let volumesRead = 0;
   for (const entry of pool) {
     if (entry.mediaType === 'ANIME') {
       timeWatchedMinutes += entryTimeWatchedMinutes(entry);
       episodesWatched += statsEffectiveEpisodes(entry);
+      episodesRemaining += entryEpisodesRemaining(entry);
     } else {
       chaptersRead += entry.progress ?? 0;
+      chaptersRemaining += entryChaptersRemaining(entry);
       volumesRead += entry.progressVolumes ?? 0;
     }
   }
@@ -1080,7 +1128,9 @@ export function buildStatsSummary(pool: readonly StatsEntry[]): StatsSummary {
     mostCommonScoreCount,
     timeWatchedMinutes,
     episodesWatched,
+    episodesRemaining,
     chaptersRead,
+    chaptersRemaining,
     volumesRead,
   };
 }
@@ -1106,7 +1156,12 @@ export function statsEntryScoreSortValue(entry: StatsEntry): number | null {
 }
 
 export function statsEntryStartDateSortKey(date: StatsStartDate): number {
-  return franchiseDateSortKey(date);
+  if (date.year == null) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+  const month = date.month ?? 1;
+  const day = date.day ?? 1;
+  return date.year * 10000 + month * 100 + day;
 }
 
 export function compareStatsSortValues(
@@ -1193,8 +1248,15 @@ type StatsSubrowSortOptions = {
   vaShowDiff?: boolean;
 };
 
+export function statsSubrowHasMainRole(link: StatsSubrowLink | undefined): boolean {
+  if (link?.characters && link.characters.length > 0) {
+    return link.characters.some((character) => character.characterRole === 'MAIN');
+  }
+  return link?.characterRole === 'MAIN';
+}
+
 function subrowIsMainRole(sub: StatsSubrow): boolean {
-  return sub.link?.characterRole === 'MAIN';
+  return statsSubrowHasMainRole(sub.link);
 }
 
 function subrowScoreDiff(entry: StatsEntry, vaShowDiff: boolean): number | null {
@@ -1409,8 +1471,8 @@ export function formatStatsDuration(minutes: number): string {
 
 export function formatStatsDurationWithDayCount(minutes: number): string {
   const duration = formatStatsDuration(minutes);
-  const dayCount = Math.floor(minutes / (60 * 24));
-  if (dayCount <= 0) {
+  const dayCount = Math.floor(minutes / (60 * 24) * 100) / 100; // round to 2 decimal places
+  if (dayCount < 1) {
     return duration;
   }
   return `${duration} (${dayCount} days)`;

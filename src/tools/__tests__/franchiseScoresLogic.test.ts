@@ -437,8 +437,8 @@ describe('applyFranchiseFilters', () => {
       entry(3, { mediaType: 'ANIME', listStatus: 'COMPLETED', score: null }),
       // PLANNING with a non-zero score shows the score and counts as rated.
       entry(4, { mediaType: 'ANIME', listStatus: 'PLANNING', score: 70 }),
-      entry(5, { mediaType: 'MANGA', listStatus: 'COMPLETED', score: 92 }),
-      entry(6, { mediaType: 'MANGA', listStatus: null, score: null }),
+      entry(5, { mediaType: 'MANGA', format: 'MANGA', listStatus: 'COMPLETED', score: 92 }),
+      entry(6, { mediaType: 'MANGA', format: null, listStatus: null, score: null }),
     ];
   }
 
@@ -535,5 +535,25 @@ describe('applyFranchiseFilters', () => {
       scoreMax: null,
     });
     expect(out.map((e) => e.id)).toEqual([5]);
+  });
+
+  it('format filter keeps only entries whose AniList format is selected', () => {
+    const out = applyFranchiseFilters(fixture(), {
+      ...DEFAULT_FRANCHISE_FILTERS,
+      formatFilters: ['TV'],
+    });
+    expect(out.map((e) => e.id)).toEqual([1, 2, 3, 4]);
+  });
+
+  it('format filter treats manga without format as MANGA', () => {
+    const rows = [
+      entry(1, { mediaType: 'MANGA', format: null }),
+      entry(2, { mediaType: 'MANGA', format: 'NOVEL' }),
+    ];
+    const out = applyFranchiseFilters(rows, {
+      ...DEFAULT_FRANCHISE_FILTERS,
+      formatFilters: ['MANGA'],
+    });
+    expect(out.map((e) => e.id)).toEqual([1]);
   });
 });

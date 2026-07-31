@@ -1,9 +1,32 @@
 import type { MediaTitleFields } from '../../lib/importers/anilist/mediaDisplayLabel';
 import type { AnilistMediaListStatus } from '../../lib/importers/anilist/types';
 import {
+  STATS_MANGA_FORMAT_OPTIONS,
+  formatStatsFormatLabel,
+  type StatsMangaFormatFilter,
+} from './statsLogic';
+import {
+  WEEKLY_CALENDAR_FORMAT_OPTIONS,
+  type WeeklyCalendarFormatFilter,
+} from './weeklyCalendarLogic';
+import {
   listStatusScoreLabel,
   normalizeSeasonalListScore,
 } from './seasonalScoresLogic';
+
+export const FRANCHISE_FORMAT_OPTIONS = [
+  ...WEEKLY_CALENDAR_FORMAT_OPTIONS,
+  ...STATS_MANGA_FORMAT_OPTIONS,
+] as const satisfies readonly (
+  | WeeklyCalendarFormatFilter
+  | StatsMangaFormatFilter
+)[];
+
+export type FranchiseFormatFilter = (typeof FRANCHISE_FORMAT_OPTIONS)[number];
+
+export const DEFAULT_FRANCHISE_FORMAT_FILTERS: FranchiseFormatFilter[] = [
+  ...FRANCHISE_FORMAT_OPTIONS,
+];
 
 export type FranchiseListStatus = AnilistMediaListStatus;
 
@@ -28,6 +51,41 @@ export function normalizeFranchiseListStatuses(raw: unknown): FranchiseListStatu
   }
   const selected = FRANCHISE_LIST_STATUS_OPTIONS.filter((status) => raw.includes(status));
   return selected.length > 0 ? [...selected] : [...DEFAULT_FRANCHISE_LIST_STATUSES];
+}
+
+export function normalizeFranchiseFormatFilters(raw: unknown): FranchiseFormatFilter[] {
+  if (!Array.isArray(raw)) {
+    return [...DEFAULT_FRANCHISE_FORMAT_FILTERS];
+  }
+  const selected = FRANCHISE_FORMAT_OPTIONS.filter((format) => raw.includes(format));
+  return selected.length > 0 ? [...selected] : [...DEFAULT_FRANCHISE_FORMAT_FILTERS];
+}
+
+export function formatFranchiseFormatFilterLabel(format: FranchiseFormatFilter): string {
+  return formatStatsFormatLabel(format);
+}
+
+function franchiseFormatFilterKey(
+  entry: Pick<FranchiseEntry, 'format' | 'mediaType'>,
+): string | null {
+  if (entry.format != null) {
+    return entry.format;
+  }
+  if (entry.mediaType === 'MANGA') {
+    return 'MANGA';
+  }
+  return null;
+}
+
+export function entryPassesFranchiseFormatFilter(
+  entry: Pick<FranchiseEntry, 'format' | 'mediaType'>,
+  filters: readonly FranchiseFormatFilter[],
+): boolean {
+  if (filters.length >= FRANCHISE_FORMAT_OPTIONS.length) {
+    return true;
+  }
+  const key = franchiseFormatFilterKey(entry);
+  return key != null && (filters as readonly string[]).includes(key);
 }
 
 export function entryPassesListStatusFilter(
@@ -158,6 +216,7 @@ export type FranchiseFilters = {
   includeAnime: boolean;
   includeManga: boolean;
   listStatuses: readonly FranchiseListStatus[];
+  formatFilters: readonly FranchiseFormatFilter[];
   userScoreInclude: 'any' | 'rated' | 'unrated';
   scoreMin: number | null;
   scoreMax: number | null;
@@ -167,6 +226,7 @@ export const DEFAULT_FRANCHISE_FILTERS: FranchiseFilters = {
   includeAnime: true,
   includeManga: true,
   listStatuses: [...DEFAULT_FRANCHISE_LIST_STATUSES],
+  formatFilters: [...DEFAULT_FRANCHISE_FORMAT_FILTERS],
   userScoreInclude: 'any',
   scoreMin: null,
   scoreMax: null,
@@ -491,6 +551,7 @@ export function applyFranchiseFilters(
     if (entry.mediaType === 'ANIME' && !filters.includeAnime) continue;
     if (entry.mediaType === 'MANGA' && !filters.includeManga) continue;
     if (!entryPassesListStatusFilter(entry.listStatus, filters.listStatuses)) continue;
+    if (!entryPassesFranchiseFormatFilter(entry, filters.formatFilters)) continue;
 
     const normalized = normalizeSeasonalListScore(entry.score);
     const statusLabel = listStatusScoreLabel(entry.listStatus, entry.score, entry.mediaType);
