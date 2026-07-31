@@ -32,6 +32,8 @@ type Tab = 'single' | 'multiple' | 'anilist' | 'sortresults';
 interface Props {
   engine: 'merge' | 'insertion' | 'confirmation';
   existingIds: Set<string>;
+  /** Hidden ids with metadata — add will reinsert, not hard-skip. */
+  hiddenRestoreIds: Set<string>;
   /** Omit from Sort results picker (active slot). */
   excludeSlotId?: string;
   /** Bumps when the AniList source DB changes (import, pull, etc.). */
@@ -53,6 +55,7 @@ interface Props {
 export function AddItemsModal({
   engine,
   existingIds,
+  hiddenRestoreIds,
   excludeSlotId,
   dbSyncRevision,
   onCancel,
@@ -120,6 +123,7 @@ export function AddItemsModal({
       {tab === 'single' && (
         <SingleTab
           existingIds={existingIds}
+          hiddenRestoreIds={hiddenRestoreIds}
           engine={engine}
           onCancel={onCancel}
           onAdd={onAddOne}
@@ -128,6 +132,8 @@ export function AddItemsModal({
       {tab === 'multiple' && (
         <MultipleTab
           engine={engine}
+          existingIds={existingIds}
+          hiddenRestoreIds={hiddenRestoreIds}
           onCancel={onCancel}
           onAddMany={onAddMany}
           onAddPreRanked={onAddPreRanked}
@@ -138,6 +144,7 @@ export function AddItemsModal({
           embedded
           dbSyncRevision={dbSyncRevision}
           existingIds={existingIds}
+          hiddenRestoreIds={hiddenRestoreIds}
           onAddItems={(items) => {
             onAddMany(items);
             onCancel();
@@ -149,6 +156,7 @@ export function AddItemsModal({
           embedded
           excludeSlotId={excludeSlotId}
           existingIds={existingIds}
+          hiddenRestoreIds={hiddenRestoreIds}
           showPreRankedToggle
           onAddSlotImports={onAddSlotImports}
           onComplete={onCancel}
@@ -162,13 +170,23 @@ export function AddItemsModal({
 // Single tab — same form as the legacy AddItemModal
 // ============================================================================
 
+function isActiveSortDuplicate(
+  id: string,
+  existingIds: Set<string>,
+  hiddenRestoreIds: Set<string>,
+): boolean {
+  return existingIds.has(id) && !hiddenRestoreIds.has(id);
+}
+
 function SingleTab({
   existingIds,
+  hiddenRestoreIds,
   engine,
   onCancel,
   onAdd,
 }: {
   existingIds: Set<string>;
+  hiddenRestoreIds: Set<string>;
   engine: 'merge' | 'insertion' | 'confirmation';
   onCancel: () => void;
   onAdd: (item: Item) => void;
@@ -186,7 +204,7 @@ function SingleTab({
       return;
     }
     const id = canonicalKey(trimmed);
-    if (existingIds.has(id)) {
+    if (isActiveSortDuplicate(id, existingIds, hiddenRestoreIds)) {
       setError('An item with this label is already in the sort.');
       return;
     }
@@ -198,6 +216,10 @@ function SingleTab({
     });
   }
 
+  const willRestore =
+    label.trim().length > 0 &&
+    hiddenRestoreIds.has(canonicalKey(label.trim()));
+
   const hint =
     engine === 'insertion'
       ? 'New item is appended to the pending list and binary-inserted into the ranking.'
@@ -206,7 +228,9 @@ function SingleTab({
   return (
     <form onSubmit={onSubmit}>
       <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 0 }}>
-        {hint}
+        {willRestore
+          ? 'This label matches a hidden item — adding will reinsert it into the sort.'
+          : hint}
       </p>
       <div className="form-row">
         <label htmlFor="add-label">Label *</label>
@@ -254,11 +278,15 @@ function SingleTab({
 
 function MultipleTab({
   engine,
+  existingIds,
+  hiddenRestoreIds,
   onCancel,
   onAddMany,
   onAddPreRanked,
 }: {
   engine: 'merge' | 'insertion' | 'confirmation';
+  existingIds: Set<string>;
+  hiddenRestoreIds: Set<string>;
   onCancel: () => void;
   onAddMany: (items: Item[]) => void;
   onAddPreRanked?: (items: Item[]) => void;
@@ -302,6 +330,29 @@ function MultipleTab({
     return { items: r.items };
   }, [text, skipHeader]);
 
+  const importSummary = useMemo(() => {
+    const n = parsed.items.length;
+    if (n === 0) return null;
+    let restore = 0;
+    let skip = 0;
+    for (const it of parsed.items) {
+      if (hiddenRestoreIds.has(it.id)) restore += 1;
+      else if (isActiveSortDuplicate(it.id, existingIds, hiddenRestoreIds)) {
+        skip += 1;
+      }
+    }
+    const parts = [`Parsed ${n} item${n === 1 ? '' : 's'}.`];
+    if (restore > 0) {
+      parts.push(
+        `${restore} hidden — will reinsert.`,
+      );
+    }
+    if (skip > 0) {
+      parts.push(`${skip} already in sort — will skip.`);
+    }
+    return parts.join(' ');
+  }, [parsed.items, existingIds, hiddenRestoreIds]);
+
   function onSubmit(): void {
     if (parsed.items.length === 0) return;
     if (engine === 'merge' && asPreRanked && onAddPreRanked) {
@@ -329,7 +380,7 @@ function MultipleTab({
       <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 0 }}>
         Paste a CSV or load a file. One item per row, format{' '}
         <code>ITEM, URL (optional), IMAGE (optional)</code>. Items already in
-        the sort (by label) are skipped.
+        the active sort are skipped; hidden items are reinserted.
       </p>
       <textarea
         className="csv-textarea"
@@ -402,9 +453,7 @@ function MultipleTab({
           color: 'var(--text-muted)',
         }}
       >
-        {parsed.items.length === 0
-          ? 'No items parsed yet.'
-          : `Parsed ${parsed.items.length} item${parsed.items.length === 1 ? '' : 's'}.`}
+        {importSummary ?? 'No items parsed yet.'}
       </div>
       <div className="modal-actions">
         <button type="button" className="btn" onClick={onCancel}>

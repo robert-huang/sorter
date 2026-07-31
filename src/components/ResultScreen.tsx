@@ -4,6 +4,7 @@ import type { Item, SortState } from '../lib/types';
 import { comparisonsRemaining, getRanking } from '../lib/engine';
 import {
   activeRankingIds,
+  hiddenSortIds,
   formatOrphanHiddenId,
   rankingSlotIds,
 } from './listScreenH';
@@ -107,6 +108,7 @@ export function ResultScreen({
   // existingIds powers AddItemsModal de-dup hints. Only ids in ranking
   // slots / in-flight inserts count — not stale catalog leftovers.
   const existingIds = useMemo(() => activeRankingIds(state), [state]);
+  const hiddenRestoreIds = useMemo(() => hiddenSortIds(state), [state]);
   const rankingSlots = useMemo(() => rankingSlotIds(state), [state]);
 
   if (!state.done) {
@@ -288,6 +290,7 @@ export function ResultScreen({
         <AddItemsModal
           engine={state.engine}
           existingIds={existingIds}
+          hiddenRestoreIds={hiddenRestoreIds}
           excludeSlotId={slotId}
           dbSyncRevision={dbSyncRevision}
           onCancel={() => setAddOpen(false)}

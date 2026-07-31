@@ -561,6 +561,17 @@ export function addItem(
   state: ConfirmationState,
   item: Item,
 ): ConfirmationState | null {
+  if (state.hidden.includes(item.id)) {
+    const merged = mergeCatalogItem(state, item);
+    const withItems: ConfirmationState = {
+      ...state,
+      items: { ...state.items, [merged.id]: merged },
+    };
+    if (withItems.confirmed.includes(item.id)) {
+      return returnCandidateToQueue(unhideItem(withItems, item.id), item.id);
+    }
+    return restoreHiddenItem(withItems, item.id);
+  }
   if (isInConfirmationRanking(state, item.id)) return null;
   const merged = mergeCatalogItem(state, item);
   const next = snapshotProgress(state);
@@ -583,15 +594,20 @@ export function addItem(
 export function addItems(
   state: ConfirmationState,
   items: Item[],
-): { state: ConfirmationState; skipped: ItemId[] } {
+): { state: ConfirmationState; skipped: ItemId[]; restored: ItemId[] } {
   const skipped: ItemId[] = [];
+  const restored: ItemId[] = [];
   let cur = state;
   for (const it of items) {
+    const wasHidden = cur.hidden.includes(it.id);
     const added = addItem(cur, it);
     if (added === null) skipped.push(it.id);
-    else cur = added;
+    else {
+      cur = added;
+      if (wasHidden) restored.push(it.id);
+    }
   }
-  return { state: cur, skipped };
+  return { state: cur, skipped, restored };
 }
 
 export function returnCandidateToQueue(

@@ -27,6 +27,8 @@ type SortResultsImportModeProps = {
   excludeSlotId?: string;
   /** Skip items already in the active sort (AddItemsModal path). */
   existingIds?: Set<string>;
+  /** Hidden ids — still importable; add will reinsert. */
+  hiddenRestoreIds?: Set<string>;
   /** Merge engine only — pre-ranked toggle is hidden when false. */
   showPreRankedToggle?: boolean;
   onDraftActivity?: () => void;
@@ -47,6 +49,7 @@ function buildImportBatches(
   entries: SlotImportEntry[],
   asPreRanked: Record<string, boolean>,
   existingIds: Set<string> | undefined,
+  hiddenRestoreIds: Set<string> | undefined,
   showPreRankedToggle: boolean,
   overrides: SlotImportOverlayMap,
   excluded: SlotImportExcludedRows,
@@ -60,6 +63,7 @@ function buildImportBatches(
       overrides,
       excluded,
       existingIds,
+      hiddenRestoreIds,
     );
     if (items.length === 0) continue;
     const preRanked =
@@ -73,6 +77,7 @@ export function SortResultsImportMode({
   embedded = false,
   excludeSlotId,
   existingIds,
+  hiddenRestoreIds,
   showPreRankedToggle = true,
   onDraftActivity,
   onComplete,
@@ -144,9 +149,10 @@ export function SortResultsImportMode({
         overrides,
         excluded,
         filterExisting ? existingIds : undefined,
+        filterExisting ? hiddenRestoreIds : undefined,
       );
     },
-    [overrides, excluded, existingIds],
+    [overrides, excluded, existingIds, hiddenRestoreIds],
   );
 
   const toggleSelected = useCallback((id: string, on: boolean) => {
@@ -347,6 +353,7 @@ export function SortResultsImportMode({
       selectedImportable,
       asPreRanked,
       existingIds,
+      hiddenRestoreIds,
       showPreRankedToggle,
       overrides,
       excluded,
@@ -418,8 +425,8 @@ export function SortResultsImportMode({
       )}
       {embedded && (
         <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 0 }}>
-          Pick one or more completed saves. Items already in this sort are
-          skipped. Expand a save to edit labels, URLs, or ids before adding.
+          Pick one or more completed saves. Items already in the active sort are
+          skipped; hidden items will be reinserted. Expand a save to edit labels, URLs, or ids before adding.
           {showPreRankedToggle
             ? ' Uncheck “Treat as one pre-ranked sublist” on a save to queue each item as its own singleton.'
             : null}
@@ -464,6 +471,7 @@ export function SortResultsImportMode({
                 asPreRanked={asPreRanked[entry.meta.id] ?? true}
                 showPreRankedToggle={showPreRankedToggle}
                 existingIds={existingIds}
+                hiddenRestoreIds={hiddenRestoreIds}
                 overrides={overrides}
                 excluded={excluded}
                 onToggleSelect={(on) => toggleSelected(entry.meta.id, on)}
@@ -513,6 +521,7 @@ function SlotImportRow({
   asPreRanked,
   showPreRankedToggle,
   existingIds,
+  hiddenRestoreIds,
   overrides,
   excluded,
   onToggleSelect,
@@ -527,6 +536,7 @@ function SlotImportRow({
   asPreRanked: boolean;
   showPreRankedToggle: boolean;
   existingIds?: Set<string>;
+  hiddenRestoreIds?: Set<string>;
   overrides: SlotImportOverlayMap;
   excluded: SlotImportExcludedRows;
   onToggleSelect: (on: boolean) => void;
@@ -548,18 +558,28 @@ function SlotImportRow({
           item,
           overrides.get(key),
         );
-        const skippedBySort = existingIds?.has(effective.id) === true;
-        return { index, effective, skippedBySort };
+        const willRestore = hiddenRestoreIds?.has(effective.id) === true;
+        const skippedBySort =
+          existingIds?.has(effective.id) === true && !willRestore;
+        return { index, effective, skippedBySort, willRestore };
       })
       .filter((row): row is NonNullable<typeof row> => row !== null);
-  }, [entry.items, slotId, overrides, excluded, existingIds]);
+  }, [entry.items, slotId, overrides, excluded, existingIds, hiddenRestoreIds]);
 
   const dupCount = useMemo(() => {
     if (!entry.items || !existingIds) return 0;
     return applySlotImportEdits(slotId, entry.items, overrides, excluded).filter(
-      (it) => existingIds.has(it.id),
+      (it) =>
+        existingIds.has(it.id) && !hiddenRestoreIds?.has(it.id),
     ).length;
-  }, [entry.items, slotId, overrides, excluded, existingIds]);
+  }, [entry.items, slotId, overrides, excluded, existingIds, hiddenRestoreIds]);
+
+  const restoreCount = useMemo(() => {
+    if (!entry.items || !hiddenRestoreIds) return 0;
+    return applySlotImportEdits(slotId, entry.items, overrides, excluded).filter(
+      (it) => hiddenRestoreIds.has(it.id),
+    ).length;
+  }, [entry.items, slotId, overrides, excluded, hiddenRestoreIds]);
 
   function onRowClick(e: React.MouseEvent): void {
     if (!importable) return;
@@ -612,6 +632,12 @@ function SlotImportRow({
                 · {dupCount} already in sort
               </span>
             )}
+            {restoreCount > 0 && (
+              <span className="sort-results-import-dup-hint">
+                {' '}
+                · {restoreCount} hidden — will reinsert
+              </span>
+            )}
           </div>
         </div>
         {importable && (
@@ -653,12 +679,13 @@ function SlotImportRow({
 
       {importable && expanded && entry.items && (
         <ol className="sort-results-import-preview">
-          {previewRows.map(({ index, effective, skippedBySort }) => (
+          {previewRows.map(({ index, effective, skippedBySort, willRestore }) => (
             <li
               key={`${slotId}:${index}`}
               className={[
                 'sort-results-import-preview-item',
                 skippedBySort ? 'sort-results-import-preview--dup' : '',
+                willRestore ? 'sort-results-import-preview--restore' : '',
               ]
                 .filter(Boolean)
                 .join(' ')}
@@ -666,6 +693,12 @@ function SlotImportRow({
               <span className="rank">{index + 1}.</span>
               <span className="sort-results-import-preview-label" title={effective.label}>
                 {effective.label}
+                {willRestore && (
+                  <span className="sort-results-import-restore-hint">
+                    {' '}
+                    (hidden — will reinsert)
+                  </span>
+                )}
               </span>
               <span className="preview-item-actions">
                 <button

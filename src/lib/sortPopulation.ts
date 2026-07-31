@@ -70,3 +70,16 @@ export function activeSortItemCount(state: SortProgress): number {
 export function listHeaderItemCount(state: SortState): number {
   return activeSortItemCount(state);
 }
+
+/**
+ * Hidden ids that still have catalog metadata. Used by Add Items to show
+ * “will reinsert” without treating them as hard duplicates of active ranking
+ * slots.
+ */
+export function hiddenSortIds(state: SortState): Set<ItemId> {
+  const ids = new Set<ItemId>();
+  for (const id of state.hidden) {
+    if (state.items[id]) ids.add(id);
+  }
+  return ids;
+}

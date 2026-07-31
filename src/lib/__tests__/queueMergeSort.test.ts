@@ -372,15 +372,57 @@ describe('addItems (batch singletons)', () => {
 
   it('dedups by id and reports skipped; metadata fills missing fields only', () => {
     const s0 = initSort([{ id: 'a', label: 'A' }, B]);
-    const { state: s1, skipped } = addItems(s0, [
+    const { state: s1, skipped, restored } = addItems(s0, [
       { id: 'a', label: 'A', url: 'https://new', imageUrl: 'https://i' },
       C,
     ]);
     expect(skipped).toEqual(['a']);
+    expect(restored).toEqual([]);
     expect(s1.items.a.url).toBe('https://new');
     expect(s1.items.a.imageUrl).toBe('https://i');
     // C added as a singleton.
     expect(s1.queue.some((sub) => sub.length === 1 && sub[0] === 'c')).toBe(true);
+  });
+
+  it('reinserts a hidden in-slot id without duplicating queue entries', () => {
+    let s0 = initSort([A, B, C]);
+    while (!s0.done) {
+      const p = getPair(s0);
+      if (!p) break;
+      s0 = p.leftId <= p.rightId ? pickLeft(s0) : pickRight(s0);
+    }
+    const s1 = hideItem(s0, 'b');
+    expect(s1.queue.filter((sub) => sub.includes('b')).length).toBe(1);
+    const { state, restored, skipped } = addItems(s1, [B]);
+    expect(skipped).toEqual([]);
+    expect(restored).toEqual(['b']);
+    expect(state.hidden).not.toContain('b');
+    expect(
+      state.toBeInserted.includes('b') ||
+        state.pendingManualInserts.includes('b') ||
+        state.currentManualInsert?.insertingId === 'b' ||
+        state.queue.some((sub) => sub.includes('b')),
+    ).toBe(true);
+  });
+
+  it('reinserts a hidden orphan instead of appending a crossed-out singleton', () => {
+    let s0 = initSort([A, B, C, D]);
+    s0 = hideItem(s0, 'd');
+    const next = snapshotProgress(s0);
+    next.queue = next.queue.map((sub) => sub.filter((id) => id !== 'd'));
+    const orphanHidden: MergeState = { ...s0, ...next };
+    expect(orphanHidden.hidden).toContain('d');
+    expect(orphanHidden.queue.some((sub) => sub.includes('d'))).toBe(false);
+
+    const { state, restored } = addItems(orphanHidden, [D]);
+    expect(restored).toEqual(['d']);
+    expect(state.hidden).not.toContain('d');
+    expect(
+      state.toBeInserted.includes('d') ||
+        state.pendingManualInserts.includes('d') ||
+        state.currentManualInsert?.insertingId === 'd' ||
+        state.queue.some((sub) => sub.includes('d')),
+    ).toBe(true);
   });
 
   it("does not overwrite the existing item's URL when both are set", () => {
@@ -480,6 +522,59 @@ describe('appendPreRankedSublist', () => {
     expect(next.items.d).toBeDefined();
     expect(next.items.e).toBeDefined();
     expect(next.current || next.queue.length > 0).toBeTruthy();
+  });
+
+  it('appends hidden survivors as one pre-ranked sublist and skips active ids', () => {
+    let s0 = initSort([A, B, D]);
+    while (!s0.done) {
+      const p = getPair(s0);
+      if (!p) break;
+      s0 = p.leftId <= p.rightId ? pickLeft(s0) : pickRight(s0);
+    }
+    const withHiddenB = hideItem(s0, 'b');
+    const withHiddenD = hideItem(withHiddenB, 'd');
+    const progress = snapshotProgress(withHiddenD);
+    progress.queue = progress.queue.map((sub) =>
+      sub.filter((id) => id !== 'd'),
+    );
+    const prep: MergeState = { ...withHiddenD, ...progress };
+
+    const { state, skipped, restored } = appendPreRankedSublist(prep, [
+      A,
+      B,
+      C,
+      D,
+    ]);
+    expect(skipped).toEqual(['a']);
+    expect(restored).toEqual(['b', 'd']);
+    expect(state.hidden).toEqual([]);
+    expect(state.items.c).toBeDefined();
+    expect(state.queue.filter((sub) => sub.includes('b')).length).toBe(0);
+    expect(state.queue.filter((sub) => sub.includes('d')).length).toBe(0);
+    const sublists: string[][] = [...state.queue];
+    if (state.current) {
+      sublists.push(
+        state.current.left,
+        state.current.right,
+        state.current.merged,
+      );
+    }
+    if (state.currentAutoInsert) {
+      sublists.push(state.currentAutoInsert.target);
+      if (state.currentAutoInsert.sourceSublist) {
+        sublists.push(state.currentAutoInsert.sourceSublist);
+      }
+    }
+    const hasPreRankedBatch = sublists.some(
+      (sub) =>
+        sub.length >= 3 &&
+        sub.includes('b') &&
+        sub.includes('c') &&
+        sub.includes('d') &&
+        sub.indexOf('b') < sub.indexOf('c') &&
+        sub.indexOf('c') < sub.indexOf('d'),
+    );
+    expect(hasPreRankedBatch).toBe(true);
   });
 });
 

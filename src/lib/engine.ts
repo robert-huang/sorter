@@ -643,10 +643,17 @@ function stripItems(state: SortState): SortProgress {
 
 // ---------- add items (engine-aware) ----------
 
+export interface AddItemsResult {
+  state: SortState;
+  skipped: ItemId[];
+  /** Hidden ids reinserted instead of appended as new queue/pending entries. */
+  restored: ItemId[];
+}
+
 /**
  * Add a single item to the in-flight sort, dispatching to the right
- * engine. Returns null if the item id is already present (matches
- * each engine's contract).
+ * engine. Returns null if the item id is already present in active
+ * ranking (matches each engine's contract). Hidden ids are reinserted.
  */
 export function addItem(
   state: SortState,
@@ -671,14 +678,14 @@ export function addItem(
  *   (preserves input order in queue order, NOT as a single ranked sublist
  *   — use the `appendPreRanked` path for that semantic).
  *
- * Returns the new state plus the ids of items that were skipped because
- * their id was already present.
+ * Returns the new state plus ids skipped (already in active ranking) and
+ * restored (reinserted from hidden).
  */
 export function addItems(
   state: SortState,
   items: Item[],
   options?: EngineOptions,
-): { state: SortState; skipped: ItemId[] } {
+): AddItemsResult {
   if (state.engine === 'confirmation') {
     return confirmation.addItems(state, items);
   }

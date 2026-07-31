@@ -1017,8 +1017,19 @@ export function App() {
     [pushUndo, engineOptions],
   );
 
-  const reportSkippedItems = useCallback(
-    (skipped: ItemId[]) => {
+  const reportAddItemsResult = useCallback(
+    ({
+      skipped,
+      restored,
+    }: {
+      skipped: ItemId[];
+      restored: ItemId[];
+    }) => {
+      if (restored.length > 0) {
+        flashSkipped(
+          `Reinserted ${restored.length} hidden item${restored.length === 1 ? '' : 's'}.`,
+        );
+      }
       if (skipped.length > 0) {
         flashSkipped(
           `Skipped ${skipped.length} item${skipped.length === 1 ? '' : 's'} already in the sort.`,
@@ -1253,12 +1264,12 @@ export function App() {
       if (!state) return;
 
       const base = target === 'new' ? cloneSortState(state) : state;
-      const { state: next, skipped, resumed } = applyCompletedSortEdit(
+      const { state: next, skipped, restored, resumed } = applyCompletedSortEdit(
         base,
         action,
         engineOptions,
       );
-      reportSkippedItems(skipped);
+      reportAddItemsResult({ skipped, restored });
 
       if (next.done && !resumed) {
         return;
@@ -1281,7 +1292,7 @@ export function App() {
         setActiveTab('rank');
       }
     },
-    [state, pushUndo, engineOptions, reportSkippedItems, adoptNewSession],
+    [state, pushUndo, engineOptions, reportAddItemsResult, adoptNewSession],
   );
 
   const requestCompletedSortEdit = useCallback(
@@ -1314,16 +1325,16 @@ export function App() {
       setState((cur) => {
         if (!cur || cur.engine !== 'merge') return cur;
         pushUndo(cur);
-        const { state: next, skipped } = appendPreRankedSublist(
+        const { state: next, skipped, restored } = appendPreRankedSublist(
           cur,
           items,
           engineOptions,
         );
-        reportSkippedItems(skipped);
+        reportAddItemsResult({ skipped, restored });
         return next;
       });
     },
-    [state, pushUndo, reportSkippedItems, engineOptions, requestCompletedSortEdit],
+    [state, pushUndo, reportAddItemsResult, engineOptions, requestCompletedSortEdit],
   );
 
   const doAddItem = useCallback(
@@ -1353,14 +1364,14 @@ export function App() {
       }
       setState((cur) => {
         if (!cur) return cur;
-        const { state: next, skipped } = engineAddItems(cur, items, engineOptions);
-        reportSkippedItems(skipped);
+        const { state: next, skipped, restored } = engineAddItems(cur, items, engineOptions);
+        reportAddItemsResult({ skipped, restored });
         if (next === cur) return cur;
         pushUndo(cur);
         return next;
       });
     },
-    [state, pushUndo, reportSkippedItems, engineOptions, requestCompletedSortEdit],
+    [state, pushUndo, reportAddItemsResult, engineOptions, requestCompletedSortEdit],
   );
 
   const doAddSlotImports = useCallback(
@@ -1373,18 +1384,18 @@ export function App() {
       }
       setState((cur) => {
         if (!cur) return cur;
-        const { state: next, skipped } = applySlotImportBatches(
+        const { state: next, skipped, restored } = applySlotImportBatches(
           cur,
           nonEmpty,
           engineOptions,
         );
-        reportSkippedItems(skipped);
+        reportAddItemsResult({ skipped, restored });
         if (next === cur) return cur;
         pushUndo(cur);
         return next;
       });
     },
-    [state, pushUndo, reportSkippedItems, engineOptions, requestCompletedSortEdit],
+    [state, pushUndo, reportAddItemsResult, engineOptions, requestCompletedSortEdit],
   );
 
   // Import a shared payload as a new slot. Branches on payload.kind:

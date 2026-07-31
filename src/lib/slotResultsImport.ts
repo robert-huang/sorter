@@ -46,9 +46,13 @@ export function slotImportSourceLabel(meta: SlotMeta): string {
 export function filterItemsNotInSort(
   items: Item[],
   existingIds?: Set<string>,
+  hiddenRestoreIds?: Set<string>,
 ): Item[] {
   if (!existingIds || existingIds.size === 0) return items;
-  return items.filter((it) => !existingIds.has(it.id));
+  return items.filter(
+    (it) =>
+      !existingIds.has(it.id) || (hiddenRestoreIds?.has(it.id) ?? false),
+  );
 }
 
 /**
@@ -109,9 +113,10 @@ export function effectiveSlotImportItems(
   overrides: SlotImportOverlayMap,
   excluded: SlotImportExcludedRows,
   existingIds?: Set<string>,
+  hiddenRestoreIds?: Set<string>,
 ): Item[] {
   const edited = applySlotImportEdits(slotId, items, overrides, excluded);
-  return filterItemsNotInSort(edited, existingIds);
+  return filterItemsNotInSort(edited, existingIds, hiddenRestoreIds);
 }
 
 export function classifySlotImport(

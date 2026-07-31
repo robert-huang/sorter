@@ -136,9 +136,11 @@ type AnilistStartModeProps = {
   embedded?: boolean;
   /**
    * When set, selected items already in the active sort are skipped on
-   * add and preview rows are marked as duplicates.
+   * add and preview rows are marked as duplicates. Hidden ids in
+   * `hiddenRestoreIds` are reinserted instead.
    */
   existingIds?: Set<string>;
+  hiddenRestoreIds?: Set<string>;
   /** Fired when the user types into the input — used by the parent
    *  to park any loaded session so the import lands in a fresh slot. */
   onDraftActivity?: () => void;
@@ -304,6 +306,7 @@ export function AnilistStartMode({
   dbSyncRevision,
   embedded = false,
   existingIds,
+  hiddenRestoreIds,
 }: AnilistStartModeProps) {
   const selectAllOnLoad = !embedded;
   const [username, setUsername] = useState<string>(readLastAnilistUsername);
@@ -1022,10 +1025,12 @@ export function AnilistStartMode({
     if (out.length === 0) return;
 
     if (onAddItems) {
-      const fresh =
-        existingIds != null
-          ? out.filter((it) => !existingIds.has(it.id))
-          : out;
+      const fresh = out.filter(
+        (it) =>
+          existingIds == null ||
+          !existingIds.has(it.id) ||
+          hiddenRestoreIds?.has(it.id),
+      );
       if (fresh.length === 0) return;
       onAddItems(fresh);
       setSelectedIds(new Set());
@@ -1063,6 +1068,7 @@ export function AnilistStartMode({
     onAddToStaged,
     onAddItems,
     existingIds,
+    hiddenRestoreIds,
     candidateSource,
     username,
   ]);
@@ -1105,10 +1111,20 @@ export function AnilistStartMode({
     for (const it of items) {
       if (!selectedIds.has(it.id)) continue;
       if (visibleIds != null && !visibleIds.has(it.id)) continue;
-      if (!existingIds.has(it.id)) count += 1;
+      if (!existingIds.has(it.id) || hiddenRestoreIds?.has(it.id)) {
+        count += 1;
+      }
     }
     return count;
-  }, [onAddItems, existingIds, selectedCount, items, selectedIds, visibleIds]);
+  }, [
+    onAddItems,
+    existingIds,
+    hiddenRestoreIds,
+    selectedCount,
+    items,
+    selectedIds,
+    visibleIds,
+  ]);
 
   const addButtonLabel = onAddItems
     ? `Add ${addableSelectedCount} to sort`
@@ -1414,14 +1430,18 @@ export function AnilistStartMode({
 
           <div className="anilist-start-preview">
             {visibleItems.map((it) => {
+              const willRestore = hiddenRestoreIds?.has(it.id) === true;
               const alreadyInSort =
-                existingIds != null && existingIds.has(it.id);
+                existingIds != null &&
+                existingIds.has(it.id) &&
+                !willRestore;
               const checked = selectedIds.has(it.id);
               return (
                 <label
                   className={[
                     'anilist-start-preview-row',
                     alreadyInSort ? 'anilist-start-preview-row--duplicate' : '',
+                    willRestore ? 'anilist-start-preview-row--restore' : '',
                   ]
                     .filter(Boolean)
                     .join(' ')}
@@ -1440,6 +1460,12 @@ export function AnilistStartMode({
                   />
                   <span className="anilist-start-preview-label">
                     {it.label}
+                    {willRestore && (
+                      <span className="anilist-start-preview-dup-hint">
+                        {' '}
+                        (hidden — will reinsert)
+                      </span>
+                    )}
                     {alreadyInSort && (
                       <span className="anilist-start-preview-dup-hint">
                         {' '}

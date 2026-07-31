@@ -87,6 +87,7 @@ export function continuedSlotName(baseName: string): string {
 export interface ApplyCompletedSortEditResult {
   state: SortState;
   skipped: ItemId[];
+  restored: ItemId[];
   /** True when the sort was done before and is in-progress after the edit. */
   resumed: boolean;
 }
@@ -99,22 +100,25 @@ export function applySlotImportBatches(
   base: SortState,
   batches: SlotResultsImportBatch[],
   options: EngineOptions,
-): { state: SortState; skipped: ItemId[] } {
+): { state: SortState; skipped: ItemId[]; restored: ItemId[] } {
   let cur = finalizeCompletedState(base);
   const skipped: ItemId[] = [];
+  const restored: ItemId[] = [];
   for (const batch of batches) {
     if (batch.items.length === 0) continue;
     if (batch.asPreRanked && cur.engine === 'merge') {
       const result = appendPreRankedSublist(cur, batch.items, options);
       cur = result.state;
       skipped.push(...result.skipped);
+      restored.push(...result.restored);
     } else {
       const result = engineAddItems(cur, batch.items, options);
       cur = result.state;
       skipped.push(...result.skipped);
+      restored.push(...result.restored);
     }
   }
-  return { state: cur, skipped };
+  return { state: cur, skipped, restored };
 }
 
 /**
@@ -128,44 +132,53 @@ export function applyCompletedSortEdit(
   const normalized = finalizeCompletedState(base);
   const wasDone = normalized.done;
   let skipped: ItemId[] = [];
+  let restored: ItemId[] = [];
   let next: SortState = normalized;
 
   switch (action.kind) {
     case 'appendPreRanked': {
       if (normalized.engine !== 'merge') {
-        return { state: normalized, skipped: [], resumed: false };
+        return { state: normalized, skipped: [], restored: [], resumed: false };
       }
       const result = appendPreRankedSublist(normalized, action.items, options);
       next = result.state;
       skipped = result.skipped;
+      restored = result.restored;
       break;
     }
     case 'addOne': {
+      const wasHidden = normalized.hidden.includes(action.item.id);
       const added = engineAddItem(normalized, action.item, options);
       if (added === null) {
-        // Duplicate id — same contract as addMany / appendPreRanked so the
-        // UI can flash "already in the sort" instead of failing silently.
-        return { state: normalized, skipped: [action.item.id], resumed: false };
+        return {
+          state: normalized,
+          skipped: [action.item.id],
+          restored: [],
+          resumed: false,
+        };
       }
       next = added;
+      if (wasHidden) restored = [action.item.id];
       break;
     }
     case 'addMany': {
       const result = engineAddItems(normalized, action.items, options);
       next = result.state;
       skipped = result.skipped;
+      restored = result.restored;
       break;
     }
     case 'slotImports': {
       const result = applySlotImportBatches(normalized, action.batches, options);
       next = result.state;
       skipped = result.skipped;
+      restored = result.restored;
       break;
     }
   }
 
   const resumed = wasDone && !next.done;
-  return { state: next, skipped, resumed };
+  return { state: next, skipped, restored, resumed };
 }
 
 /**

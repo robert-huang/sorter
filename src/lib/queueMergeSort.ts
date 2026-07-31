@@ -1855,14 +1855,9 @@ export function cancelManualInsert(
  * Refuses if an item with this canonical key already exists (caller
  * should detect and surface a friendly message).
  */
-export function addItem(
-  state: MergeState,
-  item: Item,
-  options?: MergeOptions,
-): MergeState | null {
-  if (isItemInActiveRanking(state, item.id)) return null;
+function mergeIncomingCatalogItem(state: MergeState, item: Item): Item {
   const existing = state.items[item.id];
-  const merged: Item = existing
+  return existing
     ? {
         ...existing,
         ...item,
@@ -1870,6 +1865,23 @@ export function addItem(
         imageUrl: existing.imageUrl ?? item.imageUrl,
       }
     : item;
+}
+
+export function addItem(
+  state: MergeState,
+  item: Item,
+  options?: MergeOptions,
+): MergeState | null {
+  if (state.hidden.includes(item.id)) {
+    const merged = mergeIncomingCatalogItem(state, item);
+    const withItems: MergeState = {
+      ...state,
+      items: { ...state.items, [merged.id]: merged },
+    };
+    return reinsertHiddenItem(withItems, merged.id, options);
+  }
+  if (isItemInActiveRanking(state, item.id)) return null;
+  const merged = mergeIncomingCatalogItem(state, item);
   const opts = resolveOptions(options);
 
   const next = snapshotProgress(state);
@@ -1896,50 +1908,67 @@ export function addItem(
  * "Multiple" tab of the LIST tab's add-items modal. For lists that
  * carry their own ranking, use `appendPreRankedSublist` instead.
  *
- * Dedup contract: items whose id is already present in `state.items`
- * are skipped (returned in `skipped`); their URL/IMAGE metadata is
- * merged into the existing record if the existing record lacks the
- * field (same first-occurrence-wins rule as `appendPreRankedSublist`).
+ * Dedup contract: items already in active ranking slots are skipped
+ * (`skipped`). Hidden ids are reinserted (`restored`). URL/IMAGE metadata
+ * is merged when the catalog entry already exists.
  */
 export function addItems(
   state: MergeState,
   items: Item[],
   options?: MergeOptions,
-): { state: MergeState; skipped: ItemId[] } {
+): { state: MergeState; skipped: ItemId[]; restored: ItemId[] } {
   const opts = resolveOptions(options);
-  const itemsDict = { ...state.items };
+  let cur: MergeState = state;
   const skipped: ItemId[] = [];
-  const newSingletonIds: ItemId[] = [];
+  const restored: ItemId[] = [];
+  const newItems: Item[] = [];
 
   for (const it of items) {
-    const existing = itemsDict[it.id];
-    if (existing && isItemInActiveRanking(state, it.id)) {
-      skipped.push(it.id);
-      itemsDict[it.id] = {
-        ...existing,
-        url: existing.url ?? it.url,
-        imageUrl: existing.imageUrl ?? it.imageUrl,
-      };
+    if (cur.hidden.includes(it.id)) {
+      const added = addItem(cur, it, opts);
+      if (added) {
+        cur = added;
+        restored.push(it.id);
+      }
       continue;
     }
+    if (isItemInActiveRanking(cur, it.id)) {
+      skipped.push(it.id);
+      const existing = cur.items[it.id];
+      if (existing) {
+        cur = {
+          ...cur,
+          items: {
+            ...cur.items,
+            [it.id]: mergeIncomingCatalogItem(cur, it),
+          },
+        };
+      }
+      continue;
+    }
+    newItems.push(it);
+  }
+
+  if (newItems.length === 0) {
+    return { state: cur, skipped, restored };
+  }
+
+  const itemsDict = { ...cur.items };
+  const newSingletonIds: ItemId[] = [];
+  for (const it of newItems) {
+    const existing = itemsDict[it.id];
     if (existing) {
-      itemsDict[it.id] = {
-        ...existing,
-        ...it,
-        url: existing.url ?? it.url,
-        imageUrl: existing.imageUrl ?? it.imageUrl,
-      };
+      itemsDict[it.id] = mergeIncomingCatalogItem(
+        { ...cur, items: itemsDict },
+        it,
+      );
     } else {
       itemsDict[it.id] = it;
     }
     newSingletonIds.push(it.id);
   }
 
-  if (newSingletonIds.length === 0) {
-    return { state: { ...state, items: itemsDict }, skipped };
-  }
-
-  const next = snapshotProgress(state);
+  const next = snapshotProgress({ ...cur, items: itemsDict });
   for (const id of newSingletonIds) next.queue.push([id]);
   if (next.done) next.done = false;
   advance(next, new Set(next.hidden), opts);
@@ -1948,64 +1977,178 @@ export function addItems(
   return {
     state: { ...next, items: itemsDict },
     skipped,
+    restored,
   };
 }
 
 /**
+ * Unhide a hidden id and pull it out of queue / in-flight merge / insert
+ * targets so it can join a new pre-ranked sublist. Does not start manual insert.
+ */
+function pullHiddenForPreRankedBatch(
+  state: MergeState,
+  id: ItemId,
+  options?: MergeOptions,
+): MergeState {
+  if (!state.hidden.includes(id)) return state;
+  if (!state.items[id]) return dismissHidden(state, id);
+
+  const opts = resolveOptions(options);
+  const next = snapshotProgress(state);
+  next.hidden = next.hidden.filter((h) => h !== id);
+  clearManualInsertBuckets(next, id);
+
+  let queueIndex = -1;
+  for (let qi = 0; qi < next.queue.length; qi++) {
+    if (next.queue[qi].includes(id)) {
+      queueIndex = qi;
+      break;
+    }
+  }
+  if (queueIndex >= 0) {
+    const removedIndex = next.queue[queueIndex].indexOf(id);
+    const sub = next.queue[queueIndex].filter((x) => x !== id);
+    const mi = next.currentManualInsert;
+    const wasManualInsertTarget =
+      mi !== null &&
+      mi.targetQueueIndex === queueIndex &&
+      removedIndex >= 0;
+    const inFlightInsertingId = wasManualInsertTarget ? mi.insertingId : null;
+
+    if (sub.length === 0) {
+      remapManualInsertAfterQueueRemoval(next, queueIndex);
+      next.queue = next.queue.filter((_, i) => i !== queueIndex);
+      if (mi && mi.targetQueueIndex > queueIndex) {
+        mi.targetQueueIndex -= 1;
+      }
+    } else {
+      next.queue[queueIndex] = sub;
+    }
+
+    const hidden = new Set(next.hidden);
+    if (wasManualInsertTarget && inFlightInsertingId) {
+      if (sub.length > 0) {
+        const res = startInsert(sub, inFlightInsertingId);
+        if ('done' in res) {
+          resolveManualInsertAt(next, res.position, hidden, opts);
+        } else {
+          mi.frame = res;
+        }
+      } else {
+        next.currentManualInsert = null;
+        if (!next.pendingManualInserts.includes(inFlightInsertingId)) {
+          next.pendingManualInserts.unshift(inFlightInsertingId);
+        }
+      }
+    }
+  }
+
+  if (next.current) {
+    next.current = {
+      left: next.current.left.filter((x) => x !== id),
+      right: next.current.right.filter((x) => x !== id),
+      merged: next.current.merged.filter((x) => x !== id),
+    };
+  }
+
+  if (next.currentAutoInsert) {
+    const ai = next.currentAutoInsert;
+    if (ai.target.includes(id)) {
+      ai.target = ai.target.filter((x) => x !== id);
+      if (ai.sourceSublist?.includes(id)) {
+        ai.sourceSublist = ai.sourceSublist.filter((x) => x !== id);
+      }
+    }
+    if (ai.frame?.insertingId === id) {
+      ai.frame = null;
+    }
+    ai.pendingInserts = ai.pendingInserts.filter((x) => x !== id);
+  }
+
+  if (next.currentManualInsert?.insertingId === id) {
+    next.currentManualInsert = null;
+  }
+
+  return { ...next, items: state.items };
+}
+
+/**
  * Append a new pre-ranked sublist to the back of the queue. Items not yet in
- * the state are added; items already present (by id) are skipped from the
- * new sublist but get URL/IMAGE fields filled in if the existing record
- * lacks them (consistent with parse-time dedup behavior). Returns the new
- * state plus a list of skipped item ids for UI feedback.
+ * the state are added; items already in active ranking (not hidden) are
+ * skipped from the new sublist but get URL/IMAGE fields filled in if the
+ * existing record lacks them. Hidden ids are unhidden and included in the
+ * sublist (`restored`). Returns skipped and restored ids for UI feedback.
  */
 export function appendPreRankedSublist(
   state: MergeState,
   items: Item[],
   options?: MergeOptions,
-): { state: MergeState; skipped: ItemId[] } {
+): { state: MergeState; skipped: ItemId[]; restored: ItemId[] } {
   const opts = resolveOptions(options);
-  const next = snapshotProgress(state);
-  const itemsDict = { ...state.items };
+  let cur: MergeState = state;
   const skipped: ItemId[] = [];
-  const newSublistIds: ItemId[] = [];
+  const restored: ItemId[] = [];
+  const survivorItems: Item[] = [];
 
   for (const it of items) {
-    const existing = itemsDict[it.id];
-    if (existing && isItemInActiveRanking(state, it.id)) {
-      skipped.push(it.id);
-      const merged: Item = {
-        ...existing,
-        url: existing.url ?? it.url,
-        imageUrl: existing.imageUrl ?? it.imageUrl,
-      };
-      itemsDict[it.id] = merged;
-    } else {
-      if (existing) {
-        itemsDict[it.id] = {
-          ...existing,
-          ...it,
-          url: existing.url ?? it.url,
-          imageUrl: existing.imageUrl ?? it.imageUrl,
-        };
-      } else {
-        itemsDict[it.id] = it;
-      }
-      newSublistIds.push(it.id);
+    if (cur.hidden.includes(it.id)) {
+      survivorItems.push(it);
+      restored.push(it.id);
+      continue;
     }
+    if (isItemInActiveRanking(cur, it.id)) {
+      skipped.push(it.id);
+      const existing = cur.items[it.id];
+      if (existing) {
+        cur = {
+          ...cur,
+          items: {
+            ...cur.items,
+            [it.id]: mergeIncomingCatalogItem(cur, it),
+          },
+        };
+      }
+      continue;
+    }
+    survivorItems.push(it);
   }
 
-  if (newSublistIds.length > 0) {
-    next.queue.push(newSublistIds);
-    if (next.done) {
-      next.done = false;
-    }
-    advance(next, new Set(next.hidden), opts);
-    bumpTotalComparisons(next, opts);
+  if (survivorItems.length === 0) {
+    return { state: cur, skipped, restored };
   }
+
+  for (const id of restored) {
+    cur = pullHiddenForPreRankedBatch(cur, id, opts);
+  }
+
+  const next = snapshotProgress(cur);
+  const itemsDict = { ...cur.items };
+  const newSublistIds: ItemId[] = [];
+
+  for (const it of survivorItems) {
+    const existing = itemsDict[it.id];
+    if (existing) {
+      itemsDict[it.id] = mergeIncomingCatalogItem(
+        { ...cur, items: itemsDict },
+        it,
+      );
+    } else {
+      itemsDict[it.id] = it;
+    }
+    newSublistIds.push(it.id);
+  }
+
+  next.queue.push(newSublistIds);
+  if (next.done) {
+    next.done = false;
+  }
+  advance(next, new Set(next.hidden), opts);
+  bumpTotalComparisons(next, opts);
 
   return {
     state: { ...next, items: itemsDict },
     skipped,
+    restored,
   };
 }
 

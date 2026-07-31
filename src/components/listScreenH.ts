@@ -12,10 +12,11 @@ import type {
 import {
   listHeaderItemCount,
   activeRankingIds,
+  hiddenSortIds,
   rankingSlotIds,
 } from '../lib/sortPopulation';
 
-export { listHeaderItemCount, activeRankingIds, rankingSlotIds };
+export { listHeaderItemCount, activeRankingIds, hiddenSortIds, rankingSlotIds };
 
 export function mergeSliceLabel(base: string, count: number): string {
   return `${base} (${count})`;

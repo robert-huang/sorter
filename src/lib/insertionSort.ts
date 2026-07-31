@@ -1033,17 +1033,9 @@ export function restoreHiddenItem(
   return { ...next, items: state.items };
 }
 
-/**
- * Add a single new item to the back of `pending`. Returns null if the
- * id is already present (so caller can surface "skipped" feedback).
- */
-export function addItem(
-  state: InsertionState,
-  item: Item,
-): InsertionState | null {
-  if (isItemInActiveRanking(state, item.id)) return null;
+function mergeIncomingCatalogItem(state: InsertionState, item: Item): Item {
   const existing = state.items[item.id];
-  const merged: Item = existing
+  return existing
     ? {
         ...existing,
         ...item,
@@ -1051,6 +1043,30 @@ export function addItem(
         imageUrl: existing.imageUrl ?? item.imageUrl,
       }
     : item;
+}
+
+/**
+ * Add a single new item to the back of `pending`. Returns null if the
+ * id is already present in active ranking (so caller can surface "skipped"
+ * feedback). Hidden ids are reinserted instead.
+ */
+export function addItem(
+  state: InsertionState,
+  item: Item,
+): InsertionState | null {
+  if (state.hidden.includes(item.id)) {
+    const merged = mergeIncomingCatalogItem(state, item);
+    const withItems: InsertionState = {
+      ...state,
+      items: { ...state.items, [merged.id]: merged },
+    };
+    if (withItems.sorted.includes(item.id) || withItems.pending.includes(item.id)) {
+      return returnToPending(unhideItem(withItems, item.id), item.id);
+    }
+    return restoreHiddenItem(withItems, item.id);
+  }
+  if (isItemInActiveRanking(state, item.id)) return null;
+  const merged = mergeIncomingCatalogItem(state, item);
   const next = snapshotProgress(state);
   next.pending = [...next.pending, merged.id];
   // Added items are never asserted pre-ranked: append as a singleton run
@@ -1079,16 +1095,30 @@ export function addItem(
 export function addItems(
   state: InsertionState,
   items: Item[],
-): { state: InsertionState; skipped: ItemId[] } {
+): { state: InsertionState; skipped: ItemId[]; restored: ItemId[] } {
+  let cur: InsertionState = state;
   const skipped: ItemId[] = [];
+  const restored: ItemId[] = [];
   const survivors: Item[] = [];
+
   for (const it of items) {
-    if (isItemInActiveRanking(state, it.id)) skipped.push(it.id);
+    if (cur.hidden.includes(it.id)) {
+      const added = addItem(cur, it);
+      if (added) {
+        cur = added;
+        restored.push(it.id);
+      }
+      continue;
+    }
+    if (isItemInActiveRanking(cur, it.id)) skipped.push(it.id);
     else survivors.push(it);
   }
-  if (survivors.length === 0) return { state, skipped };
 
-  const next = snapshotProgress(state);
+  if (survivors.length === 0) {
+    return { state: cur, skipped, restored };
+  }
+
+  const next = snapshotProgress(cur);
   next.pending = [...next.pending, ...survivors.map((it) => it.id)];
   if (next.pendingRunIds) {
     let base = freshRunId(next);
@@ -1100,20 +1130,16 @@ export function addItems(
   if (next.done) next.done = false;
   bumpTotalComparisons(next);
   drainPending(next);
-  const itemsDict = { ...state.items };
+  const itemsDict = { ...cur.items };
   for (const it of survivors) {
-    const existing = itemsDict[it.id];
-    itemsDict[it.id] = existing
-      ? {
-          ...existing,
-          ...it,
-          url: existing.url ?? it.url,
-          imageUrl: existing.imageUrl ?? it.imageUrl,
-        }
-      : it;
+    itemsDict[it.id] = mergeIncomingCatalogItem(
+      { ...cur, items: itemsDict },
+      it,
+    );
   }
   return {
     state: { ...next, items: itemsDict },
     skipped,
+    restored,
   };
 }

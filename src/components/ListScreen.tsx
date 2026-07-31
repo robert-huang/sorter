@@ -24,6 +24,7 @@ import { RemoveGlyph } from './RemoveGlyph';
 import { ItemThumb } from './ItemThumb';
 import {
   activeRankingIds,
+  hiddenSortIds,
   formatOrphanHiddenId,
   insertSourceRowState,
   getInsertContext,
@@ -1062,6 +1063,7 @@ function MergeListView({
   const openEdit = (it: Item) => setEditingId(it.id);
   const hidden = useMemo(() => new Set(state.hidden), [state.hidden]);
   const existingIds = useMemo(() => activeRankingIds(state), [state]);
+  const hiddenRestoreIds = useMemo(() => hiddenSortIds(state), [state]);
   // id → label for every item EXCEPT the one currently being edited.
   // Powers the collision check inside EditItemModal's advanced panel.
   // Recomputed when state.items changes (cheap — N items, infrequent
@@ -1249,6 +1251,7 @@ function MergeListView({
         <AddItemsModal
           engine="merge"
           existingIds={existingIds}
+          hiddenRestoreIds={hiddenRestoreIds}
           excludeSlotId={slotId || undefined}
           dbSyncRevision={dbSyncRevision}
           onCancel={() => setAddOpen(false)}
@@ -1519,6 +1522,7 @@ function ConfirmationListView({
     return m;
   }, [state.items, editingId]);
   const existingIds = useMemo(() => activeRankingIds(state), [state]);
+  const hiddenRestoreIds = useMemo(() => hiddenSortIds(state), [state]);
   const activePendingId = getActivePendingId(state);
   const remainingIds = getRemainingIds(state);
 
@@ -1590,6 +1594,7 @@ function ConfirmationListView({
         <AddItemsModal
           engine="confirmation"
           existingIds={existingIds}
+          hiddenRestoreIds={hiddenRestoreIds}
           excludeSlotId={slotId || undefined}
           dbSyncRevision={dbSyncRevision}
           onCancel={() => setAddOpen(false)}
@@ -1833,6 +1838,7 @@ function InsertionListView({
   const openEdit = (it: Item) => setEditingId(it.id);
   const hidden = useMemo(() => new Set(state.hidden), [state.hidden]);
   const existingIds = useMemo(() => activeRankingIds(state), [state]);
+  const hiddenRestoreIds = useMemo(() => hiddenSortIds(state), [state]);
   const otherIds = useMemo(() => {
     const m = new Map<string, string>();
     for (const it of Object.values(state.items)) {
@@ -2067,6 +2073,7 @@ function InsertionListView({
         <AddItemsModal
           engine="insertion"
           existingIds={existingIds}
+          hiddenRestoreIds={hiddenRestoreIds}
           excludeSlotId={slotId || undefined}
           dbSyncRevision={dbSyncRevision}
           onCancel={() => setAddOpen(false)}
