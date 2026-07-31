@@ -268,6 +268,20 @@ describe('studio/tag mappers', () => {
     ]);
   });
 
+  it('mapMediaStudioRows upgrades is_main when duplicate edge is animation', () => {
+    const media = fullMedia({
+      studios: {
+        edges: [
+          { isMain: false, node: { id: 10, name: 'A-1 Pictures' } },
+          { isMain: true, node: { id: 10, name: 'A-1 Pictures' } },
+        ],
+      },
+    });
+    expect(mapMediaStudioRows(media)).toEqual([
+      { media_id: 100, studio_id: 10, sort_order: 0, is_main: 1 },
+    ]);
+  });
+
   it('mapMediaTagRows dedups duplicate tag names within one media', () => {
     const media = fullMedia({
       tags: [

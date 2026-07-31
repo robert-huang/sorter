@@ -850,6 +850,7 @@ async function loadChipOptions(
 
 export function MultiSelectChip<T extends string | number>({
   label,
+  labelHint,
   options,
   selected,
   onToggle,
@@ -860,6 +861,8 @@ export function MultiSelectChip<T extends string | number>({
   searchPlaceholder,
 }: {
   label: string;
+  /** Optional native tooltip on the chip trigger (e.g. filter semantics). */
+  labelHint?: string;
   options: readonly T[];
   selected: readonly T[];
   onToggle: (value: T) => void;
@@ -925,6 +928,7 @@ export function MultiSelectChip<T extends string | number>({
         type="button"
         className="filter-chip-button"
         aria-expanded={open}
+        title={labelHint}
         onClick={() => setOpen((x) => !x)}
       >
         {label}

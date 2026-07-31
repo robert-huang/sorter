@@ -5,6 +5,7 @@ import { TOOLS_STATS_LIST_QUERY } from '../../lib/importers/anilist/queries';
 import type { ToolsFetchOptions } from '../../lib/importers/anilist/toolsFetchPolicy';
 import {
   ensureMediaCastFreshBatch,
+  ensureMediaStudiosFreshBatch,
   readShowStaffBundleFromDb,
 } from '../../lib/importers/anilist/toolsAnilistAccess';
 import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportContext';
@@ -369,7 +370,10 @@ async function buildStatsEntries(
   const liveEntries = await fetchStatsListLive(username, mediaType, options?.signal);
   options?.signal?.throwIfAborted();
   const baseEntries = liveEntries.map((entry) => mapGqlEntry(entry, mediaType));
-  const meta = await readMediaMetadataFromDb(baseEntries.map((e) => e.mediaId), options?.signal);
+  const mediaIds = baseEntries.map((entry) => entry.mediaId);
+  await ensureMediaStudiosFreshBatch(mediaIds, options);
+  options?.signal?.throwIfAborted();
+  const meta = await readMediaMetadataFromDb(mediaIds, options?.signal);
   const merged = baseEntries.map((entry) => {
     const db = meta.get(entry.mediaId);
     if (!db) {

@@ -196,6 +196,8 @@ export type StatsSubrowLink = {
   characterName?: string;
   characterRole?: string;
   staffRole?: string;
+  /** Studios chart: whether this show is credited via an animation studio link. */
+  studioIsAnimation?: boolean;
 };
 
 export type StatsSubrow = {
@@ -571,6 +573,15 @@ function entryTimeWatchedMinutes(entry: StatsEntry): number {
   let minutes = progress * duration;
   minutes += repeat * epCount * duration;
   return minutes;
+}
+
+/** AniList list `repeat` is 0-based (0 = first watch); UI shows x1, x2, … */
+export function statsEntryRepeatOrdinal(entry: StatsEntry): number {
+  return (entry.repeat ?? 0) + 1;
+}
+
+export function formatStatsSubrowCountLabel(entry: StatsEntry): string {
+  return `x${statsEntryRepeatOrdinal(entry)}`;
 }
 
 export function entryEpisodesRemaining(entry: StatsEntry): number {
@@ -989,7 +1000,7 @@ export function buildStudioStatsRows(pool: readonly StatsEntry[], form: StatsFor
     number,
     {
       name: string;
-      isAnimation: boolean;
+      hasAnimationCredit: boolean;
       entries: StatsEntry[];
       subrows: StatsSubrow[];
     }
@@ -1003,15 +1014,24 @@ export function buildStudioStatsRows(pool: readonly StatsEntry[], form: StatsFor
       if (!bucket) {
         bucket = {
           name: studio.studioName,
-          isAnimation: studio.isAnimation,
+          hasAnimationCredit: studio.isAnimation,
           entries: [],
           subrows: [],
         };
         byStudio.set(studio.studioId, bucket);
+      } else if (studio.isAnimation) {
+        bucket.hasAnimationCredit = true;
       }
-      if (!bucket.entries.some((e) => e.mediaId === entry.mediaId)) {
+
+      const existingSubrow = bucket.subrows.find((sub) => sub.entry.mediaId === entry.mediaId);
+      if (existingSubrow == null) {
         bucket.entries.push(entry);
-        bucket.subrows.push({ entry });
+        bucket.subrows.push({
+          entry,
+          link: { studioIsAnimation: studio.isAnimation },
+        });
+      } else if (studio.isAnimation && existingSubrow.link?.studioIsAnimation === false) {
+        existingSubrow.link = { ...existingSubrow.link, studioIsAnimation: true };
       }
     }
   }
@@ -1023,7 +1043,7 @@ export function buildStudioStatsRows(pool: readonly StatsEntry[], form: StatsFor
       bucket.subrows,
       {
         studioId,
-        isNonAnimationStudio: !bucket.isAnimation,
+        isNonAnimationStudio: !bucket.hasAnimationCredit,
       },
       { mediaType: form.mediaType },
     ),
@@ -1282,7 +1302,7 @@ function sortSubrowMetricValue(
     case 'name':
       return entry.title.toLowerCase();
     case 'count':
-      return 1;
+      return statsEntryRepeatOrdinal(entry);
     case 'meanScore':
       return statsEntryScoreSortValue(entry);
     case 'anilistMeanScore':

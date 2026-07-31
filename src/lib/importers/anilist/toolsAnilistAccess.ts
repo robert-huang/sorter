@@ -15,7 +15,11 @@ import {
   ensureStaffFilmography,
   ensureStaffFilmographyBatch,
 } from './ensureGraph';
-import { repairListedMediaNullSource } from './lazyExpansion';
+import {
+  mediaIdsNeedingStudioRepair,
+  repairListedMediaNullSource,
+  repairMediaStudioCreditsBatch,
+} from './lazyExpansion';
 import {
   getCharacterMediaFetchedAt,
   getProductionCreditsAtMedia,
@@ -204,6 +208,23 @@ export async function ensureMediaCastFreshBatch(
     staleRefresh: options,
     signal: options?.signal,
   });
+}
+
+/** Refresh studio junction rows when isMain is missing from the local cache. */
+export async function ensureMediaStudiosFreshBatch(
+  mediaIds: readonly number[],
+  options?: ToolsFetchOptions,
+): Promise<void> {
+  if (mediaIds.length === 0) {
+    return;
+  }
+  const ctx = getToolsImportContext();
+  const staleIds = await mediaIdsNeedingStudioRepair(ctx.db, mediaIds);
+  const idsToRepair = options?.forceRefresh ? [...new Set(mediaIds)] : staleIds;
+  if (idsToRepair.length === 0) {
+    return;
+  }
+  await repairMediaStudioCreditsBatch(ctx, idsToRepair, { signal: options?.signal });
 }
 
 /**

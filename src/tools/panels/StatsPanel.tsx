@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, Fragment } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, Fragment } from 'react';
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
 import { ToolUsernameField } from '../ToolUsernameField';
@@ -18,6 +18,10 @@ import {
   TagOptionsChip,
   toggleInArray,
 } from '../../lib/importers/anilist/filters';
+import {
+  applyHeaderScrollbarGutter,
+  syncTableColumnsByIndex,
+} from '../../lib/chartSplitTableSync';
 import { DragScroll } from '../../components/DragScroll';
 import { Modal } from '../../components/Modal';
 import { useClickOutside } from '../../lib/hooks/useClickOutside';
@@ -58,6 +62,7 @@ import {
   DEFAULT_STATS_TAG_OPTIONS,
   formatStatsDuration,
   formatStatsDurationWithDayCount,
+  formatStatsSubrowCountLabel,
   formatStatsFormatLabel,
   formatStatsMediaStatusLabel,
   formatStatsScoreCell,
@@ -76,6 +81,7 @@ import {
   statsDefaultStaffRoleFilters,
   statsEffectiveEpisodes,
   statsEntryScoreSortValue,
+  statsEntryTimeWatchedMinutes,
   STATS_ANIME_FORMAT_OPTIONS,
   STATS_CHARACTER_ROLE_OPTIONS,
   STATS_LIST_STATUS_OPTIONS,
@@ -256,6 +262,15 @@ const STATS_CHAPTERS_REMAINING_TOOLTIP =
   'Chapters left on currently releasing or in-progress manga in the filtered pool with a known chapter count. ' +
   'Completed entries and manga without a chapter total count as 0.';
 
+const STATS_STUDIO_TYPE_TOOLTIP =
+  'Animation: primary animation studio (StudioEdge.isMain). ' +
+  'Non-animation: producer, distributor, or other supporting studio credits (isMain false). ' +
+  'Older cached rows without isMain treat the first studio link (sort order 0) as animation. ' +
+  'Producer-only studio rows are muted and italic; mixed rows mute only the non-animation show subrows.';
+
+const STATS_NON_ANIMATION_STUDIO_HINT =
+  'Non-animation studio credit (producer, distributor, or other supporting role—not the primary animation studio).';
+
 function StatsToggleChip({
   label,
   active,
@@ -380,6 +395,7 @@ function StatsSubrowNameCell({
   const hasVaCharacters = vaCharacters.length > 0;
   const hasLegacyCharacter = link?.characterName != null;
   const staffRole = link?.staffRole;
+  const muteSubrowTitle = link?.studioIsAnimation === false;
 
   return (
     <div className="tool-stats-subrow-name">
@@ -393,7 +409,15 @@ function StatsSubrowNameCell({
       >
         <ToolEntityAvatar imageUrl={entry.coverImage} label={entry.title} variant="poster" />
         <span className="tool-stats-subrow-show-text">
-          <span className="tool-stats-subrow-show-title">
+          <span
+            className={[
+              'tool-stats-subrow-show-title',
+              muteSubrowTitle ? 'tool-stats-non-animation-subrow-title' : undefined,
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            title={muteSubrowTitle ? STATS_NON_ANIMATION_STUDIO_HINT : undefined}
+          >
             {entry.title}
             {repeatSuffix ? <span className="tool-stats-repeat">{repeatSuffix}</span> : null}
           </span>
@@ -742,11 +766,7 @@ function StatsSummarySection({
 function StatsCappedChart({ children }: { children: React.ReactNode }): React.ReactElement {
   return (
     <div className="tool-chart-fullbleed tool-season-fullbleed">
-      <div className="tool-stats-scroll-card">
-        <DragScroll className="tool-chart-body-scroll tool-stats-results-scroll">
-          {children}
-        </DragScroll>
-      </div>
+      <div className="tool-stats-scroll-card">{children}</div>
     </div>
   );
 }
@@ -781,6 +801,58 @@ function StatsTable({
   emptyMessage?: string;
 }) {
   const isAnime = mediaType === 'ANIME';
+  const headerWrapRef = useRef<HTMLDivElement>(null);
+  const headerTableRef = useRef<HTMLTableElement>(null);
+  const bodyTableRef = useRef<HTMLTableElement>(null);
+  const bodyScrollRef = useRef<HTMLDivElement>(null);
+
+  const syncTableLayout = useCallback(() => {
+    const headerWrap = headerWrapRef.current;
+    const bodyScroll = bodyScrollRef.current;
+    const headerTable = headerTableRef.current;
+    const bodyTable = bodyTableRef.current;
+    if (!headerWrap || !bodyScroll || !headerTable || !bodyTable) {
+      return;
+    }
+    applyHeaderScrollbarGutter(headerWrap, bodyScroll);
+    syncTableColumnsByIndex(headerTable, bodyTable, {
+      bodyScroll,
+      headerWrap,
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    syncTableLayout();
+    const bodyScroll = bodyScrollRef.current;
+    const bodyTable = bodyTableRef.current;
+    if (!bodyScroll) {
+      return;
+    }
+    const observer = new ResizeObserver(() => {
+      syncTableLayout();
+    });
+    observer.observe(bodyScroll);
+    if (bodyTable) {
+      observer.observe(bodyTable);
+    }
+    return () => {
+      observer.disconnect();
+    };
+  }, [
+    rows,
+    showMainRoleInfo,
+    showDiff,
+    isAnime,
+    expandedKeys,
+    syncTableLayout,
+  ]);
+
+  const syncHeaderScroll = useCallback((el: HTMLElement) => {
+    if (headerWrapRef.current) {
+      headerWrapRef.current.scrollLeft = el.scrollLeft;
+    }
+  }, []);
+
   const columns: { key: StatsSortColumn; label: string }[] = [
     { key: 'name', label: 'Name' },
     { key: 'count', label: 'Count' },
@@ -876,136 +948,159 @@ function StatsTable({
       {rows.length === 0 && emptyMessage ? (
         <p className="tool-empty tool-stats-table-empty">{emptyMessage}</p>
       ) : (
-      <DragScroll className="tool-stats-table-scroll">
-        <table className="tool-stats-table">
-          <thead>
-            <tr>
-              {columns.map((col) => {
-                const parentActive = tableSort.parent?.column === col.key;
-                const parentIndicator = parentActive
-                  ? tableSort.parent?.direction === 'desc'
-                    ? '↓'
-                    : '↑'
-                  : null;
-                const subrowActive = tableSort.subrow?.column === col.key;
-                const subrowIndicator = subrowActive
-                  ? tableSort.subrow?.direction === 'desc'
-                    ? '↓'
-                    : '↑'
-                  : null;
-                return (
-                  <th
-                    key={col.key}
-                    className={[
-                      'tool-chart-sort-th',
-                      parentActive ? 'tool-chart-sort-th--active' : '',
-                    ]
-                      .filter(Boolean)
-                      .join(' ')}
-                    onClick={() => onParentSort(col.key)}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      onSubrowSort(col.key);
-                    }}
-                  >
-                    {col.label}
-                    {parentIndicator ? (
-                      <span
-                        className="tool-chart-sort-indicator tool-chart-sort-indicator--parent"
-                        aria-hidden="true"
+        <>
+          <div ref={headerWrapRef} className="tool-chart-pinned-header">
+            <table ref={headerTableRef} className="tool-stats-table">
+              <thead>
+                <tr>
+                  {columns.map((col) => {
+                    const parentActive = tableSort.parent?.column === col.key;
+                    const parentIndicator = parentActive
+                      ? tableSort.parent?.direction === 'desc'
+                        ? '↓'
+                        : '↑'
+                      : null;
+                    const subrowActive = tableSort.subrow?.column === col.key;
+                    const subrowIndicator = subrowActive
+                      ? tableSort.subrow?.direction === 'desc'
+                        ? '↓'
+                        : '↑'
+                      : null;
+                    return (
+                      <th
+                        key={col.key}
+                        className={[
+                          'tool-chart-sort-th',
+                          parentActive ? 'tool-chart-sort-th--active' : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' ')}
+                        onClick={() => onParentSort(col.key)}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          onSubrowSort(col.key);
+                        }}
                       >
-                        {parentIndicator}
-                      </span>
-                    ) : null}
-                    {subrowIndicator ? (
-                      <span
-                        className="tool-chart-sort-indicator tool-chart-sort-indicator--subrow"
-                        aria-hidden="true"
+                        {col.label}
+                        {parentIndicator ? (
+                          <span
+                            className="tool-chart-sort-indicator tool-chart-sort-indicator--parent"
+                            aria-hidden="true"
+                          >
+                            {parentIndicator}
+                          </span>
+                        ) : null}
+                        {subrowIndicator ? (
+                          <span
+                            className="tool-chart-sort-indicator tool-chart-sort-indicator--subrow"
+                            aria-hidden="true"
+                          >
+                            {subrowIndicator}
+                          </span>
+                        ) : null}
+                      </th>
+                    );
+                  })}
+                </tr>
+              </thead>
+            </table>
+          </div>
+          <DragScroll
+            className="tool-chart-body-scroll tool-stats-table-body-scroll"
+            scrollRef={bodyScrollRef}
+            onUserScroll={syncHeaderScroll}
+          >
+            <table ref={bodyTableRef} className="tool-stats-table">
+              <tbody>
+                {rows.map((row, rank) => {
+                  const expanded = expandedKeys.has(row.key);
+                  return (
+                    <Fragment key={row.key}>
+                      <tr
+                        key={row.key}
+                        className="tool-stats-parent-row"
+                        onClick={() => onToggleExpand(row.key)}
                       >
-                        {subrowIndicator}
-                      </span>
-                    ) : null}
-                  </th>
-                );
-              })}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, rank) => {
-              const expanded = expandedKeys.has(row.key);
-              return (
-                <Fragment key={row.key}>
-                  <tr
-                    key={row.key}
-                    className="tool-stats-parent-row"
-                    onClick={() => onToggleExpand(row.key)}
-                  >
-                    <td className="tool-stats-name-cell">
-                      <span className="tool-stats-rank">{rank + 1}.</span>
-                      {row.staffId != null ? (
-                        <span
-                          className="tool-stats-staff-hit"
-                          onClick={(e) => e.stopPropagation()}
-                          onMouseDown={(e) => e.stopPropagation()}
-                        >
-                          <ToolStaffButton
-                            staffId={row.staffId}
-                            name={row.name}
-                            imageUrl={row.staffImage ?? undefined}
-                            gender={row.staffGender}
-                            onOpenStaff={onOpenStaff}
-                            compact
-                          />
-                        </span>
-                      ) : (
-                        <span className={row.isNonAnimationStudio ? 'text-muted' : undefined}>{row.name}</span>
-                      )}
-                    </td>
-                    <td>{row.metrics.count}</td>
-                    <td>{StatsMetricCell(row.metrics.meanScore)}</td>
-                    <td>{StatsMetricCell(row.metrics.anilistMeanScore)}</td>
-                    {showMainRoleInfo ? (
-                      <>
-                        <td>{StatsMetricCell(row.metrics.mainRoleCount)}</td>
-                        <td>{StatsMetricCell(row.metrics.mainRoleMeanScore)}</td>
-                        <td>{StatsMetricCell(row.metrics.mainRoleAnilistMeanScore)}</td>
-                      </>
-                    ) : null}
-                    {showDiff ? <td>{StatsMetricCell(row.metrics.scoreDiff)}</td> : null}
-                    {isAnime ? (
-                      <>
-                        <td>{row.metrics.episodesWatched}</td>
-                        <td>{formatStatsDuration(row.metrics.timeWatchedMinutes)}</td>
-                        <td>{row.metrics.episodesRemaining}</td>
-                        <td>{formatStatsDuration(row.metrics.timeRemainingMinutes)}</td>
-                      </>
-                    ) : (
-                      <>
-                        <td>{row.metrics.chaptersRead}</td>
-                        <td>{row.metrics.chaptersRemaining}</td>
-                        <td>{row.metrics.volumesRead}</td>
-                        <td>{row.metrics.volumesRemaining}</td>
-                      </>
-                    )}
-                  </tr>
-                  {expanded
-                    ? row.subrows.map((sub) => (
-                        <StatsSubrowTr
-                          key={`${row.key}:${sub.entry.mediaId}`}
-                          sub={sub}
-                          showMainRoleInfo={showMainRoleInfo}
-                          showDiff={showDiff}
-                          isAnime={isAnime}
-                          onOpenMedia={onOpenMedia}
-                        />
-                      ))
-                    : null}
-                </Fragment>
-              );
-            })}
-          </tbody>
-        </table>
-      </DragScroll>
+                        <td className="tool-stats-name-cell">
+                          <span className="tool-stats-rank">{rank + 1}.</span>
+                          {row.staffId != null ? (
+                            <span
+                              className="tool-stats-staff-hit"
+                              onClick={(e) => e.stopPropagation()}
+                              onMouseDown={(e) => e.stopPropagation()}
+                            >
+                              <ToolStaffButton
+                                staffId={row.staffId}
+                                name={row.name}
+                                imageUrl={row.staffImage ?? undefined}
+                                gender={row.staffGender}
+                                onOpenStaff={onOpenStaff}
+                                compact
+                              />
+                            </span>
+                          ) : (
+                            <span
+                              className={
+                                row.isNonAnimationStudio
+                                  ? 'tool-stats-non-animation-studio'
+                                  : undefined
+                              }
+                              title={
+                                row.isNonAnimationStudio
+                                  ? STATS_NON_ANIMATION_STUDIO_HINT
+                                  : undefined
+                              }
+                            >
+                              {row.name}
+                            </span>
+                          )}
+                        </td>
+                        <td>{row.metrics.count}</td>
+                        <td>{StatsMetricCell(row.metrics.meanScore)}</td>
+                        <td>{StatsMetricCell(row.metrics.anilistMeanScore)}</td>
+                        {showMainRoleInfo ? (
+                          <>
+                            <td>{StatsMetricCell(row.metrics.mainRoleCount)}</td>
+                            <td>{StatsMetricCell(row.metrics.mainRoleMeanScore)}</td>
+                            <td>{StatsMetricCell(row.metrics.mainRoleAnilistMeanScore)}</td>
+                          </>
+                        ) : null}
+                        {showDiff ? <td>{StatsMetricCell(row.metrics.scoreDiff)}</td> : null}
+                        {isAnime ? (
+                          <>
+                            <td>{row.metrics.episodesWatched}</td>
+                            <td>{formatStatsDuration(row.metrics.timeWatchedMinutes)}</td>
+                            <td>{row.metrics.episodesRemaining}</td>
+                            <td>{formatStatsDuration(row.metrics.timeRemainingMinutes)}</td>
+                          </>
+                        ) : (
+                          <>
+                            <td>{row.metrics.chaptersRead}</td>
+                            <td>{row.metrics.chaptersRemaining}</td>
+                            <td>{row.metrics.volumesRead}</td>
+                            <td>{row.metrics.volumesRemaining}</td>
+                          </>
+                        )}
+                      </tr>
+                      {expanded
+                        ? row.subrows.map((sub) => (
+                            <StatsSubrowTr
+                              key={`${row.key}:${sub.entry.mediaId}`}
+                              sub={sub}
+                              showMainRoleInfo={showMainRoleInfo}
+                              showDiff={showDiff}
+                              isAnime={isAnime}
+                              onOpenMedia={onOpenMedia}
+                            />
+                          ))
+                        : null}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </DragScroll>
+        </>
       )}
     </section>
   );
@@ -1037,7 +1132,7 @@ function StatsSubrowTr({
       <td className="tool-stats-name-cell">
         <StatsSubrowNameCell entry={entry} link={sub.link} onOpenMedia={onOpenMedia} />
       </td>
-      <td>1</td>
+      <td className="tool-stats-subrow-count">{formatStatsSubrowCountLabel(entry)}</td>
       <td>
         <span className={statsScoreToneClass(entry)}>{formatStatsScoreCell(entry)}</span>
       </td>
@@ -1052,8 +1147,8 @@ function StatsSubrowTr({
       {showDiff ? <td>{scoreDiff != null ? StatsMetricCell(scoreDiff) : '—'}</td> : null}
       {isAnime ? (
         <>
-          <td>{entry.progress}</td>
-          <td>{formatStatsDuration((entry.duration ?? 1) * (entry.progress ?? 0))}</td>
+          <td>{statsEffectiveEpisodes(entry)}</td>
+          <td>{formatStatsDuration(statsEntryTimeWatchedMinutes(entry))}</td>
           <td>{entryEpisodesRemaining(entry)}</td>
           <td>{formatStatsDuration(entryTimeRemainingMinutes(entry))}</td>
         </>
@@ -1580,6 +1675,7 @@ export function StatsPanel({
           {form.aggregationType === 'STUDIOS' ? (
             <MultiSelectChip
               label="studio type"
+              labelHint={STATS_STUDIO_TYPE_TOOLTIP}
               options={[...STATS_STUDIO_KIND_OPTIONS]}
               selected={form.studioKindFilters}
               formatOption={(k) => (k === 'animation' ? 'Animation' : 'Non-animation')}

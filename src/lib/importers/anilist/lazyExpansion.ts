@@ -8,14 +8,16 @@
  */
 
 import type { AnilistDbExecutor, AnilistImportContext, SqlBindable } from './context';
-import { MEDIA_UPSERT_SQL, mediaRowToParams } from './importer';
+import { MEDIA_UPSERT_SQL, mediaRowToParams, STUDIO_UPSERT_SQL } from './importer';
 import {
   mapCharacterRow,
   mapCharacterVoiceActorRows,
   mapMediaCharacterRows,
   mapMediaRow,
+  mapMediaStudioRows,
   mapMediaStaffRows,
   mapStaffRow,
+  mapStudioRows,
 } from './mappers';
 import { emitProgress } from './progress';
 import { ANILIST_TOOLS_MAX_PAGE_SIZE } from './depaginate';
@@ -551,6 +553,120 @@ async function upsertRepairedMediaNodes(
     await ctx.onDirtyIncrement();
   }
   return mediaNodes.length;
+}
+
+/** Media whose cached studio junction is missing or lacks StudioEdge.isMain. */
+export async function mediaIdsNeedingStudioRepair(
+  db: AnilistDbExecutor,
+  mediaIds: readonly number[],
+): Promise<number[]> {
+  if (mediaIds.length === 0) {
+    return [];
+  }
+  const unique = [...new Set(mediaIds)];
+  const placeholders = unique.map(() => '?').join(', ');
+  const nullMainRows = await db.exec(
+    `SELECT DISTINCT ms.media_id AS id
+       FROM media_studio ms
+      WHERE ms.media_id IN (${placeholders})
+        AND ms.is_main IS NULL`,
+    unique,
+  );
+  const missingRows = await db.exec(
+    `SELECT m.id
+       FROM media m
+      WHERE m.id IN (${placeholders})
+        AND NOT EXISTS (
+          SELECT 1 FROM media_studio ms WHERE ms.media_id = m.id
+        )`,
+    unique,
+  );
+  const out = new Set<number>();
+  for (const row of nullMainRows) {
+    out.add(Number(row.id));
+  }
+  for (const row of missingRows) {
+    out.add(Number(row.id));
+  }
+  return [...out];
+}
+
+async function upsertMediaStudiosFromGql(
+  ctx: AnilistImportContext,
+  mediaNodes: readonly AnilistMediaGql[],
+): Promise<number> {
+  if (mediaNodes.length === 0) {
+    return 0;
+  }
+
+  const now = ctx.now();
+  const studios = new Map<number, { id: number; name: string; fetched_at: number }>();
+  for (const media of mediaNodes) {
+    for (const studio of mapStudioRows(media, now)) {
+      studios.set(studio.id, studio);
+    }
+  }
+
+  const stmts: Array<{ sql: string; params: SqlBindable[] }> = [];
+  for (const studio of studios.values()) {
+    stmts.push({ sql: STUDIO_UPSERT_SQL, params: [studio.id, studio.name, studio.fetched_at] });
+  }
+
+  const mediaIds = mediaNodes.map((media) => media.id);
+  const placeholders = mediaIds.map(() => '?').join(', ');
+  stmts.push({
+    sql: `DELETE FROM media_studio WHERE media_id IN (${placeholders})`,
+    params: mediaIds,
+  });
+
+  for (const media of mediaNodes) {
+    for (const row of mapMediaStudioRows(media)) {
+      stmts.push({
+        sql: 'INSERT INTO media_studio (media_id, studio_id, sort_order, is_main) VALUES (?, ?, ?, ?)',
+        params: [row.media_id, row.studio_id, row.sort_order, row.is_main],
+      });
+    }
+  }
+
+  await ctx.db.execBatch(stmts);
+  if (ctx.onDirtyIncrement) {
+    await ctx.onDirtyIncrement();
+  }
+  return mediaNodes.length;
+}
+
+/**
+ * Re-fetch studio edges (with isMain) from AniList and rebuild `media_studio`
+ * for the given media ids. Used when Stats reads stale junction rows.
+ */
+export async function repairMediaStudioCreditsBatch(
+  ctx: AnilistImportContext,
+  mediaIds: readonly number[],
+  options?: { signal?: AbortSignal },
+): Promise<number> {
+  if (mediaIds.length === 0) {
+    return 0;
+  }
+
+  const unique = [...new Set(mediaIds)];
+  let repaired = 0;
+
+  for (let offset = 0; offset < unique.length; offset += REPAIR_MEDIA_IDS_PER_REQUEST) {
+    options?.signal?.throwIfAborted();
+    const chunk = unique.slice(offset, offset + REPAIR_MEDIA_IDS_PER_REQUEST);
+    const nodes = await fetchMediaNodesByIds(ctx, chunk);
+    const nodeById = new Map(nodes.map((node) => [node.id, node]));
+    const resolved: AnilistMediaGql[] = [];
+    for (const mediaId of chunk) {
+      const node = nodeById.get(mediaId);
+      if (node) {
+        resolved.push(node);
+      }
+    }
+    repaired += await upsertMediaStudiosFromGql(ctx, resolved);
+  }
+
+  return repaired;
 }
 
 /**

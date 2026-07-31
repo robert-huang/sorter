@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildActiveStatsChartRows,
   buildStatsResult,
+  buildStudioStatsRows,
   buildVaStatsRows,
   buildStatsTimeWatchedRows,
   compareStatsSortValues,
@@ -18,6 +19,7 @@ import {
   filterStatsPoolByRatingScore,
   formatStatsFormatLabel,
   formatStatsDurationWithDayCount,
+  formatStatsSubrowCountLabel,
   parseCustomTagsFromNotes,
   normalizeStatsStaffRoleFilters,
   statsAggregationEmptyHint,
@@ -415,6 +417,32 @@ describe('sortStatsSubrows', () => {
     const sorted = sortStatsSubrows(subrows, null, { mediaType: 'ANIME', vaShowDiff: false });
     expect(sorted.map((s) => s.entry.mediaId)).toEqual([1, 2]);
   });
+
+  it('sorts by list repeat when count column is selected', () => {
+    const subrows = [
+      { entry: entry({ mediaId: 1, title: 'A', repeat: 0 }) },
+      { entry: entry({ mediaId: 2, title: 'B', repeat: 2 }) },
+      { entry: entry({ mediaId: 3, title: 'C', repeat: 1 }) },
+    ];
+    const sorted = sortStatsSubrows(
+      subrows,
+      { column: 'count', direction: 'desc' },
+      { mediaType: 'ANIME', vaShowDiff: false },
+    );
+    expect(sorted.map((s) => s.entry.mediaId)).toEqual([2, 3, 1]);
+  });
+});
+
+describe('formatStatsSubrowCountLabel', () => {
+  it('shows x1 for first watch', () => {
+    expect(formatStatsSubrowCountLabel(entry({ mediaId: 1, title: 'A', repeat: null }))).toBe('x1');
+    expect(formatStatsSubrowCountLabel(entry({ mediaId: 2, title: 'B', repeat: 0 }))).toBe('x1');
+  });
+
+  it('shows higher ordinals for rewatches', () => {
+    expect(formatStatsSubrowCountLabel(entry({ mediaId: 1, title: 'A', repeat: 1 }))).toBe('x2');
+    expect(formatStatsSubrowCountLabel(entry({ mediaId: 2, title: 'B', repeat: 2 }))).toBe('x3');
+  });
 });
 
 describe('buildStatsResult', () => {
@@ -601,6 +629,95 @@ describe('statsStudioIsAnimation', () => {
   it('falls back to sort_order 0 for legacy rows', () => {
     expect(statsStudioIsAnimation(null, 0)).toBe(true);
     expect(statsStudioIsAnimation(null, 2)).toBe(false);
+  });
+});
+
+describe('buildStudioStatsRows', () => {
+  const studioForm: StatsForm = { ...baseForm, aggregationType: 'STUDIOS' };
+
+  it('marks parent normal when any animation credit exists', () => {
+    const rows = buildStudioStatsRows(
+      [
+        entry({
+          mediaId: 1,
+          title: 'Producer credit first',
+          studios: [
+            { studioId: 10, studioName: 'Aniplex', isAnimation: false },
+          ],
+        }),
+        entry({
+          mediaId: 2,
+          title: 'Animation credit',
+          studios: [
+            { studioId: 10, studioName: 'Aniplex', isAnimation: true },
+          ],
+        }),
+      ],
+      studioForm,
+    );
+    const row = rows.find((r) => r.studioId === 10);
+    expect(row?.isNonAnimationStudio).toBe(false);
+    expect(row?.subrows.find((s) => s.entry.mediaId === 1)?.link?.studioIsAnimation).toBe(false);
+    expect(row?.subrows.find((s) => s.entry.mediaId === 2)?.link?.studioIsAnimation).toBe(true);
+  });
+
+  it('marks parent muted when every credit is non-animation', () => {
+    const rows = buildStudioStatsRows(
+      [
+        entry({
+          mediaId: 1,
+          title: 'Licensed',
+          studios: [{ studioId: 20, studioName: 'Licensors Inc', isAnimation: false }],
+        }),
+      ],
+      studioForm,
+    );
+    const row = rows.find((r) => r.studioId === 20);
+    expect(row?.isNonAnimationStudio).toBe(true);
+    expect(row?.subrows[0]?.link?.studioIsAnimation).toBe(false);
+  });
+
+  it('upgrades subrow to animation when both credits exist on one show', () => {
+    const rows = buildStudioStatsRows(
+      [
+        entry({
+          mediaId: 1,
+          title: 'Both credits',
+          studios: [
+            { studioId: 30, studioName: 'Dual Role', isAnimation: false },
+            { studioId: 30, studioName: 'Dual Role', isAnimation: true },
+          ],
+        }),
+      ],
+      studioForm,
+    );
+    const row = rows.find((r) => r.studioId === 30);
+    expect(row?.isNonAnimationStudio).toBe(false);
+    expect(row?.subrows).toHaveLength(1);
+    expect(row?.subrows[0]?.link?.studioIsAnimation).toBe(true);
+  });
+
+  it('fades producer-only credit when animation studio is a separate entity (Kusuriya)', () => {
+    const rows = buildStudioStatsRows(
+      [
+        entry({
+          mediaId: 161645,
+          title: 'Kusuriya no Hitorigoto',
+          studios: [
+            { studioId: 245, studioName: 'Toho', isAnimation: false },
+            { studioId: 28, studioName: 'OLM', isAnimation: true },
+            { studioId: 7368, studioName: 'TOHO animation STUDIO', isAnimation: true },
+          ],
+        }),
+      ],
+      studioForm,
+    );
+    const toho = rows.find((r) => r.studioId === 245);
+    expect(toho?.isNonAnimationStudio).toBe(true);
+    expect(toho?.subrows[0]?.link?.studioIsAnimation).toBe(false);
+    const tohoAnimation = rows.find((r) => r.studioId === 7368);
+    expect(tohoAnimation?.isNonAnimationStudio).toBe(false);
+    expect(tohoAnimation?.subrows[0]?.link?.studioIsAnimation).toBe(true);
   });
 });
 

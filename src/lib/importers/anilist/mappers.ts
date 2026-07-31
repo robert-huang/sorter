@@ -224,13 +224,21 @@ export function mapMediaStudioRows(media: AnilistMediaGql): MediaStudioRow[] {
   const seen = new Set<number>();
   const rows: MediaStudioRow[] = [];
   for (const edge of edges) {
-    if (seen.has(edge.node.id)) continue;
-    seen.add(edge.node.id);
+    const studioId = edge.node.id;
+    const isMain = studioIsMainToDb(edge.isMain);
+    if (seen.has(studioId)) {
+      const existing = rows.find((row) => row.studio_id === studioId);
+      if (existing != null && isMain === 1) {
+        existing.is_main = 1;
+      }
+      continue;
+    }
+    seen.add(studioId);
     rows.push({
       media_id: media.id,
-      studio_id: edge.node.id,
+      studio_id: studioId,
       sort_order: rows.length,
-      is_main: studioIsMainToDb(edge.isMain),
+      is_main: isMain,
     });
   }
   return rows;

@@ -8604,9 +8604,21 @@ html {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  max-height: 100%;
 }
 
-.tool-stats-results-scroll {
+.tool-stats-scroll-card > .tool-stats-table-block {
+  margin-top: 0;
+  border: none;
+  border-radius: 0;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.tool-stats-table-body-scroll {
   flex: 1 1 auto;
   min-height: 0;
 }
@@ -8665,12 +8677,6 @@ html {
   overflow: hidden;
 }
 
-.tool-stats-scroll-card > .tool-stats-results-scroll > .tool-stats-table-block {
-  margin-top: 0;
-  border: none;
-  border-radius: 0;
-}
-
 .tool-stats-table-empty {
   margin: 0;
   padding: 16px 12px;
@@ -8695,11 +8701,6 @@ html {
 .tool-stats-table-actions {
   display: flex;
   gap: 8px;
-}
-
-.tool-stats-table-scroll {
-  max-width: 100%;
-  overflow-x: auto;
 }
 
 .tool-stats-table {
@@ -8761,6 +8762,15 @@ html {
   font-weight: 600;
   color: var(--text-muted);
   flex: 0 0 auto;
+}
+
+.tool-stats-non-animation-studio {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.tool-stats-non-animation-subrow-title {
+  color: var(--text-faint);
 }
 
 .tool-stats-subrow-meta {
