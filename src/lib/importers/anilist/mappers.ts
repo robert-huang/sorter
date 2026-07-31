@@ -158,25 +158,56 @@ export function mapMediaStubRow(media: AnilistMediaGql, now: number): {
 }
 
 /**
+ * Normalizes list-import `studios.edges` (preferred) or legacy `studios.nodes`.
+ */
+function mediaStudioEdges(media: AnilistMediaGql): Array<{
+  isMain: boolean | null;
+  node: { id: number; name: string };
+}> {
+  const studios = media.studios;
+  if (!studios) {
+    return [];
+  }
+  if (studios.edges) {
+    return studios.edges
+      .filter((edge) => edge?.node)
+      .map((edge) => ({
+        isMain: edge.isMain ?? null,
+        node: edge.node,
+      }));
+  }
+  const nodes = studios.nodes ?? [];
+  return nodes.map((node) => ({ isMain: null, node }));
+}
+
+function studioIsMainToDb(isMain: boolean | null): number | null {
+  if (isMain === true) {
+    return 1;
+  }
+  if (isMain === false) {
+    return 0;
+  }
+  return null;
+}
+
+/**
  * Returns one StudioRow per unique studio referenced by the media.
  *
- * AniList's `studios.nodes` connection occasionally returns the same
- * studio more than once for a single media — typically when the
- * underlying `StudioEdge` array has two edges for the same studio
- * (e.g. one with `isMain: true` plus a secondary producer credit).
- * The `nodes` view flattens edges one-to-one, so duplicates leak
- * through. Dedupe by studio id keeping the FIRST occurrence so the
- * `sort_order` in the matching `mapMediaStudioRows` call agrees
- * (both walk nodes in the same order).
+ * AniList's studio connection occasionally returns the same studio more
+ * than once for a single media — typically when the underlying
+ * `StudioEdge` array has two edges for the same studio (e.g. one with
+ * `isMain: true` plus a secondary producer credit). Dedupe by studio id
+ * keeping the FIRST occurrence so `sort_order` in `mapMediaStudioRows`
+ * agrees (both walk edges in the same order).
  */
 export function mapStudioRows(media: AnilistMediaGql, now: number): StudioRow[] {
-  const nodes = media.studios?.nodes ?? [];
+  const edges = mediaStudioEdges(media);
   const seen = new Set<number>();
   const rows: StudioRow[] = [];
-  for (const s of nodes) {
-    if (seen.has(s.id)) continue;
-    seen.add(s.id);
-    rows.push({ id: s.id, name: s.name, fetched_at: now });
+  for (const edge of edges) {
+    if (seen.has(edge.node.id)) continue;
+    seen.add(edge.node.id);
+    rows.push({ id: edge.node.id, name: edge.node.name, fetched_at: now });
   }
   return rows;
 }
@@ -185,22 +216,21 @@ export function mapStudioRows(media: AnilistMediaGql, now: number): StudioRow[] 
  * Junction rows for media → studio with 0-based sort_order.
  *
  * Deduped by studio id — the `media_studio` PK is (media_id,
- * studio_id), so an AniList duplicate in `studios.nodes` would
- * otherwise blow the import with a UNIQUE constraint failure.
- * sort_order is assigned by the FILTERED iteration so the surviving
- * studios get contiguous 0..N-1 values.
+ * studio_id), so an AniList duplicate would otherwise blow the import
+ * with a UNIQUE constraint failure.
  */
 export function mapMediaStudioRows(media: AnilistMediaGql): MediaStudioRow[] {
-  const nodes = media.studios?.nodes ?? [];
+  const edges = mediaStudioEdges(media);
   const seen = new Set<number>();
   const rows: MediaStudioRow[] = [];
-  for (const s of nodes) {
-    if (seen.has(s.id)) continue;
-    seen.add(s.id);
+  for (const edge of edges) {
+    if (seen.has(edge.node.id)) continue;
+    seen.add(edge.node.id);
     rows.push({
       media_id: media.id,
-      studio_id: s.id,
+      studio_id: edge.node.id,
       sort_order: rows.length,
+      is_main: studioIsMainToDb(edge.isMain),
     });
   }
   return rows;

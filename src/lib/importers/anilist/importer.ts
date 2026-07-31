@@ -143,6 +143,8 @@ export type ImportAnilistListOptions = {
    * {@link DEFAULT_LIST_CHUNK_SIZE} (AniList's documented max).
    */
   perChunk?: number;
+  /** Abort between list chunks — leaves the local DB untouched mid-fetch. */
+  abortSignal?: AbortSignal;
 };
 
 export type ImportAnilistListResult = {
@@ -415,8 +417,8 @@ function buildListImportStatements(
   for (const entry of entries) {
     for (const ms of mapMediaStudioRows(entry.media)) {
       stmts.push({
-        sql: 'INSERT INTO media_studio (media_id, studio_id, sort_order) VALUES (?, ?, ?)',
-        params: [ms.media_id, ms.studio_id, ms.sort_order],
+        sql: 'INSERT INTO media_studio (media_id, studio_id, sort_order, is_main) VALUES (?, ?, ?, ?)',
+        params: [ms.media_id, ms.studio_id, ms.sort_order, ms.is_main],
       });
     }
     for (const mt of mapMediaTagRows(entry.media)) {
@@ -567,6 +569,7 @@ export async function importAnilistList(
     let chunksFetched = 0;
 
     while (true) {
+      options.abortSignal?.throwIfAborted();
       const response = await ctx.executeQuery<AnilistListCollectionResponse>(
         LIST_COLLECTION_QUERY,
         { username, type, chunk, perChunk },

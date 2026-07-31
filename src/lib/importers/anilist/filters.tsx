@@ -1661,6 +1661,7 @@ export function TagOptionsChip({
   mode,
   minRank,
   onChange,
+  showModeToggle = true,
 }: {
   mode: TagFilterMode;
   minRank: number;
@@ -1668,6 +1669,8 @@ export function TagOptionsChip({
     tagMode?: TagFilterMode;
     tagMinRank?: number;
   }) => void;
+  /** When false, only min rank is shown (e.g. Stats genres/tags charts). */
+  showModeToggle?: boolean;
 }): ReactNode {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -1678,9 +1681,13 @@ export function TagOptionsChip({
   // surface "active" here so the user sees their non-default setting
   // even with no tags selected (otherwise the chip silently looks
   // off and they might re-set it later).
-  const active = mode !== 'or' || minRank > 0;
+  const active = showModeToggle
+    ? mode !== 'or' || minRank > 0
+    : minRank > 0;
   const label = active
-    ? `tag options · ${mode.toUpperCase()}${minRank > 0 ? `, rank ≥ ${minRank}` : ''}`
+    ? showModeToggle
+      ? `tag options · ${mode.toUpperCase()}${minRank > 0 ? `, rank ≥ ${minRank}` : ''}`
+      : `tag options${minRank > 0 ? ` · rank ≥ ${minRank}` : ''}`
     : 'tag options';
 
   return (
@@ -1690,31 +1697,37 @@ export function TagOptionsChip({
         className="filter-chip-button"
         aria-expanded={open}
         onClick={() => setOpen((x) => !x)}
-        title="Tag combination mode and minimum rank"
+        title={
+          showModeToggle
+            ? 'Tag combination mode and minimum rank'
+            : 'Minimum AniList tag rank'
+        }
       >
         {label}
       </button>
       {open && (
         <div className="filter-chip-menu" role="menu">
-          <div className="filter-chip-range-row">
-            <span>mode</span>
-            <div className="filter-chip-segmented">
-              <button
-                type="button"
-                className={mode === 'or' ? 'active' : ''}
-                onClick={() => onChange({ tagMode: 'or' })}
-              >
-                OR
-              </button>
-              <button
-                type="button"
-                className={mode === 'and' ? 'active' : ''}
-                onClick={() => onChange({ tagMode: 'and' })}
-              >
-                AND
-              </button>
+          {showModeToggle ? (
+            <div className="filter-chip-range-row">
+              <span>mode</span>
+              <div className="filter-chip-segmented">
+                <button
+                  type="button"
+                  className={mode === 'or' ? 'active' : ''}
+                  onClick={() => onChange({ tagMode: 'or' })}
+                >
+                  OR
+                </button>
+                <button
+                  type="button"
+                  className={mode === 'and' ? 'active' : ''}
+                  onClick={() => onChange({ tagMode: 'and' })}
+                >
+                  AND
+                </button>
+              </div>
             </div>
-          </div>
+          ) : null}
           <label className="filter-chip-range-row">
             <span>rank ≥</span>
             <input

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
 import { ToolUsernameField } from '../ToolUsernameField';
-import { ToolSegmentedFilter, type ToolSegmentedOption } from '../ToolSegmentedFilter';
 import { useUsernameListRefresh } from '../useUsernameListRefresh';
 import { useToolsDisplayLabelRevision } from '../useToolsDisplayLabelRevision';
 import { withLastAnilistUsername, writeLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
@@ -22,14 +21,15 @@ import {
 import {
   DEFAULT_ADAPTATION_FILTERS,
   ADAPTATION_LIST_STATUS_OPTIONS,
+  ADAPTATION_LIST_MEDIA_TYPE_OPTIONS,
   adaptationDiffDisplayToneClass,
-  adaptationFiltersFromListMediaMode,
-  adaptationListMediaModeFromFilters,
+  adaptationListMediaTypeLabel,
+  adaptationListMediaTypesToFilters,
+  adaptationSelectedListMediaTypes,
   buildAdaptationDisplay,
   normalizeAdaptationListStatuses,
   type AdaptationDisplayBlock,
   type AdaptationFilters,
-  type AdaptationListMediaMode,
   type AdaptationScoresResult,
   type AdaptationTableCell,
   type ShowDifferenceMode,
@@ -50,12 +50,6 @@ const HIDE_SAME_MEDIUM_TOOLTIP =
 
 const CONSUMPTION_DOT_TOOLTIP =
   'You started this entry first in this group (earliest start date on your list).';
-
-const ADAPTATION_LIST_MEDIA_OPTIONS: readonly ToolSegmentedOption<AdaptationListMediaMode>[] = [
-  { value: 'anime', label: 'Anime' },
-  { value: 'manga', label: 'Manga' },
-  { value: 'both', label: 'Both' },
-];
 
 function formatDiffLabel(diff: number | null): string {
   if (diff === null) {
@@ -745,12 +739,19 @@ export function AdaptationScoresPanel({
             onRefresh={() => refreshUsernameList(form.username, running)}
             refreshLabel="Refresh anime + manga lists from AniList"
           />
-          <ToolSegmentedFilter
-            label="Lists"
-            options={ADAPTATION_LIST_MEDIA_OPTIONS}
-            value={adaptationListMediaModeFromFilters(filters)}
-            disabled={running}
-            onChange={(mode) => patchFilters(adaptationFiltersFromListMediaMode(mode))}
+          <MultiSelectChip
+            label="lists"
+            options={ADAPTATION_LIST_MEDIA_TYPE_OPTIONS}
+            selected={adaptationSelectedListMediaTypes(filters)}
+            formatOption={adaptationListMediaTypeLabel}
+            onToggle={(type) =>
+              patchFilters(
+                type === 'ANIME'
+                  ? { includeAnime: !filters.includeAnime }
+                  : { includeManga: !filters.includeManga },
+              )
+            }
+            onReplaceAll={(types) => patchFilters(adaptationListMediaTypesToFilters(types))}
           />
           <MultiSelectChip
             label="list status"

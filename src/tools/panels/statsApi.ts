@@ -29,7 +29,7 @@ import type {
   StatsStudioLink,
   StatsVaCredit,
 } from './statsLogic';
-import { normalizeCharacterRoleForStats } from './statsLogic';
+import { normalizeCharacterRoleForStats, statsStudioIsAnimation } from './statsLogic';
 import { normalizeSeasonalListScore } from './seasonalScoresLogic';
 
 export type StatsFetchProgress = {
@@ -126,11 +126,10 @@ async function readMediaMetadataFromDb(
     if (!detail) {
       continue;
     }
-    const studios: StatsStudioLink[] = detail.studios.map(({ studio, sortOrder }) => ({
+    const studios: StatsStudioLink[] = detail.studios.map(({ studio, sortOrder, isMain }) => ({
       studioId: studio.id,
       studioName: studio.name,
-      // DB lacks isAnimationStudio — main studio (sort_order 0) treated as animation.
-      isAnimation: sortOrder === 0,
+      isAnimation: statsStudioIsAnimation(isMain, sortOrder),
     }));
     out.set(mediaId, {
       genres: parseGenresJson(detail.media.genres_json),

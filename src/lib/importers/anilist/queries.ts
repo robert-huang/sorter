@@ -69,7 +69,7 @@ const MEDIA_FIELD_SELECTION = `
   countryOfOrigin
   genres
   synonyms
-  studios { nodes { id name } }
+  studios { edges { isMain node { id name } } }
   tags { name rank }
 `.trim();
 

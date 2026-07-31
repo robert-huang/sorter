@@ -134,8 +134,13 @@ export async function runAnilistImport(
   username: string,
   type: AnilistMediaType,
   onProgress?: AnilistProgressReporter,
+  abortSignal?: AbortSignal,
 ): Promise<ImportAnilistListResult> {
-  const result = await importAnilistList(buildContext(onProgress, { username }), { username, type });
+  const result = await importAnilistList(buildContext(onProgress, { username }), {
+    username,
+    type,
+    abortSignal,
+  });
   markLocalDbPresent();
   return result;
 }

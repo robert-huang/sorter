@@ -18,7 +18,6 @@ import {
   formatWeeklyCalendarFormatFilterLabel,
   formatWeeklyCalendarMediaStatusFilterLabel,
   normalizeWeeklyCalendarFormatFilters,
-  normalizeWeeklyCalendarMediaStatusFilters,
   WEEKLY_CALENDAR_FORMAT_OPTIONS,
   WEEKLY_CALENDAR_MEDIA_STATUS_OPTIONS,
   type WeeklyCalendarFormatFilter,
@@ -56,6 +55,13 @@ export function statsMangaStaffRoleOptions(): StatsStaffRoleKey[] {
   return [...KEY_MANGA_PRODUCTION_ROLES, STATS_STAFF_OTHER_ROLE_KEY];
 }
 
+/** Default production-role filter: all key roles, excluding Other. */
+export function statsDefaultStaffRoleFilters(mediaType: StatsMediaType): StatsStaffRoleKey[] {
+  return mediaType === 'MANGA'
+    ? [...KEY_MANGA_PRODUCTION_ROLES]
+    : [...KEY_ANIME_PRODUCTION_ROLES];
+}
+
 export type StatsStudioKindFilter = 'animation' | 'non_animation';
 
 export const STATS_STUDIO_KIND_OPTIONS: StatsStudioKindFilter[] = [
@@ -77,16 +83,11 @@ export type StatsListStatus = (typeof ALL_LIST_STATUSES)[number];
 export const STATS_LIST_STATUS_OPTIONS = ALL_LIST_STATUSES;
 
 export const DEFAULT_STATS_MEDIA_STATUS_FILTERS: StatsMediaStatusFilter[] = [
-  'RELEASING',
-  'FINISHED',
+  ...STATS_MEDIA_STATUS_OPTIONS,
 ];
 
 export const DEFAULT_STATS_LIST_STATUS_FILTERS: StatsListStatus[] = [
-  'CURRENT',
-  'REPEATING',
-  'COMPLETED',
-  'PAUSED',
-  'DROPPED',
+  ...STATS_LIST_STATUS_OPTIONS,
 ];
 
 export type StatsTagOptions = {
@@ -112,7 +113,7 @@ export type StatsForm = {
   aggregationType: StatsAggregationType;
   staffRoleFilters: StatsStaffRoleKey[];
   vaRoleFilters: StatsCharacterRoleFilter[];
-  vaMainOnly: boolean;
+  vaShowMainRoleInfo: boolean;
   vaShowDiff: boolean;
   tagOptions: StatsTagOptions;
   studioKindFilters: StatsStudioKindFilter[];
@@ -277,7 +278,10 @@ export type StatsBuildResult = {
 };
 
 export function normalizeStatsMediaStatusFilters(raw: unknown): StatsMediaStatusFilter[] {
-  const selected = normalizeWeeklyCalendarMediaStatusFilters(raw);
+  if (!Array.isArray(raw)) {
+    return [...DEFAULT_STATS_MEDIA_STATUS_FILTERS];
+  }
+  const selected = STATS_MEDIA_STATUS_OPTIONS.filter((status) => raw.includes(status));
   return selected.length > 0 ? [...selected] : [...DEFAULT_STATS_MEDIA_STATUS_FILTERS];
 }
 
@@ -309,10 +313,10 @@ export function normalizeStatsStaffRoleFilters(
   const universe =
     mediaType === 'MANGA' ? statsMangaStaffRoleOptions() : statsAnimeStaffRoleOptions();
   if (!Array.isArray(raw)) {
-    return [...universe];
+    return statsDefaultStaffRoleFilters(mediaType);
   }
   const selected = universe.filter((role) => raw.includes(role));
-  return selected.length > 0 ? [...selected] : [...universe];
+  return selected.length > 0 ? [...selected] : statsDefaultStaffRoleFilters(mediaType);
 }
 
 export function normalizeStatsVaRoleFilters(raw: unknown): StatsCharacterRoleFilter[] {
@@ -393,6 +397,27 @@ export function normalizeCharacterRoleForStats(
   return 'BACKGROUND';
 }
 
+/** Animation studio when AniList `isMain` is stored; legacy rows use sort_order 0. */
+export function statsStudioIsAnimation(isMain: boolean | null, sortOrder: number): boolean {
+  if (isMain != null) {
+    return isMain;
+  }
+  return sortOrder === 0;
+}
+
+/** Actionable empty-table message for aggregation tables. */
+export function statsAggregationEmptyHint(
+  aggregationType: StatsAggregationType,
+  castNeedsExpand: boolean,
+): string {
+  if (aggregationType === 'STAFF' || aggregationType === 'VA') {
+    if (castNeedsExpand) {
+      return 'Cast is not loaded yet. Click Expand all cast or Run with Staff/VA selected.';
+    }
+  }
+  return 'No rows match the current filters.';
+}
+
 /** Parse `#token ` custom tags from list notes (space-terminated tokens). */
 export function parseCustomTagsFromNotes(notes: string | null | undefined): string[] {
   if (!notes) {
@@ -413,14 +438,7 @@ export function parseCustomTagsFromNotes(notes: string | null | undefined): stri
 function entryMatchesListStatus(
   entry: StatsEntry,
   filters: readonly StatsListStatus[],
-  aggregationType: StatsAggregationType,
 ): boolean {
-  if (entry.listStatus === 'PLANNING') {
-    if (aggregationType === 'STAFF' || aggregationType === 'VA') {
-      return false;
-    }
-    return filters.includes('PLANNING');
-  }
   return filters.includes(entry.listStatus as StatsListStatus);
 }
 
@@ -455,12 +473,12 @@ export function filterStatsPool(entries: readonly StatsEntry[], form: StatsForm)
       entry.mediaType === form.mediaType &&
       entryMatchesMediaStatus(entry, form.mediaStatusFilters) &&
       entryMatchesFormat(entry, form.formatFilters) &&
-      entryMatchesListStatus(entry, form.listStatusFilters, form.aggregationType) &&
+      entryMatchesListStatus(entry, form.listStatusFilters) &&
       entryMatchesScore(entry, form),
   );
 }
 
-function effectiveEpisodes(entry: StatsEntry): number {
+export function statsEffectiveEpisodes(entry: StatsEntry): number {
   const progress = entry.progress ?? 0;
   const total = entry.episodes ?? progress;
   const repeat = entry.repeat ?? 0;
@@ -538,7 +556,6 @@ function computeMetricsForEntries(
   entries: readonly StatsEntry[],
   options: {
     mediaType: StatsMediaType;
-    vaMainOnly?: boolean;
     vaShowDiff?: boolean;
     mainRoleMediaIds?: ReadonlySet<number>;
   },
@@ -551,11 +568,8 @@ function computeMetricsForEntries(
   let mainRoleCount: number | null = null;
   let mainRoleMeanScore: number | null = null;
   let mainRoleAnilistMean: number | null = null;
-  if (options.vaMainOnly) {
-    const mainEntries =
-      options.mainRoleMediaIds != null
-        ? entries.filter((e) => options.mainRoleMediaIds!.has(e.mediaId))
-        : entries;
+  if (options.mainRoleMediaIds != null) {
+    const mainEntries = entries.filter((e) => options.mainRoleMediaIds!.has(e.mediaId));
     mainRoleCount = mainEntries.length;
     const mainRated = mainEntries.map((e) => ratedScore(e)).filter((s): s is number => s != null);
     mainRoleMeanScore = averageNullable(mainRated);
@@ -583,7 +597,7 @@ function computeMetricsForEntries(
 
   for (const entry of entries) {
     if (entry.mediaType === 'ANIME') {
-      episodesWatched += effectiveEpisodes(entry);
+      episodesWatched += statsEffectiveEpisodes(entry);
       timeWatchedMinutes += entryTimeWatchedMinutes(entry);
       episodesRemaining += entryEpisodesRemaining(entry);
       timeRemainingMinutes += entryTimeRemainingMinutes(entry);
@@ -648,7 +662,6 @@ function buildParentRow(
   extra: Partial<StatsParentRow> = {},
   metricOptions: {
     mediaType: StatsMediaType;
-    vaMainOnly?: boolean;
     vaShowDiff?: boolean;
     mainRoleMediaIds?: ReadonlySet<number>;
   },
@@ -788,7 +801,6 @@ export function buildVaStatsRows(pool: readonly StatsEntry[], form: StatsForm): 
       },
       {
         mediaType: form.mediaType,
-        vaMainOnly: form.vaMainOnly,
         vaShowDiff: form.vaShowDiff,
         mainRoleMediaIds: bucket.mainRoleMediaIds,
       },
@@ -980,7 +992,7 @@ export function buildStatsSummary(pool: readonly StatsEntry[]): StatsSummary {
   for (const entry of pool) {
     if (entry.mediaType === 'ANIME') {
       timeWatchedMinutes += entryTimeWatchedMinutes(entry);
-      episodesWatched += effectiveEpisodes(entry);
+      episodesWatched += statsEffectiveEpisodes(entry);
     } else {
       chaptersRead += entry.progress ?? 0;
       volumesRead += entry.progressVolumes ?? 0;
@@ -1007,6 +1019,41 @@ export function buildStatsSummary(pool: readonly StatsEntry[]): StatsSummary {
 
 export function statsRatedScore(entry: StatsEntry): number | null {
   return ratedScore(entry);
+}
+
+const STATS_STATUS_LETTER_SORT_RANK: Record<'P' | 'W' | 'R' | 'H', number> = {
+  P: -40,
+  W: -30,
+  R: -20,
+  H: -10,
+};
+
+/** Numeric sort key for score column: rated scores 1–10, status letters below, unrated last. */
+export function statsEntryScoreSortValue(entry: StatsEntry): number | null {
+  const label = listStatusScoreLabel(entry.listStatus, entry.score, entry.mediaType);
+  if (label != null) {
+    return STATS_STATUS_LETTER_SORT_RANK[label];
+  }
+  return normalizeSeasonalListScore(entry.score);
+}
+
+export function compareStatsSortValues(
+  a: number | string | null,
+  b: number | string | null,
+): number {
+  if (a == null && b == null) {
+    return 0;
+  }
+  if (a == null) {
+    return 1;
+  }
+  if (b == null) {
+    return -1;
+  }
+  if (typeof a === 'string' && typeof b === 'string') {
+    return a.localeCompare(b);
+  }
+  return (a as number) - (b as number);
 }
 
 export function buildStatsScoreHistogram(pool: readonly StatsEntry[]): number[] {
@@ -1112,22 +1159,6 @@ function sortMetricValue(row: StatsParentRow, column: StatsSortColumn): number |
   }
 }
 
-function compareSortValues(a: number | string | null, b: number | string | null): number {
-  if (a == null && b == null) {
-    return 0;
-  }
-  if (a == null) {
-    return 1;
-  }
-  if (b == null) {
-    return -1;
-  }
-  if (typeof a === 'string' && typeof b === 'string') {
-    return a.localeCompare(b);
-  }
-  return (a as number) - (b as number);
-}
-
 export function sortStatsRows(
   rows: readonly StatsParentRow[],
   sort: StatsSortState,
@@ -1136,13 +1167,13 @@ export function sortStatsRows(
     return [...rows].sort((a, b) => a.name.localeCompare(b.name));
   }
   const sorted = [...rows].sort((a, b) => {
-    const cmp = compareSortValues(sortMetricValue(a, sort.column), sortMetricValue(b, sort.column));
+    const cmp = compareStatsSortValues(sortMetricValue(a, sort.column), sortMetricValue(b, sort.column));
     return sort.direction === 'asc' ? cmp : -cmp;
   });
   return sorted.map((row) => ({
     ...row,
     subrows: [...row.subrows].sort((a, b) => {
-      const cmp = compareSortValues(
+      const cmp = compareStatsSortValues(
         sortMetricValue(
           { ...row, metrics: computeMetricsForEntries([a.entry], { mediaType: a.entry.mediaType }) },
           sort.column,
@@ -1193,6 +1224,15 @@ export function formatStatsDuration(minutes: number): string {
     return `${hours}h`;
   }
   return `${hours}h ${mins}m`;
+}
+
+export function formatStatsDurationWithDayCount(minutes: number): string {
+  const duration = formatStatsDuration(minutes);
+  const dayCount = Math.floor(minutes / (60 * 24));
+  if (dayCount <= 0) {
+    return duration;
+  }
+  return `${duration} (${dayCount} days)`;
 }
 
 export function formatStatsScoreCell(entry: StatsEntry): string {

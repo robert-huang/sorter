@@ -266,7 +266,7 @@ export async function getListEntriesByMediaIds(
  */
 export interface MediaDetail {
   media: MediaRow;
-  studios: Array<{ studio: StudioRow; sortOrder: number }>;
+  studios: Array<{ studio: StudioRow; sortOrder: number; isMain: boolean | null }>;
   tags: Array<{ name: string; rank: number }>;
   characters: Array<{
     character: CharacterRow;
@@ -294,7 +294,7 @@ export async function getMediaDetail(
   // mirrors the order AniList returns.
   const studioRows = await db.exec(
     `
-      SELECT s.id, s.name, s.fetched_at, ms.sort_order
+      SELECT s.id, s.name, s.fetched_at, ms.sort_order, ms.is_main
       FROM media_studio ms
       JOIN studio s ON s.id = ms.studio_id
       WHERE ms.media_id = ?
@@ -305,6 +305,10 @@ export async function getMediaDetail(
   const studios = studioRows.map((r) => ({
     studio: rowToStudioRow(r),
     sortOrder: reqN(r.sort_order),
+    isMain:
+      r.is_main === null || r.is_main === undefined
+        ? null
+        : Number(r.is_main) === 1,
   }));
 
   // Tags — by rank desc so the most relevant tag shows first.

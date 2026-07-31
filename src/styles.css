@@ -8571,19 +8571,36 @@ html {
   color: var(--text);
 }
 
-.tool-stats-summary {
-  width: 100%;
-  max-width: 90vw;
-  margin-top: 0;
-  padding: 12px 16px;
+.tool-stats-summary-panel {
+  margin: 16px 4px 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.tool-stats-scroll-card {
+  width: fit-content;
+  max-width: 100%;
+  align-self: center;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
+  overflow: hidden;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
-.tool-stats-summary h3 {
-  margin: 0 0 8px;
-  font-size: 14px;
+.tool-stats-results-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.tool-stats-summary-heading {
+  margin: 0 0 10px;
+  margin-left: 8px;
+  font-size: 16px;
+  font-weight: 600;
 }
 
 .tool-stats-summary-grid {
@@ -8614,12 +8631,22 @@ html {
 
 .tool-stats-table-block {
   width: 100%;
-  max-width: 90vw;
   margin-top: 16px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
   overflow: hidden;
+}
+
+.tool-stats-scroll-card > .tool-stats-results-scroll > .tool-stats-table-block {
+  margin-top: 0;
+  border: none;
+  border-radius: 0;
+}
+
+.tool-stats-table-empty {
+  margin: 0;
+  padding: 16px 12px;
 }
 
 .tool-stats-table-header {
@@ -8662,6 +8689,11 @@ html {
   vertical-align: middle;
   text-align: left;
   white-space: nowrap;
+}
+
+.tool-stats-table th:not(:first-child),
+.tool-stats-table td:not(.tool-stats-name-cell) {
+  text-align: center;
 }
 
 .tool-stats-table tbody tr:last-child td {
@@ -8742,15 +8774,45 @@ html {
   align-items: center;
 }
 
+.tool-stats-subrow .tool-stats-name-cell {
+  padding-left: 36px;
+}
+
 .tool-stats-subrow-name {
   min-width: 0;
+  width: 100%;
+}
+
+.tool-stats-subrow-cell-grid {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+}
+
+.tool-stats-subrow-score {
+  flex: 0 0 24px;
+  width: 24px;
+  min-width: 24px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  line-height: 1;
+  text-align: right;
 }
 
 .tool-stats-subrow-show-btn {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
   margin: 0;
   padding: 0;
   border: none;
@@ -8770,18 +8832,25 @@ html {
   gap: 2px;
   min-width: 0;
   flex: 1 1 auto;
+  text-align: left;
 }
 
 .tool-stats-subrow-show-title {
   font-size: 13px;
   font-weight: 600;
   line-height: 1.3;
+  text-align: left;
 }
 
 .tool-stats-subrow-show-meta {
   font-size: 12px;
   color: var(--text-muted);
   line-height: 1.35;
+}
+
+.modal-stats-time-watched {
+  width: min(90vw, calc(100% - 32px));
+  max-width: 90vw;
 }
 
 .tool-stats-time-chart-scroll {
@@ -8801,37 +8870,51 @@ html {
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
+}
+
+.tool-stats-time-chart-score-head {
+  min-width: 52px;
+  white-space: nowrap;
+}
+
+.tool-stats-time-chart-score {
+  width: 24px;
+  min-width: 24px;
+  padding-right: 0;
+  text-align: right;
+  vertical-align: middle;
+}
+
+.tool-stats-time-chart-score .tool-season-score {
+  width: 24px;
+  min-width: 24px;
+}
+
+.tool-stats-time-chart-show-head,
+.tool-stats-time-chart-show,
+.tool-stats-time-chart-total-label {
   text-align: left;
+}
+
+.tool-stats-time-chart-metric {
+  text-align: center;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .tool-stats-time-chart tbody tr:last-child td {
   border-bottom: none;
 }
 
-.tool-stats-time-chart-title {
+.tool-stats-time-chart-show {
   min-width: 220px;
 }
 
-.tool-stats-time-chart-metric {
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
+.tool-stats-time-chart-total-row {
+  background: var(--surface-2);
+  font-weight: 600;
 }
 
-.tool-stats-time-chart-bar-cell {
-  width: 40%;
-  min-width: 180px;
-}
-
-.tool-stats-time-bar-wrap {
-  height: 14px;
-  background: color-mix(in srgb, var(--surface-2) 80%, transparent);
-  border-radius: 3px;
-  overflow: hidden;
-}
-
-.tool-stats-time-bar {
-  height: 100%;
-  min-width: 2px;
-  background: color-mix(in srgb, var(--accent, #2563eb) 65%, #3b82f6);
-  border-radius: 3px;
+.tool-stats-time-chart-total-label {
+  text-align: left;
 }

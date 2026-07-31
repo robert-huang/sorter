@@ -3,14 +3,20 @@ import {
   buildStatsResult,
   buildVaStatsRows,
   buildStatsTimeWatchedRows,
+  compareStatsSortValues,
   cycleStatsSort,
   DEFAULT_STATS_LIST_STATUS_FILTERS,
   DEFAULT_STATS_MEDIA_STATUS_FILTERS,
   filterStatsPool,
   filterStatsPoolByRatingScore,
   formatStatsFormatLabel,
+  formatStatsDurationWithDayCount,
   parseCustomTagsFromNotes,
-  statsAnimeStaffRoleOptions,
+  normalizeStatsStaffRoleFilters,
+  statsAggregationEmptyHint,
+  statsDefaultStaffRoleFilters,
+  statsEntryScoreSortValue,
+  statsStudioIsAnimation,
   type StatsCachedData,
   type StatsEntry,
   type StatsForm,
@@ -60,13 +66,25 @@ const baseForm: StatsForm = {
   scoreMax: null,
   showSummary: false,
   aggregationType: 'VA',
-  staffRoleFilters: statsAnimeStaffRoleOptions(),
+  staffRoleFilters: statsDefaultStaffRoleFilters('ANIME'),
   vaRoleFilters: ['MAIN', 'SUPPORTING', 'BACKGROUND'],
-  vaMainOnly: false,
+  vaShowMainRoleInfo: false,
   vaShowDiff: false,
   tagOptions: { tagMode: 'or', tagMinRank: 0 },
   studioKindFilters: ['animation', 'non_animation'],
 };
+
+describe('normalizeStatsStaffRoleFilters', () => {
+  it('defaults to key production roles without Other', () => {
+    expect(statsDefaultStaffRoleFilters('ANIME')).not.toContain('OTHER');
+    expect(normalizeStatsStaffRoleFilters(undefined, 'ANIME')).toEqual(
+      statsDefaultStaffRoleFilters('ANIME'),
+    );
+    expect(normalizeStatsStaffRoleFilters(undefined, 'MANGA')).toEqual(
+      statsDefaultStaffRoleFilters('MANGA'),
+    );
+  });
+});
 
 describe('parseCustomTagsFromNotes', () => {
   it('extracts space-terminated hash tokens', () => {
@@ -79,12 +97,25 @@ describe('parseCustomTagsFromNotes', () => {
 });
 
 describe('filterStatsPool', () => {
-  it('excludes planning entries for staff aggregation', () => {
+  it('includes planning entries for staff when PLANNING is selected', () => {
     const pool = [
       entry({ mediaId: 1, title: 'A', listStatus: 'PLANNING' }),
       entry({ mediaId: 2, title: 'B', listStatus: 'COMPLETED' }),
     ];
     const filtered = filterStatsPool(pool, { ...baseForm, aggregationType: 'STAFF' });
+    expect(filtered.map((e) => e.mediaId)).toEqual([1, 2]);
+  });
+
+  it('excludes planning when PLANNING is deselected', () => {
+    const pool = [
+      entry({ mediaId: 1, title: 'A', listStatus: 'PLANNING' }),
+      entry({ mediaId: 2, title: 'B', listStatus: 'COMPLETED' }),
+    ];
+    const filtered = filterStatsPool(pool, {
+      ...baseForm,
+      aggregationType: 'VA',
+      listStatusFilters: ['COMPLETED'],
+    });
     expect(filtered.map((e) => e.mediaId)).toEqual([2]);
   });
 });
@@ -256,5 +287,53 @@ describe('buildStatsTimeWatchedRows', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.entry.mediaId).toBe(1);
     expect(rows[0]?.minutes).toBe(10 * 24 + 12 * 24);
+  });
+});
+
+describe('statsEntryScoreSortValue', () => {
+  it('sorts rated scores numerically and letters below unrated', () => {
+    const rated = entry({ mediaId: 1, title: 'A', score: 85 });
+    const planning = entry({ mediaId: 2, title: 'B', listStatus: 'PLANNING', score: 0 });
+    const unrated = entry({ mediaId: 3, title: 'C', listStatus: 'COMPLETED', score: 0 });
+
+    expect(statsEntryScoreSortValue(rated)).toBe(85);
+    expect(statsEntryScoreSortValue(planning)).toBe(-40);
+    expect(statsEntryScoreSortValue(unrated)).toBeNull();
+    expect(
+      compareStatsSortValues(statsEntryScoreSortValue(rated), statsEntryScoreSortValue(planning)),
+    ).toBeGreaterThan(0);
+  });
+});
+
+describe('formatStatsDurationWithDayCount', () => {
+  it('appends day count when at least one full day', () => {
+    expect(formatStatsDurationWithDayCount(60 * 24 * 5 + 30)).toBe('120h 30m (5 days)');
+  });
+
+  it('omits day count under one day', () => {
+    expect(formatStatsDurationWithDayCount(90)).toBe('1h 30m');
+  });
+});
+
+describe('statsStudioIsAnimation', () => {
+  it('uses AniList isMain when present', () => {
+    expect(statsStudioIsAnimation(true, 3)).toBe(true);
+    expect(statsStudioIsAnimation(false, 0)).toBe(false);
+  });
+
+  it('falls back to sort_order 0 for legacy rows', () => {
+    expect(statsStudioIsAnimation(null, 0)).toBe(true);
+    expect(statsStudioIsAnimation(null, 2)).toBe(false);
+  });
+});
+
+describe('statsAggregationEmptyHint', () => {
+  it('suggests cast expansion for staff/va when cast is missing', () => {
+    expect(statsAggregationEmptyHint('STAFF', true)).toContain('Expand all cast');
+    expect(statsAggregationEmptyHint('VA', true)).toContain('Expand all cast');
+  });
+
+  it('returns filter message when cast is loaded', () => {
+    expect(statsAggregationEmptyHint('STAFF', false)).toBe('No rows match the current filters.');
   });
 });

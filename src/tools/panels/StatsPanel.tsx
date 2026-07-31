@@ -39,12 +39,14 @@ import {
   buildStatsTimeWatchedRows,
   buildStatsTableCsv,
   buildStatsTableJson,
+  compareStatsSortValues,
   cycleStatsSort,
   filterStatsPoolByRatingScore,
   DEFAULT_STATS_LIST_STATUS_FILTERS,
   DEFAULT_STATS_MEDIA_STATUS_FILTERS,
   DEFAULT_STATS_TAG_OPTIONS,
   formatStatsDuration,
+  formatStatsDurationWithDayCount,
   formatStatsFormatLabel,
   formatStatsMediaStatusLabel,
   formatStatsScoreCell,
@@ -58,6 +60,10 @@ import {
   normalizeStatsTagOptions,
   normalizeStatsVaRoleFilters,
   sortStatsRows,
+  statsAggregationEmptyHint,
+  statsDefaultStaffRoleFilters,
+  statsEffectiveEpisodes,
+  statsEntryScoreSortValue,
   statsRatedScore,
   STATS_ANIME_FORMAT_OPTIONS,
   STATS_CHARACTER_ROLE_OPTIONS,
@@ -95,15 +101,15 @@ const DEFAULT_FORM: StatsForm = {
   scoreMax: null,
   showSummary: true,
   aggregationType: 'VA',
-  staffRoleFilters: statsAnimeStaffRoleOptions(),
+  staffRoleFilters: statsDefaultStaffRoleFilters('ANIME'),
   vaRoleFilters: [...STATS_CHARACTER_ROLE_OPTIONS],
-  vaMainOnly: false,
+  vaShowMainRoleInfo: false,
   vaShowDiff: false,
   tagOptions: { ...DEFAULT_STATS_TAG_OPTIONS },
   studioKindFilters: [...STATS_STUDIO_KIND_OPTIONS],
 };
 
-type PersistedStatsForm = Pick<StatsForm, 'username' | 'mediaType' | 'showSummary' | 'aggregationType' | 'vaMainOnly' | 'vaShowDiff'>;
+type PersistedStatsForm = Pick<StatsForm, 'username' | 'mediaType' | 'showSummary' | 'aggregationType' | 'vaShowMainRoleInfo' | 'vaShowDiff'>;
 
 type PersistedStatsFilters = Pick<
   StatsForm,
@@ -132,7 +138,8 @@ function loadForm(): StatsForm {
       mediaType,
       showSummary: parsed.showSummary !== false,
       aggregationType: normalizeStatsAggregationType(parsed.aggregationType, mediaType),
-      vaMainOnly: parsed.vaMainOnly === true,
+      vaShowMainRoleInfo:
+        parsed.vaShowMainRoleInfo === true || (parsed as { vaMainOnly?: boolean }).vaMainOnly === true,
       vaShowDiff: parsed.vaShowDiff === true,
       mediaStatusFilters: normalizeStatsMediaStatusFilters(filters.mediaStatusFilters),
       formatFilters:
@@ -163,7 +170,7 @@ function saveForm(form: StatsForm): void {
       mediaType: form.mediaType,
       showSummary: form.showSummary,
       aggregationType: form.aggregationType,
-      vaMainOnly: form.vaMainOnly,
+      vaShowMainRoleInfo: form.vaShowMainRoleInfo,
       vaShowDiff: form.vaShowDiff,
     };
     localStorage.setItem(LS_KEY, JSON.stringify(persisted));
@@ -244,7 +251,7 @@ function StatsMetricCell(value: number | null, formatter?: (n: number) => string
 
 type StatsSummaryModal = 'score-list' | 'time-chart' | null;
 
-type StatsTimeChartSortColumn = 'title' | 'time' | 'score';
+type StatsTimeChartSortColumn = 'score' | 'title' | 'episodes' | 'episodeLength' | 'time';
 
 type StatsTimeChartSortState = {
   column: StatsTimeChartSortColumn;
@@ -270,33 +277,42 @@ function StatsSubrowNameCell({
 
   return (
     <div className="tool-stats-subrow-name">
-      <button
-        type="button"
-        className={mergeAnilistLinkClass('tool-stats-subrow-show-btn', anilistLink.className)}
-        title={`${entry.title} (middle-click for AniList)`}
-        onClick={() => onOpenMedia(entry.mediaId, entry.title)}
-        onMouseDown={anilistLink.onMouseDown}
-        onAuxClick={anilistLink.onAuxClick}
-      >
-        <ToolEntityAvatar imageUrl={entry.coverImage} label={entry.title} variant="poster" />
-        <span className="tool-stats-subrow-show-text">
-          <span className="tool-stats-subrow-show-title">
-            {entry.title}
-            {repeatSuffix ? <span className="tool-stats-repeat">{repeatSuffix}</span> : null}
-          </span>
-          {hasCharacter ? (
-            <span className="tool-stats-subrow-show-meta">
-              <ToolCharacterName
-                characterId={link?.characterId ?? 0}
-                name={link?.characterName ?? ''}
-              />
-              {link?.characterRole ? ` (${link.characterRole})` : ''}
-            </span>
-          ) : staffRole ? (
-            <span className="tool-stats-subrow-show-meta">{staffRole}</span>
-          ) : null}
+      <div className="tool-stats-subrow-cell-grid">
+        <span
+          className={[ 'tool-stats-subrow-score', statsScoreToneClass(entry) ]
+            .filter(Boolean)
+            .join(' ')}
+        >
+          {formatStatsScoreCell(entry)}
         </span>
-      </button>
+        <button
+          type="button"
+          className={mergeAnilistLinkClass('tool-stats-subrow-show-btn', anilistLink.className)}
+          title={`${entry.title} (middle-click for AniList)`}
+          onClick={() => onOpenMedia(entry.mediaId, entry.title)}
+          onMouseDown={anilistLink.onMouseDown}
+          onAuxClick={anilistLink.onAuxClick}
+        >
+          <ToolEntityAvatar imageUrl={entry.coverImage} label={entry.title} variant="poster" />
+          <span className="tool-stats-subrow-show-text">
+            <span className="tool-stats-subrow-show-title">
+              {entry.title}
+              {repeatSuffix ? <span className="tool-stats-repeat">{repeatSuffix}</span> : null}
+            </span>
+            {hasCharacter ? (
+              <span className="tool-stats-subrow-show-meta">
+                <ToolCharacterName
+                  characterId={link?.characterId ?? 0}
+                  name={link?.characterName ?? ''}
+                />
+                {link?.characterRole ? ` (${link.characterRole})` : ''}
+              </span>
+            ) : staffRole ? (
+              <span className="tool-stats-subrow-show-meta">{staffRole}</span>
+            ) : null}
+          </span>
+        </button>
+      </div>
     </div>
   );
 }
@@ -313,9 +329,13 @@ function StatsMostCommonScoreModal({
   onOpenMedia: ToolPanelProps['onOpenMedia'];
 }) {
   return (
-    <Modal label={`Shows rated ${score}`} onClose={onClose} className="modal-wide">
+    <Modal
+      label={`Most Common Score (${score})`}
+      onClose={onClose}
+      className="modal-wide"
+    >
       <h3 className="tool-stats-modal-title">
-        Score {score}
+        Most Common Score ({score})
         <span className="tool-stats-modal-subtitle">({entries.length} shows)</span>
       </h3>
       <ul className="tool-rank-list tool-stats-score-list">
@@ -329,7 +349,6 @@ function StatsMostCommonScoreModal({
               onOpenMedia={onOpenMedia}
               compact
             />
-            <span className={statsScoreToneClass(entry)}>{formatStatsScoreCell(entry)}</span>
           </li>
         ))}
       </ul>
@@ -351,22 +370,24 @@ function StatsTimeWatchedChartModal({
     direction: 'desc',
   });
 
-  const maxMinutes = useMemo(
-    () => rows.reduce((max, row) => Math.max(max, row.minutes), 0),
-    [rows],
-  );
-
   const sortedRows = useMemo(() => {
     const copy = [...rows];
     const dir = sort.direction === 'asc' ? 1 : -1;
     copy.sort((a, b) => {
       switch (sort.column) {
+        case 'score':
+          return dir * compareStatsSortValues(
+            statsEntryScoreSortValue(a.entry),
+            statsEntryScoreSortValue(b.entry),
+          );
         case 'title':
           return dir * a.entry.title.localeCompare(b.entry.title);
-        case 'score': {
-          const aScore = statsRatedScore(a.entry) ?? -1;
-          const bScore = statsRatedScore(b.entry) ?? -1;
-          return dir * (aScore - bScore);
+        case 'episodes':
+          return dir * (statsEffectiveEpisodes(a.entry) - statsEffectiveEpisodes(b.entry));
+        case 'episodeLength': {
+          const aLen = a.entry.duration ?? 0;
+          const bLen = b.entry.duration ?? 0;
+          return dir * (aLen - bLen);
         }
         case 'time':
         default:
@@ -376,10 +397,23 @@ function StatsTimeWatchedChartModal({
     return copy;
   }, [rows, sort]);
 
+  const totals = useMemo(() => {
+    let episodes = 0;
+    let minutes = 0;
+    for (const row of rows) {
+      episodes += statsEffectiveEpisodes(row.entry);
+      minutes += row.minutes;
+    }
+    return { episodes, minutes };
+  }, [rows]);
+
   const onSort = (column: StatsTimeChartSortColumn) => {
     setSort((prev) => {
       if (prev.column !== column) {
-        return { column, direction: column === 'title' ? 'asc' : 'desc' };
+        return {
+          column,
+          direction: column === 'title' ? 'asc' : 'desc',
+        };
       }
       return { column, direction: prev.direction === 'desc' ? 'asc' : 'desc' };
     });
@@ -393,36 +427,14 @@ function StatsTimeWatchedChartModal({
   };
 
   return (
-    <Modal label="Time watched by show" onClose={onClose} className="modal-wide">
+    <Modal label="Time watched by show" onClose={onClose} className="modal-stats-time-watched">
       <h3 className="tool-stats-modal-title">Time watched by show</h3>
       <DragScroll className="tool-stats-time-chart-scroll">
         <table className="tool-stats-time-chart">
           <thead>
             <tr>
               <th
-                className="tool-chart-sort-th"
-                onClick={() => onSort('title')}
-              >
-                Title
-                {sortIndicator('title') ? (
-                  <span className="tool-chart-sort-indicator" aria-hidden="true">
-                    {sortIndicator('title')}
-                  </span>
-                ) : null}
-              </th>
-              <th
-                className="tool-chart-sort-th"
-                onClick={() => onSort('time')}
-              >
-                Time
-                {sortIndicator('time') ? (
-                  <span className="tool-chart-sort-indicator" aria-hidden="true">
-                    {sortIndicator('time')}
-                  </span>
-                ) : null}
-              </th>
-              <th
-                className="tool-chart-sort-th"
+                className="tool-chart-sort-th tool-stats-time-chart-score-head"
                 onClick={() => onSort('score')}
               >
                 Score
@@ -432,39 +444,82 @@ function StatsTimeWatchedChartModal({
                   </span>
                 ) : null}
               </th>
-              <th>Chart</th>
+              <th className="tool-chart-sort-th tool-stats-time-chart-show-head" onClick={() => onSort('title')}>
+                Show
+                {sortIndicator('title') ? (
+                  <span className="tool-chart-sort-indicator" aria-hidden="true">
+                    {sortIndicator('title')}
+                  </span>
+                ) : null}
+              </th>
+              <th className="tool-chart-sort-th" onClick={() => onSort('episodes')}>
+                Episodes watched
+                {sortIndicator('episodes') ? (
+                  <span className="tool-chart-sort-indicator" aria-hidden="true">
+                    {sortIndicator('episodes')}
+                  </span>
+                ) : null}
+              </th>
+              <th className="tool-chart-sort-th" onClick={() => onSort('episodeLength')}>
+                Episode length
+                {sortIndicator('episodeLength') ? (
+                  <span className="tool-chart-sort-indicator" aria-hidden="true">
+                    {sortIndicator('episodeLength')}
+                  </span>
+                ) : null}
+              </th>
+              <th className="tool-chart-sort-th" onClick={() => onSort('time')}>
+                Time watched
+                {sortIndicator('time') ? (
+                  <span className="tool-chart-sort-indicator" aria-hidden="true">
+                    {sortIndicator('time')}
+                  </span>
+                ) : null}
+              </th>
             </tr>
           </thead>
           <tbody>
             {sortedRows.map((row) => {
-              const widthPct =
-                maxMinutes > 0 ? Math.max(2, (row.minutes / maxMinutes) * 100) : 0;
+              const entry = row.entry;
+              const episodeLength = entry.duration ?? null;
               return (
-                <tr key={row.entry.mediaId}>
-                  <td className="tool-stats-time-chart-title">
+                <tr key={entry.mediaId}>
+                  <td className="tool-stats-time-chart-score">
+                    <span
+                      className={[ 'tool-season-score', statsScoreToneClass(entry) ]
+                        .filter(Boolean)
+                        .join(' ')}
+                    >
+                      {formatStatsScoreCell(entry)}
+                    </span>
+                  </td>
+                  <td className="tool-stats-time-chart-show">
                     <ToolShowButton
-                      mediaId={row.entry.mediaId}
-                      title={row.entry.title}
-                      coverImage={row.entry.coverImage}
-                      mediaType={row.entry.mediaType}
+                      mediaId={entry.mediaId}
+                      title={entry.title}
+                      coverImage={entry.coverImage}
+                      mediaType={entry.mediaType}
                       onOpenMedia={onOpenMedia}
                       compact
                     />
                   </td>
+                  <td className="tool-stats-time-chart-metric">{statsEffectiveEpisodes(entry)}</td>
                   <td className="tool-stats-time-chart-metric">
-                    {formatStatsDuration(row.minutes)}
+                    {episodeLength != null ? formatStatsDuration(episodeLength) : '—'}
                   </td>
-                  <td className={`tool-stats-time-chart-metric ${statsScoreToneClass(row.entry)}`}>
-                    {formatStatsScoreCell(row.entry)}
-                  </td>
-                  <td className="tool-stats-time-chart-bar-cell">
-                    <div className="tool-stats-time-bar-wrap" title={formatStatsDuration(row.minutes)}>
-                      <div className="tool-stats-time-bar" style={{ width: `${widthPct}%` }} />
-                    </div>
-                  </td>
+                  <td className="tool-stats-time-chart-metric">{formatStatsDuration(row.minutes)}</td>
                 </tr>
               );
             })}
+            <tr className="tool-stats-time-chart-total-row">
+              <td className="tool-stats-time-chart-score">—</td>
+              <td className="tool-stats-time-chart-total-label">Sum</td>
+              <td className="tool-stats-time-chart-metric">{totals.episodes}</td>
+              <td className="tool-stats-time-chart-metric">—</td>
+              <td className="tool-stats-time-chart-metric">
+                {formatStatsDurationWithDayCount(totals.minutes)}
+              </td>
+            </tr>
           </tbody>
         </table>
       </DragScroll>
@@ -484,8 +539,8 @@ function StatsSummarySection({
   onOpenTimeChart: () => void;
 }) {
   return (
-    <section className="tool-stats-summary">
-      <h3>Summary</h3>
+    <section className="tool-stats-summary-panel">
+      <h3 className="tool-stats-summary-heading">User Stats Summary</h3>
       <dl className="tool-stats-summary-grid">
         <div><dt>On list</dt><dd>{summary.onList}</dd></div>
         <div><dt>Rated</dt><dd>{summary.rated}</dd></div>
@@ -532,30 +587,44 @@ function StatsSummarySection({
   );
 }
 
+function StatsCappedChart({ children }: { children: React.ReactNode }): React.ReactElement {
+  return (
+    <div className="tool-chart-fullbleed tool-season-fullbleed">
+      <div className="tool-stats-scroll-card">
+        <DragScroll className="tool-chart-body-scroll tool-stats-results-scroll">
+          {children}
+        </DragScroll>
+      </div>
+    </div>
+  );
+}
+
 function StatsTable({
   title,
   rows,
   mediaType,
   sort,
   onSort,
-  showMainOnly,
+  showMainRoleInfo,
   showDiff,
   onOpenMedia,
   onOpenStaff,
   expandedKeys,
   onToggleExpand,
+  emptyMessage,
 }: {
   title: string;
   rows: StatsParentRow[];
   mediaType: StatsForm['mediaType'];
   sort: StatsSortState;
   onSort: (column: StatsSortColumn, backward: boolean) => void;
-  showMainOnly: boolean;
+  showMainRoleInfo: boolean;
   showDiff: boolean;
   onOpenMedia: ToolPanelProps['onOpenMedia'];
   onOpenStaff: ToolPanelProps['onOpenStaff'];
   expandedKeys: Set<string>;
   onToggleExpand: (key: string) => void;
+  emptyMessage?: string;
 }) {
   const isAnime = mediaType === 'ANIME';
   const columns: { key: StatsSortColumn; label: string }[] = [
@@ -564,7 +633,7 @@ function StatsTable({
     { key: 'meanScore', label: 'Mean Score' },
     { key: 'anilistMeanScore', label: 'Anilist Score' },
   ];
-  if (showMainOnly) {
+  if (showMainRoleInfo) {
     columns.push(
       { key: 'mainRoleCount', label: 'Main Role Count' },
       { key: 'mainRoleMeanScore', label: 'Main Role Mean Score' },
@@ -572,7 +641,7 @@ function StatsTable({
     );
   }
   if (showDiff) {
-    columns.push({ key: 'scoreDiff', label: 'Score Diff' });
+    columns.push({ key: 'scoreDiff', label: 'DIFF' });
   }
   if (isAnime) {
     columns.push(
@@ -599,7 +668,7 @@ function StatsTable({
         String(row.metrics.count),
         StatsMetricCell(row.metrics.meanScore),
         StatsMetricCell(row.metrics.anilistMeanScore),
-        ...(showMainOnly
+        ...(showMainRoleInfo
           ? [
               StatsMetricCell(row.metrics.mainRoleCount),
               StatsMetricCell(row.metrics.mainRoleMeanScore),
@@ -650,6 +719,9 @@ function StatsTable({
           <button type="button" className="btn small" onClick={exportJson}>JSON</button>
         </div>
       </div>
+      {rows.length === 0 && emptyMessage ? (
+        <p className="tool-empty tool-stats-table-empty">{emptyMessage}</p>
+      ) : (
       <DragScroll className="tool-stats-table-scroll">
         <table className="tool-stats-table">
           <thead>
@@ -702,7 +774,7 @@ function StatsTable({
                     <td>{row.metrics.count}</td>
                     <td>{StatsMetricCell(row.metrics.meanScore)}</td>
                     <td>{StatsMetricCell(row.metrics.anilistMeanScore)}</td>
-                    {showMainOnly ? (
+                    {showMainRoleInfo ? (
                       <>
                         <td>{StatsMetricCell(row.metrics.mainRoleCount)}</td>
                         <td>{StatsMetricCell(row.metrics.mainRoleMeanScore)}</td>
@@ -731,7 +803,7 @@ function StatsTable({
                         <StatsSubrowTr
                           key={`${row.key}:${sub.entry.mediaId}`}
                           sub={sub}
-                          showMainOnly={showMainOnly}
+                          showMainRoleInfo={showMainRoleInfo}
                           showDiff={showDiff}
                           isAnime={isAnime}
                           onOpenMedia={onOpenMedia}
@@ -744,19 +816,20 @@ function StatsTable({
           </tbody>
         </table>
       </DragScroll>
+      )}
     </section>
   );
 }
 
 function StatsSubrowTr({
   sub,
-  showMainOnly,
+  showMainRoleInfo,
   showDiff,
   isAnime,
   onOpenMedia,
 }: {
   sub: StatsSubrow;
-  showMainOnly: boolean;
+  showMainRoleInfo: boolean;
   showDiff: boolean;
   isAnime: boolean;
   onOpenMedia: ToolPanelProps['onOpenMedia'];
@@ -768,9 +841,9 @@ function StatsSubrowTr({
         <StatsSubrowNameCell entry={entry} link={sub.link} onOpenMedia={onOpenMedia} />
       </td>
       <td>1</td>
-      <td className={statsScoreToneClass(entry)}>{formatStatsScoreCell(entry)}</td>
+      <td>—</td>
       <td>{entry.meanScore ?? '—'}</td>
-      {showMainOnly ? <td colSpan={3}>—</td> : null}
+      {showMainRoleInfo ? <td colSpan={3}>—</td> : null}
       {showDiff ? <td>—</td> : null}
       {isAnime ? (
         <>
@@ -1015,6 +1088,9 @@ export function StatsPanel({
     [built, sort],
   );
 
+  const castNeedsExpand = cached != null && statsCachedNeedsCast(cached);
+  const aggregationEmptyHint = statsAggregationEmptyHint(form.aggregationType, castNeedsExpand);
+
   const onSort = useCallback((column: StatsSortColumn, backward: boolean) => {
     setSort((prev) => cycleStatsSort(prev, column, backward));
   }, []);
@@ -1030,13 +1106,6 @@ export function StatsPanel({
       return next;
     });
   }, []);
-
-  const listStatusOptions = useMemo(() => {
-    if (form.aggregationType === 'STAFF' || form.aggregationType === 'VA') {
-      return STATS_LIST_STATUS_OPTIONS.filter((s) => s !== 'PLANNING');
-    }
-    return [...STATS_LIST_STATUS_OPTIONS];
-  }, [form.aggregationType]);
 
   const showResults =
     built != null &&
@@ -1073,6 +1142,21 @@ export function StatsPanel({
             onChange={(username) => patchForm({ username: withLastAnilistUsername(username) })}
             onRefresh={() => refreshUsernameList(form.username, running)}
             refreshLabel="Refresh list from AniList"
+          />
+          <MultiSelectChip
+            label="list status"
+            options={[...STATS_LIST_STATUS_OPTIONS]}
+            selected={form.listStatusFilters}
+            formatOption={(s) => s}
+            onToggle={(status) =>
+              patchForm({ listStatusFilters: toggleInArray(form.listStatusFilters, status) })
+            }
+          />
+          <ScoreRangeChip
+            pill={form.userScoreInclude}
+            min={form.scoreMin}
+            max={form.scoreMax}
+            onChange={(patch) => patchForm(patch)}
           />
           <StatsToggleChip
             label="User Stats Summary"
@@ -1119,23 +1203,6 @@ export function StatsPanel({
               })
             }
           />
-
-          <MultiSelectChip
-            label="list status"
-            options={listStatusOptions}
-            selected={form.listStatusFilters.filter((s) => listStatusOptions.includes(s))}
-            formatOption={(s) => s}
-            onToggle={(status) =>
-              patchForm({ listStatusFilters: toggleInArray(form.listStatusFilters, status) })
-            }
-          />
-
-          <ScoreRangeChip
-            pill={form.userScoreInclude}
-            min={form.scoreMin}
-            max={form.scoreMax}
-            onChange={(patch) => patchForm(patch)}
-          />
         </div>
 
         <div className="tool-adaptation-primary-filters tool-seasonal-primary-filters tool-stats-type-filters">
@@ -1159,6 +1226,9 @@ export function StatsPanel({
               onToggle={(role) =>
                 patchForm({ staffRoleFilters: toggleInArray(form.staffRoleFilters, role) })
               }
+              onReplaceAll={(roles) =>
+                patchForm({ staffRoleFilters: [...roles] })
+              }
             />
           ) : null}
 
@@ -1174,10 +1244,11 @@ export function StatsPanel({
                 }
               />
               <StatsToggleChip
-                label="Main Only"
-                active={form.vaMainOnly}
+                label="Main Role Info"
+                active={form.vaShowMainRoleInfo}
                 disabled={running}
-                onToggle={() => patchForm({ vaMainOnly: !form.vaMainOnly })}
+                onToggle={() => patchForm({ vaShowMainRoleInfo: !form.vaShowMainRoleInfo })}
+                title="Show main-role count and score columns (does not filter rows)"
               />
               <StatsToggleChip
                 label="Anilist/User Score Diff"
@@ -1192,11 +1263,11 @@ export function StatsPanel({
             <TagOptionsChip
               mode={form.tagOptions.tagMode}
               minRank={form.tagOptions.tagMinRank}
+              showModeToggle={false}
               onChange={(patch) =>
                 patchForm({
                   tagOptions: {
                     ...form.tagOptions,
-                    ...(patch.tagMode != null ? { tagMode: patch.tagMode } : {}),
                     ...(patch.tagMinRank != null ? { tagMinRank: patch.tagMinRank } : {}),
                   },
                 })
@@ -1206,7 +1277,7 @@ export function StatsPanel({
 
           {form.aggregationType === 'STUDIOS' ? (
             <MultiSelectChip
-              label="studio kind"
+              label="studio type"
               options={[...STATS_STUDIO_KIND_OPTIONS]}
               selected={form.studioKindFilters}
               formatOption={(k) => (k === 'animation' ? 'Animation' : 'Non-animation')}
@@ -1241,7 +1312,116 @@ export function StatsPanel({
       </form>
 
       {showResults && built && (
-        <div className="tool-chart-fullbleed">
+        <>
+          {form.aggregationType === 'STAFF' && (
+            <StatsCappedChart>
+              <StatsTable
+                title="Staff"
+                rows={sortedStaffRows}
+                mediaType={form.mediaType}
+                sort={sort}
+                onSort={onSort}
+                showMainRoleInfo={false}
+                showDiff={false}
+                onOpenMedia={onOpenMedia}
+                onOpenStaff={onOpenStaff}
+                expandedKeys={expandedKeys}
+                onToggleExpand={onToggleExpand}
+                emptyMessage={aggregationEmptyHint}
+              />
+            </StatsCappedChart>
+          )}
+
+          {form.aggregationType === 'VA' && (
+            <StatsCappedChart>
+              <StatsTable
+                title="Voice Actors"
+                rows={sortedVaRows}
+                mediaType={form.mediaType}
+                sort={sort}
+                onSort={onSort}
+                showMainRoleInfo={form.vaShowMainRoleInfo}
+                showDiff={form.vaShowDiff}
+                onOpenMedia={onOpenMedia}
+                onOpenStaff={onOpenStaff}
+                expandedKeys={expandedKeys}
+                onToggleExpand={onToggleExpand}
+                emptyMessage={aggregationEmptyHint}
+              />
+            </StatsCappedChart>
+          )}
+
+          {form.aggregationType === 'GENRES_TAGS' && (
+            <>
+              <StatsCappedChart>
+                <StatsTable
+                  title="Genres"
+                  rows={sortedGenreRows}
+                  mediaType={form.mediaType}
+                  sort={sort}
+                  onSort={onSort}
+                  showMainRoleInfo={false}
+                  showDiff={false}
+                  onOpenMedia={onOpenMedia}
+                  onOpenStaff={onOpenStaff}
+                  expandedKeys={expandedKeys}
+                  onToggleExpand={onToggleExpand}
+                  emptyMessage={aggregationEmptyHint}
+                />
+              </StatsCappedChart>
+              <StatsCappedChart>
+                <StatsTable
+                  title="AniList Tags"
+                  rows={sortedTagRows}
+                  mediaType={form.mediaType}
+                  sort={sort}
+                  onSort={onSort}
+                  showMainRoleInfo={false}
+                  showDiff={false}
+                  onOpenMedia={onOpenMedia}
+                  onOpenStaff={onOpenStaff}
+                  expandedKeys={expandedKeys}
+                  onToggleExpand={onToggleExpand}
+                  emptyMessage={aggregationEmptyHint}
+                />
+              </StatsCappedChart>
+              <StatsCappedChart>
+                <StatsTable
+                  title="Custom Tags"
+                  rows={sortedCustomTagRows}
+                  mediaType={form.mediaType}
+                  sort={sort}
+                  onSort={onSort}
+                  showMainRoleInfo={false}
+                  showDiff={false}
+                  onOpenMedia={onOpenMedia}
+                  onOpenStaff={onOpenStaff}
+                  expandedKeys={expandedKeys}
+                  onToggleExpand={onToggleExpand}
+                  emptyMessage={aggregationEmptyHint}
+                />
+              </StatsCappedChart>
+            </>
+          )}
+
+          {form.aggregationType === 'STUDIOS' && (
+            <StatsCappedChart>
+              <StatsTable
+                title="Studios"
+                rows={sortedStudioRows}
+                mediaType={form.mediaType}
+                sort={sort}
+                onSort={onSort}
+                showMainRoleInfo={false}
+                showDiff={false}
+                onOpenMedia={onOpenMedia}
+                onOpenStaff={onOpenStaff}
+                expandedKeys={expandedKeys}
+                onToggleExpand={onToggleExpand}
+                emptyMessage={aggregationEmptyHint}
+              />
+            </StatsCappedChart>
+          )}
           {built.summary && (
             <StatsSummarySection
               summary={built.summary}
@@ -1250,99 +1430,7 @@ export function StatsPanel({
               onOpenTimeChart={() => setSummaryModal('time-chart')}
             />
           )}
-
-          {form.aggregationType === 'STAFF' && (
-            <StatsTable
-              title="Staff"
-              rows={sortedStaffRows}
-              mediaType={form.mediaType}
-              sort={sort}
-              onSort={onSort}
-              showMainOnly={false}
-              showDiff={false}
-              onOpenMedia={onOpenMedia}
-              onOpenStaff={onOpenStaff}
-              expandedKeys={expandedKeys}
-              onToggleExpand={onToggleExpand}
-            />
-          )}
-
-          {form.aggregationType === 'VA' && (
-            <StatsTable
-              title="Voice Actors"
-              rows={sortedVaRows}
-              mediaType={form.mediaType}
-              sort={sort}
-              onSort={onSort}
-              showMainOnly={form.vaMainOnly}
-              showDiff={form.vaShowDiff}
-              onOpenMedia={onOpenMedia}
-              onOpenStaff={onOpenStaff}
-              expandedKeys={expandedKeys}
-              onToggleExpand={onToggleExpand}
-            />
-          )}
-
-          {form.aggregationType === 'GENRES_TAGS' && (
-            <>
-              <StatsTable
-                title="Genres"
-                rows={sortedGenreRows}
-                mediaType={form.mediaType}
-                sort={sort}
-                onSort={onSort}
-                showMainOnly={false}
-                showDiff={false}
-                onOpenMedia={onOpenMedia}
-                onOpenStaff={onOpenStaff}
-                expandedKeys={expandedKeys}
-                onToggleExpand={onToggleExpand}
-              />
-              <StatsTable
-                title="AniList Tags"
-                rows={sortedTagRows}
-                mediaType={form.mediaType}
-                sort={sort}
-                onSort={onSort}
-                showMainOnly={false}
-                showDiff={false}
-                onOpenMedia={onOpenMedia}
-                onOpenStaff={onOpenStaff}
-                expandedKeys={expandedKeys}
-                onToggleExpand={onToggleExpand}
-              />
-              <StatsTable
-                title="Custom Tags"
-                rows={sortedCustomTagRows}
-                mediaType={form.mediaType}
-                sort={sort}
-                onSort={onSort}
-                showMainOnly={false}
-                showDiff={false}
-                onOpenMedia={onOpenMedia}
-                onOpenStaff={onOpenStaff}
-                expandedKeys={expandedKeys}
-                onToggleExpand={onToggleExpand}
-              />
-            </>
-          )}
-
-          {form.aggregationType === 'STUDIOS' && (
-            <StatsTable
-              title="Studios"
-              rows={sortedStudioRows}
-              mediaType={form.mediaType}
-              sort={sort}
-              onSort={onSort}
-              showMainOnly={false}
-              showDiff={false}
-              onOpenMedia={onOpenMedia}
-              onOpenStaff={onOpenStaff}
-              expandedKeys={expandedKeys}
-              onToggleExpand={onToggleExpand}
-            />
-          )}
-        </div>
+        </>
       )}
 
       {summaryModal === 'score-list' &&

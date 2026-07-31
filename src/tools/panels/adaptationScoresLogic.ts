@@ -79,6 +79,35 @@ export const DEFAULT_ADAPTATION_FILTERS: AdaptationFilters = {
 /** Segmented control for which user lists seed adaptation pairs. */
 export type AdaptationListMediaMode = 'anime' | 'manga' | 'both';
 
+export const ADAPTATION_LIST_MEDIA_TYPE_OPTIONS = ['ANIME', 'MANGA'] as const;
+export type AdaptationListMediaType = (typeof ADAPTATION_LIST_MEDIA_TYPE_OPTIONS)[number];
+
+export function adaptationSelectedListMediaTypes(
+  filters: Pick<AdaptationFilters, 'includeAnime' | 'includeManga'>,
+): AdaptationListMediaType[] {
+  const selected: AdaptationListMediaType[] = [];
+  if (filters.includeAnime) {
+    selected.push('ANIME');
+  }
+  if (filters.includeManga) {
+    selected.push('MANGA');
+  }
+  return selected;
+}
+
+export function adaptationListMediaTypesToFilters(
+  types: readonly AdaptationListMediaType[],
+): Pick<AdaptationFilters, 'includeAnime' | 'includeManga'> {
+  return {
+    includeAnime: types.includes('ANIME'),
+    includeManga: types.includes('MANGA'),
+  };
+}
+
+export function adaptationListMediaTypeLabel(type: AdaptationListMediaType): string {
+  return type === 'ANIME' ? 'Anime' : 'Manga';
+}
+
 export function adaptationListMediaModeFromFilters(filters: Pick<AdaptationFilters, 'includeAnime' | 'includeManga'>): AdaptationListMediaMode {
   if (filters.includeAnime && filters.includeManga) {
     return 'both';

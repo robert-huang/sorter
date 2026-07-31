@@ -266,8 +266,8 @@ function buildMediaFavouritesTransaction(
   for (const edge of edges) {
     for (const ms of mapMediaStudioRows(edge.node)) {
       stmts.push({
-        sql: 'INSERT INTO media_studio (media_id, studio_id, sort_order) VALUES (?, ?, ?)',
-        params: [ms.media_id, ms.studio_id, ms.sort_order],
+        sql: 'INSERT INTO media_studio (media_id, studio_id, sort_order, is_main) VALUES (?, ?, ?, ?)',
+        params: [ms.media_id, ms.studio_id, ms.sort_order, ms.is_main],
       });
     }
     for (const mt of mapMediaTagRows(edge.node)) {
