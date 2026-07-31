@@ -1234,7 +1234,7 @@ html {
 
 .filter-chip-option-text {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 6px;
   flex: 1 1 auto;
   min-width: 0;
@@ -1247,7 +1247,7 @@ html {
 
 .filter-chip-option-text .tool-franchise-format {
   flex-shrink: 0;
-  align-self: flex-start;
+  align-self: center;
 }
 
 /* Middle-click AniList affordance on filter rows — keep normal text
@@ -1494,7 +1494,7 @@ html {
 }
 
 .filter-chip-menu-capped .filter-chip-option {
-  align-items: flex-start;
+  align-items: center;
   min-width: 0;
   max-width: var(--filter-chip-menu-capped-width);
   box-sizing: border-box;
