@@ -26,6 +26,7 @@ vi.mock('../../lib/importers/anilist/toolsAnilistAccess', async (importOriginal)
   return {
     ...actual,
     ensureMediaCastFreshBatch: vi.fn(),
+    ensureMediaStudiosFreshBatch: vi.fn(),
     readShowStaffBundleFromDb: vi.fn(),
   };
 });
