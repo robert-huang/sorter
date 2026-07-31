@@ -8,7 +8,9 @@ import type { AnilistDbExecutor, AnilistImportContext } from '../context';
 import {
   expandAnilistMediaDetail,
   listedMediaNeedsSourceRepair,
+  mediaIdsNeedingStudioRepair,
   repairListedMediaNullSource,
+  repairMediaStudioCreditsBatch,
 } from '../lazyExpansion';
 import type {
   AnilistCharacterGql,
@@ -768,6 +770,92 @@ describe('repairListedMediaNullSource', () => {
     expect(await repairListedMediaNullSource(ctx, 1, { type: 'ANIME' })).toBe(3);
     expect(executeQuery).toHaveBeenCalledTimes(1);
     expect(executeQuery.mock.calls[0][1].mediaIds).toEqual([101, 102, 103]);
+    db.close();
+  });
+});
+
+describe('repairMediaStudioCreditsBatch', () => {
+  const graphMediaGql = {
+    id: 500,
+    type: 'ANIME' as const,
+    title: { english: 'Graph', romaji: 'Graph', native: null },
+    coverImage: { large: 'https://example.test/cover.jpg' },
+    format: 'TV' as const,
+    source: 'ORIGINAL' as const,
+    status: 'FINISHED' as const,
+    episodes: 12,
+    chapters: null,
+    startDate: { year: 2020, month: 1, day: 1 },
+    endDate: null,
+    season: null,
+    seasonYear: null,
+    meanScore: 80,
+    favourites: 10,
+    countryOfOrigin: 'JP' as const,
+    genres: ['Action'],
+    synonyms: ['Alt'],
+    studios: {
+      edges: [{ isMain: true, node: { id: 7, name: 'Studio Seven' } }],
+    },
+    tags: [{ name: 'Adventure', rank: 90 }],
+  };
+
+  it('upserts media parent rows and tags before studio junctions for list-only ids', async () => {
+    const db = await freshAnilistDb();
+    const executeQuery = vi.fn().mockResolvedValue({
+      Page: {
+        pageInfo: { hasNextPage: false, currentPage: 1 },
+        media: [graphMediaGql],
+      },
+    });
+    const ctx: AnilistImportContext = {
+      db: makeDbAdapter(db),
+      executeQuery,
+      now: () => NOW,
+    };
+
+    expect(await repairMediaStudioCreditsBatch(ctx, [500])).toBe(1);
+    const media = db.selectObject(
+      'SELECT id, genres_json, studios_fetched_at FROM media WHERE id = 500',
+    );
+    expect(media).toMatchObject({
+      id: 500,
+      genres_json: '["Action"]',
+      studios_fetched_at: NOW,
+    });
+    const studioRow = db.selectObject(
+      'SELECT studio_id, is_main FROM media_studio WHERE media_id = 500',
+    );
+    expect(studioRow).toEqual({ studio_id: 7, is_main: 1 });
+    const tagRow = db.selectObject(
+      'SELECT tag_name, rank FROM media_tag WHERE media_id = 500',
+    );
+    expect(tagRow).toEqual({ tag_name: 'Adventure', rank: 90 });
+    db.close();
+  });
+
+  it('does not re-select zero-studio media after studios_fetched_at is set', async () => {
+    const db = await freshAnilistDb();
+    const executeQuery = vi.fn().mockResolvedValue({
+      Page: {
+        pageInfo: { hasNextPage: false, currentPage: 1 },
+        media: [{ ...graphMediaGql, studios: { edges: [] }, tags: [] }],
+      },
+    });
+    const ctx: AnilistImportContext = {
+      db: makeDbAdapter(db),
+      executeQuery,
+      now: () => NOW,
+    };
+    db.exec(
+      `INSERT INTO media (id, type, fetched_at, updated_at, studios_fetched_at)
+       VALUES (500, 'ANIME', ?, ?, NULL)`,
+      { bind: [NOW, NOW] },
+    );
+
+    expect(await mediaIdsNeedingStudioRepair(ctx.db, [500])).toEqual([500]);
+    await repairMediaStudioCreditsBatch(ctx, [500]);
+    expect(await mediaIdsNeedingStudioRepair(ctx.db, [500])).toEqual([]);
     db.close();
   });
 });

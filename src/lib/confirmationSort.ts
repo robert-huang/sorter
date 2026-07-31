@@ -601,8 +601,18 @@ export function addItems(
   for (const it of items) {
     const wasHidden = cur.hidden.includes(it.id);
     const added = addItem(cur, it);
-    if (added === null) skipped.push(it.id);
-    else {
+    if (added === null) {
+      skipped.push(it.id);
+      if (cur.items[it.id]) {
+        cur = {
+          ...cur,
+          items: {
+            ...cur.items,
+            [it.id]: mergeCatalogItem(cur, it),
+          },
+        };
+      }
+    } else {
       cur = added;
       if (wasHidden) restored.push(it.id);
     }

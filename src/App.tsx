@@ -1271,7 +1271,12 @@ export function App() {
       );
       reportAddItemsResult({ skipped, restored });
 
+      const metadataChanged = next.items !== base.items;
       if (next.done && !resumed) {
+        if (metadataChanged && target === 'current') {
+          pushUndo(state);
+          setState(next);
+        }
         return;
       }
 

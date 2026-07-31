@@ -543,6 +543,8 @@ export type MediaRow = {
   genres_json: string | null;
   /** JSON-stringified `string[]` of alternative titles. */
   synonyms_json: string | null;
+  /** Set when studio edges (with isMain) were imported or repaired. */
+  studios_fetched_at?: number | null;
   fetched_at: number;
   updated_at: number;
 };

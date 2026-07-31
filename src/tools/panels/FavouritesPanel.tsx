@@ -461,12 +461,22 @@ export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
   const [progress, setProgress] = useState<FavouritesRunProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<FavouritesResult | null>(null);
+  const [resultUsername, setResultUsername] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const rebuildSourceRef = useRef<FavouritesRebuildSource | null>(null);
 
   useEffect(() => {
     saveForm(form);
   }, [form]);
+
+  useEffect(() => {
+    const handle = form.username.trim().toLowerCase();
+    if (resultUsername && handle !== resultUsername) {
+      setResult(null);
+      setResultUsername(null);
+      rebuildSourceRef.current = null;
+    }
+  }, [form.username, resultUsername]);
 
   useEffect(() => {
     const source = rebuildSourceRef.current;
@@ -494,6 +504,7 @@ export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
       if (!username) {
         setError('Enter an AniList username.');
         setResult(null);
+        setResultUsername(null);
         return;
       }
 
@@ -501,9 +512,12 @@ export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
       const controller = new AbortController();
       abortRef.current = controller;
 
+      const priorResult = result;
+      const priorUsername = resultUsername;
+      const priorRebuildSource = rebuildSourceRef.current;
+
       setRunning(true);
       setError(null);
-      setResult(null);
       rebuildSourceRef.current = null;
       setProgress({ phase: 'list' });
 
@@ -516,10 +530,17 @@ export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
         );
         rebuildSourceRef.current = rebuildSource;
         setResult(report);
+        setResultUsername(username.trim().toLowerCase());
       } catch (e) {
         if (e instanceof DOMException && e.name === 'AbortError') {
+          rebuildSourceRef.current = priorRebuildSource;
+          setResult(priorResult);
+          setResultUsername(priorUsername);
           return;
         }
+        rebuildSourceRef.current = priorRebuildSource;
+        setResult(priorResult);
+        setResultUsername(priorUsername);
         setError(e instanceof Error ? e.message : 'Failed to run analysis.');
       } finally {
         if (abortRef.current === controller) {
@@ -529,8 +550,13 @@ export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
         }
       }
     },
-    [form],
+    [form, result, resultUsername],
   );
+
+  const showResults =
+    result != null &&
+    resultUsername != null &&
+    resultUsername === form.username.trim().toLowerCase();
 
   const onRun = useCallback(
     (forceRefreshFavourites = false) => {
@@ -618,7 +644,7 @@ export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
         {error && <p className="tool-error">{error}</p>}
       </form>
 
-      {result && (
+      {showResults && (
         <div className="tool-results favourites-results">
           <p className="tool-summary">
             {result.characterCount} favourite characters · {result.vaCount} VAs ·{' '}

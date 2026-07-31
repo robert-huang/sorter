@@ -209,6 +209,7 @@ const MEDIA_COLS = [
   'country_of_origin',
   'genres_json',
   'synonyms_json',
+  'studios_fetched_at',
   'fetched_at',
   'updated_at',
 ] as const;
@@ -270,6 +271,9 @@ export function mediaRowToParams(row: MediaRow): SqlBindable[] {
     }
     if (c === 'source_fetched_at') {
       return row.source_fetched_at ?? null;
+    }
+    if (c === 'studios_fetched_at') {
+      return row.studios_fetched_at ?? null;
     }
     return row[c];
   });
@@ -427,6 +431,12 @@ function buildListImportStatements(
         params: [mt.media_id, mt.tag_name, mt.rank],
       });
     }
+  }
+  for (const mediaId of affectedIds) {
+    stmts.push({
+      sql: 'UPDATE media SET studios_fetched_at = ? WHERE id = ?',
+      params: [now, mediaId],
+    });
   }
 
   // 5. Fresh list entries (parents + user are upserted above, so FKs

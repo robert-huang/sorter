@@ -1110,8 +1110,20 @@ export function addItems(
       }
       continue;
     }
-    if (isItemInActiveRanking(cur, it.id)) skipped.push(it.id);
-    else survivors.push(it);
+    if (isItemInActiveRanking(cur, it.id)) {
+      skipped.push(it.id);
+      if (cur.items[it.id]) {
+        cur = {
+          ...cur,
+          items: {
+            ...cur.items,
+            [it.id]: mergeIncomingCatalogItem(cur, it),
+          },
+        };
+      }
+      continue;
+    }
+    survivors.push(it);
   }
 
   if (survivors.length === 0) {

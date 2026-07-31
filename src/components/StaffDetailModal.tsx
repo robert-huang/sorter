@@ -164,9 +164,18 @@ export function StaffDetailModal({
   );
 
   const applyFilmography = useCallback(
-    async (options?: { autoExpandIfMissing?: boolean }) => {
+    async (options?: { autoExpandIfMissing?: boolean; isStale?: () => boolean }) => {
+      if (options?.isStale?.()) {
+        return;
+      }
       let d = await productionReads.getStaffFilmography(staffId);
+      if (options?.isStale?.()) {
+        return;
+      }
       const user = await productionReads.getLatestAnilistUser();
+      if (options?.isStale?.()) {
+        return;
+      }
       setDetail(d);
       setListUserId(user?.id ?? null);
 
@@ -174,17 +183,34 @@ export function StaffDetailModal({
         setExpanding(true);
         setProgress(null);
         try {
-          await runAnilistStaffFilmographyExpansion(staffId, (e) => setProgress(e));
+          await runAnilistStaffFilmographyExpansion(staffId, (e) => {
+            if (!options?.isStale?.()) {
+              setProgress(e);
+            }
+          });
+          if (options?.isStale?.()) {
+            return;
+          }
           d = await productionReads.getStaffFilmography(staffId);
+          if (options?.isStale?.()) {
+            return;
+          }
           setDetail(d);
         } catch (err) {
-          setError(err instanceof Error ? err.message : 'Refresh failed.');
+          if (!options?.isStale?.()) {
+            setError(err instanceof Error ? err.message : 'Refresh failed.');
+          }
         } finally {
-          setExpanding(false);
-          setProgress(null);
+          if (!options?.isStale?.()) {
+            setExpanding(false);
+            setProgress(null);
+          }
         }
       }
 
+      if (options?.isStale?.()) {
+        return;
+      }
       await refreshMyListIds(user?.id ?? null, d.credits.map((c) => c.media.id));
     },
     [staffId, refreshMyListIds],
@@ -195,7 +221,10 @@ export function StaffDetailModal({
     let cancelled = false;
     setLoading(true);
     setError(null);
-    void applyFilmography({ autoExpandIfMissing: true })
+    void applyFilmography({
+      autoExpandIfMissing: true,
+      isStale: () => cancelled,
+    })
       .catch((err) => {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : 'Could not load staff.');
@@ -218,14 +247,21 @@ export function StaffDetailModal({
     setExpanding(true);
     setError(null);
     setProgress(null);
+    const refreshGeneration = staffId;
     try {
       await runAnilistStaffFilmographyExpansion(staffId, (e) => setProgress(e));
-      await applyFilmography();
+      await applyFilmography({
+        isStale: () => refreshGeneration !== staffId,
+      });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Refresh failed.');
+      if (refreshGeneration === staffId) {
+        setError(err instanceof Error ? err.message : 'Refresh failed.');
+      }
     } finally {
-      setExpanding(false);
-      setProgress(null);
+      if (refreshGeneration === staffId) {
+        setExpanding(false);
+        setProgress(null);
+      }
     }
   }, [staffId, expanding, applyFilmography]);
 

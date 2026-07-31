@@ -8,7 +8,8 @@
  */
 
 import type { AnilistDbExecutor, AnilistImportContext, SqlBindable } from './context';
-import { MEDIA_UPSERT_SQL, mediaRowToParams, STUDIO_UPSERT_SQL } from './importer';
+import { execBatchInChunks } from './context';
+import { MEDIA_UPSERT_SQL, mediaRowToParams, STUDIO_UPSERT_SQL, TAG_UPSERT_SQL } from './importer';
 import {
   mapCharacterRow,
   mapCharacterVoiceActorRows,
@@ -16,8 +17,10 @@ import {
   mapMediaRow,
   mapMediaStudioRows,
   mapMediaStaffRows,
+  mapMediaTagRows,
   mapStaffRow,
   mapStudioRows,
+  mapTagRows,
 } from './mappers';
 import { emitProgress } from './progress';
 import { ANILIST_TOOLS_MAX_PAGE_SIZE } from './depaginate';
@@ -555,6 +558,45 @@ async function upsertRepairedMediaNodes(
   return mediaNodes.length;
 }
 
+/** SQLite variable limit guard for `IN (...)` repair queries. */
+const MEDIA_IDS_REPAIR_QUERY_CHUNK = 500;
+
+async function mediaIdsPresentInDb(
+  db: AnilistDbExecutor,
+  mediaIds: readonly number[],
+): Promise<Set<number>> {
+  const present = new Set<number>();
+  if (mediaIds.length === 0) {
+    return present;
+  }
+  const unique = [...new Set(mediaIds)];
+  for (let offset = 0; offset < unique.length; offset += MEDIA_IDS_REPAIR_QUERY_CHUNK) {
+    const chunk = unique.slice(offset, offset + MEDIA_IDS_REPAIR_QUERY_CHUNK);
+    const placeholders = chunk.map(() => '?').join(', ');
+    const rows = await db.exec(
+      `SELECT id FROM media WHERE id IN (${placeholders})`,
+      chunk,
+    );
+    for (const row of rows) {
+      present.add(Number(row.id));
+    }
+  }
+  return present;
+}
+
+/** Media ids from the input set that have no `media` parent row yet. */
+export async function mediaIdsMissingFromDb(
+  db: AnilistDbExecutor,
+  mediaIds: readonly number[],
+): Promise<number[]> {
+  if (mediaIds.length === 0) {
+    return [];
+  }
+  const unique = [...new Set(mediaIds)];
+  const present = await mediaIdsPresentInDb(db, unique);
+  return unique.filter((id) => !present.has(id));
+}
+
 /** Media whose cached studio junction is missing or lacks StudioEdge.isMain. */
 export async function mediaIdsNeedingStudioRepair(
   db: AnilistDbExecutor,
@@ -564,34 +606,42 @@ export async function mediaIdsNeedingStudioRepair(
     return [];
   }
   const unique = [...new Set(mediaIds)];
-  const placeholders = unique.map(() => '?').join(', ');
-  const nullMainRows = await db.exec(
-    `SELECT DISTINCT ms.media_id AS id
-       FROM media_studio ms
-      WHERE ms.media_id IN (${placeholders})
-        AND ms.is_main IS NULL`,
-    unique,
-  );
-  const missingRows = await db.exec(
-    `SELECT m.id
-       FROM media m
-      WHERE m.id IN (${placeholders})
-        AND NOT EXISTS (
-          SELECT 1 FROM media_studio ms WHERE ms.media_id = m.id
-        )`,
-    unique,
-  );
   const out = new Set<number>();
-  for (const row of nullMainRows) {
-    out.add(Number(row.id));
+  for (let offset = 0; offset < unique.length; offset += MEDIA_IDS_REPAIR_QUERY_CHUNK) {
+    const chunk = unique.slice(offset, offset + MEDIA_IDS_REPAIR_QUERY_CHUNK);
+    const placeholders = chunk.map(() => '?').join(', ');
+    const nullMainRows = await db.exec(
+      `SELECT DISTINCT ms.media_id AS id
+         FROM media_studio ms
+        WHERE ms.media_id IN (${placeholders})
+          AND ms.is_main IS NULL`,
+      chunk,
+    );
+    const missingRows = await db.exec(
+      `SELECT m.id
+         FROM media m
+        WHERE m.id IN (${placeholders})
+          AND m.studios_fetched_at IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM media_studio ms WHERE ms.media_id = m.id
+          )`,
+      chunk,
+    );
+    for (const row of nullMainRows) {
+      out.add(Number(row.id));
+    }
+    for (const row of missingRows) {
+      out.add(Number(row.id));
+    }
   }
-  for (const row of missingRows) {
-    out.add(Number(row.id));
+  const missingFromDb = await mediaIdsMissingFromDb(db, unique);
+  for (const id of missingFromDb) {
+    out.add(id);
   }
   return [...out];
 }
 
-async function upsertMediaStudiosFromGql(
+async function upsertMediaGraphFromGql(
   ctx: AnilistImportContext,
   mediaNodes: readonly AnilistMediaGql[],
 ): Promise<number> {
@@ -601,9 +651,13 @@ async function upsertMediaStudiosFromGql(
 
   const now = ctx.now();
   const studios = new Map<number, { id: number; name: string; fetched_at: number }>();
+  const tags = new Map<string, { name: string; fetched_at: number }>();
   for (const media of mediaNodes) {
     for (const studio of mapStudioRows(media, now)) {
       studios.set(studio.id, studio);
+    }
+    for (const tag of mapTagRows(media, now)) {
+      tags.set(tag.name, tag);
     }
   }
 
@@ -611,11 +665,24 @@ async function upsertMediaStudiosFromGql(
   for (const studio of studios.values()) {
     stmts.push({ sql: STUDIO_UPSERT_SQL, params: [studio.id, studio.name, studio.fetched_at] });
   }
+  for (const tag of tags.values()) {
+    stmts.push({ sql: TAG_UPSERT_SQL, params: [tag.name, tag.fetched_at] });
+  }
+  for (const media of mediaNodes) {
+    stmts.push({
+      sql: MEDIA_UPSERT_SQL,
+      params: mediaRowToParams(mapMediaRow(media, now)),
+    });
+  }
 
   const mediaIds = mediaNodes.map((media) => media.id);
   const placeholders = mediaIds.map(() => '?').join(', ');
   stmts.push({
     sql: `DELETE FROM media_studio WHERE media_id IN (${placeholders})`,
+    params: mediaIds,
+  });
+  stmts.push({
+    sql: `DELETE FROM media_tag WHERE media_id IN (${placeholders})`,
     params: mediaIds,
   });
 
@@ -626,9 +693,21 @@ async function upsertMediaStudiosFromGql(
         params: [row.media_id, row.studio_id, row.sort_order, row.is_main],
       });
     }
+    for (const row of mapMediaTagRows(media)) {
+      stmts.push({
+        sql: 'INSERT INTO media_tag (media_id, tag_name, rank) VALUES (?, ?, ?)',
+        params: [row.media_id, row.tag_name, row.rank],
+      });
+    }
+  }
+  for (const mediaId of mediaIds) {
+    stmts.push({
+      sql: 'UPDATE media SET studios_fetched_at = ? WHERE id = ?',
+      params: [now, mediaId],
+    });
   }
 
-  await ctx.db.execBatch(stmts);
+  await execBatchInChunks(ctx.db, stmts);
   if (ctx.onDirtyIncrement) {
     await ctx.onDirtyIncrement();
   }
@@ -663,7 +742,7 @@ export async function repairMediaStudioCreditsBatch(
         resolved.push(node);
       }
     }
-    repaired += await upsertMediaStudiosFromGql(ctx, resolved);
+    repaired += await upsertMediaGraphFromGql(ctx, resolved);
   }
 
   return repaired;
