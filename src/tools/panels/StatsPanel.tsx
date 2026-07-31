@@ -1279,12 +1279,8 @@ export function StatsPanel({
   );
 
   const onToggleShowSummary = useCallback(() => {
-    const nextShowSummary = !form.showSummary;
-    patchForm({ showSummary: nextShowSummary });
-    if (nextShowSummary && !cached && !running && form.username.trim()) {
-      void runFetch({ expandCast: false });
-    }
-  }, [cached, form.showSummary, form.username, patchForm, running, runFetch]);
+    patchForm({ showSummary: !form.showSummary });
+  }, [form.showSummary, patchForm]);
 
   const onExpandCast = useCallback(() => {
     if (!cached) {
@@ -1336,6 +1332,21 @@ export function StatsPanel({
       setCached(null);
     }
   }, [cached, form.mediaType, form.username]);
+
+  useEffect(() => {
+    if (!form.showSummary || running || !form.username.trim()) {
+      return;
+    }
+    const handle = form.username.trim().toLowerCase();
+    const cacheMatches =
+      cached != null &&
+      cached.mediaType === form.mediaType &&
+      cached.username.trim().toLowerCase() === handle;
+    if (cacheMatches) {
+      return;
+    }
+    void runFetch({ expandCast: false });
+  }, [cached, form.mediaType, form.showSummary, form.username, running, runFetch]);
 
   useEffect(() => {
     if (!cached || running || form.showSummary) {
