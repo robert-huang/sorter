@@ -622,7 +622,6 @@ export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
         <div className="tool-results favourites-results">
           <p className="tool-summary">
             {result.characterCount} favourite characters · {result.vaCount} VAs ·{' '}
-            {result.numSeen} seen on your list
             {mainRolePct !== null ? (
               <>
                 {' · '}
