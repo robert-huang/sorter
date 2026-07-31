@@ -1441,7 +1441,7 @@ export function buildStatsResult(entries: readonly StatsEntry[], form: StatsForm
   const staffRows = buildStaffStatsRows(pool, form);
   const vaRows = buildVaStatsRows(pool, form);
   const studioRows = buildStudioStatsRows(pool, form);
-  const summary = form.showSummary ? buildStatsSummary(pool) : null;
+  const summary = buildStatsSummary(pool);
   return {
     pool,
     genreRows,

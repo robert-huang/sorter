@@ -29,10 +29,14 @@ vi.mock('../../lib/importers/anilist/toolsImportContext', () => ({
   getToolsImportContext: vi.fn(),
 }));
 
-vi.mock('../../lib/importers/anilist/toolsAnilistAccess', () => ({
-  ensureUserMediaListFresh: vi.fn(),
-  readUserMediaListEntriesFromDb: vi.fn(),
-}));
+vi.mock('../../lib/importers/anilist/toolsAnilistAccess', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/importers/anilist/toolsAnilistAccess')>();
+  return {
+    ...actual,
+    ensureUserMediaListFresh: vi.fn(),
+    readUserMediaListEntriesFromDb: vi.fn(),
+  };
+});
 
 import { executeAnilistQuery } from '../../lib/importers/anilist/transport';
 import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportContext';

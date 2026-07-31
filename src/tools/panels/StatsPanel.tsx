@@ -1166,10 +1166,21 @@ export function StatsPanel({
 
   const onRun = useCallback(
     (forceRefresh = false) => {
-      void runFetch({ forceRefresh, expandCast: form.aggregationType === 'STAFF' || form.aggregationType === 'VA' });
+      const expandCast =
+        !form.showSummary &&
+        (form.aggregationType === 'STAFF' || form.aggregationType === 'VA');
+      void runFetch({ forceRefresh, expandCast });
     },
-    [form.aggregationType, runFetch],
+    [form.aggregationType, form.showSummary, runFetch],
   );
+
+  const onToggleShowSummary = useCallback(() => {
+    const nextShowSummary = !form.showSummary;
+    patchForm({ showSummary: nextShowSummary });
+    if (nextShowSummary && !cached && !running && form.username.trim()) {
+      void runFetch({ expandCast: false });
+    }
+  }, [cached, form.showSummary, form.username, patchForm, running, runFetch]);
 
   const onExpandCast = useCallback(() => {
     if (!cached) {
@@ -1223,7 +1234,7 @@ export function StatsPanel({
   }, [cached, form.mediaType, form.username]);
 
   useEffect(() => {
-    if (!cached || running) {
+    if (!cached || running || form.showSummary) {
       return;
     }
     const needsCastAggregation =
@@ -1231,7 +1242,7 @@ export function StatsPanel({
     if (needsCastAggregation && statsCachedNeedsCast(cached)) {
       onExpandCast();
     }
-  }, [cached, form.aggregationType, onExpandCast, running]);
+  }, [cached, form.aggregationType, form.showSummary, onExpandCast, running]);
 
   const displayCached = useMemo(() => {
     if (!cached) {
@@ -1395,7 +1406,7 @@ export function StatsPanel({
             label="User Stats Summary"
             active={form.showSummary}
             disabled={running}
-            onToggle={() => patchForm({ showSummary: !form.showSummary })}
+            onToggle={onToggleShowSummary}
             title="Replace the chart with AniList-style summary totals for the filtered pool"
           />
         </div>
