@@ -36,7 +36,8 @@ import {
 } from './statsApi';
 import {
   availableStatsAggregationTypes,
-  buildStatsResult,
+  buildActiveStatsChartRows,
+  buildStatsSummary,
   buildStatsTimeWatchedRows,
   buildStatsTableCsv,
   buildStatsTableJson,
@@ -50,6 +51,7 @@ import {
   entryChaptersRemaining,
   entryVolumesRemaining,
   filterStatsParentRowsByMinCount,
+  filterStatsPool,
   filterStatsPoolByRatingScore,
   DEFAULT_STATS_LIST_STATUS_FILTERS,
   DEFAULT_STATS_MEDIA_STATUS_FILTERS,
@@ -85,6 +87,7 @@ import {
   statsScoreToneClass,
   type StatsAggregationType,
   type StatsCachedData,
+  type StatsBuildResult,
   type StatsEntry,
   type StatsForm,
   type StatsParentRow,
@@ -1257,12 +1260,40 @@ export function StatsPanel({
     return relabelStatsEntries(cached);
   }, [cached, displayLabelRevision]);
 
-  const built = useMemo(() => {
+  const filteredPool = useMemo(() => {
     if (!displayCached) {
       return null;
     }
-    return buildStatsResult(displayCached.entries, form);
-  }, [displayCached, form]);
+    return filterStatsPool(displayCached.entries, form);
+  }, [
+    displayCached,
+    form.mediaType,
+    form.mediaStatusFilters,
+    form.formatFilters,
+    form.listStatusFilters,
+    form.userScoreInclude,
+    form.scoreMin,
+    form.scoreMax,
+  ]);
+
+  const built = useMemo((): StatsBuildResult | null => {
+    if (!filteredPool) {
+      return null;
+    }
+    return {
+      pool: filteredPool,
+      summary: buildStatsSummary(filteredPool),
+      ...buildActiveStatsChartRows(filteredPool, form),
+    };
+  }, [
+    filteredPool,
+    form.showSummary,
+    form.aggregationType,
+    form.staffRoleFilters,
+    form.vaRoleFilters,
+    form.tagOptions,
+    form.studioKindFilters,
+  ]);
 
   const mostCommonScoreEntries = useMemo(() => {
     if (!built?.summary?.mostCommonScore) {
@@ -1295,28 +1326,46 @@ export function StatsPanel({
   );
 
   const sortedStaffRows = useMemo(
-    () => (built ? sortChartRows('staff', built.staffRows) : []),
-    [built, sortChartRows],
+    () =>
+      built && !form.showSummary && form.aggregationType === 'STAFF'
+        ? sortChartRows('staff', built.staffRows)
+        : [],
+    [built, form.aggregationType, form.showSummary, sortChartRows],
   );
   const sortedVaRows = useMemo(
-    () => (built ? sortChartRows('va', built.vaRows) : []),
-    [built, sortChartRows],
+    () =>
+      built && !form.showSummary && form.aggregationType === 'VA'
+        ? sortChartRows('va', built.vaRows)
+        : [],
+    [built, form.aggregationType, form.showSummary, sortChartRows],
   );
   const sortedGenreRows = useMemo(
-    () => (built ? sortChartRows('genres', built.genreRows) : []),
-    [built, sortChartRows],
+    () =>
+      built && !form.showSummary && form.aggregationType === 'GENRES_TAGS'
+        ? sortChartRows('genres', built.genreRows)
+        : [],
+    [built, form.aggregationType, form.showSummary, sortChartRows],
   );
   const sortedTagRows = useMemo(
-    () => (built ? sortChartRows('tags', built.tagRows) : []),
-    [built, sortChartRows],
+    () =>
+      built && !form.showSummary && form.aggregationType === 'GENRES_TAGS'
+        ? sortChartRows('tags', built.tagRows)
+        : [],
+    [built, form.aggregationType, form.showSummary, sortChartRows],
   );
   const sortedCustomTagRows = useMemo(
-    () => (built ? sortChartRows('customTags', built.customTagRows) : []),
-    [built, sortChartRows],
+    () =>
+      built && !form.showSummary && form.aggregationType === 'GENRES_TAGS'
+        ? sortChartRows('customTags', built.customTagRows)
+        : [],
+    [built, form.aggregationType, form.showSummary, sortChartRows],
   );
   const sortedStudioRows = useMemo(
-    () => (built ? sortChartRows('studios', built.studioRows) : []),
-    [built, sortChartRows],
+    () =>
+      built && !form.showSummary && form.aggregationType === 'STUDIOS'
+        ? sortChartRows('studios', built.studioRows)
+        : [],
+    [built, form.aggregationType, form.showSummary, sortChartRows],
   );
 
   const castNeedsExpand = cached != null && statsCachedNeedsCast(cached);

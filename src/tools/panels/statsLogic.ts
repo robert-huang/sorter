@@ -1435,23 +1435,50 @@ export function statsEntryTimeWatchedMinutes(entry: StatsEntry): number {
 
 export function buildStatsResult(entries: readonly StatsEntry[], form: StatsForm): StatsBuildResult {
   const pool = filterStatsPool(entries, form);
-  const genreRows = buildGenreStatsRows(pool);
-  const tagRows = buildAnilistTagStatsRows(pool, form);
-  const customTagRows = buildCustomTagStatsRows(pool);
-  const staffRows = buildStaffStatsRows(pool, form);
-  const vaRows = buildVaStatsRows(pool, form);
-  const studioRows = buildStudioStatsRows(pool, form);
   const summary = buildStatsSummary(pool);
+  const chartRows = buildActiveStatsChartRows(pool, form);
   return {
     pool,
-    genreRows,
-    tagRows,
-    customTagRows,
-    staffRows,
-    vaRows,
-    studioRows,
     summary,
+    ...chartRows,
   };
+}
+
+const EMPTY_STATS_CHART_ROWS: Pick<
+  StatsBuildResult,
+  'genreRows' | 'tagRows' | 'customTagRows' | 'staffRows' | 'vaRows' | 'studioRows'
+> = {
+  genreRows: [],
+  tagRows: [],
+  customTagRows: [],
+  staffRows: [],
+  vaRows: [],
+  studioRows: [],
+};
+
+/** Build parent rows for the chart currently on screen (summary mode builds none). */
+export function buildActiveStatsChartRows(
+  pool: readonly StatsEntry[],
+  form: StatsForm,
+): Pick<StatsBuildResult, 'genreRows' | 'tagRows' | 'customTagRows' | 'staffRows' | 'vaRows' | 'studioRows'> {
+  if (form.showSummary) {
+    return { ...EMPTY_STATS_CHART_ROWS };
+  }
+  switch (form.aggregationType) {
+    case 'STAFF':
+      return { ...EMPTY_STATS_CHART_ROWS, staffRows: buildStaffStatsRows(pool, form) };
+    case 'VA':
+      return { ...EMPTY_STATS_CHART_ROWS, vaRows: buildVaStatsRows(pool, form) };
+    case 'GENRES_TAGS':
+      return {
+        ...EMPTY_STATS_CHART_ROWS,
+        genreRows: buildGenreStatsRows(pool),
+        tagRows: buildAnilistTagStatsRows(pool, form),
+        customTagRows: buildCustomTagStatsRows(pool),
+      };
+    case 'STUDIOS':
+      return { ...EMPTY_STATS_CHART_ROWS, studioRows: buildStudioStatsRows(pool, form) };
+  }
 }
 
 export function formatStatsDuration(minutes: number): string {

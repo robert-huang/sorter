@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildActiveStatsChartRows,
   buildStatsResult,
   buildVaStatsRows,
   buildStatsTimeWatchedRows,
@@ -432,6 +433,41 @@ describe('buildStatsResult', () => {
       listStatusFilters: ['COMPLETED', 'PLANNING'],
     });
     expect(result.genreRows.map((r) => r.name).sort()).toEqual(['Action', 'Comedy']);
+  });
+});
+
+describe('buildActiveStatsChartRows', () => {
+  it('builds only VA rows when the VA chart is selected', () => {
+    const pool = [
+      entry({
+        mediaId: 1,
+        title: 'Show',
+        vaCredits: [
+          {
+            staffId: 1,
+            staffName: 'VA',
+            staffImage: null,
+            staffGender: null,
+            characterId: 1,
+            characterName: 'Char',
+            characterRole: 'MAIN',
+          },
+        ],
+      }),
+    ];
+    const rows = buildActiveStatsChartRows(pool, baseForm);
+    expect(rows.vaRows.length).toBe(1);
+    expect(rows.staffRows).toEqual([]);
+    expect(rows.genreRows).toEqual([]);
+  });
+
+  it('skips chart rows when summary mode is on', () => {
+    const rows = buildActiveStatsChartRows([entry({ mediaId: 1, title: 'A' })], {
+      ...baseForm,
+      showSummary: true,
+    });
+    expect(rows.vaRows).toEqual([]);
+    expect(rows.staffRows).toEqual([]);
   });
 });
 
