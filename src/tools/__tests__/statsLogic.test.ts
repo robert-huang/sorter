@@ -25,6 +25,7 @@ import {
   statsAggregationEmptyHint,
   statsDefaultStaffRoleFilters,
   statsEntryScoreSortValue,
+  mapStatsStudioLinks,
   statsStudioIsAnimation,
   type StatsCachedData,
   type StatsEntry,
@@ -629,6 +630,74 @@ describe('statsStudioIsAnimation', () => {
   it('falls back to sort_order 0 for legacy rows', () => {
     expect(statsStudioIsAnimation(null, 0)).toBe(true);
     expect(statsStudioIsAnimation(null, 2)).toBe(false);
+  });
+});
+
+describe('mapStatsStudioLinks', () => {
+  it('treats sort order 0 as animation when every edge is non-main', () => {
+    const links = mapStatsStudioLinks([
+      {
+        studioId: 2,
+        studioName: 'Kyoto Animation',
+        isMain: false,
+        sortOrder: 0,
+      },
+    ]);
+    expect(links).toEqual([
+      { studioId: 2, studioName: 'Kyoto Animation', isAnimation: true },
+    ]);
+  });
+
+  it('keeps explicit isMain true without fallback changes', () => {
+    const links = mapStatsStudioLinks([
+      {
+        studioId: 28,
+        studioName: 'OLM',
+        isMain: true,
+        sortOrder: 1,
+      },
+      {
+        studioId: 245,
+        studioName: 'Toho',
+        isMain: false,
+        sortOrder: 0,
+      },
+    ]);
+    expect(links).toEqual([
+      { studioId: 28, studioName: 'OLM', isAnimation: true },
+      { studioId: 245, studioName: 'Toho', isAnimation: false },
+    ]);
+  });
+
+  it('upgrades only sort order 0 when multiple non-main edges exist', () => {
+    const links = mapStatsStudioLinks([
+      {
+        studioId: 10,
+        studioName: 'Producer',
+        isMain: false,
+        sortOrder: 0,
+      },
+      {
+        studioId: 11,
+        studioName: 'Distributor',
+        isMain: false,
+        sortOrder: 1,
+      },
+    ]);
+    expect(links[0]?.isAnimation).toBe(true);
+    expect(links[1]?.isAnimation).toBe(false);
+  });
+
+  it('does not upgrade when no sort order 0 row exists', () => {
+    const links = mapStatsStudioLinks([
+      {
+        studioId: 20,
+        studioName: 'Licensors Inc',
+        isMain: false,
+        sortOrder: 1,
+      },
+    ]);
+    expect(links[0]?.isAnimation).toBe(false);
   });
 });
 

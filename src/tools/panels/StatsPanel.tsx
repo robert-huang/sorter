@@ -265,7 +265,7 @@ const STATS_CHAPTERS_REMAINING_TOOLTIP =
 const STATS_STUDIO_TYPE_TOOLTIP =
   'Animation: primary animation studio (StudioEdge.isMain). ' +
   'Non-animation: producer, distributor, or other supporting studio credits (isMain false). ' +
-  'Older cached rows without isMain treat the first studio link (sort order 0) as animation. ' +
+  'Legacy rows without isMain use sort order 0; when no studio has isMain true, sort order 0 is also treated as animation. ' +
   'Producer-only studio rows are muted and italic; mixed rows mute only the non-animation show subrows.';
 
 const STATS_NON_ANIMATION_STUDIO_HINT =

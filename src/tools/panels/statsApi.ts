@@ -36,7 +36,7 @@ import type {
 } from './statsLogic';
 import {
   normalizeCharacterRoleForStats,
-  statsStudioIsAnimation,
+  mapStatsStudioLinks,
   type StatsStartDate,
 } from './statsLogic';
 import { normalizeSeasonalListScore } from './seasonalScoresLogic';
@@ -192,11 +192,14 @@ async function readMediaMetadataFromDb(
     if (!detail) {
       continue;
     }
-    const studios: StatsStudioLink[] = detail.studios.map(({ studio, sortOrder, isMain }) => ({
-      studioId: studio.id,
-      studioName: studio.name,
-      isAnimation: statsStudioIsAnimation(isMain, sortOrder),
-    }));
+    const studios: StatsStudioLink[] = mapStatsStudioLinks(
+      detail.studios.map(({ studio, sortOrder, isMain }) => ({
+        studioId: studio.id,
+        studioName: studio.name,
+        isMain,
+        sortOrder,
+      })),
+    );
     out.set(mediaId, {
       genres: parseGenresJson(detail.media.genres_json),
       tags: detail.tags.map((t) => ({ name: t.name, rank: t.rank })),

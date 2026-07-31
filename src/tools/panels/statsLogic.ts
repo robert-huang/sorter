@@ -468,6 +468,39 @@ export function statsStudioIsAnimation(isMain: boolean | null, sortOrder: number
   return sortOrder === 0;
 }
 
+export type StatsStudioLinkInput = {
+  studioId: number;
+  studioName: string;
+  isMain: boolean | null;
+  sortOrder: number;
+};
+
+/**
+ * Map cached studio junction rows to stats links. Applies
+ * `statsStudioIsAnimation` per edge, then — when no link is animation —
+ * treats sort_order 0 as animation (AniList sometimes only lists a
+ * producer edge with isMain false).
+ */
+export function mapStatsStudioLinks(
+  rows: readonly StatsStudioLinkInput[],
+): StatsStudioLink[] {
+  const links: StatsStudioLink[] = rows.map((row) => ({
+    studioId: row.studioId,
+    studioName: row.studioName,
+    isAnimation: statsStudioIsAnimation(row.isMain, row.sortOrder),
+  }));
+  if (links.length === 0 || links.some((link) => link.isAnimation)) {
+    return links;
+  }
+  const fallbackIdx = rows.findIndex((row) => row.sortOrder === 0);
+  if (fallbackIdx < 0) {
+    return links;
+  }
+  return links.map((link, idx) =>
+    idx === fallbackIdx ? { ...link, isAnimation: true } : link,
+  );
+}
+
 /** Actionable empty-table message for aggregation tables. */
 export function statsAggregationEmptyHint(
   aggregationType: StatsAggregationType,
