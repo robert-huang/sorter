@@ -21,6 +21,7 @@ import {
 } from './sharedCreditsApi';
 import { SharedCreditsResultsTable } from './sharedCreditsTable';
 import { ToolShowButton, ToolStaffButton } from '../toolEntityLinks';
+import { ToolSegmentedFilter } from '../ToolSegmentedFilter';
 
 const DEFAULT_FORM: SharedCreditsForm = {
   staffText: '',
@@ -322,41 +323,24 @@ export function SharedCreditsPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps)
         </div>
 
         <div className="tool-shared-credits-role-row">
-          <div className="tool-field tool-field-label-row tool-field-inline">
-            <span className="tool-field-label" id="shared-credits-role-label">
-              Role type
-            </span>
-            <div
-              className="tool-segmented"
-              role="group"
-              aria-labelledby="shared-credits-role-label"
-            >
-              <button
-                type="button"
-                className={form.roleMode === 'voice' ? 'active' : ''}
-                disabled={running}
-                onClick={() => patchForm({ roleMode: 'voice' })}
-              >
-                Voice Acting
-              </button>
-              <button
-                type="button"
-                className={form.roleMode === 'production' ? 'active' : ''}
-                disabled={running}
-                onClick={() => patchForm({ roleMode: 'production', mainRoleOnly: false })}
-              >
-                Production
-              </button>
-              <button
-                type="button"
-                className={form.roleMode === 'all' ? 'active' : ''}
-                disabled={running}
-                onClick={() => patchForm({ roleMode: 'all', mainRoleOnly: false })}
-              >
-                All
-              </button>
-            </div>
-          </div>
+          <ToolSegmentedFilter
+            label="Role type"
+            labelId="shared-credits-role-label"
+            className="tool-field-inline"
+            options={[
+              { value: 'voice', label: 'Voice Acting' },
+              { value: 'production', label: 'Production' },
+              { value: 'all', label: 'All' },
+            ]}
+            value={form.roleMode}
+            disabled={running}
+            onChange={(roleMode) =>
+              patchForm({
+                roleMode,
+                mainRoleOnly: roleMode === 'voice' ? form.mainRoleOnly : false,
+              })
+            }
+          />
           <label className="tool-checkbox">
             <input
               type="checkbox"

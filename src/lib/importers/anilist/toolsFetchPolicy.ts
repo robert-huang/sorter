@@ -4,6 +4,8 @@ import { isGraphTimestampStale } from './graphConstants';
 export type ToolsFetchOptions = {
   /** Right-click / explicit bust — always re-fetch from AniList. */
   forceRefresh?: boolean;
+  /** When aborted, in-flight list import / live fetches stop between chunks. */
+  signal?: AbortSignal;
 };
 
 /** Favourites tool — scoped refresh / expansion modes. */

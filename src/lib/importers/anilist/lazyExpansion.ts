@@ -62,6 +62,8 @@ export type ExpandAnilistMediaDetailOptions = {
   scope?: ExpandAnilistMediaDetailScope;
   /** Re-fetch even when completeness flags are already set. */
   force?: boolean;
+  /** When aborted, pagination stops between batch/page requests. */
+  signal?: AbortSignal;
 };
 
 export type ExpandAnilistMediaDetailResult = {
@@ -348,6 +350,7 @@ async function fetchCharacterPages(
   perPage: number,
   language: AnilistStaffLanguage,
   maxPages: number | undefined,
+  signal?: AbortSignal,
 ): Promise<{
   edges: AnilistMediaCharacterEdgeGql[];
   pagesFetched: number;
@@ -361,6 +364,7 @@ async function fetchCharacterPages(
   let hasNext = true;
 
   while (hasNext && (maxPages === undefined || pagesFetched < maxPages)) {
+    signal?.throwIfAborted();
     const response = await ctx.executeQuery<AnilistMediaDetailResponse>(query, {
       id: mediaId,
       charactersPage: page,
@@ -403,6 +407,7 @@ async function fetchStaffPages(
   mediaId: number,
   perPage: number,
   maxPages: number | undefined,
+  signal?: AbortSignal,
 ): Promise<{
   edges: AnilistMediaStaffEdgeGql[];
   pagesFetched: number;
@@ -419,6 +424,7 @@ async function fetchStaffPages(
   let hasNext = true;
 
   while (hasNext && (maxPages === undefined || pagesFetched < maxPages)) {
+    signal?.throwIfAborted();
     const response =
       page === 1
         ? await ctx.executeQuery<AnilistMediaDetailResponse>(detailQuery, {
@@ -894,6 +900,7 @@ export async function expandAnilistMediaDetail(
       perPage,
       language,
       options.charactersMaxPages,
+      options.signal,
     );
     if (!charResult) {
       return null;
@@ -910,6 +917,7 @@ export async function expandAnilistMediaDetail(
       mediaId,
       perPage,
       options.staffMaxPages,
+      options.signal,
     );
     if (!staffResult) {
       if (scope === 'staff') {

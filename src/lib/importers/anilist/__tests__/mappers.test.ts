@@ -200,8 +200,23 @@ describe('studio/tag mappers', () => {
   it('mapMediaStudioRows preserves AniList ordering as 0-based sort_order', () => {
     const rows = mapMediaStudioRows(fullMedia());
     expect(rows).toEqual([
-      { media_id: 100, studio_id: 10, sort_order: 0 },
-      { media_id: 100, studio_id: 11, sort_order: 1 },
+      { media_id: 100, studio_id: 10, sort_order: 0, is_main: null },
+      { media_id: 100, studio_id: 11, sort_order: 1, is_main: null },
+    ]);
+  });
+
+  it('mapMediaStudioRows stores isMain from studios.edges', () => {
+    const media = fullMedia({
+      studios: {
+        edges: [
+          { isMain: true, node: { id: 10, name: 'A-1 Pictures' } },
+          { isMain: false, node: { id: 11, name: 'Sony Music' } },
+        ],
+      },
+    });
+    expect(mapMediaStudioRows(media)).toEqual([
+      { media_id: 100, studio_id: 10, sort_order: 0, is_main: 1 },
+      { media_id: 100, studio_id: 11, sort_order: 1, is_main: 0 },
     ]);
   });
 
@@ -242,8 +257,8 @@ describe('studio/tag mappers', () => {
       },
     });
     expect(mapMediaStudioRows(media)).toEqual([
-      { media_id: 100, studio_id: 10, sort_order: 0 },
-      { media_id: 100, studio_id: 11, sort_order: 1 },
+      { media_id: 100, studio_id: 10, sort_order: 0, is_main: null },
+      { media_id: 100, studio_id: 11, sort_order: 1, is_main: null },
     ]);
     // The parent metadata mapper applies the same dedup — keeps a
     // consistent count and avoids redundant UPSERTs in the batch.

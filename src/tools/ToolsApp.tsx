@@ -33,6 +33,7 @@ import { ReorderFavouritesPanel } from './panels/ReorderFavouritesPanel';
 import { UpdateListEntryPanel } from './panels/UpdateListEntryPanel';
 import { AdaptationScoresPanel } from './panels/AdaptationScoresPanel';
 import { WeeklyCalendarPanel } from './panels/WeeklyCalendarPanel';
+import { StatsPanel } from './panels/StatsPanel';
 import type { ToolsMediaRelationsResponse } from '../lib/importers/anilist/toolsMediaRelationsApi';
 
 const TOOL_TABS: ReadonlyArray<ToolTab<ToolId>> = [
@@ -60,6 +61,11 @@ const TOOL_TABS: ReadonlyArray<ToolTab<ToolId>> = [
     id: 'adaptation-scores',
     label: 'Adaptation Scores',
     title: 'Map source and adaptation pairs across your anime and manga lists.',
+  },
+  {
+    id: 'stats',
+    label: 'Stats',
+    title: 'Aggregate list statistics by voice actor, staff, genres, tags, or studios.',
   },
   {
     id: 'weekly-calendar',
@@ -257,6 +263,9 @@ export function ToolsApp() {
         </div>
         <div hidden={activeTool !== 'update-list-entry'}>
           <UpdateListEntryPanel {...panelProps} />
+        </div>
+        <div hidden={activeTool !== 'stats'}>
+          <StatsPanel {...panelProps} />
         </div>
       </main>
 

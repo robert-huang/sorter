@@ -88,8 +88,10 @@ async function depaginateMediaCharactersBatch(
   }
 
   while (states.some((state) => !state.done)) {
+    options.signal?.throwIfAborted();
     const active = states.filter((state) => !state.done);
     for (const group of chunk(active, batchSize)) {
+      options.signal?.throwIfAborted();
       const requests: BatchedPageRequest[] = group.map((state) => ({
         id: state.id,
         page: state.page,
@@ -172,8 +174,10 @@ async function depaginateMediaStaffBatch(
   }
 
   while (states.some((state) => !state.done)) {
+    options.signal?.throwIfAborted();
     const active = states.filter((state) => !state.done);
     for (const group of chunk(active, batchSize)) {
+      options.signal?.throwIfAborted();
       const requests: BatchedPageRequest[] = group.map((state) => ({
         id: state.id,
         page: state.page,
@@ -245,6 +249,8 @@ export async function expandMediaCastBatch(
     return;
   }
 
+  options.signal?.throwIfAborted();
+
   const batchSize = options.batchSize ?? DEFAULT_MEDIA_CAST_BATCH_SIZE;
   const language = options.voiceActorLanguage ?? DEFAULT_VOICE_ACTOR_LANGUAGE;
   const now = ctx.now();
@@ -276,12 +282,14 @@ export async function expandMediaCastBatch(
     charIds.length > 0
       ? await depaginateMediaCharactersBatch(ctx, charIds, options, batchSize, language)
       : new Map<number, DepaginatedCharacters>();
+  options.signal?.throwIfAborted();
   const staffFetched =
     staffIds.length > 0
       ? await depaginateMediaStaffBatch(ctx, staffIds, options, batchSize)
       : new Map<number, DepaginatedStaff>();
 
   for (const item of uniquePending) {
+    options.signal?.throwIfAborted();
     if (!okMedia.has(item.mediaId)) {
       continue;
     }
@@ -354,8 +362,15 @@ export async function expandMediaCastWithFallback(
 ): Promise<void> {
   try {
     await expandMediaCastBatch(ctx, pending, options);
-  } catch {
+  } catch (err) {
+    if (options.signal?.aborted) {
+      options.signal.throwIfAborted();
+    }
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw err;
+    }
     for (const item of pending) {
+      options.signal?.throwIfAborted();
       await expandAnilistMediaDetail(ctx, item.mediaId, {
         ...options,
         scope: item.scope,

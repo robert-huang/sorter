@@ -21,7 +21,11 @@ import {
 import {
   DEFAULT_ADAPTATION_FILTERS,
   ADAPTATION_LIST_STATUS_OPTIONS,
+  ADAPTATION_LIST_MEDIA_TYPE_OPTIONS,
   adaptationDiffDisplayToneClass,
+  adaptationListMediaTypeLabel,
+  adaptationListMediaTypesToFilters,
+  adaptationSelectedListMediaTypes,
   buildAdaptationDisplay,
   normalizeAdaptationListStatuses,
   type AdaptationDisplayBlock,
@@ -351,7 +355,7 @@ function AdaptationTable({
   blocks: AdaptationDisplayBlock[];
   showDifference: ShowDifferenceMode;
   diffSort: DiffSort;
-  onDiffSortClick: () => void;
+  onDiffSortClick: (backward?: boolean) => void;
   onOpenMedia: ToolPanelProps['onOpenMedia'];
 }) {
   const showDiff = showDifference !== 'off';
@@ -447,8 +451,12 @@ function AdaptationTable({
                   ]
                     .filter(Boolean)
                     .join(' ')}
-                  onClick={onDiffSortClick}
-                  title="Sort franchise blocks by difference (click to cycle)"
+                  onClick={() => onDiffSortClick(false)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    onDiffSortClick(true);
+                  }}
+                  title="Sort franchise blocks by difference (click to cycle; right-click cycles backward)"
                 >
                   {diffSortIndicator ? (
                     <span className="tool-adaptation-diff-head">
@@ -566,8 +574,17 @@ export function AdaptationScoresPanel({
     }
   }, [filters.showDifference]);
 
-  const cycleDiffSort = useCallback(() => {
+  const cycleDiffSort = useCallback((backward = false) => {
     setDiffSort((prev) => {
+      if (backward) {
+        if (prev === null) {
+          return 'asc';
+        }
+        if (prev === 'asc') {
+          return 'desc';
+        }
+        return null;
+      }
       if (prev === null) {
         return 'desc';
       }
@@ -722,22 +739,20 @@ export function AdaptationScoresPanel({
             onRefresh={() => refreshUsernameList(form.username, running)}
             refreshLabel="Refresh anime + manga lists from AniList"
           />
-          <label className="tool-checkbox">
-            <input
-              type="checkbox"
-              checked={filters.includeAnime}
-              onChange={(e) => patchFilters({ includeAnime: e.target.checked })}
-            />
-            Anime List
-          </label>
-          <label className="tool-checkbox">
-            <input
-              type="checkbox"
-              checked={filters.includeManga}
-              onChange={(e) => patchFilters({ includeManga: e.target.checked })}
-            />
-            Manga List
-          </label>
+          <MultiSelectChip
+            label="lists"
+            options={ADAPTATION_LIST_MEDIA_TYPE_OPTIONS}
+            selected={adaptationSelectedListMediaTypes(filters)}
+            formatOption={adaptationListMediaTypeLabel}
+            onToggle={(type) =>
+              patchFilters(
+                type === 'ANIME'
+                  ? { includeAnime: !filters.includeAnime }
+                  : { includeManga: !filters.includeManga },
+              )
+            }
+            onReplaceAll={(types) => patchFilters(adaptationListMediaTypesToFilters(types))}
+          />
           <MultiSelectChip
             label="list status"
             options={ADAPTATION_LIST_STATUS_OPTIONS}

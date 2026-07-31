@@ -283,6 +283,39 @@ describe('expandMediaCastBatch — batching invariant', () => {
   });
 });
 
+describe('expandMediaCastBatch — abort', () => {
+  it('stops ToolsMediaCharactersBatch pagination when the signal is aborted', async () => {
+    const plan = new Map<number, MediaPlan>([
+      [
+        100,
+        {
+          charPages: [[makeCharEdge(1000)], [makeCharEdge(1001)], [makeCharEdge(1002)]],
+          staffPages: [],
+        },
+      ],
+    ]);
+    const baseMock = makeBatchMock(plan);
+    const controller = new AbortController();
+    const wrappedFn = vi.fn(async (query: string, variables: Record<string, unknown>) => {
+      if (query.includes('ToolsMediaCharactersBatch') && baseMock.charBatchCalls.length > 0) {
+        controller.abort();
+        controller.signal.throwIfAborted();
+      }
+      return baseMock.fn(query, variables);
+    });
+    const h = await makeHarness([100], wrappedFn);
+
+    await expect(
+      expandMediaCastBatch(h.ctx, [{ mediaId: 100, scope: 'characters' }], {
+        signal: controller.signal,
+      }),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+
+    expect(baseMock.charBatchCalls).toHaveLength(1);
+    h.db.close();
+  });
+});
+
 describe('expandMediaCastBatch — missing media', () => {
   it('skips a media whose cast query returns null (no rows, no marker)', async () => {
     const plan = new Map<number, MediaPlan>([
@@ -387,6 +420,28 @@ describe('expandMediaCastWithFallback', () => {
     expect(singleCalls.some((c) => c.query.includes('MediaDetail'))).toBe(true);
     expect(countRows(h.db, 'media_character', 'WHERE media_id = 100')).toBe(1);
     expect(countRows(h.db, 'media_cast_expansion', 'WHERE media_id = 100')).toBe(1);
+    h.db.close();
+  });
+
+  it('does not fall back to single expansion when the batch was aborted', async () => {
+    const controller = new AbortController();
+    const executeQuery = vi.fn(async (query: string) => {
+      if (query.includes('Batch')) {
+        controller.abort();
+        throw new DOMException('Cast expansion aborted', 'AbortError');
+      }
+      return null;
+    });
+    const h = await makeHarness([100], executeQuery);
+
+    await expect(
+      expandMediaCastWithFallback(h.ctx, [{ mediaId: 100, scope: 'characters' }], {
+        signal: controller.signal,
+      }),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+
+    expect(executeQuery).toHaveBeenCalledTimes(1);
+    expect(countRows(h.db, 'media_cast_expansion', 'WHERE media_id = 100')).toBe(0);
     h.db.close();
   });
 });

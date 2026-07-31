@@ -154,7 +154,12 @@ export type AnilistMediaGql = {
   countryOfOrigin: string | null;
   genres: string[] | null;
   synonyms: string[] | null;
-  studios: { nodes: Array<{ id: number; name: string }> } | null;
+  studios:
+    | {
+        edges?: Array<{ isMain?: boolean | null; node: { id: number; name: string } }>;
+        nodes?: Array<{ id: number; name: string }>;
+      }
+    | null;
   tags: Array<{ name: string; rank: number }> | null;
 };
 
@@ -590,6 +595,8 @@ export type MediaStudioRow = {
   media_id: number;
   studio_id: number;
   sort_order: number;
+  /** 1 = animation (AniList isMain), 0 = non-animation, null = legacy nodes import. */
+  is_main: number | null;
 };
 
 export type MediaTagRow = {

@@ -179,7 +179,7 @@ export async function ensureMediaCastFreshWithContext(
     !status.staffComplete ||
     needsGraphDataRefresh(status.charactersFetchedAt, options) ||
     needsGraphDataRefresh(status.staffFetchedAt, options);
-  await ensureMediaCastExpanded(ctx, mediaId, { force });
+  await ensureMediaCastExpanded(ctx, mediaId, { force, signal: options?.signal });
 }
 
 export async function ensureMediaCastFresh(
@@ -200,6 +200,7 @@ export async function ensureMediaCastFreshBatch(
   await ensureMediaCastExpandedBatch(ctx, mediaIds, {
     force: options?.forceRefresh ?? false,
     staleRefresh: options,
+    signal: options?.signal,
   });
 }
 
@@ -227,7 +228,9 @@ export async function ensureUserMediaListFresh(
     count === 0 ||
     needsGraphDataRefresh(user.fetched_at, options);
   if (needsImport) {
-    await runAnilistImport(handle, type);
+    options?.signal?.throwIfAborted();
+    await runAnilistImport(handle, type, undefined, options?.signal);
+    options?.signal?.throwIfAborted();
     user = await getAnilistUserByName(ctx.db, handle);
     if (user) {
       await repairListedMediaNullSource(ctx, user.id, { type });

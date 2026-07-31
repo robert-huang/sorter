@@ -118,6 +118,7 @@ export async function ensureMediaCastExpandedBatch(
   const pending: Array<{ mediaId: number; scope: 'all' | 'characters' | 'staff' }> = [];
 
   for (const mediaId of [...new Set(mediaIds)]) {
+    options.signal?.throwIfAborted();
     const status = await getMediaCastExpansionStatus(ctx.db, mediaId);
     const force =
       forceGlobal ||

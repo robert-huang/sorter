@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
 import { ToolUsernameField } from '../ToolUsernameField';
+import { ToolSegmentedFilter, type ToolSegmentedOption } from '../ToolSegmentedFilter';
 import { useUsernameListRefresh } from '../useUsernameListRefresh';
 import { useToolsDisplayLabelRevision } from '../useToolsDisplayLabelRevision';
 import { relabelFranchiseEntries } from '../toolsDisplayRelabel';
@@ -31,7 +32,18 @@ import {
   type FranchiseRelationType,
 } from './franchiseScoresLogic';
 import { scoreDisplayToneClass } from './seasonalScoresLogic';
+import {
+  adaptationFiltersFromListMediaMode,
+  adaptationListMediaModeFromFilters,
+  type AdaptationListMediaMode,
+} from './adaptationScoresLogic';
 import { ScoreRangeChip } from '../../lib/importers/anilist/filters';
+
+const FRANCHISE_LIST_MEDIA_OPTIONS: readonly ToolSegmentedOption<AdaptationListMediaMode>[] = [
+  { value: 'anime', label: 'Anime' },
+  { value: 'manga', label: 'Manga' },
+  { value: 'both', label: 'Both' },
+];
 
 const LS_KEY = 'anime-tools-franchise-scores-form';
 const LS_FILTERS_KEY = 'anime-tools-franchise-scores-filters';
@@ -672,22 +684,12 @@ function FranchiseFilterBar({
   return (
     <div className="tool-franchise-filterbar">
       <div className="tool-franchise-filterbar-controls">
-        <label className="tool-checkbox" title="Show ANIME entries from the franchise.">
-          <input
-            type="checkbox"
-            checked={filters.includeAnime}
-            onChange={(e) => onPatch({ includeAnime: e.target.checked })}
-          />
-          Anime
-        </label>
-        <label className="tool-checkbox" title="Show MANGA / NOVEL entries from the franchise.">
-          <input
-            type="checkbox"
-            checked={filters.includeManga}
-            onChange={(e) => onPatch({ includeManga: e.target.checked })}
-          />
-          Manga
-        </label>
+        <ToolSegmentedFilter
+          label="Media"
+          options={FRANCHISE_LIST_MEDIA_OPTIONS}
+          value={adaptationListMediaModeFromFilters(filters)}
+          onChange={(mode) => onPatch(adaptationFiltersFromListMediaMode(mode))}
+        />
         <MultiSelectChip
           label="list status"
           options={FRANCHISE_LIST_STATUS_OPTIONS}

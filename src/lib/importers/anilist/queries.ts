@@ -69,7 +69,7 @@ const MEDIA_FIELD_SELECTION = `
   countryOfOrigin
   genres
   synonyms
-  studios { nodes { id name } }
+  studios { edges { isMain node { id name } } }
   tags { name rank }
 `.trim();
 
@@ -913,6 +913,44 @@ export const TOOLS_ADAPTATION_RELATIONS_MEDIA_FIELDS = TOOLS_MEDIA_RELATIONS_V2_
 
 /** @deprecated Use {@link TOOLS_MEDIA_RELATIONS_V2_QUERY} */
 export const TOOLS_ADAPTATION_RELATIONS_QUERY = TOOLS_MEDIA_RELATIONS_V2_QUERY;
+
+/** Full list rows for Stats tool — progress, duration, volumes, notes, repeat. */
+export const TOOLS_STATS_LIST_QUERY = `
+query ToolsStatsList(
+  $userName: String
+  $type: MediaType!
+  $page: Int!
+  $perPage: Int!
+) {
+  Page(page: $page, perPage: $perPage) {
+    pageInfo { hasNextPage currentPage }
+    mediaList(
+      userName: $userName
+      type: $type
+      sort: [MEDIA_ID]
+    ) {
+      status
+      score(format: POINT_100)
+      progress
+      progressVolumes
+      repeat
+      notes
+      media {
+        id
+        title { english romaji native }
+        coverImage { large }
+        format
+        status
+        episodes
+        chapters
+        volumes
+        duration
+        meanScore
+      }
+    }
+  }
+}
+`.trim();
 
 /** User anime/manga list ids (non-planning) for Favourites consumed-media filter. */
 export const TOOLS_USER_CONSUMED_MEDIA_QUERY = `

@@ -9,7 +9,8 @@ export type ToolId =
   | 'adaptation-scores'
   | 'favourites'
   | 'reorder-favourites'
-  | 'update-list-entry';
+  | 'update-list-entry'
+  | 'stats';
 
 import type { ToolsMediaRelationsResponse } from '../lib/importers/anilist/toolsMediaRelationsApi';
 
@@ -40,9 +41,10 @@ const TOOL_IDS: readonly ToolId[] = [
   'shared-credits',
   'shared-staff',
   'seasonal-scores',
-  'weekly-calendar',
   'franchise-scores',
   'adaptation-scores',
+  'stats',
+  'weekly-calendar',
   'favourites',
   'reorder-favourites',
   'update-list-entry',
