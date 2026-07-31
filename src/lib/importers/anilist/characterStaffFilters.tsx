@@ -46,10 +46,13 @@ import { ANILIST_SOURCE_ID } from './anilistSource';
 import type { AnilistDbExecutor } from './context';
 import {
   DualRangeSlider,
+  FILTER_CHIP_MENU_CAPPED_CLASS,
+  MediaOptionMultiSelectChip,
   MultiSelectChip,
   rangeLabel,
   toggleInArray,
 } from './filters';
+import { anilistUrlForStaffId } from './anilistLinks';
 import {
   getCharacterIdsAppearingInMedia,
   getCharacterIdsVoicedByStaff,
@@ -624,19 +627,14 @@ function CharacterChips({
         }
         emptyMessage="(no favourites cached — load your AniList favourites first)"
       />
-      <MultiSelectChip<number>
+      <MediaOptionMultiSelectChip
         label="appears in"
-        options={options.mediaOptions.map((m) => m.id)}
+        mediaOptions={options.mediaOptions}
         selected={state.appearsInMediaIds}
         onToggle={(v) =>
           set({ appearsInMediaIds: toggleInArray(state.appearsInMediaIds, v) })
         }
-        formatOption={(id) =>
-          options.mediaOptions.find((m) => m.id === id)?.title ?? String(id)
-        }
         onReplaceAll={(vals) => set({ appearsInMediaIds: [...vals] })}
-        searchable
-        searchPlaceholder="Search media…"
       />
       <MultiSelectChip<number>
         label="voice actor"
@@ -648,9 +646,11 @@ function CharacterChips({
         formatOption={(id) =>
           options.voiceActors.find((v) => v.id === id)?.name ?? String(id)
         }
+        getOptionAnilistUrl={(id) => anilistUrlForStaffId(id)}
         onReplaceAll={(vals) => set({ voiceActorIds: [...vals] })}
         searchable
         searchPlaceholder="Search voice actors…"
+        menuClassName={FILTER_CHIP_MENU_CAPPED_CLASS}
       />
       <NumericRangeChip
         label="favourites"
@@ -934,19 +934,14 @@ function StaffChips({
         searchable
         searchPlaceholder="Search languages…"
       />
-      <MultiSelectChip<number>
+      <MediaOptionMultiSelectChip
         label="voiced in"
-        options={options.voicedInMedia.map((m) => m.id)}
+        mediaOptions={options.voicedInMedia}
         selected={state.voicedInMediaIds}
         onToggle={(v) =>
           set({ voicedInMediaIds: toggleInArray(state.voicedInMediaIds, v) })
         }
-        formatOption={(id) =>
-          options.voicedInMedia.find((m) => m.id === id)?.title ?? String(id)
-        }
         onReplaceAll={(vals) => set({ voicedInMediaIds: [...vals] })}
-        searchable
-        searchPlaceholder="Search media…"
       />
       <NumericRangeChip
         label="favourites"

@@ -3,6 +3,7 @@
   --surface: #ffffff;
   --surface-2: #f9fafb;
   --bg-subtle: #f3f4f6;
+  --row-hover: color-mix(in srgb, var(--text) 4%, var(--surface));
   --border: #e2e4e8;
   --border-strong: #cdd0d6;
   --text: #1f2328;
@@ -55,6 +56,7 @@
   --surface: #1e1e1e;
   --surface-2: #2a2a2a;
   --bg-subtle: #2a2a2a;
+  --row-hover: color-mix(in srgb, var(--text) 6%, var(--surface));
   --border: #333333;
   --border-strong: #424242;
   --text: #ffffff;
@@ -1152,15 +1154,47 @@ html {
   left: 0;
   z-index: 50;
   min-width: 160px;
-  max-height: 280px;
-  overflow-y: auto;
+  max-height: 270px;
+  overflow: hidden;
   margin-top: 4px;
   padding: 6px;
   border: 1px solid var(--border, #d4d4d4);
   border-radius: 6px;
-  background: var(--bg, #fff);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
   font-size: 12px;
+  /* Grid + minmax(0, 1fr) sizes the scroll row to content when short,
+     and caps it under max-height when long — flex flex:1 left a tall
+     empty band below short lists and failed to scroll long ones. */
+  display: grid;
+  gap: 2px;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.filter-chip-menu:has(> .filter-chip-menu-header) {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.filter-chip-menu:has(> .filter-chip-footer) {
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.filter-chip-menu:has(> .filter-chip-menu-header):has(> .filter-chip-footer) {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.filter-chip-menu-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.filter-chip-menu-scroll {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -1175,8 +1209,57 @@ html {
   cursor: pointer;
 }
 
+.filter-chip-option input[type='checkbox'] {
+  flex-shrink: 0;
+}
+
+.filter-chip-option > span:not(.filter-chip-option-text) {
+  white-space: nowrap;
+}
+
+/* Uncapped menus (status, genre, year, …) grow to fit the widest row. */
+.filter-chip-menu:not(.filter-chip-menu-capped):not(.filter-chip-menu-wide) {
+  width: max-content;
+}
+
 .filter-chip-option:hover {
-  background: var(--bg-hover, #f3f4f6);
+  background: var(--row-hover);
+}
+
+.filter-chip-option:hover .tool-franchise-format {
+  /* Blend with the row tint so the pill doesn't stay a dark slab on hover. */
+  background: transparent;
+  border-color: color-mix(in srgb, var(--border-strong) 70%, var(--text-muted));
+}
+
+.filter-chip-option-text {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.filter-chip-option-title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.filter-chip-option-text .tool-franchise-format {
+  flex-shrink: 0;
+  align-self: flex-start;
+}
+
+/* Middle-click AniList affordance on filter rows — keep normal text
+   color; no link underline (unlike detail-modal person links). */
+.filter-chip-option.anime-to-anime-anilist-link,
+.filter-chip-option.anime-to-anime-anilist-link:hover,
+.filter-chip-option.anime-to-anime-anilist-link:active,
+.filter-chip-option.anime-to-anime-anilist-link *,
+.filter-chip-option.anime-to-anime-anilist-link:hover *,
+.filter-chip-option.anime-to-anime-anilist-link:active * {
+  color: inherit;
+  text-decoration: none;
 }
 
 .filter-chip-empty {
@@ -1204,7 +1287,9 @@ html {
    user scrolls a long VA list. */
 .filter-chip-search {
   width: 100%;
-  margin-bottom: 4px;
+  min-width: 0;
+  box-sizing: border-box;
+  margin-bottom: 0;
   padding: 4px 6px;
   border: 1px solid var(--border);
   border-radius: 3px;
@@ -1227,10 +1312,7 @@ html {
 }
 
 .filter-chip-footer {
-  position: sticky;
-  bottom: -6px;
-  margin: 6px -6px -6px;
-  padding: 6px;
+  padding-top: 4px;
   background: var(--surface);
   border-top: 1px solid var(--border);
   display: flex;
@@ -1384,7 +1466,61 @@ html {
    two end inputs. The regular 160px width would crush the slider
    handles together. */
 .filter-chip-menu-wide {
-  min-width: 280px;
+  min-width: 300px;
+}
+
+/* Long searchable lists (studio, VA, appears/voiced in) — cap width;
+   menu grows with content up to the limit. Other chips expand freely
+   (only the global min-width applies). Tune via CSS variable. */
+.filter-chip-menu.filter-chip-menu-capped {
+  --filter-chip-menu-capped-width: 300px;
+  /* max-content sizes from option rows; max-width caps long titles.
+     min(..., max-content) collapses when rows use width: 100%. */
+  width: max-content;
+  max-width: var(--filter-chip-menu-capped-width);
+  box-sizing: border-box;
+}
+
+.filter-chip-menu.filter-chip-menu-capped > * {
+  min-width: 0;
+  max-width: var(--filter-chip-menu-capped-width);
+  box-sizing: border-box;
+}
+
+.filter-chip-menu-capped .filter-chip-search {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.filter-chip-menu-capped .filter-chip-option {
+  align-items: flex-start;
+  min-width: 0;
+  max-width: var(--filter-chip-menu-capped-width);
+  box-sizing: border-box;
+}
+
+.filter-chip-menu-capped .filter-chip-option-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.filter-chip-menu-capped .filter-chip-option input[type='checkbox'] {
+  margin-top: 2px;
+}
+
+.filter-chip-menu-capped .filter-chip-option > span:not(.filter-chip-option-text) {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+
+.filter-chip-menu-capped .filter-chip-option-title {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
 }
 
 /* Layout for "input ┼ slider ┼ input" used by range chips. The two

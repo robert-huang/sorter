@@ -52,11 +52,19 @@ import {
 import { ANILIST_SOURCE_ID } from './anilistSource';
 import type { AnilistDbExecutor, SqlBindable } from './context';
 import {
+  bindAnilistMiddleClick,
+  anilistUrlForMediaEntry,
+  anilistUrlForStaffId,
+  mergeAnilistLinkClass,
+} from './anilistLinks';
+import {
   getLatestAnilistUser,
   getListEntriesByMediaIds,
   getMediaByIds,
   getMediaIdsWithDisallowedListStatus,
   getVoiceActorsForCandidates,
+  mediaOptionFormatLabel,
+  type MediaOption,
   type VoiceActorOption,
 } from './readQueries';
 import { runAnilistMediaLazyExpansion } from './runners';
@@ -848,6 +856,99 @@ async function loadChipOptions(
   };
 }
 
+/**
+ * Checkbox row for filter-chip dropdowns. Optional `anilistUrl` enables
+ * middle-click to open AniList in a new tab; left-click still toggles
+ * the checkbox only.
+ */
+export function FilterChipSelectableOption({
+  checked,
+  onToggle,
+  anilistUrl,
+  children,
+}: {
+  checked: boolean;
+  onToggle: () => void;
+  anilistUrl?: string | null;
+  children: ReactNode;
+}): ReactNode {
+  const link = bindAnilistMiddleClick(anilistUrl ?? null);
+  return (
+    <label
+      className={mergeAnilistLinkClass('filter-chip-option', link.className)}
+      onMouseDown={link.onMouseDown}
+      onAuxClick={link.onAuxClick}
+    >
+      <input type="checkbox" checked={checked} onChange={onToggle} />
+      {children}
+    </label>
+  );
+}
+
+/** Title + format pill for media rows in filter-chip pickers. */
+export function renderMediaOptionChipLabel(media: MediaOption): ReactNode {
+  const formatLabel = mediaOptionFormatLabel(media);
+  return (
+    <span className="filter-chip-option-text">
+      <span className="filter-chip-option-title">{media.title}</span>
+      <span
+        className="tool-franchise-format"
+        title={`AniList format: ${formatLabel}`}
+      >
+        {formatLabel}
+      </span>
+    </span>
+  );
+}
+
+/** Menu class for long searchable lists — max-width cap, titles wrap. */
+export const FILTER_CHIP_MENU_CAPPED_CLASS = 'filter-chip-menu-capped';
+
+/**
+ * Shared media picker for character/staff "appears in" / "voiced in"
+ * chips — format pill, capped menu width, middle-click opens AniList.
+ */
+export function MediaOptionMultiSelectChip({
+  label,
+  mediaOptions,
+  selected,
+  onToggle,
+  onReplaceAll,
+  searchPlaceholder = 'Search media…',
+}: {
+  label: string;
+  mediaOptions: readonly MediaOption[];
+  selected: readonly number[];
+  onToggle: (id: number) => void;
+  onReplaceAll?: (ids: readonly number[]) => void;
+  searchPlaceholder?: string;
+}): ReactNode {
+  const byId = new Map(mediaOptions.map((m) => [m.id, m]));
+  return (
+    <MultiSelectChip<number>
+      label={label}
+      options={mediaOptions.map((m) => m.id)}
+      selected={selected}
+      onToggle={onToggle}
+      formatOption={(id) => byId.get(id)?.title ?? String(id)}
+      renderOption={(id) => {
+        const media = byId.get(id);
+        return media ? renderMediaOptionChipLabel(media) : String(id);
+      }}
+      getOptionAnilistUrl={(id) => {
+        const media = byId.get(id);
+        return media
+          ? anilistUrlForMediaEntry(media.mediaType, media.id)
+          : null;
+      }}
+      onReplaceAll={onReplaceAll}
+      searchable
+      searchPlaceholder={searchPlaceholder}
+      menuClassName={FILTER_CHIP_MENU_CAPPED_CLASS}
+    />
+  );
+}
+
 export function MultiSelectChip<T extends string | number>({
   label,
   labelHint,
@@ -855,10 +956,13 @@ export function MultiSelectChip<T extends string | number>({
   selected,
   onToggle,
   formatOption,
+  renderOption,
   onReplaceAll,
   menuStatus,
   searchable = false,
   searchPlaceholder,
+  menuClassName,
+  getOptionAnilistUrl,
 }: {
   label: string;
   /** Optional native tooltip on the chip trigger (e.g. filter semantics). */
@@ -867,6 +971,10 @@ export function MultiSelectChip<T extends string | number>({
   selected: readonly T[];
   onToggle: (value: T) => void;
   formatOption?: (value: T) => string;
+  /** When set, replaces the default text span for each option row. */
+  renderOption?: (value: T) => ReactNode;
+  /** When set, middle-click on a row opens this AniList URL in a new tab. */
+  getOptionAnilistUrl?: (value: T) => string | null;
   /** Optional muted one-line status at the top of the open menu. */
   menuStatus?: string;
   /** Optional bulk-set callback. When provided, the popover renders
@@ -881,6 +989,8 @@ export function MultiSelectChip<T extends string | number>({
    *  a search doesn't make it disappear from view. */
   searchable?: boolean;
   searchPlaceholder?: string;
+  /** Extra class(es) on the dropdown menu (e.g. `filter-chip-menu-wide`). */
+  menuClassName?: string;
 }): ReactNode {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -896,6 +1006,24 @@ export function MultiSelectChip<T extends string | number>({
   // search needle match so what the user types matches what they see.
   const formatOpt = (opt: T): string =>
     formatOption ? formatOption(opt) : String(opt);
+
+  const optionLabel = (opt: T): ReactNode =>
+    renderOption ? renderOption(opt) : <span>{formatOpt(opt)}</span>;
+
+  const renderSelectableRow = (
+    opt: T,
+    checked: boolean,
+    keyPrefix: string,
+  ): ReactNode => (
+    <FilterChipSelectableOption
+      key={`${keyPrefix}${String(opt)}`}
+      checked={checked}
+      onToggle={() => onToggle(opt)}
+      anilistUrl={getOptionAnilistUrl?.(opt)}
+    >
+      {optionLabel(opt)}
+    </FilterChipSelectableOption>
+  );
 
   // Split + filter only when we're actually rendering the menu — the
   // chip might never be opened in a session, no point doing work
@@ -935,86 +1063,76 @@ export function MultiSelectChip<T extends string | number>({
         {chipCountLabel}
       </button>
       {open && (
-        <div className="filter-chip-menu" role="menu">
-          {searchable && options.length > 0 && (
-            <input
-              type="search"
-              className="filter-chip-search"
-              placeholder={searchPlaceholder ?? `Search ${label}…`}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              autoFocus
-            />
-          )}
-          {onReplaceAll && options.length > 0 && (
-            <div className="filter-chip-toolbar">
-              <button
-                type="button"
-                className="filter-chip-action"
-                disabled={allSelected}
-                onClick={() => onReplaceAll(options)}
-                title="Select every option"
-              >
-                Select all
-              </button>
-              <button
-                type="button"
-                className="filter-chip-action"
-                disabled={count === 0}
-                onClick={() => onReplaceAll([])}
-                title="Clear the current selection"
-              >
-                Clear
-              </button>
-            </div>
-          )}
-          {menuStatus ? (
-            <div className="filter-chip-menu-status">{menuStatus}</div>
-          ) : null}
-          {options.length === 0 && (
-            <div className="filter-chip-empty">(no options)</div>
-          )}
-          {searchable ? (
-            <>
-              {selectedOptions.map((opt) => (
-                <label key={`sel-${String(opt)}`} className="filter-chip-option">
-                  <input
-                    type="checkbox"
-                    checked
-                    onChange={() => onToggle(opt)}
-                  />
-                  <span>{formatOpt(opt)}</span>
-                </label>
-              ))}
-              {selectedOptions.length > 0 && unselectedOptions.length > 0 && (
-                <div className="filter-chip-divider" />
-              )}
-              {options.length > 0 && unselectedOptions.length === 0 && search && (
-                <div className="filter-chip-empty">(no matches)</div>
-              )}
-              {unselectedOptions.map((opt) => (
-                <label key={String(opt)} className="filter-chip-option">
-                  <input
-                    type="checkbox"
-                    checked={false}
-                    onChange={() => onToggle(opt)}
-                  />
-                  <span>{formatOpt(opt)}</span>
-                </label>
-              ))}
-            </>
-          ) : (
-            options.map((opt) => (
-              <label key={String(opt)} className="filter-chip-option">
+        <div
+          className={['filter-chip-menu', menuClassName]
+            .filter(Boolean)
+            .join(' ')}
+          role="menu"
+        >
+          {(searchable && options.length > 0) ||
+          (onReplaceAll && options.length > 0) ||
+          menuStatus ? (
+            <div className="filter-chip-menu-header">
+              {searchable && options.length > 0 && (
                 <input
-                  type="checkbox"
-                  checked={selected.includes(opt)}
-                  onChange={() => onToggle(opt)}
+                  type="search"
+                  className="filter-chip-search"
+                  placeholder={searchPlaceholder ?? `Search ${label}…`}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  autoFocus
                 />
-                <span>{formatOpt(opt)}</span>
-              </label>
-            ))
-          )}
+              )}
+              {onReplaceAll && options.length > 0 && (
+                <div className="filter-chip-toolbar">
+                  <button
+                    type="button"
+                    className="filter-chip-action"
+                    disabled={allSelected}
+                    onClick={() => onReplaceAll(options)}
+                    title="Select every option"
+                  >
+                    Select all
+                  </button>
+                  <button
+                    type="button"
+                    className="filter-chip-action"
+                    disabled={count === 0}
+                    onClick={() => onReplaceAll([])}
+                    title="Clear the current selection"
+                  >
+                    Clear
+                  </button>
+                </div>
+              )}
+              {menuStatus ? (
+                <div className="filter-chip-menu-status">{menuStatus}</div>
+              ) : null}
+            </div>
+          ) : null}
+          <div className="filter-chip-menu-scroll">
+            {options.length === 0 && (
+              <div className="filter-chip-empty">(no options)</div>
+            )}
+            {searchable ? (
+              <>
+                {selectedOptions.map((opt) => renderSelectableRow(opt, true, 'sel-'))}
+                {selectedOptions.length > 0 && unselectedOptions.length > 0 && (
+                  <div className="filter-chip-divider" />
+                )}
+                {options.length > 0 && unselectedOptions.length === 0 && search && (
+                  <div className="filter-chip-empty">(no matches)</div>
+                )}
+                {unselectedOptions.map((opt) =>
+                  renderSelectableRow(opt, false, ''),
+                )}
+              </>
+            ) : (
+              options.map((opt) =>
+                renderSelectableRow(opt, selected.includes(opt), ''),
+              )
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -1837,76 +1955,74 @@ function VoiceActorChip({
         {roleSummary}
       </button>
       {open && (
-        <div className="filter-chip-menu" role="menu">
-          {/* Role refinement: a 3-button pill row that scopes the
-              VA filter to only characters of the selected roles.
-              Empty selection = "any role" passthrough. Always
-              visible (even with zero VAs selected) so the user can
-              pre-arm a role filter before picking VAs without it
-              feeling like a hidden control. */}
-          <div className="filter-chip-role-row">
-            {ALL_CHARACTER_ROLES.map((role) => {
-              const isOn = roleSet.has(role);
-              return (
-                <button
-                  key={role}
-                  type="button"
-                  className={`filter-chip-role-pill ${isOn ? 'on' : ''}`}
-                  aria-pressed={isOn}
-                  onClick={() => onToggleRole(role)}
-                  title={
-                    isOn
-                      ? `Remove ${role} from role filter`
-                      : `Only count this VA's ${role} characters`
-                  }
-                >
-                  {role}
-                </button>
-              );
-            })}
-          </div>
-          <input
-            type="search"
-            className="filter-chip-search"
-            placeholder="Search voice actors…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            autoFocus
-          />
-          {selectedOptions.map((o) => (
-            <label key={`sel-${o.id}`} className="filter-chip-option">
-              <input
-                type="checkbox"
-                checked
-                onChange={() => onToggle(o.id)}
-              />
-              <span>{o.name}</span>
-            </label>
-          ))}
-          {selectedOptions.length > 0 && matchingUnselected.length > 0 && (
-            <div className="filter-chip-divider" />
-          )}
-          {matchingUnselected.length === 0 && (
-            <div className="filter-chip-empty">
-              {needle
-                ? '(no matches in cached cast)'
-                : '(no cast cached yet)'}
+        <div
+          className={`filter-chip-menu ${FILTER_CHIP_MENU_CAPPED_CLASS}`}
+          role="menu"
+        >
+          <div className="filter-chip-menu-header">
+            <div className="filter-chip-role-row">
+              {ALL_CHARACTER_ROLES.map((role) => {
+                const isOn = roleSet.has(role);
+                return (
+                  <button
+                    key={role}
+                    type="button"
+                    className={`filter-chip-role-pill ${isOn ? 'on' : ''}`}
+                    aria-pressed={isOn}
+                    onClick={() => onToggleRole(role)}
+                    title={
+                      isOn
+                        ? `Remove ${role} from role filter`
+                        : `Only count this VA's ${role} characters`
+                    }
+                  >
+                    {role}
+                  </button>
+                );
+              })}
             </div>
-          )}
-          {matchingUnselected.map((o) => (
-            <label key={o.id} className="filter-chip-option">
-              <input
-                type="checkbox"
+            <input
+              type="search"
+              className="filter-chip-search"
+              placeholder="Search voice actors…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              autoFocus
+            />
+          </div>
+          <div className="filter-chip-menu-scroll">
+            {selectedOptions.map((o) => (
+              <FilterChipSelectableOption
+                key={`sel-${o.id}`}
+                checked
+                onToggle={() => onToggle(o.id)}
+                anilistUrl={anilistUrlForStaffId(o.id)}
+              >
+                <span>{o.name}</span>
+              </FilterChipSelectableOption>
+            ))}
+            {selectedOptions.length > 0 && matchingUnselected.length > 0 && (
+              <div className="filter-chip-divider" />
+            )}
+            {matchingUnselected.length === 0 && (
+              <div className="filter-chip-empty">
+                {needle
+                  ? '(no matches in cached cast)'
+                  : '(no cast cached yet)'}
+              </div>
+            )}
+            {matchingUnselected.map((o) => (
+              <FilterChipSelectableOption
+                key={o.id}
                 checked={false}
-                onChange={() => onToggle(o.id)}
-              />
-              <span>{o.name}</span>
-            </label>
-          ))}
-          {/* Cast-coverage footer: total candidates vs cached. The
-              bulk-expand button is the user's escape hatch for the
-              "VA filter only sees opened shows" footgun — it runs
-              lazyExpansion across all uncached candidates. */}
+                onToggle={() => onToggle(o.id)}
+                anilistUrl={anilistUrlForStaffId(o.id)}
+              >
+                <span>{o.name}</span>
+              </FilterChipSelectableOption>
+            ))}
+          </div>
+          {/* Cast-coverage footer: pinned below the scroll list. */}
           <div className="filter-chip-footer">
             <div className="filter-chip-footer-status">
               cast cached: {cachedCount}/{totalCount}
@@ -2081,32 +2197,37 @@ function AnilistChips({
         selected={state.years}
         onToggle={(v) => set({ years: toggleInArray(state.years, v) })}
       />
-      <SeasonYearChip
-        options={options.seasonYearEncoded}
-        min={state.seasonYearMin}
-        max={state.seasonYearMax}
-        onChange={(patch) => set(patch)}
-      />
+      {options.mediaType !== 'MANGA' && (
+        <SeasonYearChip
+          options={options.seasonYearEncoded}
+          min={state.seasonYearMin}
+          max={state.seasonYearMax}
+          onChange={(patch) => set(patch)}
+        />
+      )}
       <ScoreRangeChip
         pill={state.userScoreInclude}
         min={state.scoreMin}
         max={state.scoreMax}
         onChange={(patch) => set(patch)}
       />
-      <MultiSelectChip<number>
-        label="studio"
-        options={options.studios.map((s) => s.id)}
-        selected={state.studioIds}
-        onToggle={(v) =>
-          set({ studioIds: toggleInArray(state.studioIds, v) })
-        }
-        formatOption={(id) =>
-          options.studios.find((s) => s.id === id)?.name ?? String(id)
-        }
-        onReplaceAll={(vals) => set({ studioIds: [...vals] })}
-        searchable
-        searchPlaceholder="Search studios…"
-      />
+      {options.mediaType !== 'MANGA' && (
+        <MultiSelectChip<number>
+          label="studio"
+          options={options.studios.map((s) => s.id)}
+          selected={state.studioIds}
+          onToggle={(v) =>
+            set({ studioIds: toggleInArray(state.studioIds, v) })
+          }
+          formatOption={(id) =>
+            options.studios.find((s) => s.id === id)?.name ?? String(id)
+          }
+          onReplaceAll={(vals) => set({ studioIds: [...vals] })}
+          searchable
+          searchPlaceholder="Search studios…"
+          menuClassName={FILTER_CHIP_MENU_CAPPED_CLASS}
+        />
+      )}
       {/* Voice actors only exist for anime — hide the chip entirely on
           a manga slot. Mixed/unknown slots keep it (some candidates may
           be anime). */}

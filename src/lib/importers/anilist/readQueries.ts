@@ -1187,14 +1187,24 @@ export async function getStaffByIds(
 }
 
 /**
- * Lightweight `{id, title}` projection used by character-/staff-side
+ * Lightweight media projection used by character-/staff-side
  * "appears in media" chips. Title falls back through romaji → english
  * → native (matching the StartScreen waterfall) so the chip dropdown
- * shows what the user expects to see.
+ * shows what the user expects to see. `format` + `mediaType` drive
+ * the format pill beside each title in the picker.
  */
 export interface MediaOption {
   id: number;
   title: string;
+  format: AnilistMediaFormat | null;
+  mediaType: AnilistMediaType;
+}
+
+/** Chip label for a media row: prefer AniList `format`, else `mediaType`. */
+export function mediaOptionFormatLabel(
+  entry: Pick<MediaOption, 'format' | 'mediaType'>,
+): string {
+  return entry.format ?? entry.mediaType;
 }
 
 function rowToMediaOption(r: DbRow): MediaOption {
@@ -1205,7 +1215,13 @@ function rowToMediaOption(r: DbRow): MediaOption {
     title_english: s(r.title_english),
     title_native: s(r.title_native),
   });
-  return { id, title };
+  const mediaType = s(r.media_type) as AnilistMediaType;
+  return {
+    id,
+    title,
+    format: s(r.format) as AnilistMediaFormat | null,
+    mediaType,
+  };
 }
 
 /**
@@ -1223,7 +1239,9 @@ export async function getMediaAppearancesForCharacters(
     SELECT DISTINCT m.id          AS id,
                     m.title_romaji  AS title_romaji,
                     m.title_english AS title_english,
-                    m.title_native  AS title_native
+                    m.title_native  AS title_native,
+                    m.format        AS format,
+                    m.type          AS media_type
       FROM media_character mc
       JOIN media m ON m.id = mc.media_id
      WHERE mc.character_id IN (${placeholders(characterIds.length)})
@@ -1286,7 +1304,9 @@ export async function getMediaVoicedByStaff(
     SELECT DISTINCT m.id          AS id,
                     m.title_romaji  AS title_romaji,
                     m.title_english AS title_english,
-                    m.title_native  AS title_native
+                    m.title_native  AS title_native,
+                    m.format        AS format,
+                    m.type          AS media_type
       FROM character_voice_actor cva
       JOIN media m ON m.id = cva.media_id
      WHERE cva.staff_id IN (${placeholders(staffIds.length)})
