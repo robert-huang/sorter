@@ -62,6 +62,9 @@ function placeholders(n: number): string {
   return new Array(n).fill('?').join(', ');
 }
 
+/** SQLite bind cap (~999); leave room for the `anilist_user_id` bind. */
+const MEDIA_IDS_IN_USER_LIST_CHUNK = 500;
+
 // SQLite returns INTEGER columns as `number` and TEXT as `string` (or
 // `null` for both when the column is nullable). The row cast helpers
 // below pin those expectations so call sites can lean on the typed row
@@ -591,17 +594,22 @@ export async function getMediaIdsInUserList(
   mediaIds: readonly number[],
 ): Promise<Set<number>> {
   const out = new Set<number>();
-  if (mediaIds.length === 0) return out;
-  const sql = `
-    SELECT media_id FROM media_list_entry
-    WHERE anilist_user_id = ?
-      AND media_id IN (${placeholders(mediaIds.length)})
-  `;
-  const rows = await db.exec(sql, [
-    anilistUserId,
-    ...mediaIds,
-  ] as readonly SqlBindable[]);
-  for (const r of rows) out.add(reqN(r.media_id));
+  if (mediaIds.length === 0) {
+    return out;
+  }
+  const uniqueIds = [...new Set(mediaIds)];
+  for (let offset = 0; offset < uniqueIds.length; offset += MEDIA_IDS_IN_USER_LIST_CHUNK) {
+    const chunk = uniqueIds.slice(offset, offset + MEDIA_IDS_IN_USER_LIST_CHUNK);
+    const sql = `
+      SELECT media_id FROM media_list_entry
+      WHERE anilist_user_id = ?
+        AND media_id IN (${placeholders(chunk.length)})
+    `;
+    const rows = await db.exec(sql, [anilistUserId, ...chunk] as readonly SqlBindable[]);
+    for (const r of rows) {
+      out.add(reqN(r.media_id));
+    }
+  }
   return out;
 }
 

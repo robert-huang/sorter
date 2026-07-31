@@ -144,9 +144,6 @@ export function StaffDetailModal({
   const [expanding, setExpanding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<AnilistProgressEvent | null>(null);
-  // Bumped on every successful refresh so the load effect re-reads the
-  // cached rows without re-triggering the first-open auto-expansion.
-  const [loadTick, setLoadTick] = useState(0);
   // Latest cached AniList user id (null when no list cached) — gates the
   // "only items on my list" toggle ("if it's cached").
   const [listUserId, setListUserId] = useState<number | null>(null);
@@ -154,79 +151,83 @@ export function StaffDetailModal({
   const [myListIds, setMyListIds] = useState<Set<number>>(() => new Set());
   const [onlyMyList, setOnlyMyList] = useState(false);
 
-  // Initial load + reload-on-refresh. Reads cached filmography rows,
-  // kicks off a one-time expansion when the staff has never been
-  // fetched, then resolves "on my list" membership for the toggle.
+  const refreshMyListIds = useCallback(
+    async (userId: number | null, creditMediaIds: readonly number[]) => {
+      if (userId && creditMediaIds.length > 0) {
+        const onList = await productionReads.getMediaIdsInUserList(userId, creditMediaIds);
+        setMyListIds(onList);
+      } else {
+        setMyListIds(new Set());
+      }
+    },
+    [],
+  );
+
+  const applyFilmography = useCallback(
+    async (options?: { autoExpandIfMissing?: boolean }) => {
+      let d = await productionReads.getStaffFilmography(staffId);
+      const user = await productionReads.getLatestAnilistUser();
+      setDetail(d);
+      setListUserId(user?.id ?? null);
+
+      if (options?.autoExpandIfMissing && d.fetchedAt === null) {
+        setExpanding(true);
+        setProgress(null);
+        try {
+          await runAnilistStaffFilmographyExpansion(staffId, (e) => setProgress(e));
+          d = await productionReads.getStaffFilmography(staffId);
+          setDetail(d);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'Refresh failed.');
+        } finally {
+          setExpanding(false);
+          setProgress(null);
+        }
+      }
+
+      await refreshMyListIds(user?.id ?? null, d.credits.map((c) => c.media.id));
+    },
+    [staffId, refreshMyListIds],
+  );
+
+  // Initial load: read cache, auto-expand once when never fetched, resolve list toggle.
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    void (async () => {
-      try {
-        let d = await productionReads.getStaffFilmography(staffId);
-        const user = await productionReads.getLatestAnilistUser();
-        if (cancelled) return;
-        setDetail(d);
-        setListUserId(user?.id ?? null);
-        setLoading(false);
-
-        if (loadTick === 0 && d.fetchedAt === null) {
-          setExpanding(true);
-          setProgress(null);
-          try {
-            await runAnilistStaffFilmographyExpansion(staffId, (e) => {
-              if (!cancelled) setProgress(e);
-            });
-            if (cancelled) return;
-            d = await productionReads.getStaffFilmography(staffId);
-            if (cancelled) return;
-            setDetail(d);
-          } catch (err) {
-            if (cancelled) return;
-            // Soft-fail: the (possibly empty) cached rows already
-            // rendered; surface the error inline so the user can retry.
-            setError(err instanceof Error ? err.message : 'Refresh failed.');
-          } finally {
-            if (!cancelled) {
-              setExpanding(false);
-              setProgress(null);
-            }
-          }
+    void applyFilmography({ autoExpandIfMissing: true })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Could not load staff.');
         }
-
-        if (user && d.credits.length > 0) {
-          const ids = d.credits.map((c) => c.media.id);
-          const set = await productionReads.getMediaIdsInUserList(user.id, ids);
-          if (!cancelled) setMyListIds(set);
-        } else if (!cancelled) {
-          setMyListIds(new Set());
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
         }
-      } catch (err) {
-        if (cancelled) return;
-        setError(err instanceof Error ? err.message : 'Could not load staff.');
-        setLoading(false);
-      }
-    })();
+      });
     return () => {
       cancelled = true;
     };
-  }, [staffId, loadTick]);
+  }, [staffId, applyFilmography]);
 
   const onRefresh = useCallback(async () => {
-    if (expanding) return;
+    if (expanding) {
+      return;
+    }
     setExpanding(true);
     setError(null);
     setProgress(null);
     try {
       await runAnilistStaffFilmographyExpansion(staffId, (e) => setProgress(e));
-      setLoadTick((t) => t + 1);
+      await applyFilmography();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Refresh failed.');
     } finally {
       setExpanding(false);
       setProgress(null);
     }
-  }, [staffId, expanding]);
+  }, [staffId, expanding, applyFilmography]);
 
   const credits = detail?.credits ?? [];
   const visibleCredits = useMemo(() => {

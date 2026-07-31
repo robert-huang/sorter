@@ -4,7 +4,11 @@
  * `staff_filmography_expansion` is only a visit marker.
  */
 
-import type { AnilistImportContext, SqlBindable } from './context';
+import {
+  type AnilistImportContext,
+  execBatchInChunks,
+  type SqlBindable,
+} from './context';
 import {
   mapMediaRow,
   mapStaffCharacterAppearanceData,
@@ -225,7 +229,7 @@ export async function persistStaffFilmographyExpansion(
   });
 
   emitProgress(ctx.onProgress, { kind: 'writing', statements: stmts.length });
-  await ctx.db.execBatch(stmts);
+  await execBatchInChunks(ctx.db, stmts);
 
   if (ctx.onDirtyIncrement) {
     await ctx.onDirtyIncrement();

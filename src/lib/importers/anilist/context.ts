@@ -40,6 +40,22 @@ export interface AnilistDbExecutor {
   ): Promise<void>;
 }
 
+/** Keep worker `execBatch` RPC payloads under structured-clone limits. */
+export const DEFAULT_EXEC_BATCH_CHUNK_SIZE = 500;
+
+export async function execBatchInChunks(
+  db: AnilistDbExecutor,
+  statements: ReadonlyArray<{ sql: string; params?: readonly SqlBindable[] }>,
+  chunkSize = DEFAULT_EXEC_BATCH_CHUNK_SIZE,
+): Promise<void> {
+  if (statements.length === 0) {
+    return;
+  }
+  for (let offset = 0; offset < statements.length; offset += chunkSize) {
+    await db.execBatch(statements.slice(offset, offset + chunkSize));
+  }
+}
+
 export type AnilistExecuteQuery = <T>(
   query: string,
   variables: Record<string, unknown>,
