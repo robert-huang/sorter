@@ -12,7 +12,7 @@ import {
 // Bump this in lock-step with the highest version in
 // anilistSourceDescriptor.migrations so the "applies cleanly" sanity
 // check fails loudly when someone forgets to register a new migration.
-const LATEST_SCHEMA_VERSION = 10;
+const LATEST_SCHEMA_VERSION = 11;
 
 const EXPECTED_TABLES = [
   'anilist_user',
@@ -567,7 +567,7 @@ describe('anilist source descriptor', () => {
     expect(registered.id).toBe(ANILIST_SOURCE_ID);
     expect(registered.migrations).toHaveLength(LATEST_SCHEMA_VERSION);
     expect(registered.migrations.map((m) => m.version)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
     ]);
   });
 });
