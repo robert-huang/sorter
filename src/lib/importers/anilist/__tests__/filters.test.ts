@@ -25,6 +25,8 @@ import {
   isInitialState,
   setFilterDbForTesting,
   sortedDualRangePair,
+  multiSelectChipBulkSelectDisabled,
+  multiSelectChipBulkSelectValues,
   toggleScoreBucket,
   type AnilistFilterChipState,
 } from '../filters';
@@ -1069,5 +1071,42 @@ describe('sortedDualRangePair', () => {
   it('orders crossed drag values into [min, max]', () => {
     expect(sortedDualRangePair(2020, 2022)).toEqual([2020, 2022]);
     expect(sortedDualRangePair(2022, 2020)).toEqual([2020, 2022]);
+  });
+});
+
+describe('multiSelectChip bulk select', () => {
+  const options = ['alpha', 'beta', 'gamma'];
+
+  it('selects the full option list when search is empty or chip is not searchable', () => {
+    expect(
+      multiSelectChipBulkSelectValues(options, ['alpha'], ['beta'], true, ''),
+    ).toEqual(options);
+    expect(
+      multiSelectChipBulkSelectValues(options, ['alpha'], [], false, ''),
+    ).toEqual(options);
+  });
+
+  it('adds only search-matching unselected options when a search is active', () => {
+    expect(
+      multiSelectChipBulkSelectValues(
+        options,
+        ['alpha'],
+        ['beta'],
+        true,
+        'be',
+      ),
+    ).toEqual(['alpha', 'beta']);
+  });
+
+  it('disables bulk select when every match is already selected', () => {
+    expect(
+      multiSelectChipBulkSelectDisabled(options, options, [], true, ''),
+    ).toBe(true);
+    expect(
+      multiSelectChipBulkSelectDisabled(options, ['alpha'], [], true, 'be'),
+    ).toBe(true);
+    expect(
+      multiSelectChipBulkSelectDisabled(options, ['alpha'], ['beta'], true, 'be'),
+    ).toBe(false);
   });
 });

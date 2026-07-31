@@ -978,10 +978,12 @@ export function MultiSelectChip<T extends string | number>({
   /** Optional muted one-line status at the top of the open menu. */
   menuStatus?: string;
   /** Optional bulk-set callback. When provided, the popover renders
-   *  "Select all" + "Clear" buttons in a toolbar at the top. Selecting
-   *  all replaces the current selection with the full options array;
-   *  clearing replaces it with []. Each button is disabled when its
-   *  action would be a no-op (already all selected / already empty). */
+   *  "Select all" + "Clear" buttons in a toolbar at the top. With an
+   *  active search, "Select all visible" adds every currently listed
+   *  unselected match to the existing selection; with no search (or
+   *  when the chip is not searchable), "Select all" replaces the
+   *  selection with the full options array. Clearing replaces it with
+   *  []. Each button is disabled when its action would be a no-op. */
   onReplaceAll?: (values: readonly T[]) => void;
   /** When true, render a search input at the top of the menu (mirrors
    *  the voice-actor chip). Selected options always render above the
@@ -1030,19 +1032,40 @@ export function MultiSelectChip<T extends string | number>({
   // upfront. Selected-on-top mirrors VoiceActorChip's contract.
   let selectedOptions: readonly T[] = options;
   let unselectedOptions: readonly T[] = [];
+  const searchNeedle = searchable ? search.trim().toLowerCase() : '';
   if (searchable) {
     const selectedSet = new Set<T>(selected);
     selectedOptions = options.filter((o) => selectedSet.has(o));
     const restOptions = options.filter((o) => !selectedSet.has(o));
-    const needle = search.trim().toLowerCase();
-    unselectedOptions = needle
-      ? restOptions.filter((o) => formatOpt(o).toLowerCase().includes(needle))
+    unselectedOptions = searchNeedle
+      ? restOptions.filter((o) => formatOpt(o).toLowerCase().includes(searchNeedle))
       : restOptions;
   }
 
   const allSelected =
     options.length > 0 &&
     options.every((opt) => selected.includes(opt));
+
+  const selectAllValues = multiSelectChipBulkSelectValues(
+    options,
+    selected,
+    unselectedOptions,
+    searchable,
+    searchNeedle,
+  );
+  const selectAllDisabled = multiSelectChipBulkSelectDisabled(
+    options,
+    selected,
+    unselectedOptions,
+    searchable,
+    searchNeedle,
+  );
+  const selectAllLabel =
+    searchable && searchNeedle ? 'Select all visible' : 'Select all';
+  const selectAllTitle =
+    searchable && searchNeedle
+      ? 'Add every option that matches the current search'
+      : 'Select every option';
 
   const chipCountLabel =
     count === 0 ? '' : allSelected ? ' · all' : ` · ${count}`;
@@ -1088,11 +1111,11 @@ export function MultiSelectChip<T extends string | number>({
                   <button
                     type="button"
                     className="filter-chip-action"
-                    disabled={allSelected}
-                    onClick={() => onReplaceAll(options)}
-                    title="Select every option"
+                    disabled={selectAllDisabled}
+                    onClick={() => onReplaceAll(selectAllValues)}
+                    title={selectAllTitle}
                   >
-                    Select all
+                    {selectAllLabel}
                   </button>
                   <button
                     type="button"
@@ -1142,6 +1165,36 @@ export function MultiSelectChip<T extends string | number>({
 /** Normalized [min, max] emitted to callers after a drag step. */
 export function sortedDualRangePair(a: number, b: number): [number, number] {
   return a <= b ? [a, b] : [b, a];
+}
+
+/** Values passed to `onReplaceAll` from {@link MultiSelectChip}'s bulk-select button. */
+export function multiSelectChipBulkSelectValues<T>(
+  options: readonly T[],
+  selected: readonly T[],
+  matchingUnselected: readonly T[],
+  searchable: boolean,
+  searchNeedle: string,
+): readonly T[] {
+  if (searchable && searchNeedle) {
+    return [...selected, ...matchingUnselected];
+  }
+  return options;
+}
+
+/** Whether {@link MultiSelectChip}'s bulk-select button should be disabled. */
+export function multiSelectChipBulkSelectDisabled<T>(
+  options: readonly T[],
+  selected: readonly T[],
+  matchingUnselected: readonly T[],
+  searchable: boolean,
+  searchNeedle: string,
+): boolean {
+  if (searchable && searchNeedle) {
+    return matchingUnselected.length === 0;
+  }
+  return (
+    options.length === 0 || options.every((opt) => selected.includes(opt))
+  );
 }
 
 /**
