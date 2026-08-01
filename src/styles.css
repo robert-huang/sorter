@@ -2018,7 +2018,7 @@ html {
    cast list and the staff modal's voiced-character credits so the two
    lists match. */
 .anilist-detail-character-name {
-  color: var(--accent, #2563eb);
+  color: var(--accent, #2563eb) !important;
 }
 
 /* Inline names/characters that are only middle-clickable (open AniList) get
