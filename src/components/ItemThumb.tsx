@@ -1,9 +1,8 @@
 import { useContext, useState } from 'react';
 import {
-  bindAnilistMiddleClick,
   isAnilistPageUrl,
-  mergeAnilistLinkClass,
 } from '../lib/importers/anilist/anilistLinks';
+import { AnilistMiddleClickLink } from '../lib/importers/anilist/AnilistMiddleClickLink';
 import type { Item } from '../lib/types';
 import { canOpenItemDetail, ItemDetailContext } from './itemDetailContext';
 
@@ -84,7 +83,6 @@ export function ItemThumb({
   const anilistUrl =
     item.url && isAnilistPageUrl(item.url) ? item.url : undefined;
   const middleClickOnly = Boolean(anilistUrl && !opensDetail);
-  const anilistLink = bindAnilistMiddleClick(middleClickOnly ? anilistUrl! : null);
   const inner = showImage ? (
     <img
       src={item.imageUrl}
@@ -96,60 +94,49 @@ export function ItemThumb({
     <span className={placeholderClass}>{initials(item.label)}</span>
   );
   if (opensDetail) {
-    // Render as a transparent button so keyboard focus + native
-    // click-handling work without extra ARIA wiring. Keep the
-    // caller's className so layout sizing stays intact; the button
-    // resets default chrome via CSS.
+    if (!anilistUrl) {
+      return (
+        <button
+          type="button"
+          className={`${className ?? ''} item-thumb-button`.trim()}
+          aria-label={`Details for ${item.label}`}
+          title={`Details for ${item.label}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            opener!(item);
+          }}
+        >
+          {inner}
+        </button>
+      );
+    }
     return (
-      <button
-        type="button"
+      <AnilistMiddleClickLink
+        url={anilistUrl}
         className={`${className ?? ''} item-thumb-button`.trim()}
-        onClick={(e) => {
-          // stopPropagation so a parent row's click handler doesn't
-          // also fire (none today, but defensively the modal-open
-          // shouldn't double up with hide/select/drag elsewhere).
+        aria-label={`Details for ${item.label}`}
+        title={`Details for ${item.label} (middle-click to open on AniList)`}
+        onPrimaryClick={(e) => {
           e.stopPropagation();
           opener!(item);
         }}
-        onMouseDown={(e) => {
-          // Suppress the browser's middle-button autoscroll so the
-          // auxclick handler below can open the AniList page cleanly.
-          if (e.button === 1 && anilistUrl) e.preventDefault();
-        }}
-        onAuxClick={(e) => {
-          // Middle-click opens the item's AniList page in a new tab.
-          if (e.button !== 1 || !anilistUrl) return;
-          e.preventDefault();
-          e.stopPropagation();
-          window.open(anilistUrl, '_blank', 'noopener,noreferrer');
-        }}
-        aria-label={`Details for ${item.label}`}
-        title={
-          anilistUrl
-            ? `Details for ${item.label} (middle-click to open on AniList)`
-            : `Details for ${item.label}`
-        }
       >
         {inner}
-      </button>
+      </AnilistMiddleClickLink>
     );
   }
   if (middleClickOnly) {
     return (
-      <Tag
-        className={mergeAnilistLinkClass(className ?? '', anilistLink.className)}
-        onClick={(e) => {
-          // Swallow left-clicks so parent row affordances (e.g. a
-          // wrapping <label> checkbox in the start-tab preview) don't
-          // fire — there is no detail panel for these items.
+      <AnilistMiddleClickLink
+        url={anilistUrl!}
+        className={className ?? ''}
+        title={`${item.label} (middle-click to open on AniList)`}
+        onPrimaryClick={(e) => {
           e.stopPropagation();
         }}
-        onMouseDown={anilistLink.onMouseDown}
-        onAuxClick={anilistLink.onAuxClick}
-        title={`${item.label} (middle-click to open on AniList)`}
       >
         {inner}
-      </Tag>
+      </AnilistMiddleClickLink>
     );
   }
   return <Tag className={className}>{inner}</Tag>;

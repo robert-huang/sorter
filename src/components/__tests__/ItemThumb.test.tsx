@@ -1,12 +1,12 @@
 /**
  * ItemThumb interaction contract:
  *
- *   - AniList media + staff items render as a button. Left-click opens the
- *     detail modal via the ItemDetailContext opener; middle-click
- *     (auxclick, button 1) opens the item's canonical AniList page in
- *     a new tab and does NOT open the modal.
- *   - AniList character/studio items (url on anilist.co, no detail panel)
- *     render as a span with middle-click only — left-click is a no-op.
+ *   - AniList media + staff items render as a link-styled anchor. Left-click
+ *     opens the detail modal via the ItemDetailContext opener; middle-click
+ *     opens the item's canonical AniList page in a new tab and does NOT open
+ *     the modal. Right-click exposes the browser link menu via `href`.
+ *   - AniList character/studio items render as an anchor with middle-click
+ *     only — left-click is a no-op.
  *   - Other items (manual entries, non-AniList urls) render a plain span
  *     with no interaction wiring.
  */
@@ -95,16 +95,16 @@ function renderThumb(item: Item, opener: ItemDetailOpener | null): void {
 }
 
 describe('ItemThumb interactions', () => {
-  it('renders AniList items as a button and opens the detail modal on left-click', () => {
+  it('renders AniList items as a link and opens the detail modal on left-click', () => {
     const opener = vi.fn();
     renderThumb(anilistItem(), opener);
 
-    const button = container.querySelector('button.item-thumb-button');
-    expect(button).not.toBeNull();
+    const link = container.querySelector('a.item-thumb-button');
+    expect(link).not.toBeNull();
 
     act(() => {
-      button!.dispatchEvent(
-        new MouseEvent('click', { bubbles: true, button: 0 }),
+      link!.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }),
       );
     });
 
@@ -112,56 +112,42 @@ describe('ItemThumb interactions', () => {
     expect(opener).toHaveBeenCalledWith(anilistItem());
   });
 
-  it('opens the AniList page in a new tab on middle-click and does not open the modal', () => {
+  it('exposes AniList href for middle-click and does not open the modal on auxclick', () => {
     const opener = vi.fn();
-    const openSpy = vi
-      .spyOn(window, 'open')
-      .mockImplementation(() => null);
     renderThumb(anilistItem(), opener);
 
-    const button = container.querySelector('button.item-thumb-button');
-    act(() => {
-      button!.dispatchEvent(
-        new MouseEvent('auxclick', { bubbles: true, button: 1 }),
-      );
-    });
-
-    expect(openSpy).toHaveBeenCalledTimes(1);
-    expect(openSpy).toHaveBeenCalledWith(
-      ANILIST_URL,
-      '_blank',
-      'noopener,noreferrer',
-    );
-    // Middle-click must not also fire the left-click modal opener.
+    const link = container.querySelector('a.item-thumb-button');
+    expect(link?.getAttribute('href')).toBe(ANILIST_URL);
     expect(opener).not.toHaveBeenCalled();
   });
 
-  it('ignores middle-click when the AniList item has no url', () => {
+  it('keeps opening details when the AniList item has no url', () => {
     const opener = vi.fn();
-    const openSpy = vi
-      .spyOn(window, 'open')
-      .mockImplementation(() => null);
-    renderThumb(anilistItem({ url: undefined }), opener);
+    const item = anilistItem({ url: undefined });
+    renderThumb(item, opener);
 
-    const button = container.querySelector('button.item-thumb-button');
-    act(() => {
-      button!.dispatchEvent(
-        new MouseEvent('auxclick', { bubbles: true, button: 1 }),
-      );
-    });
-
-    expect(openSpy).not.toHaveBeenCalled();
-  });
-
-  it('renders AniList staff items as a button and opens the panel on left-click', () => {
-    const opener = vi.fn();
-    renderThumb(staffItem(), opener);
-
+    expect(container.querySelector('a.item-thumb-button')).toBeNull();
     const button = container.querySelector('button.item-thumb-button');
     expect(button).not.toBeNull();
 
     act(() => {
-      button!.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
+      button!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(opener).toHaveBeenCalledWith(item);
+  });
+
+  it('renders AniList staff items as a link and opens the panel on left-click', () => {
+    const opener = vi.fn();
+    renderThumb(staffItem(), opener);
+
+    const link = container.querySelector('a.item-thumb-button');
+    expect(link).not.toBeNull();
+
+    act(() => {
+      link!.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }),
+      );
     });
 
     expect(opener).toHaveBeenCalledTimes(1);
@@ -172,52 +158,32 @@ describe('ItemThumb interactions', () => {
     const opener = vi.fn();
     renderThumb(manualItem({ url: 'https://example.com/x' }), opener);
 
-    expect(container.querySelector('button')).toBeNull();
+    expect(container.querySelector('a.item-thumb-button')).toBeNull();
     expect(container.querySelector('span.thumb')).not.toBeNull();
   });
 
-  it('opens AniList on middle-click for character items and ignores left-click', () => {
+  it('exposes AniList href for character items and ignores left-click', () => {
     const opener = vi.fn();
-    const openSpy = vi
-      .spyOn(window, 'open')
-      .mockImplementation(() => null);
     const item = characterItem();
     renderThumb(item, opener);
 
-    expect(container.querySelector('button')).toBeNull();
-    const thumb = container.querySelector('span.thumb.anime-to-anime-anilist-link');
+    expect(container.querySelector('a.item-thumb-button')).toBeNull();
+    const thumb = container.querySelector('a.thumb.anime-to-anime-anilist-link');
     expect(thumb).not.toBeNull();
+    expect(thumb?.getAttribute('href')).toBe('https://anilist.co/character/300');
 
     act(() => {
-      thumb!.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
+      thumb!.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }),
+      );
     });
     expect(opener).not.toHaveBeenCalled();
-
-    act(() => {
-      thumb!.dispatchEvent(new MouseEvent('auxclick', { bubbles: true, button: 1 }));
-    });
-    expect(openSpy).toHaveBeenCalledWith(
-      'https://anilist.co/character/300',
-      '_blank',
-      'noopener,noreferrer',
-    );
   });
 
-  it('opens AniList on middle-click for studio favourites without a source tag', () => {
-    const openSpy = vi
-      .spyOn(window, 'open')
-      .mockImplementation(() => null);
+  it('exposes AniList href for studio favourites without a source tag', () => {
     renderThumb(studioItem(), vi.fn());
 
-    const thumb = container.querySelector('span.thumb.anime-to-anime-anilist-link');
-    act(() => {
-      thumb!.dispatchEvent(new MouseEvent('auxclick', { bubbles: true, button: 1 }));
-    });
-
-    expect(openSpy).toHaveBeenCalledWith(
-      'https://anilist.co/studio/1',
-      '_blank',
-      'noopener,noreferrer',
-    );
+    const thumb = container.querySelector('a.thumb.anime-to-anime-anilist-link');
+    expect(thumb?.getAttribute('href')).toBe('https://anilist.co/studio/1');
   });
 });

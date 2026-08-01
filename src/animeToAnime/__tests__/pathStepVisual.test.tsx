@@ -73,7 +73,13 @@ describe('PathStepBubble interactions', () => {
     expect(bubble).not.toBeNull();
 
     act(() => {
-      bubble!.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
+      bubble!.dispatchEvent(
+        new MouseEvent('click', {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+        }),
+      );
     });
 
     expect(onOpen).toHaveBeenCalledTimes(1);
@@ -100,32 +106,23 @@ describe('PathStepBubble interactions', () => {
 
   it('middle-click opens AniList and does not also open the modal', () => {
     const onOpen = vi.fn();
-    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
     const step = animeStep();
     renderBubble(step, onOpen);
 
-    const bubble = container.querySelector('[role="button"]')!;
-    act(() => {
-      bubble.dispatchEvent(new MouseEvent('auxclick', { bubbles: true, button: 1 }));
-    });
-
-    expect(openSpy).toHaveBeenCalledTimes(1);
-    expect(openSpy).toHaveBeenCalledWith(
-      anilistUrlForPathStep(step),
-      '_blank',
-      'noopener,noreferrer',
-    );
+    const bubble = container.querySelector('a.anime-to-anime-path-step')!;
+    expect(bubble.getAttribute('href')).toBe(anilistUrlForPathStep(step));
     expect(onOpen).not.toHaveBeenCalled();
   });
 
   it('is non-interactive during the game when no opener is passed', () => {
     renderBubble(animeStep());
 
-    // No button affordance: not focusable, no role, click is a no-op.
+    // No button affordance: removed from tab order, no role, click is a no-op.
     expect(container.querySelector('[role="button"]')).toBeNull();
     const bubble = container.querySelector('.anime-to-anime-path-step') as HTMLElement;
     expect(bubble).not.toBeNull();
-    expect(bubble.getAttribute('tabindex')).toBeNull();
+    expect(bubble.getAttribute('tabindex')).toBe('-1');
+    expect(bubble.getAttribute('aria-hidden')).toBe('true');
     expect(bubble.className).not.toContain('anime-to-anime-path-step--interactive');
   });
 });
@@ -148,7 +145,13 @@ describe('PathTrailEdge character middle-click', () => {
 
     const edge = container.querySelector('.anime-to-anime-path-edge')!;
     act(() => {
-      edge.dispatchEvent(new MouseEvent('auxclick', { bubbles: true, button: 1 }));
+      edge.dispatchEvent(
+        new MouseEvent('auxclick', {
+          bubbles: true,
+          cancelable: true,
+          button: 1,
+        }),
+      );
     });
 
     expect(openSpy).toHaveBeenCalledTimes(2);
@@ -174,7 +177,13 @@ describe('PathTrailEdge character middle-click', () => {
 
     const edge = container.querySelector('.anime-to-anime-path-edge')!;
     act(() => {
-      edge.dispatchEvent(new MouseEvent('auxclick', { bubbles: true, button: 1 }));
+      edge.dispatchEvent(
+        new MouseEvent('auxclick', {
+          bubbles: true,
+          cancelable: true,
+          button: 1,
+        }),
+      );
     });
 
     expect(openSpy).not.toHaveBeenCalled();

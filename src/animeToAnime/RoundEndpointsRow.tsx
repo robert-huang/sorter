@@ -3,8 +3,7 @@ import type { MediaRow } from '../lib/importers/anilist/types';
 import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
 import {
   anilistUrlForMedia,
-  bindAnilistMiddleClick,
-  mergeAnilistLinkClass,
+  AnilistMiddleClickLink,
 } from './anilistMiddleClick';
 import { EndpointPicker } from './EndpointPicker';
 import { EndpointsSwapArrow } from './endpointsSwapArrow';
@@ -60,24 +59,18 @@ function EndpointsSwapBridge({
 }
 
 function PlayEndpointCard({ label, media }: { label: string; media: MediaRow | null }) {
-  const anilistLink = bindAnilistMiddleClick(media ? anilistUrlForMedia(media) : null);
-
   return (
     <section className="page-section anime-to-anime-endpoint-card">
       <h2 className="anime-to-anime-section-title">{label}</h2>
-      <div
-        className={mergeAnilistLinkClass(
-          'anime-to-anime-endpoint-play-preview',
-          anilistLink.className,
-        )}
-        onMouseDown={anilistLink.onMouseDown}
-        onAuxClick={anilistLink.onAuxClick}
+      <AnilistMiddleClickLink
+        url={media ? anilistUrlForMedia(media) : null}
+        className="anime-to-anime-endpoint-play-preview"
       >
         {media?.cover_image && (
           <img src={media.cover_image} alt="" className="anime-to-anime-endpoint-cover" />
         )}
         <p className="anime-to-anime-endpoint-value">{media ? pickMediaTitle(media) : '—'}</p>
-      </div>
+      </AnilistMiddleClickLink>
     </section>
   );
 }

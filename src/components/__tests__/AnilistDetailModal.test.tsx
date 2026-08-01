@@ -528,9 +528,9 @@ describe('AnilistDetailModal — clickable people (staff panel nav)', () => {
     };
   }
 
-  function findPersonLink(name: string): HTMLButtonElement | undefined {
+  function findPersonLink(name: string): HTMLAnchorElement | undefined {
     return Array.from(
-      container.querySelectorAll<HTMLButtonElement>('button.anilist-detail-person-link'),
+      container.querySelectorAll<HTMLAnchorElement>('a.anilist-detail-person-link'),
     ).find((b) => (b.textContent ?? '').includes(name));
   }
 
@@ -606,7 +606,7 @@ describe('AnilistDetailModal — clickable people (staff panel nav)', () => {
     expect(onOpenStaff).toHaveBeenCalledWith(201, 'Megumi Hayashibara');
   });
 
-  it('middle-click opens the AniList page for characters and voice actors', async () => {
+  it('exposes AniList href on characters and voice actors', async () => {
     mockedGetMediaDetail.mockResolvedValueOnce({
       media: makeMedia(73),
       studios: [],
@@ -623,7 +623,6 @@ describe('AnilistDetailModal — clickable people (staff panel nav)', () => {
     });
     mockedGetExpansionStatus.mockResolvedValueOnce(makeExpansionStatus(73, true));
     const onOpenStaff = vi.fn();
-    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
 
     await act(async () => {
       root.render(
@@ -638,35 +637,16 @@ describe('AnilistDetailModal — clickable people (staff panel nav)', () => {
     await flushPromises();
 
     const charName = Array.from(
-      container.querySelectorAll('.anilist-detail-character-name'),
+      container.querySelectorAll('a.anilist-detail-character-name'),
     ).find((el) => (el.textContent ?? '').includes('Faye Valentine'));
-    expect(charName).toBeDefined();
-    act(() => {
-      charName!.dispatchEvent(new MouseEvent('auxclick', { bubbles: true, button: 1 }));
-    });
-    expect(openSpy).toHaveBeenLastCalledWith(
-      anilistUrlForCharacter(300),
-      '_blank',
-      'noopener,noreferrer',
-    );
+    expect(charName?.getAttribute('href')).toBe(anilistUrlForCharacter(300));
 
-    // Middle-clicking the VA opens their AniList page, not the staff panel.
-    const vaBtn = findPersonLink('Megumi Hayashibara');
-    expect(vaBtn).toBeDefined();
-    act(() => {
-      vaBtn!.dispatchEvent(new MouseEvent('auxclick', { bubbles: true, button: 1 }));
-    });
-    expect(openSpy).toHaveBeenLastCalledWith(
-      anilistUrlForStaffId(201),
-      '_blank',
-      'noopener,noreferrer',
-    );
+    const vaLink = findPersonLink('Megumi Hayashibara');
+    expect(vaLink?.getAttribute('href')).toBe(anilistUrlForStaffId(201));
     expect(onOpenStaff).not.toHaveBeenCalled();
-
-    openSpy.mockRestore();
   });
 
-  it('middle-click on the cover image opens the media AniList page', async () => {
+  it('wraps the cover image in an AniList link', async () => {
     mockedGetMediaDetail.mockResolvedValueOnce({
       media: makeMedia(74, { cover_image: 'https://example.com/cover.jpg' }),
       studios: [],
@@ -675,7 +655,6 @@ describe('AnilistDetailModal — clickable people (staff panel nav)', () => {
       productionStaff: [],
     });
     mockedGetExpansionStatus.mockResolvedValueOnce(makeExpansionStatus(74, true));
-    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
 
     await act(async () => {
       root.render(
@@ -686,16 +665,21 @@ describe('AnilistDetailModal — clickable people (staff panel nav)', () => {
 
     const cover = container.querySelector<HTMLImageElement>('img.anilist-detail-cover');
     expect(cover).toBeTruthy();
-    act(() => {
-      cover!.dispatchEvent(new MouseEvent('auxclick', { bubbles: true, button: 1 }));
-    });
-    expect(openSpy).toHaveBeenLastCalledWith(
-      anilistUrlForMediaEntry('ANIME', 74),
-      '_blank',
-      'noopener,noreferrer',
-    );
-
-    openSpy.mockRestore();
+    const coverLink = cover?.closest('a');
+    expect(coverLink?.getAttribute('href')).toBe(anilistUrlForMediaEntry('ANIME', 74));
+    expect(
+      container.querySelector<HTMLAnchorElement>('h3 a')?.getAttribute('href'),
+    ).toBe(anilistUrlForMediaEntry('ANIME', 74));
+    expect(
+      container
+        .querySelector<HTMLAnchorElement>('.anilist-detail-external-link')
+        ?.getAttribute('href'),
+    ).toBe(anilistUrlForMediaEntry('ANIME', 74));
+    expect(
+      container
+        .querySelector('.modal-backdrop')
+        ?.classList.contains('anilist-detail-media-backdrop'),
+    ).toBe(true);
   });
 
   it('shows manga key production roles in the default key-role filter', async () => {
@@ -743,7 +727,7 @@ describe('AnilistDetailModal — clickable people (staff panel nav)', () => {
     });
     await flushPromises();
 
-    expect(container.querySelector('button.anilist-detail-person-link')).toBeNull();
+    expect(container.querySelector('a.anilist-detail-person-link')).toBeNull();
     expect(container.textContent).toContain('Shinichiro Watanabe');
   });
 

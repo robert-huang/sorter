@@ -435,9 +435,8 @@ export function App() {
   >(null);
   // Staff detail modal target. Set when the user opens a staff item
   // (source.kind === 'anilist-staff') or clicks a VA / production name
-  // inside the media detail modal. Mutually exclusive with
-  // itemDetailTarget — opening one clears the other so the two panels
-  // navigate to each other (forward nav) rather than stacking.
+  // inside the media detail modal. A media modal opened from a staff
+  // filmography stacks above it so closing media returns to the staff panel.
   const [staffDetailTarget, setStaffDetailTarget] = useState<
     { staffId: number; fallbackName: string } | null
   >(null);
@@ -2948,7 +2947,6 @@ export function App() {
           fallbackName={staffDetailTarget.fallbackName}
           onClose={() => setStaffDetailTarget(null)}
           onOpenMedia={(mediaId, fallbackTitle) => {
-            setStaffDetailTarget(null);
             setItemDetailTarget({ mediaId, fallbackTitle });
           }}
         />

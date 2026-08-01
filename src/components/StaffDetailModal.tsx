@@ -18,9 +18,8 @@ import {
   anilistUrlForCharacter,
   anilistUrlForMediaEntry,
   anilistUrlForStaffId,
-  bindAnilistMiddleClick,
-  mergeAnilistLinkClass,
 } from '../lib/importers/anilist/anilistLinks';
+import { AnilistMiddleClickLink } from '../lib/importers/anilist/AnilistMiddleClickLink';
 import { useAnilistDisplayPreferences } from '../hooks/useAnilistDisplayPreferences';
 import { formatAnilistProgress } from './anilistProgressLabel';
 
@@ -105,26 +104,17 @@ function CreditRoleLine({ credit }: { credit: StaffFilmographyCredit }) {
       {hasVoiced && (
         <>
           voiced{' '}
-          {credit.voicedCharacters.map((character, index) => {
-            const characterLink = bindAnilistMiddleClick(
-              anilistUrlForCharacter(character.id),
-            );
-            return (
+          {credit.voicedCharacters.map((character, index) => (
               <span key={character.id}>
                 {index > 0 ? ', ' : ''}
-                <span
-                  className={mergeAnilistLinkClass(
-                    'anilist-detail-character-name',
-                    characterLink.className,
-                  )}
-                  onMouseDown={characterLink.onMouseDown}
-                  onAuxClick={characterLink.onAuxClick}
+                <AnilistMiddleClickLink
+                  url={anilistUrlForCharacter(character.id)}
+                  className="anilist-detail-character-name"
                 >
                   {character.name}
-                </span>
+                </AnilistMiddleClickLink>
               </span>
-            );
-          })}
+            ))}
         </>
       )}
     </span>
@@ -273,7 +263,10 @@ export function StaffDetailModal({
 
   const name = pickName(detail, staffId, fallbackName);
   const staff = detail?.staff ?? null;
-  const staffNameLink = bindAnilistMiddleClick(anilistUrlForStaffId(staffId));
+  const hasStaffMeta =
+    !!staff?.name_native ||
+    !!staff?.language_v2 ||
+    (staff?.favourites !== null && staff?.favourites !== undefined);
   // Highlight the Refresh button when the cached filmography is older
   // than the staleness threshold (>90d) — the freshness line alone is
   // easy to miss, so the action affordance itself signals "update me".
@@ -299,14 +292,23 @@ export function StaffDetailModal({
             marginBottom: 10,
           }}
         >
-          <h3
-            className={staffNameLink.className}
-            style={{ margin: 0, flex: 1, minWidth: 0 }}
-            onMouseDown={staffNameLink.onMouseDown}
-            onAuxClick={staffNameLink.onAuxClick}
-          >
-            {name}
+          <h3 style={{ margin: 0, flex: 1, minWidth: 0 }}>
+            <AnilistMiddleClickLink
+              url={anilistUrlForStaffId(staffId)}
+              className="anilist-detail-heading-link"
+              style={{ margin: 0 }}
+            >
+              {name}
+            </AnilistMiddleClickLink>
           </h3>
+          <a
+            className="anilist-detail-external-link"
+            href={anilistUrlForStaffId(staffId)}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            AniList ↗
+          </a>
           <button
             type="button"
             className={`btn small${
@@ -345,29 +347,31 @@ export function StaffDetailModal({
         {detail && (
           <div className="anilist-detail-body">
             {staff?.image && (
-              <img
-                className="anilist-detail-cover"
-                src={staff.image}
-                alt=""
-                loading="lazy"
-              />
+              <AnilistMiddleClickLink
+                url={anilistUrlForStaffId(staffId)}
+                className="anilist-detail-cover-link"
+                title="Open on AniList (middle-click)"
+              >
+                <img
+                  className="anilist-detail-cover"
+                  src={staff.image}
+                  alt=""
+                  loading="lazy"
+                />
+              </AnilistMiddleClickLink>
             )}
 
             <div className="anilist-detail-meta">
-              <div className="anilist-detail-meta-row">
-                {staff?.name_native && <span>{staff.name_native}</span>}
-                {staff?.language_v2 && <span>{staff.language_v2}</span>}
-                {staff?.favourites !== null && staff?.favourites !== undefined && (
-                  <span>★ {staff.favourites.toLocaleString()}</span>
-                )}
-                <a
-                  href={anilistUrlForStaffId(staffId)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  AniList ↗
-                </a>
-              </div>
+              {hasStaffMeta && (
+                <div className="anilist-detail-meta-row">
+                  {staff?.name_native && <span>{staff.name_native}</span>}
+                  {staff?.language_v2 && <span>{staff.language_v2}</span>}
+                  {staff?.favourites !== null &&
+                    staff?.favourites !== undefined && (
+                      <span>★ {staff.favourites.toLocaleString()}</span>
+                    )}
+                </div>
+              )}
 
               <div
                 className="anilist-detail-meta-row"
@@ -440,22 +444,18 @@ export function StaffDetailModal({
                       // Left-click opens the media modal; middle-click opens the
                       // media's AniList page (voiced-character names inside the
                       // row stop propagation to open their own pages instead).
-                      const mediaLink = bindAnilistMiddleClick(
-                        anilistUrlForMediaEntry(credit.media.type, credit.media.id),
-                      );
                       return (
                         <li key={credit.media.id}>
-                          <button
-                            type="button"
-                            className={mergeAnilistLinkClass(
-                              'anilist-detail-cast-item anilist-detail-row-link',
-                              mediaLink.className,
-                            )}
-                            onClick={() => onOpenMedia(credit.media.id, title)}
-                            onMouseDown={mediaLink.onMouseDown}
-                            onAuxClick={mediaLink.onAuxClick}
-                            title={`Open ${title}`}
-                          >
+                          <div className="anilist-detail-cast-item anilist-detail-row-link">
+                            <AnilistMiddleClickLink
+                              url={anilistUrlForMediaEntry(credit.media.type, credit.media.id)}
+                              className="anilist-detail-row-link-target"
+                              aria-label={`Open ${title}`}
+                              title={`Open ${title}`}
+                              onPrimaryClick={() => onOpenMedia(credit.media.id, title)}
+                            >
+                              {null}
+                            </AnilistMiddleClickLink>
                             {credit.media.cover_image && (
                               <img
                                 className="anilist-detail-cast-image"
@@ -473,7 +473,7 @@ export function StaffDetailModal({
                                 </span>
                               )}
                             </span>
-                          </button>
+                          </div>
                         </li>
                       );
                     })}

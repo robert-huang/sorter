@@ -262,8 +262,8 @@ describe('StaffDetailModal — my-list toggle + navigation', () => {
     await flushPromises();
 
     const rowBtn = container.querySelector(
-      'button.anilist-detail-row-link',
-    ) as HTMLButtonElement | null;
+      'a.anilist-detail-row-link-target',
+    ) as HTMLAnchorElement | null;
     expect(rowBtn).not.toBeNull();
     await act(async () => {
       rowBtn!.click();
@@ -272,34 +272,30 @@ describe('StaffDetailModal — my-list toggle + navigation', () => {
     expect(onOpenMedia).toHaveBeenCalledWith(1, 'EN-1');
   });
 
-  it('opens the media AniList page on middle-click (without navigating the modal)', async () => {
+  it('exposes media AniList href on middle-click target (without navigating the modal)', async () => {
     mockedGetFilmography.mockResolvedValueOnce(makeFilmography());
     const onOpenMedia = vi.fn();
-    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
     renderModal({ onOpenMedia });
     await flushPromises();
 
     const rowBtn = container.querySelector(
-      'button.anilist-detail-row-link',
-    ) as HTMLButtonElement | null;
+      'a.anilist-detail-row-link-target',
+    ) as HTMLAnchorElement | null;
     expect(rowBtn).not.toBeNull();
+    expect(rowBtn?.getAttribute('href')).toBe(buildAnilistMediaUrl('ANIME', 1));
     await act(async () => {
       rowBtn!.dispatchEvent(
         new MouseEvent('auxclick', { bubbles: true, button: 1 }),
       );
     });
 
-    expect(openSpy).toHaveBeenCalledWith(
-      buildAnilistMediaUrl('ANIME', 1),
-      '_blank',
-      'noopener,noreferrer',
-    );
     expect(onOpenMedia).not.toHaveBeenCalled();
   });
 
-  it('middle-click opens AniList for the staff header and voiced characters', async () => {
+  it('exposes AniList href on the staff header and voiced characters', async () => {
     mockedGetFilmography.mockResolvedValueOnce(
       makeFilmography({
+        staff: makeStaff(10, { image: 'https://example.com/staff.jpg' }),
         credits: [
           makeCredit(1, {
             productionRoles: [],
@@ -309,34 +305,27 @@ describe('StaffDetailModal — my-list toggle + navigation', () => {
       }),
     );
     const onOpenMedia = vi.fn();
-    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
     renderModal({ onOpenMedia });
     await flushPromises();
 
-    // Staff name header → the person's AniList page.
-    const header = container.querySelector('h3') as HTMLElement;
-    act(() => {
-      header.dispatchEvent(new MouseEvent('auxclick', { bubbles: true, button: 1 }));
-    });
-    expect(openSpy).toHaveBeenLastCalledWith(
+    const headerLink = container.querySelector('h3 a') as HTMLAnchorElement | null;
+    expect(headerLink?.getAttribute('href')).toBe(anilistUrlForStaffId(10));
+    expect(
+      container
+        .querySelector<HTMLAnchorElement>('.anilist-detail-external-link')
+        ?.getAttribute('href'),
+    ).toBe(anilistUrlForStaffId(10));
+    const staffImage = container.querySelector<HTMLImageElement>(
+      'img.anilist-detail-cover',
+    );
+    expect(staffImage?.closest('a')?.getAttribute('href')).toBe(
       anilistUrlForStaffId(10),
-      '_blank',
-      'noopener,noreferrer',
     );
 
-    // Voiced character → its AniList page, without opening the row's media modal.
     const charEl = Array.from(
-      container.querySelectorAll('.anilist-detail-character-name'),
+      container.querySelectorAll('a.anilist-detail-character-name'),
     ).find((el) => (el.textContent ?? '').includes('Spike Spiegel'));
-    expect(charEl).toBeDefined();
-    act(() => {
-      charEl!.dispatchEvent(new MouseEvent('auxclick', { bubbles: true, button: 1 }));
-    });
-    expect(openSpy).toHaveBeenLastCalledWith(
-      anilistUrlForCharacter(555),
-      '_blank',
-      'noopener,noreferrer',
-    );
+    expect(charEl?.getAttribute('href')).toBe(anilistUrlForCharacter(555));
     expect(onOpenMedia).not.toHaveBeenCalled();
   });
 });

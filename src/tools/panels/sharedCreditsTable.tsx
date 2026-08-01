@@ -1,8 +1,7 @@
 import {
   anilistUrlForCharacter,
-  bindAnilistMiddleClick,
-  mergeAnilistLinkClass,
 } from '../../lib/importers/anilist/anilistLinks';
+import { AnilistMiddleClickLink } from '../../lib/importers/anilist/AnilistMiddleClickLink';
 import { ToolShowButton, ToolStaffButton } from '../toolEntityLinks';
 import { DragScroll } from '../../components/DragScroll';
 import type { ToolPanelProps } from '../toolTypes';
@@ -15,20 +14,11 @@ import {
 function SharedCreditsRoleName({ role }: { role: StaffRoleEntry }) {
   const anilistUrl =
     role.characterId != null ? anilistUrlForCharacter(role.characterId) : null;
-  const anilistLink = bindAnilistMiddleClick(anilistUrl);
-
-  if (!anilistLink.className) {
-    return <span>{role.label}</span>;
-  }
 
   return (
-    <span
-      className={mergeAnilistLinkClass('tool-character-name-link', anilistLink.className)}
-      onMouseDown={anilistLink.onMouseDown}
-      onAuxClick={anilistLink.onAuxClick}
-    >
+    <AnilistMiddleClickLink url={anilistUrl} className="tool-character-name-link">
       {role.label}
-    </span>
+    </AnilistMiddleClickLink>
   );
 }
 

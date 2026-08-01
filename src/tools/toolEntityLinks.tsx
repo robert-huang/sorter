@@ -3,9 +3,8 @@ import {
   anilistUrlForMediaEntry,
   anilistUrlForStaffId,
   anilistUrlForStudio,
-  bindAnilistMiddleClick,
-  mergeAnilistLinkClass,
 } from '../lib/importers/anilist/anilistLinks';
+import { AnilistMiddleClickLink } from '../lib/importers/anilist/AnilistMiddleClickLink';
 import type { AnilistMediaType } from '../lib/importers/anilist/types';
 import { UserIcon } from '../components/icons';
 import type { ToolPanelProps } from './toolTypes';
@@ -67,25 +66,18 @@ export function ToolShowButton({
   hideAvatar = false,
   className,
 }: ToolShowButtonProps) {
-  const anilistLink = bindAnilistMiddleClick(anilistUrlForMediaEntry(mediaType, mediaId));
-
   return (
-    <button
-      type="button"
-      className={mergeAnilistLinkClass(
-        [
-          'tool-entity-btn',
-          compact ? 'tool-entity-btn--compact' : '',
-          className ?? '',
-        ]
-          .filter(Boolean)
-          .join(' '),
-        anilistLink.className,
-      )}
+    <AnilistMiddleClickLink
+      url={anilistUrlForMediaEntry(mediaType, mediaId)}
+      className={[
+        'tool-entity-btn',
+        compact ? 'tool-entity-btn--compact' : '',
+        className ?? '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
       title={title}
-      onClick={() => onOpenMedia(mediaId, title)}
-      onMouseDown={anilistLink.onMouseDown}
-      onAuxClick={anilistLink.onAuxClick}
+      onPrimaryClick={() => onOpenMedia(mediaId, title)}
     >
       {hideAvatar ? null : (
         <ToolEntityAvatar imageUrl={coverImage} label={title} variant="poster" />
@@ -93,7 +85,7 @@ export function ToolShowButton({
       <span className="tool-entity-label">
         <strong>{title}</strong>
       </span>
-    </button>
+    </AnilistMiddleClickLink>
   );
 }
 
@@ -129,32 +121,25 @@ export function ToolStaffButton({
   className,
   gender,
 }: ToolStaffButtonProps) {
-  const anilistLink = bindAnilistMiddleClick(anilistUrlForStaffId(staffId));
-
   return (
-    <button
-      type="button"
-      className={mergeAnilistLinkClass(
-        [
-          'tool-entity-btn',
-          compact ? 'tool-entity-btn--compact' : '',
-          staffGenderButtonClass(gender),
-          className ?? '',
-        ]
-          .filter(Boolean)
-          .join(' '),
-        anilistLink.className,
-      )}
+    <AnilistMiddleClickLink
+      url={anilistUrlForStaffId(staffId)}
+      className={[
+        'tool-entity-btn',
+        compact ? 'tool-entity-btn--compact' : '',
+        staffGenderButtonClass(gender),
+        className ?? '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
       title={`View ${name}'s filmography`}
-      onClick={() => onOpenStaff(staffId, name)}
-      onMouseDown={anilistLink.onMouseDown}
-      onAuxClick={anilistLink.onAuxClick}
+      onPrimaryClick={() => onOpenStaff(staffId, name)}
     >
       <ToolEntityAvatar imageUrl={imageUrl} label={name} variant="round" />
       <span className="tool-entity-label">
         <strong>{name}</strong>
       </span>
-    </button>
+    </AnilistMiddleClickLink>
   );
 }
 
@@ -178,25 +163,15 @@ function characterGenderLinkClass(gender: string | null | undefined): string {
 
 /** Character name with middle-click to open AniList (no in-app character modal). */
 export function ToolCharacterName({ characterId, name, gender }: ToolCharacterNameProps) {
-  const anilistLink = bindAnilistMiddleClick(anilistUrlForCharacter(characterId));
-
-  if (!anilistLink.className) {
-    return <span>{name}</span>;
-  }
-
   return (
-    <span
-      className={mergeAnilistLinkClass(
-        ['tool-character-name-link', characterGenderLinkClass(gender)]
-          .filter(Boolean)
-          .join(' '),
-        anilistLink.className,
-      )}
-      onMouseDown={anilistLink.onMouseDown}
-      onAuxClick={anilistLink.onAuxClick}
+    <AnilistMiddleClickLink
+      url={anilistUrlForCharacter(characterId)}
+      className={['tool-character-name-link', characterGenderLinkClass(gender)]
+        .filter(Boolean)
+        .join(' ')}
     >
       {name}
-    </span>
+    </AnilistMiddleClickLink>
   );
 }
 
@@ -207,20 +182,10 @@ type ToolStudioNameProps = {
 
 /** Studio name with middle-click to open AniList (no in-app studio modal). */
 export function ToolStudioName({ studioId, name }: ToolStudioNameProps) {
-  const anilistLink = bindAnilistMiddleClick(anilistUrlForStudio(studioId));
-
-  if (!anilistLink.className) {
-    return <span>{name}</span>;
-  }
-
   return (
-    <span
-      className={mergeAnilistLinkClass('tool-character-name-link', anilistLink.className)}
-      onMouseDown={anilistLink.onMouseDown}
-      onAuxClick={anilistLink.onAuxClick}
-    >
+    <AnilistMiddleClickLink url={anilistUrlForStudio(studioId)} className="tool-character-name-link">
       {name}
-    </span>
+    </AnilistMiddleClickLink>
   );
 }
 

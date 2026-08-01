@@ -67,28 +67,68 @@ function toUrlList(url: string | readonly string[] | null): string[] {
   return url.filter((u): u is string => Boolean(u));
 }
 
+/** True when the user is trying to open the link (new tab/window), not activate the primary action. */
+export function isModifiedAnilistNavigationClick(event: MouseEvent): boolean {
+  return event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
+}
+
+/**
+ * Compose click handling for an `<a href>` that also has a custom left-click
+ * action (open modal, toggle checkbox, etc.). Modified clicks follow `href`;
+ * plain left-click runs `onPrimaryClick` when set, otherwise navigation is
+ * suppressed so middle-click remains the primary open affordance.
+ */
+export function composeAnilistLinkClick(
+  onPrimaryClick?: (event: MouseEvent<HTMLElement>) => void,
+  options: { allowShiftKey?: boolean } = {},
+): (event: MouseEvent<HTMLElement>) => void {
+  return (event) => {
+    const shiftOnly =
+      event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey;
+    if (
+      isModifiedAnilistNavigationClick(event) &&
+      !(options.allowShiftKey && shiftOnly)
+    ) {
+      event.stopPropagation();
+      return;
+    }
+    event.preventDefault();
+    if (onPrimaryClick) {
+      onPrimaryClick(event);
+    }
+  };
+}
+
 /**
  * Middle-click opens AniList in a new tab; left-click behavior is unchanged.
  * Accepts a single URL, a list of URLs (each opened in its own tab — used by
  * the path arrows, where one VA hop can cover several characters), or `null`
  * to disable the affordance.
+ *
+ * When `href` is set, use a real `<a href>` (see {@link AnilistMiddleClickLink})
+ * so right-click and ctrl/cmd-click get the browser link menu.
  */
 export function bindAnilistMiddleClick(url: string | readonly string[] | null): {
+  href: string | undefined;
   className: string | undefined;
   onMouseDown: (event: MouseEvent<HTMLElement>) => void;
   onAuxClick: (event: MouseEvent<HTMLElement>) => void;
 } {
   const urls = toUrlList(url);
   const enabled = urls.length > 0;
+  const opensMultiple = urls.length > 1;
   return {
+    href: enabled ? urls[0] : undefined,
     className: enabled ? 'anime-to-anime-anilist-link' : undefined,
     onMouseDown: (event) => {
-      if (enabled && event.button === 1) {
+      if (opensMultiple && event.button === 1) {
         event.preventDefault();
       }
     },
     onAuxClick: (event) => {
-      if (!enabled || event.button !== 1) {
+      // Single-URL anchors must keep the native auxclick default so the
+      // browser opens `href`. Multi-URL hops need the custom opener below.
+      if (!opensMultiple || event.button !== 1) {
         return;
       }
       event.preventDefault();

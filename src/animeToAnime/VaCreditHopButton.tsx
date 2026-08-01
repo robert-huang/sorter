@@ -1,7 +1,6 @@
 import {
   anilistUrlForStaff,
-  bindAnilistMiddleClick,
-  mergeAnilistLinkClass,
+  AnilistMiddleClickLink,
 } from './anilistMiddleClick';
 import type { VaListImageMode } from './preferences';
 import {
@@ -21,15 +20,12 @@ export function VaCreditHopButton({ group, vaListImageMode, onHop }: Props) {
   const primaryCredit = group.credits[0];
   const image = vaCreditListImage(primaryCredit, vaListImageMode);
   const subtitle = groupedVaCreditSubtitle(group);
-  const anilistLink = bindAnilistMiddleClick(anilistUrlForStaff(group.staff));
 
   return (
-    <button
-      type="button"
-      className={mergeAnilistLinkClass('anime-to-anime-hop-btn', anilistLink.className)}
-      onClick={onHop}
-      onMouseDown={anilistLink.onMouseDown}
-      onAuxClick={anilistLink.onAuxClick}
+    <AnilistMiddleClickLink
+      url={anilistUrlForStaff(group.staff)}
+      className="anime-to-anime-hop-btn"
+      onPrimaryClick={onHop}
     >
       {image && (
         <img className="anime-to-anime-hop-image" src={image} alt="" loading="lazy" />
@@ -38,6 +34,6 @@ export function VaCreditHopButton({ group, vaListImageMode, onHop }: Props) {
         <strong>{vaCreditStaffNameFromStaff(group.staff)}</strong>
         {subtitle && <span className="anime-to-anime-hop-meta">{subtitle}</span>}
       </span>
-    </button>
+    </AnilistMiddleClickLink>
   );
 }

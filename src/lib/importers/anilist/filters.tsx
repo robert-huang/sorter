@@ -52,11 +52,10 @@ import {
 import { ANILIST_SOURCE_ID } from './anilistSource';
 import type { AnilistDbExecutor, SqlBindable } from './context';
 import {
-  bindAnilistMiddleClick,
   anilistUrlForMediaEntry,
   anilistUrlForStaffId,
-  mergeAnilistLinkClass,
 } from './anilistLinks';
+import { AnilistMiddleClickLink } from './AnilistMiddleClickLink';
 import {
   getLatestAnilistUser,
   getListEntriesByMediaIds,
@@ -872,15 +871,29 @@ export function FilterChipSelectableOption({
   anilistUrl?: string | null;
   children: ReactNode;
 }): ReactNode {
-  const link = bindAnilistMiddleClick(anilistUrl ?? null);
   return (
     <label
-      className={mergeAnilistLinkClass('filter-chip-option', link.className)}
-      onMouseDown={link.onMouseDown}
-      onAuxClick={link.onAuxClick}
+      className="filter-chip-option filter-chip-option-link"
+      onClick={(event) => {
+        if (
+          event.defaultPrevented ||
+          event.target instanceof HTMLInputElement
+        ) {
+          return;
+        }
+        event.preventDefault();
+        onToggle();
+      }}
     >
+      <AnilistMiddleClickLink
+        url={anilistUrl ?? null}
+        className="filter-chip-option-link-target"
+        onPrimaryClick={() => onToggle()}
+      >
+        {null}
+      </AnilistMiddleClickLink>
       <input type="checkbox" checked={checked} onChange={onToggle} />
-      {children}
+      <span className="filter-chip-option-text">{children}</span>
     </label>
   );
 }

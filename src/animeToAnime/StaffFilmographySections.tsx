@@ -1,6 +1,6 @@
 import type { AnimeFilmographyRow } from '../lib/importers/anilist/graphQueries';
 import { graphStaleRefreshTooltip } from '../lib/importers/anilist/graphConstants';
-import { anilistUrlForStaff, bindAnilistMiddleClick, mergeAnilistLinkClass } from './anilistMiddleClick';
+import { anilistUrlForStaff, AnilistMiddleClickLink } from './anilistMiddleClick';
 import { AnimeFilmographyHopButton } from './AnimeFilmographyHopButton';
 import { CircularArrowGlyph } from '../components/CircularArrowGlyph';
 
@@ -85,20 +85,15 @@ export function StaffFilmographySections({
     isStale && fetchedAt !== null
       ? graphStaleRefreshTooltip(fetchedAt, 'Cached filmography', 'refresh')
       : 'Refresh filmography from AniList';
-  const staffTitleLink = bindAnilistMiddleClick(anilistUrlForStaff({ id: staffId }));
+  const staffTitleLink = anilistUrlForStaff({ id: staffId });
 
   return (
     <>
       <div className="anime-to-anime-current-heading anime-to-anime-current-heading--staff">
-        <h2
-          className={mergeAnilistLinkClass(
-            'anime-to-anime-current-title anime-to-anime-current-heading-title',
-            staffTitleLink.className,
-          )}
-          onMouseDown={staffTitleLink.onMouseDown}
-          onAuxClick={staffTitleLink.onAuxClick}
-        >
-          {staffName}
+        <h2 className="anime-to-anime-current-title anime-to-anime-current-heading-title">
+          <AnilistMiddleClickLink url={staffTitleLink}>
+            {staffName}
+          </AnilistMiddleClickLink>
         </h2>
         <button
           type="button"

@@ -5,7 +5,6 @@ import {
   useRef,
   useState,
   type FormEvent,
-  type MouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import {
@@ -14,10 +13,7 @@ import {
 } from '../../lib/importers/anilist/anilistAuth';
 import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
 import { buildAnilistFavouriteUrl } from '../../lib/importers/anilist/anilistSource';
-import {
-  bindAnilistMiddleClick,
-  mergeAnilistLinkClass,
-} from '../../lib/importers/anilist/anilistLinks';
+import { AnilistMiddleClickLink } from '../../lib/importers/anilist/AnilistMiddleClickLink';
 import { Modal } from '../../components/Modal';
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
@@ -594,13 +590,13 @@ export function ReorderFavouritesPanel(_props: ToolPanelProps) {
   );
 
   const onChipClick = useCallback(
-    (e: MouseEvent<HTMLLIElement>, itemId: number) => {
+    (shiftKey: boolean, itemId: number) => {
       if (mode !== 'select-rank') {
         return;
       }
       const index = items.findIndex((item) => item.id === itemId);
       if (index >= 0) {
-        onSelectRankClick(index, e.shiftKey);
+        onSelectRankClick(index, shiftKey);
       }
     },
     [items, mode, onSelectRankClick],
@@ -709,32 +705,33 @@ export function ReorderFavouritesPanel(_props: ToolPanelProps) {
                   : null;
               const isSelected = selected.has(item.id);
               const isDragging = draggedIdSet.has(item.id);
-              const anilistLink = bindAnilistMiddleClick(
-                buildAnilistFavouriteUrl(form.favouriteType, item.id),
-              );
 
               return (
                 <li
                   key={item.id}
                   data-item-id={item.id}
-                  className={mergeAnilistLinkClass(
-                    [
-                      'tool-reorder-favourites-chip',
-                      isSelected ? 'is-selected' : '',
-                      isDragging ? 'is-dragging' : '',
-                      mode === 'select-rank' ? 'is-select-rank' : '',
-                    ]
-                      .filter(Boolean)
-                      .join(' '),
-                    anilistLink.className,
-                  )}
+                  className={[
+                    'tool-reorder-favourites-chip',
+                    isSelected ? 'is-selected' : '',
+                    isDragging ? 'is-dragging' : '',
+                    mode === 'select-rank' ? 'is-select-rank' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
                   draggable={false}
-                  onMouseDown={anilistLink.onMouseDown}
-                  onAuxClick={anilistLink.onAuxClick}
                   onPointerDown={(e) => onChipPointerDown(e, item.id)}
-                  onClick={(e) => onChipClick(e, item.id)}
                   title={item.label}
                 >
+                  <AnilistMiddleClickLink
+                    url={buildAnilistFavouriteUrl(form.favouriteType, item.id)}
+                    className="tool-reorder-favourites-chip-link-target"
+                    aria-label={`Open ${item.label} on AniList`}
+                    tabIndex={-1}
+                    onPrimaryClick={(e) => onChipClick(e.shiftKey, item.id)}
+                    allowShiftPrimaryClick={mode === 'select-rank'}
+                  >
+                    {null}
+                  </AnilistMiddleClickLink>
                   <input
                     type="checkbox"
                     className="tool-reorder-favourites-chip-checkbox"

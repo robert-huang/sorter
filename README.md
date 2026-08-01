@@ -188,7 +188,7 @@ Click **Add {N} selected to staged** to append an **unranked** group to the [Sta
 
 ## AniList detail panels
 
-AniList items expose two detail panels that read from the local cache and lazily fetch more from AniList on demand. There is **no back stack** — opening one panel from another replaces it in place (media → staff → media → …, one modal at a time).
+AniList items expose two detail panels that read from the local cache and lazily fetch more from AniList on demand. Opening staff from media replaces the media panel; opening media from a staff filmography stacks the media panel above staff, so closing it returns to the same staff filmography.
 
 ### Opening a panel
 
@@ -197,23 +197,23 @@ Only AniList items can open a panel (`canOpenItemDetail`): anime/manga items (an
 - **LIST tab** — click a thumbnail, or the **ⓘ** info button next to the edit (✎) button on any row/chip. Tooltip: `Details for "{label}"`.
 - **RANK tab** — the **ⓘ** button on each comparison card (`View details`); clicking it doesn't count as a pick.
 - **RESULT tab** — click a result thumbnail.
-- **Middle-click** a thumbnail or card → opens the item's AniList page in a new tab (doesn't open the panel or count as a pick).
+- **Middle-click** a linked thumbnail, card, title, image, result row, or chart label → opens its AniList page in a new tab (doesn't trigger the normal left-click action). These targets are native links, so right-click also exposes the browser's standard link menu.
 
 ### Media detail panel
 
-Loads cached metadata immediately and shows: cover, resolved **title**, and chips for type/format/status/season+year, episodes or chapters, mean score (`⌀ {n}/100`), favourites (`★`), country, and start/end dates; plus **Genres**, **Studios**, and **Tags** sections.
+Loads cached metadata immediately and shows: linked cover, linked resolved **title**, an **AniList ↗** header link, and chips for type/format/status/season+year, episodes or chapters, mean score (`⌀ {n}/100`), favourites (`★`), country, and start/end dates; plus **Genres**, **Studios**, and **Tags** sections.
 
 - **Cast** — characters with role and **`VA:`** voice actors. VA names are clickable → open that person's **staff** panel.
 - **Production** — staff credits with a **Key roles** / **All credits** toggle (persisted). Staff names are clickable → staff panel.
 - **Lazy expansion** — on first open, cast + production staff are fetched from AniList and cached (metadata stays visible if that fetch fails). Cache lines show `Cast: {date} (complete|incomplete, fresh|stale (>90d))`, the same for staff, and `Relations: {date} (fresh|stale (>90d))` for franchise relation edges.
 - **↻ Refresh** re-fetches cast, staff, and relations (`Re-fetch cast & staff for this entry (does not auto-push)`). Relations refresh also powers Adaptation Scores scan merge when the modal is opened from that tool.
-- The media panel has **no synopsis** and **no relations UI** (relations power the Anime-to-Anime game, not this panel). Reach the AniList page via the card/thumb link or middle-click.
+- The media panel has **no synopsis** and **no relations UI** (relations power the Anime-to-Anime game, not this panel). Reach the AniList page through **AniList ↗**, the linked title/cover, or the browser link menu.
 
 ### Staff detail panel
 
-Shows the staff image, name (+ native name), language, favourites (`★`), an **AniList ↗** link, and a **Filmography** of merged production + voice credits (one row per media, newest first). Each row shows the cover, title, role line (production roles and/or `voiced {characters}`), and `{year} · {format}`.
+Shows the linked staff image and name, native name, language, favourites (`★`), an **AniList ↗** header link, and a **Filmography** of merged production + voice credits (one row per media, newest first). Each row shows the cover, title, role line (production roles and/or `voiced {characters}`), and `{year} · {format}`.
 
-- **Filmography rows** — left-click opens that media's panel; **middle-click** opens its AniList page (`Open {title} (middle-click to open on AniList)`).
+- **Filmography rows** — left-click opens that media's panel above the staff panel; closing media returns to staff. **Middle-click** opens the media's AniList page.
 - **Only items on my list** — a checkbox shown when an AniList user list is cached; filters the filmography to media on your list (anime or manga). The count shows `(N of M)` when active.
 - **Lazy expansion** — on first open the filmography is fetched from AniList and cached; later opens read the cache.
 - **↻ Refresh** re-fetches the filmography. When the cache is **over 90 days old**, the button turns **amber** with the tooltip `This person's cached filmography is over 90 days old — click to re-fetch from AniList`.

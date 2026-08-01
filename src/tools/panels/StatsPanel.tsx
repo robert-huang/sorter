@@ -8,10 +8,9 @@ import { useToolsDisplayLabelRevision } from '../useToolsDisplayLabelRevision';
 import { relabelStatsEntries } from '../toolsDisplayRelabel';
 import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
 import {
-  bindAnilistMiddleClick,
-  mergeAnilistLinkClass,
   anilistUrlForMediaEntry,
 } from '../../lib/importers/anilist/anilistLinks';
+import { AnilistMiddleClickLink } from '../../lib/importers/anilist/AnilistMiddleClickLink';
 import {
   MultiSelectChip,
   ScoreRangeChip,
@@ -377,7 +376,7 @@ function StatsMinCountChip({
   );
 }
 
-function StatsSubrowNameCell({
+export function StatsSubrowNameCell({
   entry,
   link,
   onOpenMedia,
@@ -386,9 +385,6 @@ function StatsSubrowNameCell({
   link?: StatsSubrowLink;
   onOpenMedia: ToolPanelProps['onOpenMedia'];
 }) {
-  const anilistLink = bindAnilistMiddleClick(
-    anilistUrlForMediaEntry(entry.mediaType, entry.mediaId),
-  );
   const repeatSuffix =
     entry.repeat != null && entry.repeat > 0 ? ` ×${entry.repeat + 1}` : '';
   const vaCharacters = link?.characters ?? [];
@@ -399,14 +395,16 @@ function StatsSubrowNameCell({
 
   return (
     <div className="tool-stats-subrow-name">
-      <button
-        type="button"
-        className={mergeAnilistLinkClass('tool-stats-subrow-show-btn', anilistLink.className)}
-        title={`${entry.title} (middle-click for AniList)`}
-        onClick={() => onOpenMedia(entry.mediaId, entry.title)}
-        onMouseDown={anilistLink.onMouseDown}
-        onAuxClick={anilistLink.onAuxClick}
-      >
+      <div className="tool-stats-subrow-show-btn">
+        <AnilistMiddleClickLink
+          url={anilistUrlForMediaEntry(entry.mediaType, entry.mediaId)}
+          className="tool-stats-subrow-show-link-target"
+          aria-label={`Open ${entry.title}`}
+          title={`${entry.title} (middle-click for AniList)`}
+          onPrimaryClick={() => onOpenMedia(entry.mediaId, entry.title)}
+        >
+          {null}
+        </AnilistMiddleClickLink>
         <ToolEntityAvatar imageUrl={entry.coverImage} label={entry.title} variant="poster" />
         <span className="tool-stats-subrow-show-text">
           <span
@@ -446,7 +444,7 @@ function StatsSubrowNameCell({
             <span className="tool-stats-subrow-show-meta">{staffRole}</span>
           ) : null}
         </span>
-      </button>
+      </div>
     </div>
   );
 }

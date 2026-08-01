@@ -1,10 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { CommaInLabelWarning, DedupWarning, ExtraColumnsWarning } from '../lib/types';
 import type { PreviewItem } from '../lib/csv';
-import {
-  bindAnilistMiddleClick,
-  mergeAnilistLinkClass,
-} from '../lib/importers/anilist/anilistLinks';
+import { AnilistMiddleClickLink } from '../lib/importers/anilist/AnilistMiddleClickLink';
 import { canOpenItemDetail } from './itemDetailContext';
 import { DetailButtonSlot } from './DetailButton';
 import { RemoveGlyph } from './RemoveGlyph';
@@ -442,18 +439,16 @@ function PreviewItemIndicator({
   href: string;
   kind: 'url' | 'image';
 }) {
-  const link = bindAnilistMiddleClick(href);
   const label = kind === 'url' ? 'URL' : 'Image';
   return (
-    <span
-      className={mergeAnilistLinkClass('preview-item-indicator', link.className)}
+    <AnilistMiddleClickLink
+      url={href}
+      className="preview-item-indicator"
       title={`${href} (middle-click to open)`}
       aria-label={`${label} for this row (middle-click to open)`}
-      onMouseDown={link.onMouseDown}
-      onAuxClick={link.onAuxClick}
-      onClick={(e) => e.stopPropagation()}
+      onPrimaryClick={(e) => e.stopPropagation()}
     >
       {kind === 'url' ? '🔗' : '🖼'}
-    </span>
+    </AnilistMiddleClickLink>
   );
 }

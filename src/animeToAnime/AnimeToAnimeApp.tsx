@@ -84,7 +84,7 @@ import {
   saveAnimeToAnimeTheme,
   type AnimeToAnimeTheme,
 } from './theme';
-import { bindAnilistMiddleClick, anilistUrlForMedia, mergeAnilistLinkClass } from './anilistMiddleClick';
+import { anilistUrlForMedia, AnilistMiddleClickLink } from './anilistMiddleClick';
 import { StaffFilmographySections } from './StaffFilmographySections';
 import { ProductionCreditHopButton } from './ProductionCreditHopButton';
 import { VaCreditHopButton } from './VaCreditHopButton';
@@ -677,13 +677,6 @@ export function AnimeToAnimeApp() {
     return rows;
   }, [filmography, filterLower, onlyMyList, myListMediaIds]);
 
-  const currentAnimeAnilistLink = useMemo(() => {
-    if (current?.kind !== 'anime' || !currentMedia) {
-      return null;
-    }
-    return bindAnilistMiddleClick(anilistUrlForMedia(currentMedia));
-  }, [current, currentMedia]);
-
   const onHopToStaff = useCallback(
     (staff: StaffRow, viaLabel: string, viaCharacters?: readonly PathHopCharacter[]) => {
       setFilter('');
@@ -931,18 +924,13 @@ export function AnimeToAnimeApp() {
                 </div>
               )}
 
-              {current?.kind === 'anime' && currentMedia && currentAnimeAnilistLink && (
+              {current?.kind === 'anime' && currentMedia && (
                 <section className="anime-to-anime-play-panel">
                   <div className="anime-to-anime-current-heading anime-to-anime-current-heading--show">
-                    <h2
-                      className={mergeAnilistLinkClass(
-                        'anime-to-anime-current-title anime-to-anime-current-heading-title',
-                        currentAnimeAnilistLink.className,
-                      )}
-                      onMouseDown={currentAnimeAnilistLink.onMouseDown}
-                      onAuxClick={currentAnimeAnilistLink.onAuxClick}
-                    >
-                      {pickMediaTitle(currentMedia)}
+                    <h2 className="anime-to-anime-current-title anime-to-anime-current-heading-title">
+                      <AnilistMiddleClickLink url={anilistUrlForMedia(currentMedia)}>
+                        {pickMediaTitle(currentMedia)}
+                      </AnilistMiddleClickLink>
                     </h2>
                     <button
                       type="button"
@@ -961,26 +949,20 @@ export function AnimeToAnimeApp() {
                     <>
                       <h3 className="anime-to-anime-subheading">Related anime</h3>
                       <ul className="anilist-detail-cast-list">
-                        {filteredRelations.map((row) => {
-                          const relationLink = bindAnilistMiddleClick(anilistUrlForMedia(row.media));
-                          return (
+                        {filteredRelations.map((row) => (
                           <li key={`${row.media.id}-${row.relationType}`} className="anilist-detail-cast-item">
-                            <button
-                              type="button"
-                              className={mergeAnilistLinkClass(
-                                'btn link anime-to-anime-hop-btn',
-                                relationLink.className,
-                              )}
-                              onClick={() => onHopToAnime(row.media, viaLabelFromRelation(row.relationType))}
-                              onMouseDown={relationLink.onMouseDown}
-                              onAuxClick={relationLink.onAuxClick}
+                            <AnilistMiddleClickLink
+                              url={anilistUrlForMedia(row.media)}
+                              className="anime-to-anime-hop-btn"
+                              onPrimaryClick={() =>
+                                onHopToAnime(row.media, viaLabelFromRelation(row.relationType))
+                              }
                             >
                               {pickMediaTitle(row.media)}
                               <span className="anime-to-anime-hop-meta">{row.relationType}</span>
-                            </button>
+                            </AnilistMiddleClickLink>
                           </li>
-                          );
-                        })}
+                        ))}
                       </ul>
                     </>
                   )}
@@ -1081,7 +1063,6 @@ export function AnimeToAnimeApp() {
           fallbackName={staffDetailTarget.fallbackName}
           onClose={() => setStaffDetailTarget(null)}
           onOpenMedia={(mediaId, fallbackTitle) => {
-            setStaffDetailTarget(null);
             setItemDetailTarget({ mediaId, fallbackTitle });
           }}
         />

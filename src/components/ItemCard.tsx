@@ -44,19 +44,6 @@ export function ItemCard({ item, onPick, onRemove, disabled }: Props) {
     if (onPick) onPick();
   }
 
-  function onMouseUp(e: React.MouseEvent): void {
-    if (disabled) return;
-    if (e.button === 1 && item.url) {
-      e.preventDefault();
-      window.open(item.url, '_blank', 'noopener,noreferrer');
-    }
-  }
-
-  function onAuxClick(e: React.MouseEvent): void {
-    // Prevent middle-click "paste" or autoscroll behavior on some browsers.
-    if (e.button === 1) e.preventDefault();
-  }
-
   function onRemoveClick(e: React.MouseEvent): void {
     e.stopPropagation();
     if (onRemove) onRemove();
@@ -71,8 +58,6 @@ export function ItemCard({ item, onPick, onRemove, disabled }: Props) {
       }`}
       onClick={onClick}
       onKeyDown={onKeyDown}
-      onMouseUp={onMouseUp}
-      onAuxClick={onAuxClick}
       role="button"
       // Disabled cards stay focusable for screen readers but skip
       // activation. tabIndex=-1 would hide them from tab order; we
@@ -82,6 +67,23 @@ export function ItemCard({ item, onPick, onRemove, disabled }: Props) {
       aria-label={`Pick ${item.label}`}
       title={item.label}
     >
+      {item.url && !disabled && (
+        <a
+          className="item-card-link-target"
+          href={item.url}
+          rel="noopener noreferrer"
+          tabIndex={-1}
+          aria-label={`Open ${item.label} link`}
+          onClick={(e) => {
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
+              e.stopPropagation();
+              return;
+            }
+            // Plain left-click still picks the card through its parent.
+            e.preventDefault();
+          }}
+        />
+      )}
       {onRemove && (
         <button
           className="remove-btn"

@@ -2,8 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   anilistUrlForCharacter,
   anilistUrlForPathStep,
-  bindAnilistMiddleClick,
-  mergeAnilistLinkClass,
+  AnilistMiddleClickLink,
 } from './anilistMiddleClick';
 import type { RouteSlotOption } from './cachedGraph';
 import type { PathHopCharacter, PathStep } from './pathHistory';
@@ -59,32 +58,28 @@ export function PathStepBubble({
   const label = pathStepLabel(step);
   const initial = label.trim().charAt(0).toUpperCase() || '?';
 
-  const anilistLink = bindAnilistMiddleClick(anilistUrlForPathStep(step));
   const interactive = Boolean(onOpenStep);
-  const className = mergeAnilistLinkClass(
-    [
-      'anime-to-anime-path-step',
-      compact ? 'anime-to-anime-path-step--compact' : '',
-      isCurrent ? 'anime-to-anime-path-step--current' : '',
-      interactive ? 'anime-to-anime-path-step--interactive' : '',
-    ]
-      .filter(Boolean)
-      .join(' '),
-    anilistLink.className,
-  );
+  const className = [
+    'anime-to-anime-path-step',
+    compact ? 'anime-to-anime-path-step--compact' : '',
+    isCurrent ? 'anime-to-anime-path-step--current' : '',
+    interactive ? 'anime-to-anime-path-step--interactive' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   const title = interactive ? `${label} — click for details` : label;
 
   return (
-    <div
+    <AnilistMiddleClickLink
+      url={anilistUrlForPathStep(step)}
       className={className}
       title={title}
       role={interactive ? 'button' : undefined}
-      tabIndex={interactive ? 0 : undefined}
+      tabIndex={interactive ? 0 : -1}
+      aria-hidden={interactive ? undefined : true}
       aria-label={interactive ? `Open details for ${label}` : undefined}
-      onMouseDown={anilistLink.onMouseDown}
-      onAuxClick={anilistLink.onAuxClick}
-      onClick={interactive ? () => onOpenStep?.(step) : undefined}
+      onPrimaryClick={interactive ? () => onOpenStep?.(step) : undefined}
       onKeyDown={
         interactive
           ? (e) => {
@@ -103,7 +98,7 @@ export function PathStepBubble({
           {initial}
         </span>
       )}
-    </div>
+    </AnilistMiddleClickLink>
   );
 }
 
@@ -123,7 +118,6 @@ export function PathTrailEdge({
     anilistUrlForCharacter(character.id),
   );
   const interactive = characterUrls.length > 0;
-  const anilistLink = bindAnilistMiddleClick(interactive ? characterUrls : null);
   const baseClass = [
     'anime-to-anime-path-edge',
     `anime-to-anime-path-edge--${kind}`,
@@ -135,15 +129,14 @@ export function PathTrailEdge({
   const title = viaLabel;
 
   return (
-    <span
-      className={mergeAnilistLinkClass(baseClass, anilistLink.className)}
+    <AnilistMiddleClickLink
+      url={interactive ? characterUrls : null}
+      className={baseClass}
       title={title}
       aria-hidden={viaLabel || interactive ? undefined : true}
-      onMouseDown={anilistLink.onMouseDown}
-      onAuxClick={anilistLink.onAuxClick}
     >
       →
-    </span>
+    </AnilistMiddleClickLink>
   );
 }
 

@@ -152,6 +152,7 @@ export function ToolsApp() {
   );
 
   const onOpenStaff = useCallback((staffId: number, fallbackName: string) => {
+    setMediaTarget(null);
     setStaffTarget({ staffId, fallbackName });
   }, []);
 

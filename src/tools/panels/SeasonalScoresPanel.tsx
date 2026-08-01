@@ -45,9 +45,8 @@ import { DragScroll } from '../../components/DragScroll';
 import { applyHeaderScrollbarGutter } from '../../lib/chartSplitTableSync';
 import {
   anilistUrlForSeasonSearch,
-  bindAnilistMiddleClick,
-  mergeAnilistLinkClass,
 } from '../../lib/importers/anilist/anilistLinks';
+import { AnilistMiddleClickLink } from '../../lib/importers/anilist/AnilistMiddleClickLink';
 import { MultiSelectChip, SeasonYearChip, toggleInArray } from '../../lib/importers/anilist/filters';
 
 const LS_KEY = 'anime-tools-seasonal-scores-form';
@@ -277,25 +276,19 @@ function SeasonalColumnsView({
       <div ref={headerRef} className="tool-chart-pinned-header tool-season-header-wrap">
         <div className="tool-season-header-row">
         {columns.map((col, colIdx) => {
-          const searchLink = bindAnilistMiddleClick(
-            col.matchAll
-              ? anilistUrlForSeasonSearch(null, 0)
-              : anilistUrlForSeasonSearch(col.season, col.year),
-          );
+          const searchUrl = col.matchAll
+            ? anilistUrlForSeasonSearch(null, 0)
+            : anilistUrlForSeasonSearch(col.season, col.year);
           return (
             <div key={`head-${colIdx}-${col.label}`} className="tool-season-column">
               <div className="tool-season-col-head">
-                <div
-                  className={mergeAnilistLinkClass(
-                    'tool-season-col-title',
-                    searchLink.className,
-                  )}
-                  onMouseDown={searchLink.onMouseDown}
-                  onAuxClick={searchLink.onAuxClick}
+                <AnilistMiddleClickLink
+                  url={searchUrl}
+                  className="tool-season-col-title"
                   title="Middle-click to search this season on AniList"
                 >
                   {formatSeasonColumnLabel(col.label, col.ratedCount)}
-                </div>
+                </AnilistMiddleClickLink>
                 <div
                   className={[
                     'tool-season-col-avg',

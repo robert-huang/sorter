@@ -27,9 +27,8 @@ import {
   anilistUrlForCharacter,
   anilistUrlForMediaEntry,
   anilistUrlForStaffId,
-  bindAnilistMiddleClick,
-  mergeAnilistLinkClass,
 } from '../lib/importers/anilist/anilistLinks';
+import { AnilistMiddleClickLink } from '../lib/importers/anilist/AnilistMiddleClickLink';
 import { useAnilistDisplayPreferences } from '../hooks/useAnilistDisplayPreferences';
 import { ThemeSongRowC } from './themeSongRowC';
 import { formatAnilistProgress } from './anilistProgressLabel';
@@ -201,39 +200,28 @@ function PersonLink({
   onOpen?: () => void;
   anilistUrl?: string;
 }) {
-  const anilistLink = bindAnilistMiddleClick(anilistUrl ?? null);
-
   if (!onOpen) {
     if (!anilistUrl) {
       return <>{name}</>;
     }
     return (
-      <span
-        className={mergeAnilistLinkClass(
-          'anilist-detail-person-static',
-          anilistLink.className,
-        )}
-        onMouseDown={anilistLink.onMouseDown}
-        onAuxClick={anilistLink.onAuxClick}
-      >
+      <AnilistMiddleClickLink url={anilistUrl} className="anilist-detail-person-static">
         {name}
-      </span>
+      </AnilistMiddleClickLink>
     );
   }
   return (
-    <button
-      type="button"
-      className={mergeAnilistLinkClass('anilist-detail-person-link', anilistLink.className)}
-      onClick={(e) => {
+    <AnilistMiddleClickLink
+      url={anilistUrl ?? null}
+      className="anilist-detail-person-link"
+      title={`View ${name}'s filmography`}
+      onPrimaryClick={(e) => {
         e.stopPropagation();
         onOpen();
       }}
-      onMouseDown={anilistLink.onMouseDown}
-      onAuxClick={anilistLink.onAuxClick}
-      title={`View ${name}'s filmography`}
     >
       {name}
-    </button>
+    </AnilistMiddleClickLink>
   );
 }
 
@@ -519,13 +507,11 @@ export function AnilistDetailModal({
 
   const title = pickTitle(detail, fallbackTitle);
   const m = detail?.media;
-  const coverAnilistLink = m
-    ? bindAnilistMiddleClick(anilistUrlForMediaEntry(m.type, m.id))
-    : bindAnilistMiddleClick(null);
+  const mediaAnilistUrl = m ? anilistUrlForMediaEntry(m.type, m.id) : null;
 
   return (
     <div
-      className="modal-backdrop"
+      className="modal-backdrop anilist-detail-media-backdrop"
       onClick={onClose}
       role="presentation"
     >
@@ -544,7 +530,24 @@ export function AnilistDetailModal({
             marginBottom: 10,
           }}
         >
-          <h3 style={{ margin: 0, flex: 1, minWidth: 0 }}>{title}</h3>
+          <h3 style={{ margin: 0, flex: 1, minWidth: 0 }}>
+            <AnilistMiddleClickLink
+              url={mediaAnilistUrl}
+              className="anilist-detail-heading-link"
+            >
+              {title}
+            </AnilistMiddleClickLink>
+          </h3>
+          {mediaAnilistUrl && (
+            <a
+              className="anilist-detail-external-link"
+              href={mediaAnilistUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              AniList ↗
+            </a>
+          )}
           <button
             type="button"
             className={`btn small circular-arrow-label${
@@ -605,18 +608,18 @@ export function AnilistDetailModal({
         {detail && m && (
           <div className="anilist-detail-body">
             {m.cover_image && (
-              <img
-                className={mergeAnilistLinkClass(
-                  'anilist-detail-cover',
-                  coverAnilistLink.className,
-                )}
-                src={m.cover_image}
-                alt=""
-                loading="lazy"
+              <AnilistMiddleClickLink
+                url={mediaAnilistUrl}
+                className="anilist-detail-cover-link"
                 title="Open on AniList (middle-click)"
-                onMouseDown={coverAnilistLink.onMouseDown}
-                onAuxClick={coverAnilistLink.onAuxClick}
-              />
+              >
+                <img
+                  className="anilist-detail-cover"
+                  src={m.cover_image}
+                  alt=""
+                  loading="lazy"
+                />
+              </AnilistMiddleClickLink>
             )}
 
             <div className="anilist-detail-meta">
@@ -801,9 +804,6 @@ export function AnilistDetailModal({
                           undefined,
                           'Character',
                         );
-                        const characterLink = bindAnilistMiddleClick(
-                          anilistUrlForCharacter(character.id),
-                        );
                         return (
                         <li
                           key={character.id}
@@ -818,16 +818,12 @@ export function AnilistDetailModal({
                             />
                           )}
                           <div className="anilist-detail-cast-text">
-                            <strong
-                              className={mergeAnilistLinkClass(
-                                'anilist-detail-character-name',
-                                characterLink.className,
-                              )}
-                              onMouseDown={characterLink.onMouseDown}
-                              onAuxClick={characterLink.onAuxClick}
+                            <AnilistMiddleClickLink
+                              url={anilistUrlForCharacter(character.id)}
+                              className="anilist-detail-character-name"
                             >
-                              {characterName}
-                            </strong>
+                              <strong>{characterName}</strong>
+                            </AnilistMiddleClickLink>
                             {role && (
                               <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>
                                 {role}

@@ -1,10 +1,6 @@
 import type { ProductionCreditRow } from '../lib/importers/anilist/graphQueries';
 import { pickPersonName } from '../lib/importers/anilist/personDisplayLabel';
-import {
-  anilistUrlForStaff,
-  bindAnilistMiddleClick,
-  mergeAnilistLinkClass,
-} from './anilistMiddleClick';
+import { anilistUrlForStaff, AnilistMiddleClickLink } from './anilistMiddleClick';
 
 interface Props {
   row: ProductionCreditRow;
@@ -18,15 +14,12 @@ function productionStaffName(row: ProductionCreditRow): string {
 export function ProductionCreditHopButton({ row, onHop }: Props) {
   const name = productionStaffName(row);
   const image = row.staff.image;
-  const anilistLink = bindAnilistMiddleClick(anilistUrlForStaff(row.staff));
 
   return (
-    <button
-      type="button"
-      className={mergeAnilistLinkClass('anime-to-anime-hop-btn', anilistLink.className)}
-      onClick={onHop}
-      onMouseDown={anilistLink.onMouseDown}
-      onAuxClick={anilistLink.onAuxClick}
+    <AnilistMiddleClickLink
+      url={anilistUrlForStaff(row.staff)}
+      className="anime-to-anime-hop-btn"
+      onPrimaryClick={onHop}
     >
       {image && (
         <img className="anime-to-anime-hop-image" src={image} alt="" loading="lazy" />
@@ -37,6 +30,6 @@ export function ProductionCreditHopButton({ row, onHop }: Props) {
           <span className="anime-to-anime-hop-meta">{row.roles.join(', ')}</span>
         )}
       </span>
-    </button>
+    </AnilistMiddleClickLink>
   );
 }

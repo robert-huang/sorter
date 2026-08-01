@@ -16,9 +16,8 @@ import {
 import { runSharedStaffCompare, type SharedStaffRunProgress } from './sharedStaffApi';
 import {
   anilistUrlForCharacter,
-  bindAnilistMiddleClick,
-  mergeAnilistLinkClass,
 } from '../../lib/importers/anilist/anilistLinks';
+import { AnilistMiddleClickLink } from '../../lib/importers/anilist/AnilistMiddleClickLink';
 import { ToolShowButton, ToolStaffButton, ToolStudioName } from '../toolEntityLinks';
 import { DragScroll } from '../../components/DragScroll';
 import {
@@ -138,20 +137,11 @@ function SharedStaffVaRoleCell({
 }) {
   const anilistUrl =
     characterId != null && characterId > 0 ? anilistUrlForCharacter(characterId) : null;
-  const anilistLink = bindAnilistMiddleClick(anilistUrl);
-
-  if (!anilistLink.className) {
-    return <span>{label}</span>;
-  }
 
   return (
-    <span
-      className={mergeAnilistLinkClass('tool-character-name-link', anilistLink.className)}
-      onMouseDown={anilistLink.onMouseDown}
-      onAuxClick={anilistLink.onAuxClick}
-    >
+    <AnilistMiddleClickLink url={anilistUrl} className="tool-character-name-link">
       {label}
-    </span>
+    </AnilistMiddleClickLink>
   );
 }
 

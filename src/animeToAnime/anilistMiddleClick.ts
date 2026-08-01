@@ -14,8 +14,10 @@ export {
   anilistUrlForStaffId,
   anilistUrlForMediaEntry,
   bindAnilistMiddleClick,
+  composeAnilistLinkClick,
   mergeAnilistLinkClass,
 } from '../lib/importers/anilist/anilistLinks';
+export { AnilistMiddleClickLink } from '../lib/importers/anilist/AnilistMiddleClickLink';
 
 export function anilistUrlForMedia(media: Pick<MediaRow, 'id' | 'type'>): string {
   return buildAnilistMediaUrl(media.type, media.id);

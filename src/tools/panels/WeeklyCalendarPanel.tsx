@@ -15,9 +15,8 @@ import { useClickOutside } from '../../lib/hooks/useClickOutside';
 import { ToolShowButton, ToolEntityAvatar } from '../toolEntityLinks';
 import {
   anilistUrlForMediaEntry,
-  bindAnilistMiddleClick,
-  mergeAnilistLinkClass,
 } from '../../lib/importers/anilist/anilistLinks';
+import { AnilistMiddleClickLink } from '../../lib/importers/anilist/AnilistMiddleClickLink';
 import { DragScroll } from '../../components/DragScroll';
 import { CircularArrowGlyph } from '../../components/CircularArrowGlyph';
 import { applyHeaderScrollbarGutter } from '../../lib/chartSplitTableSync';
@@ -278,19 +277,15 @@ function WeeklyCalendarPosterButton({
   coverImage: string | null;
   onOpenMedia: ToolPanelProps['onOpenMedia'];
 }) {
-  const anilistLink = bindAnilistMiddleClick(anilistUrlForMediaEntry('ANIME', mediaId));
-
   return (
-    <button
-      type="button"
-      className={mergeAnilistLinkClass('tool-weekly-poster-btn', anilistLink.className)}
+    <AnilistMiddleClickLink
+      url={anilistUrlForMediaEntry('ANIME', mediaId)}
+      className="tool-weekly-poster-btn"
       title={title}
-      onClick={() => onOpenMedia(mediaId, title)}
-      onMouseDown={anilistLink.onMouseDown}
-      onAuxClick={anilistLink.onAuxClick}
+      onPrimaryClick={() => onOpenMedia(mediaId, title)}
     >
       <ToolEntityAvatar imageUrl={coverImage} label={title} variant="poster" />
-    </button>
+    </AnilistMiddleClickLink>
   );
 }
 
@@ -303,16 +298,12 @@ function WeeklyCalendarThemeSongShowTitle({
   songCount?: number;
   onOpenMedia: ToolPanelProps['onOpenMedia'];
 }) {
-  const anilistLink = bindAnilistMiddleClick(anilistUrlForMediaEntry('ANIME', show.id));
-
   return (
-    <button
-      type="button"
-      className={mergeAnilistLinkClass('tool-weekly-theme-songs-show-title', anilistLink.className)}
+    <AnilistMiddleClickLink
+      url={anilistUrlForMediaEntry('ANIME', show.id)}
+      className="tool-weekly-theme-songs-show-title"
       title={`${show.title} (middle-click for AniList)`}
-      onClick={() => onOpenMedia(show.id, show.title)}
-      onMouseDown={anilistLink.onMouseDown}
-      onAuxClick={anilistLink.onAuxClick}
+      onPrimaryClick={() => onOpenMedia(show.id, show.title)}
     >
       <ToolEntityAvatar imageUrl={show.coverImage} label={show.title} variant="poster" />
       <span className="tool-weekly-theme-songs-show-title-text">
@@ -321,7 +312,7 @@ function WeeklyCalendarThemeSongShowTitle({
           <span className="tool-weekly-theme-songs-show-count">({songCount})</span>
         ) : null}
       </span>
-    </button>
+    </AnilistMiddleClickLink>
   );
 }
 

@@ -1209,6 +1209,27 @@ html {
   cursor: pointer;
 }
 
+.filter-chip-option-link {
+  position: relative;
+}
+
+.filter-chip-option-link-target {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+}
+
+.filter-chip-option-link > input,
+.filter-chip-option-link > .filter-chip-option-text {
+  position: relative;
+  z-index: 2;
+}
+
+.filter-chip-option-link > .filter-chip-option-text {
+  pointer-events: none;
+}
+
 .filter-chip-option input[type='checkbox'] {
   flex-shrink: 0;
 }
@@ -1255,9 +1276,15 @@ html {
 .filter-chip-option.anime-to-anime-anilist-link,
 .filter-chip-option.anime-to-anime-anilist-link:hover,
 .filter-chip-option.anime-to-anime-anilist-link:active,
+.filter-chip-option .anime-to-anime-anilist-link,
+.filter-chip-option .anime-to-anime-anilist-link:hover,
+.filter-chip-option .anime-to-anime-anilist-link:active,
 .filter-chip-option.anime-to-anime-anilist-link *,
 .filter-chip-option.anime-to-anime-anilist-link:hover *,
-.filter-chip-option.anime-to-anime-anilist-link:active * {
+.filter-chip-option.anime-to-anime-anilist-link:active *,
+.filter-chip-option .anime-to-anime-anilist-link *,
+.filter-chip-option .anime-to-anime-anilist-link:hover *,
+.filter-chip-option .anime-to-anime-anilist-link:active * {
   color: inherit;
   text-decoration: none;
 }
@@ -1730,13 +1757,32 @@ html {
   padding-right: 6px;
 }
 
-.anilist-detail-cover {
+.anilist-detail-cover-link {
+  display: block;
   flex-shrink: 0;
+  align-self: flex-start;
+  line-height: 0;
+}
+
+.anilist-detail-heading-link {
+  display: block;
+  width: 100%;
+}
+
+.anilist-detail-external-link {
+  flex-shrink: 0;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.anilist-detail-cover {
+  display: block;
+  flex-shrink: 0;
+  align-self: flex-start;
   width: 180px;
   border-radius: 6px;
   background: var(--bg-subtle, #f3f4f6);
   object-fit: cover;
-  align-self: flex-start;
 }
 
 .anilist-detail-meta {
@@ -1949,8 +1995,8 @@ html {
   flex-shrink: 0;
 }
 
-/* Inline name button used in the media modal so a cast VA / production
-   staff name opens the StaffDetailModal. Reset the native button chrome
+/* Inline name control used in the media modal so a cast VA / production
+   staff name opens the StaffDetailModal. Reset the native control chrome
    so it reads as a link inside the surrounding text. */
 .anilist-detail-person-link {
   appearance: none;
@@ -1982,16 +2028,29 @@ html {
   text-decoration: underline;
 }
 
-/* Clickable filmography row in the StaffDetailModal: a full-width
-   button styled like a cast item that opens the media modal. */
+/* Clickable filmography row in the StaffDetailModal. The overlay link keeps
+   the whole row link-aware without nesting the character links inside it. */
 .anilist-detail-row-link {
   width: 100%;
   appearance: none;
   background: none;
+  position: relative;
   cursor: pointer;
   text-align: left;
   color: inherit;
   font: inherit;
+}
+
+.anilist-detail-row-link-target {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+}
+
+.anilist-detail-row-link .anilist-detail-character-name {
+  position: relative;
+  z-index: 2;
 }
 
 .anilist-detail-row-link:hover {
@@ -2998,12 +3057,18 @@ html {
   cursor: pointer;
 }
 
+a:where(.anime-to-anime-anilist-link),
+a:where(.anime-to-anime-anilist-link):visited {
+  color: inherit;
+  text-decoration: none;
+}
+
 .anime-to-anime-anilist-link:active,
 .anime-to-anime-anilist-link:active * {
   cursor: pointer;
 }
 
-.anime-to-anime-current-title.anime-to-anime-anilist-link {
+.anime-to-anime-current-title > .anime-to-anime-anilist-link {
   display: block;
   width: 100%;
 }
@@ -4478,6 +4543,13 @@ html {
   border-color: var(--border-strong);
 }
 
+.item-card .item-card-link-target {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+}
+
 .item-card .image-wrap {
   /* Grows with the card; centers the poster. No fixed height — the
      poster sizes itself (see the img rule) and the card grows to fit.
@@ -4545,6 +4617,7 @@ html {
   position: absolute;
   bottom: 8px;
   left: 8px;
+  z-index: 2;
   color: var(--text-faint);
   font-size: 14px;
 }
@@ -4553,6 +4626,7 @@ html {
   position: absolute;
   top: 6px;
   right: 6px;
+  z-index: 2;
   background: var(--surface);
   border: 1px solid var(--border-strong);
   border-radius: 50%;
@@ -4579,6 +4653,7 @@ html {
   position: absolute;
   bottom: 6px;
   right: 6px;
+  z-index: 2;
   background: var(--surface);
   border: 1px solid var(--border-strong);
   border-radius: 50%;
@@ -5321,6 +5396,10 @@ html {
   align-items: center;
   justify-content: center;
   z-index: 100;
+}
+
+.modal-backdrop.anilist-detail-media-backdrop {
+  z-index: 101;
 }
 
 .modal {
@@ -6852,6 +6931,14 @@ html {
     transform 120ms ease,
     opacity 120ms ease,
     border-color 120ms ease;
+}
+
+.tool-reorder-favourites-chip-link-target {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  cursor: inherit;
 }
 
 .tool-reorder-favourites-chip.is-dragging {
@@ -8984,6 +9071,7 @@ html {
 }
 
 .tool-stats-subrow-show-btn {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -8996,6 +9084,18 @@ html {
   color: var(--text);
   text-align: left;
   cursor: pointer;
+}
+
+.tool-stats-subrow-show-link-target {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+}
+
+.tool-stats-subrow-show-btn .tool-character-name-link {
+  position: relative;
+  z-index: 2;
 }
 
 .tool-stats-subrow-show-btn:hover .tool-stats-subrow-show-title {

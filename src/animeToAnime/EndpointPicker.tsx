@@ -17,8 +17,7 @@ import type { MediaRow } from '../lib/importers/anilist/types';
 import { pickMediaTitle } from '../lib/importers/anilist/mediaDisplayLabel';
 import {
   anilistUrlForMedia,
-  bindAnilistMiddleClick,
-  mergeAnilistLinkClass,
+  AnilistMiddleClickLink,
 } from './anilistMiddleClick';
 
 import {
@@ -190,7 +189,6 @@ export function EndpointPicker({
     username.trim() || 'a user'
   }’s list — right-click to re-fetch first`;
   const previewTitle = media ? pickMediaTitle(media) : '—';
-  const previewAnilistLink = bindAnilistMiddleClick(media ? anilistUrlForMedia(media) : null);
 
   return (
     <section className="page-section anime-to-anime-endpoint-card">
@@ -313,19 +311,15 @@ export function EndpointPicker({
         </div>
       </div>
 
-      <div
-        className={mergeAnilistLinkClass(
-          'anime-to-anime-endpoint-preview',
-          previewAnilistLink.className,
-        )}
-        onMouseDown={previewAnilistLink.onMouseDown}
-        onAuxClick={previewAnilistLink.onAuxClick}
+      <AnilistMiddleClickLink
+        url={media ? anilistUrlForMedia(media) : null}
+        className="anime-to-anime-endpoint-preview"
       >
         {media?.cover_image && (
           <img src={media.cover_image} alt="" className="anime-to-anime-endpoint-cover" />
         )}
         <p className="anime-to-anime-endpoint-value">{previewTitle}</p>
-      </div>
+      </AnilistMiddleClickLink>
     </section>
   );
 }
