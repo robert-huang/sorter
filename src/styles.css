@@ -7552,6 +7552,7 @@ a:where(.anime-to-anime-anilist-link):visited {
   width: 24px;
   height: 36px;
   border-radius: 4px;
+  align-self: center;
 }
 
 .tool-entity-avatar--placeholder {
@@ -9083,7 +9084,7 @@ a:where(.anime-to-anime-anilist-link):visited {
 .tool-stats-subrow-show-btn {
   position: relative;
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 8px;
   flex: 1 1 auto;
   min-width: 0;
@@ -9116,6 +9117,7 @@ a:where(.anime-to-anime-anilist-link):visited {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  justify-content: space-between;
   min-width: 0;
   flex: 1 1 auto;
   text-align: left;
@@ -9126,6 +9128,7 @@ a:where(.anime-to-anime-anilist-link):visited {
   font-weight: 600;
   line-height: 1.3;
   text-align: left;
+  padding-top: 0.5px;
 }
 
 .tool-stats-subrow-show-meta {
