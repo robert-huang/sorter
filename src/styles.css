@@ -1859,11 +1859,12 @@ html {
 
 .anilist-detail-cast-image {
   width: 32px;
-  height: 32px;
+  height: 36px;
   border-radius: 4px;
   object-fit: cover;
   background: var(--bg-subtle, #f3f4f6);
   flex-shrink: 0;
+  margin: 4px 4px;
 }
 
 .anilist-detail-cast-text {
