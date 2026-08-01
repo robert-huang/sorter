@@ -10,8 +10,8 @@ import {
   DEFAULT_VOICE_ACTOR_LANGUAGE,
   MEDIA_STUB_UPSERT_SQL,
   mediaStubRowToParams,
-  STAFF_STUB_UPSERT_SQL,
-  staffStubRowToParams,
+  STAFF_PROFILE_MERGE_UPSERT_SQL,
+  staffRowToParams,
 } from './lazyExpansion';
 import { emitProgress } from './progress';
 import { TOOLS_CHARACTER_VOICE_MEDIA_QUERY } from './queries';
@@ -98,7 +98,10 @@ export async function persistCharacterMediaExpansion(
     stmts.push({ sql: MEDIA_STUB_UPSERT_SQL, params: mediaStubRowToParams(row) });
   }
   for (const row of appearance.staffRows) {
-    stmts.push({ sql: STAFF_STUB_UPSERT_SQL, params: staffStubRowToParams(row) });
+    stmts.push({
+      sql: STAFF_PROFILE_MERGE_UPSERT_SQL,
+      params: staffRowToParams(row),
+    });
   }
   for (const mc of appearance.mediaCharacterRows) {
     stmts.push({

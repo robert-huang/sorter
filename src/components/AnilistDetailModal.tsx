@@ -78,6 +78,15 @@ function formatExpansionLine(
   return `${label}: ${date} (${flags})`;
 }
 
+function formatInfoLine(fetchedAt: number | null): string {
+  if (fetchedAt === null) {
+    return 'Info: not cached';
+  }
+  const stale = isGraphTimestampStale(fetchedAt);
+  const date = formatGraphCacheDate(fetchedAt);
+  return `Info: ${date} (${stale ? 'stale (>90d)' : 'fresh'})`;
+}
+
 /**
  * Empty-state copy for the Cast section. A successful expansion writes a
  * `media_cast_expansion` marker with `characters_complete = 1` even when
@@ -712,52 +721,57 @@ export function AnilistDetailModal({
                 </div>
               )}
 
-              {expansionStatus && (
-                <div
-                  className="anilist-detail-meta-row"
-                  style={{ fontSize: 11, color: 'var(--text-muted)' }}
-                >
-                  <span title="Cast cache">
-                    {formatExpansionLine(
-                      'Cast',
-                      expansionStatus.charactersFetchedAt,
-                      expansionStatus.charactersComplete,
-                    )}
-                  </span>
-                  <span title="Staff credits cache">
-                    {formatExpansionLine(
-                      'Staff',
-                      expansionStatus.staffFetchedAt,
-                      expansionStatus.staffComplete,
-                    )}
-                  </span>
-                  <span title="Franchise relations cache">
-                    {relationsFetchedAt === null
-                      ? 'Relations: not cached'
-                      : `Relations: ${formatGraphCacheDate(relationsFetchedAt)}${
-                          isGraphTimestampStale(relationsFetchedAt)
-                            ? ' (stale >90d)'
-                            : ' (fresh)'
-                        }`}
-                  </span>
-                  {m.type === 'ANIME' && (
-                    <span title="Theme songs cache">
-                      {themeSongsFetchedAt === null ? (
-                        'Theme songs: not cached'
-                      ) : (
-                        <>
-                          {`Theme songs: ${formatGraphCacheDate(themeSongsFetchedAt)}`}
-                          {isGraphTimestampStale(themeSongsFetchedAt) ? (
-                            <span className="settings-cache-stale"> (stale &gt;90d)</span>
-                          ) : (
-                            ' (fresh)'
-                          )}
-                        </>
+              <div
+                className="anilist-detail-meta-row"
+                style={{ fontSize: 11, color: 'var(--text-muted)' }}
+              >
+                <span title="Media info cache">
+                  {formatInfoLine(m.fetched_at)}
+                </span>
+                {expansionStatus && (
+                  <>
+                    <span title="Cast cache">
+                      {formatExpansionLine(
+                        'Cast',
+                        expansionStatus.charactersFetchedAt,
+                        expansionStatus.charactersComplete,
                       )}
                     </span>
-                  )}
-                </div>
-              )}
+                    <span title="Staff credits cache">
+                      {formatExpansionLine(
+                        'Staff',
+                        expansionStatus.staffFetchedAt,
+                        expansionStatus.staffComplete,
+                      )}
+                    </span>
+                    <span title="Franchise relations cache">
+                      {relationsFetchedAt === null
+                        ? 'Relations: not cached'
+                        : `Relations: ${formatGraphCacheDate(relationsFetchedAt)}${
+                            isGraphTimestampStale(relationsFetchedAt)
+                              ? ' (stale >90d)'
+                              : ' (fresh)'
+                          }`}
+                    </span>
+                    {m.type === 'ANIME' && (
+                      <span title="Theme songs cache">
+                        {themeSongsFetchedAt === null ? (
+                          'Theme songs: not cached'
+                        ) : (
+                          <>
+                            {`Theme songs: ${formatGraphCacheDate(themeSongsFetchedAt)}`}
+                            {isGraphTimestampStale(themeSongsFetchedAt) ? (
+                              <span className="settings-cache-stale"> (stale &gt;90d)</span>
+                            ) : (
+                              ' (fresh)'
+                            )}
+                          </>
+                        )}
+                      </span>
+                    )}
+                  </>
+                )}
+              </div>
 
               {detail.tags.length > 0 && (
                 <div className="anilist-detail-section">

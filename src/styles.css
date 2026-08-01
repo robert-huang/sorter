@@ -7694,6 +7694,7 @@ a:where(.anime-to-anime-anilist-link):visited {
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.4;
+  margin-left: 20px;
 }
 
 /* Middle-click character names in tools: gender colour, accent + underline on hover */
@@ -7735,6 +7736,14 @@ a:where(.anime-to-anime-anilist-link):visited {
   align-items: center;
   gap: 8px 12px;
   padding: 4px 0;
+}
+
+.tool-series-row img {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 36px; /* full height is 42px, images are 2x3 on anilist */
+  object-fit: cover;
+  margin: 0 2px;
 }
 
 .tool-summary {

@@ -22,6 +22,7 @@ export type CreditedEntity = {
   name: string;
   roles: string[];
   image?: string | null;
+  gender?: string | null;
   /** Parallel to `roles` for JP VA credits — used to align rows by character id. */
   roleCharacterIds?: number[];
   /** First-seen API edge index (character or staff) for relevance ordering. */
@@ -117,6 +118,7 @@ export function mergeRoleIntoMap(
   role: string,
   relevanceOrder?: number,
   image?: string | null,
+  gender?: string | null,
 ): void {
   const key = String(id);
   if (!map[key]) {
@@ -125,9 +127,13 @@ export function mergeRoleIntoMap(
       roles: [],
       relevanceOrder,
       image: image ?? null,
+      ...(gender !== undefined ? { gender } : {}),
     };
   } else if (image && !map[key].image) {
     map[key].image = image;
+  }
+  if (gender && !map[key].gender) {
+    map[key].gender = gender;
   }
   map[key].roles.push(role);
 }
@@ -255,6 +261,7 @@ export function mergeVaRoleIntoMap(
   roleLabel: string,
   relevanceOrder?: number,
   image?: string | null,
+  gender?: string | null,
 ): void {
   const key = String(vaId);
   if (!map[key]) {
@@ -264,9 +271,13 @@ export function mergeVaRoleIntoMap(
       roleCharacterIds: [],
       relevanceOrder,
       image: image ?? null,
+      ...(gender !== undefined ? { gender } : {}),
     };
   } else if (image && !map[key].image) {
     map[key].image = image;
+  }
+  if (gender && !map[key].gender) {
+    map[key].gender = gender;
   }
   const entity = map[key]!;
   const characterIds = entity.roleCharacterIds ?? (entity.roleCharacterIds = []);

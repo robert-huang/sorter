@@ -110,6 +110,7 @@ function VaRankList({
               staffId={row.staffId}
               name={row.name}
               imageUrl={row.imageUrl}
+              gender={row.gender}
               onOpenStaff={onOpenStaff}
               compact
             />
@@ -362,6 +363,7 @@ function BirthdayCalendarBlock({
                           <ToolCharacterName
                             characterId={character.id}
                             name={character.name}
+                            gender={character.gender}
                           />
                         </div>
                       ))}

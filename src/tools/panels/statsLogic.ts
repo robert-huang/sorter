@@ -1,4 +1,10 @@
 import type { TagFilterMode } from '../../lib/importers/anilist/filters';
+import {
+  genderMatches,
+  normaliseGender,
+  normalizeGenderFilterSelections,
+  sortGenderOptions,
+} from '../../lib/importers/anilist/genderFilter';
 import type { MediaTitleFields } from '../../lib/importers/anilist/mediaDisplayLabel';
 import {
   KEY_ANIME_PRODUCTION_ROLES,
@@ -36,6 +42,7 @@ export type StatsMediaType = AnilistMediaType;
 export type StatsAggregationType = 'VA' | 'STAFF' | 'GENRES_TAGS' | 'STUDIOS';
 
 export type StatsCharacterRoleFilter = AnilistCharacterRole;
+export type StatsGenderFilter = string;
 
 export const STATS_CHARACTER_ROLE_OPTIONS: StatsCharacterRoleFilter[] = [
   'MAIN',
@@ -121,6 +128,7 @@ export type StatsForm = {
   aggregationType: StatsAggregationType;
   staffRoleFilters: StatsStaffRoleKey[];
   vaRoleFilters: StatsCharacterRoleFilter[];
+  genderFilters: StatsGenderFilter[];
   vaShowMainRoleInfo: boolean;
   vaShowDiff: boolean;
   tagOptions: StatsTagOptions;
@@ -388,6 +396,10 @@ export function normalizeStatsVaRoleFilters(raw: unknown): StatsCharacterRoleFil
   }
   const selected = STATS_CHARACTER_ROLE_OPTIONS.filter((role) => raw.includes(role));
   return selected.length > 0 ? [...selected] : [...STATS_CHARACTER_ROLE_OPTIONS];
+}
+
+export function normalizeStatsGenderFilters(raw: unknown): StatsGenderFilter[] {
+  return normalizeGenderFilterSelections(raw);
 }
 
 export function normalizeStatsStudioKindFilters(raw: unknown): StatsStudioKindFilter[] {
@@ -775,6 +787,37 @@ function vaRoleMatchesFilter(role: StatsCharacterRoleFilter, filters: readonly S
   return filters.includes(role);
 }
 
+function staffGenderMatchesFilter(
+  gender: string | null,
+  filters: readonly StatsGenderFilter[],
+): boolean {
+  return filters.length === 0 || filters.some((selected) => genderMatches(gender, selected));
+}
+
+export function statsGenderFilterOptions(
+  pool: readonly StatsEntry[],
+  form: StatsForm,
+): StatsGenderFilter[] {
+  // Keep active values removable when another role or chart has no matching credits.
+  const genders = new Set<string>(form.genderFilters.map(normaliseGender));
+  for (const entry of pool) {
+    if (form.aggregationType === 'STAFF') {
+      for (const credit of entry.staffCredits) {
+        if (staffRoleMatchesFilter(credit.role, form.staffRoleFilters, form.mediaType)) {
+          genders.add(normaliseGender(credit.staffGender));
+        }
+      }
+    } else if (form.aggregationType === 'VA') {
+      for (const credit of entry.vaCredits) {
+        if (vaRoleMatchesFilter(credit.characterRole, form.vaRoleFilters)) {
+          genders.add(normaliseGender(credit.staffGender));
+        }
+      }
+    }
+  }
+  return sortGenderOptions(genders);
+}
+
 function studioMatchesKind(studio: StatsStudioLink, filters: readonly StatsStudioKindFilter[]): boolean {
   const kind: StatsStudioKindFilter = studio.isAnimation ? 'animation' : 'non_animation';
   return filters.includes(kind);
@@ -812,8 +855,10 @@ export function buildStaffStatsRows(
   const byStaff = new Map<number, { name: string; image: string | null; gender: string | null; entries: StatsEntry[]; subrows: StatsSubrow[] }>();
 
   for (const entry of pool) {
-    const matchedCredits = entry.staffCredits.filter((credit) =>
-      staffRoleMatchesFilter(credit.role, form.staffRoleFilters, form.mediaType),
+    const matchedCredits = entry.staffCredits.filter(
+      (credit) =>
+        staffRoleMatchesFilter(credit.role, form.staffRoleFilters, form.mediaType) &&
+        staffGenderMatchesFilter(credit.staffGender, form.genderFilters),
     );
     if (matchedCredits.length === 0) {
       continue;
@@ -877,8 +922,10 @@ export function buildVaStatsRows(pool: readonly StatsEntry[], form: StatsForm): 
   >();
 
   for (const entry of pool) {
-    const matchedCredits = entry.vaCredits.filter((credit) =>
-      vaRoleMatchesFilter(credit.characterRole, form.vaRoleFilters),
+    const matchedCredits = entry.vaCredits.filter(
+      (credit) =>
+        vaRoleMatchesFilter(credit.characterRole, form.vaRoleFilters) &&
+        staffGenderMatchesFilter(credit.staffGender, form.genderFilters),
     );
     if (matchedCredits.length === 0) {
       continue;

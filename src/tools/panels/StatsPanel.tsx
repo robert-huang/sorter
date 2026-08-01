@@ -67,6 +67,7 @@ import {
   formatStatsScoreCell,
   normalizeStatsAggregationType,
   normalizeStatsAnimeFormatFilters,
+  normalizeStatsGenderFilters,
   normalizeStatsListStatusFilters,
   normalizeStatsMangaFormatFilters,
   normalizeStatsMediaStatusFilters,
@@ -81,6 +82,7 @@ import {
   statsEffectiveEpisodes,
   statsEntryScoreSortValue,
   statsEntryTimeWatchedMinutes,
+  statsGenderFilterOptions,
   STATS_ANIME_FORMAT_OPTIONS,
   STATS_CHARACTER_ROLE_OPTIONS,
   STATS_LIST_STATUS_OPTIONS,
@@ -122,6 +124,7 @@ const DEFAULT_FORM: StatsForm = {
   aggregationType: 'VA',
   staffRoleFilters: statsDefaultStaffRoleFilters('ANIME'),
   vaRoleFilters: [...STATS_CHARACTER_ROLE_OPTIONS],
+  genderFilters: [],
   vaShowMainRoleInfo: false,
   vaShowDiff: false,
   tagOptions: { ...DEFAULT_STATS_TAG_OPTIONS },
@@ -141,6 +144,7 @@ type PersistedStatsFilters = Pick<
   | 'minCount'
   | 'staffRoleFilters'
   | 'vaRoleFilters'
+  | 'genderFilters'
   | 'tagOptions'
   | 'studioKindFilters'
 >;
@@ -178,6 +182,7 @@ function loadForm(): StatsForm {
           : 0,
       staffRoleFilters: normalizeStatsStaffRoleFilters(filters.staffRoleFilters, mediaType),
       vaRoleFilters: normalizeStatsVaRoleFilters(filters.vaRoleFilters),
+      genderFilters: normalizeStatsGenderFilters(filters.genderFilters),
       tagOptions: normalizeStatsTagOptions(filters.tagOptions),
       studioKindFilters: normalizeStatsStudioKindFilters(filters.studioKindFilters),
       // Session-only — never restore from localStorage (legacy blobs may still carry showSummary).
@@ -212,6 +217,7 @@ function saveForm(form: StatsForm): void {
       minCount: form.minCount,
       staffRoleFilters: form.staffRoleFilters,
       vaRoleFilters: form.vaRoleFilters,
+      genderFilters: form.genderFilters,
       tagOptions: form.tagOptions,
       studioKindFilters: form.studioKindFilters,
     };
@@ -1165,6 +1171,7 @@ function StatsSubrowTr({
 export function StatsPanel({
   onOpenMedia,
   onOpenStaff,
+  dbSyncRevision,
 }: ToolPanelProps): React.ReactElement {
   const [form, setForm] = useState<StatsForm>(() => loadForm());
   const [cached, setCached] = useState<StatsCachedData | null>(null);
@@ -1175,6 +1182,7 @@ export function StatsPanel({
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => new Set());
   const [summaryModal, setSummaryModal] = useState<StatsSummaryModal>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const appliedDbSyncRevisionRef = useRef(dbSyncRevision);
   const displayLabelRevision = useToolsDisplayLabelRevision();
 
   const patchForm = useCallback((patch: Partial<StatsForm>) => {
@@ -1332,6 +1340,30 @@ export function StatsPanel({
   }, [cached, form.mediaType, form.username]);
 
   useEffect(() => {
+    if (appliedDbSyncRevisionRef.current === dbSyncRevision) {
+      return;
+    }
+    appliedDbSyncRevisionRef.current = dbSyncRevision;
+    if (!cached || running || statsCachedNeedsCast(cached)) {
+      return;
+    }
+
+    const controller = new AbortController();
+    void expandStatsCast(cached, { signal: controller.signal })
+      .then((expanded) => {
+        if (!controller.signal.aborted) {
+          setCached(expanded);
+        }
+      })
+      .catch((err) => {
+        if (!(err instanceof DOMException && err.name === 'AbortError')) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      });
+    return () => controller.abort();
+  }, [cached, dbSyncRevision, running]);
+
+  useEffect(() => {
     if (!form.showSummary || running || !form.username.trim()) {
       return;
     }
@@ -1395,6 +1427,7 @@ export function StatsPanel({
     form.aggregationType,
     form.staffRoleFilters,
     form.vaRoleFilters,
+    form.genderFilters,
     form.tagOptions,
     form.studioKindFilters,
   ]);
@@ -1515,6 +1548,10 @@ export function StatsPanel({
   const aggregationOptions = availableStatsAggregationTypes(form.mediaType);
   const staffRoleOptions =
     form.mediaType === 'MANGA' ? statsMangaStaffRoleOptions() : statsAnimeStaffRoleOptions();
+  const genderOptions = useMemo(
+    () => (filteredPool ? statsGenderFilterOptions(filteredPool, form) : []),
+    [filteredPool, form],
+  );
 
   return (
     <section className="tool-panel tool-stats-panel">
@@ -1639,16 +1676,31 @@ export function StatsPanel({
           ) : null}
 
           {form.aggregationType === 'VA' ? (
+            <MultiSelectChip
+              label="character roles"
+              options={[...STATS_CHARACTER_ROLE_OPTIONS]}
+              selected={form.vaRoleFilters}
+              formatOption={(r) => r}
+              onToggle={(role) =>
+                patchForm({ vaRoleFilters: toggleInArray(form.vaRoleFilters, role) })
+              }
+            />
+          ) : null}
+
+          {form.aggregationType === 'STAFF' || form.aggregationType === 'VA' ? (
+            <MultiSelectChip<string>
+              label="gender"
+              options={genderOptions}
+              selected={form.genderFilters}
+              onToggle={(gender) =>
+                patchForm({ genderFilters: toggleInArray(form.genderFilters, gender) })
+              }
+              onReplaceAll={(genders) => patchForm({ genderFilters: [...genders] })}
+            />
+          ) : null}
+
+          {form.aggregationType === 'VA' ? (
             <>
-              <MultiSelectChip
-                label="character roles"
-                options={[...STATS_CHARACTER_ROLE_OPTIONS]}
-                selected={form.vaRoleFilters}
-                formatOption={(r) => r}
-                onToggle={(role) =>
-                  patchForm({ vaRoleFilters: toggleInArray(form.vaRoleFilters, role) })
-                }
-              />
               <StatsToggleChip
                 label="Main Role Info"
                 active={form.vaShowMainRoleInfo}

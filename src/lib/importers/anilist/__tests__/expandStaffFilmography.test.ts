@@ -6,7 +6,10 @@ import { _clearDbSyncManifestForTesting } from '../../../db/syncManifest';
 import { anilistSourceDescriptor } from '../anilistSource';
 import type { AnilistDbExecutor, AnilistImportContext } from '../context';
 import { expandStaffFilmography } from '../expandStaffFilmography';
-import type { AnilistStaffFilmographyResponse } from '../types';
+import type {
+  AnilistStaffFilmographyResponse,
+  AnilistStaffGql,
+} from '../types';
 
 type ExecCapable = { exec: (sql: string, opts?: { bind?: unknown }) => void };
 
@@ -52,7 +55,9 @@ async function freshAnilistDb(): Promise<Database> {
   return db;
 }
 
-function makeFilmographyResponse(): AnilistStaffFilmographyResponse {
+function makeFilmographyResponse(
+  staffOverrides: Partial<AnilistStaffGql> = {},
+): AnilistStaffFilmographyResponse {
   return {
     Staff: {
       id: VA_STAFF_ID,
@@ -62,6 +67,7 @@ function makeFilmographyResponse(): AnilistStaffFilmographyResponse {
       age: null,
       gender: 'Female',
       favourites: null,
+      ...staffOverrides,
       characterMedia: {
         pageInfo: { hasNextPage: false, currentPage: 1 },
         edges: [
@@ -141,6 +147,57 @@ describe('expandStaffFilmography', () => {
 
     const row = db.selectObject('SELECT gender FROM character WHERE id = ?', CHARACTER_ID);
     expect(row).toEqual({ gender: 'Female' });
+    db.close();
+  });
+
+  it('refreshes every stored profile field for the selected staff member', async () => {
+    const db = await freshAnilistDb();
+    const executeQuery = vi.fn().mockResolvedValue(
+      makeFilmographyResponse({
+        name: { full: 'Updated Staff', native: '更新 スタッフ' },
+        image: { large: 'https://example.test/updated-staff.jpg' },
+        age: '42',
+        gender: 'Male',
+        languageV2: 'Japanese',
+        favourites: 1234,
+      }),
+    );
+    const ctx: AnilistImportContext = {
+      db: makeDbAdapter(db),
+      executeQuery,
+      now: () => NOW,
+    };
+    db.exec(
+      `INSERT INTO staff (
+         id, name_full, name_native, image, age, gender, language_v2,
+         favourites, fetched_at, updated_at
+       ) VALUES (
+         ?, 'Stale Staff', '古い スタッフ', 'https://example.test/stale.jpg',
+         '99', 'Female', 'English', 1, 1, 1
+       )`,
+      { bind: [VA_STAFF_ID] },
+    );
+
+    await expandStaffFilmography(ctx, VA_STAFF_ID);
+
+    const row = db.selectObject(
+      `SELECT name_full, name_native, image, age, gender, language_v2,
+              favourites, fetched_at, updated_at
+         FROM staff
+        WHERE id = ?`,
+      VA_STAFF_ID,
+    );
+    expect(row).toEqual({
+      name_full: 'Updated Staff',
+      name_native: '更新 スタッフ',
+      image: 'https://example.test/updated-staff.jpg',
+      age: '42',
+      gender: 'Male',
+      language_v2: 'Japanese',
+      favourites: 1234,
+      fetched_at: NOW,
+      updated_at: NOW,
+    });
     db.close();
   });
 

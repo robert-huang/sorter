@@ -66,15 +66,14 @@ function pickName(d: StaffFilmography | null, staffId: number, fallback: string)
   return fallback || `Staff #${staffId}`;
 }
 
-/** One-line freshness summary for the filmography cache, matching the
- *  media modal's cast/staff cache lines. */
-function formatFilmographyLine(fetchedAt: number | null): string {
+/** One-line freshness summary matching the media modal's graph cache lines. */
+function formatCacheLine(label: string, fetchedAt: number | null): string {
   if (fetchedAt === null) {
-    return 'Filmography: not cached';
+    return `${label}: not cached`;
   }
   const stale = isGraphTimestampStale(fetchedAt);
   const date = formatGraphCacheDate(fetchedAt);
-  return `Filmography: ${date} (${stale ? 'stale (>90d)' : 'fresh'})`;
+  return `${label}: ${date} (${stale ? 'stale (>90d)' : 'fresh'})`;
 }
 
 /** Year + format suffix for a credit row, e.g. "2009 · TV". Omits
@@ -377,8 +376,11 @@ export function StaffDetailModal({
                 className="anilist-detail-meta-row"
                 style={{ fontSize: 11, color: 'var(--text-muted)' }}
               >
+                <span title="Staff info cache">
+                  {formatCacheLine('Info', staff?.fetched_at ?? null)}
+                </span>
                 <span title="Filmography cache">
-                  {formatFilmographyLine(detail.fetchedAt)}
+                  {formatCacheLine('Filmography', detail.fetchedAt)}
                 </span>
               </div>
 

@@ -223,6 +223,62 @@ describe('expandAnilistMediaDetail — happy path', () => {
     h.db.close();
   });
 
+  it('persists every staff profile field returned for voice actors', async () => {
+    const h = await makeHarness();
+    h.db.exec(
+      `INSERT INTO staff (
+         id, name_full, name_native, image, age, gender, language_v2,
+         favourites, fetched_at, updated_at
+       ) VALUES (
+         9001, 'Stale VA', '古い 声優', 'https://example.test/stale-va.jpg',
+         '99', 'Male', 'English', 1, 1, 1
+       )`,
+    );
+    const voiceActor = makeStaff(9001, {
+      name: { full: 'Updated VA', native: '更新 声優' },
+      image: { large: 'https://example.test/updated-va.jpg' },
+      age: '42',
+      gender: 'Female',
+      languageV2: 'Japanese',
+      favourites: 1234,
+    });
+    h.executeQuery
+      .mockResolvedValueOnce(
+        makeDetailResponse(
+          [{
+            role: 'MAIN',
+            node: makeCharacter(1000),
+            voiceActors: [voiceActor],
+          }],
+          [],
+          false,
+        ),
+      )
+      .mockResolvedValueOnce(makeDetailResponse([], [], false, false));
+
+    await expandAnilistMediaDetail(h.ctx, 100);
+
+    const row = h.db.selectObject(
+      `SELECT name_full, name_native, image, age, gender, language_v2,
+              favourites, fetched_at, updated_at
+         FROM staff
+        WHERE id = ?`,
+      9001,
+    );
+    expect(row).toEqual({
+      name_full: 'Updated VA',
+      name_native: '更新 声優',
+      image: 'https://example.test/updated-va.jpg',
+      age: '42',
+      gender: 'Female',
+      language_v2: 'Japanese',
+      favourites: 1234,
+      fetched_at: NOW,
+      updated_at: NOW,
+    });
+    h.db.close();
+  });
+
   it('upserts the parent media row before writing cast junctions', async () => {
     const h = await makeHarness({ seedMedia: false });
     h.executeQuery
@@ -268,7 +324,16 @@ describe('expandAnilistMediaDetail — happy path', () => {
   it('re-fetches full media metadata on force refresh when the row already exists', async () => {
     const h = await makeHarness();
     h.db.exec(
-      `UPDATE media SET source = NULL WHERE id = 100`,
+      `UPDATE media
+          SET title_english = 'Stale Show',
+              cover_image = 'https://example.test/stale.jpg',
+              format = 'MOVIE',
+              source = NULL,
+              status = 'RELEASING',
+              episodes = 1,
+              mean_score = 1,
+              favourites = 1
+        WHERE id = 100`,
     );
     h.executeQuery
       .mockResolvedValueOnce({
@@ -276,7 +341,7 @@ describe('expandAnilistMediaDetail — happy path', () => {
           id: 100,
           type: 'ANIME',
           title: { english: 'Test Show', romaji: 'Test', native: null },
-          coverImage: null,
+          coverImage: { large: 'https://example.test/new.jpg' },
           format: 'TV',
           source: 'WEB_NOVEL',
           status: 'FINISHED',
@@ -286,11 +351,11 @@ describe('expandAnilistMediaDetail — happy path', () => {
           endDate: null,
           season: null,
           seasonYear: null,
-          meanScore: null,
-          favourites: null,
+          meanScore: 88,
+          favourites: 1234,
           countryOfOrigin: 'JP',
-          genres: null,
-          synonyms: null,
+          genres: ['Drama'],
+          synonyms: ['Updated Show'],
           studios: { nodes: [] },
           tags: [],
         },
@@ -305,9 +370,26 @@ describe('expandAnilistMediaDetail — happy path', () => {
     await expandAnilistMediaDetail(h.ctx, 100, { force: true });
 
     const row = h.db.selectObject(
-      'SELECT source, source_fetched_at FROM media WHERE id = 100',
+      `SELECT title_english, cover_image, format, source, status, episodes,
+              mean_score, favourites, country_of_origin, genres_json,
+              synonyms_json, source_fetched_at
+         FROM media
+        WHERE id = 100`,
     );
-    expect(row).toEqual({ source: 'WEB_NOVEL', source_fetched_at: NOW });
+    expect(row).toEqual({
+      title_english: 'Test Show',
+      cover_image: 'https://example.test/new.jpg',
+      format: 'TV',
+      source: 'WEB_NOVEL',
+      status: 'FINISHED',
+      episodes: 12,
+      mean_score: 88,
+      favourites: 1234,
+      country_of_origin: 'JP',
+      genres_json: '["Drama"]',
+      synonyms_json: '["Updated Show"]',
+      source_fetched_at: NOW,
+    });
     expect(h.executeQuery.mock.calls[0][0]).toContain('AnimeById');
     h.db.close();
   });

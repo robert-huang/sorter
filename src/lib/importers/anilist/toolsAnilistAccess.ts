@@ -441,7 +441,8 @@ export async function readCharacterVoiceEdgesFromDb(
              st.id AS staff_id,
              st.name_full AS staff_name_full,
              st.name_native AS staff_name_native,
-             st.image AS staff_image
+             st.image AS staff_image,
+             st.gender AS staff_gender
         FROM media_character mc
         JOIN media m ON m.id = mc.media_id
         LEFT JOIN character_voice_actor cva
@@ -495,6 +496,7 @@ export async function readCharacterVoiceEdgesFromDb(
           image: (row.staff_image as string | null)
             ? { large: row.staff_image as string }
             : null,
+          gender: (row.staff_gender as string | null) ?? null,
         });
       }
     }
@@ -912,6 +914,7 @@ export async function readShowStaffBundleFromDb(
         role,
         roleIndex,
         row.staff.image,
+        row.staff.gender,
       );
     });
   }
@@ -928,6 +931,7 @@ export async function readShowStaffBundleFromDb(
       roleDescr,
       row.characterSortOrder,
       row.staff.image,
+      row.staff.gender,
     );
   }
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildActiveStatsChartRows,
+  buildStaffStatsRows,
   buildStatsResult,
   buildStudioStatsRows,
   buildVaStatsRows,
@@ -22,9 +23,11 @@ import {
   formatStatsSubrowCountLabel,
   parseCustomTagsFromNotes,
   normalizeStatsStaffRoleFilters,
+  normalizeStatsGenderFilters,
   statsAggregationEmptyHint,
   statsDefaultStaffRoleFilters,
   statsEntryScoreSortValue,
+  statsGenderFilterOptions,
   mapStatsStudioLinks,
   statsStudioIsAnimation,
   type StatsCachedData,
@@ -32,6 +35,7 @@ import {
   type StatsForm,
   type StatsParentRow,
 } from '../panels/statsLogic';
+import { UNKNOWN_GENDER } from '../../lib/importers/anilist/genderFilter';
 import { statsCachedNeedsCast } from '../panels/statsApi';
 
 function entry(overrides: Partial<StatsEntry> & Pick<StatsEntry, 'mediaId' | 'title'>): StatsEntry {
@@ -81,6 +85,7 @@ const baseForm: StatsForm = {
   aggregationType: 'VA',
   staffRoleFilters: statsDefaultStaffRoleFilters('ANIME'),
   vaRoleFilters: ['MAIN', 'SUPPORTING', 'BACKGROUND'],
+  genderFilters: [],
   vaShowMainRoleInfo: false,
   vaShowDiff: false,
   tagOptions: { tagMode: 'or', tagMinRank: 0 },
@@ -130,6 +135,110 @@ describe('filterStatsPool', () => {
       listStatusFilters: ['COMPLETED'],
     });
     expect(filtered.map((e) => e.mediaId)).toEqual([2]);
+  });
+});
+
+describe('stats gender filters', () => {
+  const pool = [
+    entry({
+      mediaId: 1,
+      title: 'Show A',
+      staffCredits: [
+        {
+          staffId: 10,
+          staffName: 'Female Staff',
+          staffImage: null,
+          staffGender: 'Female',
+          role: 'Director',
+        },
+        {
+          staffId: 20,
+          staffName: 'Male Staff',
+          staffImage: null,
+          staffGender: 'Male',
+          role: 'Director',
+        },
+      ],
+      vaCredits: [
+        {
+          staffId: 30,
+          staffName: 'Female VA',
+          staffImage: null,
+          staffGender: 'Female',
+          characterId: 100,
+          characterName: 'Lead',
+          characterRole: 'MAIN',
+        },
+        {
+          staffId: 40,
+          staffName: 'Male VA',
+          staffImage: null,
+          staffGender: 'Male',
+          characterId: 200,
+          characterName: 'Support',
+          characterRole: 'SUPPORTING',
+        },
+        {
+          staffId: 50,
+          staffName: 'Unknown VA',
+          staffImage: null,
+          staffGender: null,
+          characterId: 300,
+          characterName: 'Other Lead',
+          characterRole: 'MAIN',
+        },
+      ],
+    }),
+  ];
+
+  it('discovers role-matched genders with the sorter unknown bucket last', () => {
+    expect(
+      statsGenderFilterOptions(pool, {
+        ...baseForm,
+        aggregationType: 'VA',
+        vaRoleFilters: ['MAIN'],
+      }),
+    ).toEqual(['Female', UNKNOWN_GENDER]);
+  });
+
+  it('keeps active genders removable when the selected roles have no matching credits', () => {
+    expect(
+      statsGenderFilterOptions(pool, {
+        ...baseForm,
+        aggregationType: 'VA',
+        vaRoleFilters: ['BACKGROUND'],
+        genderFilters: ['Male'],
+      }),
+    ).toEqual(['Male']);
+  });
+
+  it('filters voice actors while retaining gender for name colouring', () => {
+    const rows = buildVaStatsRows(pool, {
+      ...baseForm,
+      genderFilters: ['Female'],
+    });
+
+    expect(rows.map((row) => [row.name, row.staffGender])).toEqual([
+      ['Female VA', 'Female'],
+    ]);
+  });
+
+  it('filters production staff by the same gender values', () => {
+    const rows = buildStaffStatsRows(pool, {
+      ...baseForm,
+      aggregationType: 'STAFF',
+      genderFilters: ['Male'],
+    });
+
+    expect(rows.map((row) => [row.name, row.staffGender])).toEqual([
+      ['Male Staff', 'Male'],
+    ]);
+  });
+
+  it('normalizes null-like persisted selections to the shared unknown bucket', () => {
+    expect(normalizeStatsGenderFilters(['Unknown', '', UNKNOWN_GENDER, 1])).toEqual([
+      UNKNOWN_GENDER,
+    ]);
   });
 });
 

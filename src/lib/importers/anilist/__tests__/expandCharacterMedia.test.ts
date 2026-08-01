@@ -6,7 +6,10 @@ import { _clearDbSyncManifestForTesting } from '../../../db/syncManifest';
 import { anilistSourceDescriptor } from '../anilistSource';
 import type { AnilistDbExecutor, AnilistImportContext } from '../context';
 import { expandCharacterMedia } from '../expandCharacterMedia';
-import type { AnilistCharacterVoiceMediaResponse } from '../types';
+import type {
+  AnilistCharacterVoiceMediaResponse,
+  AnilistStaffGql,
+} from '../types';
 
 type ExecCapable = { exec: (sql: string, opts?: { bind?: unknown }) => void };
 
@@ -52,7 +55,9 @@ async function freshAnilistDb(): Promise<Database> {
   return db;
 }
 
-function makeVoiceMediaResponse(): AnilistCharacterVoiceMediaResponse {
+function makeVoiceMediaResponse(
+  staffOverrides: Partial<AnilistStaffGql> = {},
+): AnilistCharacterVoiceMediaResponse {
   return {
     Character: {
       id: FAVOURITE_CHAR_ID,
@@ -77,6 +82,7 @@ function makeVoiceMediaResponse(): AnilistCharacterVoiceMediaResponse {
                 gender: null,
                 languageV2: null,
                 favourites: null,
+                ...staffOverrides,
               },
             ],
           },
@@ -127,6 +133,54 @@ describe('expandCharacterMedia', () => {
 
     const row = db.selectObject('SELECT gender FROM staff WHERE id = ?', MIYAKO_STAFF_ID);
     expect(row).toEqual({ gender: 'Female' });
+    db.close();
+  });
+
+  it('stores all profile fields returned for character voice actors', async () => {
+    const db = await freshAnilistDb();
+    const executeQuery = vi.fn().mockResolvedValue(
+      makeVoiceMediaResponse({
+        name: { full: 'Updated VA', native: '更新 声優' },
+        image: { large: 'https://example.test/updated-va.jpg' },
+        age: '42',
+        gender: 'Female',
+        languageV2: 'Japanese',
+        favourites: 1234,
+      }),
+    );
+    const ctx: AnilistImportContext = {
+      db: makeDbAdapter(db),
+      executeQuery,
+      now: () => NOW,
+    };
+    db.exec(
+      `INSERT INTO character (
+         id, name_full, name_native, name_alternatives_json, name_alternatives_spoiler_json,
+         image, age, gender, favourites, birth_year, birth_month, birth_day, fetched_at, updated_at
+       ) VALUES (?, 'Fav Char', NULL, '[]', '[]', NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?)`,
+      { bind: [FAVOURITE_CHAR_ID, NOW, NOW] },
+    );
+
+    await expandCharacterMedia(ctx, FAVOURITE_CHAR_ID);
+
+    const row = db.selectObject(
+      `SELECT name_full, name_native, image, age, gender, language_v2,
+              favourites, fetched_at, updated_at
+         FROM staff
+        WHERE id = ?`,
+      MIYAKO_STAFF_ID,
+    );
+    expect(row).toEqual({
+      name_full: 'Updated VA',
+      name_native: '更新 声優',
+      image: 'https://example.test/updated-va.jpg',
+      age: '42',
+      gender: 'Female',
+      language_v2: 'Japanese',
+      favourites: 1234,
+      fetched_at: NOW,
+      updated_at: NOW,
+    });
     db.close();
   });
 

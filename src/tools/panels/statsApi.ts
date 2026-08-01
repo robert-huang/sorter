@@ -268,7 +268,7 @@ async function attachCastToEntries(
             staffId: Number(staffId),
             staffName: meta.name,
             staffImage: meta.image ?? null,
-            staffGender: null,
+            staffGender: meta.gender ?? null,
             role,
           })),
         )
@@ -284,7 +284,7 @@ async function attachCastToEntries(
               staffId: Number(staffId),
               staffName: meta.name,
               staffImage: meta.image ?? null,
-              staffGender: null,
+              staffGender: meta.gender ?? null,
               characterId,
               characterName,
               characterRole,

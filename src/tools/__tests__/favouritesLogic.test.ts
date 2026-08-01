@@ -44,6 +44,7 @@ describe('processCharacterEdges', () => {
   const heroCharacter = {
     id: 99,
     name: { full: 'Hero', native: null },
+    gender: 'Female',
   };
 
   it('skips media not on user list and blacklisted ids', () => {
@@ -53,7 +54,13 @@ describe('processCharacterEdges', () => {
         {
           node: { id: 1, title: { romaji: 'Show A', native: null }, type: 'ANIME' },
           characterRole: 'MAIN',
-          voiceActors: [{ id: 10, name: { full: 'VA One', native: null } }],
+          voiceActors: [
+            {
+              id: 10,
+              name: { full: 'VA One', native: null },
+              gender: 'Male',
+            },
+          ],
         },
         {
           node: { id: 999, title: { romaji: 'Unseen', native: null }, type: 'ANIME' },
@@ -67,12 +74,16 @@ describe('processCharacterEdges', () => {
     expect(result.seen).toBe(true);
     expect(result.isMain).toBe(true);
     expect(result.charRole).toBe(CharacterRoleTier.Main);
-    expect(result.vas).toEqual([{ id: 10, name: 'VA One', imageUrl: null }]);
+    expect(result.vas).toEqual([
+      { id: 10, name: 'VA One', imageUrl: null, gender: 'Male' },
+    ]);
     expect(result.shows[1]).toEqual({
       title: 'Show A',
       titleSearchTokens: ['Show A'],
       coverImage: null,
-      characters: [{ id: 99, name: 'Hero', searchTokens: ['Hero'] }],
+      characters: [
+        { id: 99, name: 'Hero', searchTokens: ['Hero'], gender: 'Female' },
+      ],
     });
   });
 
@@ -93,7 +104,9 @@ describe('processCharacterEdges', () => {
       title: 'Manga A',
       titleSearchTokens: ['Manga A'],
       coverImage: null,
-      characters: [{ id: 99, name: 'Hero', searchTokens: ['Hero'] }],
+      characters: [
+        { id: 99, name: 'Hero', searchTokens: ['Hero'], gender: 'Female' },
+      ],
     });
     expect(result.shows).toEqual({});
   });
@@ -396,21 +409,25 @@ describe('countVaCharactersOnMedia mainOnly vs countMainRoleVaCharacters', () =>
 describe('accumulateVaStats', () => {
   it('applies Bayesian dummy median and rank weighting', () => {
     const characters = [
-      { id: 1, name: { full: 'A', native: null } },
-      { id: 2, name: { full: 'B', native: null } },
+      { id: 1, name: { full: 'A', native: null }, gender: 'Female' },
+      { id: 2, name: { full: 'B', native: null }, gender: 'Male' },
     ];
     const accum = accumulateVaStats(
       characters,
-      [[{ id: 5, name: 'VA', imageUrl: null }], [{ id: 5, name: 'VA', imageUrl: null }]],
+      [
+        [{ id: 5, name: 'VA', imageUrl: null, gender: 'Female' }],
+        [{ id: 5, name: 'VA', imageUrl: null, gender: 'Female' }],
+      ],
       'full',
     );
     const va = accum.get(5);
     expect(va).toBeDefined();
+    expect(va!.gender).toBe('Female');
     // dummy = 0.2, two hits => raw count 2, stored count 2.2
     expect(va!.count).toBeCloseTo(2.2, 5);
     expect(va!.characters).toEqual([
-      { id: 1, name: 'A', searchTokens: ['A'] },
-      { id: 2, name: 'B', searchTokens: ['B'] },
+      { id: 1, name: 'A', searchTokens: ['A'], gender: 'Female' },
+      { id: 2, name: 'B', searchTokens: ['B'], gender: 'Male' },
     ]);
   });
 });
@@ -435,10 +452,10 @@ describe('buildFavouritesResult', () => {
     const result = buildFavouritesResult({
       characters,
       perCharacterVas: [
-        [{ id: 10, name: 'VA A', imageUrl: null }],
+        [{ id: 10, name: 'VA A', imageUrl: null, gender: 'Female' }],
         [
-          { id: 10, name: 'VA A', imageUrl: null },
-          { id: 11, name: 'VA B', imageUrl: null },
+          { id: 10, name: 'VA A', imageUrl: null, gender: 'Female' },
+          { id: 11, name: 'VA B', imageUrl: null, gender: 'Male' },
         ],
       ],
       perCharacterMeta: [
@@ -484,8 +501,15 @@ describe('buildFavouritesResult', () => {
 
     expect(result.characterCount).toBe(2);
     expect(result.byCount[0].staffId).toBe(10);
-    expect(result.gender.female).toEqual([{ id: 1, name: 'Alice', searchTokens: ['Alice'] }]);
-    expect(result.gender.male).toEqual([{ id: 2, name: 'Bob', searchTokens: ['Bob'] }]);
+    expect(result.byCount.find((row) => row.staffId === 10)?.gender).toBe(
+      'Female',
+    );
+    expect(result.gender.female).toEqual([
+      { id: 1, name: 'Alice', searchTokens: ['Alice'], gender: 'Female' },
+    ]);
+    expect(result.gender.male).toEqual([
+      { id: 2, name: 'Bob', searchTokens: ['Bob'], gender: 'Male' },
+    ]);
     expect(result.numFemaleSeen).toBe(1);
     expect(result.numMain).toBe(1);
     expect(result.favouriteCharacters).toEqual([
@@ -493,11 +517,13 @@ describe('buildFavouritesResult', () => {
       { id: 2, name: 'Bob', rank: 2, gender: 'Male' },
     ]);
     expect(formatBirthdayKey(characters[0].dateOfBirth)).toBe('0305');
-    expect(result.birthdays['0305']).toEqual([{ id: 1, name: 'Alice', searchTokens: ['Alice'] }]);
+    expect(result.birthdays['0305']).toEqual([
+      { id: 1, name: 'Alice', searchTokens: ['Alice'], gender: 'Female' },
+    ]);
     expect(result.favouriteStaff[0].matchedCount).toBe(2);
     expect(result.favouriteStaff[0].matchedCharacters).toEqual([
-      { id: 1, name: 'Alice', searchTokens: ['Alice'] },
-      { id: 2, name: 'Bob', searchTokens: ['Bob'] },
+      { id: 1, name: 'Alice', searchTokens: ['Alice'], gender: 'Female' },
+      { id: 2, name: 'Bob', searchTokens: ['Bob'], gender: 'Male' },
     ]);
     expect(result.byCount.length).toBe(2);
   });

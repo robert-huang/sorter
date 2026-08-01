@@ -372,7 +372,14 @@ export async function runFavouritesAnalysis(
     graphOptions,
   );
 
-  const perCharacterVas: Array<Array<{ id: number; name: string; imageUrl: string | null }>> = [];
+  const perCharacterVas: Array<
+    Array<{
+      id: number;
+      name: string;
+      imageUrl: string | null;
+      gender: string | null;
+    }>
+  > = [];
   const perCharacterMeta: Array<{
     charRole: CharacterRoleTier;
     seen: boolean;

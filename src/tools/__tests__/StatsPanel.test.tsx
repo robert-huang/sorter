@@ -1,8 +1,20 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { StatsSubrowNameCell } from '../panels/StatsPanel';
-import type { StatsEntry } from '../panels/statsLogic';
+
+vi.mock('../panels/statsApi', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../panels/statsApi')>();
+  return {
+    ...actual,
+    expandStatsCast: vi.fn(),
+    fetchStatsData: vi.fn(),
+  };
+});
+
+import { StatsPanel, StatsSubrowNameCell } from '../panels/StatsPanel';
+import type { StatsCachedData, StatsEntry } from '../panels/statsLogic';
+import { ToolStaffButton } from '../toolEntityLinks';
+import { expandStatsCast, fetchStatsData } from '../panels/statsApi';
 
 const entry = {
   mediaId: 1,
@@ -36,6 +48,9 @@ const entry = {
   vaCredits: [],
 } satisfies StatsEntry;
 
+const fetchStatsDataMock = vi.mocked(fetchStatsData);
+const expandStatsCastMock = vi.mocked(expandStatsCast);
+
 let container: HTMLDivElement;
 let root: Root;
 
@@ -45,6 +60,9 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  localStorage.clear();
+  fetchStatsDataMock.mockReset();
+  expandStatsCastMock.mockReset();
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -86,5 +104,167 @@ describe('StatsSubrowNameCell', () => {
         '.tool-character-name-link',
       )?.getAttribute('href'),
     ).toBe('https://anilist.co/character/2');
+  });
+});
+
+describe('stats staff name gender colours', () => {
+  it.each([
+    ['Female', 'tool-entity-btn--staff-female'],
+    ['Male', 'tool-entity-btn--staff-male'],
+  ])('uses the Favourites %s colour class', (gender, expectedClass) => {
+    act(() => {
+      root.render(
+        <ToolStaffButton
+          staffId={10}
+          name={`${gender} Staff`}
+          gender={gender}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+    });
+
+    expect(
+      container
+        .querySelector('.tool-entity-btn')
+        ?.classList.contains(expectedClass),
+    ).toBe(true);
+  });
+
+  it('leaves unknown-gender names on the default colour', () => {
+    act(() => {
+      root.render(
+        <ToolStaffButton
+          staffId={20}
+          name="Unknown Staff"
+          gender={null}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+    });
+
+    const link = container.querySelector('.tool-entity-btn');
+    expect(
+      link?.classList.contains('tool-entity-btn--staff-female'),
+    ).toBe(false);
+    expect(link?.classList.contains('tool-entity-btn--staff-male')).toBe(false);
+  });
+});
+
+describe('StatsPanel gender filter', () => {
+  it('renders gender immediately after the active people-role filter', () => {
+    act(() => {
+      root.render(
+        <StatsPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+    });
+
+    const filterLabels = (): string[] =>
+      Array.from(
+        container.querySelectorAll<HTMLButtonElement>(
+          '.tool-stats-type-filters .filter-chip-button',
+        ),
+        (button) => button.textContent?.trim() ?? '',
+      );
+    const labels = filterLabels();
+    const characterRolesIndex = labels.findIndex((label) =>
+      label.startsWith('character roles'),
+    );
+
+    expect(characterRolesIndex).toBeGreaterThanOrEqual(0);
+    expect(labels[characterRolesIndex + 1]).toBe('gender');
+
+    const staffButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(
+        '[aria-labelledby="tool-segmented-stats-chart"] button',
+      ),
+    ).find((button) => button.textContent === 'Staff');
+    expect(staffButton).toBeDefined();
+    act(() => {
+      staffButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    const staffLabels = filterLabels();
+    const productionRolesIndex = staffLabels.findIndex((label) =>
+      label.startsWith('production roles'),
+    );
+    expect(productionRolesIndex).toBeGreaterThanOrEqual(0);
+    expect(staffLabels[productionRolesIndex + 1]).toBe('gender');
+  });
+
+  it('re-reads expanded cast when the local database revision changes', async () => {
+    localStorage.setItem(
+      'anime-tools-stats-form',
+      JSON.stringify({
+        username: 'tester',
+        mediaType: 'ANIME',
+        aggregationType: 'STAFF',
+      }),
+    );
+    const cached: StatsCachedData = {
+      username: 'tester',
+      mediaType: 'ANIME',
+      entries: [entry],
+      castExpanded: true,
+    };
+    fetchStatsDataMock.mockResolvedValue(cached);
+    expandStatsCastMock.mockResolvedValue({
+      ...cached,
+      entries: [
+        {
+          ...entry,
+          staffCredits: [
+            {
+              staffId: 10,
+              staffName: 'Refreshed Staff',
+              staffImage: null,
+              staffGender: 'Female',
+              role: 'Director',
+            },
+          ],
+        },
+      ],
+    });
+
+    await act(async () => {
+      root.render(
+        <StatsPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+    });
+    const runButton = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent === 'Run',
+    );
+    expect(runButton).toBeDefined();
+    await act(async () => {
+      runButton?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchStatsDataMock).toHaveBeenCalledTimes(1);
+    expect(expandStatsCastMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.render(
+        <StatsPanel
+          dbSyncRevision={1}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(expandStatsCastMock).toHaveBeenCalledWith(
+      cached,
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
   });
 });

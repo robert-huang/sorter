@@ -91,6 +91,7 @@ export type FavouriteCharacterRef = {
   id: number;
   name: string;
   searchTokens: readonly string[];
+  gender?: string | null;
 };
 
 export type FavouritesSeriesMeta = {
@@ -127,6 +128,7 @@ export type CharacterMediaEdge = {
     id: number;
     name: { full: string; native?: string | null };
     image?: { large?: string | null } | null;
+    gender?: string | null;
   }>;
 };
 
@@ -152,6 +154,7 @@ export type VaAccumulator = {
   id: number;
   name: string;
   imageUrl: string | null;
+  gender: string | null;
   count: number;
   rankSum: number;
   logScore: number;
@@ -162,6 +165,7 @@ export type VaRankRow = {
   staffId: number;
   name: string;
   imageUrl: string | null;
+  gender?: string | null;
   displayValue: string;
   numericValue: number;
   characters: FavouriteCharacterRef[];
@@ -306,13 +310,23 @@ export function processCharacterEdges(
   charRole: CharacterRoleTier;
   seen: boolean;
   isMain: boolean;
-  vas: Array<{ id: number; name: string; imageUrl: string | null }>;
+  vas: Array<{
+    id: number;
+    name: string;
+    imageUrl: string | null;
+    gender: string | null;
+  }>;
   shows: Record<number, FavouritesSeriesMeta>;
   books: Record<number, FavouritesSeriesMeta>;
 } {
   const charId = character.id;
   const vaIds = new Set<number>();
-  const vas: Array<{ id: number; name: string; imageUrl: string | null }> = [];
+  const vas: Array<{
+    id: number;
+    name: string;
+    imageUrl: string | null;
+    gender: string | null;
+  }> = [];
   let charRole = CharacterRoleTier.Unknown;
   let seen = false;
   let isMain = false;
@@ -329,6 +343,7 @@ export function processCharacterEdges(
     id: charId,
     name: pickCharacterName(character),
     searchTokens: favouriteCharacterSearchParts(character),
+    gender: character.gender ?? null,
   };
 
   for (const edge of edges) {
@@ -376,6 +391,7 @@ export function processCharacterEdges(
           name_native: va.name.native ?? null,
         }),
         imageUrl: va.image?.large ?? null,
+        gender: va.gender ?? null,
       });
       vaIds.add(va.id);
     }
@@ -661,7 +677,14 @@ export function mapToRecord(map: Map<number, number>): Record<number, number> {
 
 export function accumulateVaStats(
   characters: FavouriteCharacterInput[],
-  perCharacterVas: Array<Array<{ id: number; name: string; imageUrl: string | null }>>,
+  perCharacterVas: Array<
+    Array<{
+      id: number;
+      name: string;
+      imageUrl: string | null;
+      gender?: string | null;
+    }>
+  >,
   characterMode: PersonNameDisplayMode = getCharacterNameDisplayMode(),
 ): Map<number, VaAccumulator> {
   const dummyMedian = characters.length / 10;
@@ -676,6 +699,7 @@ export function accumulateVaStats(
       id: character.id,
       name: pickCharacterName(character, characterMode),
       searchTokens: favouriteCharacterSearchParts(character),
+      gender: character.gender ?? null,
     };
     for (const va of perCharacterVas[i] ?? []) {
       const existing = accum.get(va.id);
@@ -687,11 +711,15 @@ export function accumulateVaStats(
         if (!existing.imageUrl && va.imageUrl) {
           existing.imageUrl = va.imageUrl;
         }
+        if (!existing.gender && va.gender) {
+          existing.gender = va.gender;
+        }
       } else {
         accum.set(va.id, {
           id: va.id,
           name: va.name,
           imageUrl: va.imageUrl,
+          gender: va.gender ?? null,
           count: dummyMedian + 1,
           rankSum: midpoint + rank,
           logScore: logBase - Math.log(rank),
@@ -715,6 +743,7 @@ function toRankRows(
       staffId: va.id,
       name: va.name,
       imageUrl: va.imageUrl,
+      gender: va.gender,
       displayValue,
       numericValue,
       characters: va.characters,
@@ -765,7 +794,14 @@ export function buildVaPercentRankRows(
 
 export function buildFavouritesResult(input: {
   characters: FavouriteCharacterInput[];
-  perCharacterVas: Array<Array<{ id: number; name: string; imageUrl: string | null }>>;
+  perCharacterVas: Array<
+    Array<{
+      id: number;
+      name: string;
+      imageUrl: string | null;
+      gender?: string | null;
+    }>
+  >;
   perCharacterMeta: Array<{
     charRole: CharacterRoleTier;
     seen: boolean;
@@ -821,6 +857,7 @@ export function buildFavouritesResult(input: {
       id: characters[i]!.id,
       name,
       searchTokens: favouriteCharacterSearchParts(characters[i]!),
+      gender: characters[i]!.gender ?? null,
     };
     const meta = perCharacterMeta[i];
     numSeen += meta.seen ? 1 : 0;
@@ -963,7 +1000,14 @@ export type FavouritesRebuildSource = {
 export function rebuildFavouritesResult(
   source: FavouritesRebuildSource,
 ): FavouritesResult {
-  const perCharacterVas: Array<Array<{ id: number; name: string; imageUrl: string | null }>> = [];
+  const perCharacterVas: Array<
+    Array<{
+      id: number;
+      name: string;
+      imageUrl: string | null;
+      gender: string | null;
+    }>
+  > = [];
   const perCharacterMeta: Array<{
     charRole: CharacterRoleTier;
     seen: boolean;

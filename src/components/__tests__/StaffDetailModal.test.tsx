@@ -175,6 +175,15 @@ describe('StaffDetailModal — lazy expansion', () => {
     expect(mockedGetFilmography).toHaveBeenCalledTimes(1);
     expect(container.textContent).toContain('EN-1');
     expect(container.textContent).toContain('Director');
+    const info = container.querySelector('[title="Staff info cache"]');
+    const freshnessTitles = Array.from(
+      info?.parentElement?.querySelectorAll('[title]') ?? [],
+    ).map((element) => element.getAttribute('title'));
+    expect(info?.textContent).toContain('Info: unknown date (stale (>90d))');
+    expect(freshnessTitles).toEqual([
+      'Staff info cache',
+      'Filmography cache',
+    ]);
   });
 
   it('triggers expansion on first open when never fetched, then re-reads', async () => {

@@ -157,18 +157,6 @@ export const MEDIA_CHART_STUB_COLS = [
 
 export type MediaChartStubRow = Pick<MediaRow, (typeof MEDIA_CHART_STUB_COLS)[number]>;
 
-/** Identity-only staff upsert — does not touch profile fields like gender. */
-export const STAFF_STUB_COLS = [
-  'id',
-  'name_full',
-  'name_native',
-  'image',
-  'fetched_at',
-  'updated_at',
-] as const;
-
-export type StaffStubRow = Pick<StaffRow, (typeof STAFF_STUB_COLS)[number]>;
-
 /** Identity-only character upsert — does not touch profile fields like gender. */
 export const CHARACTER_STUB_COLS = [
   'id',
@@ -252,18 +240,17 @@ function buildMediaChartStubUpsertSql(): string {
   );
 }
 
-function buildStaffStubUpsertSql(): string {
-  const placeholders = STAFF_STUB_COLS.map(() => '?').join(', ');
-  const updates = STAFF_STUB_COLS.filter((c) => c !== 'id')
-    .map((c) => {
-      if (c === 'image') {
-        return `${c} = COALESCE(excluded.${c}, staff.${c})`;
-      }
-      return `${c} = excluded.${c}`;
-    })
+function buildStaffProfileMergeUpsertSql(): string {
+  const placeholders = STAFF_COLS.map(() => '?').join(', ');
+  const updates = STAFF_COLS.filter((c) => c !== 'id')
+    .map((c) =>
+      c === 'fetched_at' || c === 'updated_at'
+        ? `${c} = excluded.${c}`
+        : `${c} = COALESCE(excluded.${c}, staff.${c})`,
+    )
     .join(', ');
   return (
-    `INSERT INTO staff (${STAFF_STUB_COLS.join(', ')}) VALUES (${placeholders}) ` +
+    `INSERT INTO staff (${STAFF_COLS.join(', ')}) VALUES (${placeholders}) ` +
     `ON CONFLICT(id) DO UPDATE SET ${updates}`
   );
 }
@@ -289,7 +276,8 @@ export const CHARACTER_STUB_UPSERT_SQL = buildCharacterStubUpsertSql();
 export const MEDIA_STUB_UPSERT_SQL = buildMediaStubUpsertSql();
 export const MEDIA_CHART_STUB_UPSERT_SQL = buildMediaChartStubUpsertSql();
 export const STAFF_UPSERT_SQL = buildPersonUpsertSql('staff', STAFF_COLS);
-export const STAFF_STUB_UPSERT_SQL = buildStaffStubUpsertSql();
+/** Store all profile fields returned by nested VA nodes without erasing richer non-null data. */
+export const STAFF_PROFILE_MERGE_UPSERT_SQL = buildStaffProfileMergeUpsertSql();
 
 export function characterRowToParams(row: CharacterRow): SqlBindable[] {
   return CHARACTER_COLS.map((c) => row[c]);
@@ -297,10 +285,6 @@ export function characterRowToParams(row: CharacterRow): SqlBindable[] {
 
 export function staffRowToParams(row: StaffRow): SqlBindable[] {
   return STAFF_COLS.map((c) => row[c]);
-}
-
-export function staffStubRowToParams(row: StaffStubRow): SqlBindable[] {
-  return STAFF_STUB_COLS.map((c) => row[c]);
 }
 
 export function mediaStubRowToParams(row: MediaStubRow): SqlBindable[] {
@@ -974,7 +958,10 @@ export async function persistMediaCastExpansion(
   }
   for (const [id, row] of staffFromCharacters) {
     if (!staffFromStaffEdges.has(id)) {
-      stmts.push({ sql: STAFF_STUB_UPSERT_SQL, params: staffStubRowToParams(row) });
+      stmts.push({
+        sql: STAFF_PROFILE_MERGE_UPSERT_SQL,
+        params: staffRowToParams(row),
+      });
     }
   }
   for (const row of staffFromStaffEdges.values()) {

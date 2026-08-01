@@ -52,6 +52,11 @@ import {
   rangeLabel,
   toggleInArray,
 } from './filters';
+import {
+  genderMatches,
+  normaliseGender,
+  sortGenderOptions,
+} from './genderFilter';
 import { anilistUrlForStaffId } from './anilistLinks';
 import {
   getCharacterIdsAppearingInMedia,
@@ -304,29 +309,6 @@ function NumericRangeChip({
 // Shared discovery helpers
 // ---------------------------------------------------------------------
 
-/** UNKNOWN gender labels in the AniList data tend to be `null` or
- *  the literal "Unknown". Surface them in the chip as a dedicated
- *  "(unknown)" bucket so users can intentionally include/exclude
- *  them instead of having those rows silently disappear. */
-const UNKNOWN_GENDER = '(unknown)';
-
-function normaliseGender(raw: string | null): string {
-  if (raw === null) return UNKNOWN_GENDER;
-  const trimmed = raw.trim();
-  if (trimmed === '' || trimmed.toLowerCase() === 'unknown') {
-    return UNKNOWN_GENDER;
-  }
-  return trimmed;
-}
-
-/** Inverse of `normaliseGender` — when filtering, the "(unknown)"
- *  bucket must match BOTH null and the literal "Unknown" so users see
- *  the same rows they saw in the discovery menu. */
-function genderMatches(rowGender: string | null, selected: string): boolean {
-  const norm = normaliseGender(rowGender);
-  return norm === selected;
-}
-
 /**
  * Shared post-stage: drop candidates whose favourite rank falls
  * outside [rangeMin, rangeMax]. STRICT semantics — an item not in
@@ -461,11 +443,7 @@ async function loadCharacterChipOptions(
   return {
     // "(unknown)" floats to the bottom of the list — usually the
     // least-interesting bucket for filtering on.
-    genders: Array.from(genders).sort((a, b) => {
-      if (a === UNKNOWN_GENDER) return 1;
-      if (b === UNKNOWN_GENDER) return -1;
-      return a.localeCompare(b);
-    }),
+    genders: sortGenderOptions(genders),
     favouritesMax,
     totalFavourites,
     mediaOptions,
@@ -791,11 +769,7 @@ async function loadStaffChipOptions(
     }
   }
   return {
-    genders: Array.from(genders).sort((a, b) => {
-      if (a === UNKNOWN_GENDER) return 1;
-      if (b === UNKNOWN_GENDER) return -1;
-      return a.localeCompare(b);
-    }),
+    genders: sortGenderOptions(genders),
     favouritesMax,
     totalFavourites,
     languages: Array.from(languages).sort((a, b) => {

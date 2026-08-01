@@ -45,12 +45,19 @@ import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportCo
 import { getMediaDetail } from '../../lib/importers/anilist/readQueries';
 import {
   bustStatsSessionMemo,
+  expandStatsCast,
   fetchStatsData,
 } from '../panels/statsApi';
+import {
+  ensureMediaCastFreshBatch,
+  readShowStaffBundleFromDb,
+} from '../../lib/importers/anilist/toolsAnilistAccess';
 
 const depaginateMock = vi.mocked(depaginate);
 const getCtxMock = vi.mocked(getToolsImportContext);
 const getMediaDetailMock = vi.mocked(getMediaDetail);
+const ensureCastMock = vi.mocked(ensureMediaCastFreshBatch);
+const readStaffBundleMock = vi.mocked(readShowStaffBundleFromDb);
 
 function gqlListEntry(mediaId: number) {
   return {
@@ -80,9 +87,13 @@ beforeEach(() => {
   depaginateMock.mockReset();
   getCtxMock.mockReset();
   getMediaDetailMock.mockReset();
+  ensureCastMock.mockReset();
+  readStaffBundleMock.mockReset();
 
   getCtxMock.mockReturnValue({ db: {} } as never);
   getMediaDetailMock.mockResolvedValue(null);
+  ensureCastMock.mockResolvedValue();
+  readStaffBundleMock.mockResolvedValue(null);
   depaginateMock.mockResolvedValue([gqlListEntry(101)]);
 });
 
@@ -119,6 +130,38 @@ describe('fetchStatsData', () => {
     expect(depaginateMock).toHaveBeenCalledWith(
       expect.objectContaining({ signal: controller.signal }),
     );
+  });
+
+  it('preserves persisted staff and VA genders from the cached staff bundle', async () => {
+    readStaffBundleMock.mockResolvedValue({
+      id: 101,
+      title: 'Show 101',
+      coverImage: null,
+      studios: {},
+      productionStaff: {
+        7: {
+          name: 'Director',
+          image: null,
+          gender: 'Female',
+          roles: ['Director'],
+        },
+      },
+      voiceActors: {
+        8: {
+          name: 'Voice Actor',
+          image: null,
+          gender: 'Male',
+          roles: ['MAIN Hero'],
+          roleCharacterIds: [9],
+        },
+      },
+    });
+
+    const data = await fetchStatsData('tester', 'ANIME');
+    const expanded = await expandStatsCast(data);
+
+    expect(expanded.entries[0]?.staffCredits[0]?.staffGender).toBe('Female');
+    expect(expanded.entries[0]?.vaCredits[0]?.staffGender).toBe('Male');
   });
 });
 

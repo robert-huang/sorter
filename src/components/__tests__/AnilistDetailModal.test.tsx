@@ -233,6 +233,16 @@ describe('AnilistDetailModal — lazy expansion', () => {
 
     expect(mockedExpand).not.toHaveBeenCalled();
     expect(mockedGetMediaDetail).toHaveBeenCalledTimes(1);
+    const info = container.querySelector('[title="Media info cache"]');
+    const freshnessTitles = Array.from(
+      info?.parentElement?.querySelectorAll('[title]') ?? [],
+    ).map((element) => element.getAttribute('title'));
+    expect(info?.textContent).toContain('Info: unknown date (stale (>90d))');
+    expect(freshnessTitles.slice(0, 3)).toEqual([
+      'Media info cache',
+      'Cast cache',
+      'Staff credits cache',
+    ]);
   });
 
   it('refresh button triggers expansion + relations refresh + re-read', async () => {
