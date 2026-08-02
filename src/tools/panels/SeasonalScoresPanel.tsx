@@ -69,6 +69,7 @@ const DEFAULT_FORM: SeasonalScoresForm = {
 
 type PersistedSeasonalForm = Pick<
   SeasonalScoresForm,
+  | 'username'
   | 'seasonText'
   | 'seasonMode'
   | 'skipEmpty'
@@ -164,6 +165,7 @@ function loadForm(): SeasonalScoresForm {
       const seasonText = parsed.seasonText ?? '';
       return {
         ...DEFAULT_FORM,
+        username: withLastAnilistUsername(parsed.username ?? ''),
         seasonText,
         // Pre-toggle saves don't carry a mode — preserve the user's previous
         // textarea content by inferring `custom` when text exists, otherwise
@@ -178,7 +180,6 @@ function loadForm(): SeasonalScoresForm {
         airingNotesOnly: parsed.airingNotesOnly ?? false,
         includePlanning: parsed.includePlanning ?? false,
         spanAiringSeasons: parsed.spanAiringSeasons ?? false,
-        username: withLastAnilistUsername(''),
       };
     }
     const legacySeasonText = localStorage.getItem(LS_SEASON_TEXT_KEY) ?? '';
@@ -196,6 +197,7 @@ function loadForm(): SeasonalScoresForm {
 function saveForm(form: SeasonalScoresForm): void {
   try {
     const persisted: PersistedSeasonalForm = {
+      username: form.username,
       seasonText: form.seasonText,
       seasonMode: form.seasonMode,
       skipEmpty: form.skipEmpty,

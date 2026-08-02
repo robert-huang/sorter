@@ -50,7 +50,7 @@ const DEFAULT_FORM: FranchiseForm = {
   relationTypes: DEFAULT_RELATION_TOGGLES,
 };
 
-type PersistedForm = Pick<FranchiseForm, 'showText' | 'relationTypes'>;
+type PersistedForm = Pick<FranchiseForm, 'username' | 'showText' | 'relationTypes'>;
 
 function normalizeRelationToggles(
   raw: unknown,
@@ -74,9 +74,9 @@ function loadForm(): FranchiseForm {
       const parsed = JSON.parse(raw) as Partial<PersistedForm>;
       return {
         ...DEFAULT_FORM,
+        username: withLastAnilistUsername(parsed.username ?? ''),
         showText: parsed.showText ?? '',
         relationTypes: normalizeRelationToggles(parsed.relationTypes),
-        username: withLastAnilistUsername(''),
       };
     }
   } catch {
@@ -88,6 +88,7 @@ function loadForm(): FranchiseForm {
 function saveForm(form: FranchiseForm): void {
   try {
     const persisted: PersistedForm = {
+      username: form.username,
       showText: form.showText,
       relationTypes: form.relationTypes,
     };

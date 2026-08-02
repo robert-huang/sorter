@@ -3,12 +3,8 @@ import {
   hasStaffFilmography,
 } from '../../lib/importers/anilist/graphQueries';
 import { depaginate } from '../../lib/importers/anilist/depaginate';
-import { findAnilistAccountByName } from '../../lib/importers/anilist/anilistAuth';
 import {
   TOOLS_CHARACTER_VOICE_MEDIA_QUERY,
-  TOOLS_FAVOURITE_CHARACTERS_QUERY,
-  TOOLS_FAVOURITE_STAFF_QUERY,
-  TOOLS_USER_CONSUMED_MEDIA_QUERY,
   TOOLS_VA_CHARACTER_MEDIA_QUERY,
 } from '../../lib/importers/anilist/queries';
 import {
@@ -73,96 +69,26 @@ export type FavouritesRunProgress =
   | { phase: 'expand-staff-filmography'; index: number; total: number }
   | { phase: 'build' };
 
-async function fetchConsumedMediaListLive(
-  username: string,
-  type: 'ANIME' | 'MANGA',
-  signal?: AbortSignal,
-): Promise<number[]> {
-  const entries = await depaginate<
-    {
-      Page: {
-        pageInfo: { hasNextPage: boolean };
-        mediaList: Array<{ mediaId: number }>;
-      } | null;
-    },
-    { mediaId: number }
-  >({
-    query: TOOLS_USER_CONSUMED_MEDIA_QUERY,
-    variables: { userName: username, type },
-    signal,
-    selectPage: (data) => ({
-      nodes: data.Page?.mediaList ?? [],
-      pageInfo: data.Page?.pageInfo ?? { hasNextPage: false },
-    }),
-  });
-  return entries.map((e) => e.mediaId);
-}
-
 async function fetchConsumedMediaIds(
   username: string,
   signal?: AbortSignal,
-  options?: FavouritesFetchOptions,
 ): Promise<Set<number>> {
   signal?.throwIfAborted();
-  if (findAnilistAccountByName(username) !== null) {
-    const [animeIds, mangaIds] = await Promise.all([
-      fetchConsumedMediaListLive(username, 'ANIME', signal),
-      fetchConsumedMediaListLive(username, 'MANGA', signal),
-    ]);
-    return new Set([...animeIds, ...mangaIds]);
-  }
-  const importOptions = favouritesImportOptions(options);
   // List imports share the per-source AniList scrape lock — run sequentially
   // (same as the ↻ refresh button) so parallel ensure* calls don't race.
-  const animeUser = await ensureUserAnimeListFresh(username, importOptions);
+  const animeUser = await ensureUserAnimeListFresh(username);
   signal?.throwIfAborted();
-  const mangaUser = await ensureUserMangaListFresh(username, importOptions);
+  const mangaUser = await ensureUserMangaListFresh(username);
   const user = animeUser ?? mangaUser;
   if (user) {
     const ctx = getToolsImportContext();
-    const fromDb = await readConsumedMediaIdsFromDb(ctx.db, user.id);
-    if (fromDb) {
-      return fromDb;
-    }
+    return readConsumedMediaIdsFromDb(ctx.db, user.id);
   }
-
-  const [animeIds, mangaIds] = await Promise.all([
-    fetchConsumedMediaListLive(username, 'ANIME', signal),
-    fetchConsumedMediaListLive(username, 'MANGA', signal),
-  ]);
-  return new Set([...animeIds, ...mangaIds]);
+  return new Set();
 }
 
-async function fetchFavouriteCharactersLive(
+async function fetchFavouriteCharactersFromDb(
   username: string,
-  signal?: AbortSignal,
-): Promise<FavouriteCharacterInput[]> {
-  return depaginate<
-    {
-      User: {
-        favourites: {
-          characters: {
-            pageInfo: { hasNextPage: boolean };
-            nodes: FavouriteCharacterInput[];
-          };
-        };
-      } | null;
-    },
-    FavouriteCharacterInput
-  >({
-    query: TOOLS_FAVOURITE_CHARACTERS_QUERY,
-    variables: { username },
-    signal,
-    selectPage: (data) => ({
-      nodes: data.User?.favourites.characters.nodes ?? [],
-      pageInfo: data.User?.favourites.characters.pageInfo ?? { hasNextPage: false },
-    }),
-  });
-}
-
-async function fetchFavouriteCharactersFromDbOrLive(
-  username: string,
-  signal?: AbortSignal,
   options?: FavouritesFetchOptions,
 ): Promise<FavouriteCharacterInput[]> {
   const user = await ensureUserFavouritesFresh(
@@ -172,12 +98,9 @@ async function fetchFavouriteCharactersFromDbOrLive(
   );
   if (user) {
     const ctx = getToolsImportContext();
-    const fromDb = await readFavouriteCharactersFromDb(ctx.db, user.id);
-    if (fromDb) {
-      return fromDb;
-    }
+    return readFavouriteCharactersFromDb(ctx.db, user.id);
   }
-  return fetchFavouriteCharactersLive(username, signal);
+  return [];
 }
 
 async function fetchFavouriteCharacters(
@@ -192,41 +115,13 @@ async function fetchFavouriteCharacters(
   return withSessionTtlMemo(
     `fav:chars:${handle}`,
     FAVOURITES_SESSION_TTL_MS,
-    () => fetchFavouriteCharactersFromDbOrLive(username, signal, options),
+    () => fetchFavouriteCharactersFromDb(username, options),
     { bust: !!(options?.forceRefreshFavourites || options?.expandRoles) },
   );
 }
 
-async function fetchFavouriteStaffLive(
+async function fetchFavouriteStaffFromDb(
   username: string,
-  signal?: AbortSignal,
-): Promise<FavouriteStaffInput[]> {
-  return depaginate<
-    {
-      User: {
-        favourites: {
-          staff: {
-            pageInfo: { hasNextPage: boolean };
-            nodes: FavouriteStaffInput[];
-          };
-        };
-      } | null;
-    },
-    FavouriteStaffInput
-  >({
-    query: TOOLS_FAVOURITE_STAFF_QUERY,
-    variables: { username },
-    signal,
-    selectPage: (data) => ({
-      nodes: data.User?.favourites.staff.nodes ?? [],
-      pageInfo: data.User?.favourites.staff.pageInfo ?? { hasNextPage: false },
-    }),
-  });
-}
-
-async function fetchFavouriteStaffFromDbOrLive(
-  username: string,
-  signal?: AbortSignal,
   options?: FavouritesFetchOptions,
 ): Promise<FavouriteStaffInput[]> {
   const user = await ensureUserFavouritesFresh(
@@ -236,12 +131,9 @@ async function fetchFavouriteStaffFromDbOrLive(
   );
   if (user) {
     const ctx = getToolsImportContext();
-    const fromDb = await readFavouriteStaffFromDb(ctx.db, user.id);
-    if (fromDb) {
-      return fromDb;
-    }
+    return readFavouriteStaffFromDb(ctx.db, user.id);
   }
-  return fetchFavouriteStaffLive(username, signal);
+  return [];
 }
 
 async function fetchFavouriteStaff(
@@ -254,7 +146,7 @@ async function fetchFavouriteStaff(
   return withSessionTtlMemo(
     `fav:staff:${handle}`,
     FAVOURITES_SESSION_TTL_MS,
-    () => fetchFavouriteStaffFromDbOrLive(username, signal, options),
+    () => fetchFavouriteStaffFromDb(username, options),
     { bust: !!(options?.forceRefreshFavourites || options?.expandRoles) },
   );
 }
@@ -354,7 +246,7 @@ export async function runFavouritesAnalysis(
 ): Promise<FavouritesAnalysisPayload> {
   const username = form.username.trim();
   onProgress({ phase: 'list' });
-  const consumedMediaIds = await fetchConsumedMediaIds(username, signal, fetchOptions);
+  const consumedMediaIds = await fetchConsumedMediaIds(username, signal);
 
   onProgress({ phase: 'characters' });
   // Favourites imports also take the scrape lock — fetch one type at a time.

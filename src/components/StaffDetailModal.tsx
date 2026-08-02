@@ -19,6 +19,10 @@ import {
   anilistUrlForMediaEntry,
   anilistUrlForStaffId,
 } from '../lib/importers/anilist/anilistLinks';
+import {
+  readLastAnilistUsername,
+  subscribeLastAnilistUsername,
+} from '../lib/importers/anilist/lastUsername';
 import { AnilistMiddleClickLink } from '../lib/importers/anilist/AnilistMiddleClickLink';
 import { useAnilistDisplayPreferences } from '../hooks/useAnilistDisplayPreferences';
 import { formatAnilistProgress } from './anilistProgressLabel';
@@ -90,7 +94,13 @@ function creditMetaLine(credit: StaffFilmographyCredit): string {
  * characters ("voiced X, Y"), joined on one compact line. Each voiced
  * character is middle-clickable to open its AniList page in a new tab.
  */
-function CreditRoleLine({ credit }: { credit: StaffFilmographyCredit }) {
+function CreditRoleLine({
+  credit,
+  favouriteCharacterIds,
+}: {
+  credit: StaffFilmographyCredit;
+  favouriteCharacterIds: ReadonlySet<number>;
+}) {
   const hasProduction = credit.productionRoles.length > 0;
   const hasVoiced = credit.voicedCharacters.length > 0;
   if (!hasProduction && !hasVoiced) {
@@ -103,17 +113,35 @@ function CreditRoleLine({ credit }: { credit: StaffFilmographyCredit }) {
       {hasVoiced && (
         <>
           voiced{' '}
-          {credit.voicedCharacters.map((character, index) => (
+          {credit.voicedCharacters.map((character, index) => {
+            const isFavourite = favouriteCharacterIds.has(character.id);
+            return (
               <span key={character.id}>
                 {index > 0 ? ', ' : ''}
                 <AnilistMiddleClickLink
                   url={anilistUrlForCharacter(character.id)}
-                  className="anilist-detail-character-name"
+                  className={`anilist-detail-character-name${
+                    isFavourite
+                      ? ' anilist-detail-character-name--favourite'
+                      : ''
+                  }`}
                 >
                   {character.name}
+                  {isFavourite ? (
+                    <>
+                      {' '}
+                      <span
+                        className="anilist-detail-character-favourite-star"
+                        aria-label="Favourite character"
+                      >
+                        ★
+                      </span>
+                    </>
+                  ) : null}
                 </AnilistMiddleClickLink>
               </span>
-            ))}
+            );
+          })}
         </>
       )}
     </span>
@@ -139,6 +167,52 @@ export function StaffDetailModal({
   // Media ids from this filmography that are on the cached user's list.
   const [myListIds, setMyListIds] = useState<Set<number>>(() => new Set());
   const [onlyMyList, setOnlyMyList] = useState(false);
+  const [favouriteMediaIds, setFavouriteMediaIds] = useState<Set<number>>(
+    () => new Set(),
+  );
+  const [favouriteCharacterIds, setFavouriteCharacterIds] = useState<Set<number>>(
+    () => new Set(),
+  );
+  const [favouriteStaffIds, setFavouriteStaffIds] = useState<Set<number>>(
+    () => new Set(),
+  );
+  const [favouriteAccountRevision, setFavouriteAccountRevision] = useState(0);
+
+  useEffect(() => {
+    return subscribeLastAnilistUsername(() => {
+      setFavouriteAccountRevision((revision) => revision + 1);
+    });
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const username = readLastAnilistUsername();
+    if (!username) {
+      setFavouriteMediaIds(new Set());
+      setFavouriteCharacterIds(new Set());
+      setFavouriteStaffIds(new Set());
+      return;
+    }
+    void productionReads
+      .getFavouriteEntityIdsForUsername(username)
+      .then(({ mediaIds, characterIds, staffIds }) => {
+        if (!cancelled) {
+          setFavouriteMediaIds(mediaIds);
+          setFavouriteCharacterIds(characterIds);
+          setFavouriteStaffIds(staffIds);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFavouriteMediaIds(new Set());
+          setFavouriteCharacterIds(new Set());
+          setFavouriteStaffIds(new Set());
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [staffId, favouriteAccountRevision]);
 
   const refreshMyListIds = useCallback(
     async (userId: number | null, creditMediaIds: readonly number[]) => {
@@ -262,6 +336,7 @@ export function StaffDetailModal({
 
   const name = pickName(detail, staffId, fallbackName);
   const staff = detail?.staff ?? null;
+  const isFavouriteStaff = favouriteStaffIds.has(staffId);
   const hasStaffMeta =
     !!staff?.name_native ||
     !!staff?.language_v2 ||
@@ -294,10 +369,23 @@ export function StaffDetailModal({
           <h3 style={{ margin: 0, flex: 1, minWidth: 0 }}>
             <AnilistMiddleClickLink
               url={anilistUrlForStaffId(staffId)}
-              className="anilist-detail-heading-link"
+              className={`anilist-detail-heading-link${
+                isFavouriteStaff ? ' anilist-detail-person-link--favourite' : ''
+              }`}
               style={{ margin: 0 }}
             >
               {name}
+              {isFavouriteStaff ? (
+                <>
+                  {' '}
+                  <span
+                    className="anilist-detail-person-favourite-star"
+                    aria-label="Favourite staff"
+                  >
+                    ★
+                  </span>
+                </>
+              ) : null}
             </AnilistMiddleClickLink>
           </h3>
           <a
@@ -467,8 +555,30 @@ export function StaffDetailModal({
                               />
                             )}
                             <span className="anilist-detail-cast-text">
-                              <strong>{title}</strong>
-                              <CreditRoleLine credit={credit} />
+                              <strong
+                                className={`anilist-detail-media-title${
+                                  favouriteMediaIds.has(credit.media.id)
+                                    ? ' anilist-detail-media-title--favourite'
+                                    : ''
+                                }`}
+                              >
+                                {title}
+                                {favouriteMediaIds.has(credit.media.id) ? (
+                                  <>
+                                    {' '}
+                                    <span
+                                      className="anilist-detail-media-favourite-star"
+                                      aria-label="Favourite media"
+                                    >
+                                      ★
+                                    </span>
+                                  </>
+                                ) : null}
+                              </strong>
+                              <CreditRoleLine
+                                credit={credit}
+                                favouriteCharacterIds={favouriteCharacterIds}
+                              />
                               {metaLine && (
                                 <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>
                                   {metaLine}

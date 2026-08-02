@@ -9,6 +9,7 @@ import {
   subscribeAnilistAccounts,
   type AnilistStoredAccount,
 } from '../lib/importers/anilist/anilistAuth';
+import { readLastAnilistUsername } from '../lib/importers/anilist/lastUsername';
 
 function formatExpiry(expiresAt: number): string {
   try {
@@ -43,6 +44,7 @@ export function AnilistAccountsSection() {
   const [accounts, setAccounts] = useState<AnilistStoredAccount[]>(() =>
     listAnilistAccounts(),
   );
+  const lastUsername = readLastAnilistUsername();
   const [error, setError] = useState<string | null>(null);
   const [signingIn, setSigningIn] = useState(false);
 
@@ -74,7 +76,15 @@ export function AnilistAccountsSection() {
 
   return (
     <div className="settings-anilist-accounts">
-      <div className="settings-status settings-section-label">AniList accounts</div>
+      <div className="settings-status settings-section-label">
+        AniList accounts
+        {lastUsername ? (
+          <span className="settings-anilist-last-imported">
+            {' '}
+            (Last imported: {lastUsername})
+          </span>
+        ) : null}
+      </div>
       {!configured && (
         <div className="settings-status settings-anilist-hint" style={{ color: 'var(--text-muted)' }}>
           AniList sign-in is not configured for this build (

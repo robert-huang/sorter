@@ -14,7 +14,7 @@ import {
 } from './queries';
 import {
   getAnilistUserByName,
-  getListedMediaCount,
+  getLastFullRefresh,
   type AnilistUserSummary,
 } from './readQueries';
 import { runAnilistImport } from './runners';
@@ -141,10 +141,10 @@ export async function pickRandomAnimeFromUserList(
   }
 
   let user = await getAnilistUserByName(ctx.db, handle);
-  const cachedCount = user ? await getListedMediaCount(ctx.db, user.id, 'ANIME') : 0;
+  const lastRefresh = user ? await getLastFullRefresh(ctx.db, user.id, 'ANIME') : null;
 
   let fetched = false;
-  if (options.forceRefresh || cachedCount === 0) {
+  if (options.forceRefresh || lastRefresh === null) {
     await runAnilistImport(handle, 'ANIME');
     fetched = true;
     // Re-resolve: a first-ever import is what creates the anilist_user row.

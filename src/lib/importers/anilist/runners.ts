@@ -32,6 +32,7 @@ import { findAnilistAccountByName, resolveAccessTokenForUsername } from './anili
 import { makeAnilistImportContext } from './context';
 import { importAnilistFavourites } from './favourites';
 import { importAnilistList } from './importer';
+import { writeLastAnilistUsername } from './lastUsername';
 import { ensureMediaRelations } from './ensureGraph';
 import { expandCharacterMedia, type ExpandCharacterMediaResult } from './expandCharacterMedia';
 import { expandStaffFilmography, type ExpandStaffFilmographyResult } from './expandStaffFilmography';
@@ -141,6 +142,7 @@ export async function runAnilistImport(
     type,
     abortSignal,
   });
+  writeLastAnilistUsername(result.username);
   markLocalDbPresent();
   return result;
 }
@@ -151,6 +153,7 @@ export async function runAnilistFavourites(
   onProgress?: AnilistProgressReporter,
 ): Promise<ImportAnilistFavouritesResult> {
   const result = await importAnilistFavourites(buildContext(onProgress), { username, type });
+  writeLastAnilistUsername(result.username);
   markLocalDbPresent();
   if (type === 'CHARACTERS' || type === 'STAFF') {
     bumpCharacterStaffFilterChipOptions();

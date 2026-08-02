@@ -765,6 +765,96 @@ export async function getLastFavouritesRefresh(
   return Number.isFinite(ms) ? ms : null;
 }
 
+export interface FavouriteEntityIds {
+  mediaIds: Set<number>;
+  characterIds: Set<number>;
+  staffIds: Set<number>;
+  studioIds: Set<number>;
+}
+
+/**
+ * Favourite entity ids cached for a username, gated independently by each
+ * connection's completed refresh marker. This keeps detail modals DB-only and
+ * avoids treating unrelated or partially imported rows as completed imports.
+ */
+export async function getFavouriteEntityIdsForUsername(
+  db: AnilistDbExecutor,
+  username: string,
+): Promise<FavouriteEntityIds> {
+  const empty = (): FavouriteEntityIds => ({
+    mediaIds: new Set<number>(),
+    characterIds: new Set<number>(),
+    staffIds: new Set<number>(),
+    studioIds: new Set<number>(),
+  });
+  const user = await getAnilistUserByName(db, username);
+  if (!user) {
+    return empty();
+  }
+
+  const [
+    animeFetchedAt,
+    mangaFetchedAt,
+    charactersFetchedAt,
+    staffFetchedAt,
+    studiosFetchedAt,
+  ] = await Promise.all([
+    getLastFavouritesRefresh(db, user.id, 'ANIME'),
+    getLastFavouritesRefresh(db, user.id, 'MANGA'),
+    getLastFavouritesRefresh(db, user.id, 'CHARACTERS'),
+    getLastFavouritesRefresh(db, user.id, 'STAFF'),
+    getLastFavouritesRefresh(db, user.id, 'STUDIOS'),
+  ]);
+  const [animeRows, mangaRows, characterRows, staffRows, studioRows] =
+    await Promise.all([
+      animeFetchedAt === null
+        ? Promise.resolve([])
+        : db.exec(
+            `SELECT mf.media_id
+               FROM media_favourite mf
+               JOIN media m ON m.id = mf.media_id
+              WHERE mf.anilist_user_id = ? AND m.type = 'ANIME'`,
+            [user.id],
+          ),
+      mangaFetchedAt === null
+        ? Promise.resolve([])
+        : db.exec(
+            `SELECT mf.media_id
+               FROM media_favourite mf
+               JOIN media m ON m.id = mf.media_id
+              WHERE mf.anilist_user_id = ? AND m.type = 'MANGA'`,
+            [user.id],
+          ),
+      charactersFetchedAt === null
+        ? Promise.resolve([])
+        : db.exec(
+            'SELECT character_id FROM character_favourite WHERE anilist_user_id = ?',
+            [user.id],
+          ),
+      staffFetchedAt === null
+        ? Promise.resolve([])
+        : db.exec(
+            'SELECT staff_id FROM staff_favourite WHERE anilist_user_id = ?',
+            [user.id],
+          ),
+      studiosFetchedAt === null
+        ? Promise.resolve([])
+        : db.exec(
+            'SELECT studio_id FROM studio_favourite WHERE anilist_user_id = ?',
+            [user.id],
+          ),
+    ]);
+
+  return {
+    mediaIds: new Set(
+      [...animeRows, ...mangaRows].map((row) => reqN(row.media_id)),
+    ),
+    characterIds: new Set(characterRows.map((row) => reqN(row.character_id))),
+    staffIds: new Set(staffRows.map((row) => reqN(row.staff_id))),
+    studioIds: new Set(studioRows.map((row) => reqN(row.studio_id))),
+  };
+}
+
 /**
  * Lightweight, source-agnostic record of one favourited entity ready
  * to be turned into an `Item` by the UI. Returned by
@@ -1539,6 +1629,8 @@ export const productionReads = {
     anilistUserId: number,
     type: AnilistFavouriteType,
   ) => getLastFavouritesRefresh(defaultDb(), anilistUserId, type),
+  getFavouriteEntityIdsForUsername: (username: string) =>
+    getFavouriteEntityIdsForUsername(defaultDb(), username),
   getFavouritedMediaIds: (
     anilistUserId: number,
     mediaIds: readonly number[],

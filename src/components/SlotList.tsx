@@ -477,7 +477,7 @@ function SlotRow({
             {slot.name}
           </button>
         )}
-        <div className="slot-meta">{meta}</div>
+        <div className={`slot-meta${slot.done ? ' slot-meta--done' : ''}`}>{meta}</div>
       </div>
       <div className="slot-actions">
         {isLoaded ? (

@@ -39,7 +39,7 @@ import { favCharactersDobSchemaKey } from './meta';
 import {
   getAnilistUserByName,
   getLastFavouritesRefresh,
-  getListedMediaCount,
+  getLastFullRefresh,
   getMediaCastExpansionStatus,
   getMediaDetail,
   getMeta,
@@ -228,8 +228,9 @@ export async function ensureMediaStudiosFreshBatch(
 }
 
 /**
- * Ensure the user's anime OR manga list exists in the source DB — imports
- * when missing, empty, or force-refresh was requested.
+ * Ensure the user's anime OR manga list has a completed source-DB import.
+ * The per-type refresh marker, not row count, distinguishes a valid empty
+ * list from a list that has never been imported.
  * Generic over MediaType so the Franchise Scores tool can refresh both
  * lists through the same code path.
  */
@@ -244,12 +245,11 @@ export async function ensureUserMediaListFresh(
   }
   const ctx = getToolsImportContext();
   let user = await getAnilistUserByName(ctx.db, handle);
-  const count = user ? await getListedMediaCount(ctx.db, user.id, type) : 0;
+  const lastRefresh = user ? await getLastFullRefresh(ctx.db, user.id, type) : null;
   const needsImport =
     options?.forceRefresh ||
     !user ||
-    count === 0 ||
-    needsGraphDataRefresh(user.fetched_at, options);
+    needsGraphDataRefresh(lastRefresh, options);
   if (needsImport) {
     options?.signal?.throwIfAborted();
     await runAnilistImport(handle, type, undefined, options?.signal);
@@ -304,9 +304,9 @@ async function needsCharacterFavouritesDobBackfill(
 }
 
 /**
- * Ensure the user's character or staff favourites exist in the source DB —
- * imports when missing, empty, force-refresh was requested, or character
- * favourites predate birth-date schema.
+ * Ensure the user's character or staff favourites have a completed source-DB
+ * import. A completed empty connection is valid; the refresh marker, not row
+ * count, determines whether the connection has ever been imported.
  */
 export async function ensureUserFavouritesFresh(
   username: string,
@@ -319,7 +319,6 @@ export async function ensureUserFavouritesFresh(
   }
   const ctx = getToolsImportContext();
   let user = await getAnilistUserByName(ctx.db, handle);
-  const count = user ? await getFavouriteRowCount(ctx.db, user.id, type) : 0;
   const lastRefresh = user
     ? await getLastFavouritesRefresh(ctx.db, user.id, type)
     : null;
@@ -330,7 +329,6 @@ export async function ensureUserFavouritesFresh(
   const needsImport =
     options?.forceRefresh ||
     !user ||
-    count === 0 ||
     needsGraphDataRefresh(lastRefresh, options) ||
     needsDobBackfill;
   if (needsImport) {
@@ -343,7 +341,7 @@ export async function ensureUserFavouritesFresh(
 export async function readFavouriteCharactersFromDb(
   db: AnilistDbExecutor,
   anilistUserId: number,
-): Promise<FavouriteCharacterInput[] | null> {
+): Promise<FavouriteCharacterInput[]> {
   const rows = await db.exec(
     `
       SELECT c.id,
@@ -363,9 +361,6 @@ export async function readFavouriteCharactersFromDb(
     `,
     [anilistUserId],
   );
-  if (rows.length === 0) {
-    return null;
-  }
   return rows.map((row) => ({
     id: Number(row.id),
     name: {
@@ -389,7 +384,7 @@ export async function readFavouriteCharactersFromDb(
 export async function readFavouriteStaffFromDb(
   db: AnilistDbExecutor,
   anilistUserId: number,
-): Promise<FavouriteStaffInput[] | null> {
+): Promise<FavouriteStaffInput[]> {
   const rows = await db.exec(
     `
       SELECT s.id,
@@ -405,9 +400,6 @@ export async function readFavouriteStaffFromDb(
     `,
     [anilistUserId],
   );
-  if (rows.length === 0) {
-    return null;
-  }
   return rows.map((row) => ({
     id: Number(row.id),
     name: {
@@ -426,7 +418,7 @@ export async function readFavouriteStaffFromDb(
 export async function readCharacterVoiceEdgesFromDb(
   db: AnilistDbExecutor,
   characterId: number,
-): Promise<CharacterMediaEdge[] | null> {
+): Promise<CharacterMediaEdge[]> {
   const rows = await db.exec(
     `
       SELECT m.id,
@@ -455,10 +447,6 @@ export async function readCharacterVoiceEdgesFromDb(
     `,
     [characterId],
   );
-  if (rows.length === 0) {
-    return null;
-  }
-
   const byMedia = new Map<number, CharacterMediaEdge>();
   for (const row of rows) {
     const mediaId = Number(row.id);
@@ -508,7 +496,7 @@ export async function readCharacterVoiceEdgesFromDb(
 export async function readVaCharacterEdgesFromDb(
   db: AnilistDbExecutor,
   staffId: number,
-): Promise<VaMediaEdge[] | null> {
+): Promise<VaMediaEdge[]> {
   const rows = await db.exec(
     `
       SELECT cva.media_id,
@@ -524,10 +512,6 @@ export async function readVaCharacterEdgesFromDb(
     `,
     [staffId],
   );
-  if (rows.length === 0) {
-    return null;
-  }
-
   const byMediaRole = new Map<
     string,
     { mediaId: number; characterRole: string; characterIds: number[] }
@@ -766,11 +750,8 @@ export async function readStaffShowMapFromDb(
   db: AnilistDbExecutor,
   staffId: number,
   roleMode: StaffRoleMode,
-): Promise<StaffShowMap | null> {
+): Promise<StaffShowMap> {
   const filmography = await getStaffFilmography(db, staffId);
-  if (filmography.credits.length === 0 && roleMode === 'production') {
-    return null;
-  }
 
   const productionMap: StaffShowMap = {};
   if (roleMode !== 'voice') {
@@ -796,7 +777,7 @@ export async function readStaffShowMapFromDb(
       };
     }
     if (roleMode === 'production') {
-      return Object.keys(productionMap).length > 0 ? productionMap : null;
+      return productionMap;
     }
   }
 
@@ -826,7 +807,7 @@ export async function readStaffShowMapFromDb(
   );
 
   if (voiceRows.length === 0) {
-    return Object.keys(productionMap).length > 0 ? productionMap : null;
+    return productionMap;
   }
 
   const map: StaffShowMap = {};
@@ -935,14 +916,6 @@ export async function readShowStaffBundleFromDb(
     );
   }
 
-  if (
-    Object.keys(studios).length === 0 &&
-    Object.keys(productionStaff).length === 0 &&
-    Object.keys(voiceActors).length === 0
-  ) {
-    return null;
-  }
-
   // Prefer DB-derived title so display-pref changes (eng/romaji/native) honor
   // the new mode on rebuild. Fall back to the passed `title` (typically the
   // user's typed search) only when DB lacks all title fields for this media.
@@ -959,7 +932,7 @@ export async function readShowStaffBundleFromDb(
 export async function readProductionFilmographyFromDb(
   db: AnilistDbExecutor,
   staffId: number,
-): Promise<ProductionFilmographyShow[] | null> {
+): Promise<ProductionFilmographyShow[]> {
   const filmography = await getStaffFilmography(db, staffId);
   const shows: ProductionFilmographyShow[] = [];
   for (const credit of filmography.credits) {
@@ -979,19 +952,18 @@ export async function readProductionFilmographyFromDb(
       coverImage: credit.media.cover_image,
     });
   }
-  return shows.length > 0 ? shows : null;
+  return shows;
 }
 
 export async function readConsumedMediaIdsFromDb(
   db: AnilistDbExecutor,
   anilistUserId: number,
-): Promise<Set<number> | null> {
+): Promise<Set<number>> {
   const [animeIds, mangaIds] = await Promise.all([
     readUserListMediaIdsFromDb(db, anilistUserId, TOOLS_CONSUMED_LIST_STATUSES, 'ANIME'),
     readUserListMediaIdsFromDb(db, anilistUserId, TOOLS_CONSUMED_LIST_STATUSES, 'MANGA'),
   ]);
-  const merged = new Set([...animeIds, ...mangaIds].map((id) => Number(id)));
-  return merged.size > 0 ? merged : null;
+  return new Set([...animeIds, ...mangaIds].map((id) => Number(id)));
 }
 
 function parseJsonStringArray(json: string | null | undefined): string[] | null {

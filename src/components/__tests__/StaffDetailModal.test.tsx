@@ -21,6 +21,7 @@ vi.mock('../../lib/importers/anilist/readQueries', () => ({
     getStaffFilmography: vi.fn(),
     getLatestAnilistUser: vi.fn(),
     getMediaIdsInUserList: vi.fn(),
+    getFavouriteEntityIdsForUsername: vi.fn(),
   },
 }));
 vi.mock('../../lib/importers/anilist/runners', () => ({
@@ -39,6 +40,9 @@ import { StaffDetailModal } from '../StaffDetailModal';
 const mockedGetFilmography = vi.mocked(productionReads.getStaffFilmography);
 const mockedGetLatestUser = vi.mocked(productionReads.getLatestAnilistUser);
 const mockedGetMyListIds = vi.mocked(productionReads.getMediaIdsInUserList);
+const mockedGetFavouriteEntityIds = vi.mocked(
+  productionReads.getFavouriteEntityIdsForUsername,
+);
 const mockedExpand = vi.mocked(runAnilistStaffFilmographyExpansion);
 
 function makeStaff(id: number, overrides: Record<string, unknown> = {}) {
@@ -118,10 +122,18 @@ beforeEach(() => {
   mockedGetFilmography.mockReset();
   mockedGetLatestUser.mockReset();
   mockedGetMyListIds.mockReset();
+  mockedGetFavouriteEntityIds.mockReset();
   mockedExpand.mockReset();
+  localStorage.removeItem('anilist:lastUsername');
   // Default: no cached user → toggle hidden, no membership lookup.
   mockedGetLatestUser.mockResolvedValue(null);
   mockedGetMyListIds.mockResolvedValue(new Set());
+  mockedGetFavouriteEntityIds.mockResolvedValue({
+    mediaIds: new Set(),
+    characterIds: new Set(),
+    staffIds: new Set(),
+    studioIds: new Set(),
+  });
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -336,6 +348,57 @@ describe('StaffDetailModal — my-list toggle + navigation', () => {
     ).find((el) => (el.textContent ?? '').includes('Spike Spiegel'));
     expect(charEl?.getAttribute('href')).toBe(anilistUrlForCharacter(555));
     expect(onOpenMedia).not.toHaveBeenCalled();
+  });
+
+  it('marks favourite manga, staff and voiced characters', async () => {
+    localStorage.setItem('anilist:lastUsername', 'tester');
+    mockedGetFavouriteEntityIds.mockResolvedValueOnce({
+      mediaIds: new Set([1]),
+      characterIds: new Set([127118]),
+      staffIds: new Set([10]),
+      studioIds: new Set(),
+    });
+    mockedGetFilmography.mockResolvedValueOnce(
+      makeFilmography({
+        credits: [
+          makeCredit(1, {
+            media: makeMedia(1, { type: 'MANGA' }),
+            productionRoles: [],
+            voicedCharacters: [{ id: 127118, name: 'Sakura Yamauchi' }],
+          }),
+        ],
+      }),
+    );
+
+    renderModal();
+    await flushPromises();
+
+    expect(mockedGetFavouriteEntityIds).toHaveBeenCalledWith('tester');
+    const headerLink = container.querySelector('h3 a');
+    expect(headerLink?.classList.contains('anilist-detail-person-link--favourite')).toBe(
+      true,
+    );
+    expect(
+      headerLink?.querySelector('.anilist-detail-person-favourite-star')
+        ?.textContent,
+    ).toBe('★');
+
+    const characterLink = container.querySelector(
+      '.anilist-detail-character-name--favourite',
+    );
+    expect(characterLink?.textContent).toContain('Sakura Yamauchi');
+    expect(
+      characterLink?.querySelector('.anilist-detail-character-favourite-star')
+        ?.textContent,
+    ).toBe('★');
+    const mediaTitle = container.querySelector(
+      '.anilist-detail-media-title--favourite',
+    );
+    expect(mediaTitle?.textContent).toContain('EN-1');
+    expect(
+      mediaTitle?.querySelector('.anilist-detail-media-favourite-star')
+        ?.textContent,
+    ).toBe('★');
   });
 });
 

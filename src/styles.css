@@ -2070,6 +2070,10 @@ html {
   font-size: 11px;
 }
 
+.anilist-detail-tag-item-genre {
+  border-radius: 4px;
+}
+
 .anilist-detail-tag-rank {
   color: var(--text-muted);
 }
@@ -3468,6 +3472,10 @@ a:where(.anime-to-anime-anilist-link):visited {
   font-size: 12px;
   color: var(--text-muted);
   margin-top: 2px;
+}
+
+.slot-meta--done {
+  color: inherit;
 }
 
 .slot-actions {

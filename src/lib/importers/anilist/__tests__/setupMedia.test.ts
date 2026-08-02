@@ -4,6 +4,7 @@ import { openMemoryDb } from '../../../db/__tests__/testSqlite';
 import { migrate } from '../../../db/migration-runner';
 import { anilistSourceDescriptor } from '../anilistSource';
 import type { AnilistDbExecutor, AnilistImportContext } from '../context';
+import { lastFullRefreshKey } from '../meta';
 import {
   fetchAnimeById,
   pickRandomAnimeFromApi,
@@ -132,6 +133,10 @@ describe('setupMedia', () => {
       'INSERT INTO anilist_user (id, name, fetched_at, updated_at) VALUES (?, ?, ?, ?)',
       [id, name, 1, 1],
     );
+    await adapter.exec(
+      'INSERT INTO _meta (key, value) VALUES (?, ?)',
+      [lastFullRefreshKey(id, 'ANIME'), '1'],
+    );
   }
   async function seedMedia(id: number, type: 'ANIME' | 'MANGA'): Promise<void> {
     await adapter.exec(
@@ -183,5 +188,16 @@ describe('setupMedia', () => {
     expect(result.user?.name).toBe('Alice');
     expect(result.media).toBeNull();
     expect(result.fetched).toBe(false);
+  });
+
+  it('does not re-import a completed empty user list', async () => {
+    await seedUser(9, 'Empty');
+
+    const result = await pickRandomAnimeFromUserList(ctx, 'empty');
+
+    expect(result.user?.id).toBe(9);
+    expect(result.media).toBeNull();
+    expect(result.fetched).toBe(false);
+    expect(executeQuery).not.toHaveBeenCalled();
   });
 });

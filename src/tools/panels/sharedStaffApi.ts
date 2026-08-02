@@ -18,6 +18,7 @@ import { withPersistentTtlCache } from '../../lib/importers/anilist/toolsPersist
 import {
   ensureMediaCastFresh,
   ensureMediaCastFreshBatch,
+  ensureMediaStudiosFreshBatch,
   ensureStaffFilmographyFresh,
   ensureStaffFilmographyFreshBatch,
   readProductionFilmographyFromDb,
@@ -97,10 +98,10 @@ export async function fetchShowStudios(
   options?: ToolsFetchOptions,
 ): Promise<CreditedEntityMap> {
   signal?.throwIfAborted();
-  await ensureMediaCastFresh(mediaId, options);
+  await ensureMediaStudiosFreshBatch([mediaId], options);
   const ctx = getToolsImportContext();
   const bundle = await readShowStaffBundleFromDb(ctx.db, mediaId, '');
-  if (bundle && Object.keys(bundle.studios).length > 0) {
+  if (bundle) {
     return bundle.studios;
   }
   return fetchShowStudiosLive(mediaId, signal);
@@ -159,7 +160,7 @@ export async function fetchShowProductionStaff(
   await ensureMediaCastFresh(mediaId, options);
   const ctx = getToolsImportContext();
   const bundle = await readShowStaffBundleFromDb(ctx.db, mediaId, '');
-  if (bundle && Object.keys(bundle.productionStaff).length > 0) {
+  if (bundle) {
     return bundle.productionStaff;
   }
   return fetchShowProductionStaffLive(mediaId, signal);
@@ -241,7 +242,7 @@ export async function fetchShowVoiceActorsJp(
   await ensureMediaCastFresh(mediaId, options);
   const ctx = getToolsImportContext();
   const bundle = await readShowStaffBundleFromDb(ctx.db, mediaId, '');
-  if (bundle && Object.keys(bundle.voiceActors).length > 0) {
+  if (bundle) {
     return bundle.voiceActors;
   }
   return fetchShowVoiceActorsJpLive(mediaId, signal);
@@ -254,25 +255,23 @@ export async function fetchShowStaffBundle(
   options?: ToolsFetchOptions,
 ): Promise<ShowStaffBundle> {
   await ensureMediaCastFresh(mediaId, options);
+  await ensureMediaStudiosFreshBatch([mediaId], options);
   const ctx = getToolsImportContext();
   const fromDb = await readShowStaffBundleFromDb(ctx.db, mediaId, title);
+  if (fromDb) {
+    return fromDb;
+  }
 
   const [studios, productionStaff, voiceActors] = await Promise.all([
-    fromDb && Object.keys(fromDb.studios).length > 0
-      ? fromDb.studios
-      : fetchShowStudios(mediaId, signal, options),
-    fromDb && Object.keys(fromDb.productionStaff).length > 0
-      ? fromDb.productionStaff
-      : fetchShowProductionStaff(mediaId, signal, options),
-    fromDb && Object.keys(fromDb.voiceActors).length > 0
-      ? fromDb.voiceActors
-      : fetchShowVoiceActorsJp(mediaId, signal, options),
+    fetchShowStudios(mediaId, signal, options),
+    fetchShowProductionStaff(mediaId, signal, options),
+    fetchShowVoiceActorsJp(mediaId, signal, options),
   ]);
 
   return {
     id: mediaId,
-    title: fromDb?.title || title,
-    coverImage: fromDb?.coverImage ?? null,
+    title,
+    coverImage: null,
     studios,
     productionStaff,
     voiceActors,

@@ -14,6 +14,7 @@ import { FavouritesPanel } from '../panels/FavouritesPanel';
 import { runFavouritesAnalysis } from '../panels/favouritesApi';
 import {
   CharacterRoleTier,
+  FAVOURITES_TOP_N,
   type FavouriteCharacterRef,
   type FavouritesResult,
 } from '../panels/favouritesLogic';
@@ -170,5 +171,59 @@ describe('FavouritesPanel gender colours', () => {
         '.favourites-birthday-name-line .tool-character-name-link--female',
       ),
     ).not.toBeNull();
+  });
+
+  it('loads every remaining row when Load all is clicked', async () => {
+    const rows = Array.from({ length: FAVOURITES_TOP_N + 3 }, (_, index) => ({
+      ...result.byCount[0]!,
+      staffId: 100 + index,
+      name: `Voice Actor ${index + 1}`,
+    }));
+    runFavouritesAnalysisMock.mockResolvedValueOnce({
+      result: { ...result, byCount: rows },
+      rebuildSource: {
+        characters: [],
+        perCharacterEdges: [],
+        consumedMediaIds: new Set(),
+        favouriteStaff: [],
+        vaTotalCharacterCounts: new Map(),
+        vaMainRoleCharacterCounts: new Map(),
+      },
+    });
+
+    await act(async () => {
+      root.render(
+        <FavouritesPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+    });
+    const analyze = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent === 'Analyze',
+    );
+    await act(async () => {
+      analyze?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const firstRankBlock = container.querySelector<HTMLDetailsElement>(
+      '.tool-category-block[open]',
+    );
+    expect(firstRankBlock?.querySelectorAll('.tool-rank-list > li')).toHaveLength(
+      FAVOURITES_TOP_N,
+    );
+    const loadAll = Array.from(
+      firstRankBlock?.querySelectorAll<HTMLButtonElement>('button') ?? [],
+    ).find((button) => button.textContent === 'Load all');
+    expect(loadAll).toBeDefined();
+    await act(async () => {
+      loadAll?.click();
+    });
+    expect(firstRankBlock?.querySelectorAll('.tool-rank-list > li')).toHaveLength(
+      FAVOURITES_TOP_N + 3,
+    );
   });
 });

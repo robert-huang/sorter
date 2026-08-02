@@ -1,9 +1,5 @@
-import { depaginate } from '../../lib/importers/anilist/depaginate';
-import { findAnilistAccountByName, resolveAccessTokenForUsername } from '../../lib/importers/anilist/anilistAuth';
-import { TOOLS_USER_ANIME_LIST_QUERY } from '../../lib/importers/anilist/queries';
 import type { ToolsFetchOptions } from '../../lib/importers/anilist/toolsFetchPolicy';
 import {
-  TOOLS_SEASONAL_LIST_STATUSES,
   ensureUserAnimeListFresh,
   readUserSeasonalShowsFromDb,
 } from '../../lib/importers/anilist/toolsAnilistAccess';
@@ -14,12 +10,7 @@ import {
   sessionMemoDelete,
   withSessionTtlMemo,
 } from '../../lib/importers/anilist/toolsSessionMemo';
-import { pickMediaTitle } from './sharedCreditsLogic';
-import {
-  normalizeSeasonalListScore,
-  type SeasonalFuzzyDate,
-  type SeasonalShow,
-} from './seasonalScoresLogic';
+import type { SeasonalShow } from './seasonalScoresLogic';
 
 export type SeasonalScoresFetchOptions = ToolsFetchOptions;
 
@@ -32,102 +23,12 @@ export function bustSeasonalSessionMemo(username: string): void {
   sessionMemoDelete(`seasonal:list:${handle}`);
 }
 
-type GqlFuzzyDate = {
-  year?: number | null;
-  month?: number | null;
-  day?: number | null;
-} | null;
-
-type SeasonalListMedia = {
-  id: number;
-  title: { english?: string | null; romaji?: string | null; native?: string | null };
-  coverImage?: { large?: string | null } | null;
-  source?: string | null;
-  season?: string | null;
-  seasonYear?: number | null;
-  startDate?: GqlFuzzyDate;
-  endDate?: GqlFuzzyDate;
-};
-
-function mapFuzzyDate(date: GqlFuzzyDate): SeasonalFuzzyDate | null {
-  if (!date || date.year == null) {
-    return null;
-  }
-  return {
-    year: date.year,
-    month: date.month ?? null,
-    day: date.day ?? null,
-  };
-}
-
-async function fetchUserSeasonalShowsLive(
-  username: string,
-  signal?: AbortSignal,
-): Promise<SeasonalShow[]> {
-  signal?.throwIfAborted();
-  let accessToken: string | undefined;
-  accessToken = resolveAccessTokenForUsername(username) ?? undefined;
-
-  const entries = await depaginate<
-    {
-      Page: {
-        pageInfo: { hasNextPage: boolean };
-        mediaList: Array<{
-          status?: string | null;
-          score?: number | null;
-          notes?: string | null;
-          media: SeasonalListMedia;
-        }>;
-      } | null;
-    },
-    {
-      status?: string | null;
-      score?: number | null;
-      notes?: string | null;
-      media: SeasonalListMedia;
-    }
-  >({
-    query: TOOLS_USER_ANIME_LIST_QUERY,
-    variables: { userName: username, statusIn: [...TOOLS_SEASONAL_LIST_STATUSES] },
-    signal,
-    accessToken,
-    selectPage: (data) => ({
-      nodes: data.Page?.mediaList ?? [],
-      pageInfo: data.Page?.pageInfo ?? { hasNextPage: false },
-    }),
-  });
-
-  return entries.map((entry) => ({
-    id: entry.media.id,
-    title: pickMediaTitle(entry.media.title),
-    titleSource: {
-      id: entry.media.id,
-      title_english: entry.media.title.english ?? null,
-      title_romaji: entry.media.title.romaji ?? null,
-      title_native: entry.media.title.native ?? null,
-    },
-    coverImage: entry.media.coverImage?.large ?? null,
-    source: (entry.media.source as SeasonalShow['source']) ?? null,
-    season: entry.media.season ?? null,
-    seasonYear: entry.media.seasonYear ?? null,
-    startDate: mapFuzzyDate(entry.media.startDate ?? null),
-    endDate: mapFuzzyDate(entry.media.endDate ?? null),
-    score: normalizeSeasonalListScore(entry.score),
-    notes: entry.notes ?? null,
-    listStatus: entry.status ?? null,
-  }));
-}
-
 async function fetchUserSeasonalShowsResolved(
   username: string,
   signal?: AbortSignal,
   options?: SeasonalScoresFetchOptions,
 ): Promise<SeasonalShow[]> {
   signal?.throwIfAborted();
-  const hasAccount = findAnilistAccountByName(username) !== null;
-  if (hasAccount) {
-    return fetchUserSeasonalShowsLive(username, signal);
-  }
   const user = await ensureUserAnimeListFresh(username, options);
   const ctx = getToolsImportContext();
   if (user) {
@@ -136,25 +37,20 @@ async function fetchUserSeasonalShowsResolved(
       await repairListedMediaNullSource(ctx, user.id, { type: 'ANIME' });
       fromDb = await readUserSeasonalShowsFromDb(ctx.db, user.id);
     }
-    if (fromDb.length > 0) {
-      return fromDb;
-    }
+    return fromDb;
   }
-  return fetchUserSeasonalShowsLive(username, signal);
+  return [];
 }
 
 /**
- * Seasonal scores read list-entry notes and scores from a live AniList query
- * when the username matches a linked account (same as Stats). Third-party
- * usernames fall back to the imported DB when available, else live
- * `Page.mediaList`.
+ * Seasonal scores read list-entry notes and scores from the shared SQLite
+ * import. Normal Compare clicks therefore do not re-fetch a completed list;
+ * the username refresh control or right-click Compare forces a fresh import.
  *
  * Always fetched with PLANNING included; the "Include Planning"
  * checkbox is a client-side filter (see `bucketShowsForSeason`) so
  * toggling it is instant instead of triggering another network round
- * trip. Results are memoized in-session for {@link TOOLS_SESSION_TTL_MS};
- * force refresh busts the memo and re-fetches live (linked account) or
- * re-imports the DB list (third-party cold path).
+ * trip. Results are memoized in-session for {@link TOOLS_SESSION_TTL_MS}.
  */
 export async function fetchUserSeasonalShows(
   username: string,
@@ -170,13 +66,5 @@ export async function fetchUserSeasonalShows(
     () => fetchUserSeasonalShowsResolved(username, signal, options),
     { bust: options?.forceRefresh },
   );
-  // Don't lock the user into an empty result for 15m. An empty array is most
-  // often a transient `executeAnilistQuery` → `data: null` short-circuit (rate
-  // limit recovery, partial response). Busting the memo lets the next click
-  // retry the live query without needing a fresh tab or right-click refresh.
-  // Legitimately-empty lists pay one extra request on each retry — acceptable.
-  if (shows.length === 0) {
-    sessionMemoDelete(key);
-  }
   return shows;
 }

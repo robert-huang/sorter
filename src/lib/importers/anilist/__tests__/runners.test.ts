@@ -16,6 +16,7 @@ vi.mock('../../../db/client', () => ({
 const importAnilistList = vi.fn();
 const importAnilistFavourites = vi.fn();
 const expandAnilistMediaDetail = vi.fn();
+const writeLastAnilistUsername = vi.fn();
 
 vi.mock('../importer', () => ({
   importAnilistList: (...args: unknown[]) => importAnilistList(...args),
@@ -25,6 +26,9 @@ vi.mock('../favourites', () => ({
 }));
 vi.mock('../lazyExpansion', () => ({
   expandAnilistMediaDetail: (...args: unknown[]) => expandAnilistMediaDetail(...args),
+}));
+vi.mock('../lastUsername', () => ({
+  writeLastAnilistUsername: (...args: unknown[]) => writeLastAnilistUsername(...args),
 }));
 
 const resolveAccessTokenForUsername = vi.fn();
@@ -57,6 +61,7 @@ beforeEach(() => {
   importAnilistList.mockReset();
   importAnilistFavourites.mockReset();
   expandAnilistMediaDetail.mockReset();
+  writeLastAnilistUsername.mockReset();
   resolveAccessTokenForUsername.mockReset();
   findAnilistAccountByName.mockReset();
   resolveAccessTokenForUsername.mockReturnValue(null);
@@ -68,35 +73,43 @@ afterEach(() => {
 });
 
 describe('runners hasLocalDb bookkeeping', () => {
-  it('flips hasLocalDb=true after a successful list import', async () => {
-    importAnilistList.mockResolvedValue({
-      type: 'ANIME',
-      anilistUserId: 1,
-      username: 'a',
-      chunksFetched: 1,
-      entriesWritten: 1,
-    });
-    expect(getSourceSyncMeta(ANILIST_SOURCE_ID).hasLocalDb).toBe(false);
+  it.each(['ANIME', 'MANGA'] as const)(
+    'remembers the username after a successful %s list import',
+    async (type) => {
+      importAnilistList.mockResolvedValue({
+        type,
+        anilistUserId: 1,
+        username: 'CanonicalA',
+        chunksFetched: 1,
+        entriesWritten: 1,
+      });
+      expect(getSourceSyncMeta(ANILIST_SOURCE_ID).hasLocalDb).toBe(false);
 
-    await runAnilistImport('a', 'ANIME');
+      await runAnilistImport('a', type);
 
-    expect(getSourceSyncMeta(ANILIST_SOURCE_ID).hasLocalDb).toBe(true);
-  });
+      expect(getSourceSyncMeta(ANILIST_SOURCE_ID).hasLocalDb).toBe(true);
+      expect(writeLastAnilistUsername).toHaveBeenCalledWith('CanonicalA');
+    },
+  );
 
-  it('flips hasLocalDb=true after a successful favourites import', async () => {
-    importAnilistFavourites.mockResolvedValue({
-      type: 'CHARACTERS',
-      anilistUserId: 1,
-      username: 'a',
-      pagesFetched: 1,
-      favouritesWritten: 1,
-    });
-    expect(getSourceSyncMeta(ANILIST_SOURCE_ID).hasLocalDb).toBe(false);
+  it.each(['ANIME', 'MANGA', 'CHARACTERS', 'STAFF', 'STUDIOS'] as const)(
+    'remembers the username after a successful %s favourites import',
+    async (type) => {
+      importAnilistFavourites.mockResolvedValue({
+        type,
+        anilistUserId: 1,
+        username: 'CanonicalA',
+        pagesFetched: 1,
+        favouritesWritten: 1,
+      });
+      expect(getSourceSyncMeta(ANILIST_SOURCE_ID).hasLocalDb).toBe(false);
 
-    await runAnilistFavourites('a', 'CHARACTERS');
+      await runAnilistFavourites('a', type);
 
-    expect(getSourceSyncMeta(ANILIST_SOURCE_ID).hasLocalDb).toBe(true);
-  });
+      expect(getSourceSyncMeta(ANILIST_SOURCE_ID).hasLocalDb).toBe(true);
+      expect(writeLastAnilistUsername).toHaveBeenCalledWith('CanonicalA');
+    },
+  );
 
   it('flips hasLocalDb=true after a successful lazy expansion that wrote', async () => {
     expandAnilistMediaDetail.mockResolvedValue({
@@ -132,6 +145,16 @@ describe('runners hasLocalDb bookkeeping', () => {
     // assumption "hasLocalDb=false means we have nothing locally" stays
     // correct and the next tab open will pull from Drive.
     expect(getSourceSyncMeta(ANILIST_SOURCE_ID).hasLocalDb).toBe(false);
+    expect(writeLastAnilistUsername).not.toHaveBeenCalled();
+  });
+
+  it('does not remember the username after a failed favourites import', async () => {
+    importAnilistFavourites.mockRejectedValue(new Error('request failed'));
+
+    await expect(runAnilistFavourites('a', 'STUDIOS')).rejects.toThrow('request failed');
+
+    expect(getSourceSyncMeta(ANILIST_SOURCE_ID).hasLocalDb).toBe(false);
+    expect(writeLastAnilistUsername).not.toHaveBeenCalled();
   });
 
   it('leaves hasLocalDb=true alone (idempotent no-op write)', async () => {

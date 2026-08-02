@@ -407,9 +407,7 @@ export async function fetchUserListMediaIds(
       user.id,
       USER_LIST_STATUSES,
     );
-    if (fromDb.size > 0) {
-      return fromDb;
-    }
+    return fromDb;
   }
 
   const entries = await depaginate<

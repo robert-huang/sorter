@@ -22,6 +22,7 @@ vi.mock('../../lib/importers/anilist/readQueries', () => ({
     getMediaRelationsExpansionFetchedAt: vi.fn(),
     getMediaThemeSongsExpansion: vi.fn(),
     getMediaThemeSongsExpansionFetchedAt: vi.fn(),
+    getFavouriteEntityIdsForUsername: vi.fn(),
   },
 }));
 vi.mock('../../lib/importers/anilist/runners', () => ({
@@ -41,6 +42,7 @@ import {
   anilistUrlForMediaEntry,
   anilistUrlForStaffId,
 } from '../../lib/importers/anilist/anilistLinks';
+import { writeLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
 import { AnilistDetailModal } from '../AnilistDetailModal';
 
 const mockedGetMediaDetail = vi.mocked(productionReads.getMediaDetail);
@@ -49,6 +51,9 @@ const mockedGetRelationsFetchedAt = vi.mocked(productionReads.getMediaRelationsE
 const mockedGetThemeSongs = vi.mocked(productionReads.getMediaThemeSongsExpansion);
 const mockedGetThemeSongsFetchedAt = vi.mocked(
   productionReads.getMediaThemeSongsExpansionFetchedAt,
+);
+const mockedGetFavouriteEntityIds = vi.mocked(
+  productionReads.getFavouriteEntityIdsForUsername,
 );
 const mockedExpand = vi.mocked(runAnilistMediaLazyExpansion);
 const mockedRelationsRefresh = vi.mocked(runAnilistMediaRelationsRefresh);
@@ -141,11 +146,19 @@ function makeExpansionStatus(mediaId: number, complete: boolean) {
 }
 
 beforeEach(() => {
+  localStorage.removeItem('anilist:lastUsername');
   mockedGetMediaDetail.mockReset();
   mockedGetExpansionStatus.mockReset();
   mockedGetRelationsFetchedAt.mockReset();
   mockedGetThemeSongs.mockReset();
   mockedGetThemeSongsFetchedAt.mockReset();
+  mockedGetFavouriteEntityIds.mockReset();
+  mockedGetFavouriteEntityIds.mockResolvedValue({
+    mediaIds: new Set(),
+    characterIds: new Set(),
+    staffIds: new Set(),
+    studioIds: new Set(),
+  });
   mockedGetRelationsFetchedAt.mockResolvedValue(null);
   mockedGetThemeSongsFetchedAt.mockResolvedValue(1_700_000_000_000);
   mockedGetThemeSongs.mockResolvedValue({
@@ -654,6 +667,186 @@ describe('AnilistDetailModal — clickable people (staff panel nav)', () => {
     const vaLink = findPersonLink('Megumi Hayashibara');
     expect(vaLink?.getAttribute('href')).toBe(anilistUrlForStaffId(201));
     expect(onOpenStaff).not.toHaveBeenCalled();
+  });
+
+  it('marks cached favourite media, studios, characters and staff', async () => {
+    localStorage.setItem('anilist:lastUsername', 'tester');
+    mockedGetFavouriteEntityIds.mockResolvedValueOnce({
+      mediaIds: new Set([74]),
+      characterIds: new Set([300]),
+      staffIds: new Set([201, 202]),
+      studioIds: new Set([500]),
+    });
+    mockedGetMediaDetail.mockResolvedValueOnce({
+      media: makeMedia(74, { genres_json: '["Drama"]' }),
+      studios: [
+        {
+          studio: { id: 500, name: 'Favourite Studio', fetched_at: 0 },
+          sortOrder: 0,
+          isMain: true,
+        },
+        {
+          studio: { id: 501, name: 'Other Studio', fetched_at: 0 },
+          sortOrder: 1,
+          isMain: false,
+        },
+      ],
+      tags: [],
+      characters: [
+        {
+          character: makeCharacterRow(300, 'Faye Valentine'),
+          role: 'MAIN',
+          sortOrder: 0,
+          voiceActors: [makeStaffRow(201, 'Megumi Hayashibara')],
+        },
+      ],
+      productionStaff: [
+        { staff: makeStaffRow(202, 'Yoko Kanno'), role: 'Music', sortOrder: 0 },
+      ],
+    });
+    mockedGetExpansionStatus.mockResolvedValueOnce(makeExpansionStatus(74, true));
+
+    await act(async () => {
+      root.render(
+        <AnilistDetailModal
+          mediaId={74}
+          fallbackTitle="EN-74"
+          onClose={() => {}}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+    });
+    await flushPromises();
+
+    expect(mockedGetFavouriteEntityIds).toHaveBeenCalledWith('tester');
+    const mediaTitle = container.querySelector(
+      '.anilist-detail-media-title--favourite',
+    );
+    expect(mediaTitle?.textContent).toContain('EN-74');
+    expect(
+      mediaTitle?.querySelector('.anilist-detail-media-favourite-star')
+        ?.textContent,
+    ).toBe('★');
+    const favouriteStudio = container.querySelector(
+      '.anilist-detail-tag-item-studio--favourite',
+    );
+    expect(favouriteStudio?.textContent).toContain('Favourite Studio');
+    expect(
+      favouriteStudio?.querySelector('.anilist-detail-studio-favourite-star')
+        ?.textContent,
+    ).toBe('★');
+    expect(
+      container.querySelector('.anilist-detail-tag-item-genre')?.textContent,
+    ).toBe('Drama');
+    expect(
+      Array.from(
+        container.querySelectorAll('.anilist-detail-tag-item-studio'),
+      ).map((studio) => studio.textContent),
+    ).toEqual([
+      expect.stringContaining('Favourite Studio'),
+      'Other Studio',
+    ]);
+    const otherStudio = Array.from(
+      container.querySelectorAll('.anilist-detail-tag-item-studio'),
+    ).find((studio) => studio.textContent === 'Other Studio');
+    expect(
+      otherStudio?.classList.contains(
+        'anilist-detail-tag-item-studio--favourite',
+      ),
+    ).toBe(false);
+    expect(
+      otherStudio?.querySelector('.anilist-detail-studio-favourite-star'),
+    ).toBeNull();
+    const characterLink = container.querySelector(
+      '.anilist-detail-character-name--favourite',
+    );
+    expect(characterLink?.textContent).toContain('Faye Valentine');
+    expect(
+      characterLink?.querySelector('.anilist-detail-character-favourite-star')
+        ?.textContent,
+    ).toBe('★');
+    const favouriteStaffLinks = Array.from(
+      container.querySelectorAll('.anilist-detail-person-link--favourite'),
+    );
+    expect(
+      favouriteStaffLinks.map((element) => element.textContent),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('Megumi Hayashibara'),
+        expect.stringContaining('Yoko Kanno'),
+      ]),
+    );
+    expect(
+      favouriteStaffLinks.map(
+        (element) =>
+          element.querySelector('.anilist-detail-person-favourite-star')
+            ?.textContent,
+      ),
+    ).toEqual(['★', '★']);
+  });
+
+  it('re-reads favourite people when a successful import changes the last username', async () => {
+    localStorage.setItem('anilist:lastUsername', 'previous-user');
+    mockedGetFavouriteEntityIds
+      .mockResolvedValueOnce({
+        mediaIds: new Set(),
+        characterIds: new Set(),
+        staffIds: new Set([201]),
+        studioIds: new Set(),
+      })
+      .mockResolvedValueOnce({
+        mediaIds: new Set(),
+        characterIds: new Set([127118]),
+        staffIds: new Set(),
+        studioIds: new Set(),
+      });
+    mockedGetMediaDetail.mockResolvedValueOnce({
+      media: makeMedia(75),
+      studios: [],
+      tags: [],
+      characters: [
+        {
+          character: makeCharacterRow(127118, 'Sakura Yamauchi'),
+          role: 'MAIN',
+          sortOrder: 0,
+          voiceActors: [makeStaffRow(201, 'Favourite VA')],
+        },
+      ],
+      productionStaff: [],
+    });
+    mockedGetExpansionStatus.mockResolvedValueOnce(makeExpansionStatus(75, true));
+
+    await act(async () => {
+      root.render(
+        <AnilistDetailModal mediaId={75} fallbackTitle="EN-75" onClose={() => {}} />,
+      );
+    });
+    await flushPromises();
+
+    expect(
+      container.querySelector('.anilist-detail-character-name--favourite'),
+    ).toBeNull();
+    const favouriteVaLink = container.querySelector(
+      '.anilist-detail-person-link--favourite',
+    );
+    expect(favouriteVaLink?.textContent).toContain('Favourite VA');
+    expect(
+      favouriteVaLink?.querySelector('.anilist-detail-person-favourite-star')
+        ?.textContent,
+    ).toBe('★');
+
+    act(() => writeLastAnilistUsername('man'));
+    await flushPromises();
+
+    expect(mockedGetFavouriteEntityIds).toHaveBeenLastCalledWith('man');
+    const characterLink = container.querySelector(
+      '.anilist-detail-character-name--favourite',
+    );
+    expect(characterLink?.textContent).toContain('Sakura Yamauchi');
+    expect(
+      characterLink?.querySelector('.anilist-detail-character-favourite-star')
+        ?.textContent,
+    ).toBe('★');
   });
 
   it('wraps the cover image in an AniList link', async () => {

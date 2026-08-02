@@ -28,6 +28,10 @@ import {
   anilistUrlForMediaEntry,
   anilistUrlForStaffId,
 } from '../lib/importers/anilist/anilistLinks';
+import {
+  readLastAnilistUsername,
+  subscribeLastAnilistUsername,
+} from '../lib/importers/anilist/lastUsername';
 import { AnilistMiddleClickLink } from '../lib/importers/anilist/AnilistMiddleClickLink';
 import { useAnilistDisplayPreferences } from '../hooks/useAnilistDisplayPreferences';
 import { ThemeSongRowC } from './themeSongRowC';
@@ -204,32 +208,54 @@ function PersonLink({
   name,
   onOpen,
   anilistUrl,
+  favourite = false,
 }: {
   name: string;
   onOpen?: () => void;
   anilistUrl?: string;
+  favourite?: boolean;
 }) {
+  const favouriteClass = favourite ? ' anilist-detail-person-link--favourite' : '';
+  const content = (
+    <>
+      {name}
+      {favourite ? (
+        <>
+          {' '}
+          <span
+            className="anilist-detail-person-favourite-star"
+            aria-label="Favourite staff"
+          >
+            ★
+          </span>
+        </>
+      ) : null}
+    </>
+  );
   if (!onOpen) {
     if (!anilistUrl) {
-      return <>{name}</>;
+      return content;
     }
     return (
-      <AnilistMiddleClickLink url={anilistUrl} className="anilist-detail-person-static">
-        {name}
+      <AnilistMiddleClickLink
+        url={anilistUrl}
+        className={`anilist-detail-person-static${favouriteClass}`}
+      >
+        {content}
       </AnilistMiddleClickLink>
     );
   }
   return (
     <AnilistMiddleClickLink
       url={anilistUrl ?? null}
-      className="anilist-detail-person-link"
+      className={`anilist-detail-person-link${favouriteClass}`}
       title={`View ${name}'s filmography`}
       onPrimaryClick={(e) => {
         e.stopPropagation();
         onOpen();
       }}
     >
-      {name}
+      {content}
     </AnilistMiddleClickLink>
   );
 }
@@ -295,6 +321,19 @@ export function AnilistDetailModal({
   const [playlistCacheRevision, setPlaylistCacheRevision] = useState(0);
   const [productionRoleMode, setProductionRoleMode] =
     useState<ProductionRoleMode>(loadProductionRoleMode);
+  const [favouriteMediaIds, setFavouriteMediaIds] = useState<Set<number>>(
+    () => new Set(),
+  );
+  const [favouriteCharacterIds, setFavouriteCharacterIds] = useState<Set<number>>(
+    () => new Set(),
+  );
+  const [favouriteStaffIds, setFavouriteStaffIds] = useState<Set<number>>(
+    () => new Set(),
+  );
+  const [favouriteStudioIds, setFavouriteStudioIds] = useState<Set<number>>(
+    () => new Set(),
+  );
+  const [favouriteAccountRevision, setFavouriteAccountRevision] = useState(0);
 
   const visibleProductionStaff = useMemo(() => {
     if (!detail) {
@@ -339,6 +378,45 @@ export function AnilistDetailModal({
       unsubAuth();
     };
   }, []);
+
+  useEffect(() => {
+    return subscribeLastAnilistUsername(() => {
+      setFavouriteAccountRevision((revision) => revision + 1);
+    });
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const username = readLastAnilistUsername();
+    if (!username) {
+      setFavouriteMediaIds(new Set());
+      setFavouriteCharacterIds(new Set());
+      setFavouriteStaffIds(new Set());
+      setFavouriteStudioIds(new Set());
+      return;
+    }
+    void productionReads
+      .getFavouriteEntityIdsForUsername(username)
+      .then(({ mediaIds, characterIds, staffIds, studioIds }) => {
+        if (!cancelled) {
+          setFavouriteMediaIds(mediaIds);
+          setFavouriteCharacterIds(characterIds);
+          setFavouriteStaffIds(staffIds);
+          setFavouriteStudioIds(studioIds);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFavouriteMediaIds(new Set());
+          setFavouriteCharacterIds(new Set());
+          setFavouriteStaffIds(new Set());
+          setFavouriteStudioIds(new Set());
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mediaId, favouriteAccountRevision]);
 
   const refreshThemeSongsFromDb = useCallback(async () => {
     const expansion = await productionReads.getMediaThemeSongsExpansion(mediaId);
@@ -542,9 +620,24 @@ export function AnilistDetailModal({
           <h3 style={{ margin: 0, flex: 1, minWidth: 0 }}>
             <AnilistMiddleClickLink
               url={mediaAnilistUrl}
-              className="anilist-detail-heading-link"
+              className={`anilist-detail-heading-link anilist-detail-media-title${
+                favouriteMediaIds.has(mediaId)
+                  ? ' anilist-detail-media-title--favourite'
+                  : ''
+              }`}
             >
               {title}
+              {favouriteMediaIds.has(mediaId) ? (
+                <>
+                  {' '}
+                  <span
+                    className="anilist-detail-media-favourite-star"
+                    aria-label="Favourite media"
+                  >
+                    ★
+                  </span>
+                </>
+              ) : null}
             </AnilistMiddleClickLink>
           </h3>
           {mediaAnilistUrl && (
@@ -695,8 +788,7 @@ export function AnilistDetailModal({
                     return genres.map((g) => (
                       <span
                         key={g}
-                        className="anilist-detail-tag-item"
-                        style={{ borderRadius: 4 }}
+                        className="anilist-detail-tag-item anilist-detail-tag-item-genre"
                       >
                         {g}
                       </span>
@@ -712,9 +804,24 @@ export function AnilistDetailModal({
                     {detail.studios.map((s) => (
                       <li
                         key={s.studio.id}
-                        className="anilist-detail-tag-item"
+                        className={`anilist-detail-tag-item anilist-detail-tag-item-studio${
+                          favouriteStudioIds.has(s.studio.id)
+                            ? ' anilist-detail-tag-item-studio--favourite'
+                            : ''
+                        }`}
                       >
                         {s.studio.name}
+                        {favouriteStudioIds.has(s.studio.id) ? (
+                          <>
+                            {' '}
+                            <span
+                              className="anilist-detail-studio-favourite-star"
+                              aria-label="Favourite studio"
+                            >
+                              ★
+                            </span>
+                          </>
+                        ) : null}
                       </li>
                     ))}
                   </ul>
@@ -834,9 +941,24 @@ export function AnilistDetailModal({
                           <div className="anilist-detail-cast-text">
                             <AnilistMiddleClickLink
                               url={anilistUrlForCharacter(character.id)}
-                              className="anilist-detail-character-name"
+                              className={`anilist-detail-character-name${
+                                favouriteCharacterIds.has(character.id)
+                                  ? ' anilist-detail-character-name--favourite'
+                                  : ''
+                              }`}
                             >
                               <strong>{characterName}</strong>
+                              {favouriteCharacterIds.has(character.id) ? (
+                                <>
+                                  {' '}
+                                  <span
+                                    className="anilist-detail-character-favourite-star"
+                                    aria-label="Favourite character"
+                                  >
+                                    ★
+                                  </span>
+                                </>
+                              ) : null}
                             </AnilistMiddleClickLink>
                             {role && (
                               <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>
@@ -859,6 +981,7 @@ export function AnilistDetailModal({
                                             : undefined
                                         }
                                         anilistUrl={anilistUrlForStaffId(va.id)}
+                                        favourite={favouriteStaffIds.has(va.id)}
                                       />
                                     </span>
                                   );
@@ -933,6 +1056,7 @@ export function AnilistDetailModal({
                                   : undefined
                               }
                               anilistUrl={anilistUrlForStaffId(staff.id)}
+                              favourite={favouriteStaffIds.has(staff.id)}
                             />
                           </strong>
                           <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>

@@ -11,9 +11,9 @@
  *     `ensureStaffFilmographyFreshBatch`.
  *   - Expand Roles flows `forceRefresh: true` through both helpers so
  *     a right-click run re-imports even fresh caches.
- *   - When the DB read is non-null, the defensive live fallback
- *     (`TOOLS_CHARACTER_VOICE_MEDIA_QUERY` / `TOOLS_VA_CHARACTER_MEDIA_QUERY`)
- *     is NOT hit. This is what makes the second Analyze fast.
+ *   - Completed list/favourites imports are read from SQLite, including valid
+ *     empty results. Graph fallbacks are only used for missing character or
+ *     staff expansion markers.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -25,10 +25,6 @@ vi.mock('../../lib/importers/anilist/graphQueries', () => ({
 
 vi.mock('../../lib/importers/anilist/depaginate', () => ({
   depaginate: vi.fn(),
-}));
-
-vi.mock('../../lib/importers/anilist/anilistAuth', () => ({
-  findAnilistAccountByName: vi.fn(() => null),
 }));
 
 vi.mock('../../lib/importers/anilist/toolsImportContext', () => ({
@@ -235,19 +231,15 @@ describe('runFavouritesAnalysis caching', () => {
       expect.any(String),
       { forceRefresh: true },
     );
-    expect(ensureUserAnimeListFreshMock).toHaveBeenCalledWith('user', {
-      forceRefresh: true,
-    });
-    expect(ensureUserMangaListFreshMock).toHaveBeenCalledWith('user', {
-      forceRefresh: true,
-    });
+    expect(ensureUserAnimeListFreshMock).toHaveBeenCalledWith('user');
+    expect(ensureUserMangaListFreshMock).toHaveBeenCalledWith('user');
   });
 
   it('imports both anime and manga lists before building consumed media ids', async () => {
     await runFavouritesAnalysis(FORM, () => {});
 
-    expect(ensureUserAnimeListFreshMock).toHaveBeenCalledWith('user', undefined);
-    expect(ensureUserMangaListFreshMock).toHaveBeenCalledWith('user', undefined);
+    expect(ensureUserAnimeListFreshMock).toHaveBeenCalledWith('user');
+    expect(ensureUserMangaListFreshMock).toHaveBeenCalledWith('user');
     expect(readConsumedMediaIdsFromDbMock).toHaveBeenCalled();
   });
 
@@ -277,21 +269,19 @@ describe('runFavouritesAnalysis caching', () => {
     ]);
   });
 
-  it('falls back to a full live fetch when the DB read returns null and no expansion marker', async () => {
-    // No character_media_expansion row — rare partial write / old schema.
-    readCharacterVoiceEdgesFromDbMock.mockResolvedValue(null);
+  it('does not live-fetch a valid empty character expansion', async () => {
+    readCharacterVoiceEdgesFromDbMock.mockResolvedValue([]);
     hasCharacterMediaExpansionMock.mockResolvedValue(false);
-    depaginateMock.mockResolvedValue([makeCharEdge(100, 9999)]);
 
     await runFavouritesAnalysis(FORM, () => {});
 
-    expect(depaginateMock).toHaveBeenCalledTimes(2);
+    expect(depaginateMock).not.toHaveBeenCalled();
     expect(ensureCharacterMediaFreshBatchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('does not hit live GraphQL when expansion marker exists but DB read is empty', async () => {
-    readCharacterVoiceEdgesFromDbMock.mockResolvedValue(null);
-    readVaCharacterEdgesFromDbMock.mockResolvedValue(null);
+  it('does not live-fetch valid empty character and staff expansions', async () => {
+    readCharacterVoiceEdgesFromDbMock.mockResolvedValue([]);
+    readVaCharacterEdgesFromDbMock.mockResolvedValue([]);
     hasCharacterMediaExpansionMock.mockResolvedValue(true);
     hasStaffFilmographyMock.mockResolvedValue(true);
 

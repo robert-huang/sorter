@@ -121,13 +121,22 @@ function VaRankList({
         ))}
       </ul>
       {hasMore ? (
-        <button
-          type="button"
-          className="btn"
-          onClick={() => setVisible((current) => current + FAVOURITES_TOP_N)}
-        >
-          Load more
-        </button>
+        <div className="favourites-load-actions">
+          <button
+            type="button"
+            className="btn"
+            onClick={() => setVisible((current) => current + FAVOURITES_TOP_N)}
+          >
+            Load more
+          </button>
+          <button
+            type="button"
+            className="btn"
+            onClick={() => setVisible(rows.length)}
+          >
+            Load all
+          </button>
+        </div>
       ) : null}
     </>
   );

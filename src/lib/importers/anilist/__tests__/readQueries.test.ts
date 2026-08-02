@@ -21,6 +21,7 @@ import {
 import {
   getAnilistUserById,
   getAnilistUserByName,
+  getFavouriteEntityIdsForUsername,
   getFavouritedMediaIds,
   getFavouritesAsItems,
   getLastFavouritesRefresh,
@@ -510,6 +511,53 @@ describe('meta accessors', () => {
     seedMeta(db, lastFavouritesRefreshKey(1, 'CHARACTERS'), '1700000005000');
     const ts = await getLastFavouritesRefresh(exec, 1, 'CHARACTERS');
     expect(ts).toBe(1_700_000_005_000);
+  });
+});
+
+describe('getFavouriteEntityIdsForUsername', () => {
+  it('returns each favourite entity type only after its refresh completed', async () => {
+    const user = seedUser(db, { userName: 'Tester' });
+    seedMedia(db, 301, { type: 'ANIME' });
+    seedFavouriteMedia(db, user.id, 301, 0);
+    seedMedia(db, 302, { type: 'MANGA' });
+    seedFavouriteMedia(db, user.id, 302, 1);
+    seedCharacter(db, 101, 'Favourite Character');
+    seedFavouriteCharacter(db, user.id, 101, 0);
+    seedStaff(db, 201, 'Unconfirmed Staff');
+    db.exec(
+      `INSERT INTO staff_favourite (anilist_user_id, staff_id, sort_order, fetched_at)
+       VALUES (?, ?, ?, ?)`,
+      { bind: [user.id, 201, 0, 1_700_000_000_000] } as never,
+    );
+    seedStudio(db, 401, 'Favourite Studio');
+    seedFavouriteStudio(db, user.id, 401, 0);
+    seedMeta(
+      db,
+      lastFavouritesRefreshKey(user.id, 'ANIME'),
+      '1700000005000',
+    );
+    seedMeta(
+      db,
+      lastFavouritesRefreshKey(user.id, 'MANGA'),
+      '1700000005000',
+    );
+    seedMeta(
+      db,
+      lastFavouritesRefreshKey(user.id, 'CHARACTERS'),
+      '1700000005000',
+    );
+    seedMeta(
+      db,
+      lastFavouritesRefreshKey(user.id, 'STUDIOS'),
+      '1700000005000',
+    );
+
+    const favourites = await getFavouriteEntityIdsForUsername(exec, 'tester');
+
+    expect([...favourites.mediaIds]).toEqual([301, 302]);
+    expect([...favourites.characterIds]).toEqual([101]);
+    expect([...favourites.staffIds]).toEqual([]);
+    expect([...favourites.studioIds]).toEqual([401]);
   });
 });
 
