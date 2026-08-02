@@ -8955,6 +8955,16 @@ a:where(.anime-to-anime-anilist-link):visited {
   white-space: nowrap;
 }
 
+.tool-stats-table th:first-child,
+.tool-stats-table td.tool-stats-name-cell {
+  max-width: 640px !important;
+}
+
+.tool-stats-table th:not(:first-child),
+.tool-stats-table td:not(.tool-stats-name-cell) {
+  max-width: 200px !important;
+}
+
 .tool-stats-table th:not(:first-child),
 .tool-stats-table td:not(.tool-stats-name-cell) {
   text-align: center;
@@ -8992,6 +9002,7 @@ a:where(.anime-to-anime-anilist-link):visited {
   gap: 6px 8px;
   min-width: 220px;
   white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .tool-stats-rank {
@@ -9124,11 +9135,14 @@ a:where(.anime-to-anime-anilist-link):visited {
 }
 
 .tool-stats-subrow-show-title {
+  display: block;
   font-size: 13px;
   font-weight: 600;
   line-height: 1.3;
   text-align: left;
   padding-top: 0.5px;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .tool-stats-subrow-show-meta {

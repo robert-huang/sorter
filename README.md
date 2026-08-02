@@ -205,8 +205,8 @@ Loads cached metadata immediately and shows: linked cover, linked resolved **tit
 
 - **Cast** — characters with role and **`VA:`** voice actors. VA names are clickable → open that person's **staff** panel.
 - **Production** — staff credits with a **Key roles** / **All credits** toggle (persisted). Staff names are clickable → staff panel.
-- **Lazy expansion** — on first open, cast + production staff are fetched from AniList and cached (metadata stays visible if that fetch fails). Cache lines show `Cast: {date} (complete|incomplete, fresh|stale (>90d))`, the same for staff, and `Relations: {date} (fresh|stale (>90d))` for franchise relation edges.
-- **↻ Refresh** re-fetches cast, staff, and relations (`Re-fetch cast & staff for this entry (does not auto-push)`). Relations refresh also powers Adaptation Scores scan merge when the modal is opened from that tool.
+- **Lazy expansion** — on first open, cast + production staff are fetched from AniList and cached (metadata stays visible if that fetch fails). The cache row begins with `Info: {date} (fresh|stale (>90d))`, followed by `Cast: {date} (complete|incomplete, fresh|stale (>90d))`, the same for staff, and `Relations: {date} (fresh|stale (>90d))` for franchise relation edges.
+- **↻ Refresh** re-fetches the basic media metadata, cast, staff, and relations (`Re-fetch cast & staff for this entry (does not auto-push)`). Relations refresh also powers Adaptation Scores scan merge when the modal is opened from that tool.
 - The media panel has **no synopsis** and **no relations UI** (relations power the Anime-to-Anime game, not this panel). Reach the AniList page through **AniList ↗**, the linked title/cover, or the browser link menu.
 
 ### Staff detail panel
@@ -215,8 +215,8 @@ Shows the linked staff image and name, native name, language, favourites (`★`)
 
 - **Filmography rows** — left-click opens that media's panel above the staff panel; closing media returns to staff. **Middle-click** opens the media's AniList page.
 - **Only items on my list** — a checkbox shown when an AniList user list is cached; filters the filmography to media on your list (anime or manga). The count shows `(N of M)` when active.
-- **Lazy expansion** — on first open the filmography is fetched from AniList and cached; later opens read the cache.
-- **↻ Refresh** re-fetches the filmography. When the cache is **over 90 days old**, the button turns **amber** with the tooltip `This person's cached filmography is over 90 days old — click to re-fetch from AniList`.
+- **Lazy expansion** — on first open the filmography is fetched from AniList and cached; later opens read the cache. The cache row shows separate `Info: {date}` and `Filmography: {date}` freshness values.
+- **↻ Refresh** re-fetches both the basic staff profile (including gender) and filmography. When the filmography cache is **over 90 days old**, the button turns **amber** with the tooltip `This person's cached filmography is over 90 days old — click to re-fetch from AniList`.
 
 ## Local source database (AniList cache)
 
@@ -621,7 +621,7 @@ Result links in Tools (show titles, staff names, season column headers) follow t
 
 | Control | Left-click | Middle-click | Right-click |
 | --- | --- | --- | --- |
-| **↻ Refresh** in panel header | Re-fetch cast + staff (media) or filmography (staff) from AniList into SQLite | — | — |
+| **↻ Refresh** in panel header | Re-fetch basic info plus cast/staff/relations (media), or basic profile plus filmography (staff), into SQLite | — | — |
 | Cast / production / VA names | Open staff detail panel | Open that person's AniList page | — |
 | Staff filmography row | Open media detail panel | Open that show's AniList page | — |
 | Character names (media cast) | — | Open character's AniList page | — |
@@ -727,6 +727,8 @@ Aggregate list statistics for a filtered pool — inspired by Automail's More St
 - **Genres & Tags** — three separate tables (genres, AniList tags, custom `#tags` from notes).
 - **Studios** — animation vs non-animation studio filters.
 
+Voice Actor and Staff charts colour known male names **cornflower blue** and known female names **plum**; unknown or other values keep the default text colour. Their **gender** filter chip appears after the role filters and includes an `(unknown)` option when the cached data has no known gender.
+
 **User Stats Summary** — toggle replaces the chart area with AniList-style totals (on list, rated, mean, weighted mean, median, global difference/deviation, rating entropy, most common score, time watched). Clickable fields open modals (shows at that score, time-watched breakdown chart).
 
 **Tables** — expandable parent rows with per-show subrows (thumbnail + title; user score in Mean Score column). **Left-click** column headers sort **parent rows** (asc/desc toggle). **Right-click** sorts **subrows only** within fixed parent order (desc → asc → off, where off = release date oldest-first). Each chart keeps its own sort state until the next Run. **Min count** chip (click to open, like tag min rank) filters parent rows after other filters. Staff name clicks open the staff modal without expanding the row. CSV/JSON export per table.
@@ -756,7 +758,7 @@ Analyze a user's favourite **characters** and **staff** from the local cache. Us
 - **Analyze** (right-click) — re-import favourite lists and force both anime + manga list imports, then Analyze; still does **not** force per-character graph expansion.
 - **Expand roles** — slow full re-fetch: every favourite character's appearances, then VA roles for VAs on those characters, then VA roles for favourite staff. Use when the cache is thin; can take a long time on large favourite lists.
 
-Character/staff/show names in results open detail modals.
+Known male staff, voice actors, and characters are coloured **cornflower blue**; known female entries are **plum**. This applies throughout the report, including role lists and the birthday calendar; unknown or other values keep the default text colour. Staff and show names open detail modals, while character names link to AniList through middle-click or the browser's right-click menu.
 
 ### Update List Entry
 
