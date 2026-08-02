@@ -544,14 +544,29 @@ describe('sortStatsSubrows', () => {
 });
 
 describe('formatStatsSubrowCountLabel', () => {
-  it('shows x1 for first watch', () => {
-    expect(formatStatsSubrowCountLabel(entry({ mediaId: 1, title: 'A', repeat: null }))).toBe('x1');
-    expect(formatStatsSubrowCountLabel(entry({ mediaId: 2, title: 'B', repeat: 0 }))).toBe('x1');
+  it('shows ×0 for planning items with 0 progress', () => {
+    expect(formatStatsSubrowCountLabel(entry({ mediaId: 1, title: 'A', listStatus: 'PLANNING', progress: 0, repeat: null }))).toBe('×0');
+    expect(formatStatsSubrowCountLabel(entry({ mediaId: 2, title: 'B', listStatus: 'PLANNING', progress: 0, repeat: 0 }))).toBe('×0');
+  });
+
+  it('shows ×1 for first watch', () => {
+    expect(formatStatsSubrowCountLabel(entry({ mediaId: 1, title: 'A', repeat: null }))).toBe('×1');
+    expect(formatStatsSubrowCountLabel(entry({ mediaId: 2, title: 'B', repeat: 0 }))).toBe('×1');
+  });
+
+  it('shows ×1 for current/completed/repeating items with progress 0, other items with progress > 0', () => {
+    expect(formatStatsSubrowCountLabel(entry({ mediaId: 1, title: 'A', listStatus: 'CURRENT', progress: 0, repeat: 0 }))).toBe('×1');
+    expect(formatStatsSubrowCountLabel(entry({ mediaId: 2, title: 'B', listStatus: 'PLANNING', progress: 1, repeat: 0 }))).toBe('×1');
+    expect(formatStatsSubrowCountLabel(entry({ mediaId: 3, title: 'C', listStatus: 'COMPLETED', progress: 0, repeat: 0 }))).toBe('×1');
+    expect(formatStatsSubrowCountLabel(entry({ mediaId: 4, title: 'D', listStatus: 'REPEATING', progress: 0, repeat: 0 }))).toBe('×1');
+    expect(formatStatsSubrowCountLabel(entry({ mediaId: 5, title: 'E', listStatus: 'REPEATING', progress: 1, repeat: 0 }))).toBe('×1');
+    expect(formatStatsSubrowCountLabel(entry({ mediaId: 6, title: 'F', listStatus: 'DROPPED', progress: 1, repeat: 1 }))).toBe('×2');
+    expect(formatStatsSubrowCountLabel(entry({ mediaId: 6, title: 'F', listStatus: 'PAUSED', progress: 12, repeat: 1 }))).toBe('×2');
   });
 
   it('shows higher ordinals for rewatches', () => {
-    expect(formatStatsSubrowCountLabel(entry({ mediaId: 1, title: 'A', repeat: 1 }))).toBe('x2');
-    expect(formatStatsSubrowCountLabel(entry({ mediaId: 2, title: 'B', repeat: 2 }))).toBe('x3');
+    expect(formatStatsSubrowCountLabel(entry({ mediaId: 1, title: 'A', repeat: 1 }))).toBe('×2');
+    expect(formatStatsSubrowCountLabel(entry({ mediaId: 2, title: 'B', repeat: 2 }))).toBe('×3');
   });
 });
 

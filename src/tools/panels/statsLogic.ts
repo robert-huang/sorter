@@ -622,11 +622,11 @@ function entryTimeWatchedMinutes(entry: StatsEntry): number {
 
 /** AniList list `repeat` is 0-based (0 = first watch); UI shows x1, x2, … */
 export function statsEntryRepeatOrdinal(entry: StatsEntry): number {
-  return (entry.repeat ?? 0) + 1;
+  return ['CURRENT', 'COMPLETED', 'REPEATING'].includes(entry.listStatus) || entry.progress > 0 ? (entry.repeat ?? 0) + 1 : 0;
 }
 
 export function formatStatsSubrowCountLabel(entry: StatsEntry): string {
-  return `x${statsEntryRepeatOrdinal(entry)}`;
+  return `×${statsEntryRepeatOrdinal(entry)}`;
 }
 
 export function entryEpisodesRemaining(entry: StatsEntry): number {
