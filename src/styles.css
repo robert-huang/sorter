@@ -1017,6 +1017,7 @@ html {
   overflow: visible;
   text-overflow: unset;
   line-height: 1.45;
+  padding: 4px 24px 6px;
 }
 
 .settings-anilist-accounts .settings-anilist-hint code {
@@ -8343,6 +8344,7 @@ a:where(.anime-to-anime-anilist-link):visited {
   white-space: normal;
   overflow: visible;
   text-overflow: unset;
+  padding: 4px 24px 6px;
 }
 
 .settings-spotify-section .settings-spotify-theme-names {
