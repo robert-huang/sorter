@@ -7528,12 +7528,12 @@ a:where(.anime-to-anime-anilist-link):visited {
 
 .tool-entity-btn--staff-male .tool-entity-label strong,
 .tool-entity-btn--staff-male:hover .tool-entity-label strong {
-  color: cornflowerblue;
+  color: cornflowerblue !important;
 }
 
 .tool-entity-btn--staff-female .tool-entity-label strong,
 .tool-entity-btn--staff-female:hover .tool-entity-label strong {
-  color: plum;
+  color: plum !important;
 }
 
 .tool-entity-avatar {
@@ -7711,11 +7711,11 @@ a:where(.anime-to-anime-anilist-link):visited {
 }
 
 .tool-character-name-link--male {
-  color: cornflowerblue;
+  color: cornflowerblue !important;
 }
 
 .tool-character-name-link--female {
-  color: plum;
+  color: plum !important;
 }
 
 .tool-character-name-link--male:hover,
