@@ -733,7 +733,7 @@ html {
   height: 30px;
   margin: 0 0 6px;
   flex-shrink: 0;
-  padding: 4px 8px 6px;
+  padding: 4px 8px 4.5px;
   font-size: 13px;
   line-height: 18px;
   border: 1px solid var(--border);
