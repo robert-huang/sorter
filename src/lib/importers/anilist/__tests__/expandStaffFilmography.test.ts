@@ -115,6 +115,100 @@ describe('expandStaffFilmography', () => {
     vi.restoreAllMocks();
   });
 
+  it('advances both connections together without restarting at page one', async () => {
+    const db = await freshAnilistDb();
+    const executeQuery = vi.fn().mockImplementation(
+      async (_query: string, variables: Record<string, unknown>) => {
+        const charactersPage = Number(variables.charactersPage);
+        const response = makeFilmographyResponse();
+        if (response.Staff?.characterMedia) {
+          response.Staff.characterMedia.pageInfo = {
+            hasNextPage: charactersPage < 3,
+            currentPage: charactersPage,
+          };
+          if (charactersPage > 1) {
+            response.Staff.characterMedia.edges = [];
+          }
+        }
+        return response;
+      },
+    );
+    const ctx: AnilistImportContext = {
+      db: makeDbAdapter(db),
+      executeQuery,
+      now: () => NOW,
+    };
+
+    const result = await expandStaffFilmography(ctx, VA_STAFF_ID);
+
+    expect(result).toMatchObject({
+      characterPagesFetched: 3,
+      staffMediaPagesFetched: 1,
+    });
+    expect(
+      executeQuery.mock.calls.map(([, variables]) => ({
+        charactersPage: variables.charactersPage,
+        staffMediaPage: variables.staffMediaPage,
+        includeCharacters: variables.includeCharacters,
+        includeStaffMedia: variables.includeStaffMedia,
+      })),
+    ).toEqual([
+      {
+        charactersPage: 1,
+        staffMediaPage: 1,
+        includeCharacters: true,
+        includeStaffMedia: true,
+      },
+      {
+        charactersPage: 2,
+        staffMediaPage: 1,
+        includeCharacters: true,
+        includeStaffMedia: false,
+      },
+      {
+        charactersPage: 3,
+        staffMediaPage: 1,
+        includeCharacters: true,
+        includeStaffMedia: false,
+      },
+    ]);
+    db.close();
+  });
+
+  it('does not probe page one again for a valid empty filmography', async () => {
+    const db = await freshAnilistDb();
+    const response = makeFilmographyResponse();
+    response.Staff!.characterMedia!.edges = [];
+    const executeQuery = vi.fn().mockResolvedValue(response);
+    const ctx: AnilistImportContext = {
+      db: makeDbAdapter(db),
+      executeQuery,
+      now: () => NOW,
+    };
+
+    const result = await expandStaffFilmography(ctx, VA_STAFF_ID);
+
+    expect(result).not.toBeNull();
+    expect(executeQuery).toHaveBeenCalledTimes(1);
+    db.close();
+  });
+
+  it('does not retry page one when the requested staff does not exist', async () => {
+    const db = await freshAnilistDb();
+    const executeQuery = vi.fn().mockResolvedValue({ Staff: null });
+    const ctx: AnilistImportContext = {
+      db: makeDbAdapter(db),
+      executeQuery,
+      now: () => NOW,
+    };
+
+    const result = await expandStaffFilmography(ctx, VA_STAFF_ID);
+
+    expect(result).toBeNull();
+    expect(executeQuery).toHaveBeenCalledTimes(1);
+    db.close();
+  });
+
   it('does not wipe existing character gender when filmography nodes omit profile fields', async () => {
     const db = await freshAnilistDb();
     const executeQuery = vi.fn().mockResolvedValue(makeFilmographyResponse());

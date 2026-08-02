@@ -15,4 +15,10 @@ describe('buildStaffFilmographyQuery', () => {
     expect(q).toContain('languageV2');
     expect(q).toMatch(/Staff\(id: \$id\)[\s\S]*gender/);
   });
+
+  it('can omit either completed filmography connection', () => {
+    const q = buildStaffFilmographyQuery();
+    expect(q).toContain('@include(if: $includeCharacters)');
+    expect(q).toContain('@include(if: $includeStaffMedia)');
+  });
 });

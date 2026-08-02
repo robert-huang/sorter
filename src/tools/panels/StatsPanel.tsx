@@ -34,6 +34,7 @@ import {
   bustStatsSessionMemo,
   expandStatsCast,
   fetchStatsData,
+  refreshStatsCastFromDb,
   statsCachedNeedsCast,
   type StatsFetchProgress,
 } from './statsApi';
@@ -1344,12 +1345,12 @@ export function StatsPanel({
       return;
     }
     appliedDbSyncRevisionRef.current = dbSyncRevision;
-    if (!cached || running || statsCachedNeedsCast(cached)) {
+    if (!cached || running) {
       return;
     }
 
     const controller = new AbortController();
-    void expandStatsCast(cached, { signal: controller.signal })
+    void refreshStatsCastFromDb(cached, { signal: controller.signal })
       .then((expanded) => {
         if (!controller.signal.aborted) {
           setCached(expanded);

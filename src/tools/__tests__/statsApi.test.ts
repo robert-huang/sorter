@@ -47,6 +47,7 @@ import {
   bustStatsSessionMemo,
   expandStatsCast,
   fetchStatsData,
+  refreshStatsCastFromDb,
 } from '../panels/statsApi';
 import {
   ensureMediaCastFreshBatch,
@@ -162,6 +163,35 @@ describe('fetchStatsData', () => {
 
     expect(expanded.entries[0]?.staffCredits[0]?.staffGender).toBe('Female');
     expect(expanded.entries[0]?.vaCredits[0]?.staffGender).toBe('Male');
+  });
+
+  it('re-reads cast from the database without triggering AniList expansion', async () => {
+    readStaffBundleMock.mockResolvedValue({
+      id: 101,
+      title: 'Show 101',
+      coverImage: null,
+      studios: {},
+      productionStaff: {
+        7: {
+          name: 'Updated Director',
+          image: null,
+          gender: 'Female',
+          roles: ['Director'],
+        },
+      },
+      voiceActors: {},
+    });
+    const data = await fetchStatsData('tester', 'ANIME');
+
+    const refreshed = await refreshStatsCastFromDb({
+      ...data,
+      castExpanded: true,
+    });
+
+    expect(ensureCastMock).not.toHaveBeenCalled();
+    expect(refreshed.entries[0]?.staffCredits[0]?.staffName).toBe(
+      'Updated Director',
+    );
   });
 });
 

@@ -158,6 +158,14 @@ export type BatchedPageRequest = {
   page: number;
 };
 
+export type BatchedStaffFilmographyPageRequest = {
+  id: number;
+  charactersPage: number;
+  staffMediaPage: number;
+  includeCharacters: boolean;
+  includeStaffMedia: boolean;
+};
+
 /** `Character.media` page batch for Favourites character expansion. */
 export function buildBatchedCharacterVoiceMediaQuery(
   requests: readonly BatchedPageRequest[],
@@ -251,6 +259,47 @@ export function buildBatchedStaffFilmographyStaffMediaQuery(
   return {
     query: `query ToolsStaffFilmographyStaffMediaBatch(${varDefs}) {\n${fields}\n}`,
     variables: buildStaffPageVariables(requests, 'staffMediaPage', perPage),
+  };
+}
+
+/** Combined `Staff.characterMedia` + `Staff.staffMedia` page batch. */
+export function buildBatchedStaffFilmographyQuery(
+  requests: readonly BatchedStaffFilmographyPageRequest[],
+  perPage: number,
+): { query: string; variables: Record<string, number | boolean> } {
+  const varDefs = [
+    ...requests.map(
+      (_, index) =>
+        `$id${index}: Int!, $charactersPage${index}: Int!, $staffMediaPage${index}: Int!, $includeCharacters${index}: Boolean!, $includeStaffMedia${index}: Boolean!`,
+    ),
+    '$perPage: Int!',
+  ].join(', ');
+  const fields = requests
+    .map(
+      (_, index) => `s${index}: Staff(id: $id${index}) {
+    ${STAFF_PROFILE_FIELDS}
+    characterMedia(page: $charactersPage${index}, perPage: $perPage)
+      @include(if: $includeCharacters${index}) {
+      ${STAFF_CHARACTER_MEDIA_CONNECTION_FIELDS}
+    }
+    staffMedia(page: $staffMediaPage${index}, perPage: $perPage)
+      @include(if: $includeStaffMedia${index}) {
+      ${STAFF_STAFF_MEDIA_CONNECTION_FIELDS}
+    }
+  }`,
+    )
+    .join('\n');
+  const variables: Record<string, number | boolean> = { perPage };
+  requests.forEach((request, index) => {
+    variables[`id${index}`] = request.id;
+    variables[`charactersPage${index}`] = request.charactersPage;
+    variables[`staffMediaPage${index}`] = request.staffMediaPage;
+    variables[`includeCharacters${index}`] = request.includeCharacters;
+    variables[`includeStaffMedia${index}`] = request.includeStaffMedia;
+  });
+  return {
+    query: `query ToolsStaffFilmographyBatch(${varDefs}) {\n${fields}\n}`,
+    variables,
   };
 }
 

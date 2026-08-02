@@ -43,11 +43,16 @@ async function fetchCharacterMediaPages(
   characterId: number,
   perPage: number,
   maxPages: number | undefined,
-): Promise<{ edges: AnilistCharacterMediaEdgeGql[]; pagesFetched: number }> {
+): Promise<{
+  edges: AnilistCharacterMediaEdgeGql[];
+  pagesFetched: number;
+  characterExists: boolean | null;
+}> {
   const allEdges: AnilistCharacterMediaEdgeGql[] = [];
   let page = 1;
   let pagesFetched = 0;
   let hasNext = true;
+  let characterExists: boolean | null = null;
 
   while (hasNext && (maxPages === undefined || pagesFetched < maxPages)) {
     const response = await ctx.executeQuery<AnilistCharacterVoiceMediaResponse>(
@@ -56,10 +61,11 @@ async function fetchCharacterMediaPages(
     );
     if (!response?.Character) {
       if (pagesFetched === 0) {
-        return { edges: [], pagesFetched: 0 };
+        return { edges: [], pagesFetched: 0, characterExists: false };
       }
       break;
     }
+    characterExists = true;
     pagesFetched += 1;
     const conn = response.Character.media;
     if (conn) {
@@ -77,7 +83,7 @@ async function fetchCharacterMediaPages(
     page += 1;
   }
 
-  return { edges: allEdges, pagesFetched };
+  return { edges: allEdges, pagesFetched, characterExists };
 }
 
 export async function persistCharacterMediaExpansion(
@@ -148,14 +154,17 @@ export async function expandCharacterMedia(
   const perPage = options.perPage ?? DEFAULT_CHARACTER_MEDIA_PER_PAGE;
   const language = options.voiceActorLanguage ?? DEFAULT_VOICE_ACTOR_LANGUAGE;
 
-  const { edges, pagesFetched } = await fetchCharacterMediaPages(
+  const { edges, pagesFetched, characterExists } = await fetchCharacterMediaPages(
     ctx,
     characterId,
     perPage,
     options.maxPages,
   );
 
-  if (edges.length === 0) {
+  if (characterExists === false) {
+    return null;
+  }
+  if (characterExists === null) {
     const probe = await ctx.executeQuery<AnilistCharacterVoiceMediaResponse>(
       TOOLS_CHARACTER_VOICE_MEDIA_QUERY,
       { id: characterId, page: 1, perPage },

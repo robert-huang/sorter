@@ -101,6 +101,31 @@ describe('expandCharacterMedia', () => {
     vi.restoreAllMocks();
   });
 
+  it('does not probe page one again for a valid empty media list', async () => {
+    const db = await freshAnilistDb();
+    const response = makeVoiceMediaResponse();
+    response.Character!.media!.edges = [];
+    const executeQuery = vi.fn().mockResolvedValue(response);
+    const ctx: AnilistImportContext = {
+      db: makeDbAdapter(db),
+      executeQuery,
+      now: () => NOW,
+    };
+    db.exec(
+      `INSERT INTO character (
+         id, name_full, name_native, name_alternatives_json, name_alternatives_spoiler_json,
+         image, age, gender, favourites, birth_year, birth_month, birth_day, fetched_at, updated_at
+       ) VALUES (?, 'Fav Char', NULL, '[]', '[]', NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?)`,
+      { bind: [FAVOURITE_CHAR_ID, NOW, NOW] },
+    );
+
+    const result = await expandCharacterMedia(ctx, FAVOURITE_CHAR_ID);
+
+    expect(result).not.toBeNull();
+    expect(executeQuery).toHaveBeenCalledTimes(1);
+    db.close();
+  });
+
   it('does not wipe existing staff gender when voice-actor nodes omit profile fields', async () => {
     const db = await freshAnilistDb();
     const executeQuery = vi.fn().mockResolvedValue(makeVoiceMediaResponse());

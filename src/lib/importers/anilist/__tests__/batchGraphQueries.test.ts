@@ -4,6 +4,7 @@ import {
   buildBatchedMediaCharactersQuery,
   buildBatchedMediaStaffQuery,
   buildBatchedStaffFilmographyCharacterMediaQuery,
+  buildBatchedStaffFilmographyQuery,
 } from '../batchGraphQueries';
 
 describe('batchGraphQueries', () => {
@@ -39,6 +40,37 @@ describe('batchGraphQueries', () => {
       perPage: 25,
       id0: 99,
       charactersPage0: 2,
+    });
+  });
+
+  it('builds a combined staff filmography batch query', () => {
+    const { query, variables } = buildBatchedStaffFilmographyQuery(
+      [
+        {
+          id: 99,
+          charactersPage: 3,
+          staffMediaPage: 2,
+          includeCharacters: true,
+          includeStaffMedia: false,
+        },
+      ],
+      25,
+    );
+    expect(query).toContain(
+      'characterMedia(page: $charactersPage0, perPage: $perPage)',
+    );
+    expect(query).toContain(
+      'staffMedia(page: $staffMediaPage0, perPage: $perPage)',
+    );
+    expect(query).toContain('@include(if: $includeCharacters0)');
+    expect(query).toContain('@include(if: $includeStaffMedia0)');
+    expect(variables).toEqual({
+      perPage: 25,
+      id0: 99,
+      charactersPage0: 3,
+      staffMediaPage0: 2,
+      includeCharacters0: true,
+      includeStaffMedia0: false,
     });
   });
 

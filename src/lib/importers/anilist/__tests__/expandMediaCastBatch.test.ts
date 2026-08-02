@@ -9,6 +9,7 @@ import {
   expandMediaCastBatch,
   expandMediaCastWithFallback,
 } from '../expandMediaCastBatch';
+import { ensureMediaCastExpandedBatch } from '../ensureGraph';
 import type {
   AnilistCharacterGql,
   AnilistMediaCharacterEdgeGql,
@@ -355,6 +356,24 @@ describe('expandMediaCastBatch — scope', () => {
       'SELECT characters_complete, staff_complete FROM media_cast_expansion WHERE media_id = 100',
     );
     expect(marker).toEqual({ characters_complete: 0, staff_complete: 1 });
+    h.db.close();
+  });
+});
+
+describe('ensureMediaCastExpandedBatch — completed empty sections', () => {
+  it('trusts a completed empty staff result instead of fetching it forever', async () => {
+    const executeQuery = vi.fn();
+    const h = await makeHarness([100], executeQuery);
+    h.db.exec(
+      `INSERT INTO media_cast_expansion (
+         media_id, language, fetched_at, staff_fetched_at, staff_complete
+       ) VALUES (100, 'JAPANESE', ?, ?, 1)`,
+      { bind: [NOW, NOW] },
+    );
+
+    await ensureMediaCastExpandedBatch(h.ctx, [100], { scope: 'staff' });
+
+    expect(executeQuery).not.toHaveBeenCalled();
     h.db.close();
   });
 });

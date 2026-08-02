@@ -50,30 +50,20 @@ function needsCharactersSectionExpanded(
   );
 }
 
-async function needsStaffSectionExpanded(
-  ctx: AnilistImportContext,
-  mediaId: number,
+function needsStaffSectionExpanded(
   status: MediaCastExpansionStatus | null,
   force: boolean,
-): Promise<boolean> {
+): boolean {
   if (force) {
     return true;
   }
   if (!status) {
     return true;
   }
-  if (
+  return (
     !status.staffComplete ||
     !hasKnownGraphCacheDate(status.staffFetchedAt)
-  ) {
-    return true;
-  }
-  // Drive merge can mark staff_complete while media_staff is still empty.
-  const rows = await ctx.db.exec(
-    'SELECT 1 FROM media_staff WHERE media_id = ? LIMIT 1',
-    [mediaId],
   );
-  return rows.length === 0;
 }
 
 export async function ensureMediaCastExpanded(
@@ -89,7 +79,7 @@ export async function ensureMediaCastExpanded(
     needsCharactersSectionExpanded(status, force);
   const needsStaff =
     (scope === 'all' || scope === 'staff') &&
-    (await needsStaffSectionExpanded(ctx, mediaId, status, force));
+    needsStaffSectionExpanded(status, force);
 
   if (!needsCharacters && !needsStaff) {
     return true;
@@ -135,7 +125,7 @@ export async function ensureMediaCastExpandedBatch(
       needsCharactersSectionExpanded(status, force);
     const needsStaff =
       (scope === 'all' || scope === 'staff') &&
-      (await needsStaffSectionExpanded(ctx, mediaId, status, force));
+      needsStaffSectionExpanded(status, force);
     if (!needsCharacters && !needsStaff) {
       continue;
     }

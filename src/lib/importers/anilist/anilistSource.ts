@@ -11,6 +11,7 @@ import migration009 from './migrations/009-media-relations-expansion.sql?raw';
 import migration010 from './migrations/010-media-theme-songs-expansion.sql?raw';
 import migration011 from './migrations/011-media-studio-is-main.sql?raw';
 import migration012 from './migrations/012-media-studios-fetched.sql?raw';
+import migration013 from './migrations/013-local-graph-expansion-markers.sql?raw';
 import type { AnilistFavouriteType, AnilistMediaType } from './types';
 
 export const ANILIST_SOURCE_ID = 'anilist';
@@ -95,10 +96,11 @@ export function buildAnilistFavouriteUrl(
  *     don't fight your own.
  *
  *   - **Junctions** (`media_studio`, `media_tag`, `media_character`,
- *     `character_voice_actor`) are deliberately NOT in the merge spec — they
- *     carry no independent timestamp and are rebuilt transactionally on
- *     every parent refresh. CASCADE FKs from the parent metadata tables keep
- *     them consistent after row-level merge.
+ *     `character_voice_actor`, `media_staff`) are deliberately NOT in the
+ *     merge spec — they carry no independent timestamp and are rebuilt
+ *     transactionally on every parent refresh. Their expansion markers are
+ *     also local-only; merging a marker without its junction rows would make
+ *     an incomplete graph look complete.
  *
  *   - **Favourites** (`media_favourite`, `character_favourite`,
  *     `staff_favourite`, `studio_favourite`) are also NOT in the merge spec.
@@ -131,6 +133,7 @@ export const anilistSourceDescriptor: SourceDescriptor = {
     { version: 10, sql: migration010 },
     { version: 11, sql: migration011 },
     { version: 12, sql: migration012 },
+    { version: 13, sql: migration013 },
   ],
   merge: {
     metadataTables: [
@@ -140,11 +143,6 @@ export const anilistSourceDescriptor: SourceDescriptor = {
       { name: 'tag', pk: ['name'], timestampCol: 'fetched_at' },
       { name: 'character', pk: ['id'], timestampCol: 'fetched_at' },
       { name: 'staff', pk: ['id'], timestampCol: 'fetched_at' },
-      // media_cast_expansion: merged via mergeMediaCastExpansionSplit (split
-      // timestamps). staff_filmography_expansion / character_media_expansion:
-      // visit markers only.
-      { name: 'staff_filmography_expansion', pk: ['staff_id'], timestampCol: 'fetched_at' },
-      { name: 'character_media_expansion', pk: ['character_id'], timestampCol: 'fetched_at' },
       { name: 'media_relations_expansion', pk: ['media_id'], timestampCol: 'fetched_at' },
       { name: 'media_theme_songs_expansion', pk: ['media_id'], timestampCol: 'fetched_at' },
     ],

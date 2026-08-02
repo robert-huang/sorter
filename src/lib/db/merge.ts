@@ -1,8 +1,6 @@
 import type { Database, Sqlite3Static } from '@sqlite.org/sqlite-wasm';
 import { openDbFromBytes, serializeDb } from './dbBytes';
 import { currentVersion, migrateTo } from './migration-runner';
-import { ANILIST_SOURCE_ID } from '../importers/anilist/anilistSource';
-import { mergeMediaCastExpansionSplit } from '../importers/anilist/mergeCastExpansion';
 import { getSource, type SourceMergeTable } from './source-registry';
 
 export const REMOTE_SCHEMA_NEWER = 'REMOTE_SCHEMA_NEWER';
@@ -160,9 +158,6 @@ export function pullMerge(
       }
       for (const tableName of source.merge.junctionUnionTables ?? []) {
         unionJunctionTable(localDb, tableName, 'remote');
-      }
-      if (sourceId === ANILIST_SOURCE_ID) {
-        mergeMediaCastExpansionSplit(localDb);
       }
     });
 

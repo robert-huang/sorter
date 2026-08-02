@@ -96,3 +96,49 @@ describe('pullMerge — anilist media relations', () => {
     }
   });
 });
+
+describe('pullMerge — local graph expansion state', () => {
+  it('does not merge cast markers without their unmerged junction rows', async () => {
+    ensureAnilistSourceRegistered();
+    const sqlite3 = await getTestSqlite();
+    const localDb = await openTestAnilistDb();
+    seedMediaRow(localDb, 50);
+    localDb.exec(
+      `INSERT INTO media_cast_expansion (
+         media_id, language, fetched_at, staff_fetched_at, staff_complete
+       ) VALUES (50, 'JAPANESE', 100, 100, 1)`,
+    );
+    const localBytes = exportAndClose(sqlite3, localDb);
+
+    const remoteDb = await openTestAnilistDb();
+    seedMediaRow(remoteDb, 50);
+    seedMediaRow(remoteDb, 51);
+    remoteDb.exec(
+      `INSERT INTO media_cast_expansion (
+         media_id, language, fetched_at, staff_fetched_at, staff_complete
+       ) VALUES
+         (50, 'JAPANESE', 200, 200, 1),
+         (51, 'JAPANESE', 200, 200, 1)`,
+    );
+    const remoteBytes = exportAndClose(sqlite3, remoteDb);
+
+    const mergedBytes = pullMerge(
+      sqlite3,
+      localBytes,
+      anilistSourceDescriptor.id,
+      remoteBytes,
+    );
+    const mergedDb = openDbFromBytes(sqlite3, mergedBytes);
+    try {
+      expect(
+        mergedDb.selectObjects(
+          `SELECT media_id, staff_fetched_at
+             FROM media_cast_expansion
+            ORDER BY media_id`,
+        ),
+      ).toEqual([{ media_id: 50, staff_fetched_at: 100 }]);
+    } finally {
+      mergedDb.close();
+    }
+  });
+});

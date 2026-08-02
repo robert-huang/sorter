@@ -6,8 +6,7 @@
 import type { AnilistImportContext } from './context';
 import {
   buildBatchedCharacterVoiceMediaQuery,
-  buildBatchedStaffFilmographyCharacterMediaQuery,
-  buildBatchedStaffFilmographyStaffMediaQuery,
+  buildBatchedStaffFilmographyQuery,
   type BatchedPageRequest,
 } from './batchGraphQueries';
 import {
@@ -23,7 +22,6 @@ import {
   type ExpandStaffFilmographyOptions,
 } from './expandStaffFilmography';
 import { emitProgress } from './progress';
-import { TOOLS_CHARACTER_VOICE_MEDIA_QUERY } from './queries';
 import type {
   AnilistCharacterMediaEdgeGql,
   AnilistCharacterVoiceMediaResponse,
@@ -127,44 +125,57 @@ async function depaginateCharacterVoiceMediaBatch(
   return out;
 }
 
-async function depaginateStaffCharacterMediaBatch(
+type StaffFilmographyBatchResult = {
+  characterEdges: AnilistStaffCharacterMediaEdgeGql[];
+  staffMediaEdges: AnilistStaffMediaEdgeGql[];
+  characterPagesFetched: number;
+  staffMediaPagesFetched: number;
+  staff: AnilistStaffGql | null;
+  exists: boolean;
+};
+
+type StaffFilmographyPaginationState = StaffFilmographyBatchResult & {
+  id: number;
+  charactersPage: number;
+  staffMediaPage: number;
+  charactersDone: boolean;
+  staffMediaDone: boolean;
+};
+
+async function depaginateStaffFilmographyBatch(
   ctx: AnilistImportContext,
   staffIds: readonly number[],
   options: ExpandStaffFilmographyOptions,
   batchSize: number,
-): Promise<
-  Map<
-    number,
-    {
-      edges: AnilistStaffCharacterMediaEdgeGql[];
-      pagesFetched: number;
-      staff: AnilistStaffGql | null;
-      exists: boolean;
-    }
-  >
-> {
+): Promise<Map<number, StaffFilmographyBatchResult>> {
   const perPage = options.perPage ?? DEFAULT_FILMOGRAPHY_PER_PAGE;
-  const maxPages = options.charactersMaxPages;
-  const states: PaginationState[] = staffIds.map((id) => ({ id, page: 1, done: false }));
-  const edgesById = new Map<number, AnilistStaffCharacterMediaEdgeGql[]>();
-  const pagesFetchedById = new Map<number, number>();
-  const staffById = new Map<number, AnilistStaffGql | null>();
-  const existsById = new Map<number, boolean>();
+  const states: StaffFilmographyPaginationState[] = staffIds.map((id) => ({
+    id,
+    charactersPage: 1,
+    staffMediaPage: 1,
+    charactersDone: options.charactersMaxPages === 0,
+    staffMediaDone: options.staffMediaMaxPages === 0,
+    characterEdges: [],
+    staffMediaEdges: [],
+    characterPagesFetched: 0,
+    staffMediaPagesFetched: 0,
+    staff: null,
+    exists: false,
+  }));
 
-  for (const id of staffIds) {
-    edgesById.set(id, []);
-    pagesFetchedById.set(id, 0);
-    staffById.set(id, null);
-  }
-
-  while (states.some((state) => !state.done)) {
-    const active = states.filter((state) => !state.done);
+  while (states.some((state) => !state.charactersDone || !state.staffMediaDone)) {
+    const active = states.filter(
+      (state) => !state.charactersDone || !state.staffMediaDone,
+    );
     for (const group of chunk(active, batchSize)) {
-      const requests: BatchedPageRequest[] = group.map((state) => ({
+      const requests = group.map((state) => ({
         id: state.id,
-        page: state.page,
+        charactersPage: state.charactersPage,
+        staffMediaPage: state.staffMediaPage,
+        includeCharacters: !state.charactersDone,
+        includeStaffMedia: !state.staffMediaDone,
       }));
-      const built = buildBatchedStaffFilmographyCharacterMediaQuery(requests, perPage);
+      const built = buildBatchedStaffFilmographyQuery(requests, perPage);
       const data = await ctx.executeQuery<Record<string, AnilistStaffFilmographyResponse['Staff']>>(
         built.query,
         built.variables,
@@ -174,153 +185,70 @@ async function depaginateStaffCharacterMediaBatch(
         const state = group[index]!;
         const staff = data?.[`s${index}`] ?? null;
         if (!staff) {
-          existsById.set(state.id, false);
-          state.done = true;
+          state.charactersDone = true;
+          state.staffMediaDone = true;
           continue;
         }
-        existsById.set(state.id, true);
-        if (!staffById.get(state.id)) {
-          staffById.set(state.id, staff);
+        state.exists = true;
+        if (!state.staff) {
+          state.staff = staff;
         }
-        const conn = staff.characterMedia;
-        pagesFetchedById.set(state.id, (pagesFetchedById.get(state.id) ?? 0) + 1);
-        if (conn) {
-          edgesById.get(state.id)!.push(...conn.edges);
+
+        if (!state.charactersDone) {
+          const conn = staff.characterMedia;
+          state.characterPagesFetched += 1;
+          if (conn) {
+            state.characterEdges.push(...conn.edges);
+          }
           emitProgress(ctx.onProgress, {
             kind: 'fetching-page',
             what: 'characters',
-            page: state.page,
-            itemsSoFar: edgesById.get(state.id)!.length,
+            page: state.charactersPage,
+            itemsSoFar: state.characterEdges.length,
           });
-          const hitMaxPages = maxPages != null && (pagesFetchedById.get(state.id) ?? 0) >= maxPages;
-          if (!conn.pageInfo.hasNextPage || hitMaxPages) {
-            state.done = true;
-          } else {
-            state.page += 1;
+          const hitMaxPages =
+            options.charactersMaxPages !== undefined &&
+            state.characterPagesFetched >= options.charactersMaxPages;
+          state.charactersDone = !conn?.pageInfo.hasNextPage || hitMaxPages;
+          if (!state.charactersDone) {
+            state.charactersPage += 1;
           }
-        } else {
-          state.done = true;
         }
-      }
-    }
-  }
 
-  const out = new Map<
-    number,
-    {
-      edges: AnilistStaffCharacterMediaEdgeGql[];
-      pagesFetched: number;
-      staff: AnilistStaffGql | null;
-      exists: boolean;
-    }
-  >();
-  for (const id of staffIds) {
-    out.set(id, {
-      edges: edgesById.get(id) ?? [],
-      pagesFetched: pagesFetchedById.get(id) ?? 0,
-      staff: staffById.get(id) ?? null,
-      exists: existsById.get(id) ?? true,
-    });
-  }
-  return out;
-}
-
-async function depaginateStaffStaffMediaBatch(
-  ctx: AnilistImportContext,
-  staffIds: readonly number[],
-  options: ExpandStaffFilmographyOptions,
-  batchSize: number,
-): Promise<
-  Map<
-    number,
-    {
-      edges: AnilistStaffMediaEdgeGql[];
-      pagesFetched: number;
-      staff: AnilistStaffGql | null;
-      exists: boolean;
-    }
-  >
-> {
-  const perPage = options.perPage ?? DEFAULT_FILMOGRAPHY_PER_PAGE;
-  const maxPages = options.staffMediaMaxPages;
-  const states: PaginationState[] = staffIds.map((id) => ({ id, page: 1, done: false }));
-  const edgesById = new Map<number, AnilistStaffMediaEdgeGql[]>();
-  const pagesFetchedById = new Map<number, number>();
-  const staffById = new Map<number, AnilistStaffGql | null>();
-  const existsById = new Map<number, boolean>();
-
-  for (const id of staffIds) {
-    edgesById.set(id, []);
-    pagesFetchedById.set(id, 0);
-    staffById.set(id, null);
-  }
-
-  while (states.some((state) => !state.done)) {
-    const active = states.filter((state) => !state.done);
-    for (const group of chunk(active, batchSize)) {
-      const requests: BatchedPageRequest[] = group.map((state) => ({
-        id: state.id,
-        page: state.page,
-      }));
-      const built = buildBatchedStaffFilmographyStaffMediaQuery(requests, perPage);
-      const data = await ctx.executeQuery<Record<string, AnilistStaffFilmographyResponse['Staff']>>(
-        built.query,
-        built.variables,
-      );
-
-      for (let index = 0; index < group.length; index += 1) {
-        const state = group[index]!;
-        const staff = data?.[`s${index}`] ?? null;
-        if (!staff) {
-          existsById.set(state.id, false);
-          state.done = true;
-          continue;
-        }
-        existsById.set(state.id, true);
-        if (!staffById.get(state.id)) {
-          staffById.set(state.id, staff);
-        }
-        const conn = staff.staffMedia;
-        pagesFetchedById.set(state.id, (pagesFetchedById.get(state.id) ?? 0) + 1);
-        if (conn) {
-          edgesById.get(state.id)!.push(...conn.edges);
+        if (!state.staffMediaDone) {
+          const conn = staff.staffMedia;
+          state.staffMediaPagesFetched += 1;
+          if (conn) {
+            state.staffMediaEdges.push(...conn.edges);
+          }
           emitProgress(ctx.onProgress, {
             kind: 'fetching-page',
             what: 'staff',
-            page: state.page,
-            itemsSoFar: edgesById.get(state.id)!.length,
+            page: state.staffMediaPage,
+            itemsSoFar: state.staffMediaEdges.length,
           });
-          const hitMaxPages = maxPages != null && (pagesFetchedById.get(state.id) ?? 0) >= maxPages;
-          if (!conn.pageInfo.hasNextPage || hitMaxPages) {
-            state.done = true;
-          } else {
-            state.page += 1;
+          const hitMaxPages =
+            options.staffMediaMaxPages !== undefined &&
+            state.staffMediaPagesFetched >= options.staffMediaMaxPages;
+          state.staffMediaDone = !conn?.pageInfo.hasNextPage || hitMaxPages;
+          if (!state.staffMediaDone) {
+            state.staffMediaPage += 1;
           }
-        } else {
-          state.done = true;
         }
       }
     }
   }
 
-  const out = new Map<
-    number,
-    {
-      edges: AnilistStaffMediaEdgeGql[];
-      pagesFetched: number;
-      staff: AnilistStaffGql | null;
-      exists: boolean;
-    }
-  >();
-  for (const id of staffIds) {
-    out.set(id, {
-      edges: edgesById.get(id) ?? [],
-      pagesFetched: pagesFetchedById.get(id) ?? 0,
-      staff: staffById.get(id) ?? null,
-      exists: existsById.get(id) ?? true,
-    });
-  }
-  return out;
+  return new Map(
+    states.map((state) => [state.id, {
+      characterEdges: state.characterEdges,
+      staffMediaEdges: state.staffMediaEdges,
+      characterPagesFetched: state.characterPagesFetched,
+      staffMediaPagesFetched: state.staffMediaPagesFetched,
+      staff: state.staff,
+      exists: state.exists,
+    }]),
+  );
 }
 
 export type ExpandCharacterMediaBatchOptions = ExpandCharacterMediaOptions & {
@@ -337,7 +265,6 @@ export async function expandCharacterMediaBatch(
     return;
   }
   const batchSize = options.batchSize ?? DEFAULT_CHARACTER_MEDIA_BATCH_SIZE;
-  const perPage = options.perPage ?? DEFAULT_CHARACTER_MEDIA_PER_PAGE;
   const fetched = await depaginateCharacterVoiceMediaBatch(ctx, uniqueIds, options, batchSize);
 
   for (const characterId of uniqueIds) {
@@ -347,15 +274,6 @@ export async function expandCharacterMediaBatch(
     }
     if (!result.exists) {
       continue;
-    }
-    if (result.edges.length === 0) {
-      const probe = await ctx.executeQuery<AnilistCharacterVoiceMediaResponse>(
-        TOOLS_CHARACTER_VOICE_MEDIA_QUERY,
-        { id: characterId, page: 1, perPage },
-      );
-      if (!probe?.Character) {
-        continue;
-      }
     }
     await persistCharacterMediaExpansion(ctx, characterId, result.edges, {
       voiceActorLanguage: options.voiceActorLanguage,
@@ -379,13 +297,7 @@ export async function expandStaffFilmographyBatch(
   }
   const batchSize = options.batchSize ?? DEFAULT_STAFF_FILMOGRAPHY_BATCH_SIZE;
 
-  const charFetched = await depaginateStaffCharacterMediaBatch(
-    ctx,
-    uniqueIds,
-    options,
-    batchSize,
-  );
-  const staffMediaFetched = await depaginateStaffStaffMediaBatch(
+  const fetched = await depaginateStaffFilmographyBatch(
     ctx,
     uniqueIds,
     options,
@@ -393,40 +305,23 @@ export async function expandStaffFilmographyBatch(
   );
 
   for (const staffId of uniqueIds) {
-    const charResult = charFetched.get(staffId);
-    const staffMediaResult = staffMediaFetched.get(staffId);
-    if (!charResult || !staffMediaResult) {
+    const result = fetched.get(staffId);
+    if (!result?.exists) {
       continue;
     }
-    if (!charResult.exists && !staffMediaResult.exists) {
-      continue;
-    }
-    const characterEdges = charResult.edges;
-    const staffMediaEdges = staffMediaResult.edges;
-    let staffProfile = charResult.staff ?? staffMediaResult.staff;
 
-    if (characterEdges.length === 0 && staffMediaEdges.length === 0) {
-      const perPage = options.perPage ?? DEFAULT_FILMOGRAPHY_PER_PAGE;
-      const built = buildBatchedStaffFilmographyCharacterMediaQuery(
-        [{ id: staffId, page: 1 }],
-        perPage,
-      );
-      const probe = await ctx.executeQuery<Record<string, AnilistStaffFilmographyResponse['Staff']>>(
-        built.query,
-        built.variables,
-      );
-      if (!probe?.s0) {
-        continue;
-      }
-      staffProfile = staffProfile ?? probe.s0;
-    }
-
-    await persistStaffFilmographyExpansion(ctx, staffId, characterEdges, staffMediaEdges, {
-      voiceActorLanguage: options.voiceActorLanguage,
-      staffProfile,
-      characterPagesFetched: charResult.pagesFetched,
-      staffMediaPagesFetched: staffMediaResult.pagesFetched,
-    });
+    await persistStaffFilmographyExpansion(
+      ctx,
+      staffId,
+      result.characterEdges,
+      result.staffMediaEdges,
+      {
+        voiceActorLanguage: options.voiceActorLanguage,
+        staffProfile: result.staff,
+        characterPagesFetched: result.characterPagesFetched,
+        staffMediaPagesFetched: result.staffMediaPagesFetched,
+      },
+    );
   }
 }
 

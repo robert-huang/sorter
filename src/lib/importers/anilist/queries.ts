@@ -422,6 +422,8 @@ query StaffFilmography(
   $charactersPage: Int!
   $staffMediaPage: Int!
   $perPage: Int!
+  $includeCharacters: Boolean!
+  $includeStaffMedia: Boolean!
 ) {
   Staff(id: $id) {
     id
@@ -431,7 +433,8 @@ query StaffFilmography(
     age
     gender
     favourites
-    characterMedia(page: $charactersPage, perPage: $perPage) {
+    characterMedia(page: $charactersPage, perPage: $perPage)
+      @include(if: $includeCharacters) {
       pageInfo { hasNextPage currentPage }
       edges {
         characterRole
@@ -448,7 +451,8 @@ query StaffFilmography(
         }
       }
     }
-    staffMedia(page: $staffMediaPage, perPage: $perPage) {
+    staffMedia(page: $staffMediaPage, perPage: $perPage)
+      @include(if: $includeStaffMedia) {
       pageInfo { hasNextPage currentPage }
       edges {
         staffRole

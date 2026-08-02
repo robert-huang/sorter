@@ -248,12 +248,10 @@ async function readVaCreditsForMedia(mediaId: number): Promise<StatsVaCredit[]> 
   }));
 }
 
-async function attachCastToEntries(
+async function readCastForEntriesFromDb(
   entries: StatsEntry[],
   options?: StatsFetchOptions,
 ): Promise<StatsEntry[]> {
-  const mediaIds = entries.map((e) => e.mediaId);
-  await ensureMediaCastFreshBatch(mediaIds, options);
   const ctx = getToolsImportContext();
   const out: StatsEntry[] = [];
   let index = 0;
@@ -299,6 +297,17 @@ async function attachCastToEntries(
     });
   }
   return out;
+}
+
+async function attachCastToEntries(
+  entries: StatsEntry[],
+  options?: StatsFetchOptions,
+): Promise<StatsEntry[]> {
+  await ensureMediaCastFreshBatch(
+    entries.map((entry) => entry.mediaId),
+    options,
+  );
+  return readCastForEntriesFromDb(entries, options);
 }
 
 async function fetchStatsListLive(
@@ -448,4 +457,13 @@ export async function expandStatsCast(
   const entries = await attachCastToEntries(cached.entries, options);
   const staleCastMediaCount = await countStaleStatsCastMedia(entries.map((e) => e.mediaId));
   return { ...cached, entries, castExpanded: true, staleCastMediaCount };
+}
+
+export async function refreshStatsCastFromDb(
+  cached: StatsCachedData,
+  options?: Pick<StatsFetchOptions, 'signal'>,
+): Promise<StatsCachedData> {
+  const entries = await readCastForEntriesFromDb(cached.entries, options);
+  const staleCastMediaCount = await countStaleStatsCastMedia(entries.map((e) => e.mediaId));
+  return { ...cached, entries, staleCastMediaCount };
 }

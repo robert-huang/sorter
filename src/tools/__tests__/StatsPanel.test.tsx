@@ -8,13 +8,18 @@ vi.mock('../panels/statsApi', async (importOriginal) => {
     ...actual,
     expandStatsCast: vi.fn(),
     fetchStatsData: vi.fn(),
+    refreshStatsCastFromDb: vi.fn(),
   };
 });
 
 import { StatsPanel, StatsSubrowNameCell } from '../panels/StatsPanel';
 import type { StatsCachedData, StatsEntry } from '../panels/statsLogic';
 import { ToolStaffButton } from '../toolEntityLinks';
-import { expandStatsCast, fetchStatsData } from '../panels/statsApi';
+import {
+  expandStatsCast,
+  fetchStatsData,
+  refreshStatsCastFromDb,
+} from '../panels/statsApi';
 
 const entry = {
   mediaId: 1,
@@ -50,6 +55,7 @@ const entry = {
 
 const fetchStatsDataMock = vi.mocked(fetchStatsData);
 const expandStatsCastMock = vi.mocked(expandStatsCast);
+const refreshStatsCastFromDbMock = vi.mocked(refreshStatsCastFromDb);
 
 let container: HTMLDivElement;
 let root: Root;
@@ -63,6 +69,7 @@ beforeEach(() => {
   localStorage.clear();
   fetchStatsDataMock.mockReset();
   expandStatsCastMock.mockReset();
+  refreshStatsCastFromDbMock.mockReset();
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -211,7 +218,7 @@ describe('StatsPanel gender filter', () => {
       castExpanded: true,
     };
     fetchStatsDataMock.mockResolvedValue(cached);
-    expandStatsCastMock.mockResolvedValue({
+    refreshStatsCastFromDbMock.mockResolvedValue({
       ...cached,
       entries: [
         {
@@ -262,9 +269,10 @@ describe('StatsPanel gender filter', () => {
       await Promise.resolve();
     });
 
-    expect(expandStatsCastMock).toHaveBeenCalledWith(
+    expect(refreshStatsCastFromDbMock).toHaveBeenCalledWith(
       cached,
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
+    expect(expandStatsCastMock).not.toHaveBeenCalled();
   });
 });

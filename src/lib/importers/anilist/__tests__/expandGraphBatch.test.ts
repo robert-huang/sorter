@@ -238,56 +238,92 @@ describe('expandCharacterMediaBatch', () => {
 });
 
 describe('expandStaffFilmographyBatch', () => {
-  it('issues one characterMedia batch and one staffMedia batch carrying all ids', async () => {
+  it('advances characterMedia and staffMedia in one batch carrying all ids', async () => {
     const db = await freshAnilistDb();
     const { ctx, executeQuery } = makeCtx(db);
 
-    let charBatchCalls = 0;
-    let staffMediaBatchCalls = 0;
-    executeQuery.mockImplementation(async (query: string, variables: Record<string, number>) => {
+    const batchCalls: Array<
+      Array<{
+        id: number;
+        charactersPage: number;
+        staffMediaPage: number;
+        includeCharacters: boolean;
+        includeStaffMedia: boolean;
+      }>
+    > = [];
+    executeQuery.mockImplementation(async (query: string, variables: Record<string, unknown>) => {
+      expect(query).toContain('ToolsStaffFilmographyBatch');
       const out: Record<string, unknown> = {};
+      const group: Array<{
+        id: number;
+        charactersPage: number;
+        staffMediaPage: number;
+        includeCharacters: boolean;
+        includeStaffMedia: boolean;
+      }> = [];
       let i = 0;
-      if (query.includes('ToolsStaffFilmographyCharacterBatch')) {
-        charBatchCalls += 1;
-        while (variables[`id${i}`] !== undefined) {
-          const id = variables[`id${i}`]!;
-          const page = variables[`charactersPage${i}`]!;
-          out[`s${i}`] = {
-            ...makeStaff(id),
-            characterMedia: {
-              pageInfo: { hasNextPage: false, currentPage: page },
-              edges: [makeStaffCharMediaEdge(300 + id, 400 + id)],
+      while (variables[`id${i}`] !== undefined) {
+        const id = Number(variables[`id${i}`]);
+        const charactersPage = Number(variables[`charactersPage${i}`]);
+        const staffMediaPage = Number(variables[`staffMediaPage${i}`]);
+        const includeCharacters = Boolean(variables[`includeCharacters${i}`]);
+        const includeStaffMedia = Boolean(variables[`includeStaffMedia${i}`]);
+        group.push({
+          id,
+          charactersPage,
+          staffMediaPage,
+          includeCharacters,
+          includeStaffMedia,
+        });
+        out[`s${i}`] = {
+          ...makeStaff(id),
+          characterMedia: {
+            pageInfo: {
+              hasNextPage: id === 1 && charactersPage === 1,
+              currentPage: charactersPage,
             },
-            staffMedia: null,
-          };
-          i += 1;
-        }
-        return out;
+            edges: [makeStaffCharMediaEdge(300 + id, 400 + id)],
+          },
+          staffMedia: {
+            pageInfo: { hasNextPage: false, currentPage: staffMediaPage },
+            edges: [makeStaffMediaEdge(500 + id)],
+          },
+        };
+        i += 1;
       }
-      if (query.includes('ToolsStaffFilmographyStaffMediaBatch')) {
-        staffMediaBatchCalls += 1;
-        while (variables[`id${i}`] !== undefined) {
-          const id = variables[`id${i}`]!;
-          const page = variables[`staffMediaPage${i}`]!;
-          out[`s${i}`] = {
-            ...makeStaff(id),
-            characterMedia: null,
-            staffMedia: {
-              pageInfo: { hasNextPage: false, currentPage: page },
-              edges: [makeStaffMediaEdge(500 + id)],
-            },
-          };
-          i += 1;
-        }
-        return out;
-      }
-      return null;
+      batchCalls.push(group);
+      return out;
     });
 
     await expandStaffFilmographyBatch(ctx, [1, 2]);
 
-    expect(charBatchCalls).toBe(1);
-    expect(staffMediaBatchCalls).toBe(1);
+    expect(batchCalls).toEqual([
+      [
+        {
+          id: 1,
+          charactersPage: 1,
+          staffMediaPage: 1,
+          includeCharacters: true,
+          includeStaffMedia: true,
+        },
+        {
+          id: 2,
+          charactersPage: 1,
+          staffMediaPage: 1,
+          includeCharacters: true,
+          includeStaffMedia: true,
+        },
+      ],
+      [
+        {
+          id: 1,
+          charactersPage: 2,
+          staffMediaPage: 1,
+          includeCharacters: true,
+          includeStaffMedia: false,
+        },
+      ],
+    ]);
     expect(countRows(db, 'staff_filmography_expansion')).toBe(2);
     // media_staff credits from staffMedia edges (one per staff)
     expect(countRows(db, 'media_staff', 'WHERE staff_id = 1')).toBe(1);

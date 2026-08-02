@@ -12,7 +12,7 @@ import {
 // Bump this in lock-step with the highest version in
 // anilistSourceDescriptor.migrations so the "applies cleanly" sanity
 // check fails loudly when someone forgets to register a new migration.
-const LATEST_SCHEMA_VERSION = 12;
+const LATEST_SCHEMA_VERSION = 13;
 
 const EXPECTED_TABLES = [
   'anilist_user',
@@ -492,6 +492,74 @@ describe('anilist migration', () => {
     expect(marker).toEqual({ media_id: 100, fetched_at: fetchedAt });
     db.close();
   });
+
+  it('migration 013 invalidates marker-only graph state and preserves locally backed markers', async () => {
+    const db = await openMemoryDb();
+    db.exec('PRAGMA foreign_keys = ON');
+    migrateTo(db, anilistSourceDescriptor, 12);
+
+    seedMedia(db, 100);
+    seedMedia(db, 200);
+    seedCharacter(db, 300);
+    seedCharacter(db, 301);
+    seedStaff(db, 400);
+    seedStaff(db, 401);
+    db.exec(
+      `INSERT INTO media_character (media_id, character_id, role, sort_order)
+       VALUES (200, 301, 'MAIN', 0);
+       INSERT INTO character_voice_actor (media_id, character_id, staff_id, language)
+       VALUES (200, 301, 401, 'JAPANESE');
+       INSERT INTO media_staff (media_id, staff_id, role, sort_order)
+       VALUES (200, 401, 'Director', 0);
+       INSERT INTO media_cast_expansion (
+         media_id, language, fetched_at, characters_fetched_at, staff_fetched_at,
+         characters_complete, staff_complete
+       ) VALUES
+         (100, 'JAPANESE', ${NOW}, ${NOW}, ${NOW}, 1, 1),
+         (200, 'JAPANESE', ${NOW}, ${NOW}, ${NOW}, 1, 1);
+       INSERT INTO staff_filmography_expansion (staff_id, fetched_at)
+       VALUES (400, ${NOW}), (401, ${NOW});
+       INSERT INTO character_media_expansion (character_id, fetched_at)
+       VALUES (300, ${NOW}), (301, ${NOW});`,
+    );
+
+    migrate(db, anilistSourceDescriptor);
+
+    expect(
+      db.selectObjects(
+        `SELECT media_id, characters_fetched_at, staff_fetched_at,
+                characters_complete, staff_complete
+           FROM media_cast_expansion
+          ORDER BY media_id`,
+      ),
+    ).toEqual([
+      {
+        media_id: 100,
+        characters_fetched_at: null,
+        staff_fetched_at: null,
+        characters_complete: 0,
+        staff_complete: 0,
+      },
+      {
+        media_id: 200,
+        characters_fetched_at: NOW,
+        staff_fetched_at: NOW,
+        characters_complete: 1,
+        staff_complete: 1,
+      },
+    ]);
+    expect(
+      db.selectObjects(
+        'SELECT staff_id FROM staff_filmography_expansion ORDER BY staff_id',
+      ),
+    ).toEqual([{ staff_id: 401 }]);
+    expect(
+      db.selectObjects(
+        'SELECT character_id FROM character_media_expansion ORDER BY character_id',
+      ),
+    ).toEqual([{ character_id: 301 }]);
+    db.close();
+  });
 });
 
 describe('anilist source descriptor', () => {
@@ -500,9 +568,8 @@ describe('anilist source descriptor', () => {
     const user = anilistSourceDescriptor.merge.userDataTables.map((t) => t.name);
     // anilist_user is metadata (source-authoritative), media_list_entry
     // is user-data (PK now includes anilist_user_id for multi-user).
-    // media_cast_expansion is metadata: it's NOT a junction (has its
-    // own fetched_at), so devices that have expanded a media converge
-    // on the latest attempt via row-level merge.
+    // Graph expansion markers stay local because their junction rows are
+    // intentionally not merged.
     expect(meta).toEqual([
       'anilist_user',
       'media',
@@ -510,8 +577,6 @@ describe('anilist source descriptor', () => {
       'tag',
       'character',
       'staff',
-      'staff_filmography_expansion',
-      'character_media_expansion',
       'media_relations_expansion',
       'media_theme_songs_expansion',
     ]);
@@ -520,11 +585,6 @@ describe('anilist source descriptor', () => {
       (t) => t.name === 'media_list_entry',
     );
     expect(listEntry?.pk).toEqual(['anilist_user_id', 'media_id']);
-    const filmography = anilistSourceDescriptor.merge.metadataTables.find(
-      (t) => t.name === 'staff_filmography_expansion',
-    );
-    expect(filmography?.pk).toEqual(['staff_id']);
-    expect(filmography?.timestampCol).toBe('fetched_at');
     const relationsExpansion = anilistSourceDescriptor.merge.metadataTables.find(
       (t) => t.name === 'media_relations_expansion',
     );
@@ -549,6 +609,10 @@ describe('anilist source descriptor', () => {
       'media_tag',
       'media_character',
       'character_voice_actor',
+      'media_staff',
+      'media_cast_expansion',
+      'staff_filmography_expansion',
+      'character_media_expansion',
       'media_favourite',
       'character_favourite',
       'staff_favourite',
@@ -567,7 +631,7 @@ describe('anilist source descriptor', () => {
     expect(registered.id).toBe(ANILIST_SOURCE_ID);
     expect(registered.migrations).toHaveLength(LATEST_SCHEMA_VERSION);
     expect(registered.migrations.map((m) => m.version)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
     ]);
   });
 });

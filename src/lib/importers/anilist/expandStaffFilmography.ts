@@ -53,110 +53,103 @@ export type ExpandStaffFilmographyResult = {
   cvaWritten: number;
 };
 
-async function fetchCharacterPages(
+async function fetchFilmographyPages(
   ctx: AnilistImportContext,
   staffId: number,
   perPage: number,
-  maxPages: number | undefined,
+  charactersMaxPages: number | undefined,
+  staffMediaMaxPages: number | undefined,
 ): Promise<{
-  edges: AnilistStaffCharacterMediaEdgeGql[];
-  pagesFetched: number;
+  characterEdges: AnilistStaffCharacterMediaEdgeGql[];
+  staffMediaEdges: AnilistStaffMediaEdgeGql[];
+  characterPagesFetched: number;
+  staffMediaPagesFetched: number;
   staff: AnilistStaffGql | null;
+  staffExists: boolean | null;
 }> {
   const query = buildStaffFilmographyQuery();
-  const allEdges: AnilistStaffCharacterMediaEdgeGql[] = [];
-  let page = 1;
-  let pagesFetched = 0;
-  let hasNext = true;
+  const characterEdges: AnilistStaffCharacterMediaEdgeGql[] = [];
+  const staffMediaEdges: AnilistStaffMediaEdgeGql[] = [];
+  let charactersPage = 1;
+  let staffMediaPage = 1;
+  let characterPagesFetched = 0;
+  let staffMediaPagesFetched = 0;
+  let charactersDone = charactersMaxPages === 0;
+  let staffMediaDone = staffMediaMaxPages === 0;
   let staff: AnilistStaffGql | null = null;
+  let staffExists: boolean | null = null;
 
-  while (hasNext && (maxPages === undefined || pagesFetched < maxPages)) {
+  while (!charactersDone || !staffMediaDone) {
     const response = await ctx.executeQuery<AnilistStaffFilmographyResponse>(query, {
       id: staffId,
-      charactersPage: page,
-      staffMediaPage: 1,
+      charactersPage,
+      staffMediaPage,
       perPage,
+      includeCharacters: !charactersDone,
+      includeStaffMedia: !staffMediaDone,
     });
     if (!response?.Staff) {
-      if (pagesFetched === 0) {
-        return { edges: [], pagesFetched: 0, staff: null };
+      if (staff === null) {
+        staffExists = false;
       }
       break;
     }
+    staffExists = true;
     if (staff === null) {
       staff = response.Staff;
     }
-    pagesFetched += 1;
-    const conn = response.Staff.characterMedia;
-    if (conn) {
-      allEdges.push(...conn.edges);
-      hasNext = conn.pageInfo.hasNextPage;
-    } else {
-      hasNext = false;
-    }
-    emitProgress(ctx.onProgress, {
-      kind: 'fetching-page',
-      what: 'characters',
-      page,
-      itemsSoFar: allEdges.length,
-    });
-    page += 1;
-  }
 
-  return { edges: allEdges, pagesFetched, staff };
-}
-
-async function fetchStaffMediaPages(
-  ctx: AnilistImportContext,
-  staffId: number,
-  perPage: number,
-  maxPages: number | undefined,
-): Promise<{
-  edges: AnilistStaffMediaEdgeGql[];
-  pagesFetched: number;
-  staff: AnilistStaffGql | null;
-}> {
-  const query = buildStaffFilmographyQuery();
-  const allEdges: AnilistStaffMediaEdgeGql[] = [];
-  let page = 1;
-  let pagesFetched = 0;
-  let hasNext = true;
-  let staff: AnilistStaffGql | null = null;
-
-  while (hasNext && (maxPages === undefined || pagesFetched < maxPages)) {
-    const response = await ctx.executeQuery<AnilistStaffFilmographyResponse>(query, {
-      id: staffId,
-      charactersPage: 1,
-      staffMediaPage: page,
-      perPage,
-    });
-    if (!response?.Staff) {
-      if (pagesFetched === 0) {
-        return { edges: [], pagesFetched: 0, staff: null };
+    if (!charactersDone) {
+      characterPagesFetched += 1;
+      const conn = response.Staff.characterMedia;
+      if (conn) {
+        characterEdges.push(...conn.edges);
       }
-      break;
+      emitProgress(ctx.onProgress, {
+        kind: 'fetching-page',
+        what: 'characters',
+        page: charactersPage,
+        itemsSoFar: characterEdges.length,
+      });
+      const hitMaxPages =
+        charactersMaxPages !== undefined &&
+        characterPagesFetched >= charactersMaxPages;
+      charactersDone = !conn?.pageInfo.hasNextPage || hitMaxPages;
+      if (!charactersDone) {
+        charactersPage += 1;
+      }
     }
-    if (staff === null) {
-      staff = response.Staff;
+
+    if (!staffMediaDone) {
+      staffMediaPagesFetched += 1;
+      const conn = response.Staff.staffMedia;
+      if (conn) {
+        staffMediaEdges.push(...conn.edges);
+      }
+      emitProgress(ctx.onProgress, {
+        kind: 'fetching-page',
+        what: 'staff',
+        page: staffMediaPage,
+        itemsSoFar: staffMediaEdges.length,
+      });
+      const hitMaxPages =
+        staffMediaMaxPages !== undefined &&
+        staffMediaPagesFetched >= staffMediaMaxPages;
+      staffMediaDone = !conn?.pageInfo.hasNextPage || hitMaxPages;
+      if (!staffMediaDone) {
+        staffMediaPage += 1;
+      }
     }
-    pagesFetched += 1;
-    const conn = response.Staff.staffMedia;
-    if (conn) {
-      allEdges.push(...conn.edges);
-      hasNext = conn.pageInfo.hasNextPage;
-    } else {
-      hasNext = false;
-    }
-    emitProgress(ctx.onProgress, {
-      kind: 'fetching-page',
-      what: 'staff',
-      page,
-      itemsSoFar: allEdges.length,
-    });
-    page += 1;
   }
 
-  return { edges: allEdges, pagesFetched, staff };
+  return {
+    characterEdges,
+    staffMediaEdges,
+    characterPagesFetched,
+    staffMediaPagesFetched,
+    staff,
+    staffExists,
+  };
 }
 
 export async function persistStaffFilmographyExpansion(
@@ -265,26 +258,31 @@ export async function expandStaffFilmography(
   const perPage = options.perPage ?? DEFAULT_FILMOGRAPHY_PER_PAGE;
   const language = options.voiceActorLanguage ?? DEFAULT_VOICE_ACTOR_LANGUAGE;
 
-  const charResult = await fetchCharacterPages(
+  const fetched = await fetchFilmographyPages(
     ctx,
     staffId,
     perPage,
     options.charactersMaxPages,
-  );
-  const staffMediaResult = await fetchStaffMediaPages(
-    ctx,
-    staffId,
-    perPage,
     options.staffMediaMaxPages,
   );
-  const characterEdges = charResult.edges;
-  const staffMediaEdges = staffMediaResult.edges;
-  let staffProfile = charResult.staff ?? staffMediaResult.staff;
+  const characterEdges = fetched.characterEdges;
+  const staffMediaEdges = fetched.staffMediaEdges;
+  let staffProfile = fetched.staff;
 
-  if (characterEdges.length === 0 && staffMediaEdges.length === 0) {
+  if (fetched.staffExists === false) {
+    return null;
+  }
+  if (staffProfile === null) {
     const probe = await ctx.executeQuery<AnilistStaffFilmographyResponse>(
       buildStaffFilmographyQuery(),
-      { id: staffId, charactersPage: 1, staffMediaPage: 1, perPage },
+      {
+        id: staffId,
+        charactersPage: 1,
+        staffMediaPage: 1,
+        perPage,
+        includeCharacters: true,
+        includeStaffMedia: true,
+      },
     );
     if (!probe?.Staff) {
       return null;
@@ -295,7 +293,7 @@ export async function expandStaffFilmography(
   return persistStaffFilmographyExpansion(ctx, staffId, characterEdges, staffMediaEdges, {
     voiceActorLanguage: language,
     staffProfile,
-    characterPagesFetched: charResult.pagesFetched,
-    staffMediaPagesFetched: staffMediaResult.pagesFetched,
+    characterPagesFetched: fetched.characterPagesFetched,
+    staffMediaPagesFetched: fetched.staffMediaPagesFetched,
   });
 }
