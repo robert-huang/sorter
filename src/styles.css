@@ -2012,6 +2012,13 @@ html {
   text-align: left;
 }
 
+.tool-entity-label > .anilist-detail-person-link,
+.tool-table-wrap .anilist-detail-person-link,
+.tool-stats-table .anilist-detail-person-link,
+.tool-results .anilist-detail-person-link {
+  color: inherit !important;
+}
+
 .anilist-detail-person-link:hover {
   text-decoration: underline;
 }
@@ -2021,6 +2028,13 @@ html {
    lists match. */
 .anilist-detail-character-name {
   color: var(--accent, #2563eb) !important;
+}
+
+.tool-entity-label > .anilist-detail-character-name,
+.tool-table-wrap .anilist-detail-character-name,
+.tool-stats-table .anilist-detail-character-name,
+.tool-results .anilist-detail-character-name {
+  color: inherit !important;
 }
 
 /* Inline names/characters that are only middle-clickable (open AniList) get
@@ -6592,6 +6606,14 @@ a:where(.anime-to-anime-anilist-link):visited {
   margin: 0;
 }
 
+.tool-seasonal-notes-filter-input {
+  width: 100px;
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: none;
+  margin: 0 -6px 0 -16px;
+}
+
 .tool-field-label-row .tool-field-label {
   flex: 0 0 auto;
   white-space: nowrap;
@@ -7445,6 +7467,9 @@ a:where(.anime-to-anime-anilist-link):visited {
 
 .tool-credits-table th.tool-credits-col-show .tool-entity-btn,
 .tool-credits-table td.tool-credits-col-show .tool-entity-btn {
+  /* Block flex avoids the inline-flex baseline gap that made rowspan
+     contents look slightly high despite vertical-align: middle. */
+  display: flex;
   max-width: 100%;
 }
 

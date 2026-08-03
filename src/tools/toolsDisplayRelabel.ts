@@ -208,6 +208,7 @@ export async function rebuildSharedStaffResult(
 
   let singleShowReport:
     | {
+        sourceMediaId: number;
         sourceTitle: string;
         topOverall: SharedStaffTopMatch[];
         byCategory: SharedStaffCategoryMatches[];
@@ -229,6 +230,7 @@ export async function rebuildSharedStaffResult(
       topCategory: 3,
     });
     singleShowReport = {
+      sourceMediaId: sourceBundle.id,
       sourceTitle: sourceBundle.title,
       topOverall: tally.topOverall,
       byCategory: tally.byCategory,

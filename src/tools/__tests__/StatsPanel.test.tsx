@@ -56,6 +56,12 @@ const entry = {
 const fetchStatsDataMock = vi.mocked(fetchStatsData);
 const expandStatsCastMock = vi.mocked(expandStatsCast);
 const refreshStatsCastFromDbMock = vi.mocked(refreshStatsCastFromDb);
+const favourites = {
+  mediaIds: new Set([1]),
+  characterIds: new Set([2]),
+  staffIds: new Set<number>(),
+  studioIds: new Set<number>(),
+};
 
 let container: HTMLDivElement;
 let root: Root;
@@ -95,6 +101,7 @@ describe('StatsSubrowNameCell', () => {
               },
             ],
           }}
+          favourites={favourites}
           onOpenMedia={vi.fn()}
         />,
       );
@@ -111,6 +118,12 @@ describe('StatsSubrowNameCell', () => {
         '.tool-character-name-link',
       )?.getAttribute('href'),
     ).toBe('https://anilist.co/character/2');
+    expect(container.querySelector('.tool-stats-subrow-show-title')?.textContent).toContain(
+      'Cowboy Bebop ★',
+    );
+    expect(container.querySelector('.tool-character-name-link')?.textContent).toBe(
+      'Spike Spiegel ★',
+    );
   });
 });
 

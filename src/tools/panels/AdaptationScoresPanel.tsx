@@ -39,6 +39,7 @@ import {
 } from './franchiseScoresLogic';
 import { scoreDisplayToneClass } from './seasonalScoresLogic';
 import { MultiSelectChip, toggleInArray } from '../../lib/importers/anilist/filters';
+import { useCurrentAnilistFavourites } from '../useCurrentAnilistFavourites';
 
 const LS_KEY = 'anime-tools-adaptation-scores-form';
 const LS_FILTERS_KEY = 'anime-tools-adaptation-scores-filters';
@@ -228,10 +229,12 @@ function startedAtTooltip(date: AdaptationTableCell['media']['startedAt']): stri
 function AdaptationCell({
   cell,
   column,
+  favourite,
   onOpenMedia,
 }: {
   cell: AdaptationTableCell;
   column: 'source' | 'adaptation';
+  favourite: boolean;
   onOpenMedia: ToolPanelProps['onOpenMedia'];
 }) {
   if (cell.skipRender) {
@@ -280,6 +283,7 @@ function AdaptationCell({
             onOpenMedia={onOpenMedia}
             compact
             className="tool-franchise-title-link"
+            favourite={favourite}
           />
           <span
             className="tool-franchise-format"
@@ -344,7 +348,7 @@ function AdaptationDiffCell({
   );
 }
 
-function AdaptationTable({
+export function AdaptationTable({
   blocks,
   showDifference,
   diffSort,
@@ -357,6 +361,7 @@ function AdaptationTable({
   onDiffSortClick: (backward?: boolean) => void;
   onOpenMedia: ToolPanelProps['onOpenMedia'];
 }) {
+  const favourites = useCurrentAnilistFavourites();
   const showDiff = showDifference !== 'off';
   const headerWrapRef = useRef<HTMLDivElement>(null);
   const headerTableRef = useRef<HTMLTableElement>(null);
@@ -509,7 +514,12 @@ function AdaptationTable({
                     />
                   ) : null}
                   {row.source ? (
-                    <AdaptationCell column="source" cell={row.source} onOpenMedia={onOpenMedia} />
+                    <AdaptationCell
+                      column="source"
+                      cell={row.source}
+                      favourite={favourites.mediaIds.has(row.source.media.id)}
+                      onOpenMedia={onOpenMedia}
+                    />
                   ) : null}
                   {showDiff && rowIndex === 0 ? (
                     <AdaptationDiffCell diff={block.diff} rowSpan={block.rows.length} />
@@ -518,6 +528,7 @@ function AdaptationTable({
                     <AdaptationCell
                       column="adaptation"
                       cell={row.adaptation}
+                      favourite={favourites.mediaIds.has(row.adaptation.media.id)}
                       onOpenMedia={onOpenMedia}
                     />
                   ) : null}

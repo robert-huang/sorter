@@ -18,7 +18,13 @@ import {
   anilistUrlForCharacter,
 } from '../../lib/importers/anilist/anilistLinks';
 import { AnilistMiddleClickLink } from '../../lib/importers/anilist/AnilistMiddleClickLink';
-import { ToolShowButton, ToolStaffButton, ToolStudioName } from '../toolEntityLinks';
+import {
+  appendFavouriteStar,
+  appendFavouriteStarBeforeRole,
+  ToolShowButton,
+  ToolStaffButton,
+  ToolStudioName,
+} from '../toolEntityLinks';
 import { DragScroll } from '../../components/DragScroll';
 import {
   applyHeaderScrollbarGutter,
@@ -26,6 +32,8 @@ import {
 } from '../../lib/chartSplitTableSync';
 import { useToolsPreferencesRevision } from '../../hooks/useToolsPreferences';
 import { getProductionAllRoles } from '../toolsPreferences';
+import { useCurrentAnilistFavourites } from '../useCurrentAnilistFavourites';
+import type { FavouriteEntityIds } from '../../lib/importers/anilist/readQueries';
 
 const DEFAULT_FORM: SharedStaffForm = {
   showText: '',
@@ -131,28 +139,41 @@ function progressLabel(progress: SharedStaffRunProgress | null): string | null {
 function SharedStaffVaRoleCell({
   label,
   characterId,
+  favourite,
 }: {
   label: string;
   characterId: number | null | undefined;
+  favourite: boolean;
 }) {
   const anilistUrl =
     characterId != null && characterId > 0 ? anilistUrlForCharacter(characterId) : null;
 
   return (
-    <AnilistMiddleClickLink url={anilistUrl} className="tool-character-name-link">
-      {label}
+    <AnilistMiddleClickLink
+      url={anilistUrl}
+      className={[
+        'tool-character-name-link',
+        characterId != null ? 'anilist-detail-character-name' : '',
+        favourite ? 'anilist-detail-character-name--favourite' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
+      {appendFavouriteStarBeforeRole(label, favourite)}
     </AnilistMiddleClickLink>
   );
 }
 
-function StaffCompareSectionTable({
+export function StaffCompareSectionTable({
   section,
   shows,
+  favourites,
   onOpenMedia,
   onOpenStaff,
 }: {
   section: SharedStaffSection;
   shows: Array<{ id: number; title: string; coverImage: string | null }>;
+  favourites: FavouriteEntityIds;
   onOpenMedia: ToolPanelProps['onOpenMedia'];
   onOpenStaff: ToolPanelProps['onOpenStaff'];
 }) {
@@ -218,6 +239,7 @@ function StaffCompareSectionTable({
                     coverImage={show.coverImage}
                     onOpenMedia={onOpenMedia}
                     compact
+                    favourite={favourites.mediaIds.has(show.id)}
                   />
                 </th>
               ))}
@@ -237,7 +259,11 @@ function StaffCompareSectionTable({
                 <td className="tool-staff-compare-entity">
                   {row.name ? (
                     row.kind === 'studio' ? (
-                      <ToolStudioName studioId={row.entityId} name={row.name} />
+                      <ToolStudioName
+                        studioId={row.entityId}
+                        name={row.name}
+                        favourite={favourites.studioIds.has(row.entityId)}
+                      />
                     ) : (
                       <ToolStaffButton
                         staffId={row.entityId}
@@ -245,6 +271,7 @@ function StaffCompareSectionTable({
                         imageUrl={row.imageUrl}
                         onOpenStaff={onOpenStaff}
                         compact
+                        favourite={favourites.staffIds.has(row.entityId)}
                       />
                     )
                   ) : null}
@@ -255,6 +282,10 @@ function StaffCompareSectionTable({
                       <SharedStaffVaRoleCell
                         label={cell}
                         characterId={row.characterIds?.[colIdx]}
+                        favourite={
+                          row.characterIds?.[colIdx] != null &&
+                          favourites.characterIds.has(row.characterIds?.[colIdx] ?? 0)
+                        }
                       />
                     ) : (
                       cell
@@ -273,6 +304,7 @@ function StaffCompareSectionTable({
 export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
   const displayLabelRevision = useToolsDisplayLabelRevision();
   const toolsPrefsRevision = useToolsPreferencesRevision();
+  const favourites = useCurrentAnilistFavourites();
   const [form, setForm] = useState<SharedStaffForm>(() => loadForm());
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<SharedStaffRunProgress | null>(null);
@@ -389,6 +421,19 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
   const showCount = parseShowInputs(form.showText).length;
   const singleShowEligible = showCount === 1;
   const singleShowOptionsActive = singleShowEligible && form.enableSingleShowMode;
+  const singleShowReport = result?.kind === 'compare' ? result.singleShowReport : undefined;
+  const sourceTitleFavourite = singleShowReport
+    ? favourites.mediaIds.has(singleShowReport.sourceMediaId)
+    : false;
+  const sourceTitle = singleShowReport ? (
+    <span
+      className={`anilist-detail-media-title${
+        sourceTitleFavourite ? ' anilist-detail-media-title--favourite' : ''
+      }`}
+    >
+      {appendFavouriteStar(singleShowReport.sourceTitle, sourceTitleFavourite)}
+    </span>
+  ) : null;
 
   return (
     <section className="tool-panel">
@@ -535,7 +580,7 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
         <div className="tool-results tool-single-show-report">
           <h3 className="tool-diff-title">
             Shows with most production staff in common with{' '}
-            {result.singleShowReport.sourceTitle}
+            {sourceTitle}
           </h3>
           <ul className="tool-rank-list">
             {result.singleShowReport.topOverall.map((row) => (
@@ -547,6 +592,7 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
                   coverImage={row.coverImage}
                   onOpenMedia={onOpenMedia}
                   compact
+                  favourite={favourites.mediaIds.has(row.mediaId)}
                 />
               </li>
             ))}
@@ -554,7 +600,7 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
           {result.singleShowReport.byCategory.map((block) => (
             <div key={block.label} className="tool-category-block">
               <h4 className="tool-category-title">
-                Top {block.label} overlaps with {result.singleShowReport!.sourceTitle}
+                Top {block.label} overlaps with {sourceTitle}
               </h4>
               <ul className="tool-rank-list">
                 {block.matches.map((row) => (
@@ -566,6 +612,7 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
                       coverImage={row.coverImage}
                       onOpenMedia={onOpenMedia}
                       compact
+                      favourite={favourites.mediaIds.has(row.mediaId)}
                     />
                   </li>
                 ))}
@@ -582,6 +629,7 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
               key={section.title}
               section={section}
               shows={result.shows}
+              favourites={favourites}
               onOpenMedia={onOpenMedia}
               onOpenStaff={onOpenStaff}
             />

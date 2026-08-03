@@ -9,6 +9,24 @@ import type { AnilistMediaType } from '../lib/importers/anilist/types';
 import { UserIcon } from '../components/icons';
 import type { ToolPanelProps } from './toolTypes';
 
+export function appendFavouriteStar(label: string, favourite: boolean): string {
+  return favourite ? `${label} ★` : label;
+}
+
+/** Keep the star attached to a character name before a trailing role label. */
+export function appendFavouriteStarBeforeRole(
+  label: string,
+  favourite: boolean,
+): string {
+  if (!favourite) {
+    return label;
+  }
+  const roleSuffix = label.match(/^(.*?)(\s+\([^()]+\))$/);
+  return roleSuffix
+    ? `${roleSuffix[1]} ★${roleSuffix[2]}`
+    : appendFavouriteStar(label, true);
+}
+
 type EntityAvatarProps = {
   imageUrl?: string | null;
   label: string;
@@ -53,6 +71,7 @@ type ToolShowButtonProps = {
   /** When true, omit the cover/poster (e.g. when rendered in a sibling column). */
   hideAvatar?: boolean;
   className?: string;
+  favourite?: boolean;
 };
 
 /** Cover + title chip that opens the media detail modal (left) or AniList (middle). */
@@ -65,6 +84,7 @@ export function ToolShowButton({
   compact = false,
   hideAvatar = false,
   className,
+  favourite,
 }: ToolShowButtonProps) {
   return (
     <AnilistMiddleClickLink
@@ -83,7 +103,17 @@ export function ToolShowButton({
         <ToolEntityAvatar imageUrl={coverImage} label={title} variant="poster" />
       )}
       <span className="tool-entity-label">
-        <strong>{title}</strong>
+        <strong
+          className={
+            favourite === undefined
+              ? undefined
+              : `anilist-detail-media-title${
+                  favourite ? ' anilist-detail-media-title--favourite' : ''
+                }`
+          }
+        >
+          {appendFavouriteStar(title, favourite === true)}
+        </strong>
       </span>
     </AnilistMiddleClickLink>
   );
@@ -98,6 +128,7 @@ type ToolStaffButtonProps = {
   className?: string;
   /** When set, colours the name (male: cornflowerblue, female: plum). */
   gender?: string | null;
+  favourite?: boolean;
 };
 
 function staffGenderButtonClass(gender: string | null | undefined): string {
@@ -120,6 +151,7 @@ export function ToolStaffButton({
   compact = false,
   className,
   gender,
+  favourite,
 }: ToolStaffButtonProps) {
   return (
     <AnilistMiddleClickLink
@@ -137,7 +169,17 @@ export function ToolStaffButton({
     >
       <ToolEntityAvatar imageUrl={imageUrl} label={name} variant="round" />
       <span className="tool-entity-label">
-        <strong>{name}</strong>
+        <strong
+          className={
+            favourite === undefined
+              ? undefined
+              : `tool-entity-person-name anilist-detail-person-link${
+                  favourite ? ' anilist-detail-person-link--favourite' : ''
+                }`
+          }
+        >
+          {appendFavouriteStar(name, favourite === true)}
+        </strong>
       </span>
     </AnilistMiddleClickLink>
   );
@@ -148,6 +190,7 @@ type ToolCharacterNameProps = {
   name: string;
   /** When set, colours the name (male: cornflowerblue, female: plum). */
   gender?: string | null;
+  favourite?: boolean;
 };
 
 function characterGenderLinkClass(gender: string | null | undefined): string {
@@ -162,15 +205,25 @@ function characterGenderLinkClass(gender: string | null | undefined): string {
 }
 
 /** Character name with middle-click to open AniList (no in-app character modal). */
-export function ToolCharacterName({ characterId, name, gender }: ToolCharacterNameProps) {
+export function ToolCharacterName({
+  characterId,
+  name,
+  gender,
+  favourite,
+}: ToolCharacterNameProps) {
   return (
     <AnilistMiddleClickLink
       url={anilistUrlForCharacter(characterId)}
-      className={['tool-character-name-link', characterGenderLinkClass(gender)]
+      className={[
+        'tool-character-name-link',
+        favourite === undefined ? '' : 'anilist-detail-character-name',
+        favourite ? 'anilist-detail-character-name--favourite' : '',
+        characterGenderLinkClass(gender),
+      ]
         .filter(Boolean)
         .join(' ')}
     >
-      {name}
+      {appendFavouriteStar(name, favourite === true)}
     </AnilistMiddleClickLink>
   );
 }
@@ -178,13 +231,23 @@ export function ToolCharacterName({ characterId, name, gender }: ToolCharacterNa
 type ToolStudioNameProps = {
   studioId: number;
   name: string;
+  favourite?: boolean;
 };
 
 /** Studio name with middle-click to open AniList (no in-app studio modal). */
-export function ToolStudioName({ studioId, name }: ToolStudioNameProps) {
+export function ToolStudioName({ studioId, name, favourite }: ToolStudioNameProps) {
   return (
-    <AnilistMiddleClickLink url={anilistUrlForStudio(studioId)} className="tool-character-name-link">
-      {name}
+    <AnilistMiddleClickLink
+      url={anilistUrlForStudio(studioId)}
+      className={[
+        'tool-character-name-link',
+        favourite === undefined ? '' : 'anilist-detail-tag-item-studio',
+        favourite ? 'anilist-detail-tag-item-studio--favourite' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
+      {appendFavouriteStar(name, favourite === true)}
     </AnilistMiddleClickLink>
   );
 }

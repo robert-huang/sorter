@@ -697,24 +697,25 @@ describe('seasonalScoresLogic', () => {
     }
   });
 
-  it('airingNotesOnly keeps only entries whose notes include #airing', () => {
+  it('notes filtering uses the configured text instead of a hardcoded tag', () => {
     const shows: SeasonalShow[] = [
       { id: 1, title: 'A', season: 'WINTER', seasonYear: 2024, score: 90, notes: 'just a note' },
       { id: 2, title: 'B', season: 'WINTER', seasonYear: 2024, score: 80, notes: '#airing finished' },
-      { id: 3, title: 'C', season: 'WINTER', seasonYear: 2024, score: 70, notes: null },
+      { id: 3, title: 'C', season: 'WINTER', seasonYear: 2024, score: 70, notes: '#watching weekly' },
     ];
     const result = buildSeasonalColumns(shows, {
       username: 'user',
       seasonText: 'Winter 2024',
       skipEmpty: false,
       airingNotesOnly: true,
+      notesFilter: '#watching',
       includePlanning: false,
       spanAiringSeasons: false,
       seasonMode: 'custom',
     });
     expect(result.kind).toBe('columns');
     if (result.kind === 'columns') {
-      expect(result.columns[0]?.shows.map((s) => s.title)).toEqual(['B']);
+      expect(result.columns[0]?.shows.map((s) => s.title)).toEqual(['C']);
     }
   });
 

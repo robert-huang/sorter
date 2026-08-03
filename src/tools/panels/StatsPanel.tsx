@@ -29,6 +29,8 @@ import {
   ToolEntityAvatar,
   ToolShowButton,
   ToolStaffButton,
+  ToolStudioName,
+  appendFavouriteStar,
 } from '../toolEntityLinks';
 import {
   bustStatsSessionMemo,
@@ -107,6 +109,8 @@ import {
   type StatsTableSortConfig,
   type StatsTimeWatchedRow,
 } from './statsLogic';
+import { useCurrentAnilistFavourites } from '../useCurrentAnilistFavourites';
+import type { FavouriteEntityIds } from '../../lib/importers/anilist/readQueries';
 
 const LS_KEY = 'anime-tools-stats-form';
 const LS_FILTERS_KEY = 'anime-tools-stats-filters';
@@ -386,10 +390,12 @@ function StatsMinCountChip({
 export function StatsSubrowNameCell({
   entry,
   link,
+  favourites,
   onOpenMedia,
 }: {
   entry: StatsEntry;
   link?: StatsSubrowLink;
+  favourites: FavouriteEntityIds;
   onOpenMedia: ToolPanelProps['onOpenMedia'];
 }) {
   const repeatSuffix =
@@ -417,13 +423,20 @@ export function StatsSubrowNameCell({
           <span
             className={[
               'tool-stats-subrow-show-title',
+              'anilist-detail-media-title',
+              favourites.mediaIds.has(entry.mediaId)
+                ? 'anilist-detail-media-title--favourite'
+                : undefined,
               muteSubrowTitle ? 'tool-stats-non-animation-subrow-title' : undefined,
             ]
               .filter(Boolean)
               .join(' ')}
             title={muteSubrowTitle ? STATS_NON_ANIMATION_STUDIO_HINT : undefined}
           >
-            {entry.title}
+            {appendFavouriteStar(
+              entry.title,
+              favourites.mediaIds.has(entry.mediaId),
+            )}
             {repeatSuffix ? <span className="tool-stats-repeat">{repeatSuffix}</span> : null}
           </span>
           {hasVaCharacters ? (
@@ -434,6 +447,7 @@ export function StatsSubrowNameCell({
                   <ToolCharacterName
                     characterId={character.characterId}
                     name={character.characterName}
+                    favourite={favourites.characterIds.has(character.characterId)}
                   />
                   {character.characterRole ? ` (${character.characterRole})` : ''}
                 </span>
@@ -444,6 +458,7 @@ export function StatsSubrowNameCell({
               <ToolCharacterName
                 characterId={link?.characterId ?? 0}
                 name={link?.characterName ?? ''}
+                favourite={favourites.characterIds.has(link?.characterId ?? 0)}
               />
               {link?.characterRole ? ` (${link.characterRole})` : ''}
             </span>
@@ -459,11 +474,13 @@ export function StatsSubrowNameCell({
 function StatsMostCommonScoreModal({
   score,
   entries,
+  favourites,
   onClose,
   onOpenMedia,
 }: {
   score: number;
   entries: StatsEntry[];
+  favourites: FavouriteEntityIds;
   onClose: () => void;
   onOpenMedia: ToolPanelProps['onOpenMedia'];
 }) {
@@ -487,6 +504,7 @@ function StatsMostCommonScoreModal({
               mediaType={entry.mediaType}
               onOpenMedia={onOpenMedia}
               compact
+              favourite={favourites.mediaIds.has(entry.mediaId)}
             />
           </li>
         ))}
@@ -497,10 +515,12 @@ function StatsMostCommonScoreModal({
 
 function StatsTimeWatchedChartModal({
   rows,
+  favourites,
   onClose,
   onOpenMedia,
 }: {
   rows: StatsTimeWatchedRow[];
+  favourites: FavouriteEntityIds;
   onClose: () => void;
   onOpenMedia: ToolPanelProps['onOpenMedia'];
 }) {
@@ -659,6 +679,7 @@ function StatsTimeWatchedChartModal({
                       mediaType={entry.mediaType}
                       onOpenMedia={onOpenMedia}
                       compact
+                      favourite={favourites.mediaIds.has(entry.mediaId)}
                     />
                   </td>
                   <td className="tool-stats-time-chart-metric">{statsEffectiveEpisodes(entry)}</td>
@@ -785,6 +806,7 @@ function StatsTable({
   onSubrowSort,
   showMainRoleInfo,
   showDiff,
+  favourites,
   onOpenMedia,
   onOpenStaff,
   expandedKeys,
@@ -799,6 +821,7 @@ function StatsTable({
   onSubrowSort: (column: StatsSortColumn) => void;
   showMainRoleInfo: boolean;
   showDiff: boolean;
+  favourites: FavouriteEntityIds;
   onOpenMedia: ToolPanelProps['onOpenMedia'];
   onOpenStaff: ToolPanelProps['onOpenStaff'];
   expandedKeys: Set<string>;
@@ -1041,6 +1064,26 @@ function StatsTable({
                                 gender={row.staffGender}
                                 onOpenStaff={onOpenStaff}
                                 compact
+                                favourite={favourites.staffIds.has(row.staffId)}
+                              />
+                            </span>
+                          ) : row.studioId != null ? (
+                            <span
+                              className={
+                                row.isNonAnimationStudio
+                                  ? 'tool-stats-non-animation-studio'
+                                  : undefined
+                              }
+                              title={
+                                row.isNonAnimationStudio
+                                  ? STATS_NON_ANIMATION_STUDIO_HINT
+                                  : undefined
+                              }
+                            >
+                              <ToolStudioName
+                                studioId={row.studioId}
+                                name={row.name}
+                                favourite={favourites.studioIds.has(row.studioId)}
                               />
                             </span>
                           ) : (
@@ -1095,6 +1138,7 @@ function StatsTable({
                               showMainRoleInfo={showMainRoleInfo}
                               showDiff={showDiff}
                               isAnime={isAnime}
+                              favourites={favourites}
                               onOpenMedia={onOpenMedia}
                             />
                           ))
@@ -1116,12 +1160,14 @@ function StatsSubrowTr({
   showMainRoleInfo,
   showDiff,
   isAnime,
+  favourites,
   onOpenMedia,
 }: {
   sub: StatsSubrow;
   showMainRoleInfo: boolean;
   showDiff: boolean;
   isAnime: boolean;
+  favourites: FavouriteEntityIds;
   onOpenMedia: ToolPanelProps['onOpenMedia'];
 }) {
   const entry = sub.entry;
@@ -1135,7 +1181,12 @@ function StatsSubrowTr({
   return (
     <tr className="tool-stats-subrow">
       <td className="tool-stats-name-cell">
-        <StatsSubrowNameCell entry={entry} link={sub.link} onOpenMedia={onOpenMedia} />
+        <StatsSubrowNameCell
+          entry={entry}
+          link={sub.link}
+          favourites={favourites}
+          onOpenMedia={onOpenMedia}
+        />
       </td>
       <td className="tool-stats-subrow-count">{formatStatsSubrowCountLabel(entry)}</td>
       <td>
@@ -1185,6 +1236,7 @@ export function StatsPanel({
   const abortRef = useRef<AbortController | null>(null);
   const appliedDbSyncRevisionRef = useRef(dbSyncRevision);
   const displayLabelRevision = useToolsDisplayLabelRevision();
+  const favourites = useCurrentAnilistFavourites();
 
   const patchForm = useCallback((patch: Partial<StatsForm>) => {
     setForm((prev) => {
@@ -1805,6 +1857,7 @@ export function StatsPanel({
                     onSubrowSort={(column) => onSubrowSort('staff', column)}
                     showMainRoleInfo={false}
                     showDiff={false}
+                    favourites={favourites}
                     onOpenMedia={onOpenMedia}
                     onOpenStaff={onOpenStaff}
                     expandedKeys={expandedKeys}
@@ -1825,6 +1878,7 @@ export function StatsPanel({
                     onSubrowSort={(column) => onSubrowSort('va', column)}
                     showMainRoleInfo={form.vaShowMainRoleInfo}
                     showDiff={form.vaShowDiff}
+                    favourites={favourites}
                     onOpenMedia={onOpenMedia}
                     onOpenStaff={onOpenStaff}
                     expandedKeys={expandedKeys}
@@ -1846,6 +1900,7 @@ export function StatsPanel({
                       onSubrowSort={(column) => onSubrowSort('genres', column)}
                       showMainRoleInfo={false}
                       showDiff={false}
+                      favourites={favourites}
                       onOpenMedia={onOpenMedia}
                       onOpenStaff={onOpenStaff}
                       expandedKeys={expandedKeys}
@@ -1863,6 +1918,7 @@ export function StatsPanel({
                       onSubrowSort={(column) => onSubrowSort('tags', column)}
                       showMainRoleInfo={false}
                       showDiff={false}
+                      favourites={favourites}
                       onOpenMedia={onOpenMedia}
                       onOpenStaff={onOpenStaff}
                       expandedKeys={expandedKeys}
@@ -1880,6 +1936,7 @@ export function StatsPanel({
                       onSubrowSort={(column) => onSubrowSort('customTags', column)}
                       showMainRoleInfo={false}
                       showDiff={false}
+                      favourites={favourites}
                       onOpenMedia={onOpenMedia}
                       onOpenStaff={onOpenStaff}
                       expandedKeys={expandedKeys}
@@ -1901,6 +1958,7 @@ export function StatsPanel({
                     onSubrowSort={(column) => onSubrowSort('studios', column)}
                     showMainRoleInfo={false}
                     showDiff={false}
+                    favourites={favourites}
                     onOpenMedia={onOpenMedia}
                     onOpenStaff={onOpenStaff}
                     expandedKeys={expandedKeys}
@@ -1919,6 +1977,7 @@ export function StatsPanel({
           <StatsMostCommonScoreModal
             score={built.summary.mostCommonScore}
             entries={mostCommonScoreEntries}
+            favourites={favourites}
             onClose={() => setSummaryModal(null)}
             onOpenMedia={onOpenMedia}
           />
@@ -1927,6 +1986,7 @@ export function StatsPanel({
       {summaryModal === 'time-chart' && timeWatchedRows.length > 0 && (
         <StatsTimeWatchedChartModal
           rows={timeWatchedRows}
+          favourites={favourites}
           onClose={() => setSummaryModal(null)}
           onOpenMedia={onOpenMedia}
         />

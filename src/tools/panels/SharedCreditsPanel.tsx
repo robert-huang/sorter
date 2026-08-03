@@ -22,6 +22,7 @@ import {
 import { SharedCreditsResultsTable } from './sharedCreditsTable';
 import { ToolShowButton, ToolStaffButton } from '../toolEntityLinks';
 import { ToolSegmentedFilter } from '../ToolSegmentedFilter';
+import { useCurrentAnilistFavourites } from '../useCurrentAnilistFavourites';
 
 const DEFAULT_FORM: SharedCreditsForm = {
   staffText: '',
@@ -141,6 +142,7 @@ function progressLabel(progress: SharedCreditsRunProgress | null): string | null
 
 export function SharedCreditsPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
   const { refreshing: refreshingList, refreshUsernameList } = useUsernameListRefresh();
+  const favourites = useCurrentAnilistFavourites();
   const displayLabelRevision = useToolsDisplayLabelRevision();
   const [form, setForm] = useState<SharedCreditsForm>(() => loadForm());
   const [running, setRunning] = useState(false);
@@ -449,6 +451,7 @@ export function SharedCreditsPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps)
                   imageUrl={block.staffImage ?? null}
                   onOpenStaff={onOpenStaff}
                   compact
+                  favourite={favourites.staffIds.has(block.staffId)}
                 />
               </h3>
               <ul className="tool-diff-list">
@@ -460,6 +463,7 @@ export function SharedCreditsPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps)
                       coverImage={show.coverImage}
                       onOpenMedia={onOpenMedia}
                       compact
+                      favourite={favourites.mediaIds.has(show.mediaId)}
                     />
                     {show.rolesLabel && (
                       <span className="tool-diff-roles"> — {show.rolesLabel}</span>
@@ -479,6 +483,7 @@ export function SharedCreditsPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps)
             staffNames={result.staffNames}
             staffImages={result.staffImages}
             rows={result.rows}
+            favourites={favourites}
             onOpenMedia={onOpenMedia}
             onOpenStaff={onOpenStaff}
           />

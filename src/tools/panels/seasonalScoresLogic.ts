@@ -275,6 +275,8 @@ export type SeasonalScoresForm = {
   seasonMode: SeasonMode;
   skipEmpty: boolean;
   airingNotesOnly: boolean;
+  /** Optional only for callers restoring legacy form shapes. */
+  notesFilter?: string;
   includePlanning: boolean;
   /** Bucket by broadcast start/end overlap instead of a single AniList season tag. */
   spanAiringSeasons: boolean;
@@ -786,6 +788,7 @@ export function bucketShowsForSeason(
   shows: SeasonalShow[],
   spec: SeasonSpec,
   airingNotesOnly: boolean,
+  notesFilter: string,
   includePlanning: boolean,
   spanAiringSeasons: boolean,
   now: Date = new Date(),
@@ -798,7 +801,7 @@ export function bucketShowsForSeason(
       if (!showMatchesSeasonSpec(show, spec, { spanAiringSeasons, now })) {
         return false;
       }
-      if (airingNotesOnly && !(show.notes ?? '').includes('#airing')) {
+      if (airingNotesOnly && !(show.notes ?? '').includes(notesFilter)) {
         return false;
       }
       return true;
@@ -910,6 +913,7 @@ export function buildSeasonalColumns(
       filteredShows,
       spec,
       form.airingNotesOnly,
+      form.notesFilter ?? '#airing',
       form.includePlanning,
       form.spanAiringSeasons,
       now,

@@ -1,0 +1,102 @@
+import { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { SeasonalScoresPanel } from '../panels/SeasonalScoresPanel';
+
+let container: HTMLDivElement;
+let root: Root;
+
+beforeAll(() => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT =
+    true;
+});
+
+beforeEach(() => {
+  localStorage.clear();
+  container = document.createElement('div');
+  document.body.appendChild(container);
+  root = createRoot(container);
+});
+
+afterEach(() => {
+  act(() => root.unmount());
+  container.remove();
+});
+
+describe('SeasonalScoresPanel notes filter', () => {
+  it('persists custom text and resets it after toggling the filter off', () => {
+    act(() => {
+      root.render(
+        <SeasonalScoresPanel
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+          dbSyncRevision={0}
+        />,
+      );
+    });
+
+    let notesLabel = Array.from(container.querySelectorAll('label')).find((label) =>
+      label.textContent?.includes('Notes filter'),
+    );
+    let checkbox = notesLabel?.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    expect(checkbox).toBeTruthy();
+
+    act(() => checkbox?.click());
+    let notesInput = container.querySelector<HTMLInputElement>(
+      '.tool-seasonal-notes-filter-input',
+    );
+    expect(notesInput?.value).toBe('#airing');
+
+    act(() => {
+      if (notesInput) {
+        const valueSetter = Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          'value',
+        )?.set;
+        valueSetter?.call(notesInput, '#watching');
+        notesInput.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    });
+
+    expect(
+      JSON.parse(
+        localStorage.getItem('anime-tools-seasonal-scores-form') ?? '{}',
+      ).notesFilter,
+    ).toBe('#watching');
+
+    act(() => root.unmount());
+    root = createRoot(container);
+    act(() => {
+      root.render(
+        <SeasonalScoresPanel
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+          dbSyncRevision={0}
+        />,
+      );
+    });
+    notesLabel = Array.from(container.querySelectorAll('label')).find((label) =>
+      label.textContent?.includes('Notes filter'),
+    );
+    checkbox = notesLabel?.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    expect(checkbox?.checked).toBe(true);
+    expect(
+      container.querySelector<HTMLInputElement>('.tool-seasonal-notes-filter-input')
+        ?.value,
+    ).toBe('#watching');
+
+    act(() => checkbox?.click());
+    expect(container.querySelector('.tool-seasonal-notes-filter-input')).toBeNull();
+
+    act(() => checkbox?.click());
+    notesInput = container.querySelector<HTMLInputElement>(
+      '.tool-seasonal-notes-filter-input',
+    );
+    expect(notesInput?.value).toBe('#airing');
+    expect(
+      JSON.parse(
+        localStorage.getItem('anime-tools-seasonal-scores-form') ?? '{}',
+      ).airingNotesOnly,
+    ).toBe(true);
+  });
+});

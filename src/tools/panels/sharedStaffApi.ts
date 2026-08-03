@@ -539,6 +539,7 @@ export async function runSharedStaffCompare(options: {
 }): Promise<{
   shows: ShowStaffBundle[];
   singleShowReport?: {
+    sourceMediaId: number;
     sourceTitle: string;
     topOverall: SharedStaffTopMatch[];
     byCategory: SharedStaffCategoryMatches[];
@@ -658,6 +659,7 @@ export async function runSharedStaffCompare(options: {
   return {
     shows,
     singleShowReport: {
+      sourceMediaId: source.id,
       sourceTitle: source.title,
       topOverall: tally.topOverall,
       byCategory: tally.byCategory,

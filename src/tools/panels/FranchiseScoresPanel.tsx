@@ -40,6 +40,7 @@ import {
   adaptationSelectedListMediaTypes,
 } from './adaptationScoresLogic';
 import { ScoreRangeChip } from '../../lib/importers/anilist/filters';
+import { useCurrentAnilistFavourites } from '../useCurrentAnilistFavourites';
 
 const LS_KEY = 'anime-tools-franchise-scores-form';
 const LS_FILTERS_KEY = 'anime-tools-franchise-scores-filters';
@@ -212,7 +213,7 @@ function downloadCsv(filename: string, contents: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function FranchiseTable({
+export function FranchiseTable({
   entries,
   seedId,
   seedTitle,
@@ -223,6 +224,7 @@ function FranchiseTable({
   seedTitle: string;
   onOpenMedia: ToolPanelProps['onOpenMedia'];
 }) {
+  const favourites = useCurrentAnilistFavourites();
   // Brief visual confirmation that the clipboard write succeeded; clears
   // itself so a follow-up Copy fires the toast again.
   const [copied, setCopied] = useState(false);
@@ -304,6 +306,7 @@ function FranchiseTable({
                     onOpenMedia={onOpenMedia}
                     compact
                     className="tool-franchise-title-link"
+                    favourite={favourites.mediaIds.has(entry.id)}
                   />
                   <span
                     className="tool-franchise-format"

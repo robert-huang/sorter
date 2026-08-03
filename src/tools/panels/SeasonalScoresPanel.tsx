@@ -48,12 +48,14 @@ import {
 } from '../../lib/importers/anilist/anilistLinks';
 import { AnilistMiddleClickLink } from '../../lib/importers/anilist/AnilistMiddleClickLink';
 import { MultiSelectChip, SeasonYearChip, toggleInArray } from '../../lib/importers/anilist/filters';
+import { useCurrentAnilistFavourites } from '../useCurrentAnilistFavourites';
 
 const LS_KEY = 'anime-tools-seasonal-scores-form';
 const LS_SOURCE_FILTERS_KEY = 'anime-tools-seasonal-scores-source-filters';
 const LS_PRIMARY_FILTERS_KEY = 'anime-tools-seasonal-scores-primary-filters';
 /** @deprecated migrated into {@link LS_KEY} */
 const LS_SEASON_TEXT_KEY = 'anime-tools-seasonal-scores-season-text';
+const DEFAULT_NOTES_FILTER = '#airing';
 
 const DEFAULT_FORM: SeasonalScoresForm = {
   username: '',
@@ -63,6 +65,7 @@ const DEFAULT_FORM: SeasonalScoresForm = {
   seasonMode: 'allseasons',
   skipEmpty: false,
   airingNotesOnly: false,
+  notesFilter: DEFAULT_NOTES_FILTER,
   includePlanning: false,
   spanAiringSeasons: false,
 };
@@ -74,6 +77,7 @@ type PersistedSeasonalForm = Pick<
   | 'seasonMode'
   | 'skipEmpty'
   | 'airingNotesOnly'
+  | 'notesFilter'
   | 'includePlanning'
   | 'spanAiringSeasons'
 >;
@@ -178,6 +182,10 @@ function loadForm(): SeasonalScoresForm {
               : DEFAULT_FORM.seasonMode,
         skipEmpty: parsed.skipEmpty ?? false,
         airingNotesOnly: parsed.airingNotesOnly ?? false,
+        notesFilter:
+          typeof parsed.notesFilter === 'string'
+            ? parsed.notesFilter
+            : DEFAULT_NOTES_FILTER,
         includePlanning: parsed.includePlanning ?? false,
         spanAiringSeasons: parsed.spanAiringSeasons ?? false,
       };
@@ -202,6 +210,7 @@ function saveForm(form: SeasonalScoresForm): void {
       seasonMode: form.seasonMode,
       skipEmpty: form.skipEmpty,
       airingNotesOnly: form.airingNotesOnly,
+      notesFilter: form.notesFilter,
       includePlanning: form.includePlanning,
       spanAiringSeasons: form.spanAiringSeasons,
     };
@@ -226,13 +235,14 @@ const SEASON_MODE_OPTIONS: { value: SeasonMode; label: string; title: string }[]
   { value: 'custom', label: 'Custom', title: 'Type your own season list (one per line).' },
 ];
 
-function SeasonalColumnsView({
+export function SeasonalColumnsView({
   columns,
   onOpenMedia,
 }: {
   columns: SeasonColumn[];
   onOpenMedia: ToolPanelProps['onOpenMedia'];
 }) {
+  const favourites = useCurrentAnilistFavourites();
   const topAverageColumnIndices = seasonColumnIndicesWithTopAverage(columns);
   const headerRef = useRef<HTMLDivElement>(null);
   const bodyScrollRef = useRef<HTMLDivElement>(null);
@@ -350,6 +360,7 @@ function SeasonalColumnsView({
                       coverImage={show.coverImage}
                       onOpenMedia={onOpenMedia}
                       compact
+                      favourite={favourites.mediaIds.has(show.id)}
                       className={[
                         'tool-season-title',
                         show.extendedPlacement ? 'tool-season-title--extended' : '',
@@ -690,10 +701,25 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
               type="checkbox"
               checked={form.airingNotesOnly}
               disabled={running}
-              onChange={(e) => patchForm({ airingNotesOnly: e.target.checked })}
+              onChange={(e) =>
+                patchForm({
+                  airingNotesOnly: e.target.checked,
+                  notesFilter: DEFAULT_NOTES_FILTER,
+                })
+              }
             />
-            Only #airing notes
+            Notes filter
           </label>
+          {form.airingNotesOnly ? (
+            <input
+              type="text"
+              className="slot-search tool-seasonal-notes-filter-input"
+              value={form.notesFilter}
+              disabled={running}
+              aria-label="Notes filter text"
+              onChange={(e) => patchForm({ notesFilter: e.target.value })}
+            />
+          ) : null}
           <label className="tool-checkbox">
             <input
               type="checkbox"

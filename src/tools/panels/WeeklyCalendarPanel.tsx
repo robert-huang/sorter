@@ -12,7 +12,11 @@ import {
   toggleInArray,
 } from '../../lib/importers/anilist/filters';
 import { useClickOutside } from '../../lib/hooks/useClickOutside';
-import { ToolShowButton, ToolEntityAvatar } from '../toolEntityLinks';
+import {
+  appendFavouriteStar,
+  ToolShowButton,
+  ToolEntityAvatar,
+} from '../toolEntityLinks';
 import {
   anilistUrlForMediaEntry,
 } from '../../lib/importers/anilist/anilistLinks';
@@ -84,6 +88,7 @@ import {
   formatSeasonalScoreLabel,
   scoreDisplayToneClass,
 } from './seasonalScoresLogic';
+import { useCurrentAnilistFavourites } from '../useCurrentAnilistFavourites';
 
 const LS_KEY = 'anime-tools-weekly-calendar-form';
 
@@ -289,13 +294,15 @@ function WeeklyCalendarPosterButton({
   );
 }
 
-function WeeklyCalendarThemeSongShowTitle({
+export function WeeklyCalendarThemeSongShowTitle({
   show,
   songCount,
+  favourite,
   onOpenMedia,
 }: {
   show: WeeklyCalendarEntry;
   songCount?: number;
+  favourite: boolean;
   onOpenMedia: ToolPanelProps['onOpenMedia'];
 }) {
   return (
@@ -306,8 +313,16 @@ function WeeklyCalendarThemeSongShowTitle({
       onPrimaryClick={() => onOpenMedia(show.id, show.title)}
     >
       <ToolEntityAvatar imageUrl={show.coverImage} label={show.title} variant="poster" />
-      <span className="tool-weekly-theme-songs-show-title-text">
-        {show.title}
+      <span
+        className={[
+          'tool-weekly-theme-songs-show-title-text',
+          'anilist-detail-media-title',
+          favourite ? 'anilist-detail-media-title--favourite' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+      >
+        {appendFavouriteStar(show.title, favourite)}
         {songCount != null ? (
           <span className="tool-weekly-theme-songs-show-count">({songCount})</span>
         ) : null}
@@ -362,6 +377,7 @@ function WeeklyCalendarThemeSongsPanel({
   themeSongCache,
   playlistCache,
   playlistMatchOptions,
+  favouriteMediaIds,
   onOpenMedia,
   onRefreshThemeSongs,
   refreshingCached,
@@ -371,6 +387,7 @@ function WeeklyCalendarThemeSongsPanel({
   themeSongCache: Map<number, MediaThemeSongsPayload>;
   playlistCache: ReturnType<typeof useSpotifyPlaylistCache>;
   playlistMatchOptions: PlaylistMatchOptions;
+  favouriteMediaIds: ReadonlySet<number>;
   onOpenMedia: ToolPanelProps['onOpenMedia'];
   onRefreshThemeSongs: (mediaIds: number[], kind: 'cached' | 'pending') => void;
   refreshingCached: boolean;
@@ -467,6 +484,7 @@ function WeeklyCalendarThemeSongsPanel({
                 <WeeklyCalendarThemeSongShowTitle
                   show={show}
                   songCount={rows.length}
+                  favourite={favouriteMediaIds.has(show.id)}
                   onOpenMedia={onOpenMedia}
                 />
                 <WeeklyCalendarThemeSongGroups
@@ -499,7 +517,11 @@ function WeeklyCalendarThemeSongsPanel({
           <ul className="tool-weekly-theme-songs-pending-list">
             {withoutCache.map((show) => (
               <li key={show.id}>
-                <WeeklyCalendarThemeSongShowTitle show={show} onOpenMedia={onOpenMedia} />
+                <WeeklyCalendarThemeSongShowTitle
+                  show={show}
+                  favourite={favouriteMediaIds.has(show.id)}
+                  onOpenMedia={onOpenMedia}
+                />
               </li>
             ))}
           </ul>
@@ -526,7 +548,7 @@ function themeSongBadgeTitle(
   return base;
 }
 
-function WeeklyCalendarColumnsView({
+export function WeeklyCalendarColumnsView({
   result,
   timeZone,
   showThemeSongs,
@@ -534,6 +556,7 @@ function WeeklyCalendarColumnsView({
   themeSongCache,
   playlistCache,
   playlistMatchOptions,
+  favouriteMediaIds,
   onOpenMedia,
 }: {
   result: Extract<WeeklyCalendarResult, { kind: 'columns' }>;
@@ -543,6 +566,7 @@ function WeeklyCalendarColumnsView({
   themeSongCache: Map<number, MediaThemeSongsPayload>;
   playlistCache: ReturnType<typeof useSpotifyPlaylistCache>;
   playlistMatchOptions: PlaylistMatchOptions;
+  favouriteMediaIds: ReadonlySet<number>;
   onOpenMedia: ToolPanelProps['onOpenMedia'];
 }) {
   const headerRef = useRef<HTMLDivElement>(null);
@@ -655,6 +679,7 @@ function WeeklyCalendarColumnsView({
                               onOpenMedia={onOpenMedia}
                               hideAvatar
                               className="tool-season-title tool-weekly-title"
+                              favourite={favouriteMediaIds.has(show.id)}
                             />
                           </div>
                           {primary ? (
@@ -697,6 +722,7 @@ function WeeklyCalendarColumnsView({
 
 export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelProps) {
   const playlistCache = useSpotifyPlaylistCache();
+  const favourites = useCurrentAnilistFavourites();
   const [form, setForm] = useState<WeeklyCalendarForm>(() => loadForm());
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1146,6 +1172,7 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
               themeSongCache={themeSongCache}
               playlistCache={playlistCache}
               playlistMatchOptions={playlistMatchOptions}
+              favouriteMediaIds={favourites.mediaIds}
               onOpenMedia={onOpenMedia}
             />
           </div>
@@ -1155,6 +1182,7 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
               themeSongCache={themeSongCache}
               playlistCache={playlistCache}
               playlistMatchOptions={playlistMatchOptions}
+              favouriteMediaIds={favourites.mediaIds}
               onOpenMedia={onOpenMedia}
               onRefreshThemeSongs={onRefreshThemeSongs}
               refreshingCached={refreshingThemeSongsCached}

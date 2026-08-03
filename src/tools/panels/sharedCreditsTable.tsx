@@ -2,7 +2,11 @@ import {
   anilistUrlForCharacter,
 } from '../../lib/importers/anilist/anilistLinks';
 import { AnilistMiddleClickLink } from '../../lib/importers/anilist/AnilistMiddleClickLink';
-import { ToolShowButton, ToolStaffButton } from '../toolEntityLinks';
+import {
+  appendFavouriteStarBeforeRole,
+  ToolShowButton,
+  ToolStaffButton,
+} from '../toolEntityLinks';
 import { DragScroll } from '../../components/DragScroll';
 import type { ToolPanelProps } from '../toolTypes';
 import {
@@ -10,14 +14,30 @@ import {
   type SharedCreditsTableRow,
   type StaffRoleEntry,
 } from './sharedCreditsLogic';
+import type { FavouriteEntityIds } from '../../lib/importers/anilist/readQueries';
 
-function SharedCreditsRoleName({ role }: { role: StaffRoleEntry }) {
+function SharedCreditsRoleName({
+  role,
+  favourite,
+}: {
+  role: StaffRoleEntry;
+  favourite: boolean;
+}) {
   const anilistUrl =
     role.characterId != null ? anilistUrlForCharacter(role.characterId) : null;
 
   return (
-    <AnilistMiddleClickLink url={anilistUrl} className="tool-character-name-link">
-      {role.label}
+    <AnilistMiddleClickLink
+      url={anilistUrl}
+      className={[
+        'tool-character-name-link',
+        role.characterId != null ? 'anilist-detail-character-name' : '',
+        favourite ? 'anilist-detail-character-name--favourite' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
+      {appendFavouriteStarBeforeRole(role.label, favourite)}
     </AnilistMiddleClickLink>
   );
 }
@@ -27,6 +47,7 @@ export function SharedCreditsResultsTable({
   staffNames,
   staffImages,
   rows,
+  favourites,
   onOpenMedia,
   onOpenStaff,
 }: {
@@ -34,6 +55,7 @@ export function SharedCreditsResultsTable({
   staffNames: string[];
   staffImages: Array<string | null>;
   rows: SharedCreditsTableRow[];
+  favourites: FavouriteEntityIds;
   onOpenMedia: ToolPanelProps['onOpenMedia'];
   onOpenStaff: ToolPanelProps['onOpenStaff'];
 }) {
@@ -54,6 +76,7 @@ export function SharedCreditsResultsTable({
                     imageUrl={staffImages[index] ?? null}
                     onOpenStaff={onOpenStaff}
                     compact
+                    favourite={favourites.staffIds.has(staffId)}
                   />
                 </th>
               ))}
@@ -74,12 +97,21 @@ export function SharedCreditsResultsTable({
                       coverImage={row.coverImage}
                       onOpenMedia={onOpenMedia}
                       compact
+                      favourite={favourites.mediaIds.has(row.mediaId)}
                     />
                   </th>
                 ) : null}
                 {row.cells.map((role, colIdx) => (
                   <td key={`${row.mediaId}-${rowIndex}-${colIdx}`} className="tool-credits-role-col">
-                    {role ? <SharedCreditsRoleName role={role} /> : null}
+                    {role ? (
+                      <SharedCreditsRoleName
+                        role={role}
+                        favourite={
+                          role.characterId != null &&
+                          favourites.characterIds.has(role.characterId)
+                        }
+                      />
+                    ) : null}
                   </td>
                 ))}
               </tr>

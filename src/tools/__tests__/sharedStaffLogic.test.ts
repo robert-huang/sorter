@@ -502,6 +502,7 @@ describe('sharedStaffLogic', () => {
       [source, top],
       OPTS_INTERSECT_ALL_ROLES,
       {
+        sourceMediaId: 1,
         sourceTitle: 'Source',
         topOverall: [{ mediaId: 2, title: 'Top Match', coverImage: null, sharedStaffCount: 4 }],
         byCategory: [],
@@ -510,6 +511,7 @@ describe('sharedStaffLogic', () => {
     expect(result.kind).toBe('compare');
     if (result.kind === 'compare') {
       expect(result.sections).toHaveLength(0);
+      expect(result.singleShowReport?.sourceMediaId).toBe(1);
       expect(result.singleShowReport?.topOverall).toHaveLength(1);
     }
   });

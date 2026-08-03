@@ -91,6 +91,7 @@ export type SharedStaffResult =
       shows: Array<{ id: number; title: string; coverImage: string | null }>;
       sections: SharedStaffSection[];
       singleShowReport?: {
+        sourceMediaId: number;
         sourceTitle: string;
         topOverall: SharedStaffTopMatch[];
         byCategory: SharedStaffCategoryMatches[];
@@ -639,6 +640,7 @@ export function finalizeSharedStaffResult(
   shows: ShowStaffBundle[],
   options: CompareSectionsOptions,
   singleShowReport?: {
+    sourceMediaId: number;
     sourceTitle: string;
     topOverall: SharedStaffTopMatch[];
     byCategory: SharedStaffCategoryMatches[];
