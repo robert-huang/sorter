@@ -51,6 +51,7 @@ import {
   allThemeSongSourcesFailed,
   themeSongsSourceNotes,
 } from '../lib/importers/anilist/themeSongs/themeSongSources';
+import { Modal } from './Modal';
 
 const PRODUCTION_ROLE_MODE_KEY = 'anilist-detail-production-roles';
 
@@ -185,6 +186,10 @@ interface Props {
   /** When true, force a live AniList refresh on open (Tools show-title clicks). */
   initialForceRefresh?: boolean;
   onClose: () => void;
+  /** Zero-based position in the shared media/staff detail stack. */
+  stackIndex?: number;
+  /** Whether this modal is the active top layer. */
+  isTopmost?: boolean;
   /**
    * Open the staff detail panel for a cast VA / production-staff member.
    * Optional so existing call sites + tests that don't wire cross-panel
@@ -291,6 +296,8 @@ export function AnilistDetailModal({
   fallbackTitle,
   initialForceRefresh = false,
   onClose,
+  stackIndex,
+  isTopmost = true,
   onOpenStaff,
   onMediaRelationsRefreshed,
 }: Props) {
@@ -597,18 +604,14 @@ export function AnilistDetailModal({
   const mediaAnilistUrl = m ? anilistUrlForMediaEntry(m.type, m.id) : null;
 
   return (
-    <div
-      className="modal-backdrop anilist-detail-media-backdrop"
-      onClick={onClose}
-      role="presentation"
+    <Modal
+      label={`AniList details for ${title}`}
+      onClose={onClose}
+      className="anilist-detail-modal"
+      backdropClassName="anilist-detail-media-backdrop"
+      stackIndex={stackIndex}
+      isTopmost={isTopmost}
     >
-      <div
-        className="modal anilist-detail-modal"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-label={`AniList details for ${title}`}
-      >
         <div
           style={{
             display: 'flex',
@@ -1184,7 +1187,6 @@ export function AnilistDetailModal({
             </div>
           </div>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 }

@@ -188,7 +188,7 @@ Click **Add {N} selected to staged** to append an **unranked** group to the [Sta
 
 ## AniList detail panels
 
-AniList items expose two detail panels that read from the local cache and lazily fetch more from AniList on demand. Opening staff from media replaces the media panel; opening media from a staff filmography stacks the media panel above staff, so closing it returns to the same staff filmography.
+AniList items expose two detail panels that read from the local cache and lazily fetch more from AniList on demand. Media and staff panels share a two-entry stack: opening the opposite entity type keeps the current panel underneath, while opening another entity of the same type replaces the older same-type entry. **Escape** or a backdrop click closes only the top panel, returning to the retained panel underneath.
 
 ### Opening a panel
 
@@ -214,6 +214,7 @@ Loads cached metadata immediately and shows: linked cover, linked resolved **tit
 Shows the linked staff image and name, native name, language, favourites (`★`), an **AniList ↗** header link, and a **Filmography** of merged production + voice credits (one row per media, newest first). Each row shows the cover, title, role line (production roles and/or `voiced {characters}`), and `{year} · {format}`.
 
 - **Filmography rows** — left-click opens that media's panel above the staff panel; closing media returns to staff. **Middle-click** opens the media's AniList page.
+- **Years** — filmography expansion caches the start date returned for both voice and production credits. **↻ Refresh** repairs older partial cache rows; after current data is loaded, a row stays yearless when AniList has not announced a start year. Returning from a refreshed media panel also re-reads the updated year.
 - **Only items on my list** — a checkbox shown when an AniList user list is cached; filters the filmography to media on your list (anime or manga). The count shows `(N of M)` when active.
 - **Lazy expansion** — on first open the filmography is fetched from AniList and cached; later opens read the cache. The cache row shows separate `Info: {date}` and `Filmography: {date}` freshness values.
 - **↻ Refresh** re-fetches both the basic staff profile (including gender) and filmography. When the filmography cache is **over 90 days old**, the button turns **amber** with the tooltip `This person's cached filmography is over 90 days old — click to re-fetch from AniList`.

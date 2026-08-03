@@ -41,8 +41,10 @@ import {
   type AnilistWaitState,
 } from '../lib/importers/anilist/transport';
 import { AppBannerStack } from '../components/AppBannerStack';
-import { AnilistDetailModal } from '../components/AnilistDetailModal';
-import { StaffDetailModal } from '../components/StaffDetailModal';
+import {
+  AnilistDetailModalStack,
+  useAnilistDetailModalStack,
+} from '../components/AnilistDetailModalStack';
 import { useAnilistWaitCountdown } from '../hooks/useAnilistWaitCountdown';
 import { useSourceDbSync } from '../hooks/useSourceDbSync';
 import { AnimeToAnimeHeader } from './AnimeToAnimeHeader';
@@ -238,17 +240,9 @@ export function AnimeToAnimeApp() {
   // When on, the staff filmography is restricted to items on the user's
   // list. Persists across hops within a session (not reset on navigation).
   const [onlyMyList, setOnlyMyList] = useState(false);
-  // Detail-modal targets, opened from the result-screen path trail only.
-  // Mirrors App.tsx's item/staff modal routing so a finished round can
-  // drill into any node and cross-navigate between media and staff.
-  const [itemDetailTarget, setItemDetailTarget] = useState<{
-    mediaId: number;
-    fallbackTitle: string;
-  } | null>(null);
-  const [staffDetailTarget, setStaffDetailTarget] = useState<{
-    staffId: number;
-    fallbackName: string;
-  } | null>(null);
+  // Detail modals opened from the result path can cross-navigate while
+  // retaining one opposite-type modal underneath.
+  const detailModals = useAnilistDetailModalStack();
 
   useEffect(() => {
     applyAnimeToAnimeTheme(theme);
@@ -411,18 +405,13 @@ export function AnimeToAnimeApp() {
 
   const onOpenPathStep = useCallback((step: PathStep) => {
     if (step.kind === 'anime') {
-      setItemDetailTarget({ mediaId: step.mediaId, fallbackTitle: step.title });
+      detailModals.openMedia(step.mediaId, step.title);
     } else {
-      setStaffDetailTarget({ staffId: step.staffId, fallbackName: step.name });
+      detailModals.openStaff(step.staffId, step.name);
     }
-  }, []);
+  }, [detailModals.openMedia, detailModals.openStaff]);
 
-  const onOpenMediaDetail = useCallback(
-    (mediaId: number, fallbackTitle: string) => {
-      setItemDetailTarget({ mediaId, fallbackTitle });
-    },
-    [],
-  );
+  const onOpenMediaDetail = detailModals.openMedia;
 
   const buildCachedPathStream = useCallback(
     async (maxLinks?: number): Promise<BuildCachedRouteStream> => {
@@ -1046,27 +1035,7 @@ export function AnimeToAnimeApp() {
         </main>
       )}
 
-      {itemDetailTarget && (
-        <AnilistDetailModal
-          mediaId={itemDetailTarget.mediaId}
-          fallbackTitle={itemDetailTarget.fallbackTitle}
-          onClose={() => setItemDetailTarget(null)}
-          onOpenStaff={(staffId, fallbackName) => {
-            setItemDetailTarget(null);
-            setStaffDetailTarget({ staffId, fallbackName });
-          }}
-        />
-      )}
-      {staffDetailTarget && (
-        <StaffDetailModal
-          staffId={staffDetailTarget.staffId}
-          fallbackName={staffDetailTarget.fallbackName}
-          onClose={() => setStaffDetailTarget(null)}
-          onOpenMedia={(mediaId, fallbackTitle) => {
-            setItemDetailTarget({ mediaId, fallbackTitle });
-          }}
-        />
-      )}
+      <AnilistDetailModalStack {...detailModals} />
     </div>
   );
 }

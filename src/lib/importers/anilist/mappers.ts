@@ -130,7 +130,7 @@ export function mapMediaRow(media: AnilistMediaGql, now: number): MediaRow {
   };
 }
 
-/** Partial media row from `TOOLS_CHARACTER_VOICE_MEDIA_QUERY` — no `source`. */
+/** Partial media row for nested character/media queries — no `source`. */
 export function mapMediaStubRow(media: AnilistMediaGql, now: number): {
   id: number;
   type: MediaRow['type'];
@@ -139,10 +139,14 @@ export function mapMediaStubRow(media: AnilistMediaGql, now: number): {
   title_native: string | null;
   cover_image: string | null;
   format: MediaRow['format'];
+  start_year: number | null;
+  start_month: number | null;
+  start_day: number | null;
   synonyms_json: string | null;
   fetched_at: number;
   updated_at: number;
 } {
+  const start = fuzzyDateParts(media.startDate ?? null);
   return {
     id: media.id,
     type: media.type,
@@ -151,6 +155,9 @@ export function mapMediaStubRow(media: AnilistMediaGql, now: number): {
     title_native: media.title.native ?? null,
     cover_image: media.coverImage?.large ?? null,
     format: media.format ?? null,
+    start_year: start.year,
+    start_month: start.month,
+    start_day: start.day,
     synonyms_json: stringArrayJson(media.synonyms),
     fetched_at: now,
     updated_at: now,

@@ -18,6 +18,12 @@ interface ModalProps {
    * Backdrop class is always `.modal-backdrop`.
    */
   className?: string;
+  /** Extra class appended to the full-screen backdrop. */
+  backdropClassName?: string;
+  /** Zero-based layer within a managed modal stack. */
+  stackIndex?: number;
+  /** Only the top layer should be exposed as the active modal to assistive tech. */
+  isTopmost?: boolean;
 }
 
 /**
@@ -66,18 +72,40 @@ function listFocusables(root: HTMLElement | null): HTMLElement[] {
  *     modal opened (typically the button that triggered it). This is
  *     the keyboard-user equivalent of "the mouse stays where you left it".
  */
-export function Modal({ label, onClose, children, className }: ModalProps) {
+export function Modal({
+  label,
+  onClose,
+  children,
+  className,
+  backdropClassName,
+  stackIndex,
+  isTopmost = true,
+}: ModalProps) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     previouslyFocused.current = document.activeElement as HTMLElement | null;
+    return () => {
+      // Restore focus to whatever triggered the modal. `?.()` defends
+      // against the trigger being unmounted (rare; e.g. the modal was
+      // opened from a transient toast that has since auto-dismissed).
+      previouslyFocused.current?.focus?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isTopmost) {
+      return;
+    }
+    let cancelled = false;
     // Defer focusing to the next microtask so any child autoFocus
     // (e.g. <input autoFocus />) gets to run first and win. If we
     // focused the panel synchronously we'd briefly take focus, then
     // the child's autoFocus would steal it — net same outcome, but
     // microtask is one less focus event.
     queueMicrotask(() => {
+      if (cancelled) return;
       // Only grab focus if the panel doesn't already contain it (i.e.
       // an autoFocus child claimed it). Avoids snatching focus from
       // the user's preferred entry point.
@@ -88,19 +116,35 @@ export function Modal({ label, onClose, children, className }: ModalProps) {
       }
     });
     return () => {
-      // Restore focus to whatever triggered the modal. `?.()` defends
-      // against the trigger being unmounted (rare; e.g. the modal was
-      // opened from a transient toast that has since auto-dismissed).
-      previouslyFocused.current?.focus?.();
+      cancelled = true;
     };
-  }, []);
+  }, [isTopmost]);
+
+  useEffect(() => {
+    if (stackIndex === undefined || !isTopmost) {
+      return;
+    }
+    const closeTopmostOnEscape = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+    };
+    document.addEventListener('keydown', closeTopmostOnEscape, true);
+    return () => {
+      document.removeEventListener('keydown', closeTopmostOnEscape, true);
+    };
+  }, [isTopmost, onClose, stackIndex]);
 
   function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>): void {
     if (e.key === 'Escape') {
       e.stopPropagation();
-      onClose();
+      if (isTopmost) {
+        onClose();
+      }
       return;
     }
+    if (!isTopmost) return;
     if (e.key !== 'Tab') return;
     const focusables = listFocusables(panelRef.current);
     if (focusables.length === 0) {
@@ -122,14 +166,23 @@ export function Modal({ label, onClose, children, className }: ModalProps) {
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div
+      className={`modal-backdrop${
+        backdropClassName ? ` ${backdropClassName}` : ''
+      }`}
+      style={
+        stackIndex === undefined ? undefined : { zIndex: 100 + stackIndex }
+      }
+      onClick={onClose}
+      aria-hidden={isTopmost ? undefined : true}
+    >
       <div
         ref={panelRef}
         className={`modal${className ? ` ${className}` : ''}`}
         onClick={(e) => e.stopPropagation()}
         onKeyDown={onKeyDown}
         role="dialog"
-        aria-modal="true"
+        aria-modal={isTopmost}
         aria-label={label}
         tabIndex={-1}
       >

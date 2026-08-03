@@ -94,6 +94,7 @@ function makeFilmographyResponse(
               type: 'ANIME',
               format: 'TV',
               coverImage: { large: 'https://example.test/cover.jpg' },
+              startDate: { year: 2026, month: null, day: null },
             } as never,
           },
         ],
@@ -241,6 +242,49 @@ describe('expandStaffFilmography', () => {
 
     const row = db.selectObject('SELECT gender FROM character WHERE id = ?', CHARACTER_ID);
     expect(row).toEqual({ gender: 'Female' });
+    db.close();
+  });
+
+  it('persists start dates for voice-role media discovered by staff filmography', async () => {
+    const db = await freshAnilistDb();
+    const executeQuery = vi.fn().mockResolvedValue(makeFilmographyResponse());
+    const ctx: AnilistImportContext = {
+      db: makeDbAdapter(db),
+      executeQuery,
+      now: () => NOW,
+    };
+
+    await expandStaffFilmography(ctx, VA_STAFF_ID);
+
+    const row = db.selectObject(
+      'SELECT start_year, start_month, start_day FROM media WHERE id = 1001',
+    );
+    expect(row).toEqual({
+      start_year: 2026,
+      start_month: null,
+      start_day: null,
+    });
+    db.close();
+  });
+
+  it('keeps voice-role media yearless when AniList has no announced start date', async () => {
+    const db = await freshAnilistDb();
+    const response = makeFilmographyResponse();
+    const media = response.Staff?.characterMedia?.edges[0]?.node;
+    if (media) {
+      media.startDate = { year: null, month: null, day: null };
+    }
+    const ctx: AnilistImportContext = {
+      db: makeDbAdapter(db),
+      executeQuery: vi.fn().mockResolvedValue(response),
+      now: () => NOW,
+    };
+
+    await expandStaffFilmography(ctx, VA_STAFF_ID);
+
+    expect(db.selectObject('SELECT start_year FROM media WHERE id = 1001')).toEqual({
+      start_year: null,
+    });
     db.close();
   });
 

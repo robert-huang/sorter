@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RemoveGlyph } from './RemoveGlyph';
 import {
   formatGraphCacheDate,
@@ -26,6 +26,7 @@ import {
 import { AnilistMiddleClickLink } from '../lib/importers/anilist/AnilistMiddleClickLink';
 import { useAnilistDisplayPreferences } from '../hooks/useAnilistDisplayPreferences';
 import { formatAnilistProgress } from './anilistProgressLabel';
+import { Modal } from './Modal';
 
 /**
  * Detail modal for a single AniList staff/person id — the counterpart
@@ -57,6 +58,10 @@ interface Props {
    *  name so the user sees a stable title before the row loads. */
   fallbackName: string;
   onClose: () => void;
+  /** Zero-based position in the shared media/staff detail stack. */
+  stackIndex?: number;
+  /** Whether this modal is the active top layer. */
+  isTopmost?: boolean;
   /** Open the media detail modal for one of this staff's credits. */
   onOpenMedia: (mediaId: number, fallbackTitle: string) => void;
 }
@@ -152,6 +157,8 @@ export function StaffDetailModal({
   staffId,
   fallbackName,
   onClose,
+  stackIndex,
+  isTopmost = true,
   onOpenMedia,
 }: Props) {
   // Re-render when display preferences change so names relabel live.
@@ -177,6 +184,7 @@ export function StaffDetailModal({
     () => new Set(),
   );
   const [favouriteAccountRevision, setFavouriteAccountRevision] = useState(0);
+  const wasTopmost = useRef(isTopmost);
 
   useEffect(() => {
     return subscribeLastAnilistUsername(() => {
@@ -303,6 +311,26 @@ export function StaffDetailModal({
     };
   }, [staffId, applyFilmography]);
 
+  // A retained staff modal can become visible again after an overlaid media
+  // refresh updates shared media rows. Re-read instead of showing its old
+  // in-memory filmography snapshot.
+  useEffect(() => {
+    const becameTopmost = isTopmost && !wasTopmost.current;
+    wasTopmost.current = isTopmost;
+    if (!becameTopmost) {
+      return;
+    }
+    let cancelled = false;
+    void applyFilmography({ isStale: () => cancelled }).catch((err) => {
+      if (!cancelled) {
+        setError(err instanceof Error ? err.message : 'Could not reload staff.');
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [applyFilmography, isTopmost]);
+
   const onRefresh = useCallback(async () => {
     if (expanding) {
       return;
@@ -350,14 +378,13 @@ export function StaffDetailModal({
     isGraphTimestampStale(detail.fetchedAt);
 
   return (
-    <div className="modal-backdrop" onClick={onClose} role="presentation">
-      <div
-        className="modal anilist-detail-modal"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-label={`AniList staff details for ${name}`}
-      >
+    <Modal
+      label={`AniList staff details for ${name}`}
+      onClose={onClose}
+      className="anilist-detail-modal"
+      stackIndex={stackIndex}
+      isTopmost={isTopmost}
+    >
         <div
           style={{
             display: 'flex',
@@ -605,7 +632,6 @@ export function StaffDetailModal({
             </div>
           </div>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 }

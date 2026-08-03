@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AnilistDetailModal } from '../components/AnilistDetailModal';
+import {
+  AnilistDetailModalStack,
+  useAnilistDetailModalStack,
+} from '../components/AnilistDetailModalStack';
 import { AppBannerStack } from '../components/AppBannerStack';
 import { RemoveGlyph } from '../components/RemoveGlyph';
-import { StaffDetailModal } from '../components/StaffDetailModal';
 import { useDbNonPersistentBanner } from '../hooks/useDbNonPersistentBanner';
 import { useSourceDbSync } from '../hooks/useSourceDbSync';
 import { describeNonPersistentStorageBanner } from '../lib/db/opfs';
@@ -89,17 +91,6 @@ const TOOL_TABS: ReadonlyArray<ToolTab<ToolId>> = [
   },
 ];
 
-interface MediaTarget {
-  mediaId: number;
-  fallbackTitle: string;
-  forceRefresh?: boolean;
-}
-
-interface StaffTarget {
-  staffId: number;
-  fallbackName: string;
-}
-
 export function ToolsApp() {
   const dbSync = useSourceDbSync();
   const dbNonPersistentBanner = useDbNonPersistentBanner();
@@ -111,8 +102,7 @@ export function ToolsApp() {
     () => !!readSettings().historyBackGuard,
   );
   const [activeTool, setActiveTool] = useState<ToolId>(() => loadActiveTool());
-  const [mediaTarget, setMediaTarget] = useState<MediaTarget | null>(null);
-  const [staffTarget, setStaffTarget] = useState<StaffTarget | null>(null);
+  const detailModals = useAnilistDetailModalStack();
   const mediaRelationsRefreshRef = useRef<
     ((mediaId: number, response: ToolsMediaRelationsResponse) => void) | null
   >(null);
@@ -140,21 +130,8 @@ export function ToolsApp() {
     saveActiveTool(id);
   }, []);
 
-  const onOpenMedia = useCallback(
-    (mediaId: number, fallbackTitle: string, options?: { forceRefresh?: boolean }) => {
-      setMediaTarget({
-        mediaId,
-        fallbackTitle,
-        forceRefresh: options?.forceRefresh,
-      });
-    },
-    [],
-  );
-
-  const onOpenStaff = useCallback((staffId: number, fallbackName: string) => {
-    setMediaTarget(null);
-    setStaffTarget({ staffId, fallbackName });
-  }, []);
+  const onOpenMedia = detailModals.openMedia;
+  const onOpenStaff = detailModals.openStaff;
 
   const onToggleHistoryBackGuard = useCallback(() => {
     setHistoryBackGuard((prev) => {
@@ -270,26 +247,12 @@ export function ToolsApp() {
         </div>
       </main>
 
-      {mediaTarget && (
-        <AnilistDetailModal
-          mediaId={mediaTarget.mediaId}
-          fallbackTitle={mediaTarget.fallbackTitle}
-          initialForceRefresh={mediaTarget.forceRefresh}
-          onClose={() => setMediaTarget(null)}
-          onOpenStaff={onOpenStaff}
-          onMediaRelationsRefreshed={(mediaId, response) => {
-            mediaRelationsRefreshRef.current?.(mediaId, response);
-          }}
-        />
-      )}
-      {staffTarget && (
-        <StaffDetailModal
-          staffId={staffTarget.staffId}
-          fallbackName={staffTarget.fallbackName}
-          onClose={() => setStaffTarget(null)}
-          onOpenMedia={onOpenMedia}
-        />
-      )}
+      <AnilistDetailModalStack
+        {...detailModals}
+        onMediaRelationsRefreshed={(mediaId, response) => {
+          mediaRelationsRefreshRef.current?.(mediaId, response);
+        }}
+      />
     </div>
   );
 }

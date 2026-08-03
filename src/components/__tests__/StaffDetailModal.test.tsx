@@ -163,6 +163,7 @@ function renderModal(
     fallbackName: string;
     onClose: () => void;
     onOpenMedia: (mediaId: number, fallbackTitle: string) => void;
+    isTopmost: boolean;
   }> = {},
 ): void {
   act(() => {
@@ -172,6 +173,7 @@ function renderModal(
         fallbackName={props.fallbackName ?? 'Staff 10'}
         onClose={props.onClose ?? (() => {})}
         onOpenMedia={props.onOpenMedia ?? (() => {})}
+        isTopmost={props.isTopmost}
       />,
     );
   });
@@ -234,6 +236,34 @@ describe('StaffDetailModal — lazy expansion', () => {
 
     expect(mockedExpand).toHaveBeenCalledWith(10, expect.any(Function));
     expect(mockedGetFilmography).toHaveBeenCalledTimes(2);
+  });
+
+  it('re-reads media metadata when a retained staff modal becomes topmost again', async () => {
+    mockedGetFilmography
+      .mockResolvedValueOnce(
+        makeFilmography({
+          credits: [makeCredit(1, { media: makeMedia(1, { start_year: null }) })],
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeFilmography({
+          credits: [makeCredit(1, { media: makeMedia(1, { start_year: 2026 }) })],
+        }),
+      );
+
+    renderModal({ isTopmost: true });
+    await flushPromises();
+    expect(container.textContent).not.toContain('2026 · TV');
+
+    renderModal({ isTopmost: false });
+    await flushPromises();
+    expect(mockedGetFilmography).toHaveBeenCalledTimes(1);
+
+    renderModal({ isTopmost: true });
+    await flushPromises();
+
+    expect(mockedGetFilmography).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain('2026 · TV');
   });
 });
 

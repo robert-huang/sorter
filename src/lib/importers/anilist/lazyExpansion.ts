@@ -114,7 +114,8 @@ export const STAFF_COLS = [
 ] as const;
 
 /**
- * Identity + display fields from `TOOLS_CHARACTER_VOICE_MEDIA_QUERY` only.
+ * Identity + display fields shared by nested character/media queries.
+ * Start dates are included for staff filmography ordering and year labels.
  * Does not touch metadata like `source` that full list/detail imports own.
  */
 export const MEDIA_STUB_COLS = [
@@ -125,6 +126,9 @@ export const MEDIA_STUB_COLS = [
   'title_native',
   'cover_image',
   'format',
+  'start_year',
+  'start_month',
+  'start_day',
   'synonyms_json',
   'fetched_at',
   'updated_at',
@@ -201,7 +205,13 @@ function buildMediaStubUpsertSql(): string {
   const placeholders = MEDIA_STUB_COLS.map(() => '?').join(', ');
   const updates = MEDIA_STUB_COLS.filter((c) => c !== 'id')
     .map((c) => {
-      if (c === 'cover_image' || c === 'synonyms_json') {
+      if (
+        c === 'cover_image' ||
+        c === 'start_year' ||
+        c === 'start_month' ||
+        c === 'start_day' ||
+        c === 'synonyms_json'
+      ) {
         return `${c} = COALESCE(excluded.${c}, media.${c})`;
       }
       return `${c} = excluded.${c}`;

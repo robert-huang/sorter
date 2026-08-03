@@ -5422,10 +5422,6 @@ a:where(.anime-to-anime-anilist-link):visited {
   z-index: 100;
 }
 
-.modal-backdrop.anilist-detail-media-backdrop {
-  z-index: 101;
-}
-
 .modal {
   background: var(--surface);
   border-radius: var(--radius);

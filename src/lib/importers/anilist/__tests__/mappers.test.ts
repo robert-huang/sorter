@@ -691,7 +691,12 @@ describe('mapStaffCharacterAppearanceData', () => {
       NOW,
     );
     expect(result.mediaRows).toHaveLength(1);
-    expect(result.mediaRows[0]!.id).toBe(300);
+    expect(result.mediaRows[0]).toMatchObject({
+      id: 300,
+      start_year: 2020,
+      start_month: 1,
+      start_day: 5,
+    });
     expect(result.characterRows.map((c) => c.id).sort()).toEqual([10, 11]);
     expect(result.mediaCharacterRows).toHaveLength(2);
     expect(result.mediaCharacterRows[0]).toMatchObject({

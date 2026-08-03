@@ -167,8 +167,10 @@ import { ensureCharacterStaffFiltersRegistered } from './lib/importers/anilist/c
 import { configureAnilistRunnerHooks } from './lib/importers/anilist/runners';
 import { subscribeAnilistDisplayPreferences } from './lib/importers/anilist/displayPreferences';
 import { relabelAnilistItemPreservingFormat } from './lib/importers/anilist/anilistItemLabel';
-import { AnilistDetailModal } from './components/AnilistDetailModal';
-import { StaffDetailModal } from './components/StaffDetailModal';
+import {
+  AnilistDetailModalStack,
+  useAnilistDetailModalStack,
+} from './components/AnilistDetailModalStack';
 import { ItemDetailContext } from './components/itemDetailContext';
 import { useAnilistApiWait } from './hooks/useAnilistApiWait';
 import { useKeyboard } from './hooks/useKeyboard';
@@ -425,32 +427,18 @@ export function App() {
   const [dbNonPersistentReason, setDbNonPersistentReason] =
     useState<DbNonPersistentReason>('opfs_unavailable');
   const [dbNonPersistentDismissed, setDbNonPersistentDismissed] = useState(false);
-  // Per-item detail modal target (Phase D). Set when the user clicks
-  // an AniList thumb anywhere in the tree — the ItemDetailContext
-  // provider below routes those clicks here. Keyed by media id +
-  // fallback title so a click on a stale list item still shows the
-  // user something while the cached row loads.
-  const [itemDetailTarget, setItemDetailTarget] = useState<
-    { mediaId: number; fallbackTitle: string } | null
-  >(null);
-  // Staff detail modal target. Set when the user opens a staff item
-  // (source.kind === 'anilist-staff') or clicks a VA / production name
-  // inside the media detail modal. A media modal opened from a staff
-  // filmography stacks above it so closing media returns to the staff panel.
-  const [staffDetailTarget, setStaffDetailTarget] = useState<
-    { staffId: number; fallbackName: string } | null
-  >(null);
+  // Media and staff details share a two-layer stack. Cross-navigation keeps
+  // the opposite entity type behind the new top layer.
+  const detailModals = useAnilistDetailModalStack();
   const openItemDetail = useCallback((item: Item) => {
     const src = item.source;
     if (!src) return;
     if (src.kind === 'anilist') {
-      setStaffDetailTarget(null);
-      setItemDetailTarget({ mediaId: src.externalId, fallbackTitle: item.label });
+      detailModals.openMedia(src.externalId, item.label);
     } else if (src.kind === 'anilist-staff') {
-      setItemDetailTarget(null);
-      setStaffDetailTarget({ staffId: src.externalId, fallbackName: item.label });
+      detailModals.openStaff(src.externalId, item.label);
     }
-  }, []);
+  }, [detailModals.openMedia, detailModals.openStaff]);
 
   // ITP / refresh-token-rejected banner gate. When the auth state
   // transitions to 'expired', we surface a one-shot banner pointing
@@ -2930,27 +2918,7 @@ export function App() {
           onReplace={() => performRestore('replace')}
         />
       )}
-      {itemDetailTarget && (
-        <AnilistDetailModal
-          mediaId={itemDetailTarget.mediaId}
-          fallbackTitle={itemDetailTarget.fallbackTitle}
-          onClose={() => setItemDetailTarget(null)}
-          onOpenStaff={(staffId, fallbackName) => {
-            setItemDetailTarget(null);
-            setStaffDetailTarget({ staffId, fallbackName });
-          }}
-        />
-      )}
-      {staffDetailTarget && (
-        <StaffDetailModal
-          staffId={staffDetailTarget.staffId}
-          fallbackName={staffDetailTarget.fallbackName}
-          onClose={() => setStaffDetailTarget(null)}
-          onOpenMedia={(mediaId, fallbackTitle) => {
-            setItemDetailTarget({ mediaId, fallbackTitle });
-          }}
-        />
-      )}
+      <AnilistDetailModalStack {...detailModals} />
     </div>
     </ItemDetailContext.Provider>
   );
