@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import type { MediaThemeSongRow } from '../../importers/anilist/themeSongs/types';
 import {
   aggregatePlaylistMatchForRows,
+  collectPlaylistArtistMatchCandidates,
   matchThemeRowToPlaylist,
   matchThemeRowToPlaylistDetails,
+  normalizePlaylistTitleForMatch,
 } from '../spotifyPlaylistMatch';
 import type { SpotifyPlaylistCache } from '../spotifyPlaylist';
 
@@ -40,6 +42,129 @@ function cacheWithLocalTracks(
     localTracks,
   };
 }
+
+describe('playlist metadata normalization', () => {
+  it.each([
+    {
+      value:
+        'ソフィー・トワイライト(CV：富田美憂)、天野灯(CV：篠原侑)、夏木ひなた(CV：Lynn)',
+      expected: ['富田美憂', '篠原侑', 'lynn'],
+    },
+    {
+      value:
+        '勇者パーティー<ユーシャ(CV：赤尾ひかる)、セイラ(CV：夏川椎菜)、ファイ(CV：小澤亜李)>',
+      expected: ['赤尾ひかる', '夏川椎菜', '小澤亜李'],
+    },
+    {
+      value:
+        'スピカ [スペシャルウィーク (CV.和氣あず未)、サイレンススズカ (CV.高野麻里佳)、トウカイテイオー (CV.Machico)]',
+      expected: ['和氣あず未', '高野麻里佳', 'machico'],
+    },
+    {
+      value: '栗山未来（種田梨沙）/名瀬美月（茅原実里）/新堂愛（山岡ゆり）',
+      expected: ['種田梨沙', '茅原実里', '山岡ゆり'],
+    },
+    {
+      value: 'ゆの(CV.阿澄佳奈)×宮子(CV.水橋かおり)',
+      expected: ['阿澄佳奈', '水橋かおり'],
+    },
+    {
+      value: 'アリス(CV.広橋涼) with アテナ(CV.河井英里)',
+      expected: ['広橋涼', '河井英里'],
+    },
+    {
+      value: 'supercell feat. Ann, gaku',
+      expected: ['supercell', 'ann', 'gaku'],
+    },
+    {
+      value: 'Senjougahara Hitagi (C.V. Saitou Chiwa)',
+      expected: ['saitou chiwa'],
+    },
+    {
+      value: 'Ｓｏｐｈｉｅ（ＣＶ：富田美憂）＆Ａｋａｒｉ（Ｃ．Ｖ．篠原侑）',
+      expected: ['sophie', '富田美憂', 'akari', '篠原侑'],
+    },
+  ])('extracts complete names and credits from $value', ({ value, expected }) => {
+    const candidates = collectPlaylistArtistMatchCandidates([value]);
+    for (const name of expected) {
+      expect(candidates).toContain(name);
+    }
+  });
+
+  it('distinguishes Japanese middle-dot name punctuation from artist separators', () => {
+    expect(collectPlaylistArtistMatchCandidates(['井口裕香・早見沙織'])).toEqual(
+      expect.arrayContaining(['井口裕香', '早見沙織']),
+    );
+    expect(
+      collectPlaylistArtistMatchCandidates([
+        '澤村・スペンサー・英梨々(CV.大西沙織)＆霞ヶ丘詩羽(CV.茅野愛衣)',
+      ]),
+    ).toEqual(
+      expect.arrayContaining(['澤村 スペンサー 英梨々', '大西沙織', '霞ヶ丘詩羽', '茅野愛衣']),
+    );
+    expect(collectPlaylistArtistMatchCandidates(['ソフィー・トワイライト'])).not.toContain(
+      'ソフィー',
+    );
+  });
+
+  it.each([
+    ['ソフィー', 'ソフィー・トワイライト'],
+    ['Yui', 'Yui Makino'],
+  ])('does not treat partial artist name %s as complete %s', (sourceArtist, cachedArtist) => {
+    const result = matchThemeRowToPlaylistDetails(
+      makeRow({
+        displayTitle: 'Distinctive Song Name',
+        displayArtist: sourceArtist,
+      }),
+      cacheWithLocalTracks([
+        {
+          uri: 'spotify:local:Artist:Album:Distinctive+Song+Name:180',
+          title: 'Distinctive Song Name',
+          artists: [cachedArtist],
+          album: 'Album',
+          durationMs: 180_000,
+          playlistPosition: 1,
+        },
+      ]),
+    );
+
+    expect(result).toEqual({ status: 'unknown', metadataMatch: null });
+  });
+
+  it.each([
+    ['Makino Yui', 'Yui Makino'],
+    ['Asumi Kana', 'Kana Asumi'],
+    ['Taneshima Popura', 'Popura Taneshima'],
+  ])('canonicalizes reversed romanized name order: %s / %s', (left, right) => {
+    const leftCandidates = collectPlaylistArtistMatchCandidates([left]);
+    const rightCandidates = collectPlaylistArtistMatchCandidates([right]);
+    expect(leftCandidates.some((candidate) => rightCandidates.includes(candidate))).toBe(true);
+  });
+
+  it.each([
+    ['目蓋の裏 (TV ver.)', '目蓋の裏'],
+    ['星座になれたら -Anime Ver.-', '星座になれたら'],
+    ['愛してる(TVサイズ)', '愛してる'],
+    ['Ｆｌｏｗｅｒ (ＴＶ Ｓｉｚｅ)', 'flower'],
+  ])('removes broadcast-edit title markers from %s', (title, expected) => {
+    expect(normalizePlaylistTitleForMatch(title)).toBe(expected);
+  });
+
+  it('preserves Japanese voicing marks while folding Latin accents', () => {
+    expect(normalizePlaylistTitleForMatch('ウンディーネ Pokémon')).toBe(
+      'ウンディーネ pokemon',
+    );
+  });
+
+  it.each([
+    ['Flower Psychedelic (TVサイズ セリフなし)', 'flower psychedelic セリフなし'],
+    ['Undine - Forest Mix', 'undine forest mix'],
+    ['Secret in my heart [instrumental]', 'secret in my heart instrumental'],
+    ['etoile et toi [edition le blanc]', 'etoile et toi edition le blanc'],
+  ])('preserves meaningful title qualifiers from %s', (title, expected) => {
+    expect(normalizePlaylistTitleForMatch(title)).toBe(expected);
+  });
+});
 
 describe('matchThemeRowToPlaylist', () => {
   it('matches direct track id', () => {

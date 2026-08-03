@@ -751,6 +751,15 @@ Chart **airing and upcoming anime** by weekday, or browse **seasonal catalogs** 
 
 Results use the seasonal-scores-style column chart (weekday columns, score coloring, show count per day). Show titles open media detail modals.
 
+#### Spotify theme-song metadata matching
+
+The cache preserves the title and every artist string returned by Spotify's playlist endpoint; local filesystem paths and extra file tags are not exposed by that API. If Spotify returns no title, the file cannot form a metadata-match candidate because the app has no filesystem filename fallback. Metadata matching otherwise builds conservative candidates:
+
+- **Titles** — compare every display, MAL/Jikan, and confirmed AniPlaylist title variant after Unicode/case/punctuation normalization. Latin accents are folded without deleting Japanese dakuten/handakuten. Broadcast-only markers such as `TV Size`, `Anime Ver.`, `OP/ED Edit`, and `TVサイズ` are ignored. Qualifiers that identify a different recording — including `instrumental`, `off vocal`, `remix`, `mix`, `edition`, character versions, featured artists, and other remaining suffix text — are preserved.
+- **Artists** — normalize full-width forms, unwrap credits in `(...)`, `[...]`, `【...】`, and `<...>`, and recognize `CV`, `CV.`, `CV:`, `C.V.`, spacing variations, and full-width punctuation. Combined credits split on commas, `、`, ampersands, `/`, `+`, `×`, `and`, `with`, `feat.`, and equivalent full-width forms. A Japanese middle dot is split only when spacing or all-Japanese-name structure makes it a separator; it remains part of Katakana names such as `ソフィー・トワイライト`. Separate Spotify artist values remain separate candidates, while non-identifying placeholders such as `Various Artists` and `unknown` are ignored.
+- **Name order** — complete two-to-four-token names get an order-independent candidate, allowing `Yui Makino` / `Makino Yui` and similar Romanized/Japanese ordering differences without comparing arbitrary substrings.
+- **Safety** — exact Spotify IDs, linked IDs, and ISRCs still win. Metadata matching requires compatible title/artist evidence, rejects competing identities within the ambiguity margin, does not broaden AniPlaylist anime matching, and keeps short generic titles or incompatible same-script artists unmatched.
+
 ### Favourites
 
 Analyze a user's favourite **characters** and **staff** from the local cache. Uses both **anime and manga** list entries for "seen on your list" / **Characters by manga series** (manga list is ensured on Analyze and force-refreshed on ↻). When the username matches a **linked AniList account**, consumed-media ids for those features are read from live list queries instead of stale DB rows.

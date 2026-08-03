@@ -46,6 +46,16 @@ const METADATA_ARTIST_THRESHOLD = 0.78;
 const METADATA_TITLE_ONLY_THRESHOLD = 0.94;
 const METADATA_MATCH_MARGIN = 0.04;
 const DISTINCTIVE_EXACT_TITLE_MIN_LENGTH = 8;
+const ARTIST_CREDIT_PREFIX = /^c\s*[.]?\s*v\s*[.:]?\s*/iu;
+const ARTIST_SEPARATOR =
+  /\s*(?:,|、|&|;|\/|\+|×|\b(?:and|with)\b|\bfeat(?:uring)?\.?)\s*/iu;
+const ARTIST_BRACKET_PATTERNS = [
+  /\(([^()]*)\)/gu,
+  /\[([^[\]]*)\]/gu,
+  /【([^【】]*)】/gu,
+  /<([^<>]*)>/gu,
+] as const;
+const IGNORED_ARTIST_CANDIDATES = new Set(['and others', 'others', 'unknown', 'various artists']);
 
 type ArtistScript = 'latin' | 'han' | 'hiragana' | 'katakana' | 'hangul' | 'cyrillic';
 
@@ -68,7 +78,8 @@ function normalizeIsrc(isrc: string): string {
 function normalizeMatchText(value: string): string {
   return value
     .normalize('NFKD')
-    .replace(/\p{M}+/gu, '')
+    .replace(/\p{M}/gu, (mark) => (mark === '\u3099' || mark === '\u309a' ? mark : ''))
+    .normalize('NFC')
     .toLowerCase()
     .replace(/&/g, ' and ')
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
@@ -76,9 +87,13 @@ function normalizeMatchText(value: string): string {
     .replace(/\s+/g, ' ');
 }
 
-function normalizeTitle(value: string): string {
+export function normalizePlaylistTitleForMatch(value: string): string {
   return normalizeMatchText(value)
-    .replace(/\b(?:tv|anime|short|full)\s+(?:size|version|ver|edit)\b/gu, ' ')
+    .replace(
+      /\b(?:tv|anime|short|full|op|ed|opening|ending)\s*(?:size|version|ver|edit)\b/gu,
+      ' ',
+    )
+    .replace(/\b(?:tv|anime|short|op|ed)\s*サイズ/gu, ' ')
     .trim()
     .replace(/\s+/g, ' ');
 }
@@ -146,26 +161,76 @@ function bestSimilarity(left: readonly string[], right: readonly string[]): numb
   return best;
 }
 
-function artistValueVariants(value: string): string[] {
-  const variants = new Set([value]);
-  const segments = value.split(/\s*(?:,|&|・|、|;)\s*/u);
-  for (const segment of segments) {
-    const trimmed = segment.trim();
-    if (!trimmed) {
-      continue;
-    }
-    variants.add(trimmed);
-    const parentheticalRe = /[（(]([^）)]+)[）)]/gu;
-    let match: RegExpExecArray | null = parentheticalRe.exec(trimmed);
-    while (match) {
-      const credit = match[1]?.replace(/^cv\s*[.:：]?\s*/iu, '').trim();
-      if (credit) {
-        variants.add(credit);
-      }
-      match = parentheticalRe.exec(trimmed);
-    }
-    variants.add(trimmed.replace(/[（(][^）)]*[）)]/gu, ' '));
+function addArtistVariant(variants: Set<string>, value: string): void {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return;
   }
+  const normalized = normalizeMatchText(trimmed);
+  if (!normalized || IGNORED_ARTIST_CANDIDATES.has(normalized)) {
+    return;
+  }
+  variants.add(trimmed);
+}
+
+function splitMiddleDotArtists(value: string): string[] {
+  const parts = value
+    .split('・')
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+  if (parts.length <= 1) {
+    return [value];
+  }
+  const hasSpacedSeparator = /\s・|・\s/u.test(value);
+  const allPartsAreJapaneseNames = parts.every(
+    (part) =>
+      !/\p{Script=Katakana}/u.test(part) &&
+      /^[\p{Script=Han}\p{Script=Hiragana}\s]+$/u.test(part),
+  );
+  return hasSpacedSeparator || allPartsAreJapaneseNames ? parts : [value];
+}
+
+function splitArtistSegments(value: string): string[] {
+  return value
+    .split(ARTIST_SEPARATOR)
+    .flatMap((segment) => splitMiddleDotArtists(segment));
+}
+
+function collectArtistExpressionVariants(
+  expression: string,
+  variants: Set<string>,
+  depth = 0,
+): void {
+  if (depth > 3) {
+    return;
+  }
+  const normalizedStructure = expression.normalize('NFKC').trim();
+  if (!normalizedStructure) {
+    return;
+  }
+  addArtistVariant(variants, normalizedStructure);
+
+  let withoutBracketedCredits = normalizedStructure;
+  for (const bracketPattern of ARTIST_BRACKET_PATTERNS) {
+    for (const match of normalizedStructure.matchAll(bracketPattern)) {
+      const content = match[1]?.replace(ARTIST_CREDIT_PREFIX, '').trim();
+      if (content) {
+        addArtistVariant(variants, content);
+        collectArtistExpressionVariants(content, variants, depth + 1);
+      }
+    }
+    withoutBracketedCredits = withoutBracketedCredits.replace(bracketPattern, ' ');
+  }
+  addArtistVariant(variants, withoutBracketedCredits);
+
+  for (const segment of splitArtistSegments(withoutBracketedCredits)) {
+    addArtistVariant(variants, segment);
+  }
+}
+
+function artistValueVariants(value: string): string[] {
+  const variants = new Set<string>();
+  collectArtistExpressionVariants(value, variants);
   return [...variants];
 }
 
@@ -177,7 +242,9 @@ function artistTokenOrderVariant(value: string): string | null {
   return [...tokens].sort().join(' ');
 }
 
-function collectArtistCandidates(values: ReadonlyArray<string | null | undefined>): string[] {
+export function collectPlaylistArtistMatchCandidates(
+  values: ReadonlyArray<string | null | undefined>,
+): string[] {
   const normalized = uniqueNormalized(
     values.flatMap((value) => (value ? artistValueVariants(value) : [])),
     normalizeMatchText,
@@ -193,36 +260,8 @@ function collectArtistCandidates(values: ReadonlyArray<string | null | undefined
   ];
 }
 
-function wholePhraseIncludes(longer: string, shorter: string): boolean {
-  if (longer === shorter) {
-    return true;
-  }
-  if (shorter.length < 3) {
-    return false;
-  }
-  return (
-    longer.startsWith(`${shorter} `) ||
-    longer.endsWith(` ${shorter}`) ||
-    longer.includes(` ${shorter} `)
-  );
-}
-
 function bestArtistSimilarity(left: readonly string[], right: readonly string[]): number | null {
-  if (left.length === 0 || right.length === 0) {
-    return null;
-  }
-  let best = 0;
-  for (const leftValue of left) {
-    for (const rightValue of right) {
-      const shorter = leftValue.length <= rightValue.length ? leftValue : rightValue;
-      const longer = leftValue.length > rightValue.length ? leftValue : rightValue;
-      if (wholePhraseIncludes(longer, shorter)) {
-        return 1;
-      }
-      best = Math.max(best, stringSimilarity(leftValue, rightValue));
-    }
-  }
-  return best;
+  return bestSimilarity(left, right);
 }
 
 function collectArtistScripts(values: readonly string[]): Set<ArtistScript> {
@@ -254,20 +293,24 @@ function rowTitleCandidates(row: MediaThemeSongRow): string[] {
     [row.displayTitle, row.malTitle, ...(row.aniTitles ?? [])].flatMap((title) =>
       title ? collectTitleMatchCandidates(title) : [],
     ),
-    normalizeTitle,
+    normalizePlaylistTitleForMatch,
   );
 }
 
 function rowArtistCandidates(row: MediaThemeSongRow): string[] {
-  return collectArtistCandidates([row.displayArtist, row.malArtist, ...(row.aniArtists ?? [])]);
+  return collectPlaylistArtistMatchCandidates([
+    row.displayArtist,
+    row.malArtist,
+    ...(row.aniArtists ?? []),
+  ]);
 }
 
 function playlistTrackArtistCandidates(track: CachedPlaylistTrackMetadata): string[] {
-  return collectArtistCandidates([...track.artists, track.artists.join(' ')]);
+  return collectPlaylistArtistMatchCandidates([...track.artists, track.artists.join(' ')]);
 }
 
 function playlistTrackIdentity(track: CachedPlaylistTrackMetadata): string {
-  return `${normalizeTitle(track.title)}\u0000${playlistTrackArtistCandidates(track)
+  return `${normalizePlaylistTitleForMatch(track.title)}\u0000${playlistTrackArtistCandidates(track)
     .sort()
     .join('\u0000')}`;
 }
@@ -278,7 +321,7 @@ function scorePlaylistTrackMetadata(
   match: PlaylistMetadataMatch,
 ): ScoredPlaylistTrack | null {
   const { track } = match;
-  const playlistTitle = normalizeTitle(track.title);
+  const playlistTitle = normalizePlaylistTitleForMatch(track.title);
   const titleScore = bestSimilarity(titleCandidates, playlistTitle ? [playlistTitle] : []);
   if (titleScore == null) {
     return null;
