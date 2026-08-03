@@ -3794,7 +3794,7 @@ a:where(.anime-to-anime-anilist-link):visited {
   display: inline-block;
   line-height: 1;
   /* The glyph's font box sits visually high even when the button is centered. */
-  transform: translateY(2px);
+  transform: translateY(1px);
 }
 
 .icon-button.cloud-on.cloud-synced {
