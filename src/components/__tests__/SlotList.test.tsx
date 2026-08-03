@@ -117,8 +117,7 @@ describe('SlotList status icons', () => {
     const metadata = pinnedRow?.querySelector('.slot-meta');
 
     expect(nameRow?.firstElementChild?.matches('svg.pin-icon')).toBe(true);
-    expect(metadata?.firstElementChild?.matches('svg.pin-icon')).toBe(true);
-    expect(pinnedRow?.querySelectorAll('.pin-icon')).toHaveLength(2);
+    expect(pinnedRow?.querySelectorAll('.pin-icon')).toHaveLength(1);
     expect(metadata?.textContent).toContain('332 items · 733 comparisons');
     expect(metadata?.textContent).not.toContain('pinned');
     expect(unpinnedRow?.querySelector('.pin-icon')).toBeNull();
