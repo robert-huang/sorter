@@ -4,11 +4,13 @@ import {
   applySeasonalListStatusFilters,
   applySeasonalSeasonYearFilters,
   applySeasonalSourceFilters,
+  applySeasonalYearFilters,
   averageScore,
   buildSeasonalColumns,
   clampAiringIntervalSeasonBoundaries,
   countSeasonalShowsBySourceBucket,
   discoverSeasonalSeasonYearEncoded,
+  discoverSeasonalYears,
   DEFAULT_SEASONAL_SOURCE_FILTERS,
   effectiveSeasonalForm,
   encodeSeasonalShowSeasonYear,
@@ -64,6 +66,63 @@ describe('seasonalScoresLogic', () => {
     expect(specs[1]?.season).toBe('WINTER');
   });
 
+  it('parseSeasonSpecs preserves a continuous range while the year filter is off', () => {
+    const rangeShows: SeasonalShow[] = [
+      { ...sampleShows[0]!, id: 101, seasonYear: 2021 },
+      { ...sampleShows[0]!, id: 102, seasonYear: 2023 },
+    ];
+    const specs = parseSeasonSpecs('allseasons', rangeShows);
+    expect(specs).toHaveLength(12);
+    expect(specs[0]?.label).toBe('Winter 2021');
+    expect(specs[4]?.label).toBe('Winter 2022');
+    expect(specs[8]?.label).toBe('Winter 2023');
+  });
+
+  it('parseSeasonSpecs omits gaps in a non-contiguous year selection', () => {
+    const rangeShows: SeasonalShow[] = [
+      { ...sampleShows[0]!, id: 101, seasonYear: 2021 },
+      { ...sampleShows[0]!, id: 102, seasonYear: 2025 },
+      { ...sampleShows[0]!, id: 103, seasonYear: 2026 },
+    ];
+    const specs = parseSeasonSpecs(
+      'allseasons',
+      rangeShows,
+      [2026, 2021, 2025],
+    );
+    expect(specs.map((spec) => spec.label)).toEqual([
+      'Winter 2021',
+      'Spring 2021',
+      'Summer 2021',
+      'Fall 2021',
+      'Winter 2025',
+      'Spring 2025',
+      'Summer 2025',
+      'Fall 2025',
+      'Winter 2026',
+      'Spring 2026',
+      'Summer 2026',
+      'Fall 2026',
+    ]);
+  });
+
+  it('discovers and applies non-contiguous Seasonal Scores year filters', () => {
+    const rangeShows: SeasonalShow[] = [
+      { ...sampleShows[0]!, id: 101, seasonYear: 2021 },
+      { ...sampleShows[0]!, id: 102, seasonYear: 2022 },
+      { ...sampleShows[0]!, id: 103, seasonYear: 2025 },
+      { ...sampleShows[0]!, id: 104, seasonYear: 2026 },
+      { ...sampleShows[0]!, id: 105, seasonYear: null },
+    ];
+    expect(discoverSeasonalYears(rangeShows)).toEqual([
+      2026, 2025, 2022, 2021,
+    ]);
+    expect(
+      applySeasonalYearFilters(rangeShows, [2021, 2025, 2026]).map(
+        (show) => show.id,
+      ),
+    ).toEqual([101, 103, 104]);
+  });
+
   it('buildSeasonalColumns buckets and averages per season', () => {
     const result = buildSeasonalColumns(sampleShows, {
       username: 'user',
@@ -82,6 +141,37 @@ describe('seasonalScoresLogic', () => {
     expect(winter?.average).toBe(85);
     expect(winter?.ratedCount).toBe(2);
     expect(winter?.shows.map((s) => s.title)).toEqual(['Winter A', 'Winter B']);
+  });
+
+  it('buildSeasonalColumns keeps only explicitly selected sparse years', () => {
+    const rangeShows: SeasonalShow[] = [
+      { ...sampleShows[0]!, id: 101, seasonYear: 2021 },
+      { ...sampleShows[0]!, id: 102, seasonYear: 2022 },
+      { ...sampleShows[0]!, id: 103, seasonYear: 2025 },
+      { ...sampleShows[0]!, id: 104, seasonYear: 2026 },
+    ];
+    const result = buildSeasonalColumns(
+      rangeShows,
+      {
+        username: 'user',
+        seasonText: 'allseasons',
+        skipEmpty: false,
+        airingNotesOnly: false,
+        includePlanning: false,
+        spanAiringSeasons: false,
+        seasonMode: 'allseasons',
+      },
+      { yearFilters: [2021, 2025, 2026] },
+    );
+    expect(result.kind).toBe('columns');
+    if (result.kind !== 'columns') {
+      return;
+    }
+    expect(
+      result.columns
+        .filter((column) => column.season === 'WINTER')
+        .map((column) => column.year),
+    ).toEqual([2021, 2025, 2026]);
   });
 
   it('normalizeSeasonalListScore treats 0 as unrated', () => {

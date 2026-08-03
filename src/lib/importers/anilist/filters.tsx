@@ -205,6 +205,77 @@ export function encodeSeasonYear(season: AnilistMediaSeason, year: number): numb
   return year * 4 + SEASON_INDEX[season];
 }
 
+/**
+ * Build the ordered seasonYear slider domain for a paired year filter.
+ * Selected years intentionally contribute all four seasons, including
+ * seasons with no candidates, so every selected year has predictable
+ * Winter → Spring → Summer → Fall steps. With no year filter, preserve
+ * the discovered candidate tuples.
+ */
+export function seasonYearOptionsForSelectedYears(
+  discoveredOptions: readonly number[],
+  selectedYears: readonly number[],
+): number[] {
+  const years = [...new Set(selectedYears)]
+    .filter((year) => Number.isInteger(year))
+    .sort((a, b) => a - b);
+  if (years.length > 0) {
+    return years.flatMap((year) =>
+      SEASON_BY_INDEX.map((season) => encodeSeasonYear(season, year)),
+    );
+  }
+  return [...new Set(discoveredOptions)]
+    .filter((option) => Number.isInteger(option))
+    .sort((a, b) => a - b);
+}
+
+export type SeasonYearRange = {
+  seasonYearMin: number | null;
+  seasonYearMax: number | null;
+};
+
+/**
+ * Keep explicit range bounds on valid option steps after the paired
+ * year selection changes. A range with no overlap is cleared instead
+ * of leaving a stale bound that would hide every selected year.
+ */
+export function normalizeSeasonYearRangeToOptions(
+  options: readonly number[],
+  min: number | null,
+  max: number | null,
+): SeasonYearRange {
+  if (options.length === 0) {
+    return { seasonYearMin: min, seasonYearMax: max };
+  }
+  const firstAllowedIndex =
+    min === null ? 0 : options.findIndex((option) => option >= min);
+  let lastAllowedIndex = options.length - 1;
+  if (max !== null) {
+    lastAllowedIndex = -1;
+    for (let index = options.length - 1; index >= 0; index -= 1) {
+      if (options[index]! <= max) {
+        lastAllowedIndex = index;
+        break;
+      }
+    }
+  }
+  if (
+    firstAllowedIndex < 0 ||
+    lastAllowedIndex < 0 ||
+    firstAllowedIndex > lastAllowedIndex
+  ) {
+    return { seasonYearMin: null, seasonYearMax: null };
+  }
+  return {
+    seasonYearMin:
+      firstAllowedIndex === 0 ? null : options[firstAllowedIndex]!,
+    seasonYearMax:
+      lastAllowedIndex === options.length - 1
+        ? null
+        : options[lastAllowedIndex]!,
+  };
+}
+
 function decodeSeasonYear(encoded: number): {
   season: AnilistMediaSeason;
   year: number;
@@ -1344,13 +1415,11 @@ export function DualRangeSlider({
 }
 
 /**
- * Range chip for the season-year filter. The slider runs from the
- * lowest to the highest discovered (season, year) tuple in the
- * candidate set with season-level precision (step = 1 on the encoded
- * year*4 + season_idx integer). Year-only number inputs flank the
- * slider for "jump to a specific year" — typing in the min input
- * snaps to WINTER of that year; the max input snaps to FALL. Drag
- * the slider afterwards to fine-tune to a specific season.
+ * Range chip for the season-year filter. The slider runs over option
+ * indices rather than encoded calendar integers, so sparse paired
+ * year selections skip every unselected year while retaining
+ * season-level precision. Year-only number inputs flank the slider
+ * for quick jumps to the nearest allowed year.
  *
  * Edge collapse: any time a handle is dragged or a year is typed
  * that puts the bound at the slider's extreme, the corresponding
@@ -1375,35 +1444,66 @@ export function SeasonYearChip({
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   useClickOutside(rootRef, open, () => setOpen(false));
-  const active = min !== null || max !== null;
+  const normalizedRange = normalizeSeasonYearRangeToOptions(options, min, max);
+  const normalizedMin = normalizedRange.seasonYearMin;
+  const normalizedMax = normalizedRange.seasonYearMax;
+  const active = normalizedMin !== null || normalizedMax !== null;
   const label = active
-    ? `seasonYear · ${rangeLabel(min, max, formatSeasonYear)}`
+    ? `seasonYear · ${rangeLabel(normalizedMin, normalizedMax, formatSeasonYear)}`
     : 'seasonYear';
 
   const hasOptions = options.length > 0;
-  const sliderMin = hasOptions ? options[0]! : 0;
-  const sliderMax = hasOptions ? options[options.length - 1]! : 0;
-  const lo = min ?? sliderMin;
-  const hi = max ?? sliderMax;
-  const sliderMinYear = Math.floor(sliderMin / 4);
-  const sliderMaxYear = Math.floor(sliderMax / 4);
+  const firstOption = hasOptions ? options[0]! : 0;
+  const lastOption = hasOptions ? options[options.length - 1]! : 0;
+  const loIndex =
+    normalizedMin === null
+      ? 0
+      : Math.max(0, options.indexOf(normalizedMin));
+  const hiIndex =
+    normalizedMax === null
+      ? Math.max(0, options.length - 1)
+      : Math.max(0, options.indexOf(normalizedMax));
+  const lo = hasOptions ? options[loIndex]! : 0;
+  const hi = hasOptions ? options[hiIndex]! : 0;
+  const sliderMinYear = Math.floor(firstOption / 4);
+  const sliderMaxYear = Math.floor(lastOption / 4);
+
+  useEffect(() => {
+    if (
+      hasOptions &&
+      (normalizedMin !== min || normalizedMax !== max)
+    ) {
+      onChange(normalizedRange);
+    }
+  }, [
+    hasOptions,
+    max,
+    min,
+    normalizedMax,
+    normalizedMin,
+    onChange,
+  ]);
 
   // Year-only text state: the slider exposes season-level precision,
   // but the inputs deal in whole years to keep typing fast. Sync from
   // chip state via useEffect so external changes (slider drag, clear)
   // flow back to the inputs.
   const [minText, setMinText] = useState<string>(
-    min === null ? '' : String(Math.floor(lo / 4)),
+    normalizedMin === null ? '' : String(Math.floor(lo / 4)),
   );
   const [maxText, setMaxText] = useState<string>(
-    max === null ? '' : String(Math.floor(hi / 4)),
+    normalizedMax === null ? '' : String(Math.floor(hi / 4)),
   );
   useEffect(() => {
-    setMinText(min === null ? '' : String(Math.floor((min ?? sliderMin) / 4)));
-  }, [min, sliderMin]);
+    setMinText(
+      normalizedMin === null ? '' : String(Math.floor(lo / 4)),
+    );
+  }, [lo, normalizedMin]);
   useEffect(() => {
-    setMaxText(max === null ? '' : String(Math.floor((max ?? sliderMax) / 4)));
-  }, [max, sliderMax]);
+    setMaxText(
+      normalizedMax === null ? '' : String(Math.floor(hi / 4)),
+    );
+  }, [hi, normalizedMax]);
 
   function parseYear(text: string): number | null | undefined {
     if (text === '') return null;
@@ -1415,43 +1515,63 @@ export function SeasonYearChip({
   function commitMin(): void {
     const parsed = parseYear(minText);
     if (parsed === undefined) {
-      setMinText(min === null ? '' : String(Math.floor(lo / 4)));
+      setMinText(
+        normalizedMin === null ? '' : String(Math.floor(lo / 4)),
+      );
       return;
     }
     if (parsed === null) {
-      onChange({ seasonYearMin: null, seasonYearMax: max });
+      onChange({ seasonYearMin: null, seasonYearMax: normalizedMax });
       return;
     }
-    // Snap to WINTER (year*4), clamp into the slider universe, then
-    // collapse to null when at the edge so the chip can turn off.
-    const encoded = Math.min(sliderMax, Math.max(sliderMin, parsed * 4));
-    const nextMin = encoded === sliderMin ? null : encoded;
+    const target = parsed * 4;
+    const index = options.findIndex((option) => option >= target);
+    const encoded = index < 0 ? lastOption : options[index]!;
+    const nextMin = encoded === firstOption ? null : encoded;
     // Keep max >= min by pushing max up if the typed min outranges it.
-    const nextMax = max !== null && nextMin !== null && max < nextMin ? nextMin : max;
+    const nextMax =
+      normalizedMax !== null &&
+      nextMin !== null &&
+      normalizedMax < nextMin
+        ? nextMin
+        : normalizedMax;
     onChange({ seasonYearMin: nextMin, seasonYearMax: nextMax });
   }
 
   function commitMax(): void {
     const parsed = parseYear(maxText);
     if (parsed === undefined) {
-      setMaxText(max === null ? '' : String(Math.floor(hi / 4)));
+      setMaxText(
+        normalizedMax === null ? '' : String(Math.floor(hi / 4)),
+      );
       return;
     }
     if (parsed === null) {
-      onChange({ seasonYearMin: min, seasonYearMax: null });
+      onChange({ seasonYearMin: normalizedMin, seasonYearMax: null });
       return;
     }
-    // Snap to FALL (year*4 + 3), clamp, then collapse-on-edge.
-    const encoded = Math.min(sliderMax, Math.max(sliderMin, parsed * 4 + 3));
-    const nextMax = encoded === sliderMax ? null : encoded;
-    const nextMin = min !== null && nextMax !== null && min > nextMax ? nextMax : min;
+    const target = parsed * 4 + 3;
+    let index = options.length - 1;
+    while (index > 0 && options[index]! > target) {
+      index -= 1;
+    }
+    const encoded = options[index]!;
+    const nextMax = encoded === lastOption ? null : encoded;
+    const nextMin =
+      normalizedMin !== null &&
+      nextMax !== null &&
+      normalizedMin > nextMax
+        ? nextMax
+        : normalizedMin;
     onChange({ seasonYearMin: nextMin, seasonYearMax: nextMax });
   }
 
-  function onSliderChange([newLo, newHi]: [number, number]): void {
+  function onSliderChange([newLoIndex, newHiIndex]: [number, number]): void {
     onChange({
-      seasonYearMin: newLo === sliderMin ? null : newLo,
-      seasonYearMax: newHi === sliderMax ? null : newHi,
+      seasonYearMin:
+        newLoIndex === 0 ? null : options[newLoIndex]!,
+      seasonYearMax:
+        newHiIndex === options.length - 1 ? null : options[newHiIndex]!,
     });
   }
 
@@ -1491,9 +1611,9 @@ export function SeasonYearChip({
                   aria-label="season-year minimum (year)"
                 />
                 <DualRangeSlider
-                  min={sliderMin}
-                  max={sliderMax}
-                  value={[lo, hi]}
+                  min={0}
+                  max={options.length - 1}
+                  value={[loIndex, hiIndex]}
                   onChange={onSliderChange}
                   ariaLabelMin="season-year range minimum"
                   ariaLabelMax="season-year range maximum"
@@ -2185,6 +2305,20 @@ function AnilistChips({
 
   const set = (patch: Partial<AnilistFilterChipState>) =>
     onChipStateChange(patchState(state, patch));
+  const seasonYearOptions = seasonYearOptionsForSelectedYears(
+    options.seasonYearEncoded,
+    state.years,
+  );
+
+  function replaceYears(years: readonly number[]): void {
+    const nextYears = [...years];
+    const nextRange = normalizeSeasonYearRangeToOptions(
+      seasonYearOptionsForSelectedYears(options.seasonYearEncoded, nextYears),
+      state.seasonYearMin,
+      state.seasonYearMax,
+    );
+    set({ years: nextYears, ...nextRange });
+  }
 
   // Sequential bulk expansion. Cancelled callers get a stale-closure
   // race (the running flag in state guards the button so the user
@@ -2261,11 +2395,12 @@ function AnilistChips({
         label="year"
         options={options.years}
         selected={state.years}
-        onToggle={(v) => set({ years: toggleInArray(state.years, v) })}
+        onToggle={(v) => replaceYears(toggleInArray(state.years, v))}
+        onReplaceAll={replaceYears}
       />
       {options.mediaType !== 'MANGA' && (
         <SeasonYearChip
-          options={options.seasonYearEncoded}
+          options={seasonYearOptions}
           min={state.seasonYearMin}
           max={state.seasonYearMax}
           onChange={(patch) => set(patch)}

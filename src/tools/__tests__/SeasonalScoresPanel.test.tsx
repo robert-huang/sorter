@@ -1,6 +1,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { encodeSeasonYear } from '../../lib/importers/anilist/filters';
 import { SeasonalScoresPanel } from '../panels/SeasonalScoresPanel';
 
 let container: HTMLDivElement;
@@ -98,5 +99,51 @@ describe('SeasonalScoresPanel notes filter', () => {
         localStorage.getItem('anime-tools-seasonal-scores-form') ?? '{}',
       ).airingNotesOnly,
     ).toBe(true);
+  });
+});
+
+describe('SeasonalScoresPanel year filters', () => {
+  it('restores sparse years and gives seasonYear one step per allowed season', () => {
+    localStorage.setItem(
+      'anime-tools-seasonal-scores-primary-filters',
+      JSON.stringify({
+        years: [2021, 2025, 2026],
+        seasonYearMin: encodeSeasonYear('SPRING', 2021),
+        seasonYearMax: encodeSeasonYear('SUMMER', 2026),
+        listStatuses: ['COMPLETED', 'CURRENT', 'REPEATING', 'PAUSED'],
+      }),
+    );
+
+    act(() => {
+      root.render(
+        <SeasonalScoresPanel
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+          dbSyncRevision={0}
+        />,
+      );
+    });
+
+    const seasonYearButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('.filter-chip-button'),
+    ).find((button) => button.textContent?.startsWith('seasonYear'));
+    expect(seasonYearButton).toBeTruthy();
+    act(() => seasonYearButton?.click());
+
+    const minimumSlider = container.querySelector<HTMLInputElement>(
+      'input[aria-label="season-year range minimum"]',
+    );
+    expect(minimumSlider?.min).toBe('0');
+    expect(minimumSlider?.max).toBe('11');
+    expect(minimumSlider?.value).toBe('1');
+
+    const persisted = JSON.parse(
+      localStorage.getItem('anime-tools-seasonal-scores-primary-filters') ??
+        '{}',
+    ) as Record<string, unknown>;
+    expect(persisted.years).toEqual([2026, 2025, 2021]);
+    expect(persisted.seasonYearMin).toBe(
+      encodeSeasonYear('SPRING', 2021),
+    );
   });
 });

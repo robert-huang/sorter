@@ -170,7 +170,7 @@ Both paths offer **Use cached list / Use cached favourites** to load straight fr
 
 After data loads into the preview:
 
-- **Filter chips** (FilterBar) narrow the candidates. Media chips include **list status**, **status**, **genre**, **format**, **year**, **seasonYear**, **score** (your AniList score), **studio**, **voice actor** (with a lazy *"Fetch cast for N shows"* action), **tag** / **tag options** / **exclude tag**. Favourite characters/staff have their own chips (gender, favourites count, role, language, etc.).
+- **Filter chips** (FilterBar) narrow the candidates. Media chips include **list status**, **status**, **genre**, **format**, **year**, **seasonYear**, **score** (your AniList score), **studio**, **voice actor** (with a lazy *"Fetch cast for N shows"* action), **tag** / **tag options** / **exclude tag**. The **seasonYear** slider uses one discrete step per allowed season; selecting years first rebuilds its timeline from only those years, so sparse selections such as 2021 + 2025 + 2026 skip every intervening year. Favourite characters/staff have their own chips (gender, favourites count, role, language, etc.).
   - The **list status** chip defaults to `CURRENT`, `COMPLETED`, `REPEATING` — so PLANNING / PAUSED / DROPPED entries are hidden until you change it.
 - **Search…** further narrows visible rows by title (matches romaji/english/native + synonyms).
 - Tick the per-row checkboxes (all checked after an import). **Select all visible** / **Clear visible** help; a status line reads `{visible} of {total} shown · {selected} selected`.
@@ -682,6 +682,7 @@ Sections: Studios, Production, Voice actors. Single-show mode also lists categor
 Chart one user's AniList scores across seasons.
 
 - **Season mode** — **All seasons** (`allseasons`, default for new users), **Current year all** (`all`), or **Custom** (free-form season textarea grammar, e.g. `2024 spring`, `2023`).
+- **Year / seasonYear filters** — select any set of years, including non-contiguous years, then fine-tune the first and last season. The season slider is rebuilt as Winter → Spring → Summer → Fall for each selected year and omits unchecked years entirely.
 - **Skip empty** — hide season columns with no rated entries.
 - **Airing notes only** — only include shows whose list notes contain an airing marker.
 - **Include planning** — fetch PLANNING entries (off by default).

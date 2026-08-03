@@ -183,6 +183,46 @@ export function applySeasonalListStatusFilters(
   });
 }
 
+/** Distinct AniList season years, newest first for the checkbox chip. */
+export function discoverSeasonalYears(
+  shows: readonly SeasonalShow[],
+): number[] {
+  const years = new Set<number>();
+  for (const show of shows) {
+    if (show.seasonYear != null && Number.isInteger(show.seasonYear)) {
+      years.add(show.seasonYear);
+    }
+  }
+  return [...years].sort((a, b) => b - a);
+}
+
+/** Empty means the year chip is inactive and every year is allowed. */
+export type SeasonalYearFilters = number[];
+
+export const DEFAULT_SEASONAL_YEAR_FILTERS: SeasonalYearFilters = [];
+
+export function normalizeSeasonalYearFilters(raw: unknown): SeasonalYearFilters {
+  if (!Array.isArray(raw)) {
+    return [...DEFAULT_SEASONAL_YEAR_FILTERS];
+  }
+  return [...new Set(raw)]
+    .filter((year): year is number => typeof year === 'number' && Number.isInteger(year))
+    .sort((a, b) => b - a);
+}
+
+export function applySeasonalYearFilters(
+  shows: SeasonalShow[],
+  selected: SeasonalYearFilters,
+): SeasonalShow[] {
+  if (selected.length === 0) {
+    return shows;
+  }
+  const allowed = new Set(selected);
+  return shows.filter(
+    (show) => show.seasonYear != null && allowed.has(show.seasonYear),
+  );
+}
+
 /** Encoded (season, seasonYear) for seasonYear range filtering — mirrors AniList import chips. */
 export function encodeSeasonalShowSeasonYear(show: SeasonalShow): number | null {
   const season = show.season;
@@ -451,6 +491,7 @@ export function parseSeasonLine(line: string): { season: string | null; year: nu
 export function parseSeasonSpecs(
   text: string,
   shows: SeasonalShow[],
+  selectedYears: readonly number[] = [],
 ): SeasonSpec[] {
   const lines = parseLinesOnePerLine(text);
 
@@ -468,7 +509,18 @@ export function parseSeasonSpecs(
   // `buildSeasonalColumns` emit the empty-state message.
   const minYear = years.length > 0 ? Math.min(...years) : null;
   const maxYear = years.length > 0 ? Math.max(...years) : null;
-  const hasRange = minYear !== null && maxYear !== null;
+  const filteredPresetYears = [...new Set(selectedYears)]
+    .filter((year) => Number.isInteger(year) && year > 0)
+    .sort((a, b) => a - b);
+  const presetYears =
+    filteredPresetYears.length > 0
+      ? filteredPresetYears
+      : minYear !== null && maxYear !== null
+        ? Array.from(
+            { length: maxYear - minYear + 1 },
+            (_, index) => minYear + index,
+          )
+        : [];
 
   const specs: SeasonSpec[] = [];
 
@@ -479,19 +531,13 @@ export function parseSeasonSpecs(
       continue;
     }
     if (lower === 'all') {
-      if (!hasRange) {
-        continue;
-      }
-      for (let year = minYear; year <= maxYear; year += 1) {
+      for (const year of presetYears) {
         specs.push({ label: String(year), season: null, year });
       }
       continue;
     }
     if (lower === 'allseasons') {
-      if (!hasRange) {
-        continue;
-      }
-      for (let year = minYear; year <= maxYear; year += 1) {
+      for (const year of presetYears) {
         for (const season of SEASON_NAMES) {
           const label = `${season[0]}${season.slice(1).toLowerCase()} ${year}`;
           specs.push({ label, season, year });
@@ -845,6 +891,8 @@ export function seasonColumnIndicesWithTopAverage(
 export type BuildSeasonalColumnsOptions = {
   /** Injectable clock for spanning-mode tests. */
   now?: Date;
+  /** Client-side checkbox filter paired with the seasonYear slider. */
+  yearFilters?: SeasonalYearFilters;
   /** Client-side seasonYear range filter (instant toggle over cached shows). */
   seasonYearFilter?: SeasonalSeasonYearFilter;
   /** Client-side list-status filter (instant toggle over cached shows). */
@@ -859,8 +907,12 @@ export function buildSeasonalColumns(
   options?: BuildSeasonalColumnsOptions,
 ): SeasonalScoresResult {
   const now = options?.now ?? new Date();
-  let filteredShows = applySeasonalSeasonYearFilters(
+  let filteredShows = applySeasonalYearFilters(
     shows,
+    options?.yearFilters ?? DEFAULT_SEASONAL_YEAR_FILTERS,
+  );
+  filteredShows = applySeasonalSeasonYearFilters(
+    filteredShows,
     options?.seasonYearFilter ?? DEFAULT_SEASONAL_SEASON_YEAR_FILTER,
   );
   filteredShows = applySeasonalListStatusFilters(
@@ -871,7 +923,11 @@ export function buildSeasonalColumns(
     filteredShows,
     options?.sourceFilters ?? DEFAULT_SEASONAL_SOURCE_FILTERS,
   );
-  const specs = parseSeasonSpecs(form.seasonText, filteredShows);
+  const specs = parseSeasonSpecs(
+    form.seasonText,
+    filteredShows,
+    options?.yearFilters,
+  );
   if (specs.length === 0) {
     // Disambiguate so the user knows whether to type a season or
     // refresh — the `all`/`allseasons`/`alltime` presets only fail to emit specs

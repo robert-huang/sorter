@@ -21,8 +21,11 @@ import {
   computeAllowedMediaIds,
   DEFAULT_ALLOWED_LIST_STATUSES,
   compareGenres,
+  encodeSeasonYear,
   formatOptionsForType,
   isInitialState,
+  normalizeSeasonYearRangeToOptions,
+  seasonYearOptionsForSelectedYears,
   setFilterDbForTesting,
   sortedDualRangePair,
   multiSelectChipBulkSelectDisabled,
@@ -503,6 +506,97 @@ describe('toggleScoreBucket', () => {
     // Results that keep rated visible leave the range untouched.
     expect(toggleScoreBucket('any', 'unrated')).not.toHaveProperty('scoreMin');
     expect(toggleScoreBucket('rated', 'unrated')).not.toHaveProperty('scoreMin');
+  });
+});
+
+describe('seasonYearOptionsForSelectedYears', () => {
+  it('creates chronological season steps for non-contiguous selected years', () => {
+    expect(
+      seasonYearOptionsForSelectedYears([], [2026, 2021, 2025]),
+    ).toEqual([
+      encodeSeasonYear('WINTER', 2021),
+      encodeSeasonYear('SPRING', 2021),
+      encodeSeasonYear('SUMMER', 2021),
+      encodeSeasonYear('FALL', 2021),
+      encodeSeasonYear('WINTER', 2025),
+      encodeSeasonYear('SPRING', 2025),
+      encodeSeasonYear('SUMMER', 2025),
+      encodeSeasonYear('FALL', 2025),
+      encodeSeasonYear('WINTER', 2026),
+      encodeSeasonYear('SPRING', 2026),
+      encodeSeasonYear('SUMMER', 2026),
+      encodeSeasonYear('FALL', 2026),
+    ]);
+  });
+
+  it('creates contiguous steps across a continuous selected-year range', () => {
+    const options = seasonYearOptionsForSelectedYears(
+      [],
+      [2023, 2021, 2022],
+    );
+    expect(options).toHaveLength(12);
+    expect(options).toEqual(
+      Array.from(
+        {
+          length:
+            encodeSeasonYear('FALL', 2023) -
+            encodeSeasonYear('WINTER', 2021) +
+            1,
+        },
+        (_, index) => encodeSeasonYear('WINTER', 2021) + index,
+      ),
+    );
+  });
+
+  it('handles a large selected-year range without losing season steps', () => {
+    const years = Array.from({ length: 127 }, (_, index) => 1900 + index);
+    const options = seasonYearOptionsForSelectedYears([], years);
+    expect(options).toHaveLength(508);
+    expect(options[0]).toBe(encodeSeasonYear('WINTER', 1900));
+    expect(options[options.length - 1]).toBe(
+      encodeSeasonYear('FALL', 2026),
+    );
+  });
+
+  it('preserves sorted discovered tuples while the paired year filter is off', () => {
+    const winter2021 = encodeSeasonYear('WINTER', 2021);
+    const fall2025 = encodeSeasonYear('FALL', 2025);
+    expect(
+      seasonYearOptionsForSelectedYears(
+        [fall2025, winter2021, fall2025],
+        [],
+      ),
+    ).toEqual([winter2021, fall2025]);
+  });
+});
+
+describe('normalizeSeasonYearRangeToOptions', () => {
+  const options = seasonYearOptionsForSelectedYears(
+    [],
+    [2021, 2025, 2026],
+  );
+
+  it('snaps bounds across omitted years to allowed season steps', () => {
+    expect(
+      normalizeSeasonYearRangeToOptions(
+        options,
+        encodeSeasonYear('SPRING', 2022),
+        encodeSeasonYear('SUMMER', 2025),
+      ),
+    ).toEqual({
+      seasonYearMin: encodeSeasonYear('WINTER', 2025),
+      seasonYearMax: encodeSeasonYear('SUMMER', 2025),
+    });
+  });
+
+  it('clears stale bounds when the selected years no longer overlap', () => {
+    expect(
+      normalizeSeasonYearRangeToOptions(
+        options,
+        encodeSeasonYear('WINTER', 2022),
+        encodeSeasonYear('FALL', 2024),
+      ),
+    ).toEqual({ seasonYearMin: null, seasonYearMax: null });
   });
 });
 

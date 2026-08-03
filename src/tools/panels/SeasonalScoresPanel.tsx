@@ -10,19 +10,22 @@ import { fetchUserSeasonalShows, bustSeasonalSessionMemo } from './seasonalScore
 import {
   buildSeasonalColumns,
   countSeasonalShowsBySourceBucket,
-  DEFAULT_SEASONAL_LIST_STATUS_FILTERS,
   DEFAULT_SEASONAL_SEASON_YEAR_FILTER,
   DEFAULT_SEASONAL_SOURCE_FILTERS,
+  DEFAULT_SEASONAL_YEAR_FILTERS,
   applySeasonalListStatusFilters,
   applySeasonalSeasonYearFilters,
   applySeasonalSourceFilters,
+  applySeasonalYearFilters,
   discoverSeasonalSeasonYearEncoded,
+  discoverSeasonalYears,
   effectiveSeasonalForm,
   formatSeasonColumnLabel,
   formatSeasonalScoreLabel,
   normalizeSeasonalListStatusFilters,
   normalizeSeasonalSeasonYearFilter,
   normalizeSeasonalSourceFilters,
+  normalizeSeasonalYearFilters,
   scoreDisplayToneClass,
   SEASONAL_LIST_STATUS_OPTIONS,
   seasonColumnIndicesWithTopAverage,
@@ -31,6 +34,7 @@ import {
   type SeasonalListStatusFilters,
   type SeasonalSeasonYearFilter,
   type SeasonalSourceFilterKey,
+  type SeasonalYearFilters,
   type SeasonMode,
   type SeasonalScoresForm,
   type SeasonalScoresResult,
@@ -47,7 +51,13 @@ import {
   anilistUrlForSeasonSearch,
 } from '../../lib/importers/anilist/anilistLinks';
 import { AnilistMiddleClickLink } from '../../lib/importers/anilist/AnilistMiddleClickLink';
-import { MultiSelectChip, SeasonYearChip, toggleInArray } from '../../lib/importers/anilist/filters';
+import {
+  MultiSelectChip,
+  normalizeSeasonYearRangeToOptions,
+  seasonYearOptionsForSelectedYears,
+  SeasonYearChip,
+  toggleInArray,
+} from '../../lib/importers/anilist/filters';
 import { useCurrentAnilistFavourites } from '../useCurrentAnilistFavourites';
 
 const LS_KEY = 'anime-tools-seasonal-scores-form';
@@ -113,11 +123,13 @@ type PersistedPrimaryFilters = {
   seasonYearMin?: unknown;
   seasonYearMax?: unknown;
   listStatuses?: unknown;
+  years?: unknown;
 };
 
 function loadPrimaryFilters(): {
   seasonYearFilter: SeasonalSeasonYearFilter;
   listStatusFilters: SeasonalListStatusFilters;
+  yearFilters: SeasonalYearFilters;
 } {
   try {
     const raw = localStorage.getItem(LS_PRIMARY_FILTERS_KEY);
@@ -125,6 +137,7 @@ function loadPrimaryFilters(): {
       return {
         seasonYearFilter: { ...DEFAULT_SEASONAL_SEASON_YEAR_FILTER },
         listStatusFilters: normalizeSeasonalListStatusFilters(undefined),
+        yearFilters: [...DEFAULT_SEASONAL_YEAR_FILTERS],
       };
     }
     const parsed = JSON.parse(raw) as PersistedPrimaryFilters;
@@ -134,11 +147,13 @@ function loadPrimaryFilters(): {
         seasonYearMax: parsed.seasonYearMax,
       }),
       listStatusFilters: normalizeSeasonalListStatusFilters(parsed.listStatuses),
+      yearFilters: normalizeSeasonalYearFilters(parsed.years),
     };
   } catch {
     return {
       seasonYearFilter: { ...DEFAULT_SEASONAL_SEASON_YEAR_FILTER },
       listStatusFilters: normalizeSeasonalListStatusFilters(undefined),
+      yearFilters: [...DEFAULT_SEASONAL_YEAR_FILTERS],
     };
   }
 }
@@ -146,6 +161,7 @@ function loadPrimaryFilters(): {
 function savePrimaryFilters(
   seasonYearFilter: SeasonalSeasonYearFilter,
   listStatusFilters: SeasonalListStatusFilters,
+  yearFilters: SeasonalYearFilters,
 ): void {
   try {
     localStorage.setItem(
@@ -154,6 +170,7 @@ function savePrimaryFilters(
         seasonYearMin: seasonYearFilter.seasonYearMin,
         seasonYearMax: seasonYearFilter.seasonYearMax,
         listStatuses: listStatusFilters,
+        years: yearFilters,
       }),
     );
   } catch {
@@ -388,21 +405,17 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
   const [sourceFilters, setSourceFilters] = useState<SeasonalSourceFilters>(() =>
     loadSourceFilters(),
   );
+  const [initialPrimaryFilters] = useState(loadPrimaryFilters);
   const [seasonYearFilter, setSeasonYearFilter] = useState<SeasonalSeasonYearFilter>(
-    () => ({ ...DEFAULT_SEASONAL_SEASON_YEAR_FILTER }),
+    initialPrimaryFilters.seasonYearFilter,
   );
-  const [listStatusFilters, setListStatusFilters] = useState<SeasonalListStatusFilters>(() => {
-    try {
-      const raw = localStorage.getItem(LS_PRIMARY_FILTERS_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as PersistedPrimaryFilters;
-        return normalizeSeasonalListStatusFilters(parsed.listStatuses);
-      }
-    } catch {
-      /* ignore */
-    }
-    return [...DEFAULT_SEASONAL_LIST_STATUS_FILTERS];
-  });
+  const [yearFilters, setYearFilters] = useState<SeasonalYearFilters>(
+    initialPrimaryFilters.yearFilters,
+  );
+  const [listStatusFilters, setListStatusFilters] =
+    useState<SeasonalListStatusFilters>(
+      initialPrimaryFilters.listStatusFilters,
+    );
   const [cachedShows, setCachedShows] = useState<SeasonalShow[] | null>(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -429,12 +442,29 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
     [cachedShows, displayLabelRevision],
   );
 
-  const seasonYearEncodedOptions = useMemo(
+  const yearOptions = useMemo(
+    () =>
+      relabeledCachedShows == null
+        ? []
+        : discoverSeasonalYears(relabeledCachedShows),
+    [relabeledCachedShows],
+  );
+
+  const discoveredSeasonYearEncodedOptions = useMemo(
     () =>
       relabeledCachedShows == null
         ? []
         : discoverSeasonalSeasonYearEncoded(relabeledCachedShows),
     [relabeledCachedShows],
+  );
+
+  const seasonYearEncodedOptions = useMemo(
+    () =>
+      seasonYearOptionsForSelectedYears(
+        discoveredSeasonYearEncodedOptions,
+        yearFilters,
+      ),
+    [discoveredSeasonYearEncodedOptions, yearFilters],
   );
 
   useEffect(() => {
@@ -448,22 +478,31 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
     }
     const persisted = loadPrimaryFilters();
     setSeasonYearFilter(persisted.seasonYearFilter);
+    setYearFilters(persisted.yearFilters);
     setListStatusFilters(persisted.listStatusFilters);
     primaryFiltersUsernameRef.current = handle;
   }, [relabeledCachedShows, form.username]);
 
   useEffect(() => {
-    savePrimaryFilters(seasonYearFilter, listStatusFilters);
-  }, [seasonYearFilter, listStatusFilters]);
+    savePrimaryFilters(seasonYearFilter, listStatusFilters, yearFilters);
+  }, [seasonYearFilter, listStatusFilters, yearFilters]);
 
   const buildColumns = useCallback(
     (shows: SeasonalShow[]) =>
       buildSeasonalColumns(relabelSeasonalShows(shows), effectiveSeasonalForm(form), {
+        yearFilters,
         seasonYearFilter,
         listStatusFilters,
         sourceFilters,
       }),
-    [displayLabelRevision, form, sourceFilters, seasonYearFilter, listStatusFilters],
+    [
+      displayLabelRevision,
+      form,
+      sourceFilters,
+      yearFilters,
+      seasonYearFilter,
+      listStatusFilters,
+    ],
   );
 
   const result = useMemo((): SeasonalScoresResult | null => {
@@ -540,11 +579,19 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
     }
   }, [form.username, cachedShows]);
 
+  const visibleYearCount =
+    relabeledCachedShows == null
+      ? null
+      : applySeasonalYearFilters(relabeledCachedShows, yearFilters).length;
+
   const visibleListStatusCount =
     relabeledCachedShows == null
       ? null
       : applySeasonalListStatusFilters(
-          applySeasonalSeasonYearFilters(relabeledCachedShows, seasonYearFilter),
+          applySeasonalSeasonYearFilters(
+            applySeasonalYearFilters(relabeledCachedShows, yearFilters),
+            seasonYearFilter,
+          ),
           listStatusFilters,
         ).length;
 
@@ -553,7 +600,10 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
       ? null
       : applySeasonalSourceFilters(
           applySeasonalListStatusFilters(
-            applySeasonalSeasonYearFilters(relabeledCachedShows, seasonYearFilter),
+            applySeasonalSeasonYearFilters(
+              applySeasonalYearFilters(relabeledCachedShows, yearFilters),
+              seasonYearFilter,
+            ),
             listStatusFilters,
           ),
           sourceFilters,
@@ -603,6 +653,25 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
     [sourceFilterCounts],
   );
 
+  const replaceYearFilters = useCallback(
+    (years: readonly number[]) => {
+      const nextYears = [...years];
+      const nextOptions = seasonYearOptionsForSelectedYears(
+        discoveredSeasonYearEncodedOptions,
+        nextYears,
+      );
+      setYearFilters(nextYears);
+      setSeasonYearFilter((previous) =>
+        normalizeSeasonYearRangeToOptions(
+          nextOptions,
+          previous.seasonYearMin,
+          previous.seasonYearMax,
+        ),
+      );
+    },
+    [discoveredSeasonYearEncodedOptions],
+  );
+
   return (
     <section className="tool-panel">
       <p className="tool-panel-lead">
@@ -628,6 +697,20 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
             refreshing={refreshingList}
             onChange={(username) => patchForm({ username })}
             onRefresh={() => refreshUsernameList(form.username, running)}
+          />
+          <MultiSelectChip
+            label="year"
+            options={yearOptions}
+            selected={yearFilters}
+            menuStatus={
+              relabeledCachedShows != null && visibleYearCount != null
+                ? `${visibleYearCount} of ${relabeledCachedShows.length}`
+                : undefined
+            }
+            onToggle={(year) =>
+              replaceYearFilters(toggleInArray(yearFilters, year))
+            }
+            onReplaceAll={replaceYearFilters}
           />
           <SeasonYearChip
             options={seasonYearEncodedOptions}
