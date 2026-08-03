@@ -1804,7 +1804,7 @@ html {
 }
 
 .anilist-detail-section {
-  margin-top: 14px;
+  margin-top: 4px;
 }
 
 .anilist-detail-section h4 {
@@ -1884,7 +1884,8 @@ html {
   font-size: 11px;
   font-weight: 600;
   color: var(--text-muted);
-  margin-bottom: 4px;
+  margin-top: 2px;
+  margin-bottom: 5px;
   margin-left: -8px;
 }
 
@@ -1987,6 +1988,12 @@ html {
 
 .anilist-detail-theme-song-playlist-dot.is-out {
   color: #e91429;
+}
+
+/* Informational accent: the song is present through a title/artist metadata
+   match, rather than an exact Spotify catalog id/ISRC match. */
+.anilist-detail-theme-song-playlist-dot.is-metadata {
+  color: var(--accent);
 }
 
 .anilist-detail-theme-song-playlist-dot.is-placeholder::before {

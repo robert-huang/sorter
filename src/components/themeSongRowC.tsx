@@ -7,23 +7,49 @@ import {
   themeSongEpisodeLine,
   themeSongTypeBadge,
 } from '../lib/importers/anilist/themeSongs/themeSongDisplay';
-import type { PlaylistMatchStatus } from '../lib/spotify/spotifyPlaylistMatch';
+import type { PlaylistMatchResult } from '../lib/spotify/spotifyPlaylistMatch';
 import { useThemeSongDisplayPreferences } from '../hooks/useThemeSongDisplayPreferences';
 import { RemoveGlyph } from './RemoveGlyph';
 
 type Props = {
   row: MediaThemeSongRow;
-  playlistStatus: PlaylistMatchStatus;
+  playlistMatch: PlaylistMatchResult;
   showPlaylistMatch: boolean;
   onExclude?: (row: MediaThemeSongRow) => void;
 };
 
-export function ThemeSongPlaylistDot({ status }: { status: PlaylistMatchStatus }) {
-  return themeSongPlaylistIndicator(status);
+export function ThemeSongPlaylistDot({ match }: { match: PlaylistMatchResult }) {
+  return themeSongPlaylistIndicator(match);
 }
 
-function themeSongPlaylistIndicator(status: PlaylistMatchStatus): ReactNode {
-  if (status === 'in') {
+function metadataMatchTooltip(match: PlaylistMatchResult): string {
+  const metadataMatch = match.metadataMatch;
+  if (!metadataMatch) {
+    return '';
+  }
+  const { track } = metadataMatch;
+  const artists = track.artists.length > 0 ? track.artists.join(', ') : 'Unknown artist';
+  const position =
+    track.playlistPosition > 0 ? `#${track.playlistPosition}. ` : '';
+  const prefix =
+    metadataMatch.kind === 'local'
+      ? 'Matched playlist local file'
+      : 'Matched Spotify playlist track by title/artist';
+  return `${prefix}: \n\n${position}${track.title} — ${artists}`;
+}
+
+function themeSongPlaylistIndicator(match: PlaylistMatchResult): ReactNode {
+  if (match.metadataMatch) {
+    const tooltip = metadataMatchTooltip(match);
+    return (
+      <span
+        title={tooltip}
+        aria-label={tooltip}
+        className="anilist-detail-theme-song-playlist-dot is-metadata"
+      />
+    );
+  }
+  if (match.status === 'in') {
     return (
       <span
         title="In your Spotify playlist"
@@ -32,7 +58,7 @@ function themeSongPlaylistIndicator(status: PlaylistMatchStatus): ReactNode {
       />
     );
   }
-  if (status === 'out') {
+  if (match.status === 'out') {
     return (
       <span
         title="Not in your Spotify playlist"
@@ -45,16 +71,16 @@ function themeSongPlaylistIndicator(status: PlaylistMatchStatus): ReactNode {
 }
 
 function ThemeSongPlaylistDotSlot({
-  status,
+  match,
   show,
 }: {
-  status: PlaylistMatchStatus;
+  match: PlaylistMatchResult;
   show: boolean;
 }) {
   if (!show) {
     return null;
   }
-  const dot = themeSongPlaylistIndicator(status);
+  const dot = themeSongPlaylistIndicator(match);
   return (
     <div className="anilist-detail-theme-song-playlist-dot-slot">
       {dot ?? (
@@ -115,7 +141,7 @@ function ThemeSongBody({
   );
 }
 
-export function ThemeSongRowC({ row, playlistStatus, showPlaylistMatch, onExclude }: Props) {
+export function ThemeSongRowC({ row, playlistMatch, showPlaylistMatch, onExclude }: Props) {
   const { mode } = useThemeSongDisplayPreferences();
   const title = resolveThemeSongTitle(row, mode);
   const artist = resolveThemeSongArtist(row, mode);
@@ -127,7 +153,7 @@ export function ThemeSongRowC({ row, playlistStatus, showPlaylistMatch, onExclud
       <div className="anilist-detail-theme-song-type" aria-hidden="true">
         {themeSongTypeBadge(row)}
       </div>
-      <ThemeSongPlaylistDotSlot status={playlistStatus} show={showPlaylistMatch} />
+      <ThemeSongPlaylistDotSlot match={playlistMatch} show={showPlaylistMatch} />
       <div className="anilist-detail-theme-song-text">
         <ThemeSongBody row={row} title={title} artist={artist} />
       </div>

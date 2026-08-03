@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { MediaThemeSongRow } from '../../importers/anilist/themeSongs/types';
-import { aggregatePlaylistMatchForRows, matchThemeRowToPlaylist } from '../spotifyPlaylistMatch';
+import {
+  aggregatePlaylistMatchForRows,
+  matchThemeRowToPlaylist,
+  matchThemeRowToPlaylistDetails,
+} from '../spotifyPlaylistMatch';
 import type { SpotifyPlaylistCache } from '../spotifyPlaylist';
 
 function makeRow(overrides: Partial<MediaThemeSongRow> = {}): MediaThemeSongRow {
@@ -25,6 +29,17 @@ const cache: SpotifyPlaylistCache = {
     { id: 'track-c', isrc: 'USRC222', linkedFromIds: [] },
   ],
 };
+
+function cacheWithLocalTracks(
+  localTracks: NonNullable<SpotifyPlaylistCache['localTracks']>,
+): SpotifyPlaylistCache {
+  return {
+    playlistId: 'pl-local',
+    fetchedAt: Date.now(),
+    tracks: [],
+    localTracks,
+  };
+}
 
 describe('matchThemeRowToPlaylist', () => {
   it('matches direct track id', () => {
@@ -147,6 +162,313 @@ describe('matchThemeRowToPlaylist', () => {
     };
     expect(matchThemeRowToPlaylist(row, truncatedCache)).toBe('out');
   });
+
+  it('matches normalized local-file title and artist metadata', () => {
+    const localTrack = {
+      uri: 'spotify:local:Younha:Bleach:Houkiboshi:89',
+      title: 'Houkiboshi (TV Size)',
+      artists: ['Younha', 'ユンナ'],
+      album: 'Bleach',
+      durationMs: 89_000,
+      playlistPosition: 17,
+    };
+    const result = matchThemeRowToPlaylistDetails(
+      makeRow({
+        displayTitle: 'Houkiboshi',
+        displayArtist: 'YOUNHA',
+      }),
+      cacheWithLocalTracks([localTrack]),
+    );
+
+    expect(result).toEqual({
+      status: 'in',
+      metadataMatch: { kind: 'local', track: localTrack },
+    });
+  });
+
+  it.each([
+    {
+      title: 'NOW!!!GAMBLE',
+      cachedArtist: '種島ぽぷら(阿澄佳奈)・伊波まひる(藤田咲)・轟八千代(喜多村英梨)',
+      sourceArtist:
+        'Popura Taneshima (Kana Asumi), Mahiru Inami (Saki Fujita), Yachiyo Todoroki (Eri Kitamura)',
+      playlistPosition: 6,
+    },
+    {
+      title: 'SOMEONE ELSE',
+      cachedArtist:
+        'Taneshima Popura (CV: Asumi Kana), Inami Mahiru (CV: Fujita Saki), Todoroki Yachiyo (CV: Kitamura Eri)',
+      sourceArtist:
+        'Popura Taneshima (Kana Asumi), Mahiru Inami (Saki Fujita), Yachiyo Todoroki (Eri Kitamura)',
+      playlistPosition: 1,
+    },
+  ])(
+    'accepts the MAL-only $title row with the observed local artist tag',
+    ({ title, cachedArtist, sourceArtist, playlistPosition }) => {
+      const localTrack = {
+        uri: `spotify:local:Working:Working:${encodeURIComponent(title)}:240`,
+        title,
+        artists: [cachedArtist],
+        album: 'WORKING!!!',
+        durationMs: 240_000,
+        playlistPosition,
+      };
+      const result = matchThemeRowToPlaylistDetails(
+        makeRow({
+          displayTitle: title,
+          displayArtist: sourceArtist,
+          malTitle: title,
+          malArtist: sourceArtist,
+        }),
+        cacheWithLocalTracks([localTrack]),
+      );
+
+      expect(result).toEqual({
+        status: 'in',
+        metadataMatch: { kind: 'local', track: localTrack },
+      });
+    },
+  );
+
+  it('does not accept a unique exact title when artist metadata is incompatible', () => {
+    const result = matchThemeRowToPlaylistDetails(
+      makeRow({
+        displayTitle: 'Again',
+        displayArtist: 'YUI',
+        aniTitles: ['Again'],
+        aniArtists: ['YUI'],
+      }),
+      cacheWithLocalTracks([
+        {
+          uri: 'spotify:local:Noah+Cyrus:Again:Again:193',
+          title: 'Again',
+          artists: ['Noah Cyrus', 'XXXTENTACION'],
+          album: 'Again',
+          durationMs: 193_000,
+          playlistPosition: 8,
+        },
+      ]),
+    );
+
+    expect(result).toEqual({ status: 'unknown', metadataMatch: null });
+  });
+
+  it('does not trust a short exact title when artist scripts cannot be compared', () => {
+    const result = matchThemeRowToPlaylistDetails(
+      makeRow({
+        displayTitle: 'Pray',
+        displayArtist: 'Haruka Chisuga',
+        malTitle: 'Pray',
+        malArtist: 'Haruka Chisuga',
+      }),
+      cacheWithLocalTracks([
+        {
+          uri: 'spotify:local:Rachel:Pray:Pray:247',
+          title: 'Pray',
+          artists: ['レイチェル(CV.千菅春香)'],
+          album: 'BlazBlue',
+          durationMs: 247_000,
+          playlistPosition: 8,
+        },
+      ]),
+    );
+
+    expect(result).toEqual({ status: 'unknown', metadataMatch: null });
+  });
+
+  it('uses MAL and AniPlaylist variants for conservative fuzzy local matching', () => {
+    const localTrack = {
+      uri: 'spotify:local:Younha:Bleach:Houkibosi:248',
+      title: 'Houkibosi',
+      artists: ['Younha'],
+      album: 'Bleach',
+      durationMs: 248_000,
+      playlistPosition: 8,
+    };
+    const result = matchThemeRowToPlaylistDetails(
+      makeRow({
+        displayTitle: 'ほうき星',
+        displayArtist: 'ユンナ',
+        malTitle: 'ほうき星',
+        malArtist: 'ユンナ',
+        aniTitles: ['Houkiboshi', 'ほうき星'],
+        aniArtists: ['Younha', 'ユンナ'],
+      }),
+      cacheWithLocalTracks([localTrack]),
+    );
+
+    expect(result).toEqual({
+      status: 'in',
+      metadataMatch: { kind: 'local', track: localTrack },
+    });
+  });
+
+  it('does not report an ambiguous fuzzy local match', () => {
+    const playlistCache = cacheWithLocalTracks([
+      {
+        uri: 'spotify:local:Artist:Album:Houkibosi:248',
+        title: 'Houkibosi',
+        artists: ['Artist'],
+        album: 'Album',
+        durationMs: 248_000,
+        playlistPosition: 3,
+      },
+      {
+        uri: 'spotify:local:Artist:Album:Houkiboshu:248',
+        title: 'Houkiboshu',
+        artists: ['Artist'],
+        album: 'Album',
+        durationMs: 248_000,
+        playlistPosition: 9,
+      },
+    ]);
+
+    expect(
+      matchThemeRowToPlaylistDetails(
+        makeRow({ displayTitle: 'Houkiboshi', displayArtist: 'Artist' }),
+        playlistCache,
+      ),
+    ).toEqual({ status: 'unknown', metadataMatch: null });
+  });
+
+  it('does not guess between exact same-title local files when source artist is unknown', () => {
+    const playlistCache = cacheWithLocalTracks([
+      {
+        uri: 'spotify:local:Artist+One:Album:Home:180',
+        title: 'Home',
+        artists: ['Artist One'],
+        album: 'Album',
+        durationMs: 180_000,
+        playlistPosition: 2,
+      },
+      {
+        uri: 'spotify:local:Artist+Two:Album:Home:190',
+        title: 'Home',
+        artists: ['Artist Two'],
+        album: 'Album',
+        durationMs: 190_000,
+        playlistPosition: 7,
+      },
+    ]);
+
+    expect(
+      matchThemeRowToPlaylistDetails(
+        makeRow({ displayTitle: 'Home', displayArtist: null }),
+        playlistCache,
+      ),
+    ).toEqual({ status: 'unknown', metadataMatch: null });
+  });
+
+  it('does not let a matching artist compensate for an unrelated local title', () => {
+    const playlistCache = cacheWithLocalTracks([
+      {
+        uri: 'spotify:local:Artist:Album:Different+Song:180',
+        title: 'Different Song',
+        artists: ['Artist'],
+        album: 'Album',
+        durationMs: 180_000,
+        playlistPosition: 4,
+      },
+    ]);
+
+    expect(matchThemeRowToPlaylist(makeRow(), playlistCache)).toBe('unknown');
+  });
+
+  it('metadata-matches a catalog edition when its id and ISRC do not match', () => {
+    const undineMetadata = {
+      title: 'ウンディーネ',
+      artists: ['Yui Makino'],
+      album: 'ウンディーネ',
+      durationMs: 345_426,
+      playlistPosition: 1,
+    };
+    const playlistCache: SpotifyPlaylistCache = {
+      playlistId: '2XrM7E60lAUFwtwXV7Qlbj',
+      fetchedAt: Date.now(),
+      tracks: [
+        {
+          id: '4gpO9yuVjymsfTVehDXw3Q',
+          isrc: null,
+          linkedFromIds: [],
+          metadata: undineMetadata,
+        },
+      ],
+      localTracks: [],
+      metadataVersion: 1,
+    };
+    const result = matchThemeRowToPlaylistDetails(
+      makeRow({
+        displayTitle: 'Undine (ウンディーネ)',
+        displayArtist: 'Makino Yui',
+        spotifyTrackIds: ['41EFjyvs5g7Ga3ii1kE2aa'],
+        hasResolvableTrackId: true,
+      }),
+      playlistCache,
+    );
+
+    expect(result).toEqual({
+      status: 'in',
+      metadataMatch: { kind: 'spotify', track: undineMetadata },
+    });
+  });
+
+  it('does not substring-match the base Undine row to a different mix', () => {
+    const playlistCache: SpotifyPlaylistCache = {
+      playlistId: '2XrM7E60lAUFwtwXV7Qlbj',
+      fetchedAt: Date.now(),
+      tracks: [
+        {
+          id: '0AKzWVQgLjvs5OCV5VO7OG',
+          isrc: null,
+          linkedFromIds: [],
+          metadata: {
+            title: 'ウンディーネ -forest mix-',
+            artists: ['Yui Makino'],
+            album: 'ARIA The ANIMATION',
+            durationMs: 103_093,
+            playlistPosition: 3,
+          },
+        },
+      ],
+      localTracks: [],
+      metadataVersion: 1,
+    };
+
+    expect(
+      matchThemeRowToPlaylistDetails(
+        makeRow({
+          displayTitle: 'Undine',
+          displayArtist: 'Yui Makino',
+          aniTitles: ['Undine', 'ウンディーネ'],
+          aniArtists: ['Yui Makino', '牧野由依'],
+        }),
+        playlistCache,
+      ),
+    ).toEqual({ status: 'unknown', metadataMatch: null });
+  });
+
+  it('prefers an exact Spotify catalog match over local metadata', () => {
+    const playlistCache: SpotifyPlaylistCache = {
+      ...cache,
+      localTracks: [
+        {
+          uri: 'spotify:local:Artist:Album:Test+Song:180',
+          title: 'Test Song',
+          artists: ['Artist'],
+          album: 'Album',
+          durationMs: 180_000,
+          playlistPosition: 4,
+        },
+      ],
+    };
+
+    expect(
+      matchThemeRowToPlaylistDetails(
+        makeRow({ spotifyTrackIds: ['track-a'], hasResolvableTrackId: true }),
+        playlistCache,
+      ),
+    ).toEqual({ status: 'in', metadataMatch: null });
+  });
 });
 
 describe('aggregatePlaylistMatchForRows', () => {
@@ -164,6 +486,21 @@ describe('aggregatePlaylistMatchForRows', () => {
       makeRow({ spotifyIsrc: null, spotifyTrackIds: [], hasResolvableTrackId: false }),
     ];
     expect(aggregatePlaylistMatchForRows(rows, cache)).toBe('in');
+  });
+
+  it('counts a local-file metadata match as on the playlist', () => {
+    const playlistCache = cacheWithLocalTracks([
+      {
+        uri: 'spotify:local:Artist:Album:Test+Song:180',
+        title: 'Test Song',
+        artists: ['Artist'],
+        album: 'Album',
+        durationMs: 180_000,
+        playlistPosition: 4,
+      },
+    ]);
+
+    expect(aggregatePlaylistMatchForRows([makeRow()], playlistCache)).toBe('in');
   });
 
   it('returns out when every resolvable row is missing from the playlist', () => {

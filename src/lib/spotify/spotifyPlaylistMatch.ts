@@ -1,8 +1,23 @@
 import { mergeSpotifyTrackIdSources } from '../importers/anilist/themeSongs/spotifyLinks';
+import { collectTitleMatchCandidates } from '../importers/anilist/themeSongs/themeSongMatching';
 import type { MediaThemeSongRow } from '../importers/anilist/themeSongs/types';
-import type { SpotifyPlaylistCache } from './spotifyPlaylist';
+import type {
+  CachedPlaylistTrackMetadata,
+  SpotifyPlaylistCache,
+} from './spotifyPlaylist';
 
 export type PlaylistMatchStatus = 'in' | 'out' | 'unknown';
+
+export type PlaylistMatchResult = {
+  status: PlaylistMatchStatus;
+  /** Present when title/artist metadata matched after exact id/ISRC checks failed. */
+  metadataMatch: PlaylistMetadataMatch | null;
+};
+
+export type PlaylistMetadataMatch = {
+  kind: 'local' | 'spotify';
+  track: CachedPlaylistTrackMetadata;
+};
 
 /** Show-level aggregate over resolvable theme rows (unknown rows excluded). */
 export type PlaylistAggregateStatus = 'in' | 'out' | 'mixed';
@@ -19,8 +34,350 @@ type PlaylistIndex = {
   isrcs: Set<string>;
 };
 
+type ScoredPlaylistTrack = {
+  match: PlaylistMetadataMatch;
+  score: number;
+  identity: string;
+  exact: boolean;
+};
+
+const METADATA_TITLE_WITH_ARTIST_THRESHOLD = 0.86;
+const METADATA_ARTIST_THRESHOLD = 0.78;
+const METADATA_TITLE_ONLY_THRESHOLD = 0.94;
+const METADATA_MATCH_MARGIN = 0.04;
+const DISTINCTIVE_EXACT_TITLE_MIN_LENGTH = 8;
+
+type ArtistScript = 'latin' | 'han' | 'hiragana' | 'katakana' | 'hangul' | 'cyrillic';
+
+const ARTIST_SCRIPT_PATTERNS: ReadonlyArray<{
+  script: ArtistScript;
+  pattern: RegExp;
+}> = [
+  { script: 'latin', pattern: /\p{Script=Latin}/u },
+  { script: 'han', pattern: /\p{Script=Han}/u },
+  { script: 'hiragana', pattern: /\p{Script=Hiragana}/u },
+  { script: 'katakana', pattern: /\p{Script=Katakana}/u },
+  { script: 'hangul', pattern: /\p{Script=Hangul}/u },
+  { script: 'cyrillic', pattern: /\p{Script=Cyrillic}/u },
+];
+
 function normalizeIsrc(isrc: string): string {
   return isrc.toLowerCase();
+}
+
+function normalizeMatchText(value: string): string {
+  return value
+    .normalize('NFKD')
+    .replace(/\p{M}+/gu, '')
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function normalizeTitle(value: string): string {
+  return normalizeMatchText(value)
+    .replace(/\b(?:tv|anime|short|full)\s+(?:size|version|ver|edit)\b/gu, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function uniqueNormalized(
+  values: ReadonlyArray<string | null | undefined>,
+  normalize: (value: string) => string,
+): string[] {
+  return [
+    ...new Set(
+      values
+        .map((value) => (value ? normalize(value) : ''))
+        .filter((value) => value.length > 0),
+    ),
+  ];
+}
+
+function levenshteinDistance(a: string, b: string): number {
+  if (a === b) {
+    return 0;
+  }
+  if (a.length === 0) {
+    return b.length;
+  }
+  if (b.length === 0) {
+    return a.length;
+  }
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let aIndex = 1; aIndex <= a.length; aIndex++) {
+    const current = [aIndex];
+    for (let bIndex = 1; bIndex <= b.length; bIndex++) {
+      const substitutionCost = a[aIndex - 1] === b[bIndex - 1] ? 0 : 1;
+      current[bIndex] = Math.min(
+        (current[bIndex - 1] ?? 0) + 1,
+        (previous[bIndex] ?? 0) + 1,
+        (previous[bIndex - 1] ?? 0) + substitutionCost,
+      );
+    }
+    previous = current;
+  }
+  return previous[b.length] ?? Math.max(a.length, b.length);
+}
+
+function stringSimilarity(a: string, b: string): number {
+  if (a === b) {
+    return 1;
+  }
+  const maxLength = Math.max(a.length, b.length);
+  if (maxLength === 0) {
+    return 1;
+  }
+  return 1 - levenshteinDistance(a, b) / maxLength;
+}
+
+function bestSimilarity(left: readonly string[], right: readonly string[]): number | null {
+  if (left.length === 0 || right.length === 0) {
+    return null;
+  }
+  let best = 0;
+  for (const leftValue of left) {
+    for (const rightValue of right) {
+      best = Math.max(best, stringSimilarity(leftValue, rightValue));
+    }
+  }
+  return best;
+}
+
+function artistValueVariants(value: string): string[] {
+  const variants = new Set([value]);
+  const segments = value.split(/\s*(?:,|&|・|、|;)\s*/u);
+  for (const segment of segments) {
+    const trimmed = segment.trim();
+    if (!trimmed) {
+      continue;
+    }
+    variants.add(trimmed);
+    const parentheticalRe = /[（(]([^）)]+)[）)]/gu;
+    let match: RegExpExecArray | null = parentheticalRe.exec(trimmed);
+    while (match) {
+      const credit = match[1]?.replace(/^cv\s*[.:：]?\s*/iu, '').trim();
+      if (credit) {
+        variants.add(credit);
+      }
+      match = parentheticalRe.exec(trimmed);
+    }
+    variants.add(trimmed.replace(/[（(][^）)]*[）)]/gu, ' '));
+  }
+  return [...variants];
+}
+
+function artistTokenOrderVariant(value: string): string | null {
+  const tokens = value.split(' ');
+  if (tokens.length < 2 || tokens.length > 4) {
+    return null;
+  }
+  return [...tokens].sort().join(' ');
+}
+
+function collectArtistCandidates(values: ReadonlyArray<string | null | undefined>): string[] {
+  const normalized = uniqueNormalized(
+    values.flatMap((value) => (value ? artistValueVariants(value) : [])),
+    normalizeMatchText,
+  );
+  return [
+    ...new Set([
+      ...normalized,
+      ...normalized.flatMap((value) => {
+        const tokenOrderVariant = artistTokenOrderVariant(value);
+        return tokenOrderVariant ? [tokenOrderVariant] : [];
+      }),
+    ]),
+  ];
+}
+
+function wholePhraseIncludes(longer: string, shorter: string): boolean {
+  if (longer === shorter) {
+    return true;
+  }
+  if (shorter.length < 3) {
+    return false;
+  }
+  return (
+    longer.startsWith(`${shorter} `) ||
+    longer.endsWith(` ${shorter}`) ||
+    longer.includes(` ${shorter} `)
+  );
+}
+
+function bestArtistSimilarity(left: readonly string[], right: readonly string[]): number | null {
+  if (left.length === 0 || right.length === 0) {
+    return null;
+  }
+  let best = 0;
+  for (const leftValue of left) {
+    for (const rightValue of right) {
+      const shorter = leftValue.length <= rightValue.length ? leftValue : rightValue;
+      const longer = leftValue.length > rightValue.length ? leftValue : rightValue;
+      if (wholePhraseIncludes(longer, shorter)) {
+        return 1;
+      }
+      best = Math.max(best, stringSimilarity(leftValue, rightValue));
+    }
+  }
+  return best;
+}
+
+function collectArtistScripts(values: readonly string[]): Set<ArtistScript> {
+  const scripts = new Set<ArtistScript>();
+  for (const value of values) {
+    for (const { script, pattern } of ARTIST_SCRIPT_PATTERNS) {
+      if (pattern.test(value)) {
+        scripts.add(script);
+      }
+    }
+  }
+  return scripts;
+}
+
+function artistScriptsAreIncomparable(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
+  const leftScripts = collectArtistScripts(left);
+  const rightScripts = collectArtistScripts(right);
+  if (leftScripts.size === 0 || rightScripts.size === 0) {
+    return false;
+  }
+  return [...leftScripts].every((script) => !rightScripts.has(script));
+}
+
+function rowTitleCandidates(row: MediaThemeSongRow): string[] {
+  return uniqueNormalized(
+    [row.displayTitle, row.malTitle, ...(row.aniTitles ?? [])].flatMap((title) =>
+      title ? collectTitleMatchCandidates(title) : [],
+    ),
+    normalizeTitle,
+  );
+}
+
+function rowArtistCandidates(row: MediaThemeSongRow): string[] {
+  return collectArtistCandidates([row.displayArtist, row.malArtist, ...(row.aniArtists ?? [])]);
+}
+
+function playlistTrackArtistCandidates(track: CachedPlaylistTrackMetadata): string[] {
+  return collectArtistCandidates([...track.artists, track.artists.join(' ')]);
+}
+
+function playlistTrackIdentity(track: CachedPlaylistTrackMetadata): string {
+  return `${normalizeTitle(track.title)}\u0000${playlistTrackArtistCandidates(track)
+    .sort()
+    .join('\u0000')}`;
+}
+
+function scorePlaylistTrackMetadata(
+  titleCandidates: readonly string[],
+  artistCandidates: readonly string[],
+  match: PlaylistMetadataMatch,
+): ScoredPlaylistTrack | null {
+  const { track } = match;
+  const playlistTitle = normalizeTitle(track.title);
+  const titleScore = bestSimilarity(titleCandidates, playlistTitle ? [playlistTitle] : []);
+  if (titleScore == null) {
+    return null;
+  }
+
+  const playlistArtists = playlistTrackArtistCandidates(track);
+  const artistScore = bestArtistSimilarity(artistCandidates, playlistArtists);
+  if (artistScore != null) {
+    if (
+      titleScore === 1 &&
+      playlistTitle.length >= DISTINCTIVE_EXACT_TITLE_MIN_LENGTH &&
+      artistScriptsAreIncomparable(artistCandidates, playlistArtists)
+    ) {
+      // Let exact substantial titles bridge Romanized/Japanese tags; the
+      // identity-margin check below still rejects multiple plausible tracks.
+      return {
+        match,
+        score: METADATA_TITLE_ONLY_THRESHOLD,
+        identity: playlistTrackIdentity(track),
+        exact: false,
+      };
+    }
+    if (
+      titleScore < METADATA_TITLE_WITH_ARTIST_THRESHOLD ||
+      artistScore < METADATA_ARTIST_THRESHOLD
+    ) {
+      return null;
+    }
+    return {
+      match,
+      score: titleScore * 0.8 + artistScore * 0.2,
+      identity: playlistTrackIdentity(track),
+      exact: titleScore === 1 && artistScore === 1,
+    };
+  }
+
+  // Without artist metadata, require a near-exact title and reject fuzzy matches
+  // for very short names where one character would be a large semantic change.
+  if (
+    titleScore < METADATA_TITLE_ONLY_THRESHOLD ||
+    (titleScore < 1 && playlistTitle.length < 6)
+  ) {
+    return null;
+  }
+  return {
+    match,
+    score: titleScore,
+    identity: playlistTrackIdentity(track),
+    exact: false,
+  };
+}
+
+function playlistMetadataCandidates(cache: SpotifyPlaylistCache): PlaylistMetadataMatch[] {
+  const localMatches: PlaylistMetadataMatch[] = (cache.localTracks ?? []).map((track) => ({
+    kind: 'local',
+    track,
+  }));
+  const spotifyMatches: PlaylistMetadataMatch[] = cache.tracks.flatMap((track) =>
+    track.metadata ? [{ kind: 'spotify' as const, track: track.metadata }] : [],
+  );
+  return [...localMatches, ...spotifyMatches];
+}
+
+function findPlaylistMetadataMatch(
+  row: MediaThemeSongRow,
+  cache: SpotifyPlaylistCache,
+): PlaylistMetadataMatch | null {
+  const playlistTracks = playlistMetadataCandidates(cache);
+  if (playlistTracks.length === 0) {
+    return null;
+  }
+  const titles = rowTitleCandidates(row);
+  if (titles.length === 0) {
+    return null;
+  }
+  const artists = rowArtistCandidates(row);
+  const candidates = playlistTracks
+    .map((track) => scorePlaylistTrackMetadata(titles, artists, track))
+    .filter((candidate): candidate is ScoredPlaylistTrack => candidate !== null)
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        a.match.track.playlistPosition - b.match.track.playlistPosition,
+    );
+  const best = candidates[0];
+  if (!best) {
+    return null;
+  }
+  const nextDifferentTrack = candidates.find(
+    (candidate) => candidate.identity !== best.identity,
+  );
+  if (
+    !best.exact &&
+    nextDifferentTrack &&
+    best.score - nextDifferentTrack.score < METADATA_MATCH_MARGIN
+  ) {
+    return null;
+  }
+  return best.match;
 }
 
 function rowSpotifyTrackIds(row: MediaThemeSongRow): string[] {
@@ -60,9 +417,8 @@ function buildPlaylistIndex(cache: SpotifyPlaylistCache): PlaylistIndex {
 }
 
 /**
- * Show-level aggregate for chart badges. Only rows with a resolvable Spotify
- * link count (in/out); rows without a link are ignored. Mixed when some match
- * and some do not.
+ * Show-level aggregate for chart badges. Exact ids/ISRCs and metadata matches
+ * count as in; unresolved rows are ignored. Mixed when some match and some do not.
  */
 export function aggregatePlaylistMatchForRows(
   rows: readonly MediaThemeSongRow[],
@@ -104,34 +460,47 @@ export function matchThemeRowToPlaylist(
   cache: SpotifyPlaylistCache | null,
   options?: PlaylistMatchOptions,
 ): PlaylistMatchStatus {
-  if (!cache || cache.tracks.length === 0) {
-    return 'unknown';
+  return matchThemeRowToPlaylistDetails(row, cache, options).status;
+}
+
+export function matchThemeRowToPlaylistDetails(
+  row: MediaThemeSongRow,
+  cache: SpotifyPlaylistCache | null,
+  options?: PlaylistMatchOptions,
+): PlaylistMatchResult {
+  if (!cache) {
+    return { status: 'unknown', metadataMatch: null };
   }
-
   const index = buildPlaylistIndex(cache);
+  const spotifyTrackIds = rowSpotifyTrackIds(row);
 
-  for (const trackId of rowSpotifyTrackIds(row)) {
+  for (const trackId of spotifyTrackIds) {
     if (index.trackIds.has(trackId)) {
-      return 'in';
+      return { status: 'in', metadataMatch: null };
     }
   }
 
   const rowIsrcs = collectRowIsrcs(row, options?.trackIsrcById);
   for (const isrc of rowIsrcs) {
     if (index.isrcs.has(isrc)) {
-      return 'in';
+      return { status: 'in', metadataMatch: null };
     }
   }
 
-  const hasResolvableLink = rowSpotifyTrackIds(row).length > 0 || row.spotifyIsrc != null;
+  const metadataMatch = findPlaylistMetadataMatch(row, cache);
+  if (metadataMatch) {
+    return { status: 'in', metadataMatch };
+  }
+
+  const hasResolvableLink = spotifyTrackIds.length > 0 || row.spotifyIsrc != null;
   if (hasResolvableLink) {
     if (options?.isrcLookupReady === false && rowIsrcs.size === 0) {
-      return 'unknown';
+      return { status: 'unknown', metadataMatch: null };
     }
-    return 'out';
+    return { status: 'out', metadataMatch: null };
   }
 
-  return 'unknown';
+  return { status: 'unknown', metadataMatch: null };
 }
 
 export function buildPlaylistIndexForTests(

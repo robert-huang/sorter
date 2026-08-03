@@ -44,6 +44,7 @@ import {
 import {
   aggregatePlaylistMatchForRows,
   matchThemeRowToPlaylist,
+  matchThemeRowToPlaylistDetails,
   type PlaylistAggregateStatus,
   type PlaylistMatchOptions,
 } from '../../lib/spotify/spotifyPlaylistMatch';
@@ -360,7 +361,11 @@ function WeeklyCalendarThemeSongGroups({
                 <ThemeSongRowC
                   key={`${type}-${row.songKey ?? row.displayTitle}-${index}`}
                   row={row}
-                  playlistStatus={matchThemeRowToPlaylist(row, playlistCache, playlistMatchOptions)}
+                  playlistMatch={matchThemeRowToPlaylistDetails(
+                    row,
+                    playlistCache,
+                    playlistMatchOptions,
+                  )}
                   showPlaylistMatch={showPlaylistMatch}
                 />
               ))}

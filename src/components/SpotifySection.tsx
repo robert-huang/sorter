@@ -14,6 +14,7 @@ import { useThemeSongDisplayPreferences } from '../hooks/useThemeSongDisplayPref
 import { CircularArrowGlyph } from './CircularArrowGlyph';
 import {
   clearSelectedSpotifyPlaylist,
+  countCachedPlaylistTracks,
   formatSpotifyApiBanMessage,
   getActivePlaylistCache,
   getSelectedSpotifyPlaylist,
@@ -87,6 +88,9 @@ export function SpotifySection() {
   const configured = isSpotifyOAuthConfigured();
   const callbackUrl = getSpotifyOAuthCallbackUrl();
   const activeCache = getActivePlaylistCache();
+  const activeLocalTrackCount = activeCache?.localTracks?.length ?? 0;
+  const activeCachedTrackCount =
+    activeCache ? countCachedPlaylistTracks(activeCache) : 0;
   const activeCacheKey = activeCache
     ? `${activeCache.playlistId}:${activeCache.fetchedAt}`
     : null;
@@ -377,7 +381,14 @@ export function SpotifySection() {
           {selectedPlaylist &&
             (activeCache ? (
               <div className="settings-status settings-anilist-hint">
-                {activeCache.tracks.length} tracks cached · {formatFetchedAt(activeCache.fetchedAt)}
+                {activeCachedTrackCount} tracks cached
+                {activeLocalTrackCount > 0
+                  ? ` (${activeCache.tracks.length} Spotify · ${activeLocalTrackCount} local)`
+                  // ? ` (${activeLocalTrackCount} local)`
+                  : ''}
+                <br />
+                {'fetched '}
+                {formatFetchedAt(activeCache.fetchedAt)}
                 {isPlaylistCacheStale(activeCache.fetchedAt) ? (
                   <span className="settings-cache-stale"> · stale (&gt;15m)</span>
                 ) : null}

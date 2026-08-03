@@ -12,25 +12,45 @@ export const PLAYLIST_CACHE_STORAGE_KEY = 'spotify:playlist-cache:v2';
 
 /** Stale hint only — no auto-refetch. */
 export const PLAYLIST_CACHE_STALE_MS = 15 * 60 * 1000;
+export const PLAYLIST_CACHE_METADATA_VERSION = 1;
 
 export type StoredSpotifyPlaylist = {
   id: string;
   name: string;
 };
 
+export type CachedPlaylistTrackMetadata = {
+  title: string;
+  artists: string[];
+  album: string | null;
+  durationMs: number | null;
+  /** One-based item number in the fetched playlist order. */
+  playlistPosition: number;
+};
+
 export type CachedPlaylistTrack = {
   id: string;
   isrc: string | null;
   linkedFromIds: string[];
+  metadata?: CachedPlaylistTrackMetadata;
+};
+
+export type CachedLocalPlaylistTrack = CachedPlaylistTrackMetadata & {
+  /** Spotify's metadata-derived local URI; not a catalog track identifier. */
+  uri: string | null;
 };
 
 export type SpotifyPlaylistCache = {
   playlistId: string;
   fetchedAt: number;
   tracks: CachedPlaylistTrack[];
+  /** Local files have no Spotify id or ISRC, so their descriptive metadata is cached separately. */
+  localTracks?: CachedLocalPlaylistTrack[];
+  /** Schema marker for descriptive metadata on both catalog and local tracks. */
+  metadataVersion?: number;
   /** Spotify-reported item count, including local files. */
   trackTotal?: number;
-  /** Number of playlist items fetched, including local files skipped from `tracks`. */
+  /** Number of playlist items fetched, including local files stored in `localTracks`. */
   playlistItemsFetched?: number;
 };
 
@@ -54,19 +74,24 @@ type SpotifyPlaylistsResponse = {
   limit?: number;
 };
 
+type SpotifyPlaylistTrackObject = {
+  id?: string | null;
+  type?: string;
+  name?: string | null;
+  is_local?: boolean;
+  uri?: string | null;
+  duration_ms?: number | null;
+  external_ids?: { isrc?: string | null };
+  artists?: Array<{ name?: string | null } | null>;
+  album?: { name?: string | null } | null;
+};
+
 type SpotifyPlaylistTrackItem = {
+  is_local?: boolean;
   /** Legacy field (pre–Feb 2026). */
-  track?: {
-    id?: string;
-    type?: string;
-    external_ids?: { isrc?: string | null };
-  } | null;
+  track?: SpotifyPlaylistTrackObject | null;
   /** Current field (`GET /playlists/{id}/items`). */
-  item?: {
-    id?: string;
-    type?: string;
-    external_ids?: { isrc?: string | null };
-  } | null;
+  item?: SpotifyPlaylistTrackObject | null;
   linked_from?: { id?: string } | null;
 };
 
@@ -78,6 +103,7 @@ type SpotifyPlaylistTracksResponse = {
 
 export type FetchPlaylistTracksResult = {
   tracks: CachedPlaylistTrack[];
+  localTracks: CachedLocalPlaylistTrack[];
   trackTotal: number | null;
   playlistItemsFetched: number;
 };
@@ -152,6 +178,66 @@ export function mergeSelectedPlaylistIntoOptions(
 
 type PlaylistCacheStore = Record<string, SpotifyPlaylistCache>;
 
+function parseCachedPlaylistTrackMetadata(raw: unknown): CachedPlaylistTrackMetadata | null {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const parsed = raw as Partial<CachedPlaylistTrackMetadata>;
+  const title = typeof parsed.title === 'string' ? parsed.title.trim() : '';
+  if (
+    !title ||
+    !Array.isArray(parsed.artists) ||
+    !Number.isInteger(parsed.playlistPosition) ||
+    (parsed.playlistPosition ?? 0) <= 0
+  ) {
+    return null;
+  }
+  return {
+    title,
+    artists: parsed.artists
+      .filter((artist): artist is string => typeof artist === 'string')
+      .map((artist) => artist.trim())
+      .filter((artist) => artist.length > 0),
+    album: typeof parsed.album === 'string' && parsed.album.trim() ? parsed.album.trim() : null,
+    durationMs:
+      typeof parsed.durationMs === 'number' && parsed.durationMs >= 0
+        ? parsed.durationMs
+        : null,
+    playlistPosition: parsed.playlistPosition as number,
+  };
+}
+
+function parseCachedLocalPlaylistTrack(raw: unknown): CachedLocalPlaylistTrack | null {
+  const metadata = parseCachedPlaylistTrackMetadata(raw);
+  if (!metadata) {
+    return null;
+  }
+  const parsed = raw as Partial<CachedLocalPlaylistTrack>;
+  return {
+    uri: typeof parsed.uri === 'string' ? parsed.uri : null,
+    ...metadata,
+  };
+}
+
+function parseCachedPlaylistTrack(raw: unknown): CachedPlaylistTrack | null {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const parsed = raw as Partial<CachedPlaylistTrack>;
+  if (typeof parsed.id !== 'string' || !Array.isArray(parsed.linkedFromIds)) {
+    return null;
+  }
+  const metadata = parseCachedPlaylistTrackMetadata(parsed.metadata);
+  return {
+    id: parsed.id,
+    isrc: typeof parsed.isrc === 'string' ? parsed.isrc : null,
+    linkedFromIds: parsed.linkedFromIds.filter(
+      (linkedId): linkedId is string => typeof linkedId === 'string',
+    ),
+    ...(metadata ? { metadata } : {}),
+  };
+}
+
 function parsePlaylistCacheEntry(raw: unknown): SpotifyPlaylistCache | null {
   if (!raw || typeof raw !== 'object') {
     return null;
@@ -160,16 +246,24 @@ function parsePlaylistCacheEntry(raw: unknown): SpotifyPlaylistCache | null {
   if (!parsed.playlistId || typeof parsed.fetchedAt !== 'number' || !Array.isArray(parsed.tracks)) {
     return null;
   }
+  const localTracks = Array.isArray(parsed.localTracks)
+    ? parsed.localTracks
+        .map((track) => parseCachedLocalPlaylistTrack(track))
+        .filter((track): track is CachedLocalPlaylistTrack => track !== null)
+    : null;
   return {
     playlistId: parsed.playlistId,
     fetchedAt: parsed.fetchedAt,
     trackTotal: typeof parsed.trackTotal === 'number' ? parsed.trackTotal : undefined,
     playlistItemsFetched:
       typeof parsed.playlistItemsFetched === 'number' ? parsed.playlistItemsFetched : undefined,
-    tracks: parsed.tracks.filter(
-      (t): t is CachedPlaylistTrack =>
-        !!t && typeof t.id === 'string' && Array.isArray(t.linkedFromIds),
-    ),
+    tracks: parsed.tracks
+      .map((track) => parseCachedPlaylistTrack(track))
+      .filter((track): track is CachedPlaylistTrack => track !== null),
+    ...(localTracks ? { localTracks } : {}),
+    ...(typeof parsed.metadataVersion === 'number'
+      ? { metadataVersion: parsed.metadataVersion }
+      : {}),
   };
 }
 
@@ -288,8 +382,18 @@ export function isPlaylistCacheStale(fetchedAt: number, now = Date.now()): boole
   return now - fetchedAt >= PLAYLIST_CACHE_STALE_MS;
 }
 
-/** True when fewer playlist items were fetched than Spotify reports (or a legacy cache hit 50). */
+export function countCachedPlaylistTracks(cache: SpotifyPlaylistCache): number {
+  return cache.tracks.length + (cache.localTracks?.length ?? 0);
+}
+
+/** True when a cache is truncated or predates local-file metadata retention. */
 export function isPlaylistCacheIncomplete(cache: SpotifyPlaylistCache): boolean {
+  if (
+    !Array.isArray(cache.localTracks) ||
+    cache.metadataVersion !== PLAYLIST_CACHE_METADATA_VERSION
+  ) {
+    return true;
+  }
   if (
     typeof cache.trackTotal === 'number' &&
     typeof cache.playlistItemsFetched === 'number' &&
@@ -381,21 +485,58 @@ export async function listUserSpotifyPlaylists(
   return out;
 }
 
-function resolvePlaylistTrackObject(
-  item: SpotifyPlaylistTrackItem,
-): { id: string; external_ids?: { isrc?: string | null } } | null {
+function resolvePlaylistTrackObject(item: SpotifyPlaylistTrackItem): SpotifyPlaylistTrackObject | null {
   const candidate = item.item ?? item.track;
+  if (!candidate) {
+    return null;
+  }
+  return candidate;
+}
+
+function resolveSpotifyCatalogTrackObject(
+  item: SpotifyPlaylistTrackItem,
+): SpotifyPlaylistTrackObject & { id: string } | null {
+  const candidate = resolvePlaylistTrackObject(item);
   if (!candidate?.id) {
     return null;
   }
   if (candidate.type && candidate.type !== 'track') {
     return null;
   }
-  return { id: candidate.id, external_ids: candidate.external_ids };
+  return { ...candidate, id: candidate.id };
 }
 
-function parsePlaylistTrackItem(item: SpotifyPlaylistTrackItem): CachedPlaylistTrack | null {
-  const track = resolvePlaylistTrackObject(item);
+function parsePlaylistTrackMetadata(
+  track: SpotifyPlaylistTrackObject,
+  playlistPosition: number,
+): CachedPlaylistTrackMetadata | null {
+  const title = track.name?.trim() ?? '';
+  if (!title) {
+    return null;
+  }
+  return {
+    title,
+    artists: [
+      ...new Set(
+        (track.artists ?? [])
+          .map((artist) => artist?.name?.trim() ?? '')
+          .filter((name) => name.length > 0),
+      ),
+    ],
+    album: track.album?.name?.trim() || null,
+    durationMs:
+      typeof track.duration_ms === 'number' && track.duration_ms >= 0
+        ? track.duration_ms
+        : null,
+    playlistPosition,
+  };
+}
+
+function parsePlaylistTrackItem(
+  item: SpotifyPlaylistTrackItem,
+  playlistPosition?: number,
+): CachedPlaylistTrack | null {
+  const track = resolveSpotifyCatalogTrackObject(item);
   if (!track) {
     return null;
   }
@@ -403,10 +544,35 @@ function parsePlaylistTrackItem(item: SpotifyPlaylistTrackItem): CachedPlaylistT
   if (item.linked_from?.id) {
     linkedFromIds.push(item.linked_from.id);
   }
+  const metadata =
+    playlistPosition != null ? parsePlaylistTrackMetadata(track, playlistPosition) : null;
   return {
     id: track.id,
     isrc: track.external_ids?.isrc ?? null,
     linkedFromIds,
+    ...(metadata ? { metadata } : {}),
+  };
+}
+
+function parseLocalPlaylistTrackItem(
+  item: SpotifyPlaylistTrackItem,
+  playlistPosition: number,
+): CachedLocalPlaylistTrack | null {
+  const track = resolvePlaylistTrackObject(item);
+  if (!track || (track.type && track.type !== 'track')) {
+    return null;
+  }
+  const isLocal =
+    item.is_local === true ||
+    track.is_local === true ||
+    track.uri?.startsWith('spotify:local:') === true;
+  const metadata = parsePlaylistTrackMetadata(track, playlistPosition);
+  if (!isLocal || !metadata) {
+    return null;
+  }
+  return {
+    uri: track.uri ?? null,
+    ...metadata,
   };
 }
 
@@ -417,18 +583,27 @@ export function parsePlaylistTrackItemForTesting(
   return parsePlaylistTrackItem(item);
 }
 
+/** Exported for unit tests. */
+export function parseLocalPlaylistTrackItemForTesting(
+  item: SpotifyPlaylistTrackItem,
+  playlistPosition: number,
+): CachedLocalPlaylistTrack | null {
+  return parseLocalPlaylistTrackItem(item, playlistPosition);
+}
+
 export async function fetchPlaylistTracks(
   playlistId: string,
   accessToken?: string | null,
 ): Promise<FetchPlaylistTracksResult> {
   const token = accessToken ?? (await ensureSpotifyAccessToken());
   if (!token) {
-    return { tracks: [], trackTotal: null, playlistItemsFetched: 0 };
+    return { tracks: [], localTracks: [], trackTotal: null, playlistItemsFetched: 0 };
   }
 
   const tracks: CachedPlaylistTrack[] = [];
+  const localTracks: CachedLocalPlaylistTrack[] = [];
   const fields =
-    'total,items(item(id,type,external_ids),track(id,type,external_ids),linked_from(id))';
+    'total,items(is_local,item(id,type,name,is_local,uri,duration_ms,external_ids,artists(name),album(name)),track(id,type,name,is_local,uri,duration_ms,external_ids,artists(name),album(name)),linked_from(id))';
   const pageSize = 50;
   let offset = 0;
   let trackTotal: number | null = null;
@@ -449,8 +624,13 @@ export async function fetchPlaylistTracks(
     }
     const items = page.items ?? [];
     playlistItemsFetched += items.length;
-    for (const item of items) {
-      const parsed = parsePlaylistTrackItem(item);
+    for (const [index, item] of items.entries()) {
+      const localTrack = parseLocalPlaylistTrackItem(item, offset + index + 1);
+      if (localTrack) {
+        localTracks.push(localTrack);
+        continue;
+      }
+      const parsed = parsePlaylistTrackItem(item, offset + index + 1);
       if (parsed) {
         tracks.push(parsed);
       }
@@ -461,7 +641,7 @@ export async function fetchPlaylistTracks(
     offset += pageSize;
   }
 
-  return { tracks, trackTotal, playlistItemsFetched };
+  return { tracks, localTracks, trackTotal, playlistItemsFetched };
 }
 
 export async function refreshPlaylistCache(options?: {
@@ -488,15 +668,19 @@ export async function refreshPlaylistCache(options?: {
     return null;
   }
 
-  const { tracks: rawTracks, trackTotal, playlistItemsFetched } = await fetchPlaylistTracks(
-    selected.id,
-    token,
-  );
+  const {
+    tracks: rawTracks,
+    localTracks,
+    trackTotal,
+    playlistItemsFetched,
+  } = await fetchPlaylistTracks(selected.id, token);
   const tracks = applyTrackIsrcStoreToPlaylistTracks(rawTracks);
   const cache: SpotifyPlaylistCache = {
     playlistId: selected.id,
     fetchedAt: Date.now(),
     tracks,
+    localTracks,
+    metadataVersion: PLAYLIST_CACHE_METADATA_VERSION,
     playlistItemsFetched,
     ...(trackTotal != null ? { trackTotal } : {}),
   };

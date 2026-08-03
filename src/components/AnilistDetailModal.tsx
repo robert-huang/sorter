@@ -42,7 +42,7 @@ import {
   subscribeSpotifyPlaylist,
 } from '../lib/spotify/spotifyPlaylist';
 import {
-  matchThemeRowToPlaylist,
+  matchThemeRowToPlaylistDetails,
   type PlaylistMatchOptions,
 } from '../lib/spotify/spotifyPlaylistMatch';
 import { subscribeSpotifyAuth } from '../lib/spotify/spotifyAuth';
@@ -1158,7 +1158,7 @@ export function AnilistDetailModal({
                               <ThemeSongRowC
                                 key={`${type}-${row.songKey ?? row.displayTitle}-${index}`}
                                 row={row}
-                                playlistStatus={matchThemeRowToPlaylist(
+                                playlistMatch={matchThemeRowToPlaylistDetails(
                                   row,
                                   playlistCache,
                                   playlistMatchOptions,
