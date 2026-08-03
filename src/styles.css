@@ -3449,6 +3449,31 @@ a:where(.anime-to-anime-anilist-link):visited {
   min-width: 0;
 }
 
+.slot-name-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.pin-icon {
+  display: block;
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  margin: 0 -4px 0 -1px;
+}
+
+.slot-meta > .pin-icon {
+  width: 15px;
+  height: 15px;
+}
+
+.slot-name-row > .pin-icon {
+  width: 18px;
+  height: 18px;
+  color: var(--text);
+}
+
 .slot-name {
   background: transparent;
   border: none;
@@ -3464,11 +3489,21 @@ a:where(.anime-to-anime-anilist-link):visited {
   overflow: hidden;
   text-overflow: ellipsis;
   cursor: text;
+  min-height: 18px;
+  flex: 1 1 auto;
+  min-width: 0;
+  /* Explicit thickness and skip-ink avoid one-device-pixel dots vanishing
+     at fractional browser zoom levels. */
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: transparent;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+  text-decoration-skip-ink: none;
 }
 
 .slot-name:hover {
-  text-decoration: underline dotted var(--text-faint);
-  text-underline-offset: 3px;
+  text-decoration-color: var(--text-muted);
 }
 
 .slot-name-input {
@@ -3481,9 +3516,14 @@ a:where(.anime-to-anime-anilist-link):visited {
   background: var(--surface);
   color: var(--text);
   width: 100%;
+  min-width: 0;
 }
 
 .slot-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 15px;
   font-size: 12px;
   color: var(--text-muted);
   margin-top: 2px;
@@ -3750,6 +3790,13 @@ a:where(.anime-to-anime-anilist-link):visited {
    We only override `color` (not background) so the cloud glyph reads
    as a status indicator that doubles as a button — hover still uses
    the shared .icon-button:hover affordance for tactile feedback. */
+.cloud-icon {
+  display: inline-block;
+  line-height: 1;
+  /* The glyph's font box sits visually high even when the button is centered. */
+  transform: translateY(2px);
+}
+
 .icon-button.cloud-on.cloud-synced {
   color: var(--success);
 }

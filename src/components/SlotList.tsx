@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SlotMeta } from '../lib/types';
 import { CircularArrowGlyph } from './CircularArrowGlyph';
+import { PinIcon } from './PinIcon';
 import { RemoveGlyph } from './RemoveGlyph';
 
 interface Props {
@@ -435,7 +436,6 @@ function SlotRow({
     pluralize(slot.comparisons, 'comparison'),
     slot.done ? 'done' : null,
     relativeTime(slot.updatedAt),
-    isPinned ? 'pinned' : null,
     cloudControlsVisible && syncState === 'synced' ? 'cloud ✓' : null,
     cloudControlsVisible && syncState === 'pending' ? 'cloud ⇡' : null,
   ]
@@ -445,39 +445,45 @@ function SlotRow({
   return (
     <div className={`slot-row${isLoaded ? ' active' : ''}`}>
       <div className="slot-row-main">
-        {editing ? (
-          <input
-            ref={inputRef}
-            className="slot-name-input"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={commitRename}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                commitRename();
-              } else if (e.key === 'Escape') {
-                e.preventDefault();
-                cancelRename();
-              }
-            }}
-          />
-        ) : (
-          <button
-            className="slot-name"
-            type="button"
-            // Title surfaces the full name so users can read it via
-            // hover when the row width forces a `text-overflow: ellipsis`
-            // truncation (e.g. long names in the narrow gear-menu
-            // popover). The rename hint is appended so we don't lose
-            // the affordance that used to be the sole title.
-            title={`${slot.name}\n(click to rename)`}
-            onClick={() => setEditing(true)}
-          >
-            {slot.name}
-          </button>
-        )}
-        <div className={`slot-meta${slot.done ? ' slot-meta--done' : ''}`}>{meta}</div>
+        <div className="slot-name-row">
+          {isPinned && <PinIcon />}
+          {editing ? (
+            <input
+              ref={inputRef}
+              className="slot-name-input"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commitRename}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  commitRename();
+                } else if (e.key === 'Escape') {
+                  e.preventDefault();
+                  cancelRename();
+                }
+              }}
+            />
+          ) : (
+            <button
+              className="slot-name"
+              type="button"
+              // Title surfaces the full name so users can read it via
+              // hover when the row width forces a `text-overflow: ellipsis`
+              // truncation (e.g. long names in the narrow gear-menu
+              // popover). The rename hint is appended so we don't lose
+              // the affordance that used to be the sole title.
+              title={`${slot.name}\n(click to rename)`}
+              onClick={() => setEditing(true)}
+            >
+              {slot.name}
+            </button>
+          )}
+        </div>
+        <div className={`slot-meta${slot.done ? ' slot-meta--done' : ''}`}>
+          {/* {isPinned && <PinIcon />} */}
+          <span>{meta}</span>
+        </div>
       </div>
       <div className="slot-actions">
         {isLoaded ? (
@@ -623,8 +629,6 @@ function CloudRowControls({
         : `Stop backing up "${slot.name}" to cloud`
       : `Back up "${slot.name}" to cloud`;
 
-  const cloudIcon = '☁';
-
   const cloudClassExtra =
     syncState === 'synced'
       ? ' cloud-on cloud-synced'
@@ -651,7 +655,9 @@ function CloudRowControls({
         // releases its in-flight gate.
         disabled={inFlight}
       >
-        {cloudIcon}
+        <span className="cloud-icon" aria-hidden="true">
+          ☁
+        </span>
       </button>
       {optedIn && (
         <button

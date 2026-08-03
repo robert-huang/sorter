@@ -22,7 +22,11 @@ afterEach(() => {
   container.remove();
 });
 
-function slot(id: string, done: boolean): SlotMeta {
+function slot(
+  id: string,
+  done: boolean,
+  overrides: Partial<SlotMeta> = {},
+): SlotMeta {
   return {
     id,
     name: id,
@@ -31,7 +35,34 @@ function slot(id: string, done: boolean): SlotMeta {
     totalItems: 2,
     comparisons: 1,
     done,
+    ...overrides,
   };
+}
+
+async function renderSlotList(
+  slots: SlotMeta[],
+  cloudControlsVisible = false,
+): Promise<void> {
+  const noop = vi.fn();
+  await act(async () => {
+    root.render(
+      <SlotList
+        slots={slots}
+        loadedSlotId={null}
+        onSwitch={noop}
+        onDelete={noop}
+        onRename={noop}
+        onDownload={noop}
+        onTogglePin={noop}
+        cloudControlsVisible={cloudControlsVisible}
+        onCloudToggleOptIn={noop}
+        onCloudPush={noop}
+        onCloudPull={noop}
+        cloudPushingIds={new Set()}
+        cloudPullingIds={new Set()}
+      />,
+    );
+  });
 }
 
 describe('SlotList metadata classes', () => {
@@ -61,5 +92,43 @@ describe('SlotList metadata classes', () => {
     expect(metadata).toHaveLength(2);
     expect(metadata[0]?.classList.contains('slot-meta--done')).toBe(true);
     expect(metadata[1]?.classList.contains('slot-meta--done')).toBe(false);
+  });
+});
+
+describe('SlotList status icons', () => {
+  it('puts the reusable pin icon before pinned slot names and metadata', async () => {
+    await renderSlotList([
+      slot('Pinned sort', false, {
+        pinned: true,
+        totalItems: 332,
+        comparisons: 733,
+      }),
+      slot('Unpinned sort', false),
+    ]);
+
+    const rows = Array.from(container.querySelectorAll('.slot-row'));
+    const pinnedRow = rows.find(
+      (row) => row.querySelector('.slot-name')?.textContent === 'Pinned sort',
+    );
+    const unpinnedRow = rows.find(
+      (row) => row.querySelector('.slot-name')?.textContent === 'Unpinned sort',
+    );
+    const nameRow = pinnedRow?.querySelector('.slot-name-row');
+    const metadata = pinnedRow?.querySelector('.slot-meta');
+
+    expect(nameRow?.firstElementChild?.matches('svg.pin-icon')).toBe(true);
+    expect(metadata?.firstElementChild?.matches('svg.pin-icon')).toBe(true);
+    expect(pinnedRow?.querySelectorAll('.pin-icon')).toHaveLength(2);
+    expect(metadata?.textContent).toContain('332 items · 733 comparisons');
+    expect(metadata?.textContent).not.toContain('pinned');
+    expect(unpinnedRow?.querySelector('.pin-icon')).toBeNull();
+  });
+
+  it('wraps the cloud glyph in its alignment class', async () => {
+    await renderSlotList([slot('Cloud sort', false)], true);
+
+    const cloudIcon = container.querySelector('.cloud-icon');
+    expect(cloudIcon?.textContent?.trim()).toBe('☁');
+    expect(cloudIcon?.parentElement?.classList.contains('icon-button')).toBe(true);
   });
 });
