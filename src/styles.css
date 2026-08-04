@@ -1090,6 +1090,10 @@ html {
   margin-top: 6px;
 }
 
+.settings-spotify-section .settings-source-db-error {
+  padding: 0 24px;
+}
+
 .settings-source-db-actions {
   display: flex;
   gap: 6px;

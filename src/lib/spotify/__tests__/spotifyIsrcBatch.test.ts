@@ -1,7 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fetchSpotifyIsrcByTrackIds } from '../../importers/anilist/themeSongs/spotifyIsrc';
 import { spotifyApiFetch } from '../spotifyApi';
-import { _clearTrackIsrcStoreForTesting, mergeTrackIsrcsIntoStore } from '../spotifyTrackIsrcStore';
+import { _setSpotifyTrackIsrcPersistenceForTesting } from '../spotifyPlaylistCacheDb';
+import {
+  TRACK_ISRC_STORAGE_KEY,
+  _clearTrackIsrcStoreForTesting,
+  getCachedTrackIsrc,
+  hydrateTrackIsrcStore,
+  mergeTrackIsrcsIntoStore,
+} from '../spotifyTrackIsrcStore';
+import { createTrackIsrcPersistence } from './spotifyCachePersistenceTestUtils';
 
 vi.mock('../spotifyApi', () => ({
   isSpotifyApiBanned: vi.fn(() => false),
@@ -13,13 +21,19 @@ vi.mock('../spotifyAuth', () => ({
   ensureSpotifyAccessToken: vi.fn(async () => 'token'),
 }));
 
-afterEach(() => {
-  _clearTrackIsrcStoreForTesting();
+afterEach(async () => {
+  await _clearTrackIsrcStoreForTesting();
+  _setSpotifyTrackIsrcPersistenceForTesting(null);
   vi.clearAllMocks();
 });
 
 describe('fetchSpotifyIsrcByTrackIds', () => {
-  beforeEach(() => {
+  let trackPersistence: ReturnType<typeof createTrackIsrcPersistence>;
+
+  beforeEach(async () => {
+    trackPersistence = createTrackIsrcPersistence();
+    _setSpotifyTrackIsrcPersistenceForTesting(trackPersistence);
+    await _clearTrackIsrcStoreForTesting();
     vi.mocked(spotifyApiFetch).mockImplementation(async (url: string) => {
       const trackId = url.split('/tracks/')[1]?.split('?')[0] ?? '';
       return {
@@ -49,12 +63,27 @@ describe('fetchSpotifyIsrcByTrackIds', () => {
   });
 
   it('skips API calls for IDs already in the local store', async () => {
-    mergeTrackIsrcsIntoStore(new Map([['cached-track', 'USRC111']]));
+    await mergeTrackIsrcsIntoStore(new Map([['cached-track', 'USRC111']]));
 
     const result = await fetchSpotifyIsrcByTrackIds(['cached-track', 'new-track'], 'token');
 
     expect(spotifyApiFetch).toHaveBeenCalledTimes(1);
     expect(result.get('cached-track')).toBe('USRC111');
     expect(result.get('new-track')).toBe('ISRC-new-track');
+  });
+
+  it('migrates the legacy localStorage ISRC map into durable storage', async () => {
+    localStorage.setItem(
+      TRACK_ISRC_STORAGE_KEY,
+      JSON.stringify({ 'cached-track': 'USRC111' }),
+    );
+
+    await hydrateTrackIsrcStore();
+
+    expect(getCachedTrackIsrc('cached-track')).toBe('USRC111');
+    expect(trackPersistence.snapshot()).toEqual([
+      { trackId: 'cached-track', isrc: 'USRC111' },
+    ]);
+    expect(localStorage.getItem(TRACK_ISRC_STORAGE_KEY)).toBeNull();
   });
 });

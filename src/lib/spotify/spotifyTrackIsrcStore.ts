@@ -1,14 +1,19 @@
 import type { CachedPlaylistTrack } from './spotifyPlaylist';
 import { isSpotifyApiBanned } from './spotifyApi';
 import { fetchSpotifyIsrcByTrackIds } from '../importers/anilist/themeSongs/spotifyIsrc';
+import {
+  clearSpotifyTrackIsrcs,
+  putSpotifyTrackIsrcs,
+  readAllSpotifyTrackIsrcs,
+} from './spotifyPlaylistCacheDb';
 
-const STORAGE_KEY = 'spotify:track-isrc:v1';
+export const TRACK_ISRC_STORAGE_KEY = 'spotify:track-isrc:v1';
 
 type TrackIsrcStore = Record<string, string>;
 
-function readStore(): TrackIsrcStore {
+function readLegacyStore(): TrackIsrcStore {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(TRACK_ISRC_STORAGE_KEY);
     if (!raw) {
       return {};
     }
@@ -28,36 +33,84 @@ function readStore(): TrackIsrcStore {
   }
 }
 
-function writeStore(store: TrackIsrcStore): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
-  } catch {
-    /* ignore quota */
+let trackIsrcStore: TrackIsrcStore | null = null;
+let trackIsrcHydration: Promise<void> | null = null;
+
+function getMemoryStore(): TrackIsrcStore {
+  if (!trackIsrcStore) {
+    trackIsrcStore = readLegacyStore();
   }
+  return trackIsrcStore;
+}
+
+function removeLegacyStore(): void {
+  try {
+    localStorage.removeItem(TRACK_ISRC_STORAGE_KEY);
+  } catch {
+    /* The durable cache is already saved; stale local data can be retried next load. */
+  }
+}
+
+/** Hydrate the synchronous ISRC lookup snapshot and migrate its localStorage predecessor. */
+export function hydrateTrackIsrcStore(): Promise<void> {
+  if (trackIsrcHydration) {
+    return trackIsrcHydration;
+  }
+  trackIsrcHydration = (async () => {
+    const legacyStore = getMemoryStore();
+    const durableRecords = await readAllSpotifyTrackIsrcs();
+    const mergedStore: TrackIsrcStore = {};
+    for (const record of durableRecords) {
+      if (record.trackId && record.isrc) {
+        mergedStore[record.trackId] = record.isrc;
+      }
+    }
+
+    const migrationRecords = Object.entries(legacyStore)
+      .filter(([trackId, isrc]) => mergedStore[trackId] !== isrc)
+      .map(([trackId, isrc]) => ({ trackId, isrc }));
+    await putSpotifyTrackIsrcs(migrationRecords);
+    Object.assign(mergedStore, legacyStore);
+    trackIsrcStore = mergedStore;
+    removeLegacyStore();
+  })().catch(() => {
+    // The auxiliary ISRC index is best-effort; the current session keeps using memory.
+    trackIsrcStore = getMemoryStore();
+  });
+  return trackIsrcHydration;
 }
 
 export function getCachedTrackIsrc(trackId: string): string | null {
-  return readStore()[trackId] ?? null;
+  return getMemoryStore()[trackId] ?? null;
 }
 
 export function getTrackIsrcStoreSnapshot(): ReadonlyMap<string, string> {
-  return new Map(Object.entries(readStore()));
+  return new Map(Object.entries(getMemoryStore()));
 }
 
-export function mergeTrackIsrcsIntoStore(isrcById: ReadonlyMap<string, string>): void {
+export async function mergeTrackIsrcsIntoStore(
+  isrcById: ReadonlyMap<string, string>,
+): Promise<void> {
   if (isrcById.size === 0) {
     return;
   }
-  const store = readStore();
-  let changed = false;
+  await hydrateTrackIsrcStore();
+  const store = getMemoryStore();
+  const changedRecords: { trackId: string; isrc: string }[] = [];
   for (const [trackId, isrc] of isrcById) {
     if (store[trackId] !== isrc) {
-      store[trackId] = isrc;
-      changed = true;
+      changedRecords.push({ trackId, isrc });
     }
   }
-  if (changed) {
-    writeStore(store);
+  if (changedRecords.length > 0) {
+    try {
+      await putSpotifyTrackIsrcs(changedRecords);
+    } catch {
+      // Playlist rows still retain fetched ISRCs even if this reusable index cannot persist.
+    }
+    for (const { trackId, isrc } of changedRecords) {
+      store[trackId] = isrc;
+    }
   }
 }
 
@@ -78,7 +131,7 @@ export function applyIsrcMapToPlaylistTracks(
 export function applyTrackIsrcStoreToPlaylistTracks(
   tracks: readonly CachedPlaylistTrack[],
 ): CachedPlaylistTrack[] {
-  const store = readStore();
+  const store = getMemoryStore();
   if (Object.keys(store).length === 0) {
     return [...tracks];
   }
@@ -96,25 +149,29 @@ export function listPlaylistTracksMissingIsrc(tracks: readonly CachedPlaylistTra
   return tracks.filter((track) => !track.isrc).map((track) => track.id);
 }
 
-/** Fetch missing ISRCs from Spotify and persist in localStorage. */
+/** Fetch missing ISRCs from Spotify and persist them in IndexedDB. */
 export async function ensureTrackIsrcsCached(
   trackIds: readonly string[],
   accessToken?: string | null,
 ): Promise<ReadonlyMap<string, string>> {
-  const store = readStore();
+  await hydrateTrackIsrcStore();
+  const store = getMemoryStore();
   const missing = [...new Set(trackIds)].filter((id) => !store[id]);
   if (missing.length > 0 && !isSpotifyApiBanned('tracks')) {
     const fetched = await fetchSpotifyIsrcByTrackIds(missing, accessToken);
-    mergeTrackIsrcsIntoStore(fetched);
+    await mergeTrackIsrcsIntoStore(fetched);
   }
   return getTrackIsrcStoreSnapshot();
 }
 
 /** Test-only reset. */
-export function _clearTrackIsrcStoreForTesting(): void {
+export async function _clearTrackIsrcStoreForTesting(): Promise<void> {
   try {
-    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(TRACK_ISRC_STORAGE_KEY);
+    await clearSpotifyTrackIsrcs();
   } catch {
     /* ignore */
   }
+  trackIsrcStore = null;
+  trackIsrcHydration = null;
 }

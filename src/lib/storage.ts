@@ -888,7 +888,7 @@ export function replaceSlotBlob(id: string, blob: AutosaveBlob): boolean {
   if (currentActiveId === id) {
     cancelPendingAutosave();
   }
-  if (!tryWriteSlotBlob(id, blob)) return false;
+  if (!tryWriteSlotBlobAfterCachePurge(id, blob)) return false;
   updateSlotMeta(id, {
     updatedAt: new Date().toISOString(),
     totalItems: visibleItemCount(blob),
@@ -1126,6 +1126,34 @@ function tryWriteSlotBlob(id: string, blob: AutosaveBlob): boolean {
   }
 }
 
+function purgeDisposableLocalStorageCaches(): boolean {
+  const keysToDelete: string[] = [];
+  try {
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const key = window.localStorage.key(index);
+      if (key?.startsWith('tools-cache:')) {
+        keysToDelete.push(key);
+      }
+    }
+    for (const key of keysToDelete) {
+      window.localStorage.removeItem(key);
+    }
+  } catch {
+    return false;
+  }
+  return keysToDelete.length > 0;
+}
+
+function tryWriteSlotBlobAfterCachePurge(
+  id: string,
+  blob: AutosaveBlob,
+): boolean {
+  if (tryWriteSlotBlob(id, blob)) {
+    return true;
+  }
+  return purgeDisposableLocalStorageCaches() && tryWriteSlotBlob(id, blob);
+}
+
 /**
  * Reset the debounced-write bookkeeping. After creating or switching to a
  * slot, the slot's persisted state IS already current (createSlot writes
@@ -1205,7 +1233,8 @@ function commitWriteSuccess(blob: AutosaveBlob, recovery?: AutosaveRecovery): vo
 /**
  * Persist the given autosave blob to the active slot.
  *
- * On quota exhaustion we attempt two-stage recovery before giving up:
+ * On quota exhaustion we purge disposable tool caches, then attempt two
+ * user-data recovery stages before giving up:
  *  1. Trim the on-disk undoRing to the last `QUOTA_RECOVERY_UNDO_KEEP`
  *     entries and retry. The UI mirrors the trim so subsequent writes
  *     don't re-bloat back to quota.
@@ -1266,7 +1295,7 @@ function performWrite(blob: AutosaveBlob, options?: { touchLastUsed?: boolean })
     return;
   }
 
-  if (tryWriteSlotBlob(currentActiveId, blob)) {
+  if (tryWriteSlotBlobAfterCachePurge(currentActiveId, blob)) {
     commitWriteSuccess(blob);
     return;
   }

@@ -14,11 +14,13 @@ import { useThemeSongDisplayPreferences } from '../hooks/useThemeSongDisplayPref
 import { useSpotifyLocalFileMatchPreference } from '../hooks/useSpotifyLocalFileMatchPreference';
 import { CircularArrowGlyph } from './CircularArrowGlyph';
 import {
+  clearPlaylistCache,
   clearSelectedSpotifyPlaylist,
   countCachedPlaylistTracks,
   formatSpotifyApiBanMessage,
   getActivePlaylistCache,
   getSelectedSpotifyPlaylist,
+  hydrateSpotifyPlaylistCaches,
   isPlaylistCacheIncomplete,
   isPlaylistCacheStale,
   listUserSpotifyPlaylists,
@@ -182,6 +184,9 @@ export function SpotifySection() {
   }, []);
 
   useEffect(() => {
+    void hydrateSpotifyPlaylistCaches().catch((err: unknown) => {
+      setError(err instanceof Error ? err.message : 'Failed to load Spotify playlist cache');
+    });
     return subscribeSpotifyPlaylist(() => {
       setSelectedPlaylist(getSelectedSpotifyPlaylist());
       setCacheRevision((n) => n + 1);
@@ -287,13 +292,16 @@ export function SpotifySection() {
     setError(null);
   }, [playlistOptions]);
 
-  const onRefreshCache = useCallback(async () => {
+  const onRefreshCache = useCallback(async (clearAllCaches = false) => {
     if (!selectedPlaylist) {
       return;
     }
     setRefreshingCache(true);
     setError(null);
     try {
+      if (clearAllCaches) {
+        await clearPlaylistCache();
+      }
       await refreshPlaylistCache({ force: true });
     } catch (err) {
       if (err instanceof SpotifyApiRateLimitedError) {
@@ -404,10 +412,14 @@ export function SpotifySection() {
                   className="btn small icon-only"
                   disabled={refreshingCache || playlistItemsApiBan !== null}
                   onClick={() => void onRefreshCache()}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    void onRefreshCache(true);
+                  }}
                   title={
                     playlistItemsApiBan !== null
                       ? 'Spotify playlist items API rate limited'
-                      : 'Refresh playlist cache'
+                      : 'Refresh this playlist. Right-click to clear all cached playlists, then refresh this playlist.'
                   }
                   aria-label="Refresh playlist cache"
                 >

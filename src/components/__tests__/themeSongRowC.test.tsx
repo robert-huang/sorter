@@ -48,7 +48,7 @@ describe('ThemeSongPlaylistDot', () => {
     expect(dot?.classList.contains('is-metadata')).toBe(true);
     expect(dot?.classList.contains('is-in')).toBe(false);
     expect(dot?.getAttribute('title')).toBe(
-      'Matched playlist local file: \n\n#17. Houkiboshi (TV Size) — Younha, ユンナ',
+      'Matched playlist local file: \n\n#17 · Houkiboshi (TV Size) — Younha, ユンナ',
     );
     expect(dot?.getAttribute('aria-label')).toBe(dot?.getAttribute('title'));
   });
@@ -69,7 +69,7 @@ describe('ThemeSongPlaylistDot', () => {
     });
 
     expect(container.querySelector('.is-metadata')?.getAttribute('title')).toBe(
-      'Matched Spotify playlist track by title/artist: \n\n#1. ウンディーネ — Yui Makino',
+      'Matched Spotify playlist track by title/artist: \n\n#1 · ウンディーネ — Yui Makino',
     );
   });
 

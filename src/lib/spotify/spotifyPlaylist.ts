@@ -1,6 +1,14 @@
 import { spotifyApiFetch } from './spotifyApi';
 import { ensureSpotifyAccessToken, getStoredSpotifyAuth } from './spotifyAuth';
-import { applyTrackIsrcStoreToPlaylistTracks } from './spotifyTrackIsrcStore';
+import {
+  applyTrackIsrcStoreToPlaylistTracks,
+  hydrateTrackIsrcStore,
+} from './spotifyTrackIsrcStore';
+import {
+  clearSpotifyPlaylistCaches,
+  putSpotifyPlaylistCache,
+  readAllSpotifyPlaylistCaches,
+} from './spotifyPlaylistCacheDb';
 
 export { formatSpotifyApiBanMessage, getSpotifyApiBannedUntil, SpotifyApiRateLimitedError } from './spotifyApi';
 
@@ -270,6 +278,9 @@ function parsePlaylistCacheEntry(raw: unknown): SpotifyPlaylistCache | null {
     ...(typeof parsed.metadataVersion === 'number'
       ? { metadataVersion: parsed.metadataVersion }
       : {}),
+    ...(typeof parsed.paginationComplete === 'boolean'
+      ? { paginationComplete: parsed.paginationComplete }
+      : {}),
   };
 }
 
@@ -285,7 +296,7 @@ function readLegacyPlaylistCache(): SpotifyPlaylistCache | null {
   }
 }
 
-function readPlaylistCacheStore(): PlaylistCacheStore {
+function readLegacyPlaylistCacheStore(): PlaylistCacheStore {
   try {
     const raw = localStorage.getItem(PLAYLIST_CACHE_STORAGE_KEY);
     if (raw) {
@@ -311,32 +322,83 @@ function readPlaylistCacheStore(): PlaylistCacheStore {
   if (!legacy) {
     return {};
   }
-
-  const migrated: PlaylistCacheStore = { [legacy.playlistId]: legacy };
-  writePlaylistCacheStore(migrated);
-  try {
-    localStorage.removeItem(LEGACY_PLAYLIST_CACHE_STORAGE_KEY);
-  } catch {
-    /* ignore */
-  }
-  return migrated;
+  return { [legacy.playlistId]: legacy };
 }
 
-function writePlaylistCacheStore(store: PlaylistCacheStore): void {
-  try {
-    localStorage.setItem(PLAYLIST_CACHE_STORAGE_KEY, JSON.stringify(store));
-  } catch {
-    /* ignore */
+let playlistCacheStore: PlaylistCacheStore | null = null;
+let playlistCacheHydration: Promise<void> | null = null;
+
+function getMemoryPlaylistCacheStore(): PlaylistCacheStore {
+  if (!playlistCacheStore) {
+    playlistCacheStore = readLegacyPlaylistCacheStore();
   }
+  return playlistCacheStore;
 }
 
-export function clearPlaylistCache(): void {
+function removeLegacyPlaylistCacheStorage(): void {
   try {
     localStorage.removeItem(PLAYLIST_CACHE_STORAGE_KEY);
     localStorage.removeItem(LEGACY_PLAYLIST_CACHE_STORAGE_KEY);
   } catch {
-    /* ignore */
+    /* The durable cache is already saved; stale local data can be retried next load. */
   }
+}
+
+function cacheRevision(cache: SpotifyPlaylistCache): number {
+  return cache.revision ?? cache.fetchedAt;
+}
+
+/**
+ * Hydrate the synchronous matching snapshot from IndexedDB, migrating legacy localStorage blobs.
+ */
+export function hydrateSpotifyPlaylistCaches(): Promise<void> {
+  if (playlistCacheHydration) {
+    return playlistCacheHydration;
+  }
+  playlistCacheHydration = (async () => {
+    const legacyStore = getMemoryPlaylistCacheStore();
+    const durableEntries = await readAllSpotifyPlaylistCaches();
+    const mergedStore: PlaylistCacheStore = {};
+
+    for (const rawEntry of durableEntries) {
+      const cache = parsePlaylistCacheEntry(rawEntry);
+      if (cache) {
+        mergedStore[cache.playlistId] = cache;
+      }
+    }
+
+    const migrations: Promise<void>[] = [];
+    for (const cache of Object.values(legacyStore)) {
+      const durable = mergedStore[cache.playlistId];
+      if (!durable || cacheRevision(cache) > cacheRevision(durable)) {
+        mergedStore[cache.playlistId] = cache;
+        migrations.push(putSpotifyPlaylistCache(cache));
+      }
+    }
+    await Promise.all(migrations);
+    playlistCacheStore = mergedStore;
+    removeLegacyPlaylistCacheStorage();
+    emitPlaylistChange();
+  })().catch((error: unknown) => {
+    playlistCacheHydration = null;
+    throw error;
+  });
+  return playlistCacheHydration;
+}
+
+/** Clear every durable playlist cache while preserving the selected playlist. */
+export async function clearPlaylistCache(): Promise<void> {
+  if (playlistCacheHydration) {
+    try {
+      await playlistCacheHydration;
+    } catch {
+      // Clearing can retry IndexedDB directly after a failed hydration.
+    }
+  }
+  await clearSpotifyPlaylistCaches();
+  playlistCacheStore = {};
+  playlistCacheHydration = Promise.resolve();
+  removeLegacyPlaylistCacheStorage();
   emitPlaylistChange();
 }
 
@@ -355,32 +417,53 @@ export function getPlaylistCache(playlistId?: string): SpotifyPlaylistCache | nu
   if (!id) {
     return null;
   }
-  return readPlaylistCacheStore()[id] ?? null;
+  return getMemoryPlaylistCacheStore()[id] ?? null;
 }
 
-function writePlaylistCache(cache: SpotifyPlaylistCache): SpotifyPlaylistCache {
-  const store = readPlaylistCacheStore();
+async function writePlaylistCache(
+  cache: SpotifyPlaylistCache,
+): Promise<SpotifyPlaylistCache> {
+  await hydrateSpotifyPlaylistCaches();
+  const store = getMemoryPlaylistCacheStore();
   const previous = store[cache.playlistId];
   const previousRevision = previous?.revision ?? previous?.fetchedAt ?? 0;
   const revision = Math.max(Date.now(), previousRevision + 1, cache.revision ?? 0);
   const storedCache = { ...cache, revision };
+  try {
+    await putSpotifyPlaylistCache(storedCache);
+  } catch {
+    throw new Error(
+      'Unable to save the Spotify playlist cache in durable browser storage.',
+    );
+  }
   store[cache.playlistId] = storedCache;
-  writePlaylistCacheStore(store);
   emitPlaylistChange();
   return storedCache;
 }
 
+/** Test-only cache write entry point. */
+export async function _writePlaylistCacheForTesting(
+  cache: SpotifyPlaylistCache,
+): Promise<SpotifyPlaylistCache> {
+  return writePlaylistCache(cache);
+}
+
 /** Patch playlist track rows in cache (e.g. background ISRC backfill). */
-export function updatePlaylistCacheTracks(
+export async function updatePlaylistCacheTracks(
   playlistId: string,
   tracks: CachedPlaylistTrack[],
-): boolean {
+): Promise<boolean> {
+  await hydrateSpotifyPlaylistCaches();
   const cache = getPlaylistCache(playlistId);
   if (!cache) {
     return false;
   }
-  writePlaylistCache({ ...cache, tracks });
-  return true;
+  try {
+    await writePlaylistCache({ ...cache, tracks });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function schedulePlaylistIsrcBackfill(playlistId: string): void {
@@ -677,6 +760,10 @@ export async function refreshPlaylistCache(options?: {
   /** When true, re-fetch from Spotify even if a fresh cache exists. */
   force?: boolean;
 }): Promise<SpotifyPlaylistCache | null> {
+  await Promise.all([
+    hydrateSpotifyPlaylistCaches(),
+    hydrateTrackIsrcStore(),
+  ]);
   const selected = getSelectedSpotifyPlaylist();
   if (!selected) {
     return null;
@@ -715,17 +802,25 @@ export async function refreshPlaylistCache(options?: {
     paginationComplete,
     ...(trackTotal != null ? { trackTotal } : {}),
   };
-  const storedCache = writePlaylistCache(cache);
+  const storedCache = await writePlaylistCache(cache);
   schedulePlaylistIsrcBackfill(selected.id);
   return storedCache;
 }
 
 /** Test-only reset. */
-export function _clearSpotifyPlaylistForTesting(): void {
+export async function _clearSpotifyPlaylistForTesting(): Promise<void> {
   try {
     localStorage.removeItem(PLAYLIST_STORAGE_KEY);
-    clearPlaylistCache();
+    await clearPlaylistCache();
   } catch {
     /* ignore */
   }
+  playlistCacheStore = null;
+  playlistCacheHydration = null;
+}
+
+/** Test-only simulation of a page reload without clearing durable data. */
+export function _resetSpotifyPlaylistCacheMemoryForTesting(): void {
+  playlistCacheStore = null;
+  playlistCacheHydration = null;
 }

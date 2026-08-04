@@ -13,6 +13,7 @@
 import { GITHUB_PAGES_URL } from '../appRoutes';
 import { clearSpotifyApiBans, spotifyApiFetch } from './spotifyApi';
 import {
+  clearPlaylistCache,
   LEGACY_PLAYLIST_CACHE_STORAGE_KEY,
   PLAYLIST_CACHE_STORAGE_KEY,
   PLAYLIST_STORAGE_KEY,
@@ -442,6 +443,9 @@ export function signInToSpotify(): Promise<StoredSpotifyAuth> {
 
 export function signOutSpotify(): void {
   stopPlaylistIsrcBackfill();
+  void clearPlaylistCache().catch(() => {
+    /* The next sign-in can retry clearing unavailable durable storage. */
+  });
   try {
     localStorage.removeItem(SPOTIFY_AUTH_STORAGE_KEY);
     localStorage.removeItem(PLAYLIST_STORAGE_KEY);

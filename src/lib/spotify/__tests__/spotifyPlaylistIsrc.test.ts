@@ -8,14 +8,24 @@ import {
 } from '../spotifyPlaylistIsrcBackfill';
 import { setSpotifyApiBan } from '../spotifyApi';
 import {
-  PLAYLIST_CACHE_STORAGE_KEY,
+  _clearSpotifyPlaylistForTesting,
+  _writePlaylistCacheForTesting,
+  getPlaylistCache,
   type CachedPlaylistTrack,
 } from '../spotifyPlaylist';
+import {
+  _setSpotifyPlaylistCachePersistenceForTesting,
+  _setSpotifyTrackIsrcPersistenceForTesting,
+} from '../spotifyPlaylistCacheDb';
 import {
   _clearTrackIsrcStoreForTesting,
   applyTrackIsrcStoreToPlaylistTracks,
   mergeTrackIsrcsIntoStore,
 } from '../spotifyTrackIsrcStore';
+import {
+  createPlaylistCachePersistence,
+  createTrackIsrcPersistence,
+} from './spotifyCachePersistenceTestUtils';
 
 vi.mock('../../importers/anilist/themeSongs/spotifyIsrc', () => ({
   fetchSpotifyIsrcByTrackIds: vi.fn(async (trackIds: readonly string[]) => {
@@ -31,25 +41,43 @@ vi.mock('../../importers/anilist/themeSongs/spotifyIsrc', () => ({
   }),
 }));
 
-function writePlaylistCacheForTest(playlistId: string, tracks: CachedPlaylistTrack[]): void {
-  localStorage.setItem(
-    PLAYLIST_CACHE_STORAGE_KEY,
-    JSON.stringify({
-      [playlistId]: { playlistId, fetchedAt: Date.now(), tracks },
-    }),
-  );
+async function writePlaylistCacheForTest(
+  playlistId: string,
+  tracks: CachedPlaylistTrack[],
+): Promise<void> {
+  await _writePlaylistCacheForTesting({
+    playlistId,
+    fetchedAt: Date.now(),
+    tracks,
+  });
 }
 
-afterEach(() => {
-  _clearTrackIsrcStoreForTesting();
+beforeEach(async () => {
+  _setSpotifyPlaylistCachePersistenceForTesting(createPlaylistCachePersistence());
+  _setSpotifyTrackIsrcPersistenceForTesting(createTrackIsrcPersistence());
+  await Promise.all([
+    _clearSpotifyPlaylistForTesting(),
+    _clearTrackIsrcStoreForTesting(),
+  ]);
+});
+
+afterEach(async () => {
+  await Promise.all([
+    _clearSpotifyPlaylistForTesting(),
+    _clearTrackIsrcStoreForTesting(),
+  ]);
+  _setSpotifyPlaylistCachePersistenceForTesting(null);
+  _setSpotifyTrackIsrcPersistenceForTesting(null);
   _resetPlaylistIsrcBackfillForTesting();
   localStorage.clear();
   vi.clearAllMocks();
 });
 
 describe('applyTrackIsrcStoreToPlaylistTracks', () => {
-  it('applies persisted ISRCs without calling Spotify', () => {
-    mergeTrackIsrcsIntoStore(new Map([['6SrKLkuqWyKxSxzvtRWvX5', 'JPU901001861']]));
+  it('applies persisted ISRCs without calling Spotify', async () => {
+    await mergeTrackIsrcsIntoStore(
+      new Map([['6SrKLkuqWyKxSxzvtRWvX5', 'JPU901001861']]),
+    );
     const tracks: CachedPlaylistTrack[] = [
       { id: '6SrKLkuqWyKxSxzvtRWvX5', isrc: null, linkedFromIds: [] },
       { id: 'track-with-isrc', isrc: 'USRC001', linkedFromIds: [] },
@@ -80,7 +108,7 @@ describe('startPlaylistIsrcBackfill', () => {
         linkedFromIds: [],
       }),
     );
-    writePlaylistCacheForTest('playlist-1', tracks);
+    await writePlaylistCacheForTest('playlist-1', tracks);
 
     startPlaylistIsrcBackfill('playlist-1');
 
@@ -93,20 +121,22 @@ describe('startPlaylistIsrcBackfill', () => {
     expect(secondBatch).toHaveLength(5);
     expect(getPlaylistIsrcBackfillState().status).toBe('idle');
 
-    const store = JSON.parse(localStorage.getItem(PLAYLIST_CACHE_STORAGE_KEY) ?? '{}') as {
-      'playlist-1'?: { tracks: CachedPlaylistTrack[] };
-    };
-    expect(store['playlist-1']?.tracks.every((track) => track.isrc === 'USRC999')).toBe(true);
+    expect(
+      getPlaylistCache('playlist-1')?.tracks.every(
+        (track) => track.isrc === 'USRC999',
+      ),
+    ).toBe(true);
   });
 
   it('automatically resumes from cached tracks after the track cooldown', async () => {
-    writePlaylistCacheForTest('playlist-1', [
+    await writePlaylistCacheForTest('playlist-1', [
       { id: 'missing-1', isrc: null, linkedFromIds: [] },
     ]);
     const now = Date.now();
     setSpotifyApiBan('tracks', now + 1_000, 'RATE_LIMITED', true, now);
 
     startPlaylistIsrcBackfill('playlist-1');
+    await vi.advanceTimersByTimeAsync(0);
 
     expect(getPlaylistIsrcBackfillState().status).toBe('paused');
     expect(fetchSpotifyIsrcByTrackIds).not.toHaveBeenCalled();

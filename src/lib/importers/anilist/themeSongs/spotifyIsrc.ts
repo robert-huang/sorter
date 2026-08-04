@@ -7,6 +7,7 @@ import {
 import { ensureSpotifyAccessToken } from '../../../spotify/spotifyAuth';
 import {
   getCachedTrackIsrc,
+  hydrateTrackIsrcStore,
   mergeTrackIsrcsIntoStore,
 } from '../../../spotify/spotifyTrackIsrcStore';
 
@@ -81,6 +82,7 @@ export async function fetchSpotifyIsrcByTrackIds(
   trackIds: readonly string[],
   accessToken?: string | null,
 ): Promise<Map<string, string>> {
+  await hydrateTrackIsrcStore();
   const token = accessToken ?? (await ensureSpotifyAccessToken());
   if (!token || trackIds.length === 0 || isSpotifyApiBanned('tracks')) {
     return new Map();
@@ -106,7 +108,7 @@ export async function fetchSpotifyIsrcByTrackIds(
     }
   }
 
-  mergeTrackIsrcsIntoStore(out);
+  await mergeTrackIsrcsIntoStore(out);
   return out;
 }
 

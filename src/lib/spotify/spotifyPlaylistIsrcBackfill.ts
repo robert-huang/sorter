@@ -3,9 +3,14 @@ import { getSpotifyApiBannedUntil, isSpotifyApiBanned } from './spotifyApi';
 import {
   applyIsrcMapToPlaylistTracks,
   applyTrackIsrcStoreToPlaylistTracks,
+  hydrateTrackIsrcStore,
   listPlaylistTracksMissingIsrc,
 } from './spotifyTrackIsrcStore';
-import { getPlaylistCache, updatePlaylistCacheTracks } from './spotifyPlaylist';
+import {
+  getPlaylistCache,
+  hydrateSpotifyPlaylistCaches,
+  updatePlaylistCacheTracks,
+} from './spotifyPlaylist';
 
 /** Tracks per backfill iteration — each ID is a separate `GET /tracks/{id}` call. */
 export const PLAYLIST_ISRC_BACKFILL_BATCH_SIZE = 10;
@@ -78,7 +83,7 @@ export function stopPlaylistIsrcBackfill(): void {
 function patchPlaylistCacheTracks(
   playlistId: string,
   tracks: ReturnType<typeof applyTrackIsrcStoreToPlaylistTracks>,
-): boolean {
+): Promise<boolean> {
   return updatePlaylistCacheTracks(playlistId, tracks);
 }
 
@@ -96,7 +101,9 @@ export function startPlaylistIsrcBackfill(playlistId: string): void {
     resumeTimer = null;
   }
   const token = ++runToken;
-  void runPlaylistIsrcBackfill(playlistId, token);
+  void runPlaylistIsrcBackfill(playlistId, token).catch(() => {
+    setState({ status: 'idle', playlistId: null, total: 0, completed: 0 });
+  });
 }
 
 function pauseUntilTrackCooldownEnds(
@@ -117,7 +124,9 @@ function pauseUntilTrackCooldownEnds(
       pauseUntilTrackCooldownEnds(playlistId, token, total, completed);
       return;
     }
-    void runPlaylistIsrcBackfill(playlistId, token);
+    void runPlaylistIsrcBackfill(playlistId, token).catch(() => {
+      setState({ status: 'idle', playlistId: null, total: 0, completed: 0 });
+    });
   }, waitMs);
 }
 
@@ -125,13 +134,19 @@ async function runPlaylistIsrcBackfill(
   playlistId: string,
   token: number,
 ): Promise<void> {
+  await Promise.all([
+    hydrateSpotifyPlaylistCaches(),
+    hydrateTrackIsrcStore(),
+  ]);
   const cache = getPlaylistCache(playlistId);
   if (!cache) {
     return;
   }
 
   let tracks = applyTrackIsrcStoreToPlaylistTracks(cache.tracks);
-  patchPlaylistCacheTracks(playlistId, tracks);
+  if (!(await patchPlaylistCacheTracks(playlistId, tracks))) {
+    return;
+  }
 
   let missing = listPlaylistTracksMissingIsrc(tracks);
   const initialMissing = missing.length;
@@ -166,7 +181,7 @@ async function runPlaylistIsrcBackfill(
     }
 
     tracks = applyIsrcMapToPlaylistTracks(tracks, fetched);
-    if (!patchPlaylistCacheTracks(playlistId, tracks)) {
+    if (!(await patchPlaylistCacheTracks(playlistId, tracks))) {
       setState({ status: 'idle', playlistId: null, total: 0, completed: 0 });
       return;
     }

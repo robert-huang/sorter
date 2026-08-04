@@ -30,7 +30,7 @@ function metadataMatchTooltip(match: PlaylistMatchResult): string {
   const { track } = metadataMatch;
   const artists = track.artists.length > 0 ? track.artists.join(', ') : 'Unknown artist';
   const position =
-    track.playlistPosition > 0 ? `#${track.playlistPosition}. ` : '';
+    track.playlistPosition > 0 ? `#${track.playlistPosition} · ` : '';
   const prefix =
     metadataMatch.kind === 'local'
       ? 'Matched playlist local file'

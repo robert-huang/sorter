@@ -628,6 +628,37 @@ describe('scheduleAutosave quota recovery', () => {
     return events[events.length - 1];
   }
 
+  it('purges disposable tool caches before trimming or evicting user data', () => {
+    const active = mintSlot(makeBlob(0), 'Active');
+    window.localStorage.setItem(
+      'tools-cache:relations:1',
+      JSON.stringify({ value: 'cached', expiresAt: Date.now() + 60_000 }),
+    );
+    const originalSetItem = Storage.prototype.setItem;
+    const setItemSpy = vi
+      .spyOn(Storage.prototype, 'setItem')
+      .mockImplementation(function (this: Storage, key: string, value: string) {
+        if (
+          key === slotBlobKey(active.id) &&
+          window.localStorage.getItem('tools-cache:relations:1')
+        ) {
+          throw new DOMException('Quota exceeded', 'QuotaExceededError');
+        }
+        originalSetItem.call(this, key, value);
+      });
+
+    try {
+      scheduleAutosave(makeBlob(7));
+      flushAutosave();
+
+      expect(window.localStorage.getItem('tools-cache:relations:1')).toBeNull();
+      expect(readSlotBlob(active.id)?.progress.comparisons).toBe(7);
+      expect(readManifest().slots).toHaveLength(1);
+    } finally {
+      setItemSpy.mockRestore();
+    }
+  });
+
   it('trims the on-disk undoRing on quota error and notifies the listener with newUndoRingLen', async () => {
     const slot = mintSlot(makeBlob(0), 'A');
     const events: Notification[] = [];

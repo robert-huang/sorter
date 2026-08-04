@@ -39,6 +39,7 @@ import { formatAnilistProgress } from './anilistProgressLabel';
 import { RemoveGlyph } from './RemoveGlyph';
 import {
   getActivePlaylistCache,
+  hydrateSpotifyPlaylistCaches,
   subscribeSpotifyPlaylist,
 } from '../lib/spotify/spotifyPlaylist';
 import {
@@ -383,6 +384,9 @@ export function AnilistDetailModal({
 
   useEffect(() => {
     const bump = () => setPlaylistCacheRevision((n) => n + 1);
+    void hydrateSpotifyPlaylistCaches().catch(() => {
+      // Playlist matching remains unavailable until a later refresh retries hydration.
+    });
     const unsubPlaylist = subscribeSpotifyPlaylist(bump);
     const unsubAuth = subscribeSpotifyAuth(bump);
     return () => {
