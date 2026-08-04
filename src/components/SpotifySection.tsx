@@ -11,6 +11,7 @@ import {
 import { isSpotifyApiBanned } from '../lib/spotify/spotifyApi';
 import { useSpotifyApiBan } from '../hooks/useSpotifyApiBannedUntil';
 import { useThemeSongDisplayPreferences } from '../hooks/useThemeSongDisplayPreferences';
+import { useSpotifyLocalFileMatchPreference } from '../hooks/useSpotifyLocalFileMatchPreference';
 import { CircularArrowGlyph } from './CircularArrowGlyph';
 import {
   clearSelectedSpotifyPlaylist,
@@ -34,10 +35,33 @@ import {
   subscribePlaylistIsrcBackfill,
 } from '../lib/spotify/spotifyPlaylistIsrcBackfill';
 import type { ThemeSongNameDisplayMode } from '../lib/spotify/themeSongDisplayPreferences';
+import type { SpotifyLocalFileMatchMode } from '../lib/spotify/spotifyLocalFileMatchPreferences';
 
 const THEME_SONG_NAME_OPTIONS: { value: ThemeSongNameDisplayMode; label: string }[] = [
   { value: 'english', label: 'English' },
   { value: 'native', label: 'Native' },
+];
+
+const LOCAL_FILE_MATCH_OPTIONS: {
+  value: SpotifyLocalFileMatchMode;
+  label: string;
+  title: string;
+}[] = [
+  {
+    value: 'off',
+    label: 'Off',
+    title: 'Exact playlist matches are green; Spotify songs missing from the playlist are red.',
+  },
+  {
+    value: 'local-first',
+    label: 'Local',
+    title: 'Priority: exact match (green), then title/artist match (blue), then missing Spotify song (red).',
+  },
+  {
+    value: 'spotify-first',
+    label: 'Spotify',
+    title: 'Priority: exact match (green), then missing Spotify song (red). Blue is only used for songs without a Spotify track.',
+  },
 ];
 
 function formatFetchedAt(ms: number): string {
@@ -74,6 +98,8 @@ function formatSpotifyScopeRateLimit(
 export function SpotifySection() {
   const { mode: themeSongNameMode, setMode: setThemeSongNameMode } =
     useThemeSongDisplayPreferences();
+  const { mode: localFileMatchMode, setMode: setLocalFileMatchMode } =
+    useSpotifyLocalFileMatchPreference();
   const [auth, setAuth] = useState(() => getStoredSpotifyAuth());
   const [selectedPlaylist, setSelectedPlaylist] = useState(() => getSelectedSpotifyPlaylist());
   const [playlists, setPlaylists] = useState<StoredSpotifyPlaylist[]>([]);
@@ -91,6 +117,16 @@ export function SpotifySection() {
   const activeLocalTrackCount = activeCache?.localTracks?.length ?? 0;
   const activeCachedTrackCount =
     activeCache ? countCachedPlaylistTracks(activeCache) : 0;
+  const activeCacheIncomplete =
+    activeCache !== null && isPlaylistCacheIncomplete(activeCache);
+  const activeCacheIncompleteDetail =
+    activeCache !== null &&
+    activeCacheIncomplete &&
+    typeof activeCache.playlistItemsFetched === 'number' &&
+    typeof activeCache.trackTotal === 'number' &&
+    activeCache.playlistItemsFetched < activeCache.trackTotal
+      ? ` (${activeCache.playlistItemsFetched} of ${activeCache.trackTotal} playlist items fetched)`
+      : '';
   const activeCacheKey = activeCache
     ? `${activeCache.playlistId}:${activeCache.fetchedAt}`
     : null;
@@ -277,7 +313,7 @@ export function SpotifySection() {
       <div className="settings-status settings-section-label">Spotify (theme songs)</div>
       <div className="settings-anilist-display-prefs settings-spotify-theme-names">
         <div className="filter-chip-range-row">
-          <span>title</span>
+          <span>Song titles</span>
           <div className="filter-chip-segmented" role="group" aria-label="Theme song title">
             {THEME_SONG_NAME_OPTIONS.map((option) => (
               <button
@@ -286,6 +322,23 @@ export function SpotifySection() {
                 className={themeSongNameMode === option.value ? 'active' : ''}
                 aria-pressed={themeSongNameMode === option.value}
                 onClick={() => setThemeSongNameMode(option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="filter-chip-range-row">
+          <span>Match local files</span>
+          <div className="filter-chip-segmented" role="group" aria-label="Match local files">
+            {LOCAL_FILE_MATCH_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={localFileMatchMode === option.value ? 'active' : ''}
+                aria-pressed={localFileMatchMode === option.value}
+                title={option.title}
+                onClick={() => setLocalFileMatchMode(option.value)}
               >
                 {option.label}
               </button>
@@ -392,8 +445,11 @@ export function SpotifySection() {
                 {isPlaylistCacheStale(activeCache.fetchedAt) ? (
                   <span className="settings-cache-stale"> · stale (&gt;15m)</span>
                 ) : null}
-                {isPlaylistCacheIncomplete(activeCache) ? (
-                  <span className="settings-cache-stale"> · incomplete — refresh to load all tracks</span>
+                {activeCacheIncomplete ? (
+                  <span className="settings-cache-stale">
+                    {' '}
+                    · incomplete{activeCacheIncompleteDetail} — refresh to load all tracks
+                  </span>
                 ) : null}
                 {isrcBackfill.status === 'running' &&
                 isrcBackfill.playlistId === selectedPlaylist.id ? (

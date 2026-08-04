@@ -920,6 +920,24 @@ html {
   text-align: right;
 }
 
+/* Spotify preferences use one fixed label column so both segmented
+   controls begin at the same horizontal position. */
+.settings-spotify-theme-names {
+  padding-left: 12px;
+}
+
+.settings-spotify-theme-names .filter-chip-range-row {
+  display: grid;
+  grid-template-columns: 92px max-content;
+  column-gap: 8px;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.settings-spotify-theme-names .filter-chip-range-row > span {
+  min-width: 0;
+}
+
 .settings-anilist-display-prefs--standalone {
   margin-top: 0;
   padding-left: 0;

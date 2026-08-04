@@ -127,6 +127,33 @@ describe('fetchPlaylistTracks', () => {
     expect(vi.mocked(spotifyApiFetch).mock.calls[1]?.[0]).toContain('offset=50');
   });
 
+  it('uses the latest reported total when a large playlist changes during pagination', async () => {
+    vi.mocked(spotifyApiFetch).mockImplementation(async (url: string) => {
+      const offset = Number(new URL(url).searchParams.get('offset') ?? '0');
+      const itemCount = offset === 0 ? 50 : 25;
+      const items = Array.from({ length: itemCount }, (_, index) => ({
+        item: {
+          id: `track-${offset + index}`,
+          type: 'track',
+          external_ids: { isrc: null },
+        },
+      }));
+      return {
+        ok: true,
+        json: async () => ({
+          total: offset === 0 ? 76 : 75,
+          items,
+        }),
+      } as Response;
+    });
+
+    const result = await fetchPlaylistTracks('pl-changing', 'token');
+
+    expect(result.playlistItemsFetched).toBe(75);
+    expect(result.trackTotal).toBe(75);
+    expect(result.paginationComplete).toBe(true);
+  });
+
   it('caches local files separately while counting every fetched playlist item', async () => {
     vi.mocked(spotifyApiFetch).mockResolvedValue({
       ok: true,

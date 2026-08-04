@@ -29,13 +29,13 @@ import {
 const LS_KEY = 'anime-tools-favourites-form';
 
 const EXPAND_ROLES_TITLE =
-  'Fully re-fetch role data from AniList and save to the local database — every favourite character’s appearances, then voice-actor roles for VAs found on those characters, then voice-actor roles for your favourite staff. Can take a long time for large favourite lists. Use Analyze for a faster run from cache.';
+  'Fully re-fetch role data from AniList and save to the local database — every favourite character’s appearances, then voice-actor roles for VAs found on those characters, then voice-actor roles for your favourite staff.\n\nCan take a long time for large favourite lists. Use Analyze for a faster run from cache.';
 
 const VA_BAYESIAN_RANK_HELP =
-  'Bayesian average of your favourite-list ranks for characters this VA voices. N = total favourites, n = favourites for a given VA, r = rank of the character (1 = top). Character Count per VA = (N÷10+1)+n, Rank-Sum per VA = (N÷2×N÷10)+∑r, Bayesian Score = Count + Rank-Sum — lower is better (more top-ranked favourites).';
+  'Bayesian average of your favourite-list ranks for characters this VA voices.\n\nN = total favourites, n = favourites for a given VA, r = rank of the character (1 = top).\n\nCharacter Count per VA = (N÷10+1)+n, Rank-Sum per VA = (N÷2×N÷10)+∑r, Bayesian Score = Count + Rank-Sum — lower is better (more top-ranked favourites).';
 
 const VA_LOG_SCORE_HELP =
-  'Log score favours VAs behind higher-ranked favourites. N = total favourites, r = rank of the character (1 = top). Per matched character, add ln(N) − ln(r) (same as ln(N÷r); rank 1 adds the most). Shown value is the total × 10 — higher is better.';
+  'Log score favours VAs behind higher-ranked favourites.\n\nN = total favourites, r = rank of the character (1 = top).\n\nPer matched character, add ln(N) − ln(r) (same as ln(N÷r); rank 1 adds the most). Shown value is the total × 10 — higher is better.';
 
 const DEFAULT_FORM: FavouritesForm = {
   username: '',

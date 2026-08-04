@@ -1,8 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { MediaThemeSongRow } from '../../importers/anilist/themeSongs/types';
 import {
+  _getMetadataScoreEvaluationCountForTesting,
+  _resetPlaylistMatchCacheForTesting,
   aggregatePlaylistMatchForRows,
   collectPlaylistArtistMatchCandidates,
+  invalidateThemeSongPlaylistMatches,
   matchThemeRowToPlaylist,
   matchThemeRowToPlaylistDetails,
   normalizePlaylistTitleForMatch,
@@ -31,6 +34,12 @@ const cache: SpotifyPlaylistCache = {
     { id: 'track-c', isrc: 'USRC222', linkedFromIds: [] },
   ],
 };
+
+const LOCAL_FIRST = { localFileMatchMode: 'local-first' } as const;
+
+beforeEach(() => {
+  _resetPlaylistMatchCacheForTesting();
+});
 
 function cacheWithLocalTracks(
   localTracks: NonNullable<SpotifyPlaylistCache['localTracks']>,
@@ -126,6 +135,7 @@ describe('playlist metadata normalization', () => {
           playlistPosition: 1,
         },
       ]),
+      LOCAL_FIRST,
     );
 
     expect(result).toEqual({ status: 'unknown', metadataMatch: null });
@@ -303,6 +313,7 @@ describe('matchThemeRowToPlaylist', () => {
         displayArtist: 'YOUNHA',
       }),
       cacheWithLocalTracks([localTrack]),
+      LOCAL_FIRST,
     );
 
     expect(result).toEqual({
@@ -346,6 +357,7 @@ describe('matchThemeRowToPlaylist', () => {
           malArtist: sourceArtist,
         }),
         cacheWithLocalTracks([localTrack]),
+        LOCAL_FIRST,
       );
 
       expect(result).toEqual({
@@ -373,6 +385,7 @@ describe('matchThemeRowToPlaylist', () => {
           playlistPosition: 8,
         },
       ]),
+      LOCAL_FIRST,
     );
 
     expect(result).toEqual({ status: 'unknown', metadataMatch: null });
@@ -396,6 +409,7 @@ describe('matchThemeRowToPlaylist', () => {
           playlistPosition: 8,
         },
       ]),
+      LOCAL_FIRST,
     );
 
     expect(result).toEqual({ status: 'unknown', metadataMatch: null });
@@ -420,6 +434,7 @@ describe('matchThemeRowToPlaylist', () => {
         aniArtists: ['Younha', 'ユンナ'],
       }),
       cacheWithLocalTracks([localTrack]),
+      LOCAL_FIRST,
     );
 
     expect(result).toEqual({
@@ -452,6 +467,7 @@ describe('matchThemeRowToPlaylist', () => {
       matchThemeRowToPlaylistDetails(
         makeRow({ displayTitle: 'Houkiboshi', displayArtist: 'Artist' }),
         playlistCache,
+        LOCAL_FIRST,
       ),
     ).toEqual({ status: 'unknown', metadataMatch: null });
   });
@@ -480,6 +496,7 @@ describe('matchThemeRowToPlaylist', () => {
       matchThemeRowToPlaylistDetails(
         makeRow({ displayTitle: 'Home', displayArtist: null }),
         playlistCache,
+        LOCAL_FIRST,
       ),
     ).toEqual({ status: 'unknown', metadataMatch: null });
   });
@@ -496,7 +513,7 @@ describe('matchThemeRowToPlaylist', () => {
       },
     ]);
 
-    expect(matchThemeRowToPlaylist(makeRow(), playlistCache)).toBe('unknown');
+    expect(matchThemeRowToPlaylist(makeRow(), playlistCache, LOCAL_FIRST)).toBe('unknown');
   });
 
   it('metadata-matches a catalog edition when its id and ISRC do not match', () => {
@@ -529,6 +546,7 @@ describe('matchThemeRowToPlaylist', () => {
         hasResolvableTrackId: true,
       }),
       playlistCache,
+      LOCAL_FIRST,
     );
 
     expect(result).toEqual({
@@ -568,11 +586,14 @@ describe('matchThemeRowToPlaylist', () => {
           aniArtists: ['Yui Makino', '牧野由依'],
         }),
         playlistCache,
+        LOCAL_FIRST,
       ),
     ).toEqual({ status: 'unknown', metadataMatch: null });
   });
 
-  it('prefers an exact Spotify catalog match over local metadata', () => {
+  it.each(['local-first', 'spotify-first'] as const)(
+    'keeps an exact Spotify catalog match green in %s mode when a metadata duplicate exists',
+    (localFileMatchMode) => {
     const playlistCache: SpotifyPlaylistCache = {
       ...cache,
       localTracks: [
@@ -591,8 +612,142 @@ describe('matchThemeRowToPlaylist', () => {
       matchThemeRowToPlaylistDetails(
         makeRow({ spotifyTrackIds: ['track-a'], hasResolvableTrackId: true }),
         playlistCache,
+        { localFileMatchMode },
       ),
     ).toEqual({ status: 'in', metadataMatch: null });
+    },
+  );
+
+  it('applies Off, Local First, and Spotify First precedence', () => {
+    const localTrack = {
+      uri: 'spotify:local:Artist:Album:Test+Song:180',
+      title: 'Test Song',
+      artists: ['Artist'],
+      album: 'Album',
+      durationMs: 180_000,
+      playlistPosition: 4,
+    };
+    const playlistCache = cacheWithLocalTracks([localTrack]);
+    const spotifyRow = makeRow({
+      spotifyTrackIds: ['missing'],
+      hasResolvableTrackId: true,
+    });
+
+    expect(
+      matchThemeRowToPlaylistDetails(spotifyRow, playlistCache, {
+        localFileMatchMode: 'off',
+      }),
+    ).toEqual({ status: 'out', metadataMatch: null });
+    expect(
+      matchThemeRowToPlaylistDetails(spotifyRow, playlistCache, LOCAL_FIRST),
+    ).toEqual({
+      status: 'in',
+      metadataMatch: { kind: 'local', track: localTrack },
+    });
+    expect(
+      matchThemeRowToPlaylistDetails(spotifyRow, playlistCache, {
+        localFileMatchMode: 'spotify-first',
+      }),
+    ).toEqual({ status: 'out', metadataMatch: null });
+    expect(
+      matchThemeRowToPlaylistDetails(makeRow(), playlistCache, {
+        localFileMatchMode: 'spotify-first',
+      }),
+    ).toEqual({
+      status: 'in',
+      metadataMatch: { kind: 'local', track: localTrack },
+    });
+    expect(
+      matchThemeRowToPlaylistDetails(makeRow(), playlistCache, {
+        localFileMatchMode: 'off',
+      }),
+    ).toEqual({ status: 'unknown', metadataMatch: null });
+  });
+
+  it('waits for alternate-edition ISRC lookup before allowing a blue match', () => {
+    const playlistCache = cacheWithLocalTracks([
+      {
+        uri: 'spotify:local:Artist:Album:Test+Song:180',
+        title: 'Test Song',
+        artists: ['Artist'],
+        album: 'Album',
+        durationMs: 180_000,
+        playlistPosition: 4,
+      },
+    ]);
+    const row = makeRow({
+      spotifyTrackIds: ['alternate-edition'],
+      hasResolvableTrackId: true,
+    });
+
+    expect(
+      matchThemeRowToPlaylistDetails(row, playlistCache, {
+        ...LOCAL_FIRST,
+        isrcLookupReady: false,
+      }),
+    ).toEqual({ status: 'unknown', metadataMatch: null });
+  });
+
+  it('reuses row match results until the show or playlist revision changes', () => {
+    const playlistCache: SpotifyPlaylistCache = {
+      ...cacheWithLocalTracks([
+        {
+          uri: 'spotify:local:Artist:Album:Test+Song:180',
+          title: 'Test Song',
+          artists: ['Artist'],
+          album: 'Album',
+          durationMs: 180_000,
+          playlistPosition: 4,
+        },
+      ]),
+      revision: 10,
+    };
+    const options = { ...LOCAL_FIRST, mediaId: 42 };
+
+    matchThemeRowToPlaylistDetails(makeRow(), playlistCache, options);
+    const firstEvaluationCount = _getMetadataScoreEvaluationCountForTesting();
+    expect(firstEvaluationCount).toBeGreaterThan(0);
+
+    matchThemeRowToPlaylistDetails(makeRow(), playlistCache, options);
+    expect(_getMetadataScoreEvaluationCountForTesting()).toBe(firstEvaluationCount);
+
+    invalidateThemeSongPlaylistMatches(42);
+    matchThemeRowToPlaylistDetails(makeRow(), playlistCache, options);
+    expect(_getMetadataScoreEvaluationCountForTesting()).toBeGreaterThan(
+      firstEvaluationCount,
+    );
+
+    const afterMediaRefresh = _getMetadataScoreEvaluationCountForTesting();
+    matchThemeRowToPlaylistDetails(
+      makeRow(),
+      { ...playlistCache, revision: 11 },
+      options,
+    );
+    expect(_getMetadataScoreEvaluationCountForTesting()).toBeGreaterThan(
+      afterMediaRefresh,
+    );
+  });
+
+  it('narrows exact-title scoring in a 4,184-track metadata index', () => {
+    const localTracks = Array.from({ length: 4_184 }, (_, index) => ({
+      uri: `spotify:local:Artist:Album:Song+${index + 1}:180`,
+      title: index === 4_000 ? 'Test Song' : `Unrelated Song ${index + 1}`,
+      artists: ['Artist'],
+      album: 'Album',
+      durationMs: 180_000,
+      playlistPosition: index + 1,
+    }));
+    const result = matchThemeRowToPlaylistDetails(
+      makeRow(),
+      { ...cacheWithLocalTracks(localTracks), revision: 20 },
+      LOCAL_FIRST,
+    );
+
+    expect(result).toEqual({
+      status: 'in',
+      metadataMatch: { kind: 'local', track: localTracks[4_000] },
+    });
+    expect(_getMetadataScoreEvaluationCountForTesting()).toBe(1);
   });
 });
 
@@ -625,7 +780,7 @@ describe('aggregatePlaylistMatchForRows', () => {
       },
     ]);
 
-    expect(aggregatePlaylistMatchForRows([makeRow()], playlistCache)).toBe('in');
+    expect(aggregatePlaylistMatchForRows([makeRow()], playlistCache, LOCAL_FIRST)).toBe('in');
   });
 
   it('returns out when every resolvable row is missing from the playlist', () => {

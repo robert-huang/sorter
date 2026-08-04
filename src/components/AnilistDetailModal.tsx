@@ -42,11 +42,13 @@ import {
   subscribeSpotifyPlaylist,
 } from '../lib/spotify/spotifyPlaylist';
 import {
+  invalidateThemeSongPlaylistMatches,
   matchThemeRowToPlaylistDetails,
   type PlaylistMatchOptions,
 } from '../lib/spotify/spotifyPlaylistMatch';
 import { subscribeSpotifyAuth } from '../lib/spotify/spotifyAuth';
 import { useSpotifyTrackIsrcLookup } from '../hooks/useSpotifyTrackIsrcLookup';
+import { useSpotifyLocalFileMatchPreference } from '../hooks/useSpotifyLocalFileMatchPreference';
 import {
   allThemeSongSourcesFailed,
   themeSongsSourceNotes,
@@ -304,6 +306,7 @@ export function AnilistDetailModal({
   // Re-render the modal when the display preferences change so the
   // title / character / VA / staff names relabel live while it's open.
   useAnilistDisplayPreferences();
+  const { mode: localFileMatchMode } = useSpotifyLocalFileMatchPreference();
   const [detail, setDetail] = useState<MediaDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [expanding, setExpanding] = useState(false);
@@ -372,8 +375,10 @@ export function AnilistDetailModal({
     (): PlaylistMatchOptions => ({
       trackIsrcById: trackIsrcLookup,
       isrcLookupReady: trackIsrcLookupReady,
+      localFileMatchMode,
+      mediaId,
     }),
-    [trackIsrcLookup, trackIsrcLookupReady],
+    [localFileMatchMode, mediaId, trackIsrcLookup, trackIsrcLookupReady],
   );
 
   useEffect(() => {
@@ -556,6 +561,7 @@ export function AnilistDetailModal({
         undefined,
         forceRefresh ? { force: true } : undefined,
       );
+      invalidateThemeSongPlaylistMatches(mediaId);
       await refreshThemeSongsFromDb();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Theme song refresh failed.');
@@ -573,6 +579,7 @@ export function AnilistDetailModal({
       setError(null);
       try {
         await runAnilistExcludeMediaThemeSongRow(mediaId, themeSongRowKey(row));
+        invalidateThemeSongPlaylistMatches(mediaId);
         await refreshThemeSongsFromDb();
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to remove theme song.');

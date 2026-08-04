@@ -229,6 +229,35 @@ describe('isPlaylistCacheIncomplete', () => {
     expect(isPlaylistCacheIncomplete(cache)).toBe(false);
   });
 
+  it('treats a terminal 4,184-item mixed fetch as complete despite a stale reported total', () => {
+    const spotifyTrackCount = 3_430;
+    const localTrackCount = 754;
+    const cache: SpotifyPlaylistCache = {
+      playlistId: 'pl-large',
+      fetchedAt: Date.now(),
+      trackTotal: spotifyTrackCount + localTrackCount + 1,
+      playlistItemsFetched: spotifyTrackCount + localTrackCount,
+      paginationComplete: true,
+      metadataVersion: PLAYLIST_CACHE_METADATA_VERSION,
+      tracks: Array.from({ length: spotifyTrackCount }, (_, index) => ({
+        id: `track-${index}`,
+        isrc: null,
+        linkedFromIds: [],
+      })),
+      localTracks: Array.from({ length: localTrackCount }, (_, index) => ({
+        uri: `spotify:local:Artist:Album:Local+Track+${index}:90`,
+        title: `Local Track ${index}`,
+        artists: ['Artist'],
+        album: 'Album',
+        durationMs: 90_000,
+        playlistPosition: spotifyTrackCount + index + 1,
+      })),
+    };
+
+    expect(countCachedPlaylistTracks(cache)).toBe(4_184);
+    expect(isPlaylistCacheIncomplete(cache)).toBe(false);
+  });
+
   it('flags when fewer playlist items were fetched than Spotify reports', () => {
     const cache: SpotifyPlaylistCache = {
       playlistId: 'pl1',

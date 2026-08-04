@@ -43,6 +43,7 @@ import {
 } from '../../lib/importers/anilist/themeSongs/types';
 import {
   aggregatePlaylistMatchForRows,
+  invalidateThemeSongPlaylistMatches,
   matchThemeRowToPlaylist,
   matchThemeRowToPlaylistDetails,
   type PlaylistAggregateStatus,
@@ -50,6 +51,7 @@ import {
 } from '../../lib/spotify/spotifyPlaylistMatch';
 import { useSpotifyPlaylistCache } from '../../lib/spotify/useSpotifyPlaylistCache';
 import { useSpotifyTrackIsrcLookup } from '../../hooks/useSpotifyTrackIsrcLookup';
+import { useSpotifyLocalFileMatchPreference } from '../../hooks/useSpotifyLocalFileMatchPreference';
 import { ThemeSongRowC } from '../../components/themeSongRowC';
 import {
   DEFAULT_WEEKLY_CALENDAR_FORM,
@@ -333,10 +335,12 @@ export function WeeklyCalendarThemeSongShowTitle({
 }
 
 function WeeklyCalendarThemeSongGroups({
+  mediaId,
   rows,
   playlistCache,
   playlistMatchOptions,
 }: {
+  mediaId: number;
   rows: readonly MediaThemeSongRow[];
   playlistCache: ReturnType<typeof useSpotifyPlaylistCache>;
   playlistMatchOptions: PlaylistMatchOptions;
@@ -364,7 +368,7 @@ function WeeklyCalendarThemeSongGroups({
                   playlistMatch={matchThemeRowToPlaylistDetails(
                     row,
                     playlistCache,
-                    playlistMatchOptions,
+                    { ...playlistMatchOptions, mediaId },
                   )}
                   showPlaylistMatch={showPlaylistMatch}
                 />
@@ -387,6 +391,7 @@ function WeeklyCalendarThemeSongsPanel({
   onRefreshThemeSongs,
   refreshingCached,
   refreshingPending,
+  loading,
 }: {
   shows: WeeklyCalendarEntry[];
   themeSongCache: Map<number, MediaThemeSongsPayload>;
@@ -397,6 +402,7 @@ function WeeklyCalendarThemeSongsPanel({
   onRefreshThemeSongs: (mediaIds: number[], kind: 'cached' | 'pending') => void;
   refreshingCached: boolean;
   refreshingPending: boolean;
+  loading: boolean;
 }) {
   const [playlistFilter, setPlaylistFilter] = useState<ThemeSongPlaylistFilter>('all');
 
@@ -427,7 +433,10 @@ function WeeklyCalendarThemeSongsPanel({
         ? rows
         : rows.filter(
             (row) =>
-              matchThemeRowToPlaylist(row, playlistCache, playlistMatchOptions) === playlistFilter,
+              matchThemeRowToPlaylist(row, playlistCache, {
+                ...playlistMatchOptions,
+                mediaId: show.id,
+              }) === playlistFilter,
           );
     if (visibleRows.length > 0) {
       visibleCachedShows.push({ show, rows: visibleRows });
@@ -472,7 +481,9 @@ function WeeklyCalendarThemeSongsPanel({
           </button>
         ) : null}
       </div>
-      {withCache.length === 0 ? (
+      {loading ? (
+        <p className="tool-muted">Loading cached theme songs…</p>
+      ) : withCache.length === 0 ? (
         <p className="tool-muted">
           No cached theme songs for shows in this chart. Open a show&apos;s detail modal to load
           them.
@@ -493,6 +504,7 @@ function WeeklyCalendarThemeSongsPanel({
                   onOpenMedia={onOpenMedia}
                 />
                 <WeeklyCalendarThemeSongGroups
+                  mediaId={show.id}
                   rows={rows}
                   playlistCache={playlistCache}
                   playlistMatchOptions={playlistMatchOptions}
@@ -502,7 +514,7 @@ function WeeklyCalendarThemeSongsPanel({
           })}
         </div>
       )}
-      {withoutCache.length > 0 ? (
+      {!loading && withoutCache.length > 0 ? (
         <div className="tool-weekly-theme-songs-pending">
           <p className="tool-weekly-theme-songs-pending-label">
             <span>Not loaded yet ({withoutCache.length})</span>
@@ -651,7 +663,7 @@ export function WeeklyCalendarColumnsView({
                     ? aggregatePlaylistMatchForRows(
                         themeSongCache.get(show.id)?.rows ?? [],
                         playlistCache,
-                        playlistMatchOptions,
+                        { ...playlistMatchOptions, mediaId: show.id },
                       )
                     : null;
                 return (
@@ -727,6 +739,7 @@ export function WeeklyCalendarColumnsView({
 
 export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelProps) {
   const playlistCache = useSpotifyPlaylistCache();
+  const { mode: localFileMatchMode } = useSpotifyLocalFileMatchPreference();
   const favourites = useCurrentAnilistFavourites();
   const [form, setForm] = useState<WeeklyCalendarForm>(() => loadForm());
   const [running, setRunning] = useState(false);
@@ -735,6 +748,9 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
   const [seasonLabel, setSeasonLabel] = useState<string | null>(null);
   const [themeSongCache, setThemeSongCache] = useState<Map<number, MediaThemeSongsPayload>>(
     () => new Map(),
+  );
+  const [loadedThemeSongCacheKey, setLoadedThemeSongCacheKey] = useState<string | null>(
+    null,
   );
   const [refreshingThemeSongsCached, setRefreshingThemeSongsCached] = useState(false);
   const [refreshingThemeSongsPending, setRefreshingThemeSongsPending] = useState(false);
@@ -836,8 +852,9 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
     (): PlaylistMatchOptions => ({
       trackIsrcById: trackIsrcLookup,
       isrcLookupReady: trackIsrcLookupReady,
+      localFileMatchMode,
     }),
-    [trackIsrcLookup, trackIsrcLookupReady],
+    [localFileMatchMode, trackIsrcLookup, trackIsrcLookupReady],
   );
 
   const chartShows = useMemo(() => {
@@ -847,22 +864,39 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
     return collectWeeklyCalendarShows(result);
   }, [result]);
 
-  useEffect(() => {
+  const themeSongCacheRequest = useMemo(() => {
     if (!form.showThemeSongs || result?.kind !== 'columns') {
-      setThemeSongCache(new Map());
-      return;
+      return null;
     }
     const mediaIds = collectWeeklyCalendarMediaIds(result);
+    return {
+      mediaIds,
+      key: `${dbSyncRevision}:${mediaIds.join(',')}`,
+    };
+  }, [dbSyncRevision, form.showThemeSongs, result]);
+
+  const themeSongCacheLoading =
+    themeSongCacheRequest !== null &&
+    loadedThemeSongCacheKey !== themeSongCacheRequest.key;
+
+  useEffect(() => {
+    if (!themeSongCacheRequest) {
+      setThemeSongCache(new Map());
+      setLoadedThemeSongCacheKey(null);
+      return;
+    }
+    const { key, mediaIds } = themeSongCacheRequest;
     let cancelled = false;
     void productionReads.getMediaThemeSongsExpansionsBatch(mediaIds).then((cache) => {
       if (!cancelled) {
         setThemeSongCache(cache);
+        setLoadedThemeSongCacheKey(key);
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [form.showThemeSongs, result, dbSyncRevision]);
+  }, [themeSongCacheRequest]);
 
   const onRefreshThemeSongs = useCallback(
     (mediaIds: number[], kind: 'cached' | 'pending') => {
@@ -876,6 +910,7 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
         try {
           for (const mediaId of mediaIds) {
             await runAnilistMediaThemeSongsExpansion(mediaId, undefined, { force: true });
+            invalidateThemeSongPlaylistMatches(mediaId);
             const expansion = await productionReads.getMediaThemeSongsExpansion(mediaId);
             if (expansion) {
               setThemeSongCache((prev) => {
@@ -1192,6 +1227,7 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
               onRefreshThemeSongs={onRefreshThemeSongs}
               refreshingCached={refreshingThemeSongsCached}
               refreshingPending={refreshingThemeSongsPending}
+              loading={themeSongCacheLoading}
             />
           ) : null}
         </>

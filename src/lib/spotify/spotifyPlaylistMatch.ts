@@ -5,6 +5,7 @@ import type {
   CachedPlaylistTrackMetadata,
   SpotifyPlaylistCache,
 } from './spotifyPlaylist';
+import type { SpotifyLocalFileMatchMode } from './spotifyLocalFileMatchPreferences';
 
 export type PlaylistMatchStatus = 'in' | 'out' | 'unknown';
 
@@ -27,11 +28,25 @@ export type PlaylistMatchOptions = {
   trackIsrcById?: ReadonlyMap<string, string>;
   /** False while lazy theme ISRC fetches are still in flight. */
   isrcLookupReady?: boolean;
+  /** Persisted precedence for descriptive title/artist matches. */
+  localFileMatchMode?: SpotifyLocalFileMatchMode;
+  /** Scope used to invalidate only one show's cached row results. */
+  mediaId?: number;
 };
 
 type PlaylistIndex = {
+  cache: SpotifyPlaylistCache;
   trackIds: Set<string>;
   isrcs: Set<string>;
+  metadataTracks: IndexedPlaylistMetadataTrack[] | null;
+  metadataByTitle: Map<string, IndexedPlaylistMetadataTrack[]> | null;
+};
+
+type IndexedPlaylistMetadataTrack = {
+  match: PlaylistMetadataMatch;
+  normalizedTitle: string;
+  artistCandidates: string[];
+  identity: string;
 };
 
 type ScoredPlaylistTrack = {
@@ -46,6 +61,7 @@ const METADATA_ARTIST_THRESHOLD = 0.78;
 const METADATA_TITLE_ONLY_THRESHOLD = 0.94;
 const METADATA_MATCH_MARGIN = 0.04;
 const DISTINCTIVE_EXACT_TITLE_MIN_LENGTH = 8;
+const MAX_RESULT_CACHE_ENTRIES = 10_000;
 const ARTIST_CREDIT_PREFIX = /^c\s*[.]?\s*v\s*[.:]?\s*/iu;
 const ARTIST_SEPARATOR =
   /\s*(?:,|、|&|;|\/|\+|×|\b(?:and|with)\b|\bfeat(?:uring)?\.?)\s*/iu;
@@ -56,6 +72,12 @@ const ARTIST_BRACKET_PATTERNS = [
   /<([^<>]*)>/gu,
 ] as const;
 const IGNORED_ARTIST_CANDIDATES = new Set(['and others', 'others', 'unknown', 'various artists']);
+
+const playlistIndexCache = new WeakMap<SpotifyPlaylistCache, PlaylistIndex>();
+const playlistIndexesByRevision = new Map<string, PlaylistIndex>();
+const matchResultCache = new Map<string, PlaylistMatchResult>();
+const mediaMatchRevisions = new Map<number, number>();
+let metadataScoreEvaluationCount = 0;
 
 type ArtistScript = 'latin' | 'han' | 'hiragana' | 'katakana' | 'hangul' | 'cyrillic';
 
@@ -309,25 +331,19 @@ function playlistTrackArtistCandidates(track: CachedPlaylistTrackMetadata): stri
   return collectPlaylistArtistMatchCandidates([...track.artists, track.artists.join(' ')]);
 }
 
-function playlistTrackIdentity(track: CachedPlaylistTrackMetadata): string {
-  return `${normalizePlaylistTitleForMatch(track.title)}\u0000${playlistTrackArtistCandidates(track)
-    .sort()
-    .join('\u0000')}`;
-}
-
 function scorePlaylistTrackMetadata(
   titleCandidates: readonly string[],
   artistCandidates: readonly string[],
-  match: PlaylistMetadataMatch,
+  indexedTrack: IndexedPlaylistMetadataTrack,
 ): ScoredPlaylistTrack | null {
-  const { track } = match;
-  const playlistTitle = normalizePlaylistTitleForMatch(track.title);
+  metadataScoreEvaluationCount += 1;
+  const { match, normalizedTitle: playlistTitle, artistCandidates: playlistArtists } =
+    indexedTrack;
   const titleScore = bestSimilarity(titleCandidates, playlistTitle ? [playlistTitle] : []);
   if (titleScore == null) {
     return null;
   }
 
-  const playlistArtists = playlistTrackArtistCandidates(track);
   const artistScore = bestArtistSimilarity(artistCandidates, playlistArtists);
   if (artistScore != null) {
     if (
@@ -340,7 +356,7 @@ function scorePlaylistTrackMetadata(
       return {
         match,
         score: METADATA_TITLE_ONLY_THRESHOLD,
-        identity: playlistTrackIdentity(track),
+        identity: indexedTrack.identity,
         exact: false,
       };
     }
@@ -353,7 +369,7 @@ function scorePlaylistTrackMetadata(
     return {
       match,
       score: titleScore * 0.8 + artistScore * 0.2,
-      identity: playlistTrackIdentity(track),
+      identity: indexedTrack.identity,
       exact: titleScore === 1 && artistScore === 1,
     };
   }
@@ -369,7 +385,7 @@ function scorePlaylistTrackMetadata(
   return {
     match,
     score: titleScore,
-    identity: playlistTrackIdentity(track),
+    identity: indexedTrack.identity,
     exact: false,
   };
 }
@@ -385,16 +401,50 @@ function playlistMetadataCandidates(cache: SpotifyPlaylistCache): PlaylistMetada
   return [...localMatches, ...spotifyMatches];
 }
 
-function findPlaylistMetadataMatch(
-  row: MediaThemeSongRow,
-  cache: SpotifyPlaylistCache,
-): PlaylistMetadataMatch | null {
-  const playlistTracks = playlistMetadataCandidates(cache);
-  if (playlistTracks.length === 0) {
+function indexPlaylistMetadataTrack(
+  match: PlaylistMetadataMatch,
+): IndexedPlaylistMetadataTrack | null {
+  const normalizedTitle = normalizePlaylistTitleForMatch(match.track.title);
+  if (!normalizedTitle) {
     return null;
   }
+  const artistCandidates = playlistTrackArtistCandidates(match.track);
+  return {
+    match,
+    normalizedTitle,
+    artistCandidates,
+    identity: `${normalizedTitle}\u0000${[...artistCandidates].sort().join('\u0000')}`,
+  };
+}
+
+function findPlaylistMetadataMatch(
+  row: MediaThemeSongRow,
+  index: PlaylistIndex,
+): PlaylistMetadataMatch | null {
+  ensurePlaylistMetadataIndex(index);
+  const metadataTracks = index.metadataTracks ?? [];
+  const metadataByTitle = index.metadataByTitle ?? new Map();
   const titles = rowTitleCandidates(row);
   if (titles.length === 0) {
+    return null;
+  }
+  const exactTitleTracks = titles.flatMap(
+    (title) => metadataByTitle.get(title) ?? [],
+  );
+  const playlistTracks =
+    exactTitleTracks.length > 0
+      ? [...new Set(exactTitleTracks)]
+      : metadataTracks.filter((track) =>
+          titles.some((title) => {
+            const shorterLength = Math.min(title.length, track.normalizedTitle.length);
+            const longerLength = Math.max(title.length, track.normalizedTitle.length);
+            return (
+              longerLength > 0 &&
+              shorterLength / longerLength >= METADATA_TITLE_WITH_ARTIST_THRESHOLD
+            );
+          }),
+        );
+  if (playlistTracks.length === 0) {
     return null;
   }
   const artists = rowArtistCandidates(row);
@@ -445,6 +495,16 @@ function collectRowIsrcs(
 }
 
 function buildPlaylistIndex(cache: SpotifyPlaylistCache): PlaylistIndex {
+  const cached = playlistIndexCache.get(cache);
+  if (cached) {
+    return cached;
+  }
+  const revisionKey = `${cache.playlistId}:${cache.revision ?? cache.fetchedAt}`;
+  const shared = playlistIndexesByRevision.get(revisionKey);
+  if (shared) {
+    playlistIndexCache.set(cache, shared);
+    return shared;
+  }
   const trackIds = new Set<string>();
   const isrcs = new Set<string>();
   for (const track of cache.tracks) {
@@ -456,7 +516,101 @@ function buildPlaylistIndex(cache: SpotifyPlaylistCache): PlaylistIndex {
       isrcs.add(track.isrc.toLowerCase());
     }
   }
-  return { trackIds, isrcs };
+  const index: PlaylistIndex = {
+    cache,
+    trackIds,
+    isrcs,
+    metadataTracks: null,
+    metadataByTitle: null,
+  };
+  playlistIndexCache.set(cache, index);
+  if (playlistIndexesByRevision.size >= 4) {
+    const oldest = playlistIndexesByRevision.keys().next().value;
+    if (oldest !== undefined) {
+      playlistIndexesByRevision.delete(oldest);
+    }
+  }
+  playlistIndexesByRevision.set(revisionKey, index);
+  return index;
+}
+
+function ensurePlaylistMetadataIndex(index: PlaylistIndex): void {
+  if (index.metadataTracks && index.metadataByTitle) {
+    return;
+  }
+  const metadataTracks = playlistMetadataCandidates(index.cache)
+    .map(indexPlaylistMetadataTrack)
+    .filter((track): track is IndexedPlaylistMetadataTrack => track !== null);
+  const metadataByTitle = new Map<string, IndexedPlaylistMetadataTrack[]>();
+  for (const track of metadataTracks) {
+    const matches = metadataByTitle.get(track.normalizedTitle) ?? [];
+    matches.push(track);
+    metadataByTitle.set(track.normalizedTitle, matches);
+  }
+  index.metadataTracks = metadataTracks;
+  index.metadataByTitle = metadataByTitle;
+}
+
+function rowMatchFingerprint(row: MediaThemeSongRow): string {
+  return JSON.stringify([
+    row.type,
+    row.songKey ?? null,
+    row.displayTitle,
+    row.displayArtist ?? null,
+    row.malTitle ?? null,
+    row.malArtist ?? null,
+    row.aniTitles ?? [],
+    row.aniArtists ?? [],
+    row.spotifyUrl,
+    row.spotifyTrackIds,
+    row.spotifyIsrc,
+  ]);
+}
+
+function rowIsrcLookupFingerprint(
+  row: MediaThemeSongRow,
+  trackIsrcById: ReadonlyMap<string, string> | undefined,
+): string {
+  return rowSpotifyTrackIds(row)
+    .sort()
+    .map((trackId) => `${trackId}:${trackIsrcById?.get(trackId) ?? ''}`)
+    .join(',');
+}
+
+function playlistMatchCacheKey(
+  row: MediaThemeSongRow,
+  cache: SpotifyPlaylistCache,
+  options: PlaylistMatchOptions | undefined,
+  mode: SpotifyLocalFileMatchMode,
+): string {
+  const mediaRevision =
+    options?.mediaId == null ? 0 : (mediaMatchRevisions.get(options.mediaId) ?? 0);
+  return JSON.stringify([
+    cache.playlistId,
+    cache.revision ?? cache.fetchedAt,
+    mode,
+    options?.mediaId ?? null,
+    mediaRevision,
+    options?.isrcLookupReady !== false,
+    rowIsrcLookupFingerprint(row, options?.trackIsrcById),
+    rowMatchFingerprint(row),
+  ]);
+}
+
+function cacheMatchResult(key: string, result: PlaylistMatchResult): PlaylistMatchResult {
+  if (matchResultCache.size >= MAX_RESULT_CACHE_ENTRIES) {
+    const oldest = matchResultCache.keys().next().value;
+    if (oldest !== undefined) {
+      matchResultCache.delete(oldest);
+    }
+  }
+  matchResultCache.set(key, result);
+  return result;
+}
+
+/** Invalidate cached matches after a show's theme-song payload changes. */
+export function invalidateThemeSongPlaylistMatches(mediaId: number): void {
+  mediaMatchRevisions.set(mediaId, (mediaMatchRevisions.get(mediaId) ?? 0) + 1);
 }
 
 /**
@@ -514,40 +668,95 @@ export function matchThemeRowToPlaylistDetails(
   if (!cache) {
     return { status: 'unknown', metadataMatch: null };
   }
+  const mode = options?.localFileMatchMode ?? 'off';
+  const resultCacheKey = playlistMatchCacheKey(row, cache, options, mode);
+  const cachedResult = matchResultCache.get(resultCacheKey);
+  if (cachedResult) {
+    return cachedResult;
+  }
   const index = buildPlaylistIndex(cache);
   const spotifyTrackIds = rowSpotifyTrackIds(row);
 
   for (const trackId of spotifyTrackIds) {
     if (index.trackIds.has(trackId)) {
-      return { status: 'in', metadataMatch: null };
+      return cacheMatchResult(resultCacheKey, {
+        status: 'in',
+        metadataMatch: null,
+      });
     }
   }
 
   const rowIsrcs = collectRowIsrcs(row, options?.trackIsrcById);
   for (const isrc of rowIsrcs) {
     if (index.isrcs.has(isrc)) {
-      return { status: 'in', metadataMatch: null };
+      return cacheMatchResult(resultCacheKey, {
+        status: 'in',
+        metadataMatch: null,
+      });
     }
-  }
-
-  const metadataMatch = findPlaylistMetadataMatch(row, cache);
-  if (metadataMatch) {
-    return { status: 'in', metadataMatch };
   }
 
   const hasResolvableLink = spotifyTrackIds.length > 0 || row.spotifyIsrc != null;
-  if (hasResolvableLink) {
-    if (options?.isrcLookupReady === false && rowIsrcs.size === 0) {
-      return { status: 'unknown', metadataMatch: null };
-    }
-    return { status: 'out', metadataMatch: null };
+  if (
+    hasResolvableLink &&
+    options?.isrcLookupReady === false &&
+    rowIsrcs.size === 0
+  ) {
+    // Do not let a metadata match temporarily replace an exact green match
+    // while alternate-edition ISRC resolution is still in flight.
+    return cacheMatchResult(resultCacheKey, {
+      status: 'unknown',
+      metadataMatch: null,
+    });
   }
 
-  return { status: 'unknown', metadataMatch: null };
+  if (mode === 'local-first') {
+    const metadataMatch = findPlaylistMetadataMatch(row, index);
+    if (metadataMatch) {
+      return cacheMatchResult(resultCacheKey, {
+        status: 'in',
+        metadataMatch,
+      });
+    }
+  }
+
+  if (hasResolvableLink) {
+    return cacheMatchResult(resultCacheKey, {
+      status: 'out',
+      metadataMatch: null,
+    });
+  }
+
+  if (mode === 'spotify-first') {
+    const metadataMatch = findPlaylistMetadataMatch(row, index);
+    if (metadataMatch) {
+      return cacheMatchResult(resultCacheKey, {
+        status: 'in',
+        metadataMatch,
+      });
+    }
+  }
+
+  return cacheMatchResult(resultCacheKey, {
+    status: 'unknown',
+    metadataMatch: null,
+  });
 }
 
 export function buildPlaylistIndexForTests(
   cache: SpotifyPlaylistCache,
 ): { trackIds: Set<string>; isrcs: Set<string> } {
   return buildPlaylistIndex(cache);
+}
+
+/** Test-only matcher cache reset and performance counter. */
+export function _resetPlaylistMatchCacheForTesting(): void {
+  playlistIndexesByRevision.clear();
+  matchResultCache.clear();
+  mediaMatchRevisions.clear();
+  metadataScoreEvaluationCount = 0;
+}
+
+export function _getMetadataScoreEvaluationCountForTesting(): number {
+  return metadataScoreEvaluationCount;
 }

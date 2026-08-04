@@ -43,6 +43,8 @@ export type CachedLocalPlaylistTrack = CachedPlaylistTrackMetadata & {
 export type SpotifyPlaylistCache = {
   playlistId: string;
   fetchedAt: number;
+  /** Monotonic cache-content revision, including background ISRC updates. */
+  revision?: number;
   tracks: CachedPlaylistTrack[];
   /** Local files have no Spotify id or ISRC, so their descriptive metadata is cached separately. */
   localTracks?: CachedLocalPlaylistTrack[];
@@ -52,6 +54,8 @@ export type SpotifyPlaylistCache = {
   trackTotal?: number;
   /** Number of playlist items fetched, including local files stored in `localTracks`. */
   playlistItemsFetched?: number;
+  /** The fetch reached Spotify's terminal short page without an API error. */
+  paginationComplete?: boolean;
 };
 
 type SpotifyPlaylistSummary = {
@@ -106,6 +110,7 @@ export type FetchPlaylistTracksResult = {
   localTracks: CachedLocalPlaylistTrack[];
   trackTotal: number | null;
   playlistItemsFetched: number;
+  paginationComplete: boolean;
 };
 
 export const SPOTIFY_PLAYLIST_CHANGED = 'spotify-playlist-changed';
@@ -254,6 +259,7 @@ function parsePlaylistCacheEntry(raw: unknown): SpotifyPlaylistCache | null {
   return {
     playlistId: parsed.playlistId,
     fetchedAt: parsed.fetchedAt,
+    ...(typeof parsed.revision === 'number' ? { revision: parsed.revision } : {}),
     trackTotal: typeof parsed.trackTotal === 'number' ? parsed.trackTotal : undefined,
     playlistItemsFetched:
       typeof parsed.playlistItemsFetched === 'number' ? parsed.playlistItemsFetched : undefined,
@@ -352,11 +358,16 @@ export function getPlaylistCache(playlistId?: string): SpotifyPlaylistCache | nu
   return readPlaylistCacheStore()[id] ?? null;
 }
 
-function writePlaylistCache(cache: SpotifyPlaylistCache): void {
+function writePlaylistCache(cache: SpotifyPlaylistCache): SpotifyPlaylistCache {
   const store = readPlaylistCacheStore();
-  store[cache.playlistId] = cache;
+  const previous = store[cache.playlistId];
+  const previousRevision = previous?.revision ?? previous?.fetchedAt ?? 0;
+  const revision = Math.max(Date.now(), previousRevision + 1, cache.revision ?? 0);
+  const storedCache = { ...cache, revision };
+  store[cache.playlistId] = storedCache;
   writePlaylistCacheStore(store);
   emitPlaylistChange();
+  return storedCache;
 }
 
 /** Patch playlist track rows in cache (e.g. background ISRC backfill). */
@@ -393,6 +404,9 @@ export function isPlaylistCacheIncomplete(cache: SpotifyPlaylistCache): boolean 
     cache.metadataVersion !== PLAYLIST_CACHE_METADATA_VERSION
   ) {
     return true;
+  }
+  if (cache.paginationComplete === true) {
+    return false;
   }
   if (
     typeof cache.trackTotal === 'number' &&
@@ -597,7 +611,13 @@ export async function fetchPlaylistTracks(
 ): Promise<FetchPlaylistTracksResult> {
   const token = accessToken ?? (await ensureSpotifyAccessToken());
   if (!token) {
-    return { tracks: [], localTracks: [], trackTotal: null, playlistItemsFetched: 0 };
+    return {
+      tracks: [],
+      localTracks: [],
+      trackTotal: null,
+      playlistItemsFetched: 0,
+      paginationComplete: false,
+    };
   }
 
   const tracks: CachedPlaylistTrack[] = [];
@@ -619,7 +639,10 @@ export async function fetchPlaylistTracks(
       url,
       token,
     );
-    if (typeof page.total === 'number' && trackTotal == null) {
+    if (typeof page.total === 'number') {
+      // Large playlists take many requests to read and can change mid-fetch.
+      // The latest page total describes the final snapshot more accurately
+      // than a stale first-page total.
       trackTotal = page.total;
     }
     const items = page.items ?? [];
@@ -641,7 +664,13 @@ export async function fetchPlaylistTracks(
     offset += pageSize;
   }
 
-  return { tracks, localTracks, trackTotal, playlistItemsFetched };
+  return {
+    tracks,
+    localTracks,
+    trackTotal,
+    playlistItemsFetched,
+    paginationComplete: true,
+  };
 }
 
 export async function refreshPlaylistCache(options?: {
@@ -673,6 +702,7 @@ export async function refreshPlaylistCache(options?: {
     localTracks,
     trackTotal,
     playlistItemsFetched,
+    paginationComplete,
   } = await fetchPlaylistTracks(selected.id, token);
   const tracks = applyTrackIsrcStoreToPlaylistTracks(rawTracks);
   const cache: SpotifyPlaylistCache = {
@@ -682,11 +712,12 @@ export async function refreshPlaylistCache(options?: {
     localTracks,
     metadataVersion: PLAYLIST_CACHE_METADATA_VERSION,
     playlistItemsFetched,
+    paginationComplete,
     ...(trackTotal != null ? { trackTotal } : {}),
   };
-  writePlaylistCache(cache);
+  const storedCache = writePlaylistCache(cache);
   schedulePlaylistIsrcBackfill(selected.id);
-  return cache;
+  return storedCache;
 }
 
 /** Test-only reset. */
