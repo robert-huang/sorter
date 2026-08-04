@@ -2,8 +2,10 @@ import {
   addItem as engineAddItem,
   addItems as engineAddItems,
   finalizeCompletedState,
+  getRanking,
   type EngineOptions,
 } from './engine';
+import { seedConfirmation } from './confirmationSort';
 import {
   resetBranchedComparisonProgress as resetInsertionBranchedComparisonProgress,
 } from './insertionSort';
@@ -11,7 +13,12 @@ import {
   appendPreRankedSublist,
   resetBranchedComparisonProgress as resetMergeBranchedComparisonProgress,
 } from './queueMergeSort';
-import type { Item, ItemId, SortState } from './types';
+import type {
+  ConfirmationState,
+  Item,
+  ItemId,
+  SortState,
+} from './types';
 
 /** What the user is trying to do to a completed (`done`) sort. */
 export type CompletedSortEditAction =
@@ -42,18 +49,36 @@ export function cloneSortState(state: SortState): SortState {
   return JSON.parse(JSON.stringify(state)) as SortState;
 }
 
+/** Seed a confirmation engine from a completed slot's visible final ranking. */
+export function createConfirmationFromCompletedSort(
+  state: SortState,
+): ConfirmationState | null {
+  if (!state.done) return null;
+  const items = getRanking(state)
+    .map((id) => state.items[id])
+    .filter((item): item is Item => !!item);
+  return items.length > 0 ? seedConfirmation(items) : null;
+}
+
 /** Suffixes we recognize when branching again from an already-derived slot. */
-const DERIVED_SLOT_SUFFIXES = [' (new)', ' (continued)', ' (redo)'] as const;
+const DERIVED_SLOT_SUFFIXES = [
+  ' (new)',
+  ' (continued)',
+  ' (redo)',
+  ' (confirm)',
+] as const;
 
 /**
  * - `branch` — add items / continue a completed ranking in a new slot
  * - `redo`   — Start over: fresh merge from the same item set
+ * - `confirm` — verify a completed ranking from top to bottom
  */
-export type DerivedSlotNameKind = 'branch' | 'redo';
+export type DerivedSlotNameKind = 'branch' | 'redo' | 'confirm';
 
 const DERIVED_SLOT_SUFFIX: Record<DerivedSlotNameKind, string> = {
   branch: ' (new)',
   redo: ' (redo)',
+  confirm: ' (confirm)',
 };
 
 /**

@@ -1287,6 +1287,26 @@ export function hideItem(
 
   const next = snapshotProgress(state);
   next.hidden = [...next.hidden, id].sort();
+  // A queued row is not an established rank. Remove it from the queue
+  // instead of retaining a hidden placeholder (shown as e.g. "4:1" in
+  // Hidden items). Active manual-insert targets are kept because their
+  // frame bounds still reference the target array; the probe-skip logic
+  // below safely resolves those hides.
+  if (!next.done) {
+    for (let queueIndex = next.queue.length - 1; queueIndex >= 0; queueIndex--) {
+      if (next.currentManualInsert?.targetQueueIndex === queueIndex) continue;
+      const filtered = next.queue[queueIndex].filter(
+        (queuedId) => queuedId !== id,
+      );
+      if (filtered.length === next.queue[queueIndex].length) continue;
+      if (filtered.length > 0) {
+        next.queue[queueIndex] = filtered;
+        continue;
+      }
+      next.queue.splice(queueIndex, 1);
+      remapManualInsertAfterQueueRemoval(next, queueIndex);
+    }
+  }
   // Cancel a manual-insert frame on this id (dropping the in-flight left
   // card). Drain queued manual inserts / resume merging happens after the
   // toBeInserted + pendingManualInserts filters below.

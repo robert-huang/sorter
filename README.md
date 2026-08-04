@@ -287,7 +287,7 @@ The LIST tab is a live, editable view of the engine state — unlike Pub Meeple,
 ### On the merge engine
 
 - See the queue and the currently-merging frame (merged + left + right slices).
-- **Remove** items (reversible).
+- **Remove** items (reversible). A waiting item is taken out of its queued sublist and moved to **Hidden items**; restoring it queues a fresh binary insert instead of leaving a hidden placeholder such as `4:1` in the queue.
 - **Restore** previously hidden items.
 - **Reorder ↑ / ↓** items within any queued sublist, or within the in-flight merge frame (merged / left remaining / right remaining). Swaps never cross those slices; the visible compare heads on left/right remainders are locked so LIST edits don't change the RANK pair.
 - **Break apart** a queued sublist into singletons appended to the end of the queue (useful when you decide an inferred ordering is wrong).
@@ -305,6 +305,7 @@ To fix order inside an active merge without using ↑/↓, undo back past the me
 
 ### On the confirmation engine
 
+- From any completed slot's **RESULT** tab, **Confirm sort** opens a confirmation modal and creates a separate `(confirm)` slot from the visible final ranking. The completed source slot stays unchanged.
 - **Confirmed ranking** — the verified prefix so far. Reorder with ↑/↓, edit labels, hide/unhide, or **↻** an item back into the remaining queue for re-confirmation.
 - **Insert context** — when a candidate is being binary-inserted into the prefix, the same insert-gap highlights as the insertion engine (mirrored on RANK).
 - **Remaining** — the current candidate (if any) plus the tail queue, in walk order.

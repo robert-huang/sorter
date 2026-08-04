@@ -3,6 +3,7 @@ import {
   applyCompletedSortEdit,
   applySlotImportBatches,
   cloneSortState,
+  createConfirmationFromCompletedSort,
   derivedSlotName,
   resetBranchedSlotComparisonProgress,
 } from '../completedSortEditH';
@@ -48,6 +49,12 @@ describe('derivedSlotName', () => {
     );
   });
 
+  it('appends (confirm) for confirm sort', () => {
+    expect(derivedSlotName('Favourites — 2026-05-30', 'confirm')).toBe(
+      'Favourites — 2026-05-30 (confirm)',
+    );
+  });
+
   it('replaces a prior derived suffix instead of stacking', () => {
     expect(derivedSlotName('Favourites (continued)', 'branch')).toBe(
       'Favourites (new)',
@@ -60,6 +67,26 @@ describe('derivedSlotName', () => {
     const out = derivedSlotName(stem, 'branch');
     expect(out.length).toBe(120);
     expect(out.endsWith(' (new)')).toBe(true);
+  });
+});
+
+describe('createConfirmationFromCompletedSort', () => {
+  it('preserves visible ranking order and excludes hidden items', () => {
+    const completed = seedAsDoneMerge([A, B, C]);
+    completed.hidden = ['b'];
+
+    const confirmation = createConfirmationFromCompletedSort(completed);
+
+    expect(confirmation?.engine).toBe('confirmation');
+    expect(confirmation?.confirmed).toEqual(['a']);
+    expect(confirmation?.candidate).toBe('c');
+    expect(confirmation?.queue).toEqual([]);
+    expect(confirmation?.items.b).toBeUndefined();
+    expect(completed.hidden).toEqual(['b']);
+  });
+
+  it('rejects an unfinished sort', () => {
+    expect(createConfirmationFromCompletedSort(mergeInitSort([A, B]))).toBeNull();
   });
 });
 

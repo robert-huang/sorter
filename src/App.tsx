@@ -50,6 +50,7 @@ import {
   applyCompletedSortEdit,
   applySlotImportBatches,
   cloneSortState,
+  createConfirmationFromCompletedSort,
   derivedSlotName,
   resetBranchedSlotComparisonProgress,
   type CompletedSortEditAction,
@@ -120,6 +121,7 @@ import { BackupRestoreConfirmModal } from './components/BackupRestoreConfirmModa
 import { SlotCapConfirmModal } from './components/SlotCapConfirmModal';
 import { SlotDeleteConfirmModal } from './components/SlotDeleteConfirmModal';
 import { StartOverConfirmModal } from './components/StartOverConfirmModal';
+import { ConfirmSortConfirmModal } from './components/ConfirmSortConfirmModal';
 import { CompletedSortEditConfirmModal } from './components/CompletedSortEditConfirmModal';
 import { CloudLibraryModal } from './components/CloudLibraryModal';
 import { CloudPushConflictModal } from './components/CloudPushConflictModal';
@@ -273,6 +275,12 @@ export function App() {
   // A pending "Start over" confirmation on the RESULT tab. When non-null,
   // StartOverConfirmModal is shown. itemCount feeds the modal copy.
   const [startOverPending, setStartOverPending] = useState<{
+    itemCount: number;
+    slotName: string;
+  } | null>(null);
+  // A completed ranking awaiting confirmation before it is copied into
+  // a new confirmation-engine slot.
+  const [confirmSortPending, setConfirmSortPending] = useState<{
     itemCount: number;
     slotName: string;
   } | null>(null);
@@ -2439,6 +2447,38 @@ export function App() {
     setStartOverPending({ itemCount, slotName });
   }, [state, manifest.slots, manifest.activeId, loadedSlotId, performStartOver]);
 
+  // -------- confirm sort (RESULT tab: verify the visible ranking in a new slot)
+  const performConfirmSort = useCallback(() => {
+    if (!state?.done) return;
+    const next = createConfirmationFromCompletedSort(state);
+    if (!next) return;
+    const slotName =
+      manifest.slots.find((slot) => slot.id === (loadedSlotId ?? manifest.activeId))
+        ?.name ?? 'Untitled sort';
+    const session: SavedSession = { state: next, undoRing: [] };
+    adoptNewSession(
+      session,
+      derivedSlotName(slotName, 'confirm'),
+      next.done ? 'result' : 'rank',
+    );
+  }, [
+    state,
+    manifest.slots,
+    manifest.activeId,
+    loadedSlotId,
+    adoptNewSession,
+  ]);
+
+  const requestConfirmSort = useCallback(() => {
+    if (!state?.done) return;
+    const itemCount = engineGetRanking(state).length;
+    if (itemCount === 0) return;
+    const slotName =
+      manifest.slots.find((slot) => slot.id === (loadedSlotId ?? manifest.activeId))
+        ?.name ?? 'Untitled sort';
+    setConfirmSortPending({ itemCount, slotName });
+  }, [state, manifest.slots, manifest.activeId, loadedSlotId]);
+
   // -------- keyboard --------
   const rankInProgress = activeTab === 'rank' && state !== null && !state.done;
   const listInProgress = activeTab === 'list' && state !== null && !state.done;
@@ -2573,6 +2613,7 @@ export function App() {
         onRestoreHidden={doRestoreHidden}
         onForgetHidden={doForgetHidden}
         onStartOver={requestStartOver}
+        onConfirmSort={requestConfirmSort}
         onAddOne={doAddItem}
         onAddMany={doAddItemsList}
         onAddSlotImports={doAddSlotImports}
@@ -2843,6 +2884,17 @@ export function App() {
             if (dontAsk) updateSettings({ suppressStartOverConfirm: true });
             setStartOverPending(null);
             performStartOver();
+          }}
+        />
+      )}
+      {confirmSortPending && (
+        <ConfirmSortConfirmModal
+          itemCount={confirmSortPending.itemCount}
+          slotName={confirmSortPending.slotName}
+          onCancel={() => setConfirmSortPending(null)}
+          onConfirm={() => {
+            setConfirmSortPending(null);
+            performConfirmSort();
           }}
         />
       )}

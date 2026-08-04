@@ -35,6 +35,8 @@ interface Props {
    * survive, only the ranking work is discarded.
    */
   onStartOver: () => void;
+  /** Verify the visible final ranking in a new confirmation-engine slot. */
+  onConfirmSort: () => void;
   /**
    * Add a single item via the AddItemsModal's Single tab. App.tsx
    * dispatches engine-aware: merge → singleton sublist (or transition
@@ -95,6 +97,7 @@ export function ResultScreen({
   onRestoreHidden,
   onForgetHidden,
   onStartOver,
+  onConfirmSort,
   onAddOne,
   onAddMany,
   onAddPreRanked,
@@ -276,6 +279,13 @@ export function ResultScreen({
       <div className="result-bottom">
         <button className="btn" onClick={() => setAddOpen(true)}>
           + Add items
+        </button>
+        <button
+          className="btn"
+          onClick={onConfirmSort}
+          title="Start a new confirmation sort slot to verify this ranking from top to bottom."
+        >
+          Confirm sort
         </button>
         <button
           className="btn danger"

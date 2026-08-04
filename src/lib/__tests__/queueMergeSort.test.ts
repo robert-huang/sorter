@@ -193,6 +193,18 @@ describe('comparisonsRemaining', () => {
     expect(comparisonsRemaining(s)).toBe(3);
   });
 
+  it('removes a hidden waiting item from its queued sublist', () => {
+    // The first two singletons are in `current`, leaving F at queue
+    // coordinate 4:1 in the six-item reproduction.
+    const state = initSort([A, B, C, D, E, F]);
+    expect(state.queue[3]).toEqual(['f']);
+
+    const hidden = hideItem(state, 'f');
+
+    expect(hidden.hidden).toContain('f');
+    expect(hidden.queue.flat()).not.toContain('f');
+  });
+
   it('all-hidden sublists contribute 0', () => {
     let s = initSort([A, B]);
     s = hideItem(s, 'a');
