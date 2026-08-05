@@ -1,20 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Item } from '../lib/types';
+import {
+  isCustomAnilistItemLabel,
+  resolveAnilistItemLabel,
+} from '../lib/importers/anilist/anilistItemLabel';
 import { Modal } from './Modal';
 
 /**
- * Save payload. All four fields are optional:
+ * Save payload. All fields are optional:
  *  - `label / url / imageUrl` — metadata patch (existing behavior).
  *  - `id` — new logical id, set when the user opens the "Show
  *    advanced" panel and types a new id. Caller is responsible for
  *    propagating the rename through the engine state and the undo
  *    ring (see `engine.updateItemId` + `engine.rewriteIdInProgress`).
+ *  - `useAutomaticAnilistLabel` — clear a custom-label pin and resume
+ *    source-driven language switching.
  */
 export interface EditItemSavePayload {
   label?: string;
   url?: string;
   imageUrl?: string;
   id?: string;
+  useAutomaticAnilistLabel?: boolean;
 }
 
 interface Props {
@@ -90,6 +97,8 @@ export function EditItemModal({
   const [label, setLabel] = useState(item.label);
   const [url, setUrl] = useState(item.url ?? '');
   const [imageUrl, setImageUrl] = useState(item.imageUrl ?? '');
+  const [useAutomaticAnilistLabel, setUseAutomaticAnilistLabel] =
+    useState(false);
   // Default-hidden advanced panel. Once opened we keep it open for
   // the rest of the modal's lifetime (re-mount resets to closed).
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -113,6 +122,20 @@ export function EditItemModal({
 
   const trimmedLabel = label.trim();
   const trimmedId = idDraft.trim();
+  const automaticAnilistLabel = useMemo(() => {
+    const source = item.anilistLabelSource;
+    if (!source) return null;
+    const includeFormat =
+      source.kind === 'media' && source.format
+        ? (item.anilistLabelIncludesFormat ??
+          item.label.endsWith(` (${source.format})`))
+        : false;
+    return resolveAnilistItemLabel(source, includeFormat);
+  }, [item]);
+  const itemHasCustomAnilistLabel = useMemo(
+    () => isCustomAnilistItemLabel(item),
+    [item],
+  );
 
   // id validation (only meaningful when allowEditId is on and the
   // advanced panel is open). Returns either null (valid) or a string
@@ -133,6 +156,10 @@ export function EditItemModal({
   }, [allowEditId, showAdvanced, trimmedId, currentId, item.id, otherIds]);
 
   const labelDirty = trimmedLabel !== item.label;
+  const draftHasCustomAnilistLabel =
+    automaticAnilistLabel !== null &&
+    !useAutomaticAnilistLabel &&
+    (itemHasCustomAnilistLabel || labelDirty);
   const urlDirty = showUrl && url.trim() !== (item.url ?? '');
   const imageUrlDirty = showImageUrl && imageUrl.trim() !== (item.imageUrl ?? '');
   // Empty draft means the user didn't enter a new id, so we leave the
@@ -147,7 +174,11 @@ export function EditItemModal({
   const canSave =
     trimmedLabel.length > 0 &&
     idError === null &&
-    (labelDirty || urlDirty || imageUrlDirty || idDirty);
+    (labelDirty ||
+      urlDirty ||
+      imageUrlDirty ||
+      idDirty ||
+      useAutomaticAnilistLabel);
 
   function commit(): void {
     if (!canSave) return;
@@ -155,6 +186,9 @@ export function EditItemModal({
     if (showUrl) payload.url = url.trim();
     if (showImageUrl) payload.imageUrl = imageUrl.trim();
     if (idDirty) payload.id = trimmedId;
+    if (useAutomaticAnilistLabel) {
+      payload.useAutomaticAnilistLabel = true;
+    }
     onSave(payload);
   }
 
@@ -191,11 +225,39 @@ export function EditItemModal({
             ref={labelRef}
             type="text"
             value={label}
-            onChange={(e) => setLabel(e.target.value)}
+            onChange={(e) => {
+              setLabel(e.target.value);
+              setUseAutomaticAnilistLabel(false);
+            }}
             onKeyDown={onKeyDown}
             placeholder="Item name"
           />
         </label>
+        {automaticAnilistLabel !== null && (
+          <div className="edit-item-source-label">
+            <span>
+              {draftHasCustomAnilistLabel
+                ? 'Custom label — AniList language settings will not replace it.'
+                : 'Automatic label — follows AniList language settings.'}
+            </span>
+            {draftHasCustomAnilistLabel ? (
+              <button
+                type="button"
+                className="link-btn"
+                onClick={() => {
+                  setLabel(automaticAnilistLabel);
+                  setUseAutomaticAnilistLabel(true);
+                }}
+              >
+                Use AniList title
+              </button>
+            ) : (
+              <span className="edit-item-source-label-state">
+                Using AniList title
+              </span>
+            )}
+          </div>
+        )}
         {showUrl && (
           <label className="edit-item-field">
             <span className="edit-item-label">URL</span>

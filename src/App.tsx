@@ -898,11 +898,11 @@ export function App() {
     [applyWithUndo, engineOptions],
   );
 
-  // In-place metadata edit (label / url / imageUrl + optional id
-  // rename). `engineUpdateItem` returns the same state reference when
-  // nothing actually changes — that's our signal to NOT push an undo
-  // frame and NOT trigger a state re-render. Driving use-case: fixing
-  // labels whose commas got eaten by the CSV parser at import time.
+  // In-place metadata edit (label / url / imageUrl, AniList label mode,
+  // and optional id rename). `engineUpdateItem` returns the same state
+  // reference when nothing actually changes — that's our signal to NOT
+  // push an undo frame and NOT trigger a state re-render. Driving use-case:
+  // fixing labels whose commas got eaten by the CSV parser at import time.
   //
   // When `patch.id` is set (the "advanced" panel in EditItemModal),
   // we apply BOTH operations atomically inside a single setState +
@@ -926,6 +926,7 @@ export function App() {
         url?: string;
         imageUrl?: string;
         id?: ItemId;
+        useAutomaticAnilistLabel?: boolean;
       },
     ) => {
       const { id: rawNewId, ...metaPatch } = patch;

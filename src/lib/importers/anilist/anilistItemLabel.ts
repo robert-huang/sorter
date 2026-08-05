@@ -39,8 +39,12 @@ export function itemMatchesSearch(item: Item, needle: string): boolean {
 export function relabelAnilistItem(
   item: Item,
   includeFormatInLabel: boolean,
+  force = false,
 ): Item {
-  if (!item.anilistLabelSource) {
+  if (
+    !item.anilistLabelSource ||
+    (!force && isCustomAnilistItemLabel(item))
+  ) {
     return item;
   }
   const label = resolveAnilistItemLabel(
@@ -62,7 +66,10 @@ export function relabelAnilistItem(
  * relabel already-staged or in-progress items without flipping the
  * format-suffix choice the user made at stage time.
  */
-export function relabelAnilistItemPreservingFormat(item: Item): Item {
+export function relabelAnilistItemPreservingFormat(
+  item: Item,
+  force = false,
+): Item {
   const source = item.anilistLabelSource;
   if (!source) {
     return item;
@@ -71,7 +78,51 @@ export function relabelAnilistItemPreservingFormat(item: Item): Item {
     source.kind === 'media' && source.format
       ? item.label.endsWith(` (${source.format})`)
       : false;
-  return relabelAnilistItem(item, includeFormat);
+  return relabelAnilistItem(item, includeFormat, force);
+}
+
+/**
+ * Recognize labels produced by any AniList display mode. This lets slots
+ * edited before custom-label tracking existed retain genuine manual labels,
+ * while stale automatic English/romaji/native labels still switch normally.
+ */
+export function isCustomAnilistItemLabel(item: Item): boolean {
+  if (item.anilistLabelMode === 'custom') {
+    return true;
+  }
+  const source = item.anilistLabelSource;
+  if (!source) {
+    return false;
+  }
+
+  const automaticLabels = new Set<string>();
+  if (source.kind === 'media') {
+    for (const mode of ['romaji', 'english', 'native'] as const) {
+      automaticLabels.add(
+        formatMediaDisplayLabel(source.titleFields, source.format, false, mode),
+      );
+      if (source.format) {
+        automaticLabels.add(
+          formatMediaDisplayLabel(source.titleFields, source.format, true, mode),
+        );
+      }
+    }
+  } else if (source.kind === 'character') {
+    automaticLabels.add(
+      pickCharacterName(source.nameFields, 'full', source.fallbackLabel),
+    );
+    automaticLabels.add(
+      pickCharacterName(source.nameFields, 'native', source.fallbackLabel),
+    );
+  } else {
+    automaticLabels.add(
+      pickPersonName(source.nameFields, 'full', source.fallbackLabel),
+    );
+    automaticLabels.add(
+      pickPersonName(source.nameFields, 'native', source.fallbackLabel),
+    );
+  }
+  return !automaticLabels.has(item.label);
 }
 
 export function mediaLabelSourceFromRow(
@@ -117,7 +168,18 @@ export function resolveCachedAnilistMediaItem(
     anilistLabelSource: mediaLabelSourceFromRow(row),
     searchTokens: mediaTitleSearchParts(row),
   };
-  return relabelAnilistItemPreservingFormat(resolved);
+  if (resolved.anilistLabelMode === 'custom') {
+    if (
+      resolved.anilistLabelIncludesFormat === undefined &&
+      row.format !== null
+    ) {
+      resolved.anilistLabelIncludesFormat = item.label.endsWith(
+        ` (${row.format})`,
+      );
+    }
+    return resolved;
+  }
+  return relabelAnilistItemPreservingFormat(resolved, true);
 }
 
 /**

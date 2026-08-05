@@ -51,6 +51,13 @@ export interface Item {
   searchTokens?: readonly string[];
   /** Re-label when AniList display preferences change. */
   anilistLabelSource?: AnilistItemLabelSource;
+  /**
+   * Set after an explicit user rename so source hydration can still attach
+   * metadata without replacing the custom label. Missing means automatic.
+   */
+  anilistLabelMode?: 'custom';
+  /** Automatic label's format-suffix choice, retained while the label is custom. */
+  anilistLabelIncludesFormat?: boolean;
 }
 
 /**

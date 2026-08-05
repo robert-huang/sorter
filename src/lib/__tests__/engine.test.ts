@@ -569,6 +569,66 @@ describe('updateItem (metadata edit)', () => {
     }
   });
 
+  it('pins an explicitly renamed AniList item to its custom label', () => {
+    const anilistItem: Item = {
+      ...withMeta,
+      label: 'Squid Girl (TV)',
+      source: { kind: 'anilist', externalId: 1 },
+      anilistLabelSource: {
+        kind: 'media',
+        titleFields: {
+          id: 1,
+          title_romaji: 'Shinryaku! Ika Musume',
+          title_english: 'Squid Girl',
+          title_native: '侵略!',
+        },
+        format: 'TV',
+      },
+    };
+    const state = initSort([anilistItem, B]);
+
+    const custom = updateItem(state, 'a', { label: 'My squid show' });
+
+    expect(custom.items.a.label).toBe('My squid show');
+    expect(custom.items.a.anilistLabelMode).toBe('custom');
+    expect(custom.items.a.anilistLabelIncludesFormat).toBe(true);
+    expect(custom.items.a.anilistLabelSource).toEqual(
+      anilistItem.anilistLabelSource,
+    );
+  });
+
+  it('can resume automatic AniList labels after a custom rename', () => {
+    const custom: Item = {
+      ...withMeta,
+      label: 'My squid show',
+      source: { kind: 'anilist', externalId: 1 },
+      anilistLabelMode: 'custom',
+      anilistLabelIncludesFormat: true,
+    };
+    const state = initSort([custom, B]);
+
+    const automatic = updateItem(state, 'a', {
+      label: 'Squid Girl (TV)',
+      useAutomaticAnilistLabel: true,
+    });
+
+    expect(automatic.items.a.label).toBe('Squid Girl (TV)');
+    expect(automatic.items.a.anilistLabelMode).toBeUndefined();
+    expect(automatic.items.a.anilistLabelIncludesFormat).toBeUndefined();
+  });
+
+  it('does not pin an AniList label when only other metadata changes', () => {
+    const anilistItem: Item = {
+      ...withMeta,
+      source: { kind: 'anilist', externalId: 1 },
+    };
+    const state = initSort([anilistItem, B]);
+
+    const next = updateItem(state, 'a', { url: 'https://anilist.co/anime/1' });
+
+    expect(next.items.a.anilistLabelMode).toBeUndefined();
+  });
+
   it('treats empty-string url / imageUrl as a clear (back to undefined)', () => {
     const m = initSort([withMeta, B]);
     const cleared = updateItem(m, 'a', { url: '', imageUrl: '' });

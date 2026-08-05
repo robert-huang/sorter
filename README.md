@@ -257,6 +257,8 @@ Under the AniList row in **Source databases** is a **Display names** panel:
 
 The choice is stored in `localStorage`, shared across the Sorter and Anime-to-Anime pages, and applied live to labels, detail panels, and (in A2A) the path trail. CSV rows whose URL is recognized as an AniList anime/manga also resolve their cached title variants, so changing the entry language updates those matched items instead of leaving the original CSV label frozen. If that media is not present in the local AniList cache, the CSV label remains available as the fallback.
 
+The item editor always shows whether an AniList-backed label is **Automatic** or **Custom**. Typing a different label switches it to Custom immediately and pins that label, while keeping its source metadata and alternate-title search terms. Later display-language changes and delayed cache hydration do not overwrite it. Choose **Use AniList title** to discard the custom label and resume automatic language switching. Labels customized in older saved slots are recognized from their stored source titles even if they predate the explicit mode field.
+
 ## Keyboard shortcuts (on the RANK tab)
 
 | Key       | Action       |

@@ -115,6 +115,37 @@ describe('relabelAnilistItem', () => {
     };
     expect(relabelAnilistItem(item, false)).toBe(item);
   });
+
+  it('does not replace an explicitly customized label', () => {
+    saveAnilistDisplayPreferences({ mediaTitleMode: 'native' });
+    const item: Item = {
+      id: 'custom',
+      label: 'My squid show',
+      anilistLabelMode: 'custom',
+      anilistLabelSource: {
+        kind: 'media',
+        titleFields: MEDIA_FIELDS,
+        format: 'TV',
+      },
+    };
+
+    expect(relabelAnilistItem(item, false)).toBe(item);
+  });
+
+  it('preserves a legacy custom label that predates the explicit mode field', () => {
+    saveAnilistDisplayPreferences({ mediaTitleMode: 'native' });
+    const item: Item = {
+      id: 'legacy-custom',
+      label: 'My squid show',
+      anilistLabelSource: {
+        kind: 'media',
+        titleFields: MEDIA_FIELDS,
+        format: 'TV',
+      },
+    };
+
+    expect(relabelAnilistItem(item, false)).toBe(item);
+  });
 });
 
 describe('relabelAnilistItemPreservingFormat', () => {
@@ -194,5 +225,23 @@ describe('cached metadata for CSV-matched AniList media', () => {
     const items = { manual, unmatched };
 
     expect(resolveCachedAnilistMediaItems(items, [CACHED_MEDIA])).toBe(items);
+  });
+
+  it('hydrates source metadata without replacing a custom label', () => {
+    saveAnilistDisplayPreferences({ mediaTitleMode: 'native' });
+    const custom: Item = {
+      id: 'anilist:1',
+      label: 'My squid show (TV)',
+      source: { kind: 'anilist', externalId: 1 },
+      anilistLabelMode: 'custom',
+    };
+
+    const resolved = resolveCachedAnilistMediaItem(custom, CACHED_MEDIA);
+
+    expect(resolved.label).toBe('My squid show (TV)');
+    expect(resolved.anilistLabelMode).toBe('custom');
+    expect(resolved.anilistLabelIncludesFormat).toBe(true);
+    expect(resolved.anilistLabelSource?.kind).toBe('media');
+    expect(resolved.searchTokens).toContain('Squid Girl');
   });
 });

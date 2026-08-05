@@ -417,6 +417,8 @@ export function restoreHiddenItem(
  *  - `url` / `imageUrl`: defined and non-empty → set; defined and
  *    empty string → cleared (`undefined`). This is how the user
  *    removes a bogus URL that came from a comma split.
+ *  - changing an AniList-backed label pins it as custom; explicitly
+ *    requesting the automatic label clears that pin.
  *
  * The item `id` is intentionally NOT recomputed from the new label.
  * The id is referenced by every collection in the sort state
@@ -425,25 +427,57 @@ export function restoreHiddenItem(
  * is internal — the user never sees it. Keeping it stable means a
  * label edit is a strict in-place patch with no structural risk.
  *
- * Returns the input state unchanged when the id is unknown or the
- * patch is a no-op (so the caller can skip pushing a useless undo
- * frame).
+ * The item and state helpers preserve their respective input references
+ * when the patch is a no-op.
  */
-export function updateItem(
-  state: SortState,
-  id: ItemId,
-  patch: { label?: string; url?: string; imageUrl?: string },
-): SortState {
-  const existing = state.items[id];
-  if (!existing) return state;
+export interface ItemMetadataPatch {
+  label?: string;
+  url?: string;
+  imageUrl?: string;
+  useAutomaticAnilistLabel?: boolean;
+}
+
+export function updateItemMetadata(
+  existing: Item,
+  patch: ItemMetadataPatch,
+): Item {
+  if (patch.label !== undefined && patch.label.trim().length === 0) {
+    return existing;
+  }
   const next: Item = { ...existing };
   let changed = false;
+  if (
+    patch.useAutomaticAnilistLabel &&
+    existing.anilistLabelMode === 'custom'
+  ) {
+    delete next.anilistLabelMode;
+    delete next.anilistLabelIncludesFormat;
+    changed = true;
+  }
   if (patch.label !== undefined) {
     const trimmed = patch.label.trim();
-    if (trimmed.length === 0) return state; // refuse blank labels
     if (trimmed !== existing.label) {
       next.label = trimmed;
       changed = true;
+      const sourceKind = existing.source?.kind;
+      const isAnilistItem =
+        existing.anilistLabelSource !== undefined ||
+        sourceKind === 'anilist' ||
+        sourceKind === 'anilist-character' ||
+        sourceKind === 'anilist-staff';
+      if (
+        isAnilistItem &&
+        !patch.useAutomaticAnilistLabel &&
+        next.anilistLabelMode !== 'custom'
+      ) {
+        next.anilistLabelMode = 'custom';
+        const labelSource = existing.anilistLabelSource;
+        if (labelSource?.kind === 'media' && labelSource.format) {
+          next.anilistLabelIncludesFormat = existing.label.endsWith(
+            ` (${labelSource.format})`,
+          );
+        }
+      }
     }
   }
   if (patch.url !== undefined) {
@@ -462,7 +496,18 @@ export function updateItem(
       changed = true;
     }
   }
-  if (!changed) return state;
+  return changed ? next : existing;
+}
+
+export function updateItem(
+  state: SortState,
+  id: ItemId,
+  patch: ItemMetadataPatch,
+): SortState {
+  const existing = state.items[id];
+  if (!existing) return state;
+  const next = updateItemMetadata(existing, patch);
+  if (next === existing) return state;
   // Patch via spread on the items dict. Engine-specific state arrays
   // are untouched — id is the only thing they reference, and id is
   // unchanged.

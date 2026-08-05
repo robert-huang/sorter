@@ -27,6 +27,7 @@ import {
   type RawRow,
   type SourceParse,
 } from '../lib/csv';
+import { updateItemMetadata } from '../lib/engine';
 import { subscribeAnilistDisplayPreferences } from '../lib/importers/anilist/displayPreferences';
 import { relabelAnilistItemPreservingFormat } from '../lib/importers/anilist/anilistItemLabel';
 import { AnilistStartMode } from './AnilistStartMode';
@@ -481,8 +482,8 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
   );
 
   /**
-   * Apply an EditItemModal patch to the targeted staged item. Only
-   * `label / url / imageUrl` are honoured — see comment on
+   * Apply an EditItemModal patch to the targeted staged item. Label,
+   * URL, image URL, and AniList label mode are honoured — see comment on
    * `editStagedTarget` above for why `id` is locked. Empty-string
    * url / imageUrl is treated as "clear it" to match the CSV-edit
    * flow's semantics (see `EditItemModal` JSDoc).
@@ -496,16 +497,7 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
           if (g.id !== groupId) return g;
           const nextItems = g.items.map((it) => {
             if (it.id !== itemId) return it;
-            const updated: Item = { ...it };
-            if (patch.label !== undefined) updated.label = patch.label;
-            if (patch.url !== undefined) {
-              updated.url = patch.url === '' ? undefined : patch.url;
-            }
-            if (patch.imageUrl !== undefined) {
-              updated.imageUrl =
-                patch.imageUrl === '' ? undefined : patch.imageUrl;
-            }
-            return updated;
+            return updateItemMetadata(it, patch);
           });
           return { ...g, items: nextItems };
         }),
