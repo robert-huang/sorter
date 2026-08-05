@@ -1,7 +1,12 @@
 import type { Item } from '../../types';
 import type { AnilistMediaFormat } from './types';
 import type { AnilistItemLabelSource } from '../../types';
-import { formatMediaDisplayLabel, type MediaTitleFields } from './mediaDisplayLabel';
+import {
+  formatMediaDisplayLabel,
+  mediaTitleSearchParts,
+  type MediaSearchFields,
+  type MediaTitleFields,
+} from './mediaDisplayLabel';
 import { pickCharacterName, pickPersonName } from './personDisplayLabel';
 
 export function resolveAnilistItemLabel(
@@ -82,4 +87,59 @@ export function mediaLabelSourceFromRow(
     },
     format: row.format,
   };
+}
+
+export type CachedMediaLabelRow = MediaSearchFields & {
+  format: AnilistMediaFormat | null;
+};
+
+/**
+ * Resolve the label metadata omitted by CSV AniList-URL matching.
+ *
+ * URL matching can identify the media synchronously, but the alternate titles
+ * live in the asynchronous SQLite cache. Once that row is available, attach
+ * the same source fields used by native AniList imports and apply the current
+ * display preference.
+ */
+export function resolveCachedAnilistMediaItem(
+  item: Item,
+  row: CachedMediaLabelRow,
+): Item {
+  if (
+    item.source?.kind !== 'anilist' ||
+    item.source.externalId !== row.id
+  ) {
+    return item;
+  }
+
+  const resolved: Item = {
+    ...item,
+    anilistLabelSource: mediaLabelSourceFromRow(row),
+    searchTokens: mediaTitleSearchParts(row),
+  };
+  return relabelAnilistItemPreservingFormat(resolved);
+}
+
+/**
+ * Resolve cached title metadata for an item dictionary without rebuilding it
+ * when none of the supplied rows match.
+ */
+export function resolveCachedAnilistMediaItems(
+  items: Record<string, Item>,
+  rows: readonly CachedMediaLabelRow[],
+): Record<string, Item> {
+  if (rows.length === 0) return items;
+
+  const rowsById = new Map(rows.map((row) => [row.id, row]));
+  let changed = false;
+  const resolved: Record<string, Item> = {};
+  for (const [id, item] of Object.entries(items)) {
+    const externalId =
+      item.source?.kind === 'anilist' ? item.source.externalId : null;
+    const row = externalId === null ? undefined : rowsById.get(externalId);
+    const next = row ? resolveCachedAnilistMediaItem(item, row) : item;
+    if (next !== item) changed = true;
+    resolved[id] = next;
+  }
+  return changed ? resolved : items;
 }

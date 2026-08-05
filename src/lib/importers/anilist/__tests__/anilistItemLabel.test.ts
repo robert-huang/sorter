@@ -8,9 +8,12 @@ import {
   mediaLabelSourceFromRow,
   relabelAnilistItem,
   relabelAnilistItemPreservingFormat,
+  resolveCachedAnilistMediaItem,
+  resolveCachedAnilistMediaItems,
   resolveAnilistItemLabel,
 } from '../anilistItemLabel';
 import type { Item } from '../../../types';
+import { materializeItemFromRawRow } from '../../../csv';
 
 const MEDIA_FIELDS = {
   id: 1,
@@ -143,5 +146,53 @@ describe('mediaLabelSourceFromRow', () => {
       titleFields: MEDIA_FIELDS,
       format: 'MOVIE',
     });
+  });
+});
+
+describe('cached metadata for CSV-matched AniList media', () => {
+  const CACHED_MEDIA = {
+    ...MEDIA_FIELDS,
+    format: 'TV' as const,
+    synonyms_json: JSON.stringify(['Ika Musume']),
+  };
+
+  it('attaches cached title fields so later language changes relabel the item', () => {
+    saveAnilistDisplayPreferences({ mediaTitleMode: 'english' });
+    const imported = materializeItemFromRawRow({
+      label: 'CSV title',
+      url: 'https://anilist.co/anime/1',
+      sourceName: 'import.csv',
+      sourceRow: 1,
+    });
+
+    const resolved = resolveCachedAnilistMediaItem(imported, CACHED_MEDIA);
+
+    expect(resolved.label).toBe('Squid Girl');
+    expect(resolved.searchTokens).toEqual([
+      'Shinryaku! Ika Musume',
+      'Squid Girl',
+      '侵略!',
+      'Ika Musume',
+    ]);
+    expect(resolved.anilistLabelSource).toEqual({
+      kind: 'media',
+      titleFields: MEDIA_FIELDS,
+      format: 'TV',
+    });
+
+    saveAnilistDisplayPreferences({ mediaTitleMode: 'native' });
+    expect(relabelAnilistItemPreservingFormat(resolved).label).toBe('侵略!');
+  });
+
+  it('leaves manual and cache-missing items unchanged', () => {
+    const manual: Item = { id: 'manual', label: 'Manual title' };
+    const unmatched: Item = {
+      id: 'anilist:2',
+      label: 'Uncached title',
+      source: { kind: 'anilist', externalId: 2 },
+    };
+    const items = { manual, unmatched };
+
+    expect(resolveCachedAnilistMediaItems(items, [CACHED_MEDIA])).toBe(items);
   });
 });

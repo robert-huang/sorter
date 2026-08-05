@@ -255,7 +255,7 @@ Under the AniList row in **Source databases** is a **Display names** panel:
 - **entry** (media titles): **Romaji** (default) / **English** / **Native**
 - **staff** (person names): **Full** (default) / **Native**
 
-The choice is stored in `localStorage`, shared across the Sorter and Anime-to-Anime pages, and applied live to labels, detail panels, and (in A2A) the path trail.
+The choice is stored in `localStorage`, shared across the Sorter and Anime-to-Anime pages, and applied live to labels, detail panels, and (in A2A) the path trail. CSV rows whose URL is recognized as an AniList anime/manga also resolve their cached title variants, so changing the entry language updates those matched items instead of leaving the original CSV label frozen. If that media is not present in the local AniList cache, the CSV label remains available as the fallback.
 
 ## Keyboard shortcuts (on the RANK tab)
 
