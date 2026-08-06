@@ -14,6 +14,10 @@ import {
   canvasImageFetchUrls,
   exportChartPng,
 } from '../panels/BumpChartPanel';
+import {
+  _clearToolsPreferencesForTesting,
+  saveToolsPreferences,
+} from '../toolsPreferences';
 
 let container: HTMLDivElement;
 let root: Root;
@@ -24,6 +28,7 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  _clearToolsPreferencesForTesting();
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -45,6 +50,25 @@ function button(label: string, index = 0): HTMLButtonElement {
     throw new Error(`Missing button ${label} at index ${index}`);
   }
   return match;
+}
+
+function domRect(
+  width: number,
+  height: number,
+  left = 0,
+  top = 0,
+): DOMRect {
+  return {
+    x: left,
+    y: top,
+    top,
+    right: left + width,
+    bottom: top + height,
+    left,
+    width,
+    height,
+    toJSON: () => ({}),
+  };
 }
 
 async function importSingle(sideIndex: number, label: string): Promise<void> {
@@ -239,6 +263,163 @@ describe('BumpChartPanel staging flow', () => {
       hitPaths[2]?.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
     });
     expect(container.querySelector('.bump-chart-movement-badge')).toBeNull();
+  });
+
+  it('marks title-inferred lines and keeps a clicked lineage pinned', async () => {
+    await act(async () => {
+      root.render(
+        <BumpChartPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+    });
+    for (const label of ['A', 'B']) {
+      await importSingle(0, label);
+    }
+    for (const label of ['B', 'A']) {
+      await importSingle(1, label);
+    }
+    await act(async () => {
+      button('Generate chart').click();
+    });
+
+    expect(
+      container.querySelectorAll(
+        '[aria-label="Inferred match from an exact label"]',
+      ).length,
+    ).toBe(2);
+    const inferredMarkers = container.querySelectorAll<SVGGElement>(
+      '.bump-chart-inferred-marker',
+    );
+    expect(inferredMarkers[0]?.dataset.pathPosition).toBe('0.9');
+    expect(
+      inferredMarkers[0]?.querySelector('.bump-chart-inferred-icon'),
+    ).not.toBeNull();
+    expect(inferredMarkers[0]?.querySelector('text')).toBeNull();
+    const connections = container.querySelectorAll<SVGGElement>(
+      '.bump-chart-connection',
+    );
+    const hitPaths = container.querySelectorAll<SVGPathElement>(
+      '.bump-chart-path-hit',
+    );
+
+    await act(async () => {
+      hitPaths[0]?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      hitPaths[0]?.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+    });
+    expect(connections[0]?.classList.contains('is-active')).toBe(true);
+    expect(connections[1]?.classList.contains('is-dimmed')).toBe(true);
+    expect(container.querySelector('.bump-chart-movement-badge')).not.toBeNull();
+
+    await act(async () => {
+      hitPaths[1]?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    });
+    expect(connections[0]?.classList.contains('is-active')).toBe(true);
+    expect(connections[1]?.classList.contains('is-active')).toBe(false);
+
+    const secondLineageLabel = container.querySelector<HTMLElement>(
+      '.bump-chart-item-link[data-bump-lineage="matched:1:0"]',
+    );
+    await act(async () => {
+      secondLineageLabel?.dispatchEvent(
+        new MouseEvent('click', { bubbles: true }),
+      );
+    });
+    expect(connections[0]?.classList.contains('is-active')).toBe(false);
+    expect(connections[1]?.classList.contains('is-active')).toBe(true);
+
+    await act(async () => {
+      hitPaths[1]?.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+      document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(
+      container.querySelector('.bump-chart-connection.is-active'),
+    ).toBeNull();
+    expect(
+      container.querySelector('.bump-chart-connection.is-dimmed'),
+    ).toBeNull();
+  });
+
+  it('reacts to Best Match by Title changes for an existing chart', async () => {
+    saveToolsPreferences({ bumpChartBestMatchByTitle: false });
+    await act(async () => {
+      root.render(
+        <BumpChartPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+    });
+    await importSingle(0, 'Same title');
+    await importSingle(1, 'Same title');
+    await act(async () => {
+      button('Generate chart').click();
+    });
+
+    expect(container.querySelectorAll('.bump-chart-connection')).toHaveLength(2);
+    expect(container.querySelector('.bump-chart-inferred-marker')).toBeNull();
+
+    await act(async () => {
+      saveToolsPreferences({ bumpChartBestMatchByTitle: true });
+    });
+    expect(container.querySelectorAll('.bump-chart-connection')).toHaveLength(1);
+    expect(container.querySelector('.bump-chart-inferred-marker')).not.toBeNull();
+  });
+
+  it('shrinks the SVG after zoom without retaining its old scroll height', async () => {
+    await act(async () => {
+      root.render(
+        <BumpChartPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+    });
+    await importSingle(0, 'Before');
+    await importSingle(1, 'After');
+    await act(async () => {
+      button('Generate chart').click();
+    });
+
+    const grid = container.querySelector<HTMLElement>('.bump-chart-grid');
+    const row = container.querySelector<HTMLElement>('.bump-chart-row');
+    const center = container.querySelector<HTMLElement>(
+      '.bump-chart-center-cell',
+    );
+    if (!grid || !row || !center) {
+      throw new Error('Bump Chart geometry was not rendered');
+    }
+    let gridHeight = 240;
+    vi.spyOn(grid, 'getBoundingClientRect').mockImplementation(() =>
+      domRect(1_000, gridHeight),
+    );
+    vi.spyOn(row, 'getBoundingClientRect').mockReturnValue(domRect(1_000, 64));
+    vi.spyOn(center, 'getBoundingClientRect').mockReturnValue(
+      domRect(280, 64, 360),
+    );
+    Object.defineProperty(grid, 'scrollHeight', {
+      configurable: true,
+      value: 600,
+    });
+
+    await act(async () => {
+      window.dispatchEvent(new Event('resize'));
+    });
+    expect(
+      container.querySelector<SVGSVGElement>('.bump-chart-svg')?.style.height,
+    ).toBe('240px');
+
+    gridHeight = 120;
+    await act(async () => {
+      window.dispatchEvent(new Event('resize'));
+    });
+    expect(
+      container.querySelector<SVGSVGElement>('.bump-chart-svg')?.style.height,
+    ).toBe('120px');
   });
 
   it('opens the sorter edit modal from a generated rank number', async () => {

@@ -47,7 +47,11 @@ export function ToolsSettingsMenu({
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<SettingsTab>(() => readPersistedTab());
   const wrapRef = useRef<HTMLDivElement>(null);
-  const { prefs: toolsPrefs, setProductionAllRoles } = useToolsPreferences();
+  const {
+    prefs: toolsPrefs,
+    setProductionAllRoles,
+    setBumpChartBestMatchByTitle,
+  } = useToolsPreferences();
 
   function selectTab(next: SettingsTab): void {
     setTab(next);
@@ -123,6 +127,28 @@ export function ToolsSettingsMenu({
                     onChange={(e) => setProductionAllRoles(e.target.checked)}
                   />
                   Show all production roles
+                </label>
+                <div className="settings-divider" />
+                <p className="edit-item-advanced-title">Bump Chart</p>
+                <label
+                  className="settings-item checkbox"
+                >
+                  <input
+                    type="checkbox"
+                    checked={toolsPrefs.bumpChartBestMatchByTitle}
+                    onChange={(e) =>
+                      setBumpChartBestMatchByTitle(e.target.checked)
+                    }
+                  />
+                  Best Match by Title
+                  <span
+                    className="settings-help-tooltip"
+                    title="Exact logical IDs always match first. When enabled, remaining rows match only when an exact stored label (including a custom label) or AniList title-language variant identifies one unique pair. Ambiguous titles and conflicting AniList IDs stay disconnected. The info icon marks inferred lines."
+                    aria-label="Best Match by Title help"
+                    onClick={(event) => event.preventDefault()}
+                  >
+                    ?
+                  </span>
                 </label>
               </div>
             )}

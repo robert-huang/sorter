@@ -13,12 +13,15 @@ export type ToolsPreferences = {
    * are kept — matching the "key roles" default used by A2A.
    */
   productionAllRoles: boolean;
+  /** Infer unique Bump Chart lineages from exact labels and title variants. */
+  bumpChartBestMatchByTitle: boolean;
 };
 
 const STORAGE_KEY = 'anime-tools:preferences:v1';
 
 const DEFAULT_PREFS: ToolsPreferences = {
   productionAllRoles: false,
+  bumpChartBestMatchByTitle: true,
 };
 
 let cached: ToolsPreferences | null = null;
@@ -56,6 +59,8 @@ export function loadToolsPreferences(): ToolsPreferences {
     const parsed = JSON.parse(raw) as Partial<ToolsPreferences>;
     cached = {
       productionAllRoles: parsed.productionAllRoles === true,
+      bumpChartBestMatchByTitle:
+        parsed.bumpChartBestMatchByTitle !== false,
     };
     return cached;
   } catch {

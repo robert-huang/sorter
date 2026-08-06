@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -13,6 +14,7 @@ import {
   EditItemModal,
   type EditItemSavePayload,
 } from '../../components/EditItemModal';
+import { InfoIcon } from '../../components/icons';
 import {
   StagedItemsPanel,
   type StagedGroup,
@@ -23,6 +25,7 @@ import { AnilistMiddleClickLink } from '../../lib/importers/anilist/AnilistMiddl
 import type { Item } from '../../lib/types';
 import type { OrderedSlotImport } from '../../components/SortResultsImportMode';
 import type { ToolPanelProps } from '../toolTypes';
+import { useToolsPreferences } from '../../hooks/useToolsPreferences';
 import { useToolsDisplayLabelRevision } from '../useToolsDisplayLabelRevision';
 import {
   BUMP_CHART_COLORS,
@@ -160,10 +163,12 @@ function openItemDetail(item: Item, panelProps: ToolPanelProps): void {
 function InteractiveItemLabel({
   item,
   side,
+  connectionKey,
   panelProps,
 }: {
   item: Item;
   side: ChartSide;
+  connectionKey?: string;
   panelProps: ToolPanelProps;
 }) {
   return (
@@ -173,6 +178,7 @@ function InteractiveItemLabel({
       onPrimaryClick={
         canOpenDetail(item) ? () => openItemDetail(item, panelProps) : undefined
       }
+      data-bump-lineage={connectionKey}
       title={
         canOpenDetail(item)
           ? `${item.label} (middle-click to open source)`
@@ -402,6 +408,67 @@ function MovementBadge({
   );
 }
 
+function cubicCoordinate(
+  start: number,
+  firstControl: number,
+  secondControl: number,
+  end: number,
+  t: number,
+): number {
+  const remaining = 1 - t;
+  return (
+    remaining ** 3 * start +
+    3 * remaining ** 2 * t * firstControl +
+    3 * remaining * t ** 2 * secondControl +
+    t ** 3 * end
+  );
+}
+
+function InferredMatchMarker({
+  connection,
+  width,
+  leftY,
+  rightY,
+}: {
+  connection: BumpConnection;
+  width: number;
+  leftY: number;
+  rightY: number;
+}) {
+  const t = 0.9;
+  const control = width * 0.42;
+  const x = cubicCoordinate(12, control, width - control, width - 12, t);
+  const y = cubicCoordinate(leftY, leftY, rightY, rightY, t);
+  const description =
+    connection.matchBasis === 'alternate-title'
+      ? 'Inferred match from an AniList title variant'
+      : 'Inferred match from an exact label';
+  return (
+    <g
+      className="bump-chart-inferred-marker"
+      role="img"
+      aria-label={description}
+      data-marker-x={x}
+      data-marker-y={y}
+      data-path-position={t}
+    >
+      <title>{description}</title>
+      <circle
+        className="bump-chart-inferred-marker-backdrop"
+        cx={x}
+        cy={y}
+        r="9"
+      />
+      <InfoIcon
+        className="bump-chart-inferred-icon"
+        x={x - 9}
+        y={y - 9}
+        size={18}
+      />
+    </g>
+  );
+}
+
 function BumpChartLabel({
   side,
   item,
@@ -449,6 +516,7 @@ function BumpChartLabel({
       <InteractiveItemLabel
         item={item}
         side={side}
+        connectionKey={connection?.key}
         panelProps={panelProps}
       />
       {side === 'left' && rankButton}
@@ -747,6 +815,32 @@ export async function exportChartPng(node: HTMLElement): Promise<void> {
         context.lineTo(line.x2.baseVal.value, line.y2.baseVal.value);
         context.stroke();
       }
+      const inferredMarker = group.querySelector<SVGGElement>(
+        '.bump-chart-inferred-marker',
+      );
+      const markerX = Number(inferredMarker?.dataset.markerX);
+      const markerY = Number(inferredMarker?.dataset.markerY);
+      if (Number.isFinite(markerX) && Number.isFinite(markerY)) {
+        context.fillStyle = backgroundColor;
+        context.beginPath();
+        context.arc(markerX, markerY, 9, 0, Math.PI * 2);
+        context.fill();
+
+        context.strokeStyle = color;
+        context.lineWidth = 1.5;
+        context.lineCap = 'round';
+        context.beginPath();
+        context.arc(markerX, markerY, 7.5, 0, Math.PI * 2);
+        context.stroke();
+        context.beginPath();
+        context.moveTo(markerX, markerY);
+        context.lineTo(markerX, markerY + 3);
+        context.stroke();
+        context.beginPath();
+        context.moveTo(markerX, markerY - 3);
+        context.lineTo(markerX + 0.01, markerY - 3);
+        context.stroke();
+      }
     }
     context.restore();
   }
@@ -805,21 +899,29 @@ export async function exportChartPng(node: HTMLElement): Promise<void> {
 function BumpChart({
   left,
   right,
+  matchingLeft,
+  matchingRight,
+  bestMatchByTitle,
   panelProps,
   onEdit,
   chartRef,
 }: {
   left: readonly BumpChartItem[];
   right: readonly BumpChartItem[];
+  matchingLeft: readonly BumpChartItem[];
+  matchingRight: readonly BumpChartItem[];
+  bestMatchByTitle: boolean;
   panelProps: ToolPanelProps;
   onEdit: (side: ChartSide, index: number, item: Item) => void;
   chartRef: React.RefObject<HTMLDivElement>;
 }) {
   const connections = useMemo(
-    () => buildBumpConnections(left, right),
-    [left, right],
+    () =>
+      buildBumpConnections(matchingLeft, matchingRight, { bestMatchByTitle }),
+    [bestMatchByTitle, matchingLeft, matchingRight],
   );
-  const [focusedKey, setFocusedKey] = useState<string | null>(null);
+  const [hoveredKey, setHoveredKey] = useState<string | null>(null);
+  const [pinnedKey, setPinnedKey] = useState<string | null>(null);
   const [layout, setLayout] = useState<ChartLayout | null>(null);
   const rowRefs = useRef<Array<HTMLDivElement | null>>([]);
   const rowCount = Math.max(left.length, right.length);
@@ -850,6 +952,7 @@ function BumpChart({
       ),
     [connections],
   );
+  const focusedKey = pinnedKey ?? hoveredKey;
   const focusedConnection =
     focusedKey == null
       ? null
@@ -866,6 +969,32 @@ function BumpChart({
     layout != null && focusedConnection?.rightIndex != null
       ? layout.rightCenters[focusedConnection.rightIndex]
       : null;
+
+  useEffect(() => {
+    const onDocumentClick = (event: MouseEvent): void => {
+      const target = event.target;
+      const connectionElement =
+        target instanceof Element
+          ? target.closest<HTMLElement>('[data-bump-lineage]')
+          : null;
+      if (connectionElement && chartRef.current?.contains(connectionElement)) {
+        setPinnedKey(connectionElement.dataset.bumpLineage ?? null);
+      } else {
+        setPinnedKey(null);
+      }
+    };
+    document.addEventListener('click', onDocumentClick);
+    return () => document.removeEventListener('click', onDocumentClick);
+  }, [chartRef]);
+
+  useEffect(() => {
+    if (
+      pinnedKey != null &&
+      !connections.some((connection) => connection.key === pinnedKey)
+    ) {
+      setPinnedKey(null);
+    }
+  }, [connections, pinnedKey]);
 
   useLayoutEffect(() => {
     const root = chartRef.current;
@@ -892,7 +1021,8 @@ function BumpChart({
       const centers = bumpRowCenterOffsets(rootRect.top, rowRects);
       const next: ChartLayout = {
         width: centerRect.width,
-        height: root.scrollHeight,
+        // The absolute SVG must not keep its previous zoomed height alive.
+        height: rootRect.height,
         left: centerRect.left - rootRect.left,
         leftCenters: left.map((_, index) => centers[index] ?? 0),
         rightCenters: right.map((_, index) => centers[index] ?? 0),
@@ -934,7 +1064,7 @@ function BumpChart({
                 connection={leftConnectionByIndex.get(index)}
                 focusedKey={focusedKey}
                 panelProps={panelProps}
-                onFocus={setFocusedKey}
+                onFocus={setHoveredKey}
                 onEdit={() => onEdit('left', index, left[index]!.item)}
               />
             ) : (
@@ -949,7 +1079,7 @@ function BumpChart({
                 connection={rightConnectionByIndex.get(index)}
                 focusedKey={focusedKey}
                 panelProps={panelProps}
-                onFocus={setFocusedKey}
+                onFocus={setHoveredKey}
                 onEdit={() => onEdit('right', index, right[index]!.item)}
               />
             ) : (
@@ -1015,8 +1145,9 @@ function BumpChart({
                     .filter(Boolean)
                     .join(' ')}
                   style={{ color }}
-                  onMouseEnter={() => setFocusedKey(connection.key)}
-                  onMouseLeave={() => setFocusedKey(null)}
+                  data-bump-lineage={connection.key}
+                  onMouseEnter={() => setHoveredKey(connection.key)}
+                  onMouseLeave={() => setHoveredKey(null)}
                 >
                   <path className="bump-chart-path-hit" d={path} />
                   <path className="bump-chart-path" d={path} />
@@ -1046,6 +1177,17 @@ function BumpChart({
                       y={rightY}
                     />
                   )}
+                  {connection.matchBasis !== 'logical-id' &&
+                    connection.matchBasis != null &&
+                    leftY != null &&
+                    rightY != null && (
+                      <InferredMatchMarker
+                        connection={connection}
+                        width={layout.width}
+                        leftY={leftY}
+                        rightY={rightY}
+                      />
+                    )}
                 </g>
               );
             })}
@@ -1067,6 +1209,7 @@ function BumpChart({
 
 export function BumpChartPanel(panelProps: ToolPanelProps) {
   const displayLabelRevision = useToolsDisplayLabelRevision();
+  const { prefs: toolsPreferences } = useToolsPreferences();
   const onOpenItemDetail = useCallback(
     (item: Item) => openItemDetail(item, panelProps),
     [panelProps.onOpenMedia, panelProps.onOpenStaff],
@@ -1420,6 +1563,9 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
           <BumpChart
             left={left}
             right={right}
+            matchingLeft={chart.left}
+            matchingRight={chart.right}
+            bestMatchByTitle={toolsPreferences.bumpChartBestMatchByTitle}
             panelProps={panelProps}
             chartRef={chartRef}
             onEdit={(side, index, item) =>

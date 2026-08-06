@@ -818,7 +818,8 @@ html {
   border: none;
   padding: 8px 10px;
   border-radius: var(--radius-sm);
-  font-size: 14px;
+  font-size: 12px;
+  line-height: 1.3;
   color: var(--text);
 }
 
@@ -847,7 +848,26 @@ html {
 }
 
 .settings-item.checkbox input {
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
   margin: 0;
+}
+
+.settings-help-tooltip {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  margin-left: auto;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: help;
 }
 
 .settings-divider {
@@ -3194,7 +3214,7 @@ a:where(.anime-to-anime-anilist-link):visited {
 }
 
 .anime-to-anime-settings-popover .settings-item.checkbox {
-  margin-top: 8px;
+  margin-top: 0;
 }
 
 .anime-to-anime-hop-meta {
@@ -8285,14 +8305,20 @@ a:where(.anime-to-anime-anilist-link):visited {
 
 .bump-chart-fullbleed {
   overflow-x: auto;
+  overflow-y: hidden;
   align-items: stretch;
 }
 
 .bump-chart-grid {
-  --bump-label-width: 260px;
+  --bump-label-width: 360px;
+  --bump-center-min-width: 280px;
   position: relative;
-  width: min(1180px, 90vw);
-  max-width: 90vw;
+  width: 100%;
+  min-width: calc(
+    var(--bump-label-width) +
+    var(--bump-center-min-width) +
+    var(--bump-label-width)
+  );
   margin-inline: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -8306,7 +8332,7 @@ a:where(.anime-to-anime-anilist-link):visited {
   display: grid;
   grid-template-columns:
     var(--bump-label-width)
-    minmax(280px, 1fr)
+    minmax(var(--bump-center-min-width), 1fr)
     var(--bump-label-width);
   min-height: 64px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
@@ -8366,6 +8392,7 @@ a:where(.anime-to-anime-anilist-link):visited {
   gap: 8px;
   min-width: 0;
   color: inherit;
+  cursor: pointer;
   text-decoration: none;
 }
 
@@ -8464,6 +8491,24 @@ a:where(.anime-to-anime-anilist-link):visited {
   stroke-width: 4;
 }
 
+.bump-chart-inferred-marker {
+  pointer-events: none;
+}
+
+.bump-chart-inferred-marker-backdrop {
+  fill: var(--surface);
+  stroke: none;
+}
+
+.bump-chart-inferred-icon {
+  color: inherit;
+  overflow: visible;
+}
+
+.bump-chart-inferred-icon * {
+  vector-effect: non-scaling-stroke;
+}
+
 .bump-chart-movement-badge {
   color: var(--text-muted);
   pointer-events: none;
@@ -8505,12 +8550,13 @@ a:where(.anime-to-anime-anilist-link):visited {
 
   .bump-chart-grid {
     --bump-label-width: 150px;
+    --bump-center-min-width: 180px;
   }
 
   .bump-chart-row {
     grid-template-columns:
       var(--bump-label-width)
-      minmax(180px, 1fr)
+      minmax(var(--bump-center-min-width), 1fr)
       var(--bump-label-width);
   }
 }
@@ -8518,12 +8564,13 @@ a:where(.anime-to-anime-anilist-link):visited {
 @media (max-width: 500px) {
   .bump-chart-grid {
     --bump-label-width: 110px;
+    --bump-center-min-width: 120px;
   }
 
   .bump-chart-row {
     grid-template-columns:
       var(--bump-label-width)
-      minmax(120px, 1fr)
+      minmax(var(--bump-center-min-width), 1fr)
       var(--bump-label-width);
   }
 

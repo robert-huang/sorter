@@ -9,6 +9,7 @@ import {
 export function useToolsPreferences(): {
   prefs: ToolsPreferences;
   setProductionAllRoles: (enabled: boolean) => void;
+  setBumpChartBestMatchByTitle: (enabled: boolean) => void;
 } {
   const [prefs, setPrefs] = useState<ToolsPreferences>(() => loadToolsPreferences());
 
@@ -22,7 +23,15 @@ export function useToolsPreferences(): {
     saveToolsPreferences({ productionAllRoles: enabled });
   };
 
-  return { prefs, setProductionAllRoles };
+  const setBumpChartBestMatchByTitle = (enabled: boolean): void => {
+    saveToolsPreferences({ bumpChartBestMatchByTitle: enabled });
+  };
+
+  return {
+    prefs,
+    setProductionAllRoles,
+    setBumpChartBestMatchByTitle,
+  };
 }
 
 /** Bumps when tools preferences change — panels use this to re-derive

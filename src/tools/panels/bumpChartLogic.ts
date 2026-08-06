@@ -21,9 +21,14 @@ export type BumpChartItem = {
 export type BumpConnection = {
   key: string;
   kind: 'matched' | 'removed' | 'added';
+  matchBasis?: 'logical-id' | 'label' | 'alternate-title';
   leftIndex: number | null;
   rightIndex: number | null;
   colorIndex: number;
+};
+
+export type BuildBumpConnectionsOptions = {
+  bestMatchByTitle?: boolean;
 };
 
 /** Positive means the item moved up; negative means it moved down. */
@@ -190,27 +195,97 @@ function takeFirstUnused(
   return null;
 }
 
+function hasSourceIdentity(entry: BumpChartItem): boolean {
+  return (
+    isAnilistSourceMatched(entry.item) ||
+    /^anilist(?::|-character:|-staff:|-studios:)\d+$/.test(
+      entry.logicalId ?? '',
+    )
+  );
+}
+
+function canInferSameItem(
+  leftEntry: BumpChartItem,
+  rightEntry: BumpChartItem,
+): boolean {
+  // Conflicting source identities are stronger evidence than a shared title.
+  return !(hasSourceIdentity(leftEntry) && hasSourceIdentity(rightEntry));
+}
+
+function alternateTitleMatches(
+  leftEntry: BumpChartItem,
+  rightEntry: BumpChartItem,
+): boolean {
+  return (
+    leftEntry.item.searchTokens?.includes(rightEntry.item.label) === true ||
+    rightEntry.item.searchTokens?.includes(leftEntry.item.label) === true
+  );
+}
+
+function assignUniqueInferredMatches(
+  left: readonly BumpChartItem[],
+  right: readonly BumpChartItem[],
+  matchedRightByLeft: Map<number, number>,
+  matchBasisByLeft: Map<number, BumpConnection['matchBasis']>,
+  usedRight: Set<number>,
+  matchBasis: 'label' | 'alternate-title',
+  matches: (leftEntry: BumpChartItem, rightEntry: BumpChartItem) => boolean,
+): void {
+  const candidatesByLeft = new Map<number, number[]>();
+  const candidateLeftCountByRight = new Map<number, number>();
+
+  left.forEach((leftEntry, leftIndex) => {
+    if (matchedRightByLeft.has(leftIndex)) {
+      return;
+    }
+    const candidates: number[] = [];
+    right.forEach((rightEntry, rightIndex) => {
+      if (!usedRight.has(rightIndex) && matches(leftEntry, rightEntry)) {
+        candidates.push(rightIndex);
+        candidateLeftCountByRight.set(
+          rightIndex,
+          (candidateLeftCountByRight.get(rightIndex) ?? 0) + 1,
+        );
+      }
+    });
+    candidatesByLeft.set(leftIndex, candidates);
+  });
+
+  candidatesByLeft.forEach((candidates, leftIndex) => {
+    if (candidates.length !== 1) {
+      return;
+    }
+    const rightIndex = candidates[0]!;
+    if (
+      candidateLeftCountByRight.get(rightIndex) !== 1 ||
+      usedRight.has(rightIndex)
+    ) {
+      return;
+    }
+    matchedRightByLeft.set(leftIndex, rightIndex);
+    matchBasisByLeft.set(leftIndex, matchBasis);
+    usedRight.add(rightIndex);
+  });
+}
+
 /**
- * Match stable logical ids first. Exact labels are a fallback only when at
- * least one side lacks a logical id, so two different source entities with
- * the same display name are never collapsed together.
+ * Match stable logical ids first, then optionally infer unique title matches.
+ * Two conflicting source identities are never collapsed solely by title.
  */
 export function buildBumpConnections(
   left: readonly BumpChartItem[],
   right: readonly BumpChartItem[],
+  options: BuildBumpConnectionsOptions = {},
 ): BumpConnection[] {
+  const bestMatchByTitle = options.bestMatchByTitle ?? true;
   const usedRight = new Set<number>();
   const matchedRightByLeft = new Map<number, number>();
+  const matchBasisByLeft = new Map<number, BumpConnection['matchBasis']>();
   const rightByLogicalId = new Map<string, number[]>();
-  const rightByLabel = new Map<string, number[]>();
-  const rightPlainByLabel = new Map<string, number[]>();
   right.forEach((entry, index) => {
     if (entry.logicalId) {
       appendIndex(rightByLogicalId, entry.logicalId, index);
-    } else {
-      appendIndex(rightPlainByLabel, entry.item.label, index);
     }
-    appendIndex(rightByLabel, entry.item.label, index);
   });
 
   for (let leftIndex = 0; leftIndex < left.length; leftIndex += 1) {
@@ -224,25 +299,49 @@ export function buildBumpConnections(
     );
     if (rightIndex != null) {
       matchedRightByLeft.set(leftIndex, rightIndex);
+      matchBasisByLeft.set(leftIndex, 'logical-id');
       usedRight.add(rightIndex);
     }
   }
 
-  for (let leftIndex = 0; leftIndex < left.length; leftIndex += 1) {
-    if (matchedRightByLeft.has(leftIndex)) {
-      continue;
-    }
-    const leftEntry = left[leftIndex]!;
-    const rightIndex = takeFirstUnused(
-      leftEntry.logicalId
-        ? rightPlainByLabel.get(leftEntry.item.label)
-        : rightByLabel.get(leftEntry.item.label),
+  if (bestMatchByTitle) {
+    // Prefer bridging a source-backed item to a manual/auto-id item.
+    assignUniqueInferredMatches(
+      left,
+      right,
+      matchedRightByLeft,
+      matchBasisByLeft,
       usedRight,
+      'label',
+      (leftEntry, rightEntry) =>
+        hasSourceIdentity(leftEntry) !== hasSourceIdentity(rightEntry) &&
+        leftEntry.item.label === rightEntry.item.label,
     );
-    if (rightIndex != null) {
-      matchedRightByLeft.set(leftIndex, rightIndex);
-      usedRight.add(rightIndex);
-    }
+
+    // Remaining non-source items may carry different auto-assigned ids.
+    assignUniqueInferredMatches(
+      left,
+      right,
+      matchedRightByLeft,
+      matchBasisByLeft,
+      usedRight,
+      'label',
+      (leftEntry, rightEntry) =>
+        canInferSameItem(leftEntry, rightEntry) &&
+        leftEntry.item.label === rightEntry.item.label,
+    );
+
+    assignUniqueInferredMatches(
+      left,
+      right,
+      matchedRightByLeft,
+      matchBasisByLeft,
+      usedRight,
+      'alternate-title',
+      (leftEntry, rightEntry) =>
+        canInferSameItem(leftEntry, rightEntry) &&
+        alternateTitleMatches(leftEntry, rightEntry),
+    );
   }
 
   const connections: BumpConnection[] = left.map((_, leftIndex) => {
@@ -253,6 +352,8 @@ export function buildBumpConnections(
           ? `removed:${leftIndex}`
           : `matched:${leftIndex}:${rightIndex}`,
       kind: rightIndex == null ? 'removed' : 'matched',
+      matchBasis:
+        rightIndex == null ? undefined : matchBasisByLeft.get(leftIndex),
       leftIndex,
       rightIndex: rightIndex ?? null,
       colorIndex: 0,

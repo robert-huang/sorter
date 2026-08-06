@@ -66,6 +66,102 @@ describe('buildBumpConnections', () => {
     ).toEqual(['removed', 'added']);
   });
 
+  it('infers an exact-title match between archived auto ids and AniList ids', () => {
+    const connections = buildBumpConnections(
+      [entry('Frieren', 'frieren')],
+      [
+        {
+          item: {
+            id: 'anilist:154587',
+            label: 'Frieren',
+            source: { kind: 'anilist', externalId: 154587 },
+          },
+          logicalId: 'anilist:154587',
+        },
+      ],
+    );
+
+    expect(connections).toMatchObject([
+      {
+        kind: 'matched',
+        matchBasis: 'label',
+        leftIndex: 0,
+        rightIndex: 0,
+      },
+    ]);
+  });
+
+  it('disables every title fallback when best matching is off', () => {
+    expect(
+      buildBumpConnections(
+        [entry('Same title', 'archived-id')],
+        [entry('Same title', 'current-id')],
+        { bestMatchByTitle: false },
+      ).map((connection) => connection.kind),
+    ).toEqual(['removed', 'added']);
+  });
+
+  it('leaves ambiguous exact-title candidates disconnected', () => {
+    expect(
+      buildBumpConnections(
+        [entry('Shared title', 'left-a'), entry('Shared title', 'left-b')],
+        [entry('Shared title', 'right-a')],
+      ).map((connection) => connection.kind),
+    ).toEqual(['removed', 'removed', 'added']);
+  });
+
+  it('uses AniList title variants only after exact displayed labels', () => {
+    const archived = entry('Sousou no Frieren', 'archived-id');
+    const current: BumpChartItem = {
+      item: {
+        id: 'anilist:154587',
+        label: 'Frieren: Beyond Journey’s End',
+        source: { kind: 'anilist', externalId: 154587 },
+        searchTokens: [
+          'Frieren: Beyond Journey’s End',
+          'Sousou no Frieren',
+          '葬送のフリーレン',
+        ],
+      },
+      logicalId: 'anilist:154587',
+    };
+
+    expect(buildBumpConnections([archived], [current])).toMatchObject([
+      {
+        kind: 'matched',
+        matchBasis: 'alternate-title',
+        leftIndex: 0,
+        rightIndex: 0,
+      },
+    ]);
+  });
+
+  it('does not infer alternate-title matches across conflicting AniList ids', () => {
+    const left: BumpChartItem = {
+      item: {
+        id: 'anilist:1',
+        label: 'Shared alternate title',
+        source: { kind: 'anilist', externalId: 1 },
+      },
+      logicalId: 'anilist:1',
+    };
+    const right: BumpChartItem = {
+      item: {
+        id: 'anilist:2',
+        label: 'Different display title',
+        source: { kind: 'anilist', externalId: 2 },
+        searchTokens: ['Shared alternate title'],
+      },
+      logicalId: 'anilist:2',
+    };
+
+    expect(
+      buildBumpConnections([left], [right]).map(
+        (connection) => connection.kind,
+      ),
+    ).toEqual(['removed', 'added']);
+  });
+
   it('shows removed and added items when side lengths differ', () => {
     const connections = buildBumpConnections(
       [entry('A'), entry('B'), entry('Dropped')],
@@ -222,6 +318,16 @@ describe('bump chart imports', () => {
     expect(displayBumpChartItems(imported, true)[0]!.item.label).toBe(
       'My custom title',
     );
+    expect(
+      buildBumpConnections(imported, [entry('My custom title', 'archived-id')]),
+    ).toMatchObject([
+      {
+        kind: 'matched',
+        matchBasis: 'label',
+        leftIndex: 0,
+        rightIndex: 0,
+      },
+    ]);
     expect(
       displayBumpChartItems(
         [{ item: { ...item, anilistLabelIncludesFormat: true }, logicalId: item.id }],
