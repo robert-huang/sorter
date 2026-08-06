@@ -895,6 +895,8 @@ describe('BumpChartPanel staging flow', () => {
     const chart = document.createElement('div');
     chart.style.backgroundColor = 'rgb(255, 255, 255)';
     chart.innerHTML =
+      '<div class="bump-chart-row" style="border-bottom: 1px solid red"></div>' +
+      '<div class="bump-chart-row" style="border-bottom-width: 0"></div>' +
       '<a class="bump-chart-item-link"><img src="https://example.invalid/cover.jpg"></a>' +
       `<a class="bump-chart-item-link"><img src="${anilistImage}"></a>` +
       '<div class="bump-chart-label-cell" style="opacity: 0.24">' +
@@ -921,6 +923,13 @@ describe('BumpChartPanel staging flow', () => {
       height: 200,
       toJSON: () => ({}),
     });
+    const rows = chart.querySelectorAll<HTMLElement>('.bump-chart-row');
+    vi.spyOn(rows[0]!, 'getBoundingClientRect').mockReturnValue(
+      domRect(300, 64, 0, 0),
+    );
+    vi.spyOn(rows[1]!, 'getBoundingClientRect').mockReturnValue(
+      domRect(300, 64, 0, 64),
+    );
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
       if (url === proxiedAnilistImage) {
@@ -973,6 +982,8 @@ describe('BumpChartPanel staging flow', () => {
       translate: vi.fn(),
       setLineDash: vi.fn(),
       beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
       roundRect: vi.fn(),
       fill: vi.fn(),
       stroke: vi.fn(() => {
@@ -1063,8 +1074,10 @@ describe('BumpChartPanel staging flow', () => {
     expect(context.fillText).toHaveBeenCalledWith('AB', 0, 0);
     expect(context.fillText).toHaveBeenCalledWith('+2', 150, 100);
     expect(context.roundRect).toHaveBeenCalledWith(136, 90, 28, 20, 10);
-    expect(strokeAlphas).toEqual([1, 0.24, 1]);
-    expect(strokeWidths).toEqual([5, 3, 1]);
+    expect(context.moveTo).toHaveBeenCalledOnce();
+    expect(context.moveTo).toHaveBeenCalledWith(0, 63.5);
+    expect(strokeAlphas).toEqual([1, 1, 0.24, 1]);
+    expect(strokeWidths).toEqual([1, 5, 3, 1]);
     expect(fillTextAlphas).toContain(0.24);
     expect(toBlob).toHaveBeenCalledOnce();
     expect(createObjectUrl).toHaveBeenCalledOnce();

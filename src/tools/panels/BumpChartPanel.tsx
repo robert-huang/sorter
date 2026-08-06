@@ -920,11 +920,16 @@ export async function exportChartPng(node: HTMLElement): Promise<void> {
         rowRect.height,
       );
     }
-    context.strokeStyle = getComputedStyle(row).borderBottomColor;
-    context.lineWidth = 1;
+    const rowStyle = getComputedStyle(row);
+    const borderBottomWidth = Number.parseFloat(rowStyle.borderBottomWidth);
+    if (!(borderBottomWidth > 0)) continue;
+    context.strokeStyle = rowStyle.borderBottomColor;
+    context.lineWidth = borderBottomWidth;
     context.beginPath();
-    context.moveTo(0, rowRect.bottom - rootRect.top - 0.5);
-    context.lineTo(width, rowRect.bottom - rootRect.top - 0.5);
+    const borderY =
+      rowRect.bottom - rootRect.top - borderBottomWidth / 2;
+    context.moveTo(0, borderY);
+    context.lineTo(width, borderY);
     context.stroke();
   }
 
