@@ -7,6 +7,7 @@ import {
 import {
   BUMP_CHART_COLORS,
   buildBumpConnections,
+  bumpConnectionMovement,
   bumpRowCenterOffsets,
   bumpItemsFromSortResults,
   bumpItemsFromRows,
@@ -79,6 +80,26 @@ describe('buildBumpConnections', () => {
         expect.objectContaining({ kind: 'added', leftIndex: null, rightIndex: 3 }),
       ]),
     );
+  });
+
+  it('reports positive movement for higher ranks and negative movement for lower ranks', () => {
+    const connections = buildBumpConnections(
+      [entry('A'), entry('B'), entry('C'), entry('Removed')],
+      [entry('B'), entry('A'), entry('C'), entry('Added')],
+    );
+
+    expect(
+      connections.map((connection) => [
+        connection.kind,
+        bumpConnectionMovement(connection),
+      ]),
+    ).toEqual([
+      ['matched', -1],
+      ['matched', 1],
+      ['matched', 0],
+      ['removed', null],
+      ['added', null],
+    ]);
   });
 
   it('uses different colors for connections adjacent on either side', () => {

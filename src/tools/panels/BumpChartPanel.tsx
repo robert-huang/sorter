@@ -27,6 +27,7 @@ import { useToolsDisplayLabelRevision } from '../useToolsDisplayLabelRevision';
 import {
   BUMP_CHART_COLORS,
   buildBumpConnections,
+  bumpConnectionMovement,
   bumpRowCenterOffsets,
   bumpItemsFromImportedItems,
   bumpItemsFromSortResults,
@@ -348,6 +349,47 @@ function ChangeMarker({
           <line x1={x + 4} y1={y - 4} x2={x - 4} y2={y + 4} />
         </>
       )}
+    </g>
+  );
+}
+
+function MovementBadge({
+  movement,
+  x,
+  y,
+}: {
+  movement: number;
+  x: number;
+  y: number;
+}) {
+  const label = movement > 0 ? `+${movement}` : `${movement}`;
+  let tone: 'positive' | 'negative' | 'neutral' = 'neutral';
+  let scoreToneClass = '';
+  if (movement > 0) {
+    tone = 'positive';
+    scoreToneClass = 'tool-score-tone--high';
+  } else if (movement < 0) {
+    tone = 'negative';
+    scoreToneClass = 'tool-score-tone--low';
+  }
+  const width = Math.max(28, label.length * 7 + 12);
+  return (
+    <g
+      className={[
+        'bump-chart-movement-badge',
+        `bump-chart-movement-badge--${tone}`,
+        scoreToneClass,
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      transform={`translate(${x} ${y})`}
+      data-png-exclude="true"
+      aria-hidden="true"
+    >
+      <rect x={-width / 2} y="-10" width={width} height="20" rx="10" />
+      <text textAnchor="middle" dominantBaseline="central">
+        {label}
+      </text>
     </g>
   );
 }
@@ -747,6 +789,22 @@ function BumpChart({
       ),
     [connections],
   );
+  const focusedConnection =
+    focusedKey == null
+      ? null
+      : connections.find((connection) => connection.key === focusedKey) ?? null;
+  const focusedMovement =
+    focusedConnection == null
+      ? null
+      : bumpConnectionMovement(focusedConnection);
+  const focusedLeftY =
+    layout != null && focusedConnection?.leftIndex != null
+      ? layout.leftCenters[focusedConnection.leftIndex]
+      : null;
+  const focusedRightY =
+    layout != null && focusedConnection?.rightIndex != null
+      ? layout.rightCenters[focusedConnection.rightIndex]
+      : null;
 
   useLayoutEffect(() => {
     const root = chartRef.current;
@@ -930,6 +988,15 @@ function BumpChart({
                 </g>
               );
             })}
+            {focusedMovement != null &&
+              focusedLeftY != null &&
+              focusedRightY != null && (
+                <MovementBadge
+                  movement={focusedMovement}
+                  x={layout.width / 2}
+                  y={(focusedLeftY + focusedRightY) / 2}
+                />
+              )}
           </svg>
         )}
       </div>

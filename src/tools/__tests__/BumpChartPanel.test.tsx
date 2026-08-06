@@ -139,6 +139,79 @@ describe('BumpChartPanel staging flow', () => {
     expect(container.textContent).toContain('No ranked lists staged yet.');
   });
 
+  it('shows a signed movement badge only while a matched line is hovered', async () => {
+    await act(async () => {
+      root.render(
+        <BumpChartPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+    });
+    for (const label of ['A', 'B', 'C']) {
+      await importSingle(0, label);
+    }
+    for (const label of ['B', 'A', 'C']) {
+      await importSingle(1, label);
+    }
+    await act(async () => {
+      button('Generate chart').click();
+    });
+
+    const hitPaths = container.querySelectorAll<SVGPathElement>(
+      '.bump-chart-path-hit',
+    );
+    expect(hitPaths).toHaveLength(3);
+    expect(container.querySelector('.bump-chart-movement-badge')).toBeNull();
+
+    await act(async () => {
+      hitPaths[0]?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    });
+    const negativeBadge = container.querySelector<SVGGElement>(
+      '.bump-chart-movement-badge',
+    );
+    expect(negativeBadge?.textContent).toBe('-1');
+    expect(negativeBadge?.classList.contains('tool-score-tone--low')).toBe(true);
+    expect(negativeBadge?.dataset.pngExclude).toBe('true');
+
+    await act(async () => {
+      hitPaths[1]?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    });
+    const positiveBadge = container.querySelector<SVGGElement>(
+      '.bump-chart-movement-badge',
+    );
+    expect(positiveBadge?.textContent).toBe('+1');
+    expect(positiveBadge?.classList.contains('tool-score-tone--high')).toBe(
+      true,
+    );
+
+    await act(async () => {
+      hitPaths[2]?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    });
+    const neutralBadge = container.querySelector<SVGGElement>(
+      '.bump-chart-movement-badge',
+    );
+    expect(neutralBadge?.textContent).toBe('0');
+    expect(neutralBadge?.classList.contains('tool-score-tone--high')).toBe(
+      false,
+    );
+    expect(neutralBadge?.classList.contains('tool-score-tone--low')).toBe(
+      false,
+    );
+    const connectionGroups = container.querySelectorAll(
+      '.bump-chart-connection',
+    );
+    expect(neutralBadge?.previousElementSibling).toBe(
+      connectionGroups[connectionGroups.length - 1],
+    );
+
+    await act(async () => {
+      hitPaths[2]?.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+    });
+    expect(container.querySelector('.bump-chart-movement-badge')).toBeNull();
+  });
+
   it('opens the sorter edit modal from a generated rank number', async () => {
     await act(async () => {
       root.render(
@@ -291,7 +364,9 @@ describe('BumpChartPanel staging flow', () => {
     chart.style.backgroundColor = 'rgb(255, 255, 255)';
     chart.innerHTML =
       '<a class="bump-chart-item-link"><img src="https://example.invalid/cover.jpg"></a>' +
-      '<span class="bump-chart-label">A<span>B</span></span>';
+      '<span class="bump-chart-label">A<span>B</span></span>' +
+      '<svg><g class="bump-chart-movement-badge" data-png-exclude="true">' +
+      '<text>+2</text></g></svg>';
     document.body.appendChild(chart);
     vi.spyOn(chart, 'getBoundingClientRect').mockReturnValue({
       x: 0,
@@ -374,6 +449,11 @@ describe('BumpChartPanel staging flow', () => {
 
     expect(context.drawImage).not.toHaveBeenCalled();
     expect(context.fillText).toHaveBeenCalledWith('AB', 0, 0);
+    expect(context.fillText).not.toHaveBeenCalledWith(
+      '+2',
+      expect.any(Number),
+      expect.any(Number),
+    );
     expect(toBlob).toHaveBeenCalledOnce();
     expect(createObjectUrl).toHaveBeenCalledOnce();
     if (createObjectUrlDescriptor) {

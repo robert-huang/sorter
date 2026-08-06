@@ -8366,6 +8366,26 @@ a:where(.anime-to-anime-anilist-link):visited {
   stroke-width: 4;
 }
 
+.bump-chart-movement-badge {
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.bump-chart-movement-badge rect {
+  fill: var(--surface);
+  stroke: currentColor;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.bump-chart-movement-badge text {
+  fill: currentColor;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
 .bump-chart-change-marker circle {
   fill: var(--surface);
   stroke: currentColor;

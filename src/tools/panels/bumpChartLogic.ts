@@ -25,6 +25,20 @@ export type BumpConnection = {
   colorIndex: number;
 };
 
+/** Positive means the item moved up; negative means it moved down. */
+export function bumpConnectionMovement(
+  connection: BumpConnection,
+): number | null {
+  if (
+    connection.kind !== 'matched' ||
+    connection.leftIndex == null ||
+    connection.rightIndex == null
+  ) {
+    return null;
+  }
+  return connection.leftIndex - connection.rightIndex;
+}
+
 export const BUMP_CHART_COLORS = [
   '#2563eb',
   '#dc2626',
