@@ -5,7 +5,6 @@ import { CircularArrowGlyph } from './CircularArrowGlyph';
 import { DetailButtonSlot } from './DetailButton';
 import { ItemThumb } from './ItemThumb';
 import { RemoveGlyph } from './RemoveGlyph';
-import { CheckIcon } from './icons';
 
 /**
  * Which engine the current START draft will start in. Non-persisted —

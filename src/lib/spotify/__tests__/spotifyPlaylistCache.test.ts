@@ -13,7 +13,9 @@ import {
   hydrateSpotifyPlaylistCaches,
   isPlaylistCacheIncomplete,
   getSelectedSpotifyPlaylist,
+  listUserSpotifyPlaylists,
   mergeSelectedPlaylistIntoOptions,
+  SPOTIFY_UNREGISTERED_USER_MESSAGE,
   setSelectedSpotifyPlaylist,
   type SpotifyPlaylistCache,
   updatePlaylistCacheTracks,
@@ -236,6 +238,40 @@ describe('mergeSelectedPlaylistIntoOptions', () => {
     const playlists = [{ id: 'playlist-2', name: 'Other' }];
     expect(mergeSelectedPlaylistIntoOptions(playlists, null)).toEqual(playlists);
     expect(mergeSelectedPlaylistIntoOptions(playlists, null)).not.toBe(playlists);
+  });
+});
+
+describe('listUserSpotifyPlaylists errors', () => {
+  it('explains how an unregistered development-app user gets access', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          error: {
+            status: 403,
+            message:
+              'The user is not registered for this application. Please check your settings on https://developer.spotify.com/dashboard.',
+          },
+        }),
+        { status: 403 },
+      ),
+    );
+
+    await expect(listUserSpotifyPlaylists('token')).rejects.toThrow(
+      SPOTIFY_UNREGISTERED_USER_MESSAGE,
+    );
+  });
+
+  it('recognizes the same Spotify restriction from a plain-text response', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        'The user is not registered for this application. Please check the developer dashboard.',
+        { status: 403 },
+      ),
+    );
+
+    await expect(listUserSpotifyPlaylists('token')).rejects.toThrow(
+      SPOTIFY_UNREGISTERED_USER_MESSAGE,
+    );
   });
 });
 

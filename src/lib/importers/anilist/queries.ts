@@ -510,12 +510,18 @@ query AnimeById($id: Int!) {
 `.trim();
 }
 
-/** MAL id only — used by theme-song lazy expansion. */
-export const MEDIA_ID_MAL_QUERY = `
-query MediaIdMal($id: Int!) {
+/** Minimal media identity used by theme-song expansion, including uncached entries. */
+export const MEDIA_THEME_SONGS_QUERY = `
+query MediaThemeSongs($id: Int!) {
   Media(id: $id) {
     id
     idMal
+    type
+    title { english romaji native }
+    coverImage { large }
+    format
+    startDate { year month day }
+    synonyms
   }
 }
 `.trim();

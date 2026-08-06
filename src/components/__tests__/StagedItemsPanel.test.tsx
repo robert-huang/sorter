@@ -662,12 +662,11 @@ describe('StagedItemsPanel · Start Sort split-button', () => {
     expect(items[1].textContent).toContain('Insertion sort');
     expect(items[0].getAttribute('aria-checked')).toBe('true');
     expect(items[1].getAttribute('aria-checked')).toBe('false');
-    expect(
-      items[0].querySelector('.staged-panel-start-menu-check svg'),
-    ).not.toBeNull();
-    expect(
-      items[1].querySelector('.staged-panel-start-menu-check svg'),
-    ).toBeNull();
+    const selectedCheck = items[0].querySelector('.staged-panel-start-menu-check');
+    const unselectedCheck = items[1].querySelector('.staged-panel-start-menu-check');
+    expect(selectedCheck?.textContent).toBe('✓');
+    expect(selectedCheck?.querySelector('svg')).toBeNull();
+    expect(unselectedCheck?.textContent).toBe('');
   });
 
   it('picking Insertion emits onStartModeChange, relabels the CTA, and closes the menu', () => {

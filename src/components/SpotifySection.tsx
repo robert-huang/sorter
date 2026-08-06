@@ -357,7 +357,7 @@ export function SpotifySection() {
       {!configured && (
         <div className="settings-status settings-anilist-hint" style={{ color: 'var(--text-muted)' }}>
           Spotify sign-in is not configured for this build (
-          <code>VITE_SPOTIFY_CLIENT_ID</code> / <code>VITE_SPOTIFY_CLIENT_SECRET</code>).
+          <code>VITE_SPOTIFY_CLIENT_ID</code>).
         </div>
       )}
       {showDevSetup && (

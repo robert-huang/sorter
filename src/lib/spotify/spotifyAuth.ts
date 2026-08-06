@@ -6,7 +6,6 @@
  *
  * Env:
  *   - `VITE_SPOTIFY_CLIENT_ID` (required)
- *   - `VITE_SPOTIFY_CLIENT_SECRET` (required for token exchange in this build)
  *   - `VITE_SPOTIFY_OAUTH_CALLBACK_URL` (optional override)
  */
 
@@ -22,7 +21,6 @@ import { stopPlaylistIsrcBackfill } from './spotifyPlaylistIsrcBackfill';
 
 const ENV = ((import.meta as unknown as { env?: Record<string, string | undefined> }).env) ?? {};
 const SPOTIFY_CLIENT_ID: string = ENV.VITE_SPOTIFY_CLIENT_ID ?? '';
-const SPOTIFY_CLIENT_SECRET: string = ENV.VITE_SPOTIFY_CLIENT_SECRET ?? '';
 const CALLBACK_URL_OVERRIDE: string = ENV.VITE_SPOTIFY_OAUTH_CALLBACK_URL ?? '';
 
 export const SPOTIFY_AUTH_STORAGE_KEY = 'spotify:auth:v1';
@@ -151,7 +149,7 @@ export function getStoredSpotifyAuth(): StoredSpotifyAuth | null {
 }
 
 export function isSpotifyOAuthConfigured(): boolean {
-  return SPOTIFY_CLIENT_ID.length > 0 && SPOTIFY_CLIENT_SECRET.length > 0;
+  return SPOTIFY_CLIENT_ID.length > 0;
 }
 
 export function getSpotifyOAuthCallbackUrl(): string {
@@ -199,26 +197,25 @@ export function isSpotifyOAuthCallbackMessage(
   return row.type === SPOTIFY_OAUTH_MESSAGE_TYPE;
 }
 
-function requireClientConfig(): { clientId: string; clientSecret: string } {
-  if (!SPOTIFY_CLIENT_ID || !SPOTIFY_CLIENT_SECRET) {
+function requireClientConfig(): { clientId: string } {
+  if (!SPOTIFY_CLIENT_ID) {
     throw new Error(
-      'Spotify sign-in is not configured: set VITE_SPOTIFY_CLIENT_ID and ' +
-        `VITE_SPOTIFY_CLIENT_SECRET at build time. Register redirect URL ` +
+      'Spotify sign-in is not configured: set VITE_SPOTIFY_CLIENT_ID at build time. ' +
+        `Register redirect URL ` +
         `${getSpotifyOAuthCallbackUrl()} in the Spotify developer dashboard.`,
     );
   }
-  return { clientId: SPOTIFY_CLIENT_ID, clientSecret: SPOTIFY_CLIENT_SECRET };
+  return { clientId: SPOTIFY_CLIENT_ID };
 }
 
 async function exchangeAuthorizationCode(code: string, verifier: string): Promise<StoredSpotifyAuth> {
-  const { clientId, clientSecret } = requireClientConfig();
+  const { clientId } = requireClientConfig();
   const body = new URLSearchParams({
     grant_type: 'authorization_code',
     code,
     redirect_uri: getSpotifyOAuthCallbackUrl(),
     client_id: clientId,
     code_verifier: verifier,
-    client_secret: clientSecret,
   });
   const res = await fetch(TOKEN_ENDPOINT, {
     method: 'POST',
@@ -235,12 +232,11 @@ async function exchangeAuthorizationCode(code: string, verifier: string): Promis
 }
 
 async function refreshAccessToken(refreshToken: string): Promise<StoredSpotifyAuth> {
-  const { clientId, clientSecret } = requireClientConfig();
+  const { clientId } = requireClientConfig();
   const body = new URLSearchParams({
     grant_type: 'refresh_token',
     refresh_token: refreshToken,
     client_id: clientId,
-    client_secret: clientSecret,
   });
   const res = await fetch(TOKEN_ENDPOINT, {
     method: 'POST',

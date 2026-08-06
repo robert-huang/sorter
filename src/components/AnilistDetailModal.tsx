@@ -560,19 +560,32 @@ export function AnilistDetailModal({
     setError(null);
     try {
       const forceRefresh = themeSongsFetchedAt !== null;
-      await runAnilistMediaThemeSongsExpansion(
+      const expansion = await runAnilistMediaThemeSongsExpansion(
         mediaId,
         undefined,
         forceRefresh ? { force: true } : undefined,
       );
+      if (!expansion) {
+        throw new Error('Theme songs are only available for AniList anime entries.');
+      }
       invalidateThemeSongPlaylistMatches(mediaId);
       await refreshThemeSongsFromDb();
+      if (!detail) {
+        setLoadTick((tick) => tick + 1);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Theme song refresh failed.');
     } finally {
       setThemeSongsLoading(false);
     }
-  }, [mediaId, themeSongsLoading, expanding, themeSongsFetchedAt, refreshThemeSongsFromDb]);
+  }, [
+    mediaId,
+    themeSongsLoading,
+    expanding,
+    themeSongsFetchedAt,
+    refreshThemeSongsFromDb,
+    detail,
+  ]);
 
   const onExcludeThemeSong = useCallback(
     async (row: MediaThemeSongsPayload['rows'][number]) => {
@@ -701,10 +714,21 @@ export function AnilistDetailModal({
 
         {loading && <p>Loading…</p>}
         {!loading && !detail && !error && (
-          <p style={{ color: 'var(--text-muted)' }}>
-            Couldn't find this entry locally. Refresh your AniList list to
-            re-cache its metadata.
-          </p>
+          <div>
+            <p style={{ color: 'var(--text-muted)' }}>
+              Couldn't find this entry locally. Use Refresh above to load its
+              cast and staff, or load only its theme songs below.
+            </p>
+            <button
+              type="button"
+              className="btn small"
+              onClick={() => void onRefreshThemeSongs()}
+              disabled={themeSongsLoading || expanding}
+              aria-label="Load theme songs"
+            >
+              {themeSongsLoading ? 'Loading theme songs…' : 'Load theme songs'}
+            </button>
+          </div>
         )}
         {/* Render load errors at the top level so a failed initial fetch
             (detail === null) still surfaces the reason — otherwise the

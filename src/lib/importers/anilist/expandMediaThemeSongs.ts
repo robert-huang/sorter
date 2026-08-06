@@ -3,8 +3,13 @@
  */
 
 import type { AnilistImportContext } from './context';
+import {
+  MEDIA_STUB_UPSERT_SQL,
+  mediaStubRowToParams,
+  type MediaStubRow,
+} from './lazyExpansion';
 import { emitProgress } from './progress';
-import { MEDIA_ID_MAL_QUERY } from './queries';
+import { MEDIA_THEME_SONGS_QUERY } from './queries';
 import { needsGraphDataRefresh } from './toolsFetchPolicy';
 import {
   findMatchingAnimeCluster,
@@ -37,10 +42,24 @@ import type {
 } from './themeSongs/types';
 import type { AnilistDbExecutor } from './context';
 
-type MediaIdMalResponse = {
+type MediaThemeSongsResponse = {
   Media?: {
     id: number;
     idMal: number | null;
+    type: MediaStubRow['type'];
+    title: {
+      english: string | null;
+      romaji: string | null;
+      native: string | null;
+    };
+    coverImage: { large: string | null } | null;
+    format: MediaStubRow['format'];
+    startDate: {
+      year: number | null;
+      month: number | null;
+      day: number | null;
+    } | null;
+    synonyms: string[] | null;
   } | null;
 };
 
@@ -155,6 +174,34 @@ async function readMediaLite(
   };
 }
 
+async function persistMissingMediaStub(
+  ctx: AnilistImportContext,
+  media: NonNullable<MediaThemeSongsResponse['Media']>,
+): Promise<void> {
+  const now = ctx.now();
+  const row: MediaStubRow = {
+    id: media.id,
+    type: media.type,
+    title_english: media.title.english,
+    title_romaji: media.title.romaji,
+    title_native: media.title.native,
+    cover_image: media.coverImage?.large ?? null,
+    format: media.format,
+    start_year: media.startDate?.year ?? null,
+    start_month: media.startDate?.month ?? null,
+    start_day: media.startDate?.day ?? null,
+    synonyms_json: media.synonyms ? JSON.stringify(media.synonyms) : null,
+    fetched_at: now,
+    updated_at: now,
+  };
+  await ctx.db.execBatch([
+    {
+      sql: MEDIA_STUB_UPSERT_SQL,
+      params: mediaStubRowToParams(row),
+    },
+  ]);
+}
+
 async function persistThemeSongsExpansion(
   ctx: AnilistImportContext,
   mediaId: number,
@@ -183,11 +230,8 @@ export async function expandMediaThemeSongs(
   mediaId: number,
   options: ExpandMediaThemeSongsOptions = {},
 ): Promise<ExpandMediaThemeSongsResult | null> {
-  const media = await readMediaLite(ctx.db, mediaId);
-  if (!media) {
-    return null;
-  }
-  if (media.type !== 'ANIME') {
+  const cachedMedia = await readMediaLite(ctx.db, mediaId);
+  if (cachedMedia && cachedMedia.type !== 'ANIME') {
     return null;
   }
 
@@ -215,10 +259,20 @@ export async function expandMediaThemeSongs(
     itemsSoFar: 0,
   });
 
-  const malResponse = await ctx.executeQuery<MediaIdMalResponse>(MEDIA_ID_MAL_QUERY, {
-    id: mediaId,
-  });
-  const malId = malResponse?.Media?.idMal ?? null;
+  const mediaResponse = await ctx.executeQuery<MediaThemeSongsResponse>(
+    MEDIA_THEME_SONGS_QUERY,
+    {
+      id: mediaId,
+    },
+  );
+  const fetchedMedia = mediaResponse?.Media ?? null;
+  if (!fetchedMedia || fetchedMedia.type !== 'ANIME') {
+    return null;
+  }
+  if (!cachedMedia) {
+    await persistMissingMediaStub(ctx, fetchedMedia);
+  }
+  const malId = fetchedMedia.idMal;
 
   if (malId === null) {
     const sources: ThemeSongSourcesHealth = {
@@ -253,9 +307,9 @@ export async function expandMediaThemeSongs(
 
   let aniHits: Awaited<ReturnType<typeof searchAniplaylistForMediaTitles>> = [];
   const mediaTitles = {
-    english: media.title_english,
-    romaji: media.title_romaji,
-    native: media.title_native,
+    english: fetchedMedia.title.english ?? cachedMedia?.title_english ?? null,
+    romaji: fetchedMedia.title.romaji ?? cachedMedia?.title_romaji ?? null,
+    native: fetchedMedia.title.native ?? cachedMedia?.title_native ?? null,
   };
   if (collectMediaTitleStrings(mediaTitles).length > 0) {
     try {

@@ -323,6 +323,46 @@ describe('AnilistDetailModal — lazy expansion', () => {
     expect(mockedExpand).not.toHaveBeenCalled();
   });
 
+  it('loads theme songs for an uncached show without fetching cast or staff', async () => {
+    mockedGetMediaDetail
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(makeDetail(123, false));
+    mockedGetThemeSongs
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue({
+        mediaId: 123,
+        malId: 321,
+        fetchedAt: 1_700_000_000_000,
+        payload: { version: 1, aniplaylistAvailable: true, rows: [] },
+      });
+
+    await act(async () => {
+      root.render(
+        <AnilistDetailModal
+          mediaId={123}
+          fallbackTitle="Unknown Title"
+          onClose={() => {}}
+        />,
+      );
+    });
+    await flushPromises();
+
+    const loadThemesButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Load theme songs"]',
+    );
+    expect(loadThemesButton).not.toBeNull();
+
+    await act(async () => {
+      loadThemesButton?.click();
+    });
+    await flushPromises();
+
+    expect(mockedThemeExpand).toHaveBeenCalledWith(123, undefined, undefined);
+    expect(mockedExpand).not.toHaveBeenCalled();
+    expect(mockedGetMediaDetail).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain('Theme songs');
+  });
+
   it('surfaces a load error inline when getMediaDetail throws', async () => {
     mockedGetMediaDetail.mockRejectedValueOnce(new Error('boom'));
     await act(async () => {

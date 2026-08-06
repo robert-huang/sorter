@@ -82,7 +82,6 @@ jobs:
           VITE_ANIPLAYLIST_PROXY_URL: ${{ secrets.VITE_ANIPLAYLIST_PROXY_URL }}
           VITE_MAL_PROXY_URL: ${{ secrets.VITE_MAL_PROXY_URL }}
           VITE_SPOTIFY_CLIENT_ID: ${{ secrets.VITE_SPOTIFY_CLIENT_ID }}
-          VITE_SPOTIFY_CLIENT_SECRET: ${{ secrets.VITE_SPOTIFY_CLIENT_SECRET }}
           VITE_SPOTIFY_PROXY_URL: ${{ secrets.VITE_SPOTIFY_PROXY_URL }}
 
       - uses: actions/upload-pages-artifact@v5

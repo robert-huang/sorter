@@ -505,18 +505,53 @@ export function isPlaylistCacheIncomplete(cache: SpotifyPlaylistCache): boolean 
   return false;
 }
 
+type SpotifyApiErrorBody = {
+  error?: string | { message?: string };
+  message?: string;
+};
+
+export const SPOTIFY_UNREGISTERED_USER_MESSAGE =
+  'This Spotify account is not registered for this app. Ask the app owner to add your name and Spotify account email in Spotify Developer Dashboard → User Management, then sign out and sign in again.';
+
+function readSpotifyErrorMessage(body: SpotifyApiErrorBody): string | null {
+  if (typeof body.error === 'string') {
+    return body.error;
+  }
+  if (body.error && typeof body.error.message === 'string') {
+    return body.error.message;
+  }
+  return typeof body.message === 'string' ? body.message : null;
+}
+
+function isUnregisteredSpotifyUser(message: string | null): boolean {
+  if (!message) {
+    return false;
+  }
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes('user is not registered for this application') ||
+    (normalized.includes('not registered') && normalized.includes('developer'))
+  );
+}
+
 async function fetchJson<T>(url: string, accessToken: string): Promise<T> {
   const res = await spotifyApiFetch(url, accessToken);
   if (!res.ok) {
-    let detail = '';
+    let message: string | null = null;
     try {
-      const body = (await res.json()) as { error?: { message?: string } };
-      if (body.error?.message) {
-        detail = `: ${body.error.message}`;
+      const raw = await res.text();
+      try {
+        message = readSpotifyErrorMessage(JSON.parse(raw) as SpotifyApiErrorBody);
+      } catch {
+        message = raw.trim() || null;
       }
     } catch {
-      /* ignore non-JSON bodies */
+      /* ignore unreadable bodies */
     }
+    if (res.status === 403 && isUnregisteredSpotifyUser(message)) {
+      throw new Error(SPOTIFY_UNREGISTERED_USER_MESSAGE);
+    }
+    const detail = message ? `: ${message}` : '';
     if (res.status === 403 && url.includes('/items')) {
       throw new Error(
         `Spotify API 403${detail} — playlist tracks are only available for playlists you own or collaborate on. Pick a different playlist.`,
