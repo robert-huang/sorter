@@ -62,6 +62,9 @@ import {
   getStateStorageStatus,
   getStateWriterId,
 } from '../../lib/stateStorageDb';
+import { loadCachedCanvasImage } from './bumpChartImageCache';
+
+export { canvasImageFetchUrls } from './bumpChartImageCache';
 
 type ChartSide = 'left' | 'right';
 
@@ -698,91 +701,6 @@ function BumpChartLabel({
   );
 }
 
-type LoadedCanvasImage = {
-  source: CanvasImageSource;
-  dispose: () => void;
-};
-
-const ANILIST_IMAGE_HOST = 's4.anilist.co';
-
-export function canvasImageFetchUrls(
-  src: string,
-  configuredProxyUrl = import.meta.env.VITE_ANIPLAYLIST_PROXY_URL?.trim() ?? '',
-  useLocalProxy = import.meta.env.DEV,
-): string[] {
-  let sourceUrl: URL;
-  try {
-    sourceUrl = new URL(src);
-  } catch {
-    return [src];
-  }
-  if (sourceUrl.hostname !== ANILIST_IMAGE_HOST) {
-    return [src];
-  }
-
-  const sourcePath = `${sourceUrl.pathname}${sourceUrl.search}`;
-  const fetchUrls = [src];
-  if (configuredProxyUrl) {
-    try {
-      const proxyUrl = new URL(configuredProxyUrl);
-      const basePath = proxyUrl.pathname.replace(/\/+$/, '');
-      proxyUrl.pathname = `${basePath}/image`;
-      proxyUrl.search = '';
-      proxyUrl.hash = '';
-      proxyUrl.searchParams.set('path', sourcePath);
-      fetchUrls.push(proxyUrl.toString());
-    } catch {
-      // Fall through to the local proxy when a development override is invalid.
-    }
-  }
-  if (useLocalProxy) {
-    fetchUrls.push(`/api/anilist-image${sourcePath}`);
-  }
-  return fetchUrls;
-}
-
-async function decodeCanvasImage(blob: Blob): Promise<LoadedCanvasImage> {
-  if (typeof createImageBitmap === 'function') {
-    try {
-      const bitmap = await createImageBitmap(blob);
-      return { source: bitmap, dispose: () => bitmap.close() };
-    } catch {
-      // Some browsers expose createImageBitmap but cannot decode every format.
-    }
-  }
-  const objectUrl = URL.createObjectURL(blob);
-  try {
-    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const element = new Image();
-      element.onload = () => resolve(element);
-      element.onerror = () => reject(new Error('Image decode failed.'));
-      element.src = objectUrl;
-    });
-    return {
-      source: image,
-      dispose: () => URL.revokeObjectURL(objectUrl),
-    };
-  } catch (error) {
-    URL.revokeObjectURL(objectUrl);
-    throw error;
-  }
-}
-
-async function loadCanvasImage(src: string): Promise<LoadedCanvasImage | null> {
-  for (const fetchUrl of canvasImageFetchUrls(src)) {
-    try {
-      const response = await fetch(fetchUrl, { mode: 'cors' });
-      if (!response.ok) {
-        continue;
-      }
-      return await decodeCanvasImage(await response.blob());
-    } catch {
-      // AniList's CDN omits CORS headers; retry its image through our proxy.
-    }
-  }
-  return null;
-}
-
 function drawCoverImage(
   context: CanvasRenderingContext2D,
   image: CanvasImageSource,
@@ -1080,7 +998,7 @@ export async function exportChartPng(node: HTMLElement): Promise<void> {
   );
   const loadedImages = await Promise.all(
     imageElements.map((image) =>
-      loadCanvasImage(image.currentSrc || image.src),
+      loadCachedCanvasImage(image.currentSrc || image.src),
     ),
   );
   imageElements.forEach((image, index) => {
@@ -1560,7 +1478,7 @@ function SavedBumpCharts({
           <div className="bump-chart-saved-row" key={slot.id}>
             <span className="bump-chart-saved-name">{slot.name}</span>
             <span className="bump-chart-saved-date">
-              {new Date(slot.updatedAt).toLocaleDateString()}
+              {new Date(slot.updatedAt).toLocaleString()}
             </span>
             {deletingId === slot.id ? (
               <div className="bump-chart-saved-actions">

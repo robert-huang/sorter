@@ -888,7 +888,7 @@ describe('BumpChartPanel staging flow', () => {
       anilistImage,
       '',
       true,
-    )[1];
+    )[0];
     if (!proxiedAnilistImage) {
       throw new Error('AniList image proxy is not configured for this test');
     }
@@ -1064,11 +1064,11 @@ describe('BumpChartPanel staging flow', () => {
 
     await exportChartPng(chart);
 
-    expect(fetchMock).toHaveBeenCalledWith(anilistImage, { mode: 'cors' });
     expect(fetchMock).toHaveBeenCalledWith(
       proxiedAnilistImage,
       { mode: 'cors' },
     );
+    expect(fetchMock).not.toHaveBeenCalledWith(anilistImage, { mode: 'cors' });
     expect(context.drawImage).toHaveBeenCalledOnce();
     expect(bitmap.close).toHaveBeenCalledOnce();
     expect(context.fillText).toHaveBeenCalledWith('AB', 0, 0);
@@ -1121,7 +1121,6 @@ describe('canvasImageFetchUrls', () => {
     expect(
       canvasImageFetchUrls(source, 'https://proxy.example/root/', true),
     ).toEqual([
-      source,
       'https://proxy.example/root/image?path=%2Ffile%2Fanilistcdn%2Fmedia%2Fanime%2Fcover%2Flarge%2Ftest.jpg',
       '/api/anilist-image/file/anilistcdn/media/anime/cover/large/test.jpg',
     ]);
@@ -1132,5 +1131,6 @@ describe('canvasImageFetchUrls', () => {
         true,
       ),
     ).toEqual(['https://images.example/cover.jpg']);
+    expect(canvasImageFetchUrls(source, '', false)).toEqual([source]);
   });
 });
