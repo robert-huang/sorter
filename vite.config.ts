@@ -26,6 +26,16 @@ function aniplaylistAlgoliaProxy(): ProxyOptions {
   };
 }
 
+/** Same-origin AniList CDN proxy used by canvas exports. */
+function anilistImageProxy(): ProxyOptions {
+  return {
+    target: 'https://s4.anilist.co',
+    changeOrigin: true,
+    secure: true,
+    rewrite: (path) => path.replace(/^\/api\/anilist-image/, ''),
+  };
+}
+
 /**
  * MyAnimeList API v2 has no CORS headers — browsers block direct fetch.
  * Proxy server-side and inject X-MAL-CLIENT-ID from VITE_MAL_CLIENT_ID.
@@ -72,6 +82,7 @@ export default defineConfig(({ mode }) => {
       headers: crossOriginIsolationHeaders,
       proxy: {
         '/api/aniplaylist/algolia': aniplaylistAlgoliaProxy(),
+        '/api/anilist-image': anilistImageProxy(),
         '/api/mal': malApiProxy(malClientId),
         '/api/spotify': spotifyApiProxy(),
       },
@@ -80,6 +91,7 @@ export default defineConfig(({ mode }) => {
       headers: crossOriginIsolationHeaders,
       proxy: {
         '/api/aniplaylist/algolia': aniplaylistAlgoliaProxy(),
+        '/api/anilist-image': anilistImageProxy(),
         '/api/mal': malApiProxy(malClientId),
         '/api/spotify': spotifyApiProxy(),
       },

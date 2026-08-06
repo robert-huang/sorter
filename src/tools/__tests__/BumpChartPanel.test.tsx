@@ -11,6 +11,7 @@ import {
 } from 'vitest';
 import {
   BumpChartPanel,
+  canvasImageFetchUrls,
   exportChartPng,
 } from '../panels/BumpChartPanel';
 
@@ -75,6 +76,34 @@ async function importSingle(sideIndex: number, label: string): Promise<void> {
 }
 
 describe('BumpChartPanel staging flow', () => {
+  it('places import actions in the order headings and counts in the staging headings', async () => {
+    await act(async () => {
+      root.render(
+        <BumpChartPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+    });
+
+    const cards = container.querySelectorAll('.bump-chart-import-card');
+    expect(cards).toHaveLength(2);
+    for (const card of cards) {
+      expect(
+        card.querySelector('.bump-chart-import-heading > .btn')?.textContent,
+      ).toContain('Import ranked items');
+      expect(
+        card.querySelector('.bump-chart-staging-heading')?.textContent,
+      ).toContain('Staging area0 staged');
+    }
+
+    await importSingle(0, 'Before item');
+    expect(
+      cards[0]?.querySelector('.bump-chart-staging-heading')?.textContent,
+    ).toContain('Staging area1 staged');
+  });
+
   it('remembers the last importer tab when reopened', async () => {
     await act(async () => {
       root.render(
@@ -359,11 +388,22 @@ describe('BumpChartPanel staging flow', () => {
     );
   });
 
-  it('exports without drawing inaccessible remote images onto the canvas', async () => {
+  it('exports AniList images through the CORS proxy and skips inaccessible images', async () => {
+    const anilistImage =
+      'https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/test.jpg';
+    const proxiedAnilistImage = canvasImageFetchUrls(
+      anilistImage,
+      '',
+      true,
+    )[1];
+    if (!proxiedAnilistImage) {
+      throw new Error('AniList image proxy is not configured for this test');
+    }
     const chart = document.createElement('div');
     chart.style.backgroundColor = 'rgb(255, 255, 255)';
     chart.innerHTML =
       '<a class="bump-chart-item-link"><img src="https://example.invalid/cover.jpg"></a>' +
+      `<a class="bump-chart-item-link"><img src="${anilistImage}"></a>` +
       '<span class="bump-chart-label">A<span>B</span></span>' +
       '<svg><g class="bump-chart-movement-badge" data-png-exclude="true">' +
       '<text>+2</text></g></svg>';
@@ -379,7 +419,38 @@ describe('BumpChartPanel staging flow', () => {
       height: 200,
       toJSON: () => ({}),
     });
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('blocked')));
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url === proxiedAnilistImage) {
+        return new Response(new Blob(['image'], { type: 'image/jpeg' }), {
+          status: 200,
+        });
+      }
+      throw new Error('blocked');
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    class FakeImageBitmap {
+      readonly width = 100;
+      readonly height = 150;
+      readonly close = vi.fn();
+    }
+    const bitmap = new FakeImageBitmap();
+    vi.stubGlobal('ImageBitmap', FakeImageBitmap);
+    vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue(bitmap));
+    const imageElements = chart.querySelectorAll('img');
+    imageElements.forEach((image, index) => {
+      vi.spyOn(image, 'getBoundingClientRect').mockReturnValue({
+        x: index * 50,
+        y: 10,
+        top: 10,
+        right: index * 50 + 38,
+        bottom: 58,
+        left: index * 50,
+        width: 38,
+        height: 48,
+        toJSON: () => ({}),
+      });
+    });
 
     const context = {
       scale: vi.fn(),
@@ -447,7 +518,13 @@ describe('BumpChartPanel staging flow', () => {
 
     await exportChartPng(chart);
 
-    expect(context.drawImage).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledWith(anilistImage, { mode: 'cors' });
+    expect(fetchMock).toHaveBeenCalledWith(
+      proxiedAnilistImage,
+      { mode: 'cors' },
+    );
+    expect(context.drawImage).toHaveBeenCalledOnce();
+    expect(bitmap.close).toHaveBeenCalledOnce();
     expect(context.fillText).toHaveBeenCalledWith('AB', 0, 0);
     expect(context.fillText).not.toHaveBeenCalledWith(
       '+2',
@@ -475,5 +552,26 @@ describe('BumpChartPanel staging flow', () => {
       delete (URL as { revokeObjectURL?: unknown }).revokeObjectURL;
     }
     chart.remove();
+  });
+});
+
+describe('canvasImageFetchUrls', () => {
+  it('adds the configured worker fallback only for AniList CDN images', () => {
+    const source =
+      'https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/test.jpg';
+    expect(
+      canvasImageFetchUrls(source, 'https://proxy.example/root/', true),
+    ).toEqual([
+      source,
+      'https://proxy.example/root/image?path=%2Ffile%2Fanilistcdn%2Fmedia%2Fanime%2Fcover%2Flarge%2Ftest.jpg',
+      '/api/anilist-image/file/anilistcdn/media/anime/cover/large/test.jpg',
+    ]);
+    expect(
+      canvasImageFetchUrls(
+        'https://images.example/cover.jpg',
+        'https://proxy.example',
+        true,
+      ),
+    ).toEqual(['https://images.example/cover.jpg']);
   });
 });

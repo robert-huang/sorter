@@ -483,12 +483,11 @@ export function StagedItemsPanel({
             </>
           )}
           {markedCount > 0 && (
-            <>
-              {' '}
-              · <span className="staged-panel-marked-count">
+            <span className="staged-panel-marked-line">
+              <span className="staged-panel-marked-count">
                 {markedCount} marked for removal
               </span>
-            </>
+            </span>
           )}
         </div>
         <div className="staged-panel-actions">

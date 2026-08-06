@@ -940,7 +940,7 @@ html {
 
 .settings-anilist-display-prefs--standalone {
   margin-top: 0;
-  padding-left: 0;
+  padding-left: 14px;
 }
 
 .settings-tab-scroll > .settings-anilist-display-prefs-title {
@@ -6077,6 +6077,10 @@ a:where(.anime-to-anime-anilist-link):visited {
   color: var(--text);
 }
 
+.staged-panel-marked-line {
+  display: block;
+}
+
 .staged-panel-actions {
   display: flex;
   gap: 8px;
@@ -8110,6 +8114,14 @@ a:where(.anime-to-anime-anilist-link):visited {
   margin-bottom: 12px;
 }
 
+.bump-chart-import-heading > div {
+  min-width: 0;
+}
+
+.bump-chart-import-heading > .btn {
+  flex: 0 0 auto;
+}
+
 .bump-chart-import-heading h3,
 .bump-chart-import-heading p {
   margin: 0;
@@ -8164,8 +8176,15 @@ a:where(.anime-to-anime-anilist-link):visited {
   background: color-mix(in srgb, var(--surface-alt) 45%, transparent);
 }
 
-.bump-chart-staging-title {
+.bump-chart-staging-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 8px;
+}
+
+.bump-chart-staging-title {
   color: var(--text-muted);
   font-size: 12px;
   font-weight: 800;
@@ -8296,7 +8315,7 @@ a:where(.anime-to-anime-anilist-link):visited {
 }
 
 .bump-chart-item-link--left img {
-  order: -1;
+  order: 1;
 }
 
 .bump-chart-label {

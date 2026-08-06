@@ -222,16 +222,13 @@ function BumpStage({
           <h3>{title}</h3>
           <p>Each import is appended in pre-ranked order.</p>
         </div>
-        <span className="bump-chart-stage-count">
-          {deduped.length} staged
-        </span>
-      </div>
-
-      <div className="bump-chart-import-action-row">
         <button type="button" className="btn primary" onClick={onImport}>
           Import ranked items
         </button>
-        {hasCustomLabels && (
+      </div>
+
+      {hasCustomLabels && (
+        <div className="bump-chart-import-action-row">
           <label className="checkbox-row bump-chart-preserve-labels">
             <input
               type="checkbox"
@@ -247,11 +244,16 @@ function BumpStage({
               ?
             </span>
           </label>
-        )}
-      </div>
+        </div>
+      )}
 
       <div className="bump-chart-staging-area">
-        <div className="bump-chart-staging-title">Staging area</div>
+        <div className="bump-chart-staging-heading">
+          <div className="bump-chart-staging-title">Staging area</div>
+          <span className="bump-chart-stage-count">
+            {deduped.length} staged
+          </span>
+        </div>
         <StagedItemsPanel
           staged={stagedGroups}
           pending={[]}
@@ -453,18 +455,55 @@ type LoadedCanvasImage = {
   dispose: () => void;
 };
 
-async function loadCanvasImage(src: string): Promise<LoadedCanvasImage | null> {
+const ANILIST_IMAGE_HOST = 's4.anilist.co';
+
+export function canvasImageFetchUrls(
+  src: string,
+  configuredProxyUrl = import.meta.env.VITE_ANIPLAYLIST_PROXY_URL?.trim() ?? '',
+  useLocalProxy = import.meta.env.DEV,
+): string[] {
+  let sourceUrl: URL;
   try {
-    const response = await fetch(src, { mode: 'cors' });
-    if (!response.ok) {
-      return null;
+    sourceUrl = new URL(src);
+  } catch {
+    return [src];
+  }
+  if (sourceUrl.hostname !== ANILIST_IMAGE_HOST) {
+    return [src];
+  }
+
+  const sourcePath = `${sourceUrl.pathname}${sourceUrl.search}`;
+  const fetchUrls = [src];
+  if (configuredProxyUrl) {
+    try {
+      const proxyUrl = new URL(configuredProxyUrl);
+      const basePath = proxyUrl.pathname.replace(/\/+$/, '');
+      proxyUrl.pathname = `${basePath}/image`;
+      proxyUrl.search = '';
+      proxyUrl.hash = '';
+      proxyUrl.searchParams.set('path', sourcePath);
+      fetchUrls.push(proxyUrl.toString());
+    } catch {
+      // Fall through to the local proxy when a development override is invalid.
     }
-    const blob = await response.blob();
-    if (typeof createImageBitmap === 'function') {
+  }
+  if (useLocalProxy) {
+    fetchUrls.push(`/api/anilist-image${sourcePath}`);
+  }
+  return fetchUrls;
+}
+
+async function decodeCanvasImage(blob: Blob): Promise<LoadedCanvasImage> {
+  if (typeof createImageBitmap === 'function') {
+    try {
       const bitmap = await createImageBitmap(blob);
       return { source: bitmap, dispose: () => bitmap.close() };
+    } catch {
+      // Some browsers expose createImageBitmap but cannot decode every format.
     }
-    const objectUrl = URL.createObjectURL(blob);
+  }
+  const objectUrl = URL.createObjectURL(blob);
+  try {
     const image = await new Promise<HTMLImageElement>((resolve, reject) => {
       const element = new Image();
       element.onload = () => resolve(element);
@@ -475,9 +514,25 @@ async function loadCanvasImage(src: string): Promise<LoadedCanvasImage | null> {
       source: image,
       dispose: () => URL.revokeObjectURL(objectUrl),
     };
-  } catch {
-    return null;
+  } catch (error) {
+    URL.revokeObjectURL(objectUrl);
+    throw error;
   }
+}
+
+async function loadCanvasImage(src: string): Promise<LoadedCanvasImage | null> {
+  for (const fetchUrl of canvasImageFetchUrls(src)) {
+    try {
+      const response = await fetch(fetchUrl, { mode: 'cors' });
+      if (!response.ok) {
+        continue;
+      }
+      return await decodeCanvasImage(await response.blob());
+    } catch {
+      // AniList's CDN omits CORS headers; retry its image through our proxy.
+    }
+  }
+  return null;
 }
 
 function drawCoverImage(

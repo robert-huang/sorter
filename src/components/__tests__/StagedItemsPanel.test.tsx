@@ -525,6 +525,30 @@ function menuItems(): HTMLButtonElement[] {
 }
 
 describe('StagedItemsPanel · Start Sort split-button', () => {
+  it('puts the marked count on its own line without a separator dot', () => {
+    act(() => {
+      root.render(
+        <SplitButtonHarness
+          onStartSort={() => {}}
+          onModeSpy={() => {}}
+          staged={[
+            sublist('g1', 'kept.csv', [item('a'), item('b')]),
+            {
+              ...sublist('g2', 'removed.csv', [item('c')]),
+              markedForRemoval: true,
+            },
+          ]}
+        />,
+      );
+    });
+
+    const summary = container.querySelector('.staged-panel-summary');
+    const markedLine = summary?.querySelector('.staged-panel-marked-line');
+    expect(summary?.textContent).toContain('(1 pre-ranked sublist)');
+    expect(summary?.textContent).not.toContain('·');
+    expect(markedLine?.textContent).toBe('1 marked for removal');
+  });
+
   it('defaults to the merge label and is enabled with 2+ unique items', () => {
     act(() => {
       root.render(
