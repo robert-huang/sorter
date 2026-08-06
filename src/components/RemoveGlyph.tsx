@@ -2,10 +2,15 @@
  * Centered × for square `icon-btn` remove buttons. Unicode U+00D7 sits
  * low in the em-box on Windows UI fonts; SVG geometry is platform-neutral.
  */
-export function RemoveGlyph({ size = 12 }: { size?: number }) {
+type RemoveGlyphProps = {
+  size?: number;
+  className?: string;
+};
+
+export function RemoveGlyph({ size = 12, className }: RemoveGlyphProps) {
   return (
     <svg
-      className="icon-btn-glyph"
+      className={['icon-btn-glyph', className].filter(Boolean).join(' ')}
       width={size}
       height={size}
       viewBox="0 0 12 12"

@@ -78,6 +78,47 @@ describe('ResultScreen Confirm sort entry point', () => {
 
     expect(buttonByText('Confirm sort')).toBeUndefined();
   });
+
+  it('keeps copied confirmations as status text', async () => {
+    const originalClipboard = Object.getOwnPropertyDescriptor(
+      navigator,
+      'clipboard',
+    );
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    vi.useFakeTimers();
+
+    try {
+      act(() => {
+        root.render(<ResultScreen {...resultProps(seedAsDoneMerge([A, B]))} />);
+      });
+      const copyButton = buttonByText('Copy as Markdown');
+      expect(copyButton).toBeDefined();
+
+      await act(async () => {
+        copyButton?.click();
+      });
+
+      expect(writeText).toHaveBeenCalledOnce();
+      expect(copyButton?.textContent).toBe('✓ Copied');
+      expect(copyButton?.querySelector('svg')).toBeNull();
+
+      act(() => vi.runAllTimers());
+    } finally {
+      vi.useRealTimers();
+      if (originalClipboard) {
+        Object.defineProperty(navigator, 'clipboard', originalClipboard);
+      } else {
+        Object.defineProperty(navigator, 'clipboard', {
+          configurable: true,
+          value: undefined,
+        });
+      }
+    }
+  });
 });
 
 describe('ConfirmSortConfirmModal', () => {

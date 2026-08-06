@@ -207,6 +207,7 @@ describe('ListScreen · insert-context LIST-tab controls (insertion engine)', ()
       'button[title="Pull this item back out and re-insert it (fresh binary search)"]',
     );
     expect(reinsertBtn).not.toBeNull();
+    expect(reinsertBtn?.querySelector('svg.circular-arrow-glyph')).not.toBeNull();
     act(() => reinsertBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
     expect(onReturnToPending).toHaveBeenCalledWith('a');
   });
@@ -237,6 +238,11 @@ describe('ListScreen · insert-context LIST-tab controls (insertion engine)', ()
       hiddenSection?.querySelector('button[title="Restore at old rank"]'),
     ).not.toBeNull();
     expect(
+      hiddenSection?.querySelector(
+        'button[title="Restore at old rank"] svg.circular-arrow-glyph',
+      ),
+    ).not.toBeNull();
+    expect(
       hiddenSection?.querySelector('button[title="Pull out and binary-insert again"]'),
     ).toBeNull();
   });
@@ -257,6 +263,7 @@ describe('ListScreen · hidden panel on completed merge sort', () => {
       'button[title="Restore at old rank"]',
     );
     expect(restoreBtn).not.toBeNull();
+    expect(restoreBtn?.querySelector('svg.circular-arrow-glyph')).not.toBeNull();
     act(() => restoreBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
     expect(onUnhide).toHaveBeenCalledWith('b');
     expect(onReinsertHidden).not.toHaveBeenCalled();
@@ -289,6 +296,7 @@ describe('ListScreen · hidden panel during a merge', () => {
       'button[title="Restore into current merge"]',
     );
     expect(restoreBtn).not.toBeNull();
+    expect(restoreBtn?.querySelector('svg.circular-arrow-glyph')).not.toBeNull();
     expect(hiddenSection?.textContent).toContain('↺ Restore');
     expect(
       hiddenSection?.querySelector(

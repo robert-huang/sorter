@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { CircularArrowGlyph } from '../components/CircularArrowGlyph';
 
 type ToolUsernameFieldProps = {
@@ -14,6 +15,8 @@ type ToolUsernameFieldProps = {
   onRefresh?: () => void;
   refreshing?: boolean;
   refreshLabel?: string;
+  /** Optional compact control placed immediately after the refresh button. */
+  trailingControl?: ReactNode;
 };
 
 const DEFAULT_REFRESH_LABEL = 'Refresh list from AniList';
@@ -30,6 +33,7 @@ export function ToolUsernameField({
   onRefresh,
   refreshing,
   refreshLabel = DEFAULT_REFRESH_LABEL,
+  trailingControl,
 }: ToolUsernameFieldProps) {
   return (
     <label className="tool-field tool-field-label-row tool-field-username">
@@ -60,6 +64,7 @@ export function ToolUsernameField({
             <CircularArrowGlyph />
           </button>
         )}
+        {trailingControl}
       </div>
       {hint && <span className="tool-field-hint tool-field-hint-inline">{hint}</span>}
     </label>

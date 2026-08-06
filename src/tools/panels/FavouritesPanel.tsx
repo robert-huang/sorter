@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useClickOutside } from '../../lib/hooks/useClickOutside';
 import type { FavouritesFetchOptions } from '../../lib/importers/anilist/toolsFetchPolicy';
 import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
 import type { ToolPanelProps } from '../toolTypes';
@@ -8,15 +9,20 @@ import { ToolUsernameField } from '../ToolUsernameField';
 import { CharacterNameInlineList, ToolCharacterName, ToolShowButton, ToolStaffButton } from '../toolEntityLinks';
 import { useUsernameListRefresh } from '../useUsernameListRefresh';
 import { useToolsDisplayLabelRevision } from '../useToolsDisplayLabelRevision';
-import { runFavouritesAnalysis, type FavouritesRunProgress } from './favouritesApi';
+import {
+  readCachedFavouriteCharacterListLength,
+  runFavouritesAnalysis,
+  type FavouritesRunProgress,
+} from './favouritesApi';
 import {
   BIRTHDAY_MONTH_LABELS,
   buildBirthdayCalendarLayout,
   buildBirthdayCalendarRenderItems,
   buildVaPercentRankRows,
   FAVOURITES_TOP_N,
-  rebuildFavouritesResult,
   filterFavouritesSeriesRows,
+  normalizeMaxFavouriteRank,
+  rebuildFavouritesResult,
   type FavouriteCharacterRef,
   type FavouritesForm,
   type FavouritesRebuildSource,
@@ -27,6 +33,7 @@ import {
 } from './favouritesLogic';
 
 const LS_KEY = 'anime-tools-favourites-form';
+const RANK_LIMITS_LS_KEY = 'anime-tools-favourites-rank-limits';
 
 const EXPAND_ROLES_TITLE =
   'Fully re-fetch role data from AniList and save to the local database — every favourite character’s appearances, then voice-actor roles for VAs found on those characters, then voice-actor roles for your favourite staff.\n\nCan take a long time for large favourite lists. Use Analyze for a faster run from cache.';
@@ -39,30 +46,91 @@ const VA_LOG_SCORE_HELP =
 
 const DEFAULT_FORM: FavouritesForm = {
   username: '',
+  maxFavouriteRank: null,
 };
+
+type PersistedRankLimits = Record<string, number | null>;
+
+function usernameStorageKey(username: string): string {
+  return username.trim().toLowerCase();
+}
+
+function loadRankLimits(): PersistedRankLimits {
+  try {
+    const parsed = JSON.parse(
+      localStorage.getItem(RANK_LIMITS_LS_KEY) ?? '{}',
+    ) as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.entries(parsed).map(([username, value]) => [
+        usernameStorageKey(username),
+        normalizeMaxFavouriteRank(value),
+      ]),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function rankLimitForUsername(
+  rankLimits: PersistedRankLimits,
+  username: string,
+): number | null {
+  return rankLimits[usernameStorageKey(username)] ?? null;
+}
 
 function loadForm(): FavouritesForm {
   try {
     const raw = localStorage.getItem(LS_KEY);
+    const rankLimits = loadRankLimits();
     if (!raw) {
-      return { ...DEFAULT_FORM, username: withLastAnilistUsername('') };
+      const username = withLastAnilistUsername('');
+      return {
+        ...DEFAULT_FORM,
+        username,
+        maxFavouriteRank: rankLimitForUsername(rankLimits, username),
+      };
     }
     const parsed = JSON.parse(raw) as Partial<FavouritesForm & { useEnglishNames?: boolean }>;
+    const username = withLastAnilistUsername(parsed.username ?? '');
     return {
       ...DEFAULT_FORM,
-      username: withLastAnilistUsername(parsed.username ?? ''),
+      username,
+      maxFavouriteRank: rankLimitForUsername(rankLimits, username),
     };
   } catch {
-    return { ...DEFAULT_FORM, username: withLastAnilistUsername('') };
+    const username = withLastAnilistUsername('');
+    return {
+      ...DEFAULT_FORM,
+      username,
+      maxFavouriteRank: rankLimitForUsername(loadRankLimits(), username),
+    };
   }
 }
 
 function saveForm(form: FavouritesForm): void {
   try {
-    localStorage.setItem(LS_KEY, JSON.stringify(form));
+    localStorage.setItem(LS_KEY, JSON.stringify({ username: form.username }));
   } catch {
     /* ignore */
   }
+}
+
+function saveRankLimit(username: string, maxFavouriteRank: number | null): void {
+  const handle = usernameStorageKey(username);
+  if (!handle) {
+    return;
+  }
+  try {
+    const rankLimits = loadRankLimits();
+    rankLimits[handle] = normalizeMaxFavouriteRank(maxFavouriteRank);
+    localStorage.setItem(RANK_LIMITS_LS_KEY, JSON.stringify(rankLimits));
+  } catch {
+    /* ignore */
+  }
+}
+
+function analysisFormKey(form: FavouritesForm): string {
+  return `${usernameStorageKey(form.username)}:${form.maxFavouriteRank ?? 'all'}`;
 }
 
 function progressLabel(progress: FavouritesRunProgress | null): string | null {
@@ -85,6 +153,120 @@ function progressLabel(progress: FavouritesRunProgress | null): string | null {
     default:
       return null;
   }
+}
+
+function FavouriteRankLimitChip({
+  maxFavouriteRank,
+  favouriteCharacterListLength,
+  disabled,
+  onChange,
+}: {
+  maxFavouriteRank: number | null;
+  favouriteCharacterListLength: number;
+  disabled: boolean;
+  onChange: (maxFavouriteRank: number | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const sliderMaxRank = Math.max(1, favouriteCharacterListLength);
+  const activeRank =
+    maxFavouriteRank !== null && maxFavouriteRank < sliderMaxRank
+      ? maxFavouriteRank
+      : null;
+  const active = activeRank !== null;
+  const sliderValue = activeRank ?? sliderMaxRank;
+  const [rankText, setRankText] = useState(String(sliderValue));
+  const rootRef = useRef<HTMLDivElement>(null);
+  useClickOutside(rootRef, open, () => setOpen(false));
+
+  useEffect(() => {
+    if (disabled) {
+      setOpen(false);
+    }
+  }, [disabled]);
+
+  useEffect(() => {
+    setRankText(String(sliderValue));
+  }, [sliderValue]);
+
+  const commitRankText = (): void => {
+    const parsed = Number(rankText);
+    if (!Number.isFinite(parsed) || rankText.trim() === '') {
+      setRankText(String(sliderValue));
+      return;
+    }
+    const nextRank = Math.min(
+      sliderMaxRank,
+      Math.max(1, Math.floor(parsed)),
+    );
+    setRankText(String(nextRank));
+    onChange(nextRank === sliderMaxRank ? null : nextRank);
+  };
+
+  return (
+    <div
+      ref={rootRef}
+      className={`filter-chip favourite-rank-chip ${active ? 'active' : ''}`}
+    >
+      <button
+        type="button"
+        className="filter-chip-button"
+        disabled={disabled}
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        title="Limit analysis to the top N favourite characters"
+      >
+        {active ? `rank · ${activeRank}` : 'rank'}
+      </button>
+      {open ? (
+        <div
+          className="filter-chip-menu favourite-rank-slider-menu"
+          role="group"
+          aria-label="Favourite character rank limit"
+        >
+          <div className="favourite-rank-slider-value">
+            <span>top</span>
+            <output>
+              {activeRank ?? `all (${favouriteCharacterListLength})`}
+            </output>
+          </div>
+          <div className="filter-chip-slider-row favourite-rank-slider-row">
+            <input
+              type="range"
+              min={1}
+              max={sliderMaxRank}
+              step={1}
+              value={sliderValue}
+              aria-label="Maximum favourite character rank"
+              onChange={(event) => {
+                const nextValue = Number(event.target.value);
+                onChange(nextValue === sliderMaxRank ? null : nextValue);
+              }}
+            />
+            <input
+              type="number"
+              min={1}
+              max={sliderMaxRank}
+              step={1}
+              value={rankText}
+              onChange={(event) => setRankText(event.target.value)}
+              onBlur={commitRankText}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.currentTarget.blur();
+                }
+              }}
+              className="filter-chip-slider-input"
+              aria-label="Maximum favourite character rank input"
+            />
+          </div>
+          <div className="favourite-rank-slider-labels" aria-hidden>
+            <span>1</span>
+            <span>all</span>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function VaRankList({
@@ -460,19 +642,33 @@ function FavouriteCharactersBlock({
   );
 }
 
-export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
+export function FavouritesPanel({
+  onOpenMedia,
+  onOpenStaff,
+  dbSyncRevision,
+}: ToolPanelProps) {
+  const [form, setForm] = useState<FavouritesForm>(() => loadForm());
+  const [
+    cachedFavouriteCharacterListLength,
+    setCachedFavouriteCharacterListLength,
+  ] = useState<number | null>(null);
+  const [favouriteCharacterListRevision, setFavouriteCharacterListRevision] =
+    useState(0);
+  const refreshFavouriteCharacterListLength = useCallback(() => {
+    setFavouriteCharacterListRevision((revision) => revision + 1);
+  }, []);
   const { refreshing: refreshingList, refreshUsernameList } = useUsernameListRefresh({
     refreshFavourites: true,
     // Characters by manga series + VA main-role totals need consumed manga ids.
     refreshManga: true,
+    onAfterRefresh: refreshFavouriteCharacterListLength,
   });
   const displayLabelRevision = useToolsDisplayLabelRevision();
-  const [form, setForm] = useState<FavouritesForm>(() => loadForm());
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<FavouritesRunProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<FavouritesResult | null>(null);
-  const [resultUsername, setResultUsername] = useState<string | null>(null);
+  const [resultFormKey, setResultFormKey] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const rebuildSourceRef = useRef<FavouritesRebuildSource | null>(null);
 
@@ -480,14 +676,42 @@ export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
     saveForm(form);
   }, [form]);
 
+  const normalizedUsername = usernameStorageKey(form.username);
   useEffect(() => {
-    const handle = form.username.trim().toLowerCase();
-    if (resultUsername && handle !== resultUsername) {
+    let current = true;
+    setCachedFavouriteCharacterListLength(null);
+    if (!normalizedUsername) {
+      setCachedFavouriteCharacterListLength(0);
+      return () => {
+        current = false;
+      };
+    }
+    void readCachedFavouriteCharacterListLength(normalizedUsername)
+      .then((length) => {
+        if (current) {
+          setCachedFavouriteCharacterListLength(
+            Math.max(0, Math.floor(length)),
+          );
+        }
+      })
+      .catch(() => {
+        if (current) {
+          setCachedFavouriteCharacterListLength(0);
+        }
+      });
+    return () => {
+      current = false;
+    };
+  }, [dbSyncRevision, favouriteCharacterListRevision, normalizedUsername]);
+
+  useEffect(() => {
+    const currentFormKey = analysisFormKey(form);
+    if (resultFormKey && currentFormKey !== resultFormKey) {
       setResult(null);
-      setResultUsername(null);
+      setResultFormKey(null);
       rebuildSourceRef.current = null;
     }
-  }, [form.username, resultUsername]);
+  }, [form, resultFormKey]);
 
   useEffect(() => {
     const source = rebuildSourceRef.current;
@@ -497,10 +721,20 @@ export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
     setResult(rebuildFavouritesResult(source));
   }, [displayLabelRevision]);
 
-  const patchForm = useCallback((patch: Partial<FavouritesForm>) => {
+  const patchUsername = useCallback((username: string) => {
     setError(null);
-    setForm((prev) => ({ ...prev, ...patch }));
+    setForm((previous) => ({
+      ...previous,
+      username,
+      maxFavouriteRank: rankLimitForUsername(loadRankLimits(), username),
+    }));
   }, []);
+
+  const patchMaxFavouriteRank = useCallback((maxFavouriteRank: number | null) => {
+    setError(null);
+    saveRankLimit(form.username, maxFavouriteRank);
+    setForm((previous) => ({ ...previous, maxFavouriteRank }));
+  }, [form.username]);
 
   const onCancel = useCallback(() => {
     abortRef.current?.abort();
@@ -515,7 +749,7 @@ export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
       if (!username) {
         setError('Enter an AniList username.');
         setResult(null);
-        setResultUsername(null);
+        setResultFormKey(null);
         return;
       }
 
@@ -524,7 +758,7 @@ export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
       abortRef.current = controller;
 
       const priorResult = result;
-      const priorUsername = resultUsername;
+      const priorFormKey = resultFormKey;
       const priorRebuildSource = rebuildSourceRef.current;
 
       setRunning(true);
@@ -541,17 +775,18 @@ export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
         );
         rebuildSourceRef.current = rebuildSource;
         setResult(report);
-        setResultUsername(username.trim().toLowerCase());
+        setResultFormKey(analysisFormKey(form));
+        refreshFavouriteCharacterListLength();
       } catch (e) {
         if (e instanceof DOMException && e.name === 'AbortError') {
           rebuildSourceRef.current = priorRebuildSource;
           setResult(priorResult);
-          setResultUsername(priorUsername);
+          setResultFormKey(priorFormKey);
           return;
         }
         rebuildSourceRef.current = priorRebuildSource;
         setResult(priorResult);
-        setResultUsername(priorUsername);
+        setResultFormKey(priorFormKey);
         setError(e instanceof Error ? e.message : 'Failed to run analysis.');
       } finally {
         if (abortRef.current === controller) {
@@ -561,13 +796,13 @@ export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
         }
       }
     },
-    [form, result, resultUsername],
+    [form, refreshFavouriteCharacterListLength, result, resultFormKey],
   );
 
   const showResults =
     result != null &&
-    resultUsername != null &&
-    resultUsername === form.username.trim().toLowerCase();
+    resultFormKey != null &&
+    resultFormKey === analysisFormKey(form);
 
   const onRun = useCallback(
     (forceRefreshFavourites = false) => {
@@ -624,8 +859,23 @@ export function FavouritesPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
           disabled={running}
           refreshing={refreshingList}
           refreshLabel="Refresh list and favourites from AniList"
-          onChange={(username) => patchForm({ username })}
+          onChange={patchUsername}
           onRefresh={() => refreshUsernameList(form.username, running)}
+          trailingControl={
+            <FavouriteRankLimitChip
+              maxFavouriteRank={form.maxFavouriteRank}
+              favouriteCharacterListLength={
+                cachedFavouriteCharacterListLength ?? 0
+              }
+              disabled={
+                running ||
+                form.username.trim().length === 0 ||
+                cachedFavouriteCharacterListLength === null ||
+                cachedFavouriteCharacterListLength <= 1
+              }
+              onChange={patchMaxFavouriteRank}
+            />
+          }
         />
 
         <div className="tool-actions">

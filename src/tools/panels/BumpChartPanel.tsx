@@ -149,6 +149,14 @@ function canOpenDetail(item: Item): boolean {
   );
 }
 
+function openItemDetail(item: Item, panelProps: ToolPanelProps): void {
+  if (item.source?.kind === 'anilist') {
+    panelProps.onOpenMedia(item.source.externalId, item.label);
+  } else if (item.source?.kind === 'anilist-staff') {
+    panelProps.onOpenStaff(item.source.externalId, item.label);
+  }
+}
+
 function InteractiveItemLabel({
   item,
   side,
@@ -158,18 +166,13 @@ function InteractiveItemLabel({
   side: ChartSide;
   panelProps: ToolPanelProps;
 }) {
-  const openDetail = (): void => {
-    if (item.source?.kind === 'anilist') {
-      panelProps.onOpenMedia(item.source.externalId, item.label);
-    } else if (item.source?.kind === 'anilist-staff') {
-      panelProps.onOpenStaff(item.source.externalId, item.label);
-    }
-  };
   return (
     <AnilistMiddleClickLink
       url={item.url ?? null}
       className={`bump-chart-item-link bump-chart-item-link--${side}`}
-      onPrimaryClick={canOpenDetail(item) ? openDetail : undefined}
+      onPrimaryClick={
+        canOpenDetail(item) ? () => openItemDetail(item, panelProps) : undefined
+      }
       title={
         canOpenDetail(item)
           ? `${item.label} (middle-click to open source)`
@@ -189,6 +192,7 @@ function BumpStage({
   onRemoveGroup,
   onRemoveItem,
   onEditItem,
+  onOpenItemDetail,
   onTogglePreserveCustomLabels,
   onClearAll,
 }: {
@@ -198,6 +202,7 @@ function BumpStage({
   onRemoveGroup: (groupId: string) => void;
   onRemoveItem: (groupId: string, index: number) => void;
   onEditItem: (groupId: string, index: number, item: Item) => void;
+  onOpenItemDetail: (item: Item) => void;
   onTogglePreserveCustomLabels: () => void;
   onClearAll: () => void;
 }) {
@@ -276,6 +281,7 @@ function BumpStage({
               onEditItem(groupId, index, entry.item);
             }
           }}
+          onOpenItemDetail={onOpenItemDetail}
         />
       </div>
     </section>
@@ -1061,6 +1067,10 @@ function BumpChart({
 
 export function BumpChartPanel(panelProps: ToolPanelProps) {
   const displayLabelRevision = useToolsDisplayLabelRevision();
+  const onOpenItemDetail = useCallback(
+    (item: Item) => openItemDetail(item, panelProps),
+    [panelProps.onOpenMedia, panelProps.onOpenStaff],
+  );
   const [before, setBefore] = useState<BumpSideDraft>(EMPTY_DRAFT);
   const [after, setAfter] = useState<BumpSideDraft>(EMPTY_DRAFT);
   const [importSide, setImportSide] = useState<ChartSide | null>(null);
@@ -1328,6 +1338,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
                   item,
                 })
               }
+              onOpenItemDetail={onOpenItemDetail}
               onTogglePreserveCustomLabels={() =>
                 setBefore((draft) => ({
                   ...draft,
@@ -1355,6 +1366,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
                   item,
                 })
               }
+              onOpenItemDetail={onOpenItemDetail}
               onTogglePreserveCustomLabels={() =>
                 setAfter((draft) => ({
                   ...draft,

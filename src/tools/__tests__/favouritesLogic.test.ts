@@ -13,11 +13,39 @@ import {
   formatBirthdayKey,
   groupBirthdayCalendarByMonth,
   MAIN_ROLE_PERCENT_DUMMY,
+  normalizeMaxFavouriteRank,
   pickCharacterName,
   filterFavouritesSeriesRows,
   favouriteCharacterSearchParts,
   processCharacterEdges,
+  trimFavouriteCharactersToMaxRank,
 } from '../panels/favouritesLogic';
+
+describe('trimFavouriteCharactersToMaxRank', () => {
+  const favourites = ['rank 1', 'rank 2', 'rank 3'];
+
+  it('keeps the full list while the limit is off', () => {
+    expect(trimFavouriteCharactersToMaxRank(favourites, null)).toEqual(
+      favourites,
+    );
+  });
+
+  it('keeps ranks 1 through N and handles lists shorter than N', () => {
+    expect(trimFavouriteCharactersToMaxRank(favourites, 2)).toEqual([
+      'rank 1',
+      'rank 2',
+    ]);
+    expect(trimFavouriteCharactersToMaxRank(favourites, 10)).toEqual(
+      favourites,
+    );
+  });
+
+  it('normalizes finite positive limits to whole ranks', () => {
+    expect(normalizeMaxFavouriteRank(2.9)).toBe(2);
+    expect(normalizeMaxFavouriteRank(0)).toBeNull();
+    expect(normalizeMaxFavouriteRank(Number.POSITIVE_INFINITY)).toBeNull();
+  });
+});
 
 describe('pickCharacterName', () => {
   it('prefers native when character display mode is native', () => {

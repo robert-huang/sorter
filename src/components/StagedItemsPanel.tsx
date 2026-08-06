@@ -3,7 +3,9 @@ import type { Item, ItemId } from '../lib/types';
 import { useClickOutside } from '../lib/hooks/useClickOutside';
 import { CircularArrowGlyph } from './CircularArrowGlyph';
 import { DetailButtonSlot } from './DetailButton';
+import { ItemThumb } from './ItemThumb';
 import { RemoveGlyph } from './RemoveGlyph';
+import { CheckIcon } from './icons';
 
 /**
  * Which engine the current START draft will start in. Non-persisted —
@@ -323,6 +325,8 @@ interface Props {
    * toggle handlers above.
    */
   onEditItem?: (groupId: string, itemId: ItemId, index?: number) => void;
+  /** Explicit detail opener for hosts that do not provide ItemDetailContext. */
+  onOpenItemDetail?: (item: Item) => void;
   /** Hide the sorter engine button when reusing the staged list elsewhere. */
   showStartControls?: boolean;
   /** Removal callbacks delete immediately rather than setting soft marks. */
@@ -355,6 +359,7 @@ export function StagedItemsPanel({
   onStartModeChange,
   onToggleRemoveItem,
   onEditItem,
+  onOpenItemDetail,
   showStartControls = true,
   immediateRemoval = false,
   emptyHint,
@@ -807,11 +812,11 @@ export function StagedItemsPanel({
                           </span>
                         )}
                         {it.imageUrl ? (
-                          <img
+                          <ItemThumb
+                            item={it}
                             className="staged-panel-item-cover"
-                            src={it.imageUrl}
-                            alt=""
-                            loading="lazy"
+                            placeholderClass="staged-panel-item-cover-placeholder"
+                            onOpenDetail={onOpenItemDetail}
                           />
                         ) : (
                           <span

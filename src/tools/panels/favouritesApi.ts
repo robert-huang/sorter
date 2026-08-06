@@ -25,6 +25,7 @@ import {
   ensureUserFavouritesFresh,
   readCharacterVoiceEdgesFromDb,
   readConsumedMediaIdsFromDb,
+  readCachedFavouriteCharacterListLength as readCachedFavouriteCharacterListLengthFromDb,
   readFavouriteCharactersFromDb,
   readFavouriteStaffFromDb,
   readVaCharacterEdgesFromDb,
@@ -36,6 +37,7 @@ import {
   countVaCharactersOnMedia,
   pickCharacterName,
   processCharacterEdges,
+  trimFavouriteCharactersToMaxRank,
   type CharacterMediaEdge,
   type CharacterRoleTier,
   type FavouriteCharacterInput,
@@ -46,6 +48,13 @@ import {
   type FavouritesSeriesMeta,
   type VaMediaEdge,
 } from './favouritesLogic';
+
+/** Cached-only character rank extent; never triggers an AniList import. */
+export function readCachedFavouriteCharacterListLength(
+  username: string,
+): Promise<number> {
+  return readCachedFavouriteCharacterListLengthFromDb(username);
+}
 
 /**
  * Drop the favourites list session memo for a given username. Called by
@@ -250,7 +259,10 @@ export async function runFavouritesAnalysis(
 
   onProgress({ phase: 'characters' });
   // Favourites imports also take the scrape lock — fetch one type at a time.
-  const characters = await fetchFavouriteCharacters(username, signal, fetchOptions);
+  const characters = trimFavouriteCharactersToMaxRank(
+    await fetchFavouriteCharacters(username, signal, fetchOptions),
+    form.maxFavouriteRank,
+  );
   signal?.throwIfAborted();
   const favouriteStaff = await fetchFavouriteStaff(username, signal, fetchOptions);
 

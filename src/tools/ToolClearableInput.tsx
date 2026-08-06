@@ -1,4 +1,5 @@
 import type { ChangeEvent } from 'react';
+import { RemoveGlyph } from '../components/RemoveGlyph';
 
 interface Props {
   id: string;
@@ -52,18 +53,7 @@ export function ToolClearableInput({
           title="Clear"
           onClick={() => onChange('')}
         >
-          <svg
-            className="tool-clearable-input-icon"
-            viewBox="0 0 12 12"
-            aria-hidden="true"
-          >
-            <path
-              d="M2.5 2.5 9.5 9.5 M9.5 2.5 2.5 9.5"
-              stroke="currentColor"
-              strokeWidth="1.75"
-              strokeLinecap="round"
-            />
-          </svg>
+          <RemoveGlyph size={12} className="tool-clearable-input-icon" />
         </button>
       )}
     </span>

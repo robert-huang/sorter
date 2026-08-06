@@ -1,5 +1,6 @@
 import { useContext } from 'react';
 import type { Item } from '../lib/types';
+import { InfoIcon } from './icons';
 import { canOpenItemDetail, ItemDetailContext } from './itemDetailContext';
 
 export type DetailButtonVariant = 'chip' | 'row' | 'staged';
@@ -35,7 +36,7 @@ export function DetailButton({
       title={`Details for "${item.label}"`}
       aria-label={`Details for ${item.label}`}
     >
-      ⓘ
+      <InfoIcon size={14} />
     </button>
   );
 }

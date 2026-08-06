@@ -31,6 +31,8 @@ import { updateItemMetadata } from '../lib/engine';
 import { subscribeAnilistDisplayPreferences } from '../lib/importers/anilist/displayPreferences';
 import { relabelAnilistItemPreservingFormat } from '../lib/importers/anilist/anilistItemLabel';
 import { AnilistStartMode } from './AnilistStartMode';
+import { InfoIcon } from './icons';
+import { RemoveGlyph } from './RemoveGlyph';
 import { SortResultsImportMode } from './SortResultsImportMode';
 import { ImportPreview, type PreviewSource } from './ImportPreview';
 import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
@@ -1496,8 +1498,9 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
             />
             <label htmlFor="scratch-header">First row is a header</label>
             {scratchDetectedHeader && !scratchSkipHeader && (
-              <span className="header-hint">
-                ⓘ Your first row looks like a header. Check the box to skip it.
+              <span className="header-hint header-hint-icon">
+                <InfoIcon size={13} />
+                Your first row looks like a header. Check the box to skip it.
               </span>
             )}
           </div>
@@ -1526,10 +1529,13 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
               These items are already in ranking order
             </label>
             {scratchAlreadySorted && (
-              <span className="header-hint">
-                ⓘ Staged as a ranked list — pick <strong>Confirm order</strong>{' '}
-                from the split button to verify, or <strong>Start sort</strong> to
-                merge from scratch.
+              <span className="header-hint header-hint-icon">
+                <InfoIcon size={13} />
+                <span>
+                  Staged as a ranked list — pick <strong>Confirm order</strong>{' '}
+                  from the split button to verify, or <strong>Start sort</strong>{' '}
+                  to merge from scratch.
+                </span>
               </span>
             )}
           </div>
@@ -1607,8 +1613,9 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
             />
             <label htmlFor="paste-header">First row is a header (pasted list)</label>
             {pasteDetectedHeader && !pasteSkipHeader && (
-              <span className="header-hint">
-                ⓘ Your first row looks like a header. Check the box to skip it.
+              <span className="header-hint header-hint-icon">
+                <InfoIcon size={13} />
+                Your first row looks like a header. Check the box to skip it.
               </span>
             )}
           </div>
@@ -1632,8 +1639,9 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
                         First row is a header
                       </label>
                       {f.detectedHeader && !f.skipHeader && (
-                        <span className="header-hint">
-                          ⓘ Looks like a header. Check to skip.
+                        <span className="header-hint header-hint-icon">
+                          <InfoIcon size={13} />
+                          Looks like a header. Check to skip.
                         </span>
                       )}
                     </div>
@@ -1654,7 +1662,7 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
                       onClick={() => removeStaged(f.id)}
                       aria-label={`Remove ${f.name}`}
                     >
-                      ×
+                      <RemoveGlyph size={12} />
                     </button>
                   </div>
                 </div>
@@ -1686,8 +1694,9 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
               />
               <label htmlFor="extras-header">First row is a header</label>
               {extrasDetectedHeader && !extrasSkipHeader && (
-                <span className="header-hint">
-                  ⓘ Looks like a header. Check to skip.
+                <span className="header-hint header-hint-icon">
+                  <InfoIcon size={13} />
+                  Looks like a header. Check to skip.
                 </span>
               )}
             </div>

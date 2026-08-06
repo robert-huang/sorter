@@ -289,6 +289,10 @@ describe('AnilistDetailModal — lazy expansion', () => {
     const buttons = Array.from(container.querySelectorAll('button'));
     const refreshBtn = buttons.find((b) => /Refresh/.test(b.textContent ?? ''));
     expect(refreshBtn).toBeDefined();
+    expect(refreshBtn?.querySelector('svg.circular-arrow-glyph')).not.toBeNull();
+    expect(
+      container.querySelector('button[aria-label="Close"] svg.icon-btn-glyph'),
+    ).not.toBeNull();
     await act(async () => {
       refreshBtn!.click();
     });

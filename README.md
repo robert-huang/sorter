@@ -594,6 +594,8 @@ Left-click only (right-click does nothing). Always `forceRefresh` — a full wip
 
 Manga refresh uses the same `MediaListCollection` import as anime (~2–3 API requests per thousand entries). Favourites refresh also re-imports both favourite lists and busts the favourites Analyze session memo.
 
+The **Favourites** tab also has an optional **favourite rank** chip. Setting it to `N` trims both the favourite-character and favourite-staff inputs to ranks `1–N` before role expansion, scoring, percentages, gender/role groups, birthdays, and series aggregation. The chip is off by default, and each normalized AniList username keeps its own saved limit.
+
 #### Tools: primary action buttons
 
 Most run buttons are **left-click = use cache** (import only if missing or >90 days stale), **right-click = force live re-fetch** for that run. Implemented via `onContextMenu` on the submit button — middle-click on these buttons does nothing special.

@@ -524,6 +524,56 @@ function menuItems(): HTMLButtonElement[] {
   );
 }
 
+describe('StagedItemsPanel · media covers', () => {
+  it('keeps a native AniList link while primary-clicking the detail opener', () => {
+    const onOpenItemDetail = vi.fn();
+    const mediaItem: Item = {
+      id: 'media',
+      label: 'Media',
+      imageUrl: 'https://images.example/media.jpg',
+      url: 'https://anilist.co/anime/123',
+      source: { kind: 'anilist', externalId: 123 },
+    };
+    act(() => {
+      root.render(
+        <StagedItemsPanel
+          staged={[sublist('g1', 'ranked.csv', [mediaItem])]}
+          pending={[]}
+          onToggleRemoveGroup={() => {}}
+          onClearAll={() => {}}
+          onOpenItemDetail={onOpenItemDetail}
+          showStartControls={false}
+        />,
+      );
+    });
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-controls="staged-group-items-g1"]',
+        )
+        ?.click();
+    });
+    const coverLink = container.querySelector<HTMLAnchorElement>(
+      '.staged-panel-item-cover[href="https://anilist.co/anime/123"]',
+    );
+    expect(coverLink).not.toBeNull();
+    expect(coverLink?.querySelector('img')?.getAttribute('src')).toBe(
+      mediaItem.imageUrl,
+    );
+
+    act(() => coverLink?.click());
+    expect(onOpenItemDetail).toHaveBeenCalledWith(mediaItem);
+
+    const contextMenu = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+    });
+    coverLink?.dispatchEvent(contextMenu);
+    expect(contextMenu.defaultPrevented).toBe(false);
+  });
+});
+
 describe('StagedItemsPanel · Start Sort split-button', () => {
   it('puts the marked count on its own line without a separator dot', () => {
     act(() => {
@@ -612,6 +662,12 @@ describe('StagedItemsPanel · Start Sort split-button', () => {
     expect(items[1].textContent).toContain('Insertion sort');
     expect(items[0].getAttribute('aria-checked')).toBe('true');
     expect(items[1].getAttribute('aria-checked')).toBe('false');
+    expect(
+      items[0].querySelector('.staged-panel-start-menu-check svg'),
+    ).not.toBeNull();
+    expect(
+      items[1].querySelector('.staged-panel-start-menu-check svg'),
+    ).toBeNull();
   });
 
   it('picking Insertion emits onStartModeChange, relabels the CTA, and closes the menu', () => {

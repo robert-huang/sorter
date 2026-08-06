@@ -291,6 +291,22 @@ async function getFavouriteRowCount(
   return Number(rows[0]?.count ?? 0);
 }
 
+/** Read the cached character-favourite count without importing. */
+export async function readCachedFavouriteCharacterListLength(
+  username: string,
+): Promise<number> {
+  const handle = username.trim();
+  if (!handle) {
+    return 0;
+  }
+  const ctx = getToolsImportContext();
+  const user = await getAnilistUserByName(ctx.db, handle);
+  if (!user) {
+    return 0;
+  }
+  return getFavouriteRowCount(ctx.db, user.id, 'CHARACTERS');
+}
+
 async function needsCharacterFavouritesDobBackfill(
   db: AnilistDbExecutor,
   anilistUserId: number,

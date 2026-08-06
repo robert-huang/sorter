@@ -9,6 +9,7 @@ import {
   PAPA_COMMA_CSV_OPTIONS,
 } from '../lib/csv';
 import { AnilistStartMode } from './AnilistStartMode';
+import { InfoIcon } from './icons';
 import { Modal } from './Modal';
 import { SortResultsImportMode } from './SortResultsImportMode';
 import type { OrderedSlotImport } from './SortResultsImportMode';
@@ -461,8 +462,9 @@ function MultipleTab({
         />
         <label htmlFor="multi-header">First row is a header</label>
         {detectedHeader && !skipHeader && (
-          <span className="header-hint">
-            ⓘ Looks like a header. Check to skip.
+          <span className="header-hint header-hint-icon">
+            <InfoIcon size={13} />
+            Looks like a header. Check to skip.
           </span>
         )}
       </div>

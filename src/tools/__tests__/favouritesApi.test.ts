@@ -69,6 +69,7 @@ import { runFavouritesAnalysis } from '../panels/favouritesApi';
 import type {
   CharacterMediaEdge,
   FavouriteCharacterInput,
+  FavouritesForm,
   VaMediaEdge,
 } from '../panels/favouritesLogic';
 
@@ -180,12 +181,68 @@ beforeEach(() => {
   countVaMainRoleCharactersOnConsumedMediaFromDbMock.mockResolvedValue(1);
 });
 
-const FORM = {
+const FORM: FavouritesForm = {
   username: 'user',
-  rebuildOnly: false,
-} as never;
+  maxFavouriteRank: null,
+};
 
 describe('runFavouritesAnalysis caching', () => {
+  it('trims only character favourites before every analysis stage', async () => {
+    const characters = [
+      makeCharacter(1, 'Rank One'),
+      makeCharacter(2, 'Rank Two'),
+      {
+        ...makeCharacter(3, 'Unplaced'),
+        gender: 'Female',
+        dateOfBirth: { month: 1, day: 1 },
+      },
+    ];
+    readFavouriteCharactersFromDbMock.mockResolvedValue(characters);
+    readFavouriteStaffFromDbMock.mockResolvedValue([
+      { id: 2001, name: { full: 'Staff One' } },
+      { id: 2002, name: { full: 'Staff Two' } },
+      { id: 2003, name: { full: 'Unplaced Staff' } },
+    ]);
+
+    const payload = await runFavouritesAnalysis(
+      { ...FORM, maxFavouriteRank: 2 },
+      () => {},
+    );
+
+    expect(ensureCharacterMediaFreshBatchMock).toHaveBeenCalledWith(
+      [1, 2],
+      undefined,
+    );
+    expect(readCharacterVoiceEdgesFromDbMock).not.toHaveBeenCalledWith(
+      expect.anything(),
+      3,
+    );
+    expect(payload.rebuildSource.characters.map(({ id }) => id)).toEqual([1, 2]);
+    expect(payload.rebuildSource.favouriteStaff.map(({ id }) => id)).toEqual([
+      2001,
+      2002,
+      2003,
+    ]);
+    expect(payload.result.characterCount).toBe(2);
+    expect(payload.result.favouriteCharacters.map(({ name, rank }) => ({
+      name,
+      rank,
+    }))).toEqual([
+      { name: 'Rank One', rank: 1 },
+      { name: 'Rank Two', rank: 2 },
+    ]);
+    expect(payload.result.byCount.map(({ staffId }) => staffId)).not.toContain(
+      1003,
+    );
+    expect(payload.result.gender.female).toEqual([]);
+    expect(payload.result.birthdays['0101']).toBeUndefined();
+    expect(payload.result.favouriteStaff.map(({ id }) => id)).toEqual([
+      2001,
+      2002,
+      2003,
+    ]);
+  });
+
   it('Analyze writes through to the DB: ensureCharacterMediaFreshBatch is called once (no forceRefresh)', async () => {
     await runFavouritesAnalysis(FORM, () => {});
 

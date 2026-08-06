@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { CircularArrowGlyph } from './CircularArrowGlyph';
 import { RemoveGlyph } from './RemoveGlyph';
 import {
   formatGraphCacheDate,
@@ -425,7 +426,7 @@ export function StaffDetailModal({
           </a>
           <button
             type="button"
-            className={`btn small${
+            className={`btn small circular-arrow-label${
               isFilmographyStale && !expanding ? ' anilist-detail-refresh-stale' : ''
             }`}
             onClick={() => void onRefresh()}
@@ -439,7 +440,14 @@ export function StaffDetailModal({
                 : "Re-fetch this person's filmography from AniList (does not auto-push)"
             }
           >
-            {expanding ? 'Refreshing\u2026' : '\u21BB Refresh'}
+            {expanding ? (
+              'Refreshing\u2026'
+            ) : (
+              <>
+                <CircularArrowGlyph />
+                <span className="anilist-detail-refresh-label">Refresh</span>
+              </>
+            )}
           </button>
           <button
             type="button"

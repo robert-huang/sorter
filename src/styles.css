@@ -3706,6 +3706,12 @@ a:where(.anime-to-anime-anilist-link):visited {
   margin-left: 8px;
 }
 
+.header-hint-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
 .file-list {
   display: flex;
   flex-direction: column;
@@ -6388,10 +6394,28 @@ a:where(.anime-to-anime-anilist-link):visited {
 .staged-panel-item-cover {
   width: 28px;
   height: 38px;
-  object-fit: cover;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
   border-radius: 3px;
   background: var(--bg-subtle, var(--surface-3, #f3f4f6));
   flex-shrink: 0;
+}
+
+.staged-panel-item-cover > img,
+.staged-panel-item-cover > span {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
+.staged-panel-item-cover > span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
 }
 
 .staged-panel-item-cover-placeholder {
@@ -6717,6 +6741,55 @@ a:where(.anime-to-anime-anilist-link):visited {
 
 .tool-username-refresh {
   align-self: center;
+}
+
+.favourite-rank-chip {
+  align-self: center;
+  padding: 3px 8px;
+  margin-left: 10px;
+}
+
+.favourite-rank-chip:has(.filter-chip-button:disabled) {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.favourite-rank-slider-menu {
+  min-width: 270px;
+  gap: 6px;
+  padding: 8px;
+  cursor: default;
+}
+
+.favourite-rank-slider-value,
+.favourite-rank-slider-labels {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-variant-numeric: tabular-nums;
+}
+
+.favourite-rank-slider-value output {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.favourite-rank-slider-row {
+  padding: 2px 0 0 0;
+}
+
+.favourite-rank-slider-menu input[type='range'] {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.favourite-rank-slider-labels {
+  color: var(--text-faint);
+  font-size: 10px;
 }
 
 .tool-username-input {
@@ -7261,6 +7334,7 @@ a:where(.anime-to-anime-anilist-link):visited {
 .tool-clearable-input > .slot-search,
 .tool-clearable-input > .tool-clearable-input-clear {
   grid-area: 1 / 1;
+  margin-right: 5px;
 }
 
 .tool-clearable-input .slot-search {

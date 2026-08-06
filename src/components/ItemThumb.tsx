@@ -4,7 +4,11 @@ import {
 } from '../lib/importers/anilist/anilistLinks';
 import { AnilistMiddleClickLink } from '../lib/importers/anilist/AnilistMiddleClickLink';
 import type { Item } from '../lib/types';
-import { canOpenItemDetail, ItemDetailContext } from './itemDetailContext';
+import {
+  canOpenItemDetail,
+  ItemDetailContext,
+  type ItemDetailOpener,
+} from './itemDetailContext';
 
 /**
  * `initials` derives a short visual label from `label`. Used as the
@@ -42,6 +46,8 @@ interface ItemThumbProps {
    * the parent's text styling.
    */
   placeholderClass?: string;
+  /** Explicit opener for trees that do not provide ItemDetailContext. */
+  onOpenDetail?: ItemDetailOpener | null;
 }
 
 /**
@@ -64,6 +70,7 @@ export function ItemThumb({
   className,
   as = 'span',
   placeholderClass = 'placeholder',
+  onOpenDetail,
 }: ItemThumbProps) {
   const [failed, setFailed] = useState(false);
   const showImage = item.imageUrl && !failed;
@@ -73,7 +80,8 @@ export function ItemThumb({
   // canOpenItemDetail); other source kinds fall back to the
   // non-interactive thumb. The opener may be null (e.g. in tests that
   // don't wrap the tree with ItemDetailContext.Provider).
-  const opener = useContext(ItemDetailContext);
+  const contextOpener = useContext(ItemDetailContext);
+  const opener = onOpenDetail === undefined ? contextOpener : onOpenDetail;
   const opensDetail = Boolean(opener && canOpenItemDetail(item));
   // AniList items are materialised with `url` = their canonical AniList
   // page (see buildAnilistMediaUrl). Media/staff thumbs: left-click opens

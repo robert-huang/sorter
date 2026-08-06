@@ -64,7 +64,30 @@ const ROLE_RANK: Record<string, CharacterRoleTier> = {
 
 export type FavouritesForm = {
   username: string;
+  /** Inclusive max rank for favourite characters; null includes all. */
+  maxFavouriteRank: number | null;
 };
+
+export function normalizeMaxFavouriteRank(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 1) {
+    return null;
+  }
+  return Math.floor(value);
+}
+
+/**
+ * Favourite character rows arrive in AniList sort order, so slicing here
+ * preserves ranks 1..N for every character-based calculation.
+ */
+export function trimFavouriteCharactersToMaxRank<T>(
+  favourites: readonly T[],
+  maxFavouriteRank: number | null,
+): T[] {
+  const normalizedMaxRank = normalizeMaxFavouriteRank(maxFavouriteRank);
+  return normalizedMaxRank === null
+    ? [...favourites]
+    : favourites.slice(0, normalizedMaxRank);
+}
 
 export type FavouriteCharacterInput = {
   id: number;

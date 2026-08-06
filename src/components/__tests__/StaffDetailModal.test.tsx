@@ -229,6 +229,9 @@ describe('StaffDetailModal — lazy expansion', () => {
       /Refresh/.test(b.textContent ?? ''),
     );
     expect(refreshBtn).toBeDefined();
+    expect(
+      refreshBtn?.querySelector('svg.circular-arrow-glyph'),
+    ).not.toBeNull();
     await act(async () => {
       refreshBtn!.click();
     });

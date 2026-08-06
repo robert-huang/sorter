@@ -33,6 +33,7 @@ import { getToolsImportContext } from '../toolsImportContext';
 import {
   ensureUserFavouritesFresh,
   ensureUserMediaListFresh,
+  readCachedFavouriteCharacterListLength,
 } from '../toolsAnilistAccess';
 
 const getUserMock = vi.mocked(getAnilistUserByName);
@@ -60,6 +61,23 @@ beforeEach(() => {
 });
 
 describe('Tools user cache completion markers', () => {
+  it('uses only the cached character list as the rank extent', async () => {
+    const exec = vi.fn().mockResolvedValueOnce([{ count: 7 }]);
+    getContextMock.mockReturnValue({ db: { exec } } as never);
+
+    await expect(
+      readCachedFavouriteCharacterListLength('tester'),
+    ).resolves.toBe(7);
+
+    expect(exec).toHaveBeenCalledWith(
+      expect.stringContaining('FROM character_favourite'),
+      [USER.id],
+    );
+    expect(exec).toHaveBeenCalledTimes(1);
+    expect(runImportMock).not.toHaveBeenCalled();
+    expect(runFavouritesMock).not.toHaveBeenCalled();
+  });
+
   it('does not re-import a valid empty media list', async () => {
     getLastFullRefreshMock.mockResolvedValue(1_700_000_000_000);
 
