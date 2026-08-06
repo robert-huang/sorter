@@ -4,6 +4,7 @@ import {
   insertContextGapLabel,
   getInsertContext,
   groupInsertionPending,
+  hiddenIdsInDisplayOrder,
   hiddenIdsNotInRanking,
   insertContextInsertingLabel,
   insertionSortFromSublists,
@@ -426,5 +427,28 @@ describe('rankLabelForHiddenId', () => {
       hidden: ['b'],
     });
     expect(rankLabelForHiddenId(state, 'b')).toBe('2.');
+  });
+});
+
+describe('hiddenIdsInDisplayOrder', () => {
+  it('uses structural rank first and natural label order for unranked items', () => {
+    const state = mergeState({
+      done: true,
+      queue: [['ranked-first', 'visible', 'ranked-third']],
+      hidden: ['375001', 'ranked-third', '378', 'ranked-first'],
+      items: {
+        '375001': { id: '375001', label: '375001' },
+        '378': { id: '378', label: '378' },
+        'ranked-first': { id: 'ranked-first', label: 'Zulu' },
+        'ranked-third': { id: 'ranked-third', label: 'Alpha' },
+      },
+    });
+
+    expect(hiddenIdsInDisplayOrder(state)).toEqual([
+      'ranked-first',
+      'ranked-third',
+      '378',
+      '375001',
+    ]);
   });
 });

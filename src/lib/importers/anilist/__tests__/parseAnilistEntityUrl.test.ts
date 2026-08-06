@@ -112,6 +112,7 @@ describe('enrichItemFromAnilistUrl', () => {
       label: 'One Piece',
       url: 'https://anilist.co/anime/21',
       source: { kind: 'anilist', externalId: 21 },
+      anilistLabelMode: 'automatic',
     });
   });
 
@@ -149,6 +150,21 @@ describe('CSV import enrichment', () => {
     });
     expect(item.id).toBe('anilist:9253');
     expect(item.source).toEqual({ kind: 'anilist', externalId: 9253 });
+    expect(item.anilistLabelMode).toBe('automatic');
+  });
+
+  it('marks source-less studio URL matches as automatic', () => {
+    const item = materializeItemFromRawRow({
+      label: 'Studio from CSV',
+      url: 'https://anilist.co/studio/9',
+      sourceName: 'list',
+      sourceRow: 1,
+    });
+    expect(item).toMatchObject({
+      id: 'anilist-studios:9',
+      anilistLabelMode: 'automatic',
+    });
+    expect(item.source).toBeUndefined();
   });
 
   it('dedupRows collapses rows that share the same AniList media id', () => {

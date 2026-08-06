@@ -4900,6 +4900,10 @@ a:where(.anime-to-anime-anilist-link):visited {
   margin-bottom: 8px;
 }
 
+.list-removed-toggle {
+  margin-top: 12px;
+}
+
 .list-merging {
   background: var(--surface-2);
   border: 1px solid var(--border);

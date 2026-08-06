@@ -167,12 +167,12 @@ import { handleAnilistAuthRedirect } from './lib/importers/anilist/anilistAuth';
 import { ensureAnilistFiltersRegistered } from './lib/importers/anilist/filters';
 import { ensureCharacterStaffFiltersRegistered } from './lib/importers/anilist/characterStaffFilters';
 import { configureAnilistRunnerHooks } from './lib/importers/anilist/runners';
-import { productionReads } from './lib/importers/anilist/readQueries';
 import { subscribeAnilistDisplayPreferences } from './lib/importers/anilist/displayPreferences';
+import { relabelAnilistItemPreservingFormat } from './lib/importers/anilist/anilistItemLabel';
 import {
-  relabelAnilistItemPreservingFormat,
-  resolveCachedAnilistMediaItems,
-} from './lib/importers/anilist/anilistItemLabel';
+  hydrateAnilistItemRecord,
+  needsAnilistItemHydration,
+} from './lib/importers/anilist/anilistItemHydration';
 import {
   AnilistDetailModalStack,
   useAnilistDetailModalStack,
@@ -1970,58 +1970,52 @@ export function App() {
     };
   }, [onDbPushSource]);
 
-  const unresolvedAnilistMediaIds = useMemo(() => {
+  const unresolvedAnilistItemKeys = useMemo(() => {
     if (!state) return [];
-    const ids = new Set<number>();
-    for (const item of Object.values(state.items)) {
-      if (
-        item.source?.kind === 'anilist' &&
-        item.anilistLabelSource?.kind !== 'media'
-      ) {
-        ids.add(item.source.externalId);
-      }
-    }
-    return [...ids].sort((a, b) => a - b);
+    return Object.entries(state.items)
+      .filter(([, item]) => needsAnilistItemHydration(item))
+      .map(([key]) => key)
+      .sort();
   }, [state?.items]);
 
   // CSV AniList URL matching can identify an item before the asynchronous
-  // source database is consulted. Resolve the raw title fields at the active
-  // session boundary so those items use the same live language switching as
-  // items created by the native AniList importer. This also upgrades older
-  // saved slots the first time they are loaded against a populated cache.
+  // source database is consulted. Resolve media titles, character/staff names,
+  // and source-less studio labels at the active session boundary so they use
+  // the same live language switching as native AniList imports. This also
+  // upgrades and autosaves older slots when they are loaded against a cache.
   useEffect(() => {
-    if (unresolvedAnilistMediaIds.length === 0) return;
+    if (!state || unresolvedAnilistItemKeys.length === 0) return;
 
     let cancelled = false;
-    const reads: Array<ReturnType<typeof productionReads.getMediaByIds>> = [];
-    for (let index = 0; index < unresolvedAnilistMediaIds.length; index += 500) {
-      reads.push(
-        productionReads.getMediaByIds(
-          unresolvedAnilistMediaIds.slice(index, index + 500),
-        ),
-      );
-    }
-
-    void Promise.all(reads)
-      .then((batches) => {
-        if (cancelled) return;
-        const rows = batches.flat();
-        if (rows.length === 0) return;
-        setState((cur) => {
-          if (!cur) return cur;
-          const items = resolveCachedAnilistMediaItems(cur.items, rows);
-          return items === cur.items ? cur : ({ ...cur, items } as SortState);
-        });
-      })
-      .catch(() => {
-        // Cached source metadata is optional; keep the denormalized CSV label
-        // when the local database is unavailable.
+    const sourceItems = state.items;
+    void hydrateAnilistItemRecord(sourceItems).then((hydratedItems) => {
+      if (cancelled || hydratedItems === sourceItems) return;
+      setState((cur) => {
+        if (!cur) return cur;
+        let items = cur.items;
+        for (const key of unresolvedAnilistItemKeys) {
+          const original = sourceItems[key];
+          const hydrated = hydratedItems[key];
+          if (
+            original &&
+            hydrated &&
+            hydrated !== original &&
+            cur.items[key] === original
+          ) {
+            if (items === cur.items) {
+              items = { ...cur.items };
+            }
+            items[key] = hydrated;
+          }
+        }
+        return items === cur.items ? cur : ({ ...cur, items } as SortState);
       });
+    });
 
     return () => {
       cancelled = true;
     };
-  }, [dbSyncRevision, unresolvedAnilistMediaIds]);
+  }, [dbSyncRevision, state?.items, unresolvedAnilistItemKeys]);
 
   // Relabel the in-memory engine items whenever the AniList display
   // preferences change (title language / name mode), so an in-progress

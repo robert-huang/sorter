@@ -164,6 +164,7 @@ export function enrichItemFromAnilistUrl(
   const next: Item = {
     ...item,
     url: parsed.canonicalUrl,
+    anilistLabelMode: 'automatic',
     ...(source !== undefined ? { source } : {}),
   };
 

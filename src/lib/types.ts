@@ -53,10 +53,10 @@ export interface Item {
   /** Re-label when AniList display preferences change. */
   anilistLabelSource?: AnilistItemLabelSource;
   /**
-   * Set after an explicit user rename so source hydration can still attach
-   * metadata without replacing the custom label. Missing means automatic.
+   * `automatic` distinguishes newly URL-matched imports from legacy saved
+   * items during delayed hydration. `custom` pins an explicit user rename.
    */
-  anilistLabelMode?: 'custom';
+  anilistLabelMode?: 'automatic' | 'custom';
   /** Automatic label's format-suffix choice, retained while the label is custom. */
   anilistLabelIncludesFormat?: boolean;
 }

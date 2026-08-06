@@ -255,7 +255,7 @@ Under the AniList row in **Source databases** is a **Display names** panel:
 - **entry** (media titles): **Romaji** (default) / **English** / **Native**
 - **staff** (person names): **Full** (default) / **Native**
 
-The choice is stored in `localStorage`, shared across the Sorter and Anime-to-Anime pages, and applied live to labels, detail panels, and (in A2A) the path trail. CSV rows whose URL is recognized as an AniList anime/manga also resolve their cached title variants, so changing the entry language updates those matched items instead of leaving the original CSV label frozen. If that media is not present in the local AniList cache, the CSV label remains available as the fallback.
+The choice is stored in `localStorage`, shared across the Sorter and Anime-to-Anime pages, and applied live to labels, detail panels, and (in A2A) the path trail. CSV rows whose URL is recognized as an AniList anime/manga also resolve their cached title variants, so changing the entry language updates those matched items instead of leaving the original CSV label frozen. When an older slot is loaded, cached metadata is repaired and autosaved for AniList media, characters, staff, and studios; labels matching any known title/name variant remain automatic, while genuine custom labels stay pinned. If an item is not present in the local AniList cache, its saved label remains available as the fallback.
 
 The item editor always shows whether an AniList-backed label is **Automatic** or **Custom**. Typing a different label switches it to Custom immediately and pins that label, while keeping its source metadata and alternate-title search terms. Later display-language changes and delayed cache hydration do not overwrite it. Choose **Use AniList title** to discard the custom label and resume automatic language switching. Labels customized in older saved slots are recognized from their stored source titles even if they predate the explicit mode field.
 
@@ -291,6 +291,7 @@ The LIST tab is a live, editable view of the engine state — unlike Pub Meeple,
 - See the queue and the currently-merging frame (merged + left + right slices).
 - **Remove** items (reversible). A waiting item is taken out of its queued sublist and moved to **Hidden items**; restoring it queues a fresh binary insert instead of leaving a hidden placeholder such as `4:1` in the queue.
 - **Restore** previously hidden items.
+- Hidden items that retain a ranking position are shown in rank order; remaining rows use natural label order, so numeric labels sort numerically.
 - **Reorder ↑ / ↓** items within any queued sublist, or within the in-flight merge frame (merged / left remaining / right remaining). Swaps never cross those slices; the visible compare heads on left/right remainders are locked so LIST edits don't change the RANK pair.
 - **Break apart** a queued sublist into singletons appended to the end of the queue (useful when you decide an inferred ordering is wrong).
 - **+ Add item(s)** — see *Add items modal* below.

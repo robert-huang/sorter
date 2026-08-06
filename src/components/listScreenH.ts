@@ -64,6 +64,36 @@ export function rankLabelForHiddenId(state: SortState, id: ItemId): string {
   return '—';
 }
 
+const hiddenItemCollator = new Intl.Collator('en', {
+  numeric: true,
+  sensitivity: 'base',
+});
+
+/**
+ * Show ranked hidden rows at their structural rank, then orphaned rows by
+ * natural label order (`378` before `375001` rather than string-id order).
+ */
+export function hiddenIdsInDisplayOrder(state: SortState): ItemId[] {
+  return state.hidden
+    .map((id, originalIndex) => ({
+      id,
+      originalIndex,
+      rank: rankLabelForHiddenId(state, id),
+      label: state.items[id]?.label ?? formatOrphanHiddenId(id),
+    }))
+    .sort((a, b) => {
+      const aRanked = a.rank !== '—';
+      const bRanked = b.rank !== '—';
+      if (aRanked !== bRanked) return aRanked ? -1 : 1;
+      const primary = aRanked
+        ? hiddenItemCollator.compare(a.rank, b.rank)
+        : hiddenItemCollator.compare(a.label, b.label);
+      if (primary !== 0) return primary;
+      return a.originalIndex - b.originalIndex;
+    })
+    .map(({ id }) => id);
+}
+
 export type InsertionPendingGroupKind = 'flat' | 'preranked' | 'extras';
 
 export interface InsertionPendingGroup {

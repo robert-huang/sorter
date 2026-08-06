@@ -24,6 +24,7 @@ import { RemoveGlyph } from './RemoveGlyph';
 import { ItemThumb } from './ItemThumb';
 import {
   activeRankingIds,
+  hiddenIdsInDisplayOrder,
   hiddenSortIds,
   formatOrphanHiddenId,
   insertSourceRowState,
@@ -996,7 +997,7 @@ export function ListScreen(props: Props) {
   const state = props.state;
   const rankingSlots = useMemo(() => rankingSlotIds(state), [state]);
   const activeRankingSlots = useMemo(() => activeRankingIds(state), [state]);
-  const hiddenIds = useMemo(() => state.hidden, [state.hidden]);
+  const hiddenIds = useMemo(() => hiddenIdsInDisplayOrder(state), [state]);
 
   return (
     <div className="page page--list">
