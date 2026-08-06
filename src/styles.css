@@ -7587,6 +7587,7 @@ a:where(.anime-to-anime-anilist-link):visited {
   background: var(--surface);
   box-shadow: 1px 0 0 var(--border);
   overflow: hidden;
+  vertical-align: middle;
 }
 
 .tool-credits-table thead th.tool-credits-col-show {
