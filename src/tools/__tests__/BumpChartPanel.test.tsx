@@ -20,7 +20,10 @@ import {
   loadToolsPreferences,
   saveToolsPreferences,
 } from '../toolsPreferences';
-import { _resetStateStorageForTesting } from '../../lib/stateStorageDb';
+import {
+  STATE_REVISION_KEY,
+  _resetStateStorageForTesting,
+} from '../../lib/stateStorageDb';
 import {
   _resetBumpChartStorageCacheForTesting,
   flushBumpChartStorageWrites,
@@ -139,6 +142,51 @@ describe('BumpChartPanel staging flow', () => {
     expect(
       cards[0]?.querySelector('.bump-chart-staging-heading')?.textContent,
     ).toContain('Staging area1 staged');
+  });
+
+  it('keeps an expanded staged sublist open after an equivalent cross-tab refresh', async () => {
+    await act(async () => {
+      root.render(
+        <BumpChartPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await importSingle(0, 'Before item');
+
+    const stagedRow = container.querySelector<HTMLButtonElement>(
+      '.staged-panel-group-row',
+    );
+    expect(stagedRow).not.toBeNull();
+    await act(async () => {
+      stagedRow?.click();
+    });
+    expect(stagedRow?.getAttribute('aria-expanded')).toBe('true');
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      await flushBumpChartStorageWrites();
+      window.dispatchEvent(
+        new StorageEvent('storage', {
+          key: STATE_REVISION_KEY,
+          newValue: JSON.stringify({
+            scope: 'bump',
+            id: 'active',
+            source: 'another-tab',
+          }),
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(
+      container
+        .querySelector<HTMLButtonElement>('.staged-panel-group-row')
+        ?.getAttribute('aria-expanded'),
+    ).toBe('true');
   });
 
   it('remembers the last importer tab when reopened', async () => {

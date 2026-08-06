@@ -216,6 +216,13 @@ function workspaceFromState(
   };
 }
 
+function bumpChartWorkspacesEqual(
+  left: BumpChartWorkspaceSnapshot | null,
+  right: BumpChartWorkspaceSnapshot,
+): boolean {
+  return left !== null && JSON.stringify(left) === JSON.stringify(right);
+}
+
 function applyItemEdit(item: Item, payload: EditItemSavePayload): Item {
   const updated = updateItemMetadata(item, {
     label: payload.label,
@@ -1638,8 +1645,8 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
       if (cancelled) return;
       const workspace = loadActiveBumpChartWorkspace();
       if (workspace?.view === 'staging') {
-        setBefore(draftFromSnapshot(workspace.before, 'Restored workspace'));
-        setAfter(draftFromSnapshot(workspace.after, 'Restored workspace'));
+        setBefore(draftFromSnapshot(workspace.before, 'Cached chart'));
+        setAfter(draftFromSnapshot(workspace.after, 'Cached chart'));
         setChart(null);
       } else if (workspace) {
         setBefore(EMPTY_DRAFT);
@@ -1727,6 +1734,9 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
         if (revision?.id !== 'active') return;
         const workspace = loadActiveBumpChartWorkspace();
         if (!workspace) return;
+        if (bumpChartWorkspacesEqual(latestWorkspaceRef.current, workspace)) {
+          return;
+        }
         setImportTab(workspace.lastImportTab);
         setBumpChartBestMatchByTitle(workspace.bestMatchByTitle);
         if (workspace.view === 'chart') {
@@ -1734,8 +1744,8 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
           setAfter(EMPTY_DRAFT);
           setChart(chartFromSnapshot(workspace));
         } else {
-          setBefore(draftFromSnapshot(workspace.before, 'Restored workspace'));
-          setAfter(draftFromSnapshot(workspace.after, 'Restored workspace'));
+          setBefore(draftFromSnapshot(workspace.before, 'Cached chart'));
+          setAfter(draftFromSnapshot(workspace.after, 'Cached chart'));
           setChart(null);
         }
       });

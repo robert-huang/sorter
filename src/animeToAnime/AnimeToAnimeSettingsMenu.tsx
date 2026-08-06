@@ -180,24 +180,26 @@ export function AnimeToAnimeSettingsMenu({
                   Applied live to play and the win-screen route search. Male/Female exclude
                   missing and non-binary gender.
                 </p>
-                <div className="filter-chip-range-row">
-                  <span>gender</span>
-                  <div
-                    className="filter-chip-segmented"
-                    role="group"
-                    aria-label="Staff gender filter"
-                  >
-                    {GENDER_FILTER_OPTIONS.map((option) => (
-                      <button
-                        key={option.value}
-                        type="button"
-                        className={staffGenderFilter === option.value ? 'active' : ''}
-                        aria-pressed={staffGenderFilter === option.value}
-                        onClick={() => onStaffGenderFilterChange(option.value)}
-                      >
-                        {option.label}
-                      </button>
-                    ))}
+                <div className="settings-anilist-display-prefs settings-anilist-display-prefs--standalone">
+                  <div className="filter-chip-range-row">
+                    <span>gender</span>
+                    <div
+                      className="filter-chip-segmented"
+                      role="group"
+                      aria-label="Staff gender filter"
+                    >
+                      {GENDER_FILTER_OPTIONS.map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          className={staffGenderFilter === option.value ? 'active' : ''}
+                          aria-pressed={staffGenderFilter === option.value}
+                          onClick={() => onStaffGenderFilterChange(option.value)}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
 
