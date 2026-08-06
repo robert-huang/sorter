@@ -202,11 +202,9 @@ function mediaRowToItem(m: MediaRow, includeFormatInLabel: boolean): Item {
  * keeps a character #100 and a staff #100 from colliding in the
  * staged-items panel.
  *
- * STUDIOS stay source-less for now: there's no studio filter module
- * registered, and `getItemSourceKind` returns 'manual' for items
- * without a `source` field — so studio favourites just pass through
- * the filter bar untouched, which is the correct behaviour for an
- * entity type we don't filter on.
+ * STUDIOS stay source-less because there's no studio filter module
+ * registered, but retain canonical-name metadata for custom-label
+ * detection and reset support.
  */
 function favouriteMediaLabel(
   fa: FavouriteAsItem,
@@ -273,6 +271,7 @@ function favouriteAsItemToItem(
     url,
     imageUrl: fa.imageUrl ?? undefined,
     searchTokens: fa.searchTokens,
+    anilistLabelSource: fa.anilistLabelSource,
   };
 }
 

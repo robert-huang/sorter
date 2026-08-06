@@ -26,7 +26,8 @@ import type { AnilistMediaFormat } from './importers/anilist/types';
 export type AnilistItemLabelSource =
   | { kind: 'media'; titleFields: MediaTitleFields; format: AnilistMediaFormat | null }
   | { kind: 'person'; nameFields: PersonNameFields; fallbackLabel?: string }
-  | { kind: 'character'; nameFields: PersonNameFields; fallbackLabel?: string };
+  | { kind: 'character'; nameFields: PersonNameFields; fallbackLabel?: string }
+  | { kind: 'studio'; label: string };
 
 export type ItemSource =
   | { kind: 'manual' }

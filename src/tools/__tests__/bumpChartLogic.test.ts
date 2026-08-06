@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Item } from '../../lib/types';
 import {
   _clearAnilistDisplayPreferencesForTesting,
@@ -8,12 +8,15 @@ import {
   BUMP_CHART_COLORS,
   buildBumpConnections,
   bumpRowCenterOffsets,
+  bumpItemsFromSortResults,
   bumpItemsFromRows,
   dedupeBumpChartItems,
   displayBumpChartItems,
   hasCustomAnilistLabels,
+  hydrateBumpChartItems,
   type BumpChartItem,
 } from '../panels/bumpChartLogic';
+import { productionReads } from '../../lib/importers/anilist/readQueries';
 
 function entry(
   label: string,
@@ -25,6 +28,10 @@ function entry(
 
 beforeEach(() => {
   _clearAnilistDisplayPreferencesForTesting();
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe('buildBumpConnections', () => {
@@ -200,6 +207,125 @@ describe('bump chart imports', () => {
         false,
       )[0]!.item.label,
     ).toBe('English title (TV)');
+  });
+
+  it('hydrates legacy character slots and treats known native names as automatic', async () => {
+    saveAnilistDisplayPreferences({ characterNameMode: 'full' });
+    vi.spyOn(productionReads, 'getMediaByIds').mockResolvedValue([]);
+    vi.spyOn(productionReads, 'getCharactersByIds').mockResolvedValue([
+      {
+        id: 127118,
+        name_full: 'Sakura Yamauchi',
+        name_native: '山内桜良',
+        gender: null,
+        favourites: null,
+      },
+    ]);
+    vi.spyOn(productionReads, 'getStaffByIds').mockResolvedValue([]);
+    const imported = bumpItemsFromSortResults([
+      {
+        id: 'anilist-character:127118',
+        label: '山内桜良',
+        source: { kind: 'anilist-character', externalId: 127118 },
+      },
+    ]);
+
+    const hydrated = await hydrateBumpChartItems(imported);
+
+    expect(hydrated[0]!.item.label).toBe('Sakura Yamauchi');
+    expect(hydrated[0]!.item.anilistLabelMode).toBeUndefined();
+    expect(hydrated[0]!.item.anilistLabelSource).toMatchObject({
+      kind: 'character',
+      nameFields: { name_full: 'Sakura Yamauchi', name_native: '山内桜良' },
+    });
+    expect(hasCustomAnilistLabels(hydrated)).toBe(false);
+
+    saveAnilistDisplayPreferences({ characterNameMode: 'native' });
+    expect(displayBumpChartItems(hydrated, true)[0]!.item.label).toBe('山内桜良');
+  });
+
+  it('identifies unmatched legacy character labels as custom after hydration', async () => {
+    vi.spyOn(productionReads, 'getMediaByIds').mockResolvedValue([]);
+    vi.spyOn(productionReads, 'getCharactersByIds').mockResolvedValue([
+      {
+        id: 1,
+        name_full: 'Full Name',
+        name_native: '原名',
+        gender: null,
+        favourites: null,
+      },
+    ]);
+    vi.spyOn(productionReads, 'getStaffByIds').mockResolvedValue([]);
+    const imported = bumpItemsFromSortResults([
+      {
+        id: 'anilist-character:1',
+        label: 'My custom name',
+        source: { kind: 'anilist-character', externalId: 1 },
+      },
+    ]);
+
+    const hydrated = await hydrateBumpChartItems(imported);
+
+    expect(hydrated[0]!.item.label).toBe('My custom name');
+    expect(hydrated[0]!.item.anilistLabelMode).toBe('custom');
+    expect(hasCustomAnilistLabels(hydrated)).toBe(true);
+    expect(displayBumpChartItems(hydrated, false)[0]!.item.label).toBe(
+      'Full Name',
+    );
+  });
+
+  it('hydrates legacy staff slots with person name preferences', async () => {
+    saveAnilistDisplayPreferences({ personNameMode: 'full' });
+    vi.spyOn(productionReads, 'getMediaByIds').mockResolvedValue([]);
+    vi.spyOn(productionReads, 'getCharactersByIds').mockResolvedValue([]);
+    vi.spyOn(productionReads, 'getStaffByIds').mockResolvedValue([
+      {
+        id: 2,
+        name_full: 'Kana Hanazawa',
+        name_native: '花澤香菜',
+        gender: null,
+        language_v2: 'Japanese',
+        favourites: null,
+      },
+    ]);
+    const imported = bumpItemsFromSortResults([
+      {
+        id: 'anilist-staff:2',
+        label: '花澤香菜',
+        source: { kind: 'anilist-staff', externalId: 2 },
+      },
+    ]);
+
+    const hydrated = await hydrateBumpChartItems(imported);
+
+    expect(hydrated[0]!.item.label).toBe('Kana Hanazawa');
+    expect(hydrated[0]!.item.anilistLabelSource?.kind).toBe('person');
+    expect(hydrated[0]!.item.anilistLabelMode).toBeUndefined();
+  });
+
+  it('hydrates source-less studio ids and distinguishes canonical from custom labels', async () => {
+    vi.spyOn(productionReads, 'getStudiosByIds').mockResolvedValue([
+      { id: 10, name: 'Madhouse' },
+      { id: 11, name: 'Sunrise' },
+    ]);
+    const imported = bumpItemsFromSortResults([
+      { id: 'anilist-studios:10', label: 'Madhouse' },
+      { id: 'anilist-studios:11', label: 'My favourite studio' },
+    ]);
+
+    const hydrated = await hydrateBumpChartItems(imported);
+
+    expect(hydrated[0]).toMatchObject({
+      logicalId: 'anilist-studios:10',
+      item: {
+        label: 'Madhouse',
+        anilistLabelSource: { kind: 'studio', label: 'Madhouse' },
+      },
+    });
+    expect(hydrated[0]!.item.anilistLabelMode).toBeUndefined();
+    expect(hydrated[1]!.item.anilistLabelMode).toBe('custom');
+    expect(hasCustomAnilistLabels(hydrated)).toBe(true);
+    expect(displayBumpChartItems(hydrated, false)[1]!.item.label).toBe('Sunrise');
   });
 });
 

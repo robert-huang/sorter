@@ -5,7 +5,10 @@ import {
   useRef,
   useState,
 } from 'react';
-import { AddItemsModal } from '../../components/AddItemsModal';
+import {
+  AddItemsModal,
+  type AddItemsModalTab,
+} from '../../components/AddItemsModal';
 import {
   EditItemModal,
   type EditItemSavePayload,
@@ -203,7 +206,10 @@ function BumpStage({
     id: group.id,
     kind: 'sublist',
     source: group.source,
-    items: group.items.map((entry) => entry.item),
+    items: displayBumpChartItems(
+      group.items,
+      draft.preserveCustomLabels,
+    ).map((entry) => entry.item),
     markedForRemoval: group.markedForRemoval,
     markedItemIds: group.markedItemIds,
   }));
@@ -936,6 +942,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
   const [before, setBefore] = useState<BumpSideDraft>(EMPTY_DRAFT);
   const [after, setAfter] = useState<BumpSideDraft>(EMPTY_DRAFT);
   const [importSide, setImportSide] = useState<ChartSide | null>(null);
+  const [importTab, setImportTab] = useState<AddItemsModalTab>('single');
   const [chart, setChart] = useState<GeneratedBumpChart | null>(null);
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
   const [pendingImports, setPendingImports] = useState(0);
@@ -1295,6 +1302,8 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
           hiddenRestoreIds={new Set()}
           dbSyncRevision={panelProps.dbSyncRevision}
           forcePreRanked
+          initialTab={importTab}
+          onTabChange={setImportTab}
           onCancel={closeImporter}
           {...importCallbacks}
         />

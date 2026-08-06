@@ -75,6 +75,37 @@ async function importSingle(sideIndex: number, label: string): Promise<void> {
 }
 
 describe('BumpChartPanel staging flow', () => {
+  it('remembers the last importer tab when reopened', async () => {
+    await act(async () => {
+      root.render(
+        <BumpChartPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+    });
+    await act(async () => {
+      button('Import ranked items').click();
+    });
+    await act(async () => {
+      button('Results').click();
+    });
+    expect(button('Results').getAttribute('aria-selected')).toBe('true');
+
+    await act(async () => {
+      button('Results').dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      );
+    });
+    expect(document.querySelector('.modal-backdrop')).toBeNull();
+
+    await act(async () => {
+      button('Import ranked items', 1).click();
+    });
+    expect(button('Results').getAttribute('aria-selected')).toBe('true');
+  });
+
   it('stages both sides and renders only after Generate chart', async () => {
     await act(async () => {
       root.render(

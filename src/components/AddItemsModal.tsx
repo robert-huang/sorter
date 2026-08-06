@@ -28,7 +28,11 @@ import type { SlotResultsImportBatch } from '../lib/completedSortEditH';
  *  (route to onAddMany). On the insertion engine the checkbox is hidden
  *  because there is no pre-ranked concept — pending is FIFO either way.
  */
-type Tab = 'single' | 'multiple' | 'anilist' | 'sortresults';
+export type AddItemsModalTab =
+  | 'single'
+  | 'multiple'
+  | 'anilist'
+  | 'sortresults';
 
 interface Props {
   engine: 'merge' | 'insertion' | 'confirmation';
@@ -41,6 +45,10 @@ interface Props {
   dbSyncRevision: number;
   /** Hosts such as Bump Chart always preserve imported list order. */
   forcePreRanked?: boolean;
+  /** Tab selected when the modal opens. Defaults to Single. */
+  initialTab?: AddItemsModalTab;
+  /** Lets a host remember the selected tab after the modal closes. */
+  onTabChange?: (tab: AddItemsModalTab) => void;
   onCancel: () => void;
   /** Single tab → add one item (skipped automatically if id collides). */
   onAddOne: (item: Item) => void;
@@ -64,6 +72,8 @@ export function AddItemsModal({
   excludeSlotId,
   dbSyncRevision,
   forcePreRanked = false,
+  initialTab = 'single',
+  onTabChange,
   onCancel,
   onAddOne,
   onAddMany,
@@ -71,7 +81,12 @@ export function AddItemsModal({
   onAddSlotImports,
   onImportOrderedItems,
 }: Props) {
-  const [tab, setTab] = useState<Tab>('single');
+  const [tab, setTab] = useState<AddItemsModalTab>(initialTab);
+
+  const selectTab = (nextTab: AddItemsModalTab): void => {
+    setTab(nextTab);
+    onTabChange?.(nextTab);
+  };
 
   const modalClassName = [
     'modal-wide',
@@ -94,7 +109,7 @@ export function AddItemsModal({
           role="tab"
           aria-selected={tab === 'single'}
           className={`modal-tab${tab === 'single' ? ' active' : ''}`}
-          onClick={() => setTab('single')}
+          onClick={() => selectTab('single')}
         >
           Single
         </button>
@@ -103,7 +118,7 @@ export function AddItemsModal({
           role="tab"
           aria-selected={tab === 'multiple'}
           className={`modal-tab${tab === 'multiple' ? ' active' : ''}`}
-          onClick={() => setTab('multiple')}
+          onClick={() => selectTab('multiple')}
         >
           Multiple
         </button>
@@ -112,7 +127,7 @@ export function AddItemsModal({
           role="tab"
           aria-selected={tab === 'anilist'}
           className={`modal-tab${tab === 'anilist' ? ' active' : ''}`}
-          onClick={() => setTab('anilist')}
+          onClick={() => selectTab('anilist')}
         >
           AniList
         </button>
@@ -121,7 +136,7 @@ export function AddItemsModal({
           role="tab"
           aria-selected={tab === 'sortresults'}
           className={`modal-tab${tab === 'sortresults' ? ' active' : ''}`}
-          onClick={() => setTab('sortresults')}
+          onClick={() => selectTab('sortresults')}
         >
           Results
         </button>

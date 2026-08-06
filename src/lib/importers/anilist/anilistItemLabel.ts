@@ -20,6 +20,9 @@ export function resolveAnilistItemLabel(
       includeFormatInLabel,
     );
   }
+  if (source.kind === 'studio') {
+    return source.label;
+  }
   if (source.kind === 'character') {
     return pickCharacterName(source.nameFields, undefined, source.fallbackLabel);
   }
@@ -107,6 +110,8 @@ export function isCustomAnilistItemLabel(item: Item): boolean {
         );
       }
     }
+  } else if (source.kind === 'studio') {
+    automaticLabels.add(source.label);
   } else if (source.kind === 'character') {
     automaticLabels.add(
       pickCharacterName(source.nameFields, 'full', source.fallbackLabel),

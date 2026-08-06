@@ -37,6 +37,7 @@ import {
   getMediaIdsWithDisallowedListStatus,
   getMeta,
   getStaffFilmography,
+  getStudiosByIds,
   getVoiceActorsForCandidates,
   hasMediaCharacters,
 } from '../readQueries';
@@ -786,12 +787,14 @@ describe('getFavouritesAsItems', () => {
         label: 'Madhouse',
         imageUrl: null,
         searchTokens: ['Madhouse'],
+        anilistLabelSource: { kind: 'studio', label: 'Madhouse' },
       }),
       expect.objectContaining({
         externalId: 100,
         label: 'Sunrise',
         imageUrl: null,
         searchTokens: ['Sunrise'],
+        anilistLabelSource: { kind: 'studio', label: 'Sunrise' },
       }),
     ]);
   });
@@ -802,6 +805,18 @@ describe('getFavouritesAsItems', () => {
     expect(await getFavouritesAsItems(exec, user.id, 'CHARACTERS')).toEqual([]);
     expect(await getFavouritesAsItems(exec, user.id, 'STAFF')).toEqual([]);
     expect(await getFavouritesAsItems(exec, user.id, 'STUDIOS')).toEqual([]);
+  });
+});
+
+describe('getStudiosByIds', () => {
+  it('returns cached canonical names for the requested studio ids', async () => {
+    seedStudio(db, 100, 'Sunrise');
+    seedStudio(db, 101, 'Madhouse');
+
+    expect(await getStudiosByIds(exec, [101, 999])).toEqual([
+      { id: 101, name: 'Madhouse' },
+    ]);
+    expect(await getStudiosByIds(exec, [])).toEqual([]);
   });
 });
 

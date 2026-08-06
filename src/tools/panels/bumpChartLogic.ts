@@ -5,13 +5,16 @@ import {
   relabelAnilistItemPreservingFormat,
   resolveCachedAnilistMediaItem,
 } from '../../lib/importers/anilist/anilistItemLabel';
+import { personNameSearchParts } from '../../lib/importers/anilist/personDisplayLabel';
 import { productionReads } from '../../lib/importers/anilist/readQueries';
-import type { Item } from '../../lib/types';
+import type { AnilistItemLabelSource, Item } from '../../lib/types';
 
 export type BumpChartItem = {
   item: Item;
   /** Present for saved results and source-matched rows; absent for plain pasted rows. */
   logicalId?: string;
+  /** Saved slots may predate persisted AniList label metadata. */
+  inferLegacyCustomLabel?: boolean;
 };
 
 export type BumpConnection = {
@@ -45,8 +48,21 @@ export const BUMP_CHART_COLORS = [
   '#475569',
 ] as const;
 
+const ANILIST_STUDIO_ID_PREFIX = 'anilist-studios:';
+
+function studioExternalId(item: Item): number | null {
+  if (!item.id.startsWith(ANILIST_STUDIO_ID_PREFIX)) {
+    return null;
+  }
+  const externalId = Number(item.id.slice(ANILIST_STUDIO_ID_PREFIX.length));
+  return Number.isSafeInteger(externalId) && externalId > 0 ? externalId : null;
+}
+
 function isAnilistSourceMatched(item: Item): boolean {
-  return item.source != null && item.source.kind !== 'manual';
+  return (
+    (item.source != null && item.source.kind !== 'manual') ||
+    studioExternalId(item) != null
+  );
 }
 
 export function hasCustomAnilistLabels(items: readonly BumpChartItem[]): boolean {
@@ -97,7 +113,12 @@ export function bumpItemsFromSortResults(items: readonly Item[]): BumpChartItem[
       continue;
     }
     seen.add(item.id);
-    out.push({ item, logicalId: item.id });
+    out.push({
+      item,
+      logicalId: item.id,
+      inferLegacyCustomLabel:
+        isAnilistSourceMatched(item) && !item.anilistLabelSource,
+    });
   }
   return out;
 }
@@ -128,7 +149,68 @@ export function dedupeBumpChartItems(
   return out;
 }
 
-/** Attach cached AniList media titles to URL-matched rows before label selection. */
+function finishSourceHydration(
+  entry: BumpChartItem,
+  resolved: Item,
+): BumpChartItem {
+  if (!entry.inferLegacyCustomLabel) {
+    return {
+      ...entry,
+      item:
+        resolved.anilistLabelMode === 'custom'
+          ? resolved
+          : relabelAnilistItemPreservingFormat(resolved, true),
+    };
+  }
+
+  const candidate = { ...resolved, label: entry.item.label };
+  if (isCustomAnilistItemLabel(candidate)) {
+    const source = candidate.anilistLabelSource;
+    const includesFormat =
+      candidate.anilistLabelIncludesFormat ??
+      (source?.kind === 'media' && source.format != null
+        ? candidate.label.endsWith(` (${source.format})`)
+        : undefined);
+    return {
+      ...entry,
+      item: {
+        ...candidate,
+        anilistLabelMode: 'custom',
+        ...(includesFormat === undefined
+          ? {}
+          : { anilistLabelIncludesFormat: includesFormat }),
+      },
+    };
+  }
+  return {
+    ...entry,
+    item: relabelAnilistItemPreservingFormat(candidate, true),
+  };
+}
+
+function hydratePersonEntry(
+  entry: BumpChartItem,
+  row: { id: number; name_full: string | null; name_native: string | null },
+  kind: 'character' | 'person',
+): BumpChartItem {
+  const nameFields = {
+    id: row.id,
+    name_full: row.name_full,
+    name_native: row.name_native,
+  };
+  const anilistLabelSource: AnilistItemLabelSource = {
+    kind,
+    nameFields,
+    fallbackLabel: kind === 'character' ? 'Character' : 'Staff',
+  };
+  return finishSourceHydration(entry, {
+    ...entry.item,
+    anilistLabelSource,
+    searchTokens: personNameSearchParts(nameFields),
+  });
+}
+
+/** Attach cached AniList title/name metadata before label selection. */
 export async function hydrateBumpChartItems(
   entries: readonly BumpChartItem[],
 ): Promise<BumpChartItem[]> {
@@ -139,30 +221,88 @@ export async function hydrateBumpChartItems(
         : null,
     )
     .filter((id): id is number => id != null);
-  if (mediaIds.length === 0) {
+  const characterIds = entries
+    .map(({ item }) =>
+      item.source?.kind === 'anilist-character' && !item.anilistLabelSource
+        ? item.source.externalId
+        : null,
+    )
+    .filter((id): id is number => id != null);
+  const staffIds = entries
+    .map(({ item }) =>
+      item.source?.kind === 'anilist-staff' && !item.anilistLabelSource
+        ? item.source.externalId
+        : null,
+    )
+    .filter((id): id is number => id != null);
+  const studioIds = entries
+    .map(({ item }) =>
+      !item.anilistLabelSource ? studioExternalId(item) : null,
+    )
+    .filter((id): id is number => id != null);
+  if (
+    mediaIds.length === 0 &&
+    characterIds.length === 0 &&
+    staffIds.length === 0 &&
+    studioIds.length === 0
+  ) {
     return [...entries];
   }
 
   try {
-    const rows = await productionReads.getMediaByIds([...new Set(mediaIds)]);
-    const byId = new Map(rows.map((row) => [row.id, row]));
+    const [mediaRows, characterRows, staffRows, studioRows] = await Promise.all([
+      mediaIds.length > 0
+        ? productionReads.getMediaByIds([...new Set(mediaIds)])
+        : Promise.resolve([]),
+      characterIds.length > 0
+        ? productionReads.getCharactersByIds([...new Set(characterIds)])
+        : Promise.resolve([]),
+      staffIds.length > 0
+        ? productionReads.getStaffByIds([...new Set(staffIds)])
+        : Promise.resolve([]),
+      studioIds.length > 0
+        ? productionReads.getStudiosByIds([...new Set(studioIds)])
+        : Promise.resolve([]),
+    ]);
+    const mediaById = new Map(mediaRows.map((row) => [row.id, row]));
+    const charactersById = new Map(characterRows.map((row) => [row.id, row]));
+    const staffById = new Map(staffRows.map((row) => [row.id, row]));
+    const studiosById = new Map(studioRows.map((row) => [row.id, row]));
     return entries.map((entry) => {
+      if (entry.item.anilistLabelSource) {
+        return entry;
+      }
+      const studioId = studioExternalId(entry.item);
+      if (studioId != null) {
+        const row = studiosById.get(studioId);
+        return row
+          ? finishSourceHydration(entry, {
+              ...entry.item,
+              anilistLabelSource: { kind: 'studio', label: row.name },
+              searchTokens: [row.name],
+            })
+          : entry;
+      }
       const source = entry.item.source;
-      if (source?.kind !== 'anilist' || entry.item.anilistLabelSource) {
-        return entry;
-      }
-      const row = byId.get(source.externalId);
-      if (!row) {
-        return entry;
-      }
-      const resolved = resolveCachedAnilistMediaItem(entry.item, row);
-      return {
-        ...entry,
-        item: {
+      if (!source) return entry;
+      if (source.kind === 'anilist') {
+        const row = mediaById.get(source.externalId);
+        if (!row) return entry;
+        const resolved = resolveCachedAnilistMediaItem(entry.item, row);
+        return finishSourceHydration(entry, {
           ...resolved,
           imageUrl: resolved.imageUrl ?? row.cover_image ?? undefined,
-        },
-      };
+        });
+      }
+      if (source.kind === 'anilist-character') {
+        const row = charactersById.get(source.externalId);
+        return row ? hydratePersonEntry(entry, row, 'character') : entry;
+      }
+      if (source.kind === 'anilist-staff') {
+        const row = staffById.get(source.externalId);
+        return row ? hydratePersonEntry(entry, row, 'person') : entry;
+      }
+      return entry;
     });
   } catch {
     // The chart remains usable when the optional local source database is unavailable.

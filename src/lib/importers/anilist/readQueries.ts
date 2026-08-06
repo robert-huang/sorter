@@ -863,13 +863,10 @@ export async function getFavouriteEntityIdsForUsername(
  * per-type column shape (image vs cover_image, name_full vs name) on
  * every render.
  *
- * `externalId` is the AniList stable id so the AniList LIST filter
- * chips and detail modal can opportunistically attach when the favourite
- * is a media entity (ANIME/MANGA). For CHARACTERS/STAFF/STUDIOS the
- * caller materialises a manual-source Item — the AniList chip module
- * is media-only — and the externalId stays in the synthetic Item id
- * so future cross-source modules can still navigate back to the
- * underlying row.
+ * `externalId` is the AniList stable id used when the caller materialises
+ * the entity-specific Item id and source metadata. Studios remain source-less
+ * because they have no filter module, but still carry label metadata so edits
+ * can be distinguished from the canonical AniList name.
  */
 export interface FavouriteAsItem {
   externalId: number;
@@ -1048,6 +1045,7 @@ export async function getFavouritesAsItems(
           label,
           imageUrl: null,
           searchTokens: [label],
+          anilistLabelSource: { kind: 'studio', label } as const,
         };
       });
     }
@@ -1273,6 +1271,24 @@ export async function getStaffByIds(
     gender: s(r.gender),
     language_v2: s(r.language_v2),
     favourites: r.favourites === null || r.favourites === undefined ? null : reqN(r.favourites),
+  }));
+}
+
+/** Fetch canonical studio names by AniList id. Empty input → empty output. */
+export async function getStudiosByIds(
+  db: AnilistDbExecutor,
+  ids: readonly number[],
+): Promise<Array<{ id: number; name: string }>> {
+  if (ids.length === 0) return [];
+  const sql = `
+    SELECT id, name
+      FROM studio
+     WHERE id IN (${placeholders(ids.length)})
+  `;
+  const rows = await db.exec(sql, ids as readonly SqlBindable[]);
+  return rows.map((r) => ({
+    id: reqN(r.id),
+    name: reqS(r.name),
   }));
 }
 
@@ -1607,6 +1623,10 @@ function defaultDb(): AnilistDbExecutor {
 
 export const productionReads = {
   getMediaByIds: (ids: readonly number[]) => getMediaByIds(defaultDb(), ids),
+  getCharactersByIds: (ids: readonly number[]) =>
+    getCharactersByIds(defaultDb(), ids),
+  getStaffByIds: (ids: readonly number[]) => getStaffByIds(defaultDb(), ids),
+  getStudiosByIds: (ids: readonly number[]) => getStudiosByIds(defaultDb(), ids),
   getListedMedia: (anilistUserId: number, type: AnilistMediaType) =>
     getListedMedia(defaultDb(), anilistUserId, type),
   getListedMediaCount: (anilistUserId: number, type: AnilistMediaType) =>
