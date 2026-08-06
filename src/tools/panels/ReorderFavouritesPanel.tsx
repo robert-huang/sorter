@@ -15,6 +15,12 @@ import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsernam
 import { buildAnilistFavouriteUrl } from '../../lib/importers/anilist/anilistSource';
 import { AnilistMiddleClickLink } from '../../lib/importers/anilist/AnilistMiddleClickLink';
 import { Modal } from '../../components/Modal';
+import { RemoveGlyph } from '../../components/RemoveGlyph';
+import {
+  SortResultsImportMode,
+  type OrderedSlotImport,
+} from '../../components/SortResultsImportMode';
+import { productionReads } from '../../lib/importers/anilist/readQueries';
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
 import { ToolUsernameField } from '../ToolUsernameField';
@@ -32,10 +38,14 @@ import {
   dragPayloadIds,
   EMPTY_SELECT_RANK_STATE,
   favouriteIdsInOrder,
+  favouriteResultCandidateIds,
+  filterMediaResultCandidateIds,
   handleSelectRankClick,
   hasPendingReorderChanges,
   hasSelectRankChanges,
   itemsWithSortOrder,
+  importedIdsMissingFromFavourites,
+  missingFavouritesWarningMessage,
   loadRecentlyDeletedBuckets,
   REORDER_FAVOURITE_TYPE_OPTIONS,
   reorderByDrag,
@@ -44,6 +54,7 @@ import {
   revertItemsToIdOrder,
   sameIdOrder,
   selectRankLabelForItem,
+  selectRankStateFromImportedIds,
   toggleSelectedId,
   wouldSelectRankChangeOrder,
   type FavouriteListItem,
@@ -157,6 +168,11 @@ export function ReorderFavouritesPanel(_props: ToolPanelProps) {
   const [dragPreview, setDragPreview] = useState<DragPreviewState | null>(null);
   const [dragPointer, setDragPointer] = useState<DragPointerState | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [sortResultsOpen, setSortResultsOpen] = useState(false);
+  const [importingResults, setImportingResults] = useState(false);
+  const [missingFavouritesWarning, setMissingFavouritesWarning] = useState<
+    string | null
+  >(null);
   const [recentlyDeleted, setRecentlyDeleted] = useState<RecentlyDeletedBucket[]>(() =>
     loadRecentlyDeletedBuckets(),
   );
@@ -399,6 +415,7 @@ export function ReorderFavouritesPanel(_props: ToolPanelProps) {
         }
         setAnilistUserId(result.anilistUserId);
         applyLoadedItems(result.items);
+        setMissingFavouritesWarning(null);
         setLoadStatus(null);
         setSuccess(`Loaded ${result.items.length} favourites.`);
       } catch (err) {
@@ -609,13 +626,80 @@ export function ReorderFavouritesPanel(_props: ToolPanelProps) {
       setSavedIds([]);
       setAnilistUserId(null);
       resetInteraction();
+      setMissingFavouritesWarning(null);
       setError(null);
       setSuccess(null);
     },
     [patchForm, resetInteraction],
   );
 
-  const busy = loading || saving || deleting;
+  const onImportSortResults = useCallback(
+    async (imports: OrderedSlotImport[]) => {
+      const importedItems = imports.flatMap((entry) => entry.items);
+      const candidateIds = favouriteResultCandidateIds(
+        importedItems,
+        form.favouriteType,
+      );
+      setImportingResults(true);
+      setError(null);
+      setSuccess(null);
+      try {
+        let compatibleIds = candidateIds;
+        if (form.favouriteType === 'ANIME' || form.favouriteType === 'MANGA') {
+          const rows = await productionReads.getMediaByIds(candidateIds);
+          compatibleIds = filterMediaResultCandidateIds(
+            candidateIds,
+            rows,
+            form.favouriteType,
+          );
+        }
+
+        const missingCount = importedIdsMissingFromFavourites(
+          items,
+          compatibleIds,
+        ).length;
+        if (missingCount > 0) {
+          setMissingFavouritesWarning(
+            missingFavouritesWarningMessage(
+              form.favouriteType,
+              missingCount,
+              form.username.trim(),
+            ),
+          );
+        } else {
+          setMissingFavouritesWarning(null);
+        }
+
+        const rankState = selectRankStateFromImportedIds(items, compatibleIds);
+        if (rankState.rankedIds.length === 0) {
+          if (missingCount > 0) {
+            setSortResultsOpen(false);
+          }
+          setError(
+            'No imported result items match the loaded favourites and selected type.',
+          );
+          return;
+        }
+        setSelected(new Set());
+        setSelectRankState(rankState);
+        setMode('select-rank');
+        setSortResultsOpen(false);
+        const ignoredCount = importedItems.length - rankState.rankedIds.length;
+        setSuccess(
+          `Preselected ${rankState.rankedIds.length} result item${
+            rankState.rankedIds.length === 1 ? '' : 's'
+          } in rank order${ignoredCount > 0 ? `; ignored ${ignoredCount} incompatible or unavailable item${ignoredCount === 1 ? '' : 's'}` : ''}. Review the numbered chips, then save.`,
+        );
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Sort results import failed.');
+      } finally {
+        setImportingResults(false);
+      }
+    },
+    [form.favouriteType, form.username, items],
+  );
+
+  const busy = loading || saving || deleting || importingResults;
 
   return (
     <section
@@ -679,12 +763,43 @@ export function ReorderFavouritesPanel(_props: ToolPanelProps) {
             }}
             forceRefreshTitle="Load always re-fetches from AniList"
           />
+          <button
+            type="button"
+            className="btn"
+            disabled={busy || items.length === 0}
+            onClick={() => {
+              setError(null);
+              setSuccess(null);
+              setSortResultsOpen(true);
+            }}
+            title={
+              items.length === 0
+                ? 'Load favourites before importing a result order'
+                : 'Preselect matching favourites from a completed sorter result'
+            }
+          >
+            {importingResults ? 'Importing…' : 'Import sort results'}
+          </button>
         </div>
       </form>
 
       {loadStatus && <p className="tool-status">{loadStatus}</p>}
       {error && <p className="tool-error">{error}</p>}
       {success && <p className="tool-success">{success}</p>}
+      {missingFavouritesWarning && (
+        <div className="app-banner warn tool-reorder-favourites-import-warning">
+          <span>{missingFavouritesWarning}</span>
+          <button
+            type="button"
+            className="banner-dismiss"
+            onClick={() => setMissingFavouritesWarning(null)}
+            aria-label="Dismiss missing favourites warning"
+            title="Dismiss"
+          >
+            <RemoveGlyph size={12} />
+          </button>
+        </div>
+      )}
 
       {items.length > 0 && (
         <>
@@ -896,6 +1011,29 @@ export function ReorderFavouritesPanel(_props: ToolPanelProps) {
               {deleting ? 'Removing…' : 'Unfavourite'}
             </button>
           </div>
+        </Modal>
+      )}
+      {sortResultsOpen && (
+        <Modal
+          label="Import favourite order from sort results"
+          onClose={() => {
+            if (!importingResults) {
+              setSortResultsOpen(false);
+            }
+          }}
+          className="modal-wide modal-wide-sort-results"
+        >
+          <h3>Import sort results</h3>
+          {error && <p className="tool-error">{error}</p>}
+          <SortResultsImportMode
+            embedded
+            showPreRankedToggle={false}
+            selectionMode="single"
+            embeddedHint="Pick one completed save to use as a proposed favourite order. Only logical ids for the selected favourite type are kept; other rows are ignored and ranks collapse automatically."
+            onImportOrderedItems={(imports) => {
+              void onImportSortResults(imports);
+            }}
+          />
         </Modal>
       )}
     </section>

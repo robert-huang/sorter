@@ -36,6 +36,7 @@ import { UpdateListEntryPanel } from './panels/UpdateListEntryPanel';
 import { AdaptationScoresPanel } from './panels/AdaptationScoresPanel';
 import { WeeklyCalendarPanel } from './panels/WeeklyCalendarPanel';
 import { StatsPanel } from './panels/StatsPanel';
+import { BumpChartPanel } from './panels/BumpChartPanel';
 import type { ToolsMediaRelationsResponse } from '../lib/importers/anilist/toolsMediaRelationsApi';
 
 const TOOL_TABS: ReadonlyArray<ToolTab<ToolId>> = [
@@ -83,6 +84,11 @@ const TOOL_TABS: ReadonlyArray<ToolTab<ToolId>> = [
     id: 'reorder-favourites',
     label: 'Reorder Favourites',
     title: 'Reorder AniList favourite lists locally and save back.',
+  },
+  {
+    id: 'bump-chart',
+    label: 'Bump Chart',
+    title: 'Visualize how ranked items moved up, down, on, or off a list.',
   },
   {
     id: 'update-list-entry',
@@ -238,6 +244,9 @@ export function ToolsApp() {
         </div>
         <div hidden={activeTool !== 'reorder-favourites'}>
           <ReorderFavouritesPanel {...panelProps} />
+        </div>
+        <div hidden={activeTool !== 'bump-chart'}>
+          <BumpChartPanel {...panelProps} />
         </div>
         <div hidden={activeTool !== 'update-list-entry'}>
           <UpdateListEntryPanel {...panelProps} />

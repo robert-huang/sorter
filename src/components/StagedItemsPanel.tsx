@@ -294,15 +294,15 @@ interface Props {
    */
   onClearAll: () => void;
   /** Start the sort using the currently-selected `startMode`. */
-  onStartSort: () => void;
+  onStartSort?: () => void;
   /**
    * Selected engine for the Start Sort split-button. Non-persisted; the
    * parent (StartScreen) owns it so it can also route header-tab draft
    * adoption (`tryAdoptDraft`) through the same mode.
    */
-  startMode: StartMode;
+  startMode?: StartMode;
   /** Pick a different engine from the split-button's chevron menu. */
-  onStartModeChange: (mode: StartMode) => void;
+  onStartModeChange?: (mode: StartMode) => void;
   /**
    * Soft-toggle a single item's removal state inside a STAGED group
    * (no-op for pending — those rows render without action handles).
@@ -311,14 +311,24 @@ interface Props {
    * call sites (tests, future hosts) can omit it; when missing,
    * item-level × buttons aren't rendered.
    */
-  onToggleRemoveItem?: (groupId: string, itemId: ItemId) => void;
+  onToggleRemoveItem?: (
+    groupId: string,
+    itemId: ItemId,
+    index?: number,
+  ) => void;
   /**
    * Open the per-item edit modal. Mirrors the CSV-preview's edit
    * flow but targets a staged item by (group, itemId) instead of
    * (sourceName, rowNumber). Optional for the same reason as the
    * toggle handlers above.
    */
-  onEditItem?: (groupId: string, itemId: ItemId) => void;
+  onEditItem?: (groupId: string, itemId: ItemId, index?: number) => void;
+  /** Hide the sorter engine button when reusing the staged list elsewhere. */
+  showStartControls?: boolean;
+  /** Removal callbacks delete immediately rather than setting soft marks. */
+  immediateRemoval?: boolean;
+  emptyHint?: string;
+  ariaLabel?: string;
 }
 
 /**
@@ -345,6 +355,10 @@ export function StagedItemsPanel({
   onStartModeChange,
   onToggleRemoveItem,
   onEditItem,
+  showStartControls = true,
+  immediateRemoval = false,
+  emptyHint,
+  ariaLabel = 'Staged items for sorting',
 }: Props) {
   const combined = useMemo(() => [...staged, ...pending], [staged, pending]);
   const summary = useMemo(() => buildSortInputFromStaged(combined), [combined]);
@@ -352,7 +366,9 @@ export function StagedItemsPanel({
   const markedCount = useMemo(() => countMarkedForRemoval(combined), [combined]);
   const rankedSublistReady = isSingleRankedSublistReady(combined);
   const effectiveStartMode: StartMode =
-    startMode === 'confirmation' && !rankedSublistReady ? 'merge' : startMode;
+    startMode === 'confirmation' && !rankedSublistReady
+      ? 'merge'
+      : (startMode ?? 'merge');
   const insertionAnchorGroupId = useMemo(
     () =>
       effectiveStartMode === 'insertion'
@@ -393,7 +409,7 @@ export function StagedItemsPanel({
     setStartMenuOpensUp(wouldOverflowBelow && fitsAbove);
   }, [startMenuOpen, rankedSublistReady]);
   const chooseStartMode = (mode: StartMode) => {
-    onStartModeChange(mode);
+    onStartModeChange?.(mode);
     setStartMenuOpen(false);
   };
 
@@ -438,15 +454,15 @@ export function StagedItemsPanel({
     return (
       <div className="staged-panel empty" aria-live="polite">
         <span className="staged-panel-empty-hint">
-          Nothing staged yet. Add items from any tab above — clipboard,
-          pre-ranked lists, AniList, and saved sort results all stack into one sort.
+          {emptyHint ??
+            'Nothing staged yet. Add items from any tab above — clipboard, pre-ranked lists, AniList, and saved sort results all stack into one sort.'}
         </span>
       </div>
     );
   }
 
   return (
-    <div className="staged-panel" aria-label="Staged items for sorting">
+    <div className="staged-panel" aria-label={ariaLabel}>
       <div className="staged-panel-header">
         <div className="staged-panel-summary">
           <strong>{summary.uniqueCount}</strong>{' '}
@@ -486,6 +502,7 @@ export function StagedItemsPanel({
               Clear staged
             </button>
           )}
+          {showStartControls && (
           <div className="staged-panel-start-split" ref={startSplitRef}>
             <button
               type="button"
@@ -575,6 +592,7 @@ export function StagedItemsPanel({
               </div>
             )}
           </div>
+          )}
         </div>
       </div>
 
@@ -645,9 +663,7 @@ export function StagedItemsPanel({
                 aria-controls={`staged-group-items-${g.id}`}
                 title={isOpen ? 'Collapse' : 'Expand to see and edit items'}
               >
-                <span className="staged-panel-caret" aria-hidden>
-                  {isOpen ? '▾' : '▸'}
-                </span>
+                <span className="staged-panel-caret" aria-hidden />
                 <span
                   className={`staged-panel-kind kind-${g.kind}`}
                   title={
@@ -710,12 +726,16 @@ export function StagedItemsPanel({
                   }
                   onClick={() => onToggleRemoveGroup(g.id)}
                   aria-label={
-                    groupMarked
+                    immediateRemoval
+                      ? `Remove ${g.source} from staged items`
+                      : groupMarked
                       ? `Undo remove ${g.source} from staged items`
                       : `Mark ${g.source} for removal from staged items`
                   }
                   title={
-                    groupMarked
+                    immediateRemoval
+                      ? 'Remove this source from staged items'
+                      : groupMarked
                       ? 'Undo — bring this source back into the sort'
                       : 'Mark this whole source for removal (undo with ↺ before Start Sort)'
                   }
@@ -843,7 +863,7 @@ export function StagedItemsPanel({
                           <button
                             type="button"
                             className="x-button staged-panel-item-edit"
-                            onClick={() => onEditItem(g.id, it.id)}
+                          onClick={() => onEditItem(g.id, it.id, idx)}
                             aria-label={`Edit ${it.label}`}
                             title="Edit label / URL / image for this entry"
                           >
@@ -864,14 +884,18 @@ export function StagedItemsPanel({
                               'x-button staged-panel-item-remove' +
                               (itemMarked ? ' staged-panel-item-undo' : '')
                             }
-                            onClick={() => onToggleRemoveItem(g.id, it.id)}
+                            onClick={() => onToggleRemoveItem(g.id, it.id, idx)}
                             aria-label={
-                              itemMarked
+                              immediateRemoval
+                                ? `Remove ${it.label}`
+                                : itemMarked
                                 ? `Undo remove ${it.label}`
                                 : `Mark ${it.label} for removal`
                             }
                             title={
-                              itemMarked
+                              immediateRemoval
+                                ? 'Remove this entry from staged items'
+                                : itemMarked
                                 ? 'Undo — bring this entry back into the sort'
                                 : 'Mark this entry for removal (undo with ↺ before Start Sort)'
                             }

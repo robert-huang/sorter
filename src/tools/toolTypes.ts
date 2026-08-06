@@ -9,6 +9,7 @@ export type ToolId =
   | 'adaptation-scores'
   | 'favourites'
   | 'reorder-favourites'
+  | 'bump-chart'
   | 'update-list-entry'
   | 'stats';
 
@@ -47,6 +48,7 @@ const TOOL_IDS: readonly ToolId[] = [
   'weekly-calendar',
   'favourites',
   'reorder-favourites',
+  'bump-chart',
   'update-list-entry',
 ];
 

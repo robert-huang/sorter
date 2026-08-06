@@ -18,6 +18,11 @@ import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
 import { RemoveGlyph } from './RemoveGlyph';
 import type { StagedGroupInput } from './StagedItemsPanel';
 
+export interface OrderedSlotImport {
+  source: string;
+  items: Item[];
+}
+
 type SortResultsImportModeProps = {
   embedded?: boolean;
   /**
@@ -34,14 +39,25 @@ type SortResultsImportModeProps = {
   onDraftActivity?: () => void;
   /** Called after a successful add (modal closes itself). */
   onComplete?: () => void;
+  /** Context-specific copy for embedded consumers outside the sorter. */
+  embeddedHint?: string;
+  /** Restrict consumers such as Reorder Favourites to one completed slot. */
+  selectionMode?: 'multiple' | 'single';
 } & (
   | {
       onAppendToStaged: (groups: StagedGroupInput[]) => void;
       onAddSlotImports?: never;
+      onImportOrderedItems?: never;
     }
   | {
       onAddSlotImports: (batches: SlotResultsImportBatch[]) => void;
       onAppendToStaged?: never;
+      onImportOrderedItems?: never;
+    }
+  | {
+      onImportOrderedItems: (imports: OrderedSlotImport[]) => void;
+      onAppendToStaged?: never;
+      onAddSlotImports?: never;
     }
 );
 
@@ -73,6 +89,21 @@ function buildImportBatches(
   return batches;
 }
 
+export function updateSortResultSelection(
+  current: ReadonlySet<string>,
+  id: string,
+  selected: boolean,
+  mode: 'multiple' | 'single',
+): ReadonlySet<string> {
+  if (mode === 'single') {
+    return selected ? new Set([id]) : new Set();
+  }
+  const next = new Set(current);
+  if (selected) next.add(id);
+  else next.delete(id);
+  return next;
+}
+
 export function SortResultsImportMode({
   embedded = false,
   excludeSlotId,
@@ -83,6 +114,9 @@ export function SortResultsImportMode({
   onComplete,
   onAppendToStaged,
   onAddSlotImports,
+  onImportOrderedItems,
+  embeddedHint,
+  selectionMode = 'multiple',
 }: SortResultsImportModeProps) {
   const [revision, setRevision] = useState(0);
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
@@ -156,19 +190,16 @@ export function SortResultsImportMode({
   );
 
   const toggleSelected = useCallback((id: string, on: boolean) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (on) next.add(id);
-      else next.delete(id);
-      return next;
-    });
+    setSelected((prev) =>
+      updateSortResultSelection(prev, id, on, selectionMode),
+    );
     if (on) {
       setAsPreRanked((prev) =>
         prev[id] === undefined ? { ...prev, [id]: true } : prev,
       );
     }
     onDraftActivity?.();
-  }, [onDraftActivity]);
+  }, [onDraftActivity, selectionMode]);
 
   const selectAllImportable = useCallback(() => {
     setSelected(new Set(importable.map((e) => e.meta.id)));
@@ -326,6 +357,24 @@ export function SortResultsImportMode({
   function handleAdd(): void {
     if (selectedImportable.length === 0 || addableCount === 0) return;
 
+    if (onImportOrderedItems) {
+      const imports = selectedImportable
+        .map((entry) => ({
+          source: slotImportSourceLabel(entry.meta),
+          items: effectiveItemsForEntry(entry),
+        }))
+        .filter((entry) => entry.items.length > 0);
+      if (imports.length > 0) {
+        onImportOrderedItems(imports);
+        setSelected(new Set());
+        setExpandedId(null);
+        setOverrides(new Map());
+        setExcluded(new Set());
+      }
+      onComplete?.();
+      return;
+    }
+
     if (onAppendToStaged) {
       const groups: StagedGroupInput[] = [];
       for (const entry of selectedImportable) {
@@ -367,6 +416,9 @@ export function SortResultsImportMode({
   }
 
   const addLabel = (() => {
+    if (onImportOrderedItems) {
+      return `Import ranked items (${addableCount})`;
+    }
     if (onAppendToStaged) {
       return `Add to staged (${addableCount} item${addableCount === 1 ? '' : 's'})`;
     }
@@ -425,9 +477,9 @@ export function SortResultsImportMode({
       )}
       {embedded && (
         <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 0 }}>
-          Pick one or more completed saves. Items already in the active sort are
-          skipped; hidden items will be reinserted. Expand a save to edit labels, URLs, or ids before adding.
-          {showPreRankedToggle
+          {embeddedHint ??
+            'Pick one or more completed saves. Items already in the active sort are skipped; hidden items will be reinserted. Expand a save to edit labels, URLs, or ids before adding.'}
+          {!embeddedHint && showPreRankedToggle
             ? ' Uncheck “Treat as one pre-ranked sublist” on a save to queue each item as its own singleton.'
             : null}
         </p>
@@ -442,6 +494,7 @@ export function SortResultsImportMode({
               {importable.length} importable · {selected.size} selected
             </span>
             <div className="sort-results-import-toolbar-actions">
+              {selectionMode === 'multiple' && (
               <button
                 type="button"
                 className="btn btn-sm"
@@ -450,6 +503,7 @@ export function SortResultsImportMode({
               >
                 Select all completed
               </button>
+              )}
               <button
                 type="button"
                 className="btn btn-sm"
@@ -474,6 +528,7 @@ export function SortResultsImportMode({
                 hiddenRestoreIds={hiddenRestoreIds}
                 overrides={overrides}
                 excluded={excluded}
+                selectionMode={selectionMode}
                 onToggleSelect={(on) => toggleSelected(entry.meta.id, on)}
                 onToggleExpand={() =>
                   setExpandedId((id) =>
@@ -524,6 +579,7 @@ function SlotImportRow({
   hiddenRestoreIds,
   overrides,
   excluded,
+  selectionMode,
   onToggleSelect,
   onToggleExpand,
   onTogglePreRanked,
@@ -539,6 +595,7 @@ function SlotImportRow({
   hiddenRestoreIds?: Set<string>;
   overrides: SlotImportOverlayMap;
   excluded: SlotImportExcludedRows;
+  selectionMode: 'multiple' | 'single';
   onToggleSelect: (on: boolean) => void;
   onToggleExpand: () => void;
   onTogglePreRanked: (value: boolean) => void;
@@ -615,7 +672,8 @@ function SlotImportRow({
         onKeyDown={onRowKeyDown}
       >
         <input
-          type="checkbox"
+          type={selectionMode === 'single' ? 'radio' : 'checkbox'}
+          name={selectionMode === 'single' ? 'sort-result-import' : undefined}
           checked={selected}
           disabled={!importable}
           onChange={(e) => onToggleSelect(e.target.checked)}
