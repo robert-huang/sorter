@@ -99,11 +99,12 @@ async function fetchConsumedMediaIds(
 async function fetchFavouriteCharactersFromDb(
   username: string,
   options?: FavouritesFetchOptions,
+  signal?: AbortSignal,
 ): Promise<FavouriteCharacterInput[]> {
   const user = await ensureUserFavouritesFresh(
     username,
     'CHARACTERS',
-    favouritesImportOptions(options),
+    favouritesImportOptions(options, signal),
   );
   if (user) {
     const ctx = getToolsImportContext();
@@ -124,7 +125,7 @@ async function fetchFavouriteCharacters(
   return withSessionTtlMemo(
     `fav:chars:${handle}`,
     FAVOURITES_SESSION_TTL_MS,
-    () => fetchFavouriteCharactersFromDb(username, options),
+    () => fetchFavouriteCharactersFromDb(username, options, signal),
     { bust: !!(options?.forceRefreshFavourites || options?.expandRoles) },
   );
 }
@@ -132,11 +133,12 @@ async function fetchFavouriteCharacters(
 async function fetchFavouriteStaffFromDb(
   username: string,
   options?: FavouritesFetchOptions,
+  signal?: AbortSignal,
 ): Promise<FavouriteStaffInput[]> {
   const user = await ensureUserFavouritesFresh(
     username,
     'STAFF',
-    favouritesImportOptions(options),
+    favouritesImportOptions(options, signal),
   );
   if (user) {
     const ctx = getToolsImportContext();
@@ -155,7 +157,7 @@ async function fetchFavouriteStaff(
   return withSessionTtlMemo(
     `fav:staff:${handle}`,
     FAVOURITES_SESSION_TTL_MS,
-    () => fetchFavouriteStaffFromDb(username, options),
+    () => fetchFavouriteStaffFromDb(username, options, signal),
     { bust: !!(options?.forceRefreshFavourites || options?.expandRoles) },
   );
 }
@@ -270,7 +272,10 @@ export async function runFavouritesAnalysis(
     throw new Error('This user has no favourite characters.');
   }
 
-  const graphOptions = favouritesGraphForceOptions(fetchOptions);
+  const graphForceOptions = favouritesGraphForceOptions(fetchOptions);
+  const graphOptions = signal
+    ? { ...graphForceOptions, signal }
+    : graphForceOptions;
   await ensureCharacterMediaFreshBatch(
     characters.map((character) => character.id),
     graphOptions,

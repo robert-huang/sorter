@@ -39,7 +39,16 @@ export async function loadFavouritesFresh(
     throw new Error('Enter an AniList username.');
   }
 
-  await runAnilistFavourites(username, form.favouriteType, onProgress);
+  if (signal) {
+    await runAnilistFavourites(
+      username,
+      form.favouriteType,
+      onProgress,
+      signal,
+    );
+  } else {
+    await runAnilistFavourites(username, form.favouriteType, onProgress);
+  }
   signal?.throwIfAborted();
 
   const ctx = getToolsImportContext();

@@ -124,7 +124,10 @@ export async function ensureStaffFilmographyFreshWithContext(
     options?.forceRefresh ||
     !hasData ||
     needsGraphDataRefresh(fetchedAt, options);
-  await ensureStaffFilmography(ctx, staffId, { force });
+  await ensureStaffFilmography(ctx, staffId, {
+    force,
+    signal: options?.signal,
+  });
 }
 
 export async function ensureStaffFilmographyFresh(
@@ -143,7 +146,10 @@ export async function ensureStaffFilmographyFreshBatch(
   }
   const ctx = getToolsImportContext();
   const force = options?.forceRefresh ?? false;
-  await ensureStaffFilmographyBatch(ctx, staffIds, { force });
+  await ensureStaffFilmographyBatch(ctx, staffIds, {
+    force,
+    signal: options?.signal,
+  });
 }
 
 export async function ensureCharacterMediaFresh(
@@ -157,7 +163,10 @@ export async function ensureCharacterMediaFresh(
     options?.forceRefresh ||
     !hasData ||
     needsGraphDataRefresh(fetchedAt, options);
-  await ensureCharacterMedia(ctx, characterId, { force });
+  await ensureCharacterMedia(ctx, characterId, {
+    force,
+    signal: options?.signal,
+  });
 }
 
 export async function ensureCharacterMediaFreshBatch(
@@ -169,7 +178,10 @@ export async function ensureCharacterMediaFreshBatch(
   }
   const ctx = getToolsImportContext();
   const force = options?.forceRefresh ?? false;
-  await ensureCharacterMediaBatch(ctx, characterIds, { force });
+  await ensureCharacterMediaBatch(ctx, characterIds, {
+    force,
+    signal: options?.signal,
+  });
 }
 
 export async function ensureMediaCastFreshWithContext(
@@ -198,6 +210,7 @@ export async function ensureMediaCastFresh(
 export async function ensureMediaCastFreshBatch(
   mediaIds: readonly number[],
   options?: ToolsFetchOptions,
+  onCheckpoint?: (progress: { completed: number; total: number }) => void,
 ): Promise<void> {
   if (mediaIds.length === 0) {
     return;
@@ -207,6 +220,7 @@ export async function ensureMediaCastFreshBatch(
     force: options?.forceRefresh ?? false,
     staleRefresh: options,
     signal: options?.signal,
+    onCheckpoint,
   });
 }
 
@@ -348,7 +362,11 @@ export async function ensureUserFavouritesFresh(
     needsGraphDataRefresh(lastRefresh, options) ||
     needsDobBackfill;
   if (needsImport) {
-    await runAnilistFavourites(handle, type);
+    if (options?.signal) {
+      await runAnilistFavourites(handle, type, undefined, options.signal);
+    } else {
+      await runAnilistFavourites(handle, type);
+    }
     user = await getAnilistUserByName(ctx.db, handle);
   }
   return user;

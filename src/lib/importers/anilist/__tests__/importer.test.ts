@@ -209,6 +209,7 @@ type Harness = {
   ctx: AnilistImportContext;
   executeQuery: ReturnType<typeof vi.fn>;
   autoPush: ReturnType<typeof vi.fn>;
+  dirty: ReturnType<typeof vi.fn>;
   nowSpy: ReturnType<typeof vi.fn>;
   /**
    * Enqueue: a successful user-resolve, then each list chunk in order.
@@ -229,6 +230,7 @@ async function makeHarness(): Promise<Harness> {
   const db = await freshAnilistDb();
   const executeQuery = vi.fn();
   const autoPush = vi.fn();
+  const dirty = vi.fn();
   let clockOffset = 0;
   const nowSpy = vi.fn(() => T0 + clockOffset++);
   const ctx: AnilistImportContext = {
@@ -236,12 +238,14 @@ async function makeHarness(): Promise<Harness> {
     db: makeDbAdapter(db),
     now: nowSpy,
     onAutoPushRequested: autoPush,
+    onDirtyIncrement: dirty,
   };
   return {
     db,
     ctx,
     executeQuery,
     autoPush,
+    dirty,
     nowSpy,
     enqueueListChunks(...chunks) {
       executeQuery.mockResolvedValueOnce(resolveResponse());
@@ -836,8 +840,8 @@ describe('importAnilistList — scrape lock', () => {
   });
 });
 
-describe('importAnilistList — mid-import failure leaves DB untouched', () => {
-  it('a chunk-fetch error before the final commit means zero rows are written and no refresh stamp is set', async () => {
+describe('importAnilistList — mid-import checkpoints', () => {
+  it('keeps list rows atomic while retaining shared data from completed chunks', async () => {
     const h = await makeHarness();
     // Pre-seed an existing list entry for the same user so we can
     // verify the wipe DIDN'T happen (errors before the batch run
@@ -860,11 +864,16 @@ describe('importAnilistList — mid-import failure leaves DB untouched', () => {
       importAnilistList(h.ctx, { username: USER_NAME, type: 'ANIME' }),
     ).rejects.toThrow('429 cap reached');
 
-    // No DB writes happened — the wipe + reinsert batch never ran.
+    // The user-specific wipe + reinsert batch never ran.
     expect(countRows(h.db, 'media_list_entry')).toBe(1);
     expect(countRows(h.db, 'media_list_entry', 'WHERE media_id = 777')).toBe(1);
     expect(countRows(h.db, 'media_list_entry', 'WHERE media_id = 1')).toBe(0);
+    // Shared metadata from chunk 1 is still a durable checkpoint.
+    expect(countRows(h.db, 'media', 'WHERE id = 1')).toBe(1);
+    expect(countRows(h.db, 'media_studio', 'WHERE media_id = 1')).toBe(1);
+    expect(countRows(h.db, 'media_tag', 'WHERE media_id = 1')).toBe(1);
     expect(selectMetaValue(h.db, lastFullRefreshKey(USER_ID, 'ANIME'))).toBeNull();
+    expect(h.dirty).toHaveBeenCalledTimes(1);
     expect(h.autoPush).not.toHaveBeenCalled();
     h.db.close();
   });

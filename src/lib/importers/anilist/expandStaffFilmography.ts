@@ -42,6 +42,7 @@ export type ExpandStaffFilmographyOptions = {
   charactersMaxPages?: number;
   staffMediaMaxPages?: number;
   voiceActorLanguage?: AnilistStaffLanguage;
+  signal?: AbortSignal;
 };
 
 export type ExpandStaffFilmographyResult = {
@@ -59,6 +60,7 @@ async function fetchFilmographyPages(
   perPage: number,
   charactersMaxPages: number | undefined,
   staffMediaMaxPages: number | undefined,
+  signal?: AbortSignal,
 ): Promise<{
   characterEdges: AnilistStaffCharacterMediaEdgeGql[];
   staffMediaEdges: AnilistStaffMediaEdgeGql[];
@@ -80,6 +82,7 @@ async function fetchFilmographyPages(
   let staffExists: boolean | null = null;
 
   while (!charactersDone || !staffMediaDone) {
+    signal?.throwIfAborted();
     const response = await ctx.executeQuery<AnilistStaffFilmographyResponse>(query, {
       id: staffId,
       charactersPage,
@@ -264,6 +267,7 @@ export async function expandStaffFilmography(
     perPage,
     options.charactersMaxPages,
     options.staffMediaMaxPages,
+    options.signal,
   );
   const characterEdges = fetched.characterEdges;
   const staffMediaEdges = fetched.staffMediaEdges;
@@ -273,6 +277,7 @@ export async function expandStaffFilmography(
     return null;
   }
   if (staffProfile === null) {
+    options.signal?.throwIfAborted();
     const probe = await ctx.executeQuery<AnilistStaffFilmographyResponse>(
       buildStaffFilmographyQuery(),
       {

@@ -16,8 +16,9 @@
  *      throttle each other anyway).
  *   3. Fetches every chunk of the user's list via
  *      {@link LIST_COLLECTION_QUERY} (MediaListCollection, max 500
- *      entries per chunk) into memory. No DB writes yet. Refreshes the
- *      scrape lock between chunks so a long import doesn't go stale.
+ *      entries per chunk) into memory. Reusable media/studio/tag data is
+ *      committed after each chunk; user-list rows remain untouched until
+ *      every chunk succeeds. Refreshes the scrape lock between chunks.
  *      For nearly all users this is 1-2 requests total. See the query
  *      docstring for why we abandoned the per-page `Page.mediaList`
  *      path (TL;DR: `UPDATED_TIME_DESC` pagination was unstable on
@@ -46,8 +47,7 @@
  *      `anilist.sqlite` to Drive.
  *   6. Release the scrape lock.
  *
- * **Why no mid-import checkpoint** (this is the design change that drove
- * the rewrite):
+ * **Why user-list rows have no mid-import checkpoint**:
  *
  * AniList sorts `mediaList` by `UPDATED_TIME_DESC`. When the user adds
  * or edits an entry it jumps to the top of page 1 and shifts every
@@ -75,7 +75,7 @@ import {
   releaseScrapeLock,
 } from '../../db/syncManifest';
 import { ANILIST_SOURCE_ID } from './anilistSource';
-import type { AnilistImportContext, SqlBindable } from './context';
+import { execBatchInChunks, type AnilistImportContext, type SqlBindable } from './context';
 import { buildSetMetaStmt, lastFullRefreshKey } from './meta';
 import { emitProgress } from './progress';
 import {
@@ -214,6 +214,15 @@ const MEDIA_COLS = [
   'updated_at',
 ] as const;
 
+type MediaMetadataColumn = Exclude<
+  (typeof MEDIA_COLS)[number],
+  'studios_fetched_at'
+>;
+
+const MEDIA_METADATA_COLS = MEDIA_COLS.filter(
+  (column): column is MediaMetadataColumn => column !== 'studios_fetched_at',
+);
+
 const MEDIA_LIST_ENTRY_COLS = [
   'anilist_user_id',
   'media_id',
@@ -243,6 +252,11 @@ const CUSTOM_LIST_COLS = [
 ] as const;
 
 export const MEDIA_UPSERT_SQL = buildUpsertSql('media', ['id'], [...MEDIA_COLS]);
+export const MEDIA_METADATA_UPSERT_SQL = buildUpsertSql(
+  'media',
+  ['id'],
+  MEDIA_METADATA_COLS,
+);
 export const STUDIO_UPSERT_SQL = buildUpsertSql('studio', ['id'], ['id', 'name', 'fetched_at']);
 export const TAG_UPSERT_SQL = buildUpsertSql('tag', ['name'], ['name', 'fetched_at']);
 export const ANILIST_USER_UPSERT_SQL = buildUpsertSql(
@@ -277,6 +291,110 @@ export function mediaRowToParams(row: MediaRow): SqlBindable[] {
     }
     return row[c];
   });
+}
+
+export function mediaMetadataRowToParams(row: MediaRow): SqlBindable[] {
+  return MEDIA_METADATA_COLS.map((column) => {
+    if (column === 'source') {
+      return row.source ?? null;
+    }
+    if (column === 'source_fetched_at') {
+      return row.source_fetched_at ?? null;
+    }
+    return row[column];
+  });
+}
+
+export async function persistMediaGraphCheckpoint(
+  ctx: AnilistImportContext,
+  mediaNodes: readonly AnilistMediaListEntryGql['media'][],
+  options: { studiosAuthoritative?: boolean; tagsAuthoritative?: boolean } = {},
+): Promise<void> {
+  if (mediaNodes.length === 0) {
+    return;
+  }
+
+  const studiosAuthoritative = options.studiosAuthoritative ?? true;
+  const tagsAuthoritative = options.tagsAuthoritative ?? true;
+  const now = ctx.now();
+  const uniqueMedia = new Map(mediaNodes.map((media) => [media.id, media]));
+  const studios = new Map<number, StudioRow>();
+  const tags = new Map<string, TagRow>();
+  const statements: Statement[] = [];
+
+  for (const media of uniqueMedia.values()) {
+    if (studiosAuthoritative) {
+      for (const studio of mapStudioRows(media, now)) {
+        studios.set(studio.id, studio);
+      }
+    }
+    if (tagsAuthoritative) {
+      for (const tag of mapTagRows(media, now)) {
+        tags.set(tag.name, tag);
+      }
+    }
+  }
+
+  for (const studio of studios.values()) {
+    statements.push({
+      sql: STUDIO_UPSERT_SQL,
+      params: [studio.id, studio.name, studio.fetched_at],
+    });
+  }
+  for (const tag of tags.values()) {
+    statements.push({ sql: TAG_UPSERT_SQL, params: [tag.name, tag.fetched_at] });
+  }
+  for (const media of uniqueMedia.values()) {
+    const row = mapMediaRow(media, now);
+    statements.push({
+      sql: studiosAuthoritative ? MEDIA_UPSERT_SQL : MEDIA_METADATA_UPSERT_SQL,
+      params: studiosAuthoritative
+        ? mediaRowToParams(row)
+        : mediaMetadataRowToParams(row),
+    });
+  }
+
+  const mediaIds = [...uniqueMedia.keys()];
+  const placeholders = mediaIds.map(() => '?').join(', ');
+  if (studiosAuthoritative) {
+    statements.push({
+      sql: `DELETE FROM media_studio WHERE media_id IN (${placeholders})`,
+      params: mediaIds,
+    });
+    for (const media of uniqueMedia.values()) {
+      for (const row of mapMediaStudioRows(media)) {
+        statements.push({
+          sql: 'INSERT INTO media_studio (media_id, studio_id, sort_order, is_main) VALUES (?, ?, ?, ?)',
+          params: [row.media_id, row.studio_id, row.sort_order, row.is_main],
+        });
+      }
+    }
+    for (const mediaId of mediaIds) {
+      statements.push({
+        sql: 'UPDATE media SET studios_fetched_at = ? WHERE id = ?',
+        params: [now, mediaId],
+      });
+    }
+  }
+  if (tagsAuthoritative) {
+    statements.push({
+      sql: `DELETE FROM media_tag WHERE media_id IN (${placeholders})`,
+      params: mediaIds,
+    });
+    for (const media of uniqueMedia.values()) {
+      for (const row of mapMediaTagRows(media)) {
+        statements.push({
+          sql: 'INSERT INTO media_tag (media_id, tag_name, rank) VALUES (?, ?, ?)',
+          params: [row.media_id, row.tag_name, row.rank],
+        });
+      }
+    }
+  }
+
+  await execBatchInChunks(ctx.db, statements);
+  if (ctx.onDirtyIncrement) {
+    await ctx.onDirtyIncrement();
+  }
 }
 
 function listEntryRowToParams(row: MediaListEntryRow): SqlBindable[] {
@@ -320,14 +438,13 @@ function dedupEntriesByMediaId(
  *   1. Upsert `anilist_user` so renames stick and the FK below resolves.
  *   2. Wipe `media_list_entry` for (user, type). Cascades to
  *      `media_custom_list_membership` via FK.
- *   3. Upsert studio / tag / media parents (deduped).
- *   4. Junction rebuild (`media_studio`, `media_tag`) for imported media.
- *   5. Insert fresh `media_list_entry` rows.
- *   6. Upsert `custom_list` rows for every (user, name, type) referenced.
- *   7. Insert `media_custom_list_membership` rows.
- *   8. GC orphan `custom_list` rows for this (user, type) — handles list
+ *   3. Insert fresh `media_list_entry` rows. Shared media parents already
+ *      exist because each fetched chunk was checkpointed before the next.
+ *   4. Upsert `custom_list` rows for every (user, name, type) referenced.
+ *   5. Insert `media_custom_list_membership` rows.
+ *   6. GC orphan `custom_list` rows for this (user, type) — handles list
  *      renames and deletions on AniList side.
- *   9. Stamp `_meta.last_full_refresh:<USER_ID>:<TYPE>`.
+ *   7. Stamp `_meta.last_full_refresh:<USER_ID>:<TYPE>`.
  */
 function buildListImportStatements(
   entries: AnilistMediaListEntryGql[],
@@ -380,67 +497,8 @@ function buildListImportStatements(
     return stmts;
   }
 
-  // 3. Parent metadata — dedup before insert so a studio shared by ten
-  //    media yields one UPSERT instead of ten.
-  const studios = new Map<number, StudioRow>();
-  const tags = new Map<string, TagRow>();
-  const media = new Map<number, MediaRow>();
-
-  for (const entry of entries) {
-    const m = entry.media;
-    media.set(m.id, mapMediaRow(m, now));
-    for (const s of mapStudioRows(m, now)) studios.set(s.id, s);
-    for (const t of mapTagRows(m, now)) tags.set(t.name, t);
-  }
-
-  for (const s of studios.values()) {
-    stmts.push({ sql: STUDIO_UPSERT_SQL, params: [s.id, s.name, s.fetched_at] });
-  }
-  for (const t of tags.values()) {
-    stmts.push({ sql: TAG_UPSERT_SQL, params: [t.name, t.fetched_at] });
-  }
-  for (const m of media.values()) {
-    stmts.push({ sql: MEDIA_UPSERT_SQL, params: mediaRowToParams(m) });
-  }
-
-  // 4. Junction rebuild — wipe-then-rewrite per affected media so a
-  //    tag/studio removed on AniList disappears locally. These
-  //    junctions are global (no user dim), so wiping is safe across
-  //    users: if another user also has this media, their next import
-  //    will re-INSERT the same junction rows.
-  const affectedIds = [...media.keys()];
-  const placeholders = affectedIds.map(() => '?').join(', ');
-  stmts.push({
-    sql: `DELETE FROM media_studio WHERE media_id IN (${placeholders})`,
-    params: affectedIds,
-  });
-  stmts.push({
-    sql: `DELETE FROM media_tag WHERE media_id IN (${placeholders})`,
-    params: affectedIds,
-  });
-  for (const entry of entries) {
-    for (const ms of mapMediaStudioRows(entry.media)) {
-      stmts.push({
-        sql: 'INSERT INTO media_studio (media_id, studio_id, sort_order, is_main) VALUES (?, ?, ?, ?)',
-        params: [ms.media_id, ms.studio_id, ms.sort_order, ms.is_main],
-      });
-    }
-    for (const mt of mapMediaTagRows(entry.media)) {
-      stmts.push({
-        sql: 'INSERT INTO media_tag (media_id, tag_name, rank) VALUES (?, ?, ?)',
-        params: [mt.media_id, mt.tag_name, mt.rank],
-      });
-    }
-  }
-  for (const mediaId of affectedIds) {
-    stmts.push({
-      sql: 'UPDATE media SET studios_fetched_at = ? WHERE id = ?',
-      params: [now, mediaId],
-    });
-  }
-
-  // 5. Fresh list entries (parents + user are upserted above, so FKs
-  //    are safe).
+  // 3. Fresh list entries. Shared media parents were committed at each
+  //    fetch checkpoint, and the user row was upserted above.
   for (const entry of entries) {
     const row = mapMediaListEntryRow(entry, anilistUser.id, now);
     stmts.push({
@@ -449,7 +507,7 @@ function buildListImportStatements(
     });
   }
 
-  // 6. Custom lists — upsert every (user, name, type) triple this
+  // 4. Custom lists — upsert every (user, name, type) triple this
   //    import touched. UPSERT (not plain INSERT) so existing rows from
   //    previous imports stick around with updated fetched/updated_at.
   //    Orphans get GC'd in step 8.
@@ -461,9 +519,9 @@ function buildListImportStatements(
     });
   }
 
-  // 7. Memberships — wipe in step 2 cascaded these away (FK to
+  // 5. Memberships — wipe in step 2 cascaded these away (FK to
   //    media_list_entry), so we INSERT fresh. The FK back to
-  //    custom_list (added in step 6) resolves because we just upserted
+  //    custom_list (added in step 4) resolves because we just upserted
   //    every name we're about to reference.
   //
   //    `customLists` is the `asArray: true` form: one entry per
@@ -497,13 +555,13 @@ function buildListImportStatements(
     }
   }
 
-  // 8. GC orphan custom_list rows for this (user, type). A list with
+  // 6. GC orphan custom_list rows for this (user, type). A list with
   //    zero memberships means either the user renamed/deleted it on
   //    AniList, OR they removed every entry from it. Either way the
   //    chip should disappear from the UI.
   stmts.push(buildCustomListGcStatement(anilistUser.id, type));
 
-  // 9. Stamp full-refresh time inside the same transaction so the wipe
+  // 7. Stamp full-refresh time inside the same transaction so the wipe
   //    + writes + stamp commit atomically.
   const stampStmt = buildSetMetaStmt(lastFullRefreshKey(anilistUser.id, type), now);
   stmts.push({ sql: stampStmt.sql, params: stampStmt.params ?? [] });
@@ -565,9 +623,9 @@ export async function importAnilistList(
   const lockToken = acquired.token;
 
   try {
-    // Accumulate every chunk in memory. Per the wipe-and-rebuild
-    // contract, no DB writes happen until every chunk has been fetched
-    // successfully — a mid-import error leaves the local DB untouched.
+    // Accumulate user-list rows in memory for the atomic wipe-and-rebuild
+    // contract. Shared media graph data is independently safe to checkpoint
+    // after each chunk and remains useful if a later chunk fails.
     //
     // `MediaListCollection.lists` returns one group per (status section
     // OR custom list), so the same MediaList entry appears in every
@@ -588,9 +646,17 @@ export async function importAnilistList(
 
       const collection = response?.MediaListCollection;
       const lists = collection?.lists ?? [];
+      const chunkEntries: AnilistMediaListEntryGql[] = [];
       for (const group of lists) {
-        if (group?.entries) accumulated.push(...group.entries);
+        if (group?.entries) {
+          chunkEntries.push(...group.entries);
+          accumulated.push(...group.entries);
+        }
       }
+      await persistMediaGraphCheckpoint(
+        ctx,
+        dedupEntriesByMediaId(chunkEntries).map((entry) => entry.media),
+      );
       // The progress event still uses the `fetching-page` kind so the
       // UI subscriber doesn't need a new branch — for the list
       // importer the `page` slot carries the chunk index, which is

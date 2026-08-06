@@ -317,6 +317,70 @@ describe('expandMediaCastBatch — abort', () => {
   });
 });
 
+describe('expandMediaCastBatch — durable checkpoints', () => {
+  it('keeps completed groups and skips them when a failed run resumes', async () => {
+    const plan = new Map<number, MediaPlan>([
+      [100, { charPages: [[makeCharEdge(1000)]], staffPages: [[makeStaffEdge(9100)]] }],
+      [200, { charPages: [[makeCharEdge(2000)]], staffPages: [[makeStaffEdge(9200)]] }],
+      [300, { charPages: [[makeCharEdge(3000)]], staffPages: [[makeStaffEdge(9300)]] }],
+    ]);
+    const baseMock = makeBatchMock(plan);
+    let failMedia200 = true;
+    const executeQuery = vi.fn(async (query: string, variables: Record<string, unknown>) => {
+      if (
+        failMedia200 &&
+        query.includes('ToolsMediaCharactersBatch') &&
+        variables.id0 === 200
+      ) {
+        failMedia200 = false;
+        throw new Error('second checkpoint failed');
+      }
+      return baseMock.fn(query, variables);
+    });
+    const h = await makeHarness([100, 200, 300], executeQuery);
+    const checkpoints = vi.fn();
+
+    await expect(
+      expandMediaCastBatch(
+        h.ctx,
+        [
+          { mediaId: 100, scope: 'all' },
+          { mediaId: 200, scope: 'all' },
+          { mediaId: 300, scope: 'all' },
+        ],
+        { batchSize: 1, onCheckpoint: checkpoints },
+      ),
+    ).rejects.toThrow('second checkpoint failed');
+
+    expect(checkpoints).toHaveBeenCalledTimes(1);
+    expect(checkpoints).toHaveBeenCalledWith({ completed: 1, total: 3 });
+    expect(countRows(h.db, 'media_cast_expansion', 'WHERE media_id = 100')).toBe(1);
+    expect(countRows(h.db, 'media_cast_expansion', 'WHERE media_id IN (200, 300)')).toBe(0);
+    const media100CallsBeforeResume = executeQuery.mock.calls.filter(
+      ([, variables]) => (variables as Record<string, unknown>).id0 === 100,
+    ).length;
+
+    const resumedCheckpoints = vi.fn();
+    await ensureMediaCastExpandedBatch(h.ctx, [100, 200, 300], {
+      batchSize: 1,
+      onCheckpoint: resumedCheckpoints,
+    });
+
+    expect(countRows(h.db, 'media_cast_expansion')).toBe(3);
+    expect(resumedCheckpoints.mock.calls.map(([progress]) => progress)).toEqual([
+      { completed: 1, total: 2 },
+      { completed: 2, total: 2 },
+    ]);
+    expect(
+      executeQuery.mock.calls.filter(
+        ([, variables]) => (variables as Record<string, unknown>).id0 === 100,
+      ),
+    ).toHaveLength(media100CallsBeforeResume);
+    expect(h.dirty).toHaveBeenCalledTimes(3);
+    h.db.close();
+  });
+});
+
 describe('expandMediaCastBatch — missing media', () => {
   it('skips a media whose cast query returns null (no rows, no marker)', async () => {
     const plan = new Map<number, MediaPlan>([

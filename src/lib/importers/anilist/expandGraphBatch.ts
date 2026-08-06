@@ -71,8 +71,10 @@ async function depaginateCharacterVoiceMediaBatch(
   }
 
   while (states.some((state) => !state.done)) {
+    options.signal?.throwIfAborted();
     const active = states.filter((state) => !state.done);
     for (const group of chunk(active, batchSize)) {
+      options.signal?.throwIfAborted();
       const requests: BatchedPageRequest[] = group.map((state) => ({
         id: state.id,
         page: state.page,
@@ -164,10 +166,12 @@ async function depaginateStaffFilmographyBatch(
   }));
 
   while (states.some((state) => !state.charactersDone || !state.staffMediaDone)) {
+    options.signal?.throwIfAborted();
     const active = states.filter(
       (state) => !state.charactersDone || !state.staffMediaDone,
     );
     for (const group of chunk(active, batchSize)) {
+      options.signal?.throwIfAborted();
       const requests = group.map((state) => ({
         id: state.id,
         charactersPage: state.charactersPage,
@@ -253,6 +257,7 @@ async function depaginateStaffFilmographyBatch(
 
 export type ExpandCharacterMediaBatchOptions = ExpandCharacterMediaOptions & {
   batchSize?: number;
+  onCheckpoint?: (characterId: number) => void;
 };
 
 export async function expandCharacterMediaBatch(
@@ -264,10 +269,20 @@ export async function expandCharacterMediaBatch(
   if (uniqueIds.length === 0) {
     return;
   }
-  const batchSize = options.batchSize ?? DEFAULT_CHARACTER_MEDIA_BATCH_SIZE;
+  const batchSize = Math.max(1, options.batchSize ?? DEFAULT_CHARACTER_MEDIA_BATCH_SIZE);
+
+  if (uniqueIds.length > batchSize) {
+    for (const group of chunk(uniqueIds, batchSize)) {
+      options.signal?.throwIfAborted();
+      await expandCharacterMediaBatch(ctx, group, { ...options, batchSize });
+    }
+    return;
+  }
+
   const fetched = await depaginateCharacterVoiceMediaBatch(ctx, uniqueIds, options, batchSize);
 
   for (const characterId of uniqueIds) {
+    options.signal?.throwIfAborted();
     const result = fetched.get(characterId);
     if (!result) {
       continue;
@@ -279,11 +294,13 @@ export async function expandCharacterMediaBatch(
       voiceActorLanguage: options.voiceActorLanguage,
       pagesFetched: result.pagesFetched,
     });
+    options.onCheckpoint?.(characterId);
   }
 }
 
 export type ExpandStaffFilmographyBatchOptions = ExpandStaffFilmographyOptions & {
   batchSize?: number;
+  onCheckpoint?: (staffId: number) => void;
 };
 
 export async function expandStaffFilmographyBatch(
@@ -295,7 +312,15 @@ export async function expandStaffFilmographyBatch(
   if (uniqueIds.length === 0) {
     return;
   }
-  const batchSize = options.batchSize ?? DEFAULT_STAFF_FILMOGRAPHY_BATCH_SIZE;
+  const batchSize = Math.max(1, options.batchSize ?? DEFAULT_STAFF_FILMOGRAPHY_BATCH_SIZE);
+
+  if (uniqueIds.length > batchSize) {
+    for (const group of chunk(uniqueIds, batchSize)) {
+      options.signal?.throwIfAborted();
+      await expandStaffFilmographyBatch(ctx, group, { ...options, batchSize });
+    }
+    return;
+  }
 
   const fetched = await depaginateStaffFilmographyBatch(
     ctx,
@@ -305,6 +330,7 @@ export async function expandStaffFilmographyBatch(
   );
 
   for (const staffId of uniqueIds) {
+    options.signal?.throwIfAborted();
     const result = fetched.get(staffId);
     if (!result?.exists) {
       continue;
@@ -322,6 +348,19 @@ export async function expandStaffFilmographyBatch(
         staffMediaPagesFetched: result.staffMediaPagesFetched,
       },
     );
+    options.onCheckpoint?.(staffId);
+  }
+}
+
+function throwIfGraphExpansionAborted(
+  error: unknown,
+  signal?: AbortSignal,
+): void {
+  if (signal?.aborted) {
+    signal.throwIfAborted();
+  }
+  if (error instanceof DOMException && error.name === 'AbortError') {
+    throw error;
   }
 }
 
@@ -333,7 +372,8 @@ export async function expandCharacterMediaWithFallback(
 ): Promise<void> {
   try {
     await expandCharacterMediaBatch(ctx, [characterId], options);
-  } catch {
+  } catch (error) {
+    throwIfGraphExpansionAborted(error, options.signal);
     await expandCharacterMedia(ctx, characterId, options);
   }
 }
@@ -345,7 +385,8 @@ export async function expandStaffFilmographyWithFallback(
 ): Promise<void> {
   try {
     await expandStaffFilmographyBatch(ctx, [staffId], options);
-  } catch {
+  } catch (error) {
+    throwIfGraphExpansionAborted(error, options.signal);
     await expandStaffFilmography(ctx, staffId, options);
   }
 }

@@ -17,6 +17,24 @@ This inventory reflects the active code after the cache fixes in this change. �
 - LS is used by Weekly Calendar (7-day user-list snapshot, 90-day historical seasons) and Shared Staff’s related-anime walk (90 days). Old Franchise/Adaptation LS relation entries are migrated once into SQLite and deleted.
 - AniList returns the complete selection set on every live page. There is no delta query: every field listed below is re-retrieved whenever that operation is sent, and pagination repeats `pageInfo` plus all node/edge fields on every page.
 
+## Checkpoint and interruption contract
+
+- Completed SQLite transactions survive reload/tab closure. An in-flight request and its not-yet-committed transaction do not.
+- Shared entity data is checkpointed as soon as a bounded unit completes:
+  - every `ListCollection` chunk;
+  - every favourites page;
+  - media cast in groups of 5;
+  - character-media in groups of 8;
+  - staff filmographies in groups of 5;
+  - studio/media repairs in groups of 50;
+  - media relations in groups of 15.
+- Completion markers are written in the same transaction as their graph rows. On a normal retry, marker checks remove completed entities from the pending set. A failed batch fallback retries only the failed group/item, not earlier committed work.
+- User-specific mutable collections are different. List membership, favourite ordering, and their final refresh markers are wipe-and-rebuild snapshots, so they commit only after all pages succeed. Shared entities from completed pages remain durable after a partial failure, but the previous complete user snapshot remains visible.
+- A successful list/favourites run does not rewrite the shared entities again in its final user-specific transaction; page/chunk checkpoints are the single shared-data write path.
+- Stats list rows remain session-only, but each fetched page completes its media/studio repair before the next page. Its cast progress reports committed cast groups, not subsequent DB reads.
+- Shared Staff's related-anime BFS stores `related`, `visitedFetches`, and the remaining frontier in LS after each 15-media request. A retry resumes that frontier and deletes the work checkpoint only after the walk completes.
+- Each completed ad-hoc DB checkpoint invokes the dirty-change hook after commit. These writes require a later manual cloud push; the final successful list/favourites snapshot can request auto-push.
+
 ## Shared field sets
 
 **Full media metadata (`MEDIA_FIELD_SELECTION`)**: `id`, `type`, `title { english romaji native }`, `coverImage.large`, `format`, `source(version:3)`, `status(version:2)`, `episodes`, `chapters`, `startDate`, `endDate`, `season`, `seasonYear`, `meanScore`, `favourites`, `countryOfOrigin`, `genres`, `synonyms`, `studios.edges { isMain node { id name } }`, and `tags { name rank }`.
@@ -51,7 +69,7 @@ This inventory reflects the active code after the cache fixes in this change. �
 |---|---|---|---|
 | Left-click **Compare** | `ToolsMediaSearch` for each typed show (`id`, English/Romaji title). Missing cast uses batched media character/staff queries. Missing studio metadata is repaired with `MediaByIds`. | Searches: session-only, no TTL. Cast/studios: DB and completion timestamps. | Only missing graph pieces. Live pages repeat the full cast/studio fields. |
 | Right-click **Compare** | Force-fetches cast and studio metadata for selected shows. Search text resolution remains session-memoized. | Replaces DB graph rows and markers. | Full cast and full media/studio selection. |
-| Single-show scan | Optionally walks related anime using `ToolsMediaRelationsWalkBatch`: relation type and node `id/type/format/tags.name`; then expands each production staff member’s filmography. | Related-id set: session + LS, 90 days. Filmographies: DB. | Missing only; right-click busts LS/session relation walk and forces filmographies. |
+| Single-show scan | Optionally walks related anime using `ToolsMediaRelationsWalkBatch`: relation type and node `id/type/format/tags.name`; then expands each production staff member’s filmography. | Related-id set: session + LS, 90 days. The unfinished BFS frontier is checkpointed after each 15-media batch. Filmographies: DB in groups of 5. | Missing only; interrupted walks/filmography runs resume past completed checkpoints. Right-click busts LS/session relation state and forces filmographies. |
 | Single-show top match | Expands cast and studios for the winning show if missing. | DB. | Same media cast/studio fields. |
 
 The old standalone `ToolsMediaStudios`, `ToolsMediaProductionStaff`, `ToolsMediaVoiceActors`, and `ToolsStaffProductionFilmography` reads are retained as last-resort fallbacks. Successful DB expansion now represents valid empty maps, so zero studios/staff/VAs no longer causes repeat fallback calls.
@@ -74,7 +92,7 @@ This tool previously bypassed SQLite for linked accounts and ran `ToolsUserAnime
 | Right-click **Trace** | Forces every traversed relation seed and both list types. Seed search remains session-memoized. | Replaces DB relation/list data. | Relation chart metadata for every traversed node; full lists. |
 | Username **↻** | Forced anime and manga imports where configured by shared username refresh. | DB; busts related session memo entries. | Full list fields. |
 
-`ToolsMediaRelationsV2Batch` returns each root’s relation chart metadata plus all edge relation types and edge-node chart metadata. If a batch fails, the code retries each root with `ToolsMediaRelationsV2`.
+`ToolsMediaRelationsV2Batch` returns each root’s relation chart metadata plus all edge relation types and edge-node chart metadata. Every successful root is persisted with its marker before the next bounded group. If the batch request fails, the code retries its roots with `ToolsMediaRelationsV2`; if one root's persistence fails, only that unfinished root is retried.
 
 ## Tools: Adaptation Scores
 
@@ -90,7 +108,7 @@ Successful runs update `anilist:lastUsername`.
 
 | Trigger | AniList operations | Cache/write | Re-retrieved |
 |---|---|---|---|
-| Left-click **Run** | `ToolsStatsList` unless its 15-minute in-memory memo is warm. Missing studio metadata runs `MediaByIds`. STAFF/VA aggregations also expand missing media cast. | Stats list response: session only, 15 minutes. Studios/cast: DB. | After reload or 15 minutes, the entire Stats list is fetched again. |
+| Left-click **Run** | `ToolsStatsList` unless its 15-minute in-memory memo is warm. After each list page, missing studio metadata runs `MediaByIds` before pagination continues. STAFF/VA aggregations expand missing media cast in groups of 5. | Stats list response: session only, 15 minutes. Each page's media/studio repair and each cast group: DB checkpoint. | After reload or 15 minutes, the Stats list pages are fetched again, but completed reusable studio/cast markers avoid repeating downstream graph work. |
 | Right-click **Run** | Forces Stats list, studios, and any required cast expansion. | Replaces session list and DB graph metadata. | All Stats fields and relevant graph fields. |
 | **Expand all cast** | Missing media cast batch queries only. | DB cast junctions and markers. | Character/staff fields for missing media. |
 | DB revision refresh after another expansion | No AniList request; `refreshStatsCastFromDb` rebuilds the chart from SQLite. | Session React state only. | None. |
@@ -113,7 +131,7 @@ Weekly media fields: id; English/Romaji/native/userPreferred titles; cover; form
 
 | Trigger | AniList operations | Cache/write | Re-retrieved |
 |---|---|---|---|
-| Left-click **Analyze** | Cold-loads anime/manga lists with `ResolveUser` + `ListCollection`; cold-loads `FavouriteCharactersPage` and `FavouriteStaffPage`; expands missing favourite-character media and VA/staff filmographies in batches. | All authoritative data: DB. Character/staff list views also have 15-minute session memos. | Missing markers only. Valid empty lists no longer refetch. |
+| Left-click **Analyze** | Cold-loads anime/manga lists with `ResolveUser` + `ListCollection`; cold-loads `FavouriteCharactersPage` and `FavouriteStaffPage`; expands missing favourite-character media and VA/staff filmographies in batches. | Shared entities checkpoint per list chunk/favourite page. User membership/order and final markers commit atomically at completion. Character-media and staff-filmography checkpoints use groups of 8/5. Character/staff list views also have 15-minute session memos. | Missing markers only. Valid empty lists no longer refetch. |
 | Right-click **Analyze** | Forces only favourite character and staff imports. Consumed anime/manga lists are not forced. Graph roles remain cache-first. | Replaces favourite DB tables/markers; busts favourite session memos. | Favourite character/staff fields only. |
 | **Expand all roles** | Forces all favourite-character media and relevant staff filmographies, including favourite staff not already encountered as VAs. | Replaces DB graph data/markers. | Character-media and staff-filmography fields. |
 | **Load more** / **Load all** | No request; reveals already-computed rows. | React state only. | None. |
@@ -127,7 +145,7 @@ The old `ToolsUserConsumedMedia`, `ToolsFavouriteCharacters`, and `ToolsFavourit
 
 | Trigger | AniList operations | Cache/write | Re-retrieved |
 |---|---|---|---|
-| Left-click **Load favourites** | Always `ResolveUser` then the selected favourite page query: anime, manga, characters, staff, or studios. | Replaces selected favourite DB table and marker. | Complete selected favourite pages every click. |
+| Left-click **Load favourites** | Always `ResolveUser` then the selected favourite page query: anime, manga, characters, staff, or studios. | Shared entities checkpoint per page; selected user favourite order/table and marker replace atomically after all pages. | Complete selected favourite pages every click. A failed run keeps the previous user ordering but retains completed shared-entity checkpoints. |
 | Right-click **Load favourites** | Same as left-click; Load is already always fresh. | Same. | Same. |
 | **Save order** | `UpdateFavouriteOrder`, sending selected type ids + ascending order. Response requests `anime.pageInfo.total`. | Patches local DB `sort_order/fetched_at`. | Only mutation response fields. |
 | **Delete selected** | One `ToggleFavourite` mutation per selected entity; response `__typename`. | Deletes those local favourite rows. | One mutation response per id. |
@@ -147,9 +165,9 @@ Favourite studio fields are order, id, and name. Favourite anime/manga use favou
 
 | Trigger | AniList operations | Cache/write | Re-retrieved |
 |---|---|---|---|
-| **Import Anime/Manga** | `ResolveUser`; `ListCollection` chunks until `hasNextChunk=false`. | DB user/media/studios/tags/list/custom-list rows and per-type completion marker. Successful full import requests cloud auto-push when cloud is ready. | Full list and media fields every import. |
+| **Import Anime/Manga** | `ResolveUser`; `ListCollection` chunks until `hasNextChunk=false`. | Media/studio/tag rows checkpoint after every chunk. User/list/custom-list rows and the per-type marker replace atomically after all chunks. Successful full import requests cloud auto-push when cloud is ready. | Full list and media fields every import. After interruption, the user snapshot restarts from chunk 1 because mutable pagination is not safely resumable, but completed shared data is retained. |
 | **Use cached list** | None. | Reads DB. | None. |
-| **Refresh favourite type** | `ResolveUser`; selected `Favourite…Page` until complete. | DB favourite rows + marker. Successful refresh requests cloud auto-push. | Complete selected favourite fields. |
+| **Refresh favourite type** | `ResolveUser`; selected `Favourite…Page` until complete. | Shared entities checkpoint per page; favourite rows/order + marker replace atomically at completion. Successful refresh requests cloud auto-push. | Complete selected favourite fields. Partial runs preserve the old favourite snapshot. |
 | **Use cached favourites** | None. | Reads DB. | None. |
 | Open media modal | Paints DB immediately; if cast marker is absent/incomplete, starts media cast expansion after paint. | DB cast/profile/junction rows and markers; increments pending cloud-change count. | Missing character/staff pages only. |
 | Media modal **Refresh** | Forces cast and `MediaRelations`. | Replaces DB graph rows/markers; marks pending changes. | Full cast plus relation node metadata. |
@@ -181,7 +199,7 @@ There is **no periodic AniList crawler, no interval refresh, and no idle-time re
 
 1. **Null-source repair**: old listed media with no authoritative `source_fetched_at` are grouped into `MediaByIds` requests (up to 50 ids). The full media selection is upserted, so source and other metadata are repaired together. Triggered after a newly required list import and by Seasonal Scores when it detects old rows.
 2. **Studio-credit repair**: Stats and Shared Staff query `MediaByIds` for media whose `studios_fetched_at` marker is missing. It writes `media`, `studio`, `media_studio`, and a completion timestamp even for a valid empty studio list.
-3. **Graph lazy expansion**: missing cast, character-media, staff-filmography, and relations markers trigger batched AniList queries. Data older than 90 days is shown as stale but is not normally refreshed unless the caller explicitly opts into stale refresh or the user force-refreshes.
+3. **Graph lazy expansion**: missing cast, character-media, staff-filmography, and relations markers trigger bounded AniList batches. Each entity's rows and marker commit together; retries skip completed entities and limit single-item fallback to the failed group. Data older than 90 days is shown as stale but is not normally refreshed unless the caller explicitly opts into stale refresh or the user force-refreshes.
 4. **Migration 013 repair**: invalid/non-local graph completion markers are removed during migration. The next relevant user action re-expands those entities once; the migration itself sends no request.
 5. **Legacy relation-cache migration**: old Franchise/Adaptation LS values are copied into SQLite once per session and the old LS keys are deleted. No AniList request is sent.
 6. **Modal expansion**: media/staff modals read SQLite first, render it, then asynchronously fetch missing graph pages. This is the only UI behavior that looks like background AniList refresh.
@@ -193,13 +211,13 @@ There is **no periodic AniList crawler, no interval refresh, and no idle-time re
 - **SQLite graph**: right-click the tool run, modal Refresh, A2A per-entry Refetch, Favourites Expand all roles, or delete the source DB.
 - **Session memo**: reload; explicit `sessionMemoDelete`; username **↻**; or force-refresh where the call passes `forceRefresh`.
 - **Weekly LS**: right-click Load, username **↻** for list-derived keys, natural 7/90-day expiry, browser site-data clear, or source-key deletion.
-- **Shared Staff related-anime LS**: right-click Compare, 90-day expiry, or browser site-data clear.
+- **Shared Staff related-anime LS**: right-click Compare, 90-day expiry, or browser site-data clear. This removes both the completed result and unfinished frontier checkpoint.
 - **DB cloud copy**: Pull replaces/merges according to source DB sync rules; it is not a fetch from AniList.
 
 ## Why a Run can still make you wait
 
 1. **Stats is intentionally live** after reload or its 15-minute in-memory TTL because standard SQLite list rows do not contain all Stats fields (`progress`, `progressVolumes`, `duration`, `volumes`).
 2. **Weekly Calendar is its own LS cache**, not the shared SQLite list. Current-season data is only memoized in memory for 15 minutes; watching/list snapshots use 7-day LS.
-3. **Graph expansion is lazy**. A cached user list does not imply every media/staff/character graph has been expanded.
+3. **Graph expansion is lazy**. A cached user list does not imply every media/staff/character graph has been expanded, but an interrupted expansion does retain every completed bounded entity marker.
 4. **A browser reload clears all session memos**, including search/name and Stats/Seasonal view memos.
 5. Before this change, Favourites bypassed SQLite for linked accounts, Seasonal Scores did the same, A2A and Tools treated completed empty lists as misses, and empty graph maps fell into live fallback queries. Those paths were corrected at their completion-marker/DB-read source.

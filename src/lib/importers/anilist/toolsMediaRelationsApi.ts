@@ -50,6 +50,18 @@ function pruneLegacyToolsRelationCaches(): void {
   }
 }
 
+function throwIfRelationFetchAborted(
+  error: unknown,
+  signal?: AbortSignal,
+): void {
+  if (signal?.aborted) {
+    signal.throwIfAborted();
+  }
+  if (error instanceof DOMException && error.name === 'AbortError') {
+    throw error;
+  }
+}
+
 export function toolsMediaRelationsCacheKey(mediaId: number): string {
   return `${TOOLS_MEDIA_RELATIONS_CACHE_PREFIX}${mediaId}`;
 }
@@ -236,15 +248,25 @@ export async function fetchToolsMediaRelationsBatch(
     if (chunk.length === 0) {
       continue;
     }
+    const { query, variables } = buildBatchedToolsMediaRelationsQuery(chunk);
+    let data: Record<string, ToolsApiMedia | null> | null = null;
     try {
-      const { query, variables } = buildBatchedToolsMediaRelationsQuery(chunk);
-      const data = await executeAnilistQuery<Record<string, ToolsApiMedia | null>>(
+      data = await executeAnilistQuery<Record<string, ToolsApiMedia | null>>(
         query,
         variables,
       );
+    } catch (error) {
+      throwIfRelationFetchAborted(error, signal);
+      for (const mediaId of chunk) {
+        await fetchAndPersistToolsMediaRelations(mediaId, signal);
+      }
+    }
+
+    if (data) {
       for (let i = 0; i < chunk.length; i++) {
+        signal?.throwIfAborted();
         const mediaId = chunk[i]!;
-        const parsed = parseToolsMediaRelations(data?.[`m${i}`] ?? null);
+        const parsed = parseToolsMediaRelations(data[`m${i}`] ?? null);
         if (!parsed) {
           continue;
         }
@@ -252,17 +274,15 @@ export async function fetchToolsMediaRelationsBatch(
         if (!gqlResponse) {
           continue;
         }
-        await expandMediaRelations(ctx, mediaId, { response: gqlResponse });
-      }
-    } catch {
-      for (const mediaId of chunk) {
-        const parsed = await fetchAndPersistToolsMediaRelations(mediaId, signal);
-        if (parsed) {
-          out.set(mediaId, parsed);
-          onItem?.(parsed);
+        try {
+          await expandMediaRelations(ctx, mediaId, { response: gqlResponse });
+        } catch (error) {
+          throwIfRelationFetchAborted(error, signal);
+          // Only retry the item whose persistence failed. Earlier items in
+          // this group are already durable and must not be fetched again.
+          await fetchAndPersistToolsMediaRelations(mediaId, signal);
         }
       }
-      continue;
     }
 
     const written = await getToolsMediaRelationsFromDbBatch(ctx.db, chunk);

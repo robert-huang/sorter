@@ -237,7 +237,9 @@ function describeProgress(progress: StatsFetchProgress | null): string | null {
     return null;
   }
   if (progress.phase === 'list') {
-    return 'Fetching list…';
+    return progress.index > 0
+      ? `Fetching list (cached page ${progress.index})…`
+      : 'Fetching list…';
   }
   return `Expanding cast (${progress.index}/${progress.total})…`;
 }

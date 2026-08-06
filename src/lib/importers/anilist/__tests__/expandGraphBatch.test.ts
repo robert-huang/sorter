@@ -6,6 +6,10 @@ import { _clearDbSyncManifestForTesting } from '../../../db/syncManifest';
 import { anilistSourceDescriptor } from '../anilistSource';
 import type { AnilistDbExecutor, AnilistImportContext } from '../context';
 import {
+  ensureCharacterMediaBatch,
+  ensureStaffFilmographyBatch,
+} from '../ensureGraph';
+import {
   expandCharacterMediaBatch,
   expandStaffFilmographyBatch,
 } from '../expandGraphBatch';
@@ -150,6 +154,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   _clearDbSyncManifestForTesting();
 });
 
@@ -328,6 +333,196 @@ describe('expandStaffFilmographyBatch', () => {
     // media_staff credits from staffMedia edges (one per staff)
     expect(countRows(db, 'media_staff', 'WHERE staff_id = 1')).toBe(1);
     expect(countRows(db, 'media_staff', 'WHERE staff_id = 2')).toBe(1);
+    db.close();
+  });
+});
+
+describe('bounded graph checkpoints', () => {
+  it('resumes character-media expansion without refetching completed groups', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(NOW);
+    const db = await freshAnilistDb();
+    for (const id of [1, 2, 3, 4]) {
+      db.exec(
+        'INSERT INTO character (id, name_full, fetched_at, updated_at) VALUES (?, ?, ?, ?)',
+        { bind: [id, `Char-${id}`, NOW, NOW] },
+      );
+    }
+    const h = makeCtx(db);
+    let failSecondGroup = true;
+    h.executeQuery.mockImplementation(async (
+      _query: string,
+      variables: Record<string, number>,
+    ) => {
+      if (failSecondGroup && variables.id0 === 3) {
+        failSecondGroup = false;
+        throw new Error('character group failed');
+      }
+      const out: Record<string, unknown> = {};
+      let index = 0;
+      while (variables[`id${index}`] !== undefined) {
+        const id = variables[`id${index}`]!;
+        out[`c${index}`] = {
+          id,
+          media: {
+            pageInfo: { hasNextPage: false, currentPage: 1 },
+            edges: [makeCharacterMediaEdge(100 + id)],
+          },
+        };
+        index += 1;
+      }
+      return out;
+    });
+
+    await expect(
+      expandCharacterMediaBatch(h.ctx, [1, 2, 3, 4], { batchSize: 2 }),
+    ).rejects.toThrow('character group failed');
+
+    expect(countRows(db, 'character_media_expansion')).toBe(2);
+    const completedGroupCalls = h.executeQuery.mock.calls.filter(
+      ([, variables]) => (variables as Record<string, unknown>).id0 === 1,
+    ).length;
+
+    await ensureCharacterMediaBatch(h.ctx, [1, 2, 3, 4], { batchSize: 2 });
+
+    expect(countRows(db, 'character_media_expansion')).toBe(4);
+    expect(
+      h.executeQuery.mock.calls.filter(
+        ([, variables]) => (variables as Record<string, unknown>).id0 === 1,
+      ),
+    ).toHaveLength(completedGroupCalls);
+    expect(h.dirty).toHaveBeenCalledTimes(4);
+    db.close();
+  });
+
+  it('resumes staff filmographies without refetching completed groups', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(NOW);
+    const db = await freshAnilistDb();
+    const h = makeCtx(db);
+    let failSecondGroup = true;
+    h.executeQuery.mockImplementation(async (
+      _query: string,
+      variables: Record<string, unknown>,
+    ) => {
+      if (failSecondGroup && variables.id0 === 13) {
+        failSecondGroup = false;
+        throw new Error('staff group failed');
+      }
+      const out: Record<string, unknown> = {};
+      let index = 0;
+      while (variables[`id${index}`] !== undefined) {
+        const id = Number(variables[`id${index}`]);
+        out[`s${index}`] = {
+          ...makeStaff(id),
+          characterMedia: {
+            pageInfo: { hasNextPage: false, currentPage: 1 },
+            edges: [makeStaffCharMediaEdge(200 + id, 300 + id)],
+          },
+          staffMedia: {
+            pageInfo: { hasNextPage: false, currentPage: 1 },
+            edges: [makeStaffMediaEdge(400 + id)],
+          },
+        };
+        index += 1;
+      }
+      return out;
+    });
+
+    await expect(
+      expandStaffFilmographyBatch(h.ctx, [11, 12, 13, 14], {
+        batchSize: 2,
+      }),
+    ).rejects.toThrow('staff group failed');
+
+    expect(countRows(db, 'staff_filmography_expansion')).toBe(2);
+    const completedGroupCalls = h.executeQuery.mock.calls.filter(
+      ([, variables]) => (variables as Record<string, unknown>).id0 === 11,
+    ).length;
+
+    await ensureStaffFilmographyBatch(h.ctx, [11, 12, 13, 14], {
+      batchSize: 2,
+    });
+
+    expect(countRows(db, 'staff_filmography_expansion')).toBe(4);
+    expect(
+      h.executeQuery.mock.calls.filter(
+        ([, variables]) => (variables as Record<string, unknown>).id0 === 11,
+      ),
+    ).toHaveLength(completedGroupCalls);
+    expect(h.dirty).toHaveBeenCalledTimes(4);
+    db.close();
+  });
+
+  it('falls back only for an entity that did not finish its group commit', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(NOW);
+    const db = await freshAnilistDb();
+    for (const id of [1, 2]) {
+      db.exec(
+        'INSERT INTO character (id, name_full, fetched_at, updated_at) VALUES (?, ?, ?, ?)',
+        { bind: [id, `Char-${id}`, NOW, NOW] },
+      );
+    }
+    const h = makeCtx(db);
+    h.executeQuery.mockImplementation(async (
+      query: string,
+      variables: Record<string, number>,
+    ) => {
+      if (!query.includes('ToolsCharacterVoiceMediaBatch')) {
+        const id = variables.id!;
+        return {
+          Character: {
+            id,
+            media: {
+              pageInfo: { hasNextPage: false, currentPage: 1 },
+              edges: [makeCharacterMediaEdge(100 + id)],
+            },
+          },
+        };
+      }
+      return {
+        c0: {
+          id: 1,
+          media: {
+            pageInfo: { hasNextPage: false, currentPage: 1 },
+            edges: [makeCharacterMediaEdge(101)],
+          },
+        },
+        c1: {
+          id: 2,
+          media: {
+            pageInfo: { hasNextPage: false, currentPage: 1 },
+            edges: [makeCharacterMediaEdge(102)],
+          },
+        },
+      };
+    });
+    let failCharacter2Commit = true;
+    const originalDb = h.ctx.db;
+    const ctx: AnilistImportContext = {
+      ...h.ctx,
+      db: {
+        ...originalDb,
+        async execBatch(statements) {
+          if (
+            failCharacter2Commit &&
+            statements.some(
+              ({ sql, params }) =>
+                sql.includes('character_media_expansion') &&
+                params?.[0] === 2,
+            )
+          ) {
+            failCharacter2Commit = false;
+            throw new Error('character 2 commit failed');
+          }
+          await originalDb.execBatch(statements);
+        },
+      },
+    };
+
+    await ensureCharacterMediaBatch(ctx, [1, 2], { batchSize: 2 });
+
+    expect(countRows(db, 'character_media_expansion')).toBe(2);
+    expect(h.executeQuery).toHaveBeenCalledTimes(2);
+    expect(h.dirty).toHaveBeenCalledTimes(2);
     db.close();
   });
 });

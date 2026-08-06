@@ -80,6 +80,7 @@ type Harness = {
   ctx: AnilistImportContext;
   executeQuery: ReturnType<typeof vi.fn>;
   autoPush: ReturnType<typeof vi.fn>;
+  dirty: ReturnType<typeof vi.fn>;
   /**
    * Enqueue: a successful user-resolve, then each favourites page in
    * order. The importer's transport calls ResolveUser first then
@@ -92,17 +93,20 @@ async function makeHarness(): Promise<Harness> {
   const db = await freshAnilistDb();
   const executeQuery = vi.fn();
   const autoPush = vi.fn();
+  const dirty = vi.fn();
   const ctx: AnilistImportContext = {
     executeQuery,
     db: makeDbAdapter(db),
     now: () => NOW,
     onAutoPushRequested: autoPush,
+    onDirtyIncrement: dirty,
   };
   return {
     db,
     ctx,
     executeQuery,
     autoPush,
+    dirty,
     enqueueFavPages(...pages) {
       executeQuery.mockResolvedValueOnce(resolveResponse());
       for (const page of pages) {
@@ -686,7 +690,7 @@ describe('importAnilistFavourites — empty result handling', () => {
 // ──────────────────────────────────────────────────────────────────────
 
 describe('importAnilistFavourites — failure semantics', () => {
-  it('a mid-fetch failure leaves the DB completely untouched (wipe-and-rebuild contract)', async () => {
+  it('keeps favourite order atomic while retaining completed entity checkpoints', async () => {
     const h = await makeHarness();
     // Pre-seed an existing favourite — it must survive a failed refresh
     h.db.exec(
@@ -730,10 +734,11 @@ describe('importAnilistFavourites — failure semantics', () => {
     // Pre-existing favourite still there — no wipe happened because we
     // bailed before the transaction
     expect(countRows(h.db, 'character_favourite', 'WHERE character_id = 555')).toBe(1);
-    // No new character row inserted either
-    expect(countRows(h.db, 'character', 'WHERE id = 1')).toBe(0);
+    // The reusable profile from page 1 is durable even though page 2 failed.
+    expect(countRows(h.db, 'character', 'WHERE id = 1')).toBe(1);
     // No timestamp bumped
     expect(selectMetaValue(h.db, lastFavouritesRefreshKey(USER_ID, 'CHARACTERS'))).toBeNull();
+    expect(h.dirty).toHaveBeenCalledTimes(1);
     // No autopush
     expect(h.autoPush).not.toHaveBeenCalled();
     // Lock released

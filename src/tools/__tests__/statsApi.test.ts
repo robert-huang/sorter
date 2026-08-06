@@ -51,6 +51,7 @@ import {
 } from '../panels/statsApi';
 import {
   ensureMediaCastFreshBatch,
+  ensureMediaStudiosFreshBatch,
   readShowStaffBundleFromDb,
 } from '../../lib/importers/anilist/toolsAnilistAccess';
 
@@ -58,6 +59,7 @@ const depaginateMock = vi.mocked(depaginate);
 const getCtxMock = vi.mocked(getToolsImportContext);
 const getMediaDetailMock = vi.mocked(getMediaDetail);
 const ensureCastMock = vi.mocked(ensureMediaCastFreshBatch);
+const ensureStudiosMock = vi.mocked(ensureMediaStudiosFreshBatch);
 const readStaffBundleMock = vi.mocked(readShowStaffBundleFromDb);
 
 function gqlListEntry(mediaId: number) {
@@ -89,11 +91,13 @@ beforeEach(() => {
   getCtxMock.mockReset();
   getMediaDetailMock.mockReset();
   ensureCastMock.mockReset();
+  ensureStudiosMock.mockReset();
   readStaffBundleMock.mockReset();
 
   getCtxMock.mockReturnValue({ db: {} } as never);
   getMediaDetailMock.mockResolvedValue(null);
   ensureCastMock.mockResolvedValue();
+  ensureStudiosMock.mockResolvedValue();
   readStaffBundleMock.mockResolvedValue(null);
   depaginateMock.mockResolvedValue([gqlListEntry(101)]);
 });
@@ -131,6 +135,32 @@ describe('fetchStatsData', () => {
     expect(depaginateMock).toHaveBeenCalledWith(
       expect.objectContaining({ signal: controller.signal }),
     );
+  });
+
+  it('checkpoints reusable media data after every fetched list page', async () => {
+    const progress = vi.fn();
+    depaginateMock.mockImplementationOnce(async (options) => {
+      const nodes = [gqlListEntry(101), gqlListEntry(102)];
+      await options.onPage?.({
+        page: 1,
+        nodes,
+        pageInfo: { hasNextPage: false },
+        collected: nodes.length,
+      });
+      return nodes;
+    });
+
+    await fetchStatsData('tester', 'ANIME', { onProgress: progress });
+
+    expect(ensureStudiosMock).toHaveBeenCalledWith(
+      [101, 102],
+      expect.objectContaining({ onProgress: progress }),
+    );
+    expect(progress).toHaveBeenCalledWith({
+      phase: 'list',
+      index: 1,
+      total: 1,
+    });
   });
 
   it('preserves persisted staff and VA genders from the cached staff bundle', async () => {
@@ -192,6 +222,31 @@ describe('fetchStatsData', () => {
     expect(refreshed.entries[0]?.staffCredits[0]?.staffName).toBe(
       'Updated Director',
     );
+  });
+
+  it('reports durable cast checkpoints without resetting progress during DB reads', async () => {
+    const progress = vi.fn();
+    ensureCastMock.mockImplementationOnce(async (_mediaIds, _options, onCheckpoint) => {
+      onCheckpoint?.({ completed: 1, total: 1 });
+    });
+    readStaffBundleMock.mockResolvedValue({
+      id: 101,
+      title: 'Show 101',
+      coverImage: null,
+      studios: {},
+      productionStaff: {},
+      voiceActors: {},
+    });
+    const data = await fetchStatsData('tester', 'ANIME');
+
+    await expandStatsCast(data, { onProgress: progress });
+
+    expect(progress).toHaveBeenCalledTimes(1);
+    expect(progress).toHaveBeenCalledWith({
+      phase: 'cast',
+      index: 1,
+      total: 1,
+    });
   });
 });
 

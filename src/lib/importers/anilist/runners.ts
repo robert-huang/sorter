@@ -151,8 +151,13 @@ export async function runAnilistFavourites(
   username: string,
   type: AnilistFavouriteType,
   onProgress?: AnilistProgressReporter,
+  abortSignal?: AbortSignal,
 ): Promise<ImportAnilistFavouritesResult> {
-  const result = await importAnilistFavourites(buildContext(onProgress), { username, type });
+  const result = await importAnilistFavourites(buildContext(onProgress), {
+    username,
+    type,
+    abortSignal,
+  });
   writeLastAnilistUsername(result.username);
   markLocalDbPresent();
   if (type === 'CHARACTERS' || type === 'STAFF') {

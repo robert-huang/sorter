@@ -9,6 +9,7 @@ import {
 import {
   TOOLS_MEDIA_RELATIONS_CACHE_PREFIX,
   _resetToolsRelationsBackfillForTesting,
+  fetchToolsMediaRelationsBatch,
   fetchToolsMediaRelationsCached,
   type ToolsMediaRelationsResponse,
 } from '../toolsMediaRelationsApi';
@@ -177,5 +178,39 @@ describe('fetchToolsMediaRelationsCached', () => {
       db.selectObject('SELECT 1 AS ok FROM media_relations_expansion WHERE media_id = 42'),
     ).toEqual({ ok: 1 });
     expect(persistentCacheGet(`${TOOLS_MEDIA_RELATIONS_CACHE_PREFIX}42`)).toEqual({ hit: false });
+  });
+});
+
+describe('fetchToolsMediaRelationsBatch', () => {
+  it('resumes after a failed group without refetching completed relation markers', async () => {
+    const db = await openTestAnilistDb();
+    wireDb(db);
+    executeAnilistQueryMock
+      .mockResolvedValueOnce({
+        m0: (livePayload(1) as { Media: unknown }).Media,
+        m1: (livePayload(2) as { Media: unknown }).Media,
+      })
+      .mockRejectedValueOnce(new Error('batch failed'))
+      .mockResolvedValueOnce(livePayload(3))
+      .mockRejectedValueOnce(new Error('item 4 failed'));
+
+    await expect(
+      fetchToolsMediaRelationsBatch([1, 2, 3, 4], { batchSize: 2 }),
+    ).rejects.toThrow('item 4 failed');
+
+    expect(
+      db.selectValue('SELECT COUNT(*) FROM media_relations_expansion'),
+    ).toBe(3);
+
+    executeAnilistQueryMock.mockResolvedValueOnce({
+      m0: (livePayload(4) as { Media: unknown }).Media,
+    });
+    const resumed = await fetchToolsMediaRelationsBatch([1, 2, 3, 4], {
+      batchSize: 2,
+    });
+
+    expect(resumed.size).toBe(4);
+    expect(executeAnilistQueryMock).toHaveBeenCalledTimes(5);
+    expect(executeAnilistQueryMock.mock.calls[4]?.[1]).toEqual({ id0: 4 });
   });
 });

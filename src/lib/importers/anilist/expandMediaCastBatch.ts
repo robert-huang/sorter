@@ -238,6 +238,8 @@ async function depaginateMediaStaffBatch(
 
 export type ExpandMediaCastBatchOptions = ExpandAnilistMediaDetailOptions & {
   batchSize?: number;
+  onCheckpoint?: (progress: { completed: number; total: number }) => void;
+  onItemCheckpoint?: (mediaId: number) => void;
 };
 
 export async function expandMediaCastBatch(
@@ -251,7 +253,7 @@ export async function expandMediaCastBatch(
 
   options.signal?.throwIfAborted();
 
-  const batchSize = options.batchSize ?? DEFAULT_MEDIA_CAST_BATCH_SIZE;
+  const batchSize = Math.max(1, options.batchSize ?? DEFAULT_MEDIA_CAST_BATCH_SIZE);
   const language = options.voiceActorLanguage ?? DEFAULT_VOICE_ACTOR_LANGUAGE;
   const now = ctx.now();
   // Collapse duplicate media ids so one round-trip never advances the same
@@ -263,6 +265,28 @@ export async function expandMediaCastBatch(
     }
   }
   const uniquePending = [...dedupedByMedia.values()];
+
+  // Complete and persist one bounded group before fetching the next. This
+  // makes every group a durable restart checkpoint instead of retaining the
+  // entire tool run in memory until all character and staff pages finish.
+  if (uniquePending.length > batchSize) {
+    let completed = 0;
+    for (const group of chunk(uniquePending, batchSize)) {
+      options.signal?.throwIfAborted();
+      await expandMediaCastBatch(ctx, group, {
+        ...options,
+        batchSize,
+        onCheckpoint: undefined,
+      });
+      completed += group.length;
+      options.onCheckpoint?.({
+        completed,
+        total: uniquePending.length,
+      });
+    }
+    return;
+  }
+
   const mediaIds = uniquePending.map((item) => item.mediaId);
 
   const okMedia = await ensureMediaRowsForCastExpansion(ctx, mediaIds, {
@@ -351,6 +375,7 @@ export async function expandMediaCastBatch(
       characterPagesFetched,
       staffPagesFetched,
     });
+    options.onItemCheckpoint?.(item.mediaId);
   }
 }
 
@@ -360,21 +385,47 @@ export async function expandMediaCastWithFallback(
   pending: readonly MediaCastPending[],
   options: ExpandMediaCastBatchOptions = {},
 ): Promise<void> {
-  try {
-    await expandMediaCastBatch(ctx, pending, options);
-  } catch (err) {
-    if (options.signal?.aborted) {
-      options.signal.throwIfAborted();
+  const batchSize = Math.max(1, options.batchSize ?? DEFAULT_MEDIA_CAST_BATCH_SIZE);
+  const deduped = new Map<number, MediaCastPending>();
+  for (const item of pending) {
+    if (!deduped.has(item.mediaId)) {
+      deduped.set(item.mediaId, item);
     }
-    if (err instanceof DOMException && err.name === 'AbortError') {
-      throw err;
-    }
-    for (const item of pending) {
-      options.signal?.throwIfAborted();
-      await expandAnilistMediaDetail(ctx, item.mediaId, {
+  }
+
+  let completed = 0;
+  for (const group of chunk([...deduped.values()], batchSize)) {
+    const completedInGroup = new Set<number>();
+    try {
+      await expandMediaCastBatch(ctx, group, {
         ...options,
-        scope: item.scope,
+        batchSize,
+        onItemCheckpoint: (mediaId) => {
+          completedInGroup.add(mediaId);
+          options.onItemCheckpoint?.(mediaId);
+        },
       });
+    } catch (err) {
+      if (options.signal?.aborted) {
+        options.signal.throwIfAborted();
+      }
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        throw err;
+      }
+      // Earlier groups are already committed. Fall back only for the failed
+      // group so a late transport error never repeats completed API work.
+      for (const item of group) {
+        if (completedInGroup.has(item.mediaId)) {
+          continue;
+        }
+        options.signal?.throwIfAborted();
+        await expandAnilistMediaDetail(ctx, item.mediaId, {
+          ...options,
+          scope: item.scope,
+        });
+      }
     }
+    completed += group.length;
+    options.onCheckpoint?.({ completed, total: deduped.size });
   }
 }

@@ -8,8 +8,12 @@ import { expandMediaRelations } from './expandMediaRelations';
 import { expandCharacterMedia } from './expandCharacterMedia';
 import { expandStaffFilmography } from './expandStaffFilmography';
 import {
+  DEFAULT_CHARACTER_MEDIA_BATCH_SIZE,
+  DEFAULT_STAFF_FILMOGRAPHY_BATCH_SIZE,
   expandCharacterMediaBatch,
   expandStaffFilmographyBatch,
+  type ExpandCharacterMediaBatchOptions,
+  type ExpandStaffFilmographyBatchOptions,
 } from './expandGraphBatch';
 import {
   expandMediaCastWithFallback,
@@ -33,6 +37,23 @@ import {
 } from './readQueries';
 import type { ToolsFetchOptions } from './toolsFetchPolicy';
 import { needsGraphDataRefresh } from './toolsFetchPolicy';
+
+function chunk<T>(items: readonly T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let offset = 0; offset < items.length; offset += size) {
+    out.push(items.slice(offset, offset + size) as T[]);
+  }
+  return out;
+}
+
+function throwIfAbortError(error: unknown, signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    signal.throwIfAborted();
+  }
+  if (error instanceof DOMException && error.name === 'AbortError') {
+    throw error;
+  }
+}
 
 function needsCharactersSectionExpanded(
   status: MediaCastExpansionStatus | null,
@@ -93,7 +114,7 @@ export async function ensureMediaCastExpanded(
 }
 
 export type EnsureMediaCastBatchOptions = ExpandAnilistMediaDetailOptions &
-  Pick<ExpandMediaCastBatchOptions, 'batchSize'> & {
+  Pick<ExpandMediaCastBatchOptions, 'batchSize' | 'onCheckpoint'> & {
     /** When set, applies the same missing/incomplete gate as `ensureMediaCastFresh`. */
     staleRefresh?: ToolsFetchOptions;
   };
@@ -142,12 +163,17 @@ export async function ensureMediaCastExpandedBatch(
   await expandMediaCastWithFallback(ctx, pending, options);
 }
 
-export type EnsureStaffFilmographyOptions = ExpandStaffFilmographyOptions & {
+export type EnsureStaffFilmographyOptions = ExpandStaffFilmographyOptions &
+  Pick<ExpandStaffFilmographyBatchOptions, 'batchSize'> & {
   force?: boolean;
 };
 
-export type EnsureCharacterMediaOptions = {
+export type EnsureCharacterMediaOptions = Pick<
+  ExpandCharacterMediaBatchOptions,
+  'batchSize'
+> & {
   force?: boolean;
+  signal?: AbortSignal;
 };
 
 export async function ensureCharacterMedia(
@@ -187,11 +213,28 @@ export async function ensureCharacterMediaBatch(
   if (pending.length === 0) {
     return;
   }
-  try {
-    await expandCharacterMediaBatch(ctx, pending, options);
-  } catch {
-    for (const characterId of pending) {
-      await expandCharacterMedia(ctx, characterId, options);
+
+  const batchSize = Math.max(
+    1,
+    options.batchSize ?? DEFAULT_CHARACTER_MEDIA_BATCH_SIZE,
+  );
+  for (const group of chunk(pending, batchSize)) {
+    const completed = new Set<number>();
+    try {
+      await expandCharacterMediaBatch(ctx, group, {
+        ...options,
+        onCheckpoint: (characterId) => completed.add(characterId),
+      });
+    } catch (error) {
+      throwIfAbortError(error, options.signal);
+      // Earlier groups are durable checkpoints. Retry only this failed group.
+      for (const characterId of group) {
+        if (completed.has(characterId)) {
+          continue;
+        }
+        options.signal?.throwIfAborted();
+        await expandCharacterMedia(ctx, characterId, options);
+      }
     }
   }
 }
@@ -232,11 +275,28 @@ export async function ensureStaffFilmographyBatch(
   if (pending.length === 0) {
     return;
   }
-  try {
-    await expandStaffFilmographyBatch(ctx, pending, options);
-  } catch {
-    for (const staffId of pending) {
-      await expandStaffFilmography(ctx, staffId, options);
+
+  const batchSize = Math.max(
+    1,
+    options.batchSize ?? DEFAULT_STAFF_FILMOGRAPHY_BATCH_SIZE,
+  );
+  for (const group of chunk(pending, batchSize)) {
+    const completed = new Set<number>();
+    try {
+      await expandStaffFilmographyBatch(ctx, group, {
+        ...options,
+        onCheckpoint: (staffId) => completed.add(staffId),
+      });
+    } catch (error) {
+      throwIfAbortError(error, options.signal);
+      // Earlier groups are durable checkpoints. Retry only this failed group.
+      for (const staffId of group) {
+        if (completed.has(staffId)) {
+          continue;
+        }
+        options.signal?.throwIfAborted();
+        await expandStaffFilmography(ctx, staffId, options);
+      }
     }
   }
 }

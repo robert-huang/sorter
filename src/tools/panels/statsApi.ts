@@ -254,11 +254,8 @@ async function readCastForEntriesFromDb(
 ): Promise<StatsEntry[]> {
   const ctx = getToolsImportContext();
   const out: StatsEntry[] = [];
-  let index = 0;
   for (const entry of entries) {
     options?.signal?.throwIfAborted();
-    index += 1;
-    options?.onProgress?.({ phase: 'cast', index, total: entries.length });
     const bundle = await readShowStaffBundleFromDb(ctx.db, entry.mediaId, entry.title);
     const staffCredits = bundle
       ? Object.entries(bundle.productionStaff).flatMap(([staffId, meta]) =>
@@ -306,6 +303,9 @@ async function attachCastToEntries(
   await ensureMediaCastFreshBatch(
     entries.map((entry) => entry.mediaId),
     options,
+    ({ completed, total }) => {
+      options?.onProgress?.({ phase: 'cast', index: completed, total });
+    },
   );
   return readCastForEntriesFromDb(entries, options);
 }
@@ -313,9 +313,9 @@ async function attachCastToEntries(
 async function fetchStatsListLive(
   username: string,
   mediaType: StatsMediaType,
-  signal?: AbortSignal,
+  options?: StatsFetchOptions,
 ): Promise<GqlStatsListEntry[]> {
-  signal?.throwIfAborted();
+  options?.signal?.throwIfAborted();
   const accessToken = resolveAccessTokenForUsername(username) ?? undefined;
   return depaginate<
     {
@@ -328,12 +328,19 @@ async function fetchStatsListLive(
   >({
     query: TOOLS_STATS_LIST_QUERY,
     variables: { userName: username, type: mediaType },
-    signal,
+    signal: options?.signal,
     accessToken,
     selectPage: (data) => ({
       nodes: data.Page?.mediaList ?? [],
       pageInfo: data.Page?.pageInfo ?? { hasNextPage: false },
     }),
+    onPage: async ({ page, nodes }) => {
+      await ensureMediaStudiosFreshBatch(
+        nodes.map((entry) => entry.media.id),
+        options,
+      );
+      options?.onProgress?.({ phase: 'list', index: page, total: page });
+    },
   });
 }
 
@@ -379,12 +386,10 @@ async function buildStatsEntries(
 ): Promise<StatsEntry[]> {
   options?.signal?.throwIfAborted();
   options?.onProgress?.({ phase: 'list', index: 0, total: 1 });
-  const liveEntries = await fetchStatsListLive(username, mediaType, options?.signal);
+  const liveEntries = await fetchStatsListLive(username, mediaType, options);
   options?.signal?.throwIfAborted();
   const baseEntries = liveEntries.map((entry) => mapGqlEntry(entry, mediaType));
   const mediaIds = baseEntries.map((entry) => entry.mediaId);
-  await ensureMediaStudiosFreshBatch(mediaIds, options);
-  options?.signal?.throwIfAborted();
   const meta = await readMediaMetadataFromDb(mediaIds, options?.signal);
   const merged = baseEntries.map((entry) => {
     const db = meta.get(entry.mediaId);

@@ -14,7 +14,12 @@ import {
   withSessionMemo,
   withSessionTtlMemo,
 } from '../../lib/importers/anilist/toolsSessionMemo';
-import { withPersistentTtlCache } from '../../lib/importers/anilist/toolsPersistentCache';
+import {
+  persistentCacheDelete,
+  persistentCacheGet,
+  persistentCacheSet,
+  withPersistentTtlCache,
+} from '../../lib/importers/anilist/toolsPersistentCache';
 import {
   ensureMediaCastFresh,
   ensureMediaCastFreshBatch,
@@ -292,6 +297,16 @@ function relatedAnimeCacheKey(rootMediaId: number): string {
   return `shared-staff:related-anime:${rootMediaId}`;
 }
 
+function relatedAnimeCheckpointKey(rootMediaId: number): string {
+  return `${relatedAnimeCacheKey(rootMediaId)}:checkpoint:v1`;
+}
+
+type RelatedAnimeWalkCheckpoint = {
+  related: number[];
+  visitedFetches: number[];
+  frontier: number[];
+};
+
 type RelatedAnimeWalkEdge = {
   relationType: string;
   node: {
@@ -364,53 +379,90 @@ async function fetchRelationsWalkBatch(
 async function walkRelatedAnimeIds(
   rootMediaId: number,
   signal?: AbortSignal,
+  options?: ToolsFetchOptions,
 ): Promise<number[]> {
-  const related = new Set<number>([rootMediaId]);
-  const visitedFetches = new Set<number>();
-  let frontier: number[] = [rootMediaId];
+  const checkpointKey = relatedAnimeCheckpointKey(rootMediaId);
+  if (options?.forceRefresh) {
+    persistentCacheDelete(checkpointKey);
+  }
+  const checkpoint = options?.forceRefresh
+    ? null
+    : persistentCacheGet<RelatedAnimeWalkCheckpoint>(checkpointKey);
+  const related = new Set<number>(
+    checkpoint?.hit ? checkpoint.value.related : [rootMediaId],
+  );
+  const visitedFetches = new Set<number>(
+    checkpoint?.hit ? checkpoint.value.visitedFetches : [],
+  );
+  let frontier: number[] = checkpoint?.hit
+    ? checkpoint.value.frontier
+    : [rootMediaId];
 
   while (frontier.length > 0) {
     signal?.throwIfAborted();
 
-    const toFetch = frontier.filter((id) => !visitedFetches.has(id));
-    for (const id of toFetch) {
-      visitedFetches.add(id);
-    }
-
-    const responses =
-      toFetch.length > 0
-        ? await fetchRelationsWalkBatch(toFetch, signal)
-        : new Map<number, RelatedAnimeWalkEdge[]>();
-
+    const toFetch = [
+      ...new Set(frontier.filter((id) => !visitedFetches.has(id))),
+    ];
     const nextFrontier: number[] = [];
     const nextFrontierSet = new Set<number>();
 
-    for (const curId of frontier) {
-      for (const edge of responses.get(curId) ?? []) {
-        const node = edge.node;
-        if (node.type !== 'ANIME' || related.has(node.id)) {
-          continue;
-        }
-        related.add(node.id);
+    for (
+      let offset = 0;
+      offset < toFetch.length;
+      offset += RELATED_ANIME_WALK_BATCH_SIZE
+    ) {
+      signal?.throwIfAborted();
+      const group = toFetch.slice(
+        offset,
+        offset + RELATED_ANIME_WALK_BATCH_SIZE,
+      );
+      const responses = await fetchRelationsWalkBatch(group, signal);
 
-        const isCrossover = (node.tags ?? []).some((t) => t.name === 'Crossover');
-        if (
-          isNonWalkRelationType(edge.relationType) ||
-          node.format === 'MUSIC' ||
-          isCrossover
-        ) {
-          continue;
+      for (const curId of group) {
+        for (const edge of responses.get(curId) ?? []) {
+          const node = edge.node;
+          if (node.type !== 'ANIME' || related.has(node.id)) {
+            continue;
+          }
+          related.add(node.id);
+
+          const isCrossover = (node.tags ?? []).some(
+            (tag) => tag.name === 'Crossover',
+          );
+          if (
+            isNonWalkRelationType(edge.relationType) ||
+            node.format === 'MUSIC' ||
+            isCrossover
+          ) {
+            continue;
+          }
+          if (!visitedFetches.has(node.id) && !nextFrontierSet.has(node.id)) {
+            nextFrontier.push(node.id);
+            nextFrontierSet.add(node.id);
+          }
         }
-        if (!visitedFetches.has(node.id) && !nextFrontierSet.has(node.id)) {
-          nextFrontier.push(node.id);
-          nextFrontierSet.add(node.id);
-        }
+        visitedFetches.add(curId);
       }
+
+      const remaining = toFetch.slice(
+        offset + RELATED_ANIME_WALK_BATCH_SIZE,
+      );
+      persistentCacheSet(
+        checkpointKey,
+        {
+          related: [...related],
+          visitedFetches: [...visitedFetches],
+          frontier: [...remaining, ...nextFrontier],
+        },
+        RELATED_ANIME_TTL_MS,
+      );
     }
 
     frontier = nextFrontier;
   }
 
+  persistentCacheDelete(checkpointKey);
   related.delete(rootMediaId);
   return [...related];
 }
@@ -433,7 +485,7 @@ export async function fetchRelatedAnimeIds(
       withPersistentTtlCache(
         key,
         RELATED_ANIME_TTL_MS,
-        () => walkRelatedAnimeIds(rootMediaId, signal),
+        () => walkRelatedAnimeIds(rootMediaId, signal, options),
         { bust: options?.forceRefresh },
       ),
     { bust: options?.forceRefresh },

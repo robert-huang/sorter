@@ -16,9 +16,13 @@ export type FavouritesFetchOptions = {
 
 export function favouritesImportOptions(
   options?: FavouritesFetchOptions,
+  signal?: AbortSignal,
 ): ToolsFetchOptions | undefined {
-  if (options?.forceRefreshFavourites) {
-    return { forceRefresh: true };
+  if (options?.forceRefreshFavourites || signal) {
+    return {
+      forceRefresh: options?.forceRefreshFavourites ?? false,
+      signal,
+    };
   }
   return undefined;
 }

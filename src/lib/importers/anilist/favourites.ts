@@ -11,18 +11,14 @@
  * `anilist_user` row, and threads the id through every favourites
  * write so multiple users' lists coexist.
  *
- * Each call paginates `User.favourites.<connection>` at perPage 25,
- * accumulates all edges in memory, then wipe-and-rebuilds the
- * `<type>_favourite` table scoped to `(user, type)` inside a single
- * transaction.
+ * Each call paginates `User.favourites.<connection>` at perPage 25.
+ * Reusable media/character/staff/studio entities are checkpointed after
+ * every page, while the user-specific favourite ordering remains an atomic
+ * wipe-and-rebuild after all pages succeed.
  *
- * Why no mid-fetch checkpoint (vs the list importer):
- *   - Cost is small (~1-10 req per type for heavy curators) so retry-from-
- *     scratch is acceptable.
- *   - Wipe-and-rebuild contract: if the fetch is interrupted between
- *     pages, no DB writes happened — the DELETE only runs after every
- *     page succeeded. A second click starts fresh from page 1 with no
- *     stale state to repair.
+ * The final completion marker is never written for a partial fetch. A retry
+ * still starts the mutable favourite order at page 1, but graph expansions
+ * and other tools can reuse entity checkpoints from completed pages.
  *
  * Auto-push fires on completion (favourites are typically a small delta
  * and the user just triggered the action, so silent push to Drive matches
@@ -35,15 +31,17 @@ import {
   releaseScrapeLock,
 } from '../../db/syncManifest';
 import { ANILIST_SOURCE_ID } from './anilistSource';
-import type { AnilistImportContext, SqlBindable } from './context';
+import {
+  execBatchInChunks,
+  type AnilistImportContext,
+  type SqlBindable,
+} from './context';
 import {
   ANILIST_USER_UPSERT_SQL,
   AnilistScrapeLockHeldError,
   AnilistUnknownUserError,
-  MEDIA_UPSERT_SQL,
   STUDIO_UPSERT_SQL,
-  TAG_UPSERT_SQL,
-  mediaRowToParams,
+  persistMediaGraphCheckpoint,
 } from './importer';
 import {
   CHARACTER_UPSERT_SQL,
@@ -56,14 +54,9 @@ import {
   mapCharacterFavouriteRow,
   mapCharacterRow,
   mapMediaFavouriteRow,
-  mapMediaRow,
-  mapMediaStudioRows,
-  mapMediaTagRows,
   mapStaffFavouriteRow,
   mapStaffRow,
   mapStudioFavouriteRow,
-  mapStudioRows,
-  mapTagRows,
 } from './mappers';
 import { buildSetMetaStmt, favCharactersDobSchemaKey, lastFavouritesRefreshKey } from './meta';
 import { emitProgress } from './progress';
@@ -94,6 +87,7 @@ export type ImportAnilistFavouritesOptions = {
   username: string;
   type: AnilistFavouriteType;
   perPage?: number;
+  abortSignal?: AbortSignal;
 };
 
 export type ImportAnilistFavouritesResult = {
@@ -151,6 +145,72 @@ function dispatchFor(
       return makeDispatch<AnilistStaffGql>(FAVOURITE_STAFF_QUERY, 'staff');
     case 'STUDIOS':
       return makeDispatch<AnilistFavouriteStudioNode>(FAVOURITE_STUDIOS_QUERY, 'studios');
+  }
+}
+
+async function persistFavouriteEntitiesCheckpoint(
+  ctx: AnilistImportContext,
+  type: AnilistFavouriteType,
+  edges: AnilistFavouriteEdge<unknown>[],
+): Promise<void> {
+  if (edges.length === 0) {
+    return;
+  }
+
+  if (type === 'ANIME' || type === 'MANGA') {
+    const mediaById = new Map<number, AnilistMediaGql>();
+    for (const edge of edges as AnilistFavouriteEdge<AnilistMediaGql>[]) {
+      mediaById.set(edge.node.id, edge.node);
+    }
+    await persistMediaGraphCheckpoint(ctx, [...mediaById.values()], {
+      // Favourite media omits studios because AniList returns HTTP 500 for
+      // that selection. Preserve any authoritative studio rows and marker.
+      studiosAuthoritative: false,
+      tagsAuthoritative: true,
+    });
+    return;
+  }
+
+  const now = ctx.now();
+  const statements: Statement[] = [];
+  if (type === 'CHARACTERS') {
+    const byId = new Map<number, AnilistCharacterGql>();
+    for (const edge of edges as AnilistFavouriteEdge<AnilistCharacterGql>[]) {
+      byId.set(edge.node.id, edge.node);
+    }
+    for (const character of byId.values()) {
+      statements.push({
+        sql: CHARACTER_UPSERT_SQL,
+        params: characterRowToParams(mapCharacterRow(character, now)),
+      });
+    }
+  } else if (type === 'STAFF') {
+    const byId = new Map<number, AnilistStaffGql>();
+    for (const edge of edges as AnilistFavouriteEdge<AnilistStaffGql>[]) {
+      byId.set(edge.node.id, edge.node);
+    }
+    for (const staff of byId.values()) {
+      statements.push({
+        sql: STAFF_UPSERT_SQL,
+        params: staffRowToParams(mapStaffRow(staff, now)),
+      });
+    }
+  } else {
+    const byId = new Map<number, AnilistFavouriteStudioNode>();
+    for (const edge of edges as AnilistFavouriteEdge<AnilistFavouriteStudioNode>[]) {
+      byId.set(edge.node.id, edge.node);
+    }
+    for (const studio of byId.values()) {
+      statements.push({
+        sql: STUDIO_UPSERT_SQL,
+        params: [studio.id, studio.name, now],
+      });
+    }
+  }
+
+  await execBatchInChunks(ctx.db, statements);
+  if (ctx.onDirtyIncrement) {
+    await ctx.onDirtyIncrement();
   }
 }
 
@@ -224,61 +284,7 @@ function buildMediaFavouritesTransaction(
     params: [anilistUser.id, mediaType],
   });
 
-  // Dedup parent metadata in case the same studio/tag appears across favs
-  const studios = new Map<number, ReturnType<typeof mapStudioRows>[number]>();
-  const tags = new Map<string, ReturnType<typeof mapTagRows>[number]>();
-
-  for (const edge of edges) {
-    for (const s of mapStudioRows(edge.node, now)) studios.set(s.id, s);
-    for (const t of mapTagRows(edge.node, now)) tags.set(t.name, t);
-  }
-  for (const s of studios.values()) {
-    stmts.push({ sql: STUDIO_UPSERT_SQL, params: [s.id, s.name, s.fetched_at] });
-  }
-  for (const t of tags.values()) {
-    stmts.push({ sql: TAG_UPSERT_SQL, params: [t.name, t.fetched_at] });
-  }
-
-  // Upsert media rows for each favourite (seeds rows for favourites the
-  // user has never had on their list — plan §B side-effect). Reuse the
-  // importer's row→params helper so the column list stays in one place.
-  for (const edge of edges) {
-    const row = mapMediaRow(edge.node, now);
-    stmts.push({ sql: MEDIA_UPSERT_SQL, params: mediaRowToParams(row) });
-  }
-
-  // Rebuild junctions for every favourited media. Same per-media DELETE +
-  // INSERT pattern as the list importer — preserves "tag removed on
-  // AniList between imports" cleanup. Junctions are global (no user
-  // dim), so cross-user wipe is intentional.
-  const affectedIds = edges.map((e) => e.node.id);
-  if (affectedIds.length > 0) {
-    const placeholders = affectedIds.map(() => '?').join(', ');
-    stmts.push({
-      sql: `DELETE FROM media_studio WHERE media_id IN (${placeholders})`,
-      params: affectedIds,
-    });
-    stmts.push({
-      sql: `DELETE FROM media_tag WHERE media_id IN (${placeholders})`,
-      params: affectedIds,
-    });
-  }
-  for (const edge of edges) {
-    for (const ms of mapMediaStudioRows(edge.node)) {
-      stmts.push({
-        sql: 'INSERT INTO media_studio (media_id, studio_id, sort_order, is_main) VALUES (?, ?, ?, ?)',
-        params: [ms.media_id, ms.studio_id, ms.sort_order, ms.is_main],
-      });
-    }
-    for (const mt of mapMediaTagRows(edge.node)) {
-      stmts.push({
-        sql: 'INSERT INTO media_tag (media_id, tag_name, rank) VALUES (?, ?, ?)',
-        params: [mt.media_id, mt.tag_name, mt.rank],
-      });
-    }
-  }
-
-  // Insert fresh media_favourite rows.
+  // Shared media and tag rows were already committed per fetched page.
   for (const edge of edges) {
     const row = mapMediaFavouriteRow(edge, anilistUser.id, now);
     stmts.push({
@@ -305,8 +311,6 @@ function buildCharacterFavouritesTransaction(
     params: [anilistUser.id],
   });
   for (const edge of edges) {
-    const charRow = mapCharacterRow(edge.node, now);
-    stmts.push({ sql: CHARACTER_UPSERT_SQL, params: characterRowToParams(charRow) });
     const favRow = mapCharacterFavouriteRow(edge, anilistUser.id, now);
     stmts.push({
       sql:
@@ -336,8 +340,6 @@ function buildStaffFavouritesTransaction(
     params: [anilistUser.id],
   });
   for (const edge of edges) {
-    const staffRow = mapStaffRow(edge.node, now);
-    stmts.push({ sql: STAFF_UPSERT_SQL, params: staffRowToParams(staffRow) });
     const favRow = mapStaffFavouriteRow(edge, anilistUser.id, now);
     stmts.push({
       sql:
@@ -362,12 +364,6 @@ function buildStudioFavouritesTransaction(
     params: [anilistUser.id],
   });
   for (const edge of edges) {
-    stmts.push({
-      sql:
-        'INSERT INTO studio (id, name, fetched_at) VALUES (?, ?, ?) ' +
-        'ON CONFLICT(id) DO UPDATE SET name = excluded.name, fetched_at = excluded.fetched_at',
-      params: [edge.node.id, edge.node.name, now],
-    });
     const favRow = mapStudioFavouriteRow(edge, anilistUser.id, now);
     stmts.push({
       sql:
@@ -409,14 +405,15 @@ export async function importAnilistFavourites(
   const lockToken = acquired.token;
 
   try {
-    // Per the wipe-and-rebuild contract, all pages must succeed before
-    // any DB write happens. Accumulate edges in memory first.
+    // Accumulate user-specific order for one atomic rebuild. Reusable
+    // entities are checkpointed after each page before fetching the next.
     const dispatch = dispatchFor(type);
     const accumulated: AnilistFavouriteEdge<unknown>[] = [];
     let page = 1;
     let pagesFetched = 0;
 
     while (true) {
+      options.abortSignal?.throwIfAborted();
       const response = await ctx.executeQuery<AnilistFavouritesPageResponse<unknown>>(
         dispatch.query,
         { username, page, perPage },
@@ -427,6 +424,7 @@ export async function importAnilistFavourites(
         dispatch as FavouritesQueryDispatch<unknown>
       ).selectEdges(response);
       accumulated.push(...edges);
+      await persistFavouriteEntitiesCheckpoint(ctx, type, edges);
       emitProgress(ctx.onProgress, {
         kind: 'fetching-page',
         what: 'favourites',

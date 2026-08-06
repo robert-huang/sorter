@@ -17,6 +17,11 @@ export type DepaginateProgress = {
   collected: number;
 };
 
+export type DepaginatePage<TNode> = DepaginateProgress & {
+  nodes: TNode[];
+  pageInfo: DepaginatePageInfo;
+};
+
 export type DepaginateOptions<TData, TNode> = {
   query: string;
   variables?: Record<string, unknown>;
@@ -29,6 +34,8 @@ export type DepaginateOptions<TData, TNode> = {
   selectPage: (data: TData) => { nodes: TNode[]; pageInfo: DepaginatePageInfo };
   signal?: AbortSignal;
   onProgress?: (progress: DepaginateProgress) => void;
+  /** Awaited after each page so callers can durably checkpoint shared data. */
+  onPage?: (page: DepaginatePage<TNode>) => Promise<void> | void;
 };
 
 function throwIfAborted(signal: AbortSignal | undefined): void {
@@ -61,6 +68,7 @@ export async function depaginateWithMeta<TData, TNode>(
     selectPage,
     signal,
     onProgress,
+    onPage,
   } = options;
 
   const out: TNode[] = [];
@@ -90,6 +98,7 @@ export async function depaginateWithMeta<TData, TNode>(
     pagesFetched += 1;
     const { nodes, pageInfo } = selectPage(data);
     out.push(...nodes);
+    await onPage?.({ page, nodes, pageInfo, collected: out.length });
     onProgress?.({ page, collected: out.length });
 
     if (!pageInfo.hasNextPage) {

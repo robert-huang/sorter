@@ -105,6 +105,50 @@ describe('fetchRelatedAnimeIds caching', () => {
     expect(executeAnilistQueryMock).toHaveBeenCalledTimes(2);
   });
 
+  it('resumes a wide frontier without refetching completed relation batches', async () => {
+    const children = Array.from({ length: 20 }, (_, index) => index + 2);
+    executeAnilistQueryMock
+      .mockResolvedValueOnce(
+        batchWalkRelationsResponse([
+          {
+            edges: children.map((id) => ({
+              relationType: 'SEQUEL',
+              node: anime(id),
+            })),
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        batchWalkRelationsResponse(
+          Array.from({ length: 15 }, () => ({ edges: [] })),
+        ),
+      )
+      .mockRejectedValueOnce(new Error('last relation batch failed'));
+
+    await expect(fetchRelatedAnimeIds(1)).rejects.toThrow(
+      'last relation batch failed',
+    );
+
+    _clearSessionMemoForTesting();
+    executeAnilistQueryMock.mockResolvedValueOnce(
+      batchWalkRelationsResponse(
+        Array.from({ length: 5 }, () => ({ edges: [] })),
+      ),
+    );
+
+    const resumed = await fetchRelatedAnimeIds(1);
+
+    expect([...resumed].sort((a, b) => a - b)).toEqual(children);
+    expect(executeAnilistQueryMock).toHaveBeenCalledTimes(4);
+    expect(executeAnilistQueryMock.mock.calls[3]?.[1]).toEqual({
+      id0: 17,
+      id1: 18,
+      id2: 19,
+      id3: 20,
+      id4: 21,
+    });
+  });
+
   it('forceRefresh busts both memo layers and re-walks', async () => {
     executeAnilistQueryMock
       .mockResolvedValueOnce(

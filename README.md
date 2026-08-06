@@ -223,6 +223,17 @@ Shows the linked staff image and name, native name, language, favourites (`★`)
 
 AniList data lives in a per-source **SQLite database in your browser's OPFS** (`anilist.sqlite`), shared by the main Sorter, Anime to Anime, and Anime Tools. It survives reloads when the tab can use persistent OPFS storage; otherwise the tab falls back to **in-memory** SQLite for the session.
 
+### Checkpoints and interrupted fetches
+
+Long first-run AniList work commits reusable data in bounded transactions instead of waiting for the whole tool run:
+
+- List-import chunks and favourite pages immediately persist reusable media, studio, tag, character, and staff rows. The user-specific list/favourite membership, order, and final refresh marker are still replaced atomically only after every page succeeds. Closing the tab mid-run therefore keeps the previous complete user list while retaining reusable data from completed pages.
+- Cast, character-media, staff-filmography, studio repair, and media-relation work is split into bounded groups. Each completed entity gets its completion marker, so a retry skips it instead of repeating the request. The default group sizes are 5 media for cast, 8 characters, 5 staff, 50 media for studio/metadata repair, and 15 media for relations.
+- Stats keeps its user/tool-specific list snapshot in memory, but each fetched page immediately checkpoints reusable media/studio data. Cast progress advances only when a bounded DB checkpoint commits.
+- Shared Staff's related-anime traversal checkpoints each completed 15-media frontier batch in `localStorage`; a reload resumes from the remaining frontier.
+
+An already committed SQLite transaction survives tab closure. The request currently in flight and an uncommitted transaction do not. Completed incremental writes count as pending cloud changes and need **Push now**; a fully completed list/favourites refresh can request the normal automatic source-DB push.
+
 ### One active tab holds the cache
 
 Each page (Sorter, Anime to Anime, Anime Tools) runs its own dedicated DB worker but targets the **same OPFS file**, coordinated by a Web Lock. Only **one tab at a time** can hold the persistent cache:

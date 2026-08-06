@@ -29,6 +29,7 @@ export type ExpandCharacterMediaOptions = {
   voiceActorLanguage?: AnilistStaffLanguage;
   /** Re-fetch even when a visit marker already exists. */
   force?: boolean;
+  signal?: AbortSignal;
 };
 
 export type ExpandCharacterMediaResult = {
@@ -43,6 +44,7 @@ async function fetchCharacterMediaPages(
   characterId: number,
   perPage: number,
   maxPages: number | undefined,
+  signal?: AbortSignal,
 ): Promise<{
   edges: AnilistCharacterMediaEdgeGql[];
   pagesFetched: number;
@@ -55,6 +57,7 @@ async function fetchCharacterMediaPages(
   let characterExists: boolean | null = null;
 
   while (hasNext && (maxPages === undefined || pagesFetched < maxPages)) {
+    signal?.throwIfAborted();
     const response = await ctx.executeQuery<AnilistCharacterVoiceMediaResponse>(
       TOOLS_CHARACTER_VOICE_MEDIA_QUERY,
       { id: characterId, page, perPage },
@@ -159,12 +162,14 @@ export async function expandCharacterMedia(
     characterId,
     perPage,
     options.maxPages,
+    options.signal,
   );
 
   if (characterExists === false) {
     return null;
   }
   if (characterExists === null) {
+    options.signal?.throwIfAborted();
     const probe = await ctx.executeQuery<AnilistCharacterVoiceMediaResponse>(
       TOOLS_CHARACTER_VOICE_MEDIA_QUERY,
       { id: characterId, page: 1, perPage },
