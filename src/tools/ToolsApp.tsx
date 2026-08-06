@@ -76,6 +76,11 @@ const TOOL_TABS: ReadonlyArray<ToolTab<ToolId>> = [
     title: "Chart shows from a user's watching list by weekday. Also shows songs for each show and their status on a given playlist (set in Spotify settings).",
   },
   {
+    id: 'bump-chart',
+    label: 'Bump Chart',
+    title: 'Visualize how ranked items moved up, down, on, or off a list.',
+  },
+  {
     id: 'favourites',
     label: 'Favourites',
     title: 'Rank voice actors behind your favourite characters and staff.',
@@ -84,11 +89,6 @@ const TOOL_TABS: ReadonlyArray<ToolTab<ToolId>> = [
     id: 'reorder-favourites',
     label: 'Reorder Favourites',
     title: 'Reorder AniList favourite lists locally and save back.',
-  },
-  {
-    id: 'bump-chart',
-    label: 'Bump Chart',
-    title: 'Visualize how ranked items moved up, down, on, or off a list.',
   },
   {
     id: 'update-list-entry',

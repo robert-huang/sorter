@@ -1208,7 +1208,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
               onClearAll={() => setBefore(EMPTY_DRAFT)}
             />
             <BumpStage
-              title="New order"
+              title="Current order"
               draft={after}
               onImport={() => setImportSide('right')}
               onRemoveGroup={(groupId) =>
