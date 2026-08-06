@@ -1,6 +1,9 @@
-import type { AnilistFavouriteType } from '../../lib/importers/anilist/types';
+import type {
+  AnilistFavouriteType,
+  AnilistMediaType,
+} from '../../lib/importers/anilist/types';
 import { resolveAnilistItemLabel } from '../../lib/importers/anilist/anilistItemLabel';
-import type { AnilistItemLabelSource } from '../../lib/types';
+import type { AnilistItemLabelSource, Item } from '../../lib/types';
 
 /** Dropdown order: characters first (default), then staff, anime, manga, studio. */
 export const REORDER_FAVOURITE_TYPE_OPTIONS: ReadonlyArray<{
@@ -64,6 +67,107 @@ export const EMPTY_SELECT_RANK_STATE: SelectRankState = {
   rankedIds: [],
   anchorIndex: null,
 };
+
+function parsePrefixedId(value: string, prefixes: readonly string[]): number | null {
+  const prefix = prefixes.find((candidate) => value.startsWith(candidate));
+  if (!prefix) {
+    return null;
+  }
+  const id = Number(value.slice(prefix.length));
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+/** Logical ids from a completed sort that can represent the selected favourite type. */
+export function favouriteResultCandidateIds(
+  items: readonly Item[],
+  favouriteType: AnilistFavouriteType,
+): number[] {
+  const prefixes =
+    favouriteType === 'CHARACTERS'
+      ? ['anilist-character:']
+      : favouriteType === 'STAFF'
+        ? ['anilist-staff:']
+        : favouriteType === 'STUDIOS'
+          ? ['anilist-studios:', 'anilist-studio:']
+          : ['anilist:'];
+  const seen = new Set<number>();
+  const ids: number[] = [];
+  for (const item of items) {
+    const id = parsePrefixedId(item.id, prefixes);
+    if (id != null && !seen.has(id)) {
+      seen.add(id);
+      ids.push(id);
+    }
+  }
+  return ids;
+}
+
+export function filterMediaResultCandidateIds(
+  candidateIds: readonly number[],
+  mediaRows: readonly { id: number; type: AnilistMediaType }[],
+  expectedType: AnilistMediaType,
+): number[] {
+  const compatible = new Set(
+    mediaRows
+      .filter((row) => row.type === expectedType)
+      .map((row) => row.id),
+  );
+  return candidateIds.filter((id) => compatible.has(id));
+}
+
+export function importedIdsMissingFromFavourites(
+  items: readonly FavouriteListItem[],
+  importedIds: readonly number[],
+): number[] {
+  const favouriteIds = new Set(items.map((item) => item.id));
+  return importedIds.filter((id) => !favouriteIds.has(id));
+}
+
+export function favouriteTypePluralLabel(
+  favouriteType: AnilistFavouriteType,
+): string {
+  if (favouriteType === 'CHARACTERS') return 'characters';
+  if (favouriteType === 'STAFF') return 'staff';
+  if (favouriteType === 'STUDIOS') return 'studios';
+  if (favouriteType === 'ANIME') return 'anime';
+  return 'manga';
+}
+
+export function missingFavouritesWarningMessage(
+  favouriteType: AnilistFavouriteType,
+  count: number,
+  username: string,
+): string {
+  const entityLabel = favouriteTypePluralLabel(favouriteType);
+  return `${count} imported ${entityLabel} ${
+    count === 1 ? 'is' : 'are'
+  } not on @${username}'s current favourites list and ${
+    count === 1 ? 'was' : 'were'
+  } ignored.`;
+}
+
+/** Preselect imported ranks without changing the visual chip order. */
+export function selectRankStateFromImportedIds(
+  items: readonly FavouriteListItem[],
+  importedIds: readonly number[],
+): SelectRankState {
+  const available = new Set(items.map((item) => item.id));
+  const seen = new Set<number>();
+  const rankedIds = importedIds.filter((id) => {
+    if (!available.has(id) || seen.has(id)) {
+      return false;
+    }
+    seen.add(id);
+    return true;
+  });
+  const anchorId = rankedIds[rankedIds.length - 1];
+  return {
+    pinnedIds: [],
+    rankedIds,
+    anchorIndex:
+      anchorId == null ? null : items.findIndex((item) => item.id === anchorId),
+  };
+}
 
 export type RecentlyDeletedBucket = {
   username: string;

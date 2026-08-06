@@ -11,6 +11,7 @@ import {
 import { AnilistStartMode } from './AnilistStartMode';
 import { Modal } from './Modal';
 import { SortResultsImportMode } from './SortResultsImportMode';
+import type { OrderedSlotImport } from './SortResultsImportMode';
 import type { SlotResultsImportBatch } from '../lib/completedSortEditH';
 
 /**
@@ -38,6 +39,8 @@ interface Props {
   excludeSlotId?: string;
   /** Bumps when the AniList source DB changes (import, pull, etc.). */
   dbSyncRevision: number;
+  /** Hosts such as Bump Chart always preserve imported list order. */
+  forcePreRanked?: boolean;
   onCancel: () => void;
   /** Single tab → add one item (skipped automatically if id collides). */
   onAddOne: (item: Item) => void;
@@ -49,7 +52,9 @@ interface Props {
    */
   onAddPreRanked?: (items: Item[]) => void;
   /** Results tab — one batch per selected slot, applied in a single update. */
-  onAddSlotImports: (batches: SlotResultsImportBatch[]) => void;
+  onAddSlotImports?: (batches: SlotResultsImportBatch[]) => void;
+  /** Consumers that need each completed slot's display title and ordering. */
+  onImportOrderedItems?: (imports: OrderedSlotImport[]) => void;
 }
 
 export function AddItemsModal({
@@ -58,11 +63,13 @@ export function AddItemsModal({
   hiddenRestoreIds,
   excludeSlotId,
   dbSyncRevision,
+  forcePreRanked = false,
   onCancel,
   onAddOne,
   onAddMany,
   onAddPreRanked,
   onAddSlotImports,
+  onImportOrderedItems,
 }: Props) {
   const [tab, setTab] = useState<Tab>('single');
 
@@ -132,6 +139,7 @@ export function AddItemsModal({
       {tab === 'multiple' && (
         <MultipleTab
           engine={engine}
+          forcePreRanked={forcePreRanked}
           existingIds={existingIds}
           hiddenRestoreIds={hiddenRestoreIds}
           onCancel={onCancel}
@@ -152,15 +160,27 @@ export function AddItemsModal({
         />
       )}
       {tab === 'sortresults' && (
-        <SortResultsImportMode
-          embedded
-          excludeSlotId={excludeSlotId}
-          existingIds={existingIds}
-          hiddenRestoreIds={hiddenRestoreIds}
-          showPreRankedToggle
-          onAddSlotImports={onAddSlotImports}
-          onComplete={onCancel}
-        />
+        onImportOrderedItems ? (
+          <SortResultsImportMode
+            embedded
+            excludeSlotId={excludeSlotId}
+            existingIds={existingIds}
+            hiddenRestoreIds={hiddenRestoreIds}
+            showPreRankedToggle={!forcePreRanked}
+            onImportOrderedItems={onImportOrderedItems}
+            onComplete={onCancel}
+          />
+        ) : (
+          <SortResultsImportMode
+            embedded
+            excludeSlotId={excludeSlotId}
+            existingIds={existingIds}
+            hiddenRestoreIds={hiddenRestoreIds}
+            showPreRankedToggle={!forcePreRanked}
+            onAddSlotImports={onAddSlotImports!}
+            onComplete={onCancel}
+          />
+        )
       )}
     </Modal>
   );
@@ -278,6 +298,7 @@ function SingleTab({
 
 function MultipleTab({
   engine,
+  forcePreRanked,
   existingIds,
   hiddenRestoreIds,
   onCancel,
@@ -285,6 +306,7 @@ function MultipleTab({
   onAddPreRanked,
 }: {
   engine: 'merge' | 'insertion' | 'confirmation';
+  forcePreRanked: boolean;
   existingIds: Set<string>;
   hiddenRestoreIds: Set<string>;
   onCancel: () => void;
@@ -355,7 +377,11 @@ function MultipleTab({
 
   function onSubmit(): void {
     if (parsed.items.length === 0) return;
-    if (engine === 'merge' && asPreRanked && onAddPreRanked) {
+    if (
+      engine === 'merge' &&
+      (forcePreRanked || asPreRanked) &&
+      onAddPreRanked
+    ) {
       onAddPreRanked(parsed.items);
     } else {
       onAddMany(parsed.items);
@@ -366,14 +392,20 @@ function MultipleTab({
   const submitLabel = (() => {
     const n = parsed.items.length;
     if (n === 0) return 'Add items';
-    if (engine === 'merge' && asPreRanked && onAddPreRanked) {
+    if (
+      engine === 'merge' &&
+      (forcePreRanked || asPreRanked) &&
+      onAddPreRanked
+    ) {
       return `Add ${n} as pre-ranked sublist`;
     }
     return `Add ${n} item${n === 1 ? '' : 's'}`;
   })();
 
   const showPreRankedCheckbox =
-    engine === 'merge' && typeof onAddPreRanked === 'function';
+    !forcePreRanked &&
+    engine === 'merge' &&
+    typeof onAddPreRanked === 'function';
 
   return (
     <>

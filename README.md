@@ -775,6 +775,18 @@ Analyze a user's favourite **characters** and **staff** from the local cache. Us
 
 Known male staff, voice actors, and characters are coloured **cornflower blue**; known female entries are **plum**. This applies throughout the report, including role lists and the birthday calendar; unknown or other values keep the default text colour. Staff and show names open detail modals, while character names link to AniList through middle-click or the browser's right-click menu.
 
+### Reorder Favourites
+
+Load the selected AniList favourite type, reorder it locally, review the proposed order, and save it with `UpdateFavouriteOrder`. **Import sort results** accepts one completed sorter slot and switches the chips to **Select-to-Order** without moving them visually. Only compatible logical IDs are numbered: character, staff, and studio prefixes must match the active type; `anilist:<id>` media rows are checked against cached media metadata so anime and manga cannot cross-import. Ignored rows disappear from the proposed order and the retained ranks collapse automatically. Compatible result items that are not on the currently loaded favourites list are also ignored, with a manually dismissible warning naming the affected entity type.
+
+### Bump Chart
+
+Compare a pre-ranked **Before reorder** list with an **After reorder** list. Each side reuses the sorter's Single, Multiple/CSV, AniList, and completed-results importer. Imports append to independent sorter-style staging panels: sublists are collapsible, retain their source titles, and show which duplicate rows will be skipped by first-occurrence ID deduplication. The × controls soft-remove a source or item; marked rows stay visible and can be restored with ↺ before generation. The chart is not rendered until both sides are staged and **Generate chart** is clicked. Generation snapshots the unmarked staged order and clears both importers. Hydrated custom labels expose **Preserve custom labels** beside the import action; leaving it off uses the current AniList display-language preference.
+
+The chart matches logical IDs first and falls back to exact labels when either side is a plain pasted row. Matched ranks get movement paths from a 20-colour palette, left-only rows end at a remove marker, and right-only rows start at an add marker. Colors are assigned against adjacency on both rankings. Rows share measured heights, so wrapped labels keep their nodes and paths vertically centered as the layout changes.
+
+Hover a path, node, or label row to emphasize that movement while fading the others. Label links preserve the sorter interactions: supported AniList media/staff open detail modals on left-click, middle-click opens the source page, and right-click keeps the browser link menu. Clicking a rank opens the sorter item editor. Use **Export PNG** to download the rendered chart, **Clear chart** to return to empty staging.
+
 ### Update List Entry
 
 Authenticated `SaveMediaListEntry` for **one media id** at a time. Only fields you fill in are sent — leave a field blank to leave that column unchanged on AniList.

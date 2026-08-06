@@ -3749,12 +3749,16 @@ a:where(.anime-to-anime-anilist-link):visited {
 }
 
 .x-button {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
   background: transparent;
   border: none;
   font-size: 18px;
   line-height: 1;
   color: var(--text-faint);
-  padding: 2px 6px;
+  padding: 0;
   border-radius: 4px;
 }
 
@@ -6219,11 +6223,28 @@ a:where(.anime-to-anime-anilist-link):visited {
 }
 
 .staged-panel-caret {
+  display: inline-grid;
+  place-items: center;
   color: var(--text-muted);
-  font-size: 12px;
   width: 12px;
+  height: 12px;
   text-align: center;
   flex-shrink: 0;
+}
+
+.staged-panel-caret::before {
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 6px solid currentColor;
+  content: '';
+  transform-origin: 3px 4px;
+  transition: transform 120ms ease;
+}
+
+.staged-panel-group.expanded .staged-panel-caret::before {
+  transform: rotate(90deg);
 }
 
 .staged-panel-group-remove {
@@ -6975,7 +6996,15 @@ a:where(.anime-to-anime-anilist-link):visited {
 }
 
 .tool-reorder-favourites-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
   margin-top: 8px;
+}
+
+.tool-reorder-favourites-import-warning {
+  margin-top: 12px;
 }
 
 .tool-reorder-favourites-panel--has-toolbar {
@@ -8060,6 +8089,352 @@ a:where(.anime-to-anime-anilist-link):visited {
   flex-direction: column;
   align-items: center;
   min-height: 0;
+}
+
+/* Bump Chart */
+.bump-chart-import-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.bump-chart-import-card {
+  min-width: 0;
+}
+
+.bump-chart-import-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.bump-chart-import-heading h3,
+.bump-chart-import-heading p {
+  margin: 0;
+}
+
+.bump-chart-import-heading p {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.bump-chart-stage-count {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.bump-chart-import-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.bump-chart-preserve-labels {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+
+.bump-chart-help-tooltip {
+  display: inline-grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 800;
+  cursor: help;
+}
+
+.bump-chart-staging-area {
+  min-height: 190px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--surface-alt) 45%, transparent);
+}
+
+.bump-chart-staging-title {
+  margin-bottom: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.bump-chart-generate-row {
+  display: flex;
+  justify-content: center;
+  margin-top: 20px;
+}
+
+.bump-chart-toolbar {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+.bump-chart-fullbleed {
+  overflow-x: auto;
+  align-items: stretch;
+}
+
+.bump-chart-grid {
+  --bump-label-width: 260px;
+  position: relative;
+  width: min(1180px, 90vw);
+  max-width: 90vw;
+  margin-inline: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.bump-chart-row {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns:
+    var(--bump-label-width)
+    minmax(280px, 1fr)
+    var(--bump-label-width);
+  min-height: 64px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+
+.bump-chart-row:last-of-type {
+  border-bottom: 0;
+}
+
+.bump-chart-label-cell {
+  display: grid;
+  align-items: center;
+  gap: 8px;
+  min-height: 64px;
+  padding: 7px 10px;
+  transition: opacity 140ms ease;
+}
+
+.bump-chart-label-cell--left {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.bump-chart-label-cell--right {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.bump-chart-label-cell--empty {
+  display: block;
+}
+
+.bump-chart-label-cell.is-dimmed,
+.bump-chart-connection.is-dimmed {
+  opacity: 0.24;
+}
+
+.bump-chart-rank {
+  flex: 0 0 auto;
+  padding: 4px 2px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.bump-chart-rank:hover,
+.bump-chart-rank:focus-visible {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.bump-chart-item-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.bump-chart-item-link--left {
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.bump-chart-item-link--right {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.bump-chart-item-link:hover .bump-chart-label {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.bump-chart-item-link img {
+  flex: 0 0 auto;
+  width: 38px;
+  height: 48px;
+  border-radius: 4px;
+  object-fit: cover;
+  background: var(--surface-alt);
+}
+
+.bump-chart-item-link--left img {
+  order: -1;
+}
+
+.bump-chart-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.bump-chart-center-cell {
+  min-width: 0;
+  background: color-mix(in srgb, var(--surface-alt) 45%, var(--surface));
+}
+
+.bump-chart-svg {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  display: block;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.bump-chart-guide {
+  stroke: var(--border);
+  stroke-width: 1;
+  stroke-dasharray: 3 5;
+  opacity: 0.45;
+  vector-effect: non-scaling-stroke;
+}
+
+.bump-chart-connection {
+  transition: opacity 140ms ease;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.bump-chart-path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 3;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.bump-chart-path-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 16;
+  vector-effect: non-scaling-stroke;
+}
+
+.bump-chart-node {
+  fill: var(--surface);
+  stroke: currentColor;
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.bump-chart-connection.is-active .bump-chart-path {
+  stroke-width: 5;
+}
+
+.bump-chart-connection.is-active .bump-chart-node {
+  r: 8px;
+  stroke-width: 4;
+}
+
+.bump-chart-change-marker circle {
+  fill: var(--surface);
+  stroke: currentColor;
+  stroke-width: 2.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.bump-chart-change-marker line {
+  stroke: currentColor;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+@media (max-width: 760px) {
+  .bump-chart-import-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .bump-chart-grid {
+    --bump-label-width: 150px;
+  }
+
+  .bump-chart-row {
+    grid-template-columns:
+      var(--bump-label-width)
+      minmax(180px, 1fr)
+      var(--bump-label-width);
+  }
+}
+
+@media (max-width: 500px) {
+  .bump-chart-grid {
+    --bump-label-width: 110px;
+  }
+
+  .bump-chart-row {
+    grid-template-columns:
+      var(--bump-label-width)
+      minmax(120px, 1fr)
+      var(--bump-label-width);
+  }
+
+  .bump-chart-label-cell,
+  .bump-chart-item-link {
+    gap: 4px;
+  }
+
+  .bump-chart-label-cell {
+    padding-inline: 5px;
+  }
+
+  .bump-chart-item-link img {
+    width: 30px;
+    height: 40px;
+  }
+}
+
+@media (max-width: 380px) {
+  .bump-chart-grid {
+    --bump-label-width: 90px;
+  }
+
+  .bump-chart-row {
+    grid-template-columns:
+      var(--bump-label-width)
+      minmax(90px, 1fr)
+      var(--bump-label-width);
+  }
 }
 
 .tool-season-fullbleed {

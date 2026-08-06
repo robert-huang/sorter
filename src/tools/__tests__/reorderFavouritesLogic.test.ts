@@ -12,14 +12,20 @@ import {
   chipInsertSideFromPointer,
   dragPayloadIds,
   EMPTY_SELECT_RANK_STATE,
+  favouriteResultCandidateIds,
+  favouriteTypePluralLabel,
+  filterMediaResultCandidateIds,
   handleSelectRankClick,
   hasPendingReorderChanges,
+  importedIdsMissingFromFavourites,
+  missingFavouritesWarningMessage,
   reorderByDrag,
   reorderByDragDisplayPreview,
   relabelFavouriteListItem,
   revertItemsToIdOrder,
   sameIdOrder,
   selectRankLabelForItem,
+  selectRankStateFromImportedIds,
   type FavouriteListItem,
 } from '../panels/reorderFavouritesLogic';
 
@@ -57,6 +63,77 @@ describe('applySelectRankOrder', () => {
       anchorIndex: 4,
     });
     expect(ordered.map((item) => item.label)).toEqual(['A', 'B', 'E', 'C', 'D']);
+  });
+});
+
+describe('sort result import', () => {
+  it('keeps only logical ids for the selected favourite entity type and collapses ranks', () => {
+    const resultItems = [
+      { id: 'anilist-character:1', label: 'Character 1' },
+      { id: 'anilist-character:2', label: 'Character 2' },
+      { id: 'anilist:99', label: 'Show' },
+      { id: 'plain', label: 'Plain row' },
+      { id: 'anilist-character:3', label: 'Character 3' },
+    ];
+    expect(favouriteResultCandidateIds(resultItems, 'CHARACTERS')).toEqual([
+      1, 2, 3,
+    ]);
+    expect(favouriteResultCandidateIds(resultItems, 'ANIME')).toEqual([99]);
+  });
+
+  it('supports the repository studio id convention and singular legacy ids', () => {
+    expect(
+      favouriteResultCandidateIds(
+        [
+          { id: 'anilist-studios:10', label: 'Studio 10' },
+          { id: 'anilist-studio:11', label: 'Studio 11' },
+          { id: 'anilist-staff:12', label: 'Staff' },
+        ],
+        'STUDIOS',
+      ),
+    ).toEqual([10, 11]);
+  });
+
+  it('filters media logical ids through cached AniList type metadata', () => {
+    expect(
+      filterMediaResultCandidateIds(
+        [10, 11, 12],
+        [
+          { id: 10, type: 'ANIME' },
+          { id: 11, type: 'MANGA' },
+        ],
+        'MANGA',
+      ),
+    ).toEqual([11]);
+  });
+
+  it('separates compatible imported ids missing from the loaded favourites', () => {
+    expect(importedIdsMissingFromFavourites(items(['A', 'B']), [2, 3, 4])).toEqual([
+      3, 4,
+    ]);
+  });
+
+  it('uses entity-aware plural labels for missing-favourite warnings', () => {
+    expect(favouriteTypePluralLabel('CHARACTERS')).toBe('characters');
+    expect(favouriteTypePluralLabel('STAFF')).toBe('staff');
+    expect(favouriteTypePluralLabel('STUDIOS')).toBe('studios');
+    expect(favouriteTypePluralLabel('ANIME')).toBe('anime');
+    expect(favouriteTypePluralLabel('MANGA')).toBe('manga');
+    expect(missingFavouritesWarningMessage('STAFF', 2, 'tester')).toBe(
+      "2 imported staff are not on @tester's current favourites list and were ignored.",
+    );
+  });
+
+  it('preselects available favourites in imported order without reordering the list', () => {
+    const list = items(['A', 'B', 'C', 'D']);
+    const before = list.map((item) => item.id);
+    const state = selectRankStateFromImportedIds(list, [3, 99, 1, 3]);
+    expect(state.rankedIds).toEqual([3, 1]);
+    expect(state.anchorIndex).toBe(0);
+    expect(list.map((item) => item.id)).toEqual(before);
+    expect(applySelectRankOrder(list, state).map((item) => item.id)).toEqual([
+      3, 1, 2, 4,
+    ]);
   });
 });
 
