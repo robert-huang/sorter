@@ -5783,9 +5783,14 @@ a:where(.anime-to-anime-anilist-link):visited {
 
 .modal-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
   justify-content: flex-end;
   margin-top: 16px;
+}
+
+.modal-actions-secondary {
+  margin-right: auto;
 }
 
 /* ---------- Edit item modal form ----------
@@ -6098,7 +6103,7 @@ a:where(.anime-to-anime-anilist-link):visited {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
 }
 
@@ -8195,6 +8200,77 @@ a:where(.anime-to-anime-anilist-link):visited {
 }
 
 /* Bump Chart */
+.bump-chart-saved-charts {
+  margin-bottom: 16px;
+  padding: 14px;
+}
+
+.bump-chart-saved-heading,
+.bump-chart-saved-row,
+.bump-chart-saved-actions {
+  display: flex;
+  align-items: center;
+}
+
+.bump-chart-saved-heading {
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.bump-chart-saved-heading h3,
+.bump-chart-saved-heading p {
+  margin: 0;
+}
+
+.bump-chart-saved-heading p,
+.bump-chart-saved-heading > span,
+.bump-chart-saved-date {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.bump-chart-saved-heading p {
+  margin-top: 3px;
+}
+
+.bump-chart-saved-list {
+  display: grid;
+  gap: 6px;
+  max-height: min(320px, 40vh);
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
+}
+
+.bump-chart-saved-row {
+  gap: 10px;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.bump-chart-saved-name {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bump-chart-saved-date {
+  flex: 0 0 auto;
+}
+
+.bump-chart-saved-actions {
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
 .bump-chart-import-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -8299,6 +8375,7 @@ a:where(.anime-to-anime-anilist-link):visited {
 
 .bump-chart-toolbar {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   gap: 10px;
 }
@@ -8433,7 +8510,7 @@ a:where(.anime-to-anime-anilist-link):visited {
 }
 
 .bump-chart-center-cell {
-  min-width: 0;
+  min-width: var(--bump-center-min-width);
   background: color-mix(in srgb, var(--surface-alt) 45%, var(--surface));
 }
 
@@ -8492,12 +8569,20 @@ a:where(.anime-to-anime-anilist-link):visited {
 }
 
 .bump-chart-inferred-marker {
-  pointer-events: none;
+  cursor: help;
+  pointer-events: auto;
 }
 
 .bump-chart-inferred-marker-backdrop {
   fill: var(--surface);
   stroke: none;
+}
+
+.bump-chart-inferred-marker:focus-visible
+  .bump-chart-inferred-marker-backdrop {
+  stroke: currentColor;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
 }
 
 .bump-chart-inferred-icon {

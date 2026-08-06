@@ -152,3 +152,41 @@ describe('EditItemModal AniList custom labels', () => {
     expect(buttonByText('Use AniList title')).toBeDefined();
   });
 });
+
+describe('EditItemModal secondary action', () => {
+  it('renders and invokes the action only when supplied', () => {
+    const onRemove = vi.fn();
+    act(() => {
+      root.render(
+        <EditItemModal
+          item={customItem}
+          onCancel={vi.fn()}
+          onSave={vi.fn()}
+          secondaryAction={{
+            label: 'Remove',
+            onClick: onRemove,
+            tone: 'danger',
+          }}
+        />,
+      );
+    });
+
+    const remove = buttonByText('Remove');
+    expect(remove.classList.contains('modal-actions-secondary')).toBe(true);
+    expect(remove.classList.contains('btn')).toBe(true);
+    expect(remove.classList.contains('danger')).toBe(true);
+    act(() => remove.click());
+    expect(onRemove).toHaveBeenCalledOnce();
+
+    act(() => {
+      root.render(
+        <EditItemModal
+          item={customItem}
+          onCancel={vi.fn()}
+          onSave={vi.fn()}
+        />,
+      );
+    });
+    expect(container.textContent).not.toContain('Remove');
+  });
+});

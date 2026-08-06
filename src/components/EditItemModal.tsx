@@ -62,6 +62,12 @@ interface Props {
    * (no warning, no need to surface the row text).
    */
   rawRow?: string[];
+  /** Optional caller-specific action rendered at the far left of the footer. */
+  secondaryAction?: {
+    label: string;
+    onClick: () => void;
+    tone?: 'danger';
+  };
 }
 
 /**
@@ -90,6 +96,7 @@ export function EditItemModal({
   currentId,
   otherIds,
   rawRow,
+  secondaryAction,
 }: Props) {
   const showUrl = fieldsToShow?.url ?? true;
   const showImageUrl = fieldsToShow?.imageUrl ?? true;
@@ -349,6 +356,17 @@ export function EditItemModal({
         </div>
       )}
       <div className="modal-actions">
+        {secondaryAction && (
+          <button
+            type="button"
+            className={`btn modal-actions-secondary${
+              secondaryAction.tone === 'danger' ? ' danger' : ''
+            }`}
+            onClick={secondaryAction.onClick}
+          >
+            {secondaryAction.label}
+          </button>
+        )}
         <button className="btn" onClick={onCancel}>
           Cancel
         </button>

@@ -15,6 +15,7 @@ import {
   type EditItemSavePayload,
 } from '../../components/EditItemModal';
 import { InfoIcon } from '../../components/icons';
+import { Modal } from '../../components/Modal';
 import {
   StagedItemsPanel,
   type StagedGroup,
@@ -41,6 +42,19 @@ import {
   type BumpChartItem,
   type BumpConnection,
 } from './bumpChartLogic';
+import {
+  BUMP_CHART_SLOT_LIMIT,
+  deleteSavedBumpChart,
+  listSavedBumpCharts,
+  loadActiveBumpChartWorkspace,
+  loadSavedBumpChart,
+  saveActiveBumpChartWorkspace,
+  saveNamedBumpChart,
+  type BumpChartSideSnapshot,
+  type BumpChartWorkspaceSnapshot,
+  type SaveNamedBumpChartResult,
+  type SavedBumpChartMeta,
+} from './bumpChartStorage';
 
 type ChartSide = 'left' | 'right';
 
@@ -58,6 +72,8 @@ type BumpSideDraft = {
 type GeneratedBumpChart = {
   left: BumpChartItem[];
   right: BumpChartItem[];
+  hiddenLeftItemIds: Set<string>;
+  hiddenRightItemIds: Set<string>;
   preserveLeftCustomLabels: boolean;
   preserveRightCustomLabels: boolean;
 };
@@ -100,6 +116,97 @@ function itemsInDraft(draft: BumpSideDraft): BumpChartItem[] {
           ),
     ),
   );
+}
+
+function draftToSnapshot(draft: BumpSideDraft): BumpChartSideSnapshot {
+  const items: BumpChartItem[] = [];
+  const hiddenItemIds: string[] = [];
+  const seen = new Set<string>();
+  draft.groups.forEach((group) => {
+    group.items.forEach((entry) => {
+      const id = entry.item.id;
+      if (seen.has(id)) {
+        return;
+      }
+      seen.add(id);
+      items.push(entry);
+      if (group.markedForRemoval || group.markedItemIds?.has(id)) {
+        hiddenItemIds.push(id);
+      }
+    });
+  });
+  return {
+    items,
+    hiddenItemIds,
+    preserveCustomLabels: draft.preserveCustomLabels,
+  };
+}
+
+function chartSideToSnapshot(
+  chart: GeneratedBumpChart,
+  side: ChartSide,
+): BumpChartSideSnapshot {
+  return side === 'left'
+    ? {
+        items: chart.left,
+        hiddenItemIds: [...chart.hiddenLeftItemIds],
+        preserveCustomLabels: chart.preserveLeftCustomLabels,
+      }
+    : {
+        items: chart.right,
+        hiddenItemIds: [...chart.hiddenRightItemIds],
+        preserveCustomLabels: chart.preserveRightCustomLabels,
+      };
+}
+
+function draftFromSnapshot(
+  snapshot: BumpChartSideSnapshot,
+  source: string,
+): BumpSideDraft {
+  return {
+    groups:
+      snapshot.items.length === 0
+        ? []
+        : [
+            {
+              id: stageId(),
+              source,
+              items: snapshot.items,
+              markedItemIds: new Set(snapshot.hiddenItemIds),
+            },
+          ],
+    preserveCustomLabels: snapshot.preserveCustomLabels,
+  };
+}
+
+function chartFromSnapshot(
+  workspace: BumpChartWorkspaceSnapshot,
+): GeneratedBumpChart {
+  return {
+    left: workspace.before.items,
+    right: workspace.after.items,
+    hiddenLeftItemIds: new Set(workspace.before.hiddenItemIds),
+    hiddenRightItemIds: new Set(workspace.after.hiddenItemIds),
+    preserveLeftCustomLabels: workspace.before.preserveCustomLabels,
+    preserveRightCustomLabels: workspace.after.preserveCustomLabels,
+  };
+}
+
+function workspaceFromState(
+  before: BumpSideDraft,
+  after: BumpSideDraft,
+  chart: GeneratedBumpChart | null,
+  bestMatchByTitle: boolean,
+  lastImportTab: AddItemsModalTab,
+): BumpChartWorkspaceSnapshot {
+  return {
+    version: 1,
+    view: chart ? 'chart' : 'staging',
+    before: chart ? chartSideToSnapshot(chart, 'left') : draftToSnapshot(before),
+    after: chart ? chartSideToSnapshot(chart, 'right') : draftToSnapshot(after),
+    bestMatchByTitle,
+    lastImportTab,
+  };
 }
 
 function applyItemEdit(item: Item, payload: EditItemSavePayload): Item {
@@ -163,12 +270,10 @@ function openItemDetail(item: Item, panelProps: ToolPanelProps): void {
 function InteractiveItemLabel({
   item,
   side,
-  connectionKey,
   panelProps,
 }: {
   item: Item;
   side: ChartSide;
-  connectionKey?: string;
   panelProps: ToolPanelProps;
 }) {
   return (
@@ -178,7 +283,6 @@ function InteractiveItemLabel({
       onPrimaryClick={
         canOpenDetail(item) ? () => openItemDetail(item, panelProps) : undefined
       }
-      data-bump-lineage={connectionKey}
       title={
         canOpenDetail(item)
           ? `${item.label} (middle-click to open source)`
@@ -397,6 +501,10 @@ function MovementBadge({
         .filter(Boolean)
         .join(' ')}
       transform={`translate(${x} ${y})`}
+      data-badge-label={label}
+      data-badge-width={width}
+      data-badge-x={x}
+      data-badge-y={y}
       data-png-exclude="true"
       aria-hidden="true"
     >
@@ -424,6 +532,58 @@ function cubicCoordinate(
   );
 }
 
+const INFERRED_MARKER_PREFERRED_POSITION = 0.95;
+const INFERRED_MARKER_MIN_NODE_SEPARATION = 26;
+
+export function inferredMatchMarkerPosition(
+  width: number,
+  leftY: number,
+  rightY: number,
+): { x: number; y: number; pathPosition: number; nodeSeparation: number } {
+  const control = width * 0.42;
+  const pointAt = (pathPosition: number): { x: number; y: number } => ({
+    x: cubicCoordinate(
+      12,
+      control,
+      width - control,
+      width - 12,
+      pathPosition,
+    ),
+    y: cubicCoordinate(leftY, leftY, rightY, rightY, pathPosition),
+  });
+  const rightNode = { x: width - 12, y: rightY };
+  const separationAt = (pathPosition: number): number => {
+    const point = pointAt(pathPosition);
+    return Math.hypot(point.x - rightNode.x, point.y - rightNode.y);
+  };
+
+  let pathPosition = INFERRED_MARKER_PREFERRED_POSITION;
+  if (
+    separationAt(pathPosition) < INFERRED_MARKER_MIN_NODE_SEPARATION
+  ) {
+    let farther = 0;
+    let nearer = pathPosition;
+    for (let iteration = 0; iteration < 16; iteration += 1) {
+      const candidate = (farther + nearer) / 2;
+      if (
+        separationAt(candidate) >= INFERRED_MARKER_MIN_NODE_SEPARATION
+      ) {
+        farther = candidate;
+      } else {
+        nearer = candidate;
+      }
+    }
+    pathPosition = farther;
+  }
+
+  const point = pointAt(pathPosition);
+  return {
+    ...point,
+    pathPosition,
+    nodeSeparation: separationAt(pathPosition),
+  };
+}
+
 function InferredMatchMarker({
   connection,
   width,
@@ -435,10 +595,8 @@ function InferredMatchMarker({
   leftY: number;
   rightY: number;
 }) {
-  const t = 0.9;
-  const control = width * 0.42;
-  const x = cubicCoordinate(12, control, width - control, width - 12, t);
-  const y = cubicCoordinate(leftY, leftY, rightY, rightY, t);
+  const { x, y, pathPosition, nodeSeparation } =
+    inferredMatchMarkerPosition(width, leftY, rightY);
   const description =
     connection.matchBasis === 'alternate-title'
       ? 'Inferred match from an AniList title variant'
@@ -448,9 +606,12 @@ function InferredMatchMarker({
       className="bump-chart-inferred-marker"
       role="img"
       aria-label={description}
+      tabIndex={0}
       data-marker-x={x}
       data-marker-y={y}
-      data-path-position={t}
+      data-path-position={pathPosition}
+      data-preferred-path-position={INFERRED_MARKER_PREFERRED_POSITION}
+      data-node-separation={nodeSeparation}
     >
       <title>{description}</title>
       <circle
@@ -516,7 +677,6 @@ function BumpChartLabel({
       <InteractiveItemLabel
         item={item}
         side={side}
-        connectionKey={connection?.key}
         panelProps={panelProps}
       />
       {side === 'left' && rankButton}
@@ -705,6 +865,12 @@ function drawElementText(
   }
 }
 
+function chartLabelOpacity(element: Element): number {
+  const cell = element.closest<HTMLElement>('.bump-chart-label-cell');
+  const opacity = Number(cell ? getComputedStyle(cell).opacity : 1);
+  return Number.isFinite(opacity) ? opacity : 1;
+}
+
 export async function exportChartPng(node: HTMLElement): Promise<void> {
   const rootRect = node.getBoundingClientRect();
   const width = Math.ceil(rootRect.width);
@@ -778,26 +944,32 @@ export async function exportChartPng(node: HTMLElement): Promise<void> {
     for (const group of svg.querySelectorAll<SVGGElement>(
       '.bump-chart-connection',
     )) {
-      const color = getComputedStyle(group).color;
+      const groupStyle = getComputedStyle(group);
+      const groupOpacity = Number(groupStyle.opacity);
+      const active = group.classList.contains('is-active');
+      const color = groupStyle.color;
+      context.save();
+      context.globalAlpha = Number.isFinite(groupOpacity) ? groupOpacity : 1;
       const path = group.querySelector<SVGPathElement>('.bump-chart-path');
       const pathData = path?.getAttribute('d');
       if (pathData) {
         context.strokeStyle = color;
-        context.lineWidth = 3;
+        context.lineWidth = active ? 5 : 3;
         context.lineCap = 'round';
         context.stroke(new Path2D(pathData));
       }
       for (const circle of group.querySelectorAll<SVGCircleElement>(
         '.bump-chart-node, .bump-chart-change-marker circle',
       )) {
+        const isNode = circle.matches('.bump-chart-node');
         context.fillStyle = backgroundColor;
         context.strokeStyle = color;
-        context.lineWidth = circle.matches('.bump-chart-node') ? 3 : 2.5;
+        context.lineWidth = isNode ? (active ? 4 : 3) : 2.5;
         context.beginPath();
         context.arc(
           circle.cx.baseVal.value,
           circle.cy.baseVal.value,
-          circle.r.baseVal.value,
+          isNode && active ? 8 : circle.r.baseVal.value,
           0,
           Math.PI * 2,
         );
@@ -841,6 +1013,45 @@ export async function exportChartPng(node: HTMLElement): Promise<void> {
         context.lineTo(markerX + 0.01, markerY - 3);
         context.stroke();
       }
+      context.restore();
+    }
+    const movementBadge = svg.querySelector<SVGGElement>(
+      '.bump-chart-movement-badge',
+    );
+    const badgeRect =
+      movementBadge?.querySelector<SVGRectElement>('rect') ?? null;
+    const badgeText =
+      movementBadge?.querySelector<SVGTextElement>('text') ?? null;
+    const badgeX = Number(movementBadge?.dataset.badgeX);
+    const badgeY = Number(movementBadge?.dataset.badgeY);
+    const badgeWidth = Number(movementBadge?.dataset.badgeWidth);
+    const badgeLabel = movementBadge?.dataset.badgeLabel;
+    if (
+      movementBadge &&
+      badgeRect &&
+      badgeText &&
+      badgeLabel &&
+      Number.isFinite(badgeX) &&
+      Number.isFinite(badgeY) &&
+      Number.isFinite(badgeWidth)
+    ) {
+      const badgeStyle = getComputedStyle(movementBadge);
+      const rectStyle = getComputedStyle(badgeRect);
+      const textStyle = getComputedStyle(badgeText);
+      context.save();
+      context.fillStyle = rectStyle.fill || backgroundColor;
+      context.strokeStyle = rectStyle.stroke || badgeStyle.color;
+      context.lineWidth = 1;
+      context.beginPath();
+      context.roundRect(badgeX - badgeWidth / 2, badgeY - 10, badgeWidth, 20, 10);
+      context.fill();
+      context.stroke();
+      context.fillStyle = textStyle.fill || badgeStyle.color;
+      context.font = `${textStyle.fontWeight} ${textStyle.fontSize} ${textStyle.fontFamily}`;
+      context.textAlign = 'center';
+      context.textBaseline = 'middle';
+      context.fillText(badgeLabel, badgeX, badgeY);
+      context.restore();
     }
     context.restore();
   }
@@ -857,6 +1068,8 @@ export async function exportChartPng(node: HTMLElement): Promise<void> {
     const loaded = loadedImages[index];
     if (!loaded) return;
     const imageRect = image.getBoundingClientRect();
+    context.save();
+    context.globalAlpha = chartLabelOpacity(image);
     drawCoverImage(
       context,
       loaded.source,
@@ -865,16 +1078,23 @@ export async function exportChartPng(node: HTMLElement): Promise<void> {
       imageRect.width,
       imageRect.height,
     );
+    context.restore();
     loaded.dispose();
   });
 
   for (const label of node.querySelectorAll<HTMLElement>(
     '.bump-chart-label',
   )) {
+    context.save();
+    context.globalAlpha = chartLabelOpacity(label);
     drawElementText(context, label, rootRect);
+    context.restore();
   }
   for (const rank of node.querySelectorAll<HTMLElement>('.bump-chart-rank')) {
+    context.save();
+    context.globalAlpha = chartLabelOpacity(rank);
     drawElementText(context, rank, rootRect);
+    context.restore();
   }
 
   context.strokeStyle = rootStyle.borderColor;
@@ -973,11 +1193,12 @@ function BumpChart({
   useEffect(() => {
     const onDocumentClick = (event: MouseEvent): void => {
       const target = event.target;
+      if (!(target instanceof Element) || !chartRef.current?.contains(target)) {
+        return;
+      }
       const connectionElement =
-        target instanceof Element
-          ? target.closest<HTMLElement>('[data-bump-lineage]')
-          : null;
-      if (connectionElement && chartRef.current?.contains(connectionElement)) {
+        target.closest<HTMLElement>('[data-bump-lineage]');
+      if (connectionElement) {
         setPinnedKey(connectionElement.dataset.bumpLineage ?? null);
       } else {
         setPinnedKey(null);
@@ -1145,18 +1366,26 @@ function BumpChart({
                     .filter(Boolean)
                     .join(' ')}
                   style={{ color }}
-                  data-bump-lineage={connection.key}
                   onMouseEnter={() => setHoveredKey(connection.key)}
                   onMouseLeave={() => setHoveredKey(null)}
                 >
-                  <path className="bump-chart-path-hit" d={path} />
-                  <path className="bump-chart-path" d={path} />
+                  <path
+                    className="bump-chart-path-hit"
+                    d={path}
+                    data-bump-lineage={connection.key}
+                  />
+                  <path
+                    className="bump-chart-path"
+                    d={path}
+                    data-bump-lineage={connection.key}
+                  />
                   {leftY != null && (
                     <circle
                       className="bump-chart-node"
                       cx="12"
                       cy={leftY}
                       r="6"
+                      data-bump-lineage={connection.key}
                     />
                   )}
                   {rightY != null && (
@@ -1165,6 +1394,7 @@ function BumpChart({
                       cx={layout.width - 12}
                       cy={rightY}
                       r="6"
+                      data-bump-lineage={connection.key}
                     />
                   )}
                   {connection.kind === 'removed' && leftY != null && (
@@ -1207,24 +1437,226 @@ function BumpChart({
   );
 }
 
+function SaveBumpChartModal({
+  onCancel,
+  onSave,
+}: {
+  onCancel: () => void;
+  onSave: (name: string, replaceId?: string) => SaveNamedBumpChartResult;
+}) {
+  const [name, setName] = useState('');
+  const [replace, setReplace] = useState<SavedBumpChartMeta | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const commit = (): void => {
+    const result = onSave(name, replace?.id);
+    if (result.status === 'exists') {
+      setReplace(result.meta);
+      setError(
+        `A saved chart named “${result.meta.name}” already exists. Confirm to replace it.`,
+      );
+    } else if (result.status === 'limit') {
+      setError(
+        `You can save up to ${BUMP_CHART_SLOT_LIMIT} charts. Delete one before saving another.`,
+      );
+    } else if (result.status === 'error') {
+      setError(result.error);
+    }
+  };
+
+  return (
+    <Modal label="Save Bump Chart" onClose={onCancel}>
+      <h3>Save chart</h3>
+      <label className="edit-item-field">
+        <span className="edit-item-label">Chart name</span>
+        <input
+          autoFocus
+          value={name}
+          onChange={(event) => {
+            setName(event.target.value);
+            setReplace(null);
+            setError(null);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && name.trim()) {
+              commit();
+            }
+          }}
+        />
+      </label>
+      {error && <p className="tool-error">{error}</p>}
+      <div className="modal-actions">
+        <button type="button" className="btn" onClick={onCancel}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="btn primary"
+          disabled={!name.trim()}
+          onClick={commit}
+        >
+          {replace ? 'Replace chart' : 'Save chart'}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+function SavedBumpCharts({
+  slots,
+  deletingId,
+  onLoad,
+  onRequestDelete,
+  onCancelDelete,
+  onConfirmDelete,
+}: {
+  slots: readonly SavedBumpChartMeta[];
+  deletingId: string | null;
+  onLoad: (id: string) => void;
+  onRequestDelete: (id: string) => void;
+  onCancelDelete: () => void;
+  onConfirmDelete: (id: string) => void;
+}) {
+  if (slots.length === 0) {
+    return null;
+  }
+  return (
+    <section className="tool-form-card bump-chart-saved-charts">
+      <div className="bump-chart-saved-heading">
+        <div>
+          <h3>Saved charts</h3>
+          <p>Named snapshots are separate from your autosaved workspace.</p>
+        </div>
+        <span>{slots.length} saved</span>
+      </div>
+      <div className="bump-chart-saved-list">
+        {slots.map((slot) => (
+          <div className="bump-chart-saved-row" key={slot.id}>
+            <span className="bump-chart-saved-name">{slot.name}</span>
+            <span className="bump-chart-saved-date">
+              {new Date(slot.updatedAt).toLocaleDateString()}
+            </span>
+            {deletingId === slot.id ? (
+              <div className="bump-chart-saved-actions">
+                <button type="button" className="btn small" onClick={onCancelDelete}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn small danger"
+                  onClick={() => onConfirmDelete(slot.id)}
+                >
+                  Confirm delete
+                </button>
+              </div>
+            ) : (
+              <div className="bump-chart-saved-actions">
+                <button
+                  type="button"
+                  className="btn small primary"
+                  onClick={() => onLoad(slot.id)}
+                >
+                  Load
+                </button>
+                <button
+                  type="button"
+                  className="btn small"
+                  onClick={() => onRequestDelete(slot.id)}
+                >
+                  Delete
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export function BumpChartPanel(panelProps: ToolPanelProps) {
+  const [initialWorkspace] = useState(loadActiveBumpChartWorkspace);
   const displayLabelRevision = useToolsDisplayLabelRevision();
-  const { prefs: toolsPreferences } = useToolsPreferences();
+  const {
+    prefs: toolsPreferences,
+    setBumpChartBestMatchByTitle,
+  } = useToolsPreferences();
   const onOpenItemDetail = useCallback(
     (item: Item) => openItemDetail(item, panelProps),
     [panelProps.onOpenMedia, panelProps.onOpenStaff],
   );
-  const [before, setBefore] = useState<BumpSideDraft>(EMPTY_DRAFT);
-  const [after, setAfter] = useState<BumpSideDraft>(EMPTY_DRAFT);
+  const [before, setBefore] = useState<BumpSideDraft>(() =>
+    initialWorkspace?.view === 'staging'
+      ? draftFromSnapshot(initialWorkspace.before, 'Restored workspace')
+      : EMPTY_DRAFT,
+  );
+  const [after, setAfter] = useState<BumpSideDraft>(() =>
+    initialWorkspace?.view === 'staging'
+      ? draftFromSnapshot(initialWorkspace.after, 'Restored workspace')
+      : EMPTY_DRAFT,
+  );
   const [importSide, setImportSide] = useState<ChartSide | null>(null);
-  const [importTab, setImportTab] = useState<AddItemsModalTab>('single');
-  const [chart, setChart] = useState<GeneratedBumpChart | null>(null);
+  const [importTab, setImportTab] = useState<AddItemsModalTab>(
+    initialWorkspace?.lastImportTab ?? 'single',
+  );
+  const [chart, setChart] = useState<GeneratedBumpChart | null>(() =>
+    initialWorkspace?.view === 'chart'
+      ? chartFromSnapshot(initialWorkspace)
+      : null,
+  );
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
   const [pendingImports, setPendingImports] = useState(0);
   const [importError, setImportError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [storageError, setStorageError] = useState<string | null>(null);
+  const [savedCharts, setSavedCharts] = useState<SavedBumpChartMeta[]>(
+    listSavedBumpCharts,
+  );
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const [deletingSavedId, setDeletingSavedId] = useState<string | null>(null);
   const chartRef = useRef<HTMLDivElement>(null);
+  const skippedInitialAutosave = useRef(false);
+
+  useEffect(() => {
+    if (
+      initialWorkspace &&
+      initialWorkspace.bestMatchByTitle !==
+        toolsPreferences.bumpChartBestMatchByTitle
+    ) {
+      setBumpChartBestMatchByTitle(initialWorkspace.bestMatchByTitle);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!skippedInitialAutosave.current) {
+      skippedInitialAutosave.current = true;
+      if (
+        initialWorkspace &&
+        initialWorkspace.bestMatchByTitle !==
+          toolsPreferences.bumpChartBestMatchByTitle
+      ) {
+        return;
+      }
+    }
+    const result = saveActiveBumpChartWorkspace(
+      workspaceFromState(
+        before,
+        after,
+        chart,
+        toolsPreferences.bumpChartBestMatchByTitle,
+        importTab,
+      ),
+    );
+    setStorageError(result.ok ? null : result.error);
+  }, [
+    after,
+    before,
+    chart,
+    importTab,
+    initialWorkspace,
+    toolsPreferences.bumpChartBestMatchByTitle,
+  ]);
 
   const appendGroup = useCallback(
     async (
@@ -1346,31 +1778,53 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
 
   const leftDraftItems = itemsInDraft(before);
   const rightDraftItems = itemsInDraft(after);
+  const visibleLeft = useMemo(
+    () =>
+      chart?.left.flatMap((entry, sourceIndex) =>
+        chart.hiddenLeftItemIds.has(entry.item.id)
+          ? []
+          : [{ entry, sourceIndex }],
+      ) ?? [],
+    [chart],
+  );
+  const visibleRight = useMemo(
+    () =>
+      chart?.right.flatMap((entry, sourceIndex) =>
+        chart.hiddenRightItemIds.has(entry.item.id)
+          ? []
+          : [{ entry, sourceIndex }],
+      ) ?? [],
+    [chart],
+  );
   const left = useMemo(
     () =>
       chart
         ? displayBumpChartItems(
-            chart.left,
+            visibleLeft.map(({ entry }) => entry),
             chart.preserveLeftCustomLabels,
           )
         : [],
-    [chart, displayLabelRevision],
+    [chart, displayLabelRevision, visibleLeft],
   );
   const right = useMemo(
     () =>
       chart
         ? displayBumpChartItems(
-            chart.right,
+            visibleRight.map(({ entry }) => entry),
             chart.preserveRightCustomLabels,
           )
         : [],
-    [chart, displayLabelRevision],
+    [chart, displayLabelRevision, visibleRight],
   );
 
   const generateChart = (): void => {
+    const beforeSnapshot = draftToSnapshot(before);
+    const afterSnapshot = draftToSnapshot(after);
     setChart({
-      left: leftDraftItems,
-      right: rightDraftItems,
+      left: beforeSnapshot.items,
+      right: afterSnapshot.items,
+      hiddenLeftItemIds: new Set(beforeSnapshot.hiddenItemIds),
+      hiddenRightItemIds: new Set(afterSnapshot.hiddenItemIds),
       preserveLeftCustomLabels: before.preserveCustomLabels,
       preserveRightCustomLabels: after.preserveCustomLabels,
     });
@@ -1393,6 +1847,13 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
           group.id === editTarget.groupId
             ? {
                 ...group,
+                markedItemIds: group.markedItemIds?.has(editTarget.item.id)
+                  ? new Set(
+                      [...group.markedItemIds].map((id) =>
+                        id === editTarget.item.id ? updated.id : id,
+                      ),
+                    )
+                  : group.markedItemIds,
                 items: group.items.map((entry, index) =>
                   index === editTarget.index
                     ? {
@@ -1431,6 +1892,97 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
     setEditTarget(null);
   };
 
+  const hideEditedChartItems = (): void => {
+    if (editTarget?.scope !== 'chart') {
+      return;
+    }
+    setChart((current) => {
+      if (!current) {
+        return current;
+      }
+      const hiddenLeftItemIds = new Set(current.hiddenLeftItemIds);
+      const hiddenRightItemIds = new Set(current.hiddenRightItemIds);
+      const entry =
+        editTarget.side === 'left'
+          ? current.left[editTarget.index]
+          : current.right[editTarget.index];
+      if (!entry) {
+        return current;
+      }
+      (editTarget.side === 'left'
+        ? hiddenLeftItemIds
+        : hiddenRightItemIds
+      ).add(entry.item.id);
+      return { ...current, hiddenLeftItemIds, hiddenRightItemIds };
+    });
+    setEditTarget(null);
+  };
+
+  const clearChart = (): void => {
+    if (!chart) {
+      return;
+    }
+    setBefore(
+      draftFromSnapshot(chartSideToSnapshot(chart, 'left'), 'From chart'),
+    );
+    setAfter(
+      draftFromSnapshot(chartSideToSnapshot(chart, 'right'), 'From chart'),
+    );
+    setChart(null);
+    setExportError(null);
+  };
+
+  const loadNamedChart = (id: string): void => {
+    const workspace = loadSavedBumpChart(id);
+    if (!workspace) {
+      setStorageError('The saved chart could not be loaded.');
+      return;
+    }
+    setBefore(draftFromSnapshot(workspace.before, 'From saved chart'));
+    setAfter(draftFromSnapshot(workspace.after, 'From saved chart'));
+    setChart(null);
+    setBumpChartBestMatchByTitle(workspace.bestMatchByTitle);
+    setStorageError(null);
+    setDeletingSavedId(null);
+  };
+
+  const saveCurrentChart = (
+    name: string,
+    replaceId?: string,
+  ): SaveNamedBumpChartResult => {
+    if (!chart) {
+      return { status: 'error', error: 'There is no generated chart to save.' };
+    }
+    const result = saveNamedBumpChart(
+      name,
+      workspaceFromState(
+        before,
+        after,
+        chart,
+        toolsPreferences.bumpChartBestMatchByTitle,
+        importTab,
+      ),
+      replaceId,
+    );
+    if (result.status === 'saved') {
+      setSavedCharts(listSavedBumpCharts());
+      setSaveModalOpen(false);
+      setStorageError(null);
+    }
+    return result;
+  };
+
+  const deleteNamedChart = (id: string): void => {
+    const result = deleteSavedBumpChart(id);
+    if (result.ok) {
+      setSavedCharts(listSavedBumpCharts());
+      setDeletingSavedId(null);
+      setStorageError(null);
+    } else {
+      setStorageError(result.error);
+    }
+  };
+
   const exportPng = async (): Promise<void> => {
     if (!chartRef.current) {
       return;
@@ -1456,11 +2008,19 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
       </p>
       <p className="tool-panel-lead tool-panel-lead-secondary">
         Click an item&apos;s rank number in the generated chart to edit its
-        label, URL, image, or ID.
+        label, URL, image, or ID, or to remove that node from the chart.
       </p>
 
       {!chart ? (
         <>
+          <SavedBumpCharts
+            slots={savedCharts}
+            deletingId={deletingSavedId}
+            onLoad={loadNamedChart}
+            onRequestDelete={setDeletingSavedId}
+            onCancelDelete={() => setDeletingSavedId(null)}
+            onConfirmDelete={deleteNamedChart}
+          />
           <div className="bump-chart-import-grid">
             <BumpStage
               title="Previous order"
@@ -1541,12 +2101,16 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
             <button
               type="button"
               className="btn"
-              onClick={() => {
-                setChart(null);
-                setExportError(null);
-              }}
+              onClick={clearChart}
             >
               Clear chart
+            </button>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => setSaveModalOpen(true)}
+            >
+              Save chart…
             </button>
             <button
               type="button"
@@ -1563,17 +2127,31 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
           <BumpChart
             left={left}
             right={right}
-            matchingLeft={chart.left}
-            matchingRight={chart.right}
+            matchingLeft={visibleLeft.map(({ entry }) => entry)}
+            matchingRight={visibleRight.map(({ entry }) => entry)}
             bestMatchByTitle={toolsPreferences.bumpChartBestMatchByTitle}
             panelProps={panelProps}
             chartRef={chartRef}
-            onEdit={(side, index, item) =>
-              setEditTarget({ scope: 'chart', side, index, item })
-            }
+            onEdit={(side, index, item) => {
+              const sourceIndex =
+                side === 'left'
+                  ? visibleLeft[index]?.sourceIndex
+                  : visibleRight[index]?.sourceIndex;
+              if (sourceIndex == null) {
+                return;
+              }
+              setEditTarget({
+                scope: 'chart',
+                side,
+                index: sourceIndex,
+                item,
+              });
+            }}
           />
         </>
       )}
+
+      {storageError && <p className="tool-error">{storageError}</p>}
 
       {importSide && importCallbacks && (
         <AddItemsModal
@@ -1597,6 +2175,22 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
           allowEditId
           onCancel={() => setEditTarget(null)}
           onSave={saveEdit}
+          secondaryAction={
+            editTarget.scope === 'chart'
+              ? {
+                  label: 'Remove',
+                  onClick: hideEditedChartItems,
+                  tone: 'danger',
+                }
+              : undefined
+          }
+        />
+      )}
+
+      {saveModalOpen && (
+        <SaveBumpChartModal
+          onCancel={() => setSaveModalOpen(false)}
+          onSave={saveCurrentChart}
         />
       )}
     </section>

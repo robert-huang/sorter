@@ -13,11 +13,14 @@ import {
   BumpChartPanel,
   canvasImageFetchUrls,
   exportChartPng,
+  inferredMatchMarkerPosition,
 } from '../panels/BumpChartPanel';
 import {
   _clearToolsPreferencesForTesting,
+  loadToolsPreferences,
   saveToolsPreferences,
 } from '../toolsPreferences';
+import { _clearBumpChartStorageForTesting } from '../panels/bumpChartStorage';
 
 let container: HTMLDivElement;
 let root: Root;
@@ -29,6 +32,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   _clearToolsPreferencesForTesting();
+  _clearBumpChartStorageForTesting();
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -157,6 +161,27 @@ describe('BumpChartPanel staging flow', () => {
       button('Import ranked items', 1).click();
     });
     expect(button('Results').getAttribute('aria-selected')).toBe('true');
+
+    await act(async () => {
+      button('Results').dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      );
+      root.unmount();
+    });
+    root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <BumpChartPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+    });
+    await act(async () => {
+      button('Import ranked items').click();
+    });
+    expect(button('Results').getAttribute('aria-selected')).toBe('true');
   });
 
   it('stages both sides and renders only after Generate chart', async () => {
@@ -189,7 +214,15 @@ describe('BumpChartPanel staging flow', () => {
       button('Clear chart').click();
     });
     expect(container.querySelector('.bump-chart-grid')).toBeNull();
-    expect(container.textContent).toContain('No ranked lists staged yet.');
+    expect(container.textContent).toContain('From chart');
+    const restoredGroups = container.querySelectorAll<HTMLButtonElement>(
+      '.bump-chart-import-card .staged-panel-group-row',
+    );
+    await act(async () => {
+      restoredGroups.forEach((group) => group.click());
+    });
+    expect(container.textContent).toContain('Before item');
+    expect(container.textContent).toContain('After item');
   });
 
   it('shows a signed movement badge only while a matched line is hovered', async () => {
@@ -265,7 +298,7 @@ describe('BumpChartPanel staging flow', () => {
     expect(container.querySelector('.bump-chart-movement-badge')).toBeNull();
   });
 
-  it('marks title-inferred lines and keeps a clicked lineage pinned', async () => {
+  it('pins only paths and nodes, not item labels', async () => {
     await act(async () => {
       root.render(
         <BumpChartPanel
@@ -293,11 +326,18 @@ describe('BumpChartPanel staging flow', () => {
     const inferredMarkers = container.querySelectorAll<SVGGElement>(
       '.bump-chart-inferred-marker',
     );
-    expect(inferredMarkers[0]?.dataset.pathPosition).toBe('0.9');
+    expect(inferredMarkers[0]?.dataset.preferredPathPosition).toBe('0.95');
+    expect(Number(inferredMarkers[0]?.dataset.pathPosition)).toBeLessThanOrEqual(
+      0.95,
+    );
     expect(
       inferredMarkers[0]?.querySelector('.bump-chart-inferred-icon'),
     ).not.toBeNull();
     expect(inferredMarkers[0]?.querySelector('text')).toBeNull();
+    expect(inferredMarkers[0]?.querySelector('title')?.textContent).toBe(
+      'Inferred match from an exact label',
+    );
+    expect(inferredMarkers[0]?.getAttribute('tabindex')).toBe('0');
     const connections = container.querySelectorAll<SVGGElement>(
       '.bump-chart-connection',
     );
@@ -319,20 +359,37 @@ describe('BumpChartPanel staging flow', () => {
     expect(connections[0]?.classList.contains('is-active')).toBe(true);
     expect(connections[1]?.classList.contains('is-active')).toBe(false);
 
-    const secondLineageLabel = container.querySelector<HTMLElement>(
-      '.bump-chart-item-link[data-bump-lineage="matched:1:0"]',
-    );
+    const secondLineageLabel =
+      container.querySelectorAll<HTMLElement>('.bump-chart-item-link')[1];
+    expect(secondLineageLabel?.hasAttribute('data-bump-lineage')).toBe(false);
     await act(async () => {
       secondLineageLabel?.dispatchEvent(
         new MouseEvent('click', { bubbles: true }),
       );
+      secondLineageLabel?.dispatchEvent(
+        new MouseEvent('mouseout', { bubbles: true }),
+      );
     });
     expect(connections[0]?.classList.contains('is-active')).toBe(false);
+    expect(connections[1]?.classList.contains('is-active')).toBe(false);
+
+    const nodes = container.querySelectorAll<SVGCircleElement>(
+      '.bump-chart-node',
+    );
+    await act(async () => {
+      nodes[2]?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
     expect(connections[1]?.classList.contains('is-active')).toBe(true);
 
     await act(async () => {
-      hitPaths[1]?.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
       document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(connections[1]?.classList.contains('is-active')).toBe(true);
+
+    await act(async () => {
+      container
+        .querySelector('.bump-chart-center-cell')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
     expect(
       container.querySelector('.bump-chart-connection.is-active'),
@@ -569,7 +626,198 @@ describe('BumpChartPanel staging flow', () => {
     );
   });
 
-  it('exports AniList images through the CORS proxy and skips inaccessible images', async () => {
+  it('soft-hides only the selected endpoint of a matched lineage', async () => {
+    await act(async () => {
+      root.render(
+        <BumpChartPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+    });
+    await importSingle(0, 'Matched item');
+    await importSingle(1, 'Matched item');
+    await act(async () => {
+      button('Generate chart').click();
+    });
+    await act(async () => {
+      button('#1', 0).click();
+    });
+    expect(button('Remove')).toBeTruthy();
+
+    await act(async () => {
+      button('Remove').click();
+    });
+    expect(container.querySelectorAll('.bump-chart-rank')).toHaveLength(1);
+    expect(
+      container.querySelector('.bump-chart-change-marker--added'),
+    ).not.toBeNull();
+
+    await act(async () => {
+      button('Clear chart').click();
+    });
+    const restoredGroups = container.querySelectorAll<HTMLButtonElement>(
+      '.bump-chart-import-card .staged-panel-group-row',
+    );
+    await act(async () => {
+      restoredGroups.forEach((group) => group.click());
+    });
+    expect(container.textContent).toContain('Matched item');
+    const restoreButtons = container.querySelectorAll<HTMLButtonElement>(
+      '.staged-panel-item-undo',
+    );
+    expect(restoreButtons).toHaveLength(1);
+    await act(async () => {
+      restoreButtons.forEach((restore) => restore.click());
+    });
+    await act(async () => {
+      button('Generate chart').click();
+    });
+    expect(container.querySelectorAll('.bump-chart-rank')).toHaveLength(2);
+  });
+
+  it('soft-hides only an unmatched item and collapses the visible ranks', async () => {
+    await act(async () => {
+      root.render(
+        <BumpChartPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+    });
+    await importSingle(0, 'Still ranked');
+    await importSingle(0, 'Removed item');
+    await importSingle(1, 'Still ranked');
+    await act(async () => {
+      button('Generate chart').click();
+    });
+    await act(async () => {
+      button('#2').click();
+    });
+    await act(async () => {
+      button('Remove').click();
+    });
+
+    expect(container.querySelectorAll('.bump-chart-rank')).toHaveLength(2);
+    expect(container.querySelector('.bump-chart-grid')?.textContent).not.toContain(
+      'Removed item',
+    );
+    expect(
+      Array.from(container.querySelectorAll('.bump-chart-rank')).map(
+        (rank) => rank.textContent,
+      ),
+    ).toEqual(['#1', '#1']);
+  });
+
+  it('restores the autosaved active generated workspace after remounting', async () => {
+    await act(async () => {
+      root.render(
+        <BumpChartPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+    });
+    await importSingle(0, 'Autosaved before');
+    await importSingle(1, 'Autosaved after');
+    await act(async () => {
+      button('Generate chart').click();
+    });
+
+    await act(async () => {
+      root.unmount();
+    });
+    root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <BumpChartPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+    });
+    expect(container.querySelector('.bump-chart-grid')).not.toBeNull();
+    expect(container.textContent).toContain('Autosaved before');
+    expect(container.textContent).toContain('Autosaved after');
+  });
+
+  it('saves, loads, restores settings from, and deletes a named chart', async () => {
+    saveToolsPreferences({ bumpChartBestMatchByTitle: false });
+    await act(async () => {
+      root.render(
+        <BumpChartPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+    });
+    await importSingle(0, 'Named before');
+    await importSingle(1, 'Named after');
+    await act(async () => {
+      button('Generate chart').click();
+    });
+    await act(async () => {
+      button('#1', 0).click();
+    });
+    await act(async () => {
+      button('Remove').click();
+    });
+    await act(async () => {
+      button('Save chart…').click();
+    });
+    const nameInput = document.querySelector<HTMLInputElement>(
+      '[aria-label="Save Bump Chart"] input',
+    );
+    if (!nameInput) {
+      throw new Error('Save chart name input was not rendered');
+    }
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        'value',
+      )?.set;
+      valueSetter?.call(nameInput, 'My chart');
+      nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => {
+      button('Save chart').click();
+    });
+    await act(async () => {
+      button('Clear chart').click();
+    });
+    expect(container.querySelector('.bump-chart-saved-charts')).not.toBeNull();
+    expect(container.textContent).toContain('My chart');
+
+    await act(async () => {
+      saveToolsPreferences({ bumpChartBestMatchByTitle: true });
+      button('Load').click();
+    });
+    expect(container.querySelector('.bump-chart-grid')).toBeNull();
+    expect(container.textContent).toContain('From saved chart');
+    expect(loadToolsPreferences().bumpChartBestMatchByTitle).toBe(false);
+    const loadedGroups = container.querySelectorAll<HTMLButtonElement>(
+      '.bump-chart-import-card .staged-panel-group-row',
+    );
+    await act(async () => {
+      loadedGroups.forEach((group) => group.click());
+    });
+    expect(container.querySelectorAll('.staged-panel-item-undo')).toHaveLength(1);
+
+    await act(async () => {
+      button('Delete').click();
+    });
+    await act(async () => {
+      button('Confirm delete').click();
+    });
+    expect(container.querySelector('.bump-chart-saved-charts')).toBeNull();
+  });
+
+  it('exports AniList images and preserves pinned-line emphasis', async () => {
     const anilistImage =
       'https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/test.jpg';
     const proxiedAnilistImage = canvasImageFetchUrls(
@@ -585,9 +833,18 @@ describe('BumpChartPanel staging flow', () => {
     chart.innerHTML =
       '<a class="bump-chart-item-link"><img src="https://example.invalid/cover.jpg"></a>' +
       `<a class="bump-chart-item-link"><img src="${anilistImage}"></a>` +
-      '<span class="bump-chart-label">A<span>B</span></span>' +
-      '<svg><g class="bump-chart-movement-badge" data-png-exclude="true">' +
-      '<text>+2</text></g></svg>';
+      '<div class="bump-chart-label-cell" style="opacity: 0.24">' +
+      '<span class="bump-chart-label">A<span>B</span></span></div>' +
+      '<svg class="bump-chart-svg">' +
+      '<g class="bump-chart-connection is-active" style="color: red; opacity: 1">' +
+      '<path class="bump-chart-path" d="M 0 0 L 10 10"></path></g>' +
+      '<g class="bump-chart-connection is-dimmed" style="color: blue; opacity: 0.24">' +
+      '<path class="bump-chart-path" d="M 0 10 L 10 0"></path></g>' +
+      '<g class="bump-chart-movement-badge" data-badge-label="+2" ' +
+      'data-badge-width="28" data-badge-x="150" data-badge-y="100" ' +
+      'data-png-exclude="true" style="color: green">' +
+      '<rect style="fill: white; stroke: green"></rect>' +
+      '<text style="fill: green; font: 600 11px sans-serif">+2</text></g></svg>';
     document.body.appendChild(chart);
     vi.spyOn(chart, 'getBoundingClientRect').mockReturnValue({
       x: 0,
@@ -618,6 +875,12 @@ describe('BumpChartPanel staging flow', () => {
     const bitmap = new FakeImageBitmap();
     vi.stubGlobal('ImageBitmap', FakeImageBitmap);
     vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue(bitmap));
+    vi.stubGlobal(
+      'Path2D',
+      class {
+        constructor(readonly path: string) {}
+      },
+    );
     const imageElements = chart.querySelectorAll('img');
     imageElements.forEach((image, index) => {
       vi.spyOn(image, 'getBoundingClientRect').mockReturnValue({
@@ -633,18 +896,45 @@ describe('BumpChartPanel staging flow', () => {
       });
     });
 
+    let globalAlpha = 1;
+    const strokeAlphas: number[] = [];
+    const strokeWidths: number[] = [];
+    const fillTextAlphas: number[] = [];
     const context = {
       scale: vi.fn(),
+      save: vi.fn(),
+      restore: vi.fn(() => {
+        globalAlpha = 1;
+      }),
+      translate: vi.fn(),
+      setLineDash: vi.fn(),
+      beginPath: vi.fn(),
+      roundRect: vi.fn(),
+      fill: vi.fn(),
+      stroke: vi.fn(() => {
+        strokeAlphas.push(globalAlpha);
+        strokeWidths.push(context.lineWidth);
+      }),
       fillRect: vi.fn(),
       strokeRect: vi.fn(),
       drawImage: vi.fn(),
-      fillText: vi.fn(),
+      fillText: vi.fn(() => {
+        fillTextAlphas.push(globalAlpha);
+      }),
       fillStyle: '',
       strokeStyle: '',
       lineWidth: 1,
+      lineCap: '',
       font: '',
+      textAlign: '',
       textBaseline: '',
     };
+    Object.defineProperty(context, 'globalAlpha', {
+      get: () => globalAlpha,
+      set: (value: number) => {
+        globalAlpha = value;
+      },
+    });
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
       context as unknown as CanvasRenderingContext2D,
     );
@@ -707,11 +997,11 @@ describe('BumpChartPanel staging flow', () => {
     expect(context.drawImage).toHaveBeenCalledOnce();
     expect(bitmap.close).toHaveBeenCalledOnce();
     expect(context.fillText).toHaveBeenCalledWith('AB', 0, 0);
-    expect(context.fillText).not.toHaveBeenCalledWith(
-      '+2',
-      expect.any(Number),
-      expect.any(Number),
-    );
+    expect(context.fillText).toHaveBeenCalledWith('+2', 150, 100);
+    expect(context.roundRect).toHaveBeenCalledWith(136, 90, 28, 20, 10);
+    expect(strokeAlphas).toEqual([1, 0.24, 1]);
+    expect(strokeWidths).toEqual([5, 3, 1]);
+    expect(fillTextAlphas).toContain(0.24);
     expect(toBlob).toHaveBeenCalledOnce();
     expect(createObjectUrl).toHaveBeenCalledOnce();
     if (createObjectUrlDescriptor) {
@@ -733,6 +1023,17 @@ describe('BumpChartPanel staging flow', () => {
       delete (URL as { revokeObjectURL?: unknown }).revokeObjectURL;
     }
     chart.remove();
+  });
+});
+
+describe('inferredMatchMarkerPosition', () => {
+  it('prefers 95% while maintaining separation from the right node', () => {
+    const wide = inferredMatchMarkerPosition(1_000, 100, 100);
+    expect(wide.pathPosition).toBe(0.95);
+
+    const compact = inferredMatchMarkerPosition(280, 100, 100);
+    expect(compact.pathPosition).toBeLessThan(0.95);
+    expect(compact.nodeSeparation).toBeGreaterThanOrEqual(25.99);
   });
 });
 
