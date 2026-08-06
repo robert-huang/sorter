@@ -5,6 +5,7 @@ import {
   MANIFEST_KEY,
   SLOT_CAP,
   _resetAvailabilityCache,
+  _resetSorterStorageCacheForTesting,
   consumeManifestRepairNotice,
   buildLocalCloudSlotIndex,
   createSlot,
@@ -14,9 +15,11 @@ import {
   discardPendingAutosave,
   exportAllSlots,
   flushAutosave,
+  flushStateStorageWrites,
   saveNow,
   getLastAutosaveError,
   importAllSlots,
+  initializeSorterStorage,
   isAtCapAndAllPinned,
   loadSaveFromFile,
   migrateLegacyIfNeeded,
@@ -36,14 +39,19 @@ import {
   setActiveSlot,
   slotBlobKey,
   subscribeAutosaveError,
-  getTabWriterId,
-  isOwnTabSlotBlobWrite,
-  readSlotBlobWriterId,
   autosaveBlobsEqual,
   parseSlotBlobRaw,
   isHarmlessCrossTabSlotBlobWrite,
   updateSlotMeta,
 } from '../storage';
+import {
+  STATE_METADATA_STORE,
+  STATE_REVISION_KEY,
+  _resetStateStorageForTesting,
+  _restartStateStorageForTesting,
+  commitStateChanges,
+  stateStorageRecordKeys,
+} from '../stateStorageDb';
 import type { MergeProgress, SaveFile, SlotMeta } from '../types';
 import { seedAsSorted, snapshotProgress as insertionSnapshot } from '../insertionSort';
 import { finalizeCompletedState, snapshotProgress } from '../engine';
@@ -100,9 +108,12 @@ function mintSlot(blob: AutosaveBlob, name: string): SlotMeta {
   return result.meta;
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await flushStateStorageWrites();
   window.localStorage.clear();
   window.sessionStorage.clear();
+  await _resetStateStorageForTesting();
+  _resetSorterStorageCacheForTesting();
   _resetAvailabilityCache();
   // Re-prime the in-module active-slot pointer to null since storage was wiped.
   primeActiveSlot();
@@ -114,7 +125,7 @@ afterEach(() => {
 });
 
 describe('migrateLegacyIfNeeded', () => {
-  it('converts a v1 legacy save into a single active slot', () => {
+  it('converts a v1 legacy save into a single active slot', async () => {
     const legacy: SaveFile = {
       version: 1,
       createdAt: '2026-05-19T00:00:00.000Z',
@@ -124,6 +135,7 @@ describe('migrateLegacyIfNeeded', () => {
     };
     window.localStorage.setItem(LEGACY_KEY, JSON.stringify(legacy));
 
+    await initializeSorterStorage();
     const m = migrateLegacyIfNeeded();
 
     expect(m.activeId).not.toBeNull();
@@ -151,19 +163,20 @@ describe('migrateLegacyIfNeeded', () => {
     expect(second).toEqual(first);
   });
 
-  it('initializes an empty manifest when neither legacy nor manifest exists', () => {
+  it('initializes an empty manifest when neither legacy nor manifest exists', async () => {
+    await initializeSorterStorage();
     const m = migrateLegacyIfNeeded();
     expect(m.activeId).toBeNull();
     expect(m.slots).toEqual([]);
-    // Persisted so the next read returns the same shape.
-    expect(window.localStorage.getItem(MANIFEST_KEY)).not.toBeNull();
+    expect(window.localStorage.getItem(MANIFEST_KEY)).toBeNull();
   });
 
-  it('discards corrupt legacy data instead of throwing', () => {
+  it('preserves corrupt legacy data instead of risking destructive cleanup', async () => {
     window.localStorage.setItem(LEGACY_KEY, 'not-json-at-all');
+    await initializeSorterStorage();
     const m = migrateLegacyIfNeeded();
     expect(m.activeId).toBeNull();
-    expect(window.localStorage.getItem(LEGACY_KEY)).toBeNull();
+    expect(window.localStorage.getItem(LEGACY_KEY)).toBe('not-json-at-all');
   });
 });
 
@@ -251,11 +264,7 @@ describe('createSlot', () => {
     expect(evicted[0].name).toBe('Slot 0');
   });
 
-  it('returns null and does NOT register meta when the blob write fails', () => {
-    // Force the slot-blob write to throw (simulating quota exhaustion).
-    // jsdom forbids replacing methods on the localStorage instance directly,
-    // so we spy on the Storage prototype and selectively short-circuit
-    // sorter:slot:* keys.
+  it('does not write a large slot payload to localStorage', () => {
     const origSet = Storage.prototype.setItem;
     const setSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(
       function (this: Storage, k: string, v: string) {
@@ -267,20 +276,14 @@ describe('createSlot', () => {
         return origSet.call(this, k, v);
       },
     );
-    // createSlot logs a warning on the expected failure path; silence
-    // it so the test output stays clean (the assertion below is what
-    // actually verifies the failure was observed).
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       const result = createSlot(makeBlob(), 'doomed');
-      expect(result).toBeNull();
-      // Manifest should NOT contain a ghost meta whose blob is missing.
+      expect(result).not.toBeNull();
       const m = readManifest();
-      expect(m.slots.some((s) => s.name === 'doomed')).toBe(false);
-      expect(m.activeId).toBeNull();
+      expect(m.slots.some((s) => s.name === 'doomed')).toBe(true);
+      expect(window.localStorage.getItem(slotBlobKey(result!.meta.id))).toBeNull();
     } finally {
       setSpy.mockRestore();
-      warnSpy.mockRestore();
     }
   });
 
@@ -556,48 +559,33 @@ describe('discardPendingAutosave', () => {
 });
 
 describe('scheduleAutosave quota recovery', () => {
-  /**
-   * Helper: install a cumulative-byte quota limit on `sorter:slot:*`
-   * writes. The mock tracks total bytes stored across slot-blob keys
-   * and rejects any setItem whose post-write total would exceed the
-   * limit. This matches real localStorage semantics — i.e. evicting
-   * an existing slot actually frees room for a subsequent write —
-   * which is what the eviction recovery path needs to exercise.
-   * Manifest / settings / probe keys are unaffected.
-   */
+  /** Reject oversized sorter payload writes at the IndexedDB boundary. */
   function installQuotaLimit(byteLimit: number): () => void {
-    const origSet = Storage.prototype.setItem;
-    function slotBytes(): number {
-      let total = 0;
-      for (let i = 0; i < window.localStorage.length; i++) {
-        const k = window.localStorage.key(i);
-        if (!k || !k.startsWith('sorter:slot:')) continue;
-        const v = window.localStorage.getItem(k);
-        if (v) total += v.length;
-      }
-      return total;
-    }
+    const originalPut = IDBObjectStore.prototype.put;
     const spy = vi
-      .spyOn(Storage.prototype, 'setItem')
-      .mockImplementation(function (this: Storage, k: string, v: string) {
-        if (k.startsWith('sorter:slot:')) {
-          const existing = window.localStorage.getItem(k);
-          const delta = v.length - (existing ? existing.length : 0);
-          if (slotBytes() + delta > byteLimit) {
-            const err = new Error('QuotaExceededError');
-            err.name = 'QuotaExceededError';
-            throw err;
-          }
+      .spyOn(IDBObjectStore.prototype, 'put')
+      .mockImplementation(function (
+        this: IDBObjectStore,
+        value: unknown,
+        key?: IDBValidKey,
+      ) {
+        if (
+          this.name === 'sorterSlots' &&
+          JSON.stringify(value).length > byteLimit
+        ) {
+          throw new DOMException('Quota exceeded', 'QuotaExceededError');
         }
-        return origSet.call(this, k, v);
+        return originalPut.call(this, value, key);
       });
     return () => spy.mockRestore();
   }
 
-  function withSilencedWarn(fn: () => void | Promise<void>): void | Promise<void> {
+  async function withSilencedWarn(
+    fn: () => void | Promise<void>,
+  ): Promise<void> {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      return fn();
+      await fn();
     } finally {
       warnSpy.mockRestore();
     }
@@ -628,39 +616,45 @@ describe('scheduleAutosave quota recovery', () => {
     return events[events.length - 1];
   }
 
-  it('purges disposable tool caches before trimming or evicting user data', () => {
+  it('purges disposable tool caches before trimming or evicting user data', async () => {
     const active = mintSlot(makeBlob(0), 'Active');
+    await flushStateStorageWrites();
     window.localStorage.setItem(
       'tools-cache:relations:1',
       JSON.stringify({ value: 'cached', expiresAt: Date.now() + 60_000 }),
     );
-    const originalSetItem = Storage.prototype.setItem;
-    const setItemSpy = vi
-      .spyOn(Storage.prototype, 'setItem')
-      .mockImplementation(function (this: Storage, key: string, value: string) {
+    const originalPut = IDBObjectStore.prototype.put;
+    const putSpy = vi
+      .spyOn(IDBObjectStore.prototype, 'put')
+      .mockImplementation(function (
+        this: IDBObjectStore,
+        value: unknown,
+        key?: IDBValidKey,
+      ) {
         if (
-          key === slotBlobKey(active.id) &&
+          this.name === 'sorterSlots' &&
           window.localStorage.getItem('tools-cache:relations:1')
         ) {
           throw new DOMException('Quota exceeded', 'QuotaExceededError');
         }
-        originalSetItem.call(this, key, value);
+        return originalPut.call(this, value, key);
       });
 
     try {
       scheduleAutosave(makeBlob(7));
-      flushAutosave();
+      await flushAutosave();
 
       expect(window.localStorage.getItem('tools-cache:relations:1')).toBeNull();
       expect(readSlotBlob(active.id)?.progress.comparisons).toBe(7);
       expect(readManifest().slots).toHaveLength(1);
     } finally {
-      setItemSpy.mockRestore();
+      putSpy.mockRestore();
     }
   });
 
   it('trims the on-disk undoRing on quota error and notifies the listener with newUndoRingLen', async () => {
     const slot = mintSlot(makeBlob(0), 'A');
+    await flushStateStorageWrites();
     const events: Notification[] = [];
     const unsub = subscribeAutosaveError((err, recovery) => {
       events.push({ err, recovery });
@@ -673,7 +667,7 @@ describe('scheduleAutosave quota recovery', () => {
     try {
       await withSilencedWarn(async () => {
         scheduleAutosave(makeFatBlob(20));
-        flushAutosave();
+        await flushAutosave();
       });
       expect(last(events)?.err).toBeNull();
       expect(last(events)?.recovery?.kind).toBe('trimmed-undo');
@@ -702,15 +696,30 @@ describe('scheduleAutosave quota recovery', () => {
     const oldB = mintSlot(makeBlob(0), 'OldB');
     updateSlotMeta(oldB.id, { updatedAt: new Date(2021, 0, 1).toISOString() });
     const active = mintSlot(makeBlob(0), 'Active');
+    await flushStateStorageWrites();
     const events: Notification[] = [];
     const unsub = subscribeAutosaveError((err, recovery) => {
       events.push({ err, recovery });
     });
-    const restore = installQuotaLimit(1900);
+    const originalPut = IDBObjectStore.prototype.put;
+    let sorterPutAttempts = 0;
+    const putSpy = vi
+      .spyOn(IDBObjectStore.prototype, 'put')
+      .mockImplementation(function (
+        this: IDBObjectStore,
+        value: unknown,
+        key?: IDBValidKey,
+      ) {
+        if (this.name === 'sorterSlots' && sorterPutAttempts < 2) {
+          sorterPutAttempts += 1;
+          throw new DOMException('Quota exceeded', 'QuotaExceededError');
+        }
+        return originalPut.call(this, value, key);
+      });
     try {
       await withSilencedWarn(async () => {
         scheduleAutosave(makeFatBlob(20));
-        flushAutosave();
+        await flushAutosave();
       });
       const m = readManifest();
       expect(m.slots.some((s) => s.id === oldA.id)).toBe(false);
@@ -723,7 +732,7 @@ describe('scheduleAutosave quota recovery', () => {
       // the trim happened in concert with the eviction.
       expect(readSlotBlob(active.id)?.undoRing.length).toBe(5);
     } finally {
-      restore();
+      putSpy.mockRestore();
       unsub();
     }
   });
@@ -731,6 +740,7 @@ describe('scheduleAutosave quota recovery', () => {
   it('surfaces a terminal quota error when all recovery is exhausted', async () => {
     // Pin every other slot so eviction can't free anything.
     const active = mintSlot(makeBlob(0), 'Active');
+    await flushStateStorageWrites();
     const events: Notification[] = [];
     const unsub = subscribeAutosaveError((err, recovery) => {
       events.push({ err, recovery });
@@ -740,7 +750,7 @@ describe('scheduleAutosave quota recovery', () => {
     try {
       await withSilencedWarn(async () => {
         scheduleAutosave(makeFatBlob(20));
-        flushAutosave();
+        await flushAutosave();
       });
       expect(last(events)?.err).not.toBeNull();
       expect(last(events)?.err?.reason).toBe('quota');
@@ -750,13 +760,13 @@ describe('scheduleAutosave quota recovery', () => {
       restore();
       unsub();
     }
-    // The active slot's on-disk blob is the original (unchanged from
-    // the initial mint). The recovery did not corrupt it.
-    expect(readSlotBlob(active.id)?.progress.comparisons).toBe(0);
+    // Current work remains available in this tab even though persistence failed.
+    expect(readSlotBlob(active.id)?.progress.comparisons).toBe(20);
   });
 
   it('clears the error on the next successful write', async () => {
     const slot = mintSlot(makeBlob(0), 'A');
+    await flushStateStorageWrites();
     const events: Notification[] = [];
     const unsub = subscribeAutosaveError((err, recovery) => {
       events.push({ err, recovery });
@@ -765,13 +775,13 @@ describe('scheduleAutosave quota recovery', () => {
     const restore = installQuotaLimit(0);
     await withSilencedWarn(async () => {
       scheduleAutosave(makeFatBlob(20));
-      flushAutosave();
+      await flushAutosave();
     });
     expect(last(events)?.err?.reason).toBe('quota');
     // … then unblock and write normally.
     restore();
     scheduleAutosave(makeBlob(99));
-    flushAutosave();
+    await flushAutosave();
     expect(last(events)?.err).toBeNull();
     expect(readSlotBlob(slot.id)?.progress.comparisons).toBe(99);
     unsub();
@@ -812,6 +822,21 @@ describe('deleteSlot', () => {
 });
 
 describe('repairManifestIfCorrupt', () => {
+  async function restartWithManifest(value: unknown): Promise<void> {
+    await flushAutosave();
+    await commitStateChanges([
+      {
+        type: 'put',
+        store: STATE_METADATA_STORE,
+        key: stateStorageRecordKeys.sorterManifest,
+        value,
+      },
+    ]);
+    await _restartStateStorageForTesting();
+    _resetSorterStorageCacheForTesting();
+    await initializeSorterStorage();
+  }
+
   it('is a no-op when the manifest is valid', () => {
     const slot = mintSlot(makeBlob(3), 'Valid');
     const before = window.localStorage.getItem(MANIFEST_KEY);
@@ -828,21 +853,19 @@ describe('repairManifestIfCorrupt', () => {
     expect(consumeManifestRepairNotice()).toBeNull();
   });
 
-  it('rebuilds the manifest from orphaned slot blobs when the manifest is unparseable', () => {
+  it('rebuilds the manifest from orphaned slot blobs when the manifest is unparseable', async () => {
     // Mint two slots through the normal path so their blobs exist on disk.
     const s1 = mintSlot(makeBlob(5), 'First');
     const s2 = mintSlot(makeBlob(8, true), 'Second');
     // Corrupt the manifest blob (simulating a partially-written save or
     // an unrelated localStorage corruption).
-    window.localStorage.setItem(MANIFEST_KEY, '{not-valid-json');
-
-    repairManifestIfCorrupt();
+    await restartWithManifest('{not-valid-json');
 
     const repairedCount = consumeManifestRepairNotice();
     expect(repairedCount).toBe(2);
     const m = readManifest();
-    // activeId is cleared because the original was lost with the manifest.
-    expect(m.activeId).toBeNull();
+    // The small active-id pointer remains valid independently of the manifest.
+    expect(m.activeId).toBe(s2.id);
     expect(m.slots.length).toBe(2);
     const idsRecovered = m.slots.map((s) => s.id).sort();
     expect(idsRecovered).toEqual([s1.id, s2.id].sort());
@@ -856,24 +879,21 @@ describe('repairManifestIfCorrupt', () => {
     expect(meta2.done).toBe(true);
   });
 
-  it('rebuilds when the manifest has the wrong shape (e.g. wrong version)', () => {
+  it('rebuilds when the manifest has the wrong shape (e.g. wrong version)', async () => {
     const s1 = mintSlot(makeBlob(1), 'A');
-    window.localStorage.setItem(MANIFEST_KEY, JSON.stringify({ version: 99, slots: 'not-an-array' }));
-    repairManifestIfCorrupt();
+    await restartWithManifest({ version: 99, slots: 'not-an-array' });
     expect(consumeManifestRepairNotice()).toBe(1);
     expect(readManifest().slots[0].id).toBe(s1.id);
   });
 
-  it('reports 0 when the manifest is corrupt and no slot blobs exist on disk', () => {
-    window.localStorage.setItem(MANIFEST_KEY, 'garbage');
-    repairManifestIfCorrupt();
+  it('reports 0 when the manifest is corrupt and no slot blobs exist on disk', async () => {
+    await restartWithManifest('garbage');
     expect(consumeManifestRepairNotice()).toBe(0);
     expect(readManifest().slots).toEqual([]);
   });
 
-  it('consumeManifestRepairNotice returns null on subsequent reads after the first consume', () => {
-    window.localStorage.setItem(MANIFEST_KEY, 'still-broken');
-    repairManifestIfCorrupt();
+  it('consumeManifestRepairNotice returns null on subsequent reads after the first consume', async () => {
+    await restartWithManifest('still-broken');
     expect(consumeManifestRepairNotice()).toBe(0);
     expect(consumeManifestRepairNotice()).toBeNull();
   });
@@ -914,7 +934,7 @@ describe('readActiveSlot', () => {
 // ============================================================================
 
 describe('upgradeProgress (via loaders)', () => {
-  it('legacy v1 blob with no engine field is upgraded to engine=merge with current defaults', () => {
+  it('legacy v1 blob with no engine field is upgraded to engine=merge with current defaults', async () => {
     // Write a v1-shaped legacy save (no engine, no exile/Insert fields).
     const legacyV1 = {
       version: 1 as const,
@@ -933,6 +953,7 @@ describe('upgradeProgress (via loaders)', () => {
     };
     window.localStorage.setItem('sorter:v1', JSON.stringify(legacyV1));
 
+    await initializeSorterStorage();
     const m = migrateLegacyIfNeeded();
     const blob = readSlotBlob(m.slots[0].id)!;
 
@@ -1171,7 +1192,7 @@ describe('exportAllSlots / importAllSlots', () => {
 
     // Wipe + re-import. Re-prime so the in-module activeId is null.
     window.localStorage.clear();
-    primeActiveSlot();
+    _resetSorterStorageCacheForTesting();
 
     const result = importAllSlots(archive, 'merge');
     expect(result.error).toBeUndefined();
@@ -1192,7 +1213,7 @@ describe('exportAllSlots / importAllSlots', () => {
 
     // Wipe everything and re-import into a fresh store.
     window.localStorage.clear();
-    primeActiveSlot();
+    _resetSorterStorageCacheForTesting();
 
     const result = importAllSlots(archive, 'merge');
     expect(result.error).toBeUndefined();
@@ -1278,7 +1299,7 @@ describe('exportAllSlots / importAllSlots', () => {
 
     // Wipe and replace from the archive.
     window.localStorage.clear();
-    primeActiveSlot();
+    _resetSorterStorageCacheForTesting();
     const result = importAllSlots(archive, 'replace');
     expect(result.error).toBeUndefined();
 
@@ -1531,28 +1552,25 @@ describe('deriveAdoptedCloudSlotTimestamps', () => {
 });
 
 describe('multitab slot blob helpers', () => {
-  it('getTabWriterId is stable within a tab session', () => {
-    const a = getTabWriterId();
-    const b = getTabWriterId();
-    expect(a).toBe(b);
-    expect(a.length).toBeGreaterThan(0);
-  });
-
-  it('saveNow stamps the writer id for the active slot', () => {
+  it('saveNow publishes a sorter revision after the durable write', async () => {
     const meta = mintSlot(makeBlob(0), 'writer test');
     setActiveSlot(meta.id);
     saveNow(makeBlob(2));
-    expect(readSlotBlobWriterId(meta.id)).toBe(getTabWriterId());
-    expect(isOwnTabSlotBlobWrite(meta.id)).toBe(true);
+    await flushAutosave();
+    expect(
+      JSON.parse(localStorage.getItem(STATE_REVISION_KEY) ?? ''),
+    ).toMatchObject({ scope: 'sorter', id: meta.id });
   });
 
-  it('deleteSlot clears the writer stamp', () => {
+  it('does not create legacy per-slot writer stamps', async () => {
     const meta = mintSlot(makeBlob(0), 'writer cleanup');
     setActiveSlot(meta.id);
     saveNow(makeBlob(3));
-    expect(readSlotBlobWriterId(meta.id)).not.toBeNull();
+    await flushAutosave();
+    const legacyWriterKey = `sorter:slot:${meta.id}:writer:v1`;
+    expect(localStorage.getItem(legacyWriterKey)).toBeNull();
     deleteSlot(meta.id);
-    expect(readSlotBlobWriterId(meta.id)).toBeNull();
+    expect(localStorage.getItem(legacyWriterKey)).toBeNull();
   });
 
   it('autosaveBlobsEqual ignores SaveFile createdAt wrapper', () => {

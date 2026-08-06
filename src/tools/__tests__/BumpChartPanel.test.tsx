@@ -20,7 +20,11 @@ import {
   loadToolsPreferences,
   saveToolsPreferences,
 } from '../toolsPreferences';
-import { _clearBumpChartStorageForTesting } from '../panels/bumpChartStorage';
+import { _resetStateStorageForTesting } from '../../lib/stateStorageDb';
+import {
+  _resetBumpChartStorageCacheForTesting,
+  flushBumpChartStorageWrites,
+} from '../panels/bumpChartStorage';
 
 let container: HTMLDivElement;
 let root: Root;
@@ -30,16 +34,20 @@ beforeAll(() => {
     true;
 });
 
-beforeEach(() => {
+beforeEach(async () => {
+  await flushBumpChartStorageWrites();
+  localStorage.clear();
+  await _resetStateStorageForTesting();
+  _resetBumpChartStorageCacheForTesting();
   _clearToolsPreferencesForTesting();
-  _clearBumpChartStorageForTesting();
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root.unmount());
+  await flushBumpChartStorageWrites();
   container.remove();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -113,6 +121,7 @@ describe('BumpChartPanel staging flow', () => {
           onOpenStaff={vi.fn()}
         />,
       );
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
     const cards = container.querySelectorAll('.bump-chart-import-card');
@@ -141,6 +150,7 @@ describe('BumpChartPanel staging flow', () => {
           onOpenStaff={vi.fn()}
         />,
       );
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
     await act(async () => {
       button('Import ranked items').click();
@@ -167,6 +177,7 @@ describe('BumpChartPanel staging flow', () => {
         new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
       );
       root.unmount();
+      await flushBumpChartStorageWrites();
     });
     root = createRoot(container);
     await act(async () => {
@@ -177,6 +188,7 @@ describe('BumpChartPanel staging flow', () => {
           onOpenStaff={vi.fn()}
         />,
       );
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
     await act(async () => {
       button('Import ranked items').click();
@@ -729,6 +741,7 @@ describe('BumpChartPanel staging flow', () => {
 
     await act(async () => {
       root.unmount();
+      await flushBumpChartStorageWrites();
     });
     root = createRoot(container);
     await act(async () => {
@@ -739,6 +752,7 @@ describe('BumpChartPanel staging flow', () => {
           onOpenStaff={vi.fn()}
         />,
       );
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(container.querySelector('.bump-chart-grid')).not.toBeNull();
     expect(container.textContent).toContain('Autosaved before');
@@ -786,6 +800,7 @@ describe('BumpChartPanel staging flow', () => {
     });
     await act(async () => {
       button('Save chart').click();
+      await flushBumpChartStorageWrites();
     });
     await act(async () => {
       button('Clear chart').click();
@@ -813,6 +828,7 @@ describe('BumpChartPanel staging flow', () => {
     });
     await act(async () => {
       button('Confirm delete').click();
+      await flushBumpChartStorageWrites();
     });
     expect(container.querySelector('.bump-chart-saved-charts')).toBeNull();
   });

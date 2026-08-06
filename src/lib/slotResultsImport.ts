@@ -1,6 +1,5 @@
 import { getRanking } from './engine';
 import {
-  isAutosaveAvailable,
   readManifest,
   readSlotBlob,
   type AutosaveBlob,
@@ -160,7 +159,6 @@ export function listSlotImportEntries(
 export function listSlotImportEntriesFromStorage(
   options?: SlotImportOptions,
 ): SlotImportEntry[] {
-  if (!isAutosaveAvailable()) return [];
   return listSlotImportEntries(readManifest(), options);
 }
 

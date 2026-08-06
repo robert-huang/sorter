@@ -68,9 +68,9 @@ import {
   downloadSave,
   flushAutosave,
   importAllSlots,
-  isAutosaveAvailable,
+  initializeSorterStorage,
+  isStatePersistenceAvailable,
   loadSaveFromFile,
-  MANIFEST_KEY,
   consumeManifestRepairNotice,
   discardPendingAutosave,
   migrateLegacyIfNeeded,
@@ -78,12 +78,12 @@ import {
   primeActiveSlot,
   repairManifestIfCorrupt,
   SLOT_CAP,
-  slotBlobKey,
+  refreshSorterStorageFromIndexedDb,
   findSlotByCloudId,
   readManifest,
   readSettings,
   readSlotBlob,
-  isHarmlessCrossTabSlotBlobWrite,
+  autosaveBlobsEqual,
   persistCanonicalBlobOnLoad,
   pinSlot,
   renameSlot,
@@ -103,6 +103,11 @@ import {
   updateSettings,
   type ThemeName,
 } from './lib/storage';
+import {
+  STATE_REVISION_KEY,
+  getStateStorageStatus,
+  getStateWriterId,
+} from './lib/stateStorageDb';
 import type { SlotMeta } from './lib/types';
 import { AppBannerStack } from './components/AppBannerStack';
 import { RemoveGlyph } from './components/RemoveGlyph';
@@ -244,7 +249,10 @@ function bootRead(): { manifest: SlotsManifest } {
 }
 
 export function App() {
-  const [autosaveOn] = useState(() => isAutosaveAvailable());
+  const [autosaveOn, setAutosaveOn] = useState(false);
+  const [stateStorageMessage, setStateStorageMessage] = useState<string | null>(
+    null,
+  );
   const [state, setState] = useState<SortState | null>(null);
   const stateRef = useRef<SortState | null>(null);
   stateRef.current = state;
@@ -466,27 +474,24 @@ export function App() {
   // always returns the user to START; the "Resume last used" CTA or the
   // gear-menu slot list re-enters a sort explicitly.
   useEffect(() => {
-    const { manifest: m } = bootRead();
-    setManifest(m);
-    // If the manifest was corrupt and we just rebuilt it, surface the
-    // recovery so the user knows their slots are still there (possibly
-    // renamed by the autoname heuristic since original metadata is lost).
-    const repairCount = consumeManifestRepairNotice();
-    if (repairCount !== null) {
-      if (repairCount > 0) {
+    let cancelled = false;
+    void initializeSorterStorage().then(() => {
+      if (cancelled) return;
+      const { manifest: m } = bootRead();
+      setManifest(m);
+      setAutosaveOn(isStatePersistenceAvailable());
+      const status = getStateStorageStatus();
+      setStateStorageMessage(status.persistent ? null : status.error);
+      const repairCount = consumeManifestRepairNotice();
+      if (repairCount !== null && repairCount > 0) {
         flashSkipped(
           `Slot list was corrupted; rebuilt ${repairCount} slot${repairCount === 1 ? '' : 's'} from backup data. Names may differ — rename as needed.`,
         );
-      } else {
-        flashSkipped(
-          'Slot list was corrupted but no recoverable blobs were found. Starting fresh.',
-        );
       }
-    }
-    // flashSkipped is a stable useCallback (deps=[]) so referencing it
-    // here from a once-only boot effect is safe; exhaustive-deps would
-    // force this effect to re-run on flashSkipped identity changes
-    // (which it never does) so we suppress.
+    });
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -654,27 +659,38 @@ export function App() {
   // working a different slot while activeId tracks the last global writer.
   useEffect(() => {
     function onStorage(e: StorageEvent): void {
-      if (!e.key) return;
-      if (e.key === MANIFEST_KEY) {
-        setManifest(readManifest());
+      if (e.key !== STATE_REVISION_KEY || !e.newValue) return;
+      let revision:
+        | { scope?: string; id?: string; source?: string }
+        | undefined;
+      try {
+        revision = JSON.parse(e.newValue) as typeof revision;
+      } catch {
         return;
       }
-      if (!e.key.startsWith('sorter:slot:')) return;
+      if (
+        revision?.scope !== 'sorter' ||
+        revision.source === getStateWriterId()
+      ) {
+        return;
+      }
+      void refreshSorterStorageFromIndexedDb().then((nextManifest) => {
+        setManifest(nextManifest);
       const slotId = loadedSlotIdRef.current;
-      if (!slotId || e.key !== slotBlobKey(slotId)) return;
+        if (!slotId || (revision?.id && revision.id !== slotId)) return;
 
       const cur = stateRef.current;
-      if (
-        cur &&
-        isHarmlessCrossTabSlotBlobWrite(
-          buildBlob(cur, undoRingRef.current),
-          e.newValue,
-        )
-      ) {
+        const diskBlob = readSlotBlob(slotId);
+        if (
+          cur &&
+          diskBlob &&
+          autosaveBlobsEqual(buildBlob(cur, undoRingRef.current), diskBlob)
+        ) {
         return;
       }
 
       setMultitabStaleSlotId((prev) => prev ?? slotId);
+      });
     }
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
@@ -2695,10 +2711,11 @@ export function App() {
     <ItemDetailContext.Provider value={openItemDetail}>
     <div className="app-shell">
       <AppBannerStack>
-      {!autosaveOn && (
+      {!autosaveOn && stateStorageMessage && (
         <div className="app-banner">
-          Autosave is disabled (this page is open from a <code>file://</code>{' '}
-          URL). Use the Download button to keep progress.
+          Persistent storage is unavailable: {stateStorageMessage} Existing
+          browser data was left untouched; this tab is running in memory-only
+          mode.
         </div>
       )}
       {autosaveError && (

@@ -8,8 +8,8 @@ This inventory describes where the app stores data and why. For when data is ref
 |---|---|---|
 | React state / in-memory maps | Current tab's memory | Render state, session memos, prepared Spotify matching indexes, and other data that can disappear on reload |
 | `sessionStorage` | Current browser tab | Per-tab writer identity and temporary OAuth state |
-| `localStorage` | Browser, shared by tabs on the same origin | Small settings, selected IDs, OAuth credentials, tool forms, sort-slot data, and a few TTL caches |
-| IndexedDB | Browser, shared by tabs on the same origin | Large Spotify playlist metadata and reusable Spotify track-to-ISRC records |
+| `localStorage` | Browser, shared by tabs on the same origin | Small settings, active IDs, migration/revision markers, OAuth credentials, tool forms, and a few TTL caches |
+| IndexedDB | Browser, shared by tabs on the same origin | Sorter slot payloads/manifests, Bump Chart workspaces/manifests, Spotify playlist metadata, and reusable Spotify track-to-ISRC records |
 | SQLite/WASM in OPFS | Browser's Origin Private File System | Durable AniList source data: media, lists, favourites, cast, staff, relations, theme songs, and completion markers |
 | Google Drive | User's cloud account | Optional backups of sort slots and SQLite source database files |
 | DynamoDB | Not used | There is no DynamoDB client, table, infrastructure, or data path in this repository |
@@ -37,7 +37,24 @@ An IndexedDB database contains **object stores**, which are similar to key-value
 - Quota is browser-managed and normally much larger than the small fixed `localStorage` allowance, but it is not unlimited.
 - Clearing site data removes it. We do not currently request persistent-storage protection with `navigator.storage.persist()`.
 
-### Our IndexedDB layout
+### Shared sorter and Bump Chart state
+
+Database: `queue-sorter-state`
+Schema version: `1`
+
+| Object store | Record key | Stored value |
+|---|---|---|
+| `sorterSlots` | Sorter slot ID | Complete versioned sorter save: items, progress, and undo ring |
+| `bumpWorkspaces` | `active` or named-chart ID | Active Bump Chart workspace or a named chart record |
+| `metadata` | `sorterManifest`, `bumpManifest`, and migration records | Sorter and Bump Chart slot metadata needed to list and repair records |
+
+`src/lib/stateStorageDb.ts` owns this database. Record-plus-manifest changes use one transaction, and sorter autosaves are serialized so an older async write cannot finish after a newer one. Named Bump Chart save, replacement, and deletion also update the payload and manifest atomically.
+
+The database is hydrated into in-memory maps before consumers read it. Bump Chart autosave does not begin until hydration completes, preventing an empty initial React render from overwriting an existing workspace.
+
+After each durable change, the writer updates the small `sorter:state-revision:v1` localStorage stamp. Other tabs use that event as a hint to reload the affected IndexedDB records. IndexedDB itself does not emit cross-tab storage events.
+
+### Spotify cache database
 
 Database: `queue-sorter-spotify`  
 Schema version: `1`
@@ -72,7 +89,23 @@ Theme-song matching does **not** query IndexedDB once per song. At startup:
 
 This keeps rendering and matching fast while IndexedDB handles cross-reload persistence.
 
-### Migration from localStorage
+### Sorter and Bump Chart migration from localStorage
+
+The following large keys are migration-only:
+
+- `sorter:v1`
+- `sorter:slots:v1`
+- `sorter:slot:<id>:v1`
+- `sorter:slot:<id>:writer:v1`
+- `tools:bump-chart:workspace:v1`
+- `tools:bump-chart:saved-manifest:v1`
+- `tools:bump-chart:saved:v1:<id>`
+
+Startup parses legacy records, commits all valid payloads to IndexedDB, records an internal transaction marker, then writes the small schema/active-ID keys and removes the old large keys. If startup is interrupted after the transaction, the internal marker prevents stale localStorage data from overwriting the committed records; the next startup only finishes marker/cleanup work.
+
+A blocked database upgrade is retried. If IndexedDB definitively cannot open, the app leaves every legacy key untouched, uses an in-memory store for the current tab, and displays a persistence warning. Durable writes that exhaust quota keep current tab state and surface the existing storage warning; sorter recovery still tries cache purge, undo trimming, and eligible inactive-slot eviction.
+
+### Spotify migration from localStorage
 
 These former `localStorage` records are migration-only:
 
@@ -138,17 +171,16 @@ OPFS stores the SQLite file locally. It does not send data to a server. If anoth
 
 `localStorage` is synchronous, string-only, origin-wide, and usually has a small browser-defined quota. Every value must be serialized to a string. It is suitable for small records needed immediately during startup, but it is a poor fit for large or growing caches.
 
-### User sort data
+### Retained state coordination keys
 
 | Key or prefix | Contents |
 |---|---|
-| `sorter:slots:v1` | Slot manifest, active slot, names, timestamps, pin/cloud metadata |
-| `sorter:slot:<id>:v1` | Complete sort save blob: items, progress, and undo ring |
-| `sorter:slot:<id>:writer:v1` | Last tab writer stamp |
+| `sorter:active-slot-id:v1` | Active sorter slot ID |
+| `sorter:state-schema:v1` | Completed state-storage migration version |
+| `sorter:state-revision:v1` | Small cross-tab reload hint written after durable transactions |
 | `sorter:settings:v1` | Sorter settings |
-| `sorter:v1` | Legacy single-sort migration input |
 
-Sort slots remain in `localStorage`. They have quota recovery that trims the active undo ring and can evict the oldest unpinned inactive slot, but disposable tool caches are now purged first.
+Sorter and Bump Chart payloads and manifests do not remain in `localStorage`; the old keys are read only during migration.
 
 ### Authentication and cloud metadata
 
@@ -189,7 +221,7 @@ See [AniList query lifecycle](./ANILIST_QUERY_LIFECYCLE.md) for the exact refres
 
 It stores:
 
-- `sorter:tab-writer-id:v1` for multi-tab sort-write attribution
+- `sorter:state-writer-id:v1` for cross-tab revision attribution
 - temporary OAuth nonce/PKCE state where a flow only needs it for the current tab
 
 It is not used for durable caches.

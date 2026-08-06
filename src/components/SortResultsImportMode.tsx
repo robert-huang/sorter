@@ -12,7 +12,11 @@ import {
   type SlotImportExcludedRows,
   type SlotImportOverlayMap,
 } from '../lib/slotResultsImport';
-import { isAutosaveAvailable, MANIFEST_KEY } from '../lib/storage';
+import {
+  isStatePersistenceAvailable,
+  refreshSorterStorageFromIndexedDb,
+} from '../lib/storage';
+import { STATE_REVISION_KEY } from '../lib/stateStorageDb';
 import type { Item } from '../lib/types';
 import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
 import { RemoveGlyph } from './RemoveGlyph';
@@ -140,9 +144,16 @@ export function SortResultsImportMode({
 
   useEffect(() => {
     function onStorage(e: StorageEvent): void {
-      if (!e.key || e.key === MANIFEST_KEY || e.key.startsWith('sorter:slot:')) {
-        setRevision((r) => r + 1);
+      if (e.key !== STATE_REVISION_KEY || !e.newValue) return;
+      try {
+        const change = JSON.parse(e.newValue) as { scope?: string };
+        if (change.scope !== 'sorter') return;
+      } catch {
+        return;
       }
+      void refreshSorterStorageFromIndexedDb().then(() => {
+        setRevision((r) => r + 1);
+      });
     }
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
@@ -443,13 +454,13 @@ export function SortResultsImportMode({
     return `Add ${addableCount} item${addableCount === 1 ? '' : 's'}`;
   })();
 
-  if (!isAutosaveAvailable()) {
+  if (!isStatePersistenceAvailable()) {
     return (
       <div className={embedded ? 'sort-results-import-embedded' : 'page-section'}>
         {!embedded && <h2>Sort results</h2>}
         <p className="csv-hint">
-          No saved slots — autosave is unavailable on <code>file://</code>.
-          Download a slot JSON backup and use Load save file… instead.
+          Persistent browser storage is unavailable. Download a slot JSON
+          backup and use Load save file… instead.
         </p>
       </div>
     );

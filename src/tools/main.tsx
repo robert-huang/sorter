@@ -6,6 +6,7 @@ import { installDbPageLifecycle } from '../lib/db/dbPageLifecycle';
 import '../styles.css';
 import { ToolsApp } from './ToolsApp';
 import { applyAnimeToAnimeTheme, loadAnimeToAnimeTheme } from '../animeToAnime/theme';
+import { initializeSorterStorage } from '../lib/storage';
 
 registerDefaultCloudProvider(() => new GoogleDriveProvider());
 
@@ -20,8 +21,10 @@ if (!root) {
   throw new Error('Missing #root');
 }
 
-createRoot(root).render(
-  <StrictMode>
-    <ToolsApp />
-  </StrictMode>,
-);
+void initializeSorterStorage().finally(() => {
+  createRoot(root).render(
+    <StrictMode>
+      <ToolsApp />
+    </StrictMode>,
+  );
+});

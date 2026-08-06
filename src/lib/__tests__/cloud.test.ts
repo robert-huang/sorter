@@ -4,9 +4,11 @@ import {
   AUTOSAVE_DEBOUNCE_MS,
   _clearPostWriteListeners,
   _resetAvailabilityCache,
+  _resetSorterStorageCacheForTesting,
   clearCloudBinding,
   createSlot,
   flushAutosave,
+  flushStateStorageWrites,
   primeActiveSlot,
   readManifest,
   scheduleAutosave,
@@ -15,6 +17,7 @@ import {
   setCloudPushed,
   subscribeAfterWrite,
 } from '../storage';
+import { _resetStateStorageForTesting } from '../stateStorageDb';
 import type {
   AuthState,
   CloudProvider,
@@ -122,16 +125,20 @@ class StubProvider implements CloudProvider {
   }
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await flushStateStorageWrites();
   window.localStorage.clear();
   window.sessionStorage.clear();
+  await _resetStateStorageForTesting();
+  _resetSorterStorageCacheForTesting();
   _resetAvailabilityCache();
   primeActiveSlot();
   _clearPostWriteListeners();
   _resetCloudProviderForTesting();
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await flushStateStorageWrites();
   window.localStorage.clear();
   window.sessionStorage.clear();
   _resetCloudProviderForTesting();
@@ -266,12 +273,12 @@ describe('subscribeAfterWrite', () => {
     // the autosave write path — the seam is for autosave specifically.
     // Trigger an autosave write by scheduling + flushing.
     scheduleAutosave(makeBlob(2));
-    flushAutosave();
+    await flushAutosave();
     expect(calls.length).toBeGreaterThanOrEqual(1);
     expect(calls[calls.length - 1]).toBe(result!.meta.id);
   });
 
-  it('isolates listener exceptions so a broken subscriber cannot break the write path', () => {
+  it('isolates listener exceptions so a broken subscriber cannot break the write path', async () => {
     subscribeAfterWrite(() => {
       throw new Error('subscriber boom');
     });
@@ -281,7 +288,7 @@ describe('subscribeAfterWrite', () => {
     expect(result).not.toBeNull();
     scheduleAutosave(makeBlob(2));
     // Should not throw.
-    expect(() => flushAutosave()).not.toThrow();
+    await expect(flushAutosave()).resolves.toBeUndefined();
     // The good subscriber still fired.
     expect(ok[ok.length - 1]).toBe(result!.meta.id);
   });

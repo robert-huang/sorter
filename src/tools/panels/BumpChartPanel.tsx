@@ -45,7 +45,9 @@ import {
 import {
   BUMP_CHART_SLOT_LIMIT,
   deleteSavedBumpChart,
+  initializeBumpChartStorage,
   listSavedBumpCharts,
+  refreshBumpChartStorage,
   loadActiveBumpChartWorkspace,
   loadSavedBumpChart,
   saveActiveBumpChartWorkspace,
@@ -55,6 +57,11 @@ import {
   type SaveNamedBumpChartResult,
   type SavedBumpChartMeta,
 } from './bumpChartStorage';
+import {
+  STATE_REVISION_KEY,
+  getStateStorageStatus,
+  getStateWriterId,
+} from '../../lib/stateStorageDb';
 
 type ChartSide = 'left' | 'right';
 
@@ -1442,14 +1449,21 @@ function SaveBumpChartModal({
   onSave,
 }: {
   onCancel: () => void;
-  onSave: (name: string, replaceId?: string) => SaveNamedBumpChartResult;
+  onSave: (
+    name: string,
+    replaceId?: string,
+  ) => Promise<SaveNamedBumpChartResult>;
 }) {
   const [name, setName] = useState('');
   const [replace, setReplace] = useState<SavedBumpChartMeta | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const commit = (): void => {
-    const result = onSave(name, replace?.id);
+  const [saving, setSaving] = useState(false);
+
+  const commit = async (): Promise<void> => {
+    setSaving(true);
+    const result = await onSave(name, replace?.id);
+    setSaving(false);
     if (result.status === 'exists') {
       setReplace(result.meta);
       setError(
@@ -1479,7 +1493,7 @@ function SaveBumpChartModal({
           }}
           onKeyDown={(event) => {
             if (event.key === 'Enter' && name.trim()) {
-              commit();
+              void commit();
             }
           }}
         />
@@ -1492,8 +1506,8 @@ function SaveBumpChartModal({
         <button
           type="button"
           className="btn primary"
-          disabled={!name.trim()}
-          onClick={commit}
+          disabled={!name.trim() || saving}
+          onClick={() => void commit()}
         >
           {replace ? 'Replace chart' : 'Save chart'}
         </button>
@@ -1575,7 +1589,6 @@ function SavedBumpCharts({
 }
 
 export function BumpChartPanel(panelProps: ToolPanelProps) {
-  const [initialWorkspace] = useState(loadActiveBumpChartWorkspace);
   const displayLabelRevision = useToolsDisplayLabelRevision();
   const {
     prefs: toolsPreferences,
@@ -1585,78 +1598,151 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
     (item: Item) => openItemDetail(item, panelProps),
     [panelProps.onOpenMedia, panelProps.onOpenStaff],
   );
-  const [before, setBefore] = useState<BumpSideDraft>(() =>
-    initialWorkspace?.view === 'staging'
-      ? draftFromSnapshot(initialWorkspace.before, 'Restored workspace')
-      : EMPTY_DRAFT,
-  );
-  const [after, setAfter] = useState<BumpSideDraft>(() =>
-    initialWorkspace?.view === 'staging'
-      ? draftFromSnapshot(initialWorkspace.after, 'Restored workspace')
-      : EMPTY_DRAFT,
-  );
+  const [before, setBefore] = useState<BumpSideDraft>(EMPTY_DRAFT);
+  const [after, setAfter] = useState<BumpSideDraft>(EMPTY_DRAFT);
   const [importSide, setImportSide] = useState<ChartSide | null>(null);
-  const [importTab, setImportTab] = useState<AddItemsModalTab>(
-    initialWorkspace?.lastImportTab ?? 'single',
-  );
-  const [chart, setChart] = useState<GeneratedBumpChart | null>(() =>
-    initialWorkspace?.view === 'chart'
-      ? chartFromSnapshot(initialWorkspace)
-      : null,
-  );
+  const [importTab, setImportTab] = useState<AddItemsModalTab>('single');
+  const [chart, setChart] = useState<GeneratedBumpChart | null>(null);
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
   const [pendingImports, setPendingImports] = useState(0);
   const [importError, setImportError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [storageError, setStorageError] = useState<string | null>(null);
-  const [savedCharts, setSavedCharts] = useState<SavedBumpChartMeta[]>(
-    listSavedBumpCharts,
-  );
+  const [savedCharts, setSavedCharts] = useState<SavedBumpChartMeta[]>([]);
+  const [storageHydrated, setStorageHydrated] = useState(false);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [deletingSavedId, setDeletingSavedId] = useState<string | null>(null);
   const chartRef = useRef<HTMLDivElement>(null);
-  const skippedInitialAutosave = useRef(false);
+  const latestWorkspaceRef = useRef<BumpChartWorkspaceSnapshot | null>(null);
+  const importTabTouchedBeforeHydration = useRef(false);
+  if (
+    storageHydrated ||
+    before.groups.length > 0 ||
+    after.groups.length > 0 ||
+    chart !== null ||
+    importTab !== 'single'
+  ) {
+    latestWorkspaceRef.current = workspaceFromState(
+      before,
+      after,
+      chart,
+      toolsPreferences.bumpChartBestMatchByTitle,
+      importTab,
+    );
+  }
 
   useEffect(() => {
-    if (
-      initialWorkspace &&
-      initialWorkspace.bestMatchByTitle !==
-        toolsPreferences.bumpChartBestMatchByTitle
-    ) {
-      setBumpChartBestMatchByTitle(initialWorkspace.bestMatchByTitle);
-    }
+    let cancelled = false;
+    void initializeBumpChartStorage().then(() => {
+      if (cancelled) return;
+      const workspace = loadActiveBumpChartWorkspace();
+      if (workspace?.view === 'staging') {
+        setBefore(draftFromSnapshot(workspace.before, 'Restored workspace'));
+        setAfter(draftFromSnapshot(workspace.after, 'Restored workspace'));
+        setChart(null);
+      } else if (workspace) {
+        setBefore(EMPTY_DRAFT);
+        setAfter(EMPTY_DRAFT);
+        setChart(chartFromSnapshot(workspace));
+      }
+      if (workspace) {
+        if (!importTabTouchedBeforeHydration.current) {
+          setImportTab(workspace.lastImportTab);
+        }
+        if (
+          workspace.bestMatchByTitle !==
+          toolsPreferences.bumpChartBestMatchByTitle
+        ) {
+          setBumpChartBestMatchByTitle(workspace.bestMatchByTitle);
+        }
+      }
+      setSavedCharts(listSavedBumpCharts());
+      const status = getStateStorageStatus();
+      setStorageError(
+        status.persistent
+          ? null
+          : `Persistent storage is unavailable: ${status.error ?? 'unknown error'}. This tab is using memory-only mode.`,
+      );
+      setStorageHydrated(true);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
-    if (!skippedInitialAutosave.current) {
-      skippedInitialAutosave.current = true;
-      if (
-        initialWorkspace &&
-        initialWorkspace.bestMatchByTitle !==
-          toolsPreferences.bumpChartBestMatchByTitle
-      ) {
-        return;
-      }
-    }
-    const result = saveActiveBumpChartWorkspace(
-      workspaceFromState(
-        before,
-        after,
-        chart,
-        toolsPreferences.bumpChartBestMatchByTitle,
-        importTab,
-      ),
+    if (!storageHydrated) return;
+    const snapshot = workspaceFromState(
+      before,
+      after,
+      chart,
+      toolsPreferences.bumpChartBestMatchByTitle,
+      importTab,
     );
-    setStorageError(result.ok ? null : result.error);
+    latestWorkspaceRef.current = snapshot;
+    const timer = window.setTimeout(() => {
+      void saveActiveBumpChartWorkspace(snapshot).then((result) => {
+        setStorageError(result.ok ? null : result.error);
+      });
+    }, 300);
+    return () => window.clearTimeout(timer);
   }, [
     after,
     before,
     chart,
     importTab,
-    initialWorkspace,
+    storageHydrated,
     toolsPreferences.bumpChartBestMatchByTitle,
   ]);
+
+  useEffect(
+    () => () => {
+      if (latestWorkspaceRef.current) {
+        void saveActiveBumpChartWorkspace(latestWorkspaceRef.current);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    function onStorage(event: StorageEvent): void {
+      if (event.key !== STATE_REVISION_KEY || !event.newValue) return;
+      let revision:
+        | { scope?: string; id?: string; source?: string }
+        | undefined;
+      try {
+        revision = JSON.parse(event.newValue) as typeof revision;
+      } catch {
+        return;
+      }
+      if (
+        revision?.scope !== 'bump' ||
+        revision.source === getStateWriterId()
+      ) {
+        return;
+      }
+      void refreshBumpChartStorage().then(() => {
+        setSavedCharts(listSavedBumpCharts());
+        if (revision?.id !== 'active') return;
+        const workspace = loadActiveBumpChartWorkspace();
+        if (!workspace) return;
+        setImportTab(workspace.lastImportTab);
+        setBumpChartBestMatchByTitle(workspace.bestMatchByTitle);
+        if (workspace.view === 'chart') {
+          setBefore(EMPTY_DRAFT);
+          setAfter(EMPTY_DRAFT);
+          setChart(chartFromSnapshot(workspace));
+        } else {
+          setBefore(draftFromSnapshot(workspace.before, 'Restored workspace'));
+          setAfter(draftFromSnapshot(workspace.after, 'Restored workspace'));
+          setChart(null);
+        }
+      });
+    }
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [setBumpChartBestMatchByTitle]);
 
   const appendGroup = useCallback(
     async (
@@ -1946,14 +2032,14 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
     setDeletingSavedId(null);
   };
 
-  const saveCurrentChart = (
+  const saveCurrentChart = async (
     name: string,
     replaceId?: string,
-  ): SaveNamedBumpChartResult => {
+  ): Promise<SaveNamedBumpChartResult> => {
     if (!chart) {
       return { status: 'error', error: 'There is no generated chart to save.' };
     }
-    const result = saveNamedBumpChart(
+    const result = await saveNamedBumpChart(
       name,
       workspaceFromState(
         before,
@@ -1973,7 +2059,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
   };
 
   const deleteNamedChart = (id: string): void => {
-    const result = deleteSavedBumpChart(id);
+    void deleteSavedBumpChart(id).then((result) => {
     if (result.ok) {
       setSavedCharts(listSavedBumpCharts());
       setDeletingSavedId(null);
@@ -1981,6 +2067,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
     } else {
       setStorageError(result.error);
     }
+    });
   };
 
   const exportPng = async (): Promise<void> => {
@@ -2161,7 +2248,10 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
           dbSyncRevision={panelProps.dbSyncRevision}
           forcePreRanked
           initialTab={importTab}
-          onTabChange={setImportTab}
+          onTabChange={(tab) => {
+            importTabTouchedBeforeHydration.current = true;
+            setImportTab(tab);
+          }}
           onCancel={closeImporter}
           {...importCallbacks}
         />

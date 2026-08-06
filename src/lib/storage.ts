@@ -10,11 +10,24 @@ import type {
 } from './types';
 import { normalizeConfirmationProgress } from './confirmationSort';
 import { activeSortItemCount } from './sortPopulation';
+import {
+  ACTIVE_SORTER_SLOT_KEY,
+  SORTER_SLOT_STORE,
+  STATE_METADATA_STORE,
+  commitStateChanges,
+  getStateStorageStatus,
+  initializeStateStorage,
+  readAllStateEntries,
+  readStateRecord,
+  stateStorageRecordKeys,
+  type StateStorageChange,
+} from './stateStorageDb';
+import {
+  isLegacySorterManifest,
+  isLegacySorterSaveFile,
+} from './stateStorageValidation';
 
 // ---------- keys ----------
-
-/** Legacy single-blob key. Read only by the migration path. */
-const LEGACY_LOCAL_KEY = 'sorter:v1';
 
 /** Manifest holding the list of slots + which one is active. */
 export const MANIFEST_KEY = 'sorter:slots:v1';
@@ -22,46 +35,6 @@ export const MANIFEST_KEY = 'sorter:slots:v1';
 /** Per-slot full save file lives here. */
 export function slotBlobKey(id: string): string {
   return `sorter:slot:${id}:v1`;
-}
-
-/** Per-tab writer stamp — paired with each slot blob write for multitab filtering. */
-export function slotBlobWriterKey(id: string): string {
-  return `sorter:slot:${id}:writer:v1`;
-}
-
-const TAB_WRITER_ID_KEY = 'sorter:tab-writer-id:v1';
-
-/** Stable id for this browser tab (sessionStorage — not shared across tabs). */
-export function getTabWriterId(): string {
-  if (typeof window === 'undefined') return 'ssr';
-  try {
-    let id = window.sessionStorage.getItem(TAB_WRITER_ID_KEY);
-    if (!id) {
-      id =
-        typeof crypto !== 'undefined' && 'randomUUID' in crypto
-          ? crypto.randomUUID()
-          : `tab-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      window.sessionStorage.setItem(TAB_WRITER_ID_KEY, id);
-    }
-    return id;
-  } catch {
-    return `tab-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  }
-}
-
-export function readSlotBlobWriterId(id: string): string | null {
-  if (!isAutosaveAvailable()) return null;
-  try {
-    return window.localStorage.getItem(slotBlobWriterKey(id));
-  } catch {
-    return null;
-  }
-}
-
-/** True when the latest disk write for this slot came from this tab. */
-export function isOwnTabSlotBlobWrite(slotId: string): boolean {
-  const writer = readSlotBlobWriterId(slotId);
-  return writer !== null && writer === getTabWriterId();
 }
 
 export const SETTINGS_KEY = 'sorter:settings:v1';
@@ -242,31 +215,173 @@ function emptyManifest(): SlotsManifest {
   return { version: 1, activeId: null, slots: [] };
 }
 
-/**
- * Read the manifest. Returns an empty manifest on miss or corrupt JSON.
- * Never throws.
- *
- * Note: corruption is normally handled at boot by
- * `repairManifestIfCorrupt()`, which scans the slot-blob keys directly
- * and rebuilds a fresh manifest. This function is the defensive last
- * resort — by the time we get here, the repair has either succeeded
- * (so the manifest is valid) or there are no slot blobs to recover.
- * Returning empty is safe either way; the App will just show "No
- * saved sorts yet" instead of crashing.
- */
-export function readManifest(): SlotsManifest {
-  if (!isAutosaveAvailable()) return emptyManifest();
-  try {
-    const raw = window.localStorage.getItem(MANIFEST_KEY);
-    if (!raw) return emptyManifest();
-    const parsed = JSON.parse(raw) as SlotsManifest;
-    if (parsed.version !== 1 || !Array.isArray(parsed.slots)) {
-      return emptyManifest();
-    }
-    return parsed;
-  } catch {
-    return emptyManifest();
+let manifestCache: SlotsManifest = emptyManifest();
+const slotBlobCache = new Map<string, AutosaveBlob>();
+let sorterStorageInitialized = false;
+let stateWriteQueue: Promise<void> = Promise.resolve();
+
+function queueStateWrite(
+  changes: Parameters<typeof commitStateChanges>[0],
+  id?: string,
+): Promise<void> {
+  stateWriteQueue = stateWriteQueue
+    .then(() => commitStateChanges(changes, { scope: 'sorter', id }))
+    .catch((error: unknown) => {
+      console.warn('sorter state write failed', error);
+      notifyError({
+        reason:
+          error instanceof DOMException && error.name === 'QuotaExceededError'
+            ? 'quota'
+            : 'other',
+        attemptedAt: new Date().toISOString(),
+        slotCount: manifestCache.slots.length,
+      });
+    });
+  return stateWriteQueue;
+}
+
+function parseSlotFile(value: unknown): AutosaveBlob | null {
+  if (!isLegacySorterSaveFile(value)) return null;
+  const file = value as Partial<SaveFile>;
+  return {
+    items: file.items!,
+    progress: upgradeProgress(file.progress!),
+    undoRing: (file.undoRing ?? []).map(upgradeProgress),
+  };
+}
+
+function sorterManifestRecord(manifest: SlotsManifest): Omit<SlotsManifest, 'activeId'> {
+  return { version: 1, slots: manifest.slots };
+}
+
+export async function initializeSorterStorage(): Promise<void> {
+  if (sorterStorageInitialized) return;
+  await initializeStateStorage();
+
+  const storedManifest = await readStateRecord<Partial<SlotsManifest>>(
+    STATE_METADATA_STORE,
+    stateStorageRecordKeys.sorterManifest,
+  );
+  const manifestWasCorrupt =
+    storedManifest !== undefined && !isLegacySorterManifest(storedManifest);
+  const activeId = localStorage.getItem(ACTIVE_SORTER_SLOT_KEY);
+  manifestCache =
+    isLegacySorterManifest(storedManifest)
+      ? {
+          version: 1,
+          activeId,
+          slots: storedManifest.slots,
+        }
+      : { ...emptyManifest(), activeId };
+
+  slotBlobCache.clear();
+  for (const [key, value] of await readAllStateEntries<unknown>(
+    SORTER_SLOT_STORE,
+  )) {
+    const blob = parseSlotFile(value);
+    if (blob) slotBlobCache.set(String(key), blob);
   }
+
+  const legacySingle = await readStateRecord<unknown>(
+    STATE_METADATA_STORE,
+    stateStorageRecordKeys.legacySorterSingle,
+  );
+  const legacyBlob = parseSlotFile(legacySingle);
+  if (legacyBlob && manifestCache.slots.length === 0) {
+    const id = newSlotId();
+    const now = new Date().toISOString();
+    const file = legacySingle as Partial<SaveFile>;
+    const meta: SlotMeta = {
+      id,
+      name: autoNameFromBlob(legacyBlob),
+      createdAt: file.createdAt ?? now,
+      updatedAt: now,
+      totalItems: visibleItemCount(legacyBlob),
+      comparisons: legacyBlob.progress.comparisons,
+      done: legacyBlob.progress.done,
+    };
+    manifestCache = { version: 1, activeId: id, slots: [meta] };
+    slotBlobCache.set(id, legacyBlob);
+    localStorage.setItem(ACTIVE_SORTER_SLOT_KEY, id);
+    await commitStateChanges(
+      [
+        {
+          type: 'put',
+          store: SORTER_SLOT_STORE,
+          key: id,
+          value: buildSaveFile(legacyBlob),
+        },
+        {
+          type: 'put',
+          store: STATE_METADATA_STORE,
+          key: stateStorageRecordKeys.sorterManifest,
+          value: sorterManifestRecord(manifestCache),
+        },
+        {
+          type: 'delete',
+          store: STATE_METADATA_STORE,
+          key: stateStorageRecordKeys.legacySorterSingle,
+        },
+      ],
+      { scope: 'sorter', id },
+    );
+  }
+
+  const knownIds = new Set(slotBlobCache.keys());
+  const validSlots = manifestCache.slots.filter((slot) => knownIds.has(slot.id));
+  const originalSlotCount = validSlots.length;
+  for (const id of knownIds) {
+    if (!validSlots.some((slot) => slot.id === id)) {
+      validSlots.push(synthesizeMetaFromBlob(id, slotBlobCache.get(id)!));
+    }
+  }
+  if (validSlots.length !== manifestCache.slots.length) {
+    manifestCache = { ...manifestCache, slots: validSlots };
+    await commitStateChanges([
+      {
+        type: 'put',
+        store: STATE_METADATA_STORE,
+        key: stateStorageRecordKeys.sorterManifest,
+        value: sorterManifestRecord(manifestCache),
+      },
+    ]);
+  }
+  if (manifestWasCorrupt) {
+    lastRepairCount = validSlots.length;
+  } else if (validSlots.length > originalSlotCount) {
+    lastRepairCount = validSlots.length - originalSlotCount;
+  }
+  if (
+    manifestCache.activeId &&
+    !manifestCache.slots.some((slot) => slot.id === manifestCache.activeId)
+  ) {
+    manifestCache.activeId = null;
+    localStorage.removeItem(ACTIVE_SORTER_SLOT_KEY);
+  }
+  currentActiveId = manifestCache.activeId;
+  sorterStorageInitialized = true;
+}
+
+export async function refreshSorterStorageFromIndexedDb(): Promise<SlotsManifest> {
+  sorterStorageInitialized = false;
+  await initializeSorterStorage();
+  return readManifest();
+}
+
+export async function flushStateStorageWrites(): Promise<void> {
+  await stateWriteQueue;
+}
+
+export function isStatePersistenceAvailable(): boolean {
+  return getStateStorageStatus().persistent;
+}
+
+/** Read a defensive copy of the manifest hydrated from IndexedDB. */
+export function readManifest(): SlotsManifest {
+  return {
+    ...manifestCache,
+    slots: [...manifestCache.slots],
+  };
 }
 
 // ---------- manifest repair (corruption recovery) ----------
@@ -277,43 +392,6 @@ export function readManifest(): SlotsManifest {
  * since the last consume. Read + cleared via `consumeManifestRepairNotice`.
  */
 let lastRepairCount: number | null = null;
-
-/**
- * True when the manifest blob is present but unparseable or has the
- * wrong shape. A MISSING manifest (first boot, post-clear) is NOT
- * corrupt — it just means we're starting fresh and don't need repair.
- */
-function isManifestCorrupt(): boolean {
-  if (!isAutosaveAvailable()) return false;
-  const raw = window.localStorage.getItem(MANIFEST_KEY);
-  if (!raw) return false;
-  try {
-    const parsed = JSON.parse(raw) as Partial<SlotsManifest> | null;
-    if (!parsed || typeof parsed !== 'object') return true;
-    if (parsed.version !== 1 || !Array.isArray(parsed.slots)) return true;
-    return false;
-  } catch {
-    return true;
-  }
-}
-
-/**
- * Enumerate ids of all slot-blob keys currently in localStorage. Used
- * by `repairManifestIfCorrupt` to discover orphans after the manifest
- * goes bad — those blob bytes are the source of truth for what the
- * user actually had.
- */
-function listSlotBlobIds(): string[] {
-  if (!isAutosaveAvailable()) return [];
-  const out: string[] = [];
-  for (let i = 0; i < window.localStorage.length; i++) {
-    const k = window.localStorage.key(i);
-    if (!k) continue;
-    const m = k.match(/^sorter:slot:([^:]+):v1$/);
-    if (m) out.push(m[1]);
-  }
-  return out;
-}
 
 /**
  * Synthesize a SlotMeta from a blob's contents. Used only by the repair
@@ -335,37 +413,11 @@ function synthesizeMetaFromBlob(id: string, blob: AutosaveBlob): SlotMeta {
 }
 
 /**
- * If the manifest is unparseable or shape-broken, walk all
- * `sorter:slot:*:v1` keys and rebuild a fresh manifest from each blob's
- * contents. Idempotent: no-op when the manifest is already valid.
- *
- * Sets a one-shot repair notice (`lastRepairCount`) that App.tsx
- * consumes after boot to flash a banner. The activeId is cleared since
- * we don't know which slot the user was on before the corruption.
- *
- * Why this matters: without repair, a corrupted manifest makes ALL
- * slot blobs invisible to the LIST tab even though the bytes are still
- * on disk — the user's only recourse would be DevTools. Even a
- * best-effort rebuild with synthesized timestamps is dramatically
- * better than "your saves all vanished".
+ * Compatibility hook for callers that previously triggered repair after
+ * boot. IndexedDB repair now runs as part of initializeSorterStorage().
  */
 export function repairManifestIfCorrupt(): void {
-  if (!isAutosaveAvailable()) return;
-  if (!isManifestCorrupt()) return;
-  const ids = listSlotBlobIds();
-  const slots: SlotMeta[] = [];
-  for (const id of ids) {
-    const blob = readSlotBlob(id);
-    if (!blob) continue;
-    slots.push(synthesizeMetaFromBlob(id, blob));
-  }
-  const repaired: SlotsManifest = {
-    version: 1,
-    activeId: null,
-    slots,
-  };
-  writeManifest(repaired);
-  lastRepairCount = slots.length;
+  // IndexedDB repair runs during initializeSorterStorage().
 }
 
 /**
@@ -381,12 +433,23 @@ export function consumeManifestRepairNotice(): number | null {
 }
 
 export function writeManifest(m: SlotsManifest): void {
-  if (!isAutosaveAvailable()) return;
-  try {
-    window.localStorage.setItem(MANIFEST_KEY, JSON.stringify(m));
-  } catch (err) {
-    console.warn('manifest write failed', err);
+  manifestCache = {
+    ...m,
+    slots: [...m.slots],
+  };
+  if (m.activeId) {
+    localStorage.setItem(ACTIVE_SORTER_SLOT_KEY, m.activeId);
+  } else {
+    localStorage.removeItem(ACTIVE_SORTER_SLOT_KEY);
   }
+  void queueStateWrite([
+    {
+      type: 'put',
+      store: STATE_METADATA_STORE,
+      key: stateStorageRecordKeys.sorterManifest,
+      value: sorterManifestRecord(m),
+    },
+  ]);
 }
 
 // ---------- slot id ----------
@@ -407,77 +470,17 @@ let currentActiveId: string | null = null;
  * the right slot.
  */
 export function primeActiveSlot(): void {
-  currentActiveId = readManifest().activeId;
+  currentActiveId = manifestCache.activeId;
 }
 
 // ---------- migration ----------
 
 /**
- * If a legacy single-blob save (`sorter:v1`) exists and the new manifest
- * does not, convert it into a single active slot. Idempotent: subsequent
- * calls are no-ops once the manifest exists.
+ * Compatibility accessor for callers that previously triggered migration.
+ * Legacy migration now runs before the sorter cache is hydrated.
  */
 export function migrateLegacyIfNeeded(): SlotsManifest {
-  if (!isAutosaveAvailable()) return emptyManifest();
-  const existingManifest = window.localStorage.getItem(MANIFEST_KEY);
-  if (existingManifest) {
-    // Already migrated (or freshly initialized via slot APIs).
-    return readManifest();
-  }
-  const legacy = window.localStorage.getItem(LEGACY_LOCAL_KEY);
-  if (!legacy) {
-    const m = emptyManifest();
-    writeManifest(m);
-    return m;
-  }
-  try {
-    const file = JSON.parse(legacy) as SaveFile;
-    if (
-      (file.version !== 1 &&
-        file.version !== 2 &&
-        file.version !== 3 &&
-        file.version !== 4) ||
-      !file.items ||
-      !file.progress
-    ) {
-      // Corrupt legacy data — discard it cleanly.
-      window.localStorage.removeItem(LEGACY_LOCAL_KEY);
-      const m = emptyManifest();
-      writeManifest(m);
-      return m;
-    }
-    const id = newSlotId();
-    const blob: AutosaveBlob = {
-      items: file.items,
-      progress: upgradeProgress(file.progress),
-      undoRing: (file.undoRing ?? []).map(upgradeProgress),
-    };
-    const now = new Date().toISOString();
-    const meta: SlotMeta = {
-      id,
-      name: autoNameFromBlob(blob),
-      createdAt: file.createdAt ?? now,
-      updatedAt: now,
-      totalItems: visibleItemCount(blob),
-      comparisons: blob.progress.comparisons,
-      done: blob.progress.done,
-    };
-    window.localStorage.setItem(slotBlobKey(id), JSON.stringify(file));
-    const m: SlotsManifest = { version: 1, activeId: id, slots: [meta] };
-    writeManifest(m);
-    window.localStorage.removeItem(LEGACY_LOCAL_KEY);
-    return m;
-  } catch {
-    // Garbage in legacy slot; nuke it and start clean.
-    try {
-      window.localStorage.removeItem(LEGACY_LOCAL_KEY);
-    } catch {
-      /* ignore */
-    }
-    const m = emptyManifest();
-    writeManifest(m);
-    return m;
-  }
+  return readManifest();
 }
 
 // ---------- slot ops ----------
@@ -545,14 +548,6 @@ export function createSlot(
     done: blob.progress.done,
   };
 
-  // In-memory-only environments: skip persistence; activate so the
-  // session is usable but warn the caller's UI via isAutosaveAvailable().
-  if (!isAutosaveAvailable()) {
-    currentActiveId = id;
-    resetAutosaveBookkeeping(blob.progress.comparisons);
-    return { meta, evicted: [] };
-  }
-
   // Pre-evict to cap BEFORE the blob write so we free quota first; the
   // just-minted blob has a better chance of fitting. Eviction skips
   // pinned slots (see SlotMeta.pinned) — if every existing slot is
@@ -560,6 +555,7 @@ export function createSlot(
   // the quota path below rather than silently dropping a pinned slot).
   const m = readManifest();
   const evicted: SlotMeta[] = [];
+  const changes: StateStorageChange[] = [];
   // We want at most SLOT_CAP entries AFTER we unshift the new meta, so
   // pre-evict down to (SLOT_CAP - 1).
   while (m.slots.filter((s) => !s.pinned).length > 0 && m.slots.length >= SLOT_CAP) {
@@ -568,31 +564,36 @@ export function createSlot(
       .slice()
       .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt))[0];
     if (!oldest) break;
-    deleteSlotBlob(oldest.id);
+    slotBlobCache.delete(oldest.id);
+    changes.push({
+      type: 'delete',
+      store: SORTER_SLOT_STORE,
+      key: oldest.id,
+    });
     m.slots = m.slots.filter((s) => s.id !== oldest.id);
     evicted.push(oldest);
   }
 
-  // Attempt the durable blob write. On failure we abort the mint and
-  // leave the manifest WITHOUT the new meta. If we already evicted
-  // slots above (their blobs are gone), persist the trimmed manifest
-  // so the meta state matches reality — otherwise stale metas would
-  // point at deleted blobs.
-  try {
-    window.localStorage.setItem(
-      slotBlobKey(id),
-      JSON.stringify(buildSaveFile(blob)),
-    );
-  } catch (err) {
-    console.warn('createSlot blob write failed', err);
-    if (evicted.length > 0) writeManifest(m);
-    return null;
-  }
-
-  // Blob is durable; safe to register the meta and activate.
+  slotBlobCache.set(id, blob);
   m.slots.unshift(meta);
   m.activeId = id;
-  writeManifest(m);
+  manifestCache = m;
+  localStorage.setItem(ACTIVE_SORTER_SLOT_KEY, id);
+  changes.push(
+    {
+      type: 'put',
+      store: SORTER_SLOT_STORE,
+      key: id,
+      value: buildSaveFile(blob),
+    },
+    {
+      type: 'put',
+      store: STATE_METADATA_STORE,
+      key: stateStorageRecordKeys.sorterManifest,
+      value: sorterManifestRecord(m),
+    },
+  );
+  void queueStateWrite(changes, id);
   currentActiveId = id;
   // Reset the in-flight autosave bookkeeping so the next scheduleAutosave
   // call is treated as the first write for the new slot.
@@ -656,13 +657,7 @@ export function pinSlot(id: string, pinned: boolean): SlotsManifest {
  * Read the persisted blob for a given slot. Returns null on miss / corrupt.
  */
 export function readSlotBlob(id: string): AutosaveBlob | null {
-  if (!isAutosaveAvailable()) return null;
-  try {
-    const raw = window.localStorage.getItem(slotBlobKey(id));
-    return parseSlotBlobRaw(raw);
-  } catch {
-    return null;
-  }
+  return slotBlobCache.get(id) ?? null;
 }
 
 /** Parse a raw SaveFile JSON string (e.g. from a `storage` event's `newValue`). */
@@ -728,13 +723,11 @@ export function setActiveSlot(id: string | null): SlotsManifest {
 }
 
 function deleteSlotBlob(id: string): void {
-  if (!isAutosaveAvailable()) return;
-  try {
-    window.localStorage.removeItem(slotBlobKey(id));
-    window.localStorage.removeItem(slotBlobWriterKey(id));
-  } catch {
-    /* ignore */
-  }
+  slotBlobCache.delete(id);
+  void queueStateWrite(
+    [{ type: 'delete', store: SORTER_SLOT_STORE, key: id }],
+    id,
+  );
 }
 
 /**
@@ -747,14 +740,31 @@ export function deleteSlot(id: string): SlotsManifest {
   if (currentActiveId === id) {
     cancelPendingAutosave();
   }
-  deleteSlotBlob(id);
   const m = readManifest();
   m.slots = m.slots.filter((s) => s.id !== id);
   if (m.activeId === id) {
     m.activeId = null;
     currentActiveId = null;
   }
-  writeManifest(m);
+  manifestCache = m;
+  if (m.activeId) {
+    localStorage.setItem(ACTIVE_SORTER_SLOT_KEY, m.activeId);
+  } else {
+    localStorage.removeItem(ACTIVE_SORTER_SLOT_KEY);
+  }
+  slotBlobCache.delete(id);
+  void queueStateWrite(
+    [
+      { type: 'delete', store: SORTER_SLOT_STORE, key: id },
+      {
+        type: 'put',
+        store: STATE_METADATA_STORE,
+        key: stateStorageRecordKeys.sorterManifest,
+        value: sorterManifestRecord(m),
+      },
+    ],
+    id,
+  );
   return m;
 }
 
@@ -884,17 +894,40 @@ export function setCloudPulled(
  * re-Push what we just Pulled).
  */
 export function replaceSlotBlob(id: string, blob: AutosaveBlob): boolean {
-  if (!isAutosaveAvailable()) return false;
   if (currentActiveId === id) {
     cancelPendingAutosave();
   }
   if (!tryWriteSlotBlobAfterCachePurge(id, blob)) return false;
-  updateSlotMeta(id, {
-    updatedAt: new Date().toISOString(),
-    totalItems: visibleItemCount(blob),
-    comparisons: blob.progress.comparisons,
-    done: blob.progress.done,
-  });
+  const manifest = readManifest();
+  manifest.slots = manifest.slots.map((slot) =>
+    slot.id === id
+      ? {
+          ...slot,
+          updatedAt: new Date().toISOString(),
+          totalItems: visibleItemCount(blob),
+          comparisons: blob.progress.comparisons,
+          done: blob.progress.done,
+        }
+      : slot,
+  );
+  manifestCache = manifest;
+  void queueStateWrite(
+    [
+      {
+        type: 'put',
+        store: SORTER_SLOT_STORE,
+        key: id,
+        value: buildSaveFile(blob),
+      },
+      {
+        type: 'put',
+        store: STATE_METADATA_STORE,
+        key: stateStorageRecordKeys.sorterManifest,
+        value: sorterManifestRecord(manifest),
+      },
+    ],
+    id,
+  );
   // Re-sync the in-memory autosave bookkeeping so the next
   // `scheduleAutosave` doesn't immediately force-write because it
   // sees a huge `comparisons - comparisonsAtLastFlush` delta.
@@ -918,8 +951,6 @@ export function persistCanonicalBlobOnLoad(
   id: string,
   blob: AutosaveBlob,
 ): void {
-  if (!isAutosaveAvailable()) return;
-
   const existing = readSlotBlob(id);
   if (existing && JSON.stringify(existing) === JSON.stringify(blob)) {
     if (currentActiveId === id) {
@@ -938,6 +969,17 @@ export function persistCanonicalBlobOnLoad(
     // autosave will retry with normal recovery paths on the next edit.
     return;
   }
+  void queueStateWrite(
+    [
+      {
+        type: 'put',
+        store: SORTER_SLOT_STORE,
+        key: id,
+        value: buildSaveFile(blob),
+      },
+    ],
+    id,
+  );
   if (currentActiveId === id) {
     resetAutosaveBookkeeping(blob.progress.comparisons);
   }
@@ -1117,13 +1159,8 @@ function notifyError(
  * is responsible for retry / recovery / error surfacing.
  */
 function tryWriteSlotBlob(id: string, blob: AutosaveBlob): boolean {
-  try {
-    window.localStorage.setItem(slotBlobKey(id), JSON.stringify(buildSaveFile(blob)));
-    window.localStorage.setItem(slotBlobWriterKey(id), getTabWriterId());
-    return true;
-  } catch {
-    return false;
-  }
+  slotBlobCache.set(id, blob);
+  return true;
 }
 
 function purgeDisposableLocalStorageCaches(): boolean {
@@ -1193,6 +1230,119 @@ export function discardPendingAutosave(): void {
   cancelPendingAutosave();
 }
 
+function isQuotaStorageError(error: unknown): boolean {
+  return (
+    error instanceof DOMException &&
+    (error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED')
+  );
+}
+
+function sorterSlotAndManifestChanges(
+  id: string,
+  blob: AutosaveBlob,
+  manifest: SlotsManifest,
+): StateStorageChange[] {
+  return [
+    {
+      type: 'put',
+      store: SORTER_SLOT_STORE,
+      key: id,
+      value: buildSaveFile(blob),
+    },
+    {
+      type: 'put',
+      store: STATE_METADATA_STORE,
+      key: stateStorageRecordKeys.sorterManifest,
+      value: sorterManifestRecord(manifest),
+    },
+  ];
+}
+
+function queueAutosavePersistence(
+  id: string,
+  blob: AutosaveBlob,
+  manifest: SlotsManifest,
+): void {
+  stateWriteQueue = stateWriteQueue
+    .then(async () => {
+      let persistedBlob = blob;
+      let persistedManifest = manifest;
+      let recovery: AutosaveRecovery | undefined;
+      try {
+        await commitStateChanges(
+          sorterSlotAndManifestChanges(id, persistedBlob, persistedManifest),
+          { scope: 'sorter', id },
+        );
+      } catch (firstError) {
+        if (!isQuotaStorageError(firstError)) throw firstError;
+        purgeDisposableLocalStorageCaches();
+
+        const trimmedUndo = blob.undoRing.slice(-QUOTA_RECOVERY_UNDO_KEEP);
+        if (trimmedUndo.length < blob.undoRing.length) {
+          persistedBlob = { ...blob, undoRing: trimmedUndo };
+          try {
+            await commitStateChanges(
+              sorterSlotAndManifestChanges(
+                id,
+                persistedBlob,
+                persistedManifest,
+              ),
+              { scope: 'sorter', id },
+            );
+            recovery = {
+              kind: 'trimmed-undo',
+              newUndoRingLen: trimmedUndo.length,
+            };
+          } catch (trimError) {
+            if (!isQuotaStorageError(trimError)) throw trimError;
+          }
+        }
+
+        if (!recovery) {
+          const evicted = persistedManifest.slots
+            .filter((slot) => slot.id !== id && !slot.pinned)
+            .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt))[0];
+          if (!evicted) throw firstError;
+          persistedManifest = {
+            ...persistedManifest,
+            slots: persistedManifest.slots.filter(
+              (slot) => slot.id !== evicted.id,
+            ),
+          };
+          await commitStateChanges(
+            [
+              {
+                type: 'delete',
+                store: SORTER_SLOT_STORE,
+                key: evicted.id,
+              },
+              ...sorterSlotAndManifestChanges(
+                id,
+                persistedBlob,
+                persistedManifest,
+              ),
+            ],
+            { scope: 'sorter', id },
+          );
+          slotBlobCache.delete(evicted.id);
+          manifestCache = persistedManifest;
+          recovery = { kind: 'evicted-slot', evicted };
+        }
+      }
+
+      slotBlobCache.set(id, persistedBlob);
+      notifyError(null, recovery);
+      notifyAfterWrite(id);
+    })
+    .catch((error: unknown) => {
+      notifyError({
+        reason: isQuotaStorageError(error) ? 'quota' : 'other',
+        attemptedAt: new Date().toISOString(),
+        slotCount: manifestCache.slots.length,
+      });
+    });
+}
+
 /**
  * Trimmed undo-ring length used by the quota-recovery fallback. Chosen
  * to keep enough history that a casual mid-comparison undo still works
@@ -1214,20 +1364,25 @@ function commitWriteSuccess(blob: AutosaveBlob, recovery?: AutosaveRecovery): vo
   if (currentActiveId === null) return;
   const writtenId = currentActiveId;
   const now = new Date().toISOString();
-  updateSlotMeta(writtenId, {
-    updatedAt: now,
-    totalItems: visibleItemCount(blob),
-    comparisons: blob.progress.comparisons,
-    done: blob.progress.done,
-  });
+  const manifest = readManifest();
+  manifest.slots = manifest.slots.map((slot) =>
+    slot.id === writtenId
+      ? {
+          ...slot,
+          updatedAt: now,
+          totalItems: visibleItemCount(blob),
+          comparisons: blob.progress.comparisons,
+          done: blob.progress.done,
+        }
+      : slot,
+  );
+  manifestCache = manifest;
+  queueAutosavePersistence(writtenId, blob, manifest);
   lastFlushTime = Date.now();
   comparisonsAtLastFlush = blob.progress.comparisons;
-  // Always notify on success: clears any banner the UI was showing,
-  // and if a recovery happened, fires the toast on the same edge.
-  notifyError(null, recovery);
-  // Fire the post-write seam after the meta patch + error-clear so
-  // subscribers see the slot's updated meta, not a stale one.
-  notifyAfterWrite(writtenId);
+  if (recovery) {
+    notifyError(null, recovery);
+  }
 }
 
 /**
@@ -1252,7 +1407,6 @@ function commitWriteSuccess(blob: AutosaveBlob, recovery?: AutosaveRecovery): vo
  * blob to localStorage).
  */
 function performWrite(blob: AutosaveBlob, options?: { touchLastUsed?: boolean }): void {
-  if (!isAutosaveAvailable()) return;
   if (currentActiveId === null) return;
   pendingBlob = null;
 
@@ -1374,7 +1528,6 @@ function scheduleFlush(): void {
  * No-op if there is no active slot or autosave is unavailable.
  */
 export function scheduleAutosave(blob: AutosaveBlob): void {
-  if (!isAutosaveAvailable()) return;
   if (currentActiveId === null) return;
   pendingBlob = blob;
   const now = Date.now();
@@ -1398,12 +1551,13 @@ export function scheduleAutosave(blob: AutosaveBlob): void {
  * Synchronously flush any pending autosave to the active slot's blob key.
  * Safe to call when nothing is pending or when there is no active slot.
  */
-export function flushAutosave(): void {
+export async function flushAutosave(): Promise<void> {
   if (debounceTimer !== null) {
     clearTimeout(debounceTimer);
     debounceTimer = null;
   }
   if (pendingBlob) performWrite(pendingBlob);
+  await flushStateStorageWrites();
 }
 
 /**
@@ -1413,7 +1567,6 @@ export function flushAutosave(): void {
  * meta bump on no-op writes.
  */
 export function saveNow(blob: AutosaveBlob): void {
-  if (!isAutosaveAvailable()) return;
   if (currentActiveId === null) return;
   if (debounceTimer !== null) {
     clearTimeout(debounceTimer);
@@ -1603,15 +1756,6 @@ export function importAllSlots(
   json: string,
   mode: 'merge' | 'replace' = 'merge',
 ): ImportAllResult {
-  if (!isAutosaveAvailable()) {
-    return {
-      imported: 0,
-      skipped: 0,
-      renamedIds: [],
-      error: 'Storage is unavailable in this context.',
-    };
-  }
-
   // -------- parse + envelope validation --------
   let archive: SlotArchive;
   try {
@@ -1707,26 +1851,20 @@ function applyReplaceImport(
   // slot blob. We do this before writing new blobs so storage quota
   // is freed first — important when the archive is large.
   cancelPendingAutosave();
-  const existing = readManifest();
-  for (const s of existing.slots) {
-    deleteSlotBlob(s.id);
-  }
-
-  // Write blobs first, then the manifest. As elsewhere, manifest LAST
-  // so a partial crash leaves orphans (recoverable via boot repair)
-  // rather than ghost metas pointing at blobs that never made it.
+  slotBlobCache.clear();
   const survivedMetas: SlotMeta[] = [];
+  const changes: StateStorageChange[] = [
+    { type: 'clear', store: SORTER_SLOT_STORE },
+  ];
   for (const { meta, blob } of accepted) {
-    try {
-      window.localStorage.setItem(
-        slotBlobKey(meta.id),
-        JSON.stringify(buildSaveFile(blob)),
-      );
-      survivedMetas.push(meta);
-    } catch (err) {
-      console.warn('importAllSlots replace: blob write failed', err);
-      skipped++;
-    }
+    slotBlobCache.set(meta.id, blob);
+    survivedMetas.push(meta);
+    changes.push({
+      type: 'put',
+      store: SORTER_SLOT_STORE,
+      key: meta.id,
+      value: buildSaveFile(blob),
+    });
   }
   const activeId =
     archive.manifest.activeId &&
@@ -1738,7 +1876,19 @@ function applyReplaceImport(
     activeId,
     slots: survivedMetas,
   };
-  writeManifest(newManifest);
+  manifestCache = newManifest;
+  if (activeId) {
+    localStorage.setItem(ACTIVE_SORTER_SLOT_KEY, activeId);
+  } else {
+    localStorage.removeItem(ACTIVE_SORTER_SLOT_KEY);
+  }
+  changes.push({
+    type: 'put',
+    store: STATE_METADATA_STORE,
+    key: stateStorageRecordKeys.sorterManifest,
+    value: sorterManifestRecord(newManifest),
+  });
+  void queueStateWrite(changes);
   currentActiveId = activeId;
   // Bookkeeping for autosave: the active slot (if any) just got its
   // blob written fresh from the archive, so treat that as "the last
@@ -1783,6 +1933,7 @@ function applyMergeImport(
   const existingIds = new Set(existing.slots.map((s) => s.id));
   const renamedIds: Array<{ from: string; to: string }> = [];
   const importedMetas: SlotMeta[] = [];
+  const changes: StateStorageChange[] = [];
   for (const { meta, blob } of validImports) {
     let targetId = meta.id;
     if (existingIds.has(targetId)) {
@@ -1795,16 +1946,13 @@ function applyMergeImport(
       renamedIds.push({ from: meta.id, to: targetId });
     }
     existingIds.add(targetId);
-    try {
-      window.localStorage.setItem(
-        slotBlobKey(targetId),
-        JSON.stringify(buildSaveFile(blob)),
-      );
-    } catch (err) {
-      console.warn('importAllSlots merge: blob write failed', err);
-      skipped++;
-      continue;
-    }
+    slotBlobCache.set(targetId, blob);
+    changes.push({
+      type: 'put',
+      store: SORTER_SLOT_STORE,
+      key: targetId,
+      value: buildSaveFile(blob),
+    });
     // Preserve every meta field except the (possibly-renamed) id —
     // including `pinned`, `updatedAt`, `createdAt`, etc. updatedAt is
     // kept verbatim so the imported slots don't artificially bubble
@@ -1824,7 +1972,14 @@ function applyMergeImport(
     activeId: existing.activeId, // keep user's current working slot
     slots: [...importedMetas, ...existing.slots],
   };
-  writeManifest(newManifest);
+  manifestCache = newManifest;
+  changes.push({
+    type: 'put',
+    store: STATE_METADATA_STORE,
+    key: stateStorageRecordKeys.sorterManifest,
+    value: sorterManifestRecord(newManifest),
+  });
+  void queueStateWrite(changes);
   return {
     imported: importedMetas.length,
     skipped,
@@ -1900,4 +2055,17 @@ export function updateSettings(patch: Partial<Settings>): Settings {
   const merged = { ...readSettings(), ...patch };
   writeSettings(merged);
   return merged;
+}
+
+export function _resetSorterStorageCacheForTesting(): void {
+  cancelPendingAutosave();
+  manifestCache = emptyManifest();
+  slotBlobCache.clear();
+  sorterStorageInitialized = false;
+  stateWriteQueue = Promise.resolve();
+  currentActiveId = null;
+  lastRepairCount = null;
+  lastError = null;
+  lastFlushTime = 0;
+  comparisonsAtLastFlush = 0;
 }

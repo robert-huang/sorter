@@ -27,6 +27,8 @@ npm start       # builds then serves at http://localhost:3000
 
 That's the recommended day-to-day way to use it: one command, a real `http://` origin, all features (including autosave) work normally. Close the terminal when you're done.
 
+Sorter slots and both active and named Bump Chart workspaces are stored asynchronously in IndexedDB, including their manifests. `localStorage` keeps only small active-ID, preference, schema-migration, and cross-tab revision values. Existing large `localStorage` saves are copied transactionally and removed only after IndexedDB commits; interrupted migration resumes safely. If IndexedDB cannot open after blocked-upgrade retries, legacy data is left untouched and the current tab continues in memory-only mode with a warning. See [Storage architecture](./STORAGE_ARCHITECTURE.md) for the database layout and recovery order.
+
 ## Three ways to run
 
 ### 1. Local serve via `npm start` — recommended
@@ -35,7 +37,7 @@ That's the recommended day-to-day way to use it: one command, a real `http://` o
 npm start
 ```
 
-Builds the app and serves the `dist/` folder over `http://localhost:3000`. Autosave to `localStorage` works. Nothing is published — the files never leave your machine.
+Builds the app and serves the `dist/` folder over `http://localhost:3000`. IndexedDB autosave works. Nothing is published — the files never leave your machine.
 
 ### 2. Dev server (when editing the code)
 
@@ -803,7 +805,7 @@ Matched ranks get movement paths from a 20-colour palette, left-only rows end at
 
 Hover a path, node, or label row to emphasize that movement while fading the others. Click a path or circular node to pin that lineage; clicking an item image/label follows its normal link behavior and does not pin. The pinned line and both labels remain emphasized until another path/node or an empty area inside the chart is clicked; clicks elsewhere on the page leave it pinned. Matched paths show a centered movement badge while focused or pinned: rank gains are green and prefixed with `+`, rank losses are red, and unchanged ranks are gray. Label links preserve the sorter interactions: supported AniList media/staff open detail modals on left-click, middle-click opens the source page, and right-click keeps the browser link menu. Clicking a rank opens the sorter item editor; its red Bump-only `Remove` button soft-hides only that side's item. Visible ranks and connections recompute immediately, so a former match can become an added or removed line. **Export PNG** includes item images, inferred-match markers, and the visible centered movement badge; when a lineage is pinned, the export keeps it and its badge highlighted while fading the other lines and labels. AniList CDN covers use the same configured Cloudflare worker as the AniPlaylist search proxy because the CDN itself does not provide the CORS headers required by canvas.
 
-The active Bump Chart workspace autosaves locally after staging, editing, hiding, generating, clearing, changing import tabs, or changing **Best Match by Title**, and restores on reload. **Clear chart** returns the complete Before/After sides to staging as one merged **From chart** group per side; hidden entries remain marked and can be restored before regenerating. **Save chart…** creates a named generated-chart snapshot. Named slots appear in a compact, vertically scrollable **Saved charts** area above the Previous/Current staging cards, with explicit Load, Delete, and same-name replacement flows; no slot is silently evicted when the bounded library is full. Loading a named chart puts both complete lists back into staging, including hidden markers, and restores its matching/display settings; click **Generate chart** when ready.
+The active Bump Chart workspace autosaves to IndexedDB after staging, editing, hiding, generating, clearing, changing import tabs, or changing **Best Match by Title**, and restores on reload. Hydration finishes before debounced autosave begins, so an empty initial render cannot replace stored work. **Clear chart** returns the complete Before/After sides to staging as one merged **From chart** group per side; hidden entries remain marked and can be restored before regenerating. **Save chart…** creates a named generated-chart snapshot. Named slots appear in a compact, vertically scrollable **Saved charts** area above the Previous/Current staging cards, with explicit Load, Delete, and same-name replacement flows; no slot is silently evicted when the bounded library is full. Loading a named chart puts both complete lists back into staging, including hidden markers, and restores its matching/display settings; click **Generate chart** when ready.
 
 ### Update List Entry
 

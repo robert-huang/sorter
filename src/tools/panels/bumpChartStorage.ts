@@ -1,8 +1,18 @@
 import type { BumpChartItem } from './bumpChartLogic';
-
-const ACTIVE_WORKSPACE_KEY = 'tools:bump-chart:workspace:v1';
-const SAVED_MANIFEST_KEY = 'tools:bump-chart:saved-manifest:v1';
-const SAVED_SLOT_PREFIX = 'tools:bump-chart:saved:v1:';
+import {
+  BUMP_WORKSPACE_STORE,
+  STATE_METADATA_STORE,
+  commitStateChanges,
+  initializeStateStorage,
+  readAllStateEntries,
+  readStateRecord,
+  stateStorageRecordKeys,
+} from '../../lib/stateStorageDb';
+import {
+  isLegacyBumpChartManifest,
+  isLegacyBumpChartSideSnapshot,
+  isLegacyBumpChartWorkspace,
+} from '../../lib/stateStorageValidation';
 export const BUMP_CHART_SLOT_LIMIT = 20;
 
 export type BumpChartImportTab =
@@ -54,30 +64,15 @@ export type SaveNamedBumpChartResult =
   | { status: 'error'; error: string };
 
 function parseSideSnapshot(value: unknown): BumpChartSideSnapshot | null {
-  if (!value || typeof value !== 'object') {
-    return null;
-  }
+  if (!isLegacyBumpChartSideSnapshot(value)) return null;
   const candidate = value as Partial<BumpChartSideSnapshot>;
-  if (
-    !Array.isArray(candidate.items) ||
-    candidate.items.some(
-      (entry) =>
-        !entry ||
-        typeof entry !== 'object' ||
-        !entry.item ||
-        typeof entry.item.id !== 'string' ||
-        typeof entry.item.label !== 'string',
-    )
-  ) {
-    return null;
-  }
   const hiddenItemIds = Array.isArray(candidate.hiddenItemIds)
     ? candidate.hiddenItemIds.filter(
         (id): id is string => typeof id === 'string',
       )
     : [];
   return {
-    items: candidate.items,
+    items: candidate.items!,
     hiddenItemIds,
     preserveCustomLabels: candidate.preserveCustomLabels === true,
   };
@@ -86,20 +81,11 @@ function parseSideSnapshot(value: unknown): BumpChartSideSnapshot | null {
 function parseWorkspaceSnapshot(
   value: unknown,
 ): BumpChartWorkspaceSnapshot | null {
-  if (!value || typeof value !== 'object') {
-    return null;
-  }
+  if (!isLegacyBumpChartWorkspace(value)) return null;
   const candidate = value as Partial<BumpChartWorkspaceSnapshot>;
   const before = parseSideSnapshot(candidate.before);
   const after = parseSideSnapshot(candidate.after);
-  if (
-    candidate.version !== 1 ||
-    (candidate.view !== 'staging' && candidate.view !== 'chart') ||
-    !before ||
-    !after
-  ) {
-    return null;
-  }
+  if (!before || !after) return null;
   const lastImportTab: BumpChartImportTab =
     candidate.lastImportTab === 'multiple' ||
     candidate.lastImportTab === 'anilist' ||
@@ -108,7 +94,7 @@ function parseWorkspaceSnapshot(
       : 'single';
   return {
     version: 1,
-    view: candidate.view,
+    view: candidate.view!,
     before,
     after,
     bestMatchByTitle: candidate.bestMatchByTitle !== false,
@@ -116,33 +102,9 @@ function parseWorkspaceSnapshot(
   };
 }
 
-function readManifest(): SavedBumpChartManifest {
-  try {
-    const parsed = JSON.parse(
-      localStorage.getItem(SAVED_MANIFEST_KEY) ?? '',
-    ) as Partial<SavedBumpChartManifest>;
-    if (
-      parsed.version !== 1 ||
-      !Array.isArray(parsed.slots) ||
-      parsed.slots.some(
-        (slot) =>
-          !slot ||
-          typeof slot.id !== 'string' ||
-          typeof slot.name !== 'string' ||
-          typeof slot.createdAt !== 'number' ||
-          typeof slot.updatedAt !== 'number',
-      )
-    ) {
-      return { version: 1, slots: [] };
-    }
-    return { version: 1, slots: parsed.slots };
-  } catch {
-    return { version: 1, slots: [] };
-  }
-}
-
-function slotKey(id: string): string {
-  return `${SAVED_SLOT_PREFIX}${id}`;
+function parseManifest(value: unknown): SavedBumpChartManifest {
+  if (!isLegacyBumpChartManifest(value)) return { version: 1, slots: [] };
+  return { version: 1, slots: value.slots as SavedBumpChartMeta[] };
 }
 
 function storageError(error: unknown): string {
@@ -165,61 +127,120 @@ function createSlotId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-export function loadActiveBumpChartWorkspace(): BumpChartWorkspaceSnapshot | null {
-  try {
-    const raw = localStorage.getItem(ACTIVE_WORKSPACE_KEY);
-    if (!raw) {
-      return null;
+let activeWorkspaceCache: BumpChartWorkspaceSnapshot | null = null;
+let manifestCache: SavedBumpChartManifest = { version: 1, slots: [] };
+const savedWorkspaceCache = new Map<string, BumpChartWorkspaceSnapshot>();
+let hydrationPromise: Promise<void> | null = null;
+let activeWorkspaceWriteQueue: Promise<void> = Promise.resolve();
+let lastBumpChartOperation: Promise<unknown> = Promise.resolve();
+
+export async function initializeBumpChartStorage(): Promise<void> {
+  if (hydrationPromise) return hydrationPromise;
+  hydrationPromise = (async () => {
+    await initializeStateStorage();
+    activeWorkspaceCache =
+      parseWorkspaceSnapshot(
+        await readStateRecord<unknown>(BUMP_WORKSPACE_STORE, 'active'),
+      ) ?? null;
+    manifestCache = parseManifest(
+      await readStateRecord<unknown>(
+        STATE_METADATA_STORE,
+        stateStorageRecordKeys.bumpManifest,
+      ),
+    );
+    savedWorkspaceCache.clear();
+    for (const [key, value] of await readAllStateEntries<unknown>(
+      BUMP_WORKSPACE_STORE,
+    )) {
+      const id = String(key);
+      if (id === 'active') continue;
+      const record = value as Partial<SavedBumpChartRecord> | null;
+      const workspace =
+        record?.version === 1
+          ? parseWorkspaceSnapshot(record.workspace)
+          : parseWorkspaceSnapshot(value);
+      if (workspace) savedWorkspaceCache.set(id, workspace);
     }
-    const parsed = JSON.parse(raw) as unknown;
-    return parseWorkspaceSnapshot(parsed);
-  } catch {
-    return null;
-  }
+    const filteredSlots = manifestCache.slots.filter((slot) =>
+      savedWorkspaceCache.has(slot.id),
+    );
+    if (filteredSlots.length !== manifestCache.slots.length) {
+      manifestCache = { version: 1, slots: filteredSlots };
+      await commitStateChanges([
+        {
+          type: 'put',
+          store: STATE_METADATA_STORE,
+          key: stateStorageRecordKeys.bumpManifest,
+          value: manifestCache,
+        },
+      ]);
+    }
+  })();
+  return hydrationPromise;
 }
 
-export function saveActiveBumpChartWorkspace(
+export async function refreshBumpChartStorage(): Promise<void> {
+  hydrationPromise = null;
+  await initializeBumpChartStorage();
+}
+
+export function loadActiveBumpChartWorkspace(): BumpChartWorkspaceSnapshot | null {
+  return activeWorkspaceCache;
+}
+
+export async function saveActiveBumpChartWorkspace(
   workspace: BumpChartWorkspaceSnapshot,
-): BumpChartStorageResult {
-  try {
-    localStorage.setItem(ACTIVE_WORKSPACE_KEY, JSON.stringify(workspace));
-    return { ok: true };
-  } catch (error) {
-    return { ok: false, error: storageError(error) };
-  }
+): Promise<BumpChartStorageResult> {
+  activeWorkspaceCache = workspace;
+  const operation = (async (): Promise<BumpChartStorageResult> => {
+    await initializeBumpChartStorage();
+    activeWorkspaceCache = workspace;
+    let result: BumpChartStorageResult = { ok: true };
+    activeWorkspaceWriteQueue = activeWorkspaceWriteQueue.then(async () => {
+      try {
+        await commitStateChanges(
+          [
+            {
+              type: 'put',
+              store: BUMP_WORKSPACE_STORE,
+              key: 'active',
+              value: workspace,
+            },
+          ],
+          { scope: 'bump', id: 'active' },
+        );
+      } catch (error) {
+        result = { ok: false, error: storageError(error) };
+      }
+    });
+    await activeWorkspaceWriteQueue;
+    return result;
+  })();
+  lastBumpChartOperation = operation;
+  return operation;
 }
 
 export function listSavedBumpCharts(): SavedBumpChartMeta[] {
-  return [...readManifest().slots].sort((a, b) => b.updatedAt - a.updatedAt);
+  return [...manifestCache.slots].sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 export function loadSavedBumpChart(
   id: string,
 ): BumpChartWorkspaceSnapshot | null {
-  try {
-    const raw = localStorage.getItem(slotKey(id));
-    if (!raw) {
-      return null;
-    }
-    const parsed = JSON.parse(raw) as Partial<SavedBumpChartRecord>;
-    return parsed.version === 1
-      ? parseWorkspaceSnapshot(parsed.workspace)
-      : null;
-  } catch {
-    return null;
-  }
+  return savedWorkspaceCache.get(id) ?? null;
 }
 
-export function saveNamedBumpChart(
+export async function saveNamedBumpChart(
   name: string,
   workspace: BumpChartWorkspaceSnapshot,
   replaceId?: string,
-): SaveNamedBumpChartResult {
+): Promise<SaveNamedBumpChartResult> {
+  await initializeBumpChartStorage();
   const trimmedName = name.trim();
   if (!trimmedName) {
     return { status: 'error', error: 'Enter a chart name.' };
   }
-  const manifest = readManifest();
+  const manifest = manifestCache;
   const duplicate = manifest.slots.find(
     (slot) => slot.name.toLocaleLowerCase() === trimmedName.toLocaleLowerCase(),
   );
@@ -239,64 +260,104 @@ export function saveNamedBumpChart(
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };
-  let previousRecord: string | null = null;
-  let wroteRecord = false;
   try {
-    previousRecord = localStorage.getItem(slotKey(meta.id));
-    localStorage.setItem(
-      slotKey(meta.id),
-      JSON.stringify({ version: 1, workspace } satisfies SavedBumpChartRecord),
+    const nextManifest: SavedBumpChartManifest = {
+      version: 1,
+      slots: [meta, ...manifest.slots.filter((slot) => slot.id !== meta.id)],
+    };
+    const operation = commitStateChanges(
+      [
+        {
+          type: 'put',
+          store: BUMP_WORKSPACE_STORE,
+          key: meta.id,
+          value: { version: 1, workspace } satisfies SavedBumpChartRecord,
+        },
+        {
+          type: 'put',
+          store: STATE_METADATA_STORE,
+          key: stateStorageRecordKeys.bumpManifest,
+          value: nextManifest,
+        },
+      ],
+      { scope: 'bump', id: meta.id },
     );
-    wroteRecord = true;
-    localStorage.setItem(
-      SAVED_MANIFEST_KEY,
-      JSON.stringify({
-        version: 1,
-        slots: [meta, ...manifest.slots.filter((slot) => slot.id !== meta.id)],
-      } satisfies SavedBumpChartManifest),
-    );
+    lastBumpChartOperation = operation;
+    await operation;
+    savedWorkspaceCache.set(meta.id, workspace);
+    manifestCache = nextManifest;
     return { status: 'saved', meta };
   } catch (error) {
-    try {
-      if (wroteRecord) {
-        if (previousRecord == null) {
-          localStorage.removeItem(slotKey(meta.id));
-        } else {
-          localStorage.setItem(slotKey(meta.id), previousRecord);
-        }
-      }
-    } catch {
-      // Keep the original storage failure as the actionable error.
-    }
     return { status: 'error', error: storageError(error) };
   }
 }
 
-export function deleteSavedBumpChart(id: string): BumpChartStorageResult {
-  const manifest = readManifest();
+export async function deleteSavedBumpChart(
+  id: string,
+): Promise<BumpChartStorageResult> {
+  await initializeBumpChartStorage();
+  const manifest = manifestCache;
   try {
-    localStorage.setItem(
-      SAVED_MANIFEST_KEY,
-      JSON.stringify({
-        version: 1,
-        slots: manifest.slots.filter((slot) => slot.id !== id),
-      } satisfies SavedBumpChartManifest),
+    const nextManifest: SavedBumpChartManifest = {
+      version: 1,
+      slots: manifest.slots.filter((slot) => slot.id !== id),
+    };
+    const operation = commitStateChanges(
+      [
+        { type: 'delete', store: BUMP_WORKSPACE_STORE, key: id },
+        {
+          type: 'put',
+          store: STATE_METADATA_STORE,
+          key: stateStorageRecordKeys.bumpManifest,
+          value: nextManifest,
+        },
+      ],
+      { scope: 'bump', id },
     );
-    localStorage.removeItem(slotKey(id));
+    lastBumpChartOperation = operation;
+    await operation;
+    savedWorkspaceCache.delete(id);
+    manifestCache = nextManifest;
     return { ok: true };
   } catch (error) {
     return { ok: false, error: storageError(error) };
   }
 }
 
-export function _clearBumpChartStorageForTesting(): void {
-  try {
-    listSavedBumpCharts().forEach((slot) =>
-      localStorage.removeItem(slotKey(slot.id)),
-    );
-    localStorage.removeItem(ACTIVE_WORKSPACE_KEY);
-    localStorage.removeItem(SAVED_MANIFEST_KEY);
-  } catch {
-    /* ignore */
+export async function _clearBumpChartStorageForTesting(): Promise<void> {
+  _resetBumpChartStorageCacheForTesting();
+  await initializeStateStorage();
+  await commitStateChanges([
+    { type: 'clear', store: BUMP_WORKSPACE_STORE },
+    {
+      type: 'put',
+      store: STATE_METADATA_STORE,
+      key: stateStorageRecordKeys.bumpManifest,
+      value: manifestCache,
+    },
+  ]);
+}
+
+export function _resetBumpChartStorageCacheForTesting(): void {
+  activeWorkspaceCache = null;
+  manifestCache = { version: 1, slots: [] };
+  savedWorkspaceCache.clear();
+  hydrationPromise = null;
+  activeWorkspaceWriteQueue = Promise.resolve();
+  lastBumpChartOperation = Promise.resolve();
+}
+
+export async function flushBumpChartStorageWrites(): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await Promise.resolve();
+    const active = activeWorkspaceWriteQueue;
+    const operation = lastBumpChartOperation;
+    await Promise.allSettled([active, operation]);
+    if (
+      active === activeWorkspaceWriteQueue &&
+      operation === lastBumpChartOperation
+    ) {
+      return;
+    }
   }
 }

@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { _resetStateStorageForTesting } from '../../lib/stateStorageDb';
 import type { BumpChartWorkspaceSnapshot } from '../panels/bumpChartStorage';
 import {
   BUMP_CHART_SLOT_LIMIT,
+  _resetBumpChartStorageCacheForTesting,
   deleteSavedBumpChart,
+  initializeBumpChartStorage,
   listSavedBumpCharts,
   loadActiveBumpChartWorkspace,
   loadSavedBumpChart,
@@ -41,19 +44,25 @@ function workspace(
   };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   localStorage.clear();
+  await _resetStateStorageForTesting();
+  _resetBumpChartStorageCacheForTesting();
   vi.restoreAllMocks();
 });
 
 describe('Bump Chart workspace storage', () => {
-  it('round-trips the versioned active workspace', () => {
+  it('round-trips the versioned active workspace', async () => {
     const value = workspace(false);
-    expect(saveActiveBumpChartWorkspace(value)).toEqual({ ok: true });
+    expect(await saveActiveBumpChartWorkspace(value)).toEqual({ ok: true });
     expect(loadActiveBumpChartWorkspace()).toEqual(value);
+    expect(localStorage.getItem(ACTIVE_KEY)).toBeNull();
   });
 
-  it('defaults fields that were absent from an earlier v1 record', () => {
+  it('defaults fields that were absent from an earlier v1 record', async () => {
+    await _resetStateStorageForTesting();
+    _resetBumpChartStorageCacheForTesting();
+    localStorage.clear();
     const value = workspace();
     localStorage.setItem(
       ACTIVE_KEY,
@@ -64,6 +73,7 @@ describe('Bump Chart workspace storage', () => {
         after: { items: value.after.items },
       }),
     );
+    await initializeBumpChartStorage();
 
     expect(loadActiveBumpChartWorkspace()).toEqual({
       version: 1,
@@ -83,16 +93,26 @@ describe('Bump Chart workspace storage', () => {
     });
   });
 
-  it('ignores malformed, corrupt, and unknown-version workspaces', () => {
+  it('ignores malformed, corrupt, and unknown-version workspaces', async () => {
+    await _resetStateStorageForTesting();
+    localStorage.clear();
     localStorage.setItem(ACTIVE_KEY, '{bad json');
+    await initializeBumpChartStorage();
     expect(loadActiveBumpChartWorkspace()).toBeNull();
 
+    await _resetStateStorageForTesting();
+    _resetBumpChartStorageCacheForTesting();
+    localStorage.clear();
     localStorage.setItem(
       ACTIVE_KEY,
       JSON.stringify({ ...workspace(), version: 2 }),
     );
+    await initializeBumpChartStorage();
     expect(loadActiveBumpChartWorkspace()).toBeNull();
 
+    await _resetStateStorageForTesting();
+    _resetBumpChartStorageCacheForTesting();
+    localStorage.clear();
     localStorage.setItem(
       ACTIVE_KEY,
       JSON.stringify({
@@ -100,33 +120,28 @@ describe('Bump Chart workspace storage', () => {
         before: { items: [{ item: { id: 4 } }] },
       }),
     );
+    await initializeBumpChartStorage();
     expect(loadActiveBumpChartWorkspace()).toBeNull();
   });
 
-  it('reports quota failures without throwing', () => {
-    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
-      throw new DOMException('Storage quota exceeded', 'QuotaExceededError');
-    });
-
-    const result = saveActiveBumpChartWorkspace(workspace());
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toContain('Storage quota exceeded');
-    }
-  });
-
-  it('requires explicit replacement for duplicate named charts', () => {
-    const original = saveNamedBumpChart('Season ranking', workspace(false));
+  it('requires explicit replacement for duplicate named charts', async () => {
+    const original = await saveNamedBumpChart(
+      'Season ranking',
+      workspace(false),
+    );
     expect(original.status).toBe('saved');
     if (original.status !== 'saved') {
       throw new Error('Named chart was not saved');
     }
 
-    const duplicate = saveNamedBumpChart('season ranking', workspace(true));
+    const duplicate = await saveNamedBumpChart(
+      'season ranking',
+      workspace(true),
+    );
     expect(duplicate).toEqual({ status: 'exists', meta: original.meta });
     expect(loadSavedBumpChart(original.meta.id)?.bestMatchByTitle).toBe(false);
 
-    const replaced = saveNamedBumpChart(
+    const replaced = await saveNamedBumpChart(
       'season ranking',
       workspace(true),
       original.meta.id,
@@ -135,19 +150,19 @@ describe('Bump Chart workspace storage', () => {
     expect(listSavedBumpCharts()).toHaveLength(1);
     expect(loadSavedBumpChart(original.meta.id)?.bestMatchByTitle).toBe(true);
 
-    expect(deleteSavedBumpChart(original.meta.id)).toEqual({ ok: true });
+    expect(await deleteSavedBumpChart(original.meta.id)).toEqual({ ok: true });
     expect(listSavedBumpCharts()).toEqual([]);
     expect(loadSavedBumpChart(original.meta.id)).toBeNull();
   });
 
-  it('enforces the slot cap without silently evicting a chart', () => {
+  it('enforces the slot cap without silently evicting a chart', async () => {
     for (let index = 0; index < BUMP_CHART_SLOT_LIMIT; index += 1) {
-      expect(saveNamedBumpChart(`Chart ${index}`, workspace()).status).toBe(
-        'saved',
-      );
+      expect(
+        (await saveNamedBumpChart(`Chart ${index}`, workspace())).status,
+      ).toBe('saved');
     }
 
-    expect(saveNamedBumpChart('One too many', workspace())).toEqual({
+    expect(await saveNamedBumpChart('One too many', workspace())).toEqual({
       status: 'limit',
     });
     expect(listSavedBumpCharts()).toHaveLength(BUMP_CHART_SLOT_LIMIT);
