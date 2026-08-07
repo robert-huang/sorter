@@ -1,15 +1,15 @@
 import { parseMalThemeString } from './malThemeParser';
 import { foldJapaneseRomanization, normalizeThemeDashes } from './themeSongMatching';
 
-const JIKAN_BASE = 'https://api.jikan.moe/v4';
+const TENRAI_BASE = 'https://api.tenrai.org/v1';
 
-export type JikanThemesData = {
+export type TenraiThemesData = {
   openings: string[];
   endings: string[];
 };
 
-export type JikanThemesFetchResult = {
-  data: JikanThemesData | null;
+export type TenraiThemesFetchResult = {
+  data: TenraiThemesData | null;
   /** `ok` = got a response; `empty` = responded but no themes; `failed` = both endpoints failed */
   status: 'ok' | 'empty' | 'failed';
   themesHttpStatus?: number;
@@ -17,14 +17,14 @@ export type JikanThemesFetchResult = {
   malHttpStatus?: number;
 };
 
-type JikanThemesResponse = {
+type TenraiThemesResponse = {
   data?: {
     openings?: string[];
     endings?: string[];
   };
 };
 
-type JikanFullResponse = {
+type TenraiFullResponse = {
   data?: {
     theme?: {
       openings?: string[];
@@ -97,9 +97,9 @@ export function dedupeThemeStrings(strings: readonly string[]): string[] {
   return out;
 }
 
-export function unionJikanThemesData(
-  ...sources: readonly (JikanThemesData | null | undefined)[]
-): JikanThemesData {
+export function unionTenraiThemesData(
+  ...sources: readonly (TenraiThemesData | null | undefined)[]
+): TenraiThemesData {
   const openings: string[] = [];
   const endings: string[] = [];
   for (const source of sources) {
@@ -120,21 +120,21 @@ function endpointReachable(status: number, hasPayload: boolean): boolean {
 }
 
 /**
- * Fetch Jikan `/themes` and `/full` in parallel and union openings/endings.
- * Either endpoint can supply themes the other missed (504 vs empty endings).
+ * Fetch Tenrai's Jikan-compatible `/themes` and `/full` responses in parallel.
+ * Either endpoint can supply themes the other missed.
  */
-export async function fetchJikanThemes(malId: number): Promise<JikanThemesFetchResult> {
-  const themesUrl = `${JIKAN_BASE}/anime/${malId}/themes`;
-  const fullUrl = `${JIKAN_BASE}/anime/${malId}/full`;
+export async function fetchTenraiThemes(malId: number): Promise<TenraiThemesFetchResult> {
+  const themesUrl = `${TENRAI_BASE}/anime/${malId}/themes`;
+  const fullUrl = `${TENRAI_BASE}/anime/${malId}/full`;
 
   const [themesRes, fullRes] = await Promise.all([
-    fetchJson<JikanThemesResponse>(themesUrl),
-    fetchJson<JikanFullResponse>(fullUrl),
+    fetchJson<TenraiThemesResponse>(themesUrl),
+    fetchJson<TenraiFullResponse>(fullUrl),
   ]);
 
   const themesData = themesRes.body?.data;
   const fullTheme = fullRes.body?.data?.theme;
-  const merged = unionJikanThemesData(
+  const merged = unionTenraiThemesData(
     themesData
       ? { openings: themesData.openings ?? [], endings: themesData.endings ?? [] }
       : null,
@@ -172,7 +172,7 @@ export async function fetchJikanThemes(malId: number): Promise<JikanThemesFetchR
   };
 }
 
-export function formatJikanFailureDetail(result: JikanThemesFetchResult): string {
+export function formatTenraiFailureDetail(result: TenraiThemesFetchResult): string {
   const parts: string[] = [];
   if (result.themesHttpStatus !== undefined) {
     parts.push(`themes ${result.themesHttpStatus}`);

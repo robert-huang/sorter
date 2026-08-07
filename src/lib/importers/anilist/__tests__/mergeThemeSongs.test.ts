@@ -10,7 +10,7 @@ import {
 } from '../themeSongs/mergeThemeSongs';
 import type { MediaThemeSongRow } from '../themeSongs/types';
 import type { AniplaylistHit } from '../themeSongs/aniplaylistApi';
-import { dedupeThemeStrings } from '../themeSongs/jikanApi';
+import { dedupeThemeStrings } from '../themeSongs/tenraiApi';
 
 describe('artistsRoughlyMatch', () => {
   it('matches flipped Latin name order with shared CV credit', () => {
@@ -385,7 +385,7 @@ describe('mergeThemeSongs', () => {
     expect(rows.map((row) => row.sortOrder)).toEqual([0, 1, 2, 3, 4, 5, 6]);
   });
 
-  it('merges Jikan malformed ED quotes with AniPlaylist', () => {
+  it('merges Tenrai malformed ED quotes with AniPlaylist', () => {
     const mal = parseMalThemes(
       ['"Eureka Evrika (ユーレカ・エヴリカ)" by Luna Goami (五阿弥ルナ)'],
       [`''Soarin\u2019'' by Ginger Root`],

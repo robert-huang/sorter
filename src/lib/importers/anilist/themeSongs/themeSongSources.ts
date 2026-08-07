@@ -6,6 +6,7 @@ export type ThemeSongSourceHealth = {
 };
 
 export type ThemeSongSourcesHealth = {
+  /** Legacy persisted key; now tracks the Tenrai/official-MAL source. */
   jikan: ThemeSongSourceHealth;
   aniplaylist: ThemeSongSourceHealth;
 };

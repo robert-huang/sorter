@@ -114,7 +114,7 @@ export function artistsRoughlyMatch(a: string, b: string): boolean {
 }
 
 /**
- * MAL/Jikan theme strings often bundle alternate titles in parentheses, e.g.
+ * MAL/Tenrai theme strings often bundle alternate titles in parentheses, e.g.
  * `Kanade (奏（かなで）)`. AniPlaylist may store each language separately.
  */
 export function collectTitleMatchCandidates(title: string): string[] {

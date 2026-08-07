@@ -3,11 +3,11 @@ import { fetchMalOfficialJson } from '../../lib/importers/anilist/themeSongs/mal
 import { foldJapaneseRomanization } from '../../lib/importers/anilist/themeSongs/themeSongMatching';
 import type { Item } from '../../lib/types';
 
-const JIKAN_BASE_URL = 'https://api.jikan.moe/v4';
+const TENRAI_BASE_URL = 'https://api.tenrai.org/v1';
 const MAL_IMAGE_URL_CACHE_KEY = 'queue-sorter:bump-mal-export-image-urls:v1';
-const JIKAN_REQUEST_INTERVAL_MS = import.meta.env.MODE === 'test' ? 0 : 1_050;
+const TENRAI_REQUEST_INTERVAL_MS = import.meta.env.MODE === 'test' ? 0 : 1_050;
 const MAX_LINKED_MEDIA_LOOKUPS = 6;
-const MAX_JIKAN_RETRIES = 2;
+const MAX_TENRAI_RETRIES = 2;
 
 type AnilistMediaType = 'ANIME' | 'MANGA';
 
@@ -28,31 +28,31 @@ type AnilistName = {
   alternativeSpoiler?: string[] | null;
 };
 
-type JikanImages = {
+type TenraiImages = {
   jpg?: { image_url?: string | null };
   webp?: { image_url?: string | null };
 };
 
-type JikanEntity = {
+type TenraiEntity = {
   mal_id: number;
   name?: string;
   name_kanji?: string | null;
   given_name?: string | null;
   family_name?: string | null;
   alternate_names?: string[] | null;
-  images?: JikanImages;
+  images?: TenraiImages;
 };
 
-type JikanCharacterCredit = {
-  character: JikanEntity;
+type TenraiCharacterCredit = {
+  character: TenraiEntity;
 };
 
-type JikanFetchResult<T> = {
+type TenraiFetchResult<T> = {
   data: T | null;
   status: number | null;
 };
 
-type JikanPersonFull = JikanEntity & {
+type TenraiPersonFull = TenraiEntity & {
   voices?: Array<{
     anime?: { mal_id?: number };
     character?: { name?: string };
@@ -119,8 +119,8 @@ const pendingResolutions = new Map<
 >();
 const sessionMisses = new Set<string>();
 let persistedUrlCache: Record<string, string> | null = null;
-let jikanQueueTail: Promise<unknown> = Promise.resolve();
-let lastJikanRequestAt = 0;
+let tenraiQueueTail: Promise<unknown> = Promise.resolve();
+let lastTenraiRequestAt = 0;
 
 function entityCacheKey(item: Item): string | null {
   const source = item.source;
@@ -193,7 +193,7 @@ export function isAnilistCdnImageUrl(url: string): boolean {
 }
 
 function preferredImageUrl(
-  entity: JikanEntity | null | undefined,
+  entity: TenraiEntity | null | undefined,
 ): string | null {
   const url =
     entity?.images?.jpg?.image_url ?? entity?.images?.webp?.image_url ?? null;
@@ -266,7 +266,7 @@ function metadataNames(name: AnilistName): string[] {
   ].filter((value): value is string => Boolean(value?.trim()));
 }
 
-function jikanEntityNames(entity: JikanEntity): string[] {
+function tenraiEntityNames(entity: TenraiEntity): string[] {
   const combined =
     entity.given_name && entity.family_name
       ? [
@@ -301,28 +301,28 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => globalThis.setTimeout(resolve, ms));
 }
 
-async function runJikanRequest<T>(
+async function runTenraiRequest<T>(
   path: string,
-): Promise<JikanFetchResult<T>> {
-  for (let attempt = 0; attempt <= MAX_JIKAN_RETRIES; attempt += 1) {
+): Promise<TenraiFetchResult<T>> {
+  for (let attempt = 0; attempt <= MAX_TENRAI_RETRIES; attempt += 1) {
     const delay = Math.max(
       0,
-      lastJikanRequestAt + JIKAN_REQUEST_INTERVAL_MS - Date.now(),
+      lastTenraiRequestAt + TENRAI_REQUEST_INTERVAL_MS - Date.now(),
     );
     if (delay > 0) {
       await wait(delay);
     }
-    lastJikanRequestAt = Date.now();
+    lastTenraiRequestAt = Date.now();
 
     let response: Response;
     try {
-      response = await fetch(`${JIKAN_BASE_URL}${path}`, {
+      response = await fetch(`${TENRAI_BASE_URL}${path}`, {
         headers: { Accept: 'application/json' },
       });
     } catch {
       return { data: null, status: null };
     }
-    if (response.status === 429 && attempt < MAX_JIKAN_RETRIES) {
+    if (response.status === 429 && attempt < MAX_TENRAI_RETRIES) {
       const retryAfterSeconds = Number(response.headers.get('Retry-After'));
       await wait(
         Number.isFinite(retryAfterSeconds)
@@ -339,20 +339,20 @@ async function runJikanRequest<T>(
   return { data: null, status: null };
 }
 
-function fetchJikanResult<T>(path: string): Promise<JikanFetchResult<T>> {
-  const result = jikanQueueTail.then(
-    () => runJikanRequest<T>(path),
-    () => runJikanRequest<T>(path),
+function fetchTenraiResult<T>(path: string): Promise<TenraiFetchResult<T>> {
+  const result = tenraiQueueTail.then(
+    () => runTenraiRequest<T>(path),
+    () => runTenraiRequest<T>(path),
   );
-  jikanQueueTail = result.then(
+  tenraiQueueTail = result.then(
     () => undefined,
     () => undefined,
   );
   return result;
 }
 
-async function fetchJikan<T>(path: string): Promise<T | null> {
-  return (await fetchJikanResult<T>(path)).data;
+async function fetchTenrai<T>(path: string): Promise<T | null> {
+  return (await fetchTenraiResult<T>(path)).data;
 }
 
 function uniqueLinkedMedia(
@@ -446,13 +446,13 @@ async function resolveCharacterImage(item: Item): Promise<string | null> {
   );
   for (const media of linkedMedia) {
     const typePath = media.type === 'MANGA' ? 'manga' : 'anime';
-    const response = await fetchJikanResult<{
-      data?: JikanCharacterCredit[];
+    const response = await fetchTenraiResult<{
+      data?: TenraiCharacterCredit[];
     }>(
       `/${typePath}/${media.idMal}/characters`,
     );
     for (const credit of response.data?.data ?? []) {
-      if (namesMatch(sourceNames, jikanEntityNames(credit.character))) {
+      if (namesMatch(sourceNames, tenraiEntityNames(credit.character))) {
         const imageUrl = preferredImageUrl(credit.character);
         if (imageUrl) {
           matches.set(credit.character.mal_id, imageUrl);
@@ -468,7 +468,7 @@ async function resolveCharacterImage(item: Item): Promise<string | null> {
 }
 
 function staffCandidateMatchesCredit(
-  candidate: JikanPersonFull,
+  candidate: TenraiPersonFull,
   voiceLinks: ReadonlyMap<number, readonly string[]>,
   animeStaffIds: ReadonlySet<number>,
   mangaStaffIds: ReadonlySet<number>,
@@ -557,13 +557,13 @@ async function resolveStaffImage(item: Item): Promise<string | null> {
     return null;
   }
 
-  const candidates = new Map<number, JikanEntity>();
+  const candidates = new Map<number, TenraiEntity>();
   for (const queryName of sourceNames.slice(0, 2)) {
-    const response = await fetchJikan<{ data?: JikanEntity[] }>(
+    const response = await fetchTenrai<{ data?: TenraiEntity[] }>(
       `/people?q=${encodeURIComponent(queryName)}&limit=10`,
     );
     for (const candidate of response?.data ?? []) {
-      if (namesMatch(sourceNames, jikanEntityNames(candidate))) {
+      if (namesMatch(sourceNames, tenraiEntityNames(candidate))) {
         candidates.set(candidate.mal_id, candidate);
       }
     }
@@ -571,13 +571,13 @@ async function resolveStaffImage(item: Item): Promise<string | null> {
 
   const verified = new Map<number, string>();
   for (const candidate of candidates.values()) {
-    const response = await fetchJikan<{ data?: JikanPersonFull }>(
+    const response = await fetchTenrai<{ data?: TenraiPersonFull }>(
       `/people/${candidate.mal_id}/full`,
     );
     const person = response?.data;
     if (
       person &&
-      namesMatch(sourceNames, jikanEntityNames(person)) &&
+      namesMatch(sourceNames, tenraiEntityNames(person)) &&
       staffCandidateMatchesCredit(
         person,
         voiceLinks,
@@ -651,6 +651,6 @@ export function _resetBumpMalExportImagesForTesting(): void {
   pendingResolutions.clear();
   sessionMisses.clear();
   persistedUrlCache = null;
-  jikanQueueTail = Promise.resolve();
-  lastJikanRequestAt = 0;
+  tenraiQueueTail = Promise.resolve();
+  lastTenraiRequestAt = 0;
 }

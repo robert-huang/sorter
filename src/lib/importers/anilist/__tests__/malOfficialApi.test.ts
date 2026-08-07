@@ -9,7 +9,7 @@ describe('normalizeMalOfficialThemeLine', () => {
     );
   });
 
-  it('leaves Jikan-style numbered lines unchanged', async () => {
+  it('leaves Tenrai-style numbered lines unchanged', async () => {
     const { normalizeMalOfficialThemeLine } = await import('../themeSongs/malOfficialApi');
     expect(normalizeMalOfficialThemeLine('1: "Kanade" by Takagi-san')).toBe(
       '1: "Kanade" by Takagi-san',

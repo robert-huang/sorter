@@ -1,4 +1,4 @@
-import type { JikanThemesData, JikanThemesFetchResult } from './jikanApi';
+import type { TenraiThemesData, TenraiThemesFetchResult } from './tenraiApi';
 
 const MAL_API_DIRECT_BASE = 'https://api.myanimelist.net';
 
@@ -31,7 +31,7 @@ type MalAnimeThemesResponse = {
 
 /**
  * MAL's API does not send CORS headers, so browsers cannot call it directly
- * (unlike Jikan). Use the Vite proxy locally or `VITE_MAL_PROXY_URL` in prod.
+ * (unlike Tenrai). Use the Vite proxy locally or `VITE_MAL_PROXY_URL` in prod.
  */
 export function resolveMalApiBaseUrl(): string {
   const configured = malEnvString('VITE_MAL_PROXY_URL').trim();
@@ -59,12 +59,12 @@ export function isMalOfficialApiConfigured(): boolean {
   return Boolean(malEnvString('VITE_MAL_PROXY_URL').trim() || malClientId().length > 0);
 }
 
-/** Normalize official MAL API theme lines to Jikan-style strings for `parseMalThemes`. */
+/** Normalize official MAL theme lines to Tenrai's Jikan-compatible format. */
 export function normalizeMalOfficialThemeLine(text: string): string {
   return text.trim().replace(/^#(\d+)\s*:\s*/, '$1: ');
 }
 
-function packMalThemes(openings: string[], endings: string[]): JikanThemesFetchResult {
+function packMalThemes(openings: string[], endings: string[]): TenraiThemesFetchResult {
   if (openings.length === 0 && endings.length === 0) {
     return {
       data: { openings, endings },
@@ -126,7 +126,7 @@ export async function fetchMalOfficialJson<T>(
 }
 
 /** Official MyAnimeList API themes (`opening_themes` / `ending_themes` fields). */
-export async function fetchMalOfficialThemes(malId: number): Promise<JikanThemesFetchResult> {
+export async function fetchMalOfficialThemes(malId: number): Promise<TenraiThemesFetchResult> {
   if (!isMalOfficialApiConfigured()) {
     return { data: null, status: 'failed' };
   }
@@ -152,4 +152,4 @@ export async function fetchMalOfficialThemes(malId: number): Promise<JikanThemes
   };
 }
 
-export type MalOfficialThemesData = JikanThemesData;
+export type MalOfficialThemesData = TenraiThemesData;

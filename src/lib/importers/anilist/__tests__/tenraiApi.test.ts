@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   dedupeThemeStrings,
-  fetchJikanThemes,
-  unionJikanThemesData,
-} from '../themeSongs/jikanApi';
+  fetchTenraiThemes,
+  unionTenraiThemesData,
+} from '../themeSongs/tenraiApi';
 
 describe('dedupeThemeStrings', () => {
   it('dedupes by parsed title and artist across quote variants', () => {
@@ -24,9 +24,9 @@ describe('dedupeThemeStrings', () => {
   });
 });
 
-describe('unionJikanThemesData', () => {
+describe('unionTenraiThemesData', () => {
   it('merges openings and endings from both sources', () => {
-    const merged = unionJikanThemesData(
+    const merged = unionTenraiThemesData(
       { openings: ['1: "OP" by A'], endings: [] },
       { openings: [], endings: ['1: "ED" by B'] },
     );
@@ -35,7 +35,7 @@ describe('unionJikanThemesData', () => {
   });
 });
 
-describe('fetchJikanThemes', () => {
+describe('fetchTenraiThemes', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
   });
@@ -69,9 +69,17 @@ describe('fetchJikanThemes', () => {
       throw new Error(`unexpected url ${url}`);
     });
 
-    const result = await fetchJikanThemes(42);
+    const result = await fetchTenraiThemes(42);
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.tenrai.org/v1/anime/42/themes',
+      { headers: { Accept: 'application/json' } },
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.tenrai.org/v1/anime/42/full',
+      { headers: { Accept: 'application/json' } },
+    );
     expect(result).toMatchObject({
       status: 'ok',
       themesHttpStatus: 200,
@@ -91,7 +99,7 @@ describe('fetchJikanThemes', () => {
       json: async () => ({}),
     } as Response);
 
-    const result = await fetchJikanThemes(99);
+    const result = await fetchTenraiThemes(99);
 
     expect(result).toMatchObject({
       status: 'failed',
@@ -123,7 +131,7 @@ describe('fetchJikanThemes', () => {
       } as Response;
     });
 
-    const result = await fetchJikanThemes(7);
+    const result = await fetchTenraiThemes(7);
 
     expect(result.status).toBe('ok');
     expect(result.data?.endings).toEqual(['1: "ED" by B']);

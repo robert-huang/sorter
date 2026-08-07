@@ -1,15 +1,15 @@
 import {
-  fetchJikanThemes,
-  formatJikanFailureDetail,
-  unionJikanThemesData,
-  type JikanThemesData,
-  type JikanThemesFetchResult,
-} from './jikanApi';
+  fetchTenraiThemes,
+  formatTenraiFailureDetail,
+  unionTenraiThemesData,
+  type TenraiThemesData,
+  type TenraiThemesFetchResult,
+} from './tenraiApi';
 import { fetchMalOfficialThemes, isMalOfficialApiConfigured } from './malOfficialApi';
 
-export type MalThemeProvider = 'jikan' | 'mal-official';
+export type MalThemeProvider = 'tenrai' | 'mal-official';
 
-export type MalThemeFetchResult = JikanThemesFetchResult & {
+export type MalThemeFetchResult = TenraiThemesFetchResult & {
   provider?: MalThemeProvider;
 };
 
@@ -19,7 +19,7 @@ export type MalThemeFetchHints = {
   aniplaylistEndingCount?: number;
 };
 
-function countThemes(data: JikanThemesData | null | undefined): number {
+function countThemes(data: TenraiThemesData | null | undefined): number {
   if (!data) {
     return 0;
   }
@@ -27,10 +27,10 @@ function countThemes(data: JikanThemesData | null | undefined): number {
 }
 
 function isThinVersusAniplaylist(
-  jikan: JikanThemesFetchResult,
+  tenrai: TenraiThemesFetchResult,
   hints: MalThemeFetchHints,
 ): boolean {
-  const total = countThemes(jikan.data);
+  const total = countThemes(tenrai.data);
   if (
     hints.aniplaylistThemeCount != null &&
     hints.aniplaylistThemeCount > 0 &&
@@ -41,28 +41,28 @@ function isThinVersusAniplaylist(
   if (
     hints.aniplaylistEndingCount != null &&
     hints.aniplaylistEndingCount > 0 &&
-    (jikan.data?.endings.length ?? 0) === 0
+    (tenrai.data?.endings.length ?? 0) === 0
   ) {
     return true;
   }
   return false;
 }
 
-function mergeOfficialIntoJikan(
-  jikan: MalThemeFetchResult,
-  official: JikanThemesFetchResult,
+function mergeOfficialIntoTenrai(
+  tenrai: MalThemeFetchResult,
+  official: TenraiThemesFetchResult,
 ): MalThemeFetchResult {
-  const merged = unionJikanThemesData(jikan.data, official.data);
+  const merged = unionTenraiThemesData(tenrai.data, official.data);
   if (merged.openings.length === 0 && merged.endings.length === 0) {
     return {
-      ...jikan,
+      ...tenrai,
       data: merged,
-      status: jikan.status === 'failed' ? 'failed' : 'empty',
+      status: tenrai.status === 'failed' ? 'failed' : 'empty',
       malHttpStatus: official.malHttpStatus,
     };
   }
   return {
-    ...jikan,
+    ...tenrai,
     data: merged,
     status: 'ok',
     malHttpStatus: official.malHttpStatus,
@@ -85,23 +85,23 @@ async function fetchOfficialMalUnion(malId: number): Promise<MalThemeFetchResult
 }
 
 /**
- * Jikan first (themes + full union), then official MyAnimeList API when Jikan fails
- * or when AniPlaylist suggests more themes than Jikan returned.
+ * Tenrai first (themes + full union), then official MyAnimeList API when Tenrai
+ * fails or when AniPlaylist suggests more themes than Tenrai returned.
  */
 export async function fetchMalThemeStrings(malId: number): Promise<MalThemeFetchResult> {
-  const jikan = await fetchJikanThemes(malId);
-  if (jikan.status !== 'failed') {
-    return { ...jikan, provider: 'jikan' };
+  const tenrai = await fetchTenraiThemes(malId);
+  if (tenrai.status !== 'failed') {
+    return { ...tenrai, provider: 'tenrai' };
   }
 
   if (!isMalOfficialApiConfigured()) {
-    return jikan;
+    return tenrai;
   }
 
   const mal = await fetchOfficialMalUnion(malId);
   if (mal.status === 'failed') {
     return {
-      ...jikan,
+      ...tenrai,
       malHttpStatus: mal.malHttpStatus,
       status: 'failed',
     };
@@ -109,37 +109,37 @@ export async function fetchMalThemeStrings(malId: number): Promise<MalThemeFetch
 
   return {
     ...mal,
-    themesHttpStatus: jikan.themesHttpStatus,
-    fullHttpStatus: jikan.fullHttpStatus,
+    themesHttpStatus: tenrai.themesHttpStatus,
+    fullHttpStatus: tenrai.fullHttpStatus,
   };
 }
 
 /**
- * After AniPlaylist search, retry official MAL when Jikan's union looks incomplete.
+ * After AniPlaylist search, retry official MAL when Tenrai's union looks incomplete.
  */
 export async function enrichMalThemesWithOfficialIfNeeded(
-  jikan: MalThemeFetchResult,
+  tenrai: MalThemeFetchResult,
   malId: number,
   hints: MalThemeFetchHints,
 ): Promise<MalThemeFetchResult> {
   if (!isMalOfficialApiConfigured()) {
-    return jikan;
+    return tenrai;
   }
-  if (!isThinVersusAniplaylist(jikan, hints)) {
-    return jikan;
+  if (!isThinVersusAniplaylist(tenrai, hints)) {
+    return tenrai;
   }
 
   const mal = await fetchOfficialMalUnion(malId);
   if (mal.status === 'failed') {
     return {
-      ...jikan,
+      ...tenrai,
       malHttpStatus: mal.malHttpStatus,
     };
   }
 
-  return mergeOfficialIntoJikan(jikan, mal);
+  return mergeOfficialIntoTenrai(tenrai, mal);
 }
 
 export function formatMalThemeFailureDetail(result: MalThemeFetchResult): string {
-  return formatJikanFailureDetail(result);
+  return formatTenraiFailureDetail(result);
 }

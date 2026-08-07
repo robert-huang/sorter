@@ -1,4 +1,4 @@
--- Per-media theme song cache (Jikan/MAL + AniPlaylist merge). Marker row
+-- Per-media theme song cache (Tenrai/MAL + AniPlaylist merge). Marker row
 -- distinguishes "never fetched" from "fetched, zero songs".
 CREATE TABLE media_theme_songs_expansion (
   media_id     INTEGER NOT NULL PRIMARY KEY REFERENCES media(id) ON DELETE CASCADE,

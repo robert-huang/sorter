@@ -104,7 +104,7 @@ describe('Bump Chart MAL export image matching', () => {
     expect(resolved?.url).toBe(MAL_IMAGE);
   });
 
-  it('falls back to the linked official MAL anime cast after a Jikan 504', async () => {
+  it('falls back to the linked official MAL anime cast after a Tenrai 504', async () => {
     executeAnilistQuery.mockResolvedValue({
       Character: {
         name: {
@@ -120,7 +120,7 @@ describe('Bump Chart MAL export image matching', () => {
       .spyOn(globalThis, 'fetch')
       .mockImplementation(async (input) => {
         const url = input.toString();
-        if (url.startsWith('https://api.jikan.moe/')) {
+        if (url.startsWith('https://api.tenrai.org/')) {
           return new Response(null, { status: 504 });
         }
         return new Response(
@@ -154,7 +154,7 @@ describe('Bump Chart MAL export image matching', () => {
     expect(resolved?.url).toBe(MAL_IMAGE);
   });
 
-  it('does not use the MAL anime cast fallback for non-504 Jikan failures', async () => {
+  it('does not use the MAL anime cast fallback for non-504 Tenrai failures', async () => {
     executeAnilistQuery.mockResolvedValue({
       Character: {
         name: {
@@ -179,7 +179,7 @@ describe('Bump Chart MAL export image matching', () => {
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
-  it('does not call the nonexistent MAL manga cast endpoint after a Jikan 504', async () => {
+  it('does not call the nonexistent MAL manga cast endpoint after a Tenrai 504', async () => {
     executeAnilistQuery.mockResolvedValue({
       Character: {
         name: {
@@ -322,7 +322,7 @@ describe('Bump Chart MAL export image matching', () => {
       expect.anything(),
     );
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://api.jikan.moe/v4/people/11/full',
+      'https://api.tenrai.org/v1/people/11/full',
       expect.anything(),
     );
     expect(resolved?.url).toBe(MAL_IMAGE);
@@ -437,7 +437,7 @@ describe('Bump Chart MAL export image matching', () => {
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
-  it('serializes Jikan requests from concurrent resolutions', async () => {
+  it('serializes Tenrai requests from concurrent resolutions', async () => {
     executeAnilistQuery.mockImplementation(
       async (_query: string, variables: { id: number }) => ({
         Character: {
@@ -477,7 +477,7 @@ describe('Bump Chart MAL export image matching', () => {
     expect(maxActive).toBe(1);
   });
 
-  it('honors a Jikan 429 retry before resolving', async () => {
+  it('honors a Tenrai 429 retry before resolving', async () => {
     vi.useFakeTimers();
     executeAnilistQuery.mockResolvedValue({
       Character: {

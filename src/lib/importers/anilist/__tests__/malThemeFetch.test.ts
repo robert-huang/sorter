@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fetchJikanThemes, formatJikanFailureDetail } from '../themeSongs/jikanApi';
+import { fetchTenraiThemes, formatTenraiFailureDetail } from '../themeSongs/tenraiApi';
 import { fetchMalOfficialThemes, isMalOfficialApiConfigured } from '../themeSongs/malOfficialApi';
 import {
   enrichMalThemesWithOfficialIfNeeded,
@@ -8,10 +8,10 @@ import {
   type MalThemeFetchResult,
 } from '../themeSongs/malThemeFetch';
 
-vi.mock('../themeSongs/jikanApi', () => ({
-  fetchJikanThemes: vi.fn(),
-  formatJikanFailureDetail: vi.fn(),
-  unionJikanThemesData: vi.fn((...sources: Array<{ openings: string[]; endings: string[] } | null | undefined>) => {
+vi.mock('../themeSongs/tenraiApi', () => ({
+  fetchTenraiThemes: vi.fn(),
+  formatTenraiFailureDetail: vi.fn(),
+  unionTenraiThemesData: vi.fn((...sources: Array<{ openings: string[]; endings: string[] } | null | undefined>) => {
     const openings: string[] = [];
     const endings: string[] = [];
     for (const source of sources) {
@@ -28,10 +28,10 @@ vi.mock('../themeSongs/malOfficialApi', () => ({
   isMalOfficialApiConfigured: vi.fn(),
 }));
 
-const fetchJikanThemesMock = vi.mocked(fetchJikanThemes);
+const fetchTenraiThemesMock = vi.mocked(fetchTenraiThemes);
 const fetchMalOfficialThemesMock = vi.mocked(fetchMalOfficialThemes);
 const isMalOfficialApiConfiguredMock = vi.mocked(isMalOfficialApiConfigured);
-const formatJikanFailureDetailMock = vi.mocked(formatJikanFailureDetail);
+const formatTenraiFailureDetailMock = vi.mocked(formatTenraiFailureDetail);
 
 describe('fetchMalThemeStrings', () => {
   beforeEach(() => {
@@ -39,8 +39,8 @@ describe('fetchMalThemeStrings', () => {
     isMalOfficialApiConfiguredMock.mockReturnValue(true);
   });
 
-  it('returns Jikan result when Jikan succeeds', async () => {
-    fetchJikanThemesMock.mockResolvedValue({
+  it('returns Tenrai result when Tenrai succeeds', async () => {
+    fetchTenraiThemesMock.mockResolvedValue({
       status: 'ok',
       data: { openings: ['1: "OP" by A'], endings: [] },
       themesHttpStatus: 200,
@@ -49,14 +49,14 @@ describe('fetchMalThemeStrings', () => {
     const result = await fetchMalThemeStrings(1);
 
     expect(result).toMatchObject({
-      provider: 'jikan',
+      provider: 'tenrai',
       status: 'ok',
     });
     expect(fetchMalOfficialThemesMock).not.toHaveBeenCalled();
   });
 
-  it('falls back to official MAL API when Jikan themes and full both fail', async () => {
-    fetchJikanThemesMock.mockResolvedValue({
+  it('falls back to official MAL API when Tenrai themes and full both fail', async () => {
+    fetchTenraiThemesMock.mockResolvedValue({
       status: 'failed',
       data: null,
       themesHttpStatus: 504,
@@ -80,9 +80,9 @@ describe('fetchMalThemeStrings', () => {
     });
   });
 
-  it('keeps Jikan failure when MAL API is not configured', async () => {
+  it('keeps Tenrai failure when MAL API is not configured', async () => {
     isMalOfficialApiConfiguredMock.mockReturnValue(false);
-    fetchJikanThemesMock.mockResolvedValue({
+    fetchTenraiThemesMock.mockResolvedValue({
       status: 'failed',
       data: null,
       themesHttpStatus: 504,
@@ -95,8 +95,8 @@ describe('fetchMalThemeStrings', () => {
     expect(fetchMalOfficialThemesMock).not.toHaveBeenCalled();
   });
 
-  it('merges MAL failure status into Jikan failure detail', async () => {
-    fetchJikanThemesMock.mockResolvedValue({
+  it('merges MAL failure status into Tenrai failure detail', async () => {
+    fetchTenraiThemesMock.mockResolvedValue({
       status: 'failed',
       data: null,
       themesHttpStatus: 504,
@@ -120,8 +120,8 @@ describe('fetchMalThemeStrings', () => {
 });
 
 describe('formatMalThemeFailureDetail', () => {
-  it('delegates to formatJikanFailureDetail', () => {
-    formatJikanFailureDetailMock.mockReturnValue('themes 504, full 504, mal 503');
+  it('delegates to formatTenraiFailureDetail', () => {
+    formatTenraiFailureDetailMock.mockReturnValue('themes 504, full 504, mal 503');
     const result = formatMalThemeFailureDetail({
       status: 'failed',
       data: null,
@@ -130,7 +130,7 @@ describe('formatMalThemeFailureDetail', () => {
       malHttpStatus: 503,
     });
     expect(result).toBe('themes 504, full 504, mal 503');
-    expect(formatJikanFailureDetailMock).toHaveBeenCalled();
+    expect(formatTenraiFailureDetailMock).toHaveBeenCalled();
   });
 });
 
@@ -140,10 +140,10 @@ describe('enrichMalThemesWithOfficialIfNeeded', () => {
     isMalOfficialApiConfiguredMock.mockReturnValue(true);
   });
 
-  it('fetches official MAL when Jikan union is thinner than AniPlaylist hints', async () => {
-    const jikan: MalThemeFetchResult = {
+  it('fetches official MAL when Tenrai union is thinner than AniPlaylist hints', async () => {
+    const tenrai: MalThemeFetchResult = {
       status: 'ok',
-      provider: 'jikan',
+      provider: 'tenrai',
       data: { openings: ['1: "OP" by A'], endings: [] },
       themesHttpStatus: 200,
       fullHttpStatus: 200,
@@ -154,7 +154,7 @@ describe('enrichMalThemesWithOfficialIfNeeded', () => {
       malHttpStatus: 200,
     });
 
-    const result = await enrichMalThemesWithOfficialIfNeeded(jikan, 123, {
+    const result = await enrichMalThemesWithOfficialIfNeeded(tenrai, 123, {
       aniplaylistThemeCount: 2,
       aniplaylistEndingCount: 1,
     });
@@ -164,10 +164,10 @@ describe('enrichMalThemesWithOfficialIfNeeded', () => {
     expect(result.provider).toBe('mal-official');
   });
 
-  it('skips official MAL when Jikan already covers AniPlaylist hints', async () => {
-    const jikan: MalThemeFetchResult = {
+  it('skips official MAL when Tenrai already covers AniPlaylist hints', async () => {
+    const tenrai: MalThemeFetchResult = {
       status: 'ok',
-      provider: 'jikan',
+      provider: 'tenrai',
       data: {
         openings: ['1: "OP" by A'],
         endings: ['1: "ED" by B'],
@@ -176,12 +176,12 @@ describe('enrichMalThemesWithOfficialIfNeeded', () => {
       fullHttpStatus: 200,
     };
 
-    const result = await enrichMalThemesWithOfficialIfNeeded(jikan, 456, {
+    const result = await enrichMalThemesWithOfficialIfNeeded(tenrai, 456, {
       aniplaylistThemeCount: 2,
       aniplaylistEndingCount: 1,
     });
 
     expect(fetchMalOfficialThemesMock).not.toHaveBeenCalled();
-    expect(result).toBe(jikan);
+    expect(result).toBe(tenrai);
   });
 });

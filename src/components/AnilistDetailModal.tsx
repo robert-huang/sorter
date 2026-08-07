@@ -127,7 +127,7 @@ function themeSongsEmptyMessage(
     return 'Loading theme songs…';
   }
   if (sourcesFailed) {
-    return 'Theme song sources unavailable (MAL/Jikan and AniPlaylist). Try ↻ next to Theme songs.';
+    return 'Theme song sources unavailable (MAL/Tenrai and AniPlaylist). Try ↻ next to Theme songs.';
   }
   if (fetchedAt === null) {
     return 'Click Load next to Theme songs to fetch from MAL and AniPlaylist.';
@@ -1132,8 +1132,8 @@ export function AnilistDetailModal({
                       disabled={themeSongsLoading || expanding}
                       title={
                         themeSongsFetchedAt === null
-                          ? 'Load theme songs from MAL/Jikan + AniPlaylist'
-                          : 'Re-fetch theme songs (MAL/Jikan + AniPlaylist)'
+                          ? 'Load theme songs from MAL/Tenrai + AniPlaylist'
+                          : 'Re-fetch theme songs (MAL/Tenrai + AniPlaylist)'
                       }
                       aria-label={
                         themeSongsFetchedAt === null ? 'Load theme songs' : 'Refresh theme songs'

@@ -11,7 +11,7 @@ const EPISODES_RE = /\((eps?\.?\s*[^)]+)\)\s*$/i;
 const NUMBERED_PREFIX_RE = /^#?(\d+)\s*:\s*/;
 const WRAPPING_QUOTE_RE = /^["'`\u2018\u2019\u201c\u201d]|["'`\u2018\u2019\u201c\u201d]$/;
 
-/** Strip mismatched / doubled quote wrappers from Jikan/MAL theme titles. */
+/** Strip mismatched / doubled quote wrappers from Tenrai/MAL theme titles. */
 function stripWrappingQuotes(title: string): string {
   let out = title.trim();
   while (WRAPPING_QUOTE_RE.test(out)) {
@@ -24,7 +24,7 @@ function stripWrappingQuotes(title: string): string {
 }
 
 /**
- * Parse a MAL/Jikan theme string like:
+ * Parse a MAL/Tenrai theme string like:
  *   `"Zero Centimeter" by Yuiko Oohara`
  *   `1: "Kanade" by Takagi-san (Rie Takahashi) (eps 1)`
  */
