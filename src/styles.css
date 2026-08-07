@@ -853,22 +853,6 @@ html {
   margin: 0;
 }
 
-.settings-help-tooltip {
-  display: inline-grid;
-  place-items: center;
-  flex: 0 0 auto;
-  width: 15px;
-  height: 15px;
-  margin-left: auto;
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  color: var(--text-muted);
-  font-size: 10px;
-  font-weight: 800;
-  line-height: 1;
-  cursor: help;
-}
-
 .settings-divider {
   height: 1px;
   background: var(--border);
@@ -8451,19 +8435,6 @@ a:where(.anime-to-anime-anilist-link):visited {
   margin: 0;
 }
 
-.bump-chart-help-tooltip {
-  display: inline-grid;
-  place-items: center;
-  width: 17px;
-  height: 17px;
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 800;
-  cursor: help;
-}
-
 .bump-chart-staging-area {
   min-height: 160px;
   max-height: 560px;
@@ -8871,8 +8842,12 @@ a:where(.anime-to-anime-anilist-link):visited {
 }
 
 .bump-chart-inferred-icon {
-  color: inherit;
-  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
 }
 
 .bump-chart-inferred-icon * {

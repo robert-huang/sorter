@@ -70,16 +70,12 @@ describe('ToolsSettingsMenu', () => {
         input.closest('label')?.textContent?.includes('Best Match by Title') ===
         true,
     );
-    const help = container.querySelector<HTMLElement>(
-      '[aria-label="Best Match by Title help"]',
-    );
+    const label = checkbox?.closest('label');
     expect(checkbox?.checked).toBe(true);
-    expect(help?.title).toContain('Exact logical IDs always match first');
-
-    await act(async () => {
-      help?.click();
-    });
-    expect(checkbox?.checked).toBe(true);
+    expect(label?.title).toContain('Exact logical IDs always match first');
+    expect(
+      container.querySelector('[aria-label="Best Match by Title help"]'),
+    ).toBeNull();
 
     await act(async () => {
       checkbox?.click();

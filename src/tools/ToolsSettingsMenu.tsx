@@ -133,6 +133,7 @@ export function ToolsSettingsMenu({
                 <p className="edit-item-advanced-title">Bump Chart</p>
                 <label
                   className="settings-item checkbox"
+                  title="Exact logical IDs always match first.&#10;&#10;When enabled, remaining rows match only when an exact stored label (including a custom label) or AniList title-language variant identifies one unique pair.&#10;&#10;Ambiguous titles and conflicting AniList IDs stay disconnected.&#10;&#10;The info icon marks inferred lines."
                 >
                   <input
                     type="checkbox"
@@ -142,14 +143,6 @@ export function ToolsSettingsMenu({
                     }
                   />
                   Best Match by Title
-                  <span
-                    className="settings-help-tooltip"
-                    title="Exact logical IDs always match first.&#10;&#10;When enabled, remaining rows match only when an exact stored label (including a custom label) or AniList title-language variant identifies one unique pair.&#10;&#10;Ambiguous titles and conflicting AniList IDs stay disconnected.&#10;&#10;The info icon marks inferred lines."
-                    aria-label="Best Match by Title help"
-                    onClick={(event) => event.preventDefault()}
-                  >
-                    ?
-                  </span>
                 </label>
                 <label
                   className="settings-item checkbox"

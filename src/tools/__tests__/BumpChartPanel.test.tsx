@@ -412,7 +412,20 @@ describe('BumpChartPanel staging flow', () => {
     const markers = container.querySelectorAll<SVGGElement>(
       '.bump-chart-inferred-marker',
     );
+    const connections = container.querySelectorAll<SVGGElement>(
+      '.bump-chart-connection',
+    );
+    expect(connections).toHaveLength(3);
     expect(markers).toHaveLength(3);
+    connections.forEach((connection) => {
+      const marker = connection.querySelector('.bump-chart-inferred-marker');
+      const icon = marker?.querySelector('.bump-chart-inferred-icon');
+      expect(marker?.querySelector('title')?.textContent).toBe(
+        'Inferred match from an exact label',
+      );
+      expect(icon?.querySelectorAll('circle')).toHaveLength(1);
+      expect(icon?.querySelectorAll('line')).toHaveLength(2);
+    });
     expect(
       new Set(
         Array.from(markers, (marker) =>
@@ -420,6 +433,14 @@ describe('BumpChartPanel staging flow', () => {
         ),
       ).size,
     ).toBe(3);
+    expect(
+      new Set(
+        Array.from(
+          connections,
+          (connection) => connection.dataset.bumpLineage,
+        ),
+      ).size,
+    ).toBe(1);
     expect(container.querySelectorAll('.bump-chart-node')).toHaveLength(2);
   });
 

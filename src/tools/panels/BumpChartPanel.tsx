@@ -16,7 +16,6 @@ import {
   EditItemModal,
   type EditItemSavePayload,
 } from '../../components/EditItemModal';
-import { InfoIcon } from '../../components/icons';
 import { Modal } from '../../components/Modal';
 import {
   StagedItemsPanel,
@@ -401,20 +400,16 @@ function BumpStage({
 
       {hasCustomLabels && (
         <div className="bump-chart-import-action-row">
-          <label className="checkbox-row bump-chart-preserve-labels">
+          <label
+            className="checkbox-row bump-chart-preserve-labels"
+            title="When off, hydrated AniList items use the current display-language setting."
+          >
             <input
               type="checkbox"
               checked={draft.preserveCustomLabels}
               onChange={onTogglePreserveCustomLabels}
             />
             Preserve custom labels
-            <span
-              className="bump-chart-help-tooltip"
-              title="When off, hydrated AniList items use the current display-language setting."
-              aria-label="Preserve custom labels help"
-            >
-              ?
-            </span>
           </label>
         </div>
       )}
@@ -802,12 +797,15 @@ function InferredMatchMarker({
         cy={y}
         r="9"
       />
-      <InfoIcon
+      <g
         className="bump-chart-inferred-icon"
-        x={x - 9}
-        y={y - 9}
-        size={18}
-      />
+        transform={`translate(${x - 9} ${y - 9}) scale(0.75)`}
+        aria-hidden="true"
+      >
+        <circle cx="12" cy="12" r="10" />
+        <line x1="12" y1="16" x2="12" y2="12" />
+        <line x1="12" y1="8" x2="12.01" y2="8" />
+      </g>
     </g>
   );
 }
