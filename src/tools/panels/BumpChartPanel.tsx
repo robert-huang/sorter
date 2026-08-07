@@ -2139,8 +2139,8 @@ function SavedBumpCharts({
         >
           <span className="staged-panel-caret" aria-hidden />
           <h3>Saved charts</h3>
+          <span className="bump-chart-saved-count">{slots.length} saved</span>
         </button>
-        <span>{slots.length} saved</span>
       </div>
       {expanded && (
         <div className="bump-chart-saved-list" id="bump-chart-saved-list">

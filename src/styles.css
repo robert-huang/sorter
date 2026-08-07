@@ -8220,6 +8220,7 @@ a:where(.anime-to-anime-anilist-link):visited {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
   min-width: 0;
   padding: 0;
   border: 0;
@@ -8247,10 +8248,14 @@ a:where(.anime-to-anime-anilist-link):visited {
 }
 
 .bump-chart-saved-heading p,
-.bump-chart-saved-heading > span,
+.bump-chart-saved-count,
 .bump-chart-saved-date {
   color: var(--text-muted);
   font-size: 12px;
+}
+
+.bump-chart-saved-count {
+  margin-left: auto;
 }
 
 .bump-chart-saved-heading p {

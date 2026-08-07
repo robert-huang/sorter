@@ -1340,10 +1340,14 @@ describe('BumpChartPanel staging flow', () => {
     const savedChartsToggle = container.querySelector<HTMLButtonElement>(
       '[aria-label="Collapse saved charts"]',
     );
+    const savedChartsCount = container.querySelector<HTMLElement>(
+      '.bump-chart-saved-count',
+    );
     expect(savedChartsToggle?.getAttribute('aria-expanded')).toBe('true');
+    expect(savedChartsCount?.closest('button')).toBe(savedChartsToggle);
 
     await act(async () => {
-      savedChartsToggle?.click();
+      savedChartsCount?.click();
     });
     const collapsedSavedCharts = container.querySelector(
       '.bump-chart-saved-charts',
