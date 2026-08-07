@@ -95,7 +95,7 @@ type StaffMetadataResponse = {
     characterMedia: {
       edges: Array<{
         node: AnilistMediaRef;
-        characters: Array<{ name: AnilistName }>;
+        characters: Array<{ name: AnilistName } | null>;
       }>;
     };
     staffMedia: {
@@ -532,8 +532,11 @@ async function resolveStaffImage(item: Item): Promise<string | null> {
       continue;
     }
     const names = edge.characters.flatMap((character) =>
-      metadataNames(character.name),
+      character ? metadataNames(character.name) : [],
     );
+    if (names.length === 0) {
+      continue;
+    }
     voiceLinks.set(edge.node.idMal, [
       ...(voiceLinks.get(edge.node.idMal) ?? []),
       ...names,

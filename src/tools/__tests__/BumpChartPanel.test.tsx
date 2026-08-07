@@ -1087,7 +1087,7 @@ describe('BumpChartPanel staging flow', () => {
     ).toBeNull();
   });
 
-  it('reacts to Best Match by Title changes for an existing chart', async () => {
+  it('reacts to Best match by title changes for an existing chart', async () => {
     saveToolsPreferences({ bumpChartBestMatchByTitle: false });
     await act(async () => {
       root.render(
@@ -1752,7 +1752,7 @@ describe('BumpChartPanel staging flow', () => {
         }) as unknown as Range,
     );
 
-    await exportChartPng(chart);
+    await exportChartPng(chart, { includeImages: true });
 
     expect(fetchMock).toHaveBeenCalledWith(
       'https://example.invalid/cover.jpg',
@@ -1868,6 +1868,26 @@ describe('BumpChartPanel staging flow', () => {
 
     try {
       await exportChartPng(chart, {
+        includeImages: false,
+        itemsById: new Map([
+          [
+            'anilist:1',
+            {
+              id: 'anilist:1',
+              label: 'Cowboy Bebop',
+              imageUrl: anilistImage,
+              source: { kind: 'anilist', externalId: 1 },
+            },
+          ],
+        ]),
+        useMalImages: true,
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(context.drawImage).not.toHaveBeenCalled();
+      expect(image.style.display).toBe('');
+
+      await exportChartPng(chart, {
+        includeImages: true,
         itemsById: new Map([
           [
             'anilist:1',

@@ -10,6 +10,7 @@ export function useToolsPreferences(): {
   prefs: ToolsPreferences;
   setProductionAllRoles: (enabled: boolean) => void;
   setBumpChartBestMatchByTitle: (enabled: boolean) => void;
+  setBumpChartIncludeExportImages: (enabled: boolean) => void;
   setBumpChartMalExportImages: (enabled: boolean) => void;
 } {
   const [prefs, setPrefs] = useState<ToolsPreferences>(() => loadToolsPreferences());
@@ -28,6 +29,10 @@ export function useToolsPreferences(): {
     saveToolsPreferences({ bumpChartBestMatchByTitle: enabled });
   };
 
+  const setBumpChartIncludeExportImages = (enabled: boolean): void => {
+    saveToolsPreferences({ bumpChartIncludeExportImages: enabled });
+  };
+
   const setBumpChartMalExportImages = (enabled: boolean): void => {
     saveToolsPreferences({ bumpChartMalExportImages: enabled });
   };
@@ -36,6 +41,7 @@ export function useToolsPreferences(): {
     prefs,
     setProductionAllRoles,
     setBumpChartBestMatchByTitle,
+    setBumpChartIncludeExportImages,
     setBumpChartMalExportImages,
   };
 }

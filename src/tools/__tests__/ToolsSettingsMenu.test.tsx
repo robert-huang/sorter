@@ -46,7 +46,7 @@ afterEach(() => {
 });
 
 describe('ToolsSettingsMenu', () => {
-  it('explains and persists Best Match by Title', async () => {
+  it('explains and persists Best match by title', async () => {
     await act(async () => {
       root.render(
         <ToolsSettingsMenu
@@ -67,14 +67,14 @@ describe('ToolsSettingsMenu', () => {
       container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
     ).find(
       (input) =>
-        input.closest('label')?.textContent?.includes('Best Match by Title') ===
+        input.closest('label')?.textContent?.includes('Best match by title') ===
         true,
     );
     const label = checkbox?.closest('label');
     expect(checkbox?.checked).toBe(true);
     expect(label?.title).toContain('Exact logical IDs always match first');
     expect(
-      container.querySelector('[aria-label="Best Match by Title help"]'),
+      container.querySelector('[aria-label="Best match by title help"]'),
     ).toBeNull();
 
     await act(async () => {
@@ -82,15 +82,32 @@ describe('ToolsSettingsMenu', () => {
     });
     expect(loadToolsPreferences().bumpChartBestMatchByTitle).toBe(false);
 
-    const malCheckbox = Array.from(
+    const bumpChartCheckboxes = Array.from(
       container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
-    ).find(
-      (input) =>
-        input
-          .closest('label')
-          ?.textContent?.includes('Use MyAnimeList images in PNG exports') ===
-        true,
+    ).filter((input) =>
+      [
+        'Best match by title',
+        'Include images in PNG Export',
+        'Use MyAnimeList images in PNG exports',
+      ].some((label) => input.closest('label')?.textContent?.includes(label)),
     );
+    expect(
+      bumpChartCheckboxes.map((input) => input.closest('label')?.textContent?.trim()),
+    ).toEqual([
+      'Best match by title',
+      'Include images in PNG Export',
+      'Use MyAnimeList images in PNG exports',
+    ]);
+
+    const includeImagesCheckbox = bumpChartCheckboxes[1];
+    expect(includeImagesCheckbox?.checked).toBe(false);
+
+    await act(async () => {
+      includeImagesCheckbox?.click();
+    });
+    expect(loadToolsPreferences().bumpChartIncludeExportImages).toBe(true);
+
+    const malCheckbox = bumpChartCheckboxes[2];
     expect(malCheckbox?.checked).toBe(false);
 
     await act(async () => {

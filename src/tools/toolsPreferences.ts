@@ -15,6 +15,8 @@ export type ToolsPreferences = {
   productionAllRoles: boolean;
   /** Infer unique Bump Chart lineages from exact labels and title variants. */
   bumpChartBestMatchByTitle: boolean;
+  /** Include available item images when exporting Bump Chart PNGs. */
+  bumpChartIncludeExportImages: boolean;
   /** Try verified MyAnimeList images when exporting Bump Chart PNGs. */
   bumpChartMalExportImages: boolean;
 };
@@ -24,6 +26,7 @@ const STORAGE_KEY = 'anime-tools:preferences:v1';
 const DEFAULT_PREFS: ToolsPreferences = {
   productionAllRoles: false,
   bumpChartBestMatchByTitle: true,
+  bumpChartIncludeExportImages: false,
   bumpChartMalExportImages: false,
 };
 
@@ -64,6 +67,8 @@ export function loadToolsPreferences(): ToolsPreferences {
       productionAllRoles: parsed.productionAllRoles === true,
       bumpChartBestMatchByTitle:
         parsed.bumpChartBestMatchByTitle !== false,
+      bumpChartIncludeExportImages:
+        parsed.bumpChartIncludeExportImages === true,
       bumpChartMalExportImages: parsed.bumpChartMalExportImages === true,
     };
     return cached;

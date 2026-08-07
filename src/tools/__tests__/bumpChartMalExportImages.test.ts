@@ -254,7 +254,7 @@ describe('Bump Chart MAL export image matching', () => {
     ).resolves.toBeNull();
   });
 
-  it('requires a linked anime and character credit for voice actors', async () => {
+  it('ignores null AniList characters while verifying voice actor credits', async () => {
     executeAnilistQuery.mockResolvedValue({
       Staff: {
         name: {
@@ -267,6 +267,7 @@ describe('Bump Chart MAL export image matching', () => {
             {
               node: { id: 1, idMal: 1, type: 'ANIME' },
               characters: [
+                null,
                 {
                   name: {
                     full: 'Spike Spiegel',

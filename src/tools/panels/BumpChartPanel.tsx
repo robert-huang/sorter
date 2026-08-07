@@ -1087,6 +1087,7 @@ function chartLabelOpacity(element: Element): number {
 }
 
 type ExportChartPngOptions = {
+  includeImages?: boolean;
   itemsById?: ReadonlyMap<string, Item>;
   useMalImages?: boolean;
   onImageProgress?: (completed: number, total: number) => void;
@@ -1516,7 +1517,10 @@ export async function exportChartPng(
   const imageElements = Array.from(
     node.querySelectorAll<HTMLImageElement>('.bump-chart-item-link img'),
   );
-  const loadedImages = await resolveExportImages(imageElements, options);
+  const loadedImages =
+    options.includeImages === false
+      ? imageElements.map(() => null)
+      : await resolveExportImages(imageElements, options);
   const restoreExportLayout = prepareExportImageLayout(
     node,
     imageElements,
@@ -2783,8 +2787,11 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
           .flatMap(({ items }) => items)
           .map((entry) => [entry.item.id, entry.item]),
       );
-      const useMalImages = toolsPreferences.bumpChartMalExportImages;
+      const includeImages = toolsPreferences.bumpChartIncludeExportImages;
+      const useMalImages =
+        includeImages && toolsPreferences.bumpChartMalExportImages;
       await exportChartPng(chartRef.current, {
+        includeImages,
         itemsById,
         useMalImages,
         onImageProgress: useMalImages

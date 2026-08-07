@@ -51,6 +51,7 @@ export function ToolsSettingsMenu({
     prefs: toolsPrefs,
     setProductionAllRoles,
     setBumpChartBestMatchByTitle,
+    setBumpChartIncludeExportImages,
     setBumpChartMalExportImages,
   } = useToolsPreferences();
 
@@ -142,7 +143,20 @@ export function ToolsSettingsMenu({
                       setBumpChartBestMatchByTitle(e.target.checked)
                     }
                   />
-                  Best Match by Title
+                  Best match by title
+                </label>
+                <label
+                  className="settings-item checkbox"
+                  title="When enabled, available item images are included in Bump Chart PNG exports."
+                >
+                  <input
+                    type="checkbox"
+                    checked={toolsPrefs.bumpChartIncludeExportImages}
+                    onChange={(e) =>
+                      setBumpChartIncludeExportImages(e.target.checked)
+                    }
+                  />
+                  Include images in PNG Export
                 </label>
                 <label
                   className="settings-item checkbox"
