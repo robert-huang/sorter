@@ -2257,19 +2257,16 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
       const localStateIsUnchanged =
         localWorkspaceRevisionRef.current === hydrationStartRevision;
       if (workspace && localStateIsUnchanged) {
-        if (workspace.view === 'staging') {
-          setColumns(
-            workspace.columns.map((column) => ({
-              id: column.id,
-              kind: column.kind,
-              draft: draftFromSnapshot(column, 'Cached chart'),
-            })),
-          );
-          setChart(null);
-        } else {
-          setColumns(defaultDraftColumns());
-          setChart(chartFromSnapshot(workspace));
-        }
+        const source =
+          workspace.view === 'chart' ? 'From chart' : 'Cached chart';
+        setColumns(
+          workspace.columns.map((column) => ({
+            id: column.id,
+            kind: column.kind,
+            draft: draftFromSnapshot(column, source),
+          })),
+        );
+        setChart(null);
         if (!importTabTouchedBeforeHydration.current) {
           setImportTab(workspace.lastImportTab);
         }
@@ -2724,15 +2721,12 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
       return;
     }
     markWorkspaceMutation();
-    setColumns(
-      workspace.columns.map((column) => ({
-        id: column.id,
-        kind: column.kind,
-        draft: draftFromSnapshot(column, 'From saved chart'),
-      })),
-    );
-    setChart(null);
+    setColumns(defaultDraftColumns());
+    setChart(chartFromSnapshot(workspace));
     setBumpChartBestMatchByTitle(workspace.bestMatchByTitle);
+    setImportColumnId(null);
+    setImportError(null);
+    setExportError(null);
     setStorageError(null);
     setDeletingSavedId(null);
   };

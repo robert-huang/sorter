@@ -32,6 +32,7 @@ import {
   _resetBumpChartStorageCacheForTesting,
   flushBumpChartStorageWrites,
   saveActiveBumpChartWorkspace,
+  saveNamedBumpChart,
   type BumpChartColumnSnapshot,
 } from '../panels/bumpChartStorage';
 import { _resetBumpChartImageMemoryCacheForTesting } from '../panels/bumpChartImageCache';
@@ -479,34 +480,37 @@ describe('BumpChartPanel staging flow', () => {
   });
 
   it('opens intermediate media labels without pinning their lineage', async () => {
-    await saveActiveBumpChartWorkspace({
-      version: 2,
-      view: 'chart',
-      columns: [
-        emptyWorkspaceColumn('previous-1', 'previous'),
-        {
-          id: 'previous-2',
-          kind: 'previous',
-          items: [
-            {
-              item: {
-                id: 'anilist:1',
-                label: 'Intermediate media',
-                imageUrl: 'https://example.invalid/cover.jpg',
-                url: 'https://anilist.co/anime/1',
-                source: { kind: 'anilist', externalId: 1 },
+    await saveNamedBumpChart(
+      'Intermediate chart',
+      {
+        version: 2,
+        view: 'chart',
+        columns: [
+          emptyWorkspaceColumn('previous-1', 'previous'),
+          {
+            id: 'previous-2',
+            kind: 'previous',
+            items: [
+              {
+                item: {
+                  id: 'anilist:1',
+                  label: 'Intermediate media',
+                  imageUrl: 'https://example.invalid/cover.jpg',
+                  url: 'https://anilist.co/anime/1',
+                  source: { kind: 'anilist', externalId: 1 },
+                },
+                logicalId: 'AAAAAAAAAAAAAA',
               },
-              logicalId: 'AAAAAAAAAAAAAA',
-            },
-          ],
-          hiddenItemIds: [],
-          preserveCustomLabels: false,
-        },
-        emptyWorkspaceColumn('current', 'current'),
-      ],
-      bestMatchByTitle: true,
-      lastImportTab: 'single',
-    });
+            ],
+            hiddenItemIds: [],
+            preserveCustomLabels: false,
+          },
+          emptyWorkspaceColumn('current', 'current'),
+        ],
+        bestMatchByTitle: true,
+        lastImportTab: 'single',
+      },
+    );
     const onOpenMedia = vi.fn();
     await act(async () => {
       root.render(
@@ -517,6 +521,9 @@ describe('BumpChartPanel staging flow', () => {
         />,
       );
       await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      button('Load').click();
     });
 
     const eventNode = container.querySelector<HTMLElement>(
@@ -650,6 +657,9 @@ describe('BumpChartPanel staging flow', () => {
         />,
       );
       await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      button('Generate chart').click();
     });
 
     expect(container.querySelectorAll('.bump-chart-connection')).toHaveLength(1);
@@ -1402,7 +1412,7 @@ describe('BumpChartPanel staging flow', () => {
     ).toEqual(['#1', '#1']);
   });
 
-  it('restores the autosaved active generated workspace after remounting', async () => {
+  it('restores an autosaved generated workspace to staging after remounting', async () => {
     await act(async () => {
       root.render(
         <BumpChartPanel
@@ -1437,11 +1447,18 @@ describe('BumpChartPanel staging flow', () => {
       );
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    expect(container.querySelector('.bump-chart-grid')).not.toBeNull();
+    expect(container.querySelector('.bump-chart-grid')).toBeNull();
+    expect(container.textContent).toContain('From chart');
+    const restoredGroups = container.querySelectorAll<HTMLButtonElement>(
+      '.bump-chart-import-card .staged-panel-group-row',
+    );
+    expect(restoredGroups).toHaveLength(3);
+    await act(async () => {
+      restoredGroups.forEach((group) => group.click());
+    });
     expect(container.textContent).toContain('Autosaved oldest');
     expect(container.textContent).toContain('Autosaved previous');
     expect(container.textContent).toContain('Autosaved current');
-    expect(container.querySelectorAll('.bump-chart-center-cell')).toHaveLength(2);
   });
 
   it('saves, loads, restores settings from, and deletes a named chart', async () => {
@@ -1548,9 +1565,14 @@ describe('BumpChartPanel staging flow', () => {
       saveToolsPreferences({ bumpChartBestMatchByTitle: true });
       button('Load').click();
     });
-    expect(container.querySelector('.bump-chart-grid')).toBeNull();
-    expect(container.textContent).toContain('From saved chart');
+    expect(container.querySelector('.bump-chart-grid')).not.toBeNull();
+    expect(container.textContent).toContain('Named after');
     expect(loadToolsPreferences().bumpChartBestMatchByTitle).toBe(false);
+    await act(async () => {
+      button('Clear chart').click();
+    });
+    expect(container.querySelector('.bump-chart-grid')).toBeNull();
+    expect(container.textContent).toContain('From chart');
     const loadedGroups = container.querySelectorAll<HTMLButtonElement>(
       '.bump-chart-import-card .staged-panel-group-row',
     );
