@@ -99,6 +99,32 @@ function buildMalRequestHeaders(baseUrl: string): Record<string, string> {
   return headers;
 }
 
+export type MalOfficialFetchResult<T> = {
+  data: T | null;
+  status: number | null;
+};
+
+/** Fetch an official MAL API v2 resource through the configured CORS proxy. */
+export async function fetchMalOfficialJson<T>(
+  path: string,
+): Promise<MalOfficialFetchResult<T>> {
+  if (!path.startsWith('/v2/') || !isMalOfficialApiConfigured()) {
+    return { data: null, status: null };
+  }
+  const baseUrl = resolveMalApiBaseUrl();
+  try {
+    const response = await fetch(`${baseUrl}${path}`, {
+      headers: buildMalRequestHeaders(baseUrl),
+    });
+    if (!response.ok) {
+      return { data: null, status: response.status };
+    }
+    return { data: (await response.json()) as T, status: response.status };
+  } catch {
+    return { data: null, status: null };
+  }
+}
+
 /** Official MyAnimeList API themes (`opening_themes` / `ending_themes` fields). */
 export async function fetchMalOfficialThemes(malId: number): Promise<JikanThemesFetchResult> {
   if (!isMalOfficialApiConfigured()) {

@@ -82,6 +82,36 @@ describe('fetchMalOfficialThemes', () => {
     });
   });
 
+  it('fetches a generic official MAL v2 resource through the proxy', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        main_picture: { large: 'https://cdn.myanimelist.net/image.webp' },
+      }),
+    });
+    const { fetchMalOfficialJson } = await import(
+      '../themeSongs/malOfficialApi'
+    );
+
+    const result = await fetchMalOfficialJson<{
+      main_picture: { large: string };
+    }>('/v2/anime/1?fields=main_picture');
+
+    expect(result).toEqual({
+      data: {
+        main_picture: {
+          large: 'https://cdn.myanimelist.net/image.webp',
+        },
+      },
+      status: 200,
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/mal/v2/anime/1?fields=main_picture',
+      { headers: { Accept: 'application/json' } },
+    );
+  });
+
   it('returns failed with malHttpStatus when the anime request fails', async () => {
     fetchMock.mockResolvedValueOnce({
       ok: false,

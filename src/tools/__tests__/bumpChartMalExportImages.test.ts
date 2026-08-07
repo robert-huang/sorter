@@ -29,6 +29,8 @@ function item(
 
 beforeEach(() => {
   localStorage.clear();
+  vi.stubEnv('VITE_MAL_CLIENT_ID', 'test-mal-client-id');
+  vi.stubEnv('VITE_MAL_PROXY_URL', 'https://mal-proxy.test/mal');
   executeAnilistQuery.mockReset();
   _resetBumpMalExportImagesForTesting();
 });
@@ -36,12 +38,13 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 describe('Bump Chart MAL export image matching', () => {
   it.each([
-    ['ANIME', '/anime/1'],
-    ['MANGA', '/manga/1'],
+    ['ANIME', '/v2/anime/1?fields=main_picture'],
+    ['MANGA', '/v2/manga/1?fields=main_picture'],
   ] as const)('uses an exact AniList MAL id for %s', async (type, path) => {
     executeAnilistQuery.mockResolvedValue({
       Media: { id: 10, idMal: 1, type },
@@ -49,7 +52,7 @@ describe('Bump Chart MAL export image matching', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(
         JSON.stringify({
-          data: { mal_id: 1, images: { jpg: { image_url: MAL_IMAGE } } },
+          main_picture: { large: MAL_IMAGE },
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       ),
@@ -59,7 +62,7 @@ describe('Bump Chart MAL export image matching', () => {
       item('anilist', 10, 'Cowboy Bebop'),
     );
 
-    expect(fetchMock).toHaveBeenCalledWith(`https://api.jikan.moe/v4${path}`, {
+    expect(fetchMock).toHaveBeenCalledWith(`https://mal-proxy.test/mal${path}`, {
       headers: { Accept: 'application/json' },
     });
     expect(resolved?.url).toBe(MAL_IMAGE);
@@ -99,6 +102,110 @@ describe('Bump Chart MAL export image matching', () => {
     );
 
     expect(resolved?.url).toBe(MAL_IMAGE);
+  });
+
+  it('falls back to the linked official MAL anime cast after a Jikan 504', async () => {
+    executeAnilistQuery.mockResolvedValue({
+      Character: {
+        name: {
+          full: 'Spike Spiegel',
+          native: 'スパイク・スピーゲル',
+          alternative: [],
+          alternativeSpoiler: [],
+        },
+        media: { nodes: [{ id: 1, idMal: 1, type: 'ANIME' }] },
+      },
+    });
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input) => {
+        const url = input.toString();
+        if (url.startsWith('https://api.jikan.moe/')) {
+          return new Response(null, { status: 504 });
+        }
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                node: {
+                  id: 11,
+                  first_name: 'Spike',
+                  last_name: 'Spiegel',
+                  alternative_name: '',
+                  main_picture: { medium: MAL_IMAGE },
+                },
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      });
+
+    const resolved = await resolveBumpMalExportImage(
+      item('anilist-character', 1, 'Spike Spiegel'),
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'https://mal-proxy.test/mal/v2/anime/1/characters?',
+      ),
+      { headers: { Accept: 'application/json' } },
+    );
+    expect(resolved?.url).toBe(MAL_IMAGE);
+  });
+
+  it('does not use the MAL anime cast fallback for non-504 Jikan failures', async () => {
+    executeAnilistQuery.mockResolvedValue({
+      Character: {
+        name: {
+          full: 'Spike Spiegel',
+          native: null,
+          alternative: [],
+          alternativeSpoiler: [],
+        },
+        media: { nodes: [{ id: 1, idMal: 1, type: 'ANIME' }] },
+      },
+    });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(null, { status: 503 }),
+    );
+
+    await expect(
+      resolveBumpMalExportImage(
+        item('anilist-character', 1, 'Spike Spiegel'),
+      ),
+    ).resolves.toBeNull();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('does not call the nonexistent MAL manga cast endpoint after a Jikan 504', async () => {
+    executeAnilistQuery.mockResolvedValue({
+      Character: {
+        name: {
+          full: 'Guts',
+          native: 'ガッツ',
+          alternative: [],
+          alternativeSpoiler: [],
+        },
+        media: { nodes: [{ id: 2, idMal: 2, type: 'MANGA' }] },
+      },
+    });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(null, { status: 504 }),
+    );
+
+    await expect(
+      resolveBumpMalExportImage(
+        item('anilist-character', 2, 'Guts'),
+      ),
+    ).resolves.toBeNull();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining('/v2/manga/2/characters'),
+      expect.anything(),
+    );
   });
 
   it('rejects ambiguous linked-show character matches', async () => {
@@ -288,7 +395,7 @@ describe('Bump Chart MAL export image matching', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(
         JSON.stringify({
-          data: { mal_id: 1, images: { jpg: { image_url: MAL_IMAGE } } },
+          main_picture: { large: MAL_IMAGE },
         }),
         { status: 200 },
       ),
@@ -313,7 +420,7 @@ describe('Bump Chart MAL export image matching', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(
         JSON.stringify({
-          data: { mal_id: 1, images: { jpg: { image_url: MAL_IMAGE } } },
+          main_picture: { large: MAL_IMAGE },
         }),
         { status: 200 },
       ),
@@ -333,7 +440,19 @@ describe('Bump Chart MAL export image matching', () => {
   it('serializes Jikan requests from concurrent resolutions', async () => {
     executeAnilistQuery.mockImplementation(
       async (_query: string, variables: { id: number }) => ({
-        Media: { id: variables.id, idMal: variables.id, type: 'ANIME' },
+        Character: {
+          name: {
+            full: `Character ${variables.id}`,
+            native: null,
+            alternative: [],
+            alternativeSpoiler: [],
+          },
+          media: {
+            nodes: [
+              { id: variables.id, idMal: variables.id, type: 'ANIME' },
+            ],
+          },
+        },
       }),
     );
     let active = 0;
@@ -343,17 +462,16 @@ describe('Bump Chart MAL export image matching', () => {
       maxActive = Math.max(maxActive, active);
       await Promise.resolve();
       active -= 1;
-      return new Response(
-        JSON.stringify({
-          data: { mal_id: 1, images: { jpg: { image_url: MAL_IMAGE } } },
-        }),
-        { status: 200 },
-      );
+      return new Response(JSON.stringify({ data: [] }), { status: 200 });
     });
 
     await Promise.all([
-      resolveBumpMalExportImage(item('anilist', 1, 'One')),
-      resolveBumpMalExportImage(item('anilist', 2, 'Two')),
+      resolveBumpMalExportImage(
+        item('anilist-character', 1, 'Character 1'),
+      ),
+      resolveBumpMalExportImage(
+        item('anilist-character', 2, 'Character 2'),
+      ),
     ]);
 
     expect(maxActive).toBe(1);
@@ -362,7 +480,15 @@ describe('Bump Chart MAL export image matching', () => {
   it('honors a Jikan 429 retry before resolving', async () => {
     vi.useFakeTimers();
     executeAnilistQuery.mockResolvedValue({
-      Media: { id: 10, idMal: 1, type: 'ANIME' },
+      Character: {
+        name: {
+          full: 'Spike Spiegel',
+          native: null,
+          alternative: [],
+          alternativeSpoiler: [],
+        },
+        media: { nodes: [{ id: 1, idMal: 1, type: 'ANIME' }] },
+      },
     });
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
@@ -375,14 +501,22 @@ describe('Bump Chart MAL export image matching', () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            data: { mal_id: 1, images: { jpg: { image_url: MAL_IMAGE } } },
+            data: [
+              {
+                character: {
+                  mal_id: 11,
+                  name: 'Spiegel, Spike',
+                  images: { jpg: { image_url: MAL_IMAGE } },
+                },
+              },
+            ],
           }),
           { status: 200 },
         ),
       );
 
     const resolution = resolveBumpMalExportImage(
-      item('anilist', 10, 'Cowboy Bebop'),
+      item('anilist-character', 1, 'Spike Spiegel'),
     );
     await vi.runAllTimersAsync();
 

@@ -162,7 +162,7 @@ export function ToolsSettingsMenu({
                       setBumpChartMalExportImages(e.target.checked)
                     }
                   />
-                  Try MyAnimeList images in PNG exports
+                  Use MyAnimeList images in PNG exports
                 </label>
               </div>
             )}

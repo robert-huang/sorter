@@ -92,7 +92,7 @@ describe('ToolsSettingsMenu', () => {
       (input) =>
         input
           .closest('label')
-          ?.textContent?.includes('Try MyAnimeList images in PNG exports') ===
+          ?.textContent?.includes('Use MyAnimeList images in PNG exports') ===
         true,
     );
     expect(malCheckbox?.checked).toBe(false);

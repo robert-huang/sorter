@@ -1,4 +1,5 @@
 import { executeAnilistQuery } from '../../lib/importers/anilist/transport';
+import { fetchMalOfficialJson } from '../../lib/importers/anilist/themeSongs/malOfficialApi';
 import { foldJapaneseRomanization } from '../../lib/importers/anilist/themeSongs/themeSongMatching';
 import type { Item } from '../../lib/types';
 
@@ -14,6 +15,10 @@ type AnilistMediaRef = {
   id: number;
   idMal: number | null;
   type: AnilistMediaType;
+};
+
+type LinkedMalMediaRef = AnilistMediaRef & {
+  idMal: number;
 };
 
 type AnilistName = {
@@ -42,6 +47,11 @@ type JikanCharacterCredit = {
   character: JikanEntity;
 };
 
+type JikanFetchResult<T> = {
+  data: T | null;
+  status: number | null;
+};
+
 type JikanPersonFull = JikanEntity & {
   voices?: Array<{
     anime?: { mal_id?: number };
@@ -49,6 +59,27 @@ type JikanPersonFull = JikanEntity & {
   }>;
   anime?: Array<{ anime?: { mal_id?: number } }>;
   manga?: Array<{ manga?: { mal_id?: number } }>;
+};
+
+type MalMainPicture = {
+  medium?: string | null;
+  large?: string | null;
+};
+
+type MalMediaResponse = {
+  main_picture?: MalMainPicture | null;
+};
+
+type MalCharacterNode = {
+  id: number;
+  first_name?: string | null;
+  last_name?: string | null;
+  alternative_name?: string | null;
+  main_picture?: MalMainPicture | null;
+};
+
+type MalCharactersResponse = {
+  data?: Array<{ node: MalCharacterNode }>;
 };
 
 type CharacterMetadataResponse = {
@@ -169,6 +200,13 @@ function preferredImageUrl(
   return url && isMalImageUrl(url) ? url : null;
 }
 
+function malPictureUrl(
+  picture: MalMainPicture | null | undefined,
+): string | null {
+  const url = picture?.large?.trim() || picture?.medium?.trim() || null;
+  return url && isMalImageUrl(url) ? url : null;
+}
+
 function normalizeName(value: string): string {
   return foldJapaneseRomanization(value.normalize('NFKC'))
     .replace(/[\p{P}\p{S}]+/gu, ' ')
@@ -244,11 +282,28 @@ function jikanEntityNames(entity: JikanEntity): string[] {
   ].filter((value): value is string => Boolean(value?.trim()));
 }
 
+function malCharacterNames(character: MalCharacterNode): string[] {
+  const first = character.first_name?.trim() ?? '';
+  const last = character.last_name?.trim() ?? '';
+  const alternatives =
+    character.alternative_name
+      ?.split(/[,;/]/)
+      .map((name) => name.trim())
+      .filter(Boolean) ?? [];
+  return [
+    `${first} ${last}`.trim(),
+    `${last} ${first}`.trim(),
+    ...alternatives,
+  ].filter(Boolean);
+}
+
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => globalThis.setTimeout(resolve, ms));
 }
 
-async function runJikanRequest<T>(path: string): Promise<T | null> {
+async function runJikanRequest<T>(
+  path: string,
+): Promise<JikanFetchResult<T>> {
   for (let attempt = 0; attempt <= MAX_JIKAN_RETRIES; attempt += 1) {
     const delay = Math.max(
       0,
@@ -265,7 +320,7 @@ async function runJikanRequest<T>(path: string): Promise<T | null> {
         headers: { Accept: 'application/json' },
       });
     } catch {
-      return null;
+      return { data: null, status: null };
     }
     if (response.status === 429 && attempt < MAX_JIKAN_RETRIES) {
       const retryAfterSeconds = Number(response.headers.get('Retry-After'));
@@ -277,14 +332,14 @@ async function runJikanRequest<T>(path: string): Promise<T | null> {
       continue;
     }
     if (!response.ok) {
-      return null;
+      return { data: null, status: response.status };
     }
-    return (await response.json()) as T;
+    return { data: (await response.json()) as T, status: response.status };
   }
-  return null;
+  return { data: null, status: null };
 }
 
-function fetchJikan<T>(path: string): Promise<T | null> {
+function fetchJikanResult<T>(path: string): Promise<JikanFetchResult<T>> {
   const result = jikanQueueTail.then(
     () => runJikanRequest<T>(path),
     () => runJikanRequest<T>(path),
@@ -296,21 +351,28 @@ function fetchJikan<T>(path: string): Promise<T | null> {
   return result;
 }
 
+async function fetchJikan<T>(path: string): Promise<T | null> {
+  return (await fetchJikanResult<T>(path)).data;
+}
+
 function uniqueLinkedMedia(
   refs: readonly AnilistMediaRef[],
-): AnilistMediaRef[] {
+): LinkedMalMediaRef[] {
   const seen = new Set<string>();
-  return refs.filter((ref) => {
-    if (!Number.isInteger(ref.idMal) || (ref.idMal ?? 0) <= 0) {
-      return false;
+  const linkedMedia: LinkedMalMediaRef[] = [];
+  for (const ref of refs) {
+    const malId = ref.idMal;
+    if (typeof malId !== 'number' || !Number.isInteger(malId) || malId <= 0) {
+      continue;
     }
-    const key = `${ref.type}:${ref.idMal}`;
+    const key = `${ref.type}:${malId}`;
     if (seen.has(key)) {
-      return false;
+      continue;
     }
     seen.add(key);
-    return true;
-  });
+    linkedMedia.push({ ...ref, idMal: malId });
+  }
+  return linkedMedia;
 }
 
 async function resolveMediaImage(item: Item): Promise<string | null> {
@@ -328,10 +390,32 @@ async function resolveMediaImage(item: Item): Promise<string | null> {
     return null;
   }
   const typePath = media.type === 'MANGA' ? 'manga' : 'anime';
-  const response = await fetchJikan<{ data?: JikanEntity }>(
-    `/${typePath}/${media.idMal}`,
+  const response = await fetchMalOfficialJson<MalMediaResponse>(
+    `/v2/${typePath}/${media.idMal}?fields=main_picture`,
   );
-  return preferredImageUrl(response?.data);
+  return malPictureUrl(response.data?.main_picture);
+}
+
+async function addMalAnimeCharacterMatches(
+  malId: number,
+  sourceNames: readonly string[],
+  matches: Map<number, string>,
+): Promise<void> {
+  const fields = encodeURIComponent(
+    'id,first_name,last_name,alternative_name,main_picture',
+  );
+  const response = await fetchMalOfficialJson<MalCharactersResponse>(
+    `/v2/anime/${malId}/characters?fields=${fields}&limit=500`,
+  );
+  for (const entry of response.data?.data ?? []) {
+    if (!namesMatch(sourceNames, malCharacterNames(entry.node))) {
+      continue;
+    }
+    const imageUrl = malPictureUrl(entry.node.main_picture);
+    if (imageUrl) {
+      matches.set(entry.node.id, imageUrl);
+    }
+  }
 }
 
 async function resolveCharacterImage(item: Item): Promise<string | null> {
@@ -362,16 +446,22 @@ async function resolveCharacterImage(item: Item): Promise<string | null> {
   );
   for (const media of linkedMedia) {
     const typePath = media.type === 'MANGA' ? 'manga' : 'anime';
-    const response = await fetchJikan<{ data?: JikanCharacterCredit[] }>(
+    const response = await fetchJikanResult<{
+      data?: JikanCharacterCredit[];
+    }>(
       `/${typePath}/${media.idMal}/characters`,
     );
-    for (const credit of response?.data ?? []) {
+    for (const credit of response.data?.data ?? []) {
       if (namesMatch(sourceNames, jikanEntityNames(credit.character))) {
         const imageUrl = preferredImageUrl(credit.character);
         if (imageUrl) {
           matches.set(credit.character.mal_id, imageUrl);
         }
       }
+    }
+    // MAL's corresponding hidden manga cast route returns 404.
+    if (response.status === 504 && media.type === 'ANIME') {
+      await addMalAnimeCharacterMatches(media.idMal, sourceNames, matches);
     }
   }
   return matches.size === 1 ? [...matches.values()][0]! : null;
