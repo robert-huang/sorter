@@ -1,10 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { seedAsSorted } from '../insertionSort';
 import { initSort } from '../queueMergeSort';
 import type { AutosaveBlob } from '../storage';
 import type { Item, MergeProgress, SlotMeta } from '../types';
 import {
   applySlotImportEdits,
+  classifyCloudSlotImport,
   classifySlotImport,
   effectiveSlotImportItems,
   extractCompletedRankingItems,
@@ -140,6 +141,38 @@ describe('classifySlotImport', () => {
   });
 });
 
+describe('classifyCloudSlotImport', () => {
+  const cloudMeta = {
+    cloudId: 'DRIVE-ID',
+    displayName: 'Drive sort',
+    filename: 'Drive_sort.sorter.json',
+    sizeBytes: 100,
+    updatedAt: '2026-01-02T00:00:00.000Z',
+    etag: '1',
+    done: true,
+  };
+
+  it('treats the downloaded body as authoritative over listing metadata', () => {
+    const blob = mergeDoneBlob();
+    blob.progress.done = false;
+    const entry = classifyCloudSlotImport(cloudMeta, blob);
+    expect(entry.status).toBe('in_progress');
+    expect(entry.items).toBeNull();
+  });
+
+  it('classifies a completed legacy body without writing a local slot', () => {
+    const setItem = vi.spyOn(Storage.prototype, 'setItem');
+    const entry = classifyCloudSlotImport(
+      { ...cloudMeta, done: undefined },
+      mergeDoneBlob(),
+    );
+    expect(entry.status).toBe('importable');
+    expect(entry.meta.id).toBe('cloud:DRIVE-ID');
+    expect(setItem).not.toHaveBeenCalled();
+    setItem.mockRestore();
+  });
+});
+
 describe('listSlotImportEntries', () => {
   it('sorts by updatedAt descending', () => {
     const entries = listSlotImportEntries({
@@ -204,6 +237,33 @@ describe('applySlotImportEdits', () => {
       new Set(),
     );
     expect(out[0]?.url).toBeUndefined();
+  });
+
+  it('uses a hydrated replacement while preserving explicit overrides', () => {
+    const replacement: Item = {
+      id: 'anilist:2',
+      label: 'Cached Beta',
+      url: 'cached-url',
+      source: { kind: 'anilist', externalId: 2 },
+    };
+    const overrides = new Map([
+      [
+        slotImportOverlayKey('slot1', 0),
+        { replacement, label: 'Custom Beta' },
+      ],
+    ]);
+    const [item] = applySlotImportEdits(
+      'slot1',
+      [B],
+      overrides,
+      new Set(),
+    );
+    expect(item).toMatchObject({
+      id: 'anilist:2',
+      label: 'Custom Beta',
+      url: 'cached-url',
+      source: { kind: 'anilist', externalId: 2 },
+    });
   });
 });
 

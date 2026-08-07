@@ -201,6 +201,12 @@ function clearFolderStorage(): void {
   }
 }
 
+function parseCompletionProperty(value: string | undefined): boolean | undefined {
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return undefined;
+}
+
 function readPkce(): PkceState | null {
   try {
     const raw = sessionStorage.getItem(PKCE_KEY);
@@ -661,6 +667,7 @@ export class GoogleDriveProvider implements CloudProvider {
       updatedAt: f.modifiedTime,
       etag: f.md5Checksum ?? f.version ?? f.modifiedTime,
       sorterSlotId: f.appProperties?.sorterSlotId,
+      done: parseCompletionProperty(f.appProperties?.sorterDone),
     }));
   }
 
@@ -697,6 +704,25 @@ export class GoogleDriveProvider implements CloudProvider {
       updatedAt: meta.modifiedTime,
       sorterSlotId: meta.appProperties?.sorterSlotId,
     };
+  }
+
+  async annotateSlotCompletion(cloudId: string, done: boolean): Promise<void> {
+    await this.refreshTokenIfNeeded();
+    const resp = await this.authedFetch(
+      `${DRIVE_API}/files/${encodeURIComponent(cloudId)}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          appProperties: { sorterDone: done ? 'true' : 'false' },
+        }),
+      },
+    );
+    if (!resp.ok) {
+      throw new Error(
+        `annotateSlotCompletion failed: ${resp.status} ${await safeText(resp)}`,
+      );
+    }
   }
 
   async pushSlot(
@@ -765,6 +791,7 @@ export class GoogleDriveProvider implements CloudProvider {
       appProperties: {
         sorterSlotId: opts.sorterSlotId,
         sorterDisplayName: opts.displayName,
+        sorterDone: blob.progress.done ? 'true' : 'false',
       },
     };
     if (cloudId === null) {

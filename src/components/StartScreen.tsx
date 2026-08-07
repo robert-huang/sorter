@@ -27,10 +27,11 @@ import {
   type RawRow,
   type SourceParse,
 } from '../lib/csv';
-import { updateItemMetadata } from '../lib/engine';
 import { subscribeAnilistDisplayPreferences } from '../lib/importers/anilist/displayPreferences';
 import { relabelAnilistItemPreservingFormat } from '../lib/importers/anilist/anilistItemLabel';
+import { applyCachedAnilistItemEdit } from '../lib/importers/anilist/anilistItemMaterialization';
 import { AnilistStartMode } from './AnilistStartMode';
+import { AnilistHydrationControls } from './AddItemsModal';
 import { InfoIcon } from './icons';
 import { RemoveGlyph } from './RemoveGlyph';
 import { SortResultsImportMode } from './SortResultsImportMode';
@@ -45,6 +46,7 @@ import {
   type StartMode,
 } from './StagedItemsPanel';
 import Papa from 'papaparse';
+import type { AnilistHydrationResult } from '../lib/importers/anilist/anilistPlaintextHydration';
 
 /**
  * In-memory edit overlay for the START tab. Keyed by
@@ -59,6 +61,8 @@ import Papa from 'papaparse';
  *  - `url` / `imageUrl`: an empty string means "explicitly clear the
  *    source's URL/IMAGE". A non-empty string sets it. A missing key
  *    means the source value is unchanged.
+ *  - `replacement`: complete cache-backed metadata for a canonical
+ *    AniList id; explicit field overrides still win.
  *
  * The overlay is applied to RawRow values BEFORE parseSources runs
  * its dedup pass, so the user can disambiguate two rows that collapse
@@ -72,7 +76,13 @@ import Papa from 'papaparse';
  */
 type OverlayMap = Map<
   string,
-  { label?: string; id?: string; url?: string; imageUrl?: string }
+  {
+    replacement?: Item;
+    label?: string;
+    id?: string;
+    url?: string;
+    imageUrl?: string;
+  }
 >;
 
 function overlayKey(sourceName: string, sourceRow: number): string {
@@ -85,6 +95,7 @@ function applyOverrides(rows: RawRow[], overrides: OverlayMap): RawRow[] {
     const o = overrides.get(overlayKey(r.sourceName, r.sourceRow));
     if (!o) return r;
     const next: RawRow = { ...r };
+    if (o.replacement !== undefined) next.itemOverride = o.replacement;
     if (o.label !== undefined) next.label = o.label;
     if (o.id !== undefined) next.idOverride = o.id;
     // For url/imageUrl, empty-string overrides are treated as
@@ -143,6 +154,54 @@ function applyImportEdits(
   return overridden.filter(
     (r) => !excluded.has(overlayKey(r.sourceName, r.sourceRow)),
   );
+}
+
+export function applySorterStagedGroupEdit(
+  group: StagedGroup,
+  itemId: ItemId,
+  patch: EditItemSavePayload,
+): StagedGroup {
+  const items = group.items.map((item) =>
+    item.id === itemId ? applyCachedAnilistItemEdit(item, patch) : item,
+  );
+  const nextId = patch.id ?? itemId;
+  const markedItemIds = group.markedItemIds?.has(itemId)
+    ? new Set(
+        [...group.markedItemIds].map((id) => (id === itemId ? nextId : id)),
+      )
+    : group.markedItemIds;
+  return { ...group, items, markedItemIds };
+}
+
+export function applyStartScreenHydration(
+  current: OverlayMap,
+  inputItems: readonly Item[],
+  previewSources: readonly PreviewSource[],
+  result: AnilistHydrationResult,
+): OverlayMap {
+  const unresolved = new Set(result.issues.map(({ index }) => index));
+  const hydratedByOriginalId = new Map<string, Item>();
+  inputItems.forEach((item, index) => {
+    const hydrated = result.items[index];
+    if (!unresolved.has(index) && hydrated) {
+      hydratedByOriginalId.set(item.id, hydrated);
+    }
+  });
+  const next = new Map(current);
+  previewSources.forEach((source) => {
+    source.items.forEach(({ item, sourceRow }) => {
+      const hydrated = hydratedByOriginalId.get(item.id);
+      if (!hydrated) return;
+      next.set(overlayKey(source.sourceName, sourceRow), {
+        replacement: hydrated,
+        id: hydrated.id,
+        label: hydrated.label,
+        url: hydrated.url ?? '',
+        imageUrl: hydrated.imageUrl ?? '',
+      });
+    });
+  });
+  return next;
 }
 
 function filterExtraColumnsForExcluded(
@@ -454,9 +513,8 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
    * staged group's `items[]` in place (well, immutably — via
    * setStaged) so the changes survive into Start Sort.
    *
-   * The id field is intentionally NOT editable here — re-keying a
-   * staged item by id would invalidate dedup rules, marked-removal
-   * sets, and any cross-group references. Label / URL / image only.
+   * Logical ids are editable here. Save rewrites the group's removal
+   * marker alongside the item so the staged references remain consistent.
    */
   const [editStagedTarget, setEditStagedTarget] = useState<{
     groupId: string;
@@ -476,6 +534,23 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
     return g.items.find((it) => it.id === editStagedTarget.itemId) ?? null;
   }, [editStagedTarget, staged]);
 
+  const editStagedOtherIds = useMemo(() => {
+    const ids = new Map<string, string>();
+    for (const group of staged) {
+      for (const item of group.items) {
+        if (
+          editStagedTarget &&
+          group.id === editStagedTarget.groupId &&
+          item.id === editStagedTarget.itemId
+        ) {
+          continue;
+        }
+        ids.set(item.id, item.label);
+      }
+    }
+    return ids;
+  }, [editStagedTarget, staged]);
+
   const openStagedEdit = useCallback(
     (groupId: string, itemId: ItemId) => {
       setEditStagedTarget({ groupId, itemId });
@@ -485,8 +560,7 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
 
   /**
    * Apply an EditItemModal patch to the targeted staged item. Label,
-   * URL, image URL, and AniList label mode are honoured — see comment on
-   * `editStagedTarget` above for why `id` is locked. Empty-string
+   * URL, image URL, logical id, and AniList label mode are honoured. Empty-string
    * url / imageUrl is treated as "clear it" to match the CSV-edit
    * flow's semantics (see `EditItemModal` JSDoc).
    */
@@ -495,14 +569,11 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
       if (!editStagedTarget) return;
       const { groupId, itemId } = editStagedTarget;
       setStaged((prev) =>
-        prev.map((g) => {
-          if (g.id !== groupId) return g;
-          const nextItems = g.items.map((it) => {
-            if (it.id !== itemId) return it;
-            return updateItemMetadata(it, patch);
-          });
-          return { ...g, items: nextItems };
-        }),
+        prev.map((group) =>
+          group.id === groupId
+            ? applySorterStagedGroupEdit(group, itemId, patch)
+            : group,
+        ),
       );
       setEditStagedTarget(null);
       notifyDraftActivity();
@@ -1331,6 +1402,7 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
       if (!editTarget) return;
       const key = overlayKey(editTarget.sourceName, editTarget.rowNumber);
       const hasChange =
+        payload.hydratedItem !== undefined ||
         (payload.label !== undefined && payload.label !== editTarget.currentLabel) ||
         (payload.id !== undefined && payload.id !== editTarget.currentId) ||
         (payload.url !== undefined && payload.url !== (editTarget.currentUrl ?? '')) ||
@@ -1340,11 +1412,20 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
         const next = new Map(prev);
         const cur = next.get(key) ?? {};
         const updated: {
+          replacement?: Item;
           label?: string;
           id?: string;
           url?: string;
           imageUrl?: string;
         } = { ...cur };
+        if (payload.hydratedItem !== undefined) {
+          updated.replacement = payload.hydratedItem;
+          updated.id = payload.id ?? payload.hydratedItem.id;
+          updated.label = payload.label ?? payload.hydratedItem.label;
+          updated.url = payload.url ?? payload.hydratedItem.url ?? '';
+          updated.imageUrl =
+            payload.imageUrl ?? payload.hydratedItem.imageUrl ?? '';
+        }
         if (payload.label !== undefined && payload.label !== editTarget.currentLabel) {
           updated.label = payload.label;
         }
@@ -1370,6 +1451,7 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
         // opened the modal then saved without touching anything),
         // drop the entry rather than persisting a no-op.
         if (
+          updated.replacement === undefined &&
           updated.label === undefined &&
           updated.id === undefined &&
           updated.url === undefined &&
@@ -1539,6 +1621,21 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
               </span>
             )}
           </div>
+          <AnilistHydrationControls
+            items={scratchResult.items}
+            dbSyncRevision={dbSyncRevision}
+            onHydrated={(result) => {
+              setOverrides((current) =>
+                applyStartScreenHydration(
+                  current,
+                  scratchResult.items,
+                  scratchResult.perSource,
+                  result,
+                ),
+              );
+              notifyDraftActivity();
+            }}
+          />
           <ImportPreview
             sources={scratchPreviewSources}
             totalItems={scratchResult.items.length}
@@ -1702,6 +1799,21 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
             </div>
           </div>
 
+          <AnilistHydrationControls
+            items={prerankedResult.items}
+            dbSyncRevision={dbSyncRevision}
+            onHydrated={(result) => {
+              setOverrides((current) =>
+                applyStartScreenHydration(
+                  current,
+                  prerankedResult.items,
+                  prerankedResult.perSource,
+                  result,
+                ),
+              );
+              notifyDraftActivity();
+            }}
+          />
           <ImportPreview
             sources={prerankedResult.perSource}
             totalItems={prerankedResult.items.length}
@@ -1758,17 +1870,16 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
         />
       )}
 
-      {/* Staged-item edit modal. Same component as the CSV preview's
-          edit flow but `allowEditId` is OFF — renaming a staged
-          item's id would break dedup, marked-removal sets, and any
-          cross-group references built up in the panel state. The
-          user can still edit label / url / imageUrl which covers the
-          common typo-fix use case the modal was designed for. */}
+      {/* Staged-item edit modal. Logical-id changes also rewrite the
+          matching removal marker in `saveStagedEdit`. */}
       {editStagedItem && editStagedTarget && (
         <EditItemModal
           item={editStagedItem}
           onCancel={() => setEditStagedTarget(null)}
           onSave={saveStagedEdit}
+          allowEditId
+          currentId={editStagedItem.id}
+          otherIds={editStagedOtherIds}
         />
       )}
     </div>

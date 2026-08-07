@@ -4,6 +4,10 @@ import {
   isCustomAnilistItemLabel,
   resolveAnilistItemLabel,
 } from '../lib/importers/anilist/anilistItemLabel';
+import {
+  parseCanonicalAnilistItemId,
+  resolveCachedAnilistItemId,
+} from '../lib/importers/anilist/anilistItemMaterialization';
 import { Modal } from './Modal';
 
 /**
@@ -22,6 +26,8 @@ export interface EditItemSavePayload {
   imageUrl?: string;
   id?: string;
   useAutomaticAnilistLabel?: boolean;
+  /** Full cache-backed replacement when a changed canonical AniList id resolves. */
+  hydratedItem?: Item;
 }
 
 interface Props {
@@ -68,6 +74,8 @@ interface Props {
     onClick: () => void;
     tone?: 'danger';
   };
+  /** Test/integration seam for resolving a changed canonical AniList id. */
+  resolveCanonicalId?: (id: string) => Promise<Item | null>;
 }
 
 /**
@@ -97,6 +105,7 @@ export function EditItemModal({
   otherIds,
   rawRow,
   secondaryAction,
+  resolveCanonicalId = resolveCachedAnilistItemId,
 }: Props) {
   const showUrl = fieldsToShow?.url ?? true;
   const showImageUrl = fieldsToShow?.imageUrl ?? true;
@@ -118,6 +127,11 @@ export function EditItemModal({
   // the advanced panel, look at the current id, and back out without
   // any save-blocking validation noise.
   const [idDraft, setIdDraft] = useState('');
+  const [idHydration, setIdHydration] = useState<{
+    id: string;
+    status: 'loading' | 'found' | 'missing';
+    item?: Item;
+  } | null>(null);
   const labelRef = useRef<HTMLInputElement | null>(null);
 
   // Autofocus the label and select its contents so the most common edit
@@ -129,19 +143,24 @@ export function EditItemModal({
 
   const trimmedLabel = label.trim();
   const trimmedId = idDraft.trim();
+  const resolvedHydratedItem =
+    idHydration?.id === trimmedId && idHydration.status === 'found'
+      ? idHydration.item
+      : undefined;
+  const labelMetadataItem = resolvedHydratedItem ?? item;
   const automaticAnilistLabel = useMemo(() => {
-    const source = item.anilistLabelSource;
+    const source = labelMetadataItem.anilistLabelSource;
     if (!source) return null;
     const includeFormat =
       source.kind === 'media' && source.format
-        ? (item.anilistLabelIncludesFormat ??
-          item.label.endsWith(` (${source.format})`))
+        ? (labelMetadataItem.anilistLabelIncludesFormat ??
+          labelMetadataItem.label.endsWith(` (${source.format})`))
         : false;
     return resolveAnilistItemLabel(source, includeFormat);
-  }, [item]);
+  }, [labelMetadataItem]);
   const itemHasCustomAnilistLabel = useMemo(
-    () => isCustomAnilistItemLabel(item),
-    [item],
+    () => isCustomAnilistItemLabel(labelMetadataItem),
+    [labelMetadataItem],
   );
 
   // id validation (only meaningful when allowEditId is on and the
@@ -166,7 +185,7 @@ export function EditItemModal({
   const draftHasCustomAnilistLabel =
     automaticAnilistLabel !== null &&
     !useAutomaticAnilistLabel &&
-    (itemHasCustomAnilistLabel || labelDirty);
+    (itemHasCustomAnilistLabel || trimmedLabel !== automaticAnilistLabel);
   const urlDirty = showUrl && url.trim() !== (item.url ?? '');
   const imageUrlDirty = showImageUrl && imageUrl.trim() !== (item.imageUrl ?? '');
   // Empty draft means the user didn't enter a new id, so we leave the
@@ -177,6 +196,41 @@ export function EditItemModal({
     showAdvanced &&
     trimmedId.length > 0 &&
     trimmedId !== (currentId ?? item.id);
+  const isCanonicalIdDraft =
+    idDirty && parseCanonicalAnilistItemId(trimmedId) !== null;
+
+  useEffect(() => {
+    if (!isCanonicalIdDraft) {
+      setIdHydration(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      setIdHydration({ id: trimmedId, status: 'loading' });
+      void resolveCanonicalId(trimmedId)
+        .then((resolved) => {
+          if (cancelled) return;
+          setIdHydration(
+            resolved
+              ? { id: trimmedId, status: 'found', item: resolved }
+              : { id: trimmedId, status: 'missing' },
+          );
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setIdHydration({ id: trimmedId, status: 'missing' });
+          }
+        });
+    }, 150);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [isCanonicalIdDraft, resolveCanonicalId, trimmedId]);
+
+  const canonicalIdLookupPending =
+    isCanonicalIdDraft &&
+    (idHydration?.id !== trimmedId || idHydration.status === 'loading');
 
   const canSave =
     trimmedLabel.length > 0 &&
@@ -185,14 +239,24 @@ export function EditItemModal({
       urlDirty ||
       imageUrlDirty ||
       idDirty ||
-      useAutomaticAnilistLabel);
+      useAutomaticAnilistLabel) &&
+    !canonicalIdLookupPending;
 
   function commit(): void {
     if (!canSave) return;
-    const payload: EditItemSavePayload = { label: trimmedLabel };
-    if (showUrl) payload.url = url.trim();
-    if (showImageUrl) payload.imageUrl = imageUrl.trim();
+    const payload: EditItemSavePayload = {};
+    if (labelDirty) payload.label = trimmedLabel;
+    if (urlDirty) payload.url = url.trim();
+    if (imageUrlDirty) payload.imageUrl = imageUrl.trim();
     if (idDirty) payload.id = trimmedId;
+    if (
+      idDirty &&
+      idHydration?.id === trimmedId &&
+      idHydration.status === 'found' &&
+      idHydration.item
+    ) {
+      payload.hydratedItem = idHydration.item;
+    }
     if (useAutomaticAnilistLabel) {
       payload.useAutomaticAnilistLabel = true;
     }
@@ -337,6 +401,21 @@ export function EditItemModal({
               {idError !== null && (
                 <div className="edit-item-id-error" role="alert">
                   {idError}
+                </div>
+              )}
+              {idHydration?.status === 'loading' && (
+                <div className="header-hint">Checking the AniList cache…</div>
+              )}
+              {idHydration?.status === 'found' && (
+                <div className="header-hint">
+                  Found “{idHydration.item?.label}”. Unchanged name, URL, and
+                  image fields will be hydrated on save.
+                </div>
+              )}
+              {idHydration?.status === 'missing' && (
+                <div className="header-hint">
+                  This canonical AniList ID is not cached. The ID can still be
+                  saved, but the item will remain manual.
                 </div>
               )}
               <p

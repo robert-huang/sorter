@@ -80,6 +80,10 @@ export interface AuthState {
  * `sorterSlotId` is the local slot id stamped at push time, if
  * available. Lets the library UI hint "this cloud entry matches
  * your local slot X" vs "this would create a new local slot".
+ *
+ * `done` is absent on legacy files. Callers must still validate the
+ * downloaded blob before importing; this flag only avoids downloading
+ * known-in-progress files while browsing Drive.
  */
 export interface CloudSlotMeta {
   cloudId: string;
@@ -89,6 +93,7 @@ export interface CloudSlotMeta {
   updatedAt: string;
   etag: string;
   sorterSlotId?: string;
+  done?: boolean;
 }
 
 /** Result of a Pull: the inbound blob and the etag to remember. */
@@ -182,6 +187,9 @@ export interface CloudProvider {
 
   /** Download a single slot file's full contents. */
   pullSlot(cloudId: string): Promise<CloudPullResult>;
+
+  /** Stamp body-validated completion state without re-uploading the file. */
+  annotateSlotCompletion(cloudId: string, done: boolean): Promise<void>;
 
   /** Upload a slot's blob. `cloudId === null` creates a new file under
    *  the chosen folder; a string id targets an existing file by id.
@@ -291,6 +299,13 @@ export function listCloudSlots(): Promise<CloudSlotMeta[]> {
 
 export function pullSlot(cloudId: string): Promise<CloudPullResult> {
   return getProvider().pullSlot(cloudId);
+}
+
+export function annotateSlotCompletion(
+  cloudId: string,
+  done: boolean,
+): Promise<void> {
+  return getProvider().annotateSlotCompletion(cloudId, done);
 }
 
 export function pushSlot(

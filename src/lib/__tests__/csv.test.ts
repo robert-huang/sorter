@@ -521,6 +521,33 @@ describe('dedupRows', () => {
     expect(warnings.length).toBe(1);
     expect(warnings[0].canonicalKey).toBe('foo');
   });
+
+  it('preserves cache-backed metadata when a preview row adopts a canonical id', () => {
+    const hydrated: Item = {
+      id: 'anilist:123',
+      label: 'Cached title',
+      url: 'https://anilist.co/anime/123',
+      imageUrl: 'https://example.com/123.jpg',
+      source: { kind: 'anilist', externalId: 123 },
+      searchTokens: ['Cached title', 'English title'],
+    };
+    const { items } = dedupRows([
+      {
+        label: 'Explicit title',
+        sourceName: 's1',
+        sourceRow: 1,
+        idOverride: hydrated.id,
+        itemOverride: hydrated,
+        url: hydrated.url,
+        imageUrl: hydrated.imageUrl,
+      },
+    ]);
+
+    expect(items[0]).toEqual({
+      ...hydrated,
+      label: 'Explicit title',
+    });
+  });
 });
 
 describe('parseSources', () => {

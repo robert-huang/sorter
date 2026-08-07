@@ -21,6 +21,7 @@ import {
 import {
   getAnilistUserById,
   getAnilistUserByName,
+  getCachedAnilistUsers,
   getFavouriteEntityIdsForUsername,
   getFavouritedMediaIds,
   getFavouritesAsItems,
@@ -486,6 +487,15 @@ describe('user lookup', () => {
 
   it('getLatestAnilistUser returns null on an empty DB', async () => {
     expect(await getLatestAnilistUser(exec)).toBeNull();
+  });
+
+  it('enumerates every cached user newest-first', async () => {
+    seedUser(db, { userId: 1, userName: 'old', userFetchedAt: 1 });
+    seedUser(db, { userId: 2, userName: 'new', userFetchedAt: 500 });
+    expect((await getCachedAnilistUsers(exec)).map((user) => user.name)).toEqual([
+      'new',
+      'old',
+    ]);
   });
 });
 

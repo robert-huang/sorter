@@ -626,6 +626,19 @@ export interface AnilistUserSummary {
   fetched_at: number;
 }
 
+export async function getCachedAnilistUsers(
+  db: AnilistDbExecutor,
+): Promise<AnilistUserSummary[]> {
+  const rows = await db.exec(
+    'SELECT id, name, fetched_at FROM anilist_user ORDER BY fetched_at DESC, name ASC',
+  );
+  return rows.map((row) => ({
+    id: reqN(row.id),
+    name: reqS(row.name),
+    fetched_at: reqN(row.fetched_at),
+  }));
+}
+
 export async function getAnilistUserById(
   db: AnilistDbExecutor,
   anilistUserId: number,
@@ -1640,6 +1653,7 @@ export const productionReads = {
     hasMediaCharacters(defaultDb(), mediaId),
   getAnilistUserById: (anilistUserId: number) =>
     getAnilistUserById(defaultDb(), anilistUserId),
+  getCachedAnilistUsers: () => getCachedAnilistUsers(defaultDb()),
   getAnilistUserByName: (name: string) =>
     getAnilistUserByName(defaultDb(), name),
   getLatestAnilistUser: () => getLatestAnilistUser(defaultDb()),

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Papa from 'papaparse';
 import type { Item } from '../lib/types';
 import {
@@ -9,11 +9,30 @@ import {
   PAPA_COMMA_CSV_OPTIONS,
 } from '../lib/csv';
 import { AnilistStartMode } from './AnilistStartMode';
+import { CircularArrowGlyph } from './CircularArrowGlyph';
 import { InfoIcon } from './icons';
 import { Modal } from './Modal';
 import { SortResultsImportMode } from './SortResultsImportMode';
 import type { OrderedSlotImport } from './SortResultsImportMode';
 import type { SlotResultsImportBatch } from '../lib/completedSortEditH';
+import {
+  cachedAnilistSourceKey,
+  cachedAnilistSourcesForUsername,
+  cachedAnilistSourceTypeLabel,
+  listCachedAnilistSources,
+  materializeCachedAnilistSource,
+  type CachedAnilistSourceSummary,
+} from '../lib/importers/anilist/anilistItemMaterialization';
+import {
+  hydrateItemsFromExactAnilistNames,
+  type AnilistHydrationResult,
+} from '../lib/importers/anilist/anilistPlaintextHydration';
+import { readLastAnilistUsername } from '../lib/importers/anilist/lastUsername';
+import {
+  runAnilistFavourites,
+  runAnilistImport,
+} from '../lib/importers/anilist/runners';
+import { isGraphTimestampStale } from '../lib/importers/anilist/graphConstants';
 
 /**
  * Unified "Add item(s)" modal. Four tabs:
@@ -148,6 +167,7 @@ export function AddItemsModal({
           existingIds={existingIds}
           hiddenRestoreIds={hiddenRestoreIds}
           engine={engine}
+          dbSyncRevision={dbSyncRevision}
           onCancel={onCancel}
           onAdd={onAddOne}
         />
@@ -158,6 +178,7 @@ export function AddItemsModal({
           forcePreRanked={forcePreRanked}
           existingIds={existingIds}
           hiddenRestoreIds={hiddenRestoreIds}
+          dbSyncRevision={dbSyncRevision}
           onCancel={onCancel}
           onAddMany={onAddMany}
           onAddPreRanked={onAddPreRanked}
@@ -218,12 +239,14 @@ function SingleTab({
   existingIds,
   hiddenRestoreIds,
   engine,
+  dbSyncRevision,
   onCancel,
   onAdd,
 }: {
   existingIds: Set<string>;
   hiddenRestoreIds: Set<string>;
   engine: 'merge' | 'insertion' | 'confirmation';
+  dbSyncRevision: number;
   onCancel: () => void;
   onAdd: (item: Item) => void;
 }) {
@@ -231,6 +254,7 @@ function SingleTab({
   const [url, setUrl] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [hydratedItem, setHydratedItem] = useState<Item | null>(null);
 
   function onSubmit(e: React.FormEvent): void {
     e.preventDefault();
@@ -239,22 +263,31 @@ function SingleTab({
       setError('Label is required.');
       return;
     }
-    const id = canonicalKey(trimmed);
+    const id = hydratedItem?.id ?? canonicalKey(trimmed);
     if (isActiveSortDuplicate(id, existingIds, hiddenRestoreIds)) {
       setError('An item with this label is already in the sort.');
       return;
     }
-    onAdd({
-      id,
-      label: trimmed,
-      url: url.trim() || undefined,
-      imageUrl: imageUrl.trim() || undefined,
-    });
+    onAdd(
+      hydratedItem
+        ? {
+            ...hydratedItem,
+            label: trimmed,
+            url: url.trim() || undefined,
+            imageUrl: imageUrl.trim() || undefined,
+          }
+        : {
+            id,
+            label: trimmed,
+            url: url.trim() || undefined,
+            imageUrl: imageUrl.trim() || undefined,
+          },
+    );
   }
 
   const willRestore =
     label.trim().length > 0 &&
-    hiddenRestoreIds.has(canonicalKey(label.trim()));
+    hiddenRestoreIds.has(hydratedItem?.id ?? canonicalKey(label.trim()));
 
   const hint =
     engine === 'insertion'
@@ -295,6 +328,33 @@ function SingleTab({
           placeholder="https://…"
         />
       </div>
+      <AnilistHydrationControls
+        items={
+          label.trim()
+            ? [
+                {
+                  id: canonicalKey(label.trim()),
+                  label: label.trim(),
+                  url: url.trim() || undefined,
+                  imageUrl: imageUrl.trim() || undefined,
+                },
+              ]
+            : []
+        }
+        dbSyncRevision={dbSyncRevision}
+        onHydrated={(result) => {
+          const item = result.items[0];
+          if (!item || result.matchedCount === 0) {
+            setHydratedItem(null);
+            return;
+          }
+          setHydratedItem(item);
+          setLabel(item.label);
+          setUrl(item.url ?? '');
+          setImageUrl(item.imageUrl ?? '');
+          setError(null);
+        }}
+      />
       {error && <div className="form-error">{error}</div>}
       <div className="modal-actions">
         <button type="button" className="btn" onClick={onCancel}>
@@ -317,6 +377,7 @@ function MultipleTab({
   forcePreRanked,
   existingIds,
   hiddenRestoreIds,
+  dbSyncRevision,
   onCancel,
   onAddMany,
   onAddPreRanked,
@@ -325,6 +386,7 @@ function MultipleTab({
   forcePreRanked: boolean;
   existingIds: Set<string>;
   hiddenRestoreIds: Set<string>;
+  dbSyncRevision: number;
   onCancel: () => void;
   onAddMany: (items: Item[]) => void;
   onAddPreRanked?: (items: Item[]) => void;
@@ -336,6 +398,7 @@ function MultipleTab({
   // they go through addItems (N singletons). For insertion engine,
   // pending is FIFO either way so the checkbox is hidden.
   const [asPreRanked, setAsPreRanked] = useState(false);
+  const [hydratedItems, setHydratedItems] = useState<Item[] | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   function onFile(e: React.ChangeEvent<HTMLInputElement>): void {
@@ -368,12 +431,18 @@ function MultipleTab({
     return { items: r.items };
   }, [text, skipHeader]);
 
+  useEffect(() => {
+    setHydratedItems(null);
+  }, [text, skipHeader]);
+
+  const effectiveItems = hydratedItems ?? parsed.items;
+
   const importSummary = useMemo(() => {
     const n = parsed.items.length;
     if (n === 0) return null;
     let restore = 0;
     let skip = 0;
-    for (const it of parsed.items) {
+    for (const it of effectiveItems) {
       if (hiddenRestoreIds.has(it.id)) restore += 1;
       else if (isActiveSortDuplicate(it.id, existingIds, hiddenRestoreIds)) {
         skip += 1;
@@ -389,24 +458,24 @@ function MultipleTab({
       parts.push(`${skip} already in sort — will skip.`);
     }
     return parts.join(' ');
-  }, [parsed.items, existingIds, hiddenRestoreIds]);
+  }, [effectiveItems, existingIds, hiddenRestoreIds]);
 
   function onSubmit(): void {
-    if (parsed.items.length === 0) return;
+    if (effectiveItems.length === 0) return;
     if (
       engine === 'merge' &&
       (forcePreRanked || asPreRanked) &&
       onAddPreRanked
     ) {
-      onAddPreRanked(parsed.items);
+      onAddPreRanked(effectiveItems);
     } else {
-      onAddMany(parsed.items);
+      onAddMany(effectiveItems);
     }
   }
 
   // Submit-button caption mirrors what'll actually happen.
   const submitLabel = (() => {
-    const n = parsed.items.length;
+    const n = effectiveItems.length;
     if (n === 0) return 'Add items';
     if (
       engine === 'merge' &&
@@ -453,6 +522,11 @@ function MultipleTab({
           onChange={onFile}
         />
       </div>
+      <AnilistHydrationControls
+        items={parsed.items}
+        dbSyncRevision={dbSyncRevision}
+        onHydrated={(result) => setHydratedItems(result.items)}
+      />
       <div className="checkbox-row">
         <input
           id="multi-header"
@@ -512,11 +586,268 @@ function MultipleTab({
           type="button"
           className="btn primary"
           onClick={onSubmit}
-          disabled={parsed.items.length === 0}
+          disabled={effectiveItems.length === 0}
         >
           {submitLabel}
         </button>
       </div>
     </>
+  );
+}
+
+function hydrationIssueLabel(reason: string): string {
+  if (reason === 'ambiguous_alias') return 'matches multiple cached items';
+  if (reason === 'duplicate_candidate') {
+    return 'duplicates another row for the same cached item';
+  }
+  return 'has no exact cached match';
+}
+
+function cachedSourceRefreshTooltip(
+  source: CachedAnilistSourceSummary | undefined,
+): string {
+  if (!source) return 'Select a cached list to refresh';
+  const refreshed =
+    source.refreshedAt === null
+      ? 'never'
+      : new Date(source.refreshedAt).toLocaleString();
+  return `Refresh ${cachedAnilistSourceTypeLabel(source.source)} from AniList. Last refreshed: ${refreshed}`;
+}
+
+export function AnilistHydrationControls({
+  items,
+  dbSyncRevision,
+  onHydrated,
+}: {
+  items: Item[];
+  dbSyncRevision: number;
+  onHydrated: (result: AnilistHydrationResult) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [sources, setSources] = useState<CachedAnilistSourceSummary[] | null>(
+    null,
+  );
+  const [username, setUsername] = useState('');
+  const [selectedKey, setSelectedKey] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [sourceRevision, setSourceRevision] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<AnilistHydrationResult | null>(null);
+
+  useEffect(() => {
+    if (items.length > 0) return;
+    setOpen(false);
+    setResult(null);
+    setError(null);
+  }, [items.length]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setSources(null);
+    setError(null);
+    void listCachedAnilistSources()
+      .then((next) => {
+        if (cancelled) return;
+        setSources(next);
+        setUsername(readLastAnilistUsername());
+      })
+      .catch((cause: unknown) => {
+        if (cancelled) return;
+        setSources([]);
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : 'Could not read the AniList cache.',
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, dbSyncRevision, sourceRevision]);
+
+  const matchingSources = useMemo(() => {
+    return cachedAnilistSourcesForUsername(sources ?? [], username);
+  }, [sources, username]);
+
+  useEffect(() => {
+    setSelectedKey((current) => {
+      if (
+        matchingSources.some(
+          ({ source }) => cachedAnilistSourceKey(source) === current,
+        )
+      ) {
+        return current;
+      }
+      return matchingSources[0]
+        ? cachedAnilistSourceKey(matchingSources[0].source)
+        : '';
+    });
+    setResult(null);
+  }, [matchingSources]);
+
+  const selectedSource = matchingSources.find(
+    ({ source }) => cachedAnilistSourceKey(source) === selectedKey,
+  );
+  const selectedSourceIsStale =
+    selectedSource !== undefined &&
+    (selectedSource.refreshedAt === null ||
+      isGraphTimestampStale(selectedSource.refreshedAt));
+  const busy = loading || refreshing;
+
+  async function hydrate(): Promise<void> {
+    if (!selectedSource || items.length === 0) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const candidates = await materializeCachedAnilistSource(
+        selectedSource.source,
+      );
+      const next = hydrateItemsFromExactAnilistNames(items, candidates);
+      setResult(next);
+      onHydrated(next);
+    } catch (cause: unknown) {
+      setError(
+        cause instanceof Error ? cause.message : 'Could not hydrate these items.',
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function refreshSelectedSource(): Promise<void> {
+    if (!selectedSource) return;
+    setRefreshing(true);
+    setError(null);
+    setResult(null);
+    try {
+      const { source } = selectedSource;
+      if (source.kind === 'list') {
+        await runAnilistImport(source.userName, source.type);
+      } else {
+        await runAnilistFavourites(source.userName, source.type);
+      }
+      setSourceRevision((current) => current + 1);
+    } catch (cause: unknown) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : 'Could not refresh this AniList source.',
+      );
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  return (
+    <div className="anilist-hydration">
+      <button
+        type="button"
+        className="btn btn-sm"
+        disabled={items.length === 0}
+        onClick={() => setOpen((current) => !current)}
+      >
+        Hydrate from cached AniList list…
+      </button>
+      {open && (
+        <div className="anilist-hydration-panel">
+          {sources === null ? (
+            <span className="header-hint">Reading AniList cache…</span>
+          ) : sources.length === 0 ? (
+            <span className="header-hint">
+              No cached AniList sources found.
+            </span>
+          ) : (
+            <>
+              <div className="anilist-hydration-fields">
+                <label>
+                  <span>AniList username</span>
+                  <input
+                    type="text"
+                    value={username}
+                    disabled={busy}
+                    onChange={(event) => {
+                      setUsername(event.target.value);
+                      setError(null);
+                    }}
+                    placeholder="AniList username"
+                    autoComplete="off"
+                  />
+                </label>
+                <div className="anilist-hydration-source-field">
+                  <label>
+                    <span>Cached list</span>
+                    <span className="anilist-hydration-select">
+                      <select
+                        value={selectedKey}
+                        disabled={busy || matchingSources.length === 0}
+                        onChange={(event) => {
+                          setSelectedKey(event.target.value);
+                          setResult(null);
+                        }}
+                      >
+                        {matchingSources.length === 0 && (
+                          <option value="">
+                            {username.trim()
+                              ? 'No cached lists for this username'
+                              : 'Enter a username first'}
+                          </option>
+                        )}
+                        {matchingSources.map(({ source, count }) => (
+                          <option
+                            key={cachedAnilistSourceKey(source)}
+                            value={cachedAnilistSourceKey(source)}
+                          >
+                            {cachedAnilistSourceTypeLabel(source)} ({count})
+                          </option>
+                        ))}
+                      </select>
+                    </span>
+                  </label>
+                  <button
+                    type="button"
+                    className={`btn anilist-hydration-refresh${selectedSourceIsStale ? ' is-stale' : ''}${refreshing ? ' is-refreshing' : ''}`}
+                    disabled={busy || !selectedSource}
+                    title={cachedSourceRefreshTooltip(selectedSource)}
+                    aria-label={cachedSourceRefreshTooltip(selectedSource)}
+                    onClick={() => void refreshSelectedSource()}
+                  >
+                    <CircularArrowGlyph />
+                  </button>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="btn anilist-hydration-match"
+                disabled={busy || !selectedSource || selectedSource.count === 0}
+                onClick={() => void hydrate()}
+              >
+                {loading ? 'Hydrating…' : 'Match exact names'}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+      {error && <div className="form-error">{error}</div>}
+      {result && (
+        <div className="header-hint anilist-hydration-result">
+          Matched {result.matchedCount} of {result.items.length}. Unresolved rows
+          remain manual and can be edited in staging.
+          {result.issues.length > 0 && (
+            <ul>
+              {result.issues.slice(0, 10).map((issue) => (
+                <li key={`${issue.index}:${issue.label}`}>
+                  “{issue.label}” {hydrationIssueLabel(issue.reason)}
+                </li>
+              ))}
+              {result.issues.length > 10 && (
+                <li>…and {result.issues.length - 10} more</li>
+              )}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

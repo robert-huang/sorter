@@ -1,8 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { SlotResultsImportBatch } from '../lib/completedSortEditH';
 import {
+  annotateSlotCompletion,
+  getAuthState,
+  listCloudSlots,
+  pullSlot,
+  type CloudSlotMeta,
+} from '../lib/cloud';
+import {
   applySlotImportEdits,
   applySlotImportItemOverride,
+  classifyCloudSlotImport,
+  cloudSlotImportId,
   effectiveSlotImportItems,
   listSlotImportEntriesFromStorage,
   slotImportOverlayKey,
@@ -25,6 +34,10 @@ import type { StagedGroupInput } from './StagedItemsPanel';
 export interface OrderedSlotImport {
   source: string;
   items: Item[];
+}
+
+interface PreparedCloudImport extends OrderedSlotImport {
+  asPreRanked: boolean;
 }
 
 type SortResultsImportModeProps = {
@@ -123,6 +136,7 @@ export function SortResultsImportMode({
   selectionMode = 'multiple',
 }: SortResultsImportModeProps) {
   const [revision, setRevision] = useState(0);
+  const [cloudOpen, setCloudOpen] = useState(false);
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
   const [asPreRanked, setAsPreRanked] = useState<Record<string, boolean>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -306,6 +320,7 @@ export function SortResultsImportMode({
       if (!editTarget) return;
       const key = slotImportOverlayKey(editTarget.slotId, editTarget.index);
       const hasChange =
+        payload.hydratedItem !== undefined ||
         (payload.label !== undefined &&
           payload.label !== editTarget.currentLabel) ||
         (payload.id !== undefined && payload.id !== editTarget.currentId) ||
@@ -317,6 +332,9 @@ export function SortResultsImportMode({
         const next = new Map(prev);
         const cur = next.get(key) ?? {};
         const updated = { ...cur };
+        if (payload.hydratedItem !== undefined) {
+          updated.replacement = payload.hydratedItem;
+        }
         if (
           payload.label !== undefined &&
           payload.label !== editTarget.currentLabel
@@ -339,6 +357,7 @@ export function SortResultsImportMode({
           updated.imageUrl = payload.imageUrl;
         }
         if (
+          updated.replacement === undefined &&
           updated.label === undefined &&
           updated.id === undefined &&
           updated.url === undefined &&
@@ -426,6 +445,32 @@ export function SortResultsImportMode({
     onComplete?.();
   }
 
+  const handleCloudImports = useCallback(
+    (imports: PreparedCloudImport[]) => {
+      if (imports.length === 0) return;
+      if (onImportOrderedItems) {
+        onImportOrderedItems(
+          imports.map(({ source, items }) => ({ source, items })),
+        );
+      } else if (onAppendToStaged) {
+        onAppendToStaged(
+          imports.map(({ source, items, asPreRanked }) => ({
+            kind: asPreRanked ? 'sublist' : 'flat',
+            source,
+            items,
+          })),
+        );
+      } else {
+        onAddSlotImports!(
+          imports.map(({ items, asPreRanked }) => ({ items, asPreRanked })),
+        );
+      }
+      setCloudOpen(false);
+      onComplete?.();
+    },
+    [onImportOrderedItems, onAppendToStaged, onAddSlotImports, onComplete],
+  );
+
   const addLabel = (() => {
     if (onImportOrderedItems) {
       return `Import ranked items (${addableCount})`;
@@ -466,6 +511,22 @@ export function SortResultsImportMode({
     );
   }
 
+  if (cloudOpen) {
+    return (
+      <CloudResultsPicker
+        embedded={embedded}
+        excludeSlotId={excludeSlotId}
+        existingIds={existingIds}
+        hiddenRestoreIds={hiddenRestoreIds}
+        showPreRankedToggle={showPreRankedToggle}
+        selectionMode={selectionMode}
+        onDraftActivity={onDraftActivity}
+        onBack={() => setCloudOpen(false)}
+        onImport={handleCloudImports}
+      />
+    );
+  }
+
   return (
     <div
       className={[
@@ -495,6 +556,21 @@ export function SortResultsImportMode({
             : null}
         </p>
       )}
+
+      <div className="sort-results-import-toolbar">
+        <span className="sort-results-import-summary">
+          Saved in this browser
+        </span>
+        <div className="sort-results-import-toolbar-actions">
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={() => setCloudOpen(true)}
+          >
+            Google Drive…
+          </button>
+        </div>
+      </div>
 
       {entries.length === 0 ? (
         <p className="csv-hint">No saved slots yet.</p>
@@ -580,6 +656,453 @@ export function SortResultsImportMode({
   );
 }
 
+type CloudPickerRow = {
+  meta: CloudSlotMeta;
+  phase: 'ready' | 'loading' | 'loaded' | 'in_progress' | 'failed';
+  entry?: SlotImportEntry;
+  error?: string;
+  warning?: string;
+};
+
+function CloudResultsPicker({
+  embedded,
+  excludeSlotId,
+  existingIds,
+  hiddenRestoreIds,
+  showPreRankedToggle,
+  selectionMode,
+  onDraftActivity,
+  onBack,
+  onImport,
+}: {
+  embedded: boolean;
+  excludeSlotId?: string;
+  existingIds?: Set<string>;
+  hiddenRestoreIds?: Set<string>;
+  showPreRankedToggle: boolean;
+  selectionMode: 'multiple' | 'single';
+  onDraftActivity?: () => void;
+  onBack: () => void;
+  onImport: (imports: PreparedCloudImport[]) => void;
+}) {
+  const [rows, setRows] = useState<CloudPickerRow[] | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
+  const [authMessage, setAuthMessage] = useState<string | null>(null);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
+  const [asPreRanked, setAsPreRanked] = useState<Record<string, boolean>>({});
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [overrides, setOverrides] = useState<SlotImportOverlayMap>(
+    () => new Map(),
+  );
+  const [excluded, setExcluded] = useState<SlotImportExcludedRows>(
+    () => new Set(),
+  );
+  const [editTarget, setEditTarget] = useState<{
+    slotId: string;
+    index: number;
+    currentLabel: string;
+    currentId: string;
+    currentUrl: string | undefined;
+    currentImageUrl: string | undefined;
+    otherIds: Map<string, string>;
+  } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const auth = getAuthState();
+    if (auth.status !== 'signed-in') {
+      setAuthMessage('Sign in to Google Drive from Settings first.');
+      setRows([]);
+      return () => {
+        cancelled = true;
+      };
+    }
+    if (!auth.folderId) {
+      setAuthMessage('Choose a Google Drive backup folder from Settings first.');
+      setRows([]);
+      return () => {
+        cancelled = true;
+      };
+    }
+    void listCloudSlots()
+      .then((slots) => {
+        if (cancelled) return;
+        const visible = slots
+          .filter(
+            (slot) =>
+              excludeSlotId === undefined ||
+              slot.sorterSlotId !== excludeSlotId,
+          )
+          .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+        setRows(
+          visible.map((meta) => ({
+            meta,
+            phase: meta.done === false ? 'in_progress' : 'ready',
+          })),
+        );
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setListError(
+          error instanceof Error ? error.message : 'Could not list Drive slots.',
+        );
+        setRows([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [excludeSlotId]);
+
+  const loadedEntries = useMemo(
+    () =>
+      (rows ?? [])
+        .map((row) => row.entry)
+        .filter((entry): entry is SlotImportEntry => entry !== undefined),
+    [rows],
+  );
+  const selectedEntries = useMemo(
+    () =>
+      loadedEntries.filter(
+        (entry) =>
+          entry.status === 'importable' && selected.has(entry.meta.id),
+      ),
+    [loadedEntries, selected],
+  );
+
+  const effectiveItemsForEntry = useCallback(
+    (entry: SlotImportEntry): Item[] => {
+      if (!entry.items) return [];
+      return effectiveSlotImportItems(
+        entry.meta.id,
+        entry.items,
+        overrides,
+        excluded,
+        existingIds,
+        hiddenRestoreIds,
+      );
+    },
+    [overrides, excluded, existingIds, hiddenRestoreIds],
+  );
+
+  const addableCount = useMemo(
+    () =>
+      selectedEntries.reduce(
+        (count, entry) => count + effectiveItemsForEntry(entry).length,
+        0,
+      ),
+    [selectedEntries, effectiveItemsForEntry],
+  );
+
+  const toggleSelected = useCallback(
+    (id: string, on: boolean) => {
+      setSelected((prev) =>
+        updateSortResultSelection(prev, id, on, selectionMode),
+      );
+      if (on) {
+        setAsPreRanked((prev) =>
+          prev[id] === undefined ? { ...prev, [id]: true } : prev,
+        );
+      }
+      onDraftActivity?.();
+    },
+    [onDraftActivity, selectionMode],
+  );
+
+  const loadCloudSlot = useCallback(
+    async (meta: CloudSlotMeta) => {
+      setRows((current) =>
+        current?.map((row) =>
+          row.meta.cloudId === meta.cloudId
+            ? { ...row, phase: 'loading', error: undefined }
+            : row,
+        ) ?? null,
+      );
+      try {
+        const pulled = await pullSlot(meta.cloudId);
+        const bodyDone = pulled.blob.progress.done === true;
+        let warning: string | undefined;
+        if (meta.done !== bodyDone) {
+          try {
+            await annotateSlotCompletion(meta.cloudId, bodyDone);
+          } catch (error: unknown) {
+            const detail =
+              error instanceof Error ? error.message : 'metadata update failed';
+            warning = `Loaded, but completion metadata could not be updated: ${detail}`;
+          }
+        }
+
+        const entry = classifyCloudSlotImport(meta, pulled.blob);
+        const id = cloudSlotImportId(meta.cloudId);
+        setRows((current) =>
+          current?.map((row) =>
+            row.meta.cloudId === meta.cloudId
+              ? {
+                  ...row,
+                  meta: { ...row.meta, done: bodyDone },
+                  phase: bodyDone ? 'loaded' : 'in_progress',
+                  entry,
+                  warning,
+                }
+              : row,
+          ) ?? null,
+        );
+        if (entry.status === 'importable') {
+          toggleSelected(id, true);
+        }
+      } catch (error: unknown) {
+        setRows((current) =>
+          current?.map((row) =>
+            row.meta.cloudId === meta.cloudId
+              ? {
+                  ...row,
+                  phase: 'failed',
+                  error:
+                    error instanceof Error
+                      ? error.message
+                      : 'Could not load this Drive slot.',
+                }
+              : row,
+          ) ?? null,
+        );
+      }
+    },
+    [toggleSelected],
+  );
+
+  const buildOtherIds = useCallback(
+    (slotId: string, index: number, currentId: string): Map<string, string> => {
+      const otherIds = new Map<string, string>();
+      for (const entry of loadedEntries) {
+        if (!entry.items) continue;
+        entry.items.forEach((item, itemIndex) => {
+          const key = slotImportOverlayKey(entry.meta.id, itemIndex);
+          if (excluded.has(key)) return;
+          const effective = applySlotImportItemOverride(
+            item,
+            overrides.get(key),
+          );
+          if (entry.meta.id === slotId && itemIndex === index) return;
+          if (effective.id === currentId) return;
+          otherIds.set(effective.id, effective.label);
+        });
+      }
+      return otherIds;
+    },
+    [loadedEntries, excluded, overrides],
+  );
+
+  const openEdit = useCallback(
+    (slotId: string, index: number) => {
+      const entry = loadedEntries.find((candidate) => candidate.meta.id === slotId);
+      const item = entry?.items?.[index];
+      if (!item) return;
+      const effective = applySlotImportItemOverride(
+        item,
+        overrides.get(slotImportOverlayKey(slotId, index)),
+      );
+      setEditTarget({
+        slotId,
+        index,
+        currentLabel: effective.label,
+        currentId: effective.id,
+        currentUrl: effective.url,
+        currentImageUrl: effective.imageUrl,
+        otherIds: buildOtherIds(slotId, index, effective.id),
+      });
+    },
+    [loadedEntries, overrides, buildOtherIds],
+  );
+
+  const removePreviewItem = useCallback(
+    (slotId: string, index: number) => {
+      setExcluded((current) => {
+        const next = new Set(current);
+        next.add(slotImportOverlayKey(slotId, index));
+        return next;
+      });
+      onDraftActivity?.();
+    },
+    [onDraftActivity],
+  );
+
+  const saveEdit = useCallback(
+    (payload: EditItemSavePayload) => {
+      if (!editTarget) return;
+      const key = slotImportOverlayKey(editTarget.slotId, editTarget.index);
+      setOverrides((current) => {
+        const next = new Map(current);
+        const updated = { ...(next.get(key) ?? {}) };
+        if (payload.hydratedItem !== undefined) {
+          updated.replacement = payload.hydratedItem;
+        }
+        if (payload.label !== undefined) updated.label = payload.label;
+        if (payload.id !== undefined) updated.id = payload.id;
+        if (payload.url !== undefined) updated.url = payload.url;
+        if (payload.imageUrl !== undefined) updated.imageUrl = payload.imageUrl;
+        next.set(key, updated);
+        return next;
+      });
+      setEditTarget(null);
+      onDraftActivity?.();
+    },
+    [editTarget, onDraftActivity],
+  );
+
+  const submit = useCallback(() => {
+    const imports = selectedEntries
+      .map((entry): PreparedCloudImport | null => {
+        const items = effectiveItemsForEntry(entry);
+        if (items.length === 0) return null;
+        const cloudId = entry.meta.id.slice('cloud:'.length);
+        const row = rows?.find((candidate) => candidate.meta.cloudId === cloudId);
+        return {
+          source: `Cloud sort: ${row?.meta.displayName ?? entry.meta.name}`,
+          items,
+          asPreRanked:
+            showPreRankedToggle && (asPreRanked[entry.meta.id] ?? true),
+        };
+      })
+      .filter((entry): entry is PreparedCloudImport => entry !== null);
+    onImport(imports);
+  }, [
+    selectedEntries,
+    effectiveItemsForEntry,
+    rows,
+    showPreRankedToggle,
+    asPreRanked,
+    onImport,
+  ]);
+
+  const editStubItem: Item | null = editTarget
+    ? {
+        id: editTarget.currentId,
+        label: editTarget.currentLabel,
+        url: editTarget.currentUrl,
+        imageUrl: editTarget.currentImageUrl,
+      }
+    : null;
+
+  return (
+    <div className={embedded ? 'sort-results-import-embedded' : 'page-section'}>
+      <div className="sort-results-import-toolbar">
+        <span className="sort-results-import-summary">Google Drive slots</span>
+        <button type="button" className="btn btn-sm" onClick={onBack}>
+          Back to browser saves
+        </button>
+      </div>
+      <p className="csv-hint">
+        Drive files are downloaded only when you choose Load. They are imported
+        temporarily and are not copied into a browser save slot.
+      </p>
+      {rows === null && <p className="csv-hint">Loading Google Drive…</p>}
+      {authMessage && <p className="csv-hint">{authMessage}</p>}
+      {listError && <p className="error-text">{listError}</p>}
+      {rows?.length === 0 && !authMessage && !listError && (
+        <p className="csv-hint">No sorter slots found in this Drive folder.</p>
+      )}
+      {rows && rows.length > 0 && (
+        <ul className="sort-results-import-list" role="list">
+          {rows.map((row) => {
+            if (row.entry && row.phase === 'loaded') {
+              const id = row.entry.meta.id;
+              return (
+                <SlotImportRow
+                  key={row.meta.cloudId}
+                  entry={row.entry}
+                  selected={selected.has(id)}
+                  expanded={expandedId === id}
+                  asPreRanked={asPreRanked[id] ?? true}
+                  showPreRankedToggle={showPreRankedToggle}
+                  existingIds={existingIds}
+                  hiddenRestoreIds={hiddenRestoreIds}
+                  overrides={overrides}
+                  excluded={excluded}
+                  selectionMode={selectionMode}
+                  warning={row.warning}
+                  onToggleSelect={(on) => toggleSelected(id, on)}
+                  onToggleExpand={() =>
+                    setExpandedId((current) => (current === id ? null : id))
+                  }
+                  onTogglePreRanked={(value) =>
+                    setAsPreRanked((current) => ({
+                      ...current,
+                      [id]: value,
+                    }))
+                  }
+                  onEditItem={openEdit}
+                  onRemoveItem={removePreviewItem}
+                />
+              );
+            }
+            const disabled =
+              row.phase === 'loading' || row.phase === 'in_progress';
+            const status =
+              row.phase === 'loading'
+                ? 'loading and validating…'
+                : row.phase === 'in_progress'
+                  ? 'in progress — not importable'
+                  : row.phase === 'failed'
+                    ? row.error ?? 'could not load'
+                    : row.meta.done === true
+                      ? 'completed · ready to load'
+                      : 'legacy save · completion unknown';
+            return (
+              <li
+                key={row.meta.cloudId}
+                className={[
+                  'sort-results-import-row',
+                  disabled ? 'sort-results-import-row--disabled' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+              >
+                <div className="sort-results-import-row-main">
+                  <div className="sort-results-import-row-body">
+                    <div className="sort-results-import-row-title">
+                      {row.meta.displayName}
+                    </div>
+                    <div className="sort-results-import-row-meta">{status}</div>
+                  </div>
+                  {!disabled && (
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      onClick={() => void loadCloudSlot(row.meta)}
+                    >
+                      {row.meta.done === true ? 'Load' : 'Check & load'}
+                    </button>
+                  )}
+                </div>
+                {row.warning && <p className="error-text">{row.warning}</p>}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <div className="sort-results-import-footer">
+        <button
+          type="button"
+          className="btn primary"
+          disabled={addableCount < 1}
+          onClick={submit}
+        >
+          Import from Drive ({addableCount})
+        </button>
+      </div>
+      {editTarget && editStubItem && (
+        <EditItemModal
+          item={editStubItem}
+          allowEditId
+          currentId={editTarget.currentId}
+          otherIds={editTarget.otherIds}
+          onCancel={() => setEditTarget(null)}
+          onSave={saveEdit}
+        />
+      )}
+    </div>
+  );
+}
+
 function SlotImportRow({
   entry,
   selected,
@@ -591,6 +1114,7 @@ function SlotImportRow({
   overrides,
   excluded,
   selectionMode,
+  warning,
   onToggleSelect,
   onToggleExpand,
   onTogglePreRanked,
@@ -607,6 +1131,7 @@ function SlotImportRow({
   overrides: SlotImportOverlayMap;
   excluded: SlotImportExcludedRows;
   selectionMode: 'multiple' | 'single';
+  warning?: string;
   onToggleSelect: (on: boolean) => void;
   onToggleExpand: () => void;
   onTogglePreRanked: (value: boolean) => void;
@@ -745,6 +1270,8 @@ function SlotImportRow({
           </span>
         </div>
       )}
+
+      {warning && <p className="error-text">{warning}</p>}
 
       {importable && expanded && entry.items && (
         <ol className="sort-results-import-preview">

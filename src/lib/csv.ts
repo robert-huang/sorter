@@ -175,6 +175,8 @@ export interface RawRow {
    * unset, dedup behavior is unchanged.
    */
   idOverride?: ItemId;
+  /** Cache-backed base for a canonical id assigned in the preview editor. */
+  itemOverride?: Item;
   /**
    * Full parsed cell list, attached only when this row had MORE than
    * the expected 3 non-empty cells (i.e. an `ExtraColumnsWarning`
@@ -197,7 +199,16 @@ export interface RawRow {
 /** Build a deduped {@link Item} from one parsed CSV row, enriching AniList URLs. */
 export function materializeItemFromRawRow(row: RawRow): Item {
   const slugId = canonicalKey(row.label);
-  const baseId = row.idOverride ?? slugId;
+  const baseId = row.idOverride ?? row.itemOverride?.id ?? slugId;
+  if (row.itemOverride) {
+    return {
+      ...row.itemOverride,
+      id: baseId,
+      label: row.label,
+      url: row.url,
+      imageUrl: row.imageUrl,
+    };
+  }
   return enrichItemFromAnilistUrl(
     {
       id: baseId,

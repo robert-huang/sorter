@@ -1,4 +1,5 @@
 import { getRanking } from './engine';
+import type { CloudSlotMeta } from './cloud';
 import {
   readManifest,
   readSlotBlob,
@@ -25,6 +26,10 @@ export interface SlotImportEntry {
 export interface SlotImportOptions {
   /** Omit the active slot (mid-sort self-import). */
   excludeSlotId?: string;
+}
+
+export function cloudSlotImportId(cloudId: string): string {
+  return `cloud:${cloudId}`;
 }
 
 /** Final ranking from a completed slot blob — mirrors RESULT / share link. */
@@ -61,6 +66,8 @@ export function filterItemsNotInSort(
  * same handle pattern as CSV preview's `sourceName:rowNumber`.
  */
 export type SlotImportItemOverride = {
+  /** Full cache-backed replacement used when a canonical AniList id resolves. */
+  replacement?: Item;
   label?: string;
   id?: string;
   url?: string;
@@ -79,7 +86,7 @@ export function applySlotImportItemOverride(
   override: SlotImportItemOverride | undefined,
 ): Item {
   if (!override) return item;
-  const next: Item = { ...item };
+  const next: Item = { ...(override.replacement ?? item) };
   if (override.label !== undefined) next.label = override.label;
   if (override.id !== undefined) next.id = override.id;
   if (override.url !== undefined) next.url = override.url || undefined;
@@ -137,6 +144,34 @@ export function classifySlotImport(
     return { meta, status: 'empty', itemCount: 0, items: null };
   }
   return { meta, status: 'importable', itemCount: items.length, items };
+}
+
+/** Classify a downloaded Drive body without creating or reading a local slot. */
+export function classifyCloudSlotImport(
+  cloudMeta: CloudSlotMeta,
+  blob: AutosaveBlob,
+): SlotImportEntry {
+  const bodyDone = blob.progress.done === true;
+  const items = bodyDone ? extractCompletedRankingItems(blob) : [];
+  const status: SlotImportStatus = !bodyDone
+    ? 'in_progress'
+    : items.length === 0
+      ? 'empty'
+      : 'importable';
+  return {
+    meta: {
+      id: cloudSlotImportId(cloudMeta.cloudId),
+      name: cloudMeta.displayName,
+      createdAt: cloudMeta.updatedAt,
+      updatedAt: cloudMeta.updatedAt,
+      totalItems: bodyDone ? items.length : Object.keys(blob.items).length,
+      comparisons: blob.progress.comparisons,
+      done: bodyDone,
+    },
+    status,
+    itemCount: status === 'importable' ? items.length : 0,
+    items: status === 'importable' ? items : null,
+  };
 }
 
 /**

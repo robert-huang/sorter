@@ -11,6 +11,7 @@ import {
 } from 'vitest';
 import {
   BumpChartPanel,
+  applyBumpChartItemEdit,
   bumpChartExportCanvasLayout,
   bumpTimelineColumnAnchorX,
   bumpTimelinePathEndpoints,
@@ -137,6 +138,38 @@ async function importSingle(sideIndex: number, label: string): Promise<void> {
 }
 
 describe('BumpChartPanel staging flow', () => {
+  it('hydrates a canonical id and keeps the Bump logical id synchronized', () => {
+    const hydrated = {
+      id: 'anilist:123',
+      label: 'Cached title',
+      url: 'https://anilist.co/anime/123',
+      imageUrl: 'https://example.com/123.jpg',
+      source: { kind: 'anilist' as const, externalId: 123 },
+      searchTokens: ['Cached title', 'English title'],
+    };
+
+    expect(
+      applyBumpChartItemEdit(
+        {
+          item: { id: 'manual', label: 'Manual title' },
+          logicalId: 'manual',
+        },
+        {
+          id: hydrated.id,
+          hydratedItem: hydrated,
+          label: 'Explicit title',
+        },
+      ),
+    ).toEqual({
+      item: {
+        ...hydrated,
+        label: 'Explicit title',
+        anilistLabelMode: 'custom',
+      },
+      logicalId: hydrated.id,
+    });
+  });
+
   it('places import actions in the order headings and counts in the staging headings', async () => {
     await act(async () => {
       root.render(

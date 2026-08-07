@@ -3,19 +3,13 @@ import { FilterBar } from './FilterBar';
 import { ItemThumb } from './ItemThumb';
 import type { Item, ItemId } from '../lib/types';
 import {
-  buildAnilistFavouriteUrl,
-  buildAnilistMediaUrl,
-} from '../lib/importers/anilist/anilistSource';
-import {
-  mediaLabelSourceFromRow,
   itemMatchesSearch,
   relabelAnilistItem,
-  resolveAnilistItemLabel,
 } from '../lib/importers/anilist/anilistItemLabel';
 import {
-  formatMediaDisplayLabel,
-  mediaTitleSearchParts,
-} from '../lib/importers/anilist/mediaDisplayLabel';
+  favouriteAsItemToItem as materializeFavouriteItem,
+  mediaRowToItem as materializeMediaItem,
+} from '../lib/importers/anilist/anilistItemMaterialization';
 import { useAnilistDisplayPreferences } from '../hooks/useAnilistDisplayPreferences';
 import {
   AnilistScrapeLockHeldError,
@@ -170,22 +164,7 @@ type AnilistStartModeProps = {
  * compact in the autosave blob.
  */
 function mediaRowToItem(m: MediaRow, includeFormatInLabel: boolean): Item {
-  return {
-    id: `anilist:${m.id}`,
-    label: formatMediaDisplayLabel(m, m.format, includeFormatInLabel),
-    searchTokens: mediaTitleSearchParts(m),
-    anilistLabelSource: mediaLabelSourceFromRow(m),
-    // Auto-populate the canonical AniList entry URL so the staged-
-    // items panel + result rows can render a clickable link to the
-    // original page (matches how CSV / clipboard items carry a url).
-    // The MediaRow already knows its type, so we don't need to plumb
-    // the StartScreen's selected ANIME/MANGA radio down here — that
-    // would break for mixed-type rows in a future "search across
-    // anime + manga" flow.
-    url: buildAnilistMediaUrl(m.type, m.id),
-    imageUrl: m.cover_image ?? undefined,
-    source: { kind: 'anilist', externalId: m.id },
-  };
+  return materializeMediaItem(m, includeFormatInLabel);
 }
 
 /**
@@ -206,73 +185,12 @@ function mediaRowToItem(m: MediaRow, includeFormatInLabel: boolean): Item {
  * registered, but retain canonical-name metadata for custom-label
  * detection and reset support.
  */
-function favouriteMediaLabel(
-  fa: FavouriteAsItem,
-  includeFormatInLabel: boolean,
-): string {
-  if (fa.anilistLabelSource?.kind === 'media') {
-    return resolveAnilistItemLabel(fa.anilistLabelSource, includeFormatInLabel);
-  }
-  if (!includeFormatInLabel || !fa.format) {
-    return fa.label;
-  }
-  return `${fa.label} (${fa.format})`;
-}
-
 function favouriteAsItemToItem(
   fa: FavouriteAsItem,
   type: AnilistFavouriteType,
   includeFormatInLabel: boolean,
 ): Item {
-  const url = buildAnilistFavouriteUrl(type, fa.externalId);
-  if (type === 'ANIME' || type === 'MANGA') {
-    return {
-      id: `anilist:${fa.externalId}`,
-      label: favouriteMediaLabel(fa, includeFormatInLabel),
-      url,
-      imageUrl: fa.imageUrl ?? undefined,
-      source: { kind: 'anilist', externalId: fa.externalId },
-      searchTokens: fa.searchTokens,
-      anilistLabelSource: fa.anilistLabelSource,
-    };
-  }
-  if (type === 'CHARACTERS') {
-    return {
-      id: `anilist-character:${fa.externalId}`,
-      label: fa.anilistLabelSource
-        ? resolveAnilistItemLabel(fa.anilistLabelSource, false)
-        : fa.label,
-      url,
-      imageUrl: fa.imageUrl ?? undefined,
-      source: { kind: 'anilist-character', externalId: fa.externalId },
-      searchTokens: fa.searchTokens,
-      anilistLabelSource: fa.anilistLabelSource,
-    };
-  }
-  if (type === 'STAFF') {
-    return {
-      id: `anilist-staff:${fa.externalId}`,
-      label: fa.anilistLabelSource
-        ? resolveAnilistItemLabel(fa.anilistLabelSource, false)
-        : fa.label,
-      url,
-      imageUrl: fa.imageUrl ?? undefined,
-      source: { kind: 'anilist-staff', externalId: fa.externalId },
-      searchTokens: fa.searchTokens,
-      anilistLabelSource: fa.anilistLabelSource,
-    };
-  }
-  // STUDIOS — no filter module registered; ship as source-less so the
-  // FilterBar treats it as manual passthrough.
-  const kindSlug = type.toLowerCase();
-  return {
-    id: `anilist-${kindSlug}:${fa.externalId}`,
-    label: fa.label,
-    url,
-    imageUrl: fa.imageUrl ?? undefined,
-    searchTokens: fa.searchTokens,
-    anilistLabelSource: fa.anilistLabelSource,
-  };
+  return materializeFavouriteItem(fa, type, includeFormatInLabel);
 }
 
 /**

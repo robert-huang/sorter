@@ -22,8 +22,8 @@ import {
   type StagedGroup,
   type StagedRemovalMarkers,
 } from '../../components/StagedItemsPanel';
-import { updateItemMetadata } from '../../lib/engine';
 import { AnilistMiddleClickLink } from '../../lib/importers/anilist/AnilistMiddleClickLink';
+import { applyCachedAnilistItemEdit } from '../../lib/importers/anilist/anilistItemMaterialization';
 import type { Item } from '../../lib/types';
 import type { OrderedSlotImport } from '../../components/SortResultsImportMode';
 import type { ToolPanelProps } from '../toolTypes';
@@ -252,16 +252,16 @@ function workspaceFromState(
   };
 }
 
-function applyItemEdit(item: Item, payload: EditItemSavePayload): Item {
-  const updated = updateItemMetadata(item, {
-    label: payload.label,
-    url: payload.url,
-    imageUrl: payload.imageUrl,
-    useAutomaticAnilistLabel: payload.useAutomaticAnilistLabel,
-  });
-  return payload.id && payload.id !== updated.id
-    ? { ...updated, id: payload.id }
-    : updated;
+export function applyBumpChartItemEdit(
+  entry: BumpChartItem,
+  payload: EditItemSavePayload,
+): BumpChartItem {
+  const item = applyCachedAnilistItemEdit(entry.item, payload);
+  return {
+    ...entry,
+    item,
+    logicalId: payload.id != null ? item.id : entry.logicalId,
+  };
 }
 
 function otherItemIds(
@@ -2618,7 +2618,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
     if (!editTarget) {
       return;
     }
-    const updated = applyItemEdit(editTarget.item, payload);
+    const updated = applyCachedAnilistItemEdit(editTarget.item, payload);
     if (editTarget.scope === 'draft') {
       patchDraft(editTarget.columnId, (draft) => ({
         ...draft,
@@ -2635,12 +2635,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
                   : group.markedItemIds,
                 items: group.items.map((entry, index) =>
                   index === editTarget.index
-                    ? {
-                        ...entry,
-                        item: updated,
-                        logicalId:
-                          payload.id != null ? updated.id : entry.logicalId,
-                      }
+                    ? applyBumpChartItemEdit(entry, payload)
                     : entry,
                 ),
               }
@@ -2661,12 +2656,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
                   ...column,
                   items: column.items.map((entry, index) =>
                     index === editTarget.index
-                      ? {
-                          ...entry,
-                          item: updated,
-                          logicalId:
-                            payload.id != null ? updated.id : entry.logicalId,
-                        }
+                      ? applyBumpChartItemEdit(entry, payload)
                       : entry,
                   ),
                 }

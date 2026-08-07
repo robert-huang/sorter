@@ -29,6 +29,7 @@ import type {
 import {
   _resetCloudProviderForTesting,
   _setCloudProviderForTesting,
+  annotateSlotCompletion,
   buildSlotFilename,
   getAuthState,
   listCloudSlots,
@@ -110,6 +111,9 @@ class StubProvider implements CloudProvider {
     this.calls.push(`pullSlot:${cloudId}`);
     if (!this.pullResult) throw new Error('no stub pull result');
     return this.pullResult;
+  }
+  async annotateSlotCompletion(cloudId: string, done: boolean): Promise<void> {
+    this.calls.push(`annotateSlotCompletion:${cloudId}:${done}`);
   }
   async pushSlot(
     cloudId: string | null,
@@ -215,12 +219,14 @@ describe('cloud proxy', () => {
       sorterSlotId: 'abc',
       displayName: 'Hello',
     });
+    await annotateSlotCompletion('F1F1', true);
     await removeCloudSlot('F1F1');
     await signOut();
     expect(stub.calls).toEqual([
       'signIn',
       'listCloudSlots',
       'pushSlot:null:Hello_abc.sorter.json',
+      'annotateSlotCompletion:F1F1:true',
       'removeCloudSlot:F1F1',
       'signOut',
     ]);
@@ -895,6 +901,65 @@ describe('GoogleDriveProvider hash stash/restore (share-link survival)', () => {
   });
 });
 
+describe('GoogleDriveProvider completion metadata', () => {
+  function setupSignedInWithFolder(): void {
+    localStorage.setItem(
+      'sorter:cloud:tokens:v1',
+      JSON.stringify({
+        accessToken: 'A',
+        refreshToken: 'R',
+        expiresAt: Date.now() + 30 * 60_000,
+      }),
+    );
+    localStorage.setItem(
+      'sorter:cloud:folder:v1',
+      JSON.stringify({ folderId: 'FOLDER', folderName: 'Backups' }),
+    );
+  }
+
+  it('parses true, false, absent, and malformed sorterDone properties', async () => {
+    setupSignedInWithFolder();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          files: ['true', 'false', undefined, 'yes'].map((sorterDone, index) => ({
+            id: `ID${index}`,
+            name: `Slot${index}_abc.sorter.json`,
+            modifiedTime: '2026-05-20T00:00:00.000Z',
+            version: String(index + 1),
+            appProperties:
+              sorterDone === undefined ? {} : { sorterDone },
+          })),
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    const slots = await new GoogleDriveProvider().listCloudSlots();
+    expect(slots.map((slot) => slot.done)).toEqual([
+      true,
+      false,
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it('PATCHes only the validated completion app property', async () => {
+    setupSignedInWithFolder();
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('', { status: 200 }));
+    await new GoogleDriveProvider().annotateSlotCompletion('DRIVE-ID', false);
+    expect(String(fetchSpy.mock.calls[0][0])).toContain(
+      '/drive/v3/files/DRIVE-ID',
+    );
+    const init = fetchSpy.mock.calls[0][1] as RequestInit;
+    expect(init.method).toBe('PATCH');
+    expect(JSON.parse(String(init.body))).toEqual({
+      appProperties: { sorterDone: 'false' },
+    });
+  });
+});
+
 describe('GoogleDriveProvider.pushSlot', () => {
   /**
    * pushSlot uses Google's "resumable" upload pattern: an init call
@@ -984,6 +1049,7 @@ describe('GoogleDriveProvider.pushSlot', () => {
     expect(initBody).toContain('"name":"Movies_abc.sorter.json"');
     expect(initBody).toContain('"sorterSlotId":"abc"');
     expect(initBody).toContain('"sorterDisplayName":"Movies"');
+    expect(initBody).toContain('"sorterDone":"false"');
 
     // Content: PUT to the Location URL returned by init. Body is the
     // file content JSON.
@@ -1011,7 +1077,7 @@ describe('GoogleDriveProvider.pushSlot', () => {
         contentResp({ id: 'OLDDRIVEID', modifiedTime: '2026-05-20T02:00:00.000Z', version: '8' }),
       );
     const p = new GoogleDriveProvider();
-    const result = await p.pushSlot('OLDDRIVEID', makeBlob(11), {
+    const result = await p.pushSlot('OLDDRIVEID', makeBlob(11, true), {
       desiredFilename: 'Movies_abc.sorter.json',
       sorterSlotId: 'abc',
       displayName: 'Movies',
@@ -1028,6 +1094,7 @@ describe('GoogleDriveProvider.pushSlot', () => {
     // file (and we want to preserve the user's folder choice).
     expect(initBody).not.toContain('parents');
     expect(initBody).toContain('"name":"Movies_abc.sorter.json"');
+    expect(initBody).toContain('"sorterDone":"true"');
 
     expect(result.cloudId).toBe('OLDDRIVEID');
     expect(result.etag).toBe('8');
