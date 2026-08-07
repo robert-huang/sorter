@@ -51,6 +51,7 @@ export function ToolsSettingsMenu({
     prefs: toolsPrefs,
     setProductionAllRoles,
     setBumpChartBestMatchByTitle,
+    setBumpChartMalExportImages,
   } = useToolsPreferences();
 
   function selectTab(next: SettingsTab): void {
@@ -149,6 +150,19 @@ export function ToolsSettingsMenu({
                   >
                     ?
                   </span>
+                </label>
+                <label
+                  className="settings-item checkbox"
+                  title="When enabled, PNG export tries to replace unavailable AniList covers with verified MyAnimeList images. Live chart images are unchanged."
+                >
+                  <input
+                    type="checkbox"
+                    checked={toolsPrefs.bumpChartMalExportImages}
+                    onChange={(e) =>
+                      setBumpChartMalExportImages(e.target.checked)
+                    }
+                  />
+                  Try MyAnimeList images in PNG exports
                 </label>
               </div>
             )}

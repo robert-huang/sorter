@@ -7,46 +7,38 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('AniPlaylist and AniList image proxy', () => {
-  it('returns AniList CDN images with canvas-safe CORS headers', async () => {
-    const upstreamFetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response('image', {
-        status: 200,
-        headers: {
-          'Cache-Control': 'max-age=2678400',
-          'Content-Type': 'image/jpeg',
-        },
-      }),
-    );
-    const path = '/file/anilistcdn/media/anime/cover/large/test.jpg';
-
+describe('AniPlaylist Algolia proxy', () => {
+  it('rejects the removed image route without fetching upstream', async () => {
+    const upstreamFetch = vi.spyOn(globalThis, 'fetch');
     const response = await worker.fetch(
-      new Request(
-        `https://worker.example/image?path=${encodeURIComponent(path)}`,
-      ),
+      new Request('https://worker.example/image'),
     );
 
-    expect(upstreamFetch).toHaveBeenCalledWith(
-      `https://s4.anilist.co${path}`,
-      { headers: { Accept: 'image/*' } },
+    expect(upstreamFetch).not.toHaveBeenCalled();
+    expect(response.status).toBe(405);
+    expect(response.headers.get('Access-Control-Allow-Methods')).toBe(
+      'POST, OPTIONS',
     );
-    expect(response.status).toBe(200);
-    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
-    expect(response.headers.get('Content-Type')).toBe('image/jpeg');
-    expect(response.headers.get('Cache-Control')).toBe('max-age=2678400');
-    expect(await response.text()).toBe('image');
   });
 
-  it('rejects paths outside the AniList CDN file tree', async () => {
-    const upstreamFetch = vi.spyOn(globalThis, 'fetch');
-
+  it('forwards Algolia search POST requests', async () => {
+    const upstreamFetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('{"results":[]}', {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
     const response = await worker.fetch(
-      new Request(
-        'https://worker.example/image?path=%2Ffile%2Fanilistcdn%2F..%2F..%2Fapi',
-      ),
+      new Request('https://worker.example/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{"requests":[]}',
+      }),
     );
 
-    expect(response.status).toBe(400);
-    expect(upstreamFetch).not.toHaveBeenCalled();
+    expect(upstreamFetch).toHaveBeenCalledOnce();
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
+    expect(response.headers.get('Content-Type')).toBe('application/json');
   });
 });

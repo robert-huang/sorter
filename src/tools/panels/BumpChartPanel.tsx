@@ -62,9 +62,14 @@ import {
   getStateStorageStatus,
   getStateWriterId,
 } from '../../lib/stateStorageDb';
-import { loadCachedCanvasImage } from './bumpChartImageCache';
-
-export { canvasImageFetchUrls } from './bumpChartImageCache';
+import {
+  loadCachedCanvasImage,
+  type LoadedCanvasImage,
+} from './bumpChartImageCache';
+import {
+  isAnilistCdnImageUrl,
+  resolveBumpMalExportImage,
+} from './bumpChartMalExportImages';
 
 type ChartSide = 'left' | 'right';
 
@@ -305,6 +310,7 @@ function InteractiveItemLabel({
           ? `${item.label} (middle-click to open source)`
           : item.label
       }
+      data-bump-item-id={item.id}
     >
       {item.imageUrl && <img src={item.imageUrl} alt="" loading="lazy" />}
       <span className="bump-chart-label">{item.label}</span>
@@ -803,7 +809,94 @@ function chartLabelOpacity(element: Element): number {
   return Number.isFinite(opacity) ? opacity : 1;
 }
 
-export async function exportChartPng(node: HTMLElement): Promise<void> {
+type ExportChartPngOptions = {
+  itemsById?: ReadonlyMap<string, Item>;
+  useMalImages?: boolean;
+  onImageProgress?: (completed: number, total: number) => void;
+};
+
+async function resolveExportImages(
+  imageElements: readonly HTMLImageElement[],
+  options: ExportChartPngOptions,
+): Promise<Array<LoadedCanvasImage | null>> {
+  let completed = 0;
+  const total = imageElements.length;
+  options.onImageProgress?.(completed, total);
+  return Promise.all(
+    imageElements.map(async (image) => {
+      const src = image.currentSrc || image.src;
+      let loaded: LoadedCanvasImage | null = null;
+      if (isAnilistCdnImageUrl(src)) {
+        const itemId =
+          image.closest<HTMLElement>('[data-bump-item-id]')?.dataset.bumpItemId;
+        const item = itemId ? options.itemsById?.get(itemId) : undefined;
+        if (options.useMalImages && item) {
+          const fallback = await resolveBumpMalExportImage(item);
+          if (fallback) {
+            loaded = await loadCachedCanvasImage(
+              fallback.url,
+              fallback.cacheKey,
+            );
+          }
+        }
+      } else {
+        loaded = await loadCachedCanvasImage(src);
+      }
+      completed += 1;
+      options.onImageProgress?.(completed, total);
+      return loaded;
+    }),
+  );
+}
+
+function prepareExportImageLayout(
+  node: HTMLElement,
+  imageElements: readonly HTMLImageElement[],
+  loadedImages: readonly (LoadedCanvasImage | null)[],
+): () => void {
+  const rows = Array.from(
+    node.querySelectorAll<HTMLElement>('.bump-chart-row'),
+  );
+  const rowStyles = rows.map((row) => ({
+    row,
+    height: row.style.height,
+    minHeight: row.style.minHeight,
+    maxHeight: row.style.maxHeight,
+  }));
+  for (const { row } of rowStyles) {
+    const height = `${row.getBoundingClientRect().height}px`;
+    row.style.height = height;
+    row.style.minHeight = height;
+    row.style.maxHeight = height;
+  }
+
+  const imageStyles = imageElements.map((image) => ({
+    image,
+    display: image.style.display,
+  }));
+  imageElements.forEach((image, index) => {
+    if (!loadedImages[index]) {
+      image.style.display = 'none';
+    }
+  });
+
+  return () => {
+    for (const { row, height, minHeight, maxHeight } of rowStyles) {
+      row.style.height = height;
+      row.style.minHeight = minHeight;
+      row.style.maxHeight = maxHeight;
+    }
+    for (const { image, display } of imageStyles) {
+      image.style.display = display;
+    }
+  };
+}
+
+async function renderChartPng(
+  node: HTMLElement,
+  imageElements: readonly HTMLImageElement[],
+  loadedImages: readonly (LoadedCanvasImage | null)[],
+): Promise<void> {
   const rootRect = node.getBoundingClientRect();
   const width = Math.ceil(rootRect.width);
   const height = Math.ceil(rootRect.height);
@@ -993,14 +1086,6 @@ export async function exportChartPng(node: HTMLElement): Promise<void> {
     context.restore();
   }
 
-  const imageElements = Array.from(
-    node.querySelectorAll<HTMLImageElement>('.bump-chart-item-link img'),
-  );
-  const loadedImages = await Promise.all(
-    imageElements.map((image) =>
-      loadCachedCanvasImage(image.currentSrc || image.src),
-    ),
-  );
   imageElements.forEach((image, index) => {
     const loaded = loadedImages[index];
     if (!loaded) return;
@@ -1016,7 +1101,6 @@ export async function exportChartPng(node: HTMLElement): Promise<void> {
       imageRect.height,
     );
     context.restore();
-    loaded.dispose();
   });
 
   for (const label of node.querySelectorAll<HTMLElement>(
@@ -1051,6 +1135,27 @@ export async function exportChartPng(node: HTMLElement): Promise<void> {
   link.download = 'bump-chart.png';
   link.click();
   URL.revokeObjectURL(downloadUrl);
+}
+
+export async function exportChartPng(
+  node: HTMLElement,
+  options: ExportChartPngOptions = {},
+): Promise<void> {
+  const imageElements = Array.from(
+    node.querySelectorAll<HTMLImageElement>('.bump-chart-item-link img'),
+  );
+  const loadedImages = await resolveExportImages(imageElements, options);
+  const restoreExportLayout = prepareExportImageLayout(
+    node,
+    imageElements,
+    loadedImages,
+  );
+  try {
+    await renderChartPng(node, imageElements, loadedImages);
+  } finally {
+    restoreExportLayout();
+    loadedImages.forEach((loaded) => loaded?.dispose());
+  }
 }
 
 function BumpChart({
@@ -1537,6 +1642,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
   const [pendingImports, setPendingImports] = useState(0);
   const [importError, setImportError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [storageError, setStorageError] = useState<string | null>(null);
   const [savedCharts, setSavedCharts] = useState<SavedBumpChartMeta[]>([]);
@@ -2008,15 +2114,31 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
       return;
     }
     setExporting(true);
+    setExportProgress(null);
     setExportError(null);
     try {
-      await exportChartPng(chartRef.current);
+      const itemsById = new Map(
+        [...left, ...right].map((entry) => [entry.item.id, entry.item]),
+      );
+      const useMalImages = toolsPreferences.bumpChartMalExportImages;
+      await exportChartPng(chartRef.current, {
+        itemsById,
+        useMalImages,
+        onImageProgress: useMalImages
+          ? (completed, total) => {
+              if (total > 0) {
+                setExportProgress(`${completed}/${total}`);
+              }
+            }
+          : undefined,
+      });
     } catch (error) {
       setExportError(
         error instanceof Error ? error.message : 'PNG export failed.',
       );
     } finally {
       setExporting(false);
+      setExportProgress(null);
     }
   };
 
@@ -2140,7 +2262,11 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
                 void exportPng();
               }}
             >
-              {exporting ? 'Exporting…' : 'Export PNG'}
+              {exporting
+                ? exportProgress
+                  ? `Preparing images ${exportProgress}…`
+                  : 'Exporting…'
+                : 'Export PNG'}
             </button>
           </div>
           {exportError && <p className="tool-error">{exportError}</p>}

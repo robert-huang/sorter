@@ -42,18 +42,4 @@ describe.skipIf(!WORKERS_LIVE)('deployed Cloudflare worker proxies', () => {
     const body = (await res.json()) as { results?: Array<{ hits?: unknown[] }> };
     expect((body.results?.[0]?.hits ?? []).length).toBeGreaterThan(0);
   });
-
-  it('AniPlaylist worker returns AniList covers with canvas-safe CORS', async () => {
-    const imageUrl = new URL('/image', ANIPLAYLIST_PROXY_URL);
-    imageUrl.searchParams.set(
-      'path',
-      '/file/anilistcdn/media/anime/cover/large/bx16498-C6FPmWm59CyP.jpg',
-    );
-
-    const res = await fetch(imageUrl);
-
-    expect(res.status).toBe(200);
-    expect(res.headers.get('Content-Type')).toMatch(/^image\//);
-    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*');
-  });
 });

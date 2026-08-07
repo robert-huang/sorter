@@ -20,6 +20,7 @@ describe('tools preferences', () => {
     expect(loadToolsPreferences()).toMatchObject({
       productionAllRoles: true,
       bumpChartBestMatchByTitle: true,
+      bumpChartMalExportImages: false,
     });
   });
 
@@ -29,6 +30,17 @@ describe('tools preferences', () => {
     expect(loadToolsPreferences().bumpChartBestMatchByTitle).toBe(false);
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')).toMatchObject({
       bumpChartBestMatchByTitle: false,
+    });
+  });
+
+  it('defaults MAL export images off and persists the opt-in', () => {
+    expect(loadToolsPreferences().bumpChartMalExportImages).toBe(false);
+
+    saveToolsPreferences({ bumpChartMalExportImages: true });
+
+    expect(loadToolsPreferences().bumpChartMalExportImages).toBe(true);
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')).toMatchObject({
+      bumpChartMalExportImages: true,
     });
   });
 });

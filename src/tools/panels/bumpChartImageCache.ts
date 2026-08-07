@@ -1,65 +1,27 @@
-type LoadedCanvasImage = {
+export type LoadedCanvasImage = {
   source: CanvasImageSource;
   dispose: () => void;
 };
 
-const ANILIST_IMAGE_HOST = 's4.anilist.co';
-const BUMP_CHART_IMAGE_CACHE = 'queue-sorter-bump-chart-images-v1';
+const BUMP_CHART_EXPORT_IMAGE_CACHE =
+  'queue-sorter-bump-chart-mal-export-images-v1';
 
 const memoryBlobCache = new Map<string, Blob>();
 const pendingBlobLoads = new Map<string, Promise<Blob | null>>();
-
-export function canvasImageFetchUrls(
-  src: string,
-  configuredProxyUrl = import.meta.env.VITE_ANIPLAYLIST_PROXY_URL?.trim() ?? '',
-  useLocalProxy = import.meta.env.DEV,
-): string[] {
-  let sourceUrl: URL;
-  try {
-    sourceUrl = new URL(src);
-  } catch {
-    return [src];
-  }
-  if (sourceUrl.hostname !== ANILIST_IMAGE_HOST) {
-    return [src];
-  }
-
-  const sourcePath = `${sourceUrl.pathname}${sourceUrl.search}`;
-  const fetchUrls: string[] = [];
-  if (configuredProxyUrl) {
-    try {
-      const proxyUrl = new URL(configuredProxyUrl);
-      const basePath = proxyUrl.pathname.replace(/\/+$/, '');
-      proxyUrl.pathname = `${basePath}/image`;
-      proxyUrl.search = '';
-      proxyUrl.hash = '';
-      proxyUrl.searchParams.set('path', sourcePath);
-      fetchUrls.push(proxyUrl.toString());
-    } catch {
-      // Fall through to the local proxy when a development override is invalid.
-    }
-  }
-  if (useLocalProxy) {
-    fetchUrls.push(`/api/anilist-image${sourcePath}`);
-  }
-  // AniList's CDN omits CORS headers, so a direct request cannot produce an
-  // exportable canvas image when a CORS-safe proxy is available.
-  return fetchUrls.length > 0 ? fetchUrls : [src];
-}
 
 async function openImageCache(): Promise<Cache | null> {
   if (typeof caches === 'undefined') {
     return null;
   }
   try {
-    return await caches.open(BUMP_CHART_IMAGE_CACHE);
+    return await caches.open(BUMP_CHART_EXPORT_IMAGE_CACHE);
   } catch {
     return null;
   }
 }
 
-async function readCachedBlob(src: string): Promise<Blob | null> {
-  const memoryBlob = memoryBlobCache.get(src);
+async function readCachedBlob(cacheKey: string): Promise<Blob | null> {
+  const memoryBlob = memoryBlobCache.get(cacheKey);
   if (memoryBlob) {
     return memoryBlob;
   }
@@ -69,27 +31,27 @@ async function readCachedBlob(src: string): Promise<Blob | null> {
     return null;
   }
   try {
-    const response = await cache.match(src);
+    const response = await cache.match(cacheKey);
     if (!response?.ok) {
       return null;
     }
     const blob = await response.blob();
-    memoryBlobCache.set(src, blob);
+    memoryBlobCache.set(cacheKey, blob);
     return blob;
   } catch {
     return null;
   }
 }
 
-async function cacheBlob(src: string, blob: Blob): Promise<void> {
-  memoryBlobCache.set(src, blob);
+async function cacheBlob(cacheKey: string, blob: Blob): Promise<void> {
+  memoryBlobCache.set(cacheKey, blob);
   const cache = await openImageCache();
   if (!cache) {
     return;
   }
   try {
     await cache.put(
-      src,
+      cacheKey,
       new Response(blob, {
         headers: { 'Content-Type': blob.type || 'application/octet-stream' },
       }),
@@ -99,38 +61,45 @@ async function cacheBlob(src: string, blob: Blob): Promise<void> {
   }
 }
 
-async function fetchImageBlob(src: string): Promise<Blob | null> {
-  for (const fetchUrl of canvasImageFetchUrls(src)) {
-    try {
-      const response = await fetch(fetchUrl, { mode: 'cors' });
-      if (!response.ok) {
-        continue;
-      }
-      const blob = await response.blob();
-      await cacheBlob(src, blob);
-      return blob;
-    } catch {
-      // Try the next CORS-safe source.
+async function fetchImageBlob(
+  src: string,
+  cacheKey: string,
+): Promise<Blob | null> {
+  try {
+    const response = await fetch(src, { mode: 'cors' });
+    if (!response.ok) {
+      return null;
     }
+    const contentType = response.headers.get('Content-Type') ?? '';
+    if (contentType && !contentType.startsWith('image/')) {
+      return null;
+    }
+    const blob = await response.blob();
+    await cacheBlob(cacheKey, blob);
+    return blob;
+  } catch {
+    return null;
   }
-  return null;
 }
 
-async function loadImageBlob(src: string): Promise<Blob | null> {
-  const cachedBlob = await readCachedBlob(src);
+async function loadImageBlob(
+  src: string,
+  cacheKey: string,
+): Promise<Blob | null> {
+  const cachedBlob = await readCachedBlob(cacheKey);
   if (cachedBlob) {
     return cachedBlob;
   }
 
-  const pendingLoad = pendingBlobLoads.get(src);
+  const pendingLoad = pendingBlobLoads.get(cacheKey);
   if (pendingLoad) {
     return pendingLoad;
   }
 
-  const load = fetchImageBlob(src).finally(() => {
-    pendingBlobLoads.delete(src);
+  const load = fetchImageBlob(src, cacheKey).finally(() => {
+    pendingBlobLoads.delete(cacheKey);
   });
-  pendingBlobLoads.set(src, load);
+  pendingBlobLoads.set(cacheKey, load);
   return load;
 }
 
@@ -163,17 +132,18 @@ async function decodeCanvasImage(blob: Blob): Promise<LoadedCanvasImage> {
 
 export async function loadCachedCanvasImage(
   src: string,
+  cacheKey = src,
 ): Promise<LoadedCanvasImage | null> {
-  const blob = await loadImageBlob(src);
+  const blob = await loadImageBlob(src, cacheKey);
   if (!blob) {
     return null;
   }
   try {
     return await decodeCanvasImage(blob);
   } catch {
-    memoryBlobCache.delete(src);
+    memoryBlobCache.delete(cacheKey);
     const cache = await openImageCache();
-    await cache?.delete(src).catch(() => false);
+    await cache?.delete(cacheKey).catch(() => false);
     return null;
   }
 }

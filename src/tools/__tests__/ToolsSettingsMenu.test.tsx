@@ -85,5 +85,21 @@ describe('ToolsSettingsMenu', () => {
       checkbox?.click();
     });
     expect(loadToolsPreferences().bumpChartBestMatchByTitle).toBe(false);
+
+    const malCheckbox = Array.from(
+      container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
+    ).find(
+      (input) =>
+        input
+          .closest('label')
+          ?.textContent?.includes('Try MyAnimeList images in PNG exports') ===
+        true,
+    );
+    expect(malCheckbox?.checked).toBe(false);
+
+    await act(async () => {
+      malCheckbox?.click();
+    });
+    expect(loadToolsPreferences().bumpChartMalExportImages).toBe(true);
   });
 });

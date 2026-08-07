@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   _resetBumpChartImageMemoryCacheForTesting,
-  canvasImageFetchUrls,
   loadCachedCanvasImage,
 } from '../panels/bumpChartImageCache';
 
-const ANILIST_IMAGE =
-  'https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/cache-test.jpg';
+const MAL_IMAGE = 'https://cdn.myanimelist.net/images/anime/4/19644.jpg';
+const ENTITY_CACHE_KEY =
+  'https://queue-sorter.invalid/bump-mal-export/v1/anilist%3A1';
 
 beforeEach(() => {
   _resetBumpChartImageMemoryCacheForTesting();
@@ -28,24 +28,24 @@ function stubImageDecoder(): ReturnType<typeof vi.fn> {
 }
 
 describe('Bump Chart export image cache', () => {
-  it('deduplicates requests and reuses the in-memory image blob', async () => {
-    const proxyUrl = canvasImageFetchUrls(ANILIST_IMAGE)[0]!;
+  it('deduplicates direct CORS requests and reuses the in-memory blob', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      if (input.toString() !== proxyUrl) {
+      if (input.toString() !== MAL_IMAGE) {
         throw new Error('Unexpected image URL');
       }
       return new Response(new Blob(['image'], { type: 'image/jpeg' }), {
         status: 200,
+        headers: { 'Content-Type': 'image/jpeg' },
       });
     });
     vi.stubGlobal('fetch', fetchMock);
     const createImageBitmap = stubImageDecoder();
 
     const [first, duplicate] = await Promise.all([
-      loadCachedCanvasImage(ANILIST_IMAGE),
-      loadCachedCanvasImage(ANILIST_IMAGE),
+      loadCachedCanvasImage(MAL_IMAGE, ENTITY_CACHE_KEY),
+      loadCachedCanvasImage(MAL_IMAGE, ENTITY_CACHE_KEY),
     ]);
-    const reused = await loadCachedCanvasImage(ANILIST_IMAGE);
+    const reused = await loadCachedCanvasImage(MAL_IMAGE, ENTITY_CACHE_KEY);
 
     expect(first).not.toBeNull();
     expect(duplicate).not.toBeNull();
@@ -73,27 +73,41 @@ describe('Bump Chart export image cache', () => {
     vi.stubGlobal('caches', {
       open: vi.fn(async () => cache),
     });
-    const proxyUrl = canvasImageFetchUrls(ANILIST_IMAGE)[0]!;
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      if (input.toString() !== proxyUrl) {
-        throw new Error('Unexpected image URL');
-      }
+    const fetchMock = vi.fn(async () => {
       return new Response(new Blob(['image'], { type: 'image/jpeg' }), {
         status: 200,
+        headers: { 'Content-Type': 'image/jpeg' },
       });
     });
     vi.stubGlobal('fetch', fetchMock);
     stubImageDecoder();
 
-    const first = await loadCachedCanvasImage(ANILIST_IMAGE);
+    const first = await loadCachedCanvasImage(MAL_IMAGE, ENTITY_CACHE_KEY);
     first?.dispose();
     _resetBumpChartImageMemoryCacheForTesting();
-    const restored = await loadCachedCanvasImage(ANILIST_IMAGE);
+    const restored = await loadCachedCanvasImage(MAL_IMAGE, ENTITY_CACHE_KEY);
     restored?.dispose();
 
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(cache.put).toHaveBeenCalledOnce();
     expect(cache.match).toHaveBeenCalledTimes(2);
     expect(restored).not.toBeNull();
+  });
+
+  it('rejects a successful non-image response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        return new Response('<html>blocked</html>', {
+          status: 200,
+          headers: { 'Content-Type': 'text/html' },
+        });
+      }),
+    );
+    stubImageDecoder();
+
+    await expect(
+      loadCachedCanvasImage(MAL_IMAGE, ENTITY_CACHE_KEY),
+    ).resolves.toBeNull();
   });
 });

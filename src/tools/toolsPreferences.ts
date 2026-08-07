@@ -15,6 +15,8 @@ export type ToolsPreferences = {
   productionAllRoles: boolean;
   /** Infer unique Bump Chart lineages from exact labels and title variants. */
   bumpChartBestMatchByTitle: boolean;
+  /** Try verified MyAnimeList images when exporting Bump Chart PNGs. */
+  bumpChartMalExportImages: boolean;
 };
 
 const STORAGE_KEY = 'anime-tools:preferences:v1';
@@ -22,6 +24,7 @@ const STORAGE_KEY = 'anime-tools:preferences:v1';
 const DEFAULT_PREFS: ToolsPreferences = {
   productionAllRoles: false,
   bumpChartBestMatchByTitle: true,
+  bumpChartMalExportImages: false,
 };
 
 let cached: ToolsPreferences | null = null;
@@ -61,6 +64,7 @@ export function loadToolsPreferences(): ToolsPreferences {
       productionAllRoles: parsed.productionAllRoles === true,
       bumpChartBestMatchByTitle:
         parsed.bumpChartBestMatchByTitle !== false,
+      bumpChartMalExportImages: parsed.bumpChartMalExportImages === true,
     };
     return cached;
   } catch {

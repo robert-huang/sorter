@@ -11,7 +11,6 @@ import {
 } from 'vitest';
 import {
   BumpChartPanel,
-  canvasImageFetchUrls,
   exportChartPng,
   inferredMatchMarkerPosition,
 } from '../panels/BumpChartPanel';
@@ -28,6 +27,8 @@ import {
   _resetBumpChartStorageCacheForTesting,
   flushBumpChartStorageWrites,
 } from '../panels/bumpChartStorage';
+import { _resetBumpChartImageMemoryCacheForTesting } from '../panels/bumpChartImageCache';
+import { _resetBumpMalExportImagesForTesting } from '../panels/bumpChartMalExportImages';
 
 let container: HTMLDivElement;
 let root: Root;
@@ -42,6 +43,8 @@ beforeEach(async () => {
   localStorage.clear();
   await _resetStateStorageForTesting();
   _resetBumpChartStorageCacheForTesting();
+  _resetBumpChartImageMemoryCacheForTesting();
+  _resetBumpMalExportImagesForTesting();
   _clearToolsPreferencesForTesting();
   container = document.createElement('div');
   document.body.appendChild(container);
@@ -881,17 +884,9 @@ describe('BumpChartPanel staging flow', () => {
     expect(container.querySelector('.bump-chart-saved-charts')).toBeNull();
   });
 
-  it('exports AniList images and preserves pinned-line emphasis', async () => {
+  it('omits AniList images, collapses their space, and preserves pinned-line emphasis', async () => {
     const anilistImage =
       'https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/test.jpg';
-    const proxiedAnilistImage = canvasImageFetchUrls(
-      anilistImage,
-      '',
-      true,
-    )[0];
-    if (!proxiedAnilistImage) {
-      throw new Error('AniList image proxy is not configured for this test');
-    }
     const chart = document.createElement('div');
     chart.style.backgroundColor = 'rgb(255, 255, 255)';
     chart.innerHTML =
@@ -931,10 +926,10 @@ describe('BumpChartPanel staging flow', () => {
       domRect(300, 64, 0, 64),
     );
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = input.toString();
-      if (url === proxiedAnilistImage) {
+      if (input.toString() === 'https://example.invalid/cover.jpg') {
         return new Response(new Blob(['image'], { type: 'image/jpeg' }), {
           status: 200,
+          headers: { 'Content-Type': 'image/jpeg' },
         });
       }
       throw new Error('blocked');
@@ -1035,6 +1030,8 @@ describe('BumpChartPanel staging flow', () => {
       value: revokeObjectUrl,
     });
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    const imageDisplayWhileDrawing: string[] = [];
+    const anilistImageElement = imageElements[1]!;
     vi.spyOn(document, 'createRange').mockImplementation(
       () =>
         ({
@@ -1048,29 +1045,36 @@ describe('BumpChartPanel staging flow', () => {
               throw new DOMException('Invalid range end');
             }
           },
-          getBoundingClientRect: () => ({
-            x: 0,
-            y: 0,
-            top: 0,
-            right: 8,
-            bottom: 16,
-            left: 0,
-            width: 8,
-            height: 16,
-            toJSON: () => ({}),
-          }),
+          getBoundingClientRect: () => {
+            imageDisplayWhileDrawing.push(anilistImageElement.style.display);
+            return {
+              x: 0,
+              y: 0,
+              top: 0,
+              right: 8,
+              bottom: 16,
+              left: 0,
+              width: 8,
+              height: 16,
+              toJSON: () => ({}),
+            };
+          },
         }) as unknown as Range,
     );
 
     await exportChartPng(chart);
 
     expect(fetchMock).toHaveBeenCalledWith(
-      proxiedAnilistImage,
+      'https://example.invalid/cover.jpg',
       { mode: 'cors' },
     );
     expect(fetchMock).not.toHaveBeenCalledWith(anilistImage, { mode: 'cors' });
     expect(context.drawImage).toHaveBeenCalledOnce();
     expect(bitmap.close).toHaveBeenCalledOnce();
+    expect(imageDisplayWhileDrawing).toContain('none');
+    expect(anilistImageElement.style.display).toBe('');
+    expect(rows[0]!.style.height).toBe('');
+    expect(rows[1]!.style.height).toBe('');
     expect(context.fillText).toHaveBeenCalledWith('AB', 0, 0);
     expect(context.fillText).toHaveBeenCalledWith('+2', 150, 100);
     expect(context.roundRect).toHaveBeenCalledWith(136, 90, 28, 20, 10);
@@ -1101,6 +1105,140 @@ describe('BumpChartPanel staging flow', () => {
     }
     chart.remove();
   });
+
+  it('uses a persisted MAL fallback only when the export opt-in is enabled', async () => {
+    const anilistImage =
+      'https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/test.jpg';
+    const malImage =
+      'https://cdn.myanimelist.net/images/anime/4/19644.jpg';
+    localStorage.setItem(
+      'queue-sorter:bump-mal-export-image-urls:v1',
+      JSON.stringify({ 'anilist:1': malImage }),
+    );
+    _resetBumpMalExportImagesForTesting();
+
+    const chart = document.createElement('div');
+    chart.style.backgroundColor = 'rgb(255, 255, 255)';
+    chart.innerHTML =
+      `<a class="bump-chart-item-link" data-bump-item-id="anilist:1">` +
+      `<img src="${anilistImage}"></a>`;
+    document.body.appendChild(chart);
+    vi.spyOn(chart, 'getBoundingClientRect').mockReturnValue(
+      domRect(300, 200),
+    );
+    const image = chart.querySelector('img')!;
+    vi.spyOn(image, 'getBoundingClientRect').mockReturnValue(
+      domRect(38, 48, 10, 10),
+    );
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(new Blob(['image'], { type: 'image/jpeg' }), {
+        status: 200,
+        headers: { 'Content-Type': 'image/jpeg' },
+      }),
+    );
+    const bitmap = { width: 100, height: 150, close: vi.fn() };
+    vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue(bitmap));
+    const context = {
+      scale: vi.fn(),
+      fillRect: vi.fn(),
+      save: vi.fn(),
+      restore: vi.fn(),
+      drawImage: vi.fn(),
+      strokeRect: vi.fn(),
+      fillStyle: '',
+      strokeStyle: '',
+      lineWidth: 1,
+      globalAlpha: 1,
+    };
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+      context as unknown as CanvasRenderingContext2D,
+    );
+    vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(
+      (callback) => callback(new Blob(['png'])),
+    );
+    const createObjectUrlDescriptor = Object.getOwnPropertyDescriptor(
+      URL,
+      'createObjectURL',
+    );
+    const revokeObjectUrlDescriptor = Object.getOwnPropertyDescriptor(
+      URL,
+      'revokeObjectURL',
+    );
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: vi.fn(() => 'blob:chart'),
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: vi.fn(),
+    });
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+    try {
+      await exportChartPng(chart, {
+        itemsById: new Map([
+          [
+            'anilist:1',
+            {
+              id: 'anilist:1',
+              label: 'Cowboy Bebop',
+              imageUrl: anilistImage,
+              source: { kind: 'anilist', externalId: 1 },
+            },
+          ],
+        ]),
+        useMalImages: true,
+      });
+    } finally {
+      if (createObjectUrlDescriptor) {
+        Object.defineProperty(
+          URL,
+          'createObjectURL',
+          createObjectUrlDescriptor,
+        );
+      } else {
+        delete (URL as { createObjectURL?: unknown }).createObjectURL;
+      }
+      if (revokeObjectUrlDescriptor) {
+        Object.defineProperty(
+          URL,
+          'revokeObjectURL',
+          revokeObjectUrlDescriptor,
+        );
+      } else {
+        delete (URL as { revokeObjectURL?: unknown }).revokeObjectURL;
+      }
+      chart.remove();
+    }
+
+    expect(fetchMock).toHaveBeenCalledWith(malImage, { mode: 'cors' });
+    expect(fetchMock).not.toHaveBeenCalledWith(anilistImage, { mode: 'cors' });
+    expect(context.drawImage).toHaveBeenCalledOnce();
+    expect(bitmap.close).toHaveBeenCalledOnce();
+  });
+
+  it('restores collapsed image layout when canvas export is unavailable', async () => {
+    const chart = document.createElement('div');
+    chart.innerHTML =
+      '<div class="bump-chart-row" style="height: 70px">' +
+      '<a class="bump-chart-item-link">' +
+      '<img src="https://s4.anilist.co/file/anilistcdn/test.jpg"></a></div>';
+    const row = chart.querySelector<HTMLElement>('.bump-chart-row')!;
+    const image = chart.querySelector<HTMLImageElement>('img')!;
+    vi.spyOn(row, 'getBoundingClientRect').mockReturnValue(domRect(300, 70));
+    vi.spyOn(chart, 'getBoundingClientRect').mockReturnValue(domRect(300, 70));
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+
+    await expect(exportChartPng(chart)).rejects.toThrow(
+      'Canvas export is unavailable.',
+    );
+
+    expect(row.style.height).toBe('70px');
+    expect(row.style.minHeight).toBe('');
+    expect(row.style.maxHeight).toBe('');
+    expect(image.style.display).toBe('');
+  });
 });
 
 describe('inferredMatchMarkerPosition', () => {
@@ -1111,26 +1249,5 @@ describe('inferredMatchMarkerPosition', () => {
     const compact = inferredMatchMarkerPosition(280, 100, 100);
     expect(compact.pathPosition).toBeLessThan(0.95);
     expect(compact.nodeSeparation).toBeGreaterThanOrEqual(25.99);
-  });
-});
-
-describe('canvasImageFetchUrls', () => {
-  it('adds the configured worker fallback only for AniList CDN images', () => {
-    const source =
-      'https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/test.jpg';
-    expect(
-      canvasImageFetchUrls(source, 'https://proxy.example/root/', true),
-    ).toEqual([
-      'https://proxy.example/root/image?path=%2Ffile%2Fanilistcdn%2Fmedia%2Fanime%2Fcover%2Flarge%2Ftest.jpg',
-      '/api/anilist-image/file/anilistcdn/media/anime/cover/large/test.jpg',
-    ]);
-    expect(
-      canvasImageFetchUrls(
-        'https://images.example/cover.jpg',
-        'https://proxy.example',
-        true,
-      ),
-    ).toEqual(['https://images.example/cover.jpg']);
-    expect(canvasImageFetchUrls(source, '', false)).toEqual([source]);
   });
 });
