@@ -383,9 +383,10 @@ describe('BumpChartPanel staging flow', () => {
     expect(event?.querySelector('.bump-chart-event-node')).not.toBeNull();
 
     await act(async () => {
-      event?.querySelector<HTMLElement>('.bump-chart-item-link')?.click();
+      event?.querySelector<HTMLButtonElement>('.bump-chart-rank')?.click();
     });
     expect(document.querySelector('.modal-backdrop')).not.toBeNull();
+    expect(event?.classList.contains('is-dimmed')).toBe(true);
   });
 
   it('renders one separated inferred marker for every inferred lineage segment', async () => {
@@ -444,6 +445,105 @@ describe('BumpChartPanel staging flow', () => {
     expect(container.querySelectorAll('.bump-chart-node')).toHaveLength(2);
   });
 
+  it('opens intermediate media labels without pinning their lineage', async () => {
+    await saveActiveBumpChartWorkspace({
+      version: 2,
+      view: 'chart',
+      columns: [
+        emptyWorkspaceColumn('previous-1', 'previous'),
+        {
+          id: 'previous-2',
+          kind: 'previous',
+          items: [
+            {
+              item: {
+                id: 'anilist:1',
+                label: 'Intermediate media',
+                imageUrl: 'https://example.invalid/cover.jpg',
+                url: 'https://anilist.co/anime/1',
+                source: { kind: 'anilist', externalId: 1 },
+              },
+              logicalId: 'AAAAAAAAAAAAAA',
+            },
+          ],
+          hiddenItemIds: [],
+          preserveCustomLabels: false,
+        },
+        emptyWorkspaceColumn('current', 'current'),
+      ],
+      bestMatchByTitle: true,
+      lastImportTab: 'single',
+    });
+    const onOpenMedia = vi.fn();
+    await act(async () => {
+      root.render(
+        <BumpChartPanel
+          dbSyncRevision={0}
+          onOpenMedia={onOpenMedia}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const eventNode = container.querySelector<HTMLElement>(
+      '.bump-chart-event-node',
+    );
+    await act(async () => {
+      eventNode?.querySelector<HTMLElement>('.bump-chart-label')?.click();
+      eventNode?.querySelector<HTMLImageElement>('img')?.click();
+    });
+    expect(onOpenMedia).toHaveBeenCalledTimes(2);
+    expect(onOpenMedia).toHaveBeenCalledWith(1, 'Intermediate media');
+    expect(container.querySelector('.bump-chart-connection.is-active')).toBeNull();
+    expect(document.querySelector('.modal-backdrop')).toBeNull();
+  });
+
+  it('pins a lineage when its added or removed marker icon is clicked', async () => {
+    await act(async () => {
+      root.render(
+        <BumpChartPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+    });
+    await importSingle(0, 'Removed item');
+    await importSingle(1, 'Added item');
+    await act(async () => {
+      button('Generate chart').click();
+    });
+
+    const removedMarker = container.querySelector<SVGGElement>(
+      '.bump-chart-change-marker--removed',
+    );
+    const addedMarker = container.querySelector<SVGGElement>(
+      '.bump-chart-change-marker--added',
+    );
+    await act(async () => {
+      removedMarker
+        ?.querySelector('line')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(
+      removedMarker
+        ?.closest('.bump-chart-connection')
+        ?.classList.contains('is-active'),
+    ).toBe(true);
+
+    await act(async () => {
+      addedMarker
+        ?.querySelector('line')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(
+      addedMarker
+        ?.closest('.bump-chart-connection')
+        ?.classList.contains('is-active'),
+    ).toBe(true);
+  });
+
   it('opens the item editor from a continuing intermediate rank node', async () => {
     await act(async () => {
       root.render(
@@ -472,6 +572,7 @@ describe('BumpChartPanel staging flow', () => {
       compactNode?.click();
     });
     expect(document.querySelector('.modal-backdrop')).not.toBeNull();
+    expect(container.querySelector('.bump-chart-connection.is-active')).toBeNull();
   });
 
   it('live-updates timeline matching after editing a logical id', async () => {

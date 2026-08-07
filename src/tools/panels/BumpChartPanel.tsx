@@ -902,6 +902,7 @@ function TimelineOccurrenceCell({
       <div
         className={`bump-chart-timeline-cell${dimmed ? ' is-dimmed' : ''}`}
         style={style}
+        onClick={(event) => event.stopPropagation()}
         onMouseEnter={() => onFocus(lineageKey)}
         onMouseLeave={() => onFocus(null)}
       >
@@ -943,7 +944,10 @@ function TimelineOccurrenceCell({
       onMouseEnter={() => onFocus(lineageKey)}
       onMouseLeave={() => onFocus(null)}
     >
-      <div className="bump-chart-event-node">
+      <div
+        className="bump-chart-event-node"
+        onClick={(event) => event.stopPropagation()}
+      >
         <button
           type="button"
           className="bump-chart-rank"
@@ -957,7 +961,6 @@ function TimelineOccurrenceCell({
           item={item}
           side="right"
           panelProps={panelProps}
-          onPrimaryClick={onEdit}
         />
       </div>
     </div>
@@ -1882,6 +1885,7 @@ function BumpChart({
                   ]
                     .filter(Boolean)
                     .join(' ')}
+                  data-bump-lineage={connection.lineageKey}
                   style={{ color }}
                   onMouseEnter={() => setHoveredKey(connection.lineageKey)}
                   onMouseLeave={() => setHoveredKey(null)}
