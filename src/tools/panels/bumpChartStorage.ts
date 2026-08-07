@@ -9,6 +9,8 @@ import {
   stateStorageRecordKeys,
 } from '../../lib/stateStorageDb';
 import {
+  isBumpChartColumnSnapshot,
+  isBumpChartWorkspace,
   isLegacyBumpChartManifest,
   isLegacyBumpChartSideSnapshot,
   isLegacyBumpChartWorkspace,
@@ -27,13 +29,26 @@ export type BumpChartSideSnapshot = {
   preserveCustomLabels: boolean;
 };
 
+export type BumpChartColumnSnapshot = BumpChartSideSnapshot & {
+  id: string;
+  kind: 'previous' | 'current';
+};
+
 export type BumpChartWorkspaceSnapshot = {
+  version: 2;
+  view: 'staging' | 'chart';
+  columns: BumpChartColumnSnapshot[];
+  bestMatchByTitle: boolean;
+  lastImportTab: BumpChartImportTab;
+};
+
+type LegacyBumpChartWorkspaceSnapshot = {
   version: 1;
   view: 'staging' | 'chart';
   before: BumpChartSideSnapshot;
   after: BumpChartSideSnapshot;
-  bestMatchByTitle: boolean;
-  lastImportTab: BumpChartImportTab;
+  bestMatchByTitle?: boolean;
+  lastImportTab?: BumpChartImportTab;
 };
 
 export type SavedBumpChartMeta = {
@@ -49,7 +64,7 @@ type SavedBumpChartManifest = {
 };
 
 type SavedBumpChartRecord = {
-  version: 1;
+  version: 2;
   workspace: BumpChartWorkspaceSnapshot;
 };
 
@@ -78,28 +93,61 @@ function parseSideSnapshot(value: unknown): BumpChartSideSnapshot | null {
   };
 }
 
+function parseColumnSnapshot(value: unknown): BumpChartColumnSnapshot | null {
+  if (!isBumpChartColumnSnapshot(value)) return null;
+  const side = parseSideSnapshot(value);
+  if (!side) return null;
+  const candidate = value as {
+    id: string;
+    kind: BumpChartColumnSnapshot['kind'];
+  };
+  return {
+    ...side,
+    id: candidate.id,
+    kind: candidate.kind,
+  };
+}
+
+function parseImportTab(value: unknown): BumpChartImportTab {
+  return value === 'multiple' ||
+    value === 'anilist' ||
+    value === 'sortresults'
+    ? value
+    : 'single';
+}
+
 function parseWorkspaceSnapshot(
   value: unknown,
 ): BumpChartWorkspaceSnapshot | null {
-  if (!isLegacyBumpChartWorkspace(value)) return null;
-  const candidate = value as Partial<BumpChartWorkspaceSnapshot>;
-  const before = parseSideSnapshot(candidate.before);
-  const after = parseSideSnapshot(candidate.after);
-  if (!before || !after) return null;
-  const lastImportTab: BumpChartImportTab =
-    candidate.lastImportTab === 'multiple' ||
-    candidate.lastImportTab === 'anilist' ||
-    candidate.lastImportTab === 'sortresults'
-      ? candidate.lastImportTab
-      : 'single';
-  return {
-    version: 1,
-    view: candidate.view!,
-    before,
-    after,
-    bestMatchByTitle: candidate.bestMatchByTitle !== false,
-    lastImportTab,
-  };
+  if (isBumpChartWorkspace(value)) {
+    const candidate = value as Partial<BumpChartWorkspaceSnapshot>;
+    const columns = candidate.columns?.map(parseColumnSnapshot) ?? [];
+    if (columns.some((column) => column == null)) return null;
+    return {
+      version: 2,
+      view: candidate.view!,
+      columns: columns as BumpChartColumnSnapshot[],
+      bestMatchByTitle: candidate.bestMatchByTitle !== false,
+      lastImportTab: parseImportTab(candidate.lastImportTab),
+    };
+  }
+  if (isLegacyBumpChartWorkspace(value)) {
+    const candidate = value as LegacyBumpChartWorkspaceSnapshot;
+    const before = parseSideSnapshot(candidate.before);
+    const after = parseSideSnapshot(candidate.after);
+    if (!before || !after) return null;
+    return {
+      version: 2,
+      view: candidate.view,
+      columns: [
+        { ...before, id: 'previous-1', kind: 'previous' },
+        { ...after, id: 'current', kind: 'current' },
+      ],
+      bestMatchByTitle: candidate.bestMatchByTitle !== false,
+      lastImportTab: parseImportTab(candidate.lastImportTab),
+    };
+  }
+  return null;
 }
 
 function parseManifest(value: unknown): SavedBumpChartManifest {
@@ -154,9 +202,11 @@ export async function initializeBumpChartStorage(): Promise<void> {
     )) {
       const id = String(key);
       if (id === 'active') continue;
-      const record = value as Partial<SavedBumpChartRecord> | null;
+      const record = value as
+        | { version?: unknown; workspace?: unknown }
+        | null;
       const workspace =
-        record?.version === 1
+        record?.version === 1 || record?.version === 2
           ? parseWorkspaceSnapshot(record.workspace)
           : parseWorkspaceSnapshot(value);
       if (workspace) savedWorkspaceCache.set(id, workspace);
@@ -271,7 +321,7 @@ export async function saveNamedBumpChart(
           type: 'put',
           store: BUMP_WORKSPACE_STORE,
           key: meta.id,
-          value: { version: 1, workspace } satisfies SavedBumpChartRecord,
+          value: { version: 2, workspace } satisfies SavedBumpChartRecord,
         },
         {
           type: 'put',

@@ -330,6 +330,8 @@ interface Props {
   showStartControls?: boolean;
   /** Removal callbacks delete immediately rather than setting soft marks. */
   immediateRemoval?: boolean;
+  /** Tailor summary and soft-removal wording for the Bump Chart workspace. */
+  variant?: 'sort' | 'bump-chart';
   emptyHint?: string;
   ariaLabel?: string;
 }
@@ -361,6 +363,7 @@ export function StagedItemsPanel({
   onOpenItemDetail,
   showStartControls = true,
   immediateRemoval = false,
+  variant = 'sort',
   emptyHint,
   ariaLabel = 'Staged items for sorting',
 }: Props) {
@@ -469,29 +472,49 @@ export function StagedItemsPanel({
     <div className="staged-panel" aria-label={ariaLabel}>
       <div className="staged-panel-header">
         <div className="staged-panel-summary">
-          <strong>{summary.uniqueCount}</strong>{' '}
-          unique item{summary.uniqueCount === 1 ? '' : 's'} ready across{' '}
-          <strong>{combined.length}</strong> source
-          {combined.length === 1 ? '' : 's'}
-          {summary.sublistCount > 0 && (
+          {variant === 'bump-chart' ? (
             <>
-              {' '}
-              ({summary.sublistCount} pre-ranked sublist
-              {summary.sublistCount === 1 ? '' : 's'})
+              <strong>{summary.uniqueCount}</strong>{' '}
+              unique item{summary.uniqueCount === 1 ? '' : 's'} ready across{' '}
+              <strong>{combined.length}</strong> source
+              {combined.length === 1 ? '' : 's'}
+              {markedCount > 0 && (
+                <>
+                  {' · '}
+                  <span className="staged-panel-marked-count">
+                    {markedCount} hidden
+                  </span>
+                </>
+              )}
             </>
-          )}
-          {pending.length > 0 && staged.length > 0 && (
+          ) : (
             <>
-              {' '}
-              — including {pending.length} unstaged
+              <strong>{summary.uniqueCount}</strong>{' '}
+              unique item{summary.uniqueCount === 1 ? '' : 's'} ready across{' '}
+              <strong>{combined.length}</strong> source
+              {combined.length === 1 ? '' : 's'}
+              {summary.sublistCount > 0 && (
+                <>
+                  {' '}
+                  ({summary.sublistCount} pre-ranked sublist
+                  {summary.sublistCount === 1 ? '' : 's'})
+                </>
+              )}
+              {pending.length > 0 && staged.length > 0 && (
+                <>
+                  {' '}
+                  — including {pending.length} unstaged
+                </>
+              )}
+              {markedCount > 0 && (
+                <span className="staged-panel-marked-line">
+                  {' · '}
+                  <span className="staged-panel-marked-count">
+                    {markedCount} marked for removal
+                  </span>
+                </span>
+              )}
             </>
-          )}
-          {markedCount > 0 && (
-            <span className="staged-panel-marked-line">
-              <span className="staged-panel-marked-count">
-                {markedCount} marked for removal
-              </span>
-            </span>
           )}
         </div>
         <div className="staged-panel-actions">
@@ -502,7 +525,7 @@ export function StagedItemsPanel({
               onClick={onClearAll}
               title="Remove every staged group"
             >
-              Clear staged
+              {variant === 'bump-chart' ? 'Clear' : 'Clear staged'}
             </button>
           )}
           {showStartControls && (
@@ -648,6 +671,26 @@ export function StagedItemsPanel({
               winner.groupId === g.id && winner.positionInGroup === idx + 1;
             if (!isWinner) groupLosingCount += 1;
           });
+          let groupActionLabel: string;
+          let groupActionTitle: string;
+          if (immediateRemoval) {
+            groupActionLabel = `Remove ${g.source} from staged items`;
+            groupActionTitle = 'Remove this source from staged items';
+          } else if (variant === 'bump-chart') {
+            groupActionLabel = groupMarked
+              ? `Unhide ${g.source}`
+              : `Hide ${g.source}`;
+            groupActionTitle = groupMarked
+              ? 'Unhide this source'
+              : 'Hide this source';
+          } else {
+            groupActionLabel = groupMarked
+              ? `Undo remove ${g.source} from staged items`
+              : `Mark ${g.source} for removal from staged items`;
+            groupActionTitle = groupMarked
+              ? 'Undo — bring this source back into the sort'
+              : 'Mark this whole source for removal (undo with ↺ before Start Sort)';
+          }
           return (
             <li
               className={
@@ -728,20 +771,8 @@ export function StagedItemsPanel({
                     (groupMarked ? ' staged-panel-group-undo' : '')
                   }
                   onClick={() => onToggleRemoveGroup(g.id)}
-                  aria-label={
-                    immediateRemoval
-                      ? `Remove ${g.source} from staged items`
-                      : groupMarked
-                      ? `Undo remove ${g.source} from staged items`
-                      : `Mark ${g.source} for removal from staged items`
-                  }
-                  title={
-                    immediateRemoval
-                      ? 'Remove this source from staged items'
-                      : groupMarked
-                      ? 'Undo — bring this source back into the sort'
-                      : 'Mark this whole source for removal (undo with ↺ before Start Sort)'
-                  }
+                  aria-label={groupActionLabel}
+                  title={groupActionTitle}
                 >
                   {groupMarked ? (
                     <CircularArrowGlyph direction="counterclockwise" />
@@ -784,6 +815,26 @@ export function StagedItemsPanel({
                           !(o.groupId === g.id && o.positionInGroup === positionInGroup),
                       ) ?? [];
                     const itemMarked = itemMarks?.has(it.id) === true;
+                    let itemActionLabel: string;
+                    let itemActionTitle: string;
+                    if (immediateRemoval) {
+                      itemActionLabel = `Remove ${it.label}`;
+                      itemActionTitle = 'Remove this entry from staged items';
+                    } else if (variant === 'bump-chart') {
+                      itemActionLabel = itemMarked
+                        ? `Unhide ${it.label}`
+                        : `Hide ${it.label}`;
+                      itemActionTitle = itemMarked
+                        ? 'Unhide this entry'
+                        : 'Hide this entry';
+                    } else {
+                      itemActionLabel = itemMarked
+                        ? `Undo remove ${it.label}`
+                        : `Mark ${it.label} for removal`;
+                      itemActionTitle = itemMarked
+                        ? 'Undo — bring this entry back into the sort'
+                        : 'Mark this entry for removal (undo with ↺ before Start Sort)';
+                    }
                     return (
                       <li
                         className={
@@ -888,20 +939,8 @@ export function StagedItemsPanel({
                               (itemMarked ? ' staged-panel-item-undo' : '')
                             }
                             onClick={() => onToggleRemoveItem(g.id, it.id, idx)}
-                            aria-label={
-                              immediateRemoval
-                                ? `Remove ${it.label}`
-                                : itemMarked
-                                ? `Undo remove ${it.label}`
-                                : `Mark ${it.label} for removal`
-                            }
-                            title={
-                              immediateRemoval
-                                ? 'Remove this entry from staged items'
-                                : itemMarked
-                                ? 'Undo — bring this entry back into the sort'
-                                : 'Mark this entry for removal (undo with ↺ before Start Sort)'
-                            }
+                            aria-label={itemActionLabel}
+                            title={itemActionTitle}
                           >
                             {itemMarked ? (
                               <CircularArrowGlyph direction="counterclockwise" />

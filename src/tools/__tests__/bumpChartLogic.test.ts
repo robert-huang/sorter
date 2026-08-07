@@ -7,6 +7,7 @@ import {
 import {
   BUMP_CHART_COLORS,
   buildBumpConnections,
+  buildBumpTimeline,
   bumpConnectionMovement,
   bumpRowCenterOffsets,
   bumpItemsFromSortResults,
@@ -27,6 +28,21 @@ function entry(
   return { item: { id, label }, logicalId };
 }
 
+function sourcedEntry(
+  label: string,
+  externalId: number,
+  logicalId = label.toLowerCase(),
+): BumpChartItem {
+  return {
+    item: {
+      id: `anilist-${externalId}`,
+      label,
+      source: { kind: 'anilist', externalId },
+    },
+    logicalId,
+  };
+}
+
 beforeEach(() => {
   _clearAnilistDisplayPreferencesForTesting();
 });
@@ -36,6 +52,18 @@ afterEach(() => {
 });
 
 describe('buildBumpConnections', () => {
+  it('does not match a shared logical id with conflicting source identities', () => {
+    const connections = buildBumpConnections(
+      [sourcedEntry('Same', 1, 'shared')],
+      [sourcedEntry('Same', 2, 'shared')],
+    );
+
+    expect(connections.map(({ kind }) => kind).sort()).toEqual([
+      'added',
+      'removed',
+    ]);
+  });
+
   it('matches saved logical ids in either direction with plain exact-name rows', () => {
     expect(
       buildBumpConnections([entry('Item', 'item')], [entry('Item')]),
@@ -242,6 +270,180 @@ describe('buildBumpConnections', () => {
       ),
     );
     expect(colors.size).toBe(20);
+  });
+});
+
+describe('buildBumpTimeline', () => {
+  it('keeps one lineage and color across three or more columns', () => {
+    const timeline = buildBumpTimeline([
+      { id: 'oldest', items: [entry('A', 'anilist:1'), entry('B')] },
+      { id: 'previous', items: [entry('B'), entry('A', 'anilist:1')] },
+      { id: 'current', items: [entry('A', 'anilist:1'), entry('B')] },
+    ]);
+    const lineage = timeline.lineages.find(
+      ({ key }) => key === 'logical:anilist:1',
+    );
+
+    expect(lineage).toMatchObject({
+      itemIndexes: [0, 1, 0],
+      gaps: [],
+    });
+    expect(
+      timeline.segments
+        .filter(({ lineageKey }) => lineageKey === lineage?.key)
+        .map(({ colorIndex }) => colorIndex),
+    ).toEqual([lineage?.colorIndex, lineage?.colorIndex]);
+  });
+
+  it('keeps repeated logical identities in each column as separate lineages', () => {
+    const duplicateEntries = [
+      entry('First occurrence', 'anilist:4447', 'first-occurrence'),
+      entry('Second occurrence', 'anilist:4447', 'second-occurrence'),
+    ];
+    const timeline = buildBumpTimeline([
+      { id: 'one', items: duplicateEntries },
+      { id: 'two', items: duplicateEntries },
+      { id: 'three', items: duplicateEntries },
+      { id: 'four', items: duplicateEntries },
+    ]);
+    const segmentKeys = timeline.segments.map(({ key }) => key);
+
+    expect(timeline.lineages).toHaveLength(2);
+    expect(
+      timeline.lineages.map(({ itemIndexes }) => itemIndexes),
+    ).toEqual([
+      [0, 0, 0, 0],
+      [1, 1, 1, 1],
+    ]);
+    expect(timeline.lineageByOccurrence.size).toBe(8);
+    expect(new Set(segmentKeys).size).toBe(segmentKeys.length);
+  });
+
+  it('does not lose a label when a logical identity occurs twice in one column', () => {
+    const timeline = buildBumpTimeline([
+      {
+        id: 'one',
+        items: [entry('Only before', 'anilist:4447', 'before')],
+      },
+      {
+        id: 'two',
+        items: [
+          entry('Upper duplicate', 'anilist:4447', 'upper'),
+          entry('Lower duplicate', 'anilist:4447', 'lower'),
+        ],
+      },
+      {
+        id: 'three',
+        items: [entry('Only after', 'anilist:4447', 'after')],
+      },
+    ]);
+
+    const upperLineage = timeline.lineageByOccurrence.get('1:0');
+    const lowerLineage = timeline.lineageByOccurrence.get('1:1');
+    expect(upperLineage?.key).not.toBe(lowerLineage?.key);
+    expect(upperLineage?.itemIndexes).toEqual([0, 0, 0]);
+    expect(lowerLineage?.itemIndexes).toEqual([null, 1, null]);
+    expect(timeline.lineageByOccurrence.size).toBe(4);
+  });
+
+  it('records an entry, exit, and reappearance gap for one lineage', () => {
+    const timeline = buildBumpTimeline([
+      { id: 'one', items: [entry('A', 'anilist:1')] },
+      { id: 'two', items: [] },
+      { id: 'three', items: [entry('A renamed', 'anilist:1')] },
+    ]);
+    const lineage = timeline.lineages.find(
+      ({ key }) => key === 'logical:anilist:1',
+    );
+
+    expect(lineage?.itemIndexes).toEqual([0, null, 0]);
+    expect(lineage?.gaps).toEqual([
+      {
+        fromColumnIndex: 0,
+        toColumnIndex: 2,
+        fromItemIndex: 0,
+        toItemIndex: 0,
+      },
+    ]);
+    expect(
+      timeline.segments.map(({ kind, pairIndex, lineageKey }) => ({
+        kind,
+        pairIndex,
+        lineageKey,
+      })),
+    ).toEqual([
+      { kind: 'removed', pairIndex: 0, lineageKey: lineage?.key },
+      { kind: 'added', pairIndex: 1, lineageKey: lineage?.key },
+    ]);
+  });
+
+  it('never merges conflicting source identities with the same title', () => {
+    const timeline = buildBumpTimeline([
+      { id: 'one', items: [entry('Same', 'anilist:1')] },
+      { id: 'two', items: [] },
+      { id: 'three', items: [entry('Same', 'anilist:2')] },
+    ]);
+
+    expect(timeline.lineages).toHaveLength(2);
+    expect(timeline.lineages.map(({ key }) => key).sort()).toEqual([
+      'logical:anilist:1',
+      'logical:anilist:2',
+    ]);
+  });
+
+  it('does not transitively merge conflicting sources through a manual item', () => {
+    const timeline = buildBumpTimeline([
+      { id: 'one', items: [sourcedEntry('Same', 1, 'shared')] },
+      { id: 'two', items: [entry('Same', 'shared')] },
+      { id: 'three', items: [sourcedEntry('Same', 2, 'shared')] },
+    ]);
+
+    expect(timeline.lineages).toHaveLength(2);
+    expect(
+      timeline.segments
+        .filter(({ pairIndex }) => pairIndex === 1)
+        .map(({ kind }) => kind)
+        .sort(),
+    ).toEqual(['added', 'removed']);
+  });
+
+  it('bridges a unique alternate title across missing columns', () => {
+    const archived = entry('Sousou no Frieren');
+    const current: BumpChartItem = {
+      item: {
+        id: 'anilist:154587',
+        label: 'Frieren: Beyond Journey’s End',
+        source: { kind: 'anilist', externalId: 154587 },
+        searchTokens: ['Sousou no Frieren'],
+      },
+      logicalId: 'anilist:154587',
+    };
+    const timeline = buildBumpTimeline([
+      { id: 'one', items: [archived] },
+      { id: 'two', items: [] },
+      { id: 'three', items: [current] },
+    ]);
+
+    expect(timeline.lineages).toHaveLength(1);
+    expect(timeline.lineages[0]?.itemIndexes).toEqual([0, null, 0]);
+  });
+
+  it('assigns different colors to lineages adjacent in any column', () => {
+    const timeline = buildBumpTimeline([
+      { id: 'one', items: [entry('A', 'a'), entry('B', 'b')] },
+      { id: 'two', items: [entry('B', 'b'), entry('A', 'a')] },
+      {
+        id: 'three',
+        items: [entry('A', 'a'), entry('C', 'c'), entry('B', 'b')],
+      },
+    ]);
+    const colors = new Map(
+      timeline.lineages.map(({ key, colorIndex }) => [key, colorIndex]),
+    );
+
+    expect(colors.get('logical:a')).not.toBe(colors.get('logical:b'));
+    expect(colors.get('logical:a')).not.toBe(colors.get('logical:c'));
+    expect(colors.get('logical:b')).not.toBe(colors.get('logical:c'));
   });
 });
 

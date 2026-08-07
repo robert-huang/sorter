@@ -11,6 +11,10 @@ import {
 } from 'vitest';
 import {
   BumpChartPanel,
+  bumpChartExportCanvasLayout,
+  bumpTimelineColumnAnchorX,
+  bumpTimelinePathEndpoints,
+  bumpTimelinePathMidpoint,
   exportChartPng,
   inferredMatchMarkerPosition,
 } from '../panels/BumpChartPanel';
@@ -26,6 +30,8 @@ import {
 import {
   _resetBumpChartStorageCacheForTesting,
   flushBumpChartStorageWrites,
+  saveActiveBumpChartWorkspace,
+  type BumpChartColumnSnapshot,
 } from '../panels/bumpChartStorage';
 import { _resetBumpChartImageMemoryCacheForTesting } from '../panels/bumpChartImageCache';
 import { _resetBumpMalExportImagesForTesting } from '../panels/bumpChartMalExportImages';
@@ -89,6 +95,19 @@ function domRect(
   };
 }
 
+function emptyWorkspaceColumn(
+  id: string,
+  kind: 'previous' | 'current',
+): BumpChartColumnSnapshot {
+  return {
+    id,
+    kind,
+    items: [],
+    hiddenItemIds: [],
+    preserveCustomLabels: false,
+  };
+}
+
 async function importSingle(sideIndex: number, label: string): Promise<void> {
   await act(async () => {
     button('Import ranked items', sideIndex).click();
@@ -145,6 +164,375 @@ describe('BumpChartPanel staging flow', () => {
     expect(
       cards[0]?.querySelector('.bump-chart-staging-heading')?.textContent,
     ).toContain('Staging area1 staged');
+    const summary = cards[0]?.querySelector('.staged-panel-summary');
+    expect(summary?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      '1 unique item ready across 1 source',
+    );
+    expect(summary?.querySelector('.staged-panel-marked-count')).toBeNull();
+    expect(summary?.querySelector('.staged-panel-marked-line')).toBeNull();
+    expect(summary?.textContent).not.toContain('pre-ranked sublist');
+    expect(summary?.textContent).not.toContain('marked for removal');
+
+    await act(async () => {
+      cards[0]
+        ?.querySelector<HTMLButtonElement>('[aria-label="Hide Single item"]')
+        ?.click();
+    });
+    expect(summary?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      '0 unique items ready across 1 source · 1 hidden',
+    );
+    expect(
+      cards[0]?.querySelector('[aria-label="Unhide Single item"]'),
+    ).not.toBeNull();
+    expect(
+      cards[0]?.querySelector<HTMLButtonElement>(
+        '[title="Remove every staged group"]',
+      )?.textContent,
+    ).toBe('Clear');
+  });
+
+  it('promotes the current order, reorders and removes it, and clears columns', async () => {
+    await act(async () => {
+      root.render(
+        <BumpChartPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+    });
+    const generateRow = container.querySelector('.bump-chart-generate-row');
+    expect(
+      Array.from(generateRow?.querySelectorAll('button') ?? []).map((element) =>
+        element.textContent?.trim(),
+      ),
+    ).toEqual(['Clear all staged', 'Generate chart']);
+
+    await importSingle(1, 'Promoted current');
+    await act(async () => {
+      button('+').click();
+    });
+    expect(container.querySelectorAll('.bump-chart-import-card')).toHaveLength(3);
+    let cards = container.querySelectorAll('.bump-chart-import-card');
+    expect(cards[1]?.textContent).toContain('1 staged');
+    expect(cards[2]?.textContent).toContain('Current order');
+    expect(cards[2]?.textContent).toContain('0 staged');
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[aria-label="Remove Previous order 2"]',
+      )?.disabled,
+    ).toBe(false);
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[aria-label="Remove Current order"]',
+      )?.disabled,
+    ).toBe(false);
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Remove Current order"]',
+        )
+        ?.click();
+    });
+    cards = container.querySelectorAll('.bump-chart-import-card');
+    expect(cards).toHaveLength(2);
+    expect(cards[0]?.textContent).toContain('0 staged');
+    expect(cards[1]?.textContent).toContain('Current order');
+    expect(cards[1]?.textContent).toContain('1 staged');
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[aria-label="Remove Current order"]',
+      )?.disabled,
+    ).toBe(true);
+
+    await act(async () => {
+      button('+').click();
+    });
+    cards = container.querySelectorAll('.bump-chart-import-card');
+    expect(cards).toHaveLength(3);
+    expect(cards[1]?.textContent).toContain('1 staged');
+    expect(cards[2]?.textContent).toContain('0 staged');
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Move Previous order 2 up"]',
+        )
+        ?.click();
+    });
+    cards = container.querySelectorAll('.bump-chart-import-card');
+    expect(cards[0]?.textContent).toContain('1 staged');
+    expect(cards[1]?.textContent).toContain('0 staged');
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Remove Previous order 1"]',
+        )
+        ?.click();
+    });
+    expect(container.querySelectorAll('.bump-chart-import-card')).toHaveLength(2);
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[aria-label="Remove Previous order 1"]',
+      )?.disabled,
+    ).toBe(true);
+
+    await act(async () => {
+      button('+').click();
+      button('+').click();
+    });
+    expect(container.querySelectorAll('.bump-chart-import-card')).toHaveLength(4);
+    await act(async () => {
+      button('Clear all staged').click();
+    });
+    cards = container.querySelectorAll('.bump-chart-import-card');
+    expect(cards).toHaveLength(2);
+    expect(cards[0]?.textContent).toContain('Previous order');
+    expect(cards[0]?.textContent).not.toContain('Previous order 1');
+    expect(cards[1]?.textContent).toContain('Current order');
+    expect(
+      Array.from(cards).every((card) => card.textContent?.includes('0 staged')),
+    ).toBe(true);
+  });
+
+  it('keeps a local add made before IndexedDB hydration completes', async () => {
+    await saveActiveBumpChartWorkspace({
+      version: 2,
+      view: 'staging',
+      columns: [
+        emptyWorkspaceColumn('previous-1', 'previous'),
+        emptyWorkspaceColumn('previous-2', 'previous'),
+        emptyWorkspaceColumn('previous-3', 'previous'),
+        emptyWorkspaceColumn('current', 'current'),
+      ],
+      bestMatchByTitle: true,
+      lastImportTab: 'single',
+    });
+    await flushBumpChartStorageWrites();
+    _resetBumpChartStorageCacheForTesting();
+
+    act(() => {
+      root.render(
+        <BumpChartPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+    });
+    act(() => {
+      button('+').click();
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(container.querySelectorAll('.bump-chart-import-card')).toHaveLength(3);
+  });
+
+  it('renders intermediate events and a pinned bridge across a lineage gap', async () => {
+    await act(async () => {
+      root.render(
+        <BumpChartPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+    });
+    await act(async () => {
+      button('+').click();
+    });
+    await importSingle(0, 'A');
+    await importSingle(1, 'B');
+    await importSingle(2, 'A');
+    await act(async () => {
+      button('Generate chart').click();
+    });
+
+    expect(container.querySelectorAll('.bump-chart-center-cell')).toHaveLength(2);
+    const event = container.querySelector<HTMLElement>(
+      '.bump-chart-event-label',
+    );
+    expect(event?.textContent).not.toContain('(+)-');
+    expect(event?.textContent).not.toContain('-(x)');
+    const eventNode = event?.querySelector('.bump-chart-event-node');
+    expect(eventNode?.textContent).toContain('#1');
+    expect(eventNode?.textContent).toContain('B');
+    expect(
+      eventNode?.querySelector('.bump-chart-rank')?.nextElementSibling,
+    ).toBe(eventNode?.querySelector('.bump-chart-item-link'));
+    expect(event?.getAttribute('title')).toBeNull();
+    expect(
+      event?.querySelector('.bump-chart-item-link')?.getAttribute('title'),
+    ).toContain('B');
+    expect(container.querySelectorAll('.bump-chart-node')).toHaveLength(2);
+
+    const firstPath = container.querySelector<SVGPathElement>(
+      '.bump-chart-path-hit',
+    );
+    await act(async () => {
+      firstPath?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(container.querySelector('.bump-chart-lineage-bridge')).not.toBeNull();
+    expect(
+      event?.classList.contains('is-dimmed'),
+    ).toBe(true);
+    expect(event?.querySelector('.bump-chart-event-node')).not.toBeNull();
+
+    await act(async () => {
+      event?.querySelector<HTMLElement>('.bump-chart-item-link')?.click();
+    });
+    expect(document.querySelector('.modal-backdrop')).not.toBeNull();
+  });
+
+  it('renders one separated inferred marker for every inferred lineage segment', async () => {
+    await act(async () => {
+      root.render(
+        <BumpChartPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+    });
+    await act(async () => {
+      button('+').click();
+      button('+').click();
+    });
+    for (let columnIndex = 0; columnIndex < 4; columnIndex += 1) {
+      await importSingle(columnIndex, 'Repeated title');
+    }
+    await act(async () => {
+      button('Generate chart').click();
+    });
+
+    const markers = container.querySelectorAll<SVGGElement>(
+      '.bump-chart-inferred-marker',
+    );
+    expect(markers).toHaveLength(3);
+    expect(
+      new Set(
+        Array.from(markers, (marker) =>
+          marker.closest('.bump-chart-connection'),
+        ),
+      ).size,
+    ).toBe(3);
+    expect(container.querySelectorAll('.bump-chart-node')).toHaveLength(2);
+  });
+
+  it('opens the item editor from a continuing intermediate rank node', async () => {
+    await act(async () => {
+      root.render(
+        <BumpChartPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+    });
+    await act(async () => {
+      button('+').click();
+    });
+    await importSingle(0, 'Continuous');
+    await importSingle(1, 'Continuous');
+    await importSingle(2, 'Continuous');
+    await act(async () => {
+      button('Generate chart').click();
+    });
+
+    const compactNode = container.querySelector<HTMLElement>(
+      '.bump-chart-compact-node',
+    );
+    expect(compactNode?.dataset.label).toBe('Continuous');
+    await act(async () => {
+      compactNode?.click();
+    });
+    expect(document.querySelector('.modal-backdrop')).not.toBeNull();
+  });
+
+  it('live-updates timeline matching after editing a logical id', async () => {
+    await saveActiveBumpChartWorkspace({
+      version: 2,
+      view: 'chart',
+      columns: [
+        {
+          id: 'previous-1',
+          kind: 'previous',
+          items: [
+            {
+              item: { id: 'AAAAAAAAAAAAAA', label: 'Before label' },
+              logicalId: 'AAAAAAAAAAAAAA',
+            },
+          ],
+          hiddenItemIds: [],
+          preserveCustomLabels: false,
+        },
+        {
+          id: 'current',
+          kind: 'current',
+          items: [
+            {
+              item: { id: 'BBBBBBBBBBBBBB', label: 'After label' },
+              logicalId: 'AAAAAAAAAAAAAA',
+            },
+          ],
+          hiddenItemIds: [],
+          preserveCustomLabels: false,
+        },
+      ],
+      bestMatchByTitle: true,
+      lastImportTab: 'single',
+    });
+    await act(async () => {
+      root.render(
+        <BumpChartPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(container.querySelectorAll('.bump-chart-connection')).toHaveLength(1);
+    expect(container.querySelectorAll('.bump-chart-change-marker')).toHaveLength(
+      0,
+    );
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Edit rank 1: Before label"]',
+        )
+        ?.click();
+    });
+    await act(async () => {
+      button('Show advanced').click();
+    });
+    const logicalIdInput = document.querySelector<HTMLInputElement>(
+      '.edit-item-advanced input',
+    );
+    if (!logicalIdInput) {
+      throw new Error('Logical ID input was not rendered');
+    }
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        'value',
+      )?.set;
+      valueSetter?.call(logicalIdInput, 'QQQQQQQQQQQQQQ');
+      logicalIdInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => {
+      button('Save').click();
+    });
+
+    expect(container.querySelectorAll('.bump-chart-connection')).toHaveLength(2);
+    expect(container.querySelectorAll('.bump-chart-change-marker')).toHaveLength(
+      2,
+    );
   });
 
   it('keeps an expanded staged sublist open after an equivalent cross-tab refresh', async () => {
@@ -190,6 +578,88 @@ describe('BumpChartPanel staging flow', () => {
         .querySelector<HTMLButtonElement>('.staged-panel-group-row')
         ?.getAttribute('aria-expanded'),
     ).toBe('true');
+  });
+
+  it('does not revert a local add or remove from another tab active snapshot', async () => {
+    await act(async () => {
+      root.render(
+        <BumpChartPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      button('+').click();
+    });
+    expect(container.querySelectorAll('.bump-chart-import-card')).toHaveLength(3);
+
+    await act(async () => {
+      await saveActiveBumpChartWorkspace({
+        version: 2,
+        view: 'staging',
+        columns: [
+          emptyWorkspaceColumn('previous-1', 'previous'),
+          emptyWorkspaceColumn('current', 'current'),
+        ],
+        bestMatchByTitle: true,
+        lastImportTab: 'single',
+      });
+    });
+    await act(async () => {
+      window.dispatchEvent(
+        new StorageEvent('storage', {
+          key: STATE_REVISION_KEY,
+          newValue: JSON.stringify({
+            scope: 'bump',
+            id: 'active',
+            source: 'another-tab',
+          }),
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(container.querySelectorAll('.bump-chart-import-card')).toHaveLength(3);
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Remove Current order"]',
+        )
+        ?.click();
+    });
+    expect(container.querySelectorAll('.bump-chart-import-card')).toHaveLength(2);
+
+    await act(async () => {
+      await saveActiveBumpChartWorkspace({
+        version: 2,
+        view: 'staging',
+        columns: [
+          emptyWorkspaceColumn('previous-1', 'previous'),
+          emptyWorkspaceColumn('previous-2', 'previous'),
+          emptyWorkspaceColumn('previous-3', 'previous'),
+          emptyWorkspaceColumn('current', 'current'),
+        ],
+        bestMatchByTitle: true,
+        lastImportTab: 'single',
+      });
+      window.dispatchEvent(
+        new StorageEvent('storage', {
+          key: STATE_REVISION_KEY,
+          newValue: JSON.stringify({
+            scope: 'bump',
+            id: 'active',
+            source: 'another-tab',
+          }),
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(container.querySelectorAll('.bump-chart-import-card')).toHaveLength(2);
   });
 
   it('remembers the last importer tab when reopened', async () => {
@@ -592,7 +1062,7 @@ describe('BumpChartPanel staging flow', () => {
     expect(container.textContent).toContain('duplicate — will be skipped');
   });
 
-  it('soft-removes staged groups and allows restoring them', async () => {
+  it('hides staged groups and allows restoring them', async () => {
     await act(async () => {
       root.render(
         <BumpChartPanel
@@ -611,7 +1081,9 @@ describe('BumpChartPanel staging flow', () => {
     await act(async () => {
       remove?.click();
     });
-    expect(container.textContent).toContain('1 marked for removal');
+    expect(container.textContent).toContain(
+      '0 unique items ready across 1 source · 1 hidden',
+    );
     const undo = container.querySelector<HTMLButtonElement>(
       '.bump-chart-import-card:first-of-type .staged-panel-group-undo',
     );
@@ -620,7 +1092,8 @@ describe('BumpChartPanel staging flow', () => {
     await act(async () => {
       undo?.click();
     });
-    expect(container.textContent).not.toContain('marked for removal');
+    expect(container.textContent).toContain('1 unique item ready across 1 source');
+    expect(container.textContent).not.toContain('0 hidden');
     await act(async () => {
       container
         .querySelector<HTMLButtonElement>(
@@ -784,8 +1257,12 @@ describe('BumpChartPanel staging flow', () => {
         />,
       );
     });
-    await importSingle(0, 'Autosaved before');
-    await importSingle(1, 'Autosaved after');
+    await act(async () => {
+      button('+').click();
+    });
+    await importSingle(0, 'Autosaved oldest');
+    await importSingle(1, 'Autosaved previous');
+    await importSingle(2, 'Autosaved current');
     await act(async () => {
       button('Generate chart').click();
     });
@@ -806,8 +1283,10 @@ describe('BumpChartPanel staging flow', () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(container.querySelector('.bump-chart-grid')).not.toBeNull();
-    expect(container.textContent).toContain('Autosaved before');
-    expect(container.textContent).toContain('Autosaved after');
+    expect(container.textContent).toContain('Autosaved oldest');
+    expect(container.textContent).toContain('Autosaved previous');
+    expect(container.textContent).toContain('Autosaved current');
+    expect(container.querySelectorAll('.bump-chart-center-cell')).toHaveLength(2);
   });
 
   it('saves, loads, restores settings from, and deletes a named chart', async () => {
@@ -858,6 +1337,53 @@ describe('BumpChartPanel staging flow', () => {
     });
     expect(container.querySelector('.bump-chart-saved-charts')).not.toBeNull();
     expect(container.textContent).toContain('My chart');
+    const savedChartsToggle = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Collapse saved charts"]',
+    );
+    expect(savedChartsToggle?.getAttribute('aria-expanded')).toBe('true');
+
+    await act(async () => {
+      savedChartsToggle?.click();
+    });
+    const collapsedSavedCharts = container.querySelector(
+      '.bump-chart-saved-charts',
+    );
+    expect(collapsedSavedCharts?.classList.contains('is-collapsed')).toBe(true);
+    expect(collapsedSavedCharts?.textContent).toContain('Saved charts');
+    expect(collapsedSavedCharts?.textContent).toContain('1 saved');
+    expect(collapsedSavedCharts?.textContent).not.toContain('My chart');
+    expect(container.querySelector('.bump-chart-saved-list')).toBeNull();
+
+    await act(async () => {
+      root.unmount();
+      await flushBumpChartStorageWrites();
+    });
+    root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <BumpChartPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Expand saved charts"]')
+        ?.getAttribute('aria-expanded'),
+    ).toBe('false');
+    expect(container.querySelector('.bump-chart-saved-list')).toBeNull();
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Expand saved charts"]',
+        )
+        ?.click();
+    });
+    expect(container.querySelector('.bump-chart-saved-list')).not.toBeNull();
 
     await act(async () => {
       saveToolsPreferences({ bumpChartBestMatchByTitle: true });
@@ -884,7 +1410,7 @@ describe('BumpChartPanel staging flow', () => {
     expect(container.querySelector('.bump-chart-saved-charts')).toBeNull();
   });
 
-  it('omits AniList images, collapses their space, and preserves pinned-line emphasis', async () => {
+  it('omits AniList images and preserves dimmed labels and pinned-line emphasis', async () => {
     const anilistImage =
       'https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/test.jpg';
     const chart = document.createElement('div');
@@ -892,7 +1418,9 @@ describe('BumpChartPanel staging flow', () => {
     chart.innerHTML =
       '<div class="bump-chart-row" style="border-bottom: 1px solid red"></div>' +
       '<div class="bump-chart-row" style="border-bottom-width: 0"></div>' +
-      '<a class="bump-chart-item-link"><img src="https://example.invalid/cover.jpg"></a>' +
+      '<div class="bump-chart-timeline-cell" style="opacity: 1">' +
+      '<div class="bump-chart-event-node" style="opacity: 0.24">' +
+      '<a class="bump-chart-item-link"><img src="https://example.invalid/cover.jpg"></a></div></div>' +
       `<a class="bump-chart-item-link"><img src="${anilistImage}"></a>` +
       '<div class="bump-chart-label-cell" style="opacity: 0.24">' +
       '<span class="bump-chart-label">A<span>B</span></span></div>' +
@@ -967,6 +1495,7 @@ describe('BumpChartPanel staging flow', () => {
     let globalAlpha = 1;
     const strokeAlphas: number[] = [];
     const strokeWidths: number[] = [];
+    const drawImageAlphas: number[] = [];
     const fillTextAlphas: number[] = [];
     const context = {
       scale: vi.fn(),
@@ -987,7 +1516,9 @@ describe('BumpChartPanel staging flow', () => {
       }),
       fillRect: vi.fn(),
       strokeRect: vi.fn(),
-      drawImage: vi.fn(),
+      drawImage: vi.fn(() => {
+        drawImageAlphas.push(globalAlpha);
+      }),
       fillText: vi.fn(() => {
         fillTextAlphas.push(globalAlpha);
       }),
@@ -1070,6 +1601,7 @@ describe('BumpChartPanel staging flow', () => {
     );
     expect(fetchMock).not.toHaveBeenCalledWith(anilistImage, { mode: 'cors' });
     expect(context.drawImage).toHaveBeenCalledOnce();
+    expect(drawImageAlphas).toEqual([0.24]);
     expect(bitmap.close).toHaveBeenCalledOnce();
     expect(imageDisplayWhileDrawing).toContain('none');
     expect(anilistImageElement.style.display).toBe('');
@@ -1080,8 +1612,8 @@ describe('BumpChartPanel staging flow', () => {
     expect(context.roundRect).toHaveBeenCalledWith(136, 90, 28, 20, 10);
     expect(context.moveTo).toHaveBeenCalledOnce();
     expect(context.moveTo).toHaveBeenCalledWith(0, 63.5);
-    expect(strokeAlphas).toEqual([1, 1, 0.24, 1]);
-    expect(strokeWidths).toEqual([1, 5, 3, 1]);
+    expect(strokeAlphas).toEqual([1, 1, 0.24, 1, 0.24]);
+    expect(strokeWidths).toEqual([1, 5, 3, 1, 2]);
     expect(fillTextAlphas).toContain(0.24);
     expect(toBlob).toHaveBeenCalledOnce();
     expect(createObjectUrl).toHaveBeenCalledOnce();
@@ -1241,13 +1773,101 @@ describe('BumpChartPanel staging flow', () => {
   });
 });
 
+describe('bumpChartExportCanvasLayout', () => {
+  it('uses the full scrollable timeline and downscales within canvas limits', () => {
+    const chart = document.createElement('div');
+    vi.spyOn(chart, 'getBoundingClientRect').mockReturnValue(
+      domRect(1_000, 600),
+    );
+    Object.defineProperties(chart, {
+      scrollWidth: { configurable: true, value: 20_000 },
+      scrollHeight: { configurable: true, value: 4_000 },
+    });
+
+    expect(bumpChartExportCanvasLayout(chart)).toEqual({
+      width: 20_000,
+      height: 4_000,
+      scale: Math.sqrt(100_000_000 / 80_000_000),
+      canvasWidth: 22_360,
+      canvasHeight: 4_472,
+    });
+  });
+});
+
+describe('bumpTimelineColumnAnchorX', () => {
+  it('places two-column endpoint nodes inside the connection corridor', () => {
+    const rootLeft = 100;
+    const leftCell = { left: 100, right: 460, width: 360 };
+    const rightCell = { left: 740, right: 1100, width: 360 };
+
+    const leftAnchor = bumpTimelineColumnAnchorX(
+      0,
+      2,
+      rootLeft,
+      leftCell,
+    );
+    const rightAnchor = bumpTimelineColumnAnchorX(
+      1,
+      2,
+      rootLeft,
+      rightCell,
+    );
+
+    expect(leftAnchor).toBe(372);
+    expect(leftAnchor).toBeGreaterThan(leftCell.right - rootLeft);
+    expect(rightAnchor).toBe(628);
+    expect(rightAnchor).toBeLessThan(rightCell.left - rootLeft);
+  });
+});
+
+describe('bumpTimelinePathEndpoints', () => {
+  it('connects measured edges of nodes centered on their nominal column anchors', () => {
+    expect(
+      bumpTimelinePathEndpoints(
+        300,
+        700,
+        { left: 195, right: 405 },
+        { left: 595, right: 805 },
+      ),
+    ).toEqual({ startX: 405, endX: 595 });
+  });
+});
+
+describe('bumpTimelinePathMidpoint', () => {
+  it('aligns a movement badge with a path leading into an intermediate node', () => {
+    expect(
+      bumpTimelinePathMidpoint(
+        300,
+        700,
+        null,
+        { left: 595, right: 805 },
+        40,
+        80,
+      ),
+    ).toEqual({ x: 447.5, y: 60 });
+  });
+
+  it('aligns a movement badge with a path leading out of an intermediate node', () => {
+    expect(
+      bumpTimelinePathMidpoint(
+        300,
+        700,
+        { left: 195, right: 405 },
+        null,
+        80,
+        40,
+      ),
+    ).toEqual({ x: 552.5, y: 60 });
+  });
+});
+
 describe('inferredMatchMarkerPosition', () => {
-  it('prefers 95% while maintaining separation from the right node', () => {
+  it('prefers 95% while keeping the info icon clear of the right node', () => {
     const wide = inferredMatchMarkerPosition(1_000, 100, 100);
     expect(wide.pathPosition).toBe(0.95);
 
     const compact = inferredMatchMarkerPosition(280, 100, 100);
     expect(compact.pathPosition).toBeLessThan(0.95);
-    expect(compact.nodeSeparation).toBeGreaterThanOrEqual(25.99);
+    expect(compact.nodeSeparation).toBeGreaterThanOrEqual(37.99);
   });
 });

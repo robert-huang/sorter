@@ -19,26 +19,43 @@ function workspace(
   bestMatchByTitle = true,
 ): BumpChartWorkspaceSnapshot {
   return {
-    version: 1,
+    version: 2,
     view: 'chart',
-    before: {
-      items: [
-        {
-          item: { id: 'AAAAAAAAAAAAAA', label: 'Before' },
-        },
-      ],
-      hiddenItemIds: [],
-      preserveCustomLabels: false,
-    },
-    after: {
-      items: [
-        {
-          item: { id: 'QQQQQQQQQQQQQQ', label: 'After' },
-        },
-      ],
-      hiddenItemIds: ['QQQQQQQQQQQQQQ'],
-      preserveCustomLabels: true,
-    },
+    columns: [
+      {
+        id: 'previous-1',
+        kind: 'previous',
+        items: [
+          {
+            item: { id: 'AAAAAAAAAAAAAA', label: 'Oldest' },
+          },
+        ],
+        hiddenItemIds: [],
+        preserveCustomLabels: false,
+      },
+      {
+        id: 'previous-2',
+        kind: 'previous',
+        items: [
+          {
+            item: { id: 'gggggggggggggg', label: 'Previous' },
+          },
+        ],
+        hiddenItemIds: ['gggggggggggggg'],
+        preserveCustomLabels: true,
+      },
+      {
+        id: 'current',
+        kind: 'current',
+        items: [
+          {
+            item: { id: 'QQQQQQQQQQQQQQ', label: 'Current' },
+          },
+        ],
+        hiddenItemIds: [],
+        preserveCustomLabels: true,
+      },
+    ],
     bestMatchByTitle,
     lastImportTab: 'anilist',
   };
@@ -64,32 +81,87 @@ describe('Bump Chart workspace storage', () => {
     _resetBumpChartStorageCacheForTesting();
     localStorage.clear();
     const value = workspace();
+    const before = value.columns[0]!;
+    const after = value.columns[value.columns.length - 1]!;
     localStorage.setItem(
       ACTIVE_KEY,
       JSON.stringify({
         version: 1,
         view: 'staging',
-        before: { items: value.before.items },
-        after: { items: value.after.items },
+        before: { items: before.items },
+        after: { items: after.items },
       }),
     );
     await initializeBumpChartStorage();
 
     expect(loadActiveBumpChartWorkspace()).toEqual({
-      version: 1,
+      version: 2,
       view: 'staging',
-      before: {
-        items: value.before.items,
-        hiddenItemIds: [],
-        preserveCustomLabels: false,
-      },
-      after: {
-        items: value.after.items,
-        hiddenItemIds: [],
-        preserveCustomLabels: false,
-      },
+      columns: [
+        {
+          id: 'previous-1',
+          kind: 'previous',
+          items: before.items,
+          hiddenItemIds: [],
+          preserveCustomLabels: false,
+        },
+        {
+          id: 'current',
+          kind: 'current',
+          items: after.items,
+          hiddenItemIds: [],
+          preserveCustomLabels: false,
+        },
+      ],
       bestMatchByTitle: true,
       lastImportTab: 'single',
+    });
+  });
+
+  it('normalizes named v1 records to ordered v2 columns', async () => {
+    const value = workspace();
+    const before = value.columns[0]!;
+    const after = value.columns[value.columns.length - 1]!;
+    localStorage.setItem(
+      'tools:bump-chart:saved-manifest:v1',
+      JSON.stringify({
+        version: 1,
+        slots: [
+          {
+            id: 'legacy-slot',
+            name: 'Legacy chart',
+            createdAt: 1,
+            updatedAt: 2,
+          },
+        ],
+      }),
+    );
+    localStorage.setItem(
+      'tools:bump-chart:saved:v1:legacy-slot',
+      JSON.stringify({
+        version: 1,
+        workspace: {
+          version: 1,
+          view: 'chart',
+          before,
+          after,
+          bestMatchByTitle: false,
+          lastImportTab: 'multiple',
+        },
+      }),
+    );
+
+    await initializeBumpChartStorage();
+
+    expect(loadSavedBumpChart('legacy-slot')).toEqual({
+      version: 2,
+      view: 'chart',
+      columns: [
+        { ...before, id: 'previous-1', kind: 'previous' },
+        { ...after, id: 'current', kind: 'current' },
+      ],
+      bestMatchByTitle: false,
+      lastImportTab: 'multiple',
     });
   });
 
@@ -105,7 +177,7 @@ describe('Bump Chart workspace storage', () => {
     localStorage.clear();
     localStorage.setItem(
       ACTIVE_KEY,
-      JSON.stringify({ ...workspace(), version: 2 }),
+      JSON.stringify({ ...workspace(), version: 3 }),
     );
     await initializeBumpChartStorage();
     expect(loadActiveBumpChartWorkspace()).toBeNull();
@@ -117,7 +189,10 @@ describe('Bump Chart workspace storage', () => {
       ACTIVE_KEY,
       JSON.stringify({
         ...workspace(),
-        before: { items: [{ item: { id: 4 } }] },
+        columns: [
+          { ...workspace().columns[0]!, items: [{ item: { id: 4 } }] },
+          workspace().columns[workspace().columns.length - 1],
+        ],
       }),
     );
     await initializeBumpChartStorage();

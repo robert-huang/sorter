@@ -5,6 +5,8 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
+  type ReactNode,
 } from 'react';
 import {
   AddItemsModal,
@@ -30,7 +32,7 @@ import { useToolsPreferences } from '../../hooks/useToolsPreferences';
 import { useToolsDisplayLabelRevision } from '../useToolsDisplayLabelRevision';
 import {
   BUMP_CHART_COLORS,
-  buildBumpConnections,
+  buildBumpTimeline,
   bumpConnectionMovement,
   bumpRowCenterOffsets,
   bumpItemsFromImportedItems,
@@ -41,6 +43,7 @@ import {
   hydrateBumpChartItems,
   type BumpChartItem,
   type BumpConnection,
+  type BumpTimelineSegment,
 } from './bumpChartLogic';
 import {
   BUMP_CHART_SLOT_LIMIT,
@@ -52,6 +55,7 @@ import {
   loadSavedBumpChart,
   saveActiveBumpChartWorkspace,
   saveNamedBumpChart,
+  type BumpChartColumnSnapshot,
   type BumpChartSideSnapshot,
   type BumpChartWorkspaceSnapshot,
   type SaveNamedBumpChartResult,
@@ -84,41 +88,66 @@ type BumpSideDraft = {
   preserveCustomLabels: boolean;
 };
 
+type BumpColumnDraft = {
+  id: string;
+  kind: 'previous' | 'current';
+  draft: BumpSideDraft;
+};
+
+type GeneratedBumpColumn = {
+  id: string;
+  kind: 'previous' | 'current';
+  items: BumpChartItem[];
+  hiddenItemIds: Set<string>;
+  preserveCustomLabels: boolean;
+};
+
 type GeneratedBumpChart = {
-  left: BumpChartItem[];
-  right: BumpChartItem[];
-  hiddenLeftItemIds: Set<string>;
-  hiddenRightItemIds: Set<string>;
-  preserveLeftCustomLabels: boolean;
-  preserveRightCustomLabels: boolean;
+  columns: GeneratedBumpColumn[];
 };
 
 type EditTarget =
   | {
       scope: 'draft';
-      side: ChartSide;
+      columnId: string;
       groupId: string;
       index: number;
       item: Item;
     }
   | {
       scope: 'chart';
-      side: ChartSide;
+      columnId: string;
       index: number;
       item: Item;
     };
 
-const EMPTY_DRAFT: BumpSideDraft = {
-  groups: [],
-  preserveCustomLabels: false,
-};
-
 let nextStageId = 1;
+let nextColumnId = 2;
 
 function stageId(): string {
   const id = nextStageId;
   nextStageId += 1;
   return `bump-stage-${id}`;
+}
+
+function columnId(existingIds: ReadonlySet<string>): string {
+  while (existingIds.has(`previous-${nextColumnId}`)) {
+    nextColumnId += 1;
+  }
+  const id = `previous-${nextColumnId}`;
+  nextColumnId += 1;
+  return id;
+}
+
+function emptyDraft(): BumpSideDraft {
+  return { groups: [], preserveCustomLabels: false };
+}
+
+function defaultDraftColumns(): BumpColumnDraft[] {
+  return [
+    { id: 'previous-1', kind: 'previous', draft: emptyDraft() },
+    { id: 'current', kind: 'current', draft: emptyDraft() },
+  ];
 }
 
 function itemsInDraft(draft: BumpSideDraft): BumpChartItem[] {
@@ -157,21 +186,16 @@ function draftToSnapshot(draft: BumpSideDraft): BumpChartSideSnapshot {
   };
 }
 
-function chartSideToSnapshot(
-  chart: GeneratedBumpChart,
-  side: ChartSide,
-): BumpChartSideSnapshot {
-  return side === 'left'
-    ? {
-        items: chart.left,
-        hiddenItemIds: [...chart.hiddenLeftItemIds],
-        preserveCustomLabels: chart.preserveLeftCustomLabels,
-      }
-    : {
-        items: chart.right,
-        hiddenItemIds: [...chart.hiddenRightItemIds],
-        preserveCustomLabels: chart.preserveRightCustomLabels,
-      };
+function chartColumnToSnapshot(
+  column: GeneratedBumpColumn,
+): BumpChartColumnSnapshot {
+  return {
+    id: column.id,
+    kind: column.kind,
+    items: column.items,
+    hiddenItemIds: [...column.hiddenItemIds],
+    preserveCustomLabels: column.preserveCustomLabels,
+  };
 }
 
 function draftFromSnapshot(
@@ -198,37 +222,35 @@ function chartFromSnapshot(
   workspace: BumpChartWorkspaceSnapshot,
 ): GeneratedBumpChart {
   return {
-    left: workspace.before.items,
-    right: workspace.after.items,
-    hiddenLeftItemIds: new Set(workspace.before.hiddenItemIds),
-    hiddenRightItemIds: new Set(workspace.after.hiddenItemIds),
-    preserveLeftCustomLabels: workspace.before.preserveCustomLabels,
-    preserveRightCustomLabels: workspace.after.preserveCustomLabels,
+    columns: workspace.columns.map((column) => ({
+      id: column.id,
+      kind: column.kind,
+      items: column.items,
+      hiddenItemIds: new Set(column.hiddenItemIds),
+      preserveCustomLabels: column.preserveCustomLabels,
+    })),
   };
 }
 
 function workspaceFromState(
-  before: BumpSideDraft,
-  after: BumpSideDraft,
+  columns: readonly BumpColumnDraft[],
   chart: GeneratedBumpChart | null,
   bestMatchByTitle: boolean,
   lastImportTab: AddItemsModalTab,
 ): BumpChartWorkspaceSnapshot {
   return {
-    version: 1,
+    version: 2,
     view: chart ? 'chart' : 'staging',
-    before: chart ? chartSideToSnapshot(chart, 'left') : draftToSnapshot(before),
-    after: chart ? chartSideToSnapshot(chart, 'right') : draftToSnapshot(after),
+    columns: chart
+      ? chart.columns.map(chartColumnToSnapshot)
+      : columns.map((column) => ({
+          ...draftToSnapshot(column.draft),
+          id: column.id,
+          kind: column.kind,
+        })),
     bestMatchByTitle,
     lastImportTab,
   };
-}
-
-function bumpChartWorkspacesEqual(
-  left: BumpChartWorkspaceSnapshot | null,
-  right: BumpChartWorkspaceSnapshot,
-): boolean {
-  return left !== null && JSON.stringify(left) === JSON.stringify(right);
 }
 
 function applyItemEdit(item: Item, payload: EditItemSavePayload): Item {
@@ -245,13 +267,13 @@ function applyItemEdit(item: Item, payload: EditItemSavePayload): Item {
 
 function otherItemIds(
   target: EditTarget,
-  before: BumpSideDraft,
-  after: BumpSideDraft,
+  columns: readonly BumpColumnDraft[],
   chart: GeneratedBumpChart | null,
 ): Map<string, string> {
   const ids = new Map<string, string>();
   if (target.scope === 'draft') {
-    const draft = target.side === 'left' ? before : after;
+    const draft = columns.find(({ id }) => id === target.columnId)?.draft;
+    if (!draft) return ids;
     draft.groups.forEach((group) => {
       group.items.forEach((entry, index) => {
         if (
@@ -265,7 +287,7 @@ function otherItemIds(
     return ids;
   }
   const entries =
-    target.side === 'left' ? chart?.left ?? [] : chart?.right ?? [];
+    chart?.columns.find(({ id }) => id === target.columnId)?.items ?? [];
   entries.forEach((entry, index) => {
     if (index !== target.index && entry.item.id !== target.item.id) {
       ids.set(entry.item.id, entry.item.label);
@@ -293,17 +315,22 @@ function InteractiveItemLabel({
   item,
   side,
   panelProps,
+  onPrimaryClick,
 }: {
   item: Item;
   side: ChartSide;
   panelProps: ToolPanelProps;
+  onPrimaryClick?: () => void;
 }) {
   return (
     <AnilistMiddleClickLink
       url={item.url ?? null}
       className={`bump-chart-item-link bump-chart-item-link--${side}`}
       onPrimaryClick={
-        canOpenDetail(item) ? () => openItemDetail(item, panelProps) : undefined
+        onPrimaryClick ??
+        (canOpenDetail(item)
+          ? () => openItemDetail(item, panelProps)
+          : undefined)
       }
       title={
         canOpenDetail(item)
@@ -328,6 +355,7 @@ function BumpStage({
   onOpenItemDetail,
   onTogglePreserveCustomLabels,
   onClearAll,
+  headingActions,
 }: {
   title: string;
   draft: BumpSideDraft;
@@ -338,6 +366,7 @@ function BumpStage({
   onOpenItemDetail: (item: Item) => void;
   onTogglePreserveCustomLabels: () => void;
   onClearAll: () => void;
+  headingActions?: ReactNode;
 }) {
   const deduped = itemsInDraft(draft);
   const hasCustomLabels = hasCustomAnilistLabels(deduped);
@@ -360,6 +389,11 @@ function BumpStage({
           <h3>{title}</h3>
           <p>Each import is appended in pre-ranked order.</p>
         </div>
+        {headingActions && (
+          <div className="bump-chart-import-heading-actions">
+            {headingActions}
+          </div>
+        )}
         <button type="button" className="btn primary" onClick={onImport}>
           Import ranked items
         </button>
@@ -396,6 +430,7 @@ function BumpStage({
           staged={stagedGroups}
           pending={[]}
           showStartControls={false}
+          variant="bump-chart"
           ariaLabel={`${title} staged ranked lists`}
           emptyHint="No ranked lists staged yet."
           onClearAll={onClearAll}
@@ -424,47 +459,167 @@ function BumpStage({
 type ChartLayout = {
   width: number;
   height: number;
-  left: number;
-  leftCenters: number[];
-  rightCenters: number[];
+  columnXs: number[];
+  centersByColumn: number[][];
+  eventBoundsByColumn: Array<
+    Array<{ left: number; right: number } | null>
+  >;
 };
+
+const BUMP_ENDPOINT_NODE_GUTTER = 12;
+
+export function bumpTimelineColumnAnchorX(
+  columnIndex: number,
+  columnCount: number,
+  rootLeft: number,
+  cellRect: Pick<DOMRect, 'left' | 'right' | 'width'>,
+): number {
+  if (columnIndex === 0) {
+    return cellRect.right - rootLeft + BUMP_ENDPOINT_NODE_GUTTER;
+  }
+  if (columnIndex === columnCount - 1) {
+    return cellRect.left - rootLeft - BUMP_ENDPOINT_NODE_GUTTER;
+  }
+  return cellRect.left - rootLeft + cellRect.width / 2;
+}
 
 function sameLayout(a: ChartLayout | null, b: ChartLayout): boolean {
   return (
     a?.width === b.width &&
     a.height === b.height &&
-    a.left === b.left &&
-    a.leftCenters.length === b.leftCenters.length &&
-    a.rightCenters.length === b.rightCenters.length &&
-    a.leftCenters.every((value, index) => value === b.leftCenters[index]) &&
-    a.rightCenters.every((value, index) => value === b.rightCenters[index])
+    a.columnXs.length === b.columnXs.length &&
+    a.centersByColumn.length === b.centersByColumn.length &&
+    a.eventBoundsByColumn.length === b.eventBoundsByColumn.length &&
+    a.columnXs.every((value, index) => value === b.columnXs[index]) &&
+    a.centersByColumn.every(
+      (centers, columnIndex) =>
+        centers.length === b.centersByColumn[columnIndex]?.length &&
+        centers.every(
+          (value, itemIndex) =>
+            value === b.centersByColumn[columnIndex]?.[itemIndex],
+        ),
+    ) &&
+    a.eventBoundsByColumn.every(
+      (bounds, columnIndex) =>
+        bounds.length === b.eventBoundsByColumn[columnIndex]?.length &&
+        bounds.every((value, itemIndex) => {
+          const other = b.eventBoundsByColumn[columnIndex]?.[itemIndex];
+          return (
+            value?.left === other?.left && value?.right === other?.right
+          );
+        }),
+    )
   );
 }
 
-function movementPath(
-  connection: BumpConnection,
-  width: number,
-  leftCenters: readonly number[],
-  rightCenters: readonly number[],
+export function bumpTimelinePathEndpoints(
+  leftAnchorX: number,
+  rightAnchorX: number,
+  leftEventBounds: { left: number; right: number } | null,
+  rightEventBounds: { left: number; right: number } | null,
+): { startX: number; endX: number } {
+  return {
+    startX: leftEventBounds?.right ?? leftAnchorX,
+    endX: rightEventBounds?.left ?? rightAnchorX,
+  };
+}
+
+export function bumpTimelinePathMidpoint(
+  leftAnchorX: number,
+  rightAnchorX: number,
+  leftEventBounds: { left: number; right: number } | null,
+  rightEventBounds: { left: number; right: number } | null,
+  leftY: number,
+  rightY: number,
+): { x: number; y: number } {
+  const { startX, endX } = bumpTimelinePathEndpoints(
+    leftAnchorX,
+    rightAnchorX,
+    leftEventBounds,
+    rightEventBounds,
+  );
+  return {
+    x: (startX + endX) / 2,
+    y: (leftY + rightY) / 2,
+  };
+}
+
+function eventBounds(
+  layout: ChartLayout,
+  columnIndex: number,
+  itemIndex: number,
+): { left: number; right: number } | null {
+  return layout.eventBoundsByColumn[columnIndex]?.[itemIndex] ?? null;
+}
+
+function timelineMovementPath(
+  connection: BumpTimelineSegment,
+  layout: ChartLayout,
 ): string {
+  const leftX = layout.columnXs[connection.pairIndex] ?? 0;
+  const rightX = layout.columnXs[connection.pairIndex + 1] ?? 0;
   const leftY =
     connection.leftIndex == null
       ? null
-      : leftCenters[connection.leftIndex] ?? 0;
+      : layout.centersByColumn[connection.pairIndex]?.[
+          connection.leftIndex
+        ] ?? 0;
   const rightY =
     connection.rightIndex == null
       ? null
-      : rightCenters[connection.rightIndex] ?? 0;
+      : layout.centersByColumn[connection.pairIndex + 1]?.[
+          connection.rightIndex
+        ] ?? 0;
   if (connection.kind === 'removed') {
-    return `M 12 ${leftY} L 42 ${leftY}`;
+    const bounds = eventBounds(
+      layout,
+      connection.pairIndex,
+      connection.leftIndex!,
+    );
+    const startX = bounds?.right ?? leftX;
+    return `M ${startX} ${leftY} L ${startX + (bounds ? 30 : 42)} ${leftY}`;
   }
   if (connection.kind === 'added') {
-    return `M ${width - 42} ${rightY} L ${width - 12} ${rightY}`;
+    const bounds = eventBounds(
+      layout,
+      connection.pairIndex + 1,
+      connection.rightIndex!,
+    );
+    const endX = bounds?.left ?? rightX;
+    return `M ${endX - (bounds ? 30 : 42)} ${rightY} L ${endX} ${rightY}`;
   }
-  const control = width * 0.42;
-  return `M 12 ${leftY} C ${control} ${leftY}, ${
-    width - control
-  } ${rightY}, ${width - 12} ${rightY}`;
+  const { startX, endX } = bumpTimelinePathEndpoints(
+    leftX,
+    rightX,
+    eventBounds(layout, connection.pairIndex, connection.leftIndex!),
+    eventBounds(layout, connection.pairIndex + 1, connection.rightIndex!),
+  );
+  const control = (endX - startX) * 0.42;
+  return `M ${startX} ${leftY} C ${startX + control} ${leftY}, ${
+    endX - control
+  } ${rightY}, ${endX} ${rightY}`;
+}
+
+function changeMarkerX(
+  connection: BumpTimelineSegment,
+  layout: ChartLayout,
+): number {
+  if (connection.kind === 'removed') {
+    const anchor = layout.columnXs[connection.pairIndex] ?? 0;
+    const bounds = eventBounds(
+      layout,
+      connection.pairIndex,
+      connection.leftIndex!,
+    );
+    return bounds ? bounds.right + 45 : anchor + 55;
+  }
+  const anchor = layout.columnXs[connection.pairIndex + 1] ?? 0;
+  const bounds = eventBounds(
+    layout,
+    connection.pairIndex + 1,
+    connection.rightIndex!,
+  );
+  return bounds ? bounds.left - 45 : anchor - 55;
 }
 
 function ChangeMarker({
@@ -556,7 +711,7 @@ function cubicCoordinate(
 }
 
 const INFERRED_MARKER_PREFERRED_POSITION = 0.95;
-const INFERRED_MARKER_MIN_NODE_SEPARATION = 26;
+const INFERRED_MARKER_MIN_NODE_SEPARATION = 38;
 
 export function inferredMatchMarkerPosition(
   width: number,
@@ -566,15 +721,15 @@ export function inferredMatchMarkerPosition(
   const control = width * 0.42;
   const pointAt = (pathPosition: number): { x: number; y: number } => ({
     x: cubicCoordinate(
-      12,
+      0,
       control,
       width - control,
-      width - 12,
+      width,
       pathPosition,
     ),
     y: cubicCoordinate(leftY, leftY, rightY, rightY, pathPosition),
   });
-  const rightNode = { x: width - 12, y: rightY };
+  const rightNode = { x: width, y: rightY };
   const separationAt = (pathPosition: number): number => {
     const point = pointAt(pathPosition);
     return Math.hypot(point.x - rightNode.x, point.y - rightNode.y);
@@ -609,17 +764,21 @@ export function inferredMatchMarkerPosition(
 
 function InferredMatchMarker({
   connection,
-  width,
+  startX,
+  endX,
   leftY,
   rightY,
 }: {
   connection: BumpConnection;
-  width: number;
+  startX: number;
+  endX: number;
   leftY: number;
   rightY: number;
 }) {
-  const { x, y, pathPosition, nodeSeparation } =
+  const width = endX - startX;
+  const { x: localX, y, pathPosition, nodeSeparation } =
     inferredMatchMarkerPosition(width, leftY, rightY);
+  const x = startX + localX;
   const description =
     connection.matchBasis === 'alternate-title'
       ? 'Inferred match from an AniList title variant'
@@ -657,7 +816,7 @@ function BumpChartLabel({
   side,
   item,
   rank,
-  connection,
+  lineageKey,
   focusedKey,
   panelProps,
   onFocus,
@@ -666,13 +825,13 @@ function BumpChartLabel({
   side: ChartSide;
   item: Item;
   rank: number;
-  connection: BumpConnection | undefined;
+  lineageKey: string | undefined;
   focusedKey: string | null;
   panelProps: ToolPanelProps;
   onFocus: (key: string | null) => void;
   onEdit: () => void;
 }) {
-  const dimmed = focusedKey != null && connection?.key !== focusedKey;
+  const dimmed = focusedKey != null && lineageKey !== focusedKey;
   const rankButton = (
     <button
       type="button"
@@ -693,7 +852,7 @@ function BumpChartLabel({
       ]
         .filter(Boolean)
         .join(' ')}
-      onMouseEnter={() => onFocus(connection?.key ?? null)}
+      onMouseEnter={() => onFocus(lineageKey ?? null)}
       onMouseLeave={() => onFocus(null)}
     >
       {side === 'right' && rankButton}
@@ -703,6 +862,106 @@ function BumpChartLabel({
         panelProps={panelProps}
       />
       {side === 'left' && rankButton}
+    </div>
+  );
+}
+
+function TimelineOccurrenceCell({
+  item,
+  rank,
+  columnIndex,
+  itemIndex,
+  lineageKey,
+  color,
+  focusedKey,
+  isEntry,
+  isDeparture,
+  panelProps,
+  onFocus,
+  onEdit,
+}: {
+  item: Item;
+  rank: number;
+  columnIndex: number;
+  itemIndex: number;
+  lineageKey: string;
+  color: string;
+  focusedKey: string | null;
+  isEntry: boolean;
+  isDeparture: boolean;
+  panelProps: ToolPanelProps;
+  onFocus: (key: string | null) => void;
+  onEdit: () => void;
+}) {
+  const dimmed = focusedKey != null && focusedKey !== lineageKey;
+  const event = isEntry || isDeparture;
+  const style = {
+    color,
+    '--bump-lineage-color': color,
+  } as CSSProperties;
+  if (!event) {
+    return (
+      <div
+        className={`bump-chart-timeline-cell${dimmed ? ' is-dimmed' : ''}`}
+        style={style}
+        onMouseEnter={() => onFocus(lineageKey)}
+        onMouseLeave={() => onFocus(null)}
+      >
+        <AnilistMiddleClickLink
+          url={item.url ?? null}
+          className="bump-chart-compact-node"
+          aria-label={`Edit rank ${rank}: ${item.label}`}
+          data-bump-lineage={lineageKey}
+          data-label={item.label}
+          role="button"
+          tabIndex={0}
+          onPrimaryClick={onEdit}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              onEdit();
+            }
+          }}
+        >
+          #{rank}
+        </AnilistMiddleClickLink>
+      </div>
+    );
+  }
+  return (
+    <div
+      className={[
+        'bump-chart-timeline-cell',
+        'bump-chart-event-label',
+        dimmed ? 'is-dimmed' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      data-bump-event="true"
+      data-column-index={columnIndex}
+      data-item-index={itemIndex}
+      data-bump-lineage={lineageKey}
+      style={style}
+      onMouseEnter={() => onFocus(lineageKey)}
+      onMouseLeave={() => onFocus(null)}
+    >
+      <div className="bump-chart-event-node">
+        <button
+          type="button"
+          className="bump-chart-rank"
+          onClick={onEdit}
+          title={`Edit #${rank} ${item.label}`}
+          aria-label={`Edit rank ${rank}: ${item.label}`}
+        >
+          #{rank}
+        </button>
+        <InteractiveItemLabel
+          item={item}
+          side="right"
+          panelProps={panelProps}
+          onPrimaryClick={onEdit}
+        />
+      </div>
     </div>
   );
 }
@@ -804,9 +1063,26 @@ function drawElementText(
 }
 
 function chartLabelOpacity(element: Element): number {
-  const cell = element.closest<HTMLElement>('.bump-chart-label-cell');
-  const opacity = Number(cell ? getComputedStyle(cell).opacity : 1);
-  return Number.isFinite(opacity) ? opacity : 1;
+  const cell = element.closest<HTMLElement>(
+    '.bump-chart-label-cell, .bump-chart-timeline-cell',
+  );
+  const cellOpacity = Number.parseFloat(
+    cell ? getComputedStyle(cell).opacity : '1',
+  );
+  const elementOpacity =
+    cell === element
+      ? 1
+      : Number.parseFloat(getComputedStyle(element).opacity);
+  const eventNode = element.closest<HTMLElement>('.bump-chart-event-node');
+  const eventNodeOpacity =
+    eventNode == null || eventNode === element
+      ? 1
+      : Number.parseFloat(getComputedStyle(eventNode).opacity);
+  return (
+    (Number.isFinite(cellOpacity) ? cellOpacity : 1) *
+    (Number.isFinite(eventNodeOpacity) ? eventNodeOpacity : 1) *
+    (Number.isFinite(elementOpacity) ? elementOpacity : 1)
+  );
 }
 
 type ExportChartPngOptions = {
@@ -892,18 +1168,48 @@ function prepareExportImageLayout(
   };
 }
 
+export function bumpChartExportCanvasLayout(node: HTMLElement): {
+  width: number;
+  height: number;
+  scale: number;
+  canvasWidth: number;
+  canvasHeight: number;
+} {
+  const rootRect = node.getBoundingClientRect();
+  const width = Math.ceil(Math.max(rootRect.width, node.scrollWidth));
+  const height = Math.ceil(Math.max(rootRect.height, node.scrollHeight));
+  const maxCanvasSide = 32_767;
+  const maxCanvasPixels = 100_000_000;
+  const scale = Math.min(
+    2,
+    maxCanvasSide / Math.max(width, height),
+    Math.sqrt(maxCanvasPixels / Math.max(1, width * height)),
+  );
+  if (!Number.isFinite(scale) || scale < 0.1) {
+    throw new Error(
+      'The complete timeline is too large to export as one usable PNG.',
+    );
+  }
+  return {
+    width,
+    height,
+    scale,
+    canvasWidth: Math.max(1, Math.floor(width * scale)),
+    canvasHeight: Math.max(1, Math.floor(height * scale)),
+  };
+}
+
 async function renderChartPng(
   node: HTMLElement,
   imageElements: readonly HTMLImageElement[],
   loadedImages: readonly (LoadedCanvasImage | null)[],
 ): Promise<void> {
   const rootRect = node.getBoundingClientRect();
-  const width = Math.ceil(rootRect.width);
-  const height = Math.ceil(rootRect.height);
-  const scale = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+  const { width, height, scale, canvasWidth, canvasHeight } =
+    bumpChartExportCanvasLayout(node);
   const canvas = document.createElement('canvas');
-  canvas.width = Math.ceil(width * scale);
-  canvas.height = Math.ceil(height * scale);
+  canvas.width = canvasWidth;
+  canvas.height = canvasHeight;
   const context = canvas.getContext('2d');
   if (!context) {
     throw new Error('Canvas export is unavailable.');
@@ -920,8 +1226,9 @@ async function renderChartPng(
 
   for (const row of node.querySelectorAll<HTMLElement>('.bump-chart-row')) {
     const rowRect = row.getBoundingClientRect();
-    const center = row.querySelector<HTMLElement>('.bump-chart-center-cell');
-    if (center) {
+    for (const center of row.querySelectorAll<HTMLElement>(
+      '.bump-chart-center-cell',
+    )) {
       const centerRect = center.getBoundingClientRect();
       context.fillStyle = getComputedStyle(center).backgroundColor;
       context.fillRect(
@@ -971,6 +1278,21 @@ async function renderChartPng(
     }
     context.globalAlpha = 1;
     context.setLineDash([]);
+    for (const bridge of svg.querySelectorAll<SVGPathElement>(
+      '.bump-chart-lineage-bridge',
+    )) {
+      const pathData = bridge.getAttribute('d');
+      if (!pathData) continue;
+      const style = getComputedStyle(bridge);
+      context.save();
+      context.strokeStyle = style.stroke || style.color;
+      context.globalAlpha = Number(style.opacity) || 1;
+      context.lineWidth = 3;
+      context.lineCap = 'round';
+      context.setLineDash([5, 7]);
+      context.stroke(new Path2D(pathData));
+      context.restore();
+    }
     for (const group of svg.querySelectorAll<SVGGElement>(
       '.bump-chart-connection',
     )) {
@@ -1045,26 +1367,27 @@ async function renderChartPng(
       }
       context.restore();
     }
-    const movementBadge = svg.querySelector<SVGGElement>(
+    for (const movementBadge of svg.querySelectorAll<SVGGElement>(
       '.bump-chart-movement-badge',
-    );
-    const badgeRect =
-      movementBadge?.querySelector<SVGRectElement>('rect') ?? null;
-    const badgeText =
-      movementBadge?.querySelector<SVGTextElement>('text') ?? null;
-    const badgeX = Number(movementBadge?.dataset.badgeX);
-    const badgeY = Number(movementBadge?.dataset.badgeY);
-    const badgeWidth = Number(movementBadge?.dataset.badgeWidth);
-    const badgeLabel = movementBadge?.dataset.badgeLabel;
-    if (
-      movementBadge &&
-      badgeRect &&
-      badgeText &&
-      badgeLabel &&
-      Number.isFinite(badgeX) &&
-      Number.isFinite(badgeY) &&
-      Number.isFinite(badgeWidth)
-    ) {
+    )) {
+      const badgeRect =
+        movementBadge.querySelector<SVGRectElement>('rect');
+      const badgeText =
+        movementBadge.querySelector<SVGTextElement>('text');
+      const badgeX = Number(movementBadge.dataset.badgeX);
+      const badgeY = Number(movementBadge.dataset.badgeY);
+      const badgeWidth = Number(movementBadge.dataset.badgeWidth);
+      const badgeLabel = movementBadge.dataset.badgeLabel;
+      if (
+        !badgeRect ||
+        !badgeText ||
+        !badgeLabel ||
+        !Number.isFinite(badgeX) ||
+        !Number.isFinite(badgeY) ||
+        !Number.isFinite(badgeWidth)
+      ) {
+        continue;
+      }
       const badgeStyle = getComputedStyle(movementBadge);
       const rectStyle = getComputedStyle(badgeRect);
       const textStyle = getComputedStyle(badgeText);
@@ -1083,6 +1406,29 @@ async function renderChartPng(
       context.fillText(badgeLabel, badgeX, badgeY);
       context.restore();
     }
+    context.restore();
+  }
+
+  for (const eventNode of node.querySelectorAll<HTMLElement>(
+    '.bump-chart-event-node',
+  )) {
+    const rect = eventNode.getBoundingClientRect();
+    const style = getComputedStyle(eventNode);
+    context.save();
+    context.globalAlpha = chartLabelOpacity(eventNode);
+    context.fillStyle = style.backgroundColor;
+    context.strokeStyle = style.borderColor;
+    context.lineWidth = Number.parseFloat(style.borderWidth) || 2;
+    context.beginPath();
+    context.roundRect(
+      rect.left - rootRect.left,
+      rect.top - rootRect.top,
+      rect.width,
+      rect.height,
+      9,
+    );
+    context.fill();
+    context.stroke();
     context.restore();
   }
 
@@ -1115,6 +1461,31 @@ async function renderChartPng(
     context.save();
     context.globalAlpha = chartLabelOpacity(rank);
     drawElementText(context, rank, rootRect);
+    context.restore();
+  }
+  for (const marker of node.querySelectorAll<HTMLElement>(
+    '.bump-chart-compact-node',
+  )) {
+    const rect = marker.getBoundingClientRect();
+    const style = getComputedStyle(marker);
+    context.save();
+    context.globalAlpha = chartLabelOpacity(marker);
+    if (marker.matches('.bump-chart-compact-node')) {
+      context.fillStyle = style.backgroundColor;
+      context.strokeStyle = style.borderColor;
+      context.lineWidth = Number.parseFloat(style.borderWidth) || 2;
+      context.beginPath();
+      context.roundRect(
+        rect.left - rootRect.left,
+        rect.top - rootRect.top,
+        rect.width,
+        rect.height,
+        9,
+      );
+      context.fill();
+      context.stroke();
+    }
+    drawElementText(context, marker, rootRect);
     context.restore();
   }
 
@@ -1158,79 +1529,81 @@ export async function exportChartPng(
   }
 }
 
+type RenderedTimelineColumn = {
+  id: string;
+  kind: 'previous' | 'current';
+  items: readonly BumpChartItem[];
+  matchingItems: readonly BumpChartItem[];
+};
+
 function BumpChart({
-  left,
-  right,
-  matchingLeft,
-  matchingRight,
+  columns,
   bestMatchByTitle,
   panelProps,
   onEdit,
   chartRef,
 }: {
-  left: readonly BumpChartItem[];
-  right: readonly BumpChartItem[];
-  matchingLeft: readonly BumpChartItem[];
-  matchingRight: readonly BumpChartItem[];
+  columns: readonly RenderedTimelineColumn[];
   bestMatchByTitle: boolean;
   panelProps: ToolPanelProps;
-  onEdit: (side: ChartSide, index: number, item: Item) => void;
+  onEdit: (columnId: string, index: number, item: Item) => void;
   chartRef: React.RefObject<HTMLDivElement>;
 }) {
-  const connections = useMemo(
+  const timeline = useMemo(
     () =>
-      buildBumpConnections(matchingLeft, matchingRight, { bestMatchByTitle }),
-    [bestMatchByTitle, matchingLeft, matchingRight],
+      buildBumpTimeline(
+        columns.map((column) => ({
+          id: column.id,
+          items: column.matchingItems,
+        })),
+        { bestMatchByTitle },
+      ),
+    [bestMatchByTitle, columns],
   );
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
   const [pinnedKey, setPinnedKey] = useState<string | null>(null);
   const [layout, setLayout] = useState<ChartLayout | null>(null);
   const rowRefs = useRef<Array<HTMLDivElement | null>>([]);
-  const rowCount = Math.max(left.length, right.length);
-
-  const leftConnectionByIndex = useMemo(
-    () =>
-      new Map(
-        connections
-          .filter(
-            (connection): connection is BumpConnection & { leftIndex: number } =>
-              connection.leftIndex != null,
-          )
-          .map((connection) => [connection.leftIndex, connection]),
-      ),
-    [connections],
-  );
-  const rightConnectionByIndex = useMemo(
-    () =>
-      new Map(
-        connections
-          .filter(
-            (
-              connection,
-            ): connection is BumpConnection & { rightIndex: number } =>
-              connection.rightIndex != null,
-          )
-          .map((connection) => [connection.rightIndex, connection]),
-      ),
-    [connections],
-  );
+  const rowCount = Math.max(0, ...columns.map(({ items }) => items.length));
   const focusedKey = pinnedKey ?? hoveredKey;
-  const focusedConnection =
+  const focusedSegments =
     focusedKey == null
-      ? null
-      : connections.find((connection) => connection.key === focusedKey) ?? null;
-  const focusedMovement =
-    focusedConnection == null
-      ? null
-      : bumpConnectionMovement(focusedConnection);
-  const focusedLeftY =
-    layout != null && focusedConnection?.leftIndex != null
-      ? layout.leftCenters[focusedConnection.leftIndex]
-      : null;
-  const focusedRightY =
-    layout != null && focusedConnection?.rightIndex != null
-      ? layout.rightCenters[focusedConnection.rightIndex]
-      : null;
+      ? []
+      : timeline.segments.filter(
+          ({ kind, lineageKey }) =>
+            kind === 'matched' && lineageKey === focusedKey,
+        );
+  const gridTemplateColumns = columns
+    .flatMap((_, columnIndex) => [
+      ...(columnIndex > 0 ? ['minmax(280px, 1fr)'] : []),
+      columnIndex === 0 || columnIndex === columns.length - 1
+        ? 'var(--bump-label-width)'
+        : 'var(--bump-intermediate-width)',
+    ])
+    .map((value) =>
+      value === 'minmax(280px, 1fr)'
+        ? 'minmax(var(--bump-center-min-width), 1fr)'
+        : value,
+    )
+    .join(' ');
+  const minimumWidth = `calc(${[
+    'var(--bump-label-width)',
+    'var(--bump-label-width)',
+    ...Array.from(
+      { length: Math.max(0, columns.length - 1) },
+      () => 'var(--bump-center-min-width)',
+    ),
+    ...Array.from(
+      { length: Math.max(0, columns.length - 2) },
+      () => 'var(--bump-intermediate-width)',
+    ),
+  ].join(' + ')})`;
+
+  const lineageAt = useCallback(
+    (columnIndex: number, itemIndex: number) =>
+      timeline.lineageByOccurrence.get(`${columnIndex}:${itemIndex}`),
+    [timeline],
+  );
 
   useEffect(() => {
     const onDocumentClick = (event: MouseEvent): void => {
@@ -1238,13 +1611,9 @@ function BumpChart({
       if (!(target instanceof Element) || !chartRef.current?.contains(target)) {
         return;
       }
-      const connectionElement =
+      const lineageElement =
         target.closest<HTMLElement>('[data-bump-lineage]');
-      if (connectionElement) {
-        setPinnedKey(connectionElement.dataset.bumpLineage ?? null);
-      } else {
-        setPinnedKey(null);
-      }
+      setPinnedKey(lineageElement?.dataset.bumpLineage ?? null);
     };
     document.addEventListener('click', onDocumentClick);
     return () => document.removeEventListener('click', onDocumentClick);
@@ -1253,27 +1622,18 @@ function BumpChart({
   useEffect(() => {
     if (
       pinnedKey != null &&
-      !connections.some((connection) => connection.key === pinnedKey)
+      !timeline.lineages.some(({ key }) => key === pinnedKey)
     ) {
       setPinnedKey(null);
     }
-  }, [connections, pinnedKey]);
+  }, [pinnedKey, timeline.lineages]);
 
   useLayoutEffect(() => {
     const root = chartRef.current;
-    if (!root) {
-      return;
-    }
+    if (!root || rowCount === 0) return;
     const measure = (): void => {
       const rootRect = root.getBoundingClientRect();
       const rows = rowRefs.current.slice(0, rowCount);
-      const firstCenter = rows[0]?.querySelector<HTMLElement>(
-        '.bump-chart-center-cell',
-      );
-      const centerRect = firstCenter?.getBoundingClientRect();
-      if (!centerRect) {
-        return;
-      }
       const rowRects = rows.map((row) => {
         const rect = row?.getBoundingClientRect();
         return {
@@ -1282,13 +1642,44 @@ function BumpChart({
         };
       });
       const centers = bumpRowCenterOffsets(rootRect.top, rowRects);
+      const firstRow = rows[0];
+      if (!firstRow) return;
+      const columnXs = columns.map((_, columnIndex) => {
+        const cell = firstRow.querySelector<HTMLElement>(
+          `[data-bump-column-cell="${columnIndex}"]`,
+        );
+        const rect = cell?.getBoundingClientRect();
+        if (!rect) return 0;
+        return bumpTimelineColumnAnchorX(
+          columnIndex,
+          columns.length,
+          rootRect.left,
+          rect,
+        );
+      });
+      const centersByColumn = columns.map(({ items }) =>
+        items.map((_, itemIndex) => centers[itemIndex] ?? 0),
+      );
+      const eventBoundsByColumn = columns.map(({ items }, columnIndex) =>
+        items.map((_, itemIndex) => {
+          const event = root.querySelector<HTMLElement>(
+            `[data-bump-event][data-column-index="${columnIndex}"][data-item-index="${itemIndex}"]`,
+          );
+          if (!event) return null;
+          const rect = event.getBoundingClientRect();
+          return {
+            left: rect.left - rootRect.left,
+            right: rect.right - rootRect.left,
+          };
+        }),
+      );
       const next: ChartLayout = {
-        width: centerRect.width,
-        // The absolute SVG must not keep its previous zoomed height alive.
+        width: rootRect.width,
+        // Avoid an earlier absolute SVG height keeping scrollHeight enlarged.
         height: rootRect.height,
-        left: centerRect.left - rootRect.left,
-        leftCenters: left.map((_, index) => centers[index] ?? 0),
-        rightCenters: right.map((_, index) => centers[index] ?? 0),
+        columnXs,
+        centersByColumn,
+        eventBoundsByColumn,
       };
       setLayout((current) => (sameLayout(current, next) ? current : next));
     };
@@ -1297,57 +1688,97 @@ function BumpChart({
       typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
     observer?.observe(root);
     rowRefs.current.slice(0, rowCount).forEach((row) => {
-      if (row) {
-        observer?.observe(row);
-      }
+      if (row) observer?.observe(row);
     });
     window.addEventListener('resize', measure);
     return () => {
       observer?.disconnect();
       window.removeEventListener('resize', measure);
     };
-  }, [chartRef, left, right, rowCount]);
+  }, [chartRef, columns, rowCount]);
 
   return (
-    <div className="tool-chart-fullbleed bump-chart-fullbleed">
-      <div className="bump-chart-grid" ref={chartRef}>
-        {Array.from({ length: rowCount }, (_, index) => (
+    <div className="tool-chart-fullbleed bump-chart-fullbleed bump-chart-scroll">
+      <div
+        className="bump-chart-grid bump-chart-grid--timeline"
+        ref={chartRef}
+        style={{ minWidth: minimumWidth }}
+      >
+        {Array.from({ length: rowCount }, (_, rowIndex) => (
           <div
-            key={`row:${index}`}
+            key={`row:${rowIndex}`}
             ref={(element) => {
-              rowRefs.current[index] = element;
+              rowRefs.current[rowIndex] = element;
             }}
             className="bump-chart-row"
+            style={{ gridTemplateColumns }}
           >
-            {left[index] ? (
-              <BumpChartLabel
-                side="left"
-                item={left[index]!.item}
-                rank={index + 1}
-                connection={leftConnectionByIndex.get(index)}
-                focusedKey={focusedKey}
-                panelProps={panelProps}
-                onFocus={setHoveredKey}
-                onEdit={() => onEdit('left', index, left[index]!.item)}
-              />
-            ) : (
-              <div className="bump-chart-label-cell bump-chart-label-cell--empty" />
-            )}
-            <div className="bump-chart-center-cell" aria-hidden="true" />
-            {right[index] ? (
-              <BumpChartLabel
-                side="right"
-                item={right[index]!.item}
-                rank={index + 1}
-                connection={rightConnectionByIndex.get(index)}
-                focusedKey={focusedKey}
-                panelProps={panelProps}
-                onFocus={setHoveredKey}
-                onEdit={() => onEdit('right', index, right[index]!.item)}
-              />
-            ) : (
-              <div className="bump-chart-label-cell bump-chart-label-cell--empty" />
-            )}
+            {columns.flatMap((column, columnIndex) => {
+              const entry = column.items[rowIndex];
+              const lineage = lineageAt(columnIndex, rowIndex);
+              const columnCell = (
+                <div
+                  key={`column:${column.id}`}
+                  className={[
+                    columnIndex === 0 || columnIndex === columns.length - 1
+                      ? 'bump-chart-endpoint-cell'
+                      : 'bump-chart-intermediate-cell',
+                    !entry ? 'bump-chart-label-cell--empty' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  data-bump-column-cell={columnIndex}
+                >
+                  {entry &&
+                    (columnIndex === 0 ||
+                    columnIndex === columns.length - 1 ? (
+                      <BumpChartLabel
+                        side={columnIndex === 0 ? 'left' : 'right'}
+                        item={entry.item}
+                        rank={rowIndex + 1}
+                        lineageKey={lineage?.key}
+                        focusedKey={focusedKey}
+                        panelProps={panelProps}
+                        onFocus={setHoveredKey}
+                        onEdit={() =>
+                          onEdit(column.id, rowIndex, entry.item)
+                        }
+                      />
+                    ) : lineage ? (
+                      <TimelineOccurrenceCell
+                        item={entry.item}
+                        rank={rowIndex + 1}
+                        columnIndex={columnIndex}
+                        itemIndex={rowIndex}
+                        lineageKey={lineage.key}
+                        color={BUMP_CHART_COLORS[lineage.colorIndex]!}
+                        focusedKey={focusedKey}
+                        isEntry={
+                          lineage.itemIndexes[columnIndex - 1] == null
+                        }
+                        isDeparture={
+                          lineage.itemIndexes[columnIndex + 1] == null
+                        }
+                        panelProps={panelProps}
+                        onFocus={setHoveredKey}
+                        onEdit={() =>
+                          onEdit(column.id, rowIndex, entry.item)
+                        }
+                      />
+                    ) : null)}
+                </div>
+              );
+              return columnIndex === 0
+                ? [columnCell]
+                : [
+                    <div
+                      key={`corridor:${columnIndex}`}
+                      className="bump-chart-center-cell"
+                      aria-hidden="true"
+                    />,
+                    columnCell,
+                  ];
+            })}
           </div>
         ))}
         {layout && (
@@ -1355,48 +1786,94 @@ function BumpChart({
             className="bump-chart-svg"
             viewBox={`0 0 ${layout.width} ${layout.height}`}
             preserveAspectRatio="none"
-            aria-label="Rank movement chart"
-            style={{
-              left: layout.left,
-              width: layout.width,
-              height: layout.height,
-            }}
+            aria-label="Rank movement timeline"
+            style={{ width: layout.width, height: layout.height }}
           >
-            {Array.from({ length: rowCount }, (_, index) => {
-              const y =
-                layout.leftCenters[index] ??
-                layout.rightCenters[index] ??
-                0;
-              return (
-                <line
-                  key={`guide:${index}`}
-                  className="bump-chart-guide"
-                  x1="0"
-                  y1={y}
-                  x2={layout.width}
-                  y2={y}
-                />
-              );
-            })}
-            {connections.map((connection) => {
-              const path = movementPath(
-                connection,
-                layout.width,
-                layout.leftCenters,
-                layout.rightCenters,
-              );
+            {Array.from({ length: rowCount }, (_, index) => (
+              <line
+                key={`guide:${index}`}
+                className="bump-chart-guide"
+                x1={layout.columnXs[0] ?? 0}
+                y1={
+                  layout.centersByColumn.find(
+                    (centers) => centers[index] != null,
+                  )?.[index] ?? 0
+                }
+                x2={layout.columnXs[layout.columnXs.length - 1] ?? layout.width}
+                y2={
+                  layout.centersByColumn.find(
+                    (centers) => centers[index] != null,
+                  )?.[index] ?? 0
+                }
+              />
+            ))}
+            {pinnedKey &&
+              timeline.lineages
+                .find(({ key }) => key === pinnedKey)
+                ?.gaps.map((gap) => {
+                  const fromY =
+                    layout.centersByColumn[gap.fromColumnIndex]?.[
+                      gap.fromItemIndex
+                    ] ?? 0;
+                  const toY =
+                    layout.centersByColumn[gap.toColumnIndex]?.[
+                      gap.toItemIndex
+                    ] ?? 0;
+                  const fromBounds = eventBounds(
+                    layout,
+                    gap.fromColumnIndex,
+                    gap.fromItemIndex,
+                  );
+                  const toBounds = eventBounds(
+                    layout,
+                    gap.toColumnIndex,
+                    gap.toItemIndex,
+                  );
+                  return (
+                    <path
+                      key={`gap:${pinnedKey}:${gap.fromColumnIndex}`}
+                      className="bump-chart-lineage-bridge"
+                      d={`M ${
+                        fromBounds
+                          ? fromBounds.right + 45
+                          : (layout.columnXs[gap.fromColumnIndex] ?? 0) + 55
+                      } ${fromY} L ${
+                        toBounds
+                          ? toBounds.left - 45
+                          : (layout.columnXs[gap.toColumnIndex] ?? 0) - 55
+                      } ${toY}`}
+                      style={{
+                        color:
+                          BUMP_CHART_COLORS[
+                            timeline.lineages.find(
+                              ({ key }) => key === pinnedKey,
+                            )?.colorIndex ?? 0
+                          ],
+                      }}
+                    />
+                  );
+                })}
+            {timeline.segments.map((connection) => {
+              const path = timelineMovementPath(connection, layout);
               const color = BUMP_CHART_COLORS[connection.colorIndex]!;
               const dimmed =
-                focusedKey != null && focusedKey !== connection.key;
-              const active = focusedKey === connection.key;
+                focusedKey != null && focusedKey !== connection.lineageKey;
+              const active = focusedKey === connection.lineageKey;
+              const leftX = layout.columnXs[connection.pairIndex] ?? 0;
+              const rightX =
+                layout.columnXs[connection.pairIndex + 1] ?? 0;
               const leftY =
                 connection.leftIndex == null
                   ? null
-                  : layout.leftCenters[connection.leftIndex];
+                  : layout.centersByColumn[connection.pairIndex]?.[
+                      connection.leftIndex
+                    ];
               const rightY =
                 connection.rightIndex == null
                   ? null
-                  : layout.rightCenters[connection.rightIndex];
+                  : layout.centersByColumn[connection.pairIndex + 1]?.[
+                      connection.rightIndex
+                    ];
               return (
                 <g
                   key={connection.key}
@@ -1408,44 +1885,49 @@ function BumpChart({
                     .filter(Boolean)
                     .join(' ')}
                   style={{ color }}
-                  onMouseEnter={() => setHoveredKey(connection.key)}
+                  onMouseEnter={() => setHoveredKey(connection.lineageKey)}
                   onMouseLeave={() => setHoveredKey(null)}
                 >
                   <path
                     className="bump-chart-path-hit"
                     d={path}
-                    data-bump-lineage={connection.key}
+                    data-bump-lineage={connection.lineageKey}
                   />
                   <path
                     className="bump-chart-path"
                     d={path}
-                    data-bump-lineage={connection.key}
+                    data-bump-lineage={connection.lineageKey}
                   />
-                  {leftY != null && (
+                  {leftY != null && connection.pairIndex === 0 && (
                     <circle
                       className="bump-chart-node"
-                      cx="12"
+                      cx={leftX}
                       cy={leftY}
                       r="6"
-                      data-bump-lineage={connection.key}
+                      data-bump-lineage={connection.lineageKey}
                     />
                   )}
-                  {rightY != null && (
+                  {rightY != null &&
+                    connection.pairIndex + 1 === columns.length - 1 && (
                     <circle
                       className="bump-chart-node"
-                      cx={layout.width - 12}
+                      cx={rightX}
                       cy={rightY}
                       r="6"
-                      data-bump-lineage={connection.key}
+                      data-bump-lineage={connection.lineageKey}
                     />
                   )}
                   {connection.kind === 'removed' && leftY != null && (
-                    <ChangeMarker kind="removed" x={55} y={leftY} />
+                    <ChangeMarker
+                      kind="removed"
+                      x={changeMarkerX(connection, layout)}
+                      y={leftY}
+                    />
                   )}
                   {connection.kind === 'added' && rightY != null && (
                     <ChangeMarker
                       kind="added"
-                      x={layout.width - 55}
+                      x={changeMarkerX(connection, layout)}
                       y={rightY}
                     />
                   )}
@@ -1455,7 +1937,20 @@ function BumpChart({
                     rightY != null && (
                       <InferredMatchMarker
                         connection={connection}
-                        width={layout.width}
+                        startX={
+                          eventBounds(
+                            layout,
+                            connection.pairIndex,
+                            connection.leftIndex!,
+                          )?.right ?? leftX
+                        }
+                        endX={
+                          eventBounds(
+                            layout,
+                            connection.pairIndex + 1,
+                            connection.rightIndex!,
+                          )?.left ?? rightX
+                        }
                         leftY={leftY}
                         rightY={rightY}
                       />
@@ -1463,15 +1958,45 @@ function BumpChart({
                 </g>
               );
             })}
-            {focusedMovement != null &&
-              focusedLeftY != null &&
-              focusedRightY != null && (
+            {focusedSegments.map((connection) => {
+              const leftY =
+                connection.leftIndex == null
+                  ? null
+                  : layout.centersByColumn[connection.pairIndex]?.[
+                      connection.leftIndex
+                    ];
+              const rightY =
+                connection.rightIndex == null
+                  ? null
+                  : layout.centersByColumn[connection.pairIndex + 1]?.[
+                      connection.rightIndex
+                    ];
+              if (leftY == null || rightY == null) return null;
+              const midpoint = bumpTimelinePathMidpoint(
+                layout.columnXs[connection.pairIndex] ?? 0,
+                layout.columnXs[connection.pairIndex + 1] ?? 0,
+                eventBounds(
+                  layout,
+                  connection.pairIndex,
+                  connection.leftIndex!,
+                ),
+                eventBounds(
+                  layout,
+                  connection.pairIndex + 1,
+                  connection.rightIndex!,
+                ),
+                leftY,
+                rightY,
+              );
+              return (
                 <MovementBadge
-                  movement={focusedMovement}
-                  x={layout.width / 2}
-                  y={(focusedLeftY + focusedRightY) / 2}
+                  key={`movement:${connection.key}`}
+                  movement={bumpConnectionMovement(connection) ?? 0}
+                  x={midpoint.x}
+                  y={midpoint.y}
                 />
-              )}
+              );
+            })}
           </svg>
         )}
       </div>
@@ -1551,6 +2076,28 @@ function SaveBumpChartModal({
   );
 }
 
+const SAVED_BUMP_CHARTS_EXPANDED_KEY =
+  'sorter:tools:bump-chart:saved-expanded:v1';
+
+function loadSavedBumpChartsExpanded(): boolean {
+  try {
+    return localStorage.getItem(SAVED_BUMP_CHARTS_EXPANDED_KEY) !== 'collapsed';
+  } catch {
+    return true;
+  }
+}
+
+function saveSavedBumpChartsExpanded(expanded: boolean): void {
+  try {
+    localStorage.setItem(
+      SAVED_BUMP_CHARTS_EXPANDED_KEY,
+      expanded ? 'expanded' : 'collapsed',
+    );
+  } catch {
+    // Keep the in-memory preference when browser storage is unavailable.
+  }
+}
+
 function SavedBumpCharts({
   slots,
   deletingId,
@@ -1566,59 +2113,82 @@ function SavedBumpCharts({
   onCancelDelete: () => void;
   onConfirmDelete: (id: string) => void;
 }) {
+  const [expanded, setExpanded] = useState(loadSavedBumpChartsExpanded);
   if (slots.length === 0) {
     return null;
   }
+  const toggleExpanded = (): void => {
+    const nextExpanded = !expanded;
+    setExpanded(nextExpanded);
+    saveSavedBumpChartsExpanded(nextExpanded);
+  };
   return (
-    <section className="tool-form-card bump-chart-saved-charts">
+    <section
+      className={`tool-form-card bump-chart-saved-charts${
+        expanded ? '' : ' is-collapsed'
+      }`}
+    >
       <div className="bump-chart-saved-heading">
-        <div>
+        <button
+          type="button"
+          className="bump-chart-saved-heading-toggle"
+          aria-expanded={expanded}
+          aria-controls="bump-chart-saved-list"
+          aria-label={`${expanded ? 'Collapse' : 'Expand'} saved charts`}
+          onClick={toggleExpanded}
+        >
+          <span className="staged-panel-caret" aria-hidden />
           <h3>Saved charts</h3>
-          <p>Named snapshots are separate from your autosaved workspace.</p>
-        </div>
+        </button>
         <span>{slots.length} saved</span>
       </div>
-      <div className="bump-chart-saved-list">
-        {slots.map((slot) => (
-          <div className="bump-chart-saved-row" key={slot.id}>
-            <span className="bump-chart-saved-name">{slot.name}</span>
-            <span className="bump-chart-saved-date">
-              {new Date(slot.updatedAt).toLocaleString()}
-            </span>
-            {deletingId === slot.id ? (
-              <div className="bump-chart-saved-actions">
-                <button type="button" className="btn small" onClick={onCancelDelete}>
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  className="btn small danger"
-                  onClick={() => onConfirmDelete(slot.id)}
-                >
-                  Confirm delete
-                </button>
-              </div>
-            ) : (
-              <div className="bump-chart-saved-actions">
-                <button
-                  type="button"
-                  className="btn small primary"
-                  onClick={() => onLoad(slot.id)}
-                >
-                  Load
-                </button>
-                <button
-                  type="button"
-                  className="btn small"
-                  onClick={() => onRequestDelete(slot.id)}
-                >
-                  Delete
-                </button>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
+      {expanded && (
+        <div className="bump-chart-saved-list" id="bump-chart-saved-list">
+          {slots.map((slot) => (
+            <div className="bump-chart-saved-row" key={slot.id}>
+              <span className="bump-chart-saved-name">{slot.name}</span>
+              <span className="bump-chart-saved-date">
+                {new Date(slot.updatedAt).toLocaleString()}
+              </span>
+              {deletingId === slot.id ? (
+                <div className="bump-chart-saved-actions">
+                  <button
+                    type="button"
+                    className="btn small"
+                    onClick={onCancelDelete}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn small danger"
+                    onClick={() => onConfirmDelete(slot.id)}
+                  >
+                    Confirm delete
+                  </button>
+                </div>
+              ) : (
+                <div className="bump-chart-saved-actions">
+                  <button
+                    type="button"
+                    className="btn small primary"
+                    onClick={() => onLoad(slot.id)}
+                  >
+                    Load
+                  </button>
+                  <button
+                    type="button"
+                    className="btn small"
+                    onClick={() => onRequestDelete(slot.id)}
+                  >
+                    Delete
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
@@ -1633,9 +2203,9 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
     (item: Item) => openItemDetail(item, panelProps),
     [panelProps.onOpenMedia, panelProps.onOpenStaff],
   );
-  const [before, setBefore] = useState<BumpSideDraft>(EMPTY_DRAFT);
-  const [after, setAfter] = useState<BumpSideDraft>(EMPTY_DRAFT);
-  const [importSide, setImportSide] = useState<ChartSide | null>(null);
+  const [columns, setColumns] =
+    useState<BumpColumnDraft[]>(defaultDraftColumns);
+  const [importColumnId, setImportColumnId] = useState<string | null>(null);
   const [importTab, setImportTab] = useState<AddItemsModalTab>('single');
   const [chart, setChart] = useState<GeneratedBumpChart | null>(null);
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
@@ -1652,16 +2222,20 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
   const chartRef = useRef<HTMLDivElement>(null);
   const latestWorkspaceRef = useRef<BumpChartWorkspaceSnapshot | null>(null);
   const importTabTouchedBeforeHydration = useRef(false);
+  const localWorkspaceRevisionRef = useRef(0);
+  const stagingRevisionRef = useRef(0);
+  const markWorkspaceMutation = useCallback((): void => {
+    localWorkspaceRevisionRef.current += 1;
+  }, []);
   if (
     storageHydrated ||
-    before.groups.length > 0 ||
-    after.groups.length > 0 ||
+    localWorkspaceRevisionRef.current > 0 ||
+    columns.some(({ draft }) => draft.groups.length > 0) ||
     chart !== null ||
     importTab !== 'single'
   ) {
     latestWorkspaceRef.current = workspaceFromState(
-      before,
-      after,
+      columns,
       chart,
       toolsPreferences.bumpChartBestMatchByTitle,
       importTab,
@@ -1670,19 +2244,26 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
 
   useEffect(() => {
     let cancelled = false;
+    const hydrationStartRevision = localWorkspaceRevisionRef.current;
     void initializeBumpChartStorage().then(() => {
       if (cancelled) return;
       const workspace = loadActiveBumpChartWorkspace();
-      if (workspace?.view === 'staging') {
-        setBefore(draftFromSnapshot(workspace.before, 'Cached chart'));
-        setAfter(draftFromSnapshot(workspace.after, 'Cached chart'));
-        setChart(null);
-      } else if (workspace) {
-        setBefore(EMPTY_DRAFT);
-        setAfter(EMPTY_DRAFT);
-        setChart(chartFromSnapshot(workspace));
-      }
-      if (workspace) {
+      const localStateIsUnchanged =
+        localWorkspaceRevisionRef.current === hydrationStartRevision;
+      if (workspace && localStateIsUnchanged) {
+        if (workspace.view === 'staging') {
+          setColumns(
+            workspace.columns.map((column) => ({
+              id: column.id,
+              kind: column.kind,
+              draft: draftFromSnapshot(column, 'Cached chart'),
+            })),
+          );
+          setChart(null);
+        } else {
+          setColumns(defaultDraftColumns());
+          setChart(chartFromSnapshot(workspace));
+        }
         if (!importTabTouchedBeforeHydration.current) {
           setImportTab(workspace.lastImportTab);
         }
@@ -1710,8 +2291,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
   useEffect(() => {
     if (!storageHydrated) return;
     const snapshot = workspaceFromState(
-      before,
-      after,
+      columns,
       chart,
       toolsPreferences.bumpChartBestMatchByTitle,
       importTab,
@@ -1724,9 +2304,8 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
     }, 300);
     return () => window.clearTimeout(timer);
   }, [
-    after,
-    before,
     chart,
+    columns,
     importTab,
     storageHydrated,
     toolsPreferences.bumpChartBestMatchByTitle,
@@ -1758,38 +2337,24 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
       ) {
         return;
       }
+      // An open tab owns its active draft; cross-tab revisions only refresh
+      // named charts and must not replace mounted React state.
+      if (revision.id === 'active') return;
       void refreshBumpChartStorage().then(() => {
         setSavedCharts(listSavedBumpCharts());
-        if (revision?.id !== 'active') return;
-        const workspace = loadActiveBumpChartWorkspace();
-        if (!workspace) return;
-        if (bumpChartWorkspacesEqual(latestWorkspaceRef.current, workspace)) {
-          return;
-        }
-        setImportTab(workspace.lastImportTab);
-        setBumpChartBestMatchByTitle(workspace.bestMatchByTitle);
-        if (workspace.view === 'chart') {
-          setBefore(EMPTY_DRAFT);
-          setAfter(EMPTY_DRAFT);
-          setChart(chartFromSnapshot(workspace));
-        } else {
-          setBefore(draftFromSnapshot(workspace.before, 'Cached chart'));
-          setAfter(draftFromSnapshot(workspace.after, 'Cached chart'));
-          setChart(null);
-        }
       });
     }
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
-  }, [setBumpChartBestMatchByTitle]);
+  }, []);
 
   const appendGroup = useCallback(
     async (
-      side: ChartSide,
+      targetColumnId: string,
       source: string,
       incoming: BumpChartItem[],
     ): Promise<void> => {
-      const setDraft = side === 'left' ? setBefore : setAfter;
+      const stagingRevision = stagingRevisionRef.current;
       setPendingImports((count) => count + 1);
       setImportError(null);
       try {
@@ -1797,13 +2362,26 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
         if (hydrated.length === 0) {
           return;
         }
-        setDraft((draft) => ({
-          ...draft,
-          groups: [
-            ...draft.groups,
-            { id: stageId(), source, items: hydrated },
-          ],
-        }));
+        if (stagingRevisionRef.current !== stagingRevision) {
+          return;
+        }
+        markWorkspaceMutation();
+        setColumns((current) =>
+          current.map((column) =>
+            column.id === targetColumnId
+              ? {
+                  ...column,
+                  draft: {
+                    ...column.draft,
+                    groups: [
+                      ...column.draft.groups,
+                      { id: stageId(), source, items: hydrated },
+                    ],
+                  },
+                }
+              : column,
+          ),
+        );
       } catch (error) {
         setImportError(
           error instanceof Error ? error.message : 'Item import failed.',
@@ -1812,18 +2390,18 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
         setPendingImports((count) => Math.max(0, count - 1));
       }
     },
-    [],
+    [markWorkspaceMutation],
   );
 
-  const closeImporter = (): void => setImportSide(null);
+  const closeImporter = (): void => setImportColumnId(null);
 
   const importCallbacks =
-    importSide == null
+    importColumnId == null
       ? null
       : {
           onAddOne: (item: Item) => {
             void appendGroup(
-              importSide,
+              importColumnId,
               'Single item',
               bumpItemsFromImportedItems([item]),
             );
@@ -1831,7 +2409,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
           },
           onAddMany: (items: Item[]) => {
             void appendGroup(
-              importSide,
+              importColumnId,
               'AniList selection',
               bumpItemsFromImportedItems(items),
             );
@@ -1839,7 +2417,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
           },
           onAddPreRanked: (items: Item[]) => {
             void appendGroup(
-              importSide,
+              importColumnId,
               'Pasted / CSV list',
               bumpItemsFromImportedItems(items),
             );
@@ -1849,7 +2427,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
             void (async () => {
               for (const entry of imports) {
                 await appendGroup(
-                  importSide,
+                  importColumnId,
                   entry.source,
                   bumpItemsFromSortResults(entry.items),
                 );
@@ -1860,19 +2438,26 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
         };
 
   const patchDraft = (
-    side: ChartSide,
+    targetColumnId: string,
     update: (draft: BumpSideDraft) => BumpSideDraft,
   ): void => {
-    (side === 'left' ? setBefore : setAfter)((draft) => {
-      const next = update(draft);
-      return hasCustomAnilistLabels(itemsInDraft(next))
-        ? next
-        : { ...next, preserveCustomLabels: false };
-    });
+    markWorkspaceMutation();
+    setColumns((current) =>
+      current.map((column) => {
+        if (column.id !== targetColumnId) return column;
+        const next = update(column.draft);
+        return {
+          ...column,
+          draft: hasCustomAnilistLabels(itemsInDraft(next))
+            ? next
+            : { ...next, preserveCustomLabels: false },
+        };
+      }),
+    );
   };
 
-  const toggleGroupRemoval = (side: ChartSide, groupId: string): void => {
-    (side === 'left' ? setBefore : setAfter)((draft) => ({
+  const toggleGroupRemoval = (targetColumnId: string, groupId: string): void => {
+    patchDraft(targetColumnId, (draft) => ({
       ...draft,
       groups: draft.groups.map((group) =>
         group.id === groupId
@@ -1883,11 +2468,11 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
   };
 
   const toggleItemRemoval = (
-    side: ChartSide,
+    targetColumnId: string,
     groupId: string,
     index: number,
   ): void => {
-    (side === 'left' ? setBefore : setAfter)((draft) => ({
+    patchDraft(targetColumnId, (draft) => ({
       ...draft,
       groups: draft.groups.map((group) => {
         if (group.id !== groupId) return group;
@@ -1901,61 +2486,128 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
     }));
   };
 
-  const leftDraftItems = itemsInDraft(before);
-  const rightDraftItems = itemsInDraft(after);
-  const visibleLeft = useMemo(
+  const draftItemsByColumn = new Map(
+    columns.map((column) => [column.id, itemsInDraft(column.draft)]),
+  );
+  const visibleChartColumns = useMemo(
     () =>
-      chart?.left.flatMap((entry, sourceIndex) =>
-        chart.hiddenLeftItemIds.has(entry.item.id)
-          ? []
-          : [{ entry, sourceIndex }],
-      ) ?? [],
+      chart?.columns.map((column) => ({
+        column,
+        visible: column.items.flatMap((entry, sourceIndex) =>
+          column.hiddenItemIds.has(entry.item.id)
+            ? []
+            : [{ entry, sourceIndex }],
+        ),
+      })) ?? [],
     [chart],
   );
-  const visibleRight = useMemo(
+  const renderedChartColumns = useMemo(
     () =>
-      chart?.right.flatMap((entry, sourceIndex) =>
-        chart.hiddenRightItemIds.has(entry.item.id)
-          ? []
-          : [{ entry, sourceIndex }],
-      ) ?? [],
-    [chart],
+      visibleChartColumns.map(({ column, visible }) => ({
+        id: column.id,
+        kind: column.kind,
+        matchingItems: visible.map(({ entry }) => entry),
+        items: displayBumpChartItems(
+          visible.map(({ entry }) => entry),
+          column.preserveCustomLabels,
+        ),
+      })),
+    [displayLabelRevision, visibleChartColumns],
   );
-  const left = useMemo(
-    () =>
-      chart
-        ? displayBumpChartItems(
-            visibleLeft.map(({ entry }) => entry),
-            chart.preserveLeftCustomLabels,
-          )
-        : [],
-    [chart, displayLabelRevision, visibleLeft],
-  );
-  const right = useMemo(
-    () =>
-      chart
-        ? displayBumpChartItems(
-            visibleRight.map(({ entry }) => entry),
-            chart.preserveRightCustomLabels,
-          )
-        : [],
-    [chart, displayLabelRevision, visibleRight],
-  );
+  const currentDraftColumn = columns[columns.length - 1]!;
+
+  const addCurrentOrder = (): void => {
+    markWorkspaceMutation();
+    setColumns((current) => {
+      const currentColumn = current[current.length - 1]!;
+      const promotedColumn: BumpColumnDraft = {
+        ...currentColumn,
+        id: columnId(new Set(current.map(({ id }) => id))),
+        kind: 'previous',
+      };
+      return [
+        ...current.slice(0, -1),
+        promotedColumn,
+        { id: 'current', kind: 'current', draft: emptyDraft() },
+      ];
+    });
+  };
+
+  const removePreviousOrder = (targetColumnId: string): void => {
+    markWorkspaceMutation();
+    setColumns((current) => {
+      const previousCount = current.filter(
+        ({ kind }) => kind === 'previous',
+      ).length;
+      return previousCount <= 1
+        ? current
+        : current.filter(({ id }) => id !== targetColumnId);
+    });
+  };
+
+  const removeCurrentOrder = (): void => {
+    markWorkspaceMutation();
+    setColumns((current) => {
+      if (current.length <= 2) {
+        return current;
+      }
+      const nextCurrent = current[current.length - 2]!;
+      return [
+        ...current.slice(0, -2),
+        { ...nextCurrent, id: 'current', kind: 'current' },
+      ];
+    });
+  };
+
+  const movePreviousOrder = (
+    targetColumnId: string,
+    direction: -1 | 1,
+  ): void => {
+    markWorkspaceMutation();
+    setColumns((current) => {
+      const index = current.findIndex(({ id }) => id === targetColumnId);
+      const targetIndex = index + direction;
+      if (
+        index < 0 ||
+        targetIndex < 0 ||
+        targetIndex >= current.length - 1
+      ) {
+        return current;
+      }
+      const next = [...current];
+      [next[index], next[targetIndex]] = [next[targetIndex]!, next[index]!];
+      return next;
+    });
+  };
+
+  const clearStaged = (): void => {
+    stagingRevisionRef.current += 1;
+    markWorkspaceMutation();
+    setColumns((current) =>
+      current.length > 2
+        ? defaultDraftColumns()
+        : current.map((column) => ({ ...column, draft: emptyDraft() })),
+    );
+    setImportColumnId(null);
+    setImportError(null);
+  };
 
   const generateChart = (): void => {
-    const beforeSnapshot = draftToSnapshot(before);
-    const afterSnapshot = draftToSnapshot(after);
+    markWorkspaceMutation();
     setChart({
-      left: beforeSnapshot.items,
-      right: afterSnapshot.items,
-      hiddenLeftItemIds: new Set(beforeSnapshot.hiddenItemIds),
-      hiddenRightItemIds: new Set(afterSnapshot.hiddenItemIds),
-      preserveLeftCustomLabels: before.preserveCustomLabels,
-      preserveRightCustomLabels: after.preserveCustomLabels,
+      columns: columns.map((column) => {
+        const snapshot = draftToSnapshot(column.draft);
+        return {
+          id: column.id,
+          kind: column.kind,
+          items: snapshot.items,
+          hiddenItemIds: new Set(snapshot.hiddenItemIds),
+          preserveCustomLabels: snapshot.preserveCustomLabels,
+        };
+      }),
     });
-    setBefore(EMPTY_DRAFT);
-    setAfter(EMPTY_DRAFT);
-    setImportSide(null);
+    setColumns(defaultDraftColumns());
+    setImportColumnId(null);
     setImportError(null);
     setExportError(null);
   };
@@ -1966,7 +2618,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
     }
     const updated = applyItemEdit(editTarget.item, payload);
     if (editTarget.scope === 'draft') {
-      patchDraft(editTarget.side, (draft) => ({
+      patchDraft(editTarget.columnId, (draft) => ({
         ...draft,
         groups: draft.groups.map((group) =>
           group.id === editTarget.groupId
@@ -1984,9 +2636,8 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
                     ? {
                         ...entry,
                         item: updated,
-                        logicalId: entry.logicalId
-                          ? updated.id
-                          : entry.logicalId,
+                        logicalId:
+                          payload.id != null ? updated.id : entry.logicalId,
                       }
                     : entry,
                 ),
@@ -1995,21 +2646,29 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
         ),
       }));
     } else {
+      markWorkspaceMutation();
       setChart((current) => {
         if (!current) {
           return current;
         }
-        const key = editTarget.side === 'left' ? 'left' : 'right';
         return {
           ...current,
-          [key]: current[key].map((entry, index) =>
-            index === editTarget.index
+          columns: current.columns.map((column) =>
+            column.id === editTarget.columnId
               ? {
-                  ...entry,
-                  item: updated,
-                  logicalId: entry.logicalId ? updated.id : entry.logicalId,
+                  ...column,
+                  items: column.items.map((entry, index) =>
+                    index === editTarget.index
+                      ? {
+                          ...entry,
+                          item: updated,
+                          logicalId:
+                            payload.id != null ? updated.id : entry.logicalId,
+                        }
+                      : entry,
+                  ),
                 }
-              : entry,
+              : column,
           ),
         };
       });
@@ -2021,24 +2680,27 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
     if (editTarget?.scope !== 'chart') {
       return;
     }
+    markWorkspaceMutation();
     setChart((current) => {
       if (!current) {
         return current;
       }
-      const hiddenLeftItemIds = new Set(current.hiddenLeftItemIds);
-      const hiddenRightItemIds = new Set(current.hiddenRightItemIds);
-      const entry =
-        editTarget.side === 'left'
-          ? current.left[editTarget.index]
-          : current.right[editTarget.index];
+      const targetColumn = current.columns.find(
+        ({ id }) => id === editTarget.columnId,
+      );
+      const entry = targetColumn?.items[editTarget.index];
       if (!entry) {
         return current;
       }
-      (editTarget.side === 'left'
-        ? hiddenLeftItemIds
-        : hiddenRightItemIds
-      ).add(entry.item.id);
-      return { ...current, hiddenLeftItemIds, hiddenRightItemIds };
+      return {
+        ...current,
+        columns: current.columns.map((column) => {
+          if (column.id !== editTarget.columnId) return column;
+          const hiddenItemIds = new Set(column.hiddenItemIds);
+          hiddenItemIds.add(entry.item.id);
+          return { ...column, hiddenItemIds };
+        }),
+      };
     });
     setEditTarget(null);
   };
@@ -2047,11 +2709,13 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
     if (!chart) {
       return;
     }
-    setBefore(
-      draftFromSnapshot(chartSideToSnapshot(chart, 'left'), 'From chart'),
-    );
-    setAfter(
-      draftFromSnapshot(chartSideToSnapshot(chart, 'right'), 'From chart'),
+    markWorkspaceMutation();
+    setColumns(
+      chart.columns.map((column) => ({
+        id: column.id,
+        kind: column.kind,
+        draft: draftFromSnapshot(chartColumnToSnapshot(column), 'From chart'),
+      })),
     );
     setChart(null);
     setExportError(null);
@@ -2063,8 +2727,14 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
       setStorageError('The saved chart could not be loaded.');
       return;
     }
-    setBefore(draftFromSnapshot(workspace.before, 'From saved chart'));
-    setAfter(draftFromSnapshot(workspace.after, 'From saved chart'));
+    markWorkspaceMutation();
+    setColumns(
+      workspace.columns.map((column) => ({
+        id: column.id,
+        kind: column.kind,
+        draft: draftFromSnapshot(column, 'From saved chart'),
+      })),
+    );
     setChart(null);
     setBumpChartBestMatchByTitle(workspace.bestMatchByTitle);
     setStorageError(null);
@@ -2081,8 +2751,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
     const result = await saveNamedBumpChart(
       name,
       workspaceFromState(
-        before,
-        after,
+        columns,
         chart,
         toolsPreferences.bumpChartBestMatchByTitle,
         importTab,
@@ -2118,7 +2787,9 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
     setExportError(null);
     try {
       const itemsById = new Map(
-        [...left, ...right].map((entry) => [entry.item.id, entry.item]),
+        renderedChartColumns
+          .flatMap(({ items }) => items)
+          .map((entry) => [entry.item.id, entry.item]),
       );
       const useMalImages = toolsPreferences.bumpChartMalExportImages;
       await exportChartPng(chartRef.current, {
@@ -2145,8 +2816,8 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
   return (
     <section className="tool-panel bump-chart-panel">
       <p className="tool-panel-lead">
-        Stage two ranked lists, then generate a chart of items moving up,
-        down, on, or off the ranking.
+        Stage an ordered timeline of ranked lists, then generate a chart of
+        items moving up, down, on, or off the ranking.
       </p>
       <p className="tool-panel-lead tool-panel-lead-secondary">
         Click an item&apos;s rank number in the generated chart to edit its
@@ -2163,72 +2834,164 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
             onCancelDelete={() => setDeletingSavedId(null)}
             onConfirmDelete={deleteNamedChart}
           />
-          <div className="bump-chart-import-grid">
-            <BumpStage
-              title="Previous order"
-              draft={before}
-              onImport={() => setImportSide('left')}
-              onRemoveGroup={(groupId) =>
-                toggleGroupRemoval('left', groupId)
-              }
-              onRemoveItem={(groupId, index) =>
-                toggleItemRemoval('left', groupId, index)
-              }
-              onEditItem={(groupId, index, item) =>
-                setEditTarget({
-                  scope: 'draft',
-                  side: 'left',
-                  groupId,
-                  index,
-                  item,
-                })
-              }
-              onOpenItemDetail={onOpenItemDetail}
-              onTogglePreserveCustomLabels={() =>
-                setBefore((draft) => ({
-                  ...draft,
-                  preserveCustomLabels: !draft.preserveCustomLabels,
-                }))
-              }
-              onClearAll={() => setBefore(EMPTY_DRAFT)}
-            />
-            <BumpStage
-              title="Current order"
-              draft={after}
-              onImport={() => setImportSide('right')}
-              onRemoveGroup={(groupId) =>
-                toggleGroupRemoval('right', groupId)
-              }
-              onRemoveItem={(groupId, index) =>
-                toggleItemRemoval('right', groupId, index)
-              }
-              onEditItem={(groupId, index, item) =>
-                setEditTarget({
-                  scope: 'draft',
-                  side: 'right',
-                  groupId,
-                  index,
-                  item,
-                })
-              }
-              onOpenItemDetail={onOpenItemDetail}
-              onTogglePreserveCustomLabels={() =>
-                setAfter((draft) => ({
-                  ...draft,
-                  preserveCustomLabels: !draft.preserveCustomLabels,
-                }))
-              }
-              onClearAll={() => setAfter(EMPTY_DRAFT)}
-            />
+          <div className="bump-chart-import-grid bump-chart-import-grid--timeline">
+            <div className="bump-chart-previous-stack">
+              {columns.slice(0, -1).map((column, index, previousColumns) => (
+                <BumpStage
+                  key={column.id}
+                  title={
+                    previousColumns.length === 1
+                      ? 'Previous order'
+                      : `Previous order ${index + 1}`
+                  }
+                  draft={column.draft}
+                  onImport={() => setImportColumnId(column.id)}
+                  onRemoveGroup={(groupId) =>
+                    toggleGroupRemoval(column.id, groupId)
+                  }
+                  onRemoveItem={(groupId, itemIndex) =>
+                    toggleItemRemoval(column.id, groupId, itemIndex)
+                  }
+                  onEditItem={(groupId, itemIndex, item) =>
+                    setEditTarget({
+                      scope: 'draft',
+                      columnId: column.id,
+                      groupId,
+                      index: itemIndex,
+                      item,
+                    })
+                  }
+                  onOpenItemDetail={onOpenItemDetail}
+                  onTogglePreserveCustomLabels={() =>
+                    patchDraft(column.id, (draft) => ({
+                      ...draft,
+                      preserveCustomLabels: !draft.preserveCustomLabels,
+                    }))
+                  }
+                  onClearAll={() =>
+                    patchDraft(column.id, () => emptyDraft())
+                  }
+                  headingActions={
+                    <div className="bump-chart-column-actions">
+                      <button
+                        type="button"
+                        className="btn small"
+                        disabled={index === 0}
+                        onClick={() => movePreviousOrder(column.id, -1)}
+                        aria-label={`Move Previous order ${index + 1} up`}
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        className="btn small"
+                        disabled={index === previousColumns.length - 1}
+                        onClick={() => movePreviousOrder(column.id, 1)}
+                        aria-label={`Move Previous order ${index + 1} down`}
+                      >
+                        ↓
+                      </button>
+                      <button
+                        type="button"
+                        className="btn small"
+                        disabled={previousColumns.length === 1}
+                        onClick={() => removePreviousOrder(column.id)}
+                        aria-label={`Remove Previous order ${index + 1}`}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  }
+                />
+              ))}
+            </div>
+            <div className="bump-chart-current-column">
+              {currentDraftColumn && (
+                <BumpStage
+                  title="Current order"
+                  draft={currentDraftColumn.draft}
+                  onImport={() => setImportColumnId(currentDraftColumn.id)}
+                  onRemoveGroup={(groupId) =>
+                    toggleGroupRemoval(currentDraftColumn.id, groupId)
+                  }
+                  onRemoveItem={(groupId, itemIndex) =>
+                    toggleItemRemoval(
+                      currentDraftColumn.id,
+                      groupId,
+                      itemIndex,
+                    )
+                  }
+                  onEditItem={(groupId, itemIndex, item) =>
+                    setEditTarget({
+                      scope: 'draft',
+                      columnId: currentDraftColumn.id,
+                      groupId,
+                      index: itemIndex,
+                      item,
+                    })
+                  }
+                  onOpenItemDetail={onOpenItemDetail}
+                  onTogglePreserveCustomLabels={() =>
+                    patchDraft(currentDraftColumn.id, (draft) => ({
+                      ...draft,
+                      preserveCustomLabels: !draft.preserveCustomLabels,
+                    }))
+                  }
+                  onClearAll={() =>
+                    patchDraft(currentDraftColumn.id, () => emptyDraft())
+                  }
+                  headingActions={
+                    <div className="bump-chart-column-actions">
+                      <span
+                        className="btn small bump-chart-column-action-placeholder"
+                        aria-hidden="true"
+                      >
+                        ↑
+                      </span>
+                      <span
+                        className="btn small bump-chart-column-action-placeholder"
+                        aria-hidden="true"
+                      >
+                        ↓
+                      </span>
+                      <button
+                        type="button"
+                        className="btn small"
+                        disabled={columns.length <= 2}
+                        onClick={removeCurrentOrder}
+                        aria-label="Remove Current order"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  }
+                />
+              )}
+              <button
+                type="button"
+                className="bump-chart-add-column"
+                onClick={addCurrentOrder}
+                aria-label="Add current order"
+                title="Add current order"
+              >
+                <span className="bump-chart-add-column-symbol" aria-hidden="true">
+                  +
+                </span>
+              </button>
+            </div>
           </div>
           <div className="bump-chart-generate-row">
+            <button type="button" className="btn" onClick={clearStaged}>
+              Clear all staged
+            </button>
             <button
               type="button"
               className="btn primary"
               disabled={
                 pendingImports > 0 ||
-                leftDraftItems.length === 0 ||
-                rightDraftItems.length === 0
+                columns.some(
+                  ({ id }) => (draftItemsByColumn.get(id)?.length ?? 0) === 0,
+                )
               }
               onClick={generateChart}
             >
@@ -2271,24 +3034,20 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
           </div>
           {exportError && <p className="tool-error">{exportError}</p>}
           <BumpChart
-            left={left}
-            right={right}
-            matchingLeft={visibleLeft.map(({ entry }) => entry)}
-            matchingRight={visibleRight.map(({ entry }) => entry)}
+            columns={renderedChartColumns}
             bestMatchByTitle={toolsPreferences.bumpChartBestMatchByTitle}
             panelProps={panelProps}
             chartRef={chartRef}
-            onEdit={(side, index, item) => {
-              const sourceIndex =
-                side === 'left'
-                  ? visibleLeft[index]?.sourceIndex
-                  : visibleRight[index]?.sourceIndex;
+            onEdit={(columnId, index, item) => {
+              const sourceIndex = visibleChartColumns
+                .find(({ column }) => column.id === columnId)
+                ?.visible[index]?.sourceIndex;
               if (sourceIndex == null) {
                 return;
               }
               setEditTarget({
                 scope: 'chart',
-                side,
+                columnId,
                 index: sourceIndex,
                 item,
               });
@@ -2299,7 +3058,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
 
       {storageError && <p className="tool-error">{storageError}</p>}
 
-      {importSide && importCallbacks && (
+      {importColumnId && importCallbacks && (
         <AddItemsModal
           engine="merge"
           existingIds={new Set()}
@@ -2309,6 +3068,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
           initialTab={importTab}
           onTabChange={(tab) => {
             importTabTouchedBeforeHydration.current = true;
+            markWorkspaceMutation();
             setImportTab(tab);
           }}
           onCancel={closeImporter}
@@ -2320,7 +3080,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
         <EditItemModal
           item={editTarget.item}
           currentId={editTarget.item.id}
-          otherIds={otherItemIds(editTarget, before, after, chart)}
+          otherIds={otherItemIds(editTarget, columns, chart)}
           allowEditId
           onCancel={() => setEditTarget(null)}
           onSave={saveEdit}

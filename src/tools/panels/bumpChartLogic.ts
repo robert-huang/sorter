@@ -31,6 +31,36 @@ export type BuildBumpConnectionsOptions = {
   bestMatchByTitle?: boolean;
 };
 
+export type BumpTimelineColumn = {
+  id: string;
+  items: readonly BumpChartItem[];
+};
+
+export type BumpTimelineSegment = BumpConnection & {
+  pairIndex: number;
+  lineageKey: string;
+};
+
+export type BumpTimelineGap = {
+  fromColumnIndex: number;
+  toColumnIndex: number;
+  fromItemIndex: number;
+  toItemIndex: number;
+};
+
+export type BumpTimelineLineage = {
+  key: string;
+  colorIndex: number;
+  itemIndexes: Array<number | null>;
+  gaps: BumpTimelineGap[];
+};
+
+export type BumpTimeline = {
+  lineages: BumpTimelineLineage[];
+  segments: BumpTimelineSegment[];
+  lineageByOccurrence: Map<string, BumpTimelineLineage>;
+};
+
 /** Positive means the item moved up; negative means it moved down. */
 export function bumpConnectionMovement(
   connection: BumpConnection,
@@ -195,12 +225,31 @@ function takeFirstUnused(
   return null;
 }
 
+function sourceIdentity(entry: BumpChartItem): string | null {
+  const source = entry.item.source;
+  if (source && source.kind !== 'manual') {
+    return `${source.kind}:${source.externalId}`;
+  }
+  const logicalId = entry.logicalId ?? '';
+  return /^anilist(?::|-character:|-staff:|-studios:)\d+$/.test(logicalId)
+    ? logicalId
+    : null;
+}
+
 function hasSourceIdentity(entry: BumpChartItem): boolean {
+  return sourceIdentity(entry) != null;
+}
+
+function hasConflictingSourceIdentities(
+  leftEntry: BumpChartItem,
+  rightEntry: BumpChartItem,
+): boolean {
+  const leftIdentity = sourceIdentity(leftEntry);
+  const rightIdentity = sourceIdentity(rightEntry);
   return (
-    isAnilistSourceMatched(entry.item) ||
-    /^anilist(?::|-character:|-staff:|-studios:)\d+$/.test(
-      entry.logicalId ?? '',
-    )
+    leftIdentity != null &&
+    rightIdentity != null &&
+    leftIdentity !== rightIdentity
   );
 }
 
@@ -209,7 +258,7 @@ function canInferSameItem(
   rightEntry: BumpChartItem,
 ): boolean {
   // Conflicting source identities are stronger evidence than a shared title.
-  return !(hasSourceIdentity(leftEntry) && hasSourceIdentity(rightEntry));
+  return !hasConflictingSourceIdentities(leftEntry, rightEntry);
 }
 
 function alternateTitleMatches(
@@ -297,7 +346,10 @@ export function buildBumpConnections(
       rightByLogicalId.get(logicalId),
       usedRight,
     );
-    if (rightIndex != null) {
+    if (
+      rightIndex != null &&
+      !hasConflictingSourceIdentities(left[leftIndex]!, right[rightIndex]!)
+    ) {
       matchedRightByLeft.set(leftIndex, rightIndex);
       matchBasisByLeft.set(leftIndex, 'logical-id');
       usedRight.add(rightIndex);
@@ -430,6 +482,335 @@ export function assignBumpConnectionColors(
     ...connection,
     colorIndex: assigned.get(connection.key) ?? 0,
   }));
+}
+
+function occurrenceKey(columnIndex: number, itemIndex: number): string {
+  return `${columnIndex}:${itemIndex}`;
+}
+
+function assignTimelineColors(
+  itemIndexesByLineage: ReadonlyMap<string, readonly (number | null)[]>,
+): Map<string, number> {
+  const ordered = [...itemIndexesByLineage.entries()].sort(([, left], [, right]) => {
+    const leftRank = left.find((index) => index != null) ?? Number.MAX_SAFE_INTEGER;
+    const rightRank =
+      right.find((index) => index != null) ?? Number.MAX_SAFE_INTEGER;
+    return leftRank - rightRank;
+  });
+  const colors = new Map<string, number>();
+  for (const [lineageKey, itemIndexes] of ordered) {
+    const unavailable = new Set<number>();
+    for (const [otherKey, otherIndexes] of itemIndexesByLineage) {
+      const otherColor = colors.get(otherKey);
+      if (otherColor == null) continue;
+      const adjacent = itemIndexes.some((itemIndex, columnIndex) => {
+        const otherIndex = otherIndexes[columnIndex];
+        return (
+          itemIndex != null &&
+          otherIndex != null &&
+          Math.abs(itemIndex - otherIndex) === 1
+        );
+      });
+      if (adjacent) unavailable.add(otherColor);
+    }
+    const firstIndex = itemIndexes.find((index) => index != null) ?? 0;
+    const preferred = firstIndex % BUMP_CHART_COLORS.length;
+    let selected = preferred;
+    for (let offset = 0; offset < BUMP_CHART_COLORS.length; offset += 1) {
+      const candidate = (preferred + offset) % BUMP_CHART_COLORS.length;
+      if (!unavailable.has(candidate)) {
+        selected = candidate;
+        break;
+      }
+    }
+    colors.set(lineageKey, selected);
+  }
+  return colors;
+}
+
+/**
+ * Build stable lineages across every timeline column while retaining pairwise
+ * add/remove/movement semantics for each adjacent pair.
+ */
+export function buildBumpTimeline(
+  columns: readonly BumpTimelineColumn[],
+  options: BuildBumpConnectionsOptions = {},
+): BumpTimeline {
+  const parent = new Map<string, string>();
+  const columnIndexesByRoot = new Map<string, Set<number>>();
+  const sourceIdentitiesByRoot = new Map<string, Set<string>>();
+  const find = (key: string): string => {
+    const current = parent.get(key) ?? key;
+    if (current === key) {
+      parent.set(key, key);
+      return key;
+    }
+    const root = find(current);
+    parent.set(key, root);
+    return root;
+  };
+  const union = (left: string, right: string): boolean => {
+    const leftRoot = find(left);
+    const rightRoot = find(right);
+    if (leftRoot === rightRoot) return true;
+    const leftColumns = columnIndexesByRoot.get(leftRoot) ?? new Set();
+    const rightColumns = columnIndexesByRoot.get(rightRoot) ?? new Set();
+    if ([...leftColumns].some((columnIndex) => rightColumns.has(columnIndex))) {
+      return false;
+    }
+    const identities = new Set([
+      ...(sourceIdentitiesByRoot.get(leftRoot) ?? []),
+      ...(sourceIdentitiesByRoot.get(rightRoot) ?? []),
+    ]);
+    if (identities.size > 1) return false;
+    parent.set(rightRoot, leftRoot);
+    columnIndexesByRoot.set(
+      leftRoot,
+      new Set([...leftColumns, ...rightColumns]),
+    );
+    columnIndexesByRoot.delete(rightRoot);
+    sourceIdentitiesByRoot.set(leftRoot, identities);
+    sourceIdentitiesByRoot.delete(rightRoot);
+    return true;
+  };
+
+  const occurrences: Array<{
+    key: string;
+    columnIndex: number;
+    itemIndex: number;
+    entry: BumpChartItem;
+  }> = [];
+  columns.forEach((column, columnIndex) => {
+    column.items.forEach((entry, itemIndex) => {
+      const key = occurrenceKey(columnIndex, itemIndex);
+      parent.set(key, key);
+      columnIndexesByRoot.set(key, new Set([columnIndex]));
+      const identity = sourceIdentity(entry);
+      sourceIdentitiesByRoot.set(
+        key,
+        identity == null ? new Set() : new Set([identity]),
+      );
+      occurrences.push({ key, columnIndex, itemIndex, entry });
+    });
+  });
+
+  const byLogicalId = new Map<string, string[]>();
+  for (const occurrence of occurrences) {
+    const logicalId = occurrence.entry.logicalId;
+    if (!logicalId) continue;
+    const matches = byLogicalId.get(logicalId);
+    if (matches) matches.push(occurrence.key);
+    else byLogicalId.set(logicalId, [occurrence.key]);
+  }
+  for (const matches of byLogicalId.values()) {
+    matches.slice(1).forEach((key) => union(matches[0]!, key));
+  }
+
+  const pairConnections = columns.slice(0, -1).map((column, pairIndex) => {
+    const connections = buildBumpConnections(
+      column.items,
+      columns[pairIndex + 1]!.items,
+      options,
+    );
+    return connections.flatMap((connection): BumpConnection[] => {
+      if (
+        connection.kind === 'matched' &&
+        connection.leftIndex != null &&
+        connection.rightIndex != null
+      ) {
+        const merged = union(
+          occurrenceKey(pairIndex, connection.leftIndex),
+          occurrenceKey(pairIndex + 1, connection.rightIndex),
+        );
+        if (!merged) {
+          return [
+            {
+              ...connection,
+              key: `removed:${connection.leftIndex}`,
+              kind: 'removed',
+              matchBasis: undefined,
+              rightIndex: null,
+            },
+            {
+              ...connection,
+              key: `added:${connection.rightIndex}`,
+              kind: 'added',
+              matchBasis: undefined,
+              leftIndex: null,
+            },
+          ];
+        }
+      }
+      return [connection];
+    });
+  });
+
+  if (options.bestMatchByTitle !== false) {
+    const byLabel = new Map<string, typeof occurrences>();
+    for (const occurrence of occurrences) {
+      const matches = byLabel.get(occurrence.entry.item.label);
+      if (matches) matches.push(occurrence);
+      else byLabel.set(occurrence.entry.item.label, [occurrence]);
+    }
+    for (const matches of byLabel.values()) {
+      const columnIndexes = new Set(matches.map(({ columnIndex }) => columnIndex));
+      const sourceIds = new Set(
+        matches
+          .map(({ entry }) => sourceIdentity(entry))
+          .filter((id): id is string => id != null),
+      );
+      if (columnIndexes.size !== matches.length || sourceIds.size > 1) continue;
+      matches.slice(1).forEach(({ key }) => union(matches[0]!.key, key));
+    }
+
+    const occurrencesByCurrentRoot = new Map<string, typeof occurrences>();
+    for (const occurrence of occurrences) {
+      const root = find(occurrence.key);
+      const matches = occurrencesByCurrentRoot.get(root);
+      if (matches) matches.push(occurrence);
+      else occurrencesByCurrentRoot.set(root, [occurrence]);
+    }
+    const roots = [...occurrencesByCurrentRoot.keys()];
+    const candidatesByRoot = new Map<string, Set<string>>();
+    const addCandidate = (root: string, candidate: string): void => {
+      const candidates = candidatesByRoot.get(root);
+      if (candidates) candidates.add(candidate);
+      else candidatesByRoot.set(root, new Set([candidate]));
+    };
+    for (let leftIndex = 0; leftIndex < roots.length; leftIndex += 1) {
+      const leftRoot = roots[leftIndex]!;
+      const leftMatches = occurrencesByCurrentRoot.get(leftRoot)!;
+      for (
+        let rightIndex = leftIndex + 1;
+        rightIndex < roots.length;
+        rightIndex += 1
+      ) {
+        const rightRoot = roots[rightIndex]!;
+        const rightMatches = occurrencesByCurrentRoot.get(rightRoot)!;
+        const leftColumns = new Set(
+          leftMatches.map(({ columnIndex }) => columnIndex),
+        );
+        if (
+          rightMatches.some(({ columnIndex }) => leftColumns.has(columnIndex))
+        ) {
+          continue;
+        }
+        const sourceIds = new Set(
+          [...leftMatches, ...rightMatches]
+            .map(({ entry }) => sourceIdentity(entry))
+            .filter((id): id is string => id != null),
+        );
+        if (sourceIds.size > 1) continue;
+        const hasAlternateMatch = leftMatches.some(({ entry: leftEntry }) =>
+          rightMatches.some(({ entry: rightEntry }) =>
+            alternateTitleMatches(leftEntry, rightEntry),
+          ),
+        );
+        if (hasAlternateMatch) {
+          addCandidate(leftRoot, rightRoot);
+          addCandidate(rightRoot, leftRoot);
+        }
+      }
+    }
+    for (const [root, candidates] of candidatesByRoot) {
+      if (candidates.size !== 1) continue;
+      const candidate = [...candidates][0]!;
+      const reverseCandidates = candidatesByRoot.get(candidate);
+      if (reverseCandidates?.size === 1 && reverseCandidates.has(root)) {
+        union(root, candidate);
+      }
+    }
+  }
+
+  const occurrencesByRoot = new Map<string, typeof occurrences>();
+  for (const occurrence of occurrences) {
+    const root = find(occurrence.key);
+    const matches = occurrencesByRoot.get(root);
+    if (matches) matches.push(occurrence);
+    else occurrencesByRoot.set(root, [occurrence]);
+  }
+
+  const itemIndexesByLineage = new Map<string, Array<number | null>>();
+  const lineageKeyByOccurrence = new Map<string, string>();
+  const usedLineageKeys = new Set<string>();
+  for (const matches of occurrencesByRoot.values()) {
+    matches.sort(
+      (left, right) =>
+        left.columnIndex - right.columnIndex ||
+        left.itemIndex - right.itemIndex,
+    );
+    const logicalId = matches.find(({ entry }) => entry.logicalId)?.entry.logicalId;
+    const preferredLineageKey = logicalId
+      ? `logical:${logicalId}`
+      : `occurrence:${matches[0]!.key}:${matches[0]!.entry.item.id}`;
+    const lineageKey = usedLineageKeys.has(preferredLineageKey)
+      ? `${preferredLineageKey}:${matches[0]!.key}`
+      : preferredLineageKey;
+    usedLineageKeys.add(lineageKey);
+    const itemIndexes = Array<number | null>(columns.length).fill(null);
+    for (const occurrence of matches) {
+      itemIndexes[occurrence.columnIndex] = occurrence.itemIndex;
+      lineageKeyByOccurrence.set(occurrence.key, lineageKey);
+    }
+    itemIndexesByLineage.set(lineageKey, itemIndexes);
+  }
+
+  const colors = assignTimelineColors(itemIndexesByLineage);
+  const lineages: BumpTimelineLineage[] = [];
+  const lineageByOccurrence = new Map<string, BumpTimelineLineage>();
+  for (const [key, itemIndexes] of itemIndexesByLineage) {
+    const presentColumns = itemIndexes.flatMap((itemIndex, columnIndex) =>
+      itemIndex == null ? [] : [columnIndex],
+    );
+    const gaps: BumpTimelineGap[] = [];
+    for (let index = 1; index < presentColumns.length; index += 1) {
+      const fromColumnIndex = presentColumns[index - 1]!;
+      const toColumnIndex = presentColumns[index]!;
+      if (toColumnIndex - fromColumnIndex > 1) {
+        gaps.push({
+          fromColumnIndex,
+          toColumnIndex,
+          fromItemIndex: itemIndexes[fromColumnIndex]!,
+          toItemIndex: itemIndexes[toColumnIndex]!,
+        });
+      }
+    }
+    const lineage: BumpTimelineLineage = {
+      key,
+      colorIndex: colors.get(key) ?? 0,
+      itemIndexes,
+      gaps,
+    };
+    lineages.push(lineage);
+    itemIndexes.forEach((itemIndex, columnIndex) => {
+      if (itemIndex != null) {
+        lineageByOccurrence.set(
+          occurrenceKey(columnIndex, itemIndex),
+          lineage,
+        );
+      }
+    });
+  }
+
+  const segments: BumpTimelineSegment[] = pairConnections.flatMap(
+    (connections, pairIndex) =>
+      connections.map((connection) => {
+        const occurrence =
+          connection.leftIndex != null
+            ? occurrenceKey(pairIndex, connection.leftIndex)
+            : occurrenceKey(pairIndex + 1, connection.rightIndex!);
+        const lineageKey = lineageKeyByOccurrence.get(occurrence)!;
+        return {
+          ...connection,
+          key: `${lineageKey}:segment:${pairIndex}:${connection.key}`,
+          pairIndex,
+          lineageKey,
+          colorIndex: colors.get(lineageKey) ?? 0,
+        };
+      }),
+  );
+
+  return { lineages, segments, lineageByOccurrence };
 }
 
 export function bumpRowCenterOffsets(

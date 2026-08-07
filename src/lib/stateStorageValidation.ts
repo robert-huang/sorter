@@ -49,6 +49,41 @@ export function isLegacyBumpChartWorkspace(
   );
 }
 
+export function isBumpChartColumnSnapshot(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    value.id.length > 0 &&
+    (value.kind === 'previous' || value.kind === 'current') &&
+    isLegacyBumpChartSideSnapshot(value)
+  );
+}
+
+export function isBumpChartWorkspace(value: unknown): boolean {
+  const columns = isRecord(value) ? value.columns : null;
+  if (
+    !isRecord(value) ||
+    value.version !== 2 ||
+    (value.view !== 'staging' && value.view !== 'chart') ||
+    !Array.isArray(columns) ||
+    columns.length < 2 ||
+    !columns.every(isBumpChartColumnSnapshot)
+  ) {
+    return false;
+  }
+  const ids = new Set(
+    columns.map((column) => (column as { id: string }).id),
+  );
+  return (
+    ids.size === columns.length &&
+    columns.every(
+      (column, index) =>
+        (column as { kind: string }).kind ===
+        (index === columns.length - 1 ? 'current' : 'previous'),
+    )
+  );
+}
+
 export function isLegacyBumpChartManifest(
   value: unknown,
 ): value is { version: 1; slots: unknown[] } {
