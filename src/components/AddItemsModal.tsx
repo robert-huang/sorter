@@ -746,6 +746,7 @@ export function AnilistHydrationControls({
         type="button"
         className="btn btn-sm"
         disabled={items.length === 0}
+        title="Match item names exactly against a cached AniList source to add canonical IDs, links, images, and metadata.&#013;&#013;Unmatched or ambiguous items stay unchanged."
         onClick={() => setOpen((current) => !current)}
       >
         Hydrate from cached AniList list…

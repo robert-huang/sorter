@@ -110,6 +110,10 @@ describe('AniList hydration controls', () => {
       await Promise.resolve();
     });
 
+    expect(
+      buttonByText('Hydrate from cached AniList list…').title,
+    ).toContain('Match item names exactly');
+
     await act(async () => {
       buttonByText('Hydrate from cached AniList list…').click();
       await Promise.resolve();
