@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Item } from '../../../types';
 import {
+  canRefreshAnilistItem,
   hydrateAnilistItemRecord,
   needsAnilistItemHydration,
 } from '../anilistItemHydration';
@@ -69,6 +70,9 @@ describe('persistent AniList item hydration', () => {
         id: 2,
         name_full: 'Character Name',
         name_native: '登場人物',
+        name_alternatives_json: null,
+        name_alternatives_spoiler_json: null,
+        image: null,
         gender: null,
         favourites: null,
       },
@@ -78,6 +82,7 @@ describe('persistent AniList item hydration', () => {
         id: 3,
         name_full: 'Staff Name',
         name_native: 'スタッフ',
+        image: null,
         gender: null,
         language_v2: null,
         favourites: null,
@@ -145,6 +150,9 @@ describe('persistent AniList item hydration', () => {
         id: 3,
         name_full: 'Character Name',
         name_native: '登場人物',
+        name_alternatives_json: null,
+        name_alternatives_spoiler_json: null,
+        image: null,
         gender: null,
         favourites: null,
       },
@@ -206,5 +214,127 @@ describe('persistent AniList item hydration', () => {
 
     expect(needsAnilistItemHydration(items.missing!)).toBe(true);
     expect(await hydrateAnilistItemRecord(items)).toBe(items);
+  });
+
+  it('refreshes embedded source metadata while preserving identity and custom labels', async () => {
+    saveAnilistDisplayPreferences({ mediaTitleMode: 'english' });
+    const refreshed = {
+      ...mediaRow(1, 'Correct Spacing', 'Shōjo Updated', '更新名'),
+      cover_image: 'https://s4.anilist.co/file/anilistcdn/new.jpg',
+      format: 'MOVIE' as const,
+      synonyms_json: JSON.stringify(['Former Primary Title']),
+    };
+    vi.spyOn(productionReads, 'getMediaByIds').mockResolvedValue([
+      refreshed,
+      { ...refreshed, id: 2 },
+    ]);
+    const oldSource = {
+      kind: 'media' as const,
+      titleFields: {
+        id: 1,
+        title_english: 'Former  Primary Title',
+        title_romaji: 'Shoujo Old',
+        title_native: '旧名',
+      },
+      format: 'TV' as const,
+    };
+    const automatic: Item = {
+      id: 'anilist:1',
+      label: 'Former  Primary Title',
+      source: { kind: 'anilist', externalId: 1 },
+      searchTokens: ['Former Primary Title', 'Shoujo Old', '旧名'],
+      anilistLabelSource: oldSource,
+      imageUrl: 'https://s4.anilist.co/file/anilistcdn/old.jpg',
+      anilistImageSource: 'https://s4.anilist.co/file/anilistcdn/old.jpg',
+    };
+    const custom: Item = {
+      ...automatic,
+      id: 'anilist:2',
+      label: 'My permanent title',
+      source: { kind: 'anilist', externalId: 2 },
+      anilistLabelMode: 'custom',
+      anilistLabelIncludesFormat: false,
+    };
+    const items = { automatic, custom };
+
+    expect(needsAnilistItemHydration(automatic)).toBe(false);
+    expect(canRefreshAnilistItem(automatic)).toBe(true);
+
+    const hydrated = await hydrateAnilistItemRecord(items);
+
+    expect(hydrated.automatic).toMatchObject({
+      id: 'anilist:1',
+      label: 'Correct Spacing',
+      imageUrl: 'https://s4.anilist.co/file/anilistcdn/new.jpg',
+      anilistImageSource: 'https://s4.anilist.co/file/anilistcdn/new.jpg',
+      anilistLabelSource: {
+        kind: 'media',
+        titleFields: {
+          title_english: 'Correct Spacing',
+          title_romaji: 'Shōjo Updated',
+          title_native: '更新名',
+        },
+        format: 'MOVIE',
+      },
+    });
+    expect(hydrated.automatic!.searchTokens).toEqual([
+      'Shōjo Updated',
+      'Correct Spacing',
+      '更新名',
+      'Former Primary Title',
+    ]);
+    expect(hydrated.custom).toMatchObject({
+      id: 'anilist:2',
+      label: 'My permanent title',
+      anilistLabelMode: 'custom',
+      anilistLabelSource: {
+        titleFields: { title_english: 'Correct Spacing' },
+      },
+    });
+
+    expect(await hydrateAnilistItemRecord(hydrated)).toBe(hydrated);
+  });
+
+  it('refreshes character alternatives without replacing a custom image', async () => {
+    vi.spyOn(productionReads, 'getCharactersByIds').mockResolvedValue([
+      {
+        id: 3,
+        name_full: 'Updated Name',
+        name_native: '更新名',
+        name_alternatives_json: JSON.stringify(['Former Name']),
+        name_alternatives_spoiler_json: JSON.stringify(['Hidden Alias']),
+        image: 'https://s4.anilist.co/file/anilistcdn/updated-character.jpg',
+        gender: null,
+        favourites: null,
+      },
+    ]);
+    const original: Item = {
+      id: 'anilist-character:3',
+      label: 'Old Name',
+      source: { kind: 'anilist-character', externalId: 3 },
+      searchTokens: ['Old Name'],
+      anilistLabelSource: {
+        kind: 'character',
+        nameFields: { id: 3, name_full: 'Old Name', name_native: '旧名' },
+      },
+      imageUrl: 'https://images.example/custom.jpg',
+      anilistImageSource: 'https://s4.anilist.co/file/anilistcdn/old-character.jpg',
+    };
+
+    const hydrated = await hydrateAnilistItemRecord({ character: original });
+
+    expect(hydrated.character).toMatchObject({
+      id: 'anilist-character:3',
+      label: 'Updated Name',
+      imageUrl: 'https://images.example/custom.jpg',
+      anilistImageSource:
+        'https://s4.anilist.co/file/anilistcdn/updated-character.jpg',
+    });
+    expect(hydrated.character!.searchTokens).toEqual([
+      'Updated Name',
+      '更新名',
+      'Former Name',
+      'Hidden Alias',
+    ]);
   });
 });

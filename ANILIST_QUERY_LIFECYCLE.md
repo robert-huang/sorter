@@ -148,7 +148,8 @@ The old `ToolsUserConsumedMedia`, `ToolsFavouriteCharacters`, and `ToolsFavourit
 | Left-click **Load favourites** | Always `ResolveUser` then the selected favourite page query: anime, manga, characters, staff, or studios. | Shared entities checkpoint per page; selected user favourite order/table and marker replace atomically after all pages. | Complete selected favourite pages every click. A failed run keeps the previous user ordering but retains completed shared-entity checkpoints. |
 | Right-click **Load favourites** | Same as left-click; Load is already always fresh. | Same. | Same. |
 | **Save order** | `UpdateFavouriteOrder`, sending selected type ids + ascending order. Response requests `anime.pageInfo.total`. | Patches local DB `sort_order/fetched_at`. | Only mutation response fields. |
-| **Delete selected** | One `ToggleFavourite` mutation per selected entity; response `__typename`. | Deletes those local favourite rows. | One mutation response per id. |
+| **Delete selected** | One `ToggleFavourite` mutation per selected entity; response `__typename`. | Deletes those local favourite rows and saves a tab-scoped Recently deleted snapshot. | One mutation response per id. |
+| Dismiss **Recently deleted** | None. | Rewrites the session history without buckets for the displayed username/type. Other users/types remain; a failed write preserves all history and shows a warning. | None. |
 
 Favourite studio fields are order, id, and name. Favourite anime/manga use favourite order plus favourite media metadata.
 
@@ -169,6 +170,7 @@ Favourite studio fields are order, id, and name. Favourite anime/manga use favou
 | **Use cached list** | None. | Reads DB. | None. |
 | **Refresh favourite type** | `ResolveUser`; selected `Favourite…Page` until complete. | Shared entities checkpoint per page; favourite rows/order + marker replace atomically at completion. Successful refresh requests cloud auto-push. | Complete selected favourite fields. Partial runs preserve the old favourite snapshot. |
 | **Use cached favourites** | None. | Reads DB. | None. |
+| Source DB revision while a slot is loaded | None. | Rereads source-backed items by stable AniList id, refreshes denormalized metadata, and autosaves the slot without changing logical ids or sort progress. | None. |
 | Open media modal | Paints DB immediately; if cast marker is absent/incomplete, starts media cast expansion after paint. | DB cast/profile/junction rows and markers; increments pending cloud-change count. | Missing character/staff pages only. |
 | Media modal **Refresh** | Forces cast and `MediaRelations`. | Replaces DB graph rows/markers; marks pending changes. | Full cast plus relation node metadata. |
 | Media modal theme-song button | `MediaIdMal` when required; external AniPlaylist calls are not AniList GraphQL. | DB. | id/idMal. |
@@ -178,6 +180,8 @@ Favourite studio fields are order, id, and name. Favourite anime/manga use favou
 | AniList account **Sign in** | OAuth exchange is external; then authenticated `Viewer { id name }`. | Account token/identity in local account storage, not source DB. | id/name on each completed sign-in. |
 
 `anilist:lastUsername` is updated after every successful shared-runner anime-list, manga-list, or favourites import of any type, regardless of whether Sorter, A2A, or a Tools panel started it. Successful cache-only Start/A2A selections and Adaptation Scores runs also update it. Each Tools panel persists its own username separately, so this global value does not replace another tool’s field. Non-AniList imports do not update it.
+
+Sorter slots remain authoritative denormalized saves if SQLite is unavailable. When a current row exists, refresh copies titles/names, aliases, source images, and format metadata while preserving the item's logical id, source link, rankings, progress, explicit custom label, and custom image. Older mode-less labels are classified against their previously embedded source metadata before replacement: an old generated variant refreshes as automatic, while a genuinely different label remains custom.
 
 ## Anime-to-Anime (A2A)
 

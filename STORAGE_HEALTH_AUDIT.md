@@ -29,7 +29,8 @@ The highest-priority growth paths are:
    but there are no size diagnostics, cache-row garbage collection, or
    user-facing source removal.
 7. Reorder Favourites stores full deleted snapshots in `sessionStorage` without
-   an age, count, or byte limit.
+   an automatic age, count, or byte limit. The visible username/type can now be
+   dismissed manually, but that does not bound untouched history.
 
 The general fix is to define a retention contract for every store, distinguish
 user data from disposable caches, centralize quota recovery, and make storage
@@ -301,6 +302,11 @@ and remove it if so.
 `reorder-favourites-recently-deleted` is different. Each entry contains a full
 favourites snapshot, including labels and image URLs, and each deletion prepends
 another entry. It can fill the tab's storage quota.
+
+The Recently deleted panel's dismiss action removes only buckets for its current
+username and favourite type, preserving hidden buckets for other scopes. If the
+rewrite fails, the previous history remains and the panel shows a warning. This
+is useful manual cleanup but is not an automatic retention policy.
 
 Recommended retention:
 

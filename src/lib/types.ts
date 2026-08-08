@@ -47,6 +47,11 @@ export interface Item {
   label: string;
   url?: string;
   imageUrl?: string;
+  /**
+   * Last image supplied by AniList. A differing `imageUrl` is a user edit and
+   * must not be replaced when cached source metadata refreshes.
+   */
+  anilistImageSource?: string;
   source?: ItemSource;
   /** All name/title variants for local search — independent of display mode. */
   searchTokens?: readonly string[];

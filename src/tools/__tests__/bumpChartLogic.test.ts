@@ -85,6 +85,23 @@ describe('buildBumpConnections', () => {
     ).toMatchObject([{ kind: 'matched', leftIndex: 0, rightIndex: 0 }]);
   });
 
+  it('matches the same AniList source when user-defined logical ids differ', () => {
+    expect(
+      buildBumpConnections(
+        [sourcedEntry('Old title', 154587, 'user-id-before')],
+        [sourcedEntry('New title', 154587, 'user-id-after')],
+        { bestMatchByTitle: false },
+      ),
+    ).toMatchObject([
+      {
+        kind: 'matched',
+        matchBasis: 'source-id',
+        leftIndex: 0,
+        rightIndex: 0,
+      },
+    ]);
+  });
+
   it('does not name-match two different logical entities', () => {
     expect(
       buildBumpConnections(
@@ -152,6 +169,61 @@ describe('buildBumpConnections', () => {
         ],
       },
       logicalId: 'anilist:154587',
+    };
+
+    expect(buildBumpConnections([archived], [current])).toMatchObject([
+      {
+        kind: 'matched',
+        matchBasis: 'alternate-title',
+        leftIndex: 0,
+        rightIndex: 0,
+      },
+    ]);
+  });
+
+  it('normalizes whitespace, punctuation, and case for inferred label matches', () => {
+    const archived = entry('  CURRENT—title  ', 'archived-id');
+    const current = sourcedEntry('Current Title', 440, 'anilist:440');
+
+    expect(buildBumpConnections([archived], [current])).toMatchObject([
+      {
+        kind: 'matched',
+        matchBasis: 'label',
+        leftIndex: 0,
+        rightIndex: 0,
+      },
+    ]);
+  });
+
+  it('normalizes Japanese romanization when matching source search titles', () => {
+    const archived = entry('  SHOUJO   Kakumei: Utena  ', 'archived-id');
+    const current = sourcedEntry(
+      'Shōjo Kakumei Utena',
+      440,
+      'anilist:440',
+    );
+    current.item.searchTokens = ['Shōjo Kakumei Utena'];
+
+    expect(buildBumpConnections([archived], [current])).toMatchObject([
+      {
+        kind: 'matched',
+        matchBasis: 'alternate-title',
+        leftIndex: 0,
+        rightIndex: 0,
+      },
+    ]);
+  });
+
+  it('matches a former primary title retained as a refreshed synonym', () => {
+    const archived = entry('Former  Primary—Title', 'archived-id');
+    const current: BumpChartItem = {
+      item: {
+        id: 'anilist:1',
+        label: 'Current Title',
+        source: { kind: 'anilist', externalId: 1 },
+        searchTokens: ['Current Title', 'Former Primary Title'],
+      },
+      logicalId: 'anilist:1',
     };
 
     expect(buildBumpConnections([archived], [current])).toMatchObject([
@@ -377,6 +449,26 @@ describe('buildBumpTimeline', () => {
     ]);
   });
 
+  it('keeps one lineage across a gap when only the AniList source id is stable', () => {
+    const timeline = buildBumpTimeline(
+      [
+        {
+          id: 'one',
+          items: [sourcedEntry('Old title', 1, 'custom-before')],
+        },
+        { id: 'two', items: [] },
+        {
+          id: 'three',
+          items: [sourcedEntry('New title', 1, 'custom-after')],
+        },
+      ],
+      { bestMatchByTitle: false },
+    );
+
+    expect(timeline.lineages).toHaveLength(1);
+    expect(timeline.lineages[0]?.itemIndexes).toEqual([0, null, 0]);
+  });
+
   it('never merges conflicting source identities with the same title', () => {
     const timeline = buildBumpTimeline([
       { id: 'one', items: [entry('Same', 'anilist:1')] },
@@ -546,6 +638,9 @@ describe('bump chart imports', () => {
         id: 127118,
         name_full: 'Sakura Yamauchi',
         name_native: '山内桜良',
+        name_alternatives_json: null,
+        name_alternatives_spoiler_json: null,
+        image: null,
         gender: null,
         favourites: null,
       },
@@ -573,6 +668,73 @@ describe('bump chart imports', () => {
     expect(displayBumpChartItems(hydrated, true)[0]!.item.label).toBe('山内桜良');
   });
 
+  it('refreshes metadata for already-hydrated source items without changing logical identity', async () => {
+    saveAnilistDisplayPreferences({ mediaTitleMode: 'english' });
+    vi.spyOn(productionReads, 'getMediaByIds').mockResolvedValue([
+      {
+        id: 123,
+        type: 'ANIME',
+        title_english: 'Updated English',
+        title_romaji: 'Updated Romaji',
+        title_native: '更新',
+        cover_image: null,
+        format: 'TV',
+        status: null,
+        episodes: null,
+        chapters: null,
+        start_year: null,
+        start_month: null,
+        start_day: null,
+        end_year: null,
+        end_month: null,
+        end_day: null,
+        season: null,
+        season_year: null,
+        mean_score: null,
+        favourites: null,
+        country_of_origin: null,
+        genres_json: null,
+        synonyms_json: JSON.stringify(['Archived English']),
+        fetched_at: 2,
+        updated_at: 2,
+      },
+    ]);
+    const imported = bumpItemsFromSortResults([
+      {
+        id: 'anilist:123',
+        label: 'Archived English',
+        source: { kind: 'anilist', externalId: 123 },
+        searchTokens: ['Archived English'],
+        anilistLabelSource: {
+          kind: 'media',
+          titleFields: {
+            id: 123,
+            title_english: 'Archived English',
+            title_romaji: 'Archived Romaji',
+            title_native: '旧題',
+          },
+          format: 'TV',
+        },
+      },
+    ]);
+
+    const hydrated = await hydrateBumpChartItems(imported);
+
+    expect(hydrated[0]).toMatchObject({
+      logicalId: 'anilist:123',
+      item: {
+        id: 'anilist:123',
+        label: 'Updated English',
+        searchTokens: [
+          'Updated Romaji',
+          'Updated English',
+          '更新',
+          'Archived English',
+        ],
+      },
+    });
+  });
+
   it('identifies unmatched legacy character labels as custom after hydration', async () => {
     vi.spyOn(productionReads, 'getMediaByIds').mockResolvedValue([]);
     vi.spyOn(productionReads, 'getCharactersByIds').mockResolvedValue([
@@ -580,6 +742,9 @@ describe('bump chart imports', () => {
         id: 1,
         name_full: 'Full Name',
         name_native: '原名',
+        name_alternatives_json: null,
+        name_alternatives_spoiler_json: null,
+        image: null,
         gender: null,
         favourites: null,
       },
@@ -612,6 +777,7 @@ describe('bump chart imports', () => {
         id: 2,
         name_full: 'Kana Hanazawa',
         name_native: '花澤香菜',
+        image: null,
         gender: null,
         language_v2: 'Japanese',
         favourites: null,

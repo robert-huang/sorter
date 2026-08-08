@@ -22,6 +22,7 @@ import {
   getAnilistUserById,
   getAnilistUserByName,
   getCachedAnilistUsers,
+  getCharactersByIds,
   getFavouriteEntityIdsForUsername,
   getFavouritedMediaIds,
   getFavouritesAsItems,
@@ -38,6 +39,7 @@ import {
   getMediaIdsWithDisallowedListStatus,
   getMeta,
   getStaffFilmography,
+  getStaffByIds,
   getStudiosByIds,
   getVoiceActorsForCandidates,
   hasMediaCharacters,
@@ -387,6 +389,41 @@ describe('getMediaByIds', () => {
     seedMedia(db, 1);
     const rows = await getMediaByIds(exec, []);
     expect(rows).toEqual([]);
+  });
+});
+
+describe('source item metadata reads', () => {
+  it('returns character aliases and character/staff images for hydration', async () => {
+    seedCharacter(db, 7, 'Character Name');
+    seedStaff(db, 9, 'Staff Name', 'staff.jpg');
+    db.exec(
+      `UPDATE character
+          SET name_native = ?, name_alternatives_json = ?,
+              name_alternatives_spoiler_json = ?, image = ?
+        WHERE id = ?`,
+      {
+        bind: [
+          '登場人物',
+          JSON.stringify(['Former Name']),
+          JSON.stringify(['Hidden Alias']),
+          'character.jpg',
+          7,
+        ],
+      } as never,
+    );
+
+    await expect(getCharactersByIds(exec, [7])).resolves.toMatchObject([
+      {
+        id: 7,
+        name_native: '登場人物',
+        name_alternatives_json: JSON.stringify(['Former Name']),
+        name_alternatives_spoiler_json: JSON.stringify(['Hidden Alias']),
+        image: 'character.jpg',
+      },
+    ]);
+    await expect(getStaffByIds(exec, [9])).resolves.toMatchObject([
+      { id: 9, image: 'staff.jpg' },
+    ]);
   });
 });
 

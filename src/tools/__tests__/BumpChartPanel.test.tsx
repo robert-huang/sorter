@@ -456,7 +456,7 @@ describe('BumpChartPanel staging flow', () => {
       const marker = connection.querySelector('.bump-chart-inferred-marker');
       const icon = marker?.querySelector('.bump-chart-inferred-icon');
       expect(marker?.querySelector('title')?.textContent).toBe(
-        'Inferred match from an exact label',
+        'Inferred match from a normalized label',
       );
       expect(icon?.querySelectorAll('circle')).toHaveLength(1);
       expect(icon?.querySelectorAll('line')).toHaveLength(2);
@@ -1018,7 +1018,7 @@ describe('BumpChartPanel staging flow', () => {
 
     expect(
       container.querySelectorAll(
-        '[aria-label="Inferred match from an exact label"]',
+        '[aria-label="Inferred match from a normalized label"]',
       ).length,
     ).toBe(2);
     const inferredMarkers = container.querySelectorAll<SVGGElement>(
@@ -1033,7 +1033,7 @@ describe('BumpChartPanel staging flow', () => {
     ).not.toBeNull();
     expect(inferredMarkers[0]?.querySelector('text')).toBeNull();
     expect(inferredMarkers[0]?.querySelector('title')?.textContent).toBe(
-      'Inferred match from an exact label',
+      'Inferred match from a normalized label',
     );
     expect(inferredMarkers[0]?.getAttribute('tabindex')).toBe('0');
     const connections = container.querySelectorAll<SVGGElement>(

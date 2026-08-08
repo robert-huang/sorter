@@ -1,10 +1,14 @@
 import type { AnilistItemLabelSource, Item } from '../../types';
 import {
   isCustomAnilistItemLabel,
+  relabelAnilistItem,
   relabelAnilistItemPreservingFormat,
   resolveCachedAnilistMediaItem,
 } from './anilistItemLabel';
-import { personNameSearchParts } from './personDisplayLabel';
+import {
+  characterNameSearchParts,
+  personNameSearchParts,
+} from './personDisplayLabel';
 import { productionReads } from './readQueries';
 
 const ANILIST_STUDIO_ID_PREFIX = 'anilist-studios:';
@@ -25,9 +29,11 @@ export function anilistStudioExternalId(item: Item): number | null {
 }
 
 export function needsAnilistItemHydration(item: Item): boolean {
-  if (item.anilistLabelSource) {
-    return false;
-  }
+  return canRefreshAnilistItem(item) && !item.anilistLabelSource;
+}
+
+/** AniList identity is stable; cached metadata for it may change. */
+export function canRefreshAnilistItem(item: Item): boolean {
   return (
     item.source?.kind === 'anilist' ||
     item.source?.kind === 'anilist-character' ||
@@ -36,48 +42,126 @@ export function needsAnilistItemHydration(item: Item): boolean {
   );
 }
 
+function sameStringArray(
+  left: readonly string[] | undefined,
+  right: readonly string[] | undefined,
+): boolean {
+  if (left === right) return true;
+  if (!left || !right || left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
+}
+
+function sameHydratedMetadata(left: Item, right: Item): boolean {
+  return (
+    left.id === right.id &&
+    left.label === right.label &&
+    left.url === right.url &&
+    left.imageUrl === right.imageUrl &&
+    left.anilistImageSource === right.anilistImageSource &&
+    left.source === right.source &&
+    sameStringArray(left.searchTokens, right.searchTokens) &&
+    JSON.stringify(left.anilistLabelSource) ===
+      JSON.stringify(right.anilistLabelSource) &&
+    left.anilistLabelMode === right.anilistLabelMode &&
+    left.anilistLabelIncludesFormat === right.anilistLabelIncludesFormat
+  );
+}
+
+function automaticLabelIncludedFormat(item: Item): boolean | undefined {
+  if (item.anilistLabelIncludesFormat !== undefined) {
+    return item.anilistLabelIncludesFormat;
+  }
+  const source = item.anilistLabelSource;
+  return source?.kind === 'media' && source.format != null
+    ? item.label.endsWith(` (${source.format})`)
+    : undefined;
+}
+
+function isAnilistCdnImageUrl(value: string | undefined): boolean {
+  if (!value) return false;
+  try {
+    return new URL(value).hostname === 's4.anilist.co';
+  } catch {
+    return false;
+  }
+}
+
+function refreshSourceImage(item: Item, sourceImage: string | null): Item {
+  if (!sourceImage) {
+    return item;
+  }
+  const usesSourceImage =
+    item.anilistImageSource !== undefined
+      ? item.imageUrl === item.anilistImageSource
+      : item.imageUrl == null || isAnilistCdnImageUrl(item.imageUrl);
+  return {
+    ...item,
+    ...(usesSourceImage ? { imageUrl: sourceImage } : {}),
+    anilistImageSource: sourceImage,
+  };
+}
+
 function finishSourceHydration<T extends AnilistItemHydrationEntry>(
   entry: T,
   resolved: Item,
 ): T {
-  if (!entry.inferLegacyCustomLabel) {
-    return {
-      ...entry,
-      item:
-        resolved.anilistLabelMode === 'custom'
-          ? resolved
-          : relabelAnilistItemPreservingFormat(resolved, true),
-    };
+  const original = entry.item;
+  let preserveCustomLabel = original.anilistLabelMode === 'custom';
+  if (
+    !preserveCustomLabel &&
+    original.anilistLabelMode !== 'automatic' &&
+    original.anilistLabelSource
+  ) {
+    preserveCustomLabel = isCustomAnilistItemLabel(original);
+  }
+  if (
+    !preserveCustomLabel &&
+    entry.inferLegacyCustomLabel &&
+    !original.anilistLabelSource
+  ) {
+    preserveCustomLabel = isCustomAnilistItemLabel({
+      ...resolved,
+      label: original.label,
+    });
   }
 
-  const candidate = { ...resolved, label: entry.item.label };
-  if (isCustomAnilistItemLabel(candidate)) {
-    const source = candidate.anilistLabelSource;
-    const includesFormat =
-      candidate.anilistLabelIncludesFormat ??
-      (source?.kind === 'media' && source.format != null
-        ? candidate.label.endsWith(` (${source.format})`)
-        : undefined);
-    return {
-      ...entry,
-      item: {
-        ...candidate,
-        anilistLabelMode: 'custom',
-        ...(includesFormat === undefined
-          ? {}
-          : { anilistLabelIncludesFormat: includesFormat }),
-      },
+  const resolvedSource = resolved.anilistLabelSource;
+  const includesFormat =
+    automaticLabelIncludedFormat(original) ??
+    (resolvedSource?.kind === 'media' && resolvedSource.format != null
+      ? original.label.endsWith(` (${resolvedSource.format})`)
+      : undefined);
+  let next: Item;
+  if (preserveCustomLabel) {
+    next = {
+      ...resolved,
+      label: original.label,
+      anilistLabelMode: 'custom',
+      ...(includesFormat === undefined
+        ? {}
+        : { anilistLabelIncludesFormat: includesFormat }),
     };
+  } else if (resolvedSource?.kind === 'media') {
+    next = relabelAnilistItem(resolved, includesFormat ?? false, true);
+  } else {
+    next = relabelAnilistItemPreservingFormat(resolved, true);
   }
   return {
     ...entry,
-    item: relabelAnilistItemPreservingFormat(candidate, true),
+    item: sameHydratedMetadata(original, next) ? original : next,
   };
 }
 
 function hydratePersonEntry<T extends AnilistItemHydrationEntry>(
   entry: T,
-  row: { id: number; name_full: string | null; name_native: string | null },
+  row: {
+    id: number;
+    name_full: string | null;
+    name_native: string | null;
+    name_alternatives_json?: string | null;
+    name_alternatives_spoiler_json?: string | null;
+    image?: string | null;
+  },
   kind: 'character' | 'person',
 ): T {
   const nameFields = {
@@ -90,11 +174,18 @@ function hydratePersonEntry<T extends AnilistItemHydrationEntry>(
     nameFields,
     fallbackLabel: kind === 'character' ? 'Character' : 'Staff',
   };
-  return finishSourceHydration(entry, {
+  const resolved: Item = {
     ...entry.item,
     anilistLabelSource,
-    searchTokens: personNameSearchParts(nameFields),
-  });
+    searchTokens:
+      kind === 'character'
+        ? characterNameSearchParts(row)
+        : personNameSearchParts(nameFields),
+  };
+  return finishSourceHydration(
+    entry,
+    refreshSourceImage(resolved, row.image ?? null),
+  );
 }
 
 async function readRowsInChunks<T>(
@@ -109,35 +200,33 @@ async function readRowsInChunks<T>(
   return (await Promise.all(reads)).flat();
 }
 
-/** Attach cached title/name metadata while preserving legacy manual labels. */
+/** Refresh cached title/name metadata while preserving user-owned fields. */
 export async function hydrateAnilistItemEntries<
   T extends AnilistItemHydrationEntry,
 >(entries: readonly T[]): Promise<T[]> {
   const mediaIds = entries
     .map(({ item }) =>
-      item.source?.kind === 'anilist' && !item.anilistLabelSource
+      item.source?.kind === 'anilist'
         ? item.source.externalId
         : null,
     )
     .filter((id): id is number => id != null);
   const characterIds = entries
     .map(({ item }) =>
-      item.source?.kind === 'anilist-character' && !item.anilistLabelSource
+      item.source?.kind === 'anilist-character'
         ? item.source.externalId
         : null,
     )
     .filter((id): id is number => id != null);
   const staffIds = entries
     .map(({ item }) =>
-      item.source?.kind === 'anilist-staff' && !item.anilistLabelSource
+      item.source?.kind === 'anilist-staff'
         ? item.source.externalId
         : null,
     )
     .filter((id): id is number => id != null);
   const studioIds = entries
-    .map(({ item }) =>
-      !item.anilistLabelSource ? anilistStudioExternalId(item) : null,
-    )
+    .map(({ item }) => anilistStudioExternalId(item))
     .filter((id): id is number => id != null);
   if (
     mediaIds.length === 0 &&
@@ -166,9 +255,6 @@ export async function hydrateAnilistItemEntries<
     const staffById = new Map(staffRows.map((row) => [row.id, row]));
     const studiosById = new Map(studioRows.map((row) => [row.id, row]));
     return entries.map((entry) => {
-      if (entry.item.anilistLabelSource) {
-        return entry;
-      }
       const studioId = anilistStudioExternalId(entry.item);
       if (studioId != null) {
         const row = studiosById.get(studioId);
@@ -186,10 +272,10 @@ export async function hydrateAnilistItemEntries<
         const row = mediaById.get(source.externalId);
         if (!row) return entry;
         const resolved = resolveCachedAnilistMediaItem(entry.item, row);
-        return finishSourceHydration(entry, {
-          ...resolved,
-          imageUrl: resolved.imageUrl ?? row.cover_image ?? undefined,
-        });
+        return finishSourceHydration(
+          entry,
+          refreshSourceImage(resolved, row.cover_image),
+        );
       }
       if (source.kind === 'anilist-character') {
         const row = charactersById.get(source.externalId);
@@ -207,7 +293,7 @@ export async function hydrateAnilistItemEntries<
   }
 }
 
-/** Repair a loaded slot's item dictionary without rebuilding it on a no-op. */
+/** Refresh a loaded slot's item dictionary without rebuilding it on a no-op. */
 export async function hydrateAnilistItemRecord(
   items: Record<string, Item>,
 ): Promise<Record<string, Item>> {
@@ -217,7 +303,8 @@ export async function hydrateAnilistItemRecord(
       key,
       item,
       inferLegacyCustomLabel:
-        needsAnilistItemHydration(item) &&
+        !item.anilistLabelSource &&
+        canRefreshAnilistItem(item) &&
         item.anilistLabelMode !== 'automatic',
     })),
   );

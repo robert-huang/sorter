@@ -777,7 +777,7 @@ function InferredMatchMarker({
   const description =
     connection.matchBasis === 'alternate-title'
       ? 'Inferred match from an AniList title variant'
-      : 'Inferred match from an exact label';
+      : 'Inferred match from a normalized label';
   return (
     <g
       className="bump-chart-inferred-marker"
@@ -1942,6 +1942,7 @@ function BumpChart({
                     />
                   )}
                   {connection.matchBasis !== 'logical-id' &&
+                    connection.matchBasis !== 'source-id' &&
                     connection.matchBasis != null &&
                     leftY != null &&
                     rightY != null && (

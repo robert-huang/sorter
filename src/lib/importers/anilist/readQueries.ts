@@ -1232,13 +1232,17 @@ export async function getCharactersByIds(
     id: number;
     name_full: string | null;
     name_native: string | null;
+    name_alternatives_json: string | null;
+    name_alternatives_spoiler_json: string | null;
+    image: string | null;
     gender: string | null;
     favourites: number | null;
   }>
 > {
   if (ids.length === 0) return [];
   const sql = `
-    SELECT id, name_full, name_native, gender, favourites
+    SELECT id, name_full, name_native, name_alternatives_json,
+           name_alternatives_spoiler_json, image, gender, favourites
       FROM character
      WHERE id IN (${placeholders(ids.length)})
   `;
@@ -1247,6 +1251,9 @@ export async function getCharactersByIds(
     id: reqN(r.id),
     name_full: s(r.name_full),
     name_native: s(r.name_native),
+    name_alternatives_json: s(r.name_alternatives_json),
+    name_alternatives_spoiler_json: s(r.name_alternatives_spoiler_json),
+    image: s(r.image),
     gender: s(r.gender),
     favourites: r.favourites === null || r.favourites === undefined ? null : reqN(r.favourites),
   }));
@@ -1265,6 +1272,7 @@ export async function getStaffByIds(
     id: number;
     name_full: string | null;
     name_native: string | null;
+    image: string | null;
     gender: string | null;
     language_v2: string | null;
     favourites: number | null;
@@ -1272,7 +1280,7 @@ export async function getStaffByIds(
 > {
   if (ids.length === 0) return [];
   const sql = `
-    SELECT id, name_full, name_native, gender, language_v2, favourites
+    SELECT id, name_full, name_native, image, gender, language_v2, favourites
       FROM staff
      WHERE id IN (${placeholders(ids.length)})
   `;
@@ -1281,6 +1289,7 @@ export async function getStaffByIds(
     id: reqN(r.id),
     name_full: s(r.name_full),
     name_native: s(r.name_native),
+    image: s(r.image),
     gender: s(r.gender),
     language_v2: s(r.language_v2),
     favourites: r.favourites === null || r.favourites === undefined ? null : reqN(r.favourites),

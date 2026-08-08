@@ -7,7 +7,7 @@ This inventory describes where the app stores data and why. For when data is ref
 | Storage | Location | What belongs there |
 |---|---|---|
 | React state / in-memory maps | Current tab's memory | Render state, session memos, prepared Spotify matching indexes, and other data that can disappear on reload |
-| `sessionStorage` | Current browser tab | Per-tab writer identity and temporary OAuth state |
+| `sessionStorage` | Current browser tab | Per-tab writer identity, temporary OAuth state, and Reorder Favourites' Recently deleted history |
 | `localStorage` | Browser, shared by tabs on the same origin | Small settings, active IDs, migration/revision markers, OAuth credentials, tool forms, and a few TTL caches |
 | IndexedDB | Browser, shared by tabs on the same origin | Sorter slot payloads/manifests, Bump Chart workspaces/manifests, Spotify playlist metadata, and reusable Spotify track-to-ISRC records |
 | SQLite/WASM in OPFS | Browser's Origin Private File System | Durable AniList source data: media, lists, favourites, cast, staff, relations, theme songs, and completion markers |
@@ -223,8 +223,9 @@ It stores:
 
 - `sorter:state-writer-id:v1` for cross-tab revision attribution
 - temporary OAuth nonce/PKCE state where a flow only needs it for the current tab
+- `reorder-favourites-recently-deleted`, containing deleted-favourite snapshots grouped by username and favourite type
 
-It is not used for durable caches.
+The Recently deleted panel can dismiss the displayed username/type's buckets without deleting hidden history for other users/types. A failed rewrite leaves the prior history intact and surfaces a warning. This history is intentionally tab-scoped and disappears with the tab session; `sessionStorage` is not used for cross-session durable caches.
 
 ## In-memory storage
 

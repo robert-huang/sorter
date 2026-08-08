@@ -175,8 +175,8 @@ import { configureAnilistRunnerHooks } from './lib/importers/anilist/runners';
 import { subscribeAnilistDisplayPreferences } from './lib/importers/anilist/displayPreferences';
 import { relabelAnilistItemPreservingFormat } from './lib/importers/anilist/anilistItemLabel';
 import {
+  canRefreshAnilistItem,
   hydrateAnilistItemRecord,
-  needsAnilistItemHydration,
 } from './lib/importers/anilist/anilistItemHydration';
 import {
   AnilistDetailModalStack,
@@ -1986,10 +1986,10 @@ export function App() {
     };
   }, [onDbPushSource]);
 
-  const unresolvedAnilistItemKeys = useMemo(() => {
+  const refreshableAnilistItemKeys = useMemo(() => {
     if (!state) return [];
     return Object.entries(state.items)
-      .filter(([, item]) => needsAnilistItemHydration(item))
+      .filter(([, item]) => canRefreshAnilistItem(item))
       .map(([key]) => key)
       .sort();
   }, [state?.items]);
@@ -1997,10 +1997,11 @@ export function App() {
   // CSV AniList URL matching can identify an item before the asynchronous
   // source database is consulted. Resolve media titles, character/staff names,
   // and source-less studio labels at the active session boundary so they use
-  // the same live language switching as native AniList imports. This also
-  // upgrades and autosaves older slots when they are loaded against a cache.
+  // the same live language switching as native AniList imports. Re-read every
+  // source-backed item after a database revision so refreshed source metadata
+  // propagates into saved slots, not just items that have never been hydrated.
   useEffect(() => {
-    if (!state || unresolvedAnilistItemKeys.length === 0) return;
+    if (!state || refreshableAnilistItemKeys.length === 0) return;
 
     let cancelled = false;
     const sourceItems = state.items;
@@ -2009,7 +2010,7 @@ export function App() {
       setState((cur) => {
         if (!cur) return cur;
         let items = cur.items;
-        for (const key of unresolvedAnilistItemKeys) {
+        for (const key of refreshableAnilistItemKeys) {
           const original = sourceItems[key];
           const hydrated = hydratedItems[key];
           if (
@@ -2031,7 +2032,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [dbSyncRevision, state?.items, unresolvedAnilistItemKeys]);
+  }, [dbSyncRevision, state?.items, refreshableAnilistItemKeys]);
 
   // Relabel the in-memory engine items whenever the AniList display
   // preferences change (title language / name mode), so an in-progress

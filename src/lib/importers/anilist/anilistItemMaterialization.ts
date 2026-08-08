@@ -55,6 +55,7 @@ export function mediaRowToItem(
     anilistLabelSource: mediaLabelSourceFromRow(media),
     url: buildAnilistMediaUrl(media.type, media.id),
     imageUrl: media.cover_image ?? undefined,
+    anilistImageSource: media.cover_image ?? undefined,
     source: { kind: 'anilist', externalId: media.id },
   };
 }
@@ -87,6 +88,7 @@ export function favouriteAsItemToItem(
       label: favouriteMediaLabel(favourite, includeFormatInLabel),
       url,
       imageUrl: favourite.imageUrl ?? undefined,
+      anilistImageSource: favourite.imageUrl ?? undefined,
       source: { kind: 'anilist', externalId: favourite.externalId },
       searchTokens: favourite.searchTokens,
       anilistLabelSource: favourite.anilistLabelSource,
@@ -100,6 +102,7 @@ export function favouriteAsItemToItem(
         : favourite.label,
       url,
       imageUrl: favourite.imageUrl ?? undefined,
+      anilistImageSource: favourite.imageUrl ?? undefined,
       source: {
         kind: 'anilist-character',
         externalId: favourite.externalId,
@@ -116,6 +119,7 @@ export function favouriteAsItemToItem(
         : favourite.label,
       url,
       imageUrl: favourite.imageUrl ?? undefined,
+      anilistImageSource: favourite.imageUrl ?? undefined,
       source: { kind: 'anilist-staff', externalId: favourite.externalId },
       searchTokens: favourite.searchTokens,
       anilistLabelSource: favourite.anilistLabelSource,
@@ -126,6 +130,7 @@ export function favouriteAsItemToItem(
     label: favourite.label,
     url,
     imageUrl: favourite.imageUrl ?? undefined,
+    anilistImageSource: favourite.imageUrl ?? undefined,
     searchTokens: favourite.searchTokens,
     anilistLabelSource: favourite.anilistLabelSource,
   };

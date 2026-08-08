@@ -8,6 +8,7 @@ import {
   anilistStudioExternalId,
   hydrateAnilistItemEntries,
 } from '../../lib/importers/anilist/anilistItemHydration';
+import { foldJapaneseRomanization } from '../../lib/importers/anilist/themeSongs/themeSongMatching';
 import type { Item } from '../../lib/types';
 
 export type BumpChartItem = {
@@ -21,7 +22,7 @@ export type BumpChartItem = {
 export type BumpConnection = {
   key: string;
   kind: 'matched' | 'removed' | 'added';
-  matchBasis?: 'logical-id' | 'label' | 'alternate-title';
+  matchBasis?: 'logical-id' | 'source-id' | 'label' | 'alternate-title';
   leftIndex: number | null;
   rightIndex: number | null;
   colorIndex: number;
@@ -261,13 +262,53 @@ function canInferSameItem(
   return !hasConflictingSourceIdentities(leftEntry, rightEntry);
 }
 
+function inferredTitleKey(value: string): string {
+  return value
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .normalize('NFKC')
+    .toLocaleLowerCase()
+    .replace(/[\p{P}\p{S}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function inferredSearchTitleMatches(left: string, right: string): boolean {
+  const leftKey = inferredTitleKey(left);
+  const rightKey = inferredTitleKey(right);
+  if (!leftKey || !rightKey) {
+    return false;
+  }
+  return (
+    leftKey === rightKey ||
+    foldJapaneseRomanization(leftKey) === foldJapaneseRomanization(rightKey)
+  );
+}
+
+function inferredLabelsMatch(
+  leftEntry: BumpChartItem,
+  rightEntry: BumpChartItem,
+): boolean {
+  const left = inferredTitleKey(leftEntry.item.label);
+  return left.length > 0 && left === inferredTitleKey(rightEntry.item.label);
+}
+
 function alternateTitleMatches(
   leftEntry: BumpChartItem,
   rightEntry: BumpChartItem,
 ): boolean {
+  const leftLabel = inferredTitleKey(leftEntry.item.label);
+  const rightLabel = inferredTitleKey(rightEntry.item.label);
   return (
-    leftEntry.item.searchTokens?.includes(rightEntry.item.label) === true ||
-    rightEntry.item.searchTokens?.includes(leftEntry.item.label) === true
+    (rightLabel.length > 0 &&
+      leftEntry.item.searchTokens?.some(
+        (title) => inferredSearchTitleMatches(title, rightEntry.item.label),
+      )) ||
+    (leftLabel.length > 0 &&
+      rightEntry.item.searchTokens?.some(
+        (title) => inferredSearchTitleMatches(title, leftEntry.item.label),
+      )) ||
+    false
   );
 }
 
@@ -318,7 +359,7 @@ function assignUniqueInferredMatches(
 }
 
 /**
- * Match stable logical ids first, then optionally infer unique title matches.
+ * Match stable logical and upstream source ids before inferring unique titles.
  * Two conflicting source identities are never collapsed solely by title.
  */
 export function buildBumpConnections(
@@ -356,6 +397,32 @@ export function buildBumpConnections(
     }
   }
 
+  const rightBySourceId = new Map<string, number[]>();
+  right.forEach((entry, index) => {
+    const identity = sourceIdentity(entry);
+    if (identity) {
+      appendIndex(rightBySourceId, identity, index);
+    }
+  });
+  for (let leftIndex = 0; leftIndex < left.length; leftIndex += 1) {
+    if (matchedRightByLeft.has(leftIndex)) {
+      continue;
+    }
+    const identity = sourceIdentity(left[leftIndex]!);
+    if (!identity) {
+      continue;
+    }
+    const rightIndex = takeFirstUnused(
+      rightBySourceId.get(identity),
+      usedRight,
+    );
+    if (rightIndex != null) {
+      matchedRightByLeft.set(leftIndex, rightIndex);
+      matchBasisByLeft.set(leftIndex, 'source-id');
+      usedRight.add(rightIndex);
+    }
+  }
+
   if (bestMatchByTitle) {
     // Prefer bridging a source-backed item to a manual/auto-id item.
     assignUniqueInferredMatches(
@@ -367,7 +434,7 @@ export function buildBumpConnections(
       'label',
       (leftEntry, rightEntry) =>
         hasSourceIdentity(leftEntry) !== hasSourceIdentity(rightEntry) &&
-        leftEntry.item.label === rightEntry.item.label,
+        inferredLabelsMatch(leftEntry, rightEntry),
     );
 
     // Remaining non-source items may carry different auto-assigned ids.
@@ -380,7 +447,7 @@ export function buildBumpConnections(
       'label',
       (leftEntry, rightEntry) =>
         canInferSameItem(leftEntry, rightEntry) &&
-        leftEntry.item.label === rightEntry.item.label,
+        inferredLabelsMatch(leftEntry, rightEntry),
     );
 
     assignUniqueInferredMatches(
@@ -606,6 +673,18 @@ export function buildBumpTimeline(
     matches.slice(1).forEach((key) => union(matches[0]!, key));
   }
 
+  const bySourceId = new Map<string, string[]>();
+  for (const occurrence of occurrences) {
+    const identity = sourceIdentity(occurrence.entry);
+    if (!identity) continue;
+    const matches = bySourceId.get(identity);
+    if (matches) matches.push(occurrence.key);
+    else bySourceId.set(identity, [occurrence.key]);
+  }
+  for (const matches of bySourceId.values()) {
+    matches.slice(1).forEach((key) => union(matches[0]!, key));
+  }
+
   const pairConnections = columns.slice(0, -1).map((column, pairIndex) => {
     const connections = buildBumpConnections(
       column.items,
@@ -648,9 +727,11 @@ export function buildBumpTimeline(
   if (options.bestMatchByTitle !== false) {
     const byLabel = new Map<string, typeof occurrences>();
     for (const occurrence of occurrences) {
-      const matches = byLabel.get(occurrence.entry.item.label);
+      const labelKey = inferredTitleKey(occurrence.entry.item.label);
+      if (!labelKey) continue;
+      const matches = byLabel.get(labelKey);
       if (matches) matches.push(occurrence);
-      else byLabel.set(occurrence.entry.item.label, [occurrence]);
+      else byLabel.set(labelKey, [occurrence]);
     }
     for (const matches of byLabel.values()) {
       const columnIndexes = new Set(matches.map(({ columnIndex }) => columnIndex));
