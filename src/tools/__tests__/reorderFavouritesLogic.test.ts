@@ -11,6 +11,7 @@ import {
   dragInsertIndexForChipPointer,
   dragInsertIndexFromPointer,
   chipInsertSideFromPointer,
+  dismissRecentlyDeletedBuckets,
   dragPayloadIds,
   EMPTY_SELECT_RANK_STATE,
   favouriteResultCandidateIds,
@@ -145,6 +146,50 @@ describe('recently deleted persistence', () => {
 
     expect(result.buckets.map((bucket) => bucket.deletedAt)).toEqual([3, 2, 1]);
     expect(result.droppedBucketCount).toBe(0);
+  });
+
+  it('dismisses only the visible username and favourite type history', () => {
+    saveRecentlyDeletedBuckets([
+      deletedBucket(3),
+      { ...deletedBucket(2), favouriteType: 'MANGA' },
+      { ...deletedBucket(1), username: 'someone-else' },
+    ]);
+
+    const result = dismissRecentlyDeletedBuckets('TESTER', 'ANIME');
+
+    expect(result.persisted).toBe(true);
+    expect(result.buckets.map((bucket) => bucket.deletedAt)).toEqual([2, 1]);
+    expect(loadRecentlyDeletedBuckets()).toEqual(result.buckets);
+  });
+
+  it('removes the session key when dismissing the last history', () => {
+    saveRecentlyDeletedBuckets([deletedBucket(1)]);
+
+    const result = dismissRecentlyDeletedBuckets('tester', 'ANIME');
+
+    expect(result).toEqual({ buckets: [], persisted: true });
+    expect(
+      sessionStorage.getItem(REORDER_FAVOURITES_RECENTLY_DELETED_KEY),
+    ).toBeNull();
+  });
+
+  it('preserves history when session storage refuses the dismissal', () => {
+    const existing = [deletedBucket(1)];
+    saveRecentlyDeletedBuckets(existing);
+    const removeItem = vi
+      .spyOn(Storage.prototype, 'removeItem')
+      .mockImplementation(() => {
+        throw new DOMException('Storage unavailable', 'SecurityError');
+      });
+    try {
+      expect(dismissRecentlyDeletedBuckets('tester', 'ANIME')).toEqual({
+        buckets: existing,
+        persisted: false,
+      });
+      expect(loadRecentlyDeletedBuckets()).toEqual(existing);
+    } finally {
+      removeItem.mockRestore();
+    }
   });
 });
 

@@ -7510,8 +7510,16 @@ a:where(.anime-to-anime-anilist-link):visited {
   border-top: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
 }
 
+.tool-reorder-favourites-recently-deleted-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
 .tool-reorder-favourites-recently-deleted-title {
-  margin: 0 0 8px;
+  margin: 0;
   font-size: 1rem;
 }
 
@@ -7532,6 +7540,10 @@ a:where(.anime-to-anime-anilist-link):visited {
   padding: 0;
   list-style: none;
   font-size: 0.875rem;
+}
+
+.tool-reorder-favourites-recently-deleted-names li {
+  padding-top: 6px;
 }
 
 .tool-reorder-favourites-recently-deleted-names .tool-entity-btn {

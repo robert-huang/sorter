@@ -3,8 +3,13 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   RecentlyDeletedEntity,
+  ReorderFavouritesPanel,
 } from '../panels/ReorderFavouritesPanel';
-import type { FavouriteListItem } from '../panels/reorderFavouritesLogic';
+import {
+  REORDER_FAVOURITES_RECENTLY_DELETED_KEY,
+  saveRecentlyDeletedBuckets,
+  type FavouriteListItem,
+} from '../panels/reorderFavouritesLogic';
 
 let container: HTMLDivElement;
 let root: Root;
@@ -15,6 +20,8 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  localStorage.clear();
+  sessionStorage.clear();
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -144,4 +151,45 @@ describe('recently deleted entity links', () => {
       expectNativeLinkInteractions(link);
     },
   );
+});
+
+describe('recently deleted history', () => {
+  it('uses the existing dismiss icon style and clears the visible session history', () => {
+    localStorage.setItem(
+      'anime-tools-reorder-favourites-form',
+      JSON.stringify({ username: 'tester', favouriteType: 'ANIME' }),
+    );
+    saveRecentlyDeletedBuckets([
+      {
+        username: 'tester',
+        favouriteType: 'ANIME',
+        items: [item('Deleted anime')],
+        deletedAt: 1,
+      },
+    ]);
+    act(() => {
+      root.render(
+        <ReorderFavouritesPanel
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+          dbSyncRevision={0}
+        />,
+      );
+    });
+
+    const dismiss = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Dismiss recently deleted history"]',
+    );
+    expect(dismiss?.classList).toContain('x-button');
+    expect(dismiss?.querySelector('svg')).not.toBeNull();
+
+    act(() => dismiss?.click());
+
+    expect(
+      container.querySelector('.tool-reorder-favourites-recently-deleted'),
+    ).toBeNull();
+    expect(
+      sessionStorage.getItem(REORDER_FAVOURITES_RECENTLY_DELETED_KEY),
+    ).toBeNull();
+  });
 });

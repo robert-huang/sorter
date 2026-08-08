@@ -263,6 +263,32 @@ export function appendRecentlyDeleted(
   return saveRecentlyDeletedBuckets([bucket, ...existing]);
 }
 
+export function dismissRecentlyDeletedBuckets(
+  username: string,
+  favouriteType: AnilistFavouriteType,
+): { buckets: RecentlyDeletedBucket[]; persisted: boolean } {
+  const existing = loadRecentlyDeletedBuckets();
+  const normalizedUsername = username.trim().toLowerCase();
+  const retained = existing.filter(
+    (bucket) =>
+      bucket.username.toLowerCase() !== normalizedUsername ||
+      bucket.favouriteType !== favouriteType,
+  );
+  try {
+    if (retained.length === 0) {
+      sessionStorage.removeItem(REORDER_FAVOURITES_RECENTLY_DELETED_KEY);
+    } else {
+      sessionStorage.setItem(
+        REORDER_FAVOURITES_RECENTLY_DELETED_KEY,
+        JSON.stringify(retained),
+      );
+    }
+    return { buckets: retained, persisted: true };
+  } catch {
+    return { buckets: existing, persisted: false };
+  }
+}
+
 /** Merge pinned prefix, explicit rank picks, then remaining items in prior order. */
 export function applySelectRankOrder(
   items: readonly FavouriteListItem[],

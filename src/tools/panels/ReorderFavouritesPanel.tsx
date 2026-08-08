@@ -43,6 +43,7 @@ import {
   applySelectRankOrder,
   appendRecentlyDeleted,
   DEFAULT_REORDER_FAVOURITES_FORM,
+  dismissRecentlyDeletedBuckets,
   dragInsertIndexFromDomPoint,
   dragPayloadIds,
   EMPTY_SELECT_RANK_STATE,
@@ -594,6 +595,21 @@ export function ReorderFavouritesPanel(props: ToolPanelProps) {
     setSelected(new Set());
   }, []);
 
+  const onDismissRecentlyDeleted = useCallback(() => {
+    const result = dismissRecentlyDeletedBuckets(
+      form.username,
+      form.favouriteType,
+    );
+    if (!result.persisted) {
+      setHistoryStorageWarning(
+        'Recently deleted could not be dismissed because this tab’s storage is unavailable.',
+      );
+      return;
+    }
+    setRecentlyDeleted([]);
+    setHistoryStorageWarning(null);
+  }, [form.favouriteType, form.username]);
+
   const onSelectRankClick = useCallback(
     (index: number, shiftKey: boolean) => {
       setSelectRankState((prev) => handleSelectRankClick(items, index, shiftKey, prev));
@@ -1034,9 +1050,20 @@ export function ReorderFavouritesPanel(props: ToolPanelProps) {
 
       {recentlyDeleted.length > 0 && (
         <section className="tool-reorder-favourites-recently-deleted">
-          <h3 className="tool-reorder-favourites-recently-deleted-title">
-            Recently deleted (this tab)
-          </h3>
+          <div className="tool-reorder-favourites-recently-deleted-heading">
+            <h3 className="tool-reorder-favourites-recently-deleted-title">
+              Recently deleted (this tab)
+            </h3>
+            <button
+              type="button"
+              className="x-button"
+              onClick={onDismissRecentlyDeleted}
+              aria-label="Dismiss recently deleted history"
+              title="Dismiss recently deleted history"
+            >
+              <RemoveGlyph size={12} />
+            </button>
+          </div>
           {recentlyDeleted.map((bucket) => (
             <div key={bucket.deletedAt} className="tool-reorder-favourites-recently-deleted-batch">
               <p className="tool-reorder-favourites-recently-deleted-meta">
