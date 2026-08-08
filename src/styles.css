@@ -2303,6 +2303,33 @@ html {
 
 /* ---------- Cloud library modal ---------- */
 
+.cloud-library-sort-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 8px;
+}
+
+.cloud-library-sort-label {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.cloud-library-sort-fields {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.cloud-library-sort-fields .btn.active {
+  border-color: var(--accent);
+  color: var(--accent-strong, var(--accent));
+}
+
+.cloud-library-sort-direction {
+  min-width: 112px;
+}
+
 .cloud-library-list {
   list-style: none;
   margin: 8px 0 16px;

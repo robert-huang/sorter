@@ -42,6 +42,7 @@ import {
   autosaveBlobsEqual,
   parseSlotBlobRaw,
   isHarmlessCrossTabSlotBlobWrite,
+  unlinkCloudSlot,
   updateSlotMeta,
 } from '../storage';
 import {
@@ -198,6 +199,42 @@ describe('createSlot', () => {
     expect(readSlotBlob(meta.id)).not.toBeNull();
     // No eviction when we're well below the cap.
     expect(evicted).toEqual([]);
+  });
+
+  it('uses UUID v4 ids for newly created slots', () => {
+    const meta = mintSlot(makeBlob(), 'UUID slot');
+    expect(meta.id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+  });
+
+  it('retries if the generated UUID already exists locally', () => {
+    type RandomUuid = ReturnType<Crypto['randomUUID']>;
+    const firstId =
+      '00000000-0000-4000-8000-000000000001' as RandomUuid;
+    const secondId =
+      '00000000-0000-4000-8000-000000000002' as RandomUuid;
+    const randomUuid = vi
+      .spyOn(crypto, 'randomUUID')
+      .mockReturnValueOnce(firstId)
+      .mockReturnValueOnce(firstId)
+      .mockReturnValueOnce(secondId);
+
+    try {
+      const first = mintSlot(makeBlob(), 'First');
+      const second = mintSlot(makeBlob(), 'Second');
+
+      expect(first.id).toBe(firstId);
+      expect(second.id).toBe(secondId);
+      expect(readManifest().slots.map((slot) => slot.id)).toEqual([
+        secondId,
+        firstId,
+      ]);
+      expect(readSlotBlob(firstId)).not.toBeNull();
+      expect(readSlotBlob(secondId)).not.toBeNull();
+    } finally {
+      randomUuid.mockRestore();
+    }
   });
 
   it('totalItems counts ranking slots, not stale catalog-only items', () => {
@@ -1495,6 +1532,79 @@ describe('cloud slot index', () => {
     const winner = findSlotByCloudId('shared-drive-id')?.id;
     expect(index.get('shared-drive-id')).toBe(winner);
     expect(winner).toBe(b.id);
+  });
+});
+
+describe('unlinkCloudSlot', () => {
+  it('rekeys the slot, clears cloud identity, and preserves local data', async () => {
+    const sibling = mintSlot(makeBlob(2), 'Sibling');
+    const originalBlob = makeBlob(7, true);
+    const original = mintSlot(originalBlob, 'Cloud sort');
+    updateSlotMeta(original.id, {
+      pinned: true,
+      cloudOptIn: true,
+      cloudId: 'drive-file-old',
+      cloudEtag: 'etag-old',
+      cloudPushedAt: '2026-01-02T00:00:00.000Z',
+      cloudUpdatedAt: '2026-01-02T00:00:00.000Z',
+    });
+    const siblingBefore = readManifest().slots.find((slot) => slot.id === sibling.id);
+    const originalBefore = readManifest().slots.find((slot) => slot.id === original.id);
+
+    const result = unlinkCloudSlot(original.id);
+
+    expect(result).not.toBeNull();
+    expect(result!.newId).not.toBe(original.id);
+    expect(result!.manifest.activeId).toBe(result!.newId);
+    expect(result!.manifest.slots.some((slot) => slot.id === original.id)).toBe(false);
+    expect(result!.manifest.slots.find((slot) => slot.id === sibling.id)).toEqual(
+      siblingBefore,
+    );
+    expect(result!.manifest.slots.find((slot) => slot.id === result!.newId)).toEqual({
+      ...originalBefore,
+      id: result!.newId,
+      cloudOptIn: false,
+      cloudId: undefined,
+      cloudEtag: undefined,
+      cloudPushedAt: undefined,
+      cloudUpdatedAt: undefined,
+    });
+    expect(readSlotBlob(original.id)).toBeNull();
+    expect(readSlotBlob(result!.newId)).toEqual(originalBlob);
+    expect(readActiveSlot()).toEqual(originalBlob);
+    expect(findSlotByCloudId('drive-file-old')).toBeUndefined();
+
+    await flushStateStorageWrites();
+    await _restartStateStorageForTesting();
+    _resetSorterStorageCacheForTesting();
+    await initializeSorterStorage();
+
+    expect(readManifest().activeId).toBe(result!.newId);
+    expect(readSlotBlob(original.id)).toBeNull();
+    expect(readSlotBlob(result!.newId)).toEqual(originalBlob);
+  });
+
+  it('uses the new logical id when the detached slot is backed up again', () => {
+    const original = mintSlot(makeBlob(), 'Cloud sort');
+    setCloudPushed(original.id, {
+      cloudId: 'drive-file-old',
+      cloudEtag: 'etag-old',
+      cloudPushedAt: '2026-01-02T00:00:00.000Z',
+      cloudUpdatedAt: '2026-01-02T00:00:00.000Z',
+    });
+
+    const result = unlinkCloudSlot(original.id);
+    expect(result).not.toBeNull();
+    setCloudPushed(result!.newId, {
+      cloudId: 'drive-file-new',
+      cloudEtag: 'etag-new',
+      cloudPushedAt: '2026-01-03T00:00:00.000Z',
+      cloudUpdatedAt: '2026-01-03T00:00:00.000Z',
+    });
+
+    expect(findSlotByCloudId('drive-file-old')).toBeUndefined();
+    expect(findSlotByCloudId('drive-file-new')?.id).toBe(result!.newId);
+    expect(findSlotByCloudId('drive-file-new')?.id).not.toBe(original.id);
   });
 });
 

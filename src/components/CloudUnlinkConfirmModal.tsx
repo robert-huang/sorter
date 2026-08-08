@@ -4,11 +4,11 @@ interface Props {
   slotName: string;
   onCancel: () => void;
   /**
-   * Clear the slot's cloud binding while leaving the Drive file in place.
+   * Give the local slot a new identity while leaving the Drive file in place.
    */
   onConfirmKeepCloud: () => void;
   /**
-   * Move the Drive file to Trash, then clear the slot's cloud binding.
+   * Move the Drive file to Trash, then give the local slot a new identity.
    */
   onConfirmTrashCloud: () => void;
 }
@@ -32,7 +32,8 @@ export function CloudUnlinkConfirmModal({
     <Modal label="Unlink slot from cloud confirmation" onClose={onCancel}>
       <h3>Stop backing up &ldquo;{slotName}&rdquo; to cloud?</h3>
       <p style={{ color: 'var(--text-muted)' }}>
-        The local slot stays on this device either way.
+        The local slot stays on this device with a new ID either way. If you
+        back it up again, it will become a separate cloud slot.
       </p>
       <ul style={{ color: 'var(--text-muted)', paddingLeft: '1.25em' }}>
         <li>

@@ -1,6 +1,6 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as cloud from '../../lib/cloud';
 import type { CloudProvider } from '../../lib/cloud';
 import { seedAsSorted } from '../../lib/insertionSort';
@@ -11,6 +11,10 @@ import { SortResultsImportMode } from '../SortResultsImportMode';
 beforeAll(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT =
     true;
+});
+
+beforeEach(() => {
+  window.localStorage.clear();
 });
 
 afterEach(() => {
@@ -140,6 +144,85 @@ describe('SortResultsImportMode cloud entry point', () => {
         ],
       },
     ]);
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it('uses and updates the shared persisted cloud-slot order', async () => {
+    window.localStorage.setItem(
+      storage.SETTINGS_KEY,
+      JSON.stringify({
+        cloudSlotSortKey: 'title',
+        cloudSlotSortDirection: 'asc',
+      }),
+    );
+    vi.spyOn(storage, 'isStatePersistenceAvailable').mockReturnValue(true);
+    const provider: CloudProvider = {
+      signIn: vi.fn(),
+      handleAuthRedirect: vi.fn(),
+      signOut: vi.fn(),
+      getAuthState: () => ({ status: 'signed-in', folderId: 'folder-1' }),
+      refreshTokenIfNeeded: vi.fn(),
+      pickFolder: vi.fn(),
+      clearFolder: vi.fn(),
+      subscribeAuthChange: vi.fn(() => () => undefined),
+      listCloudSlots: vi.fn().mockResolvedValue([
+        {
+          cloudId: 'cloud-gamma',
+          displayName: 'Gamma',
+          filename: 'gamma.sorter',
+          sizeBytes: 100,
+          updatedAt: '2026-03-03T00:00:00.000Z',
+          etag: 'etag-gamma',
+        },
+        {
+          cloudId: 'cloud-alpha',
+          displayName: 'Alpha',
+          filename: 'alpha.sorter',
+          sizeBytes: 100,
+          updatedAt: '2026-02-02T00:00:00.000Z',
+          etag: 'etag-alpha',
+        },
+      ]),
+      pullSlot: vi.fn(),
+      annotateSlotCompletion: vi.fn(),
+      pushSlot: vi.fn(),
+      removeCloudSlot: vi.fn(),
+    };
+    cloud._setCloudProviderForTesting(provider);
+
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <SortResultsImportMode embedded onAppendToStaged={vi.fn()} />,
+      );
+    });
+    const driveButton = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === 'Google Drive…',
+    );
+    await act(async () => {
+      driveButton?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const rowNames = (): string[] =>
+      Array.from(
+        container.querySelectorAll<HTMLElement>('.sort-results-import-row-title'),
+      ).map((element) => element.textContent ?? '');
+    expect(rowNames()).toEqual(['Alpha', 'Gamma']);
+
+    const directionButton = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === '↑ Ascending',
+    );
+    act(() => directionButton?.click());
+    expect(rowNames()).toEqual(['Gamma', 'Alpha']);
+    expect(storage.readSettings()).toMatchObject({
+      cloudSlotSortKey: 'title',
+      cloudSlotSortDirection: 'desc',
+    });
+
     act(() => root.unmount());
     container.remove();
   });

@@ -457,10 +457,32 @@ export function writeManifest(m: SlotsManifest): void {
 
 // ---------- slot id ----------
 
-function newSlotId(): string {
-  // 8 base36 chars is ~41 bits of entropy — collision risk is negligible
-  // within a single browser profile that holds at most SLOT_CAP slots.
-  return Math.random().toString(36).slice(2, 10).padEnd(8, '0');
+function generateUuidV4(): string {
+  if (typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  // `getRandomValues` is available in older browsers where `randomUUID`
+  // is missing, including non-HTTPS/file origins supported by this app.
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0'));
+  return [
+    hex.slice(0, 4).join(''),
+    hex.slice(4, 6).join(''),
+    hex.slice(6, 8).join(''),
+    hex.slice(8, 10).join(''),
+    hex.slice(10, 16).join(''),
+  ].join('-');
+}
+
+function newSlotId(reservedIds: ReadonlySet<string> = new Set()): string {
+  let id: string;
+  do {
+    id = generateUuidV4();
+  } while (reservedIds.has(id));
+  return id;
 }
 
 // ---------- active-slot pointer (module-level, mirrors manifest.activeId) ----------
@@ -539,7 +561,7 @@ export function createSlot(
 ): CreateSlotResult | null {
   // Flush any pending writes to the OUTGOING active slot before switching.
   flushAutosave();
-  const id = newSlotId();
+  const id = newSlotId(new Set(readManifest().slots.map((slot) => slot.id)));
   const now = new Date().toISOString();
   const meta: SlotMeta = {
     id,
@@ -989,14 +1011,11 @@ export function persistCanonicalBlobOnLoad(
 }
 
 /**
- * Wipe all cloud-sync metadata for a slot. Used by:
- *  - Cloud unlink (slot kept locally; cloud copy may be preserved or trashed).
- *  - Drive-side-delete recovery (cloud copy was deleted out from
- *    under us; clear the stale cloudId so the next push creates a
- *    fresh file).
+ * Wipe all cloud-sync metadata without changing local identity. Used by
+ * Drive-side-delete recovery, where the cloud copy disappeared underneath
+ * an otherwise unchanged local slot and the next Push should create a file.
  * Leaves `cloudOptIn` untouched — the user's opt-in preference
- * survives a remove-from-cloud and is what makes the slot eligible
- * for a future re-push.
+ * is what makes the slot eligible for that recovery Push.
  */
 export function clearCloudBinding(id: string): SlotsManifest {
   return updateSlotMeta(id, {
@@ -1005,6 +1024,76 @@ export function clearCloudBinding(id: string): SlotsManifest {
     cloudPushedAt: undefined,
     cloudUpdatedAt: undefined,
   });
+}
+
+export interface UnlinkCloudSlotResult {
+  manifest: SlotsManifest;
+  newId: string;
+}
+
+/**
+ * Turn a cloud-backed slot into an independent local slot. The payload and
+ * user-facing metadata stay intact, while both the Drive binding and the old
+ * logical slot id are retired. A later Push therefore creates a distinct
+ * cloud file instead of reconnecting to the unlinked identity.
+ */
+export function unlinkCloudSlot(id: string): UnlinkCloudSlotResult | null {
+  flushAutosave();
+  const manifest = readManifest();
+  const slotIndex = manifest.slots.findIndex((slot) => slot.id === id);
+  const blob = readSlotBlob(id);
+  if (slotIndex < 0 || !blob) return null;
+
+  const newId = newSlotId(new Set(manifest.slots.map((slot) => slot.id)));
+  const slot = manifest.slots[slotIndex];
+  const detachedSlot: SlotMeta = {
+    ...slot,
+    id: newId,
+    cloudOptIn: false,
+    cloudId: undefined,
+    cloudEtag: undefined,
+    cloudPushedAt: undefined,
+    cloudUpdatedAt: undefined,
+  };
+
+  manifest.slots = manifest.slots.map((entry) =>
+    entry.id === id ? detachedSlot : entry,
+  );
+  if (manifest.activeId === id) {
+    manifest.activeId = newId;
+  }
+
+  slotBlobCache.set(newId, blob);
+  slotBlobCache.delete(id);
+  manifestCache = manifest;
+  if (manifest.activeId) {
+    localStorage.setItem(ACTIVE_SORTER_SLOT_KEY, manifest.activeId);
+  }
+
+  void queueStateWrite(
+    [
+      {
+        type: 'put',
+        store: SORTER_SLOT_STORE,
+        key: newId,
+        value: buildSaveFile(blob),
+      },
+      { type: 'delete', store: SORTER_SLOT_STORE, key: id },
+      {
+        type: 'put',
+        store: STATE_METADATA_STORE,
+        key: stateStorageRecordKeys.sorterManifest,
+        value: sorterManifestRecord(manifest),
+      },
+    ],
+    newId,
+  );
+
+  if (currentActiveId === id) {
+    currentActiveId = newId;
+    resetAutosaveBookkeeping(blob.progress.comparisons);
+  }
+  return { manifest, newId };
 }
 
 /**
@@ -2057,6 +2146,9 @@ export interface Settings {
    * (sort in progress, START draft, A2A round). Default off.
    */
   historyBackGuard?: boolean;
+  /** Shared ordering for every Google Drive slot browser. */
+  cloudSlotSortKey?: 'title' | 'date';
+  cloudSlotSortDirection?: 'asc' | 'desc';
 }
 
 export function readSettings(): Settings {

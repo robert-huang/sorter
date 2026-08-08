@@ -830,7 +830,7 @@ Slot-level Push / Pull to a Google Drive folder of your choosing. The whole feat
 
 ### What gets backed up
 
-- One Drive file per slot, written under a folder you pick on first sign-in. The filename is `<slotName>_<slotId>.sorter.json`. The same v3 save-file envelope the Download button produces, so you can drop a slot file out of Drive and re-import it via "Load save file…" without any reshaping.
+- One Drive file per slot, written under a folder you pick on first sign-in. The filename is `<slotName>_<slotId>.sorter.json`. New slots use UUID v4 ids so independently created slots remain distinct across devices and an indefinitely growing Drive library; existing short ids remain valid. The same v4 save-file envelope the Download button produces, so you can drop a slot file out of Drive and re-import it via "Load save file…" without any reshaping.
 - The slot↔file binding is by Drive file id, not by name. Rename the file in Drive's UI and the binding still works (the app overrides the name on the next Push — the local slot name is the source of truth).
 - The undo ring is **stripped before upload**. Personal-scale: smaller blobs, no cross-device undo noise, cloud-as-truth means you'll never want to undo something that happened on a different device.
 
@@ -844,7 +844,7 @@ Slot-level Push / Pull to a Google Drive folder of your choosing. The whole feat
 
 Open the gear menu, find the slot row in the saved-sorts list:
 
-- **☁ toggle** turns cloud backup on/off for that slot. Turning it off also deletes the cloud copy (the local choice stays honest with what's in your Drive). Turning it back on later creates a fresh file on the next Push.
+- **☁ toggle** turns cloud backup on/off for that slot. Turning it off lets you keep the Drive copy or move it to Trash. Either choice gives the retained local save a fresh UUID and clears its old binding, so turning backup on and Pushing later creates a separate cloud slot instead of reconnecting to the old one.
 - **⇡ Push** uploads the current local copy of the slot. Updates the existing Drive file when one is bound, otherwise creates a new one.
 - **⇣ Pull** replaces the local copy with the cloud copy in place (keeping the same local slot id and the binding). If the slot is the one currently loaded in memory, the active view reloads to match.
 
@@ -858,7 +858,7 @@ The per-slot meta line shows `cloud ✓` when the local copy matches the last Pu
 
 ### Cloud library
 
-Gear menu → **Browse cloud library…** shows every slot file under your chosen folder. Pull from here to adopt a cloud slot as a brand-new local slot (different from the per-row Pull, which replaces an existing one in place).
+Gear menu → **Browse cloud library…** shows every slot file under your chosen folder. Both this library and the RESULT importer's **Google Drive…** browser can sort by title or date in either direction. They share one browser-persisted preference, defaulting to newest first, so changing either view also determines the initial order the next time either one opens. Pull from here to adopt a cloud slot as a brand-new local slot (different from the per-row Pull, which replaces an existing one in place).
 
 ### Sign-out / Delete-everywhere
 

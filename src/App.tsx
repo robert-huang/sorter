@@ -93,7 +93,7 @@ import {
   setCloudPushed,
   updateSlotMeta,
   deriveAdoptedCloudSlotTimestamps,
-  clearCloudBinding,
+  unlinkCloudSlot,
   getLastAutosaveError,
   saveNow,
   scheduleAutosave,
@@ -1531,19 +1531,28 @@ export function App() {
     }
     // Opt-OUT with a cloud binding present: offer a local-only unlink
     // as well as the destructive Drive-trash path.
+    const finishLocalUnlink = (): boolean => {
+      const result = unlinkCloudSlot(id);
+      if (!result) {
+        flashSkipped(`Couldn't unlink ${slot.name}: its local save data is missing.`);
+        setManifest(readManifest());
+        return false;
+      }
+      if (loadedSlotIdRef.current === id) {
+        setLoadedSlotId(result.newId);
+      }
+      setManifest(result.manifest);
+      return true;
+    };
     const performUnlinkKeepCloud = () => {
       setCloudUnlinkPending(null);
-      setCloudOptIn(id, false);
-      clearCloudBinding(id);
-      setManifest(readManifest());
+      finishLocalUnlink();
     };
     const performUnlinkTrashCloud = async () => {
       setCloudUnlinkPending(null);
       try {
         await cloudRemoveCloudSlot(slot.cloudId!);
-        setCloudOptIn(id, false);
-        clearCloudBinding(id);
-        setManifest(readManifest());
+        finishLocalUnlink();
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Cloud delete failed.';
         flashSkipped(`Couldn't delete the cloud copy of ${slot.name}: ${msg}`);

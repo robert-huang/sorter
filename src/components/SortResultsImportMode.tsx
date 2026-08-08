@@ -27,6 +27,13 @@ import {
 } from '../lib/storage';
 import { STATE_REVISION_KEY } from '../lib/stateStorageDb';
 import type { Item } from '../lib/types';
+import {
+  CloudSlotSortControls,
+  persistCloudSlotSortPreference,
+  readCloudSlotSortPreference,
+  sortCloudSlotRows,
+  type CloudSlotSortPreference,
+} from './CloudSlotSortControls';
 import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
 import { RemoveGlyph } from './RemoveGlyph';
 import type { StagedGroupInput } from './StagedItemsPanel';
@@ -688,6 +695,9 @@ function CloudResultsPicker({
   const [rows, setRows] = useState<CloudPickerRow[] | null>(null);
   const [listError, setListError] = useState<string | null>(null);
   const [authMessage, setAuthMessage] = useState<string | null>(null);
+  const [sortPreference, setSortPreference] = useState<CloudSlotSortPreference>(
+    readCloudSlotSortPreference,
+  );
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
   const [asPreRanked, setAsPreRanked] = useState<Record<string, boolean>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -727,13 +737,10 @@ function CloudResultsPicker({
     void listCloudSlots()
       .then((slots) => {
         if (cancelled) return;
-        const visible = slots
-          .filter(
-            (slot) =>
-              excludeSlotId === undefined ||
-              slot.sorterSlotId !== excludeSlotId,
-          )
-          .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+        const visible = slots.filter(
+          (slot) =>
+            excludeSlotId === undefined || slot.sorterSlotId !== excludeSlotId,
+        );
         setRows(
           visible.map((meta) => ({
             meta,
@@ -752,6 +759,19 @@ function CloudResultsPicker({
       cancelled = true;
     };
   }, [excludeSlotId]);
+
+  const sortedRows = useMemo(
+    () =>
+      rows === null
+        ? null
+        : sortCloudSlotRows(rows, (row) => row.meta, sortPreference),
+    [rows, sortPreference],
+  );
+
+  function changeSortPreference(preference: CloudSlotSortPreference): void {
+    setSortPreference(preference);
+    persistCloudSlotSortPreference(preference);
+  }
 
   const loadedEntries = useMemo(
     () =>
@@ -994,15 +1014,19 @@ function CloudResultsPicker({
         Drive files are downloaded only when you choose Load. They are imported
         temporarily and are not copied into a browser save slot.
       </p>
+      <CloudSlotSortControls
+        preference={sortPreference}
+        onChange={changeSortPreference}
+      />
       {rows === null && <p className="csv-hint">Loading Google Drive…</p>}
       {authMessage && <p className="csv-hint">{authMessage}</p>}
       {listError && <p className="error-text">{listError}</p>}
       {rows?.length === 0 && !authMessage && !listError && (
         <p className="csv-hint">No sorter slots found in this Drive folder.</p>
       )}
-      {rows && rows.length > 0 && (
+      {sortedRows && sortedRows.length > 0 && (
         <ul className="sort-results-import-list" role="list">
-          {rows.map((row) => {
+          {sortedRows.map((row) => {
             if (row.entry && row.phase === 'loaded') {
               const id = row.entry.meta.id;
               return (

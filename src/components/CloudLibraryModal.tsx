@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal } from './Modal';
 import type { CloudSlotMeta } from '../lib/cloud';
 import { isFullySyncedWithCloudListing } from '../lib/cloudSync';
@@ -9,6 +9,15 @@ import {
   pickFolder as cloudPickFolder,
   signOut as cloudSignOut,
 } from '../lib/cloud';
+import {
+  CloudSlotSortControls,
+  persistCloudSlotSortPreference,
+  readCloudSlotSortPreference,
+  sortCloudSlotRows,
+  type CloudSlotSortDirection,
+  type CloudSlotSortKey,
+  type CloudSlotSortPreference,
+} from './CloudSlotSortControls';
 
 interface Props {
   /** Called on Cancel / Escape / backdrop click. */
@@ -55,6 +64,14 @@ interface ListState {
   errorMessage?: string;
 }
 
+export function sortCloudLibraryRows(
+  rows: readonly CloudSlotMeta[],
+  sortKey: CloudSlotSortKey,
+  direction: CloudSlotSortDirection,
+): CloudSlotMeta[] {
+  return sortCloudSlotRows(rows, (row) => row, { sortKey, direction });
+}
+
 /**
  * Phase 1 read-only cloud library. Lists every slot file in the user's
  * chosen Drive folder and lets them Pull one (which routes through the
@@ -77,6 +94,9 @@ export function CloudLibraryModal({
 }: Props) {
   const auth = getAuthState();
   const [list, setList] = useState<ListState>({ status: 'idle', rows: [] });
+  const [sortPreference, setSortPreference] = useState<CloudSlotSortPreference>(
+    readCloudSlotSortPreference,
+  );
   /** Per-row pull-in-flight flag. Disables that row's Pull button + the
    *  Sign out button until the pull settles, since pulls can race with
    *  a signOut wiping the access token mid-flight. */
@@ -90,11 +110,6 @@ export function CloudLibraryModal({
     setList({ status: 'loading', rows: [] });
     try {
       const rows = await listCloudSlots();
-      // Sort newest-first by Drive's modifiedTime so the most recently
-      // pushed slot appears at the top — matches the LIST tab's
-      // updatedAt sort and is what users expect when scanning for a
-      // recent backup.
-      rows.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
       setList({ status: 'loaded', rows });
     } catch (err) {
       setList({
@@ -104,6 +119,21 @@ export function CloudLibraryModal({
       });
     }
   }, [auth.status, auth.folderId]);
+
+  const sortedRows = useMemo(
+    () =>
+      sortCloudLibraryRows(
+        list.rows,
+        sortPreference.sortKey,
+        sortPreference.direction,
+      ),
+    [list.rows, sortPreference],
+  );
+
+  function changeSortPreference(preference: CloudSlotSortPreference): void {
+    setSortPreference(preference);
+    persistCloudSlotSortPreference(preference);
+  }
 
   useEffect(() => {
     void refresh();
@@ -199,33 +229,41 @@ export function CloudLibraryModal({
         </p>
       )}
       {list.status === 'loaded' && list.rows.length > 0 && (
-        <ul className="cloud-library-list">
-          {list.rows.map((row) => {
-            const localSlot = localCloudSlotByCloudId.get(row.cloudId);
-            return (
-            <CloudLibraryRow
-              key={row.cloudId}
-              meta={row}
-              localSlot={localSlot}
-              isActiveLocalSlot={!!localSlot && localSlot.id === activeSlotId}
-              actionDisabled={pullingCloudId !== null}
-              isPulling={pullingCloudId === row.cloudId}
-              onPull={() => handlePull(row)}
-              onOpenLocal={() => {
-                if (localSlot) {
-                  onOpenLocalSlot(localSlot.id);
-                  onClose();
-                }
-              }}
-              onRemoveLocal={() => {
-                if (localSlot) {
-                  onRemoveLocalSlot(localSlot.id);
-                }
-              }}
-            />
-            );
-          })}
-        </ul>
+        <>
+          <CloudSlotSortControls
+            preference={sortPreference}
+            onChange={changeSortPreference}
+          />
+          <ul className="cloud-library-list">
+            {sortedRows.map((row) => {
+              const localSlot = localCloudSlotByCloudId.get(row.cloudId);
+              return (
+                <CloudLibraryRow
+                  key={row.cloudId}
+                  meta={row}
+                  localSlot={localSlot}
+                  isActiveLocalSlot={
+                    !!localSlot && localSlot.id === activeSlotId
+                  }
+                  actionDisabled={pullingCloudId !== null}
+                  isPulling={pullingCloudId === row.cloudId}
+                  onPull={() => handlePull(row)}
+                  onOpenLocal={() => {
+                    if (localSlot) {
+                      onOpenLocalSlot(localSlot.id);
+                      onClose();
+                    }
+                  }}
+                  onRemoveLocal={() => {
+                    if (localSlot) {
+                      onRemoveLocalSlot(localSlot.id);
+                    }
+                  }}
+                />
+              );
+            })}
+          </ul>
+        </>
       )}
       <div className="modal-actions">
         <button className="btn" onClick={onClose}>
