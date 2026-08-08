@@ -76,6 +76,30 @@ describe('Bump Chart workspace storage', () => {
     expect(localStorage.getItem(ACTIVE_KEY)).toBeNull();
   });
 
+  it('round-trips order names through active and named workspaces', async () => {
+    const value = workspace(false);
+    value.columns = value.columns.map((column, index) => ({
+      ...column,
+      name: ['Winter list', 'Spring list', 'Current list'][index],
+    }));
+    expect(await saveActiveBumpChartWorkspace(value)).toEqual({ ok: true });
+    const saved = await saveNamedBumpChart('Named timeline', value);
+    expect(saved.status).toBe('saved');
+    if (saved.status !== 'saved') {
+      throw new Error('Named chart was not saved');
+    }
+
+    _resetBumpChartStorageCacheForTesting();
+    await initializeBumpChartStorage();
+
+    expect(loadActiveBumpChartWorkspace()?.columns.map(({ name }) => name)).toEqual(
+      ['Winter list', 'Spring list', 'Current list'],
+    );
+    expect(
+      loadSavedBumpChart(saved.meta.id)?.columns.map(({ name }) => name),
+    ).toEqual(['Winter list', 'Spring list', 'Current list']);
+  });
+
   it('defaults fields that were absent from an earlier v1 record', async () => {
     await _resetStateStorageForTesting();
     _resetBumpChartStorageCacheForTesting();

@@ -32,6 +32,7 @@ export type BumpChartSideSnapshot = {
 export type BumpChartColumnSnapshot = BumpChartSideSnapshot & {
   id: string;
   kind: 'previous' | 'current';
+  name?: string;
 };
 
 export type BumpChartWorkspaceSnapshot = {
@@ -100,11 +101,14 @@ function parseColumnSnapshot(value: unknown): BumpChartColumnSnapshot | null {
   const candidate = value as {
     id: string;
     kind: BumpChartColumnSnapshot['kind'];
+    name?: string;
   };
+  const name = candidate.name?.trim();
   return {
     ...side,
     id: candidate.id,
     kind: candidate.kind,
+    ...(name ? { name } : {}),
   };
 }
 

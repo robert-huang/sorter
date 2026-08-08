@@ -78,6 +78,35 @@ function button(label: string, index = 0): HTMLButtonElement {
   return match;
 }
 
+function setInputValue(input: HTMLInputElement, value: string): void {
+  const valueSetter = Object.getOwnPropertyDescriptor(
+    HTMLInputElement.prototype,
+    'value',
+  )?.set;
+  valueSetter?.call(input, value);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+async function renameOrder(label: string, name: string): Promise<void> {
+  await act(async () => {
+    document
+      .querySelector<HTMLButtonElement>(`[aria-label="Rename ${label}"]`)
+      ?.click();
+  });
+  const input = document.querySelector<HTMLInputElement>(
+    `[aria-label="Name ${label}"]`,
+  );
+  if (!input) {
+    throw new Error(`Missing order name input for ${label}`);
+  }
+  await act(async () => {
+    setInputValue(input, name);
+  });
+  await act(async () => {
+    input.blur();
+  });
+}
+
 function domRect(
   width: number,
   height: number,
@@ -223,6 +252,104 @@ describe('BumpChartPanel staging flow', () => {
         '[title="Remove every staged group"]',
       )?.textContent,
     ).toBe('Clear');
+  });
+
+  it('edits order names in Bump staging and renders them in a chart header row', async () => {
+    await act(async () => {
+      root.render(
+        <BumpChartPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const previousName =
+      'Winter rankings with a deliberately long wrapped heading';
+    await renameOrder('Previous order', previousName);
+    await renameOrder('Current order', 'Spring rankings');
+
+    const cards = container.querySelectorAll('.bump-chart-import-card');
+    expect(
+      cards[0]?.querySelector('.bump-chart-order-name-button')?.textContent,
+    ).toBe(previousName);
+    expect(
+      cards[1]?.querySelector('.bump-chart-order-name-button')?.textContent,
+    ).toBe('Spring rankings');
+    expect(
+      cards[0]
+        ?.querySelector('.bump-chart-order-name-button')
+        ?.closest('.staged-panel'),
+    ).toBeNull();
+
+    await importSingle(0, 'Before item');
+    await importSingle(1, 'Current item');
+    await act(async () => {
+      button('Generate chart').click();
+    });
+
+    const header = container.querySelector('.bump-chart-order-name-row');
+    const names = Array.from(
+      header?.querySelectorAll('.bump-chart-order-name') ?? [],
+      (name) => name.textContent,
+    );
+    expect(names).toEqual([previousName, 'Spring rankings']);
+    expect(
+      header?.querySelectorAll('.bump-chart-order-name-cell'),
+    ).toHaveLength(2);
+    expect(
+      header?.querySelectorAll('.bump-chart-order-name-corridor'),
+    ).toHaveLength(1);
+  });
+
+  it('keeps names attached while orders are promoted, moved, and removed', async () => {
+    await act(async () => {
+      root.render(
+        <BumpChartPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+    });
+
+    await renameOrder('Current order', 'Named snapshot');
+    await act(async () => {
+      button('+').click();
+    });
+    let cards = container.querySelectorAll('.bump-chart-import-card');
+    expect(
+      cards[1]?.querySelector('.bump-chart-order-name-button')?.textContent,
+    ).toBe('Named snapshot');
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Move Previous order 2 up"]',
+        )
+        ?.click();
+    });
+    cards = container.querySelectorAll('.bump-chart-import-card');
+    expect(
+      cards[0]?.querySelector('.bump-chart-order-name-button')?.textContent,
+    ).toBe('Named snapshot');
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Remove Current order"]',
+        )
+        ?.click();
+    });
+    cards = container.querySelectorAll('.bump-chart-import-card');
+    expect(
+      cards[1]?.querySelector('.bump-chart-order-name-button')?.textContent,
+    ).toBe('Current order');
+    expect(
+      cards[0]?.querySelector('.bump-chart-order-name-button')?.textContent,
+    ).toBe('Named snapshot');
   });
 
   it('promotes the current order, reorders and removes it, and clears columns', async () => {
@@ -1472,6 +1599,8 @@ describe('BumpChartPanel staging flow', () => {
         />,
       );
     });
+    await renameOrder('Previous order', 'Saved baseline');
+    await renameOrder('Current order', 'Saved current');
     await importSingle(0, 'Named before');
     await importSingle(1, 'Named after');
     await act(async () => {
@@ -1567,12 +1696,24 @@ describe('BumpChartPanel staging flow', () => {
     });
     expect(container.querySelector('.bump-chart-grid')).not.toBeNull();
     expect(container.textContent).toContain('Named after');
+    expect(
+      Array.from(
+        container.querySelectorAll('.bump-chart-order-name'),
+        (name) => name.textContent,
+      ),
+    ).toEqual(['Saved baseline', 'Saved current']);
     expect(loadToolsPreferences().bumpChartBestMatchByTitle).toBe(false);
     await act(async () => {
       button('Clear chart').click();
     });
     expect(container.querySelector('.bump-chart-grid')).toBeNull();
     expect(container.textContent).toContain('From chart');
+    expect(
+      Array.from(
+        container.querySelectorAll('.bump-chart-order-name-button'),
+        (name) => name.textContent,
+      ),
+    ).toEqual(['Saved baseline', 'Saved current']);
     const loadedGroups = container.querySelectorAll<HTMLButtonElement>(
       '.bump-chart-import-card .staged-panel-group-row',
     );
@@ -1597,6 +1738,9 @@ describe('BumpChartPanel staging flow', () => {
     const chart = document.createElement('div');
     chart.style.backgroundColor = 'rgb(255, 255, 255)';
     chart.innerHTML =
+      '<div class="bump-chart-order-name-row" ' +
+      'style="background-color: rgb(224, 224, 224); border-bottom: 3px solid gray">' +
+      '<span class="bump-chart-order-name">Snapshot</span></div>' +
       '<div class="bump-chart-row" style="border-bottom: 1px solid red"></div>' +
       '<div class="bump-chart-row" style="border-bottom-width: 0"></div>' +
       '<div class="bump-chart-timeline-cell" style="opacity: 1">' +
@@ -1628,11 +1772,17 @@ describe('BumpChartPanel staging flow', () => {
       toJSON: () => ({}),
     });
     const rows = chart.querySelectorAll<HTMLElement>('.bump-chart-row');
+    const orderNameRow = chart.querySelector<HTMLElement>(
+      '.bump-chart-order-name-row',
+    )!;
+    vi.spyOn(orderNameRow, 'getBoundingClientRect').mockReturnValue(
+      domRect(300, 56, 0, 0),
+    );
     vi.spyOn(rows[0]!, 'getBoundingClientRect').mockReturnValue(
-      domRect(300, 64, 0, 0),
+      domRect(300, 64, 0, 56),
     );
     vi.spyOn(rows[1]!, 'getBoundingClientRect').mockReturnValue(
-      domRect(300, 64, 0, 64),
+      domRect(300, 64, 0, 120),
     );
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       if (input.toString() === 'https://example.invalid/cover.jpg') {
@@ -1788,13 +1938,16 @@ describe('BumpChartPanel staging flow', () => {
     expect(anilistImageElement.style.display).toBe('');
     expect(rows[0]!.style.height).toBe('');
     expect(rows[1]!.style.height).toBe('');
+    expect(context.fillRect).toHaveBeenCalledWith(0, 0, 300, 56);
+    expect(context.fillText).toHaveBeenCalledWith('Snapshot', 0, 0);
     expect(context.fillText).toHaveBeenCalledWith('AB', 0, 0);
     expect(context.fillText).toHaveBeenCalledWith('+2', 150, 100);
     expect(context.roundRect).toHaveBeenCalledWith(136, 90, 28, 20, 10);
-    expect(context.moveTo).toHaveBeenCalledOnce();
-    expect(context.moveTo).toHaveBeenCalledWith(0, 63.5);
-    expect(strokeAlphas).toEqual([1, 1, 0.24, 1, 0.24]);
-    expect(strokeWidths).toEqual([1, 5, 3, 1, 2]);
+    expect(context.moveTo).toHaveBeenCalledTimes(2);
+    expect(context.moveTo).toHaveBeenCalledWith(0, 54.5);
+    expect(context.moveTo).toHaveBeenCalledWith(0, 119.5);
+    expect(strokeAlphas).toEqual([1, 1, 1, 0.24, 1, 0.24]);
+    expect(strokeWidths).toEqual([3, 1, 5, 3, 1, 2]);
     expect(fillTextAlphas).toContain(0.24);
     expect(toBlob).toHaveBeenCalledOnce();
     expect(createObjectUrl).toHaveBeenCalledOnce();

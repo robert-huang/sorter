@@ -90,12 +90,14 @@ type BumpSideDraft = {
 type BumpColumnDraft = {
   id: string;
   kind: 'previous' | 'current';
+  name?: string;
   draft: BumpSideDraft;
 };
 
 type GeneratedBumpColumn = {
   id: string;
   kind: 'previous' | 'current';
+  name?: string;
   items: BumpChartItem[];
   hiddenItemIds: Set<string>;
   preserveCustomLabels: boolean;
@@ -149,6 +151,13 @@ function defaultDraftColumns(): BumpColumnDraft[] {
   ];
 }
 
+function orderFallbackLabel(columnIndex: number, columnCount: number): string {
+  if (columnIndex === columnCount - 1) return 'Current order';
+  return columnCount === 2
+    ? 'Previous order'
+    : `Previous order ${columnIndex + 1}`;
+}
+
 function itemsInDraft(draft: BumpSideDraft): BumpChartItem[] {
   return dedupeBumpChartItems(
     draft.groups.map((group) =>
@@ -191,6 +200,7 @@ function chartColumnToSnapshot(
   return {
     id: column.id,
     kind: column.kind,
+    ...(column.name ? { name: column.name } : {}),
     items: column.items,
     hiddenItemIds: [...column.hiddenItemIds],
     preserveCustomLabels: column.preserveCustomLabels,
@@ -224,6 +234,7 @@ function chartFromSnapshot(
     columns: workspace.columns.map((column) => ({
       id: column.id,
       kind: column.kind,
+      ...(column.name ? { name: column.name } : {}),
       items: column.items,
       hiddenItemIds: new Set(column.hiddenItemIds),
       preserveCustomLabels: column.preserveCustomLabels,
@@ -246,6 +257,7 @@ function workspaceFromState(
           ...draftToSnapshot(column.draft),
           id: column.id,
           kind: column.kind,
+          ...(column.name ? { name: column.name } : {}),
         })),
     bestMatchByTitle,
     lastImportTab,
@@ -346,7 +358,9 @@ function InteractiveItemLabel({
 
 function BumpStage({
   title,
+  name,
   draft,
+  onRename,
   onImport,
   onRemoveGroup,
   onRemoveItem,
@@ -357,7 +371,9 @@ function BumpStage({
   headingActions,
 }: {
   title: string;
+  name?: string;
   draft: BumpSideDraft;
+  onRename: (name: string | undefined) => void;
   onImport: () => void;
   onRemoveGroup: (groupId: string) => void;
   onRemoveItem: (groupId: string, index: number) => void;
@@ -369,6 +385,18 @@ function BumpStage({
 }) {
   const deduped = itemsInDraft(draft);
   const hasCustomLabels = hasCustomAnilistLabels(deduped);
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState(name ?? '');
+  useEffect(() => {
+    if (!editingName) setNameDraft(name ?? '');
+  }, [editingName, name]);
+  const commitName = (): void => {
+    const nextName = nameDraft.trim();
+    if (nextName !== (name ?? '')) {
+      onRename(nextName || undefined);
+    }
+    setEditingName(false);
+  };
   const stagedGroups: StagedGroup[] = draft.groups.map((group) => ({
     id: group.id,
     kind: 'sublist',
@@ -385,7 +413,39 @@ function BumpStage({
     <section className="tool-form-card bump-chart-import-card">
       <div className="bump-chart-import-heading">
         <div>
-          <h3>{title}</h3>
+          <h3>
+            {editingName ? (
+              <input
+                className="bump-chart-order-name-input"
+                aria-label={`Name ${title}`}
+                value={nameDraft}
+                maxLength={200}
+                autoFocus
+                onChange={(event) => setNameDraft(event.target.value)}
+                onBlur={commitName}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    event.currentTarget.blur();
+                  } else if (event.key === 'Escape') {
+                    event.preventDefault();
+                    setNameDraft(name ?? '');
+                    setEditingName(false);
+                  }
+                }}
+              />
+            ) : (
+              <button
+                type="button"
+                className="bump-chart-order-name-button"
+                aria-label={`Rename ${title}`}
+                title={`Rename ${title}`}
+                onClick={() => setEditingName(true)}
+              >
+                {name ?? title}
+              </button>
+            )}
+          </h3>
           <p>Each import is appended in pre-ranked order.</p>
         </div>
         {headingActions && (
@@ -1230,6 +1290,32 @@ async function renderChartPng(
   context.fillStyle = backgroundColor;
   context.fillRect(0, 0, width, height);
 
+  const orderNameRow = node.querySelector<HTMLElement>(
+    '.bump-chart-order-name-row',
+  );
+  if (orderNameRow) {
+    const rowRect = orderNameRow.getBoundingClientRect();
+    const rowStyle = getComputedStyle(orderNameRow);
+    context.fillStyle = rowStyle.backgroundColor;
+    context.fillRect(
+      0,
+      rowRect.top - rootRect.top,
+      width,
+      rowRect.height,
+    );
+    const borderBottomWidth = Number.parseFloat(rowStyle.borderBottomWidth);
+    if (borderBottomWidth > 0) {
+      context.strokeStyle = rowStyle.borderBottomColor;
+      context.lineWidth = borderBottomWidth;
+      context.beginPath();
+      const borderY =
+        rowRect.bottom - rootRect.top - borderBottomWidth / 2;
+      context.moveTo(0, borderY);
+      context.lineTo(width, borderY);
+      context.stroke();
+    }
+  }
+
   for (const row of node.querySelectorAll<HTMLElement>('.bump-chart-row')) {
     const rowRect = row.getBoundingClientRect();
     for (const center of row.querySelectorAll<HTMLElement>(
@@ -1455,6 +1541,11 @@ async function renderChartPng(
     context.restore();
   });
 
+  for (const orderName of node.querySelectorAll<HTMLElement>(
+    '.bump-chart-order-name',
+  )) {
+    drawElementText(context, orderName, rootRect);
+  }
   for (const label of node.querySelectorAll<HTMLElement>(
     '.bump-chart-label',
   )) {
@@ -1541,6 +1632,7 @@ export async function exportChartPng(
 type RenderedTimelineColumn = {
   id: string;
   kind: 'previous' | 'current';
+  name: string;
   items: readonly BumpChartItem[];
   matchingItems: readonly BumpChartItem[];
 };
@@ -1713,6 +1805,33 @@ function BumpChart({
         ref={chartRef}
         style={{ minWidth: minimumWidth }}
       >
+        <div
+          className="bump-chart-order-name-row"
+          style={{ gridTemplateColumns }}
+          aria-label="Order names"
+        >
+          {columns.flatMap((column, columnIndex) => {
+            const nameCell = (
+              <div
+                key={`order-name:${column.id}`}
+                className="bump-chart-order-name-cell"
+                data-bump-order-id={column.id}
+              >
+                <span className="bump-chart-order-name">{column.name}</span>
+              </div>
+            );
+            return columnIndex === 0
+              ? [nameCell]
+              : [
+                  <div
+                    key={`order-name-corridor:${column.id}`}
+                    className="bump-chart-order-name-corridor"
+                    aria-hidden="true"
+                  />,
+                  nameCell,
+                ];
+          })}
+        </div>
         {Array.from({ length: rowCount }, (_, rowIndex) => (
           <div
             key={`row:${rowIndex}`}
@@ -2268,6 +2387,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
           workspace.columns.map((column) => ({
             id: column.id,
             kind: column.kind,
+            ...(column.name ? { name: column.name } : {}),
             draft: draftFromSnapshot(column, source),
           })),
         );
@@ -2464,6 +2584,20 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
     );
   };
 
+  const renameColumn = (
+    targetColumnId: string,
+    name: string | undefined,
+  ): void => {
+    markWorkspaceMutation();
+    setColumns((current) =>
+      current.map((column) =>
+        column.id === targetColumnId
+          ? { ...column, name }
+          : column,
+      ),
+    );
+  };
+
   const toggleGroupRemoval = (targetColumnId: string, groupId: string): void => {
     patchDraft(targetColumnId, (draft) => ({
       ...draft,
@@ -2511,9 +2645,10 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
   );
   const renderedChartColumns = useMemo(
     () =>
-      visibleChartColumns.map(({ column, visible }) => ({
+      visibleChartColumns.map(({ column, visible }, index, allColumns) => ({
         id: column.id,
         kind: column.kind,
+        name: column.name ?? orderFallbackLabel(index, allColumns.length),
         matchingItems: visible.map(({ entry }) => entry),
         items: displayBumpChartItems(
           visible.map(({ entry }) => entry),
@@ -2608,6 +2743,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
         return {
           id: column.id,
           kind: column.kind,
+          ...(column.name ? { name: column.name } : {}),
           items: snapshot.items,
           hiddenItemIds: new Set(snapshot.hiddenItemIds),
           preserveCustomLabels: snapshot.preserveCustomLabels,
@@ -2712,6 +2848,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
       chart.columns.map((column) => ({
         id: column.id,
         kind: column.kind,
+        ...(column.name ? { name: column.name } : {}),
         draft: draftFromSnapshot(chartColumnToSnapshot(column), 'From chart'),
       })),
     );
@@ -2837,12 +2974,10 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
               {columns.slice(0, -1).map((column, index, previousColumns) => (
                 <BumpStage
                   key={column.id}
-                  title={
-                    previousColumns.length === 1
-                      ? 'Previous order'
-                      : `Previous order ${index + 1}`
-                  }
+                  title={orderFallbackLabel(index, previousColumns.length + 1)}
+                  name={column.name}
                   draft={column.draft}
+                  onRename={(name) => renameColumn(column.id, name)}
                   onImport={() => setImportColumnId(column.id)}
                   onRemoveGroup={(groupId) =>
                     toggleGroupRemoval(column.id, groupId)
@@ -2907,7 +3042,11 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
               {currentDraftColumn && (
                 <BumpStage
                   title="Current order"
+                  name={currentDraftColumn.name}
                   draft={currentDraftColumn.draft}
+                  onRename={(name) =>
+                    renameColumn(currentDraftColumn.id, name)
+                  }
                   onImport={() => setImportColumnId(currentDraftColumn.id)}
                   onRemoveGroup={(groupId) =>
                     toggleGroupRemoval(currentDraftColumn.id, groupId)

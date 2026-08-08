@@ -55,6 +55,7 @@ export function isBumpChartColumnSnapshot(value: unknown): boolean {
     typeof value.id === 'string' &&
     value.id.length > 0 &&
     (value.kind === 'previous' || value.kind === 'current') &&
+    (value.name === undefined || typeof value.name === 'string') &&
     isLegacyBumpChartSideSnapshot(value)
   );
 }
