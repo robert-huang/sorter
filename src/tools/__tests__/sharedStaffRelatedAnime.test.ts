@@ -16,8 +16,12 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { _resetDisposableCacheDbForTesting } from '../../lib/disposableCacheDb';
 import { _clearSessionMemoForTesting } from '../../lib/importers/anilist/toolsSessionMemo';
-import { persistentCacheDeletePrefix } from '../../lib/importers/anilist/toolsPersistentCache';
+import {
+  _resetPersistentToolsCacheForTesting,
+  persistentCacheDeletePrefix,
+} from '../../lib/importers/anilist/toolsPersistentCache';
 import { _resetAvailabilityCache } from '../../lib/storage';
 
 vi.mock('../../lib/importers/anilist/transport', () => ({
@@ -55,11 +59,13 @@ function anime(id: number, opts: Partial<RelationEdge['node']> = {}): RelationEd
   return { id, type: 'ANIME', format: 'TV', tags: [], ...opts };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   _clearSessionMemoForTesting();
   window.localStorage.clear();
+  await _resetDisposableCacheDbForTesting();
+  _resetPersistentToolsCacheForTesting();
   _resetAvailabilityCache();
-  persistentCacheDeletePrefix('shared-staff:');
+  await persistentCacheDeletePrefix('shared-staff:');
   executeAnilistQueryMock.mockReset();
 });
 

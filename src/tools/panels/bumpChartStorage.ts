@@ -15,7 +15,7 @@ import {
   isLegacyBumpChartSideSnapshot,
   isLegacyBumpChartWorkspace,
 } from '../../lib/stateStorageValidation';
-export const BUMP_CHART_SLOT_LIMIT = 20;
+export const BUMP_CHART_SLOT_LIMIT = 50;
 
 export type BumpChartImportTab =
   | 'single'

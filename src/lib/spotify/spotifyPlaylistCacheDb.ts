@@ -14,6 +14,12 @@ export type SpotifyPlaylistCachePersistence = {
   readAll: () => Promise<SpotifyPlaylistCache[]>;
   put: (cache: SpotifyPlaylistCache) => Promise<void>;
   clear: () => Promise<void>;
+  deleteExcept?: (playlistIds: ReadonlySet<string>) => Promise<void>;
+};
+
+export type SpotifyCacheDatabaseStats = {
+  playlistCaches: { entries: number; bytes: number };
+  trackIsrcs: { entries: number; bytes: number };
 };
 
 let databasePromise: Promise<IDBDatabase> | null = null;
@@ -95,6 +101,34 @@ async function clearIndexedDb(): Promise<void> {
   });
 }
 
+async function deletePlaylistCachesExceptInIndexedDb(
+  playlistIds: ReadonlySet<string>,
+): Promise<void> {
+  const database = await openDatabase();
+  return new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(PLAYLIST_CACHE_STORE, 'readwrite');
+    const request = transaction.objectStore(PLAYLIST_CACHE_STORE).openCursor();
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) {
+        return;
+      }
+      const cache = cursor.value as SpotifyPlaylistCache;
+      if (!playlistIds.has(cache.playlistId)) {
+        cursor.delete();
+      }
+      cursor.continue();
+    };
+    request.onerror = () =>
+      reject(request.error ?? new Error('Failed to filter Spotify caches.'));
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () =>
+      reject(transaction.error ?? new Error('Spotify cache filter failed.'));
+    transaction.onabort = () =>
+      reject(transaction.error ?? new Error('Spotify cache filter aborted.'));
+  });
+}
+
 async function readAllTrackIsrcsFromIndexedDb(): Promise<SpotifyTrackIsrcRecord[]> {
   const database = await openDatabase();
   return new Promise<SpotifyTrackIsrcRecord[]>((resolve, reject) => {
@@ -146,6 +180,7 @@ function persistence(): SpotifyPlaylistCachePersistence {
       readAll: readAllFromIndexedDb,
       put: putInIndexedDb,
       clear: clearIndexedDb,
+      deleteExcept: deletePlaylistCachesExceptInIndexedDb,
     }
   );
 }
@@ -162,6 +197,21 @@ export function clearSpotifyPlaylistCaches(): Promise<void> {
   return persistence().clear();
 }
 
+export async function clearSpotifyPlaylistCachesExcept(
+  playlistIds: ReadonlySet<string>,
+): Promise<void> {
+  const currentPersistence = persistence();
+  if (currentPersistence.deleteExcept) {
+    await currentPersistence.deleteExcept(playlistIds);
+    return;
+  }
+  const retained = (await currentPersistence.readAll()).filter(
+    (cache) => playlistIds.has(cache.playlistId),
+  );
+  await currentPersistence.clear();
+  await Promise.all(retained.map((cache) => currentPersistence.put(cache)));
+}
+
 export function readAllSpotifyTrackIsrcs(): Promise<SpotifyTrackIsrcRecord[]> {
   return (trackIsrcPersistenceOverride?.readAll ?? readAllTrackIsrcsFromIndexedDb)();
 }
@@ -172,6 +222,37 @@ export function putSpotifyTrackIsrcs(records: SpotifyTrackIsrcRecord[]): Promise
 
 export function clearSpotifyTrackIsrcs(): Promise<void> {
   return (trackIsrcPersistenceOverride?.clear ?? clearTrackIsrcsInIndexedDb)();
+}
+
+function estimateJsonBytes(value: unknown): number {
+  try {
+    return new TextEncoder().encode(JSON.stringify(value)).byteLength;
+  } catch {
+    return 0;
+  }
+}
+
+export async function measureSpotifyCacheDatabase(): Promise<SpotifyCacheDatabaseStats> {
+  const [playlistCaches, trackIsrcs] = await Promise.all([
+    readAllSpotifyPlaylistCaches(),
+    readAllSpotifyTrackIsrcs(),
+  ]);
+  return {
+    playlistCaches: {
+      entries: playlistCaches.length,
+      bytes: playlistCaches.reduce(
+        (total, cache) => total + estimateJsonBytes(cache),
+        0,
+      ),
+    },
+    trackIsrcs: {
+      entries: trackIsrcs.length,
+      bytes: trackIsrcs.reduce(
+        (total, record) => total + estimateJsonBytes(record),
+        0,
+      ),
+    },
+  };
 }
 
 /** Test-only persistence injection and connection reset. */

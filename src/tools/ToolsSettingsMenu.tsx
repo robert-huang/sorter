@@ -6,6 +6,7 @@ import { SettingsGitHubLink } from '../components/SettingsGitHubLink';
 import { SourceDatabasesSection } from '../components/sourceDatabasesSection';
 import { AnilistAccountsSection } from '../components/AnilistAccountsSection';
 import { SpotifySection } from '../components/SpotifySection';
+import { StorageDiagnosticsSection } from '../components/StorageDiagnosticsSection';
 import type { SourceDbSyncControls } from '../hooks/useSourceDbSync';
 import { useToolsPreferences } from '../hooks/useToolsPreferences';
 
@@ -160,11 +161,16 @@ export function ToolsSettingsMenu({
                 </label>
                 <label
                   className="settings-item checkbox"
-                  title="When enabled, PNG export tries to replace unavailable AniList covers with verified MyAnimeList images. Live chart images are unchanged."
+                  title={
+                    toolsPrefs.bumpChartIncludeExportImages
+                      ? 'When enabled, PNG export tries to replace unavailable AniList covers with verified MyAnimeList images. Live chart images are unchanged.'
+                      : 'Turn on Include images in PNG Export to use MyAnimeList fallback images.'
+                  }
                 >
                   <input
                     type="checkbox"
                     checked={toolsPrefs.bumpChartMalExportImages}
+                    disabled={!toolsPrefs.bumpChartIncludeExportImages}
                     onChange={(e) =>
                       setBumpChartMalExportImages(e.target.checked)
                     }
@@ -246,6 +252,8 @@ export function ToolsSettingsMenu({
                     <SpotifySection />
                   </>
                 )}
+                <div className="settings-divider" />
+                <StorageDiagnosticsSection />
               </div>
             )}
           </div>

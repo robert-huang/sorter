@@ -179,6 +179,12 @@ export type RecentlyDeletedBucket = {
 export const REORDER_FAVOURITES_RECENTLY_DELETED_KEY =
   'reorder-favourites-recently-deleted';
 
+export type RecentlyDeletedSaveResult = {
+  buckets: RecentlyDeletedBucket[];
+  droppedBucketCount: number;
+  persisted: boolean;
+};
+
 export function loadRecentlyDeletedBuckets(): RecentlyDeletedBucket[] {
   try {
     const raw = sessionStorage.getItem(REORDER_FAVOURITES_RECENTLY_DELETED_KEY);
@@ -192,20 +198,69 @@ export function loadRecentlyDeletedBuckets(): RecentlyDeletedBucket[] {
   }
 }
 
-export function saveRecentlyDeletedBuckets(buckets: RecentlyDeletedBucket[]): void {
+function isQuotaError(error: unknown): boolean {
+  return (
+    error instanceof DOMException &&
+    (error.name === 'QuotaExceededError' ||
+      error.name === 'NS_ERROR_DOM_QUOTA_REACHED')
+  );
+}
+
+export function saveRecentlyDeletedBuckets(
+  buckets: RecentlyDeletedBucket[],
+): RecentlyDeletedSaveResult {
+  const previouslyPersistedBuckets = loadRecentlyDeletedBuckets();
   try {
     sessionStorage.setItem(
       REORDER_FAVOURITES_RECENTLY_DELETED_KEY,
       JSON.stringify(buckets),
     );
-  } catch {
-    /* ignore quota / private mode */
+    return { buckets, droppedBucketCount: 0, persisted: true };
+  } catch (error) {
+    if (!isQuotaError(error)) {
+      return {
+        buckets: previouslyPersistedBuckets,
+        droppedBucketCount: buckets.length,
+        persisted: false,
+      };
+    }
   }
+
+  for (let keep = buckets.length - 1; keep >= 1; keep -= 1) {
+    const retained = buckets.slice(0, keep);
+    try {
+      sessionStorage.setItem(
+        REORDER_FAVOURITES_RECENTLY_DELETED_KEY,
+        JSON.stringify(retained),
+      );
+      return {
+        buckets: retained,
+        droppedBucketCount: buckets.length - retained.length,
+        persisted: true,
+      };
+    } catch (error) {
+      if (!isQuotaError(error)) {
+        return {
+          buckets: previouslyPersistedBuckets,
+          droppedBucketCount: buckets.length,
+          persisted: false,
+        };
+      }
+      // Keep trimming the oldest snapshot until the newest history fits.
+    }
+  }
+  return {
+    buckets: previouslyPersistedBuckets,
+    droppedBucketCount: buckets.length,
+    persisted: false,
+  };
 }
 
-export function appendRecentlyDeleted(bucket: RecentlyDeletedBucket): void {
+export function appendRecentlyDeleted(
+  bucket: RecentlyDeletedBucket,
+): RecentlyDeletedSaveResult {
   const existing = loadRecentlyDeletedBuckets();
-  saveRecentlyDeletedBuckets([bucket, ...existing]);
+  return saveRecentlyDeletedBuckets([bucket, ...existing]);
 }
 
 /** Merge pinned prefix, explicit rank picks, then remaining items in prior order. */

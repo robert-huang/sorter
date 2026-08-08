@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { _resetDisposableCacheDbForTesting } from '../../lib/disposableCacheDb';
 import type { Item } from '../../lib/types';
 import {
   _resetBumpMalExportImagesForTesting,
+  clearBumpMalExportImageUrls,
   resolveBumpMalExportImage,
 } from '../panels/bumpChartMalExportImages';
 
@@ -12,6 +14,8 @@ vi.mock('../../lib/importers/anilist/transport', () => ({
 }));
 
 const MAL_IMAGE = 'https://cdn.myanimelist.net/images/anime/4/19644.jpg';
+const REFRESHED_MAL_IMAGE =
+  'https://cdn.myanimelist.net/images/anime/4/refreshed.jpg';
 
 function item(
   kind: 'anilist' | 'anilist-character' | 'anilist-staff',
@@ -27,8 +31,9 @@ function item(
   };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   localStorage.clear();
+  await _resetDisposableCacheDbForTesting();
   vi.stubEnv('VITE_MAL_CLIENT_ID', 'test-mal-client-id');
   vi.stubEnv('VITE_MAL_PROXY_URL', 'https://mal-proxy.test/mal');
   executeAnilistQuery.mockReset();
@@ -414,6 +419,28 @@ describe('Bump Chart MAL export image matching', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('migrates legacy URL mappings into individual disposable records', async () => {
+    localStorage.setItem(
+      'queue-sorter:bump-mal-export-image-urls:v1',
+      JSON.stringify({
+        'anilist:10': MAL_IMAGE,
+        'anilist:11': 'https://example.com/not-mal.jpg',
+      }),
+    );
+
+    const restored = await resolveBumpMalExportImage(
+      item('anilist', 10, 'Cowboy Bebop'),
+    );
+
+    expect(restored).toEqual({
+      url: MAL_IMAGE,
+      cacheKey:
+        'https://queue-sorter.invalid/bump-mal-export/v1/anilist%3A10',
+    });
+    expect(localStorage.getItem('queue-sorter:bump-mal-export-image-urls:v1')).toBeNull();
+    expect(executeAnilistQuery).not.toHaveBeenCalled();
+  });
+
   it('deduplicates concurrent matching for the same entity', async () => {
     executeAnilistQuery.mockResolvedValue({
       Media: { id: 10, idMal: 1, type: 'ANIME' },
@@ -436,6 +463,94 @@ describe('Bump Chart MAL export image matching', () => {
     expect(first).toEqual(second);
     expect(executeAnilistQuery).toHaveBeenCalledOnce();
     expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('waits for an in-flight lookup before forcing one fresh resolution', async () => {
+    let signalQueryStarted!: () => void;
+    const queryStarted = new Promise<void>((resolve) => {
+      signalQueryStarted = resolve;
+    });
+    let releaseFirstQuery!: () => void;
+    const firstQueryReleased = new Promise<void>((resolve) => {
+      releaseFirstQuery = resolve;
+    });
+    executeAnilistQuery
+      .mockImplementationOnce(async () => {
+        signalQueryStarted();
+        await firstQueryReleased;
+        return { Media: { id: 10, idMal: 1, type: 'ANIME' } };
+      })
+      .mockResolvedValue({
+        Media: { id: 10, idMal: 1, type: 'ANIME' },
+      });
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ main_picture: { large: MAL_IMAGE } }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ main_picture: { large: REFRESHED_MAL_IMAGE } }),
+          { status: 200 },
+        ),
+      );
+    const mediaItem = item('anilist', 10, 'Cowboy Bebop');
+
+    const initial = resolveBumpMalExportImage(mediaItem);
+    await queryStarted;
+    const refreshed = resolveBumpMalExportImage(mediaItem, {
+      forceRefresh: true,
+    });
+    releaseFirstQuery();
+
+    await expect(initial).resolves.toMatchObject({ url: MAL_IMAGE });
+    await expect(refreshed).resolves.toMatchObject({
+      url: REFRESHED_MAL_IMAGE,
+    });
+    expect(executeAnilistQuery).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not re-persist a URL lookup that finishes after cache cleanup', async () => {
+    let signalQueryStarted!: () => void;
+    const queryStarted = new Promise<void>((resolve) => {
+      signalQueryStarted = resolve;
+    });
+    let releaseQuery!: () => void;
+    const queryReleased = new Promise<void>((resolve) => {
+      releaseQuery = resolve;
+    });
+    executeAnilistQuery
+      .mockImplementationOnce(async () => {
+        signalQueryStarted();
+        await queryReleased;
+        return { Media: { id: 10, idMal: 1, type: 'ANIME' } };
+      })
+      .mockResolvedValue({
+        Media: { id: 10, idMal: 1, type: 'ANIME' },
+      });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({ main_picture: { large: MAL_IMAGE } }),
+        { status: 200 },
+      ),
+    );
+    const mediaItem = item('anilist', 10, 'Cowboy Bebop');
+
+    const initial = resolveBumpMalExportImage(mediaItem);
+    await queryStarted;
+    await clearBumpMalExportImageUrls();
+    releaseQuery();
+    await initial;
+    _resetBumpMalExportImagesForTesting();
+
+    await resolveBumpMalExportImage(mediaItem);
+
+    expect(executeAnilistQuery).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('serializes Tenrai requests from concurrent resolutions', async () => {

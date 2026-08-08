@@ -21,6 +21,13 @@ export function createPlaylistCachePersistence(
     clear: async () => {
       caches.clear();
     },
+    deleteExcept: async (playlistIds) => {
+      for (const playlistId of caches.keys()) {
+        if (!playlistIds.has(playlistId)) {
+          caches.delete(playlistId);
+        }
+      }
+    },
     snapshot: () =>
       [...caches.values()].map((cache) => structuredClone(cache)),
   };

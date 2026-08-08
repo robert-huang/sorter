@@ -406,6 +406,10 @@ export async function commitStateChanges(
   revision?: { scope: 'sorter' | 'bump'; id?: string },
 ): Promise<void> {
   await initializeStateStorage();
+  const injectedError = commitErrorsForTesting.shift();
+  if (injectedError) {
+    throw injectedError;
+  }
   if (memoryOnly) {
     commitMemoryChanges(changes);
     return;
@@ -427,6 +431,14 @@ export async function commitStateChanges(
       // than reporting the persisted user data as failed.
     }
   }
+}
+
+let commitErrorsForTesting: unknown[] = [];
+
+export function _setStateStorageCommitErrorsForTesting(
+  errors: readonly unknown[],
+): void {
+  commitErrorsForTesting = [...errors];
 }
 
 export function getStateWriterId(): string {
@@ -469,6 +481,7 @@ export async function _restartStateStorageForTesting(): Promise<void> {
   memoryOnly = false;
   storageError = null;
   revisionSequence = 0;
+  commitErrorsForTesting = [];
   for (const store of Object.values(memoryStores)) {
     store.clear();
   }

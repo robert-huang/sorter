@@ -950,10 +950,78 @@ html {
   padding-top: 0;
 }
 
-/* Extra breathing room before the global "open the Start tab" hint so
-   it reads as a footer, separate from the per-source rows above. */
-.settings-source-refresh-hint {
-  margin-top: 14px;
+.storage-diagnostics {
+  padding: 6px 14px;
+}
+
+.storage-diagnostics summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.storage-diagnostics-body {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+}
+
+.storage-diagnostics-body h4 {
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+
+.storage-diagnostics-summary {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.storage-diagnostics-summary > div,
+.storage-diagnostics-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11px;
+}
+
+.storage-diagnostics-summary dt {
+  color: var(--text-muted);
+}
+
+.storage-diagnostics-summary dd {
+  margin: 0;
+  text-align: right;
+}
+
+.storage-diagnostics-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.8125rem;
+}
+
+.storage-diagnostics-list li span:last-child {
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.storage-diagnostics-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.storage-pressure {
+  margin-bottom: 10px;
+}
+
+.storage-pressure--critical {
+  color: var(--danger, #ff7777);
 }
 
 /* Cloud-backup primary entry: the "Pick cloud folder" CTA after a
@@ -7458,9 +7526,16 @@ a:where(.anime-to-anime-anilist-link):visited {
 }
 
 .tool-reorder-favourites-recently-deleted-names {
+  display: grid;
+  gap: 6px;
   margin: 0;
-  padding-left: 1.25rem;
+  padding: 0;
+  list-style: none;
   font-size: 0.875rem;
+}
+
+.tool-reorder-favourites-recently-deleted-names .tool-entity-btn {
+  width: fit-content;
 }
 
 /* Hover × to clear — hides native number spinners on tool number fields. */
@@ -9434,7 +9509,7 @@ a:where(.anime-to-anime-anilist-link):visited {
   align-items: center;
   gap: 8px;
   width: 100%;
-  margin: 0 0 4px;
+  margin: 2px 0 4px;
   padding: 0;
   border: none;
   background: none;

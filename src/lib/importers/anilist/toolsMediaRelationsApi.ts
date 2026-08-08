@@ -36,17 +36,22 @@ const LEGACY_TOOLS_RELATION_CACHE_PREFIXES = [
   'adaptation:relations:',
 ] as const;
 
-import { persistentCacheDelete, persistentCacheDeletePrefix, persistentCacheGet } from './toolsPersistentCache';
+import {
+  persistentCacheDelete,
+  persistentCacheDeletePrefix,
+  persistentCacheGet,
+  persistentCacheKeys,
+} from './toolsPersistentCache';
 
 let legacyRelationCachesPruned = false;
 
-function pruneLegacyToolsRelationCaches(): void {
+async function pruneLegacyToolsRelationCaches(): Promise<void> {
   if (legacyRelationCachesPruned) {
     return;
   }
   legacyRelationCachesPruned = true;
   for (const prefix of LEGACY_TOOLS_RELATION_CACHE_PREFIXES) {
-    persistentCacheDeletePrefix(prefix);
+    await persistentCacheDeletePrefix(prefix);
   }
 }
 
@@ -158,12 +163,12 @@ async function fetchAndPersistToolsMediaRelations(
   return getToolsMediaRelationsFromDb(ctx.db, mediaId);
 }
 
-export function fetchToolsMediaRelationsCached(
+export async function fetchToolsMediaRelationsCached(
   mediaId: number,
   signal?: AbortSignal,
   options?: ToolsFetchOptions,
 ): Promise<ToolsMediaRelationsResponse | null> {
-  pruneLegacyToolsRelationCaches();
+  await pruneLegacyToolsRelationCaches();
   signal?.throwIfAborted();
   const key = toolsMediaRelationsCacheKey(mediaId);
   return withSessionMemo(
@@ -215,7 +220,7 @@ export async function fetchToolsMediaRelationsBatch(
   mediaIds: readonly number[],
   options: FetchToolsMediaRelationsBatchOptions = {},
 ): Promise<Map<number, ToolsMediaRelationsResponse>> {
-  pruneLegacyToolsRelationCaches();
+  await pruneLegacyToolsRelationCaches();
   const { signal, fetchOptions, onItem } = options;
   const batchSize = options.batchSize ?? 15;
   const out = new Map<number, ToolsMediaRelationsResponse>();
@@ -332,20 +337,8 @@ function toolsApiMediaToGql(media: ToolsApiMedia): AnilistMediaGql {
   };
 }
 
-function listLegacyRelationCacheKeys(): string[] {
-  const prefix = `tools-cache:${TOOLS_MEDIA_RELATIONS_CACHE_PREFIX}`;
-  const keys: string[] = [];
-  try {
-    for (let i = 0; i < window.localStorage.length; i++) {
-      const key = window.localStorage.key(i);
-      if (key?.startsWith(prefix)) {
-        keys.push(key.slice('tools-cache:'.length));
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-  return keys;
+function listLegacyRelationCacheKeys(): Promise<string[]> {
+  return persistentCacheKeys(TOOLS_MEDIA_RELATIONS_CACHE_PREFIX);
 }
 
 async function writeCachedRelationsToDb(
@@ -398,7 +391,7 @@ async function backfillToolsRelationsFromLocalStorage(): Promise<number> {
 
   const ctx = getToolsImportContext();
   let migrated = 0;
-  for (const cacheKey of listLegacyRelationCacheKeys()) {
+  for (const cacheKey of await listLegacyRelationCacheKeys()) {
     const mediaId = Number.parseInt(
       cacheKey.slice(TOOLS_MEDIA_RELATIONS_CACHE_PREFIX.length),
       10,
@@ -407,16 +400,17 @@ async function backfillToolsRelationsFromLocalStorage(): Promise<number> {
       continue;
     }
     if ((await getMediaRelationsExpansionFetchedAt(ctx.db, mediaId)) !== null) {
-      persistentCacheDelete(cacheKey);
+      await persistentCacheDelete(cacheKey);
       continue;
     }
-    const hit = persistentCacheGet<ToolsMediaRelationsResponse>(cacheKey);
+    const hit =
+      await persistentCacheGet<ToolsMediaRelationsResponse>(cacheKey);
     if (!hit.hit || !hit.value?.media?.id) {
       continue;
     }
     const fetchedAt = Date.now();
     await writeCachedRelationsToDb(mediaId, hit.value, fetchedAt);
-    persistentCacheDelete(cacheKey);
+    await persistentCacheDelete(cacheKey);
     migrated++;
   }
   return migrated;
@@ -425,4 +419,5 @@ async function backfillToolsRelationsFromLocalStorage(): Promise<number> {
 /** Test-only reset. */
 export function _resetToolsRelationsBackfillForTesting(): void {
   backfillDone = false;
+  legacyRelationCachesPruned = false;
 }

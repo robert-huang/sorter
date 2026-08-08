@@ -1,76 +1,112 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { _resetAvailabilityCache } from '../../../storage';
+import { _resetDisposableCacheDbForTesting } from '../../../disposableCacheDb';
 import {
+  _resetPersistentToolsCacheForTesting,
+  clearPersistentToolsCache,
   persistentCacheDelete,
   persistentCacheDeletePrefix,
   persistentCacheGet,
   persistentCacheSet,
+  sweepExpiredPersistentCache,
   withPersistentTtlCache,
 } from '../toolsPersistentCache';
 
-beforeEach(() => {
-  window.localStorage.clear();
-  _resetAvailabilityCache();
+beforeEach(async () => {
+  vi.restoreAllMocks();
+  localStorage.clear();
+  await _resetDisposableCacheDbForTesting();
+  _resetPersistentToolsCacheForTesting();
 });
 
 describe('persistentCacheGet / persistentCacheSet', () => {
-  it('round-trips a value through localStorage', () => {
-    persistentCacheSet('k1', { a: 1, b: 'two' }, 60_000);
-    expect(persistentCacheGet<{ a: number; b: string }>('k1')).toEqual({
+  it('round-trips a value through disposable IndexedDB', async () => {
+    await persistentCacheSet('k1', { a: 1, b: 'two' }, 60_000);
+
+    await expect(
+      persistentCacheGet<{ a: number; b: string }>('k1'),
+    ).resolves.toEqual({
       hit: true,
       value: { a: 1, b: 'two' },
     });
+    expect(localStorage.getItem('tools-cache:k1')).toBeNull();
   });
 
-  it('returns hit:false for a missing key', () => {
-    expect(persistentCacheGet('missing')).toEqual({ hit: false });
-  });
-
-  it('treats a literal cached null as a real hit', () => {
-    persistentCacheSet<null>('null-key', null, 60_000);
-    expect(persistentCacheGet<null>('null-key')).toEqual({
+  it('distinguishes missing and cached null values', async () => {
+    await expect(persistentCacheGet('missing')).resolves.toEqual({
+      hit: false,
+    });
+    await persistentCacheSet<null>('null-key', null, 60_000);
+    await expect(persistentCacheGet<null>('null-key')).resolves.toEqual({
       hit: true,
       value: null,
     });
   });
 
-  it('evicts expired entries on read', () => {
-    persistentCacheSet('expiring', 'value', 60_000);
-    const future = Date.now() + 120_000;
-    vi.spyOn(Date, 'now').mockReturnValue(future);
-    try {
-      expect(persistentCacheGet('expiring')).toEqual({ hit: false });
-      expect(window.localStorage.getItem('tools-cache:expiring')).toBeNull();
-    } finally {
-      vi.restoreAllMocks();
-    }
+  it('evicts expired entries on read', async () => {
+    await persistentCacheSet('expiring', 'value', 60_000);
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 120_000);
+
+    await expect(persistentCacheGet('expiring')).resolves.toEqual({
+      hit: false,
+    });
   });
 
-  it('treats corrupted JSON as a miss without throwing', () => {
-    window.localStorage.setItem('tools-cache:bad', '{not json');
-    expect(persistentCacheGet('bad')).toEqual({ hit: false });
+  it('migrates valid legacy records and removes corrupt records', async () => {
+    localStorage.setItem(
+      'tools-cache:legacy',
+      JSON.stringify({ value: { id: 1 }, expiresAt: Date.now() + 60_000 }),
+    );
+    localStorage.setItem('tools-cache:bad', '{not json');
+
+    await expect(persistentCacheGet('legacy')).resolves.toEqual({
+      hit: true,
+      value: { id: 1 },
+    });
+    expect(localStorage.getItem('tools-cache:legacy')).toBeNull();
+    expect(localStorage.getItem('tools-cache:bad')).toBeNull();
   });
 });
 
-describe('persistentCacheDelete + DeletePrefix', () => {
-  it('deletes a single key', () => {
-    persistentCacheSet('one', 1, 60_000);
-    persistentCacheSet('two', 2, 60_000);
-    persistentCacheDelete('one');
-    expect(persistentCacheGet('one')).toEqual({ hit: false });
-    expect(persistentCacheGet<number>('two')).toEqual({ hit: true, value: 2 });
+describe('persistent cache deletion', () => {
+  it('deletes a single key', async () => {
+    await persistentCacheSet('one', 1, 60_000);
+    await persistentCacheSet('two', 2, 60_000);
+    await persistentCacheDelete('one');
+
+    await expect(persistentCacheGet('one')).resolves.toEqual({ hit: false });
+    await expect(persistentCacheGet<number>('two')).resolves.toEqual({
+      hit: true,
+      value: 2,
+    });
   });
 
-  it('deletes only keys matching the prefix', () => {
-    persistentCacheSet('franchise:relations:1', 'a', 60_000);
-    persistentCacheSet('franchise:relations:2', 'b', 60_000);
-    persistentCacheSet('other:thing', 'c', 60_000);
-    persistentCacheDeletePrefix('franchise:relations:');
-    expect(persistentCacheGet('franchise:relations:1')).toEqual({ hit: false });
-    expect(persistentCacheGet('franchise:relations:2')).toEqual({ hit: false });
-    expect(persistentCacheGet<string>('other:thing')).toEqual({
+  it('deletes only keys matching the prefix', async () => {
+    await persistentCacheSet('franchise:relations:1', 'a', 60_000);
+    await persistentCacheSet('franchise:relations:2', 'b', 60_000);
+    await persistentCacheSet('other:thing', 'c', 60_000);
+    await persistentCacheDeletePrefix('franchise:relations:');
+
+    await expect(
+      persistentCacheGet('franchise:relations:1'),
+    ).resolves.toEqual({ hit: false });
+    await expect(
+      persistentCacheGet('franchise:relations:2'),
+    ).resolves.toEqual({ hit: false });
+    await expect(persistentCacheGet<string>('other:thing')).resolves.toEqual({
       hit: true,
       value: 'c',
+    });
+  });
+
+  it('sweeps expired entries without removing live records', async () => {
+    await persistentCacheSet('stale', 'old', 1);
+    await persistentCacheSet('fresh', 'new', 60_000);
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 2);
+
+    await expect(sweepExpiredPersistentCache()).resolves.toBe(1);
+    await expect(persistentCacheGet('fresh')).resolves.toEqual({
+      hit: true,
+      value: 'new',
     });
   });
 });
@@ -80,9 +116,10 @@ describe('withPersistentTtlCache', () => {
     const fetcher = vi.fn().mockResolvedValue({ id: 1, edges: [] });
     const first = await withPersistentTtlCache('k', 60_000, fetcher);
     const second = await withPersistentTtlCache('k', 60_000, fetcher);
+
     expect(first).toEqual({ id: 1, edges: [] });
     expect(second).toEqual({ id: 1, edges: [] });
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledOnce();
   });
 
   it('bust:true skips the cache and re-fetches', async () => {
@@ -91,55 +128,52 @@ describe('withPersistentTtlCache', () => {
       .mockResolvedValueOnce('old')
       .mockResolvedValueOnce('new');
     await withPersistentTtlCache('k', 60_000, fetcher);
-    const v = await withPersistentTtlCache('k', 60_000, fetcher, { bust: true });
-    expect(v).toBe('new');
+
+    await expect(
+      withPersistentTtlCache('k', 60_000, fetcher, { bust: true }),
+    ).resolves.toBe('new');
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
-  it('caches a null fetcher result and serves it next time without re-fetching', async () => {
-    const fetcher = vi.fn().mockResolvedValue(null);
-    await withPersistentTtlCache('k', 60_000, fetcher);
-    const v = await withPersistentTtlCache('k', 60_000, fetcher);
-    expect(v).toBeNull();
-    expect(fetcher).toHaveBeenCalledTimes(1);
+  it('caches null and does not persist rejected fetches', async () => {
+    const nullFetcher = vi.fn().mockResolvedValue(null);
+    await withPersistentTtlCache('null', 60_000, nullFetcher);
+    await expect(
+      withPersistentTtlCache('null', 60_000, nullFetcher),
+    ).resolves.toBeNull();
+    expect(nullFetcher).toHaveBeenCalledOnce();
+
+    const rejectedFetcher = vi.fn().mockRejectedValue(new Error('boom'));
+    await expect(
+      withPersistentTtlCache('rejected', 60_000, rejectedFetcher),
+    ).rejects.toThrow('boom');
+    await expect(persistentCacheGet('rejected')).resolves.toEqual({
+      hit: false,
+    });
   });
 
-  it('does not persist on fetcher rejection', async () => {
-    const fetcher = vi.fn().mockRejectedValue(new Error('boom'));
-    await expect(withPersistentTtlCache('k', 60_000, fetcher)).rejects.toThrow(
-      'boom',
-    );
-    expect(persistentCacheGet('k')).toEqual({ hit: false });
-  });
+  it('does not re-persist a request that started before an explicit clear', async () => {
+    let signalFetchStarted!: () => void;
+    const fetchStarted = new Promise<void>((resolve) => {
+      signalFetchStarted = resolve;
+    });
+    let releaseFetch!: () => void;
+    const fetchReleased = new Promise<void>((resolve) => {
+      releaseFetch = resolve;
+    });
+    const request = withPersistentTtlCache('in-flight', 60_000, async () => {
+      signalFetchStarted();
+      await fetchReleased;
+      return 'fresh response';
+    });
 
-  it('prunes expired entries when a write hits quota, then retries', () => {
-    persistentCacheSet('stale', 'old', 1);
-    const future = Date.now() + 1_000_000;
-    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(future);
-    const originalSetItem = Storage.prototype.setItem;
-    let setCalls = 0;
-    const setSpy = vi
-      .spyOn(Storage.prototype, 'setItem')
-      .mockImplementation(function (this: Storage, key: string, value: string) {
-        setCalls++;
-        // First attempt fails (quota); subsequent calls (the removeItem
-        // path doesn't go through setItem, then the retry) succeed.
-        if (setCalls === 1) {
-          throw new Error('QuotaExceededError');
-        }
-        originalSetItem.call(this, key, value);
-      });
+    await fetchStarted;
+    await clearPersistentToolsCache();
+    releaseFetch();
 
-    try {
-      persistentCacheSet('fresh', 'new', 60_000);
-    } finally {
-      setSpy.mockRestore();
-      nowSpy.mockRestore();
-    }
-
-    // After the prune-and-retry path: the stale entry is gone and the
-    // fresh entry made it in on the second setItem call.
-    expect(window.localStorage.getItem('tools-cache:stale')).toBeNull();
-    expect(window.localStorage.getItem('tools-cache:fresh')).not.toBeNull();
+    await expect(request).resolves.toBe('fresh response');
+    await expect(persistentCacheGet('in-flight')).resolves.toEqual({
+      hit: false,
+    });
   });
 });

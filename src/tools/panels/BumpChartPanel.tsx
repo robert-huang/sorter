@@ -1114,6 +1114,10 @@ async function resolveExportImages(
             loaded = await loadCachedCanvasImage(
               fallback.url,
               fallback.cacheKey,
+              {
+                refreshStaleSource: () =>
+                  resolveBumpMalExportImage(item, { forceRefresh: true }),
+              },
             );
           }
         }

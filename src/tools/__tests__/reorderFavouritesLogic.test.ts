@@ -1,10 +1,11 @@
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
 import {
   _clearAnilistDisplayPreferencesForTesting,
   saveAnilistDisplayPreferences,
 } from '../../lib/importers/anilist/displayPreferences';
 import {
   applySelectRankOrder,
+  appendRecentlyDeleted,
   batchRankIndexRange,
   dragInsertIndexAtChip,
   dragInsertIndexForChipPointer,
@@ -18,15 +19,19 @@ import {
   handleSelectRankClick,
   hasPendingReorderChanges,
   importedIdsMissingFromFavourites,
+  loadRecentlyDeletedBuckets,
   missingFavouritesWarningMessage,
   reorderByDrag,
   reorderByDragDisplayPreview,
   relabelFavouriteListItem,
+  REORDER_FAVOURITES_RECENTLY_DELETED_KEY,
   revertItemsToIdOrder,
+  saveRecentlyDeletedBuckets,
   sameIdOrder,
   selectRankLabelForItem,
   selectRankStateFromImportedIds,
   type FavouriteListItem,
+  type RecentlyDeletedBucket,
 } from '../panels/reorderFavouritesLogic';
 
 function items(labels: string[]): FavouriteListItem[] {
@@ -43,6 +48,105 @@ const THREE_PRIOR_RANKS = {
   rankedIds: [10, 11, 12],
   anchorIndex: null,
 };
+
+function deletedBucket(deletedAt: number): RecentlyDeletedBucket {
+  return {
+    username: 'tester',
+    favouriteType: 'ANIME',
+    items: items([`Deleted ${deletedAt}`]),
+    deletedAt,
+  };
+}
+
+describe('recently deleted persistence', () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+  });
+
+  it('preserves every undo bucket during normal writes', () => {
+    const buckets = [deletedBucket(3), deletedBucket(2), deletedBucket(1)];
+
+    const result = saveRecentlyDeletedBuckets(buckets);
+
+    expect(result).toEqual({
+      buckets,
+      droppedBucketCount: 0,
+      persisted: true,
+    });
+    expect(
+      JSON.parse(
+        sessionStorage.getItem(REORDER_FAVOURITES_RECENTLY_DELETED_KEY) ?? '[]',
+      ),
+    ).toHaveLength(3);
+  });
+
+  it('drops only the oldest buckets after an actual quota error', () => {
+    const originalSetItem = Storage.prototype.setItem;
+    const setItem = vi
+      .spyOn(Storage.prototype, 'setItem')
+      .mockImplementation(function (this: Storage, key: string, value: string) {
+        if (
+          key === REORDER_FAVOURITES_RECENTLY_DELETED_KEY &&
+          (JSON.parse(value) as unknown[]).length > 2
+        ) {
+          throw new DOMException('Storage full', 'QuotaExceededError');
+        }
+        originalSetItem.call(this, key, value);
+      });
+    try {
+      const result = saveRecentlyDeletedBuckets([
+        deletedBucket(4),
+        deletedBucket(3),
+        deletedBucket(2),
+        deletedBucket(1),
+      ]);
+
+      expect(result.persisted).toBe(true);
+      expect(result.droppedBucketCount).toBe(2);
+      expect(result.buckets.map((bucket) => bucket.deletedAt)).toEqual([4, 3]);
+    } finally {
+      setItem.mockRestore();
+    }
+  });
+
+  it('preserves existing history when no updated snapshot can fit', () => {
+    const existing = [deletedBucket(1)];
+    saveRecentlyDeletedBuckets(existing);
+    const originalSetItem = Storage.prototype.setItem;
+    const setItem = vi
+      .spyOn(Storage.prototype, 'setItem')
+      .mockImplementation(function (this: Storage, key: string, value: string) {
+        if (key === REORDER_FAVOURITES_RECENTLY_DELETED_KEY) {
+          throw new DOMException('Storage full', 'QuotaExceededError');
+        }
+        originalSetItem.call(this, key, value);
+      });
+    try {
+      const result = saveRecentlyDeletedBuckets([
+        deletedBucket(2),
+        ...existing,
+      ]);
+
+      expect(result).toEqual({
+        buckets: existing,
+        droppedBucketCount: 2,
+        persisted: false,
+      });
+      expect(loadRecentlyDeletedBuckets()).toEqual(existing);
+    } finally {
+      setItem.mockRestore();
+    }
+  });
+
+  it('prepends the newest deletion without capping successful history', () => {
+    saveRecentlyDeletedBuckets([deletedBucket(2), deletedBucket(1)]);
+
+    const result = appendRecentlyDeleted(deletedBucket(3));
+
+    expect(result.buckets.map((bucket) => bucket.deletedAt)).toEqual([3, 2, 1]);
+    expect(result.droppedBucketCount).toBe(0);
+  });
+});
 
 describe('applySelectRankOrder', () => {
   it('places ranked picks first, then remaining items in prior order', () => {

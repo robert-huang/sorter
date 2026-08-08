@@ -246,7 +246,7 @@ Each page (Sorter, Anime to Anime, Anime Tools) runs its own dedicated DB worker
 
 ### Source databases (gear menu → Databases)
 
-The gear menu has a **Slots** tab and a **Databases** tab. The Databases tab shows a **Source databases** section (and is disabled under `file://` with *"Database sync needs autosave enabled…"*). To **refresh a source's data**, you use START → that source's import mode — *"To refresh a source's data, open the Start tab and pick the source's import mode."*
+The gear menu has a **Slots** tab and a **Databases** tab. The Databases tab shows a **Source databases** section (and is disabled under `file://` with *"Database sync needs autosave enabled…"*). To **refresh a source's data**, you use START → that source's import mode.
 
 When cloud backup is connected, each source row offers manual **Push** / **Pull** of the whole `.sqlite` to a `db/` subfolder of your Drive folder, with a sync status (`in sync` / `drifted` / `local changes` / …), last Pushed/Pulled timestamps, and a `{N} pending change(s) — manual push required.` banner with **Push now**. Push is blocked from a non-persistent (in-memory) tab; Pull is allowed. Conflicts surface plain messages (e.g. `Remote has new changes — pull first.`).
 

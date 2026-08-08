@@ -383,11 +383,11 @@ async function walkRelatedAnimeIds(
 ): Promise<number[]> {
   const checkpointKey = relatedAnimeCheckpointKey(rootMediaId);
   if (options?.forceRefresh) {
-    persistentCacheDelete(checkpointKey);
+    await persistentCacheDelete(checkpointKey);
   }
   const checkpoint = options?.forceRefresh
     ? null
-    : persistentCacheGet<RelatedAnimeWalkCheckpoint>(checkpointKey);
+    : await persistentCacheGet<RelatedAnimeWalkCheckpoint>(checkpointKey);
   const related = new Set<number>(
     checkpoint?.hit ? checkpoint.value.related : [rootMediaId],
   );
@@ -448,7 +448,7 @@ async function walkRelatedAnimeIds(
       const remaining = toFetch.slice(
         offset + RELATED_ANIME_WALK_BATCH_SIZE,
       );
-      persistentCacheSet(
+      await persistentCacheSet(
         checkpointKey,
         {
           related: [...related],
@@ -462,7 +462,7 @@ async function walkRelatedAnimeIds(
     frontier = nextFrontier;
   }
 
-  persistentCacheDelete(checkpointKey);
+  await persistentCacheDelete(checkpointKey);
   related.delete(rootMediaId);
   return [...related];
 }

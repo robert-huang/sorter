@@ -51,6 +51,17 @@ export function _clearSessionMemoForTesting(): void {
   inflight.clear();
 }
 
+export function sweepExpiredSessionMemo(now = Date.now()): number {
+  let removed = 0;
+  for (const [key, entry] of ttlStore) {
+    if (now >= entry.expiresAt) {
+      ttlStore.delete(key);
+      removed += 1;
+    }
+  }
+  return removed;
+}
+
 /** Session-scoped read-through memo for async tool fetchers. */
 export async function withSessionMemo<T>(
   key: string,
@@ -92,6 +103,7 @@ export async function withSessionTtlMemo<T>(
   fetcher: () => Promise<T>,
   options?: SessionTtlMemoOptions,
 ): Promise<T> {
+  sweepExpiredSessionMemo();
   if (options?.bust) {
     sessionMemoDelete(key);
   }

@@ -6,6 +6,7 @@ import { CloudBackupSection } from './CloudBackupSection';
 import { AnilistAccountsSection } from './AnilistAccountsSection';
 import { SpotifySection } from './SpotifySection';
 import { SourceDatabasesSection } from './sourceDatabasesSection';
+import { StorageDiagnosticsSection } from './StorageDiagnosticsSection';
 import type { SlotsManifest } from '../lib/types';
 
 /**
@@ -423,10 +424,8 @@ export function SettingsMenu({
                     <SpotifySection />
                   </>
                 ) : null}
-                <div className="settings-status settings-source-refresh-hint">
-                  To refresh a source's data, open the Start tab and pick
-                  the source's import mode.
-                </div>
+                <div className="settings-divider" />
+                <StorageDiagnosticsSection />
               </div>
             )}
           </div>

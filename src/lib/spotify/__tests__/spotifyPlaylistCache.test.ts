@@ -6,6 +6,7 @@ import {
   _clearSpotifyPlaylistForTesting,
   _resetSpotifyPlaylistCacheMemoryForTesting,
   _writePlaylistCacheForTesting,
+  clearNonSelectedSpotifyPlaylistCaches,
   clearSelectedSpotifyPlaylist,
   countCachedPlaylistTracks,
   getActivePlaylistCache,
@@ -21,10 +22,16 @@ import {
   updatePlaylistCacheTracks,
 } from '../spotifyPlaylist';
 import {
+  _setSpotifyTrackIsrcPersistenceForTesting,
   _setSpotifyPlaylistCachePersistenceForTesting,
+  measureSpotifyCacheDatabase,
+  putSpotifyTrackIsrcs,
   type SpotifyPlaylistCachePersistence,
 } from '../spotifyPlaylistCacheDb';
-import { createPlaylistCachePersistence } from './spotifyCachePersistenceTestUtils';
+import {
+  createPlaylistCachePersistence,
+  createTrackIsrcPersistence,
+} from './spotifyCachePersistenceTestUtils';
 
 const SAMPLE_CACHE: SpotifyPlaylistCache = {
   playlistId: 'playlist-1',
@@ -57,6 +64,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
   await _clearSpotifyPlaylistForTesting();
   _setSpotifyPlaylistCachePersistenceForTesting(null);
+  _setSpotifyTrackIsrcPersistenceForTesting(null);
 });
 
 describe('spotify playlist cache selection', () => {
@@ -109,6 +117,79 @@ describe('spotify playlist cache selection', () => {
     expect(getPlaylistCache('playlist-2')?.tracks).toEqual(updatedTracks);
     expect(persistence.snapshot()).toHaveLength(2);
     expect(localStorage.getItem(PLAYLIST_CACHE_STORAGE_KEY)).toBeNull();
+  });
+
+  it('clears only non-selected playlist caches under storage pressure', async () => {
+    await _writePlaylistCacheForTesting(SAMPLE_CACHE);
+    await _writePlaylistCacheForTesting(SAMPLE_CACHE_2);
+    setSelectedSpotifyPlaylist({ id: 'playlist-1', name: 'Anime OPs' });
+
+    await clearNonSelectedSpotifyPlaylistCaches();
+
+    expect(getSelectedSpotifyPlaylist()?.id).toBe('playlist-1');
+    expect(getActivePlaylistCache()?.playlistId).toBe('playlist-1');
+    expect(getPlaylistCache('playlist-2')).toBeNull();
+    expect(persistence.snapshot()).toEqual([
+      expect.objectContaining({ playlistId: 'playlist-1' }),
+    ]);
+  });
+
+  it('preserves a playlist selected while cleanup is in progress', async () => {
+    await _writePlaylistCacheForTesting(SAMPLE_CACHE);
+    await _writePlaylistCacheForTesting(SAMPLE_CACHE_2);
+    _resetSpotifyPlaylistCacheMemoryForTesting();
+    setSelectedSpotifyPlaylist({ id: 'playlist-1', name: 'Anime OPs' });
+
+    let signalDeleteStarted: (() => void) | null = null;
+    const deleteStarted = new Promise<void>((resolve) => {
+      signalDeleteStarted = resolve;
+    });
+    let releaseDelete: () => void = () => {};
+    const deleteReleased = new Promise<void>((resolve) => {
+      releaseDelete = resolve;
+    });
+    const deleteExcept = persistence.deleteExcept;
+    persistence.deleteExcept = async (playlistIds) => {
+      await deleteExcept?.(new Set(playlistIds));
+      signalDeleteStarted?.();
+      await deleteReleased;
+    };
+
+    const cleanup = clearNonSelectedSpotifyPlaylistCaches();
+    await deleteStarted;
+    setSelectedSpotifyPlaylist({ id: 'playlist-2', name: 'Other' });
+    releaseDelete();
+    await cleanup;
+
+    expect(getSelectedSpotifyPlaylist()?.id).toBe('playlist-2');
+    expect(getActivePlaylistCache()?.playlistId).toBe('playlist-2');
+    expect(persistence.snapshot()).toContainEqual(
+      expect.objectContaining({ playlistId: 'playlist-2' }),
+    );
+  });
+
+  it('measures but never clears track-to-ISRC mappings with playlist cleanup', async () => {
+    const trackIsrcPersistence = createTrackIsrcPersistence();
+    _setSpotifyTrackIsrcPersistenceForTesting(trackIsrcPersistence);
+    await putSpotifyTrackIsrcs([
+      {
+        trackId: 'track-1',
+        isrc: 'USRC001',
+      },
+    ]);
+    await _writePlaylistCacheForTesting(SAMPLE_CACHE);
+
+    await clearNonSelectedSpotifyPlaylistCaches();
+    const measured = await measureSpotifyCacheDatabase();
+
+    expect(trackIsrcPersistence.snapshot()).toEqual([
+      {
+        trackId: 'track-1',
+        isrc: 'USRC001',
+      },
+    ]);
+    expect(measured.trackIsrcs.entries).toBe(1);
+    expect(measured.trackIsrcs.bytes).toBeGreaterThan(0);
   });
 
   it('surfaces a durable cache write failure', async () => {

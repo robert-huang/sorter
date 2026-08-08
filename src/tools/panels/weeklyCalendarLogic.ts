@@ -184,7 +184,12 @@ export type WeeklyCalendarWeekStartDay =
 
 export type WeeklyCalendarTimezone = 'eastern' | 'pacific' | 'utc' | 'local';
 
-export type WeeklyCalendarSeasonScope = 'watching' | 'current' | 'next' | 'custom';
+export type WeeklyCalendarSeasonScope =
+  | 'watching'
+  | 'previous'
+  | 'current'
+  | 'next'
+  | 'custom';
 
 export type WeeklyCalendarForm = {
   username: string;
@@ -459,6 +464,9 @@ export function resolveWeeklyCalendarSeasonSpecs(
     return null;
   }
   const current = getCurrentAnilistSeason(now);
+  if (form.seasonScope === 'previous') {
+    return [getPreviousAnilistSeason(current)];
+  }
   if (form.seasonScope === 'next') {
     return [getNextAnilistSeason(current)];
   }
@@ -482,6 +490,9 @@ export function weeklyCalendarFetchKey(
   if (form.seasonScope === 'watching') {
     return 'watching';
   }
+  if (form.seasonScope === 'previous') {
+    return 'previous';
+  }
   if (form.seasonScope === 'current') {
     return 'current';
   }
@@ -493,13 +504,37 @@ export function weeklyCalendarFetchKey(
 
 export function isWeeklyCalendarSeasonScope(
   scope: WeeklyCalendarSeasonScope,
-): scope is 'current' | 'next' | 'custom' {
-  return scope === 'current' || scope === 'next' || scope === 'custom';
+): scope is 'previous' | 'current' | 'next' | 'custom' {
+  return (
+    scope === 'previous' ||
+    scope === 'current' ||
+    scope === 'next' ||
+    scope === 'custom'
+  );
 }
 
 export function formatAnilistSeasonLabel(spec: AnilistSeasonAt): string {
   const name = spec.season[0] + spec.season.slice(1).toLowerCase();
   return `${name} ${spec.year}`;
+}
+
+export function buildWeeklyCalendarSeasonSegments(
+  now: Date = new Date(),
+): Array<{ value: WeeklyCalendarSeasonScope; label: string }> {
+  const current = getCurrentAnilistSeason(now);
+  return [
+    { value: 'watching', label: 'User List' },
+    {
+      value: 'previous',
+      label: formatAnilistSeasonLabel(getPreviousAnilistSeason(current)),
+    },
+    { value: 'current', label: formatAnilistSeasonLabel(current) },
+    {
+      value: 'next',
+      label: formatAnilistSeasonLabel(getNextAnilistSeason(current)),
+    },
+    { value: 'custom', label: 'Custom' },
+  ];
 }
 
 export function formatAnilistSeasonRangeLabel(

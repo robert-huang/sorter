@@ -1,10 +1,19 @@
 import { executeAnilistQuery } from '../../lib/importers/anilist/transport';
 import { fetchMalOfficialJson } from '../../lib/importers/anilist/themeSongs/malOfficialApi';
 import { foldJapaneseRomanization } from '../../lib/importers/anilist/themeSongs/themeSongMatching';
+import {
+  clearDisposableCacheNamespace,
+  deleteDisposableCacheEntry,
+  getDisposableCacheStats,
+  listDisposableCacheEntries,
+  putDisposableCache,
+} from '../../lib/disposableCacheDb';
+import { registerDisposableCacheOwner } from '../../lib/disposableCacheRegistry';
 import type { Item } from '../../lib/types';
 
 const TENRAI_BASE_URL = 'https://api.tenrai.org/v1';
 const MAL_IMAGE_URL_CACHE_KEY = 'queue-sorter:bump-mal-export-image-urls:v1';
+const MAL_IMAGE_URL_CACHE_NAMESPACE = 'bump-image-urls';
 const TENRAI_REQUEST_INTERVAL_MS = import.meta.env.MODE === 'test' ? 0 : 1_050;
 const MAX_LINKED_MEDIA_LOOKUPS = 6;
 const MAX_TENRAI_RETRIES = 2;
@@ -113,12 +122,16 @@ export type BumpMalExportImage = {
   cacheKey: string;
 };
 
-const pendingResolutions = new Map<
-  string,
-  Promise<BumpMalExportImage | null>
->();
+type PendingResolution = {
+  forceRefresh: boolean;
+  promise: Promise<BumpMalExportImage | null>;
+};
+
+const pendingResolutions = new Map<string, PendingResolution>();
 const sessionMisses = new Set<string>();
-let persistedUrlCache: Record<string, string> | null = null;
+let persistedUrlCache: Map<string, string> | null = null;
+let urlCacheInitialization: Promise<Map<string, string>> | null = null;
+let urlCacheGeneration = 0;
 let tenraiQueueTail: Promise<unknown> = Promise.resolve();
 let lastTenraiRequestAt = 0;
 
@@ -139,38 +152,88 @@ function imageCacheRequestKey(entityKey: string): string {
   return `https://queue-sorter.invalid/bump-mal-export/v1/${encodeURIComponent(entityKey)}`;
 }
 
-function loadPersistedUrlCache(): Record<string, string> {
+async function migrateLegacyUrlCache(): Promise<void> {
+  if (typeof localStorage === 'undefined') {
+    return;
+  }
+  let parsed: unknown;
+  try {
+    const raw = localStorage.getItem(MAL_IMAGE_URL_CACHE_KEY);
+    if (!raw) {
+      return;
+    }
+    parsed = JSON.parse(raw) as unknown;
+  } catch {
+    return;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return;
+  }
+  const mappings = Object.entries(parsed).filter(
+    (entry): entry is [string, string] =>
+      typeof entry[1] === 'string' && isMalImageUrl(entry[1]),
+  );
+  let migratedAll = true;
+  for (const [entityKey, url] of mappings) {
+    const persisted = await putDisposableCache(
+      MAL_IMAGE_URL_CACHE_NAMESPACE,
+      entityKey,
+      url,
+    );
+    migratedAll = migratedAll && persisted;
+  }
+  if (migratedAll) {
+    try {
+      localStorage.removeItem(MAL_IMAGE_URL_CACHE_KEY);
+    } catch {
+      // A duplicate legacy map is harmless and retried next session.
+    }
+  }
+}
+
+async function loadPersistedUrlCache(): Promise<Map<string, string>> {
   if (persistedUrlCache) {
     return persistedUrlCache;
   }
-  try {
-    const parsed = JSON.parse(
-      localStorage.getItem(MAL_IMAGE_URL_CACHE_KEY) ?? '{}',
-    ) as unknown;
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      persistedUrlCache = Object.fromEntries(
-        Object.entries(parsed).filter(
-          (entry): entry is [string, string] =>
-            typeof entry[1] === 'string' && isMalImageUrl(entry[1]),
-        ),
+  if (!urlCacheInitialization) {
+    urlCacheInitialization = (async () => {
+      await migrateLegacyUrlCache();
+      const entries = await listDisposableCacheEntries<string>(
+        MAL_IMAGE_URL_CACHE_NAMESPACE,
       );
-      return persistedUrlCache;
-    }
-  } catch {
-    // Fall through to an empty cache.
+      return new Map(
+        entries
+          .filter((entry) => isMalImageUrl(entry.value))
+          .map((entry) => [entry.key, entry.value]),
+      );
+    })();
   }
-  persistedUrlCache = {};
+  persistedUrlCache = await urlCacheInitialization;
   return persistedUrlCache;
 }
 
-function persistResolvedUrl(entityKey: string, url: string): void {
-  const cache = loadPersistedUrlCache();
-  cache[entityKey] = url;
-  try {
-    localStorage.setItem(MAL_IMAGE_URL_CACHE_KEY, JSON.stringify(cache));
-  } catch {
-    // The in-memory mapping still prevents repeated matching this session.
+async function persistResolvedUrl(
+  entityKey: string,
+  url: string,
+  generation: number,
+): Promise<void> {
+  const cache = await loadPersistedUrlCache();
+  if (generation !== urlCacheGeneration) {
+    return;
   }
+  cache.set(entityKey, url);
+  await putDisposableCache(MAL_IMAGE_URL_CACHE_NAMESPACE, entityKey, url);
+  if (generation !== urlCacheGeneration) {
+    cache.delete(entityKey);
+    await deleteDisposableCacheEntry(MAL_IMAGE_URL_CACHE_NAMESPACE, entityKey);
+  }
+}
+
+async function invalidateResolvedUrl(entityKey: string): Promise<void> {
+  const cache = await loadPersistedUrlCache();
+  cache.delete(entityKey);
+  sessionMisses.delete(entityKey);
+  await deleteDisposableCacheEntry(MAL_IMAGE_URL_CACHE_NAMESPACE, entityKey);
 }
 
 function isMalImageUrl(url: string): boolean {
@@ -613,12 +676,25 @@ async function resolveUncached(item: Item): Promise<string | null> {
 
 export async function resolveBumpMalExportImage(
   item: Item,
+  options?: { forceRefresh?: boolean },
 ): Promise<BumpMalExportImage | null> {
   const entityKey = entityCacheKey(item);
-  if (!entityKey || sessionMisses.has(entityKey)) {
+  if (!entityKey) {
     return null;
   }
-  const persistedUrl = loadPersistedUrlCache()[entityKey];
+  const pendingBeforeRefresh = pendingResolutions.get(entityKey);
+  if (options?.forceRefresh) {
+    if (pendingBeforeRefresh?.forceRefresh) {
+      return pendingBeforeRefresh.promise;
+    }
+    if (pendingBeforeRefresh) {
+      await pendingBeforeRefresh.promise;
+    }
+    await invalidateResolvedUrl(entityKey);
+  } else if (sessionMisses.has(entityKey)) {
+    return null;
+  }
+  const persistedUrl = (await loadPersistedUrlCache()).get(entityKey);
   if (persistedUrl && isMalImageUrl(persistedUrl)) {
     return {
       url: persistedUrl,
@@ -628,15 +704,16 @@ export async function resolveBumpMalExportImage(
 
   const pending = pendingResolutions.get(entityKey);
   if (pending) {
-    return pending;
+    return pending.promise;
   }
+  const generation = urlCacheGeneration;
   const resolution = resolveUncached(item)
-    .then((url): BumpMalExportImage | null => {
+    .then(async (url): Promise<BumpMalExportImage | null> => {
       if (!url) {
         sessionMisses.add(entityKey);
         return null;
       }
-      persistResolvedUrl(entityKey, url);
+      await persistResolvedUrl(entityKey, url, generation);
       return { url, cacheKey: imageCacheRequestKey(entityKey) };
     })
     .catch(() => {
@@ -644,9 +721,14 @@ export async function resolveBumpMalExportImage(
       return null;
     })
     .finally(() => {
-      pendingResolutions.delete(entityKey);
+      if (pendingResolutions.get(entityKey)?.promise === resolution) {
+        pendingResolutions.delete(entityKey);
+      }
     });
-  pendingResolutions.set(entityKey, resolution);
+  pendingResolutions.set(entityKey, {
+    forceRefresh: options?.forceRefresh === true,
+    promise: resolution,
+  });
   return resolution;
 }
 
@@ -654,6 +736,28 @@ export function _resetBumpMalExportImagesForTesting(): void {
   pendingResolutions.clear();
   sessionMisses.clear();
   persistedUrlCache = null;
+  urlCacheInitialization = null;
+  urlCacheGeneration = 0;
   tenraiQueueTail = Promise.resolve();
   lastTenraiRequestAt = 0;
 }
+
+export async function clearBumpMalExportImageUrls(): Promise<void> {
+  urlCacheGeneration += 1;
+  const cache = await loadPersistedUrlCache();
+  cache.clear();
+  await clearDisposableCacheNamespace(MAL_IMAGE_URL_CACHE_NAMESPACE);
+  try {
+    localStorage.removeItem(MAL_IMAGE_URL_CACHE_KEY);
+  } catch {
+    throw new Error('Failed to clear the legacy Bump Chart image URL cache.');
+  }
+}
+
+registerDisposableCacheOwner({
+  id: 'bump-image-urls',
+  label: 'Bump Chart image URL cache',
+  deletionEffect: 'Image URLs are resolved again from the existing MAL APIs.',
+  measure: () => getDisposableCacheStats(MAL_IMAGE_URL_CACHE_NAMESPACE),
+  clear: clearBumpMalExportImageUrls,
+});

@@ -5,6 +5,7 @@ import { SettingsGitHubLink } from '../components/SettingsGitHubLink';
 import { SourceDatabasesSection } from '../components/sourceDatabasesSection';
 import { AnilistAccountsSection } from '../components/AnilistAccountsSection';
 import { SpotifySection } from '../components/SpotifySection';
+import { StorageDiagnosticsSection } from '../components/StorageDiagnosticsSection';
 import type { CloudMenuStatus } from '../components/SettingsMenu';
 import type { RoundConfig, StaffGenderFilter, VaListImageMode } from './preferences';
 
@@ -299,6 +300,8 @@ export function AnimeToAnimeSettingsMenu({
                     <SpotifySection />
                   </>
                 )}
+                <div className="settings-divider" />
+                <StorageDiagnosticsSection />
               </div>
             )}
           </div>

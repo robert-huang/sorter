@@ -1,32 +1,103 @@
 /**
- * localStorage-backed cross-session cache for tool fetchers. Used by
- * toolsMediaRelationsApi (Franchise + Adaptation) and Shared Staff to
- * keep AniList relation graphs warm across sessions (relations are
- * stable — a 90d TTL avoids hammering AniList every visit).
+ * IndexedDB-backed cross-session cache for tool fetchers.
  *
  * Layered with {@link withSessionTtlMemo}: that layer handles in-memory
- * dedup of concurrent calls within a single session and avoids
- * re-parsing JSON on every hit. This file handles the cross-session
- * persistence — its read is hit only on the FIRST request per key per
- * session (after which session memo serves the value directly).
- *
- * Storage is JSON-only (no Date / function values). Failures are
- * swallowed: a quota / security failure just means the value isn't
- * persisted — the session memo still serves it for the rest of the
- * tab's life.
+ * dedup of concurrent calls within a single session. This file handles
+ * best-effort persistence across reloads.
  */
 
-import { isAutosaveAvailable } from '../../storage';
+import {
+  clearDisposableCacheNamespace,
+  deleteDisposableCacheEntry,
+  deleteDisposableCachePrefix,
+  getDisposableCacheStats,
+  listDisposableCacheEntries,
+  putDisposableCache,
+  readDisposableCache,
+  sweepExpiredDisposableCache,
+} from '../../disposableCacheDb';
+import { registerDisposableCacheOwner } from '../../disposableCacheRegistry';
+import { sessionMemoDeletePrefix } from './toolsSessionMemo';
 
-const KEY_PREFIX = 'tools-cache:';
+const LEGACY_KEY_PREFIX = 'tools-cache:';
+export const TOOLS_PERSISTENT_CACHE_NAMESPACE = 'tools-api';
 
 type StoredEntry<T> = {
   value: T;
   expiresAt: number;
 };
 
-function fullKey(key: string): string {
-  return `${KEY_PREFIX}${key}`;
+let migrationPromise: Promise<void> | null = null;
+const sessionDeletedKeys = new Set<string>();
+let cacheGeneration = 0;
+
+function legacyKey(key: string): string {
+  return `${LEGACY_KEY_PREFIX}${key}`;
+}
+
+function listLegacyKeys(): string[] {
+  if (typeof localStorage === 'undefined') {
+    return [];
+  }
+  const keys: string[] = [];
+  try {
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (key?.startsWith(LEGACY_KEY_PREFIX)) {
+        keys.push(key);
+      }
+    }
+  } catch {
+    return [];
+  }
+  return keys;
+}
+
+async function migrateLegacyLocalStorage(): Promise<void> {
+  if (migrationPromise) {
+    return migrationPromise;
+  }
+  migrationPromise = (async () => {
+    for (const fullKey of listLegacyKeys()) {
+      let entry: StoredEntry<unknown> | null = null;
+      try {
+        const raw = localStorage.getItem(fullKey);
+        entry = raw ? (JSON.parse(raw) as StoredEntry<unknown>) : null;
+      } catch {
+        // Corrupt disposable cache records are safe to remove.
+      }
+      if (
+        !entry ||
+        typeof entry.expiresAt !== 'number' ||
+        Date.now() >= entry.expiresAt
+      ) {
+        try {
+          localStorage.removeItem(fullKey);
+        } catch {
+          // Best-effort migration cleanup.
+        }
+        continue;
+      }
+
+      const key = fullKey.slice(LEGACY_KEY_PREFIX.length);
+      const persisted = await putDisposableCache(
+        TOOLS_PERSISTENT_CACHE_NAMESPACE,
+        key,
+        entry.value,
+        { expiresAt: entry.expiresAt },
+      );
+      if (persisted) {
+        try {
+          localStorage.removeItem(fullKey);
+        } catch {
+          // A duplicate legacy cache is harmless and retried next session.
+        }
+      }
+    }
+  })().catch(() => {
+    migrationPromise = null;
+  });
+  return migrationPromise;
 }
 
 /**
@@ -38,111 +109,124 @@ function fullKey(key: string): string {
  * that legitimately resolve to null (e.g. "this AniList id doesn't
  * exist") and shouldn't re-hit the network on every lookup.
  */
-export function persistentCacheGet<T>(
+export async function persistentCacheGet<T>(
   key: string,
-): { hit: true; value: T } | { hit: false } {
-  if (!isAutosaveAvailable()) return { hit: false };
-  try {
-    const raw = window.localStorage.getItem(fullKey(key));
-    if (!raw) return { hit: false };
-    const entry = JSON.parse(raw) as StoredEntry<T>;
-    if (!entry || typeof entry.expiresAt !== 'number') {
-      return { hit: false };
-    }
-    if (Date.now() >= entry.expiresAt) {
-      window.localStorage.removeItem(fullKey(key));
-      return { hit: false };
-    }
-    return { hit: true, value: entry.value };
-  } catch {
+): Promise<{ hit: true; value: T } | { hit: false }> {
+  if (sessionDeletedKeys.has(key)) {
     return { hit: false };
   }
+  await migrateLegacyLocalStorage();
+  if (sessionDeletedKeys.has(key)) {
+    return { hit: false };
+  }
+  return readDisposableCache<T>(TOOLS_PERSISTENT_CACHE_NAMESPACE, key);
 }
 
-export function persistentCacheSet<T>(
+export async function persistentCacheSet<T>(
   key: string,
   value: T,
   ttlMs: number,
-): void {
-  if (!isAutosaveAvailable()) return;
-  const entry: StoredEntry<T> = {
+  expectedGeneration = cacheGeneration,
+): Promise<void> {
+  await migrateLegacyLocalStorage();
+  if (expectedGeneration !== cacheGeneration) {
+    return;
+  }
+  const persisted = await putDisposableCache(
+    TOOLS_PERSISTENT_CACHE_NAMESPACE,
+    key,
     value,
+    {
     expiresAt: Date.now() + ttlMs,
-  };
-  const payload = JSON.stringify(entry);
-  try {
-    window.localStorage.setItem(fullKey(key), payload);
-  } catch {
-    // Quota / security failure. Prune expired entries under our prefix
-    // to make room and retry once. If still failing, swallow: the
-    // in-memory session memo keeps serving the value for this tab.
-    pruneExpiredEntries();
-    try {
-      window.localStorage.setItem(fullKey(key), payload);
-    } catch {
-      /* ignore */
-    }
+    },
+  );
+  if (expectedGeneration !== cacheGeneration) {
+    await deleteDisposableCacheEntry(TOOLS_PERSISTENT_CACHE_NAMESPACE, key);
+    return;
+  }
+  if (persisted) {
+    sessionDeletedKeys.delete(key);
   }
 }
 
-export function persistentCacheDelete(key: string): void {
-  if (!isAutosaveAvailable()) return;
+export async function persistentCacheDelete(key: string): Promise<void> {
+  sessionDeletedKeys.add(key);
+  await migrateLegacyLocalStorage();
+  await deleteDisposableCacheEntry(TOOLS_PERSISTENT_CACHE_NAMESPACE, key);
   try {
-    window.localStorage.removeItem(fullKey(key));
+    localStorage.removeItem(legacyKey(key));
   } catch {
-    /* ignore */
+    // Best-effort legacy cleanup.
   }
 }
 
 /** Delete every persistent cache entry whose key starts with `prefix`. */
-export function persistentCacheDeletePrefix(prefix: string): void {
-  if (!isAutosaveAvailable()) return;
-  const fullPrefix = fullKey(prefix);
+export async function persistentCacheDeletePrefix(prefix: string): Promise<void> {
+  await migrateLegacyLocalStorage();
+  const entries = await listDisposableCacheEntries(
+    TOOLS_PERSISTENT_CACHE_NAMESPACE,
+  );
+  for (const entry of entries) {
+    if (entry.key.startsWith(prefix)) {
+      sessionDeletedKeys.add(entry.key);
+    }
+  }
+  await deleteDisposableCachePrefix(TOOLS_PERSISTENT_CACHE_NAMESPACE, prefix);
+  const fullPrefix = legacyKey(prefix);
   try {
     const toDelete: string[] = [];
-    for (let i = 0; i < window.localStorage.length; i++) {
-      const k = window.localStorage.key(i);
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
       if (k && k.startsWith(fullPrefix)) {
         toDelete.push(k);
       }
     }
     for (const k of toDelete) {
-      window.localStorage.removeItem(k);
+      localStorage.removeItem(k);
     }
   } catch {
-    /* ignore */
+    // Best-effort legacy cleanup.
   }
 }
 
-function pruneExpiredEntries(): void {
-  if (!isAutosaveAvailable()) return;
-  try {
-    const now = Date.now();
-    const toDelete: string[] = [];
-    for (let i = 0; i < window.localStorage.length; i++) {
-      const k = window.localStorage.key(i);
-      if (!k || !k.startsWith(KEY_PREFIX)) continue;
-      try {
-        const raw = window.localStorage.getItem(k);
-        if (!raw) continue;
-        const entry = JSON.parse(raw) as StoredEntry<unknown>;
-        if (
-          !entry ||
-          typeof entry.expiresAt !== 'number' ||
-          entry.expiresAt < now
-        ) {
-          toDelete.push(k);
-        }
-      } catch {
-        toDelete.push(k);
-      }
+export async function persistentCacheKeys(prefix = ''): Promise<string[]> {
+  await migrateLegacyLocalStorage();
+  const entries = await listDisposableCacheEntries(
+    TOOLS_PERSISTENT_CACHE_NAMESPACE,
+  );
+  return entries
+    .map((entry) => entry.key)
+    .filter((key) => key.startsWith(prefix));
+}
+
+export async function sweepExpiredPersistentCache(): Promise<number> {
+  await migrateLegacyLocalStorage();
+  return sweepExpiredDisposableCache(TOOLS_PERSISTENT_CACHE_NAMESPACE);
+}
+
+export async function clearPersistentToolsCache(): Promise<void> {
+  cacheGeneration += 1;
+  await migrateLegacyLocalStorage();
+  await clearDisposableCacheNamespace(TOOLS_PERSISTENT_CACHE_NAMESPACE);
+  for (const key of listLegacyKeys()) {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      throw new Error('Failed to clear the legacy tools cache.');
     }
-    for (const k of toDelete) {
-      window.localStorage.removeItem(k);
-    }
-  } catch {
-    /* ignore */
   }
+  sessionDeletedKeys.clear();
+  sessionMemoDeletePrefix('');
+}
+
+export function getPersistentToolsCacheGeneration(): number {
+  return cacheGeneration;
+}
+
+export function _resetPersistentToolsCacheForTesting(): void {
+  migrationPromise = null;
+  sessionDeletedKeys.clear();
+  cacheGeneration = 0;
 }
 
 export type PersistentCacheOptions = {
@@ -161,14 +245,27 @@ export async function withPersistentTtlCache<T>(
   options?: PersistentCacheOptions,
 ): Promise<T> {
   if (options?.bust) {
-    persistentCacheDelete(key);
+    await persistentCacheDelete(key);
   } else {
-    const hit = persistentCacheGet<T>(key);
+    const hit = await persistentCacheGet<T>(key);
     if (hit.hit) {
       return hit.value;
     }
   }
+  const generation = getPersistentToolsCacheGeneration();
   const value = await fetcher();
-  persistentCacheSet(key, value, ttlMs);
+  await persistentCacheSet(key, value, ttlMs, generation);
   return value;
 }
+
+registerDisposableCacheOwner({
+  id: 'tools-api',
+  label: 'Tools/API cache',
+  deletionEffect: 'Tool responses are fetched again from AniList when needed.',
+  measure: () => getDisposableCacheStats(TOOLS_PERSISTENT_CACHE_NAMESPACE),
+  clear: clearPersistentToolsCache,
+  clearUnderPressure: async () => {
+    await sweepExpiredPersistentCache();
+    await clearPersistentToolsCache();
+  },
+});

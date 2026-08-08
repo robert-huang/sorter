@@ -1,7 +1,9 @@
 import type { Database } from '@sqlite.org/sqlite-wasm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { _resetDisposableCacheDbForTesting } from '../../../disposableCacheDb';
 import { _clearSessionMemoForTesting } from '../toolsSessionMemo';
 import {
+  _resetPersistentToolsCacheForTesting,
   persistentCacheDeletePrefix,
   persistentCacheGet,
   persistentCacheSet,
@@ -70,11 +72,13 @@ function wireDb(db: Database): void {
 }
 
 beforeEach(async () => {
+  await _resetDisposableCacheDbForTesting();
+  _resetPersistentToolsCacheForTesting();
   _clearSessionMemoForTesting();
   _resetToolsRelationsBackfillForTesting();
-  persistentCacheDeletePrefix('franchise:relations:');
-  persistentCacheDeletePrefix('adaptation:relations:');
-  persistentCacheDeletePrefix(TOOLS_MEDIA_RELATIONS_CACHE_PREFIX);
+  await persistentCacheDeletePrefix('franchise:relations:');
+  await persistentCacheDeletePrefix('adaptation:relations:');
+  await persistentCacheDeletePrefix(TOOLS_MEDIA_RELATIONS_CACHE_PREFIX);
   executeAnilistQueryMock.mockReset();
   window.localStorage.clear();
 });
@@ -83,16 +87,18 @@ describe('fetchToolsMediaRelationsCached', () => {
   it('prunes legacy per-tool relation cache keys on first fetch', async () => {
     const db = await openTestAnilistDb();
     wireDb(db);
-    persistentCacheSet('franchise:relations:10', { media: { id: 10 }, edges: [] }, 60_000);
-    persistentCacheSet('adaptation:relations:20', { media: { id: 20 }, edges: [] }, 60_000);
+    await persistentCacheSet('franchise:relations:10', { media: { id: 10 }, edges: [] }, 60_000);
+    await persistentCacheSet('adaptation:relations:20', { media: { id: 20 }, edges: [] }, 60_000);
 
     executeAnilistQueryMock.mockResolvedValue(livePayload(99));
 
     await fetchToolsMediaRelationsCached(99);
 
-    expect(persistentCacheGet('franchise:relations:10')).toEqual({ hit: false });
-    expect(persistentCacheGet('adaptation:relations:20')).toEqual({ hit: false });
-    expect(persistentCacheGet(`${TOOLS_MEDIA_RELATIONS_CACHE_PREFIX}99`)).toEqual({ hit: false });
+    await expect(persistentCacheGet('franchise:relations:10')).resolves.toEqual({ hit: false });
+    await expect(persistentCacheGet('adaptation:relations:20')).resolves.toEqual({ hit: false });
+    await expect(
+      persistentCacheGet(`${TOOLS_MEDIA_RELATIONS_CACHE_PREFIX}99`),
+    ).resolves.toEqual({ hit: false });
   });
 
   it('reads fresh relations from SQLite without calling AniList', async () => {
@@ -168,7 +174,7 @@ describe('fetchToolsMediaRelationsCached', () => {
         },
       ],
     };
-    persistentCacheSet(`${TOOLS_MEDIA_RELATIONS_CACHE_PREFIX}42`, cached, 60_000);
+    await persistentCacheSet(`${TOOLS_MEDIA_RELATIONS_CACHE_PREFIX}42`, cached, 60_000);
 
     const result = await fetchToolsMediaRelationsCached(42);
 
@@ -177,7 +183,9 @@ describe('fetchToolsMediaRelationsCached', () => {
     expect(
       db.selectObject('SELECT 1 AS ok FROM media_relations_expansion WHERE media_id = 42'),
     ).toEqual({ ok: 1 });
-    expect(persistentCacheGet(`${TOOLS_MEDIA_RELATIONS_CACHE_PREFIX}42`)).toEqual({ hit: false });
+    await expect(
+      persistentCacheGet(`${TOOLS_MEDIA_RELATIONS_CACHE_PREFIX}42`),
+    ).resolves.toEqual({ hit: false });
   });
 });
 

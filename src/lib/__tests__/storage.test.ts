@@ -49,6 +49,7 @@ import {
   STATE_REVISION_KEY,
   _resetStateStorageForTesting,
   _restartStateStorageForTesting,
+  _setStateStorageCommitErrorsForTesting,
   commitStateChanges,
   stateStorageRecordKeys,
 } from '../stateStorageDb';
@@ -95,6 +96,10 @@ function makeBlob(comparisons = 0, done = false): AutosaveBlob {
     progress: makeProgress(comparisons, done),
     undoRing: [],
   };
+}
+
+function quotaError(): DOMException {
+  return new DOMException('Storage full', 'QuotaExceededError');
 }
 
 /** Test helper: `createSlot` returns `{ meta, evicted } | null` (null on
@@ -710,7 +715,7 @@ describe('scheduleAutosave quota recovery', () => {
         value: unknown,
         key?: IDBValidKey,
       ) {
-        if (this.name === 'sorterSlots' && sorterPutAttempts < 2) {
+        if (this.name === 'sorterSlots' && sorterPutAttempts < 3) {
           sorterPutAttempts += 1;
           throw new DOMException('Quota exceeded', 'QuotaExceededError');
         }
@@ -1604,5 +1609,79 @@ describe('multitab slot blob helpers', () => {
       ...disk,
     });
     expect(isHarmlessCrossTabSlotBlobWrite(memory, raw)).toBe(false);
+  });
+});
+
+describe('sorter quota recovery ordering', () => {
+  it('clears disposable caches and retries before trimming undo history', async () => {
+    const initial = makeBlob(0);
+    const meta = mintSlot(initial, 'quota retry');
+    setActiveSlot(meta.id);
+    await flushStateStorageWrites();
+    localStorage.setItem('tools-cache:legacy', 'refetchable');
+    const updated: AutosaveBlob = {
+      ...makeBlob(1),
+      undoRing: Array.from({ length: 8 }, (_, index) => makeProgress(index)),
+    };
+    _setStateStorageCommitErrorsForTesting([quotaError()]);
+
+    saveNow(updated);
+    await flushAutosave();
+
+    expect(localStorage.getItem('tools-cache:legacy')).toBeNull();
+    expect(readSlotBlob(meta.id)?.undoRing).toHaveLength(8);
+    expect(getLastAutosaveError()).toBeNull();
+  });
+
+  it('retains the existing undo trim fallback after the cache retry', async () => {
+    const meta = mintSlot(makeBlob(0), 'undo fallback');
+    setActiveSlot(meta.id);
+    await flushStateStorageWrites();
+    const updated: AutosaveBlob = {
+      ...makeBlob(1),
+      undoRing: Array.from({ length: 8 }, (_, index) => makeProgress(index)),
+    };
+    const recoveries: AutosaveRecovery[] = [];
+    const unsubscribe = subscribeAutosaveError((_error, recovery) => {
+      if (recovery) recoveries.push(recovery);
+    });
+    _setStateStorageCommitErrorsForTesting([quotaError(), quotaError()]);
+
+    saveNow(updated);
+    await flushAutosave();
+    unsubscribe();
+
+    expect(readSlotBlob(meta.id)?.undoRing).toHaveLength(5);
+    expect(recoveries).toContainEqual({
+      kind: 'trimmed-undo',
+      newUndoRingLen: 5,
+    });
+  });
+
+  it('retains oldest-unpinned-slot eviction after cache and undo recovery', async () => {
+    const evicted = mintSlot(makeBlob(0), 'old unpinned');
+    updateSlotMeta(evicted.id, {
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    });
+    const active = mintSlot(makeBlob(0), 'active');
+    setActiveSlot(active.id);
+    await flushStateStorageWrites();
+    const recoveries: AutosaveRecovery[] = [];
+    const unsubscribe = subscribeAutosaveError((_error, recovery) => {
+      if (recovery) recoveries.push(recovery);
+    });
+    _setStateStorageCommitErrorsForTesting([quotaError(), quotaError()]);
+
+    saveNow(makeBlob(2));
+    await flushAutosave();
+    unsubscribe();
+
+    expect(readManifest().slots.some((slot) => slot.id === evicted.id)).toBe(
+      false,
+    );
+    expect(recoveries).toContainEqual({
+      kind: 'evicted-slot',
+      evicted: expect.objectContaining({ id: evicted.id }),
+    });
   });
 });

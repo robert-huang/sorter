@@ -6,9 +6,12 @@ import {
 } from './spotifyTrackIsrcStore';
 import {
   clearSpotifyPlaylistCaches,
+  clearSpotifyPlaylistCachesExcept,
+  measureSpotifyCacheDatabase,
   putSpotifyPlaylistCache,
   readAllSpotifyPlaylistCaches,
 } from './spotifyPlaylistCacheDb';
+import { registerDisposableCacheOwner } from '../disposableCacheRegistry';
 
 export { formatSpotifyApiBanMessage, getSpotifyApiBannedUntil, SpotifyApiRateLimitedError } from './spotifyApi';
 
@@ -158,10 +161,15 @@ export function getSelectedSpotifyPlaylist(): StoredSpotifyPlaylist | null {
 }
 
 export function setSelectedSpotifyPlaylist(playlist: StoredSpotifyPlaylist): void {
+  let stored = false;
   try {
     localStorage.setItem(PLAYLIST_STORAGE_KEY, JSON.stringify(playlist));
+    stored = true;
   } catch {
     /* ignore */
+  }
+  if (stored) {
+    playlistCleanupSelectedIds?.add(playlist.id);
   }
   emitPlaylistChange();
 }
@@ -327,6 +335,8 @@ function readLegacyPlaylistCacheStore(): PlaylistCacheStore {
 
 let playlistCacheStore: PlaylistCacheStore | null = null;
 let playlistCacheHydration: Promise<void> | null = null;
+let playlistCleanupSelectedIds: Set<string> | null = null;
+let playlistCleanupPromise: Promise<void> | null = null;
 
 function getMemoryPlaylistCacheStore(): PlaylistCacheStore {
   if (!playlistCacheStore) {
@@ -401,6 +411,77 @@ export async function clearPlaylistCache(): Promise<void> {
   removeLegacyPlaylistCacheStorage();
   emitPlaylistChange();
 }
+
+export async function clearNonSelectedSpotifyPlaylistCaches(): Promise<void> {
+  if (playlistCleanupPromise) {
+    return playlistCleanupPromise;
+  }
+  const cleanup = (async () => {
+    try {
+      await hydrateSpotifyPlaylistCaches();
+    } catch {
+      // Cleanup can still retry IndexedDB directly.
+    }
+    const currentStore = getMemoryPlaylistCacheStore();
+    const initiallySelectedId = getSelectedSpotifyPlaylist()?.id ?? null;
+    const protectedIds = new Set<string>();
+    if (initiallySelectedId) {
+      protectedIds.add(initiallySelectedId);
+    }
+    playlistCleanupSelectedIds = protectedIds;
+    try {
+      await clearSpotifyPlaylistCachesExcept(protectedIds);
+
+      // A selection can change while the IndexedDB cursor is deleting entries.
+      // Restore any cache it already passed before that playlist became protected.
+      const restoredIds = new Set<string>(
+        initiallySelectedId ? [initiallySelectedId] : [],
+      );
+      while (true) {
+        const selectedId = getSelectedSpotifyPlaylist()?.id ?? null;
+        if (selectedId) {
+          protectedIds.add(selectedId);
+        }
+        const pendingIds = [...protectedIds].filter(
+          (playlistId) => !restoredIds.has(playlistId),
+        );
+        if (pendingIds.length === 0) {
+          break;
+        }
+        for (const playlistId of pendingIds) {
+          const cache = currentStore[playlistId];
+          if (cache) {
+            await putSpotifyPlaylistCache(cache);
+          }
+          restoredIds.add(playlistId);
+        }
+      }
+    } finally {
+      playlistCleanupSelectedIds = null;
+    }
+
+    const selectedId = getSelectedSpotifyPlaylist()?.id ?? null;
+    playlistCacheStore =
+      selectedId && currentStore[selectedId]
+        ? { [selectedId]: currentStore[selectedId] }
+        : {};
+    emitPlaylistChange();
+  })().finally(() => {
+    playlistCleanupPromise = null;
+  });
+  playlistCleanupPromise = cleanup;
+  return cleanup;
+}
+
+registerDisposableCacheOwner({
+  id: 'spotify-playlists',
+  label: 'Spotify playlist cache',
+  deletionEffect:
+    'Non-selected playlists use the existing live cache-miss refetch path.',
+  measure: async () => (await measureSpotifyCacheDatabase()).playlistCaches,
+  clear: clearNonSelectedSpotifyPlaylistCaches,
+  clearUnderPressure: clearNonSelectedSpotifyPlaylistCaches,
+});
 
 /** Selected playlist's track cache — null when nothing is selected or not cached yet. */
 export function getActivePlaylistCache(): SpotifyPlaylistCache | null {
@@ -852,10 +933,14 @@ export async function _clearSpotifyPlaylistForTesting(): Promise<void> {
   }
   playlistCacheStore = null;
   playlistCacheHydration = null;
+  playlistCleanupSelectedIds = null;
+  playlistCleanupPromise = null;
 }
 
 /** Test-only simulation of a page reload without clearing durable data. */
 export function _resetSpotifyPlaylistCacheMemoryForTesting(): void {
   playlistCacheStore = null;
   playlistCacheHydration = null;
+  playlistCleanupSelectedIds = null;
+  playlistCleanupPromise = null;
 }

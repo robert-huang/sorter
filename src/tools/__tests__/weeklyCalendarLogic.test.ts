@@ -12,6 +12,7 @@ import {
   formatWeeklyCalendarDetailLines,
   formatWeeklyCalendarListStatusFilterLabel,
   buildWeeklyCalendarCustomSeasonYearOptions,
+  buildWeeklyCalendarSeasonSegments,
   WEEKLY_CALENDAR_CUSTOM_SEASON_PAST_COUNT,
   defaultWeeklyCalendarCustomSeasonRange,
   getCurrentAnilistSeason,
@@ -19,6 +20,7 @@ import {
   getPreviousAnilistSeason,
   weeklyCalendarFetchKey,
   inferWeekdayFromPastAirings,
+  isWeeklyCalendarSeasonScope,
   orderedWeekdayColumns,
   resolveEntrySchedule,
   resolveWeeklyCalendarSeasonSpecs,
@@ -95,6 +97,13 @@ describe('getPreviousAnilistSeason', () => {
       year: 2026,
     });
   });
+
+  it('rolls from Winter to Fall of the previous year', () => {
+    expect(getPreviousAnilistSeason({ season: 'WINTER', year: 2026 })).toEqual({
+      season: 'FALL',
+      year: 2025,
+    });
+  });
 });
 
 describe('defaultWeeklyCalendarCustomSeasonRange', () => {
@@ -120,6 +129,19 @@ describe('buildWeeklyCalendarCustomSeasonYearOptions', () => {
 });
 
 describe('resolveWeeklyCalendarSeasonSpecs', () => {
+  it('resolves the season immediately before the current season', () => {
+    expect(
+      resolveWeeklyCalendarSeasonSpecs(
+        {
+          seasonScope: 'previous',
+          customSeasonMinEncoded: 0,
+          customSeasonMaxEncoded: 0,
+        },
+        new Date('2026-07-14T12:00:00Z'),
+      ),
+    ).toEqual([{ season: 'SPRING', year: 2026 }]);
+  });
+
   it('resolves custom encoded season range within the picker window', () => {
     const now = new Date('2026-04-15T12:00:00Z');
     const options = buildWeeklyCalendarCustomSeasonYearOptions(now);
@@ -147,6 +169,22 @@ describe('resolveWeeklyCalendarSeasonSpecs', () => {
         now,
       ),
     ).toHaveLength(WEEKLY_CALENDAR_CUSTOM_SEASON_PAST_COUNT + 2);
+  });
+});
+
+describe('buildWeeklyCalendarSeasonSegments', () => {
+  it('includes Previous in the five season-scope options', () => {
+    expect(
+      buildWeeklyCalendarSeasonSegments(
+        new Date('2026-07-14T12:00:00Z'),
+      ),
+    ).toEqual([
+      { value: 'watching', label: 'User List' },
+      { value: 'previous', label: 'Spring 2026' },
+      { value: 'current', label: 'Summer 2026' },
+      { value: 'next', label: 'Fall 2026' },
+      { value: 'custom', label: 'Custom' },
+    ]);
   });
 });
 
@@ -187,6 +225,7 @@ describe('weeklyCalendarFetchKey', () => {
       customSeasonMaxEncoded: encodeSeasonYear('WINTER', 2026),
     };
     expect(weeklyCalendarFetchKey({ ...base, seasonScope: 'watching' })).toBe('watching');
+    expect(weeklyCalendarFetchKey({ ...base, seasonScope: 'previous' })).toBe('previous');
     expect(weeklyCalendarFetchKey({ ...base, seasonScope: 'current' })).toBe('current');
     expect(weeklyCalendarFetchKey({ ...base, seasonScope: 'next' })).toBe('next');
   });
@@ -201,6 +240,13 @@ describe('weeklyCalendarFetchKey', () => {
         customSeasonMaxEncoded: max,
       }),
     ).toBe(`custom:${min}:${max}`);
+  });
+});
+
+describe('isWeeklyCalendarSeasonScope', () => {
+  it('treats Previous as season browsing rather than User List mode', () => {
+    expect(isWeeklyCalendarSeasonScope('previous')).toBe(true);
+    expect(isWeeklyCalendarSeasonScope('watching')).toBe(false);
   });
 });
 

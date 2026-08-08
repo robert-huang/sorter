@@ -8,6 +8,7 @@ import {
 import { TOOLS_SEASONAL_LIST_STATUSES } from '../../lib/importers/anilist/toolsAnilistAccess';
 import type { ToolsFetchOptions } from '../../lib/importers/anilist/toolsFetchPolicy';
 import {
+  getPersistentToolsCacheGeneration,
   persistentCacheDelete,
   persistentCacheGet,
   persistentCacheSet,
@@ -40,7 +41,7 @@ const WEEKLY_CALENDAR_HISTORICAL_SEASON_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90
 /**
  * User list snapshots (status/score/progress + watching rows) — live
  * AniList data that must include progress, so we cache the API response
- * in localStorage instead of the imported DB.
+ * in the disposable tools cache instead of the imported DB.
  */
 const WEEKLY_CALENDAR_USER_LIST_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
@@ -100,13 +101,19 @@ async function withWeeklyCalendarUserListCache<T>(
     TOOLS_SESSION_TTL_MS,
     async () => {
       if (!options?.forceRefresh) {
-        const hit = persistentCacheGet<T>(key);
+        const hit = await persistentCacheGet<T>(key);
         if (hit.hit) {
           return hit.value;
         }
       }
+      const cacheGeneration = getPersistentToolsCacheGeneration();
       const value = await fetcher();
-      persistentCacheSet(key, value, WEEKLY_CALENDAR_USER_LIST_TTL_MS);
+      await persistentCacheSet(
+        key,
+        value,
+        WEEKLY_CALENDAR_USER_LIST_TTL_MS,
+        cacheGeneration,
+      );
       return value;
     },
     { bust: options?.forceRefresh },
@@ -342,14 +349,20 @@ async function fetchSeasonAiringEntriesCached(
     TOOLS_SESSION_TTL_MS,
     async () => {
       if (historical && !options?.forceRefresh) {
-        const hit = persistentCacheGet<SeasonFetchResult>(cacheKey);
+        const hit = await persistentCacheGet<SeasonFetchResult>(cacheKey);
         if (hit.hit) {
           return hit.value;
         }
       }
+      const cacheGeneration = getPersistentToolsCacheGeneration();
       const result = await fetchSeasonAiringEntriesLive(username, seasonSpec, signal, options);
       if (historical) {
-        persistentCacheSet(cacheKey, result, WEEKLY_CALENDAR_HISTORICAL_SEASON_TTL_MS);
+        await persistentCacheSet(
+          cacheKey,
+          result,
+          WEEKLY_CALENDAR_HISTORICAL_SEASON_TTL_MS,
+          cacheGeneration,
+        );
       }
       return result;
     },
@@ -367,8 +380,8 @@ export function bustWeeklyCalendarUserListMemo(username: string): void {
   const listMapKey = `weekly-calendar:list-map:${handle}`;
   sessionMemoDelete(watchingKey);
   sessionMemoDelete(listMapKey);
-  persistentCacheDelete(watchingKey);
-  persistentCacheDelete(listMapKey);
+  void persistentCacheDelete(watchingKey);
+  void persistentCacheDelete(listMapKey);
 }
 
 export async function fetchWeeklyCalendarWatchingEntries(

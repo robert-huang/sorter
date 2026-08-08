@@ -640,25 +640,57 @@ export class GoogleDriveProvider implements CloudProvider {
     const params = new URLSearchParams({
       q: `'${folder.folderId}' in parents and trashed = false and name contains '.sorter.json'`,
       fields:
-        'files(id,name,modifiedTime,size,version,md5Checksum,appProperties)',
+        'nextPageToken,files(id,name,modifiedTime,size,version,md5Checksum,appProperties)',
       pageSize: '1000',
     });
-    const resp = await this.authedFetch(`${DRIVE_API}/files?${params.toString()}`);
-    if (!resp.ok) {
-      throw new Error(`listCloudSlots failed: ${resp.status} ${await safeText(resp)}`);
-    }
-    const data = (await resp.json()) as {
-      files?: Array<{
-        id: string;
-        name: string;
-        modifiedTime: string;
-        size?: string;
-        version?: string;
-        md5Checksum?: string;
-        appProperties?: Record<string, string>;
-      }>;
+    type DriveSlotFile = {
+      id: string;
+      name: string;
+      modifiedTime: string;
+      size?: string;
+      version?: string;
+      md5Checksum?: string;
+      appProperties?: Record<string, string>;
     };
-    return (data.files ?? []).map((f) => ({
+    const files: DriveSlotFile[] = [];
+    const seenIds = new Set<string>();
+    const seenPageTokens = new Set<string>();
+    let pageToken: string | null = null;
+    do {
+      if (pageToken) {
+        params.set('pageToken', pageToken);
+      } else {
+        params.delete('pageToken');
+      }
+      const resp = await this.authedFetch(
+        `${DRIVE_API}/files?${params.toString()}`,
+      );
+      if (!resp.ok) {
+        throw new Error(
+          `listCloudSlots failed: ${resp.status} ${await safeText(resp)}`,
+        );
+      }
+      const data = (await resp.json()) as {
+        files?: DriveSlotFile[];
+        nextPageToken?: string;
+      };
+      for (const file of data.files ?? []) {
+        if (!seenIds.has(file.id)) {
+          seenIds.add(file.id);
+          files.push(file);
+        }
+      }
+      const nextPageToken = data.nextPageToken?.trim() || null;
+      if (nextPageToken && seenPageTokens.has(nextPageToken)) {
+        break;
+      }
+      if (nextPageToken) {
+        seenPageTokens.add(nextPageToken);
+      }
+      pageToken = nextPageToken;
+    } while (pageToken);
+
+    return files.map((f) => ({
       cloudId: f.id,
       filename: f.name,
       displayName:

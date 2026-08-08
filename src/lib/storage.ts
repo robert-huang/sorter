@@ -26,6 +26,9 @@ import {
   isLegacySorterManifest,
   isLegacySorterSaveFile,
 } from './stateStorageValidation';
+import { sweepExpiredDisposableCache } from './disposableCacheDb';
+import { clearDisposableCachesUnderPressure } from './disposableCacheRegistry';
+import './storageCleanupOwners';
 
 // ---------- keys ----------
 
@@ -1122,6 +1125,7 @@ export type AutosaveErrorListener = (
 
 let errorListener: AutosaveErrorListener | null = null;
 let lastError: AutosaveError | null = null;
+let lastQuotaErrorAt: string | null = null;
 
 /**
  * Subscribe to autosave failure / recovery events. The listener fires
@@ -1140,6 +1144,10 @@ export function subscribeAutosaveError(listener: AutosaveErrorListener): () => v
 
 export function getLastAutosaveError(): AutosaveError | null {
   return lastError;
+}
+
+export function getLastQuotaErrorAt(): string | null {
+  return lastQuotaErrorAt;
 }
 
 function notifyError(
@@ -1275,7 +1283,23 @@ function queueAutosavePersistence(
         );
       } catch (firstError) {
         if (!isQuotaStorageError(firstError)) throw firstError;
+        lastQuotaErrorAt = new Date().toISOString();
+        await sweepExpiredDisposableCache();
+        await clearDisposableCachesUnderPressure();
         purgeDisposableLocalStorageCaches();
+
+        try {
+          await commitStateChanges(
+            sorterSlotAndManifestChanges(id, persistedBlob, persistedManifest),
+            { scope: 'sorter', id },
+          );
+          slotBlobCache.set(id, persistedBlob);
+          notifyError(null);
+          notifyAfterWrite(id);
+          return;
+        } catch (retryError) {
+          if (!isQuotaStorageError(retryError)) throw retryError;
+        }
 
         const trimmedUndo = blob.undoRing.slice(-QUOTA_RECOVERY_UNDO_KEEP);
         if (trimmedUndo.length < blob.undoRing.length) {
@@ -1335,9 +1359,13 @@ function queueAutosavePersistence(
       notifyAfterWrite(id);
     })
     .catch((error: unknown) => {
+      const attemptedAt = new Date().toISOString();
+      if (isQuotaStorageError(error)) {
+        lastQuotaErrorAt = attemptedAt;
+      }
       notifyError({
         reason: isQuotaStorageError(error) ? 'quota' : 'other',
-        attemptedAt: new Date().toISOString(),
+        attemptedAt,
         slotCount: manifestCache.slots.length,
       });
     });
@@ -2066,6 +2094,7 @@ export function _resetSorterStorageCacheForTesting(): void {
   currentActiveId = null;
   lastRepairCount = null;
   lastError = null;
+  lastQuotaErrorAt = null;
   lastFlushTime = 0;
   comparisonsAtLastFlush = 0;
 }

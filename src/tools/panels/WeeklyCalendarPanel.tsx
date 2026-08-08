@@ -56,6 +56,7 @@ import { ThemeSongRowC } from '../../components/themeSongRowC';
 import {
   DEFAULT_WEEKLY_CALENDAR_FORM,
   buildWeeklyCalendarCustomSeasonYearOptions,
+  buildWeeklyCalendarSeasonSegments,
   collectWeeklyCalendarMediaIds,
   collectWeeklyCalendarShows,
   decodeAnilistSeasonEncoded,
@@ -66,8 +67,6 @@ import {
   formatWeeklyCalendarFormatFilterLabel,
   formatWeeklyCalendarListStatusFilterLabel,
   formatWeeklyCalendarMediaStatusFilterLabel,
-  getCurrentAnilistSeason,
-  getNextAnilistSeason,
   normalizeCustomSeasonRange,
   normalizeWeeklyCalendarFormatFilters,
   normalizeWeeklyCalendarMediaStatusFilters,
@@ -785,17 +784,7 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
 
   const customSeasonYearOptions = useMemo(() => buildWeeklyCalendarCustomSeasonYearOptions(), []);
 
-  const seasonSegments = useMemo(() => {
-    const now = new Date();
-    const current = getCurrentAnilistSeason(now);
-    const next = getNextAnilistSeason(current);
-    return [
-      { value: 'watching' as const, label: 'User List' },
-      { value: 'current' as const, label: formatAnilistSeasonLabel(current) },
-      { value: 'next' as const, label: formatAnilistSeasonLabel(next) },
-      { value: 'custom' as const, label: 'Custom' },
-    ];
-  }, []);
+  const seasonSegments = useMemo(() => buildWeeklyCalendarSeasonSegments(), []);
 
   const currentSeasonLabel = seasonSegments.find((opt) => opt.value === 'current')?.label ?? '';
 

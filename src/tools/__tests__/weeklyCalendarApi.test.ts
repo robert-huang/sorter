@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { _resetDisposableCacheDbForTesting } from '../../lib/disposableCacheDb';
 import { _resetAvailabilityCache } from '../../lib/storage';
 import {
+  _resetPersistentToolsCacheForTesting,
   persistentCacheGet,
   persistentCacheSet,
 } from '../../lib/importers/anilist/toolsPersistentCache';
@@ -9,6 +11,7 @@ import {
 } from '../../lib/importers/anilist/toolsSessionMemo';
 import {
   bustWeeklyCalendarUserListMemo,
+  fetchWeeklyCalendarSeasonEntries,
   fetchWeeklyCalendarWatchingEntries,
 } from '../panels/weeklyCalendarApi';
 
@@ -51,8 +54,10 @@ function watchingEntry(id: number) {
 }
 
 describe('fetchWeeklyCalendarWatchingEntries', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     window.localStorage.clear();
+    await _resetDisposableCacheDbForTesting();
+    _resetPersistentToolsCacheForTesting();
     _resetAvailabilityCache();
     _clearSessionMemoForTesting();
     depaginateMock.mockReset();
@@ -76,7 +81,9 @@ describe('fetchWeeklyCalendarWatchingEntries', () => {
 
     expect(second[0]).toMatchObject({ progress: 5, format: 'TV' });
     expect(depaginateMock).toHaveBeenCalledTimes(1);
-    expect(persistentCacheGet('weekly-calendar:watching:v2:rh_test')).toEqual({
+    await expect(
+      persistentCacheGet('weekly-calendar:watching:v2:rh_test'),
+    ).resolves.toEqual({
       hit: true,
       value: second,
     });
@@ -96,7 +103,7 @@ describe('fetchWeeklyCalendarWatchingEntries', () => {
   });
 
   it('ignores pre-format cache entries from the previous key version', async () => {
-    persistentCacheSet(
+    await persistentCacheSet(
       'weekly-calendar:watching:rh_test',
       [{ id: 99, title: 'Stale entry without format' }],
       60_000,
@@ -112,7 +119,9 @@ describe('fetchWeeklyCalendarWatchingEntries', () => {
     await fetchWeeklyCalendarWatchingEntries('rh_test');
     bustWeeklyCalendarUserListMemo('rh_test');
 
-    expect(persistentCacheGet('weekly-calendar:watching:v2:rh_test')).toEqual({ hit: false });
+    await expect(
+      persistentCacheGet('weekly-calendar:watching:v2:rh_test'),
+    ).resolves.toEqual({ hit: false });
 
     _clearSessionMemoForTesting();
     await fetchWeeklyCalendarWatchingEntries('rh_test');
@@ -125,5 +134,60 @@ describe('fetchWeeklyCalendarWatchingEntries', () => {
 
     expect(result[0]?.format).toBe('TV');
     expect(depaginateMock.mock.calls[0]?.[0].query).toMatch(/\bformat\b/);
+  });
+});
+
+describe('fetchWeeklyCalendarSeasonEntries', () => {
+  beforeEach(async () => {
+    window.localStorage.clear();
+    await _resetDisposableCacheDbForTesting();
+    _resetPersistentToolsCacheForTesting();
+    _resetAvailabilityCache();
+    _clearSessionMemoForTesting();
+    depaginateMock.mockReset();
+    depaginateMock.mockImplementation(async ({ variables }) => {
+      if (variables && 'seasonYear' in variables) {
+        return [watchingEntry(7).media];
+      }
+      return [
+        {
+          status: 'COMPLETED',
+          score: 90,
+          progress: 12,
+          media: { id: 7 },
+        },
+      ];
+    });
+  });
+
+  it('fetches and reuses a historical previous-season result', async () => {
+    const previousSeason = { season: 'SPRING' as const, year: 2020 };
+
+    const first = await fetchWeeklyCalendarSeasonEntries(
+      'rh_test',
+      previousSeason,
+    );
+    _clearSessionMemoForTesting();
+    const restored = await fetchWeeklyCalendarSeasonEntries(
+      'rh_test',
+      previousSeason,
+    );
+
+    expect(first.seasonLabel).toBe('Spring 2020');
+    expect(first.entries[0]).toMatchObject({
+      id: 7,
+      listStatus: 'COMPLETED',
+      score: 90,
+      progress: 12,
+    });
+    expect(restored).toEqual(first);
+    expect(depaginateMock).toHaveBeenCalledTimes(2);
+    expect(
+      depaginateMock.mock.calls.some(
+        ([options]) =>
+          options.variables?.season === 'SPRING' &&
+          options.variables?.seasonYear === 2020,
+      ),
+    ).toBe(true);
   });
 });

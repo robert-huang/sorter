@@ -101,18 +101,34 @@ describe('ToolsSettingsMenu', () => {
 
     const includeImagesCheckbox = bumpChartCheckboxes[1];
     expect(includeImagesCheckbox?.checked).toBe(false);
+    const malCheckbox = bumpChartCheckboxes[2];
+    expect(malCheckbox?.checked).toBe(false);
+    expect(malCheckbox?.disabled).toBe(true);
 
     await act(async () => {
       includeImagesCheckbox?.click();
     });
     expect(loadToolsPreferences().bumpChartIncludeExportImages).toBe(true);
-
-    const malCheckbox = bumpChartCheckboxes[2];
-    expect(malCheckbox?.checked).toBe(false);
+    expect(malCheckbox?.disabled).toBe(false);
 
     await act(async () => {
       malCheckbox?.click();
     });
     expect(loadToolsPreferences().bumpChartMalExportImages).toBe(true);
+
+    await act(async () => {
+      includeImagesCheckbox?.click();
+    });
+    expect(malCheckbox?.disabled).toBe(true);
+    expect(malCheckbox?.checked).toBe(true);
+    expect(loadToolsPreferences().bumpChartMalExportImages).toBe(true);
+
+    const databaseTab = Array.from(container.querySelectorAll('button')).find(
+      (candidate) => candidate.textContent?.trim() === 'Database',
+    );
+    await act(async () => {
+      databaseTab?.click();
+    });
+    expect(container.textContent).toContain('Advanced storage diagnostics');
   });
 });

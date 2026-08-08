@@ -14,6 +14,10 @@ import {
 import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
 import { buildAnilistFavouriteUrl } from '../../lib/importers/anilist/anilistSource';
 import { AnilistMiddleClickLink } from '../../lib/importers/anilist/AnilistMiddleClickLink';
+import {
+  anilistUrlForCharacter,
+  anilistUrlForStudio,
+} from '../../lib/importers/anilist/anilistLinks';
 import { Modal } from '../../components/Modal';
 import { RemoveGlyph } from '../../components/RemoveGlyph';
 import {
@@ -23,6 +27,11 @@ import {
 import { productionReads } from '../../lib/importers/anilist/readQueries';
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
+import {
+  ToolEntityAvatar,
+  ToolShowButton,
+  ToolStaffButton,
+} from '../toolEntityLinks';
 import { ToolUsernameField } from '../ToolUsernameField';
 import { useToolsDisplayLabelRevision } from '../useToolsDisplayLabelRevision';
 import {
@@ -148,7 +157,60 @@ function filterRecentlyDeleted(
   );
 }
 
-export function ReorderFavouritesPanel(_props: ToolPanelProps) {
+export function RecentlyDeletedEntity({
+  favouriteType,
+  item,
+  onOpenMedia,
+  onOpenStaff,
+}: {
+  favouriteType: RecentlyDeletedBucket['favouriteType'];
+  item: FavouriteListItem;
+  onOpenMedia: ToolPanelProps['onOpenMedia'];
+  onOpenStaff: ToolPanelProps['onOpenStaff'];
+}) {
+  if (favouriteType === 'ANIME' || favouriteType === 'MANGA') {
+    return (
+      <ToolShowButton
+        mediaId={item.id}
+        title={item.label}
+        coverImage={item.imageUrl}
+        mediaType={favouriteType}
+        onOpenMedia={onOpenMedia}
+        compact
+      />
+    );
+  }
+  if (favouriteType === 'STAFF') {
+    return (
+      <ToolStaffButton
+        staffId={item.id}
+        name={item.label}
+        imageUrl={item.imageUrl}
+        onOpenStaff={onOpenStaff}
+        compact
+      />
+    );
+  }
+
+  const url =
+    favouriteType === 'CHARACTERS'
+      ? anilistUrlForCharacter(item.id)
+      : anilistUrlForStudio(item.id);
+  return (
+    <AnilistMiddleClickLink
+      url={url}
+      className="tool-entity-btn tool-entity-btn--compact"
+      onPrimaryClick={() => window.open(url, '_blank', 'noopener,noreferrer')}
+    >
+      <ToolEntityAvatar imageUrl={item.imageUrl} label={item.label} />
+      <span className="tool-entity-label">
+        <strong>{item.label}</strong>
+      </span>
+    </AnilistMiddleClickLink>
+  );
+}
+
+export function ReorderFavouritesPanel(props: ToolPanelProps) {
   const displayLabelRevision = useToolsDisplayLabelRevision();
   const [form, setForm] = useState<ReorderFavouritesForm>(() => loadForm());
   const [items, setItems] = useState<FavouriteListItem[]>([]);
@@ -171,6 +233,9 @@ export function ReorderFavouritesPanel(_props: ToolPanelProps) {
   const [sortResultsOpen, setSortResultsOpen] = useState(false);
   const [importingResults, setImportingResults] = useState(false);
   const [missingFavouritesWarning, setMissingFavouritesWarning] = useState<
+    string | null
+  >(null);
+  const [historyStorageWarning, setHistoryStorageWarning] = useState<
     string | null
   >(null);
   const [recentlyDeleted, setRecentlyDeleted] = useState<RecentlyDeletedBucket[]>(() =>
@@ -473,13 +538,22 @@ export function ReorderFavouritesPanel(_props: ToolPanelProps) {
     setSuccess(null);
     try {
       await unfavouriteItems(form, anilistUserId, idsToDelete);
-      appendRecentlyDeleted({
+      const historyResult = appendRecentlyDeleted({
         username: form.username.trim(),
         favouriteType: form.favouriteType,
         items: deletedItems,
         deletedAt: Date.now(),
       });
-      setRecentlyDeleted(filterRecentlyDeleted(loadRecentlyDeletedBuckets(), form));
+      setRecentlyDeleted(filterRecentlyDeleted(historyResult.buckets, form));
+      setHistoryStorageWarning(
+        !historyResult.persisted
+          ? 'Deleted-history could not be updated because this tab’s storage is unavailable or full. Existing history was preserved.'
+          : historyResult.droppedBucketCount > 0
+          ? `${historyResult.droppedBucketCount} older deleted-history ${
+              historyResult.droppedBucketCount === 1 ? 'snapshot was' : 'snapshots were'
+            } not retained because this tab's storage is full.`
+          : null,
+      );
       const remaining = items.filter((item) => !selected.has(item.id));
       setItems(remaining);
       setSavedIds((prev) => prev.filter((id) => !selected.has(id)));
@@ -786,6 +860,9 @@ export function ReorderFavouritesPanel(_props: ToolPanelProps) {
       {loadStatus && <p className="tool-status">{loadStatus}</p>}
       {error && <p className="tool-error">{error}</p>}
       {success && <p className="tool-success">{success}</p>}
+      {historyStorageWarning && (
+        <p className="tool-status">{historyStorageWarning}</p>
+      )}
       {missingFavouritesWarning && (
         <div className="app-banner warn tool-reorder-favourites-import-warning">
           <span>{missingFavouritesWarning}</span>
@@ -968,7 +1045,14 @@ export function ReorderFavouritesPanel(_props: ToolPanelProps) {
               </p>
               <ul className="tool-reorder-favourites-recently-deleted-names">
                 {bucket.items.map((item) => (
-                  <li key={item.id}>{item.label}</li>
+                  <li key={item.id}>
+                    <RecentlyDeletedEntity
+                      favouriteType={bucket.favouriteType}
+                      item={item}
+                      onOpenMedia={props.onOpenMedia}
+                      onOpenStaff={props.onOpenStaff}
+                    />
+                  </li>
                 ))}
               </ul>
             </div>
