@@ -979,6 +979,10 @@ html {
   font-size: 12px;
 }
 
+.storage-diagnostics-list {
+  color: var(--text-muted);
+}
+
 .storage-diagnostics-summary > div,
 .storage-diagnostics-list li {
   display: flex;
@@ -1014,6 +1018,7 @@ html {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  margin-top: 6px;
 }
 
 .storage-pressure {
@@ -3244,11 +3249,6 @@ a:where(.anime-to-anime-anilist-link):visited {
   content: '–';
   position: absolute;
   left: 0;
-}
-
-.anime-to-anime-settings-popover {
-  /* Match main gear menu width for tabbed layout. */
-  width: 340px;
 }
 
 .anime-to-anime-settings-popover .settings-popover-hint {
