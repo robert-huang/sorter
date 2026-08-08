@@ -506,42 +506,8 @@ export function SortResultsImportMode({
     return `Add ${addableCount} item${addableCount === 1 ? '' : 's'}`;
   })();
 
-  if (!isStatePersistenceAvailable()) {
-    return (
-      <div className={embedded ? 'sort-results-import-embedded' : 'page-section'}>
-        {!embedded && <h2>Sort results</h2>}
-        <p className="csv-hint">
-          Persistent browser storage is unavailable. Download a slot JSON
-          backup and use Load save file… instead.
-        </p>
-      </div>
-    );
-  }
-
-  if (cloudOpen) {
-    return (
-      <CloudResultsPicker
-        embedded={embedded}
-        excludeSlotId={excludeSlotId}
-        existingIds={existingIds}
-        hiddenRestoreIds={hiddenRestoreIds}
-        showPreRankedToggle={showPreRankedToggle}
-        selectionMode={selectionMode}
-        onDraftActivity={onDraftActivity}
-        onBack={() => setCloudOpen(false)}
-        onImport={handleCloudImports}
-      />
-    );
-  }
-
-  return (
-    <div
-      className={[
-        embedded ? 'sort-results-import-embedded' : 'page-section',
-      ]
-        .filter(Boolean)
-        .join(' ')}
-    >
+  const description = (
+    <>
       {!embedded && (
         <>
           <h2>Sort results</h2>
@@ -563,6 +529,48 @@ export function SortResultsImportMode({
             : null}
         </p>
       )}
+    </>
+  );
+
+  if (!isStatePersistenceAvailable()) {
+    return (
+      <div className={embedded ? 'sort-results-import-embedded' : 'page-section'}>
+        {!embedded && <h2>Sort results</h2>}
+        <p className="csv-hint">
+          Persistent browser storage is unavailable. Download a slot JSON
+          backup and use Load save file… instead.
+        </p>
+      </div>
+    );
+  }
+
+  if (cloudOpen) {
+    return (
+      <div className={embedded ? 'sort-results-import-embedded' : 'page-section'}>
+        {description}
+        <CloudResultsPicker
+          excludeSlotId={excludeSlotId}
+          existingIds={existingIds}
+          hiddenRestoreIds={hiddenRestoreIds}
+          showPreRankedToggle={showPreRankedToggle}
+          selectionMode={selectionMode}
+          onDraftActivity={onDraftActivity}
+          onBack={() => setCloudOpen(false)}
+          onImport={handleCloudImports}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={[
+        embedded ? 'sort-results-import-embedded' : 'page-section',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
+      {description}
 
       <div className="sort-results-import-toolbar">
         <span className="sort-results-import-summary">
@@ -672,7 +680,6 @@ type CloudPickerRow = {
 };
 
 function CloudResultsPicker({
-  embedded,
   excludeSlotId,
   existingIds,
   hiddenRestoreIds,
@@ -682,7 +689,6 @@ function CloudResultsPicker({
   onBack,
   onImport,
 }: {
-  embedded: boolean;
   excludeSlotId?: string;
   existingIds?: Set<string>;
   hiddenRestoreIds?: Set<string>;
@@ -1003,7 +1009,7 @@ function CloudResultsPicker({
     : null;
 
   return (
-    <div className={embedded ? 'sort-results-import-embedded' : 'page-section'}>
+    <>
       <div className="sort-results-import-toolbar">
         <span className="sort-results-import-summary">Google Drive slots</span>
         <button type="button" className="btn btn-sm" onClick={onBack}>
@@ -1123,7 +1129,7 @@ function CloudResultsPicker({
           onSave={saveEdit}
         />
       )}
-    </div>
+    </>
   );
 }
 

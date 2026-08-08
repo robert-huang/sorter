@@ -49,6 +49,9 @@ describe('SortResultsImportMode cloud entry point', () => {
       );
     });
     expect(container.textContent).toContain('Saved in this browser');
+    expect(container.textContent).toContain(
+      'Pick one or more completed saves.',
+    );
     expect(container.textContent).not.toContain('Google Drive slots');
     const driveButton = Array.from(container.querySelectorAll('button')).find(
       (button) => button.textContent?.trim() === 'Google Drive…',
@@ -56,8 +59,34 @@ describe('SortResultsImportMode cloud entry point', () => {
     act(() => driveButton?.click());
     expect(container.textContent).toContain('Google Drive slots');
     expect(container.textContent).toContain(
+      'Pick one or more completed saves.',
+    );
+    expect(container.textContent).toContain(
       'Sign in to Google Drive from Settings first.',
     );
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it('keeps the START heading and description while browsing Drive', () => {
+    vi.spyOn(storage, 'isStatePersistenceAvailable').mockReturnValue(true);
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    act(() => {
+      root.render(<SortResultsImportMode onAppendToStaged={vi.fn()} />);
+    });
+    const driveButton = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === 'Google Drive…',
+    );
+    act(() => driveButton?.click());
+
+    expect(container.querySelector('h2')?.textContent).toBe('Sort results');
+    expect(container.textContent).toContain(
+      'Import final rankings from completed saves in this browser.',
+    );
+    expect(container.textContent).toContain('Google Drive slots');
+
     act(() => root.unmount());
     container.remove();
   });
@@ -213,10 +242,10 @@ describe('SortResultsImportMode cloud entry point', () => {
       ).map((element) => element.textContent ?? '');
     expect(rowNames()).toEqual(['Alpha', 'Gamma']);
 
-    const directionButton = Array.from(container.querySelectorAll('button')).find(
-      (button) => button.textContent?.trim() === '↑ Ascending',
+    const titleButton = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === 'Title ↑',
     );
-    act(() => directionButton?.click());
+    act(() => titleButton?.click());
     expect(rowNames()).toEqual(['Gamma', 'Alpha']);
     expect(storage.readSettings()).toMatchObject({
       cloudSlotSortKey: 'title',

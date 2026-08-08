@@ -858,7 +858,7 @@ The per-slot meta line shows `cloud ✓` when the local copy matches the last Pu
 
 ### Cloud library
 
-Gear menu → **Browse cloud library…** shows every slot file under your chosen folder. Both this library and the RESULT importer's **Google Drive…** browser can sort by title or date in either direction. They share one browser-persisted preference, defaulting to newest first, so changing either view also determines the initial order the next time either one opens. Pull from here to adopt a cloud slot as a brand-new local slot (different from the per-row Pull, which replaces an existing one in place).
+Gear menu → **Browse cloud library…** shows every slot file under your chosen folder. Both this library and the RESULT importer's **Google Drive…** browser can sort by title or date in either direction. Selecting the active field toggles its arrow and direction; switching to Title starts ascending, while switching to Date starts descending. They share one browser-persisted preference, defaulting to newest first, so changing either view also determines the initial order the next time either one opens. Pull from here to adopt a cloud slot as a brand-new local slot (different from the per-row Pull, which replaces an existing one in place).
 
 ### Sign-out / Delete-everywhere
 

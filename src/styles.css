@@ -2326,10 +2326,6 @@ html {
   color: var(--accent-strong, var(--accent));
 }
 
-.cloud-library-sort-direction {
-  min-width: 112px;
-}
-
 .cloud-library-list {
   list-style: none;
   margin: 8px 0 16px;

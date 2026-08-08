@@ -62,6 +62,24 @@ export function sortCloudSlotRows<T>(
     .map(({ row }) => row);
 }
 
+function defaultDirection(sortKey: CloudSlotSortKey): CloudSlotSortDirection {
+  return sortKey === 'title' ? 'asc' : 'desc';
+}
+
+function oppositeDirection(
+  direction: CloudSlotSortDirection,
+): CloudSlotSortDirection {
+  return direction === 'asc' ? 'desc' : 'asc';
+}
+
+function activeSortArrow(
+  preference: CloudSlotSortPreference,
+  sortKey: CloudSlotSortKey,
+): string {
+  if (preference.sortKey !== sortKey) return '';
+  return preference.direction === 'asc' ? ' ↑' : ' ↓';
+}
+
 export function CloudSlotSortControls({
   preference,
   onChange,
@@ -69,6 +87,25 @@ export function CloudSlotSortControls({
   preference: CloudSlotSortPreference;
   onChange: (preference: CloudSlotSortPreference) => void;
 }) {
+  function chooseSort(sortKey: CloudSlotSortKey): void {
+    const direction =
+      preference.sortKey === sortKey
+        ? oppositeDirection(preference.direction)
+        : defaultDirection(sortKey);
+    onChange({
+      sortKey,
+      direction,
+    });
+  }
+
+  function nextDirectionLabel(sortKey: CloudSlotSortKey): string {
+    const nextDirection =
+      preference.sortKey === sortKey
+        ? oppositeDirection(preference.direction)
+        : defaultDirection(sortKey);
+    return nextDirection === 'asc' ? 'ascending' : 'descending';
+  }
+
   return (
     <div
       className="cloud-library-sort-controls"
@@ -84,34 +121,21 @@ export function CloudSlotSortControls({
           type="button"
           className={`btn${preference.sortKey === 'title' ? ' active' : ''}`}
           aria-pressed={preference.sortKey === 'title'}
-          onClick={() => onChange({ ...preference, sortKey: 'title' })}
+          aria-label={`Sort by title ${nextDirectionLabel('title')}`}
+          onClick={() => chooseSort('title')}
         >
-          Title
+          Title{activeSortArrow(preference, 'title')}
         </button>
         <button
           type="button"
           className={`btn${preference.sortKey === 'date' ? ' active' : ''}`}
           aria-pressed={preference.sortKey === 'date'}
-          onClick={() => onChange({ ...preference, sortKey: 'date' })}
+          aria-label={`Sort by date ${nextDirectionLabel('date')}`}
+          onClick={() => chooseSort('date')}
         >
-          Date
+          Date{activeSortArrow(preference, 'date')}
         </button>
       </div>
-      <button
-        type="button"
-        className="btn cloud-library-sort-direction"
-        aria-label={`Sort ${
-          preference.direction === 'asc' ? 'descending' : 'ascending'
-        }`}
-        onClick={() =>
-          onChange({
-            ...preference,
-            direction: preference.direction === 'asc' ? 'desc' : 'asc',
-          })
-        }
-      >
-        {preference.direction === 'asc' ? '↑ Ascending' : '↓ Descending'}
-      </button>
     </div>
   );
 }

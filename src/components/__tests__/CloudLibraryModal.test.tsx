@@ -128,15 +128,21 @@ describe('CloudLibraryModal sorting controls', () => {
   it('persists the selected order across modal instances', async () => {
     await renderModal();
     expect(rowNames()).toEqual(['Gamma', 'Alpha', 'beta']);
+    expect(button('Date ↓').getAttribute('aria-pressed')).toBe('true');
 
-    await act(async () => button('↓ Descending').click());
+    await act(async () => button('Date ↓').click());
     expect(rowNames()).toEqual(['beta', 'Alpha', 'Gamma']);
+    expect(button('Date ↑').getAttribute('aria-pressed')).toBe('true');
 
     await act(async () => button('Title').click());
     expect(rowNames()).toEqual(['Alpha', 'beta', 'Gamma']);
+    expect(button('Title ↑').getAttribute('aria-pressed')).toBe('true');
 
-    await act(async () => button('↑ Ascending').click());
+    await act(async () => button('Title ↑').click());
     expect(rowNames()).toEqual(['Gamma', 'beta', 'Alpha']);
+    expect(button('Title ↓').getAttribute('aria-pressed')).toBe('true');
+    expect(container.textContent).not.toContain('Ascending');
+    expect(container.textContent).not.toContain('Descending');
     expect(readSettings()).toMatchObject({
       cloudSlotSortKey: 'title',
       cloudSlotSortDirection: 'desc',
