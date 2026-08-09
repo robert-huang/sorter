@@ -2598,6 +2598,17 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
     );
   };
 
+  const clearColumn = (targetColumnId: string): void => {
+    markWorkspaceMutation();
+    setColumns((current) =>
+      current.map((column) =>
+        column.id === targetColumnId
+          ? { id: column.id, kind: column.kind, draft: emptyDraft() }
+          : column,
+      ),
+    );
+  };
+
   const toggleGroupRemoval = (targetColumnId: string, groupId: string): void => {
     patchDraft(targetColumnId, (draft) => ({
       ...draft,
@@ -2739,11 +2750,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
   const clearStaged = (): void => {
     stagingRevisionRef.current += 1;
     markWorkspaceMutation();
-    setColumns((current) =>
-      current.length > 2
-        ? defaultDraftColumns()
-        : current.map((column) => ({ ...column, draft: emptyDraft() })),
-    );
+    setColumns(defaultDraftColumns());
     setImportColumnId(null);
     setImportError(null);
   };
@@ -3014,9 +3021,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
                       preserveCustomLabels: !draft.preserveCustomLabels,
                     }))
                   }
-                  onClearAll={() =>
-                    patchDraft(column.id, () => emptyDraft())
-                  }
+                  onClearAll={() => clearColumn(column.id)}
                   headingActions={
                     <div className="bump-chart-column-actions">
                       <button
@@ -3086,9 +3091,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
                       preserveCustomLabels: !draft.preserveCustomLabels,
                     }))
                   }
-                  onClearAll={() =>
-                    patchDraft(currentDraftColumn.id, () => emptyDraft())
-                  }
+                  onClearAll={() => clearColumn(currentDraftColumn.id)}
                   headingActions={
                     <div className="bump-chart-column-actions">
                       <button

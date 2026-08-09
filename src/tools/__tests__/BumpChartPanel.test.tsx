@@ -304,6 +304,48 @@ describe('BumpChartPanel staging flow', () => {
     ).toHaveLength(1);
   });
 
+  it('clears custom names with per-panel and global staged clears', async () => {
+    await act(async () => {
+      root.render(
+        <BumpChartPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+    });
+
+    await importSingle(0, 'Previous item');
+    await renameOrder('Previous order', 'Named previous');
+    let cards = container.querySelectorAll('.bump-chart-import-card');
+    await act(async () => {
+      cards[0]
+        ?.querySelector<HTMLButtonElement>(
+          '[title="Remove every staged group"]',
+        )
+        ?.click();
+    });
+    cards = container.querySelectorAll('.bump-chart-import-card');
+    expect(
+      cards[0]?.querySelector('.bump-chart-order-name-button')?.textContent,
+    ).toBe('Previous order');
+    expect(cards[0]?.textContent).toContain('0 staged');
+
+    await renameOrder('Previous order', 'Renamed previous');
+    await renameOrder('Current order', 'Renamed current');
+    await act(async () => {
+      button('Clear all staged').click();
+    });
+    cards = container.querySelectorAll('.bump-chart-import-card');
+    expect(
+      Array.from(
+        cards,
+        (card) =>
+          card.querySelector('.bump-chart-order-name-button')?.textContent,
+      ),
+    ).toEqual(['Previous order', 'Current order']);
+  });
+
   it('keeps names attached while orders are promoted, moved, and removed', async () => {
     await act(async () => {
       root.render(
