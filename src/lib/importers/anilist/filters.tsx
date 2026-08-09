@@ -956,13 +956,15 @@ export function FilterChipSelectableOption({
         onToggle();
       }}
     >
-      <AnilistMiddleClickLink
-        url={anilistUrl ?? null}
-        className="filter-chip-option-link-target"
-        onPrimaryClick={() => onToggle()}
-      >
-        {null}
-      </AnilistMiddleClickLink>
+      {anilistUrl ? (
+        <AnilistMiddleClickLink
+          url={anilistUrl}
+          className="filter-chip-option-link-target"
+          onPrimaryClick={() => onToggle()}
+        >
+          {null}
+        </AnilistMiddleClickLink>
+      ) : null}
       <input type="checkbox" checked={checked} onChange={onToggle} />
       <span className="filter-chip-option-text">{children}</span>
     </label>

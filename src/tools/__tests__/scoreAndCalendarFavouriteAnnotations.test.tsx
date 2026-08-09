@@ -2,14 +2,20 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AdaptationTable } from '../panels/AdaptationScoresPanel';
-import { FranchiseTable } from '../panels/FranchiseScoresPanel';
+import {
+  FranchiseFilteredView,
+  FranchiseTable,
+} from '../panels/FranchiseScoresPanel';
 import { SeasonalColumnsView } from '../panels/SeasonalScoresPanel';
 import {
   WeeklyCalendarColumnsView,
   WeeklyCalendarThemeSongShowTitle,
 } from '../panels/WeeklyCalendarPanel';
 import type { AdaptationMedia } from '../panels/adaptationScoresLogic';
-import type { FranchiseEntry } from '../panels/franchiseScoresLogic';
+import {
+  DEFAULT_FRANCHISE_FILTERS,
+  type FranchiseEntry,
+} from '../panels/franchiseScoresLogic';
 import type { WeeklyCalendarEntry } from '../panels/weeklyCalendarLogic';
 
 vi.mock('../useCurrentAnilistFavourites', () => ({
@@ -107,6 +113,91 @@ describe('score and calendar favourite annotations', () => {
 
     expect(container.querySelector('.anilist-detail-media-title--favourite')?.textContent)
       .toBe('Favourite Franchise ★');
+  });
+
+  it('renders activity checkboxes only while activities are enabled', () => {
+    const entry: FranchiseEntry = {
+      ...media(1, 'Activity Franchise'),
+      isSeed: true,
+    };
+    const onToggleActivityMedia = vi.fn();
+
+    act(() => {
+      root.render(
+        <FranchiseTable
+          entries={[entry]}
+          seedId={entry.id}
+          seedTitle={entry.title}
+          onOpenMedia={vi.fn()}
+          activitiesEnabled
+          uncheckedActivityMediaIds={new Set()}
+          onToggleActivityMedia={onToggleActivityMedia}
+        />,
+      );
+    });
+
+    const checkbox = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Show activities for Activity Franchise"]',
+    );
+    expect(checkbox?.checked).toBe(true);
+    act(() => checkbox?.click());
+    expect(onToggleActivityMedia).toHaveBeenCalledWith(1);
+
+    act(() => {
+      root.render(
+        <FranchiseTable
+          entries={[entry]}
+          seedId={entry.id}
+          seedTitle={entry.title}
+          onOpenMedia={vi.fn()}
+        />,
+      );
+    });
+    expect(container.querySelector('.tool-franchise-th-activities')).toBeNull();
+  });
+
+  it('preserves activity checks through disable/re-enable and resets for a new seed', () => {
+    const entries: FranchiseEntry[] = [
+      { ...media(1, 'Seed One'), isSeed: true },
+      { ...media(2, 'Seed Two'), isSeed: false },
+    ];
+    const renderView = (seedId: number) => {
+      root.render(
+        <FranchiseFilteredView
+          entries={entries}
+          seedId={seedId}
+          seedTitle={`Seed ${seedId}`}
+          franchiseUsername="ActivityUser"
+          filters={DEFAULT_FRANCHISE_FILTERS}
+          onPatchFilters={vi.fn()}
+          onOpenMedia={vi.fn()}
+        />,
+      );
+    };
+
+    act(() => renderView(1));
+    const activitiesButton = [...container.querySelectorAll('button')].find(
+      (button) => button.textContent === 'Show activities',
+    );
+    act(() => activitiesButton?.click());
+    const secondCheckbox = () =>
+      container.querySelector<HTMLInputElement>(
+        'input[aria-label="Show activities for Seed Two"]',
+      );
+    expect(secondCheckbox()?.checked).toBe(true);
+    act(() => secondCheckbox()?.click());
+    expect(secondCheckbox()?.checked).toBe(false);
+
+    act(() => activitiesButton?.click());
+    expect(secondCheckbox()).toBeNull();
+    const disabledActivitiesButton = [
+      ...container.querySelectorAll('button'),
+    ].find((button) => button.textContent === 'Show activities');
+    act(() => disabledActivitiesButton?.click());
+    expect(secondCheckbox()?.checked).toBe(false);
+
+    act(() => renderView(2));
+    expect(secondCheckbox()?.checked).toBe(true);
   });
 
   it('annotates both Adaptation Scores media columns', () => {

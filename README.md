@@ -724,9 +724,13 @@ Walk AniList **relations** outward from one or more seed shows and chart the use
 - **Relation toggles** — prequel, sequel, parent, side story, spin-off, alternative, summary, adaptation, source, compilation, contains (on by default); **Other** and **Character** (off by default — noisy cameos / soundtracks).
 - **Post-fetch filters** — **list status** chip (defaults to all six statuses so unwatched franchise members stay visible), then score range chips (rated / unrated / min–max), same semantics as the Sorter FilterBar.
 - **Score cells** — numeric score when rated; otherwise the same status letters as Seasonal Scores (**P** / **W** / **R** / **H** by list status and medium).
-- **Export** — copy franchise table as CSV or plain text.
+- **Activities** — the green filter-bar toggle adds an independent AniList username, a **Show Activities** checkbox per visible franchise row, and the user's media-list activity history below the score table. Checkbox choices survive filter changes and disabling/re-enabling Activities, but reset after tracing a different seed franchise.
+- **Activity views** — **Date** always sorts activity timestamps ascending; **Media** groups rows under chart-ordered media headers and sorts each group ascending. The activity-type chip filters progress, completed, planning, paused, and dropped updates without another request. Rows with replies are highlighted and every row links to its AniList activity.
+- **Export** — copy the score table or activity timeline as plain text, or export either as CSV. Activity CSV columns are `mediaName,mediaUrl,date,activity,activityUrl`.
 
 Uses cached list scores when available; fetches relation edges and missing entries on demand. Relation edges are read from SQLite when fresh; right-click Trace forces a live re-fetch for every node in the walk.
+
+Activity responses are disposable API data, not source-list data: they use a separate IndexedDB cache keyed by normalized activity username + media id, expire after 15 minutes, and are LRU-limited to 5,000 media records / 25 MB. Overlapping franchises and checkbox changes therefore reuse individual media histories without writing activities into `anilist.sqlite`, sorter saves, or Drive backups. The activity username's ↻ button bypasses the TTL for the currently checked media.
 
 ### Adaptation Scores
 

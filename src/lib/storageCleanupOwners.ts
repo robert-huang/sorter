@@ -3,3 +3,4 @@ import './importers/anilist/toolsPersistentCache';
 import './spotify/spotifyPlaylist';
 import '../tools/panels/bumpChartImageCache';
 import '../tools/panels/bumpChartMalExportImages';
+import '../tools/panels/franchiseActivitiesCache';

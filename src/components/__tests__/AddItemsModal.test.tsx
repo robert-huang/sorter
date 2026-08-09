@@ -75,7 +75,11 @@ import {
   listCachedAnilistSources,
   materializeCachedAnilistSource,
 } from '../../lib/importers/anilist/anilistItemMaterialization';
-import { AnilistHydrationControls } from '../AddItemsModal';
+import {
+  ADD_ITEMS_LAST_TAB_LS_KEY,
+  AddItemsModal,
+  AnilistHydrationControls,
+} from '../AddItemsModal';
 
 let container: HTMLDivElement;
 let root: Root;
@@ -109,6 +113,7 @@ beforeEach(() => {
     favouritesWritten: 37,
   });
   localStorage.setItem(ANILIST_LAST_USERNAME_LS_KEY, 'CachedUser');
+  localStorage.removeItem(ADD_ITEMS_LAST_TAB_LS_KEY);
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -118,6 +123,7 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   localStorage.removeItem(ANILIST_LAST_USERNAME_LS_KEY);
+  localStorage.removeItem(ADD_ITEMS_LAST_TAB_LS_KEY);
   vi.restoreAllMocks();
 });
 
@@ -128,6 +134,54 @@ function buttonByText(text: string): HTMLButtonElement {
   if (!button) throw new Error(`Missing button: ${text}`);
   return button;
 }
+
+function renderAddItemsModal(key: string, initialTab?: 'multiple'): void {
+  root.render(
+    <AddItemsModal
+      key={key}
+      engine="merge"
+      existingIds={new Set()}
+      hiddenRestoreIds={new Set()}
+      dbSyncRevision={0}
+      initialTab={initialTab}
+      onCancel={vi.fn()}
+      onAddOne={vi.fn()}
+      onAddMany={vi.fn()}
+    />,
+  );
+}
+
+describe('Add items tabs', () => {
+  it('restores and updates the last-used tab', async () => {
+    localStorage.setItem(ADD_ITEMS_LAST_TAB_LS_KEY, 'multiple');
+
+    await act(async () => {
+      renderAddItemsModal('first');
+    });
+    expect(buttonByText('Multiple').getAttribute('aria-selected')).toBe('true');
+
+    await act(async () => {
+      buttonByText('Single').click();
+    });
+    expect(localStorage.getItem(ADD_ITEMS_LAST_TAB_LS_KEY)).toBe('single');
+
+    await act(async () => {
+      renderAddItemsModal('second');
+    });
+    expect(buttonByText('Single').getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('lets an explicit initial tab replace the remembered default', async () => {
+    localStorage.setItem(ADD_ITEMS_LAST_TAB_LS_KEY, 'single');
+
+    await act(async () => {
+      renderAddItemsModal('explicit', 'multiple');
+    });
+
+    expect(buttonByText('Multiple').getAttribute('aria-selected')).toBe('true');
+    expect(localStorage.getItem(ADD_ITEMS_LAST_TAB_LS_KEY)).toBe('multiple');
+  });
+});
 
 describe('AniList hydration controls', () => {
   it('uses the remembered username and clears prior matches when rows clear', async () => {

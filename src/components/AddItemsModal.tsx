@@ -56,6 +56,34 @@ export type AddItemsModalTab =
   | 'anilist'
   | 'sortresults';
 
+export const ADD_ITEMS_LAST_TAB_LS_KEY = 'sorter:add-items:lastTab';
+
+function isAddItemsModalTab(value: string | null): value is AddItemsModalTab {
+  return (
+    value === 'single' ||
+    value === 'multiple' ||
+    value === 'anilist' ||
+    value === 'sortresults'
+  );
+}
+
+function readLastAddItemsTab(): AddItemsModalTab {
+  try {
+    const stored = localStorage.getItem(ADD_ITEMS_LAST_TAB_LS_KEY);
+    return isAddItemsModalTab(stored) ? stored : 'single';
+  } catch {
+    return 'single';
+  }
+}
+
+function writeLastAddItemsTab(tab: AddItemsModalTab): void {
+  try {
+    localStorage.setItem(ADD_ITEMS_LAST_TAB_LS_KEY, tab);
+  } catch {
+    /* Ignore unavailable storage; the mounted modal still retains its tab. */
+  }
+}
+
 interface Props {
   engine: 'merge' | 'insertion' | 'confirmation';
   existingIds: Set<string>;
@@ -67,7 +95,7 @@ interface Props {
   dbSyncRevision: number;
   /** Hosts such as Bump Chart always preserve imported list order. */
   forcePreRanked?: boolean;
-  /** Tab selected when the modal opens. Defaults to Single. */
+  /** Tab selected when the modal opens. Defaults to the last-used tab. */
   initialTab?: AddItemsModalTab;
   /** Lets a host remember the selected tab after the modal closes. */
   onTabChange?: (tab: AddItemsModalTab) => void;
@@ -94,7 +122,7 @@ export function AddItemsModal({
   excludeSlotId,
   dbSyncRevision,
   forcePreRanked = false,
-  initialTab = 'single',
+  initialTab,
   onTabChange,
   onCancel,
   onAddOne,
@@ -103,7 +131,13 @@ export function AddItemsModal({
   onAddSlotImports,
   onImportOrderedItems,
 }: Props) {
-  const [tab, setTab] = useState<AddItemsModalTab>(initialTab);
+  const [tab, setTab] = useState<AddItemsModalTab>(
+    () => initialTab ?? readLastAddItemsTab(),
+  );
+
+  useEffect(() => {
+    writeLastAddItemsTab(tab);
+  }, [tab]);
 
   const selectTab = (nextTab: AddItemsModalTab): void => {
     setTab(nextTab);

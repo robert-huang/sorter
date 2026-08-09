@@ -95,6 +95,31 @@ describe('AnilistMiddleClickLink', () => {
 });
 
 describe('FilterChipSelectableOption link target', () => {
+  it('toggles once when the option has no AniList link', () => {
+    const onToggle = vi.fn();
+    act(() => {
+      root.render(
+        <FilterChipSelectableOption checked={true} onToggle={onToggle}>
+          Progress
+        </FilterChipSelectableOption>,
+      );
+    });
+
+    expect(
+      container.querySelector('.filter-chip-option-link-target'),
+    ).toBeNull();
+    const optionText = container.querySelector<HTMLElement>(
+      '.filter-chip-option-text',
+    )!;
+    act(() => {
+      optionText.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(onToggle).toHaveBeenCalledOnce();
+  });
+
   it('keeps the checkbox outside the anchor and preserves one plain-click toggle', () => {
     const onToggle = vi.fn();
     act(() => {

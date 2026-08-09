@@ -258,6 +258,34 @@ function dropSourceEdits(
 
 type Mode = 'scratch' | 'preranked' | 'anilist' | 'sortresults';
 
+export const SORTER_IMPORT_LAST_TAB_LS_KEY = 'sorter:start:lastTab';
+
+function isMode(value: string | null): value is Mode {
+  return (
+    value === 'scratch' ||
+    value === 'preranked' ||
+    value === 'anilist' ||
+    value === 'sortresults'
+  );
+}
+
+function readLastMode(): Mode {
+  try {
+    const stored = localStorage.getItem(SORTER_IMPORT_LAST_TAB_LS_KEY);
+    return isMode(stored) ? stored : 'scratch';
+  } catch {
+    return 'scratch';
+  }
+}
+
+function writeLastMode(mode: Mode): void {
+  try {
+    localStorage.setItem(SORTER_IMPORT_LAST_TAB_LS_KEY, mode);
+  } catch {
+    /* Ignore unavailable storage; the mounted importer still retains its tab. */
+  }
+}
+
 /** Which main tabs the current START draft can adopt into. */
 export interface StartDraftCapabilities {
   canList: boolean;
@@ -351,7 +379,7 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
   },
   ref,
 ) {
-  const [mode, setMode] = useState<Mode>('scratch');
+  const [mode, setMode] = useState<Mode>(readLastMode);
   // Engine for the Start Sort split-button. Non-persisted and per-draft:
   // it resets to 'merge' whenever the draft is cleared (see
   // `clearDraftState`). Routes both the panel's Start button and
@@ -363,6 +391,10 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
   const notifyDraftActivity = useCallback(() => {
     if (hasLoadedSession) onDraftActivity();
   }, [hasLoadedSession, onDraftActivity]);
+
+  useEffect(() => {
+    writeLastMode(mode);
+  }, [mode]);
 
   // -------- shared staging --------
   //
@@ -960,7 +992,6 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
   }, [stagedFiles, extrasText, extrasSkipHeader, overrides, excludedRows]);
 
   function clearDraftState(): void {
-    setMode('scratch');
     setOverrides(new Map());
     setExcludedRows(new Set());
     setScratchText('');
