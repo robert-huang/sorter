@@ -315,11 +315,67 @@ describe('BumpChartPanel staging flow', () => {
       );
     });
 
+    await importSingle(0, 'Previous item');
+    await importSingle(1, 'Current item');
     await renameOrder('Current order', 'Named snapshot');
+    let cards = container.querySelectorAll('.bump-chart-import-card');
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[aria-label="Move Current order up"]',
+      )?.disabled,
+    ).toBe(false);
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[aria-label="Move Current order down"]',
+      )?.disabled,
+    ).toBe(true);
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[aria-label="Move Previous order 1 down"]',
+      )?.disabled,
+    ).toBe(false);
+    await act(async () => {
+      cards[0]
+        ?.querySelector<HTMLButtonElement>('[aria-label="Hide Single item"]')
+        ?.click();
+    });
+    expect(cards[0]?.textContent).toContain('1 hidden');
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Move Current order up"]',
+        )
+        ?.click();
+    });
+    cards = container.querySelectorAll('.bump-chart-import-card');
+    expect(
+      cards[0]?.querySelector('.bump-chart-order-name-button')?.textContent,
+    ).toBe('Named snapshot');
+    expect(cards[0]?.textContent).not.toContain('1 hidden');
+    expect(
+      cards[1]?.querySelector('.bump-chart-order-name-button')?.textContent,
+    ).toBe('Current order');
+    expect(cards[1]?.textContent).toContain('1 hidden');
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Move Previous order 1 down"]',
+        )
+        ?.click();
+    });
+    cards = container.querySelectorAll('.bump-chart-import-card');
+    expect(
+      cards[1]?.querySelector('.bump-chart-order-name-button')?.textContent,
+    ).toBe('Named snapshot');
+    expect(cards[0]?.textContent).toContain('1 hidden');
+    expect(cards[1]?.textContent).not.toContain('1 hidden');
+
     await act(async () => {
       button('+').click();
     });
-    let cards = container.querySelectorAll('.bump-chart-import-card');
+    cards = container.querySelectorAll('.bump-chart-import-card');
     expect(
       cards[1]?.querySelector('.bump-chart-order-name-button')?.textContent,
     ).toBe('Named snapshot');

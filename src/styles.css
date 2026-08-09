@@ -6331,6 +6331,10 @@ a:where(.anime-to-anime-anilist-link):visited {
   color: var(--text);
 }
 
+.bump-chart-staging-area .staged-panel-summary {
+  margin-left: 4px;
+}
+
 .staged-panel-marked-line {
   display: inline;
 }
@@ -8568,11 +8572,6 @@ a:where(.anime-to-anime-anilist-link):visited {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 6px;
-}
-
-.bump-chart-column-action-placeholder {
-  visibility: hidden;
-  pointer-events: none;
 }
 
 .bump-chart-add-column {

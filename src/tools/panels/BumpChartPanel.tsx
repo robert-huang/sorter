@@ -2702,7 +2702,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
     });
   };
 
-  const movePreviousOrder = (
+  const moveOrder = (
     targetColumnId: string,
     direction: -1 | 1,
   ): void => {
@@ -2713,12 +2713,25 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
       if (
         index < 0 ||
         targetIndex < 0 ||
-        targetIndex >= current.length - 1
+        targetIndex >= current.length
       ) {
         return current;
       }
       const next = [...current];
-      [next[index], next[targetIndex]] = [next[targetIndex]!, next[index]!];
+      const source = next[index]!;
+      const target = next[targetIndex]!;
+      if (source.kind === target.kind) {
+        [next[index], next[targetIndex]] = [target, source];
+      } else {
+        // Keep the final slot's stable `current` identity while moving the
+        // staged order data and name across the previous/current boundary.
+        next[index] = { ...source, name: target.name, draft: target.draft };
+        next[targetIndex] = {
+          ...target,
+          name: source.name,
+          draft: source.draft,
+        };
+      }
       return next;
     });
   };
@@ -3010,7 +3023,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
                         type="button"
                         className="btn small"
                         disabled={index === 0}
-                        onClick={() => movePreviousOrder(column.id, -1)}
+                        onClick={() => moveOrder(column.id, -1)}
                         aria-label={`Move Previous order ${index + 1} up`}
                       >
                         ↑
@@ -3018,8 +3031,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
                       <button
                         type="button"
                         className="btn small"
-                        disabled={index === previousColumns.length - 1}
-                        onClick={() => movePreviousOrder(column.id, 1)}
+                        onClick={() => moveOrder(column.id, 1)}
                         aria-label={`Move Previous order ${index + 1} down`}
                       >
                         ↓
@@ -3079,18 +3091,22 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
                   }
                   headingActions={
                     <div className="bump-chart-column-actions">
-                      <span
-                        className="btn small bump-chart-column-action-placeholder"
-                        aria-hidden="true"
+                      <button
+                        type="button"
+                        className="btn small"
+                        onClick={() => moveOrder(currentDraftColumn.id, -1)}
+                        aria-label="Move Current order up"
                       >
                         ↑
-                      </span>
-                      <span
-                        className="btn small bump-chart-column-action-placeholder"
-                        aria-hidden="true"
+                      </button>
+                      <button
+                        type="button"
+                        className="btn small"
+                        disabled
+                        aria-label="Move Current order down"
                       >
                         ↓
-                      </span>
+                      </button>
                       <button
                         type="button"
                         className="btn small"
