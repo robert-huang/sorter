@@ -1309,7 +1309,7 @@ describe('BumpChartPanel staging flow', () => {
     expect(container.textContent).toContain('After item');
   });
 
-  it('shows a signed movement badge only while a matched line is hovered', async () => {
+  it('keeps the highlighted lineage stable while drag-scrolling', async () => {
     await act(async () => {
       root.render(
         <BumpChartPanel
@@ -1391,6 +1391,9 @@ describe('BumpChartPanel staging flow', () => {
     expect(neutralBadge?.previousElementSibling).toBe(
       connectionGroups[connectionGroups.length - 1],
     );
+    const dimmedConnections = Array.from(
+      container.querySelectorAll('.bump-chart-connection.is-dimmed'),
+    );
 
     const scroll = container.querySelector<HTMLElement>('.bump-chart-scroll');
     expect(scroll).not.toBeNull();
@@ -1409,16 +1412,23 @@ describe('BumpChartPanel staging flow', () => {
     });
     expect(scroll?.scrollLeft).toBe(140);
     expect(scroll?.classList.contains('is-drag-scroll-dragging')).toBe(true);
-    expect(container.querySelector('.bump-chart-movement-badge')).toBeNull();
     expect(
-      container.querySelector('.bump-chart-connection.is-dimmed'),
-    ).toBeNull();
+      container.querySelector('.bump-chart-movement-badge'),
+    ).toBe(neutralBadge);
+    expect(
+      Array.from(
+        container.querySelectorAll('.bump-chart-connection.is-dimmed'),
+      ),
+    ).toEqual(dimmedConnections);
 
     act(() => {
       dispatchPointer('pointerup', window, 60);
       scroll?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
     expect(scroll?.classList.contains('is-drag-scroll-dragging')).toBe(false);
+    expect(
+      container.querySelector('.bump-chart-movement-badge'),
+    ).toBe(neutralBadge);
   });
 
   it('pins only paths and nodes, not item labels', async () => {

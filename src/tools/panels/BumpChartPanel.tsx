@@ -1767,14 +1767,14 @@ function BumpChart({
   );
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
   const [pinnedKey, setPinnedKey] = useState<string | null>(null);
-  const [dragging, setDragging] = useState(false);
   const [layout, setLayout] = useState<ChartLayout | null>(null);
+  const draggingRef = useRef(false);
   const hoverTimerRef = useRef<number | null>(null);
   const rowRefs = useRef<Array<HTMLDivElement | null>>([]);
   const rowCount = Math.max(0, ...columns.map(({ items }) => items.length));
-  const focusedKey = dragging ? null : (pinnedKey ?? hoveredKey);
+  const focusedKey = pinnedKey ?? hoveredKey;
   const pinnedLineage =
-    !dragging && pinnedKey != null
+    pinnedKey != null
       ? timeline.lineages.find(({ key }) => key === pinnedKey)
       : undefined;
   const focusedSegments =
@@ -1826,7 +1826,10 @@ function BumpChart({
   const onHoverFocus = useCallback(
     (key: string | null): void => {
       clearPendingHover();
-      if (key == null || dragging) {
+      if (draggingRef.current) {
+        return;
+      }
+      if (key == null) {
         setHoveredKey(null);
         return;
       }
@@ -1835,15 +1838,14 @@ function BumpChart({
         setHoveredKey(key);
       }, BUMP_CHART_HOVER_DELAY_MS);
     },
-    [clearPendingHover, dragging],
+    [clearPendingHover],
   );
 
   const onDragChange = useCallback(
     (nextDragging: boolean): void => {
-      setDragging(nextDragging);
+      draggingRef.current = nextDragging;
       if (nextDragging) {
         clearPendingHover();
-        setHoveredKey(null);
       }
     },
     [clearPendingHover],
