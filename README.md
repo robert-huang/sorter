@@ -89,6 +89,10 @@ Works fully offline. **Caveat:** browsers treat `file://` origins as opaque and 
 
 The `dist/` folder is a normal static site. Upload it to GitHub Pages, Netlify, Vercel, Cloudflare Pages — anything that serves static files. Not needed for personal use.
 
+## Hidden items
+
+Left-clicking an item's **Remove** action hides it while preserving its structural rank, so its Hidden items row offers **Restore** at the old position. Right-clicking the same Remove action also removes the rank slot, so the item moves to the hidden/unranked group and offers **Reinsert** for a fresh binary insertion. The Remove icon's tooltip explains both actions. Both paths remain undoable and persist with the slot.
+
 ## CSV format
 
 ```

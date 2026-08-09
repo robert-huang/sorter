@@ -33,6 +33,8 @@ import {
   runAnilistImport,
 } from '../lib/importers/anilist/runners';
 import { isGraphTimestampStale } from '../lib/importers/anilist/graphConstants';
+import type { AnilistProgressEvent } from '../lib/importers/anilist/progress';
+import { formatAnilistProgress } from './anilistProgressLabel';
 
 /**
  * Unified "Add item(s)" modal. Four tabs:
@@ -631,6 +633,8 @@ export function AnilistHydrationControls({
   const [selectedKey, setSelectedKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshProgress, setRefreshProgress] =
+    useState<AnilistProgressEvent | null>(null);
   const [sourceRevision, setSourceRevision] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AnilistHydrationResult | null>(null);
@@ -645,7 +649,6 @@ export function AnilistHydrationControls({
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    setSources(null);
     setError(null);
     void listCachedAnilistSources()
       .then((next) => {
@@ -719,14 +722,23 @@ export function AnilistHydrationControls({
   async function refreshSelectedSource(): Promise<void> {
     if (!selectedSource) return;
     setRefreshing(true);
+    setRefreshProgress(null);
     setError(null);
     setResult(null);
     try {
       const { source } = selectedSource;
       if (source.kind === 'list') {
-        await runAnilistImport(source.userName, source.type);
+        await runAnilistImport(
+          source.userName,
+          source.type,
+          setRefreshProgress,
+        );
       } else {
-        await runAnilistFavourites(source.userName, source.type);
+        await runAnilistFavourites(
+          source.userName,
+          source.type,
+          setRefreshProgress,
+        );
       }
       setSourceRevision((current) => current + 1);
     } catch (cause: unknown) {
@@ -737,6 +749,7 @@ export function AnilistHydrationControls({
       );
     } finally {
       setRefreshing(false);
+      setRefreshProgress(null);
     }
   }
 
@@ -817,6 +830,17 @@ export function AnilistHydrationControls({
                     <CircularArrowGlyph />
                   </button>
                 </div>
+                {refreshing && (
+                  <span
+                    className="anilist-hydration-progress"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    {refreshProgress
+                      ? formatAnilistProgress(refreshProgress)
+                      : 'Connecting to AniList…'}
+                  </span>
+                )}
               </div>
               <button
                 type="button"

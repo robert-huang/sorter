@@ -1,7 +1,9 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { REMOVE_ITEM_TOOLTIP } from '../ItemCard';
 import { ListScreen } from '../ListScreen';
+import { hideItemUnranked } from '../../lib/engine';
 import { buildInsertionState, hideItem } from '../../lib/insertionSort';
 import {
   hideItem as mergeHideItem,
@@ -249,6 +251,36 @@ describe('ListScreen · insert-context LIST-tab controls (insertion engine)', ()
 });
 
 describe('ListScreen · hidden panel on completed merge sort', () => {
+  it('keeps click ranked and uses right-click for an unranked hide', () => {
+    const onHide = vi.fn();
+    renderList(makeProps(seedAsDoneMerge([A, B, C]), { onHide }));
+
+    const row = Array.from(
+      container.querySelectorAll<HTMLDivElement>('.queue-item-row'),
+    ).find(
+      (candidate) =>
+        candidate.querySelector('.label-cell')?.textContent?.trim() === 'B',
+    );
+    const removeButton = row?.querySelector<HTMLButtonElement>(
+      'button.icon-btn.danger',
+    );
+    expect(removeButton).not.toBeNull();
+
+    act(() => removeButton?.click());
+    expect(onHide).toHaveBeenLastCalledWith('b');
+
+    const contextMenu = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => {
+      removeButton?.dispatchEvent(contextMenu);
+    });
+    expect(contextMenu.defaultPrevented).toBe(true);
+    expect(onHide).toHaveBeenLastCalledWith('b', true);
+    expect(removeButton?.title).toBe(REMOVE_ITEM_TOOLTIP);
+  });
+
   it('shows ↺ Restore (onUnhide) for in-ranking hidden rows when done', () => {
     const done = mergeHideItem(seedAsDoneMerge([A, B, C]), 'b');
     const onUnhide = vi.fn();
@@ -267,6 +299,24 @@ describe('ListScreen · hidden panel on completed merge sort', () => {
     act(() => restoreBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
     expect(onUnhide).toHaveBeenCalledWith('b');
     expect(onReinsertHidden).not.toHaveBeenCalled();
+  });
+
+  it('shows Reinsert instead of Restore for a hidden unranked item', () => {
+    const state = hideItemUnranked(seedAsDoneMerge([A, B, C]), 'b');
+    const onRestoreHidden = vi.fn();
+    renderList(makeProps(state, { onRestoreHidden }));
+
+    const hiddenSection = container.querySelector('.list-removed-during-sort');
+    const reinsertButton = hiddenSection?.querySelector<HTMLButtonElement>(
+      'button[title="Queue for sorting again"]',
+    );
+    expect(reinsertButton?.textContent).toContain('Reinsert');
+    expect(
+      hiddenSection?.querySelector('button[title="Restore at old rank"]'),
+    ).toBeNull();
+
+    act(() => reinsertButton?.click());
+    expect(onRestoreHidden).toHaveBeenCalledWith('b');
   });
 });
 

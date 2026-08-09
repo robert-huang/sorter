@@ -2,7 +2,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Item } from '../../lib/types';
-import { ItemCard } from '../ItemCard';
+import { ItemCard, REMOVE_ITEM_TOOLTIP } from '../ItemCard';
 
 const item: Item = {
   id: 'AAAAAAAAAAAAAQ',
@@ -55,5 +55,30 @@ describe('ItemCard link target', () => {
     });
 
     expect(container.querySelector('.item-card-link-target')).toBeNull();
+  });
+
+  it('explains and handles both ranked and unranked removal actions', () => {
+    const onRemove = vi.fn();
+    act(() => {
+      root.render(<ItemCard item={item} onRemove={onRemove} />);
+    });
+
+    const removeButton = container.querySelector<HTMLButtonElement>('.remove-btn');
+    expect(removeButton?.title).toBe(REMOVE_ITEM_TOOLTIP);
+
+    act(() => removeButton?.click());
+    expect(onRemove).toHaveBeenCalledWith();
+    onRemove.mockClear();
+
+    const contextMenu = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => {
+      removeButton?.dispatchEvent(contextMenu);
+    });
+
+    expect(contextMenu.defaultPrevented).toBe(true);
+    expect(onRemove).toHaveBeenCalledWith(true);
   });
 });

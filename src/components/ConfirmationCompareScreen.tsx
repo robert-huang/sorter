@@ -11,7 +11,7 @@ import {
   type SlotAnimKind,
 } from './compareScreenH';
 import type { LastInteraction } from './CompareScreen';
-import { ItemCard } from './ItemCard';
+import { ItemCard, REMOVE_ITEM_TOOLTIP } from './ItemCard';
 import { ItemThumb } from './ItemThumb';
 import { DetailButtonSlot } from './DetailButton';
 import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
@@ -23,7 +23,7 @@ interface Props {
   lastInteraction: LastInteraction;
   onPickLeft: () => void;
   onPickRight: () => void;
-  onHide: (id: ItemId) => void;
+  onHide: (id: ItemId, unranked?: boolean) => void;
   onUnhide: (id: ItemId) => void;
   onEditItem: (id: ItemId, patch: EditItemSavePayload) => void;
   onReorderConfirmed: (index: number, direction: -1 | 1) => void;
@@ -422,7 +422,9 @@ export function ConfirmationCompareScreen({
                 key={popInKeyLeft}
                 item={heroItem}
                 onPick={onPickLeft}
-                onRemove={() => onHide(heroItem.id)}
+                onRemove={(unranked) =>
+                  unranked ? onHide(heroItem.id, true) : onHide(heroItem.id)
+                }
               />
             ) : (
               <div className="compare-confirmation-empty">No confirmed items yet</div>
@@ -434,7 +436,9 @@ export function ConfirmationCompareScreen({
                 key={popInKeyRight}
                 item={rightItem}
                 onPick={onPickRight}
-                onRemove={() => onHide(rightItem.id)}
+                onRemove={(unranked) =>
+                  unranked ? onHide(rightItem.id, true) : onHide(rightItem.id)
+                }
               />
             ) : (
               <div className="compare-confirmation-empty">Done</div>
@@ -565,7 +569,12 @@ export function ConfirmationCompareScreen({
                             type="button"
                             className="icon-btn"
                             onClick={() => onHide(id)}
-                            title="Remove"
+                            onContextMenu={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              onHide(id, true);
+                            }}
+                            title={REMOVE_ITEM_TOOLTIP}
                             aria-label={`Remove ${item.label}`}
                           >
                             <RemoveGlyph size={12} />

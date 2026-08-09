@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from 'react';
 import { getPair } from '../lib/engine';
 import {
   getActivePendingId,
@@ -20,6 +27,7 @@ import { AddItemsModal } from './AddItemsModal';
 import { CircularArrowGlyph } from './CircularArrowGlyph';
 import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
 import { DetailButtonSlot } from './DetailButton';
+import { REMOVE_ITEM_TOOLTIP } from './ItemCard';
 import { RemoveGlyph } from './RemoveGlyph';
 import { ItemThumb } from './ItemThumb';
 import {
@@ -40,6 +48,18 @@ import {
   type InsertContextKind,
   type InsertionPendingGroup,
 } from './listScreenH';
+
+type HideItemHandler = (id: string, unranked?: boolean) => void;
+
+function hideUnrankedOnContextMenu(
+  event: ReactMouseEvent,
+  id: string,
+  onHide: HideItemHandler,
+): void {
+  event.preventDefault();
+  event.stopPropagation();
+  onHide(id, true);
+}
 
 /** Item ids shown in the unified completed-ranking section (LIST tab). */
 function completedRankingIds(state: SortState): string[] {
@@ -66,7 +86,7 @@ function CompletedRankingSection({
   rankedIds: string[];
   items: Record<string, Item>;
   hidden: Set<string>;
-  onHide: (id: string) => void;
+  onHide: HideItemHandler;
   onUnhide: (id: string) => void;
   onEdit: (item: Item) => void;
   onReorder: (itemIndex: number, dir: -1 | 1) => void;
@@ -325,7 +345,7 @@ interface Props {
   slotId: string;
   slotName: string;
   onRenameSlot: (id: string, name: string) => void;
-  onHide: (id: string) => void;
+  onHide: HideItemHandler;
   onUnhide: (id: string) => void;
   onReorder: (queueIndex: number, itemIndex: number, dir: -1 | 1) => void;
   /** Merge-only: nudge an item within one slice of the in-flight merge frame. */
@@ -495,7 +515,7 @@ function HideOrRestoreButton({
   id: string;
   isHidden: boolean;
   allowRestore: boolean;
-  onHide: (id: string) => void;
+  onHide: HideItemHandler;
   onUnhide: (id: string) => void;
   hideTitle?: string;
   restoreTitle?: string;
@@ -532,7 +552,10 @@ function HideOrRestoreButton({
       <button
         className="x"
         onClick={() => onHide(id)}
-        title={hideTitle}
+        onContextMenu={(event) =>
+          hideUnrankedOnContextMenu(event, id, onHide)
+        }
+        title={REMOVE_ITEM_TOOLTIP}
         aria-label={ariaLabel ?? hideTitle}
       >
         <RemoveGlyph size={14} />
@@ -543,7 +566,10 @@ function HideOrRestoreButton({
     <button
       className="icon-btn danger"
       onClick={() => onHide(id)}
-      title={hideTitle}
+      onContextMenu={(event) =>
+        hideUnrankedOnContextMenu(event, id, onHide)
+      }
+      title={REMOVE_ITEM_TOOLTIP}
       aria-label={ariaLabel}
     >
       <RemoveGlyph />
@@ -619,9 +645,9 @@ function InsertContextSection({
    * queued one. Dropping orphans the item into Hidden items (reinsert-only,
    * it has no rank slot to restore to). Undoable via the ring.
    */
-  onHideRemaining?: (id: string) => void;
+  onHideRemaining?: HideItemHandler;
   /** × on a row of the "insert-into" list (removable target). */
-  onHideTarget?: (id: string) => void;
+  onHideTarget?: HideItemHandler;
   /**
    * Swap two absolute positions in the "insert-into" list.
    * Passed absolute indices into `ctx.targetIds` (the full target,
@@ -783,7 +809,14 @@ function InsertContextSection({
                               <button
                                 className="icon-btn danger"
                                 onClick={() => onHideTarget(id)}
-                                title="Remove this item from the list being inserted into"
+                                onContextMenu={(event) =>
+                                  hideUnrankedOnContextMenu(
+                                    event,
+                                    id,
+                                    onHideTarget,
+                                  )
+                                }
+                                title={REMOVE_ITEM_TOOLTIP}
                                 aria-label={`Remove ${item.label}`}
                               >
                                 <RemoveGlyph />
@@ -864,11 +897,14 @@ function InsertContextSection({
                               <button
                                 className="icon-btn danger"
                                 onClick={() => onHideRemaining(id)}
-                                title={
-                                  isInserting
-                                    ? 'Remove this item — skip inserting it and move on'
-                                    : 'Remove this queued item — drops it to Hidden items for later reinsert'
+                                onContextMenu={(event) =>
+                                  hideUnrankedOnContextMenu(
+                                    event,
+                                    id,
+                                    onHideRemaining,
+                                  )
                                 }
+                                title={REMOVE_ITEM_TOOLTIP}
                                 aria-label={`Remove ${item.label}`}
                               >
                                 <RemoveGlyph />
@@ -1228,7 +1264,10 @@ function MergeListView({
                       <button
                         className="icon-btn danger"
                         onClick={() => onHide(id)}
-                        title="Remove — move to Hidden items"
+                        onContextMenu={(event) =>
+                          hideUnrankedOnContextMenu(event, id, onHide)
+                        }
+                        title={REMOVE_ITEM_TOOLTIP}
                         aria-label={`Remove ${item.label}`}
                       >
                         <RemoveGlyph />
@@ -1308,7 +1347,7 @@ function CurrentMergeRow({
   ids: string[];
   state: MergeState;
   hidden: Set<string>;
-  onHide: (id: string) => void;
+  onHide: HideItemHandler;
   onUnhide: (id: string) => void;
   onReorder: (slice: CurrentMergeSlice, itemIndex: number, dir: -1 | 1) => void;
   onEdit: (item: Item) => void;
@@ -1403,7 +1442,7 @@ function SublistView({
   queueIndex: number;
   state: MergeState;
   hidden: Set<string>;
-  onHide: (id: string) => void;
+  onHide: HideItemHandler;
   onUnhide: (id: string) => void;
   onReorder: (queueIndex: number, itemIndex: number, dir: -1 | 1) => void;
   onBreakApart: (queueIndex: number) => void;
@@ -1647,7 +1686,7 @@ function InsertionPendingItemRow({
 }: {
   item: Item;
   hidden: Set<string>;
-  onHide: (id: string) => void;
+  onHide: HideItemHandler;
   onUnhide: (id: string) => void;
   onEdit: (item: Item) => void;
   rank?: number;
@@ -1709,7 +1748,7 @@ function InsertionPendingGroupView({
   groupIndex: number;
   state: InsertionState;
   hidden: Set<string>;
-  onHide: (id: string) => void;
+  onHide: HideItemHandler;
   onUnhide: (id: string) => void;
   onEdit: (item: Item) => void;
   isNext: boolean;

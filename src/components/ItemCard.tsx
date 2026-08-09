@@ -3,10 +3,13 @@ import type { Item } from '../lib/types';
 import { InfoIcon, TrashIcon } from './icons';
 import { canOpenItemDetail, ItemDetailContext } from './itemDetailContext';
 
+export const REMOVE_ITEM_TOOLTIP =
+  'Left-click: preserve rank and hide\n\nRight-click: remove from ranking';
+
 interface Props {
   item: Item;
   onPick?: () => void;
-  onRemove?: () => void;
+  onRemove?: (unranked?: boolean) => void;
   /** When true, clicking does nothing (e.g. while in done state showing previews). */
   disabled?: boolean;
 }
@@ -49,6 +52,12 @@ export function ItemCard({ item, onPick, onRemove, disabled }: Props) {
     if (onRemove) onRemove();
   }
 
+  function onRemoveContextMenu(e: React.MouseEvent): void {
+    e.preventDefault();
+    e.stopPropagation();
+    onRemove?.(true);
+  }
+
   const showImage = item.imageUrl && !imgFailed;
 
   return (
@@ -88,8 +97,9 @@ export function ItemCard({ item, onPick, onRemove, disabled }: Props) {
         <button
           className="remove-btn"
           onClick={onRemoveClick}
+          onContextMenu={onRemoveContextMenu}
           aria-label={`Remove ${item.label}`}
-          title="Remove from sort"
+          title={REMOVE_ITEM_TOOLTIP}
         >
           <TrashIcon size={14} />
         </button>

@@ -39,7 +39,7 @@ interface Props {
   lastInteraction: LastInteraction;
   onPickLeft: () => void;
   onPickRight: () => void;
-  onHide: (id: ItemId) => void;
+  onHide: (id: ItemId, unranked?: boolean) => void;
   onUnhide: (id: ItemId) => void;
   /** Cancel an in-flight manual insert (merge engine only). */
   onCancelManualInsert: () => void;
@@ -780,7 +780,9 @@ export function CompareScreen({
             key={popInKeyLeft}
             item={left}
             onPick={onPickLeft}
-            onRemove={() => onHide(left.id)}
+            onRemove={(unranked) =>
+              unranked ? onHide(left.id, true) : onHide(left.id)
+            }
           />
         </div>
         <div className={rightSlotClass} data-anim={rightAnimKind}>
@@ -831,7 +833,9 @@ export function CompareScreen({
             key={popInKeyRight}
             item={right}
             onPick={onPickRight}
-            onRemove={() => onHide(right.id)}
+            onRemove={(unranked) =>
+              unranked ? onHide(right.id, true) : onHide(right.id)
+            }
           />
         </div>
         {outgoing && (

@@ -8,6 +8,7 @@ import {
   getPair,
   getRanking,
   hideItem,
+  hideItemUnranked,
   normalizeLoadedState,
   pickLeft as enginePickLeft,
   pickRight as enginePickRight,
@@ -154,6 +155,29 @@ describe('engine dispatch', () => {
     expect(insHidden.hidden).toContain('b');
     const insRestored = unhideItem(insHidden, 'b');
     expect(insRestored.hidden).toEqual([]);
+  });
+
+  it('can hide a completed item without preserving its rank', () => {
+    const done = seedAsDoneMerge([A, B, C]);
+
+    const rankedHidden = hideItem(done, 'b');
+    expect(rankedHidden.hidden).toContain('b');
+    expect(rankedHidden.engine).toBe('merge');
+    if (rankedHidden.engine === 'merge') {
+      expect(rankedHidden.queue[0]).toContain('b');
+    }
+
+    const unrankedHidden = hideItemUnranked(done, 'b');
+    expect(unrankedHidden.hidden).toContain('b');
+    expect(unrankedHidden.items.b).toEqual(B);
+    expect(unrankedHidden.engine).toBe('merge');
+    if (unrankedHidden.engine === 'merge') {
+      expect(unrankedHidden.queue[0]).not.toContain('b');
+    }
+
+    const reinserted = reinsertHiddenItem(unrankedHidden, 'b');
+    expect(reinserted.hidden).not.toContain('b');
+    expect(reinserted.done).toBe(false);
   });
 
   it('maps displayed sides for every comparison mode', () => {

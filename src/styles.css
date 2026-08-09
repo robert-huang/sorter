@@ -6242,6 +6242,16 @@ a:where(.anime-to-anime-anilist-link):visited {
   animation: anilist-hydration-refresh-spin 0.8s linear infinite;
 }
 
+.anilist-hydration-progress {
+  display: flex;
+  min-height: 36px;
+  align-self: end;
+  align-items: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
 @keyframes anilist-hydration-refresh-spin {
   to {
     transform: rotate(360deg);

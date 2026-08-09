@@ -383,6 +383,27 @@ export function forgetHiddenItem(
 }
 
 /**
+ * Hide an item without preserving its current rank. This deliberately uses
+ * each engine's normal hide path first, then its structural removal path, so
+ * active merge/insert frames advance exactly as they do for the visible
+ * actions. Metadata and the hidden bit remain available for a later reinsert.
+ */
+export function hideItemUnranked(
+  state: SortState,
+  id: ItemId,
+  options?: EngineOptions,
+): SortState {
+  const hidden = hideItem(state, id, options);
+  if (!hidden.hidden.includes(id)) return hidden;
+
+  const withoutRank = forgetHiddenItem(hidden, id, options);
+  return {
+    ...withoutRank,
+    hidden: [...withoutRank.hidden, id].sort(),
+  };
+}
+
+/**
  * Restore a hidden item that is no longer in any ranking slot. Re-queues
  * it for sorting; in-ranking hidden ids just unhide.
  */

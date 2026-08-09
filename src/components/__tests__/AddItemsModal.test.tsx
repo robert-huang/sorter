@@ -11,6 +11,41 @@ import {
 } from 'vitest';
 import type { Item } from '../../lib/types';
 import { ANILIST_LAST_USERNAME_LS_KEY } from '../../lib/importers/anilist/lastUsername';
+import type { AnilistProgressEvent } from '../../lib/importers/anilist/progress';
+import type { CachedAnilistSourceSummary } from '../../lib/importers/anilist/anilistItemMaterialization';
+
+const CACHED_SOURCES: CachedAnilistSourceSummary[] = [
+  {
+    source: {
+      kind: 'list',
+      userId: 2,
+      userName: 'Mannerpots',
+      type: 'ANIME',
+    },
+    count: 1,
+    refreshedAt: Date.now(),
+  },
+  {
+    source: {
+      kind: 'list',
+      userId: 1,
+      userName: 'CachedUser',
+      type: 'ANIME',
+    },
+    count: 1,
+    refreshedAt: null,
+  },
+  {
+    source: {
+      kind: 'favourites',
+      userId: 1,
+      userName: 'CachedUser',
+      type: 'CHARACTERS',
+    },
+    count: 37,
+    refreshedAt: null,
+  },
+];
 
 vi.mock(
   '../../lib/importers/anilist/anilistItemMaterialization',
@@ -21,45 +56,25 @@ vi.mock(
       >();
     return {
       ...actual,
-      listCachedAnilistSources: vi.fn().mockResolvedValue([
-        {
-          source: {
-            kind: 'list',
-            userId: 2,
-            userName: 'Mannerpots',
-            type: 'ANIME',
-          },
-          count: 1,
-          refreshedAt: Date.now(),
-        },
-        {
-          source: {
-            kind: 'list',
-            userId: 1,
-            userName: 'CachedUser',
-            type: 'ANIME',
-          },
-          count: 1,
-          refreshedAt: null,
-        },
-      ]),
-      materializeCachedAnilistSource: vi.fn().mockResolvedValue([
-        {
-          id: 'anilist:1',
-          label: 'Matched item',
-          url: 'https://anilist.co/anime/1',
-        },
-      ]),
+      listCachedAnilistSources: vi.fn(),
+      materializeCachedAnilistSource: vi.fn(),
     };
   },
 );
 
 vi.mock('../../lib/importers/anilist/runners', () => ({
-  runAnilistImport: vi.fn().mockResolvedValue({ username: 'CachedUser' }),
-  runAnilistFavourites: vi.fn().mockResolvedValue({ username: 'CachedUser' }),
+  runAnilistImport: vi.fn(),
+  runAnilistFavourites: vi.fn(),
 }));
 
-import { runAnilistImport } from '../../lib/importers/anilist/runners';
+import {
+  runAnilistFavourites,
+  runAnilistImport,
+} from '../../lib/importers/anilist/runners';
+import {
+  listCachedAnilistSources,
+  materializeCachedAnilistSource,
+} from '../../lib/importers/anilist/anilistItemMaterialization';
 import { AnilistHydrationControls } from '../AddItemsModal';
 
 let container: HTMLDivElement;
@@ -71,6 +86,28 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  vi.mocked(listCachedAnilistSources).mockResolvedValue(CACHED_SOURCES);
+  vi.mocked(materializeCachedAnilistSource).mockResolvedValue([
+    {
+      id: 'anilist:1',
+      label: 'Matched item',
+      url: 'https://anilist.co/anime/1',
+    },
+  ]);
+  vi.mocked(runAnilistImport).mockResolvedValue({
+    type: 'ANIME',
+    anilistUserId: 1,
+    username: 'CachedUser',
+    chunksFetched: 1,
+    entriesWritten: 1,
+  });
+  vi.mocked(runAnilistFavourites).mockResolvedValue({
+    type: 'CHARACTERS',
+    anilistUserId: 1,
+    username: 'CachedUser',
+    pagesFetched: 1,
+    favouritesWritten: 37,
+  });
   localStorage.setItem(ANILIST_LAST_USERNAME_LS_KEY, 'CachedUser');
   container = document.createElement('div');
   document.body.appendChild(container);
@@ -132,7 +169,11 @@ describe('AniList hydration controls', () => {
       refreshButton?.click();
       await Promise.resolve();
     });
-    expect(runAnilistImport).toHaveBeenCalledWith('CachedUser', 'ANIME');
+    expect(runAnilistImport).toHaveBeenCalledWith(
+      'CachedUser',
+      'ANIME',
+      expect.any(Function),
+    );
 
     await act(async () => {
       buttonByText('Match exact names').click();
@@ -153,5 +194,114 @@ describe('AniList hydration controls', () => {
 
     expect(container.textContent).not.toContain('Matched 1 of 1');
     expect(container.textContent).not.toContain('Cached username');
+  });
+
+  it('keeps the controls visible and shows refresh progress in the third column', async () => {
+    let reportProgress:
+      | ((event: AnilistProgressEvent) => void)
+      | undefined;
+    let finishRefresh: (() => void) | undefined;
+
+    vi.mocked(runAnilistFavourites).mockImplementation(
+      (_username, _type, onProgress) => {
+        reportProgress = onProgress;
+        return new Promise((resolve) => {
+          finishRefresh = () =>
+            resolve({
+              type: 'CHARACTERS',
+              anilistUserId: 1,
+              username: 'CachedUser',
+              pagesFetched: 2,
+              favouritesWritten: 37,
+            });
+        });
+      },
+    );
+
+    await act(async () => {
+      root.render(
+        <AnilistHydrationControls
+          items={[{ id: 'AAAAAAAAAAAAAQ', label: 'Matched item' }]}
+          dbSyncRevision={0}
+          onHydrated={vi.fn()}
+        />,
+      );
+      await Promise.resolve();
+    });
+    await act(async () => {
+      buttonByText('Hydrate from cached AniList list…').click();
+      await Promise.resolve();
+    });
+
+    const fields = container.querySelector<HTMLElement>(
+      '.anilist-hydration-fields',
+    );
+    const usernameInput = fields?.querySelector<HTMLInputElement>(
+      'input[type="text"]',
+    );
+    const sourceSelect = fields?.querySelector<HTMLSelectElement>('select');
+    if (!fields || !usernameInput || !sourceSelect) {
+      throw new Error('Missing hydration fields');
+    }
+
+    await act(async () => {
+      sourceSelect.value = 'favourites:1:CHARACTERS';
+      sourceSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('.anilist-hydration-refresh')
+        ?.click();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      reportProgress?.({
+        kind: 'fetching-page',
+        what: 'favourites',
+        page: 2,
+        itemsSoFar: 37,
+      });
+    });
+
+    expect(fields.children[2]?.classList).toContain(
+      'anilist-hydration-progress',
+    );
+    expect(fields.children[2]?.textContent).toContain(
+      'Fetching favourites (page 2 · 37 items so far)…',
+    );
+    expect(usernameInput.disabled).toBe(true);
+    expect(sourceSelect.disabled).toBe(true);
+    expect(buttonByText('Match exact names').disabled).toBe(true);
+    expect(container.textContent).not.toContain('Reading AniList cache…');
+
+    await act(async () => {
+      reportProgress?.({
+        kind: 'fetching-page',
+        what: 'favourites',
+        page: 3,
+        itemsSoFar: 50,
+      });
+    });
+    expect(fields.children[2]?.textContent).toContain(
+      'Fetching favourites (page 3 · 50 items so far)…',
+    );
+
+    vi.mocked(listCachedAnilistSources).mockImplementationOnce(
+      () => new Promise(() => {}),
+    );
+    await act(async () => {
+      finishRefresh?.();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('.anilist-hydration-fields'),
+    ).toBe(fields);
+    expect(container.textContent).not.toContain('Reading AniList cache…');
+    expect(usernameInput.disabled).toBe(false);
+    expect(sourceSelect.disabled).toBe(false);
   });
 });

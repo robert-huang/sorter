@@ -18,6 +18,7 @@ import {
   forgetHiddenItem as engineForgetHiddenItem,
   getRanking as engineGetRanking,
   hideItem as engineHideItem,
+  hideItemUnranked as engineHideItemUnranked,
   pickVisualSide as enginePickVisualSide,
   selectUndoSnapshot,
   undoSnapshotsEqual,
@@ -869,11 +870,13 @@ export function App() {
   );
 
   const doHide = useCallback(
-    (id: ItemId) => {
+    (id: ItemId, unranked = false) => {
       setState((cur) => {
         if (!cur) return cur;
         pushUndo(cur);
-        return engineHideItem(cur, id, engineOptions);
+        return unranked
+          ? engineHideItemUnranked(cur, id, engineOptions)
+          : engineHideItem(cur, id, engineOptions);
       });
     },
     [pushUndo, engineOptions],

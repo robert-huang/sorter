@@ -89,6 +89,15 @@ describe('CompareScreen · left-card remove during insert', () => {
     expect(btn).not.toBeNull();
     act(() => btn!.click());
     expect(onHide).toHaveBeenCalledWith('f');
+
+    onHide.mockClear();
+    const contextMenu = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => btn?.dispatchEvent(contextMenu));
+    expect(contextMenu.defaultPrevented).toBe(true);
+    expect(onHide).toHaveBeenCalledWith('f', true);
   });
 });
 
