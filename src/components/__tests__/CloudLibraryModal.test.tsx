@@ -81,6 +81,15 @@ function button(label: string): HTMLButtonElement {
   return match;
 }
 
+function setInputValue(input: HTMLInputElement, value: string): void {
+  const valueSetter = Object.getOwnPropertyDescriptor(
+    HTMLInputElement.prototype,
+    'value',
+  )?.set;
+  valueSetter?.call(input, value);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
 async function renderModal(): Promise<void> {
   cloudMocks.listCloudSlots.mockResolvedValue(rows);
   await act(async () => {
@@ -122,6 +131,28 @@ describe('sortCloudLibraryRows', () => {
       sortCloudLibraryRows(tied, 'title', 'desc').map((row) => row.cloudId),
     ).toEqual(['first', 'second']);
   });
+
+  it('sorts digit-heavy titles lexically instead of treating dates as numbers', () => {
+    const datedRows = [
+      cloudSlot('short-202403', 'archive/chars 202403', '2026-01-01'),
+      cloudSlot('short-202607', 'archive/chars 202607', '2026-01-02'),
+      cloudSlot('long-20211008', 'archive/chars 20211008', '2026-01-03'),
+      cloudSlot('long-20230918', 'archive/chars 20230918', '2026-01-04'),
+      cloudSlot('long-20260806', 'archive/chars 20260806', '2026-01-05'),
+    ];
+
+    expect(
+      sortCloudLibraryRows(datedRows, 'title', 'asc').map(
+        (row) => row.displayName,
+      ),
+    ).toEqual([
+      'archive/chars 20211008',
+      'archive/chars 20230918',
+      'archive/chars 202403',
+      'archive/chars 202607',
+      'archive/chars 20260806',
+    ]);
+  });
 });
 
 describe('CloudLibraryModal sorting controls', () => {
@@ -153,5 +184,21 @@ describe('CloudLibraryModal sorting controls', () => {
     root = createRoot(container);
     await renderModal();
     expect(rowNames()).toEqual(['Gamma', 'beta', 'Alpha']);
+  });
+
+  it('filters cloud slots by name without changing the selected sort', async () => {
+    await renderModal();
+    const search = container.querySelector<HTMLInputElement>(
+      '[aria-label="Search cloud slots by name"]',
+    );
+    expect(search).not.toBeNull();
+
+    act(() => setInputValue(search!, 'BET'));
+    expect(rowNames()).toEqual(['beta']);
+    expect(button('Date ↓').getAttribute('aria-pressed')).toBe('true');
+
+    act(() => setInputValue(search!, 'missing'));
+    expect(rowNames()).toEqual([]);
+    expect(container.textContent).toContain('No cloud slots match “missing”.');
   });
 });

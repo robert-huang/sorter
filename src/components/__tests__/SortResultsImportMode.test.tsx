@@ -34,6 +34,15 @@ function completedBlob(): AutosaveBlob {
   };
 }
 
+function setInputValue(input: HTMLInputElement, value: string): void {
+  const valueSetter = Object.getOwnPropertyDescriptor(
+    HTMLInputElement.prototype,
+    'value',
+  )?.set;
+  valueSetter?.call(input, value);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
 describe('SortResultsImportMode cloud entry point', () => {
   it('keeps browser saves as the default and opens Drive only on demand', () => {
     vi.spyOn(storage, 'isStatePersistenceAvailable').mockReturnValue(true);
@@ -251,6 +260,16 @@ describe('SortResultsImportMode cloud entry point', () => {
       cloudSlotSortKey: 'title',
       cloudSlotSortDirection: 'desc',
     });
+
+    const search = container.querySelector<HTMLInputElement>(
+      '[aria-label="Search cloud slots by name"]',
+    );
+    expect(search).not.toBeNull();
+    act(() => setInputValue(search!, 'alpha'));
+    expect(rowNames()).toEqual(['Alpha']);
+    act(() => setInputValue(search!, 'missing'));
+    expect(rowNames()).toEqual([]);
+    expect(container.textContent).toContain('No Drive slots match “missing”.');
 
     act(() => root.unmount());
     container.remove();

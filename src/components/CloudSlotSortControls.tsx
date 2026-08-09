@@ -51,7 +51,6 @@ export function sortCloudSlotRows<T>(
       const comparison =
         preference.sortKey === 'title'
           ? left.meta.displayName.localeCompare(right.meta.displayName, undefined, {
-              numeric: true,
               sensitivity: 'base',
             })
           : left.meta.updatedAt.localeCompare(right.meta.updatedAt);
@@ -60,6 +59,18 @@ export function sortCloudSlotRows<T>(
         : comparison * multiplier;
     })
     .map(({ row }) => row);
+}
+
+export function filterCloudSlotRows<T>(
+  rows: readonly T[],
+  metadata: (row: T) => CloudSlotMeta,
+  query: string,
+): T[] {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  if (!normalizedQuery) return [...rows];
+  return rows.filter((row) =>
+    metadata(row).displayName.toLocaleLowerCase().includes(normalizedQuery),
+  );
 }
 
 function defaultDirection(sortKey: CloudSlotSortKey): CloudSlotSortDirection {
@@ -82,10 +93,14 @@ function activeSortArrow(
 
 export function CloudSlotSortControls({
   preference,
+  searchQuery,
   onChange,
+  onSearchQueryChange,
 }: {
   preference: CloudSlotSortPreference;
+  searchQuery: string;
   onChange: (preference: CloudSlotSortPreference) => void;
+  onSearchQueryChange: (query: string) => void;
 }) {
   function chooseSort(sortKey: CloudSlotSortKey): void {
     const direction =
@@ -136,6 +151,15 @@ export function CloudSlotSortControls({
           Date{activeSortArrow(preference, 'date')}
         </button>
       </div>
+      <input
+        type="search"
+        className="slot-search cloud-library-sort-search"
+        aria-label="Search cloud slots by name"
+        placeholder="Search names…"
+        value={searchQuery}
+        onChange={(event) => onSearchQueryChange(event.target.value)}
+        spellCheck={false}
+      />
     </div>
   );
 }

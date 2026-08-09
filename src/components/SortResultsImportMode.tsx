@@ -29,6 +29,7 @@ import { STATE_REVISION_KEY } from '../lib/stateStorageDb';
 import type { Item } from '../lib/types';
 import {
   CloudSlotSortControls,
+  filterCloudSlotRows,
   persistCloudSlotSortPreference,
   readCloudSlotSortPreference,
   sortCloudSlotRows,
@@ -710,6 +711,7 @@ function CloudResultsPicker({
   const [sortPreference, setSortPreference] = useState<CloudSlotSortPreference>(
     readCloudSlotSortPreference,
   );
+  const [searchQuery, setSearchQuery] = useState('');
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
   const [asPreRanked, setAsPreRanked] = useState<Record<string, boolean>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -776,8 +778,12 @@ function CloudResultsPicker({
     () =>
       rows === null
         ? null
-        : sortCloudSlotRows(rows, (row) => row.meta, sortPreference),
-    [rows, sortPreference],
+        : sortCloudSlotRows(
+            filterCloudSlotRows(rows, (row) => row.meta, searchQuery),
+            (row) => row.meta,
+            sortPreference,
+          ),
+    [rows, searchQuery, sortPreference],
   );
 
   function changeSortPreference(preference: CloudSlotSortPreference): void {
@@ -1029,7 +1035,9 @@ function CloudResultsPicker({
       </p>
       <CloudSlotSortControls
         preference={sortPreference}
+        searchQuery={searchQuery}
         onChange={changeSortPreference}
+        onSearchQueryChange={setSearchQuery}
       />
       {rows === null && <p className="csv-hint">Loading Google Drive…</p>}
       {authMessage && <p className="csv-hint">{authMessage}</p>}
@@ -1115,6 +1123,9 @@ function CloudResultsPicker({
             );
           })}
         </ul>
+      )}
+      {rows && rows.length > 0 && sortedRows?.length === 0 && (
+        <p className="csv-hint">No Drive slots match “{searchQuery.trim()}”.</p>
       )}
       <div className="sort-results-import-footer">
         <button

@@ -130,7 +130,7 @@ Paste or upload multiple CSVs. Each list is treated as a sorted sublist (row ord
 Pull a user's anime/manga list (or favourites) from AniList into the local cache, filter it, and stage a subset to sort. See the dedicated [Importing from AniList](#importing-from-anilist) section for the full flow.
 
 ### Sort results
-Import **final rankings** from completed save slots already in this browser's `localStorage`. Select one or more slots, toggle each as **pre-ranked list** (preserve order) or **individual items**, then add to staged or into an active sort via **+ Add item(s) → Sort results**. Expand a slot's **Preview** to edit labels, URLs, image URLs, or logical ids (with collision checking) and remove rows before adding — same pre-staging edit model as the CSV import preview. In-progress slots are listed but not importable. The slot you are currently editing is excluded from the picker. Drive-only copies are out of scope — pull them into local storage first.
+Import **final rankings** from completed browser saves or Google Drive slots. Select one or more slots, toggle each as **pre-ranked list** (preserve order) or **individual items**, then add to staged or into an active sort via **+ Add item(s) → Results**. Expand a slot's **Preview** to edit labels, URLs, image URLs, or logical ids (with collision checking) and remove rows before adding — same pre-staging edit model as the CSV import preview. In-progress slots are listed but not importable. The slot you are currently editing is excluded from the picker. Drive files are loaded only on demand; the Drive browser supports persisted title/date ordering and case-insensitive name filtering.
 
 A single imported slot as a **pre-ranked list** is the most common entry into [confirmation mode](#on-the-confirmation-engine): stage it, then **Confirm order** (auto-selected when it's the only ranked group).
 
@@ -333,10 +333,12 @@ To fix order inside an active merge without using ↑/↓, undo back past the me
 
 ### Add items modal (LIST tab, merge + insertion engines)
 
-One button, two tabs:
+One button, four tabs:
 
 - **Single** — Label + URL + Image URL fields, identical to the original add-item form.
 - **Multiple** — paste a CSV or load a `.csv` file, with the same header-detection hint and dedup behavior as the START-tab importer. Items already in the sort (by canonical label) are skipped with a banner explaining how many were dropped.
+- **AniList** — import from a user's list or favourites cache.
+- **Results** — import completed browser or Google Drive slots. Drive slots can be sorted by title/date and filtered by name before loading.
 
 On the **merge engine**, the Multiple tab adds a checkbox: **"Treat as one pre-ranked sublist (preserve order)"**.
 

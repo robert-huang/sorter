@@ -2326,6 +2326,18 @@ html {
   color: var(--accent-strong, var(--accent));
 }
 
+.cloud-library-sort-search {
+  flex: 0 1 220px;
+  min-width: 160px;
+  margin: 0 0 0 auto;
+}
+
+.cloud-library-empty-filter {
+  margin: 8px 0 16px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
 .cloud-library-list {
   list-style: none;
   margin: 8px 0 16px;

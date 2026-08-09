@@ -11,6 +11,7 @@ import {
 } from '../lib/cloud';
 import {
   CloudSlotSortControls,
+  filterCloudSlotRows,
   persistCloudSlotSortPreference,
   readCloudSlotSortPreference,
   sortCloudSlotRows,
@@ -97,6 +98,7 @@ export function CloudLibraryModal({
   const [sortPreference, setSortPreference] = useState<CloudSlotSortPreference>(
     readCloudSlotSortPreference,
   );
+  const [searchQuery, setSearchQuery] = useState('');
   /** Per-row pull-in-flight flag. Disables that row's Pull button + the
    *  Sign out button until the pull settles, since pulls can race with
    *  a signOut wiping the access token mid-flight. */
@@ -123,11 +125,11 @@ export function CloudLibraryModal({
   const sortedRows = useMemo(
     () =>
       sortCloudLibraryRows(
-        list.rows,
+        filterCloudSlotRows(list.rows, (row) => row, searchQuery),
         sortPreference.sortKey,
         sortPreference.direction,
       ),
-    [list.rows, sortPreference],
+    [list.rows, searchQuery, sortPreference],
   );
 
   function changeSortPreference(preference: CloudSlotSortPreference): void {
@@ -232,37 +234,45 @@ export function CloudLibraryModal({
         <>
           <CloudSlotSortControls
             preference={sortPreference}
+            searchQuery={searchQuery}
             onChange={changeSortPreference}
+            onSearchQueryChange={setSearchQuery}
           />
-          <ul className="cloud-library-list">
-            {sortedRows.map((row) => {
-              const localSlot = localCloudSlotByCloudId.get(row.cloudId);
-              return (
-                <CloudLibraryRow
-                  key={row.cloudId}
-                  meta={row}
-                  localSlot={localSlot}
-                  isActiveLocalSlot={
-                    !!localSlot && localSlot.id === activeSlotId
-                  }
-                  actionDisabled={pullingCloudId !== null}
-                  isPulling={pullingCloudId === row.cloudId}
-                  onPull={() => handlePull(row)}
-                  onOpenLocal={() => {
-                    if (localSlot) {
-                      onOpenLocalSlot(localSlot.id);
-                      onClose();
+          {sortedRows.length === 0 ? (
+            <p className="cloud-library-empty-filter">
+              No cloud slots match “{searchQuery.trim()}”.
+            </p>
+          ) : (
+            <ul className="cloud-library-list">
+              {sortedRows.map((row) => {
+                const localSlot = localCloudSlotByCloudId.get(row.cloudId);
+                return (
+                  <CloudLibraryRow
+                    key={row.cloudId}
+                    meta={row}
+                    localSlot={localSlot}
+                    isActiveLocalSlot={
+                      !!localSlot && localSlot.id === activeSlotId
                     }
-                  }}
-                  onRemoveLocal={() => {
-                    if (localSlot) {
-                      onRemoveLocalSlot(localSlot.id);
-                    }
-                  }}
-                />
-              );
-            })}
-          </ul>
+                    actionDisabled={pullingCloudId !== null}
+                    isPulling={pullingCloudId === row.cloudId}
+                    onPull={() => handlePull(row)}
+                    onOpenLocal={() => {
+                      if (localSlot) {
+                        onOpenLocalSlot(localSlot.id);
+                        onClose();
+                      }
+                    }}
+                    onRemoveLocal={() => {
+                      if (localSlot) {
+                        onRemoveLocalSlot(localSlot.id);
+                      }
+                    }}
+                  />
+                );
+              })}
+            </ul>
+          )}
         </>
       )}
       <div className="modal-actions">
