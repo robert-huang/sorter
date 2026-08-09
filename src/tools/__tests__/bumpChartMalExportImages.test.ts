@@ -31,13 +31,16 @@ function item(
   };
 }
 
-function characterMetadata(full: string): object {
+function characterMetadata(
+  full: string,
+  alternative: readonly string[] = [],
+): object {
   return {
     Character: {
       name: {
         full,
         native: null,
-        alternative: [],
+        alternative,
         alternativeSpoiler: [],
       },
       media: { nodes: [{ id: 1, idMal: 1, type: 'ANIME' }] },
@@ -136,6 +139,90 @@ describe('Bump Chart MAL export image matching', () => {
 
     expect(resolved?.url).toBe(MAL_IMAGE);
     expect(resolved?.matchKind).toBe('exact');
+  });
+
+  it.each([
+    ['Emilia', 'Satella', 'Emilia'],
+    ['Fuuko Ibuki', 'Isogai', 'Ibuki, Fuuko'],
+  ])(
+    'prefers the canonical %s match over a different character matching alias %s',
+    async (canonicalName, alias, malCanonicalName) => {
+      const canonicalImage =
+        'https://cdn.myanimelist.net/images/characters/canonical.jpg';
+      executeAnilistQuery.mockResolvedValue(
+        characterMetadata(canonicalName, [alias]),
+      );
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            data: [
+              tenraiCharacter(12, alias),
+              tenraiCharacter(11, malCanonicalName, canonicalImage),
+            ],
+          }),
+          { status: 200 },
+        ),
+      );
+
+      const resolved = await resolveBumpMalExportImage(
+        item('anilist-character', 1, canonicalName),
+      );
+
+      expect(resolved).toMatchObject({
+        url: canonicalImage,
+        matchKind: 'exact',
+      });
+    },
+  );
+
+  it('marks a unique alias-only character match as approximate', async () => {
+    executeAnilistQuery.mockResolvedValue(
+      characterMetadata('Canonical Name', ['Known Alias']),
+    );
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [tenraiCharacter(11, 'Known Alias')],
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const resolved = await resolveBumpMalExportImage(
+      item('anilist-character', 1, 'Canonical Name'),
+    );
+
+    expect(resolved).toMatchObject({
+      url: MAL_IMAGE,
+      matchKind: 'fuzzy',
+    });
+  });
+
+  it('rejects multiple characters matching AniList aliases', async () => {
+    executeAnilistQuery.mockResolvedValue(
+      characterMetadata('Canonical Name', ['First Alias', 'Second Alias']),
+    );
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [
+            tenraiCharacter(11, 'First Alias'),
+            tenraiCharacter(
+              12,
+              'Second Alias',
+              'https://cdn.myanimelist.net/images/characters/12.jpg',
+            ),
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+
+    await expect(
+      resolveBumpMalExportImage(
+        item('anilist-character', 1, 'Canonical Name'),
+      ),
+    ).resolves.toBeNull();
   });
 
   it.each([

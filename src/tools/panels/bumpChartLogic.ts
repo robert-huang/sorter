@@ -62,6 +62,74 @@ export type BumpTimeline = {
   lineageByOccurrence: Map<string, BumpTimelineLineage>;
 };
 
+function isAnilistCdnImageUrl(value: string): boolean {
+  try {
+    return new URL(value).hostname === 's4.anilist.co';
+  } catch {
+    return false;
+  }
+}
+
+function hasCustomBumpChartImage(item: Item): boolean {
+  if (!item.imageUrl) {
+    return false;
+  }
+  if (item.anilistImageSource !== undefined) {
+    return item.imageUrl !== item.anilistImageSource;
+  }
+  return !isAnilistCdnImageUrl(item.imageUrl);
+}
+
+/**
+ * Use the first custom image in each lineage as the fallback for its automatic
+ * or missing images while preserving every occurrence's own custom image.
+ */
+export function inheritBumpTimelineCustomImages(
+  columns: readonly (readonly BumpChartItem[])[],
+  timeline: BumpTimeline,
+): BumpChartItem[][] {
+  const customImageByLineage = new Map<string, string>();
+  for (const lineage of timeline.lineages) {
+    for (
+      let columnIndex = 0;
+      columnIndex < lineage.itemIndexes.length;
+      columnIndex += 1
+    ) {
+      const itemIndex = lineage.itemIndexes[columnIndex];
+      if (itemIndex == null) {
+        continue;
+      }
+      const item = columns[columnIndex]?.[itemIndex]?.item;
+      if (item?.imageUrl && hasCustomBumpChartImage(item)) {
+        customImageByLineage.set(lineage.key, item.imageUrl);
+        break;
+      }
+    }
+  }
+
+  return columns.map((items, columnIndex) =>
+    items.map((entry, itemIndex) => {
+      const lineage = timeline.lineageByOccurrence.get(
+        `${columnIndex}:${itemIndex}`,
+      );
+      const inheritedImage = lineage
+        ? customImageByLineage.get(lineage.key)
+        : undefined;
+      if (
+        !inheritedImage ||
+        hasCustomBumpChartImage(entry.item) ||
+        entry.item.imageUrl === inheritedImage
+      ) {
+        return entry;
+      }
+      return {
+        ...entry,
+        item: { ...entry.item, imageUrl: inheritedImage },
+      };
+    }),
+  );
+}
+
 /** Positive means the item moved up; negative means it moved down. */
 export function bumpConnectionMovement(
   connection: BumpConnection,

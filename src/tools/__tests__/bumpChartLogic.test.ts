@@ -16,6 +16,7 @@ import {
   displayBumpChartItems,
   hasCustomAnilistLabels,
   hydrateBumpChartItems,
+  inheritBumpTimelineCustomImages,
   type BumpChartItem,
 } from '../panels/bumpChartLogic';
 import { productionReads } from '../../lib/importers/anilist/readQueries';
@@ -821,6 +822,90 @@ describe('bump chart imports', () => {
     expect(hydrated[1]!.item.anilistLabelMode).toBe('custom');
     expect(hasCustomAnilistLabels(hydrated)).toBe(true);
     expect(displayBumpChartItems(hydrated, false)[1]!.item.label).toBe('Sunrise');
+  });
+});
+
+describe('inheritBumpTimelineCustomImages', () => {
+  it('fills a matched lineage from its first custom image without replacing other custom images', () => {
+    const automaticImage = 'https://s4.anilist.co/file/anilistcdn/automatic.jpg';
+    const customImage = 'https://images.example.com/custom.jpg';
+    const otherCustomImage = 'https://images.example.com/other-custom.jpg';
+    const columns: BumpChartItem[][] = [
+      [
+        {
+          ...entry('A', 'anilist-character:1'),
+          item: {
+            id: 'a-old',
+            label: 'A',
+            imageUrl: automaticImage,
+            anilistImageSource: automaticImage,
+          },
+        },
+        {
+          ...entry('B', 'anilist-character:2'),
+          item: {
+            id: 'b-old',
+            label: 'B',
+            imageUrl: automaticImage,
+            anilistImageSource: automaticImage,
+          },
+        },
+      ],
+      [
+        {
+          ...entry('A', 'anilist-character:1'),
+          item: {
+            id: 'a-middle',
+            label: 'A',
+            imageUrl: customImage,
+            anilistImageSource: automaticImage,
+          },
+        },
+        {
+          ...entry('B', 'anilist-character:2'),
+          item: {
+            id: 'b-middle',
+            label: 'B',
+            imageUrl: automaticImage,
+            anilistImageSource: automaticImage,
+          },
+        },
+      ],
+      [
+        {
+          ...entry('A', 'anilist-character:1'),
+          item: {
+            id: 'a-current',
+            label: 'A',
+            imageUrl: otherCustomImage,
+            anilistImageSource: automaticImage,
+          },
+        },
+        {
+          ...entry('B', 'anilist-character:2'),
+          item: {
+            id: 'b-current',
+            label: 'B',
+          },
+        },
+      ],
+    ];
+    const timeline = buildBumpTimeline(
+      columns.map((items, index) => ({ id: `${index}`, items })),
+    );
+
+    const displayed = inheritBumpTimelineCustomImages(columns, timeline);
+
+    expect(displayed.map((items) => items[0]!.item.imageUrl)).toEqual([
+      customImage,
+      customImage,
+      otherCustomImage,
+    ]);
+    expect(displayed.map((items) => items[1]!.item.imageUrl)).toEqual([
+      automaticImage,
+      automaticImage,
+      undefined,
+    ]);
   });
 });
 

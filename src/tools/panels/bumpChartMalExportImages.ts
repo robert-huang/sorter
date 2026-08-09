@@ -483,6 +483,38 @@ function anilistNames(item: Item, metadataName?: AnilistName | null): string[] {
   );
 }
 
+type CharacterSourceNames = {
+  canonical: string[];
+  aliases: string[];
+};
+
+function characterSourceNames(
+  item: Item,
+  metadataName: AnilistName,
+): CharacterSourceNames {
+  const labelSource = item.anilistLabelSource;
+  const canonical = [
+    metadataName.full,
+    metadataName.native,
+    ...(labelSource?.kind === 'character'
+      ? [
+          labelSource.nameFields.name_full,
+          labelSource.nameFields.name_native,
+        ]
+      : []),
+  ].filter(
+    (value, index, all): value is string =>
+      typeof value === 'string' &&
+      value.trim().length > 0 &&
+      all.indexOf(value) === index,
+  );
+  const canonicalKeys = new Set(canonical.flatMap(nameKeys));
+  const aliases = anilistNames(item, metadataName).filter(
+    (name) => !nameKeys(name).some((key) => canonicalKeys.has(key)),
+  );
+  return { canonical, aliases };
+}
+
 function metadataNames(name: AnilistName): string[] {
   return [
     name.full,
@@ -632,18 +664,26 @@ function addCharacterCandidate(
   malId: number,
   candidateNames: readonly string[],
   imageUrl: string | null,
-  sourceNames: readonly string[],
-  exactMatches: Map<number, string>,
+  sourceNames: CharacterSourceNames,
+  canonicalMatches: Map<number, string>,
+  aliasMatches: Map<number, string>,
   fuzzyCandidates: Map<number, FuzzyCharacterCandidate>,
 ): void {
   if (!imageUrl) {
     return;
   }
-  if (namesMatch(sourceNames, candidateNames)) {
-    exactMatches.set(malId, imageUrl);
+  if (namesMatch(sourceNames.canonical, candidateNames)) {
+    canonicalMatches.set(malId, imageUrl);
     return;
   }
-  const score = bestFuzzyNameScore(sourceNames, candidateNames);
+  if (namesMatch(sourceNames.aliases, candidateNames)) {
+    aliasMatches.set(malId, imageUrl);
+    return;
+  }
+  const score = bestFuzzyNameScore(
+    [...sourceNames.canonical, ...sourceNames.aliases],
+    candidateNames,
+  );
   const current = fuzzyCandidates.get(malId);
   if (score != null && (current == null || score > current.score)) {
     fuzzyCandidates.set(malId, { url: imageUrl, score });
@@ -651,16 +691,26 @@ function addCharacterCandidate(
 }
 
 function selectCharacterImage(
-  exactMatches: ReadonlyMap<number, string>,
+  canonicalMatches: ReadonlyMap<number, string>,
+  aliasMatches: ReadonlyMap<number, string>,
   fuzzyCandidates: ReadonlyMap<number, FuzzyCharacterCandidate>,
 ): ResolvedMalImage | null {
-  if (exactMatches.size === 1) {
+  if (canonicalMatches.size === 1) {
     return {
-      url: [...exactMatches.values()][0]!,
+      url: [...canonicalMatches.values()][0]!,
       matchKind: 'exact',
     };
   }
-  if (exactMatches.size > 1) {
+  if (canonicalMatches.size > 1) {
+    return null;
+  }
+  if (aliasMatches.size === 1) {
+    return {
+      url: [...aliasMatches.values()][0]!,
+      matchKind: 'fuzzy',
+    };
+  }
+  if (aliasMatches.size > 1) {
     return null;
   }
 
@@ -680,8 +730,9 @@ function selectCharacterImage(
 
 async function addMalAnimeCharacterCandidates(
   malId: number,
-  sourceNames: readonly string[],
-  exactMatches: Map<number, string>,
+  sourceNames: CharacterSourceNames,
+  canonicalMatches: Map<number, string>,
+  aliasMatches: Map<number, string>,
   fuzzyCandidates: Map<number, FuzzyCharacterCandidate>,
 ): Promise<void> {
   const fields = encodeURIComponent(
@@ -696,7 +747,8 @@ async function addMalAnimeCharacterCandidates(
       malCharacterNames(entry.node),
       malPictureUrl(entry.node.main_picture),
       sourceNames,
-      exactMatches,
+      canonicalMatches,
+      aliasMatches,
       fuzzyCandidates,
     );
   }
@@ -724,8 +776,9 @@ async function resolveCharacterImage(
     return null;
   }
 
-  const sourceNames = anilistNames(item, character.name);
-  const exactMatches = new Map<number, string>();
+  const sourceNames = characterSourceNames(item, character.name);
+  const canonicalMatches = new Map<number, string>();
+  const aliasMatches = new Map<number, string>();
   const fuzzyCandidates = new Map<number, FuzzyCharacterCandidate>();
   const linkedMedia = uniqueLinkedMedia(character.media.nodes).slice(
     0,
@@ -744,7 +797,8 @@ async function resolveCharacterImage(
         tenraiEntityNames(credit.character),
         preferredImageUrl(credit.character),
         sourceNames,
-        exactMatches,
+        canonicalMatches,
+        aliasMatches,
         fuzzyCandidates,
       );
     }
@@ -753,12 +807,17 @@ async function resolveCharacterImage(
       await addMalAnimeCharacterCandidates(
         media.idMal,
         sourceNames,
-        exactMatches,
+        canonicalMatches,
+        aliasMatches,
         fuzzyCandidates,
       );
     }
   }
-  return selectCharacterImage(exactMatches, fuzzyCandidates);
+  return selectCharacterImage(
+    canonicalMatches,
+    aliasMatches,
+    fuzzyCandidates,
+  );
 }
 
 function staffCandidateMatchesCredit(

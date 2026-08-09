@@ -41,6 +41,7 @@ import {
   displayBumpChartItems,
   hasCustomAnilistLabels,
   hydrateBumpChartItems,
+  inheritBumpTimelineCustomImages,
   type BumpChartItem,
   type BumpConnection,
   type BumpTimelineSegment,
@@ -1786,6 +1787,14 @@ function BumpChart({
       ),
     [bestMatchByTitle, columns],
   );
+  const displayItemsByColumn = useMemo(
+    () =>
+      inheritBumpTimelineCustomImages(
+        columns.map(({ items }) => items),
+        timeline,
+      ),
+    [columns, timeline],
+  );
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
   const [pinnedKey, setPinnedKey] = useState<string | null>(null);
   const [layout, setLayout] = useState<ChartLayout | null>(null);
@@ -2013,7 +2022,8 @@ function BumpChart({
             style={{ gridTemplateColumns }}
           >
             {columns.flatMap((column, columnIndex) => {
-              const entry = column.items[rowIndex];
+              const sourceEntry = column.items[rowIndex];
+              const entry = displayItemsByColumn[columnIndex]?.[rowIndex];
               const lineage = lineageAt(columnIndex, rowIndex);
               const columnCell = (
                 <div
@@ -2040,7 +2050,11 @@ function BumpChart({
                         panelProps={panelProps}
                         onFocus={onHoverFocus}
                         onEdit={() =>
-                          onEdit(column.id, rowIndex, entry.item)
+                          onEdit(
+                            column.id,
+                            rowIndex,
+                            sourceEntry?.item ?? entry.item,
+                          )
                         }
                       />
                     ) : lineage ? (
@@ -2061,7 +2075,11 @@ function BumpChart({
                         panelProps={panelProps}
                         onFocus={onHoverFocus}
                         onEdit={() =>
-                          onEdit(column.id, rowIndex, entry.item)
+                          onEdit(
+                            column.id,
+                            rowIndex,
+                            sourceEntry?.item ?? entry.item,
+                          )
                         }
                       />
                     ) : null)}
