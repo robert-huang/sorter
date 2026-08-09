@@ -1,9 +1,11 @@
 import {
+  isBumpChartMeta,
   isLegacyBumpChartManifest,
   isLegacyBumpChartWorkspace,
   isLegacySavedBumpChartRecord,
   isLegacySorterManifest,
   isLegacySorterSaveFile,
+  isSorterSlotMeta,
 } from './stateStorageValidation';
 
 const DATABASE_NAME = 'queue-sorter-state';
@@ -16,10 +18,18 @@ export const STATE_METADATA_STORE = 'metadata';
 export const ACTIVE_SORTER_SLOT_KEY = 'sorter:active-slot-id:v1';
 export const STATE_SCHEMA_KEY = 'sorter:state-schema:v1';
 export const STATE_REVISION_KEY = 'sorter:state-revision:v1';
+export const SORTER_MANIFEST_BACKUP_KEY = 'sorter:manifest-backup:v1';
+export const BUMP_MANIFEST_BACKUP_KEY = 'sorter:bump-manifest-backup:v1';
 
 const LEGACY_IMPORTED_KEY = 'legacyImported:v1';
 const SORTER_MANIFEST_RECORD = 'sorterManifest';
+const SORTER_PREVIOUS_MANIFEST_RECORD = 'sorterManifestPrevious';
+const SORTER_CORRUPT_MANIFEST_RECORD = 'sorterManifestCorrupt';
+const SORTER_SLOT_META_PREFIX = 'sorterSlotMeta:';
 const BUMP_MANIFEST_RECORD = 'bumpManifest';
+const BUMP_PREVIOUS_MANIFEST_RECORD = 'bumpManifestPrevious';
+const BUMP_CORRUPT_MANIFEST_RECORD = 'bumpManifestCorrupt';
+const BUMP_WORKSPACE_META_PREFIX = 'bumpWorkspaceMeta:';
 const LEGACY_SORTER_SINGLE_RECORD = 'legacySorterSingle';
 
 const LEGACY_SORTER_KEY = 'sorter:v1';
@@ -178,6 +188,40 @@ function commitMemoryChanges(changes: readonly StateStorageChange[]): void {
   }
 }
 
+function mirrorCommittedManifests(
+  changes: readonly StateStorageChange[],
+): void {
+  for (const change of changes) {
+    if (
+      change.type !== 'put' ||
+      change.store !== STATE_METADATA_STORE
+    ) {
+      continue;
+    }
+    try {
+      if (
+        change.key === SORTER_MANIFEST_RECORD &&
+        isLegacySorterManifest(change.value)
+      ) {
+        localStorage.setItem(
+          SORTER_MANIFEST_BACKUP_KEY,
+          JSON.stringify(change.value),
+        );
+      } else if (
+        change.key === BUMP_MANIFEST_RECORD &&
+        isLegacyBumpChartManifest(change.value)
+      ) {
+        localStorage.setItem(
+          BUMP_MANIFEST_BACKUP_KEY,
+          JSON.stringify(change.value),
+        );
+      }
+    } catch {
+      // IndexedDB is authoritative; the cross-storage mirror is best effort.
+    }
+  }
+}
+
 function parseLocalJson(key: string): unknown | undefined {
   const raw = localStorage.getItem(key);
   if (!raw) return undefined;
@@ -207,6 +251,15 @@ function collectLegacyChanges(): {
       key: SORTER_MANIFEST_RECORD,
       value: sorterManifest,
     });
+    for (const slot of sorterManifest.slots) {
+      if (!isSorterSlotMeta(slot)) continue;
+      changes.push({
+        type: 'put',
+        store: STATE_METADATA_STORE,
+        key: `${SORTER_SLOT_META_PREFIX}${slot.id}`,
+        value: slot,
+      });
+    }
     cleanupKeys.push(LEGACY_SORTER_MANIFEST_KEY);
   }
 
@@ -240,6 +293,15 @@ function collectLegacyChanges(): {
       key: BUMP_MANIFEST_RECORD,
       value: bumpManifest,
     });
+    for (const slot of bumpManifest.slots) {
+      if (!isBumpChartMeta(slot)) continue;
+      changes.push({
+        type: 'put',
+        store: STATE_METADATA_STORE,
+        key: `${BUMP_WORKSPACE_META_PREFIX}${slot.id}`,
+        value: slot,
+      });
+    }
     cleanupKeys.push(LEGACY_BUMP_MANIFEST_KEY);
   }
 
@@ -306,6 +368,7 @@ async function migrateLegacyPayloads(): Promise<void> {
         value: true,
       },
     ]);
+    mirrorCommittedManifests(legacy.changes);
   }
   finishLegacyCleanup(legacy.activeSorterId, legacy.cleanupKeys);
 }
@@ -415,6 +478,7 @@ export async function commitStateChanges(
     return;
   }
   await commitPersistentChanges(changes);
+  mirrorCommittedManifests(changes);
   if (revision) {
     revisionSequence += 1;
     try {
@@ -489,6 +553,12 @@ export async function _restartStateStorageForTesting(): Promise<void> {
 
 export const stateStorageRecordKeys = {
   sorterManifest: SORTER_MANIFEST_RECORD,
+  sorterPreviousManifest: SORTER_PREVIOUS_MANIFEST_RECORD,
+  sorterCorruptManifest: SORTER_CORRUPT_MANIFEST_RECORD,
+  sorterSlotMeta: (id: string) => `${SORTER_SLOT_META_PREFIX}${id}`,
   bumpManifest: BUMP_MANIFEST_RECORD,
+  bumpPreviousManifest: BUMP_PREVIOUS_MANIFEST_RECORD,
+  bumpCorruptManifest: BUMP_CORRUPT_MANIFEST_RECORD,
+  bumpWorkspaceMeta: (id: string) => `${BUMP_WORKSPACE_META_PREFIX}${id}`,
   legacySorterSingle: LEGACY_SORTER_SINGLE_RECORD,
 } as const;

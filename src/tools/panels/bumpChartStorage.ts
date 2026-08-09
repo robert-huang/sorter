@@ -1,5 +1,6 @@
 import type { BumpChartItem } from './bumpChartLogic';
 import {
+  BUMP_MANIFEST_BACKUP_KEY,
   BUMP_WORKSPACE_STORE,
   STATE_METADATA_STORE,
   commitStateChanges,
@@ -7,8 +8,10 @@ import {
   readAllStateEntries,
   readStateRecord,
   stateStorageRecordKeys,
+  type StateStorageChange,
 } from '../../lib/stateStorageDb';
 import {
+  isBumpChartMeta,
   isBumpChartColumnSnapshot,
   isBumpChartWorkspace,
   isLegacyBumpChartManifest,
@@ -159,6 +162,58 @@ function parseManifest(value: unknown): SavedBumpChartManifest {
   return { version: 1, slots: value.slots as SavedBumpChartMeta[] };
 }
 
+function readLocalManifestBackup(): unknown {
+  try {
+    const raw = localStorage.getItem(BUMP_MANIFEST_BACKUP_KEY);
+    return raw ? (JSON.parse(raw) as unknown) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function manifestChanges(
+  next: SavedBumpChartManifest,
+  previous: SavedBumpChartManifest,
+): StateStorageChange[] {
+  const changes: StateStorageChange[] = [
+    {
+      type: 'put',
+      store: STATE_METADATA_STORE,
+      key: stateStorageRecordKeys.bumpPreviousManifest,
+      value: previous,
+    },
+    {
+      type: 'put',
+      store: STATE_METADATA_STORE,
+      key: stateStorageRecordKeys.bumpManifest,
+      value: next,
+    },
+  ];
+  const previousById = new Map(previous.slots.map((slot) => [slot.id, slot]));
+  const nextIds = new Set<string>();
+  for (const slot of next.slots) {
+    nextIds.add(slot.id);
+    if (JSON.stringify(previousById.get(slot.id)) === JSON.stringify(slot)) {
+      continue;
+    }
+    changes.push({
+      type: 'put',
+      store: STATE_METADATA_STORE,
+      key: stateStorageRecordKeys.bumpWorkspaceMeta(slot.id),
+      value: slot,
+    });
+  }
+  for (const slot of previous.slots) {
+    if (nextIds.has(slot.id)) continue;
+    changes.push({
+      type: 'delete',
+      store: STATE_METADATA_STORE,
+      key: stateStorageRecordKeys.bumpWorkspaceMeta(slot.id),
+    });
+  }
+  return changes;
+}
+
 function storageError(error: unknown): string {
   const message =
     error &&
@@ -194,12 +249,18 @@ export async function initializeBumpChartStorage(): Promise<void> {
       parseWorkspaceSnapshot(
         await readStateRecord<unknown>(BUMP_WORKSPACE_STORE, 'active'),
       ) ?? null;
-    manifestCache = parseManifest(
-      await readStateRecord<unknown>(
-        STATE_METADATA_STORE,
-        stateStorageRecordKeys.bumpManifest,
-      ),
+    const storedManifest = await readStateRecord<unknown>(
+      STATE_METADATA_STORE,
+      stateStorageRecordKeys.bumpManifest,
     );
+    const previousManifest = await readStateRecord<unknown>(
+      STATE_METADATA_STORE,
+      stateStorageRecordKeys.bumpPreviousManifest,
+    );
+    const localManifestBackup = readLocalManifestBackup();
+    const current = parseManifest(storedManifest);
+    const previous = parseManifest(previousManifest);
+    const localBackup = parseManifest(localManifestBackup);
     savedWorkspaceCache.clear();
     for (const [key, value] of await readAllStateEntries<unknown>(
       BUMP_WORKSPACE_STORE,
@@ -215,19 +276,105 @@ export async function initializeBumpChartStorage(): Promise<void> {
           : parseWorkspaceSnapshot(value);
       if (workspace) savedWorkspaceCache.set(id, workspace);
     }
-    const filteredSlots = manifestCache.slots.filter((slot) =>
-      savedWorkspaceCache.has(slot.id),
+    const perWorkspaceMeta = new Map<string, SavedBumpChartMeta>();
+    for (const [key, value] of await readAllStateEntries<unknown>(
+      STATE_METADATA_STORE,
+    )) {
+      const id = String(key);
+      if (!id.startsWith('bumpWorkspaceMeta:') || !isBumpChartMeta(value)) {
+        continue;
+      }
+      perWorkspaceMeta.set(
+        id.slice('bumpWorkspaceMeta:'.length),
+        value as SavedBumpChartMeta,
+      );
+    }
+    const currentById = new Map(current.slots.map((slot) => [slot.id, slot]));
+    const previousById = new Map(previous.slots.map((slot) => [slot.id, slot]));
+    const localBackupById = new Map(
+      localBackup.slots.map((slot) => [slot.id, slot]),
     );
-    if (filteredSlots.length !== manifestCache.slots.length) {
-      manifestCache = { version: 1, slots: filteredSlots };
-      await commitStateChanges([
+    const knownIds = new Set(savedWorkspaceCache.keys());
+    const orderedIds = [
+      ...current.slots.map((slot) => slot.id),
+      ...localBackup.slots.map((slot) => slot.id),
+      ...previous.slots.map((slot) => slot.id),
+      ...knownIds,
+    ];
+    const recoveredIds = new Set<string>();
+    const recoveredSlots: SavedBumpChartMeta[] = [];
+    for (const id of orderedIds) {
+      if (recoveredIds.has(id) || !knownIds.has(id)) continue;
+      recoveredIds.add(id);
+      const now = Date.now();
+      recoveredSlots.push(
+        currentById.get(id) ??
+          perWorkspaceMeta.get(id) ??
+          localBackupById.get(id) ??
+          previousById.get(id) ?? {
+            id,
+            name: `Recovered chart — ${new Date(now).toISOString().slice(0, 10)}`,
+            createdAt: now,
+            updatedAt: now,
+          },
+      );
+    }
+    manifestCache = { version: 1, slots: recoveredSlots };
+    const manifestNeedsRepair =
+      !isLegacyBumpChartManifest(storedManifest) ||
+      current.slots.length !== recoveredSlots.length ||
+      current.slots.some((slot, index) => slot.id !== recoveredSlots[index]?.id);
+    const metaBackupsNeedSync = recoveredSlots.some(
+      (slot) =>
+        JSON.stringify(perWorkspaceMeta.get(slot.id)) !== JSON.stringify(slot),
+    );
+    const staleMetaIds = [...perWorkspaceMeta.keys()].filter(
+      (id) => !knownIds.has(id),
+    );
+    if (
+      manifestNeedsRepair ||
+      metaBackupsNeedSync ||
+      staleMetaIds.length > 0
+    ) {
+      const changes: StateStorageChange[] = [
         {
           type: 'put',
           store: STATE_METADATA_STORE,
           key: stateStorageRecordKeys.bumpManifest,
           value: manifestCache,
         },
-      ]);
+        ...recoveredSlots.map(
+          (slot): StateStorageChange => ({
+            type: 'put',
+            store: STATE_METADATA_STORE,
+            key: stateStorageRecordKeys.bumpWorkspaceMeta(slot.id),
+            value: slot,
+          }),
+        ),
+        ...staleMetaIds.map(
+          (id): StateStorageChange => ({
+            type: 'delete',
+            store: STATE_METADATA_STORE,
+            key: stateStorageRecordKeys.bumpWorkspaceMeta(id),
+          }),
+        ),
+      ];
+      if (isLegacyBumpChartManifest(storedManifest)) {
+        changes.push({
+          type: 'put',
+          store: STATE_METADATA_STORE,
+          key: stateStorageRecordKeys.bumpPreviousManifest,
+          value: storedManifest,
+        });
+      } else if (storedManifest !== undefined) {
+        changes.push({
+          type: 'put',
+          store: STATE_METADATA_STORE,
+          key: stateStorageRecordKeys.bumpCorruptManifest,
+          value: { detectedAt: new Date().toISOString(), value: storedManifest },
+        });
+      }
+      await commitStateChanges(changes);
     }
   })();
   return hydrationPromise;
@@ -327,12 +474,7 @@ export async function saveNamedBumpChart(
           key: meta.id,
           value: { version: 2, workspace } satisfies SavedBumpChartRecord,
         },
-        {
-          type: 'put',
-          store: STATE_METADATA_STORE,
-          key: stateStorageRecordKeys.bumpManifest,
-          value: nextManifest,
-        },
+        ...manifestChanges(nextManifest, manifest),
       ],
       { scope: 'bump', id: meta.id },
     );
@@ -359,12 +501,7 @@ export async function deleteSavedBumpChart(
     const operation = commitStateChanges(
       [
         { type: 'delete', store: BUMP_WORKSPACE_STORE, key: id },
-        {
-          type: 'put',
-          store: STATE_METADATA_STORE,
-          key: stateStorageRecordKeys.bumpManifest,
-          value: nextManifest,
-        },
+        ...manifestChanges(nextManifest, manifest),
       ],
       { scope: 'bump', id },
     );
@@ -379,17 +516,14 @@ export async function deleteSavedBumpChart(
 }
 
 export async function _clearBumpChartStorageForTesting(): Promise<void> {
-  _resetBumpChartStorageCacheForTesting();
-  await initializeStateStorage();
+  await initializeBumpChartStorage();
+  const previous = manifestCache;
+  const empty: SavedBumpChartManifest = { version: 1, slots: [] };
   await commitStateChanges([
     { type: 'clear', store: BUMP_WORKSPACE_STORE },
-    {
-      type: 'put',
-      store: STATE_METADATA_STORE,
-      key: stateStorageRecordKeys.bumpManifest,
-      value: manifestCache,
-    },
+    ...manifestChanges(empty, previous),
   ]);
+  _resetBumpChartStorageCacheForTesting();
 }
 
 export function _resetBumpChartStorageCacheForTesting(): void {

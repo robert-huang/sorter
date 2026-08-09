@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { _resetStateStorageForTesting } from '../../lib/stateStorageDb';
+import {
+  BUMP_MANIFEST_BACKUP_KEY,
+  STATE_METADATA_STORE,
+  _resetStateStorageForTesting,
+  commitStateChanges,
+  readStateRecord,
+  stateStorageRecordKeys,
+} from '../../lib/stateStorageDb';
 import type { BumpChartWorkspaceSnapshot } from '../panels/bumpChartStorage';
 import {
   BUMP_CHART_SLOT_LIMIT,
@@ -252,6 +259,59 @@ describe('Bump Chart workspace storage', () => {
     expect(await deleteSavedBumpChart(original.meta.id)).toEqual({ ok: true });
     expect(listSavedBumpCharts()).toEqual([]);
     expect(loadSavedBumpChart(original.meta.id)).toBeNull();
+  });
+
+  it('recovers exact named-workspace metadata from independent records', async () => {
+    const saved = await saveNamedBumpChart('Named timeline', workspace(false));
+    expect(saved.status).toBe('saved');
+    if (saved.status !== 'saved') {
+      throw new Error('Named chart was not saved');
+    }
+    localStorage.removeItem(BUMP_MANIFEST_BACKUP_KEY);
+    await commitStateChanges([
+      {
+        type: 'put',
+        store: STATE_METADATA_STORE,
+        key: stateStorageRecordKeys.bumpManifest,
+        value: 'corrupt-current',
+      },
+      {
+        type: 'put',
+        store: STATE_METADATA_STORE,
+        key: stateStorageRecordKeys.bumpPreviousManifest,
+        value: 'corrupt-previous',
+      },
+    ]);
+    _resetBumpChartStorageCacheForTesting();
+
+    await initializeBumpChartStorage();
+
+    expect(listSavedBumpCharts()).toEqual([saved.meta]);
+    expect(loadSavedBumpChart(saved.meta.id)).toEqual(workspace(false));
+    expect(
+      await readStateRecord(
+        STATE_METADATA_STORE,
+        stateStorageRecordKeys.bumpCorruptManifest,
+      ),
+    ).toMatchObject({ value: 'corrupt-current' });
+  });
+
+  it('recovers named charts when the IndexedDB metadata store is cleared', async () => {
+    const saved = await saveNamedBumpChart('Cross-storage chart', workspace());
+    expect(saved.status).toBe('saved');
+    if (saved.status !== 'saved') {
+      throw new Error('Named chart was not saved');
+    }
+    expect(localStorage.getItem(BUMP_MANIFEST_BACKUP_KEY)).not.toBeNull();
+    await commitStateChanges([
+      { type: 'clear', store: STATE_METADATA_STORE },
+    ]);
+    _resetBumpChartStorageCacheForTesting();
+
+    await initializeBumpChartStorage();
+
+    expect(listSavedBumpCharts()).toEqual([saved.meta]);
+    expect(loadSavedBumpChart(saved.meta.id)).toEqual(workspace());
   });
 
   it('enforces the slot cap without silently evicting a chart', async () => {

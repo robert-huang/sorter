@@ -198,6 +198,22 @@ export const storageCatalog: readonly StorageCatalogEntry[] = [
     autoEvict: false,
   },
   {
+    id: 'sorter-manifest-backup',
+    owner: 'Sorter saves',
+    category: 'user-data',
+    backing: 'localStorage',
+    key: 'sorter:manifest-backup:v1',
+    autoEvict: false,
+  },
+  {
+    id: 'bump-manifest-backup',
+    owner: 'Bump Chart saves',
+    category: 'user-data',
+    backing: 'localStorage',
+    key: 'sorter:bump-manifest-backup:v1',
+    autoEvict: false,
+  },
+  {
     id: 'disposable-values',
     owner: 'Disposable API and image metadata',
     category: 'disposable-cache',

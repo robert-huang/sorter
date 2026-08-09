@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ACTIVE_SORTER_SLOT_KEY,
+  BUMP_MANIFEST_BACKUP_KEY,
   BUMP_WORKSPACE_STORE,
   SORTER_SLOT_STORE,
   STATE_METADATA_STORE,
   STATE_REVISION_KEY,
   STATE_SCHEMA_KEY,
+  SORTER_MANIFEST_BACKUP_KEY,
   _resetStateStorageForTesting,
   _restartStateStorageForTesting,
   commitStateChanges,
@@ -38,7 +40,18 @@ describe('shared state IndexedDB', () => {
     const sorterManifest = {
       version: 1,
       activeId: SORTER_ID,
-      slots: [{ id: SORTER_ID, name: 'Migrated slot' }],
+      slots: [
+        {
+          id: SORTER_ID,
+          name: 'Migrated slot',
+          createdAt: '2026-08-01T00:00:00.000Z',
+          updatedAt: '2026-08-02T00:00:00.000Z',
+          totalItems: 2,
+          comparisons: 4,
+          done: false,
+          pinned: true,
+        },
+      ],
     };
     const sorterPayload = {
       version: 4,
@@ -93,6 +106,12 @@ describe('shared state IndexedDB', () => {
     expect(await readStateRecord(SORTER_SLOT_STORE, SORTER_ID)).toEqual(
       sorterPayload,
     );
+    expect(
+      await readStateRecord(
+        STATE_METADATA_STORE,
+        stateStorageRecordKeys.sorterSlotMeta(SORTER_ID),
+      ),
+    ).toEqual(sorterManifest.slots[0]);
     expect(await readStateRecord(BUMP_WORKSPACE_STORE, 'active')).toEqual(
       bumpWorkspace,
     );
@@ -105,7 +124,19 @@ describe('shared state IndexedDB', () => {
         stateStorageRecordKeys.bumpManifest,
       ),
     ).toEqual(bumpManifest);
+    expect(
+      await readStateRecord(
+        STATE_METADATA_STORE,
+        stateStorageRecordKeys.bumpWorkspaceMeta(BUMP_ID),
+      ),
+    ).toEqual(bumpManifest.slots[0]);
     expect(localStorage.getItem(ACTIVE_SORTER_SLOT_KEY)).toBe(SORTER_ID);
+    expect(JSON.parse(localStorage.getItem(SORTER_MANIFEST_BACKUP_KEY) ?? '')).toEqual(
+      sorterManifest,
+    );
+    expect(JSON.parse(localStorage.getItem(BUMP_MANIFEST_BACKUP_KEY) ?? '')).toEqual(
+      bumpManifest,
+    );
     expect(localStorage.getItem(STATE_SCHEMA_KEY)).toBe('1');
     expect(localStorage.getItem('sorter:slots:v1')).toBeNull();
     expect(localStorage.getItem(`sorter:slot:${SORTER_ID}:v1`)).toBeNull();

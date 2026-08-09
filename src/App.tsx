@@ -489,7 +489,7 @@ export function App() {
       const repairCount = consumeManifestRepairNotice();
       if (repairCount !== null && repairCount > 0) {
         flashSkipped(
-          `Slot list was corrupted; rebuilt ${repairCount} slot${repairCount === 1 ? '' : 's'} from backup data. Names may differ — rename as needed.`,
+          `Slot list was repaired; recovered ${repairCount} slot${repairCount === 1 ? '' : 's'} from saved data.`,
         );
       }
     });

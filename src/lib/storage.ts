@@ -12,6 +12,7 @@ import { normalizeConfirmationProgress } from './confirmationSort';
 import { activeSortItemCount } from './sortPopulation';
 import {
   ACTIVE_SORTER_SLOT_KEY,
+  SORTER_MANIFEST_BACKUP_KEY,
   SORTER_SLOT_STORE,
   STATE_METADATA_STORE,
   commitStateChanges,
@@ -25,6 +26,8 @@ import {
 import {
   isLegacySorterManifest,
   isLegacySorterSaveFile,
+  isSorterManifest,
+  isSorterSlotMeta,
 } from './stateStorageValidation';
 import { sweepExpiredDisposableCache } from './disposableCacheDb';
 import { clearDisposableCachesUnderPressure } from './disposableCacheRegistry';
@@ -257,25 +260,85 @@ function sorterManifestRecord(manifest: SlotsManifest): Omit<SlotsManifest, 'act
   return { version: 1, slots: manifest.slots };
 }
 
+function validManifestSlots(value: unknown): SlotMeta[] {
+  if (!isLegacySorterManifest(value)) return [];
+  return value.slots.filter(isSorterSlotMeta) as SlotMeta[];
+}
+
+function readLocalManifestBackup(key: string): unknown {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as unknown) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function sorterManifestChanges(
+  next: SlotsManifest,
+  previous: SlotsManifest,
+): StateStorageChange[] {
+  const changes: StateStorageChange[] = [
+    {
+      type: 'put',
+      store: STATE_METADATA_STORE,
+      key: stateStorageRecordKeys.sorterPreviousManifest,
+      value: sorterManifestRecord(previous),
+    },
+    {
+      type: 'put',
+      store: STATE_METADATA_STORE,
+      key: stateStorageRecordKeys.sorterManifest,
+      value: sorterManifestRecord(next),
+    },
+  ];
+  const previousById = new Map(previous.slots.map((slot) => [slot.id, slot]));
+  const nextIds = new Set<string>();
+  for (const slot of next.slots) {
+    nextIds.add(slot.id);
+    if (JSON.stringify(previousById.get(slot.id)) === JSON.stringify(slot)) {
+      continue;
+    }
+    changes.push({
+      type: 'put',
+      store: STATE_METADATA_STORE,
+      key: stateStorageRecordKeys.sorterSlotMeta(slot.id),
+      value: slot,
+    });
+  }
+  for (const slot of previous.slots) {
+    if (nextIds.has(slot.id)) continue;
+    changes.push({
+      type: 'delete',
+      store: STATE_METADATA_STORE,
+      key: stateStorageRecordKeys.sorterSlotMeta(slot.id),
+    });
+  }
+  return changes;
+}
+
 export async function initializeSorterStorage(): Promise<void> {
   if (sorterStorageInitialized) return;
   await initializeStateStorage();
 
-  const storedManifest = await readStateRecord<Partial<SlotsManifest>>(
+  const storedManifest = await readStateRecord<unknown>(
     STATE_METADATA_STORE,
     stateStorageRecordKeys.sorterManifest,
   );
+  const previousManifest = await readStateRecord<unknown>(
+    STATE_METADATA_STORE,
+    stateStorageRecordKeys.sorterPreviousManifest,
+  );
+  const localManifestBackup = readLocalManifestBackup(
+    SORTER_MANIFEST_BACKUP_KEY,
+  );
   const manifestWasCorrupt =
-    storedManifest !== undefined && !isLegacySorterManifest(storedManifest);
+    storedManifest !== undefined && !isSorterManifest(storedManifest);
   const activeId = localStorage.getItem(ACTIVE_SORTER_SLOT_KEY);
-  manifestCache =
-    isLegacySorterManifest(storedManifest)
-      ? {
-          version: 1,
-          activeId,
-          slots: storedManifest.slots,
-        }
-      : { ...emptyManifest(), activeId };
+  const currentSlots = validManifestSlots(storedManifest);
+  const previousSlots = validManifestSlots(previousManifest);
+  const localBackupSlots = validManifestSlots(localManifestBackup);
+  manifestCache = { version: 1, activeId, slots: currentSlots };
 
   slotBlobCache.clear();
   for (const [key, value] of await readAllStateEntries<unknown>(
@@ -283,6 +346,16 @@ export async function initializeSorterStorage(): Promise<void> {
   )) {
     const blob = parseSlotFile(value);
     if (blob) slotBlobCache.set(String(key), blob);
+  }
+  const perSlotMeta = new Map<string, SlotMeta>();
+  for (const [key, value] of await readAllStateEntries<unknown>(
+    STATE_METADATA_STORE,
+  )) {
+    const id = String(key);
+    if (!id.startsWith('sorterSlotMeta:') || !isSorterSlotMeta(value)) {
+      continue;
+    }
+    perSlotMeta.set(id.slice('sorterSlotMeta:'.length), value as SlotMeta);
   }
 
   const legacySingle = await readStateRecord<unknown>(
@@ -314,12 +387,7 @@ export async function initializeSorterStorage(): Promise<void> {
           key: id,
           value: buildSaveFile(legacyBlob),
         },
-        {
-          type: 'put',
-          store: STATE_METADATA_STORE,
-          key: stateStorageRecordKeys.sorterManifest,
-          value: sorterManifestRecord(manifestCache),
-        },
+        ...sorterManifestChanges(manifestCache, emptyManifest()),
         {
           type: 'delete',
           store: STATE_METADATA_STORE,
@@ -331,23 +399,91 @@ export async function initializeSorterStorage(): Promise<void> {
   }
 
   const knownIds = new Set(slotBlobCache.keys());
-  const validSlots = manifestCache.slots.filter((slot) => knownIds.has(slot.id));
-  const originalSlotCount = validSlots.length;
-  for (const id of knownIds) {
-    if (!validSlots.some((slot) => slot.id === id)) {
-      validSlots.push(synthesizeMetaFromBlob(id, slotBlobCache.get(id)!));
+  const currentById = new Map(currentSlots.map((slot) => [slot.id, slot]));
+  const previousById = new Map(previousSlots.map((slot) => [slot.id, slot]));
+  const localBackupById = new Map(
+    localBackupSlots.map((slot) => [slot.id, slot]),
+  );
+  const orderedIds = [
+    ...currentSlots.map((slot) => slot.id),
+    ...localBackupSlots.map((slot) => slot.id),
+    ...previousSlots.map((slot) => slot.id),
+    ...knownIds,
+  ];
+  const validSlots: SlotMeta[] = [];
+  const recoveredIds = new Set<string>();
+  for (const id of orderedIds) {
+    if (
+      recoveredIds.has(id) ||
+      !knownIds.has(id)
+    ) {
+      continue;
     }
+    recoveredIds.add(id);
+    validSlots.push(
+      currentById.get(id) ??
+        perSlotMeta.get(id) ??
+        localBackupById.get(id) ??
+        previousById.get(id) ??
+        synthesizeMetaFromBlob(id, slotBlobCache.get(id)!),
+    );
   }
-  if (validSlots.length !== manifestCache.slots.length) {
-    manifestCache = { ...manifestCache, slots: validSlots };
-    await commitStateChanges([
+  const originalSlotCount = currentSlots.filter((slot) =>
+    knownIds.has(slot.id),
+  ).length;
+  const needsManifestRepair =
+    !isSorterManifest(storedManifest) ||
+    currentSlots.length !== validSlots.length ||
+    currentSlots.some((slot, index) => slot.id !== validSlots[index]?.id);
+  const metaBackupsNeedSync = validSlots.some(
+    (slot) =>
+      JSON.stringify(perSlotMeta.get(slot.id)) !== JSON.stringify(slot),
+  );
+  const staleMetaIds = [...perSlotMeta.keys()].filter(
+    (id) => !knownIds.has(id),
+  );
+  manifestCache = { ...manifestCache, slots: validSlots };
+  if (needsManifestRepair || metaBackupsNeedSync || staleMetaIds.length > 0) {
+    const changes: StateStorageChange[] = [
       {
         type: 'put',
         store: STATE_METADATA_STORE,
         key: stateStorageRecordKeys.sorterManifest,
         value: sorterManifestRecord(manifestCache),
       },
-    ]);
+      ...validSlots.map(
+        (slot): StateStorageChange => ({
+          type: 'put',
+          store: STATE_METADATA_STORE,
+          key: stateStorageRecordKeys.sorterSlotMeta(slot.id),
+          value: slot,
+        }),
+      ),
+      ...staleMetaIds.map(
+        (id): StateStorageChange => ({
+          type: 'delete',
+          store: STATE_METADATA_STORE,
+          key: stateStorageRecordKeys.sorterSlotMeta(id),
+        }),
+      ),
+    ];
+    if (isSorterManifest(storedManifest)) {
+      changes.push({
+        type: 'put',
+        store: STATE_METADATA_STORE,
+        key: stateStorageRecordKeys.sorterPreviousManifest,
+        value: storedManifest,
+      });
+    }
+    if (manifestWasCorrupt) {
+      changes.push({
+        type: 'put',
+        store: STATE_METADATA_STORE,
+        key: stateStorageRecordKeys.sorterCorruptManifest,
+        value: { detectedAt: new Date().toISOString(), value: storedManifest },
+      });
+    }
+    await commitStateChanges(changes);
   }
   if (manifestWasCorrupt) {
     lastRepairCount = validSlots.length;
@@ -436,6 +572,7 @@ export function consumeManifestRepairNotice(): number | null {
 }
 
 export function writeManifest(m: SlotsManifest): void {
+  const previous = readManifest();
   manifestCache = {
     ...m,
     slots: [...m.slots],
@@ -445,14 +582,7 @@ export function writeManifest(m: SlotsManifest): void {
   } else {
     localStorage.removeItem(ACTIVE_SORTER_SLOT_KEY);
   }
-  void queueStateWrite([
-    {
-      type: 'put',
-      store: STATE_METADATA_STORE,
-      key: stateStorageRecordKeys.sorterManifest,
-      value: sorterManifestRecord(m),
-    },
-  ]);
+  void queueStateWrite(sorterManifestChanges(m, previous));
 }
 
 // ---------- slot id ----------
@@ -590,6 +720,7 @@ export function createSlot(
   // pinned we can still proceed (the blob write will fail loudly via
   // the quota path below rather than silently dropping a pinned slot).
   const m = readManifest();
+  const previous = readManifest();
   const evicted: SlotMeta[] = [];
   const changes: StateStorageChange[] = [];
   // We want at most SLOT_CAP entries AFTER we unshift the new meta, so
@@ -626,12 +757,7 @@ export function createSlot(
       key: id,
       value: buildSaveFile(blob),
     },
-    {
-      type: 'put',
-      store: STATE_METADATA_STORE,
-      key: stateStorageRecordKeys.sorterManifest,
-      value: sorterManifestRecord(m),
-    },
+    ...sorterManifestChanges(m, previous),
   );
   void queueStateWrite(changes, id);
   if (activate) {
@@ -772,7 +898,14 @@ export function setActiveSlot(id: string | null): SlotsManifest {
 function deleteSlotBlob(id: string): void {
   slotBlobCache.delete(id);
   void queueStateWrite(
-    [{ type: 'delete', store: SORTER_SLOT_STORE, key: id }],
+    [
+      { type: 'delete', store: SORTER_SLOT_STORE, key: id },
+      {
+        type: 'delete',
+        store: STATE_METADATA_STORE,
+        key: stateStorageRecordKeys.sorterSlotMeta(id),
+      },
+    ],
     id,
   );
 }
@@ -787,6 +920,7 @@ export function deleteSlot(id: string): SlotsManifest {
   if (currentActiveId === id) {
     cancelPendingAutosave();
   }
+  const previous = readManifest();
   const m = readManifest();
   m.slots = m.slots.filter((s) => s.id !== id);
   if (m.activeId === id) {
@@ -803,12 +937,7 @@ export function deleteSlot(id: string): SlotsManifest {
   void queueStateWrite(
     [
       { type: 'delete', store: SORTER_SLOT_STORE, key: id },
-      {
-        type: 'put',
-        store: STATE_METADATA_STORE,
-        key: stateStorageRecordKeys.sorterManifest,
-        value: sorterManifestRecord(m),
-      },
+      ...sorterManifestChanges(m, previous),
     ],
     id,
   );
@@ -840,8 +969,13 @@ export function updateSlotMeta(
   patch: Partial<Omit<SlotMeta, 'id' | 'createdAt'>>,
 ): SlotsManifest {
   const m = readManifest();
-  m.slots = m.slots.map((s) => (s.id === id ? { ...s, ...patch } : s));
-  writeManifest(m);
+  let changed = false;
+  m.slots = m.slots.map((s) => {
+    if (s.id !== id) return s;
+    changed = true;
+    return { ...s, ...patch };
+  });
+  if (changed) writeManifest(m);
   return m;
 }
 
@@ -952,6 +1086,7 @@ export function replaceSlotBlob(id: string, blob: AutosaveBlob): boolean {
     cancelPendingAutosave();
   }
   if (!tryWriteSlotBlobAfterCachePurge(id, blob)) return false;
+  const previous = readManifest();
   const manifest = readManifest();
   manifest.slots = manifest.slots.map((slot) =>
     slot.id === id
@@ -973,12 +1108,7 @@ export function replaceSlotBlob(id: string, blob: AutosaveBlob): boolean {
         key: id,
         value: buildSaveFile(blob),
       },
-      {
-        type: 'put',
-        store: STATE_METADATA_STORE,
-        key: stateStorageRecordKeys.sorterManifest,
-        value: sorterManifestRecord(manifest),
-      },
+      ...sorterManifestChanges(manifest, previous),
     ],
     id,
   );
@@ -1068,6 +1198,7 @@ export interface UnlinkCloudSlotResult {
  */
 export function unlinkCloudSlot(id: string): UnlinkCloudSlotResult | null {
   flushAutosave();
+  const previous = readManifest();
   const manifest = readManifest();
   const slotIndex = manifest.slots.findIndex((slot) => slot.id === id);
   const blob = readSlotBlob(id);
@@ -1108,12 +1239,7 @@ export function unlinkCloudSlot(id: string): UnlinkCloudSlotResult | null {
         value: buildSaveFile(blob),
       },
       { type: 'delete', store: SORTER_SLOT_STORE, key: id },
-      {
-        type: 'put',
-        store: STATE_METADATA_STORE,
-        key: stateStorageRecordKeys.sorterManifest,
-        value: sorterManifestRecord(manifest),
-      },
+      ...sorterManifestChanges(manifest, previous),
     ],
     newId,
   );
@@ -1367,6 +1493,7 @@ function sorterSlotAndManifestChanges(
   id: string,
   blob: AutosaveBlob,
   manifest: SlotsManifest,
+  previous: SlotsManifest,
 ): StateStorageChange[] {
   return [
     {
@@ -1375,12 +1502,7 @@ function sorterSlotAndManifestChanges(
       key: id,
       value: buildSaveFile(blob),
     },
-    {
-      type: 'put',
-      store: STATE_METADATA_STORE,
-      key: stateStorageRecordKeys.sorterManifest,
-      value: sorterManifestRecord(manifest),
-    },
+    ...sorterManifestChanges(manifest, previous),
   ];
 }
 
@@ -1388,6 +1510,7 @@ function queueAutosavePersistence(
   id: string,
   blob: AutosaveBlob,
   manifest: SlotsManifest,
+  previous: SlotsManifest,
 ): void {
   stateWriteQueue = stateWriteQueue
     .then(async () => {
@@ -1396,7 +1519,12 @@ function queueAutosavePersistence(
       let recovery: AutosaveRecovery | undefined;
       try {
         await commitStateChanges(
-          sorterSlotAndManifestChanges(id, persistedBlob, persistedManifest),
+          sorterSlotAndManifestChanges(
+            id,
+            persistedBlob,
+            persistedManifest,
+            previous,
+          ),
           { scope: 'sorter', id },
         );
       } catch (firstError) {
@@ -1408,7 +1536,12 @@ function queueAutosavePersistence(
 
         try {
           await commitStateChanges(
-            sorterSlotAndManifestChanges(id, persistedBlob, persistedManifest),
+            sorterSlotAndManifestChanges(
+              id,
+              persistedBlob,
+              persistedManifest,
+              previous,
+            ),
             { scope: 'sorter', id },
           );
           slotBlobCache.set(id, persistedBlob);
@@ -1428,6 +1561,7 @@ function queueAutosavePersistence(
                 id,
                 persistedBlob,
                 persistedManifest,
+                previous,
               ),
               { scope: 'sorter', id },
             );
@@ -1462,6 +1596,7 @@ function queueAutosavePersistence(
                 id,
                 persistedBlob,
                 persistedManifest,
+                previous,
               ),
             ],
             { scope: 'sorter', id },
@@ -1510,6 +1645,7 @@ function commitWriteSuccess(blob: AutosaveBlob, recovery?: AutosaveRecovery): vo
   if (currentActiveId === null) return;
   const writtenId = currentActiveId;
   const now = new Date().toISOString();
+  const previous = readManifest();
   const manifest = readManifest();
   manifest.slots = manifest.slots.map((slot) =>
     slot.id === writtenId
@@ -1523,7 +1659,7 @@ function commitWriteSuccess(blob: AutosaveBlob, recovery?: AutosaveRecovery): vo
       : slot,
   );
   manifestCache = manifest;
-  queueAutosavePersistence(writtenId, blob, manifest);
+  queueAutosavePersistence(writtenId, blob, manifest, previous);
   lastFlushTime = Date.now();
   comparisonsAtLastFlush = blob.progress.comparisons;
   if (recovery) {
@@ -1991,6 +2127,7 @@ function applyReplaceImport(
   let skipped = initialSkipped;
   const accepted = validImports.slice(0, SLOT_CAP);
   skipped += validImports.length - accepted.length;
+  const previous = readManifest();
 
   // Wipe phase: cancel any in-flight autosave for the OUTGOING active
   // slot (we're about to delete its blob), then delete every existing
@@ -2028,12 +2165,7 @@ function applyReplaceImport(
   } else {
     localStorage.removeItem(ACTIVE_SORTER_SLOT_KEY);
   }
-  changes.push({
-    type: 'put',
-    store: STATE_METADATA_STORE,
-    key: stateStorageRecordKeys.sorterManifest,
-    value: sorterManifestRecord(newManifest),
-  });
+  changes.push(...sorterManifestChanges(newManifest, previous));
   void queueStateWrite(changes);
   currentActiveId = activeId;
   // Bookkeeping for autosave: the active slot (if any) just got its
@@ -2119,12 +2251,7 @@ function applyMergeImport(
     slots: [...importedMetas, ...existing.slots],
   };
   manifestCache = newManifest;
-  changes.push({
-    type: 'put',
-    store: STATE_METADATA_STORE,
-    key: stateStorageRecordKeys.sorterManifest,
-    value: sorterManifestRecord(newManifest),
-  });
+  changes.push(...sorterManifestChanges(newManifest, existing));
   void queueStateWrite(changes);
   return {
     imported: importedMetas.length,

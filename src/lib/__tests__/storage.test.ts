@@ -46,12 +46,15 @@ import {
   updateSlotMeta,
 } from '../storage';
 import {
+  SORTER_MANIFEST_BACKUP_KEY,
+  SORTER_SLOT_STORE,
   STATE_METADATA_STORE,
   STATE_REVISION_KEY,
   _resetStateStorageForTesting,
   _restartStateStorageForTesting,
   _setStateStorageCommitErrorsForTesting,
   commitStateChanges,
+  readStateRecord,
   stateStorageRecordKeys,
 } from '../stateStorageDb';
 import type { MergeProgress, SaveFile, SlotMeta } from '../types';
@@ -916,6 +919,7 @@ describe('deleteSlot', () => {
 describe('repairManifestIfCorrupt', () => {
   async function restartWithManifest(value: unknown): Promise<void> {
     await flushAutosave();
+    await flushStateStorageWrites();
     await commitStateChanges([
       {
         type: 'put',
@@ -969,6 +973,140 @@ describe('repairManifestIfCorrupt', () => {
     expect(meta1.done).toBe(false);
     expect(meta2.comparisons).toBe(8);
     expect(meta2.done).toBe(true);
+  });
+
+  it('preserves exact slot and cloud metadata when both manifests are corrupt', async () => {
+    const slot = mintSlot(makeBlob(12, true), 'Original name');
+    pinSlot(slot.id, true);
+    setCloudOptIn(slot.id, true);
+    setCloudPushed(slot.id, {
+      cloudId: 'drive-file-id',
+      cloudEtag: 'etag-1',
+      cloudPushedAt: '2026-08-09T18:20:31.846Z',
+      cloudUpdatedAt: '2026-08-09T18:20:30.835Z',
+    });
+    const expected = readManifest().slots[0];
+    await flushStateStorageWrites();
+    localStorage.removeItem(SORTER_MANIFEST_BACKUP_KEY);
+    await commitStateChanges([
+      {
+        type: 'put',
+        store: STATE_METADATA_STORE,
+        key: stateStorageRecordKeys.sorterManifest,
+        value: 'corrupt-current',
+      },
+      {
+        type: 'put',
+        store: STATE_METADATA_STORE,
+        key: stateStorageRecordKeys.sorterPreviousManifest,
+        value: 'corrupt-previous',
+      },
+    ]);
+
+    await _restartStateStorageForTesting();
+    _resetSorterStorageCacheForTesting();
+    await initializeSorterStorage();
+
+    expect(consumeManifestRepairNotice()).toBe(1);
+    expect(readManifest().slots).toEqual([expected]);
+    expect(
+      await readStateRecord(
+        STATE_METADATA_STORE,
+        stateStorageRecordKeys.sorterCorruptManifest,
+      ),
+    ).toMatchObject({ value: 'corrupt-current' });
+  });
+
+  it('falls back to the previous manifest when per-slot metadata is unavailable', async () => {
+    const slot = mintSlot(makeBlob(6), 'Previous manifest slot');
+    pinSlot(slot.id, true);
+    const expected = readManifest().slots[0];
+    setActiveSlot(null);
+    await flushStateStorageWrites();
+    localStorage.removeItem(SORTER_MANIFEST_BACKUP_KEY);
+    await commitStateChanges([
+      {
+        type: 'put',
+        store: STATE_METADATA_STORE,
+        key: stateStorageRecordKeys.sorterManifest,
+        value: 'corrupt-current',
+      },
+      {
+        type: 'delete',
+        store: STATE_METADATA_STORE,
+        key: stateStorageRecordKeys.sorterSlotMeta(slot.id),
+      },
+    ]);
+
+    await _restartStateStorageForTesting();
+    _resetSorterStorageCacheForTesting();
+    await initializeSorterStorage();
+
+    expect(readManifest().slots).toEqual([expected]);
+  });
+
+  it('recovers exact metadata from localStorage when IndexedDB metadata is cleared', async () => {
+    const slot = mintSlot(makeBlob(7), 'Cross-storage backup');
+    pinSlot(slot.id, true);
+    setCloudOptIn(slot.id, true);
+    const expected = readManifest().slots[0];
+    await flushStateStorageWrites();
+    expect(localStorage.getItem(SORTER_MANIFEST_BACKUP_KEY)).not.toBeNull();
+    await commitStateChanges([
+      { type: 'clear', store: STATE_METADATA_STORE },
+    ]);
+
+    await _restartStateStorageForTesting();
+    _resetSorterStorageCacheForTesting();
+    await initializeSorterStorage();
+
+    expect(readManifest().slots).toEqual([expected]);
+  });
+
+  it('backfills per-slot metadata for legacy bare slot records', async () => {
+    const meta: SlotMeta = {
+      id: 'AAAAAAAAAAAAAA',
+      name: 'Legacy named slot',
+      createdAt: '2026-08-01T00:00:00.000Z',
+      updatedAt: '2026-08-02T00:00:00.000Z',
+      totalItems: 2,
+      comparisons: 4,
+      done: false,
+      pinned: true,
+      cloudOptIn: true,
+      cloudId: 'legacy-drive-id',
+    };
+    const blob = makeBlob(4);
+    await commitStateChanges([
+      {
+        type: 'put',
+        store: SORTER_SLOT_STORE,
+        key: meta.id,
+        value: {
+          version: 4,
+          createdAt: meta.createdAt,
+          ...blob,
+        },
+      },
+      {
+        type: 'put',
+        store: STATE_METADATA_STORE,
+        key: stateStorageRecordKeys.sorterManifest,
+        value: { version: 1, slots: [meta] },
+      },
+    ]);
+
+    await _restartStateStorageForTesting();
+    _resetSorterStorageCacheForTesting();
+    await initializeSorterStorage();
+
+    expect(readManifest().slots).toEqual([meta]);
+    expect(
+      await readStateRecord(
+        STATE_METADATA_STORE,
+        stateStorageRecordKeys.sorterSlotMeta(meta.id),
+      ),
+    ).toEqual(meta);
   });
 
   it('rebuilds when the manifest has the wrong shape (e.g. wrong version)', async () => {

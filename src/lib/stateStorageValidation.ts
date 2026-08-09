@@ -24,6 +24,48 @@ export function isLegacySorterManifest(
   );
 }
 
+export function isSorterSlotMeta(value: unknown): value is {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  totalItems: number;
+  comparisons: number;
+  done: boolean;
+} {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== 'string' ||
+    typeof value.name !== 'string' ||
+    typeof value.createdAt !== 'string' ||
+    typeof value.updatedAt !== 'string' ||
+    typeof value.totalItems !== 'number' ||
+    typeof value.comparisons !== 'number' ||
+    typeof value.done !== 'boolean'
+  ) {
+    return false;
+  }
+  return (
+    (value.pinned === undefined || typeof value.pinned === 'boolean') &&
+    (value.cloudOptIn === undefined || typeof value.cloudOptIn === 'boolean') &&
+    (value.cloudId === undefined || typeof value.cloudId === 'string') &&
+    (value.cloudPushedAt === undefined ||
+      typeof value.cloudPushedAt === 'string') &&
+    (value.cloudUpdatedAt === undefined ||
+      typeof value.cloudUpdatedAt === 'string') &&
+    (value.cloudEtag === undefined || typeof value.cloudEtag === 'string')
+  );
+}
+
+export function isSorterManifest(
+  value: unknown,
+): value is { version: 1; slots: unknown[] } {
+  return (
+    isLegacySorterManifest(value) &&
+    value.slots.every(isSorterSlotMeta)
+  );
+}
+
 export function isLegacyBumpChartSideSnapshot(
   value: unknown,
 ): boolean {
@@ -91,13 +133,21 @@ export function isLegacyBumpChartManifest(
   if (!isRecord(value) || value.version !== 1 || !Array.isArray(value.slots)) {
     return false;
   }
-  return value.slots.every(
-    (slot) =>
-      isRecord(slot) &&
-      typeof slot.id === 'string' &&
-      typeof slot.name === 'string' &&
-      typeof slot.createdAt === 'number' &&
-      typeof slot.updatedAt === 'number',
+  return value.slots.every(isBumpChartMeta);
+}
+
+export function isBumpChartMeta(value: unknown): value is {
+  id: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+} {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    typeof value.name === 'string' &&
+    typeof value.createdAt === 'number' &&
+    typeof value.updatedAt === 'number'
   );
 }
 
