@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { SlotMeta } from '../lib/types';
 import { CircularArrowGlyph } from './CircularArrowGlyph';
 import { PinIcon } from './PinIcon';
@@ -161,10 +161,27 @@ export function SlotList({
   // Reset is implicit (close + reopen the gear menu remounts SlotList).
   const [query, setQuery] = useState('');
   const [doneFilter, setDoneFilter] = useState<DoneFilter>('all');
+  const listScrollRef = useRef<HTMLDivElement | null>(null);
+
+  useLayoutEffect(() => {
+    const listScroll = listScrollRef.current;
+    if (!listScroll) return;
+
+    // Keep keyboard scrolling inside the rows when the menu opens.
+    listScroll.focus({ preventScroll: true });
+    listScroll
+      .querySelector<HTMLElement>('.slot-row.active')
+      ?.scrollIntoView?.({ block: 'nearest' });
+  }, []);
 
   if (slots.length === 0) {
     return (
-      <div className="slot-list empty">
+      <div
+        ref={listScrollRef}
+        className="slot-list empty"
+        tabIndex={-1}
+        aria-label="Saved sorts"
+      >
         <div className="slot-list-empty">No saved sorts yet.</div>
       </div>
     );
@@ -325,7 +342,12 @@ export function SlotList({
           DONE
         </button>
       </div>
-      <div className={listScrollClassName}>
+      <div
+        ref={listScrollRef}
+        className={listScrollClassName}
+        tabIndex={-1}
+        aria-label="Saved sorts"
+      >
         {filtered.length === 0 ? (
           <div className="slot-list-empty">{emptyMessage}</div>
         ) : (

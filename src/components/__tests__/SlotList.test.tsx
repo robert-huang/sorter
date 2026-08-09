@@ -42,13 +42,14 @@ function slot(
 async function renderSlotList(
   slots: SlotMeta[],
   cloudControlsVisible = false,
+  loadedSlotId: string | null = null,
 ): Promise<void> {
   const noop = vi.fn();
   await act(async () => {
     root.render(
       <SlotList
         slots={slots}
-        loadedSlotId={null}
+        loadedSlotId={loadedSlotId}
         onSwitch={noop}
         onDelete={noop}
         onRename={noop}
@@ -64,6 +65,48 @@ async function renderSlotList(
     );
   });
 }
+
+describe('SlotList opening focus', () => {
+  it('focuses the scrollable rows so paging keys stay inside the slot list', async () => {
+    await renderSlotList([slot('First', false), slot('Second', false)]);
+
+    const scrollArea = container.querySelector('.slot-list-scroll');
+    expect(scrollArea?.getAttribute('tabindex')).toBe('-1');
+    expect(document.activeElement).toBe(scrollArea);
+  });
+
+  it('scrolls the loaded slot row into view', async () => {
+    const original = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      'scrollIntoView',
+    );
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    try {
+      await renderSlotList(
+        [slot('First', false), slot('Loaded', false)],
+        false,
+        'Loaded',
+      );
+      expect(scrollIntoView).toHaveBeenCalledOnce();
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+    } finally {
+      if (original) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          'scrollIntoView',
+          original,
+        );
+      } else {
+        Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
+      }
+    }
+  });
+});
 
 describe('SlotList metadata classes', () => {
   it('marks only completed slot metadata rows as done', async () => {

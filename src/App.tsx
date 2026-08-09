@@ -129,7 +129,10 @@ import { SlotDeleteConfirmModal } from './components/SlotDeleteConfirmModal';
 import { StartOverConfirmModal } from './components/StartOverConfirmModal';
 import { ConfirmSortConfirmModal } from './components/ConfirmSortConfirmModal';
 import { CompletedSortEditConfirmModal } from './components/CompletedSortEditConfirmModal';
-import { CloudLibraryModal } from './components/CloudLibraryModal';
+import {
+  CloudLibraryModal,
+  type CloudLibraryPullOptions,
+} from './components/CloudLibraryModal';
 import { CloudPushConflictModal } from './components/CloudPushConflictModal';
 import { CloudUnlinkConfirmModal } from './components/CloudUnlinkConfirmModal';
 import type { CloudMenuStatus } from './components/SettingsMenu';
@@ -1151,10 +1154,10 @@ export function App() {
 
   // -------- slot mint helpers --------
   /**
-   * Inner mint: persist the new slot, swap the in-memory state to its
-   * session, and flash a toast if the storage layer had to evict
-   * something. Pre-condition: caller has either confirmed the
-   * eviction via the cap modal or verified we're below cap.
+   * Inner mint: persist the new slot, optionally swap the in-memory state
+   * to its session, and flash a toast if the storage layer had to evict
+   * something. Pre-condition: caller has either confirmed the eviction
+   * via the cap modal or verified we're below cap.
    *
    * Optional `cloudBinding`: when present, the freshly-minted slot is
    * also stamped with cloud-sync metadata and opted-in. Used by the
@@ -1176,9 +1179,10 @@ export function App() {
         cloudPushedAt: string;
         cloudUpdatedAt: string;
       },
+      activate = true,
     ) => {
       const blob = buildBlob(session.state, session.undoRing);
-      const result = createSlot(blob, name);
+      const result = createSlot(blob, name, { activate });
       if (result === null) {
         // Blob write failed (typically quota exhaustion AFTER eviction
         // already ran). The manifest may still have lost some slots to
@@ -1210,12 +1214,14 @@ export function App() {
         updateSlotMeta(result.meta.id, { updatedAt: cloudBinding.cloudUpdatedAt });
       }
       setManifest(readManifest());
-      setLoadedSlotId(result.meta.id);
-      setState(session.state);
-      setUndoRing(session.undoRing);
-      setActiveTab(
-        initialTab ?? (session.state.done ? 'result' : 'rank'),
-      );
+      if (activate) {
+        setLoadedSlotId(result.meta.id);
+        setState(session.state);
+        setUndoRing(session.undoRing);
+        setActiveTab(
+          initialTab ?? (session.state.done ? 'result' : 'rank'),
+        );
+      }
       // Eviction is loud: the user gave consent via the modal in the
       // common case, but the safety-net eviction inside createSlot can
       // still trip if some race nudged us past cap between the peek and
@@ -1231,9 +1237,10 @@ export function App() {
   );
 
   /**
-   * Mint a new slot for the given session and activate it. Used by all
-   * "start a sort" paths (scratch, pre-ranked, already-sorted CSV, file
-   * load, and RESULT-tab Start Over).
+   * Mint a new slot for the given session. It activates by default; cloud
+   * library background imports opt out so the current sort stays loaded.
+   * Used by all "start a sort" paths (scratch, pre-ranked, already-sorted
+   * CSV, file load, and RESULT-tab Start Over).
    *
    * `initialTab` overrides the default landing tab. Default = RESULT
    * when the seeded state is already done, else RANK. Start Over uses
@@ -1256,20 +1263,27 @@ export function App() {
         cloudPushedAt: string;
         cloudUpdatedAt: string;
       },
+      activate = true,
     ) => {
-      const victim = peekEvictionTarget();
+      const victim = peekEvictionTarget({ activate });
       if (victim) {
         setCapPending({
           victim,
           cancel: () => setCapPending(null),
           commit: () => {
             setCapPending(null);
-            performSlotMint(session, name, initialTab, cloudBinding);
+            performSlotMint(
+              session,
+              name,
+              initialTab,
+              cloudBinding,
+              activate,
+            );
           },
         });
         return;
       }
-      performSlotMint(session, name, initialTab, cloudBinding);
+      performSlotMint(session, name, initialTab, cloudBinding, activate);
     },
     [performSlotMint],
   );
@@ -1758,6 +1772,7 @@ export function App() {
             cloudId,
             cloudEtag: result.etag,
             cloudUpdatedAt: result.updatedAt,
+            displayName: result.displayName,
           });
           const refreshed = readManifest();
           setManifest(refreshed);
@@ -2202,11 +2217,16 @@ export function App() {
   // If this Drive file is already bound to a local slot, switch to it
   // instead of minting a duplicate (same cloudId as LIST-tab Pull).
   const onCloudPull = useCallback(
-    async (meta: CloudSlotMeta) => {
+    async (
+      meta: CloudSlotMeta,
+      options: CloudLibraryPullOptions,
+    ) => {
       const existing = findSlotByCloudId(meta.cloudId);
       if (existing) {
-        setCloudLibraryOpen(false);
-        onSwitchSlot(existing.id);
+        if (options.activate) {
+          setCloudLibraryOpen(false);
+          onSwitchSlot(existing.id);
+        }
         return;
       }
       try {
@@ -2216,7 +2236,9 @@ export function App() {
           flashSkipped('Pulled file was not a valid sorter slot.');
           return;
         }
-        setCloudLibraryOpen(false);
+        if (options.activate) {
+          setCloudLibraryOpen(false);
+        }
         // Adopt with timestamps derived from the cloud file's own modified
         // time so the new slot reads as "synced" (not "local changes
         // pending") and sorts into its real recency position instead of
@@ -2226,12 +2248,18 @@ export function App() {
           pulled.updatedAt,
           new Date().toISOString(),
         );
-        adoptNewSession(session, meta.displayName, undefined, {
-          cloudId: meta.cloudId,
-          cloudEtag: pulled.etag,
-          cloudPushedAt: ts.cloudPushedAt,
-          cloudUpdatedAt: ts.cloudUpdatedAt,
-        });
+        adoptNewSession(
+          session,
+          pulled.displayName,
+          undefined,
+          {
+            cloudId: meta.cloudId,
+            cloudEtag: pulled.etag,
+            cloudPushedAt: ts.cloudPushedAt,
+            cloudUpdatedAt: ts.cloudUpdatedAt,
+          },
+          options.activate,
+        );
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Pull failed.';
         flashSkipped(msg);

@@ -708,11 +708,11 @@ export class GoogleDriveProvider implements CloudProvider {
 
   async pullSlot(cloudId: string): Promise<CloudPullResult> {
     await this.refreshTokenIfNeeded();
-    // One round-trip for the metadata (etag/updatedAt/appProperties)
+    // One round-trip for the metadata (name/etag/updatedAt/appProperties)
     // and one for the body. Drive's `alt=media` returns the raw bytes
     // but no metadata; we want both, so two calls is unavoidable.
     const metaResp = await this.authedFetch(
-      `${DRIVE_API}/files/${encodeURIComponent(cloudId)}?fields=id,name,modifiedTime,version,md5Checksum,appProperties`,
+      `${DRIVE_API}/files/${encodeURIComponent(cloudId)}?fields=id,name,description,modifiedTime,version,md5Checksum,appProperties`,
     );
     if (!metaResp.ok) {
       throw new Error(`pullSlot meta failed: ${metaResp.status}`);
@@ -720,6 +720,7 @@ export class GoogleDriveProvider implements CloudProvider {
     const meta = (await metaResp.json()) as {
       id: string;
       name: string;
+      description?: string;
       modifiedTime: string;
       version?: string;
       md5Checksum?: string;
@@ -735,6 +736,10 @@ export class GoogleDriveProvider implements CloudProvider {
     const blob = parseCloudBlob(json);
     return {
       blob,
+      displayName:
+        meta.description ||
+        meta.appProperties?.sorterDisplayName ||
+        parseDisplayNameFromFilename(meta.name),
       etag: meta.md5Checksum ?? meta.version ?? meta.modifiedTime,
       updatedAt: meta.modifiedTime,
       sorterSlotId: meta.appProperties?.sorterSlotId,

@@ -20,6 +20,11 @@ import {
   type CloudSlotSortPreference,
 } from './CloudSlotSortControls';
 
+export interface CloudLibraryPullOptions {
+  /** False imports the slot without replacing the currently loaded sort. */
+  activate: boolean;
+}
+
 interface Props {
   /** Called on Cancel / Escape / backdrop click. */
   onClose: () => void;
@@ -29,7 +34,10 @@ interface Props {
    * committing — the library modal just hands off the metadata + the
    * pulled blob, doesn't drive the adoption flow itself.
    */
-  onPull: (meta: CloudSlotMeta) => void | Promise<void>;
+  onPull: (
+    meta: CloudSlotMeta,
+    options: CloudLibraryPullOptions,
+  ) => void | Promise<void>;
   /** Drive file id → local slot for backups already on this device. */
   localCloudSlotByCloudId: ReadonlyMap<string, SlotMeta>;
   /** Switch to an existing local slot (no download, no duplicate mint). */
@@ -141,11 +149,14 @@ export function CloudLibraryModal({
     void refresh();
   }, [refresh]);
 
-  async function handlePull(meta: CloudSlotMeta): Promise<void> {
+  async function handlePull(
+    meta: CloudSlotMeta,
+    activate: boolean,
+  ): Promise<void> {
     if (pullingCloudId) return;
     setPullingCloudId(meta.cloudId);
     try {
-      await onPull(meta);
+      await onPull(meta, { activate });
     } finally {
       setPullingCloudId(null);
     }
@@ -256,7 +267,7 @@ export function CloudLibraryModal({
                     }
                     actionDisabled={pullingCloudId !== null}
                     isPulling={pullingCloudId === row.cloudId}
-                    onPull={() => handlePull(row)}
+                    onPull={(activate) => handlePull(row, activate)}
                     onOpenLocal={() => {
                       if (localSlot) {
                         onOpenLocalSlot(localSlot.id);
@@ -299,7 +310,7 @@ interface RowProps {
   isActiveLocalSlot: boolean;
   actionDisabled: boolean;
   isPulling: boolean;
-  onPull: () => void;
+  onPull: (activate: boolean) => void;
   onOpenLocal: () => void;
   onRemoveLocal: () => void;
 }
@@ -372,9 +383,19 @@ function CloudLibraryRow({
         <button
           type="button"
           className="btn primary"
-          onClick={onPull}
+          onClick={() => onPull(true)}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            if (!actionDisabled) {
+              onPull(false);
+            }
+          }}
           disabled={actionDisabled}
-          title={isPulling ? 'Pulling…' : 'Download this slot into a new local slot'}
+          title={
+            isPulling
+              ? 'Pulling…'
+              : 'Download this slot. Right-click to pull without loading it.'
+          }
         >
           {isPulling ? 'Pulling…' : 'Pull'}
         </button>

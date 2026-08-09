@@ -201,6 +201,22 @@ describe('createSlot', () => {
     expect(evicted).toEqual([]);
   });
 
+  it('can create a background slot without changing the active autosave target', () => {
+    const active = mintSlot(makeBlob(1), 'Active');
+    const imported = createSlot(makeBlob(7), 'Background import', {
+      activate: false,
+    });
+    expect(imported).not.toBeNull();
+
+    expect(readManifest().activeId).toBe(active.id);
+    expect(readSlotBlob(imported!.meta.id)?.progress.comparisons).toBe(7);
+
+    scheduleAutosave(makeBlob(3));
+    flushAutosave();
+    expect(readSlotBlob(active.id)?.progress.comparisons).toBe(3);
+    expect(readSlotBlob(imported!.meta.id)?.progress.comparisons).toBe(7);
+  });
+
   it('uses UUID v4 ids for newly created slots', () => {
     const meta = mintSlot(makeBlob(), 'UUID slot');
     expect(meta.id).toMatch(
@@ -353,6 +369,26 @@ describe('createSlot', () => {
     expect(m.slots.some((s) => s.id === created[0])).toBe(true); // pinned survives
     expect(m.slots.some((s) => s.id === created[1])).toBe(false); // unpinned evicted
   });
+
+  it('does not evict the active slot for a background import', () => {
+    const created: string[] = [];
+    for (let i = 0; i < SLOT_CAP; i++) {
+      const meta = mintSlot(makeBlob(i), `Slot ${i}`);
+      created.push(meta.id);
+      updateSlotMeta(meta.id, {
+        updatedAt: new Date(2026, 0, 1 + i).toISOString(),
+      });
+    }
+    setActiveSlot(created[0]);
+
+    const result = createSlot(makeBlob(99), 'Background import', {
+      activate: false,
+    });
+    expect(result).not.toBeNull();
+    expect(result!.evicted.map((slot) => slot.id)).toEqual([created[1]]);
+    expect(readManifest().activeId).toBe(created[0]);
+    expect(readSlotBlob(created[0])).not.toBeNull();
+  });
 });
 
 describe('peekEvictionTarget', () => {
@@ -393,6 +429,20 @@ describe('peekEvictionTarget', () => {
     });
     const target = peekEvictionTarget();
     expect(target?.id).toBe(ids[1]);
+  });
+
+  it('skips the active slot when previewing a background import eviction', () => {
+    const ids: string[] = [];
+    for (let i = 0; i < SLOT_CAP; i++) {
+      const meta = mintSlot(makeBlob(i), `Slot ${i}`);
+      ids.push(meta.id);
+      updateSlotMeta(meta.id, {
+        updatedAt: new Date(2026, 0, 1 + i).toISOString(),
+      });
+    }
+    setActiveSlot(ids[0]);
+
+    expect(peekEvictionTarget({ activate: false })?.id).toBe(ids[1]);
   });
 
   it('returns null when every slot at cap is pinned', () => {

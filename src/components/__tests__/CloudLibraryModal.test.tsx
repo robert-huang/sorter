@@ -90,13 +90,13 @@ function setInputValue(input: HTMLInputElement, value: string): void {
   input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
-async function renderModal(): Promise<void> {
+async function renderModal(onPull = vi.fn()): Promise<void> {
   cloudMocks.listCloudSlots.mockResolvedValue(rows);
   await act(async () => {
     root.render(
       <CloudLibraryModal
         onClose={vi.fn()}
-        onPull={vi.fn()}
+        onPull={onPull}
         localCloudSlotByCloudId={new Map()}
         onOpenLocalSlot={vi.fn()}
         onRemoveLocalSlot={vi.fn()}
@@ -106,6 +106,40 @@ async function renderModal(): Promise<void> {
     );
   });
 }
+
+describe('CloudLibraryModal pull controls', () => {
+  it('pulls and activates a slot on a normal click', async () => {
+    const onPull = vi.fn();
+    await renderModal(onPull);
+
+    await act(async () => button('Pull').click());
+
+    expect(onPull).toHaveBeenCalledOnce();
+    expect(onPull).toHaveBeenCalledWith(rows[1], { activate: true });
+  });
+
+  it('pulls without activating on right-click and explains the shortcut', async () => {
+    const onPull = vi.fn();
+    await renderModal(onPull);
+    const pullButton = button('Pull');
+    const contextMenu = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      button: 2,
+    });
+
+    expect(pullButton.title).toContain(
+      'Right-click to pull without opening it.',
+    );
+    await act(async () => {
+      pullButton.dispatchEvent(contextMenu);
+    });
+
+    expect(contextMenu.defaultPrevented).toBe(true);
+    expect(onPull).toHaveBeenCalledOnce();
+    expect(onPull).toHaveBeenCalledWith(rows[1], { activate: false });
+  });
+});
 
 describe('sortCloudLibraryRows', () => {
   it.each([

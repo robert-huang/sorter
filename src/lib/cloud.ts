@@ -97,9 +97,10 @@ export interface CloudSlotMeta {
   done?: boolean;
 }
 
-/** Result of a Pull: the inbound blob and the etag to remember. */
+/** Result of a Pull: the inbound blob and authoritative cloud metadata. */
 export interface CloudPullResult {
   blob: AutosaveBlob;
+  displayName: string;
   etag: string;
   updatedAt: string;
   sorterSlotId?: string;

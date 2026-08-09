@@ -534,9 +534,17 @@ export interface CreateSlotResult {
   evicted: SlotMeta[];
 }
 
+export interface CreateSlotOptions {
+  /**
+   * Whether the new slot becomes the active autosave target. Background
+   * imports set this false so the currently loaded sort stays untouched.
+   */
+  activate?: boolean;
+}
+
 /**
  * Persist a brand-new slot, prepend its meta, evict the oldest if we'd
- * exceed `SLOT_CAP`, and activate it.
+ * exceed `SLOT_CAP`, and activate it unless `options.activate` is false.
  *
  * Returns `{ meta, evicted }` on success; `null` if the durable blob
  * write fails (typically quota exhaustion). On failure we DO NOT
@@ -558,8 +566,11 @@ export interface CreateSlotResult {
 export function createSlot(
   blob: AutosaveBlob,
   name: string,
+  options: CreateSlotOptions = {},
 ): CreateSlotResult | null {
-  // Flush any pending writes to the OUTGOING active slot before switching.
+  const activate = options.activate ?? true;
+  // Flush pending writes before the manifest/blob transaction, even when
+  // this is a background import that preserves the active pointer.
   flushAutosave();
   const id = newSlotId(new Set(readManifest().slots.map((slot) => slot.id)));
   const now = new Date().toISOString();
@@ -583,9 +594,9 @@ export function createSlot(
   const changes: StateStorageChange[] = [];
   // We want at most SLOT_CAP entries AFTER we unshift the new meta, so
   // pre-evict down to (SLOT_CAP - 1).
-  while (m.slots.filter((s) => !s.pinned).length > 0 && m.slots.length >= SLOT_CAP) {
+  while (m.slots.length >= SLOT_CAP) {
     const oldest = m.slots
-      .filter((s) => !s.pinned)
+      .filter((s) => !s.pinned && (activate || s.id !== m.activeId))
       .slice()
       .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt))[0];
     if (!oldest) break;
@@ -601,9 +612,13 @@ export function createSlot(
 
   slotBlobCache.set(id, blob);
   m.slots.unshift(meta);
-  m.activeId = id;
+  if (activate) {
+    m.activeId = id;
+  }
   manifestCache = m;
-  localStorage.setItem(ACTIVE_SORTER_SLOT_KEY, id);
+  if (activate) {
+    localStorage.setItem(ACTIVE_SORTER_SLOT_KEY, id);
+  }
   changes.push(
     {
       type: 'put',
@@ -619,10 +634,12 @@ export function createSlot(
     },
   );
   void queueStateWrite(changes, id);
-  currentActiveId = id;
-  // Reset the in-flight autosave bookkeeping so the next scheduleAutosave
-  // call is treated as the first write for the new slot.
-  resetAutosaveBookkeeping(blob.progress.comparisons);
+  if (activate) {
+    currentActiveId = id;
+    // Reset the in-flight autosave bookkeeping so the next scheduleAutosave
+    // call is treated as the first write for the new slot.
+    resetAutosaveBookkeeping(blob.progress.comparisons);
+  }
   return { meta, evicted };
 }
 
@@ -636,10 +653,15 @@ export function createSlot(
  * Always reads a fresh manifest since slot writes can happen between
  * renders.
  */
-export function peekEvictionTarget(): SlotMeta | null {
+export function peekEvictionTarget(
+  options: CreateSlotOptions = {},
+): SlotMeta | null {
   const m = readManifest();
   if (m.slots.length < SLOT_CAP) return null;
-  const evictable = m.slots.filter((s) => !s.pinned);
+  const activate = options.activate ?? true;
+  const evictable = m.slots.filter(
+    (s) => !s.pinned && (activate || s.id !== m.activeId),
+  );
   if (evictable.length === 0) return null;
   const sorted = evictable.slice().sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
   return sorted[0] ?? null;
@@ -876,7 +898,7 @@ export function setCloudPushed(
 }
 
 /**
- * Stamp the post-Pull metadata in one call. Distinct from
+ * Stamp the authoritative cloud name and post-Pull metadata in one call. Distinct from
  * setCloudPushed because Pull updates `cloudUpdatedAt` from the
  * server-reported timestamp; we ALSO stamp `cloudPushedAt` to "now"
  * because the slot is now in sync with the cloud — the just-pulled
@@ -891,10 +913,17 @@ export function setCloudPushed(
  */
 export function setCloudPulled(
   id: string,
-  patch: { cloudId: string; cloudEtag: string; cloudUpdatedAt: string },
+  patch: {
+    cloudId: string;
+    cloudEtag: string;
+    cloudUpdatedAt: string;
+    displayName: string;
+  },
 ): SlotsManifest {
+  const { displayName, ...cloudPatch } = patch;
   return updateSlotMeta(id, {
-    ...patch,
+    ...cloudPatch,
+    name: displayName,
     cloudPushedAt: new Date().toISOString(),
   });
 }

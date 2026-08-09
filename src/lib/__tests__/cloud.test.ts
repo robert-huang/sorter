@@ -42,6 +42,7 @@ import {
   signOut,
 } from '../cloud';
 import { GoogleDriveProvider } from '../cloud/googleDrive';
+import { deriveCloudSyncState } from '../cloudSync';
 import type { MergeProgress } from '../types';
 
 // ---------- shared helpers ----------
@@ -236,6 +237,7 @@ describe('cloud proxy', () => {
     const stub = new StubProvider();
     stub.pullResult = {
       blob: makeBlob(3),
+      displayName: 'Remote name',
       etag: '7',
       updatedAt: '2026-05-20T00:00:00.000Z',
       sorterSlotId: 'abc',
@@ -243,6 +245,7 @@ describe('cloud proxy', () => {
     _setCloudProviderForTesting(stub);
     const result = await pullSlot('F1F1');
     expect(result.blob.progress.comparisons).toBe(3);
+    expect(result.displayName).toBe('Remote name');
     expect(result.etag).toBe('7');
     expect(stub.calls).toContain('pullSlot:F1F1');
   });
@@ -343,13 +346,14 @@ describe('cloud-meta helpers', () => {
     expect(slot?.cloudUpdatedAt).toBe('2026-05-20T01:00:00.000Z');
   });
 
-  it('setCloudPulled stamps id + etag + cloudUpdatedAt AND advances cloudPushedAt to now', () => {
+  it('setCloudPulled overwrites the local name and advances cloudPushedAt to now', () => {
     // Pull means "the bytes on disk now match the cloud copy", so the
     // local↔cloud sync timestamp (cloudPushedAt) should advance — the
     // 3-state indicator is keyed off `updatedAt > cloudPushedAt`, and
     // a stale cloudPushedAt would leave the slot rendered as "pending"
     // immediately after a successful pull.
     const r = createSlot(makeBlob(), 'A');
+    setCloudOptIn(r!.meta.id, true);
     setCloudPushed(r!.meta.id, {
       cloudId: 'F1F1F1',
       cloudEtag: '5',
@@ -361,11 +365,14 @@ describe('cloud-meta helpers', () => {
       cloudId: 'F1F1F1',
       cloudEtag: '7',
       cloudUpdatedAt: '2026-05-20T02:00:00.000Z',
+      displayName: 'Remote authoritative name',
     });
     const afterPull = Date.now();
     const slot = readManifest().slots.find((s) => s.id === r!.meta.id);
     expect(slot?.cloudUpdatedAt).toBe('2026-05-20T02:00:00.000Z');
     expect(slot?.cloudEtag).toBe('7');
+    expect(slot?.name).toBe('Remote authoritative name');
+    expect(deriveCloudSyncState(slot!)).toBe('synced');
     expect(slot?.cloudPushedAt).toBeDefined();
     expect(slot?.cloudPushedAt).not.toBe('2026-05-20T00:00:00.000Z');
     const stampedAt = Date.parse(slot!.cloudPushedAt!);
@@ -809,9 +816,13 @@ describe('GoogleDriveProvider.pullSlot', () => {
           JSON.stringify({
             id: 'F1F1F1',
             name: 'Movies_abc.sorter.json',
+            description: 'Remote authoritative name',
             modifiedTime: '2026-05-20T03:00:00.000Z',
             version: '11',
-            appProperties: { sorterSlotId: 'abc' },
+            appProperties: {
+              sorterSlotId: 'abc',
+              sorterDisplayName: 'Legacy remote name',
+            },
           }),
           { status: 200 },
         ),
@@ -820,7 +831,9 @@ describe('GoogleDriveProvider.pullSlot', () => {
     const p = new GoogleDriveProvider();
     const result = await p.pullSlot('F1F1F1');
     expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toContain('description');
     expect(result.blob.progress.comparisons).toBe(5);
+    expect(result.displayName).toBe('Remote authoritative name');
     expect(result.etag).toBe('11');
     expect(result.sorterSlotId).toBe('abc');
     expect(result.updatedAt).toBe('2026-05-20T03:00:00.000Z');
@@ -841,6 +854,7 @@ describe('GoogleDriveProvider.pullSlot', () => {
             modifiedTime: '2026-05-20T03:00:00.000Z',
             version: '42',
             md5Checksum: 'pulled-md5',
+            appProperties: { sorterDisplayName: 'Legacy remote name' },
           }),
           { status: 200 },
         ),
@@ -848,6 +862,7 @@ describe('GoogleDriveProvider.pullSlot', () => {
       .mockResolvedValueOnce(new Response(JSON.stringify(bodyBlob), { status: 200 }));
     const p = new GoogleDriveProvider();
     const result = await p.pullSlot('F1');
+    expect(result.displayName).toBe('Legacy remote name');
     expect(result.etag).toBe('pulled-md5');
   });
 
