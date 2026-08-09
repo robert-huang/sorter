@@ -394,7 +394,7 @@ function CloudLibraryRow({
           title={
             isPulling
               ? 'Pulling…'
-              : 'Download this slot. Right-click to pull without loading it.'
+              : 'Download this slot. Right-click to pull without loading.'
           }
         >
           {isPulling ? 'Pulling…' : 'Pull'}

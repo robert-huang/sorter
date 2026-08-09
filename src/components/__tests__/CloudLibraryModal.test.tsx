@@ -129,7 +129,7 @@ describe('CloudLibraryModal pull controls', () => {
     });
 
     expect(pullButton.title).toContain(
-      'Right-click to pull without opening it.',
+      'Right-click to pull without loading.',
     );
     await act(async () => {
       pullButton.dispatchEvent(contextMenu);
