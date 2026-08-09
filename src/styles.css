@@ -6289,7 +6289,7 @@ a:where(.anime-to-anime-anilist-link):visited {
 
 .anilist-hydration-match,
 .anilist-hydration-result {
-  margin-top: 8px;
+  margin-top: 16px;
 }
 
 @media (max-width: 640px) {

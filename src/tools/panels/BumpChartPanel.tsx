@@ -3395,11 +3395,12 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
                 {failedMalExportLabels.length > 0 && (
                   <>
                     MAL images unavailable for:{' '}
-                    {failedMalExportLabels.join(', ')}.{' '}
+                    {failedMalExportLabels.join(', ')}.
                   </>
                 )}
                 {fuzzyMalExportLabels.length > 0 && (
                   <>
+                    {failedMalExportLabels.length > 0 && <br />}
                     Approximate MAL image matches used for:{' '}
                     {fuzzyMalExportLabels.join(', ')}. Verify these images.
                   </>
