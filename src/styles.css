@@ -8982,12 +8982,13 @@ a:where(.anime-to-anime-anilist-link):visited {
 }
 
 .bump-chart-event-node .bump-chart-rank {
-  color: inherit;
+  color: var(--text-muted);
 }
 
 .bump-chart-event-label .bump-chart-item-link {
   flex: 1 1 auto;
   max-width: 170px;
+  color: var(--text);
 }
 
 .bump-chart-event-label .bump-chart-label {
