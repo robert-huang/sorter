@@ -28,6 +28,12 @@ import {
   STATE_REVISION_KEY,
   _resetStateStorageForTesting,
 } from '../../lib/stateStorageDb';
+import { seedAsSorted } from '../../lib/insertionSort';
+import {
+  _resetSorterStorageCacheForTesting,
+  createSlot,
+  flushStateStorageWrites,
+} from '../../lib/storage';
 import {
   _resetBumpChartStorageCacheForTesting,
   flushBumpChartStorageWrites,
@@ -48,8 +54,10 @@ beforeAll(() => {
 
 beforeEach(async () => {
   await flushBumpChartStorageWrites();
+  await flushStateStorageWrites();
   localStorage.clear();
   await _resetStateStorageForTesting();
+  _resetSorterStorageCacheForTesting();
   _resetBumpChartStorageCacheForTesting();
   _resetBumpChartImageMemoryCacheForTesting();
   _resetBumpMalExportImagesForTesting();
@@ -62,6 +70,7 @@ beforeEach(async () => {
 afterEach(async () => {
   act(() => root.unmount());
   await flushBumpChartStorageWrites();
+  await flushStateStorageWrites();
   container.remove();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -167,6 +176,53 @@ async function importSingle(sideIndex: number, label: string): Promise<void> {
   });
 }
 
+function createCompletedSlot(name: string, itemPrefix: string): void {
+  const state = seedAsSorted([
+    { id: `${itemPrefix}-a`, label: `${name} A` },
+    { id: `${itemPrefix}-b`, label: `${name} B` },
+  ]);
+  const created = createSlot(
+    {
+      items: state.items,
+      progress: state,
+      undoRing: [],
+    },
+    name,
+  );
+  if (!created) {
+    throw new Error(`Could not create completed slot ${name}`);
+  }
+}
+
+async function importCompletedSlot(
+  sideIndex: number,
+  slotName: string,
+): Promise<void> {
+  await act(async () => {
+    button('Import ranked items', sideIndex).click();
+  });
+  const resultsTab = button('Results');
+  if (resultsTab.getAttribute('aria-selected') !== 'true') {
+    await act(async () => {
+      resultsTab.click();
+    });
+  }
+  const selector = document.querySelector<HTMLInputElement>(
+    `[aria-label="Select ${slotName}"]`,
+  );
+  if (!selector) {
+    throw new Error(`Missing completed slot ${slotName}`);
+  }
+  await act(async () => {
+    selector.click();
+  });
+  await act(async () => {
+    button('Import ranked items (2)').click();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
 describe('BumpChartPanel staging flow', () => {
   it('hydrates a canonical id and keeps the Bump logical id synchronized', () => {
     const hydrated = {
@@ -252,6 +308,60 @@ describe('BumpChartPanel staging flow', () => {
         '[title="Remove every staged group"]',
       )?.textContent,
     ).toBe('Clear');
+  });
+
+  it('names an empty panel from its first completed sorter slot', async () => {
+    createCompletedSlot('Winter rankings', 'winter');
+    createCompletedSlot('Spring rankings', 'spring');
+    await act(async () => {
+      root.render(
+        <BumpChartPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    await importCompletedSlot(0, 'Winter rankings');
+    let previousName = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Rename Previous order"]',
+    );
+    expect(previousName?.textContent).toBe('Winter rankings');
+
+    await importCompletedSlot(0, 'Spring rankings');
+    expect(previousName?.textContent).toBe('Winter rankings');
+
+    const previousCard = container.querySelectorAll(
+      '.bump-chart-import-card',
+    )[0];
+    await act(async () => {
+      previousCard
+        ?.querySelector<HTMLButtonElement>(
+          '[title="Remove every staged group"]',
+        )
+        ?.click();
+    });
+    await renameOrder('Previous order', 'My snapshot');
+    await importCompletedSlot(0, 'Spring rankings');
+    previousName = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Rename Previous order"]',
+    );
+    expect(previousName?.textContent).toBe('My snapshot');
+
+    await act(async () => {
+      previousCard
+        ?.querySelector<HTMLButtonElement>(
+          '[title="Remove every staged group"]',
+        )
+        ?.click();
+    });
+    await importCompletedSlot(0, 'Spring rankings');
+    previousName = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Rename Previous order"]',
+    );
+    expect(previousName?.textContent).toBe('Spring rankings');
   });
 
   it('edits order names in Bump staging and renders them in a chart header row', async () => {
@@ -1129,12 +1239,12 @@ describe('BumpChartPanel staging flow', () => {
     });
     expect(container.querySelector('.bump-chart-grid')).not.toBeNull();
     expect(container.querySelectorAll('.bump-chart-rank')).toHaveLength(2);
-    expect(container.textContent).toContain('Clear chart');
+    expect(container.textContent).toContain('Return to staging');
     expect(container.textContent).toContain('Export PNG');
     expect(container.textContent).not.toContain('staged');
 
     await act(async () => {
-      button('Clear chart').click();
+      button('Return to staging').click();
     });
     expect(container.querySelector('.bump-chart-grid')).toBeNull();
     expect(container.textContent).toContain('From chart');
@@ -1581,7 +1691,7 @@ describe('BumpChartPanel staging flow', () => {
     ).not.toBeNull();
 
     await act(async () => {
-      button('Clear chart').click();
+      button('Return to staging').click();
     });
     const restoredGroups = container.querySelectorAll<HTMLButtonElement>(
       '.bump-chart-import-card .staged-panel-group-row',
@@ -1732,7 +1842,7 @@ describe('BumpChartPanel staging flow', () => {
       await flushBumpChartStorageWrites();
     });
     await act(async () => {
-      button('Clear chart').click();
+      button('Return to staging').click();
     });
     expect(container.querySelector('.bump-chart-saved-charts')).not.toBeNull();
     expect(container.textContent).toContain('My chart');
@@ -1802,7 +1912,7 @@ describe('BumpChartPanel staging flow', () => {
     ).toEqual(['Saved baseline', 'Saved current']);
     expect(loadToolsPreferences().bumpChartBestMatchByTitle).toBe(false);
     await act(async () => {
-      button('Clear chart').click();
+      button('Return to staging').click();
     });
     expect(container.querySelector('.bump-chart-grid')).toBeNull();
     expect(container.textContent).toContain('From chart');

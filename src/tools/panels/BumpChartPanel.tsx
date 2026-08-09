@@ -2481,6 +2481,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
       targetColumnId: string,
       source: string,
       incoming: BumpChartItem[],
+      suggestedName?: string,
     ): Promise<void> => {
       const stagingRevision = stagingRevisionRef.current;
       setPendingImports((count) => count + 1);
@@ -2494,11 +2495,17 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
           return;
         }
         markWorkspaceMutation();
+        const importName = suggestedName?.trim();
         setColumns((current) =>
           current.map((column) =>
             column.id === targetColumnId
               ? {
                   ...column,
+                  ...(column.name === undefined &&
+                  column.draft.groups.length === 0 &&
+                  importName
+                    ? { name: importName }
+                    : {}),
                   draft: {
                     ...column.draft,
                     groups: [
@@ -2558,6 +2565,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
                   importColumnId,
                   entry.source,
                   bumpItemsFromSortResults(entry.items),
+                  entry.slotName,
                 );
               }
             })();
@@ -3164,7 +3172,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
               className="btn"
               onClick={clearChart}
             >
-              Clear chart
+              Return to staging
             </button>
             <button
               type="button"

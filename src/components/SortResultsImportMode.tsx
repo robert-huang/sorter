@@ -40,6 +40,7 @@ import type { StagedGroupInput } from './StagedItemsPanel';
 
 export interface OrderedSlotImport {
   source: string;
+  slotName: string;
   items: Item[];
 }
 
@@ -398,6 +399,7 @@ export function SortResultsImportMode({
       const imports = selectedImportable
         .map((entry) => ({
           source: slotImportSourceLabel(entry.meta),
+          slotName: entry.meta.name,
           items: effectiveItemsForEntry(entry),
         }))
         .filter((entry) => entry.items.length > 0);
@@ -457,7 +459,11 @@ export function SortResultsImportMode({
       if (imports.length === 0) return;
       if (onImportOrderedItems) {
         onImportOrderedItems(
-          imports.map(({ source, items }) => ({ source, items })),
+          imports.map(({ source, slotName, items }) => ({
+            source,
+            slotName,
+            items,
+          })),
         );
       } else if (onAppendToStaged) {
         onAppendToStaged(
@@ -983,6 +989,7 @@ function CloudResultsPicker({
         const row = rows?.find((candidate) => candidate.meta.cloudId === cloudId);
         return {
           source: `Cloud sort: ${row?.meta.displayName ?? entry.meta.name}`,
+          slotName: row?.meta.displayName ?? entry.meta.name,
           items,
           asPreRanked:
             showPreRankedToggle && (asPreRanked[entry.meta.id] ?? true),
