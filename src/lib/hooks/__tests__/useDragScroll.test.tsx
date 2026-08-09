@@ -23,8 +23,15 @@ beforeAll(() => {
 let container: HTMLDivElement;
 let root: Root;
 
-function DragScrollHarness(): React.ReactElement {
-  const { ref, ...dragProps } = useDragScroll<HTMLDivElement>();
+function DragScrollHarness({
+  onDragChange,
+}: {
+  onDragChange?: (dragging: boolean) => void;
+}): React.ReactElement {
+  const { ref, ...dragProps } = useDragScroll<HTMLDivElement>(
+    undefined,
+    onDragChange,
+  );
   return (
     <div ref={ref} className="tool-drag-scroll" {...dragProps}>
       <div data-testid="inner">content</div>
@@ -76,8 +83,13 @@ function pointer(
 
 describe('useDragScroll', () => {
   it('removes the dragging class when pointerup fires on window after an outside release', () => {
+    const dragChanges: boolean[] = [];
     act(() => {
-      root.render(<DragScrollHarness />);
+      root.render(
+        <DragScrollHarness
+          onDragChange={(dragging) => dragChanges.push(dragging)}
+        />,
+      );
     });
 
     const el = getScrollEl();
@@ -88,12 +100,14 @@ describe('useDragScroll', () => {
     pointer('pointerdown', el, 10);
     pointer('pointermove', el, 30);
     expect(el.classList.contains('is-drag-scroll-dragging')).toBe(true);
+    expect(dragChanges).toEqual([true]);
 
     act(() => {
       pointer('pointerup', window, 30);
     });
 
     expect(el.classList.contains('is-drag-scroll-dragging')).toBe(false);
+    expect(dragChanges).toEqual([true, false]);
   });
 
   it('removes the dragging class on lostpointercapture', () => {

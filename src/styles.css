@@ -8763,6 +8763,24 @@ a:where(.anime-to-anime-anilist-link):visited {
   gap: 10px;
 }
 
+.bump-chart-export-warning {
+  display: flex;
+  max-width: min(760px, 100%);
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 6px auto 0;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.bump-chart-export-warning .btn {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  font-size: 0.75rem;
+}
+
 .bump-chart-fullbleed {
   overflow-x: auto;
   overflow-y: hidden;
@@ -9089,6 +9107,10 @@ a:where(.anime-to-anime-anilist-link):visited {
   display: block;
   overflow: visible;
   pointer-events: none;
+}
+
+.bump-chart-bridge-svg {
+  z-index: 5;
 }
 
 .bump-chart-lineage-bridge {

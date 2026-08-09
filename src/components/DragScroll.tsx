@@ -27,6 +27,8 @@ type DragScrollProps = {
   scrollAnchorYearAttribute?: string;
   /** Fired on user scroll (after internal anchor bookkeeping). */
   onUserScroll?: (el: HTMLElement) => void;
+  /** Fired when a threshold-crossing drag starts or ends. */
+  onDragChange?: (dragging: boolean) => void;
   /** Optional ref to the scroll container element. */
   scrollRef?: Ref<HTMLDivElement>;
 };
@@ -55,15 +57,9 @@ export function DragScroll({
   scrollAnchorAttribute = 'data-scroll-anchor',
   scrollAnchorYearAttribute = 'data-scroll-anchor-year',
   onUserScroll,
+  onDragChange,
   scrollRef,
 }: DragScrollProps) {
-  const notifyUserScroll = useCallback(
-    (el: HTMLDivElement) => {
-      onUserScroll?.(el);
-    },
-    [onUserScroll],
-  );
-  const { ref, ...dragProps } = useDragScroll<HTMLDivElement>(notifyUserScroll);
   const isFirstLayoutRef = useRef(true);
   const savedScrollRef = useRef<SavedScrollState | null>(null);
   const anchorConfigRef = useRef<AnchorConfig>({
@@ -92,6 +88,17 @@ export function DragScroll({
           : null,
     };
   }, []);
+  const notifyUserScroll = useCallback(
+    (el: HTMLDivElement) => {
+      saveScrollState(el);
+      onUserScroll?.(el);
+    },
+    [onUserScroll, saveScrollState],
+  );
+  const { ref, ...dragProps } = useDragScroll<HTMLDivElement>(
+    notifyUserScroll,
+    onDragChange,
+  );
 
   // useLayoutEffect runs after DOM commit (so scrollWidth is final) and
   // before paint. On first mount with `initialScrollEnd`, snap right.

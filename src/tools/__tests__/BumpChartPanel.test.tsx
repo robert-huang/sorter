@@ -12,6 +12,7 @@ import {
 import {
   BumpChartPanel,
   applyBumpChartItemEdit,
+  bumpChangePathEndpoints,
   bumpChartExportCanvasLayout,
   bumpTimelineColumnAnchorX,
   bumpTimelinePathEndpoints,
@@ -29,6 +30,7 @@ import {
   _resetStateStorageForTesting,
 } from '../../lib/stateStorageDb';
 import { seedAsSorted } from '../../lib/insertionSort';
+import type { Item } from '../../lib/types';
 import {
   _resetSorterStorageCacheForTesting,
   createSlot,
@@ -68,6 +70,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.useRealTimers();
   act(() => root.unmount());
   await flushBumpChartStorageWrites();
   await flushStateStorageWrites();
@@ -133,6 +136,24 @@ function domRect(
     height,
     toJSON: () => ({}),
   };
+}
+
+function dispatchPointer(
+  type: string,
+  target: EventTarget,
+  clientX: number,
+  clientY = 0,
+  pointerId = 1,
+): void {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperties(event, {
+    button: { value: 0 },
+    buttons: { value: type === 'pointerup' ? 0 : 1 },
+    clientX: { value: clientX },
+    clientY: { value: clientY },
+    pointerId: { value: pointerId },
+  });
+  target.dispatchEvent(event);
 }
 
 function emptyWorkspaceColumn(
@@ -745,7 +766,15 @@ describe('BumpChartPanel staging flow', () => {
     await act(async () => {
       firstPath?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
-    expect(container.querySelector('.bump-chart-lineage-bridge')).not.toBeNull();
+    const bridge = container.querySelector<SVGPathElement>(
+      '.bump-chart-lineage-bridge',
+    );
+    const bridgeSvg = bridge?.ownerSVGElement;
+    expect(bridgeSvg?.classList.contains('bump-chart-bridge-svg')).toBe(true);
+    expect(
+      bridgeSvg?.previousElementSibling?.classList.contains('bump-chart-svg'),
+    ).toBe(true);
+    expect(bridgeSvg?.querySelector('.bump-chart-connection')).toBeNull();
     expect(
       event?.classList.contains('is-dimmed'),
     ).toBe(true);
@@ -896,6 +925,28 @@ describe('BumpChartPanel staging flow', () => {
     const addedMarker = container.querySelector<SVGGElement>(
       '.bump-chart-change-marker--added',
     );
+    for (const [marker, connectedPathCoordinate] of [
+      [removedMarker, 2],
+      [addedMarker, 0],
+    ] as const) {
+      const connection = marker?.closest<SVGGElement>(
+        '.bump-chart-connection',
+      );
+      const path = connection?.querySelector<SVGPathElement>('.bump-chart-path');
+      const markerX = Number(marker?.querySelector('circle')?.getAttribute('cx'));
+      const pathCoordinates =
+        path
+          ?.getAttribute('d')
+          ?.match(/-?\d+(?:\.\d+)?/g)
+          ?.map(Number) ?? [];
+      expect(pathCoordinates[connectedPathCoordinate]).toBe(markerX);
+      expect(
+        path && marker
+          ? path.compareDocumentPosition(marker) &
+              Node.DOCUMENT_POSITION_FOLLOWING
+          : 0,
+      ).not.toBe(0);
+    }
     await act(async () => {
       removedMarker
         ?.querySelector('line')
@@ -1284,8 +1335,22 @@ describe('BumpChartPanel staging flow', () => {
     expect(hitPaths).toHaveLength(3);
     expect(container.querySelector('.bump-chart-movement-badge')).toBeNull();
 
-    await act(async () => {
+    vi.useFakeTimers();
+    act(() => {
       hitPaths[0]?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    });
+    act(() => {
+      vi.advanceTimersByTime(199);
+    });
+    expect(container.querySelector('.bump-chart-movement-badge')).toBeNull();
+    act(() => {
+      hitPaths[0]?.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+      vi.advanceTimersByTime(1);
+    });
+    expect(container.querySelector('.bump-chart-movement-badge')).toBeNull();
+    act(() => {
+      hitPaths[0]?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      vi.advanceTimersByTime(200);
     });
     const negativeBadge = container.querySelector<SVGGElement>(
       '.bump-chart-movement-badge',
@@ -1294,8 +1359,9 @@ describe('BumpChartPanel staging flow', () => {
     expect(negativeBadge?.classList.contains('tool-score-tone--low')).toBe(true);
     expect(negativeBadge?.dataset.pngExclude).toBe('true');
 
-    await act(async () => {
+    act(() => {
       hitPaths[1]?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      vi.advanceTimersByTime(200);
     });
     const positiveBadge = container.querySelector<SVGGElement>(
       '.bump-chart-movement-badge',
@@ -1305,8 +1371,9 @@ describe('BumpChartPanel staging flow', () => {
       true,
     );
 
-    await act(async () => {
+    act(() => {
       hitPaths[2]?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      vi.advanceTimersByTime(200);
     });
     const neutralBadge = container.querySelector<SVGGElement>(
       '.bump-chart-movement-badge',
@@ -1325,10 +1392,33 @@ describe('BumpChartPanel staging flow', () => {
       connectionGroups[connectionGroups.length - 1],
     );
 
-    await act(async () => {
-      hitPaths[2]?.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+    const scroll = container.querySelector<HTMLElement>('.bump-chart-scroll');
+    expect(scroll).not.toBeNull();
+    Object.defineProperty(scroll, 'scrollWidth', {
+      configurable: true,
+      value: 1_000,
     });
+    Object.defineProperty(scroll, 'clientWidth', {
+      configurable: true,
+      value: 200,
+    });
+    scroll!.scrollLeft = 100;
+    act(() => {
+      dispatchPointer('pointerdown', scroll!, 100);
+      dispatchPointer('pointermove', scroll!, 60);
+    });
+    expect(scroll?.scrollLeft).toBe(140);
+    expect(scroll?.classList.contains('is-drag-scroll-dragging')).toBe(true);
     expect(container.querySelector('.bump-chart-movement-badge')).toBeNull();
+    expect(
+      container.querySelector('.bump-chart-connection.is-dimmed'),
+    ).toBeNull();
+
+    act(() => {
+      dispatchPointer('pointerup', window, 60);
+      scroll?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(scroll?.classList.contains('is-drag-scroll-dragging')).toBe(false);
   });
 
   it('pins only paths and nodes, not item labels', async () => {
@@ -1951,7 +2041,8 @@ describe('BumpChartPanel staging flow', () => {
       '<span class="bump-chart-order-name">Snapshot</span></div>' +
       '<div class="bump-chart-row" style="border-bottom: 1px solid red"></div>' +
       '<div class="bump-chart-row" style="border-bottom-width: 0"></div>' +
-      '<div class="bump-chart-timeline-cell" style="opacity: 1">' +
+      '<div class="bump-chart-timeline-cell bump-chart-event-label" ' +
+      'style="opacity: 1; background-color: rgb(255, 255, 255)">' +
       '<div class="bump-chart-event-node" style="opacity: 0.24">' +
       '<a class="bump-chart-item-link"><img src="https://example.invalid/cover.jpg"></a></div></div>' +
       `<a class="bump-chart-item-link"><img src="${anilistImage}"></a>` +
@@ -1961,12 +2052,16 @@ describe('BumpChartPanel staging flow', () => {
       '<g class="bump-chart-connection is-active" style="color: red; opacity: 1">' +
       '<path class="bump-chart-path" d="M 0 0 L 10 10"></path></g>' +
       '<g class="bump-chart-connection is-dimmed" style="color: blue; opacity: 0.24">' +
-      '<path class="bump-chart-path" d="M 0 10 L 10 0"></path></g>' +
+      '<path class="bump-chart-path" d="M 0 10 L 10 0"></path>' +
+      '<g class="bump-chart-change-marker"><circle cx="10" cy="0" r="10"></circle></g></g>' +
       '<g class="bump-chart-movement-badge" data-badge-label="+2" ' +
       'data-badge-width="28" data-badge-x="150" data-badge-y="100" ' +
       'data-png-exclude="true" style="color: green">' +
       '<rect style="fill: white; stroke: green"></rect>' +
-      '<text style="fill: green; font: 600 11px sans-serif">+2</text></g></svg>';
+      '<text style="fill: green; font: 600 11px sans-serif">+2</text></g></svg>' +
+      '<svg class="bump-chart-svg bump-chart-bridge-svg">' +
+      '<path class="bump-chart-lineage-bridge" d="M 0 20 L 10 20" ' +
+      'style="color: purple; opacity: 0.85"></path></svg>';
     document.body.appendChild(chart);
     vi.spyOn(chart, 'getBoundingClientRect').mockReturnValue({
       x: 0,
@@ -1992,6 +2087,20 @@ describe('BumpChartPanel staging flow', () => {
     vi.spyOn(rows[1]!, 'getBoundingClientRect').mockReturnValue(
       domRect(300, 64, 0, 120),
     );
+    const eventNode = chart.querySelector<HTMLElement>(
+      '.bump-chart-event-node',
+    )!;
+    vi.spyOn(eventNode, 'getBoundingClientRect').mockReturnValue(
+      domRect(180, 52, 60, 70),
+    );
+    const changeMarkerCircle = chart.querySelector<SVGCircleElement>(
+      '.bump-chart-change-marker circle',
+    )!;
+    Object.defineProperties(changeMarkerCircle, {
+      cx: { configurable: true, value: { baseVal: { value: 10 } } },
+      cy: { configurable: true, value: { baseVal: { value: 0 } } },
+      r: { configurable: true, value: { baseVal: { value: 10 } } },
+    });
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       if (input.toString() === 'https://example.invalid/cover.jpg') {
         return new Response(new Blob(['image'], { type: 'image/jpeg' }), {
@@ -2036,6 +2145,8 @@ describe('BumpChartPanel staging flow', () => {
     const strokeWidths: number[] = [];
     const drawImageAlphas: number[] = [];
     const fillTextAlphas: number[] = [];
+    const fillRecords: Array<{ alpha: number; style: string }> = [];
+    let fillStyle = '';
     const context = {
       scale: vi.fn(),
       save: vi.fn(),
@@ -2045,10 +2156,13 @@ describe('BumpChartPanel staging flow', () => {
       translate: vi.fn(),
       setLineDash: vi.fn(),
       beginPath: vi.fn(),
+      arc: vi.fn(),
       moveTo: vi.fn(),
       lineTo: vi.fn(),
       roundRect: vi.fn(),
-      fill: vi.fn(),
+      fill: vi.fn(() => {
+        fillRecords.push({ alpha: globalAlpha, style: fillStyle });
+      }),
       stroke: vi.fn(() => {
         strokeAlphas.push(globalAlpha);
         strokeWidths.push(context.lineWidth);
@@ -2061,7 +2175,7 @@ describe('BumpChartPanel staging flow', () => {
       fillText: vi.fn(() => {
         fillTextAlphas.push(globalAlpha);
       }),
-      fillStyle: '',
+      fillStyle,
       strokeStyle: '',
       lineWidth: 1,
       lineCap: '',
@@ -2073,6 +2187,12 @@ describe('BumpChartPanel staging flow', () => {
       get: () => globalAlpha,
       set: (value: number) => {
         globalAlpha = value;
+      },
+    });
+    Object.defineProperty(context, 'fillStyle', {
+      get: () => fillStyle,
+      set: (value: string) => {
+        fillStyle = value;
       },
     });
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
@@ -2147,15 +2267,35 @@ describe('BumpChartPanel staging flow', () => {
     expect(rows[0]!.style.height).toBe('');
     expect(rows[1]!.style.height).toBe('');
     expect(context.fillRect).toHaveBeenCalledWith(0, 0, 300, 56);
-    expect(context.fillText).toHaveBeenCalledWith('Snapshot', 0, 0);
-    expect(context.fillText).toHaveBeenCalledWith('AB', 0, 0);
+    expect(context.fillText).toHaveBeenCalledWith('Snapshot', 0, 8);
+    expect(context.fillText).toHaveBeenCalledWith('AB', 0, 8);
     expect(context.fillText).toHaveBeenCalledWith('+2', 150, 100);
     expect(context.roundRect).toHaveBeenCalledWith(136, 90, 28, 20, 10);
+    expect(
+      context.roundRect.mock.calls.filter(
+        ([x, y, width, height, radius]) =>
+          x === 60 &&
+          y === 70 &&
+          width === 180 &&
+          height === 52 &&
+          radius === 9,
+      ),
+    ).toHaveLength(2);
     expect(context.moveTo).toHaveBeenCalledTimes(2);
     expect(context.moveTo).toHaveBeenCalledWith(0, 54.5);
     expect(context.moveTo).toHaveBeenCalledWith(0, 119.5);
-    expect(strokeAlphas).toEqual([1, 1, 1, 0.24, 1, 0.24]);
-    expect(strokeWidths).toEqual([3, 1, 5, 3, 1, 2]);
+    expect(strokeAlphas).toEqual([1, 1, 1, 0.24, 0.24, 1, 0.24, 0.85]);
+    expect(strokeWidths).toEqual([3, 1, 5, 3, 2.5, 1, 2, 3]);
+    expect(
+      fillRecords.filter(
+        ({ alpha, style }) =>
+          alpha === 1 && style === 'rgb(255, 255, 255)',
+      ),
+    ).toHaveLength(2);
+    expect(fillRecords).toContainEqual({
+      alpha: 0.24,
+      style: 'rgb(255, 255, 255)',
+    });
     expect(fillTextAlphas).toContain(0.24);
     expect(toBlob).toHaveBeenCalledOnce();
     expect(createObjectUrl).toHaveBeenCalledOnce();
@@ -2195,15 +2335,19 @@ describe('BumpChartPanel staging flow', () => {
     chart.style.backgroundColor = 'rgb(255, 255, 255)';
     chart.innerHTML =
       `<a class="bump-chart-item-link" data-bump-item-id="anilist:1">` +
+      `<img src="${anilistImage}"></a>` +
+      `<a class="bump-chart-item-link" data-bump-item-id="custom:item">` +
       `<img src="${anilistImage}"></a>`;
     document.body.appendChild(chart);
     vi.spyOn(chart, 'getBoundingClientRect').mockReturnValue(
       domRect(300, 200),
     );
-    const image = chart.querySelector('img')!;
-    vi.spyOn(image, 'getBoundingClientRect').mockReturnValue(
-      domRect(38, 48, 10, 10),
-    );
+    const images = Array.from(chart.querySelectorAll('img'));
+    images.forEach((image, index) => {
+      vi.spyOn(image, 'getBoundingClientRect').mockReturnValue(
+        domRect(38, 48, 10 + index * 50, 10),
+      );
+    });
 
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(new Blob(['image'], { type: 'image/jpeg' }), {
@@ -2248,42 +2392,45 @@ describe('BumpChartPanel staging flow', () => {
       value: vi.fn(),
     });
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    const itemsById = new Map<string, Item>([
+      [
+        'anilist:1',
+        {
+          id: 'anilist:1',
+          label: 'Cowboy Bebop',
+          imageUrl: anilistImage,
+          source: { kind: 'anilist', externalId: 1 },
+        },
+      ],
+      [
+        'custom:item',
+        {
+          id: 'custom:item',
+          label: 'Custom item',
+          imageUrl: anilistImage,
+        },
+      ],
+    ]);
 
     try {
-      await exportChartPng(chart, {
+      const skippedResult = await exportChartPng(chart, {
         includeImages: false,
-        itemsById: new Map([
-          [
-            'anilist:1',
-            {
-              id: 'anilist:1',
-              label: 'Cowboy Bebop',
-              imageUrl: anilistImage,
-              source: { kind: 'anilist', externalId: 1 },
-            },
-          ],
-        ]),
+        itemsById,
         useMalImages: true,
       });
+      expect(skippedResult.failedMalImageItems).toEqual([]);
       expect(fetchMock).not.toHaveBeenCalled();
       expect(context.drawImage).not.toHaveBeenCalled();
-      expect(image.style.display).toBe('');
+      expect(images.every((image) => image.style.display === '')).toBe(true);
 
-      await exportChartPng(chart, {
+      const exportResult = await exportChartPng(chart, {
         includeImages: true,
-        itemsById: new Map([
-          [
-            'anilist:1',
-            {
-              id: 'anilist:1',
-              label: 'Cowboy Bebop',
-              imageUrl: anilistImage,
-              source: { kind: 'anilist', externalId: 1 },
-            },
-          ],
-        ]),
+        itemsById,
         useMalImages: true,
       });
+      expect(exportResult.failedMalImageItems.map(({ label }) => label)).toEqual([
+        'Custom item',
+      ]);
     } finally {
       if (createObjectUrlDescriptor) {
         Object.defineProperty(
@@ -2392,6 +2539,19 @@ describe('bumpTimelinePathEndpoints', () => {
         { left: 595, right: 805 },
       ),
     ).toEqual({ startX: 405, endX: 595 });
+  });
+});
+
+describe('bumpChangePathEndpoints', () => {
+  it('runs added and removed lines underneath the center of their marker', () => {
+    expect(bumpChangePathEndpoints('added', 600, 555)).toEqual({
+      startX: 555,
+      endX: 600,
+    });
+    expect(bumpChangePathEndpoints('removed', 400, 445)).toEqual({
+      startX: 400,
+      endX: 445,
+    });
   });
 });
 

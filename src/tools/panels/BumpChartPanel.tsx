@@ -16,6 +16,7 @@ import {
   EditItemModal,
   type EditItemSavePayload,
 } from '../../components/EditItemModal';
+import { DragScroll } from '../../components/DragScroll';
 import { Modal } from '../../components/Modal';
 import {
   StagedItemsPanel,
@@ -75,6 +76,8 @@ import {
 } from './bumpChartMalExportImages';
 
 type ChartSide = 'left' | 'right';
+
+const BUMP_CHART_HOVER_DELAY_MS = 200;
 
 type BumpStageGroup = {
   id: string;
@@ -607,6 +610,16 @@ function eventBounds(
   return layout.eventBoundsByColumn[columnIndex]?.[itemIndex] ?? null;
 }
 
+export function bumpChangePathEndpoints(
+  kind: 'removed' | 'added',
+  eventEdgeX: number,
+  markerX: number,
+): { startX: number; endX: number } {
+  return kind === 'removed'
+    ? { startX: eventEdgeX, endX: markerX }
+    : { startX: markerX, endX: eventEdgeX };
+}
+
 function timelineMovementPath(
   connection: BumpTimelineSegment,
   layout: ChartLayout,
@@ -631,8 +644,12 @@ function timelineMovementPath(
       connection.pairIndex,
       connection.leftIndex!,
     );
-    const startX = bounds?.right ?? leftX;
-    return `M ${startX} ${leftY} L ${startX + (bounds ? 30 : 42)} ${leftY}`;
+    const { startX, endX } = bumpChangePathEndpoints(
+      connection.kind,
+      bounds?.right ?? leftX,
+      changeMarkerX(connection, layout),
+    );
+    return `M ${startX} ${leftY} L ${endX} ${leftY}`;
   }
   if (connection.kind === 'added') {
     const bounds = eventBounds(
@@ -640,8 +657,12 @@ function timelineMovementPath(
       connection.pairIndex + 1,
       connection.rightIndex!,
     );
-    const endX = bounds?.left ?? rightX;
-    return `M ${endX - (bounds ? 30 : 42)} ${rightY} L ${endX} ${rightY}`;
+    const { startX, endX } = bumpChangePathEndpoints(
+      connection.kind,
+      bounds?.left ?? rightX,
+      changeMarkerX(connection, layout),
+    );
+    return `M ${startX} ${rightY} L ${endX} ${rightY}`;
   }
   const { startX, endX } = bumpTimelinePathEndpoints(
     leftX,
@@ -1077,7 +1098,7 @@ function drawElementText(
   const style = getComputedStyle(element);
   context.fillStyle = style.color;
   context.font = canvasFont(style);
-  context.textBaseline = 'top';
+  context.textBaseline = 'middle';
 
   const textNodes: Text[] = [];
   const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
@@ -1090,11 +1111,18 @@ function drawElementText(
   }
   if (textNodes.length === 0) {
     const rect = element.getBoundingClientRect();
-    context.fillText(text, rect.left - rootRect.left, rect.top - rootRect.top);
+    context.fillText(
+      text,
+      rect.left - rootRect.left,
+      rect.top - rootRect.top + rect.height / 2,
+    );
     return;
   }
 
-  const lines = new Map<number, { text: string; left: number; top: number }>();
+  const lines = new Map<
+    number,
+    { text: string; left: number; top: number; bottom: number }
+  >();
   for (const textNode of textNodes) {
     for (let index = 0; index < textNode.data.length; index += 1) {
       const range = document.createRange();
@@ -1105,11 +1133,14 @@ function drawElementText(
       const line = lines.get(key);
       if (line) {
         line.text += textNode.data[index];
+        line.top = Math.min(line.top, rect.top);
+        line.bottom = Math.max(line.bottom, rect.bottom);
       } else {
         lines.set(key, {
           text: textNode.data[index]!,
           left: rect.left,
           top: rect.top,
+          bottom: rect.bottom,
         });
       }
     }
@@ -1118,7 +1149,7 @@ function drawElementText(
     context.fillText(
       line.text,
       line.left - rootRect.left,
-      line.top - rootRect.top,
+      (line.top + line.bottom) / 2 - rootRect.top,
     );
   }
 }
@@ -1153,17 +1184,26 @@ type ExportChartPngOptions = {
   onImageProgress?: (completed: number, total: number) => void;
 };
 
+export type ExportChartPngResult = {
+  failedMalImageItems: Item[];
+};
+
+type ResolvedExportImages = ExportChartPngResult & {
+  loadedImages: Array<LoadedCanvasImage | null>;
+};
+
 async function resolveExportImages(
   imageElements: readonly HTMLImageElement[],
   options: ExportChartPngOptions,
-): Promise<Array<LoadedCanvasImage | null>> {
+): Promise<ResolvedExportImages> {
   let completed = 0;
   const total = imageElements.length;
   options.onImageProgress?.(completed, total);
-  return Promise.all(
+  const resolutions = await Promise.all(
     imageElements.map(async (image) => {
       const src = image.currentSrc || image.src;
       let loaded: LoadedCanvasImage | null = null;
+      let failedMalImageItem: Item | null = null;
       if (isAnilistCdnImageUrl(src)) {
         const itemId =
           image.closest<HTMLElement>('[data-bump-item-id]')?.dataset.bumpItemId;
@@ -1180,15 +1220,28 @@ async function resolveExportImages(
               },
             );
           }
+          if (!loaded) {
+            failedMalImageItem = item;
+          }
         }
       } else {
         loaded = await loadCachedCanvasImage(src);
       }
       completed += 1;
       options.onImageProgress?.(completed, total);
-      return loaded;
+      return { loaded, failedMalImageItem };
     }),
   );
+  const failedMalImageItems = new Map<string, Item>();
+  for (const { failedMalImageItem } of resolutions) {
+    if (failedMalImageItem) {
+      failedMalImageItems.set(failedMalImageItem.id, failedMalImageItem);
+    }
+  }
+  return {
+    loadedImages: resolutions.map(({ loaded }) => loaded),
+    failedMalImageItems: [...failedMalImageItems.values()],
+  };
 }
 
 function prepareExportImageLayout(
@@ -1370,21 +1423,6 @@ async function renderChartPng(
     }
     context.globalAlpha = 1;
     context.setLineDash([]);
-    for (const bridge of svg.querySelectorAll<SVGPathElement>(
-      '.bump-chart-lineage-bridge',
-    )) {
-      const pathData = bridge.getAttribute('d');
-      if (!pathData) continue;
-      const style = getComputedStyle(bridge);
-      context.save();
-      context.strokeStyle = style.stroke || style.color;
-      context.globalAlpha = Number(style.opacity) || 1;
-      context.lineWidth = 3;
-      context.lineCap = 'round';
-      context.setLineDash([5, 7]);
-      context.stroke(new Path2D(pathData));
-      context.restore();
-    }
     for (const group of svg.querySelectorAll<SVGGElement>(
       '.bump-chart-connection',
     )) {
@@ -1406,6 +1444,21 @@ async function renderChartPng(
         '.bump-chart-node, .bump-chart-change-marker circle',
       )) {
         const isNode = circle.matches('.bump-chart-node');
+        const radius = isNode && active ? 8 : circle.r.baseVal.value;
+        const groupAlpha = context.globalAlpha;
+        context.globalAlpha = 1;
+        context.fillStyle = backgroundColor;
+        context.beginPath();
+        context.arc(
+          circle.cx.baseVal.value,
+          circle.cy.baseVal.value,
+          radius,
+          0,
+          Math.PI * 2,
+        );
+        context.fill();
+
+        context.globalAlpha = groupAlpha;
         context.fillStyle = backgroundColor;
         context.strokeStyle = color;
         context.lineWidth = isNode ? (active ? 4 : 3) : 2.5;
@@ -1413,7 +1466,7 @@ async function renderChartPng(
         context.arc(
           circle.cx.baseVal.value,
           circle.cy.baseVal.value,
-          isNode && active ? 8 : circle.r.baseVal.value,
+          radius,
           0,
           Math.PI * 2,
         );
@@ -1506,6 +1559,31 @@ async function renderChartPng(
   )) {
     const rect = eventNode.getBoundingClientRect();
     const style = getComputedStyle(eventNode);
+    const eventLabel = eventNode.closest<HTMLElement>('.bump-chart-event-label');
+    const computedEventLabelBackground = eventLabel
+      ? getComputedStyle(eventLabel).backgroundColor
+      : backgroundColor;
+    const eventLabelBackground =
+      computedEventLabelBackground === 'transparent' ||
+      computedEventLabelBackground === 'rgba(0, 0, 0, 0)'
+        ? backgroundColor
+        : computedEventLabelBackground;
+    // The web chart layers event cards above the SVG. Recreate that opaque
+    // surface first so connected paths can continue underneath without
+    // showing through transparent card contents.
+    context.save();
+    context.fillStyle = eventLabelBackground;
+    context.beginPath();
+    context.roundRect(
+      rect.left - rootRect.left,
+      rect.top - rootRect.top,
+      rect.width,
+      rect.height,
+      9,
+    );
+    context.fill();
+    context.restore();
+
     context.save();
     context.globalAlpha = chartLabelOpacity(eventNode);
     context.fillStyle = style.backgroundColor;
@@ -1586,6 +1664,28 @@ async function renderChartPng(
     context.restore();
   }
 
+  for (const bridge of node.querySelectorAll<SVGPathElement>(
+    '.bump-chart-lineage-bridge',
+  )) {
+    const pathData = bridge.getAttribute('d');
+    const bridgeSvg = bridge.ownerSVGElement;
+    if (!pathData || !bridgeSvg) continue;
+    const bridgeSvgRect = bridgeSvg.getBoundingClientRect();
+    const style = getComputedStyle(bridge);
+    context.save();
+    context.translate(
+      bridgeSvgRect.left - rootRect.left,
+      bridgeSvgRect.top - rootRect.top,
+    );
+    context.strokeStyle = style.stroke || style.color;
+    context.globalAlpha = Number(style.opacity) || 1;
+    context.lineWidth = 3;
+    context.lineCap = 'round';
+    context.setLineDash([5, 7]);
+    context.stroke(new Path2D(pathData));
+    context.restore();
+  }
+
   context.strokeStyle = rootStyle.borderColor;
   context.lineWidth = 1;
   context.strokeRect(0.5, 0.5, width - 1, height - 1);
@@ -1608,25 +1708,29 @@ async function renderChartPng(
 export async function exportChartPng(
   node: HTMLElement,
   options: ExportChartPngOptions = {},
-): Promise<void> {
+): Promise<ExportChartPngResult> {
   const imageElements = Array.from(
     node.querySelectorAll<HTMLImageElement>('.bump-chart-item-link img'),
   );
-  const loadedImages =
+  const resolvedImages =
     options.includeImages === false
-      ? imageElements.map(() => null)
+      ? {
+          loadedImages: imageElements.map(() => null),
+          failedMalImageItems: [],
+        }
       : await resolveExportImages(imageElements, options);
   const restoreExportLayout = prepareExportImageLayout(
     node,
     imageElements,
-    loadedImages,
+    resolvedImages.loadedImages,
   );
   try {
-    await renderChartPng(node, imageElements, loadedImages);
+    await renderChartPng(node, imageElements, resolvedImages.loadedImages);
   } finally {
     restoreExportLayout();
-    loadedImages.forEach((loaded) => loaded?.dispose());
+    resolvedImages.loadedImages.forEach((loaded) => loaded?.dispose());
   }
+  return { failedMalImageItems: resolvedImages.failedMalImageItems };
 }
 
 type RenderedTimelineColumn = {
@@ -1663,10 +1767,16 @@ function BumpChart({
   );
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
   const [pinnedKey, setPinnedKey] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
   const [layout, setLayout] = useState<ChartLayout | null>(null);
+  const hoverTimerRef = useRef<number | null>(null);
   const rowRefs = useRef<Array<HTMLDivElement | null>>([]);
   const rowCount = Math.max(0, ...columns.map(({ items }) => items.length));
-  const focusedKey = pinnedKey ?? hoveredKey;
+  const focusedKey = dragging ? null : (pinnedKey ?? hoveredKey);
+  const pinnedLineage =
+    !dragging && pinnedKey != null
+      ? timeline.lineages.find(({ key }) => key === pinnedKey)
+      : undefined;
   const focusedSegments =
     focusedKey == null
       ? []
@@ -1705,6 +1815,41 @@ function BumpChart({
       timeline.lineageByOccurrence.get(`${columnIndex}:${itemIndex}`),
     [timeline],
   );
+
+  const clearPendingHover = useCallback((): void => {
+    if (hoverTimerRef.current != null) {
+      window.clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+  }, []);
+
+  const onHoverFocus = useCallback(
+    (key: string | null): void => {
+      clearPendingHover();
+      if (key == null || dragging) {
+        setHoveredKey(null);
+        return;
+      }
+      hoverTimerRef.current = window.setTimeout(() => {
+        hoverTimerRef.current = null;
+        setHoveredKey(key);
+      }, BUMP_CHART_HOVER_DELAY_MS);
+    },
+    [clearPendingHover, dragging],
+  );
+
+  const onDragChange = useCallback(
+    (nextDragging: boolean): void => {
+      setDragging(nextDragging);
+      if (nextDragging) {
+        clearPendingHover();
+        setHoveredKey(null);
+      }
+    },
+    [clearPendingHover],
+  );
+
+  useEffect(() => () => clearPendingHover(), [clearPendingHover]);
 
   useEffect(() => {
     const onDocumentClick = (event: MouseEvent): void => {
@@ -1799,7 +1944,10 @@ function BumpChart({
   }, [chartRef, columns, rowCount]);
 
   return (
-    <div className="tool-chart-fullbleed bump-chart-fullbleed bump-chart-scroll">
+    <DragScroll
+      className="tool-chart-fullbleed bump-chart-fullbleed bump-chart-scroll"
+      onDragChange={onDragChange}
+    >
       <div
         className="bump-chart-grid bump-chart-grid--timeline"
         ref={chartRef}
@@ -1867,7 +2015,7 @@ function BumpChart({
                         lineageKey={lineage?.key}
                         focusedKey={focusedKey}
                         panelProps={panelProps}
-                        onFocus={setHoveredKey}
+                        onFocus={onHoverFocus}
                         onEdit={() =>
                           onEdit(column.id, rowIndex, entry.item)
                         }
@@ -1888,7 +2036,7 @@ function BumpChart({
                           lineage.itemIndexes[columnIndex + 1] == null
                         }
                         panelProps={panelProps}
-                        onFocus={setHoveredKey}
+                        onFocus={onHoverFocus}
                         onEdit={() =>
                           onEdit(column.id, rowIndex, entry.item)
                         }
@@ -1935,52 +2083,6 @@ function BumpChart({
                 }
               />
             ))}
-            {pinnedKey &&
-              timeline.lineages
-                .find(({ key }) => key === pinnedKey)
-                ?.gaps.map((gap) => {
-                  const fromY =
-                    layout.centersByColumn[gap.fromColumnIndex]?.[
-                      gap.fromItemIndex
-                    ] ?? 0;
-                  const toY =
-                    layout.centersByColumn[gap.toColumnIndex]?.[
-                      gap.toItemIndex
-                    ] ?? 0;
-                  const fromBounds = eventBounds(
-                    layout,
-                    gap.fromColumnIndex,
-                    gap.fromItemIndex,
-                  );
-                  const toBounds = eventBounds(
-                    layout,
-                    gap.toColumnIndex,
-                    gap.toItemIndex,
-                  );
-                  return (
-                    <path
-                      key={`gap:${pinnedKey}:${gap.fromColumnIndex}`}
-                      className="bump-chart-lineage-bridge"
-                      d={`M ${
-                        fromBounds
-                          ? fromBounds.right + 45
-                          : (layout.columnXs[gap.fromColumnIndex] ?? 0) + 55
-                      } ${fromY} L ${
-                        toBounds
-                          ? toBounds.left - 45
-                          : (layout.columnXs[gap.toColumnIndex] ?? 0) - 55
-                      } ${toY}`}
-                      style={{
-                        color:
-                          BUMP_CHART_COLORS[
-                            timeline.lineages.find(
-                              ({ key }) => key === pinnedKey,
-                            )?.colorIndex ?? 0
-                          ],
-                      }}
-                    />
-                  );
-                })}
             {timeline.segments.map((connection) => {
               const path = timelineMovementPath(connection, layout);
               const color = BUMP_CHART_COLORS[connection.colorIndex]!;
@@ -2014,8 +2116,8 @@ function BumpChart({
                     .join(' ')}
                   data-bump-lineage={connection.lineageKey}
                   style={{ color }}
-                  onMouseEnter={() => setHoveredKey(connection.lineageKey)}
-                  onMouseLeave={() => setHoveredKey(null)}
+                  onMouseEnter={() => onHoverFocus(connection.lineageKey)}
+                  onMouseLeave={() => onHoverFocus(null)}
                 >
                   <path
                     className="bump-chart-path-hit"
@@ -2129,8 +2231,56 @@ function BumpChart({
             })}
           </svg>
         )}
+        {layout && pinnedLineage && pinnedLineage.gaps.length > 0 && (
+          <svg
+            className="bump-chart-svg bump-chart-bridge-svg"
+            viewBox={`0 0 ${layout.width} ${layout.height}`}
+            preserveAspectRatio="none"
+            aria-hidden="true"
+            style={{ width: layout.width, height: layout.height }}
+          >
+            {pinnedLineage.gaps.map((gap) => {
+              const fromY =
+                layout.centersByColumn[gap.fromColumnIndex]?.[
+                  gap.fromItemIndex
+                ] ?? 0;
+              const toY =
+                layout.centersByColumn[gap.toColumnIndex]?.[
+                  gap.toItemIndex
+                ] ?? 0;
+              const fromBounds = eventBounds(
+                layout,
+                gap.fromColumnIndex,
+                gap.fromItemIndex,
+              );
+              const toBounds = eventBounds(
+                layout,
+                gap.toColumnIndex,
+                gap.toItemIndex,
+              );
+              return (
+                <path
+                  key={`gap:${pinnedLineage.key}:${gap.fromColumnIndex}`}
+                  className="bump-chart-lineage-bridge"
+                  d={`M ${
+                    fromBounds
+                      ? fromBounds.right + 45
+                      : (layout.columnXs[gap.fromColumnIndex] ?? 0) + 55
+                  } ${fromY} L ${
+                    toBounds
+                      ? toBounds.left - 45
+                      : (layout.columnXs[gap.toColumnIndex] ?? 0) - 55
+                  } ${toY}`}
+                  style={{
+                    color: BUMP_CHART_COLORS[pinnedLineage.colorIndex],
+                  }}
+                />
+              );
+            })}
+          </svg>
+        )}
       </div>
-    </div>
+    </DragScroll>
   );
 }
 
@@ -2344,6 +2494,9 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
   const [exporting, setExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [failedMalExportLabels, setFailedMalExportLabels] = useState<string[]>(
+    [],
+  );
   const [storageError, setStorageError] = useState<string | null>(null);
   const [savedCharts, setSavedCharts] = useState<SavedBumpChartMeta[]>([]);
   const [storageHydrated, setStorageHydrated] = useState(false);
@@ -2782,6 +2935,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
     setImportColumnId(null);
     setImportError(null);
     setExportError(null);
+    setFailedMalExportLabels([]);
   };
 
   const saveEdit = (payload: EditItemSavePayload): void => {
@@ -2882,6 +3036,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
     );
     setChart(null);
     setExportError(null);
+    setFailedMalExportLabels([]);
   };
 
   const loadNamedChart = (id: string): void => {
@@ -2897,6 +3052,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
     setImportColumnId(null);
     setImportError(null);
     setExportError(null);
+    setFailedMalExportLabels([]);
     setStorageError(null);
     setDeletingSavedId(null);
   };
@@ -2945,6 +3101,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
     setExporting(true);
     setExportProgress(null);
     setExportError(null);
+    setFailedMalExportLabels([]);
     try {
       const itemsById = new Map(
         renderedChartColumns
@@ -2954,7 +3111,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
       const includeImages = toolsPreferences.bumpChartIncludeExportImages;
       const useMalImages =
         includeImages && toolsPreferences.bumpChartMalExportImages;
-      await exportChartPng(chartRef.current, {
+      const result = await exportChartPng(chartRef.current, {
         includeImages,
         itemsById,
         useMalImages,
@@ -2966,6 +3123,11 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
             }
           : undefined,
       });
+      if (useMalImages) {
+        setFailedMalExportLabels([
+          ...new Set(result.failedMalImageItems.map(({ label }) => label)),
+        ]);
+      }
     } catch (error) {
       setExportError(
         error instanceof Error ? error.message : 'PNG export failed.',
@@ -3196,6 +3358,21 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
                 : 'Export PNG'}
             </button>
           </div>
+          {failedMalExportLabels.length > 0 && (
+            <div className="bump-chart-export-warning" role="status">
+              <span>
+                MAL images unavailable for: {failedMalExportLabels.join(', ')}.
+              </span>
+              <button
+                type="button"
+                className="btn small"
+                onClick={() => setFailedMalExportLabels([])}
+                aria-label="Dismiss failed MAL image notice"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
           {exportError && <p className="tool-error">{exportError}</p>}
           <BumpChart
             columns={renderedChartColumns}

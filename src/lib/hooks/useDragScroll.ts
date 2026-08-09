@@ -29,6 +29,7 @@ export type UseDragScrollResult<T extends HTMLElement> = {
 /** Click-drag anywhere on a scroll container to pan its scroll position. */
 export function useDragScroll<T extends HTMLElement = HTMLDivElement>(
   onScroll?: (el: T) => void,
+  onDragChange?: (dragging: boolean) => void,
 ): UseDragScrollResult<T> {
   const ref = useRef<T>(null!);
   const dragRef = useRef<DragState | null>(null);
@@ -47,8 +48,12 @@ export function useDragScroll<T extends HTMLElement = HTMLDivElement>(
         return;
       }
 
+      dragRef.current = null;
       removeWindowEndListeners();
       el?.classList.remove('is-drag-scroll-dragging');
+      if (state.dragging) {
+        onDragChange?.(false);
+      }
       try {
         el?.releasePointerCapture(pointerId);
       } catch {
@@ -75,10 +80,8 @@ export function useDragScroll<T extends HTMLElement = HTMLDivElement>(
         document.addEventListener('click', suppress, true);
         timeoutId = window.setTimeout(cleanup, 250);
       }
-
-      dragRef.current = null;
     },
-    [removeWindowEndListeners],
+    [onDragChange, removeWindowEndListeners],
   );
 
   const attachWindowEndListeners = useCallback(
@@ -152,6 +155,7 @@ export function useDragScroll<T extends HTMLElement = HTMLDivElement>(
       }
       state.dragging = true;
       el.classList.add('is-drag-scroll-dragging');
+      onDragChange?.(true);
       attachWindowEndListeners(state.pointerId);
       // Drag confirmed — claim the pointer so a fast swipe that leaves
       // the container still keeps panning. Safe to do now because the
@@ -167,7 +171,7 @@ export function useDragScroll<T extends HTMLElement = HTMLDivElement>(
     el.scrollLeft = state.scrollLeft - dx;
     el.scrollTop = state.scrollTop - dy;
     onScroll?.(el);
-  }, [attachWindowEndListeners, onScroll]);
+  }, [attachWindowEndListeners, onDragChange, onScroll]);
 
   const onPointerUp = useCallback<PointerEventHandler<T>>((event) => {
     const state = dragRef.current;
