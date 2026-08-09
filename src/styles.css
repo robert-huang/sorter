@@ -10063,6 +10063,7 @@ a:where(.anime-to-anime-anilist-link):visited {
 .tool-franchise-activity-media-title {
   min-width: 0;
   font-weight: 600;
+  color: var(--text-muted);
 }
 
 .tool-franchise-activity-text {
