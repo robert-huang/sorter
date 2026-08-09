@@ -633,6 +633,38 @@ describe('GoogleDriveProvider.listCloudSlots', () => {
     const list = await p.listCloudSlots();
     expect(list[0].displayName).toBe('Old');
   });
+
+  it('prefers the full Drive description over the legacy display-name property', async () => {
+    localStorage.setItem(
+      'sorter:cloud:tokens:v1',
+      JSON.stringify({ accessToken: 'A', refreshToken: 'R', expiresAt: Date.now() + 30 * 60_000 }),
+    );
+    localStorage.setItem(
+      'sorter:cloud:folder:v1',
+      JSON.stringify({ folderId: 'F', folderName: 'B' }),
+    );
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          files: [
+            {
+              id: 'X',
+              name: 'Truncated_abc.sorter.json',
+              description: 'Complete slot title that replaced the legacy value',
+              modifiedTime: '2026-05-20T00:00:00.000Z',
+              appProperties: { sorterDisplayName: 'Stale legacy title' },
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+    const p = new GoogleDriveProvider();
+    const list = await p.listCloudSlots();
+    expect(list[0].displayName).toBe(
+      'Complete slot title that replaced the legacy value',
+    );
+  });
 });
 
 describe('GoogleDriveProvider.authedFetch 401 recovery', () => {
@@ -1047,8 +1079,9 @@ describe('GoogleDriveProvider.pushSlot', () => {
     const initBody = String((initInit as RequestInit | undefined)?.body ?? '');
     expect(initBody).toContain('"parents":["FOLDER"]');
     expect(initBody).toContain('"name":"Movies_abc.sorter.json"');
+    expect(initBody).toContain('"description":"Movies"');
     expect(initBody).toContain('"sorterSlotId":"abc"');
-    expect(initBody).toContain('"sorterDisplayName":"Movies"');
+    expect(initBody).not.toContain('sorterDisplayName');
     expect(initBody).toContain('"sorterDone":"false"');
 
     // Content: PUT to the Location URL returned by init. Body is the
@@ -1098,6 +1131,44 @@ describe('GoogleDriveProvider.pushSlot', () => {
 
     expect(result.cloudId).toBe('OLDDRIVEID');
     expect(result.etag).toBe('8');
+  });
+
+  it('stores long and multibyte display names outside size-limited app properties', async () => {
+    setupSignedInWithFolder();
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        initResp('https://www.googleapis.com/upload/drive/v3/files/X?upload_id=LONG'),
+      )
+      .mockResolvedValueOnce(
+        contentResp({
+          id: 'X',
+          modifiedTime: '2026-05-20T02:00:00.000Z',
+          version: '9',
+        }),
+      );
+    const displayName =
+      '(DO NOT USE) archive/chars 20230914 (ranking engine, unclear what this is? a lot of items show up here for seemingly no reason) 日本語';
+
+    await new GoogleDriveProvider().pushSlot('X', makeBlob(), {
+      desiredFilename: 'archive_chars_20230914_X.sorter.json',
+      sorterSlotId: 'X',
+      displayName,
+    });
+
+    const metadata = JSON.parse(
+      String((fetchSpy.mock.calls[0][1] as RequestInit | undefined)?.body ?? ''),
+    ) as {
+      description?: string;
+      appProperties?: Record<string, string>;
+    };
+    expect(metadata.description).toBe(displayName);
+    expect(metadata.appProperties).not.toHaveProperty('sorterDisplayName');
+    for (const [key, value] of Object.entries(metadata.appProperties ?? {})) {
+      expect(new TextEncoder().encode(key + value).length).toBeLessThanOrEqual(
+        124,
+      );
+    }
   });
 
   it('strips the undo ring before uploading the body', async () => {

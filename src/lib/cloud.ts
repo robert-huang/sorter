@@ -63,12 +63,13 @@ export interface AuthState {
 /**
  * Per-slot metadata returned by `listCloudSlots`. Cheap shape — fits
  * in a single `files.list` round-trip with no payload bytes (Drive
- * lets us request `fields=files(id,name,modifiedTime,size,version,appProperties)`).
+ * lets us request the filename, description, timestamps, hashes, and
+ * app properties together).
  *
  * `displayName` is the slot's human-readable name, sourced from the
- * file's `appProperties.sorterDisplayName` set at push time. Falls
- * back to parsing the filename for files predating the appProperties
- * stamp.
+ * file's standard Drive description set at push time. Legacy files
+ * fall back to `appProperties.sorterDisplayName`, then to parsing the
+ * filename.
  *
  * `etag` is an opaque change-token string the provider stamps on
  * every change. For Drive it's `version.toString()` (Drive's

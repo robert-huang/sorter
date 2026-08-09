@@ -640,12 +640,13 @@ export class GoogleDriveProvider implements CloudProvider {
     const params = new URLSearchParams({
       q: `'${folder.folderId}' in parents and trashed = false and name contains '.sorter.json'`,
       fields:
-        'nextPageToken,files(id,name,modifiedTime,size,version,md5Checksum,appProperties)',
+        'nextPageToken,files(id,name,description,modifiedTime,size,version,md5Checksum,appProperties)',
       pageSize: '1000',
     });
     type DriveSlotFile = {
       id: string;
       name: string;
+      description?: string;
       modifiedTime: string;
       size?: string;
       version?: string;
@@ -694,7 +695,9 @@ export class GoogleDriveProvider implements CloudProvider {
       cloudId: f.id,
       filename: f.name,
       displayName:
-        f.appProperties?.sorterDisplayName ?? parseDisplayNameFromFilename(f.name),
+        f.description ||
+        f.appProperties?.sorterDisplayName ||
+        parseDisplayNameFromFilename(f.name),
       sizeBytes: f.size ? Number(f.size) : 0,
       updatedAt: f.modifiedTime,
       etag: f.md5Checksum ?? f.version ?? f.modifiedTime,
@@ -819,10 +822,13 @@ export class GoogleDriveProvider implements CloudProvider {
     //            response: 200 OK with file metadata JSON
     const metadata: Record<string, unknown> = {
       name: opts.desiredFilename,
+      // Drive app-property keys and values share a 124-byte UTF-8
+      // limit. A normal file description retains the complete title
+      // without making long or multibyte slot names fail the upload.
+      description: opts.displayName,
       mimeType: 'application/json',
       appProperties: {
         sorterSlotId: opts.sorterSlotId,
-        sorterDisplayName: opts.displayName,
         sorterDone: blob.progress.done ? 'true' : 'false',
       },
     };
