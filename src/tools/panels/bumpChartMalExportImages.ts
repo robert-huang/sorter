@@ -120,7 +120,10 @@ type MediaMetadataResponse = {
 export type BumpMalExportImage = {
   url: string;
   cacheKey: string;
+  matchKind: 'exact' | 'fuzzy';
 };
+
+type ResolvedMalImage = Pick<BumpMalExportImage, 'url' | 'matchKind'>;
 
 type PendingResolution = {
   forceRefresh: boolean;
@@ -128,9 +131,8 @@ type PendingResolution = {
 };
 
 const pendingResolutions = new Map<string, PendingResolution>();
-const sessionMisses = new Set<string>();
-let persistedUrlCache: Map<string, string> | null = null;
-let urlCacheInitialization: Promise<Map<string, string>> | null = null;
+let persistedUrlCache: Map<string, ResolvedMalImage> | null = null;
+let urlCacheInitialization: Promise<Map<string, ResolvedMalImage>> | null = null;
 let urlCacheGeneration = 0;
 let tenraiQueueTail: Promise<unknown> = Promise.resolve();
 let lastTenraiRequestAt = 0;
@@ -178,7 +180,7 @@ async function migrateLegacyUrlCache(): Promise<void> {
     const persisted = await putDisposableCache(
       MAL_IMAGE_URL_CACHE_NAMESPACE,
       entityKey,
-      url,
+      { url, matchKind: 'exact' } satisfies ResolvedMalImage,
     );
     migratedAll = migratedAll && persisted;
   }
@@ -191,21 +193,39 @@ async function migrateLegacyUrlCache(): Promise<void> {
   }
 }
 
-async function loadPersistedUrlCache(): Promise<Map<string, string>> {
+function cachedImage(value: unknown): ResolvedMalImage | null {
+  if (typeof value === 'string') {
+    return isMalImageUrl(value) ? { url: value, matchKind: 'exact' } : null;
+  }
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const candidate = value as Partial<ResolvedMalImage>;
+  return typeof candidate.url === 'string' &&
+    isMalImageUrl(candidate.url) &&
+    (candidate.matchKind === 'exact' || candidate.matchKind === 'fuzzy')
+    ? { url: candidate.url, matchKind: candidate.matchKind }
+    : null;
+}
+
+async function loadPersistedUrlCache(): Promise<Map<string, ResolvedMalImage>> {
   if (persistedUrlCache) {
     return persistedUrlCache;
   }
   if (!urlCacheInitialization) {
     urlCacheInitialization = (async () => {
       await migrateLegacyUrlCache();
-      const entries = await listDisposableCacheEntries<string>(
+      const entries = await listDisposableCacheEntries<unknown>(
         MAL_IMAGE_URL_CACHE_NAMESPACE,
       );
-      return new Map(
-        entries
-          .filter((entry) => isMalImageUrl(entry.value))
-          .map((entry) => [entry.key, entry.value]),
-      );
+      const mappings: Array<[string, ResolvedMalImage]> = [];
+      for (const entry of entries) {
+        const image = cachedImage(entry.value);
+        if (image) {
+          mappings.push([entry.key, image]);
+        }
+      }
+      return new Map(mappings);
     })();
   }
   persistedUrlCache = await urlCacheInitialization;
@@ -214,15 +234,15 @@ async function loadPersistedUrlCache(): Promise<Map<string, string>> {
 
 async function persistResolvedUrl(
   entityKey: string,
-  url: string,
+  image: ResolvedMalImage,
   generation: number,
 ): Promise<void> {
   const cache = await loadPersistedUrlCache();
   if (generation !== urlCacheGeneration) {
     return;
   }
-  cache.set(entityKey, url);
-  await putDisposableCache(MAL_IMAGE_URL_CACHE_NAMESPACE, entityKey, url);
+  cache.set(entityKey, image);
+  await putDisposableCache(MAL_IMAGE_URL_CACHE_NAMESPACE, entityKey, image);
   if (generation !== urlCacheGeneration) {
     cache.delete(entityKey);
     await deleteDisposableCacheEntry(MAL_IMAGE_URL_CACHE_NAMESPACE, entityKey);
@@ -232,7 +252,6 @@ async function persistResolvedUrl(
 async function invalidateResolvedUrl(entityKey: string): Promise<void> {
   const cache = await loadPersistedUrlCache();
   cache.delete(entityKey);
-  sessionMisses.delete(entityKey);
   await deleteDisposableCacheEntry(MAL_IMAGE_URL_CACHE_NAMESPACE, entityKey);
 }
 
@@ -294,6 +313,150 @@ function namesMatch(
 ): boolean {
   const leftKeys = new Set(left.flatMap(nameKeys));
   return right.some((name) => nameKeys(name).some((key) => leftKeys.has(key)));
+}
+
+const FUZZY_NAME_MIN_SCORE = 0.82;
+const FUZZY_TOKEN_MIN_SCORE = 0.5;
+const FUZZY_CANDIDATE_MARGIN = 0.08;
+
+// Linked casts provide the identity gate; token anchors and a winner margin
+// prevent broad spelling similarity from selecting unrelated cast members.
+function nameTokens(value: string): string[] {
+  return [
+    ...new Set(
+      normalizeName(value)
+        .split(' ')
+        .filter((token) => token.length > 1),
+    ),
+  ].sort();
+}
+
+function levenshteinDistance(left: string, right: string): number {
+  let previous = Array.from(
+    { length: right.length + 1 },
+    (_, index) => index,
+  );
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    const current = [leftIndex];
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      current[rightIndex] = Math.min(
+        current[rightIndex - 1]! + 1,
+        previous[rightIndex]! + 1,
+        previous[rightIndex - 1]! +
+          (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1),
+      );
+    }
+    previous = current;
+  }
+  return previous[right.length] ?? 0;
+}
+
+function tokenSimilarity(left: string, right: string): number {
+  const longest = Math.max(left.length, right.length);
+  return longest === 0
+    ? 1
+    : 1 - levenshteinDistance(left, right) / longest;
+}
+
+function exactTokenSubsetScore(
+  leftTokens: readonly string[],
+  rightTokens: readonly string[],
+): number | null {
+  const [shorter, longer] =
+    leftTokens.length <= rightTokens.length
+      ? [leftTokens, rightTokens]
+      : [rightTokens, leftTokens];
+  if (
+    shorter.length < 2 ||
+    !shorter.every((token) => longer.includes(token))
+  ) {
+    return null;
+  }
+  return 0.96 - Math.min(0.08, (longer.length - shorter.length) * 0.02);
+}
+
+function sameLengthFuzzyScore(
+  leftTokens: readonly string[],
+  rightTokens: readonly string[],
+): number | null {
+  if (leftTokens.length < 2 || leftTokens.length !== rightTokens.length) {
+    return null;
+  }
+  const remainingLeft = [...leftTokens];
+  const remainingRight = [...rightTokens];
+  let exactCount = 0;
+  let score = 0;
+
+  for (let index = remainingLeft.length - 1; index >= 0; index -= 1) {
+    const rightIndex = remainingRight.indexOf(remainingLeft[index]!);
+    if (rightIndex < 0) {
+      continue;
+    }
+    exactCount += 1;
+    score += 1;
+    remainingLeft.splice(index, 1);
+    remainingRight.splice(rightIndex, 1);
+  }
+  if (exactCount === 0) {
+    return null;
+  }
+
+  while (remainingLeft.length > 0) {
+    let bestLeftIndex = 0;
+    let bestRightIndex = 0;
+    let bestScore = -1;
+    for (let leftIndex = 0; leftIndex < remainingLeft.length; leftIndex += 1) {
+      for (
+        let rightIndex = 0;
+        rightIndex < remainingRight.length;
+        rightIndex += 1
+      ) {
+        const candidateScore = tokenSimilarity(
+          remainingLeft[leftIndex]!,
+          remainingRight[rightIndex]!,
+        );
+        if (candidateScore > bestScore) {
+          bestLeftIndex = leftIndex;
+          bestRightIndex = rightIndex;
+          bestScore = candidateScore;
+        }
+      }
+    }
+    if (bestScore < FUZZY_TOKEN_MIN_SCORE) {
+      return null;
+    }
+    score += bestScore;
+    remainingLeft.splice(bestLeftIndex, 1);
+    remainingRight.splice(bestRightIndex, 1);
+  }
+
+  const average = score / leftTokens.length;
+  return average >= FUZZY_NAME_MIN_SCORE ? average : null;
+}
+
+function fuzzyNameScore(left: string, right: string): number | null {
+  const leftTokens = nameTokens(left);
+  const rightTokens = nameTokens(right);
+  return (
+    exactTokenSubsetScore(leftTokens, rightTokens) ??
+    sameLengthFuzzyScore(leftTokens, rightTokens)
+  );
+}
+
+function bestFuzzyNameScore(
+  sourceNames: readonly string[],
+  candidateNames: readonly string[],
+): number | null {
+  let best: number | null = null;
+  for (const sourceName of sourceNames) {
+    for (const candidateName of candidateNames) {
+      const score = fuzzyNameScore(sourceName, candidateName);
+      if (score != null && (best == null || score > best)) {
+        best = score;
+      }
+    }
+  }
+  return best;
 }
 
 function anilistNames(item: Item, metadataName?: AnilistName | null): string[] {
@@ -438,7 +601,7 @@ function uniqueLinkedMedia(
   return linkedMedia;
 }
 
-async function resolveMediaImage(item: Item): Promise<string | null> {
+async function resolveMediaImage(item: Item): Promise<ResolvedMalImage | null> {
   if (item.source?.kind !== 'anilist') {
     return null;
   }
@@ -456,13 +619,70 @@ async function resolveMediaImage(item: Item): Promise<string | null> {
   const response = await fetchMalOfficialJson<MalMediaResponse>(
     `/v2/${typePath}/${media.idMal}?fields=main_picture`,
   );
-  return malPictureUrl(response.data?.main_picture);
+  const url = malPictureUrl(response.data?.main_picture);
+  return url ? { url, matchKind: 'exact' } : null;
 }
 
-async function addMalAnimeCharacterMatches(
+type FuzzyCharacterCandidate = {
+  url: string;
+  score: number;
+};
+
+function addCharacterCandidate(
+  malId: number,
+  candidateNames: readonly string[],
+  imageUrl: string | null,
+  sourceNames: readonly string[],
+  exactMatches: Map<number, string>,
+  fuzzyCandidates: Map<number, FuzzyCharacterCandidate>,
+): void {
+  if (!imageUrl) {
+    return;
+  }
+  if (namesMatch(sourceNames, candidateNames)) {
+    exactMatches.set(malId, imageUrl);
+    return;
+  }
+  const score = bestFuzzyNameScore(sourceNames, candidateNames);
+  const current = fuzzyCandidates.get(malId);
+  if (score != null && (current == null || score > current.score)) {
+    fuzzyCandidates.set(malId, { url: imageUrl, score });
+  }
+}
+
+function selectCharacterImage(
+  exactMatches: ReadonlyMap<number, string>,
+  fuzzyCandidates: ReadonlyMap<number, FuzzyCharacterCandidate>,
+): ResolvedMalImage | null {
+  if (exactMatches.size === 1) {
+    return {
+      url: [...exactMatches.values()][0]!,
+      matchKind: 'exact',
+    };
+  }
+  if (exactMatches.size > 1) {
+    return null;
+  }
+
+  const ranked = [...fuzzyCandidates.values()].sort(
+    (left, right) => right.score - left.score,
+  );
+  const best = ranked[0];
+  const runnerUp = ranked[1];
+  if (
+    !best ||
+    (runnerUp != null && best.score - runnerUp.score < FUZZY_CANDIDATE_MARGIN)
+  ) {
+    return null;
+  }
+  return { url: best.url, matchKind: 'fuzzy' };
+}
+
+async function addMalAnimeCharacterCandidates(
   malId: number,
   sourceNames: readonly string[],
-  matches: Map<number, string>,
+  exactMatches: Map<number, string>,
+  fuzzyCandidates: Map<number, FuzzyCharacterCandidate>,
 ): Promise<void> {
   const fields = encodeURIComponent(
     'id,first_name,last_name,alternative_name,main_picture',
@@ -471,17 +691,20 @@ async function addMalAnimeCharacterMatches(
     `/v2/anime/${malId}/characters?fields=${fields}&limit=500`,
   );
   for (const entry of response.data?.data ?? []) {
-    if (!namesMatch(sourceNames, malCharacterNames(entry.node))) {
-      continue;
-    }
-    const imageUrl = malPictureUrl(entry.node.main_picture);
-    if (imageUrl) {
-      matches.set(entry.node.id, imageUrl);
-    }
+    addCharacterCandidate(
+      entry.node.id,
+      malCharacterNames(entry.node),
+      malPictureUrl(entry.node.main_picture),
+      sourceNames,
+      exactMatches,
+      fuzzyCandidates,
+    );
   }
 }
 
-async function resolveCharacterImage(item: Item): Promise<string | null> {
+async function resolveCharacterImage(
+  item: Item,
+): Promise<ResolvedMalImage | null> {
   if (item.source?.kind !== 'anilist-character') {
     return null;
   }
@@ -502,7 +725,8 @@ async function resolveCharacterImage(item: Item): Promise<string | null> {
   }
 
   const sourceNames = anilistNames(item, character.name);
-  const matches = new Map<number, string>();
+  const exactMatches = new Map<number, string>();
+  const fuzzyCandidates = new Map<number, FuzzyCharacterCandidate>();
   const linkedMedia = uniqueLinkedMedia(character.media.nodes).slice(
     0,
     MAX_LINKED_MEDIA_LOOKUPS,
@@ -515,19 +739,26 @@ async function resolveCharacterImage(item: Item): Promise<string | null> {
       `/${typePath}/${media.idMal}/characters`,
     );
     for (const credit of response.data?.data ?? []) {
-      if (namesMatch(sourceNames, tenraiEntityNames(credit.character))) {
-        const imageUrl = preferredImageUrl(credit.character);
-        if (imageUrl) {
-          matches.set(credit.character.mal_id, imageUrl);
-        }
-      }
+      addCharacterCandidate(
+        credit.character.mal_id,
+        tenraiEntityNames(credit.character),
+        preferredImageUrl(credit.character),
+        sourceNames,
+        exactMatches,
+        fuzzyCandidates,
+      );
     }
     // MAL's corresponding hidden manga cast route returns 404.
     if (response.status === 504 && media.type === 'ANIME') {
-      await addMalAnimeCharacterMatches(media.idMal, sourceNames, matches);
+      await addMalAnimeCharacterCandidates(
+        media.idMal,
+        sourceNames,
+        exactMatches,
+        fuzzyCandidates,
+      );
     }
   }
-  return matches.size === 1 ? [...matches.values()][0]! : null;
+  return selectCharacterImage(exactMatches, fuzzyCandidates);
 }
 
 function staffCandidateMatchesCredit(
@@ -557,7 +788,7 @@ function staffCandidateMatchesCredit(
   return voiceLinks.size > 0 ? voiceMatch : animeStaffMatch || mangaStaffMatch;
 }
 
-async function resolveStaffImage(item: Item): Promise<string | null> {
+async function resolveStaffImage(item: Item): Promise<ResolvedMalImage | null> {
   if (item.source?.kind !== 'anilist-staff') {
     return null;
   }
@@ -658,10 +889,12 @@ async function resolveStaffImage(item: Item): Promise<string | null> {
       }
     }
   }
-  return verified.size === 1 ? [...verified.values()][0]! : null;
+  return verified.size === 1
+    ? { url: [...verified.values()][0]!, matchKind: 'exact' }
+    : null;
 }
 
-async function resolveUncached(item: Item): Promise<string | null> {
+async function resolveUncached(item: Item): Promise<ResolvedMalImage | null> {
   switch (item.source?.kind) {
     case 'anilist':
       return resolveMediaImage(item);
@@ -691,13 +924,11 @@ export async function resolveBumpMalExportImage(
       await pendingBeforeRefresh.promise;
     }
     await invalidateResolvedUrl(entityKey);
-  } else if (sessionMisses.has(entityKey)) {
-    return null;
   }
-  const persistedUrl = (await loadPersistedUrlCache()).get(entityKey);
-  if (persistedUrl && isMalImageUrl(persistedUrl)) {
+  const persistedImage = (await loadPersistedUrlCache()).get(entityKey);
+  if (persistedImage) {
     return {
-      url: persistedUrl,
+      ...persistedImage,
       cacheKey: imageCacheRequestKey(entityKey),
     };
   }
@@ -708,18 +939,14 @@ export async function resolveBumpMalExportImage(
   }
   const generation = urlCacheGeneration;
   const resolution = resolveUncached(item)
-    .then(async (url): Promise<BumpMalExportImage | null> => {
-      if (!url) {
-        sessionMisses.add(entityKey);
+    .then(async (image): Promise<BumpMalExportImage | null> => {
+      if (!image) {
         return null;
       }
-      await persistResolvedUrl(entityKey, url, generation);
-      return { url, cacheKey: imageCacheRequestKey(entityKey) };
+      await persistResolvedUrl(entityKey, image, generation);
+      return { ...image, cacheKey: imageCacheRequestKey(entityKey) };
     })
-    .catch(() => {
-      sessionMisses.add(entityKey);
-      return null;
-    })
+    .catch(() => null)
     .finally(() => {
       if (pendingResolutions.get(entityKey)?.promise === resolution) {
         pendingResolutions.delete(entityKey);
@@ -734,7 +961,6 @@ export async function resolveBumpMalExportImage(
 
 export function _resetBumpMalExportImagesForTesting(): void {
   pendingResolutions.clear();
-  sessionMisses.clear();
   persistedUrlCache = null;
   urlCacheInitialization = null;
   urlCacheGeneration = 0;

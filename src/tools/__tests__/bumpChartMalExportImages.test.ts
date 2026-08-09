@@ -31,6 +31,34 @@ function item(
   };
 }
 
+function characterMetadata(full: string): object {
+  return {
+    Character: {
+      name: {
+        full,
+        native: null,
+        alternative: [],
+        alternativeSpoiler: [],
+      },
+      media: { nodes: [{ id: 1, idMal: 1, type: 'ANIME' }] },
+    },
+  };
+}
+
+function tenraiCharacter(
+  malId: number,
+  name: string,
+  imageUrl: string = MAL_IMAGE,
+): object {
+  return {
+    character: {
+      mal_id: malId,
+      name,
+      images: { jpg: { image_url: imageUrl } },
+    },
+  };
+}
+
 beforeEach(async () => {
   localStorage.clear();
   await _resetDisposableCacheDbForTesting();
@@ -107,6 +135,128 @@ describe('Bump Chart MAL export image matching', () => {
     );
 
     expect(resolved?.url).toBe(MAL_IMAGE);
+    expect(resolved?.matchKind).toBe('exact');
+  });
+
+  it.each([
+    ['Tiat Siba Ignareo', 'Siba Igleo, Tiat'],
+    ['Lillia Aspley', 'Asplay, Lillia'],
+  ])(
+    'fuzzy matches the unique linked-cast spelling for %s',
+    async (sourceName, malName) => {
+      executeAnilistQuery.mockResolvedValue(characterMetadata(sourceName));
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            data: [tenraiCharacter(11, malName)],
+          }),
+          { status: 200 },
+        ),
+      );
+
+      const resolved = await resolveBumpMalExportImage(
+        item('anilist-character', 1, sourceName),
+      );
+
+      expect(resolved).toMatchObject({
+        url: MAL_IMAGE,
+        matchKind: 'fuzzy',
+      });
+    },
+  );
+
+  it('fuzzy matches a source name contained within a longer linked-cast name', async () => {
+    executeAnilistQuery.mockResolvedValue(characterMetadata('Mei Takanashi'));
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [tenraiCharacter(11, 'Takanashi, Kim Anouk Mei')],
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const resolved = await resolveBumpMalExportImage(
+      item('anilist-character', 1, 'Mei Takanashi'),
+    );
+
+    expect(resolved).toMatchObject({
+      url: MAL_IMAGE,
+      matchKind: 'fuzzy',
+    });
+  });
+
+  it('prefers one exact linked-cast match over fuzzy candidates', async () => {
+    const exactImage =
+      'https://cdn.myanimelist.net/images/characters/exact.jpg';
+    executeAnilistQuery.mockResolvedValue(
+      characterMetadata('Tiat Siba Ignareo'),
+    );
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [
+            tenraiCharacter(11, 'Siba Igleo, Tiat'),
+            tenraiCharacter(12, 'Tiat Siba Ignareo', exactImage),
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const resolved = await resolveBumpMalExportImage(
+      item('anilist-character', 1, 'Tiat Siba Ignareo'),
+    );
+
+    expect(resolved).toMatchObject({
+      url: exactImage,
+      matchKind: 'exact',
+    });
+  });
+
+  it('rejects fuzzy linked-cast matches without a clear winner', async () => {
+    executeAnilistQuery.mockResolvedValue(characterMetadata('Lillia Aspley'));
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [
+            tenraiCharacter(11, 'Asplay, Lillia'),
+            tenraiCharacter(
+              12,
+              'Asplei, Lillia',
+              'https://cdn.myanimelist.net/images/characters/12.jpg',
+            ),
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+
+    await expect(
+      resolveBumpMalExportImage(
+        item('anilist-character', 1, 'Lillia Aspley'),
+      ),
+    ).resolves.toBeNull();
+  });
+
+  it('rejects weak relationship-name translations from a linked cast', async () => {
+    executeAnilistQuery.mockResolvedValue(
+      characterMetadata('Azusagawa no Chichi'),
+    );
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [tenraiCharacter(11, "Sakuta's Father")],
+        }),
+        { status: 200 },
+      ),
+    );
+
+    await expect(
+      resolveBumpMalExportImage(
+        item('anilist-character', 1, 'Azusagawa no Chichi'),
+      ),
+    ).resolves.toBeNull();
   });
 
   it('falls back to the linked official MAL anime cast after a Tenrai 504', async () => {
@@ -182,6 +332,37 @@ describe('Bump Chart MAL export image matching', () => {
     ).resolves.toBeNull();
 
     expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('retries a prior transient miss on the next resolution', async () => {
+    executeAnilistQuery.mockResolvedValue(characterMetadata('Spike Spiegel'));
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: [tenraiCharacter(11, 'Spiegel, Spike')],
+          }),
+          { status: 200 },
+        ),
+      );
+    const characterItem = item(
+      'anilist-character',
+      1,
+      'Spike Spiegel',
+    );
+
+    await expect(
+      resolveBumpMalExportImage(characterItem),
+    ).resolves.toBeNull();
+    await expect(
+      resolveBumpMalExportImage(characterItem),
+    ).resolves.toMatchObject({
+      url: MAL_IMAGE,
+      matchKind: 'exact',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('does not call the nonexistent MAL manga cast endpoint after a Tenrai 504', async () => {
@@ -419,6 +600,41 @@ describe('Bump Chart MAL export image matching', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('preserves fuzzy provenance in the persisted URL cache', async () => {
+    executeAnilistQuery.mockResolvedValue(
+      characterMetadata('Tiat Siba Ignareo'),
+    );
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [tenraiCharacter(11, 'Siba Igleo, Tiat')],
+        }),
+        { status: 200 },
+      ),
+    );
+    const characterItem = item(
+      'anilist-character',
+      1,
+      'Tiat Siba Ignareo',
+    );
+
+    await expect(
+      resolveBumpMalExportImage(characterItem),
+    ).resolves.toMatchObject({ matchKind: 'fuzzy' });
+    _resetBumpMalExportImagesForTesting();
+    executeAnilistQuery.mockClear();
+    fetchMock.mockClear();
+
+    await expect(
+      resolveBumpMalExportImage(characterItem),
+    ).resolves.toMatchObject({
+      url: MAL_IMAGE,
+      matchKind: 'fuzzy',
+    });
+    expect(executeAnilistQuery).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('migrates legacy URL mappings into individual disposable records', async () => {
     localStorage.setItem(
       'queue-sorter:bump-mal-export-image-urls:v1',
@@ -436,6 +652,7 @@ describe('Bump Chart MAL export image matching', () => {
       url: MAL_IMAGE,
       cacheKey:
         'https://queue-sorter.invalid/bump-mal-export/v1/anilist%3A10',
+      matchKind: 'exact',
     });
     expect(localStorage.getItem('queue-sorter:bump-mal-export-image-urls:v1')).toBeNull();
     expect(executeAnilistQuery).not.toHaveBeenCalled();

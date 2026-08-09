@@ -891,8 +891,10 @@ export function AnilistHydrationControls({
       {error && <div className="form-error">{error}</div>}
       {result && (
         <div className="header-hint anilist-hydration-result">
-          Matched {result.matchedCount} of {result.items.length}. Unresolved rows
-          remain manual and can be edited in staging.
+          Matched {result.matchedCount} of {result.items.length}.
+          {result.items.length > result.matchedCount
+            ? ' Unresolved rows remain manual and can be edited in staging.'
+            : ''}
           {result.issues.length > 0 && (
             <ul>
               {result.issues.slice(0, 10).map((issue) => (

@@ -1186,6 +1186,7 @@ type ExportChartPngOptions = {
 
 export type ExportChartPngResult = {
   failedMalImageItems: Item[];
+  fuzzyMalImageItems: Item[];
 };
 
 type ResolvedExportImages = ExportChartPngResult & {
@@ -1204,6 +1205,7 @@ async function resolveExportImages(
       const src = image.currentSrc || image.src;
       let loaded: LoadedCanvasImage | null = null;
       let failedMalImageItem: Item | null = null;
+      let fuzzyMalImageItem: Item | null = null;
       if (isAnilistCdnImageUrl(src)) {
         const itemId =
           image.closest<HTMLElement>('[data-bump-item-id]')?.dataset.bumpItemId;
@@ -1211,12 +1213,22 @@ async function resolveExportImages(
         if (options.useMalImages && item) {
           const fallback = await resolveBumpMalExportImage(item);
           if (fallback) {
+            if (fallback.matchKind === 'fuzzy') {
+              fuzzyMalImageItem = item;
+            }
             loaded = await loadCachedCanvasImage(
               fallback.url,
               fallback.cacheKey,
               {
-                refreshStaleSource: () =>
-                  resolveBumpMalExportImage(item, { forceRefresh: true }),
+                refreshStaleSource: async () => {
+                  const refreshed = await resolveBumpMalExportImage(item, {
+                    forceRefresh: true,
+                  });
+                  if (refreshed?.matchKind === 'fuzzy') {
+                    fuzzyMalImageItem = item;
+                  }
+                  return refreshed;
+                },
               },
             );
           }
@@ -1229,18 +1241,23 @@ async function resolveExportImages(
       }
       completed += 1;
       options.onImageProgress?.(completed, total);
-      return { loaded, failedMalImageItem };
+      return { loaded, failedMalImageItem, fuzzyMalImageItem };
     }),
   );
   const failedMalImageItems = new Map<string, Item>();
-  for (const { failedMalImageItem } of resolutions) {
+  const fuzzyMalImageItems = new Map<string, Item>();
+  for (const { failedMalImageItem, fuzzyMalImageItem } of resolutions) {
     if (failedMalImageItem) {
       failedMalImageItems.set(failedMalImageItem.id, failedMalImageItem);
+    }
+    if (fuzzyMalImageItem) {
+      fuzzyMalImageItems.set(fuzzyMalImageItem.id, fuzzyMalImageItem);
     }
   }
   return {
     loadedImages: resolutions.map(({ loaded }) => loaded),
     failedMalImageItems: [...failedMalImageItems.values()],
+    fuzzyMalImageItems: [...fuzzyMalImageItems.values()],
   };
 }
 
@@ -1717,6 +1734,7 @@ export async function exportChartPng(
       ? {
           loadedImages: imageElements.map(() => null),
           failedMalImageItems: [],
+          fuzzyMalImageItems: [],
         }
       : await resolveExportImages(imageElements, options);
   const restoreExportLayout = prepareExportImageLayout(
@@ -1730,7 +1748,10 @@ export async function exportChartPng(
     restoreExportLayout();
     resolvedImages.loadedImages.forEach((loaded) => loaded?.dispose());
   }
-  return { failedMalImageItems: resolvedImages.failedMalImageItems };
+  return {
+    failedMalImageItems: resolvedImages.failedMalImageItems,
+    fuzzyMalImageItems: resolvedImages.fuzzyMalImageItems,
+  };
 }
 
 type RenderedTimelineColumn = {
@@ -2499,6 +2520,9 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
   const [failedMalExportLabels, setFailedMalExportLabels] = useState<string[]>(
     [],
   );
+  const [fuzzyMalExportLabels, setFuzzyMalExportLabels] = useState<string[]>(
+    [],
+  );
   const [storageError, setStorageError] = useState<string | null>(null);
   const [savedCharts, setSavedCharts] = useState<SavedBumpChartMeta[]>([]);
   const [storageHydrated, setStorageHydrated] = useState(false);
@@ -3104,6 +3128,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
     setExportProgress(null);
     setExportError(null);
     setFailedMalExportLabels([]);
+    setFuzzyMalExportLabels([]);
     try {
       const itemsById = new Map(
         renderedChartColumns
@@ -3128,6 +3153,9 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
       if (useMalImages) {
         setFailedMalExportLabels([
           ...new Set(result.failedMalImageItems.map(({ label }) => label)),
+        ]);
+        setFuzzyMalExportLabels([
+          ...new Set(result.fuzzyMalImageItems.map(({ label }) => label)),
         ]);
       }
     } catch (error) {
@@ -3360,16 +3388,31 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
                 : 'Export PNG'}
             </button>
           </div>
-          {failedMalExportLabels.length > 0 && (
+          {(failedMalExportLabels.length > 0 ||
+            fuzzyMalExportLabels.length > 0) && (
             <div className="bump-chart-export-warning" role="status">
               <span>
-                MAL images unavailable for: {failedMalExportLabels.join(', ')}.
+                {failedMalExportLabels.length > 0 && (
+                  <>
+                    MAL images unavailable for:{' '}
+                    {failedMalExportLabels.join(', ')}.{' '}
+                  </>
+                )}
+                {fuzzyMalExportLabels.length > 0 && (
+                  <>
+                    Approximate MAL image matches used for:{' '}
+                    {fuzzyMalExportLabels.join(', ')}. Verify these images.
+                  </>
+                )}
               </span>
               <button
                 type="button"
                 className="btn small"
-                onClick={() => setFailedMalExportLabels([])}
-                aria-label="Dismiss failed MAL image notice"
+                onClick={() => {
+                  setFailedMalExportLabels([]);
+                  setFuzzyMalExportLabels([]);
+                }}
+                aria-label="Dismiss MAL image notice"
               >
                 Dismiss
               </button>

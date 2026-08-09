@@ -233,7 +233,11 @@ describe('AniList hydration controls', () => {
       buttonByText('Match exact names').click();
       await Promise.resolve();
     });
-    expect(container.textContent).toContain('Matched 1 of 1');
+    const hydrationResult = container.querySelector(
+      '.anilist-hydration-result',
+    );
+    expect(hydrationResult?.textContent).toBe('Matched 1 of 1.');
+    expect(hydrationResult?.textContent).not.toContain('Unresolved rows');
 
     await act(async () => {
       root.render(
@@ -248,6 +252,38 @@ describe('AniList hydration controls', () => {
 
     expect(container.textContent).not.toContain('Matched 1 of 1');
     expect(container.textContent).not.toContain('Cached username');
+  });
+
+  it('shows inline unresolved-row help only for partial matches', async () => {
+    await act(async () => {
+      root.render(
+        <AnilistHydrationControls
+          items={[
+            { id: 'AAAAAAAAAAAAAQ', label: 'Matched item' },
+            { id: 'BBBBBBBBBBBBBQ', label: 'Missing item' },
+          ]}
+          dbSyncRevision={0}
+          onHydrated={vi.fn()}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      buttonByText('Hydrate from cached AniList list…').click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      buttonByText('Match exact names').click();
+      await Promise.resolve();
+    });
+
+    const hydrationResult = container.querySelector(
+      '.anilist-hydration-result',
+    );
+    expect(hydrationResult?.textContent).toContain(
+      'Matched 1 of 2. Unresolved rows remain manual and can be edited in staging.',
+    );
   });
 
   it('keeps the controls visible and shows refresh progress in the third column', async () => {

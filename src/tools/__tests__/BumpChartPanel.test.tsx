@@ -44,7 +44,7 @@ import {
   type BumpChartColumnSnapshot,
 } from '../panels/bumpChartStorage';
 import { _resetBumpChartImageMemoryCacheForTesting } from '../panels/bumpChartImageCache';
-import { _resetBumpMalExportImagesForTesting } from '../panels/bumpChartMalExportImages';
+import * as bumpChartMalExportImages from '../panels/bumpChartMalExportImages';
 
 let container: HTMLDivElement;
 let root: Root;
@@ -62,7 +62,7 @@ beforeEach(async () => {
   _resetSorterStorageCacheForTesting();
   _resetBumpChartStorageCacheForTesting();
   _resetBumpChartImageMemoryCacheForTesting();
-  _resetBumpMalExportImagesForTesting();
+  bumpChartMalExportImages._resetBumpMalExportImagesForTesting();
   _clearToolsPreferencesForTesting();
   container = document.createElement('div');
   document.body.appendChild(container);
@@ -2330,16 +2330,24 @@ describe('BumpChartPanel staging flow', () => {
     chart.remove();
   });
 
-  it('uses a persisted MAL fallback only when the export opt-in is enabled', async () => {
+  it('reports fuzzy MAL fallbacks only when export opt-in is enabled', async () => {
     const anilistImage =
       'https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/test.jpg';
     const malImage =
       'https://cdn.myanimelist.net/images/anime/4/19644.jpg';
-    localStorage.setItem(
-      'queue-sorter:bump-mal-export-image-urls:v1',
-      JSON.stringify({ 'anilist:1': malImage }),
+    vi.spyOn(
+      bumpChartMalExportImages,
+      'resolveBumpMalExportImage',
+    ).mockImplementation(async (resolvedItem) =>
+      resolvedItem.id === 'anilist:1'
+        ? {
+            url: malImage,
+            cacheKey:
+              'https://queue-sorter.invalid/bump-mal-export/v1/anilist%3A1',
+            matchKind: 'fuzzy',
+          }
+        : null,
     );
-    _resetBumpMalExportImagesForTesting();
 
     const chart = document.createElement('div');
     chart.style.backgroundColor = 'rgb(255, 255, 255)';
@@ -2429,6 +2437,7 @@ describe('BumpChartPanel staging flow', () => {
         useMalImages: true,
       });
       expect(skippedResult.failedMalImageItems).toEqual([]);
+      expect(skippedResult.fuzzyMalImageItems).toEqual([]);
       expect(fetchMock).not.toHaveBeenCalled();
       expect(context.drawImage).not.toHaveBeenCalled();
       expect(images.every((image) => image.style.display === '')).toBe(true);
@@ -2440,6 +2449,9 @@ describe('BumpChartPanel staging flow', () => {
       });
       expect(exportResult.failedMalImageItems.map(({ label }) => label)).toEqual([
         'Custom item',
+      ]);
+      expect(exportResult.fuzzyMalImageItems.map(({ label }) => label)).toEqual([
+        'Cowboy Bebop',
       ]);
     } finally {
       if (createObjectUrlDescriptor) {
