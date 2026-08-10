@@ -8557,7 +8557,7 @@ a:where(.anime-to-anime-anilist-link):visited {
   min-width: 54px;
   text-align: center;
   white-space: nowrap;
-  color: var(--text-disabled);
+  color: color-mix(in srgb, var(--text-disabled) 80%, var(--text-muted));
 }
 
 .bump-chart-saved-date {
