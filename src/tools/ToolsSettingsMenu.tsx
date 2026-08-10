@@ -157,14 +157,14 @@ export function ToolsSettingsMenu({
                       setBumpChartIncludeExportImages(e.target.checked)
                     }
                   />
-                  Include images in PNG Export
+                  Include images in PNG exports
                 </label>
                 <label
                   className="settings-item checkbox"
                   title={
                     toolsPrefs.bumpChartIncludeExportImages
-                      ? 'When enabled, PNG export tries to replace unavailable AniList covers with verified MyAnimeList images. Live chart images are unchanged.'
-                      : 'Turn on Include images in PNG Export to use MyAnimeList fallback images.'
+                      ? 'When enabled, PNG exports try to replace unavailable AniList covers with verified MyAnimeList images. Live chart images are unchanged.'
+                      : 'Turn on Include images in PNG exports to use MyAnimeList fallback images.'
                   }
                 >
                   <input

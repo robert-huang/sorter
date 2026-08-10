@@ -87,7 +87,7 @@ describe('ToolsSettingsMenu', () => {
     ).filter((input) =>
       [
         'Best match by title',
-        'Include images in PNG Export',
+        'Include images in PNG exports',
         'Use MyAnimeList images in PNG exports',
       ].some((label) => input.closest('label')?.textContent?.includes(label)),
     );
@@ -95,7 +95,7 @@ describe('ToolsSettingsMenu', () => {
       bumpChartCheckboxes.map((input) => input.closest('label')?.textContent?.trim()),
     ).toEqual([
       'Best match by title',
-      'Include images in PNG Export',
+      'Include images in PNG exports',
       'Use MyAnimeList images in PNG exports',
     ]);
 
