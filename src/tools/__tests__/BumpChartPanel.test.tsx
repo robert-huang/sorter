@@ -1591,7 +1591,10 @@ describe('BumpChartPanel staging flow', () => {
     const center = container.querySelector<HTMLElement>(
       '.bump-chart-center-cell',
     );
-    if (!grid || !row || !center) {
+    const rankWidthSizer = container.querySelector<HTMLElement>(
+      '.bump-chart-rank-width-sizer',
+    );
+    if (!grid || !row || !center || !rankWidthSizer) {
       throw new Error('Bump Chart geometry was not rendered');
     }
     let gridHeight = 240;
@@ -1601,6 +1604,9 @@ describe('BumpChartPanel staging flow', () => {
     vi.spyOn(row, 'getBoundingClientRect').mockReturnValue(domRect(1_000, 64));
     vi.spyOn(center, 'getBoundingClientRect').mockReturnValue(
       domRect(280, 64, 360),
+    );
+    vi.spyOn(rankWidthSizer, 'getBoundingClientRect').mockReturnValue(
+      domRect(37, 0),
     );
     Object.defineProperty(grid, 'scrollHeight', {
       configurable: true,
@@ -1613,6 +1619,9 @@ describe('BumpChartPanel staging flow', () => {
     expect(
       container.querySelector<SVGSVGElement>('.bump-chart-svg')?.style.height,
     ).toBe('240px');
+    expect(grid.style.getPropertyValue('--bump-rank-column-width')).toBe(
+      '37px',
+    );
 
     gridHeight = 120;
     await act(async () => {

@@ -8826,6 +8826,7 @@ a:where(.anime-to-anime-anilist-link):visited {
   --bump-label-width: 360px;
   --bump-center-min-width: 280px;
   --bump-intermediate-width: 224px;
+  --bump-rank-column-width: calc(2ch + 4px);
   position: relative;
   width: 100%;
   min-width: calc(
@@ -9065,11 +9066,11 @@ a:where(.anime-to-anime-anilist-link):visited {
 }
 
 .bump-chart-label-cell--left {
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) var(--bump-rank-column-width);
 }
 
 .bump-chart-label-cell--right {
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: var(--bump-rank-column-width) minmax(0, 1fr);
 }
 
 .bump-chart-label-cell--empty {
@@ -9091,6 +9092,36 @@ a:where(.anime-to-anime-anilist-link):visited {
   font: inherit;
   font-variant-numeric: tabular-nums;
   font-weight: 700;
+}
+
+.bump-chart-rank-column {
+  display: grid;
+  width: var(--bump-rank-column-width);
+  align-self: stretch;
+  place-items: center;
+}
+
+.bump-chart-rank-column > .bump-chart-rank {
+  width: 100%;
+  box-sizing: border-box;
+  text-align: center;
+}
+
+.bump-chart-rank-width-sizer {
+  position: absolute;
+  display: grid;
+  width: max-content;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.bump-chart-rank-width-sizer-label {
+  box-sizing: border-box;
+  padding: 4px 2px;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .bump-chart-rank:hover,

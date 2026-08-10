@@ -918,15 +918,17 @@ function BumpChartLabel({
 }) {
   const dimmed = focusedKey != null && lineageKey !== focusedKey;
   const rankButton = (
-    <button
-      type="button"
-      className="bump-chart-rank"
-      onClick={onEdit}
-      title={`Edit #${rank} ${item.label}`}
-      aria-label={`Edit rank ${rank}: ${item.label}`}
-    >
-      #{rank}
-    </button>
+    <div className="bump-chart-rank-column">
+      <button
+        type="button"
+        className="bump-chart-rank"
+        onClick={onEdit}
+        title={`Edit #${rank} ${item.label}`}
+        aria-label={`Edit rank ${rank}: ${item.label}`}
+      >
+        #{rank}
+      </button>
+    </div>
   );
   return (
     <div
@@ -1810,6 +1812,7 @@ function BumpChart({
   const [layout, setLayout] = useState<ChartLayout | null>(null);
   const draggingRef = useRef(false);
   const hoverTimerRef = useRef<number | null>(null);
+  const rankWidthSizerRef = useRef<HTMLDivElement | null>(null);
   const rowRefs = useRef<Array<HTMLDivElement | null>>([]);
   const rowCount = Math.max(0, ...columns.map(({ items }) => items.length));
   const focusedKey = pinnedKey ?? hoveredKey;
@@ -1919,6 +1922,18 @@ function BumpChart({
     const root = chartRef.current;
     if (!root || rowCount === 0) return;
     const measure = (): void => {
+      const rankWidth = Math.ceil(
+        rankWidthSizerRef.current?.getBoundingClientRect().width ?? 0,
+      );
+      if (rankWidth > 0) {
+        const rankWidthValue = `${rankWidth}px`;
+        if (
+          root.style.getPropertyValue('--bump-rank-column-width') !==
+          rankWidthValue
+        ) {
+          root.style.setProperty('--bump-rank-column-width', rankWidthValue);
+        }
+      }
       const rootRect = root.getBoundingClientRect();
       const rows = rowRefs.current.slice(0, rowCount);
       const rowRects = rows.map((row) => {
@@ -1974,6 +1989,9 @@ function BumpChart({
     const observer =
       typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
     observer?.observe(root);
+    if (rankWidthSizerRef.current) {
+      observer?.observe(rankWidthSizerRef.current);
+    }
     rowRefs.current.slice(0, rowCount).forEach((row) => {
       if (row) observer?.observe(row);
     });
@@ -1995,6 +2013,20 @@ function BumpChart({
         style={{ minWidth: minimumWidth }}
         data-bump-pinned-lineage={pinnedKey ?? undefined}
       >
+        <div
+          ref={rankWidthSizerRef}
+          className="bump-chart-rank-width-sizer"
+          aria-hidden="true"
+        >
+          {Array.from({ length: rowCount }, (_, rowIndex) => (
+            <span
+              key={`rank-width:${rowIndex}`}
+              className="bump-chart-rank-width-sizer-label"
+            >
+              #{rowIndex + 1}
+            </span>
+          ))}
+        </div>
         <div
           className="bump-chart-order-name-row"
           style={{ gridTemplateColumns }}
