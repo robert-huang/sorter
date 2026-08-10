@@ -114,7 +114,7 @@ function pluralize(n: number, word: string): string {
  * candidate quickly. Tuned to match the height of the gear-menu
  * popover before vertical scrolling kicks in.
  */
-const SEARCH_THRESHOLD = 5;
+const SEARCH_THRESHOLD = 0;
 
 type DoneFilter = 'all' | 'done' | 'incomplete';
 
