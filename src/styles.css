@@ -8877,8 +8877,6 @@ a:where(.anime-to-anime-anilist-link):visited {
 .bump-chart-grid--timeline .bump-chart-row {
   z-index: auto;
   grid-template-columns: unset;
-  content-visibility: auto;
-  contain-intrinsic-block-size: 64px;
 }
 
 .bump-chart-fullbleed.is-drag-scroll-dragging .bump-chart-grid {
