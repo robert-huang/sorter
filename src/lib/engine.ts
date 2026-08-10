@@ -834,21 +834,60 @@ export function reinsertHiddenItem(
 // ---------- completion normalization ----------
 
 /**
- * Repair stale merge manual-insert buckets and normalize completed sorts
- * when loading a save. In-progress insertion states pass through except
- * for merge-engine stale-bucket reconciliation.
+ * A completed merge may keep its final ranking sublist, but it cannot keep
+ * active merge/insert work. Detached insertion items from older saves are
+ * treated as cancelled and moved to hidden.
+ */
+function reconcileDoneMergeState(state: MergeState): MergeState {
+  if (!state.done) return state;
+
+  const hasInFlightWork =
+    state.queue.length > 1 ||
+    state.current !== null ||
+    state.currentManualInsert !== null ||
+    state.currentAutoInsert !== null;
+  if (hasInFlightWork) {
+    return { ...state, done: false };
+  }
+
+  const detachedIds = [
+    ...state.toBeInserted,
+    ...state.pendingManualInserts,
+  ];
+  if (detachedIds.length === 0) return state;
+
+  const hidden = new Set(state.hidden);
+  const ranked = new Set(state.queue.flat());
+  for (const id of detachedIds) {
+    if (state.items[id] && !ranked.has(id)) hidden.add(id);
+  }
+  return {
+    ...state,
+    hidden: [...hidden].sort(),
+    toBeInserted: [],
+    pendingManualInserts: [],
+  };
+}
+
+/**
+ * Repair stale work buckets and contradictory done flags, then normalize
+ * completed sorts when loading a save.
  */
 export function normalizeLoadedState(
   state: SortState,
   options?: MergeOptions,
 ): SortState {
-  const reconciled =
-    state.engine === 'merge' && !state.done
-      ? merge.reconcileStaleManualInserts(
-          merge.reconcileInFlightInsertFrames(state, options),
-          options,
-        )
-      : state;
+  let reconciled: SortState =
+    state.engine === 'merge' ? reconcileDoneMergeState(state) : state;
+  if (reconciled.engine === 'merge' && !reconciled.done) {
+    reconciled = merge.reconcileStaleManualInserts(
+      merge.reconcileInFlightInsertFrames(reconciled, options),
+      options,
+    );
+  }
+  if (reconciled.engine === 'merge') {
+    reconciled = reconcileDoneMergeState(reconciled);
+  }
   return finalizeCompletedState(reconciled);
 }
 
@@ -863,23 +902,26 @@ export function normalizeLoadedState(
  */
 export function finalizeCompletedState(state: SortState): SortState {
   if (!state.done || state.engine === 'merge') return state;
+  const completedState =
+    state.engine === 'insertion' ? insertion.reconcileDoneState(state) : state;
+  if (!completedState.done) return completedState;
   const ranking =
-    state.engine === 'insertion'
-      ? state.sorted.slice()
-      : state.confirmed.slice();
+    completedState.engine === 'insertion'
+      ? completedState.sorted.slice()
+      : completedState.confirmed.slice();
   const mergeState: MergeState = {
     engine: 'merge',
     queue: [ranking],
     current: null,
-    comparisons: state.comparisons,
+    comparisons: completedState.comparisons,
     done: true,
-    hidden: state.hidden.slice(),
-    totalComparisonsEverNeeded: state.totalComparisonsEverNeeded,
+    hidden: completedState.hidden.slice(),
+    totalComparisonsEverNeeded: completedState.totalComparisonsEverNeeded,
     toBeInserted: [],
     pendingManualInserts: [],
     currentManualInsert: null,
     currentAutoInsert: null,
-    items: state.items,
+    items: completedState.items,
   };
   return mergeState;
 }

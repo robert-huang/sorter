@@ -1076,7 +1076,7 @@ describe('manualInsert + drainManualInserts (plan §5c)', () => {
     expect(s.items.g).toBeDefined();
   });
 
-  it('cancelManualInsert bounces the inserting id back to toBeInserted', () => {
+  it('cancelManualInsert hides the inserting id and closes the completed sort', () => {
     const F: Item = { id: 'f', label: 'F' };
     const G: Item = { id: 'g', label: 'G' };
     const H: Item = { id: 'h', label: 'H' };
@@ -1093,7 +1093,11 @@ describe('manualInsert + drainManualInserts (plan §5c)', () => {
     expect(s.currentManualInsert?.insertingId).toBe('g');
     s = cancelManualInsert(s);
     expect(s.currentManualInsert).toBeNull();
-    expect(s.toBeInserted).toContain('g');
+    expect(s.toBeInserted).not.toContain('g');
+    expect(s.pendingManualInserts).not.toContain('g');
+    expect(s.hidden).toContain('g');
+    expect(s.done).toBe(true);
+    expect(getRanking(s)).not.toContain('g');
   });
 });
 

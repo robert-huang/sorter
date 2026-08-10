@@ -1841,12 +1841,11 @@ export function forgetItem(
 }
 
 /**
- * Cancel the currently-running manual insert, bouncing the inserting
- * item back into `toBeInserted` and clearing `currentManualInsert`. The
- * user can either Forget it from there or click Insert again later.
+ * Cancel the currently-running manual insert by moving the inserting item
+ * to hidden. This uses the normal hide transition so every insertion bucket
+ * is cleared and any queued manual insert or merge resumes.
  *
- * Doesn't unwind the comparisons already made for this insert — they
- * "count" as work done; the undo ring is the way to back them out.
+ * Comparisons already made still count; the undo ring can restore them.
  *
  * Note: there is no public cancel-auto-insert API. Auto-insert is
  * engine-driven and runs to completion; the user can only intervene
@@ -1857,16 +1856,7 @@ export function cancelManualInsert(
   options?: MergeOptions,
 ): MergeState {
   if (!state.currentManualInsert) return state;
-  const opts = resolveOptions(options);
-  const next = snapshotProgress(state);
-  // insertingId is still in `toBeInserted` (we only remove on resolve, not
-  // on drain). No bouncing needed; just clear the frame.
-  next.currentManualInsert = null;
-  // Drain the next pending manual insert, if any; otherwise advance.
-  const hidden = new Set(next.hidden);
-  drainManualInserts(next, hidden);
-  if (!next.currentManualInsert) advance(next, hidden, opts);
-  return { ...next, items: state.items };
+  return hideItem(state, state.currentManualInsert.insertingId, options);
 }
 
 /**

@@ -353,6 +353,24 @@ describe('finalizeCompletedState', () => {
     expect(finalizeCompletedState(done)).toBe(done);
   });
 
+  it('reopens a done insertion state that still has queued work', () => {
+    const done = seedAsSorted([A, B]);
+    const malformed: InsertionState = {
+      ...done,
+      pending: ['x'],
+      done: true,
+      items: { ...done.items, x: X },
+    };
+
+    const reconciled = finalizeCompletedState(malformed);
+
+    expect(reconciled.engine).toBe('insertion');
+    expect(reconciled.done).toBe(false);
+    if (reconciled.engine !== 'insertion') return;
+    expect(reconciled.current?.insertingId).toBe('x');
+    expect(reconciled.pending).toEqual([]);
+  });
+
   it('seedAsDoneMerge matches finalize of insertion seedAsSorted', () => {
     const fromInsertion = finalizeCompletedState(seedAsSorted([A, B, C]));
     const fromSeed = seedAsDoneMerge([A, B, C]);
@@ -366,6 +384,28 @@ describe('finalizeCompletedState', () => {
 });
 
 describe('normalizeLoadedState', () => {
+  it('moves leftover to-be-inserted items into hidden for a done merge', () => {
+    const done = seedAsDoneMerge([A, B, C]);
+    const malformed: MergeState = {
+      ...done,
+      toBeInserted: ['x', 'b'],
+      pendingManualInserts: ['b'],
+      items: { ...done.items, x: X },
+    };
+
+    const loaded = normalizeLoadedState(malformed);
+
+    expect(loaded.engine).toBe('merge');
+    if (loaded.engine !== 'merge') return;
+    expect(loaded.done).toBe(true);
+    expect(loaded.queue).toEqual([['a', 'b', 'c']]);
+    expect(loaded.toBeInserted).toEqual([]);
+    expect(loaded.pendingManualInserts).toEqual([]);
+    expect(loaded.currentManualInsert).toBeNull();
+    expect(loaded.currentAutoInsert).toBeNull();
+    expect(loaded.hidden).toEqual(['x']);
+  });
+
   it('repairs stale merge buckets on load', () => {
     const stalled: MergeState = {
       engine: 'merge',

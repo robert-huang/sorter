@@ -444,6 +444,23 @@ function drainPending(progress: InsertionProgress): void {
   }
 }
 
+/**
+ * Repair a contradictory completed state without dropping queued items.
+ * Completed insertion states must have neither an active frame nor pending
+ * work; if either exists, resume the insertion session.
+ */
+export function reconcileDoneState(state: InsertionState): InsertionState {
+  if (!state.done || (state.current === null && state.pending.length === 0)) {
+    return state;
+  }
+  const progress = snapshotProgress(state);
+  progress.done = false;
+  if (progress.current === null) {
+    drainPending(progress);
+  }
+  return { ...progress, items: state.items };
+}
+
 // ---------- public transitions ----------
 
 /**
