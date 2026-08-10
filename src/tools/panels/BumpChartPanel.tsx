@@ -2508,20 +2508,20 @@ function SavedBumpCharts({
         <div className="bump-chart-saved-list" id="bump-chart-saved-list">
           {slots.map((slot) => {
             const dimensions = savedBumpChartDimensions(slot.id);
+            const title = dimensions
+              ? `${dimensions.columnCount} ${
+                  dimensions.columnCount === 1 ? 'column' : 'columns'
+                } × ${dimensions.rowCount} ${
+                  dimensions.rowCount === 1 ? 'row' : 'rows'
+                }`
+              : 'Chart dimensions unavailable';
             return (
               <div className="bump-chart-saved-row" key={slot.id}>
                 <span className="bump-chart-saved-name">{slot.name}</span>
                 <span
                   className="bump-chart-saved-dimensions"
-                  title={
-                    dimensions
-                      ? `${dimensions.columnCount} ${
-                          dimensions.columnCount === 1 ? 'column' : 'columns'
-                        } × ${dimensions.rowCount} ${
-                          dimensions.rowCount === 1 ? 'row' : 'rows'
-                        }`
-                      : 'Chart dimensions unavailable'
-                  }
+                  title={title}
+                  aria-label={title}
                 >
                   {dimensions
                     ? `${dimensions.columnCount} × ${dimensions.rowCount}`

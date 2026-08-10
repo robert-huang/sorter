@@ -1964,6 +1964,9 @@ describe('BumpChartPanel staging flow', () => {
     expect(savedDimensions?.getAttribute('title')).toBe(
       '2 columns × 1 row',
     );
+    expect(savedDimensions?.getAttribute('aria-label')).toBe(
+      '2 columns × 1 row',
+    );
     const savedChartsToggle = container.querySelector<HTMLButtonElement>(
       '[aria-label="Collapse saved charts"]',
     );
