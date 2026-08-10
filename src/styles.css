@@ -8798,6 +8798,15 @@ a:where(.anime-to-anime-anilist-link):visited {
   overflow-x: auto;
   overflow-y: hidden;
   align-items: stretch;
+  contain: layout paint;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: auto;
+  will-change: scroll-position;
+}
+
+.bump-chart-staging-view.is-generating
+  :is(.bump-chart-saved-charts, .bump-chart-import-grid) {
+  pointer-events: none;
 }
 
 .bump-chart-grid {
@@ -8868,6 +8877,22 @@ a:where(.anime-to-anime-anilist-link):visited {
 .bump-chart-grid--timeline .bump-chart-row {
   z-index: auto;
   grid-template-columns: unset;
+  content-visibility: auto;
+  contain-intrinsic-block-size: 64px;
+}
+
+.bump-chart-fullbleed.is-drag-scroll-dragging .bump-chart-grid {
+  pointer-events: none;
+}
+
+.bump-chart-fullbleed.is-drag-scroll-dragging
+  :is(
+    .bump-chart-connection,
+    .bump-chart-label-cell,
+    .bump-chart-timeline-cell,
+    .bump-chart-event-node
+  ) {
+  transition: none;
 }
 
 .bump-chart-endpoint-cell,
@@ -9133,8 +9158,12 @@ a:where(.anime-to-anime-anilist-link):visited {
   stroke-width: 3;
   stroke-linecap: round;
   stroke-dasharray: 5 7;
-  opacity: 0.85;
+  opacity: 0;
   vector-effect: non-scaling-stroke;
+}
+
+.bump-chart-lineage-bridge.is-active {
+  opacity: 0.85;
 }
 
 .bump-chart-guide {

@@ -763,12 +763,23 @@ describe('BumpChartPanel staging flow', () => {
     const firstPath = container.querySelector<SVGPathElement>(
       '.bump-chart-path-hit',
     );
-    await act(async () => {
-      firstPath?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    });
     const bridge = container.querySelector<SVGPathElement>(
       '.bump-chart-lineage-bridge',
     );
+    expect(bridge?.classList.contains('is-active')).toBe(false);
+    await act(async () => {
+      firstPath?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 210));
+    });
+    expect(bridge?.classList.contains('is-active')).toBe(true);
+    act(() => {
+      firstPath?.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+    });
+    expect(bridge?.classList.contains('is-active')).toBe(false);
+    await act(async () => {
+      firstPath?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(bridge?.classList.contains('is-active')).toBe(true);
     const bridgeSvg = bridge?.ownerSVGElement;
     expect(bridgeSvg?.classList.contains('bump-chart-bridge-svg')).toBe(true);
     expect(

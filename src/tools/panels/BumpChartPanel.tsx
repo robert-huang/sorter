@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useTransition,
   type CSSProperties,
   type ReactNode,
 } from 'react';
@@ -75,6 +76,7 @@ import {
   isAnilistCdnImageUrl,
   resolveBumpMalExportImage,
 } from './bumpChartMalExportImages';
+import { exportStandaloneBumpChartHtml } from './bumpChartHtmlExport';
 
 type ChartSide = 'left' | 'right';
 
@@ -730,10 +732,12 @@ function MovementBadge({
   movement,
   x,
   y,
+  lineageKey,
 }: {
   movement: number;
   x: number;
   y: number;
+  lineageKey: string;
 }) {
   const label = movement > 0 ? `+${movement}` : `${movement}`;
   let tone: 'positive' | 'negative' | 'neutral' = 'neutral';
@@ -760,6 +764,7 @@ function MovementBadge({
       data-badge-width={width}
       data-badge-x={x}
       data-badge-y={y}
+      data-bump-lineage={lineageKey}
       data-png-exclude="true"
       aria-hidden="true"
     >
@@ -932,6 +937,7 @@ function BumpChartLabel({
       ]
         .filter(Boolean)
         .join(' ')}
+      data-bump-hover-lineage={lineageKey}
       onMouseEnter={() => onFocus(lineageKey ?? null)}
       onMouseLeave={() => onFocus(null)}
     >
@@ -983,6 +989,7 @@ function TimelineOccurrenceCell({
     return (
       <div
         className={`bump-chart-timeline-cell${dimmed ? ' is-dimmed' : ''}`}
+        data-bump-hover-lineage={lineageKey}
         style={style}
         onClick={(event) => event.stopPropagation()}
         onMouseEnter={() => onFocus(lineageKey)}
@@ -1022,6 +1029,7 @@ function TimelineOccurrenceCell({
       data-column-index={columnIndex}
       data-item-index={itemIndex}
       data-bump-lineage={lineageKey}
+      data-bump-hover-lineage={lineageKey}
       style={style}
       onMouseEnter={() => onFocus(lineageKey)}
       onMouseLeave={() => onFocus(null)}
@@ -1690,13 +1698,15 @@ async function renderChartPng(
     if (!pathData || !bridgeSvg) continue;
     const bridgeSvgRect = bridgeSvg.getBoundingClientRect();
     const style = getComputedStyle(bridge);
+    const opacity = Number(style.opacity);
+    if (Number.isFinite(opacity) && opacity <= 0) continue;
     context.save();
     context.translate(
       bridgeSvgRect.left - rootRect.left,
       bridgeSvgRect.top - rootRect.top,
     );
     context.strokeStyle = style.stroke || style.color;
-    context.globalAlpha = Number(style.opacity) || 1;
+    context.globalAlpha = Number.isFinite(opacity) ? opacity : 1;
     context.lineWidth = 3;
     context.lineCap = 'round';
     context.setLineDash([5, 7]);
@@ -1803,10 +1813,9 @@ function BumpChart({
   const rowRefs = useRef<Array<HTMLDivElement | null>>([]);
   const rowCount = Math.max(0, ...columns.map(({ items }) => items.length));
   const focusedKey = pinnedKey ?? hoveredKey;
-  const pinnedLineage =
-    pinnedKey != null
-      ? timeline.lineages.find(({ key }) => key === pinnedKey)
-      : undefined;
+  const lineagesWithGaps = timeline.lineages.filter(
+    ({ gaps }) => gaps.length > 0,
+  );
   const focusedSegments =
     focusedKey == null
       ? []
@@ -1984,6 +1993,7 @@ function BumpChart({
         className="bump-chart-grid bump-chart-grid--timeline"
         ref={chartRef}
         style={{ minWidth: minimumWidth }}
+        data-bump-pinned-lineage={pinnedKey ?? undefined}
       >
         <div
           className="bump-chart-order-name-row"
@@ -2267,12 +2277,13 @@ function BumpChart({
                   movement={bumpConnectionMovement(connection) ?? 0}
                   x={midpoint.x}
                   y={midpoint.y}
+                  lineageKey={connection.lineageKey}
                 />
               );
             })}
           </svg>
         )}
-        {layout && pinnedLineage && pinnedLineage.gaps.length > 0 && (
+        {layout && lineagesWithGaps.length > 0 && (
           <svg
             className="bump-chart-svg bump-chart-bridge-svg"
             viewBox={`0 0 ${layout.width} ${layout.height}`}
@@ -2280,44 +2291,52 @@ function BumpChart({
             aria-hidden="true"
             style={{ width: layout.width, height: layout.height }}
           >
-            {pinnedLineage.gaps.map((gap) => {
-              const fromY =
-                layout.centersByColumn[gap.fromColumnIndex]?.[
-                  gap.fromItemIndex
-                ] ?? 0;
-              const toY =
-                layout.centersByColumn[gap.toColumnIndex]?.[
-                  gap.toItemIndex
-                ] ?? 0;
-              const fromBounds = eventBounds(
-                layout,
-                gap.fromColumnIndex,
-                gap.fromItemIndex,
-              );
-              const toBounds = eventBounds(
-                layout,
-                gap.toColumnIndex,
-                gap.toItemIndex,
-              );
-              return (
-                <path
-                  key={`gap:${pinnedLineage.key}:${gap.fromColumnIndex}`}
-                  className="bump-chart-lineage-bridge"
-                  d={`M ${
-                    fromBounds
-                      ? fromBounds.right + 45
-                      : (layout.columnXs[gap.fromColumnIndex] ?? 0) + 55
-                  } ${fromY} L ${
-                    toBounds
-                      ? toBounds.left - 45
-                      : (layout.columnXs[gap.toColumnIndex] ?? 0) - 55
-                  } ${toY}`}
-                  style={{
-                    color: BUMP_CHART_COLORS[pinnedLineage.colorIndex],
-                  }}
-                />
-              );
-            })}
+            {lineagesWithGaps.flatMap((lineage) =>
+              lineage.gaps.map((gap) => {
+                const fromY =
+                  layout.centersByColumn[gap.fromColumnIndex]?.[
+                    gap.fromItemIndex
+                  ] ?? 0;
+                const toY =
+                  layout.centersByColumn[gap.toColumnIndex]?.[
+                    gap.toItemIndex
+                  ] ?? 0;
+                const fromBounds = eventBounds(
+                  layout,
+                  gap.fromColumnIndex,
+                  gap.fromItemIndex,
+                );
+                const toBounds = eventBounds(
+                  layout,
+                  gap.toColumnIndex,
+                  gap.toItemIndex,
+                );
+                return (
+                  <path
+                    key={`gap:${lineage.key}:${gap.fromColumnIndex}`}
+                    className={[
+                      'bump-chart-lineage-bridge',
+                      focusedKey === lineage.key ? 'is-active' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                    data-bump-lineage={lineage.key}
+                    d={`M ${
+                      fromBounds
+                        ? fromBounds.right + 45
+                        : (layout.columnXs[gap.fromColumnIndex] ?? 0) + 55
+                    } ${fromY} L ${
+                      toBounds
+                        ? toBounds.left - 45
+                        : (layout.columnXs[gap.toColumnIndex] ?? 0) - 55
+                    } ${toY}`}
+                    style={{
+                      color: BUMP_CHART_COLORS[lineage.colorIndex],
+                    }}
+                  />
+                );
+              }),
+            )}
           </svg>
         )}
       </div>
@@ -2531,8 +2550,10 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
   const [chart, setChart] = useState<GeneratedBumpChart | null>(null);
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
   const [pendingImports, setPendingImports] = useState(0);
+  const [isGenerating, startGenerationTransition] = useTransition();
   const [importError, setImportError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [exportingHtml, setExportingHtml] = useState(false);
   const [exportProgress, setExportProgress] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [failedMalExportLabels, setFailedMalExportLabels] = useState<string[]>(
@@ -2551,6 +2572,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
   const importTabTouchedBeforeHydration = useRef(false);
   const localWorkspaceRevisionRef = useRef(0);
   const stagingRevisionRef = useRef(0);
+  const generationInFlightRef = useRef(false);
   const markWorkspaceMutation = useCallback((): void => {
     localWorkspaceRevisionRef.current += 1;
   }, []);
@@ -2961,8 +2983,12 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
   };
 
   const generateChart = (): void => {
+    if (generationInFlightRef.current) {
+      return;
+    }
+    generationInFlightRef.current = true;
     markWorkspaceMutation();
-    setChart({
+    const nextChart: GeneratedBumpChart = {
       columns: columns.map((column) => {
         const snapshot = draftToSnapshot(column.draft);
         return {
@@ -2974,13 +3000,22 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
           preserveCustomLabels: snapshot.preserveCustomLabels,
         };
       }),
+    };
+    startGenerationTransition(() => {
+      setChart(nextChart);
+      setColumns(defaultDraftColumns());
+      setImportColumnId(null);
+      setImportError(null);
+      setExportError(null);
+      setFailedMalExportLabels([]);
     });
-    setColumns(defaultDraftColumns());
-    setImportColumnId(null);
-    setImportError(null);
-    setExportError(null);
-    setFailedMalExportLabels([]);
   };
+
+  useEffect(() => {
+    if (chart || !isGenerating) {
+      generationInFlightRef.current = false;
+    }
+  }, [chart, isGenerating]);
 
   const saveEdit = (payload: EditItemSavePayload): void => {
     if (!editTarget) {
@@ -3186,6 +3221,23 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
     }
   };
 
+  const exportHtml = (): void => {
+    if (!chartRef.current || exportingHtml) {
+      return;
+    }
+    setExportingHtml(true);
+    setExportError(null);
+    try {
+      exportStandaloneBumpChartHtml(chartRef.current);
+    } catch (error) {
+      setExportError(
+        error instanceof Error ? error.message : 'HTML export failed.',
+      );
+    } finally {
+      setExportingHtml(false);
+    }
+  };
+
   return (
     <section className="tool-panel bump-chart-panel">
       <p className="tool-panel-lead">
@@ -3198,7 +3250,12 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
       </p>
 
       {!chart ? (
-        <>
+        <div
+          className={`bump-chart-staging-view${
+            isGenerating ? ' is-generating' : ''
+          }`}
+          aria-busy={isGenerating}
+        >
           <SavedBumpCharts
             slots={savedCharts}
             deletingId={deletingSavedId}
@@ -3355,13 +3412,19 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
             </div>
           </div>
           <div className="bump-chart-generate-row">
-            <button type="button" className="btn" onClick={clearStaged}>
+            <button
+              type="button"
+              className="btn"
+              disabled={isGenerating}
+              onClick={clearStaged}
+            >
               Clear all staged
             </button>
             <button
               type="button"
               className="btn primary"
               disabled={
+                isGenerating ||
                 pendingImports > 0 ||
                 columns.some(
                   ({ id }) => (draftItemsByColumn.get(id)?.length ?? 0) === 0,
@@ -3369,11 +3432,15 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
               }
               onClick={generateChart}
             >
-              {pendingImports > 0 ? 'Preparing imports…' : 'Generate chart'}
+              {isGenerating
+                ? 'Loading…'
+                : pendingImports > 0
+                  ? 'Preparing imports…'
+                  : 'Generate chart'}
             </button>
           </div>
           {importError && <p className="tool-error">{importError}</p>}
-        </>
+        </div>
       ) : (
         <>
           <div className="bump-chart-toolbar">
@@ -3394,7 +3461,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
             <button
               type="button"
               className="btn primary"
-              disabled={exporting}
+              disabled={exporting || exportingHtml}
               onClick={() => {
                 void exportPng();
               }}
@@ -3404,6 +3471,14 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
                   ? `Preparing images ${exportProgress}…`
                   : 'Exporting…'
                 : 'Export PNG'}
+            </button>
+            <button
+              type="button"
+              className="btn primary"
+              disabled={exporting || exportingHtml}
+              onClick={exportHtml}
+            >
+              {exportingHtml ? 'Exporting…' : 'Export interactive HTML'}
             </button>
           </div>
           {(failedMalExportLabels.length > 0 ||
