@@ -2155,6 +2155,32 @@ function BumpChart({
                   : layout.centersByColumn[connection.pairIndex + 1]?.[
                       connection.rightIndex
                     ];
+              const movement =
+                leftY != null && rightY != null
+                  ? bumpConnectionMovement(connection)
+                  : null;
+              const movementBadge =
+                movement == null || leftY == null || rightY == null
+                  ? null
+                  : {
+                      movement,
+                      ...bumpTimelinePathMidpoint(
+                        leftX,
+                        rightX,
+                        eventBounds(
+                          layout,
+                          connection.pairIndex,
+                          connection.leftIndex!,
+                        ),
+                        eventBounds(
+                          layout,
+                          connection.pairIndex + 1,
+                          connection.rightIndex!,
+                        ),
+                        leftY,
+                        rightY,
+                      ),
+                    };
               return (
                 <g
                   key={connection.key}
@@ -2166,6 +2192,9 @@ function BumpChart({
                     .filter(Boolean)
                     .join(' ')}
                   data-bump-lineage={connection.lineageKey}
+                  data-bump-movement={movementBadge?.movement}
+                  data-bump-badge-x={movementBadge?.x}
+                  data-bump-badge-y={movementBadge?.y}
                   style={{ color }}
                   onMouseEnter={() => onHoverFocus(connection.lineageKey)}
                   onMouseLeave={() => onHoverFocus(null)}
