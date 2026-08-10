@@ -30,6 +30,7 @@ import {
   readManifest,
   readSlotBlob,
   renameSlot,
+  replaceSlotBlob,
   repairManifestIfCorrupt,
   setCloudId,
   setCloudOptIn,
@@ -567,6 +568,34 @@ describe('scheduleAutosave', () => {
     flushAutosave();
     const afterUpdatedAt = readManifest().slots.find((s) => s.id === slot.id)!.updatedAt;
     expect(afterUpdatedAt > beforeUpdatedAt).toBe(true);
+  });
+
+  it('keeps a pulled replacement authoritative over an older queued autosave', async () => {
+    const slot = mintSlot(makeBlob(0), 'A');
+    await flushStateStorageWrites();
+
+    // A 20-comparison delta queues an immediate autosave. Replace the slot
+    // before that asynchronous IndexedDB write completes, matching a cloud
+    // Pull that resolves while a large local autosave is still in flight.
+    scheduleAutosave(makeBlob(20));
+    const pulledBlob = makeBlob(7);
+    expect(replaceSlotBlob(slot.id, pulledBlob)).toBe(true);
+    expect(readSlotBlob(slot.id)).toEqual(pulledBlob);
+
+    await flushStateStorageWrites();
+    expect(readSlotBlob(slot.id)).toEqual(pulledBlob);
+
+    // Rebinding the pulled bytes into React must remain a no-op. If the old
+    // autosave restored stale cache bytes, this would write again and bump
+    // updatedAt, making a freshly pulled cloud slot appear yellow/pending.
+    const pulledUpdatedAt = readManifest().slots.find(
+      (entry) => entry.id === slot.id,
+    )!.updatedAt;
+    scheduleAutosave(pulledBlob);
+    await flushAutosave();
+    expect(
+      readManifest().slots.find((entry) => entry.id === slot.id)!.updatedAt,
+    ).toBe(pulledUpdatedAt);
   });
 
   it('saveNow bumps updatedAt even when blob is unchanged', async () => {

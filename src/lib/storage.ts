@@ -225,6 +225,26 @@ let manifestCache: SlotsManifest = emptyManifest();
 const slotBlobCache = new Map<string, AutosaveBlob>();
 let sorterStorageInitialized = false;
 let stateWriteQueue: Promise<void> = Promise.resolve();
+const slotAutosaveGenerations = new Map<string, number>();
+
+function currentSlotAutosaveGeneration(id: string): number {
+  return slotAutosaveGenerations.get(id) ?? 0;
+}
+
+/**
+ * Make every older queued/in-flight autosave for this slot stale. An
+ * authoritative replacement (notably cloud Pull) may happen while an
+ * IndexedDB autosave is awaiting completion; that older write must not
+ * restore its blob to the synchronous cache or emit local-write effects
+ * after the replacement has already won.
+ */
+function supersedeSlotAutosaves(id: string): void {
+  slotAutosaveGenerations.set(id, currentSlotAutosaveGeneration(id) + 1);
+}
+
+function isCurrentSlotAutosave(id: string, generation: number): boolean {
+  return currentSlotAutosaveGeneration(id) === generation;
+}
 
 function queueStateWrite(
   changes: Parameters<typeof commitStateChanges>[0],
@@ -1086,6 +1106,7 @@ export function replaceSlotBlob(id: string, blob: AutosaveBlob): boolean {
     cancelPendingAutosave();
   }
   if (!tryWriteSlotBlobAfterCachePurge(id, blob)) return false;
+  supersedeSlotAutosaves(id);
   const previous = readManifest();
   const manifest = readManifest();
   manifest.slots = manifest.slots.map((slot) =>
@@ -1511,9 +1532,11 @@ function queueAutosavePersistence(
   blob: AutosaveBlob,
   manifest: SlotsManifest,
   previous: SlotsManifest,
+  generation: number,
 ): void {
   stateWriteQueue = stateWriteQueue
     .then(async () => {
+      if (!isCurrentSlotAutosave(id, generation)) return;
       let persistedBlob = blob;
       let persistedManifest = manifest;
       let recovery: AutosaveRecovery | undefined;
@@ -1528,11 +1551,13 @@ function queueAutosavePersistence(
           { scope: 'sorter', id },
         );
       } catch (firstError) {
+        if (!isCurrentSlotAutosave(id, generation)) return;
         if (!isQuotaStorageError(firstError)) throw firstError;
         lastQuotaErrorAt = new Date().toISOString();
         await sweepExpiredDisposableCache();
         await clearDisposableCachesUnderPressure();
         purgeDisposableLocalStorageCaches();
+        if (!isCurrentSlotAutosave(id, generation)) return;
 
         try {
           await commitStateChanges(
@@ -1544,11 +1569,13 @@ function queueAutosavePersistence(
             ),
             { scope: 'sorter', id },
           );
+          if (!isCurrentSlotAutosave(id, generation)) return;
           slotBlobCache.set(id, persistedBlob);
           notifyError(null);
           notifyAfterWrite(id);
           return;
         } catch (retryError) {
+          if (!isCurrentSlotAutosave(id, generation)) return;
           if (!isQuotaStorageError(retryError)) throw retryError;
         }
 
@@ -1565,16 +1592,19 @@ function queueAutosavePersistence(
               ),
               { scope: 'sorter', id },
             );
+            if (!isCurrentSlotAutosave(id, generation)) return;
             recovery = {
               kind: 'trimmed-undo',
               newUndoRingLen: trimmedUndo.length,
             };
           } catch (trimError) {
+            if (!isCurrentSlotAutosave(id, generation)) return;
             if (!isQuotaStorageError(trimError)) throw trimError;
           }
         }
 
         if (!recovery) {
+          if (!isCurrentSlotAutosave(id, generation)) return;
           const evicted = persistedManifest.slots
             .filter((slot) => slot.id !== id && !slot.pinned)
             .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt))[0];
@@ -1601,17 +1631,20 @@ function queueAutosavePersistence(
             ],
             { scope: 'sorter', id },
           );
+          if (!isCurrentSlotAutosave(id, generation)) return;
           slotBlobCache.delete(evicted.id);
           manifestCache = persistedManifest;
           recovery = { kind: 'evicted-slot', evicted };
         }
       }
 
+      if (!isCurrentSlotAutosave(id, generation)) return;
       slotBlobCache.set(id, persistedBlob);
       notifyError(null, recovery);
       notifyAfterWrite(id);
     })
     .catch((error: unknown) => {
+      if (!isCurrentSlotAutosave(id, generation)) return;
       const attemptedAt = new Date().toISOString();
       if (isQuotaStorageError(error)) {
         lastQuotaErrorAt = attemptedAt;
@@ -1659,7 +1692,13 @@ function commitWriteSuccess(blob: AutosaveBlob, recovery?: AutosaveRecovery): vo
       : slot,
   );
   manifestCache = manifest;
-  queueAutosavePersistence(writtenId, blob, manifest, previous);
+  queueAutosavePersistence(
+    writtenId,
+    blob,
+    manifest,
+    previous,
+    currentSlotAutosaveGeneration(writtenId),
+  );
   lastFlushTime = Date.now();
   comparisonsAtLastFlush = blob.progress.comparisons;
   if (recovery) {
@@ -2337,6 +2376,7 @@ export function _resetSorterStorageCacheForTesting(): void {
   cancelPendingAutosave();
   manifestCache = emptyManifest();
   slotBlobCache.clear();
+  slotAutosaveGenerations.clear();
   sorterStorageInitialized = false;
   stateWriteQueue = Promise.resolve();
   currentActiveId = null;
