@@ -2438,6 +2438,28 @@ function saveSavedBumpChartsExpanded(expanded: boolean): void {
   }
 }
 
+function savedBumpChartDimensions(id: string): {
+  columnCount: number;
+  rowCount: number;
+} | null {
+  const workspace = loadSavedBumpChart(id);
+  if (!workspace) {
+    return null;
+  }
+  return {
+    columnCount: workspace.columns.length,
+    rowCount: Math.max(
+      0,
+      ...workspace.columns.map((column) => {
+        const hiddenItemIds = new Set(column.hiddenItemIds);
+        return column.items.filter(
+          ({ item }) => !hiddenItemIds.has(item.id),
+        ).length;
+      }),
+    ),
+  };
+}
+
 function SavedBumpCharts({
   slots,
   deletingId,
@@ -2484,49 +2506,68 @@ function SavedBumpCharts({
       </div>
       {expanded && (
         <div className="bump-chart-saved-list" id="bump-chart-saved-list">
-          {slots.map((slot) => (
-            <div className="bump-chart-saved-row" key={slot.id}>
-              <span className="bump-chart-saved-name">{slot.name}</span>
-              <span className="bump-chart-saved-date">
-                {new Date(slot.updatedAt).toLocaleString()}
-              </span>
-              {deletingId === slot.id ? (
-                <div className="bump-chart-saved-actions">
-                  <button
-                    type="button"
-                    className="btn small"
-                    onClick={onCancelDelete}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    className="btn small danger"
-                    onClick={() => onConfirmDelete(slot.id)}
-                  >
-                    Confirm delete
-                  </button>
-                </div>
-              ) : (
-                <div className="bump-chart-saved-actions">
-                  <button
-                    type="button"
-                    className="btn small primary"
-                    onClick={() => onLoad(slot.id)}
-                  >
-                    Load
-                  </button>
-                  <button
-                    type="button"
-                    className="btn small"
-                    onClick={() => onRequestDelete(slot.id)}
-                  >
-                    Delete
-                  </button>
-                </div>
-              )}
-            </div>
-          ))}
+          {slots.map((slot) => {
+            const dimensions = savedBumpChartDimensions(slot.id);
+            return (
+              <div className="bump-chart-saved-row" key={slot.id}>
+                <span className="bump-chart-saved-name">{slot.name}</span>
+                <span
+                  className="bump-chart-saved-dimensions"
+                  title={
+                    dimensions
+                      ? `${dimensions.columnCount} ${
+                          dimensions.columnCount === 1 ? 'column' : 'columns'
+                        } × ${dimensions.rowCount} ${
+                          dimensions.rowCount === 1 ? 'row' : 'rows'
+                        }`
+                      : 'Chart dimensions unavailable'
+                  }
+                >
+                  {dimensions
+                    ? `${dimensions.columnCount} × ${dimensions.rowCount}`
+                    : '—'}
+                </span>
+                <span className="bump-chart-saved-date">
+                  {new Date(slot.updatedAt).toLocaleString()}
+                </span>
+                {deletingId === slot.id ? (
+                  <div className="bump-chart-saved-actions">
+                    <button
+                      type="button"
+                      className="btn small"
+                      onClick={onCancelDelete}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="btn small danger"
+                      onClick={() => onConfirmDelete(slot.id)}
+                    >
+                      Confirm delete
+                    </button>
+                  </div>
+                ) : (
+                  <div className="bump-chart-saved-actions">
+                    <button
+                      type="button"
+                      className="btn small primary"
+                      onClick={() => onLoad(slot.id)}
+                    >
+                      Load
+                    </button>
+                    <button
+                      type="button"
+                      className="btn small"
+                      onClick={() => onRequestDelete(slot.id)}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </section>

@@ -1957,6 +1957,13 @@ describe('BumpChartPanel staging flow', () => {
     });
     expect(container.querySelector('.bump-chart-saved-charts')).not.toBeNull();
     expect(container.textContent).toContain('My chart');
+    const savedDimensions = container.querySelector<HTMLElement>(
+      '.bump-chart-saved-dimensions',
+    );
+    expect(savedDimensions?.textContent).toBe('2 × 1');
+    expect(savedDimensions?.getAttribute('title')).toBe(
+      '2 columns × 1 row',
+    );
     const savedChartsToggle = container.querySelector<HTMLButtonElement>(
       '[aria-label="Collapse saved charts"]',
     );

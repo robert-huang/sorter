@@ -8461,7 +8461,6 @@ a:where(.anime-to-anime-anilist-link):visited {
 }
 
 .bump-chart-saved-heading,
-.bump-chart-saved-row,
 .bump-chart-saved-actions {
   display: flex;
   align-items: center;
@@ -8505,6 +8504,7 @@ a:where(.anime-to-anime-anilist-link):visited {
 
 .bump-chart-saved-heading p,
 .bump-chart-saved-count,
+.bump-chart-saved-dimensions,
 .bump-chart-saved-date {
   color: var(--text-muted);
   font-size: 12px;
@@ -8520,7 +8520,9 @@ a:where(.anime-to-anime-anilist-link):visited {
 
 .bump-chart-saved-list {
   display: grid;
-  gap: 6px;
+  grid-template-columns: minmax(0, 1fr) max-content max-content max-content;
+  column-gap: 10px;
+  row-gap: 6px;
   max-height: min(320px, 40vh);
   margin-top: 10px;
   overflow-y: auto;
@@ -8529,7 +8531,11 @@ a:where(.anime-to-anime-anilist-link):visited {
 }
 
 .bump-chart-saved-row {
-  gap: 10px;
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
+  column-gap: 10px;
   min-width: 0;
   padding: 7px 8px;
   border: 1px solid var(--border);
@@ -8547,8 +8553,15 @@ a:where(.anime-to-anime-anilist-link):visited {
   white-space: nowrap;
 }
 
+.bump-chart-saved-dimensions {
+  min-width: 54px;
+  text-align: center;
+  white-space: nowrap;
+  color: var(--text-disabled);
+}
+
 .bump-chart-saved-date {
-  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .bump-chart-saved-actions {
