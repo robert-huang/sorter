@@ -838,6 +838,8 @@ On success the local `media_list_entry` row is patched and the seasonal-scores s
 
 Slot-level Push / Pull to a Google Drive folder of your choosing. The whole feature is opt-in — both at sign-in time and per-slot — and the app never touches files you didn't explicitly grant access to.
 
+Google Drive access is currently limited to approved OAuth test users. Before signing in, ask Robert to add your Google account: Robert must sign in to Google Cloud as `cyclohex.robert@gmail.com`, open the [`sorter` project's Google Auth Platform → Audience page](https://console.cloud.google.com/auth/audience?project=sound-abbey-496921-p9), choose **Add users** under **Test users**, enter your Google account email, and save. No app redeploy is needed; retry **Sign in to cloud backup…** after Robert adds you.
+
 ### What gets backed up
 
 - One Drive file per slot, written under a folder you pick on first sign-in. The filename is `<slotName>_<slotId>.sorter.json`. New slots use UUID v4 ids so independently created slots remain distinct across devices and an indefinitely growing Drive library; existing short ids remain valid. The same v4 save-file envelope the Download button produces, so you can drop a slot file out of Drive and re-import it via "Load save file…" without any reshaping.
