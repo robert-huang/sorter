@@ -8811,10 +8811,8 @@ a:where(.anime-to-anime-anilist-link):visited {
   overflow-x: auto;
   overflow-y: hidden;
   align-items: stretch;
-  contain: layout paint;
   overscroll-behavior-x: contain;
   overscroll-behavior-y: auto;
-  will-change: scroll-position;
 }
 
 .bump-chart-staging-view.is-generating

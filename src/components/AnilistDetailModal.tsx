@@ -344,6 +344,7 @@ export function AnilistDetailModal({
   const [favouriteStudioIds, setFavouriteStudioIds] = useState<Set<number>>(
     () => new Set(),
   );
+  const [userScore, setUserScore] = useState<number | null>(null);
   const [favouriteAccountRevision, setFavouriteAccountRevision] = useState(0);
 
   const visibleProductionStaff = useMemo(() => {
@@ -429,6 +430,37 @@ export function AnilistDetailModal({
           setFavouriteStudioIds(new Set());
         }
       });
+    return () => {
+      cancelled = true;
+    };
+  }, [mediaId, favouriteAccountRevision]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const username = readLastAnilistUsername();
+    if (!username) {
+      setUserScore(null);
+      return;
+    }
+    setUserScore(null);
+    void (async () => {
+      try {
+        const user = await productionReads.getAnilistUserByName(username);
+        if (!user) {
+          if (!cancelled) setUserScore(null);
+          return;
+        }
+        const entries = await productionReads.getListEntriesByMediaIds(user.id, [
+          mediaId,
+        ]);
+        const score = entries.get(mediaId)?.score;
+        if (!cancelled) {
+          setUserScore(score != null && score > 0 ? score : null);
+        }
+      } catch {
+        if (!cancelled) setUserScore(null);
+      }
+    })();
     return () => {
       cancelled = true;
     };
@@ -775,8 +807,9 @@ export function AnilistDetailModal({
                 )}
                 {m.episodes !== null && <span>{m.episodes} ep</span>}
                 {m.chapters !== null && <span>{m.chapters} ch</span>}
+                {userScore !== null && <span title="User score">♥ {userScore}</span>}
                 {m.mean_score !== null && (
-                  <span>⌀ {m.mean_score}/100</span>
+                  <span title="AniList mean score">⌀ {m.mean_score}</span>
                 )}
                 {m.favourites !== null && (
                   <span>★ {m.favourites.toLocaleString()}</span>

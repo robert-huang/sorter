@@ -23,6 +23,8 @@ vi.mock('../../lib/importers/anilist/readQueries', () => ({
     getMediaThemeSongsExpansion: vi.fn(),
     getMediaThemeSongsExpansionFetchedAt: vi.fn(),
     getFavouriteEntityIdsForUsername: vi.fn(),
+    getAnilistUserByName: vi.fn(),
+    getListEntriesByMediaIds: vi.fn(),
   },
 }));
 vi.mock('../../lib/importers/anilist/runners', () => ({
@@ -54,6 +56,12 @@ const mockedGetThemeSongsFetchedAt = vi.mocked(
 );
 const mockedGetFavouriteEntityIds = vi.mocked(
   productionReads.getFavouriteEntityIdsForUsername,
+);
+const mockedGetAnilistUserByName = vi.mocked(
+  productionReads.getAnilistUserByName,
+);
+const mockedGetListEntries = vi.mocked(
+  productionReads.getListEntriesByMediaIds,
 );
 const mockedExpand = vi.mocked(runAnilistMediaLazyExpansion);
 const mockedRelationsRefresh = vi.mocked(runAnilistMediaRelationsRefresh);
@@ -153,12 +161,16 @@ beforeEach(() => {
   mockedGetThemeSongs.mockReset();
   mockedGetThemeSongsFetchedAt.mockReset();
   mockedGetFavouriteEntityIds.mockReset();
+  mockedGetAnilistUserByName.mockReset();
+  mockedGetListEntries.mockReset();
   mockedGetFavouriteEntityIds.mockResolvedValue({
     mediaIds: new Set(),
     characterIds: new Set(),
     staffIds: new Set(),
     studioIds: new Set(),
   });
+  mockedGetAnilistUserByName.mockResolvedValue(null);
+  mockedGetListEntries.mockResolvedValue(new Map());
   mockedGetRelationsFetchedAt.mockResolvedValue(null);
   mockedGetThemeSongsFetchedAt.mockResolvedValue(1_700_000_000_000);
   mockedGetThemeSongs.mockResolvedValue({
@@ -711,6 +723,71 @@ describe('AnilistDetailModal — clickable people (staff panel nav)', () => {
     const vaLink = findPersonLink('Megumi Hayashibara');
     expect(vaLink?.getAttribute('href')).toBe(anilistUrlForStaffId(201));
     expect(onOpenStaff).not.toHaveBeenCalled();
+  });
+
+  it('shows the last imported user score before the AniList mean score', async () => {
+    writeLastAnilistUsername('tester');
+    mockedGetAnilistUserByName.mockResolvedValueOnce({
+      id: 900,
+      name: 'tester',
+      fetched_at: 1_700_000_000_000,
+    });
+    mockedGetListEntries.mockResolvedValueOnce(
+      new Map([
+        [
+          75,
+          {
+            anilist_user_id: 900,
+            media_id: 75,
+            score: 94,
+            status: 'COMPLETED',
+            repeat: 0,
+            started_year: null,
+            started_month: null,
+            started_day: null,
+            completed_year: null,
+            completed_month: null,
+            completed_day: null,
+            anilist_created_at: null,
+            anilist_updated_at: null,
+            notes: null,
+            fetched_at: 1_700_000_000_000,
+            updated_at: 1_700_000_000_000,
+          },
+        ],
+      ]),
+    );
+    mockedGetMediaDetail.mockResolvedValueOnce({
+      ...makeDetail(75, true),
+      media: makeMedia(75, { mean_score: 82 }),
+    });
+
+    await act(async () => {
+      root.render(
+        <AnilistDetailModal
+          mediaId={75}
+          fallbackTitle="EN-75"
+          onClose={() => {}}
+        />,
+      );
+    });
+    await flushPromises();
+
+    const userScore = container.querySelector<HTMLElement>(
+      '[title="User score"]',
+    );
+    const meanScore = container.querySelector<HTMLElement>(
+      '[title="AniList mean score"]',
+    );
+    expect(userScore?.textContent).toBe('♥ 94');
+    expect(meanScore?.textContent).toBe('⌀ 82');
+    expect(container.textContent).not.toContain('/100');
+    expect(userScore?.parentElement).toBe(meanScore?.parentElement);
+    expect(
+      Array.from(userScore!.parentElement!.children).indexOf(userScore!),
+    ).toBeLessThan(
+      Array.from(meanScore!.parentElement!.children).indexOf(meanScore!),
+    );
   });
 
   it('marks cached favourite media, studios, characters and staff', async () => {
