@@ -209,6 +209,79 @@ describe('expandCharacterMedia', () => {
     db.close();
   });
 
+  it('removes obsolete voice actors on refresh', async () => {
+    const db = await freshAnilistDb();
+    const refreshedResponse = makeVoiceMediaResponse();
+    refreshedResponse.Character!.media!.edges = [];
+    const ctx: AnilistImportContext = {
+      db: makeDbAdapter(db),
+      executeQuery: vi
+        .fn()
+        .mockResolvedValueOnce(makeVoiceMediaResponse())
+        .mockResolvedValueOnce(refreshedResponse),
+      now: () => NOW,
+    };
+    db.exec(
+      `INSERT INTO character (
+         id, name_full, name_native, name_alternatives_json, name_alternatives_spoiler_json,
+         image, age, gender, favourites, birth_year, birth_month, birth_day, fetched_at, updated_at
+       ) VALUES (?, 'Fav Char', NULL, '[]', '[]', NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?)`,
+      { bind: [FAVOURITE_CHAR_ID, NOW, NOW] },
+    );
+
+    await expandCharacterMedia(ctx, FAVOURITE_CHAR_ID);
+    expect(
+      db.selectObject(
+        'SELECT COUNT(*) AS count FROM character_voice_actor WHERE character_id = ?',
+        FAVOURITE_CHAR_ID,
+      ),
+    ).toEqual({ count: 1 });
+
+    await expandCharacterMedia(ctx, FAVOURITE_CHAR_ID);
+
+    expect(
+      db.selectObject(
+        'SELECT COUNT(*) AS count FROM character_voice_actor WHERE character_id = ?',
+        FAVOURITE_CHAR_ID,
+      ),
+    ).toEqual({ count: 0 });
+    db.close();
+  });
+
+  it('requests and stores the selected voice-actor language', async () => {
+    const db = await freshAnilistDb();
+    const executeQuery = vi.fn().mockResolvedValue(makeVoiceMediaResponse());
+    const ctx: AnilistImportContext = {
+      db: makeDbAdapter(db),
+      executeQuery,
+      now: () => NOW,
+    };
+    db.exec(
+      `INSERT INTO character (
+         id, name_full, name_native, name_alternatives_json, name_alternatives_spoiler_json,
+         image, age, gender, favourites, birth_year, birth_month, birth_day, fetched_at, updated_at
+       ) VALUES (?, 'Fav Char', NULL, '[]', '[]', NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?)`,
+      { bind: [FAVOURITE_CHAR_ID, NOW, NOW] },
+    );
+
+    await expandCharacterMedia(ctx, FAVOURITE_CHAR_ID, {
+      voiceActorLanguage: 'ENGLISH',
+    });
+
+    expect(executeQuery.mock.calls[0]?.[0]).toContain(
+      'voiceActors(language: ENGLISH, sort: RELEVANCE)',
+    );
+    expect(
+      db.selectObject(
+        `SELECT language
+           FROM character_voice_actor
+          WHERE character_id = ?`,
+        FAVOURITE_CHAR_ID,
+      ),
+    ).toEqual({ language: 'ENGLISH' });
+    db.close();
+  });
+
   it('does not wipe existing media source when character-media nodes omit it', async () => {
     const db = await freshAnilistDb();
     const executeQuery = vi.fn().mockResolvedValue(makeVoiceMediaResponse());

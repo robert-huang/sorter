@@ -8,19 +8,13 @@
  */
 
 import type { AnilistDbExecutor, AnilistImportContext, SqlBindable } from './context';
-import { execBatchInChunks } from './context';
-import { MEDIA_UPSERT_SQL, mediaRowToParams, STUDIO_UPSERT_SQL, TAG_UPSERT_SQL } from './importer';
+import { persistMediaGraphCheckpoint } from './importer';
 import {
   mapCharacterRow,
   mapCharacterVoiceActorRows,
   mapMediaCharacterRows,
-  mapMediaRow,
-  mapMediaStudioRows,
   mapMediaStaffRows,
-  mapMediaTagRows,
   mapStaffRow,
-  mapStudioRows,
-  mapTagRows,
 } from './mappers';
 import { emitProgress } from './progress';
 import { ANILIST_TOOLS_MAX_PAGE_SIZE } from './depaginate';
@@ -532,26 +526,6 @@ async function fetchMediaNodesByIds(
   return out;
 }
 
-async function upsertRepairedMediaNodes(
-  ctx: AnilistImportContext,
-  mediaNodes: readonly AnilistMediaGql[],
-): Promise<number> {
-  if (mediaNodes.length === 0) {
-    return 0;
-  }
-
-  const now = ctx.now();
-  const stmts = mediaNodes.map((media) => ({
-    sql: MEDIA_UPSERT_SQL,
-    params: mediaRowToParams(mapMediaRow(media, now)),
-  }));
-  await ctx.db.execBatch(stmts);
-  if (ctx.onDirtyIncrement) {
-    await ctx.onDirtyIncrement();
-  }
-  return mediaNodes.length;
-}
-
 /** SQLite variable limit guard for `IN (...)` repair queries. */
 const MEDIA_IDS_REPAIR_QUERY_CHUNK = 500;
 
@@ -643,68 +617,7 @@ async function upsertMediaGraphFromGql(
     return 0;
   }
 
-  const now = ctx.now();
-  const studios = new Map<number, { id: number; name: string; fetched_at: number }>();
-  const tags = new Map<string, { name: string; fetched_at: number }>();
-  for (const media of mediaNodes) {
-    for (const studio of mapStudioRows(media, now)) {
-      studios.set(studio.id, studio);
-    }
-    for (const tag of mapTagRows(media, now)) {
-      tags.set(tag.name, tag);
-    }
-  }
-
-  const stmts: Array<{ sql: string; params: SqlBindable[] }> = [];
-  for (const studio of studios.values()) {
-    stmts.push({ sql: STUDIO_UPSERT_SQL, params: [studio.id, studio.name, studio.fetched_at] });
-  }
-  for (const tag of tags.values()) {
-    stmts.push({ sql: TAG_UPSERT_SQL, params: [tag.name, tag.fetched_at] });
-  }
-  for (const media of mediaNodes) {
-    stmts.push({
-      sql: MEDIA_UPSERT_SQL,
-      params: mediaRowToParams(mapMediaRow(media, now)),
-    });
-  }
-
-  const mediaIds = mediaNodes.map((media) => media.id);
-  const placeholders = mediaIds.map(() => '?').join(', ');
-  stmts.push({
-    sql: `DELETE FROM media_studio WHERE media_id IN (${placeholders})`,
-    params: mediaIds,
-  });
-  stmts.push({
-    sql: `DELETE FROM media_tag WHERE media_id IN (${placeholders})`,
-    params: mediaIds,
-  });
-
-  for (const media of mediaNodes) {
-    for (const row of mapMediaStudioRows(media)) {
-      stmts.push({
-        sql: 'INSERT INTO media_studio (media_id, studio_id, sort_order, is_main) VALUES (?, ?, ?, ?)',
-        params: [row.media_id, row.studio_id, row.sort_order, row.is_main],
-      });
-    }
-    for (const row of mapMediaTagRows(media)) {
-      stmts.push({
-        sql: 'INSERT INTO media_tag (media_id, tag_name, rank) VALUES (?, ?, ?)',
-        params: [row.media_id, row.tag_name, row.rank],
-      });
-    }
-  }
-  for (const mediaId of mediaIds) {
-    stmts.push({
-      sql: 'UPDATE media SET studios_fetched_at = ? WHERE id = ?',
-      params: [now, mediaId],
-    });
-  }
-
-  await execBatchInChunks(ctx.db, stmts);
-  if (ctx.onDirtyIncrement) {
-    await ctx.onDirtyIncrement();
-  }
+  await persistMediaGraphCheckpoint(ctx, mediaNodes);
   return mediaNodes.length;
 }
 
@@ -786,7 +699,7 @@ export async function repairListedMediaNullSource(
         resolved.push(node);
       }
     }
-    repaired += await upsertRepairedMediaNodes(ctx, resolved);
+    repaired += await upsertMediaGraphFromGql(ctx, resolved);
   }
 
   return repaired;
@@ -833,13 +746,7 @@ export async function ensureMediaRowForCastExpansion(
     return exists;
   }
 
-  const row = mapMediaRow(response.Media, ctx.now());
-  await ctx.db.execBatch([
-    { sql: MEDIA_UPSERT_SQL, params: mediaRowToParams(row) },
-  ]);
-  if (ctx.onDirtyIncrement) {
-    await ctx.onDirtyIncrement();
-  }
+  await upsertMediaGraphFromGql(ctx, [response.Media]);
   return true;
 }
 
@@ -869,7 +776,7 @@ export async function ensureMediaRowsForCastExpansion(
 
   if (toFetch.length > 0) {
     const nodes = await fetchMediaNodesByIds(ctx, toFetch);
-    await upsertRepairedMediaNodes(ctx, nodes);
+    await upsertMediaGraphFromGql(ctx, nodes);
     for (const node of nodes) {
       ok.add(node.id);
     }

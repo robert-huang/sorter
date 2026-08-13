@@ -4,7 +4,7 @@
 
 import type { AnilistImportContext } from './context';
 import { pickRandomAnimeFromUserListCache } from './graphQueries';
-import { MEDIA_UPSERT_SQL, mediaRowToParams } from './importer';
+import { persistMediaGraphCheckpoint } from './importer';
 import { mapMediaRow } from './mappers';
 import {
   buildAnimeBrowsePageQuery,
@@ -28,10 +28,7 @@ import type {
 
 async function upsertMedia(ctx: AnilistImportContext, media: AnilistMediaGql): Promise<MediaRow> {
   const row = mapMediaRow(media, ctx.now());
-  await ctx.db.execBatch([{ sql: MEDIA_UPSERT_SQL, params: mediaRowToParams(row) }]);
-  if (ctx.onDirtyIncrement) {
-    await ctx.onDirtyIncrement();
-  }
+  await persistMediaGraphCheckpoint(ctx, [media]);
   return row;
 }
 

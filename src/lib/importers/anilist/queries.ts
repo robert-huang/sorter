@@ -73,6 +73,17 @@ const MEDIA_FIELD_SELECTION = `
   tags { name rank }
 `.trim();
 
+/** Fields persisted by `MEDIA_STUB_UPSERT_SQL` for nested appearance nodes. */
+const MEDIA_STUB_FIELD_SELECTION = `
+  id
+  type
+  title { english romaji native }
+  coverImage { large }
+  format
+  startDate { year month day }
+  synonyms
+`.trim();
+
 /**
  * Media fields for `User.favourites.anime` / `.manga` pagination.
  *
@@ -447,7 +458,7 @@ query StaffFilmography(
           favourites
         }
         node {
-          ${MEDIA_FIELD_SELECTION}
+          ${MEDIA_STUB_FIELD_SELECTION}
         }
       }
     }
@@ -476,7 +487,7 @@ query MediaRelations($id: Int!) {
       edges {
         ${TOOLS_MEDIA_RELATION_TYPE_FIELD}
         node {
-          ${MEDIA_FIELD_SELECTION}
+          ${TOOLS_MEDIA_CHART_METADATA_FIELDS}
         }
       }
     }
@@ -1020,8 +1031,13 @@ query ToolsFavouriteStaff($username: String!, $page: Int!, $perPage: Int!) {
 }
 `.trim();
 
-/** Character media edges with JP voice actors (`character_vas.py`). */
-export const TOOLS_CHARACTER_VOICE_MEDIA_QUERY = `
+/** Character media edges with voice actors (`character_vas.py`). */
+export function buildCharacterVoiceMediaQuery({
+  voiceActorLanguage,
+}: {
+  voiceActorLanguage: AnilistStaffLanguage;
+}): string {
+  return `
 query ToolsCharacterVoiceMedia($id: Int!, $page: Int!, $perPage: Int!) {
   Character(id: $id) {
     media(page: $page, perPage: $perPage) {
@@ -1036,7 +1052,7 @@ query ToolsCharacterVoiceMedia($id: Int!, $page: Int!, $perPage: Int!) {
           coverImage { large }
         }
         characterRole
-        voiceActors(language: JAPANESE, sort: RELEVANCE) {
+        voiceActors(language: ${voiceActorLanguage}, sort: RELEVANCE) {
           id
           name { full native }
           image { large }
@@ -1050,6 +1066,11 @@ query ToolsCharacterVoiceMedia($id: Int!, $page: Int!, $perPage: Int!) {
   }
 }
 `.trim();
+}
+
+export const TOOLS_CHARACTER_VOICE_MEDIA_QUERY = buildCharacterVoiceMediaQuery({
+  voiceActorLanguage: 'JAPANESE',
+});
 
 /** Characters voiced by a staff member on consumed media (`character_vas.py`). */
 export const TOOLS_VA_CHARACTER_MEDIA_QUERY = `

@@ -7,6 +7,7 @@ import { anilistSourceDescriptor } from '../anilistSource';
 import type { AnilistDbExecutor, AnilistImportContext } from '../context';
 import { expandStaffFilmography } from '../expandStaffFilmography';
 import type {
+  AnilistMediaGql,
   AnilistStaffFilmographyResponse,
   AnilistStaffGql,
 } from '../types';
@@ -47,6 +48,32 @@ function makeDbAdapter(db: Database): AnilistDbExecutor {
 const NOW = 1_700_000_000_000;
 const VA_STAFF_ID = 96001;
 const CHARACTER_ID = 89001;
+
+function fullMedia(overrides: Partial<AnilistMediaGql> = {}): AnilistMediaGql {
+  return {
+    id: 1002,
+    type: 'ANIME',
+    title: { romaji: 'Production Anime', native: null, english: null },
+    coverImage: { large: 'https://example.test/production.jpg' },
+    format: 'TV',
+    source: 'ORIGINAL',
+    status: 'FINISHED',
+    episodes: 12,
+    chapters: null,
+    startDate: { year: 2025, month: 1, day: 1 },
+    endDate: null,
+    season: 'WINTER',
+    seasonYear: 2025,
+    meanScore: 80,
+    favourites: 100,
+    countryOfOrigin: 'JP',
+    genres: ['Drama'],
+    synonyms: [],
+    studios: { edges: [] },
+    tags: [],
+    ...overrides,
+  };
+}
 
 async function freshAnilistDb(): Promise<Database> {
   const db = await openMemoryDb();
@@ -336,6 +363,128 @@ describe('expandStaffFilmography', () => {
       fetched_at: NOW,
       updated_at: NOW,
     });
+    db.close();
+  });
+
+  it('replaces studio and tag junctions for production-credit media', async () => {
+    const db = await freshAnilistDb();
+    const response = makeFilmographyResponse();
+    response.Staff!.staffMedia!.edges = [
+      {
+        staffRole: 'Director',
+        node: fullMedia({
+          studios: {
+            edges: [
+              {
+                isMain: true,
+                node: { id: 11, name: 'Current Studio' },
+              },
+            ],
+          },
+          tags: [{ name: 'Current Tag', rank: 90 }],
+        }),
+      },
+    ];
+    const ctx: AnilistImportContext = {
+      db: makeDbAdapter(db),
+      executeQuery: vi.fn().mockResolvedValue(response),
+      now: () => NOW,
+    };
+    db.exec(
+      `INSERT INTO media (id, type, fetched_at, updated_at)
+       VALUES (1002, 'ANIME', 1, 1)`,
+    );
+    db.exec(
+      `INSERT INTO studio (id, name, fetched_at)
+       VALUES (10, 'Stale Studio', 1)`,
+    );
+    db.exec(
+      `INSERT INTO media_studio (media_id, studio_id, sort_order, is_main)
+       VALUES (1002, 10, 0, 1)`,
+    );
+    db.exec(
+      `INSERT INTO tag (name, fetched_at)
+       VALUES ('Stale Tag', 1)`,
+    );
+    db.exec(
+      `INSERT INTO media_tag (media_id, tag_name, rank)
+       VALUES (1002, 'Stale Tag', 50)`,
+    );
+
+    await expandStaffFilmography(ctx, VA_STAFF_ID);
+
+    expect(
+      db.selectObjects(
+        `SELECT s.id, s.name, ms.is_main
+           FROM media_studio ms
+           JOIN studio s ON s.id = ms.studio_id
+          WHERE ms.media_id = 1002`,
+      ),
+    ).toEqual([{ id: 11, name: 'Current Studio', is_main: 1 }]);
+    expect(
+      db.selectObjects(
+        `SELECT tag_name, rank
+           FROM media_tag
+          WHERE media_id = 1002`,
+      ),
+    ).toEqual([{ tag_name: 'Current Tag', rank: 90 }]);
+    expect(
+      db.selectObject(
+        'SELECT studios_fetched_at FROM media WHERE id = 1002',
+      ),
+    ).toEqual({ studios_fetched_at: NOW });
+    db.close();
+  });
+
+  it('removes obsolete voice and production credits on refresh', async () => {
+    const db = await freshAnilistDb();
+    const initialResponse = makeFilmographyResponse();
+    initialResponse.Staff!.staffMedia!.edges = [
+      {
+        staffRole: 'Director',
+        node: fullMedia(),
+      },
+    ];
+    const refreshedResponse = makeFilmographyResponse();
+    refreshedResponse.Staff!.characterMedia!.edges = [];
+    refreshedResponse.Staff!.staffMedia!.edges = [];
+    const ctx: AnilistImportContext = {
+      db: makeDbAdapter(db),
+      executeQuery: vi
+        .fn()
+        .mockResolvedValueOnce(initialResponse)
+        .mockResolvedValueOnce(refreshedResponse),
+      now: () => NOW,
+    };
+
+    await expandStaffFilmography(ctx, VA_STAFF_ID);
+    expect(
+      db.selectObject(
+        'SELECT COUNT(*) AS count FROM character_voice_actor WHERE staff_id = ?',
+        VA_STAFF_ID,
+      ),
+    ).toEqual({ count: 1 });
+    expect(
+      db.selectObject(
+        'SELECT COUNT(*) AS count FROM media_staff WHERE staff_id = ?',
+        VA_STAFF_ID,
+      ),
+    ).toEqual({ count: 1 });
+
+    await expandStaffFilmography(ctx, VA_STAFF_ID);
+
+    expect(
+      db.selectObject(
+        'SELECT COUNT(*) AS count FROM character_voice_actor WHERE staff_id = ?',
+        VA_STAFF_ID,
+      ),
+    ).toEqual({ count: 0 });
+    expect(
+      db.selectObject(
+        'SELECT COUNT(*) AS count FROM media_staff WHERE staff_id = ?',
+        VA_STAFF_ID,
+      ),
+    ).toEqual({ count: 0 });
     db.close();
   });
 

@@ -10,11 +10,10 @@ import {
   type SqlBindable,
 } from './context';
 import {
-  mapMediaRow,
   mapStaffCharacterAppearanceData,
   mapStaffFilmographyMediaStaffRows,
 } from './mappers';
-import { MEDIA_UPSERT_SQL, mediaRowToParams } from './importer';
+import { persistMediaGraphCheckpoint } from './importer';
 import {
   CHARACTER_STUB_UPSERT_SQL,
   characterStubRowToParams,
@@ -172,8 +171,25 @@ export async function persistStaffFilmographyExpansion(
   const appearance = mapStaffCharacterAppearanceData(staffId, characterEdges, language, now);
   const mediaStaffRows = mapStaffFilmographyMediaStaffRows(staffId, staffMediaEdges);
   const staffProfile = options.staffProfile;
+  const fullMediaById = new Map(
+    staffMediaEdges
+      .map((edge) => edge.node)
+      .filter((node) => node != null)
+      .map((node) => [node.id, node] as const),
+  );
 
-  const stmts: Array<{ sql: string; params: readonly SqlBindable[] }> = [];
+  await persistMediaGraphCheckpoint(ctx, [...fullMediaById.values()]);
+
+  const stmts: Array<{ sql: string; params: readonly SqlBindable[] }> = [
+    {
+      sql: 'DELETE FROM character_voice_actor WHERE staff_id = ? AND language = ?',
+      params: [staffId, language],
+    },
+    {
+      sql: 'DELETE FROM media_staff WHERE staff_id = ?',
+      params: [staffId],
+    },
+  ];
 
   if (staffProfile) {
     stmts.push({
@@ -184,16 +200,6 @@ export async function persistStaffFilmographyExpansion(
 
   for (const row of appearance.mediaRows) {
     stmts.push({ sql: MEDIA_STUB_UPSERT_SQL, params: mediaStubRowToParams(row) });
-  }
-  for (const e of staffMediaEdges) {
-    const node = e.node;
-    if (!node?.id) {
-      continue;
-    }
-    stmts.push({
-      sql: MEDIA_UPSERT_SQL,
-      params: mediaRowToParams(mapMediaRow(node, now)),
-    });
   }
   for (const row of appearance.characterRows) {
     stmts.push({ sql: CHARACTER_STUB_UPSERT_SQL, params: characterStubRowToParams(row) });
@@ -227,7 +233,7 @@ export async function persistStaffFilmographyExpansion(
   emitProgress(ctx.onProgress, { kind: 'writing', statements: stmts.length });
   await execBatchInChunks(ctx.db, stmts);
 
-  if (ctx.onDirtyIncrement) {
+  if (fullMediaById.size === 0 && ctx.onDirtyIncrement) {
     await ctx.onDirtyIncrement();
   }
 

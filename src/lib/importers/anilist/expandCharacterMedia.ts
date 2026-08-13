@@ -14,7 +14,7 @@ import {
   staffRowToParams,
 } from './lazyExpansion';
 import { emitProgress } from './progress';
-import { TOOLS_CHARACTER_VOICE_MEDIA_QUERY } from './queries';
+import { buildCharacterVoiceMediaQuery } from './queries';
 import type {
   AnilistCharacterMediaEdgeGql,
   AnilistCharacterVoiceMediaResponse,
@@ -44,6 +44,7 @@ async function fetchCharacterMediaPages(
   characterId: number,
   perPage: number,
   maxPages: number | undefined,
+  voiceActorLanguage: AnilistStaffLanguage,
   signal?: AbortSignal,
 ): Promise<{
   edges: AnilistCharacterMediaEdgeGql[];
@@ -51,6 +52,7 @@ async function fetchCharacterMediaPages(
   characterExists: boolean | null;
 }> {
   const allEdges: AnilistCharacterMediaEdgeGql[] = [];
+  const query = buildCharacterVoiceMediaQuery({ voiceActorLanguage });
   let page = 1;
   let pagesFetched = 0;
   let hasNext = true;
@@ -59,7 +61,7 @@ async function fetchCharacterMediaPages(
   while (hasNext && (maxPages === undefined || pagesFetched < maxPages)) {
     signal?.throwIfAborted();
     const response = await ctx.executeQuery<AnilistCharacterVoiceMediaResponse>(
-      TOOLS_CHARACTER_VOICE_MEDIA_QUERY,
+      query,
       { id: characterId, page, perPage },
     );
     if (!response?.Character) {
@@ -101,7 +103,12 @@ export async function persistCharacterMediaExpansion(
   const language = options.voiceActorLanguage ?? DEFAULT_VOICE_ACTOR_LANGUAGE;
   const now = ctx.now();
   const appearance = mapCharacterMediaAppearanceData(characterId, edges, language, now);
-  const stmts: Array<{ sql: string; params: readonly SqlBindable[] }> = [];
+  const stmts: Array<{ sql: string; params: readonly SqlBindable[] }> = [
+    {
+      sql: 'DELETE FROM character_voice_actor WHERE character_id = ? AND language = ?',
+      params: [characterId, language],
+    },
+  ];
 
   for (const row of appearance.mediaRows) {
     stmts.push({ sql: MEDIA_STUB_UPSERT_SQL, params: mediaStubRowToParams(row) });
@@ -162,6 +169,7 @@ export async function expandCharacterMedia(
     characterId,
     perPage,
     options.maxPages,
+    language,
     options.signal,
   );
 
@@ -171,7 +179,7 @@ export async function expandCharacterMedia(
   if (characterExists === null) {
     options.signal?.throwIfAborted();
     const probe = await ctx.executeQuery<AnilistCharacterVoiceMediaResponse>(
-      TOOLS_CHARACTER_VOICE_MEDIA_QUERY,
+      buildCharacterVoiceMediaQuery({ voiceActorLanguage: language }),
       { id: characterId, page: 1, perPage },
     );
     if (!probe?.Character) {

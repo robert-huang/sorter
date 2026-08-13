@@ -102,17 +102,6 @@ const STAFF_CHARACTER_MEDIA_CONNECTION_FIELDS = `
       format
       coverImage { large }
       startDate { year month day }
-      endDate { year month day }
-      season
-      seasonYear
-      status
-      episodes
-      chapters
-      meanScore
-      favourites
-      countryOfOrigin
-      genres
-      source
     }
   }
 `.trim();
@@ -132,14 +121,16 @@ const STAFF_STAFF_MEDIA_CONNECTION_FIELDS = `
       endDate { year month day }
       season
       seasonYear
-      status
+      status(version: 2)
       episodes
       chapters
       meanScore
       favourites
       countryOfOrigin
       genres
-      source
+      source(version: 3)
+      studios { edges { isMain node { id name } } }
+      tags { name rank }
     }
   }
 `.trim();

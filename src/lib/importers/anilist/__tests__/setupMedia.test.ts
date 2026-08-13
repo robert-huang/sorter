@@ -101,6 +101,61 @@ describe('setupMedia', () => {
     expect(stored).toHaveLength(1);
   });
 
+  it('fetchAnimeById authoritatively replaces studio and tag junctions', async () => {
+    await adapter.exec(
+      `INSERT INTO media (id, type, fetched_at, updated_at)
+       VALUES (21, 'ANIME', 1, 1)`,
+    );
+    await adapter.exec(
+      `INSERT INTO studio (id, name, fetched_at)
+       VALUES (10, 'Stale Studio', 1)`,
+    );
+    await adapter.exec(
+      `INSERT INTO media_studio (media_id, studio_id, sort_order, is_main)
+       VALUES (21, 10, 0, 1)`,
+    );
+    await adapter.exec(
+      `INSERT INTO tag (name, fetched_at)
+       VALUES ('Stale Tag', 1)`,
+    );
+    await adapter.exec(
+      `INSERT INTO media_tag (media_id, tag_name, rank)
+       VALUES (21, 'Stale Tag', 50)`,
+    );
+    executeQuery.mockResolvedValueOnce({
+      Media: fullMedia({
+        id: 21,
+        studios: {
+          edges: [
+            {
+              isMain: true,
+              node: { id: 11, name: 'Current Studio' },
+            },
+          ],
+        },
+        tags: [{ name: 'Current Tag', rank: 90 }],
+      }),
+    });
+
+    await fetchAnimeById(ctx, 21);
+
+    expect(
+      await adapter.exec(
+        `SELECT s.id, s.name, ms.is_main
+           FROM media_studio ms
+           JOIN studio s ON s.id = ms.studio_id
+          WHERE ms.media_id = 21`,
+      ),
+    ).toEqual([{ id: 11, name: 'Current Studio', is_main: 1 }]);
+    expect(
+      await adapter.exec(
+        `SELECT tag_name, rank
+           FROM media_tag
+          WHERE media_id = 21`,
+      ),
+    ).toEqual([{ tag_name: 'Current Tag', rank: 90 }]);
+  });
+
   it('searchAnimeFromApi upserts each result', async () => {
     executeQuery.mockResolvedValueOnce({
       Page: { pageInfo: { hasNextPage: false, currentPage: 1 }, media: [fullMedia({ id: 22 })] },

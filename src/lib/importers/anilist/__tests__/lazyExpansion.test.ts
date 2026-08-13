@@ -335,6 +335,14 @@ describe('expandAnilistMediaDetail — happy path', () => {
               favourites = 1
         WHERE id = 100`,
     );
+    h.db.exec(
+      `INSERT INTO studio (id, name, fetched_at)
+       VALUES (10, 'Bushiroad', ${NOW})`,
+    );
+    h.db.exec(
+      `INSERT INTO media_studio (media_id, studio_id, sort_order, is_main)
+       VALUES (100, 10, 0, 1)`,
+    );
     h.executeQuery
       .mockResolvedValueOnce({
         Media: {
@@ -356,7 +364,11 @@ describe('expandAnilistMediaDetail — happy path', () => {
           countryOfOrigin: 'JP',
           genres: ['Drama'],
           synonyms: ['Updated Show'],
-          studios: { nodes: [] },
+          studios: {
+            edges: [
+              { isMain: true, node: { id: 11, name: 'SANZIGEN' } },
+            ],
+          },
           tags: [],
         },
       })
@@ -390,6 +402,16 @@ describe('expandAnilistMediaDetail — happy path', () => {
       synonyms_json: '["Updated Show"]',
       source_fetched_at: NOW,
     });
+    expect(
+      h.db.selectObjects(
+        `SELECT s.id, s.name, ms.sort_order, ms.is_main
+           FROM media_studio ms
+           JOIN studio s ON s.id = ms.studio_id
+          WHERE ms.media_id = 100`,
+      ),
+    ).toEqual([
+      { id: 11, name: 'SANZIGEN', sort_order: 0, is_main: 1 },
+    ]);
     expect(h.executeQuery.mock.calls[0][0]).toContain('AnimeById');
     h.db.close();
   });
