@@ -1,4 +1,11 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import type { EditItemSavePayload } from './EditItemModal';
 import type { Item, ItemId, SortState } from '../lib/types';
 import {
@@ -10,7 +17,10 @@ import {
   getPeekRightOverflowCount,
 } from '../lib/engine';
 import {
+  COMPARE_EXIT_ANIM_NAMES,
+  COMPARE_EXIT_FALLBACK_MS,
   COMPARE_PEEK_DEPTH,
+  COMPARE_RUSH_DURATION_MS,
   insertingItemLanded,
   peekOverflowLabel,
   swapsInsertCompareSides,
@@ -21,6 +31,7 @@ import { ItemCard } from './ItemCard';
 import { PeekCard } from './PeekCard';
 import { ConfirmationCompareScreen } from './ConfirmationCompareScreen';
 import { isConfirmationState } from '../lib/types';
+import { usePrefersReducedMotion } from './usePrefersReducedMotion';
 
 /**
  * The last user action that *can change the current pair*. Surfaced from
@@ -122,20 +133,6 @@ interface OutgoingPair {
  */
 type SlotAnimKind = 'pop' | 'deck' | 'fade' | 'none';
 
-/** When a new pick lands while an exit is in flight, we re-pace the live
- *  overlay's CSS animation to this duration via the --anim-duration custom
- *  property so it finishes quickly and the next pick can play. */
-const RUSH_DURATION_MS = 70;
-
-/** Animation names we listen for to know an exit cycle finished. Fires
- *  once per exiting side (so 1 or 2 per outgoing pair). Includes the
- *  insert-mode fade-out so the same drain logic handles both kinds. */
-const EXIT_ANIM_NAMES = new Set([
-  'cardSlideOutLeft',
-  'cardSlideOutRight',
-  'cardFadeOut',
-]);
-
 export function CompareScreen({
   state,
   lastInteraction,
@@ -167,6 +164,7 @@ export function CompareScreen({
   }
 
   const pair = getPair(state);
+  const prefersReducedMotion = usePrefersReducedMotion();
   const mode = currentMode(state);
   const swapsCompareSides = swapsInsertCompareSides(mode);
   const visualPair = pair ? visualComparePair(pair, swapsCompareSides) : null;
@@ -324,9 +322,77 @@ export function CompareScreen({
     });
   }
 
+  const completeOutgoingOverlay = useCallback((): void => {
+    const cur = outgoingRef.current;
+    if (!cur) return;
+
+    exitFinishCountRef.current = 0;
+    const next = queueRef.current.shift() ?? null;
+    outgoingRef.current = next;
+    setOutgoing(next);
+    if (next) return;
+
+    if (cur.leftExiting) {
+      setLeftRevealed(true);
+      if (cur.leftHidden && !incomingAnimatedRef.current.left) {
+        setPopInKeyLeft((k) => k + 1);
+      }
+    }
+    if (cur.rightExiting) {
+      setRightRevealed(true);
+      if (cur.rightHidden && !incomingAnimatedRef.current.right) {
+        setPopInKeyRight((k) => k + 1);
+      }
+    }
+    incomingAnimatedRef.current = { left: false, right: false };
+    overlayContainerRef.current?.style.removeProperty('--anim-duration');
+  }, []);
+
+  const recordOverlayAnimationFinished = useCallback(
+    (animationName: string): void => {
+      if (!COMPARE_EXIT_ANIM_NAMES.has(animationName)) return;
+      exitFinishCountRef.current += 1;
+      const cur = outgoingRef.current;
+      const expected =
+        (cur?.leftExiting ? 1 : 0) + (cur?.rightExiting ? 1 : 0);
+      if (exitFinishCountRef.current < expected) return;
+      completeOutgoingOverlay();
+    },
+    [completeOutgoingOverlay],
+  );
+
   useEffect(() => {
     outgoingRef.current = outgoing;
   }, [outgoing]);
+
+  useLayoutEffect(() => {
+    if (!outgoing) return;
+    if (prefersReducedMotion) {
+      completeOutgoingOverlay();
+      return;
+    }
+
+    const overlay = overlayContainerRef.current;
+    const handleAnimationCancel = (event: Event): void => {
+      recordOverlayAnimationFinished(
+        (event as AnimationEvent).animationName,
+      );
+    };
+    overlay?.addEventListener('animationcancel', handleAnimationCancel);
+    const fallback = window.setTimeout(
+      completeOutgoingOverlay,
+      COMPARE_EXIT_FALLBACK_MS,
+    );
+    return () => {
+      window.clearTimeout(fallback);
+      overlay?.removeEventListener('animationcancel', handleAnimationCancel);
+    };
+  }, [
+    outgoing,
+    prefersReducedMotion,
+    completeOutgoingOverlay,
+    recordOverlayAnimationFinished,
+  ]);
 
   // useLayoutEffect (not useEffect) so the hidden class lands in the same
   // paint as the new-pair render. Otherwise the user briefly sees the new
@@ -407,6 +473,20 @@ export function CompareScreen({
     if (lastInteraction?.kind !== 'pick') {
       if (bumpLeft) setPopInKeyLeft((k) => k + 1);
       if (bumpRight) setPopInKeyRight((k) => k + 1);
+      return;
+    }
+
+    if (prefersReducedMotion) {
+      cancelDeferredDeckBumps();
+      queueRef.current = [];
+      exitFinishCountRef.current = 0;
+      outgoingRef.current = null;
+      setOutgoing(null);
+      setLeftRevealed(true);
+      setRightRevealed(true);
+      if (bumpLeft) setPopInKeyLeft((k) => k + 1);
+      if (bumpRight) setPopInKeyRight((k) => k + 1);
+      incomingAnimatedRef.current = { left: false, right: false };
       return;
     }
 
@@ -513,7 +593,7 @@ export function CompareScreen({
         if (overlayContainerRef.current) {
           overlayContainerRef.current.style.setProperty(
             '--anim-duration',
-            `${RUSH_DURATION_MS}ms`,
+            `${COMPARE_RUSH_DURATION_MS}ms`,
           );
         }
         queueRef.current = [];
@@ -530,43 +610,18 @@ export function CompareScreen({
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visualPair?.leftId, visualPair?.rightId, mode, lastInteraction]);
+  }, [
+    visualPair?.leftId,
+    visualPair?.rightId,
+    mode,
+    lastInteraction,
+    prefersReducedMotion,
+  ]);
 
-  function handleOverlayAnimationEnd(
+  function handleOverlayAnimationFinished(
     e: React.AnimationEvent<HTMLDivElement>,
   ): void {
-    if (!EXIT_ANIM_NAMES.has(e.animationName)) return;
-    exitFinishCountRef.current += 1;
-    const cur = outgoingRef.current;
-    const expected =
-      (cur?.leftExiting ? 1 : 0) + (cur?.rightExiting ? 1 : 0);
-    if (exitFinishCountRef.current < expected) return;
-    exitFinishCountRef.current = 0;
-    // Capture which sides this exit was covering before we swap it out —
-    // they're the ones that may need revealing on the leisurely tail.
-    const leftWasExiting = !!cur?.leftExiting;
-    const rightWasExiting = !!cur?.rightExiting;
-    const next = queueRef.current.shift() ?? null;
-    setOutgoing(next);
-    if (!next) {
-      // Queue drained — leisurely tail. Reveal any side that was hidden
-      // and replay its incoming animation. Deck sides were never hidden
-      // and already got their popInKey bump on pick, so skip them here.
-      // Skip sides that already bumped on an INTERRUPT pick too.
-      if (leftWasExiting) {
-        setLeftRevealed(true);
-        if (cur?.leftHidden && !incomingAnimatedRef.current.left) {
-          setPopInKeyLeft((k) => k + 1);
-        }
-      }
-      if (rightWasExiting) {
-        setRightRevealed(true);
-        if (cur?.rightHidden && !incomingAnimatedRef.current.right) {
-          setPopInKeyRight((k) => k + 1);
-        }
-      }
-      incomingAnimatedRef.current = { left: false, right: false };
-    }
+    recordOverlayAnimationFinished(e.animationName);
   }
 
   if (state.done) {
@@ -842,7 +897,7 @@ export function CompareScreen({
           <div
             ref={overlayContainerRef}
             className={`compare-overlay compare-overlay--exit-${outgoing.exitKind}`}
-            onAnimationEnd={handleOverlayAnimationEnd}
+            onAnimationEnd={handleOverlayAnimationFinished}
             key={`overlay-${outgoing.id}`}
           >
             {/* Both slot cells are always rendered to preserve the grid

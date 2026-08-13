@@ -1,9 +1,17 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import type { ConfirmationState, Item, ItemId } from '../lib/types';
 import { getCompareProgress, getPair } from '../lib/engine';
 import { getInsertContext } from './listScreenH';
 import {
   COMPARE_EXIT_ANIM_NAMES,
+  COMPARE_EXIT_FALLBACK_MS,
   COMPARE_RUSH_DURATION_MS,
   confirmationAnimKinds,
   insertingItemLanded,
@@ -17,6 +25,7 @@ import { DetailButtonSlot } from './DetailButton';
 import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
 import { CircularArrowGlyph } from './CircularArrowGlyph';
 import { RemoveGlyph } from './RemoveGlyph';
+import { usePrefersReducedMotion } from './usePrefersReducedMotion';
 
 interface Props {
   state: ConfirmationState;
@@ -88,6 +97,7 @@ export function ConfirmationCompareScreen({
   }, [state.items, editingId]);
 
   const pair = getPair(state);
+  const prefersReducedMotion = usePrefersReducedMotion();
   const hidden = useMemo(() => new Set(state.hidden), [state.hidden]);
   const { pct } = getCompareProgress(state, { autoInsertEnabled });
   const insertCtx = state.phase === 'insert' ? getInsertContext(state) : null;
@@ -162,6 +172,42 @@ export function ConfirmationCompareScreen({
     });
   }
 
+  const completeOutgoingOverlay = useCallback((): void => {
+    const cur = outgoingRef.current;
+    if (!cur) return;
+
+    exitFinishCountRef.current = 0;
+    outgoingRef.current = null;
+    setOutgoing(null);
+    if (cur.leftExiting) {
+      setLeftRevealed(true);
+      if (cur.leftHidden && !incomingAnimatedRef.current.left) {
+        setPopInKeyLeft((k) => k + 1);
+      }
+    }
+    if (cur.rightExiting) {
+      setRightRevealed(true);
+      if (cur.rightHidden && !incomingAnimatedRef.current.right) {
+        setPopInKeyRight((k) => k + 1);
+      }
+    }
+    incomingAnimatedRef.current = { left: false, right: false };
+    overlayContainerRef.current?.style.removeProperty('--anim-duration');
+  }, []);
+
+  const recordOverlayAnimationFinished = useCallback(
+    (animationName: string): void => {
+      if (!COMPARE_EXIT_ANIM_NAMES.has(animationName)) return;
+      exitFinishCountRef.current += 1;
+      const cur = outgoingRef.current;
+      const expected =
+        (cur?.leftExiting ? 1 : 0) + (cur?.rightExiting ? 1 : 0);
+      if (exitFinishCountRef.current < expected) return;
+      completeOutgoingOverlay();
+    },
+    [completeOutgoingOverlay],
+  );
+
   const { left: leftAnimKind, right: rightAnimKind } = useMemo<{
     left: SlotAnimKind;
     right: SlotAnimKind;
@@ -178,6 +224,35 @@ export function ConfirmationCompareScreen({
   useEffect(() => {
     outgoingRef.current = outgoing;
   }, [outgoing]);
+
+  useLayoutEffect(() => {
+    if (!outgoing) return;
+    if (prefersReducedMotion) {
+      completeOutgoingOverlay();
+      return;
+    }
+
+    const overlay = overlayContainerRef.current;
+    const handleAnimationCancel = (event: Event): void => {
+      recordOverlayAnimationFinished(
+        (event as AnimationEvent).animationName,
+      );
+    };
+    overlay?.addEventListener('animationcancel', handleAnimationCancel);
+    const fallback = window.setTimeout(
+      completeOutgoingOverlay,
+      COMPARE_EXIT_FALLBACK_MS,
+    );
+    return () => {
+      window.clearTimeout(fallback);
+      overlay?.removeEventListener('animationcancel', handleAnimationCancel);
+    };
+  }, [
+    outgoing,
+    prefersReducedMotion,
+    completeOutgoingOverlay,
+    recordOverlayAnimationFinished,
+  ]);
 
   // The card pair changes height with image dimensions, viewport width,
   // and browser zoom. Measure the list's actual remaining viewport space,
@@ -293,6 +368,19 @@ export function ConfirmationCompareScreen({
       return;
     }
 
+    if (prefersReducedMotion) {
+      cancelDeferredDeckBumps();
+      exitFinishCountRef.current = 0;
+      outgoingRef.current = null;
+      setOutgoing(null);
+      setLeftRevealed(true);
+      setRightRevealed(true);
+      if (bumpLeft) setPopInKeyLeft((k) => k + 1);
+      if (bumpRight) setPopInKeyRight((k) => k + 1);
+      incomingAnimatedRef.current = { left: false, right: false };
+      return;
+    }
+
     let oldLeft =
       sameLeft && !modeBoundary
         ? null
@@ -366,37 +454,19 @@ export function ConfirmationCompareScreen({
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visualPair?.leftId, visualPair?.rightId, phase, lastInteraction, insertingId]);
+  }, [
+    visualPair?.leftId,
+    visualPair?.rightId,
+    phase,
+    lastInteraction,
+    insertingId,
+    prefersReducedMotion,
+  ]);
 
-  function handleOverlayAnimationEnd(
+  function handleOverlayAnimationFinished(
     e: React.AnimationEvent<HTMLDivElement>,
   ): void {
-    if (!COMPARE_EXIT_ANIM_NAMES.has(e.animationName)) return;
-    exitFinishCountRef.current += 1;
-    const cur = outgoingRef.current;
-    const expected =
-      (cur?.leftExiting ? 1 : 0) + (cur?.rightExiting ? 1 : 0);
-    if (exitFinishCountRef.current < expected) return;
-    exitFinishCountRef.current = 0;
-    const leftWasExiting = !!cur?.leftExiting;
-    const rightWasExiting = !!cur?.rightExiting;
-    setOutgoing(null);
-    if (leftWasExiting) {
-      setLeftRevealed(true);
-      if (cur?.leftHidden && !incomingAnimatedRef.current.left) {
-        setPopInKeyLeft((k) => k + 1);
-      }
-    }
-    if (rightWasExiting) {
-      setRightRevealed(true);
-      if (cur?.rightHidden && !incomingAnimatedRef.current.right) {
-        setPopInKeyRight((k) => k + 1);
-      }
-    }
-    incomingAnimatedRef.current = { left: false, right: false };
-    if (overlayContainerRef.current) {
-      overlayContainerRef.current.style.removeProperty('--anim-duration');
-    }
+    recordOverlayAnimationFinished(e.animationName);
   }
 
   const leftSlotClass = `compare-confirmation-hero compare-slot compare-slot--left${
@@ -448,7 +518,7 @@ export function ConfirmationCompareScreen({
             <div
               ref={overlayContainerRef}
               className={`compare-overlay compare-overlay--exit-${outgoing.exitKind}`}
-              onAnimationEnd={handleOverlayAnimationEnd}
+              onAnimationEnd={handleOverlayAnimationFinished}
               key={`overlay-${outgoing.id}`}
             >
               <div

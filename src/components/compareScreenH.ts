@@ -106,3 +106,10 @@ export const COMPARE_EXIT_ANIM_NAMES = new Set([
 ]);
 
 export const COMPARE_RUSH_DURATION_MS = 70;
+
+/**
+ * The normal exit animation lasts 280ms in styles.css. This watchdog leaves
+ * a small scheduling margin, then completes the transition if neither
+ * animationend nor animationcancel arrived.
+ */
+export const COMPARE_EXIT_FALLBACK_MS = 400;
