@@ -523,11 +523,11 @@ export function buildWeeklyCalendarSeasonSegments(
 ): Array<{ value: WeeklyCalendarSeasonScope; label: string }> {
   const current = getCurrentAnilistSeason(now);
   return [
-    { value: 'watching', label: 'User List' },
     {
       value: 'previous',
       label: formatAnilistSeasonLabel(getPreviousAnilistSeason(current)),
     },
+    { value: 'watching', label: 'User List' },
     { value: 'current', label: formatAnilistSeasonLabel(current) },
     {
       value: 'next',

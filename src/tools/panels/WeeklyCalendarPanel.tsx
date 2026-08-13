@@ -83,6 +83,7 @@ import {
   type WeeklyCalendarEntry,
   type WeeklyCalendarRawEntry,
   type WeeklyCalendarResult,
+  type WeeklyCalendarSeasonScope,
   type WeeklyCalendarTimezone,
   type WeeklyCalendarWeekStartDay,
 } from './weeklyCalendarLogic';
@@ -97,6 +98,9 @@ const LS_KEY = 'anime-tools-weekly-calendar-form';
 type PersistedWeeklyCalendarForm = Pick<
   WeeklyCalendarForm,
   | 'username'
+  | 'seasonScope'
+  | 'customSeasonMinEncoded'
+  | 'customSeasonMaxEncoded'
   | 'weekStartDay'
   | 'timezone'
   | 'formatFilters'
@@ -153,15 +157,40 @@ const THEME_SONG_PLAYLIST_FILTER_LABELS: Record<ThemeSongPlaylistFilter, string>
   out: 'Showing songs not on the playlist. Click to clear; right-click to show songs on the playlist.',
 };
 
-function loadForm(): WeeklyCalendarForm {
+function normalizePersistedSeasonScope(raw: unknown): WeeklyCalendarSeasonScope {
+  const scopes: WeeklyCalendarSeasonScope[] = [
+    'watching',
+    'previous',
+    'current',
+    'next',
+    'custom',
+  ];
+  return scopes.includes(raw as WeeklyCalendarSeasonScope)
+    ? (raw as WeeklyCalendarSeasonScope)
+    : DEFAULT_WEEKLY_CALENDAR_FORM.seasonScope;
+}
+
+export function loadWeeklyCalendarForm(): WeeklyCalendarForm {
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<PersistedWeeklyCalendarForm>;
+      const defaultCustomRange = defaultWeeklyCalendarCustomSeasonRange();
+      const customSeasonRange = normalizeCustomSeasonRange(
+        typeof parsed.customSeasonMinEncoded === 'number'
+          ? parsed.customSeasonMinEncoded
+          : defaultCustomRange.customSeasonMinEncoded,
+        typeof parsed.customSeasonMaxEncoded === 'number'
+          ? parsed.customSeasonMaxEncoded
+          : defaultCustomRange.customSeasonMaxEncoded,
+        buildWeeklyCalendarCustomSeasonYearOptions(),
+      );
       return {
         ...DEFAULT_WEEKLY_CALENDAR_FORM,
-        ...defaultWeeklyCalendarCustomSeasonRange(),
         username: withLastAnilistUsername(parsed.username ?? ''),
+        seasonScope: normalizePersistedSeasonScope(parsed.seasonScope),
+        customSeasonMinEncoded: customSeasonRange.minEncoded,
+        customSeasonMaxEncoded: customSeasonRange.maxEncoded,
         weekStartDay:
           parsed.weekStartDay && WEEK_START_OPTIONS.includes(parsed.weekStartDay)
             ? parsed.weekStartDay
@@ -186,10 +215,13 @@ function loadForm(): WeeklyCalendarForm {
   };
 }
 
-function saveForm(form: WeeklyCalendarForm): void {
+export function saveWeeklyCalendarForm(form: WeeklyCalendarForm): void {
   try {
     const persisted: PersistedWeeklyCalendarForm = {
       username: form.username,
+      seasonScope: form.seasonScope,
+      customSeasonMinEncoded: form.customSeasonMinEncoded,
+      customSeasonMaxEncoded: form.customSeasonMaxEncoded,
       weekStartDay: form.weekStartDay,
       timezone: form.timezone,
       formatFilters: form.formatFilters,
@@ -740,7 +772,7 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
   const playlistCache = useSpotifyPlaylistCache();
   const { mode: localFileMatchMode } = useSpotifyLocalFileMatchPreference();
   const favourites = useCurrentAnilistFavourites();
-  const [form, setForm] = useState<WeeklyCalendarForm>(() => loadForm());
+  const [form, setForm] = useState<WeeklyCalendarForm>(() => loadWeeklyCalendarForm());
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rawEntries, setRawEntries] = useState<WeeklyCalendarRawEntry[] | null>(null);
@@ -772,7 +804,7 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
   });
 
   useEffect(() => {
-    saveForm(form);
+    saveWeeklyCalendarForm(form);
   }, [form]);
 
   const patchForm = useCallback((patch: Partial<WeeklyCalendarForm>) => {

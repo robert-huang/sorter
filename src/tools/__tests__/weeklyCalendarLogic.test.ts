@@ -179,8 +179,8 @@ describe('buildWeeklyCalendarSeasonSegments', () => {
         new Date('2026-07-14T12:00:00Z'),
       ),
     ).toEqual([
-      { value: 'watching', label: 'User List' },
       { value: 'previous', label: 'Spring 2026' },
+      { value: 'watching', label: 'User List' },
       { value: 'current', label: 'Summer 2026' },
       { value: 'next', label: 'Fall 2026' },
       { value: 'custom', label: 'Custom' },
