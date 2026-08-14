@@ -30,8 +30,9 @@ export function normalizeThemeDashes(s: string): string {
 
 function normalizeKey(s: string): string {
   return normalizeThemeDashes(
-    foldJapaneseRomanization(s)
+    foldJapaneseRomanization(s.normalize('NFKC'))
       .replace(/[\u2018\u2019\u201b]/g, "'")
+      .replace(/\s*([\p{S}\p{Pd}])\s*/gu, '$1')
       .replace(/\s+/g, ' ')
       .trim(),
   );

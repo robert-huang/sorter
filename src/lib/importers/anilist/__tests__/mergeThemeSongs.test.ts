@@ -87,6 +87,29 @@ describe('mergeThemeSongs', () => {
     expect(rows[0]?.hasResolvableTrackId).toBe(true);
   });
 
+  it('merges the Aiura opening despite width and symbol-spacing differences', () => {
+    const mal = parseMalThemes(
+      ['"Kani☆Do-Luck! (カニ☆Do-Luck！)" by Aiu♥rabu (あいう♥らぶ)'],
+      [],
+    );
+    const aniHit: AniplaylistHit = {
+      id: 445,
+      anime_id: 246,
+      score: 50,
+      titles: ['Kani ☆ Do - Luck!', 'カニ ☆ Do-Luck!'],
+      song_key: 'OP',
+      song_type: 'Opening',
+      artists: [{ names: ['Aiu♥rabu', 'Aiu ♥ rabu', 'あいう ♥ らぶ', 'Aiurabu'] }],
+      links: [],
+    };
+
+    const rows = mergeThemeSongs(mal, [aniHit]);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.songKey).toBe('OP');
+    expect(rows[0]?.malTitle).toBe('Kani☆Do-Luck! (カニ☆Do-Luck！)');
+  });
+
   it('persists the union of markets across Spotify editions', () => {
     const aniHit: AniplaylistHit = {
       id: 3095,

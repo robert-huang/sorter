@@ -129,4 +129,22 @@ describe('malThemeMatchesAniplaylistHit', () => {
       ),
     ).toBe(true);
   });
+
+  it('matches width and symbol-spacing differences in the Aiura opening', () => {
+    expect(
+      malThemeMatchesAniplaylistHit(
+        {
+          type: 'Opening',
+          title: 'Kani☆Do-Luck! (カニ☆Do-Luck！)',
+          artist: 'Aiu♥rabu (あいう♥らぶ)',
+        },
+        {
+          song_type: 'Opening',
+          song_key: 'OP',
+          titles: ['Kani ☆ Do - Luck!', 'カニ ☆ Do-Luck!'],
+          artists: [{ names: ['Aiu ♥ rabu', 'あいう ♥ らぶ'] }],
+        },
+      ),
+    ).toBe(true);
+  });
 });
