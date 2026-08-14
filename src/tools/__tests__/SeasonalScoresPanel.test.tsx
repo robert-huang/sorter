@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { encodeSeasonYear } from '../../lib/importers/anilist/filters';
 import { SeasonalScoresPanel } from '../panels/SeasonalScoresPanel';
+import { _clearToolsPreferencesForTesting } from '../toolsPreferences';
 
 let container: HTMLDivElement;
 let root: Root;
@@ -14,6 +15,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   localStorage.clear();
+  _clearToolsPreferencesForTesting();
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -41,6 +43,7 @@ describe('SeasonalScoresPanel notes filter', () => {
     );
     let checkbox = notesLabel?.querySelector<HTMLInputElement>('input[type="checkbox"]');
     expect(checkbox).toBeTruthy();
+    expect(container.textContent).not.toContain('Span airing seasons');
 
     act(() => checkbox?.click());
     let notesInput = container.querySelector<HTMLInputElement>(

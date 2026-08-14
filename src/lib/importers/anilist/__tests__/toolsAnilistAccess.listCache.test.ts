@@ -34,6 +34,7 @@ import {
   ensureUserFavouritesFresh,
   ensureUserMediaListFresh,
   readCachedFavouriteCharacterListLength,
+  readUserSeasonalShowsFromDb,
 } from '../toolsAnilistAccess';
 
 const getUserMock = vi.mocked(getAnilistUserByName);
@@ -61,6 +62,36 @@ beforeEach(() => {
 });
 
 describe('Tools user cache completion markers', () => {
+  it('reads repeat counts for Seasonal Scores', async () => {
+    const exec = vi.fn().mockResolvedValueOnce([
+      {
+        id: 1,
+        title_english: 'Repeated Show',
+        title_romaji: null,
+        title_native: null,
+        cover_image: null,
+        season: 'WINTER',
+        season_year: 2024,
+        source: 'ORIGINAL',
+        start_year: null,
+        start_month: null,
+        start_day: null,
+        end_year: null,
+        end_month: null,
+        end_day: null,
+        status: 'COMPLETED',
+        score: 90,
+        repeat: 2,
+        notes: null,
+      },
+    ]);
+
+    const shows = await readUserSeasonalShowsFromDb({ exec } as never, USER.id);
+
+    expect(exec.mock.calls[0]?.[0]).toContain('mle.repeat');
+    expect(shows[0]?.repeat).toBe(2);
+  });
+
   it('uses only the cached character list as the rank extent', async () => {
     const exec = vi.fn().mockResolvedValueOnce([{ count: 7 }]);
     getContextMock.mockReturnValue({ db: { exec } } as never);

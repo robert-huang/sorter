@@ -34,6 +34,7 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  localStorage.clear();
   _clearToolsPreferencesForTesting();
   container = document.createElement('div');
   document.body.appendChild(container);
@@ -60,6 +61,45 @@ describe('ToolsSettingsMenu', () => {
       container
         .querySelector<HTMLButtonElement>('button[aria-label="Settings"]')
         ?.click();
+    });
+
+    const toolSections = Array.from(
+      container.querySelectorAll('.edit-item-advanced-title'),
+    )
+      .map((element) => element.textContent?.trim())
+      .filter((label) =>
+        ['Seasonal Scores', 'Weekly Calendar', 'Shared Staff', 'Bump Chart'].includes(
+          label ?? '',
+        ),
+      );
+    expect(toolSections).toEqual([
+      'Seasonal Scores',
+      'Weekly Calendar',
+      'Shared Staff',
+      'Bump Chart',
+    ]);
+
+    const findCheckbox = (label: string): HTMLInputElement | undefined =>
+      Array.from(
+        container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
+      ).find((input) => input.closest('label')?.textContent?.includes(label));
+
+    const showRepeatsCheckbox = findCheckbox('Show repeats');
+    const spanAiringCheckbox = findCheckbox('Span airing seasons');
+    const unknownAiringDayCheckbox = findCheckbox('Unknown Airing Day column');
+    expect(showRepeatsCheckbox?.checked).toBe(false);
+    expect(spanAiringCheckbox?.checked).toBe(false);
+    expect(unknownAiringDayCheckbox?.checked).toBe(false);
+
+    await act(async () => {
+      showRepeatsCheckbox?.click();
+      spanAiringCheckbox?.click();
+      unknownAiringDayCheckbox?.click();
+    });
+    expect(loadToolsPreferences()).toMatchObject({
+      seasonalScoresShowRepeats: true,
+      seasonalScoresSpanAiringSeasons: true,
+      weeklyCalendarShowUnscheduledColumn: true,
     });
 
     expect(container.textContent).toContain('Bump Chart');

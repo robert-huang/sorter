@@ -271,6 +271,39 @@ describe('score and calendar favourite annotations', () => {
       .toBe('Favourite Seasonal ★');
   });
 
+  it('shows Seasonal Scores repeat counts when enabled', () => {
+    act(() => {
+      root.render(
+        <SeasonalColumnsView
+          columns={[
+            {
+              label: 'Winter 2020',
+              season: 'WINTER',
+              year: 2020,
+              ratedCount: 2,
+              average: 80,
+              shows: [
+                {
+                  id: 30,
+                  title: 'Repeated Seasonal',
+                  coverImage: null,
+                  score: 80,
+                  repeat: 1,
+                },
+              ],
+            },
+          ]}
+          showRepeats
+          onOpenMedia={vi.fn()}
+        />,
+      );
+    });
+
+    expect(container.querySelector('.tool-stats-repeat')?.textContent).toBe(
+      ' ×2',
+    );
+  });
+
   it('annotates Weekly Calendar cells and theme-song show titles', () => {
     const show = weeklyEntry(4, 'Favourite Weekly');
 

@@ -731,6 +731,7 @@ export async function readUserSeasonalShowsFromDb(
             m.end_day,
             mle.status,
             mle.score,
+            mle.repeat,
             mle.notes
        FROM media_list_entry mle
        JOIN media m ON m.id = mle.media_id
@@ -775,6 +776,7 @@ export async function readUserSeasonalShowsFromDb(
     score: normalizeSeasonalListScore(
       row.score != null ? Number(row.score) : null,
     ),
+    repeat: row.repeat != null ? Number(row.repeat) : null,
     notes: (row.notes as string | null) ?? null,
     listStatus: (row.status as string | null) ?? null,
   }));

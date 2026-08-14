@@ -54,6 +54,9 @@ export function ToolsSettingsMenu({
     setBumpChartBestMatchByTitle,
     setBumpChartIncludeExportImages,
     setBumpChartMalExportImages,
+    setSeasonalScoresShowRepeats,
+    setSeasonalScoresSpanAiringSeasons,
+    setWeeklyCalendarShowUnscheduledColumn,
   } = useToolsPreferences();
 
   function selectTab(next: SettingsTab): void {
@@ -118,6 +121,49 @@ export function ToolsSettingsMenu({
             {tab === 'settings' && (
               <div className="settings-tab-scroll">
                 <AnilistDisplayPreferencesPanel standalone />
+                <div className="settings-divider" />
+                <p className="edit-item-advanced-title">Seasonal Scores</p>
+                <label
+                  className="settings-item checkbox"
+                  title="Show total watch counts such as ×2 and count every watch in both the score total and rated-count denominator."
+                >
+                  <input
+                    type="checkbox"
+                    checked={toolsPrefs.seasonalScoresShowRepeats}
+                    onChange={(e) =>
+                      setSeasonalScoresShowRepeats(e.target.checked)
+                    }
+                  />
+                  Show repeats
+                </label>
+                <label
+                  className="settings-item checkbox"
+                  title="Place shows in every season column their broadcast dates overlap (ongoing shows extend through today)."
+                >
+                  <input
+                    type="checkbox"
+                    checked={toolsPrefs.seasonalScoresSpanAiringSeasons}
+                    onChange={(e) =>
+                      setSeasonalScoresSpanAiringSeasons(e.target.checked)
+                    }
+                  />
+                  Span airing seasons
+                </label>
+                <div className="settings-divider" />
+                <p className="edit-item-advanced-title">Weekly Calendar</p>
+                <label
+                  className="settings-item checkbox"
+                  title="Show entries whose airing weekday cannot be determined in an extra Unknown column."
+                >
+                  <input
+                    type="checkbox"
+                    checked={toolsPrefs.weeklyCalendarShowUnscheduledColumn}
+                    onChange={(e) =>
+                      setWeeklyCalendarShowUnscheduledColumn(e.target.checked)
+                    }
+                  />
+                  Unknown Airing Day column
+                </label>
                 <div className="settings-divider" />
                 <p className="edit-item-advanced-title">Shared Staff</p>
                 <label

@@ -31,6 +31,7 @@ import {
   ToolStaffButton,
   ToolStudioName,
   appendFavouriteStar,
+  formatRepeatSuffix,
 } from '../toolEntityLinks';
 import {
   bustStatsSessionMemo,
@@ -400,8 +401,7 @@ export function StatsSubrowNameCell({
   favourites: FavouriteEntityIds;
   onOpenMedia: ToolPanelProps['onOpenMedia'];
 }) {
-  const repeatSuffix =
-    entry.repeat != null && entry.repeat > 0 ? ` ×${entry.repeat + 1}` : '';
+  const repeatSuffix = formatRepeatSuffix(entry.repeat);
   const vaCharacters = link?.characters ?? [];
   const hasVaCharacters = vaCharacters.length > 0;
   const hasLegacyCharacter = link?.characterName != null;

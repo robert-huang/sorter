@@ -92,6 +92,7 @@ import {
   scoreDisplayToneClass,
 } from './seasonalScoresLogic';
 import { useCurrentAnilistFavourites } from '../useCurrentAnilistFavourites';
+import { useToolsPreferences } from '../../hooks/useToolsPreferences';
 
 const LS_KEY = 'anime-tools-weekly-calendar-form';
 
@@ -105,7 +106,6 @@ type PersistedWeeklyCalendarForm = Pick<
   | 'timezone'
   | 'formatFilters'
   | 'mediaStatusFilters'
-  | 'showUnscheduledColumn'
   | 'showThemeSongs'
 >;
 
@@ -201,7 +201,6 @@ export function loadWeeklyCalendarForm(): WeeklyCalendarForm {
             : DEFAULT_WEEKLY_CALENDAR_FORM.timezone,
         formatFilters: normalizeWeeklyCalendarFormatFilters(parsed.formatFilters),
         mediaStatusFilters: normalizeWeeklyCalendarMediaStatusFilters(parsed.mediaStatusFilters),
-        showUnscheduledColumn: parsed.showUnscheduledColumn ?? false,
         showThemeSongs: parsed.showThemeSongs ?? false,
       };
     }
@@ -226,7 +225,6 @@ export function saveWeeklyCalendarForm(form: WeeklyCalendarForm): void {
       timezone: form.timezone,
       formatFilters: form.formatFilters,
       mediaStatusFilters: form.mediaStatusFilters,
-      showUnscheduledColumn: form.showUnscheduledColumn,
       showThemeSongs: form.showThemeSongs,
     };
     localStorage.setItem(LS_KEY, JSON.stringify(persisted));
@@ -773,6 +771,7 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
   const playlistCache = useSpotifyPlaylistCache();
   const { mode: localFileMatchMode } = useSpotifyLocalFileMatchPreference();
   const favourites = useCurrentAnilistFavourites();
+  const { prefs: toolsPreferences } = useToolsPreferences();
   const [form, setForm] = useState<WeeklyCalendarForm>(() => loadWeeklyCalendarForm());
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -846,8 +845,23 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
     ) {
       return null;
     }
-    return finalizeWeeklyCalendarResult(rawEntries, form, seasonLabel);
-  }, [rawEntries, form, requestedSourceKey, requestedUsername, seasonLabel]);
+    return finalizeWeeklyCalendarResult(
+      rawEntries,
+      {
+        ...form,
+        showUnscheduledColumn:
+          toolsPreferences.weeklyCalendarShowUnscheduledColumn,
+      },
+      seasonLabel,
+    );
+  }, [
+    rawEntries,
+    form,
+    requestedSourceKey,
+    requestedUsername,
+    seasonLabel,
+    toolsPreferences.weeklyCalendarShowUnscheduledColumn,
+  ]);
 
   const themeSongCounts = useMemo(() => {
     const counts = new Map<number, number>();
@@ -1198,15 +1212,6 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
               onChange={(timezone) => patchForm({ timezone })}
             />
 
-            <label className="tool-checkbox">
-              <input
-                type="checkbox"
-                checked={form.showUnscheduledColumn}
-                disabled={running}
-                onChange={(e) => patchForm({ showUnscheduledColumn: e.target.checked })}
-              />
-              Unknown Airing Day column
-            </label>
           </div>
         </div>
 

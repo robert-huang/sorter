@@ -44,7 +44,7 @@ import {
   SEASONAL_SOURCE_FILTER_KEYS,
 } from './seasonalScoresLogic';
 import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
-import { ToolShowButton } from '../toolEntityLinks';
+import { formatRepeatSuffix, ToolShowButton } from '../toolEntityLinks';
 import { DragScroll } from '../../components/DragScroll';
 import { applyHeaderScrollbarGutter } from '../../lib/chartSplitTableSync';
 import {
@@ -59,6 +59,7 @@ import {
   toggleInArray,
 } from '../../lib/importers/anilist/filters';
 import { useCurrentAnilistFavourites } from '../useCurrentAnilistFavourites';
+import { useToolsPreferences } from '../../hooks/useToolsPreferences';
 
 const LS_KEY = 'anime-tools-seasonal-scores-form';
 const LS_SOURCE_FILTERS_KEY = 'anime-tools-seasonal-scores-source-filters';
@@ -89,7 +90,6 @@ type PersistedSeasonalForm = Pick<
   | 'airingNotesOnly'
   | 'notesFilter'
   | 'includePlanning'
-  | 'spanAiringSeasons'
 >;
 
 function normalizeSeasonMode(value: unknown): SeasonMode {
@@ -204,7 +204,6 @@ function loadForm(): SeasonalScoresForm {
             ? parsed.notesFilter
             : DEFAULT_NOTES_FILTER,
         includePlanning: parsed.includePlanning ?? false,
-        spanAiringSeasons: parsed.spanAiringSeasons ?? false,
       };
     }
     const legacySeasonText = localStorage.getItem(LS_SEASON_TEXT_KEY) ?? '';
@@ -229,7 +228,6 @@ function saveForm(form: SeasonalScoresForm): void {
       airingNotesOnly: form.airingNotesOnly,
       notesFilter: form.notesFilter,
       includePlanning: form.includePlanning,
-      spanAiringSeasons: form.spanAiringSeasons,
     };
     localStorage.setItem(LS_KEY, JSON.stringify(persisted));
   } catch {
@@ -255,9 +253,11 @@ const SEASON_MODE_OPTIONS: { value: SeasonMode; label: string; title: string }[]
 export function SeasonalColumnsView({
   columns,
   onOpenMedia,
+  showRepeats = false,
 }: {
   columns: SeasonColumn[];
   onOpenMedia: ToolPanelProps['onOpenMedia'];
+  showRepeats?: boolean;
 }) {
   const favourites = useCurrentAnilistFavourites();
   const topAverageColumnIndices = seasonColumnIndicesWithTopAverage(columns);
@@ -384,6 +384,13 @@ export function SeasonalColumnsView({
                       ]
                         .filter(Boolean)
                         .join(' ')}
+                      labelSuffix={
+                        showRepeats && formatRepeatSuffix(show.repeat) ? (
+                          <span className="tool-stats-repeat">
+                            {formatRepeatSuffix(show.repeat)}
+                          </span>
+                        ) : undefined
+                      }
                     />
                   </div>
                 </div>
@@ -397,6 +404,7 @@ export function SeasonalColumnsView({
 }
 
 export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
+  const { prefs: toolsPreferences } = useToolsPreferences();
   const { refreshing: refreshingList, refreshUsernameList } = useUsernameListRefresh({
     onAfterRefresh: bustSeasonalSessionMemo,
   });
@@ -489,12 +497,21 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
 
   const buildColumns = useCallback(
     (shows: SeasonalShow[]) =>
-      buildSeasonalColumns(relabelSeasonalShows(shows), effectiveSeasonalForm(form), {
-        yearFilters,
-        seasonYearFilter,
-        listStatusFilters,
-        sourceFilters,
-      }),
+      buildSeasonalColumns(
+        relabelSeasonalShows(shows),
+        effectiveSeasonalForm({
+          ...form,
+          spanAiringSeasons:
+            toolsPreferences.seasonalScoresSpanAiringSeasons,
+        }),
+        {
+          yearFilters,
+          seasonYearFilter,
+          listStatusFilters,
+          sourceFilters,
+          includeRepeats: toolsPreferences.seasonalScoresShowRepeats,
+        },
+      ),
     [
       displayLabelRevision,
       form,
@@ -502,6 +519,8 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
       yearFilters,
       seasonYearFilter,
       listStatusFilters,
+      toolsPreferences.seasonalScoresShowRepeats,
+      toolsPreferences.seasonalScoresSpanAiringSeasons,
     ],
   );
 
@@ -812,16 +831,6 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
             />
             Include Planning
           </label>
-          <label className="tool-checkbox">
-            <input
-              type="checkbox"
-              checked={form.spanAiringSeasons}
-              disabled={running}
-              onChange={(e) => patchForm({ spanAiringSeasons: e.target.checked })}
-              title="Place shows in every season column their broadcast dates overlap (ongoing shows extend through today)."
-            />
-            Span airing seasons
-          </label>
           <MultiSelectChip<SeasonalSourceFilterKey>
             label="source"
             options={SEASONAL_SOURCE_FILTER_KEYS}
@@ -864,6 +873,7 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
             key={chartSessionRef.current}
             columns={result.columns}
             onOpenMedia={onOpenMedia}
+            showRepeats={toolsPreferences.seasonalScoresShowRepeats}
           />
         </div>
       )}

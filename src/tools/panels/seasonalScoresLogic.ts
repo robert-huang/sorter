@@ -20,6 +20,8 @@ export type SeasonalShow = {
   startDate?: SeasonalFuzzyDate | null;
   endDate?: SeasonalFuzzyDate | null;
   score: number | null;
+  /** AniList rewatch count, excluding the initial watch. */
+  repeat?: number | null;
   notes: string | null;
   /** AniList list status (e.g. PLANNING when include-planning fetch is enabled). */
   listStatus?: string | null;
@@ -353,6 +355,7 @@ export type SeasonColumn = {
     title: string;
     coverImage: string | null;
     score: number | null;
+    repeat?: number | null;
     listStatus?: string | null;
     /** Span mode: placed via airing overlap, not the show's AniList season tag. */
     extendedPlacement?: boolean;
@@ -440,12 +443,28 @@ export function formatSeasonalScoreLabel(
   return normalized == null ? '—' : String(normalized);
 }
 
-export function countRatedSeasonalShows(shows: SeasonalShow[]): number {
+export function seasonalShowWatchCount(
+  show: Pick<SeasonalShow, 'repeat'>,
+): number {
+  const repeat =
+    typeof show.repeat === 'number' && Number.isFinite(show.repeat)
+      ? Math.max(0, Math.floor(show.repeat))
+      : 0;
+  return repeat + 1;
+}
+
+export function countRatedSeasonalShows(
+  shows: SeasonalShow[],
+  includeRepeats = false,
+): number {
   return shows.reduce((count, show) => {
     if (isSeasonalStatusLetterShow(show)) {
       return count;
     }
-    return count + (normalizeSeasonalListScore(show.score) == null ? 0 : 1);
+    if (normalizeSeasonalListScore(show.score) == null) {
+      return count;
+    }
+    return count + (includeRepeats ? seasonalShowWatchCount(show) : 1);
   }, 0);
 }
 
@@ -855,16 +874,28 @@ export function bucketShowsForSeason(
     .sort((a, b) => seasonalShowSortKey(b) - seasonalShowSortKey(a));
 }
 
-export function averageScore(shows: SeasonalShow[]): number | null {
-  const scored = shows
-    .filter((show) => !isSeasonalStatusLetterShow(show))
-    .map((s) => normalizeSeasonalListScore(s.score))
-    .filter((s): s is number => s !== null);
-  if (scored.length === 0) {
+export function averageScore(
+  shows: SeasonalShow[],
+  includeRepeats = false,
+): number | null {
+  let scoreTotal = 0;
+  let ratedCount = 0;
+  for (const show of shows) {
+    if (isSeasonalStatusLetterShow(show)) {
+      continue;
+    }
+    const score = normalizeSeasonalListScore(show.score);
+    if (score == null) {
+      continue;
+    }
+    const watchCount = includeRepeats ? seasonalShowWatchCount(show) : 1;
+    scoreTotal += score * watchCount;
+    ratedCount += watchCount;
+  }
+  if (ratedCount === 0) {
     return null;
   }
-  const sum = scored.reduce((acc, n) => acc + n, 0);
-  return Math.round((sum / scored.length) * 1000) / 1000;
+  return Math.round((scoreTotal / ratedCount) * 1000) / 1000;
 }
 
 /** Column indices tied for the highest non-null average (empty when none rated). */
@@ -899,6 +930,8 @@ export type BuildSeasonalColumnsOptions = {
   listStatusFilters?: SeasonalListStatusFilters;
   /** Client-side adaptation-source filter (instant toggle over cached shows). */
   sourceFilters?: SeasonalSourceFilters;
+  /** Weight each rated score by total watches and expose repeat counts. */
+  includeRepeats?: boolean;
 };
 
 export function buildSeasonalColumns(
@@ -982,13 +1015,17 @@ export function buildSeasonalColumns(
       season: spec.season,
       year: spec.year,
       matchAll: spec.matchAll,
-      ratedCount: countRatedSeasonalShows(bucket),
-      average: averageScore(bucket),
+      ratedCount: countRatedSeasonalShows(
+        bucket,
+        options?.includeRepeats === true,
+      ),
+      average: averageScore(bucket, options?.includeRepeats === true),
       shows: bucket.map((show) => ({
         id: show.id,
         title: show.title,
         coverImage: show.coverImage ?? null,
         score: normalizeSeasonalListScore(show.score),
+        repeat: show.repeat ?? null,
         listStatus: show.listStatus ?? null,
         extendedPlacement: isExtendedSeasonPlacement(
           show,

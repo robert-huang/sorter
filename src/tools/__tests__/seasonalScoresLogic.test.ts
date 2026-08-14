@@ -143,6 +143,43 @@ describe('seasonalScoresLogic', () => {
     expect(winter?.shows.map((s) => s.title)).toEqual(['Winter A', 'Winter B']);
   });
 
+  it('weights repeated watches in both the score total and rated count', () => {
+    const repeatedShows: SeasonalShow[] = [
+      {
+        ...sampleShows[0]!,
+        score: 100,
+        repeat: 1,
+      },
+      {
+        ...sampleShows[1]!,
+        score: 40,
+        repeat: 0,
+      },
+    ];
+    const form: SeasonalScoresForm = {
+      username: 'user',
+      seasonText: 'Winter 2024',
+      skipEmpty: false,
+      airingNotesOnly: false,
+      includePlanning: false,
+      spanAiringSeasons: false,
+      seasonMode: 'custom',
+    };
+
+    expect(averageScore(repeatedShows)).toBe(70);
+    expect(averageScore(repeatedShows, true)).toBe(80);
+
+    const result = buildSeasonalColumns(repeatedShows, form, {
+      includeRepeats: true,
+    });
+    expect(result.kind).toBe('columns');
+    if (result.kind === 'columns') {
+      expect(result.columns[0]?.average).toBe(80);
+      expect(result.columns[0]?.ratedCount).toBe(3);
+      expect(result.columns[0]?.shows[0]?.repeat).toBe(1);
+    }
+  });
+
   it('buildSeasonalColumns keeps only explicitly selected sparse years', () => {
     const rangeShows: SeasonalShow[] = [
       { ...sampleShows[0]!, id: 101, seasonYear: 2021 },

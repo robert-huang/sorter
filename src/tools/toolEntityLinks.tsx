@@ -13,6 +13,11 @@ export function appendFavouriteStar(label: string, favourite: boolean): string {
   return favourite ? `${label} ★` : label;
 }
 
+/** AniList repeat is additional completions, so one repeat means two total watches. */
+export function formatRepeatSuffix(repeat: number | null | undefined): string {
+  return repeat != null && repeat > 0 ? ` ×${Math.floor(repeat) + 1}` : '';
+}
+
 /** Keep the star attached to a character name before a trailing role label. */
 export function appendFavouriteStarBeforeRole(
   label: string,
@@ -72,6 +77,7 @@ type ToolShowButtonProps = {
   hideAvatar?: boolean;
   className?: string;
   favourite?: boolean;
+  labelSuffix?: React.ReactNode;
 };
 
 /** Cover + title chip that opens the media detail modal (left) or AniList (middle). */
@@ -85,6 +91,7 @@ export function ToolShowButton({
   hideAvatar = false,
   className,
   favourite,
+  labelSuffix,
 }: ToolShowButtonProps) {
   return (
     <AnilistMiddleClickLink
@@ -113,6 +120,7 @@ export function ToolShowButton({
           }
         >
           {appendFavouriteStar(title, favourite === true)}
+          {labelSuffix}
         </strong>
       </span>
     </AnilistMiddleClickLink>

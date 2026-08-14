@@ -12,6 +12,9 @@ export function useToolsPreferences(): {
   setBumpChartBestMatchByTitle: (enabled: boolean) => void;
   setBumpChartIncludeExportImages: (enabled: boolean) => void;
   setBumpChartMalExportImages: (enabled: boolean) => void;
+  setSeasonalScoresShowRepeats: (enabled: boolean) => void;
+  setSeasonalScoresSpanAiringSeasons: (enabled: boolean) => void;
+  setWeeklyCalendarShowUnscheduledColumn: (enabled: boolean) => void;
 } {
   const [prefs, setPrefs] = useState<ToolsPreferences>(() => loadToolsPreferences());
 
@@ -37,12 +40,27 @@ export function useToolsPreferences(): {
     saveToolsPreferences({ bumpChartMalExportImages: enabled });
   };
 
+  const setSeasonalScoresShowRepeats = (enabled: boolean): void => {
+    saveToolsPreferences({ seasonalScoresShowRepeats: enabled });
+  };
+
+  const setSeasonalScoresSpanAiringSeasons = (enabled: boolean): void => {
+    saveToolsPreferences({ seasonalScoresSpanAiringSeasons: enabled });
+  };
+
+  const setWeeklyCalendarShowUnscheduledColumn = (enabled: boolean): void => {
+    saveToolsPreferences({ weeklyCalendarShowUnscheduledColumn: enabled });
+  };
+
   return {
     prefs,
     setProductionAllRoles,
     setBumpChartBestMatchByTitle,
     setBumpChartIncludeExportImages,
     setBumpChartMalExportImages,
+    setSeasonalScoresShowRepeats,
+    setSeasonalScoresSpanAiringSeasons,
+    setWeeklyCalendarShowUnscheduledColumn,
   };
 }
 
