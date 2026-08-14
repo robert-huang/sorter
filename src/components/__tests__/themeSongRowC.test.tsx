@@ -74,12 +74,22 @@ describe('ThemeSongPlaylistDot', () => {
     );
   });
 
+  it('shows the playlist position for exact matches', async () => {
+    await renderDot({
+      status: 'in',
+      metadataMatch: null,
+      playlistPosition: 3488,
+    });
+    expect(container.querySelector('.is-in')?.getAttribute('title')).toBe(
+      'In your Spotify playlist at #3488',
+    );
+  });
+
   it('preserves exact in/out indicators and leaves unknown rows without a dot', async () => {
     await renderDot({ status: 'in', metadataMatch: null });
     expect(container.querySelector('.is-in')?.getAttribute('title')).toBe(
       'In your Spotify playlist',
     );
-
     await renderDot({ status: 'out', metadataMatch: null });
     expect(container.querySelector('.is-out')?.getAttribute('title')).toBe(
       'Not in your Spotify playlist',

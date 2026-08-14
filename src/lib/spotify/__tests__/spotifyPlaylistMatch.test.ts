@@ -156,6 +156,7 @@ describe('playlist metadata normalization', () => {
     ['星座になれたら -Anime Ver.-', '星座になれたら'],
     ['愛してる(TVサイズ)', '愛してる'],
     ['Ｆｌｏｗｅｒ (ＴＶ Ｓｉｚｅ)', 'flower'],
+    ['A Happy Life (Saishuu Hanashi Ver)', 'a happy life'],
   ])('removes broadcast-edit title markers from %s', (title, expected) => {
     expect(normalizePlaylistTitleForMatch(title)).toBe(expected);
   });
@@ -181,6 +182,45 @@ describe('matchThemeRowToPlaylist', () => {
     const row = makeRow({ spotifyTrackIds: ['track-a'], hasResolvableTrackId: true });
     expect(matchThemeRowToPlaylist(row, cache)).toBe('in');
   });
+
+  it.each([
+    { row: { spotifyTrackIds: ['track-a'] }, playlistPosition: 3488 },
+    { row: { spotifyTrackIds: ['track-b'] }, playlistPosition: 3488 },
+    { row: { spotifyIsrc: 'USRC111' }, playlistPosition: 3488 },
+  ])(
+    'returns playlist position for exact track-id, linked-id, and ISRC matches',
+    ({ row, playlistPosition }) => {
+      const positionedCache: SpotifyPlaylistCache = {
+        playlistId: 'pl-positioned',
+        fetchedAt: Date.now(),
+        tracks: [
+          {
+            id: 'track-a',
+            isrc: 'USRC111',
+            linkedFromIds: ['track-b'],
+            metadata: {
+              title: 'A Happy Life',
+              artists: ['Yui Horie'],
+              album: 'Gakuen Utopia Manabi Straight!',
+              durationMs: 142_000,
+              playlistPosition,
+            },
+          },
+        ],
+      };
+
+      expect(
+        matchThemeRowToPlaylistDetails(
+          makeRow({ ...row, hasResolvableTrackId: true }),
+          positionedCache,
+        ),
+      ).toEqual({
+        status: 'in',
+        metadataMatch: null,
+        playlistPosition,
+      });
+    },
+  );
 
   it('matches linked_from id', () => {
     const row = makeRow({ spotifyTrackIds: ['track-b'], hasResolvableTrackId: true });
@@ -320,6 +360,91 @@ describe('matchThemeRowToPlaylist', () => {
       status: 'in',
       metadataMatch: { kind: 'local', track: localTrack },
     });
+  });
+
+  it('matches a final-episode local edition to the base theme title', () => {
+    const originalArtistTrack = {
+      uri: 'spotify:local:Hayashibara+Megumi:Album:A+Happy+Life:224',
+      title: 'A Happy Life',
+      artists: ['Hayashibara Megumi'],
+      album: 'A Happy Life',
+      durationMs: 224_000,
+      playlistPosition: 3486,
+    };
+    const localTrack = {
+      uri: 'spotify:local:Cast:Soundtrack:A+Happy+Life+(Saishuu+Hanashi+Ver):142',
+      title: 'A Happy Life (Saishuu Hanashi Ver)',
+      artists: [
+        'Horie Yui',
+        'Nonaka Ai',
+        'Inoue Marina',
+        'Hirano Aya',
+        'Fujita Saki',
+      ],
+      album: 'Gakuen Utopia Manabi Straight! Original Soundtrack II - CD1',
+      durationMs: 142_000,
+      playlistPosition: 3488,
+    };
+    const result = matchThemeRowToPlaylistDetails(
+      makeRow({
+        type: 'Ending',
+        displayTitle: 'A Happy Life',
+        displayArtist: 'Yui Horie, Ai Nonaka, Marina Inoue, Aya Hirano & Saki Fujita',
+        malTitle: 'A Happy Life',
+        malArtist: 'Yui Horie, Ai Nonaka, Marina Inoue, Aya Hirano & Saki Fujita',
+      }),
+      cacheWithLocalTracks([originalArtistTrack, localTrack]),
+      LOCAL_FIRST,
+    );
+
+    expect(result).toEqual({
+      status: 'in',
+      metadataMatch: { kind: 'local', track: localTrack },
+    });
+  });
+
+  it('matches the Artiswitch picture-drama ED without dropping its featured artist', () => {
+    const playlistTrack = {
+      title: 'Tobu Saihate (feat. Kana Adachi)',
+      artists: ['yonkey', 'Kana Adachi'],
+      album: 'Tobu Saihate (feat. Kana Adachi)',
+      durationMs: 264_735,
+      playlistPosition: 3429,
+    };
+    const playlistCache: SpotifyPlaylistCache = {
+      playlistId: 'weeb',
+      fetchedAt: Date.now(),
+      tracks: [
+        {
+          id: '3U1SxDOoG6HdSF6CYtiW0p',
+          isrc: 'JPG532102932',
+          linkedFromIds: [],
+          metadata: playlistTrack,
+        },
+      ],
+    };
+    const row = makeRow({
+      type: 'Ending',
+      displayTitle:
+        'Tobu Saihate (feat. Kana Adachi) (飛ぶ、サイハテ。(feat. 足立佳奈))',
+      displayArtist: 'yonkey',
+      malTitle:
+        'Tobu Saihate (feat. Kana Adachi) (飛ぶ、サイハテ。(feat. 足立佳奈))',
+      malArtist: 'yonkey',
+    });
+
+    expect(matchThemeRowToPlaylistDetails(row, playlistCache, LOCAL_FIRST)).toEqual({
+      status: 'in',
+      metadataMatch: { kind: 'spotify', track: playlistTrack },
+    });
+
+    expect(
+      matchThemeRowToPlaylistDetails(
+        { ...row, displayArtist: 'Different Artist', malArtist: 'Different Artist' },
+        playlistCache,
+        LOCAL_FIRST,
+      ),
+    ).toEqual({ status: 'unknown', metadataMatch: null });
   });
 
   it.each([

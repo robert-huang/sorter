@@ -19,6 +19,21 @@ describe('collectTitleMatchCandidates', () => {
       expect.arrayContaining(['Kanade (奏（かなで）)', '奏（かなで）', 'かなで', 'Kanade']),
     );
   });
+
+  it('preserves featured-artist qualifiers before a nested alternate title', () => {
+    const title =
+      'Tobu Saihate (feat. Kana Adachi) (飛ぶ、サイハテ。(feat. 足立佳奈))';
+
+    expect(collectTitleMatchCandidates(title)).toEqual(
+      expect.arrayContaining([
+        title,
+        'Tobu Saihate (feat. Kana Adachi)',
+        'Tobu Saihate',
+        '飛ぶ、サイハテ。(feat. 足立佳奈)',
+        'feat. 足立佳奈',
+      ]),
+    );
+  });
 });
 
 describe('malThemeMatchesAniplaylistHit', () => {

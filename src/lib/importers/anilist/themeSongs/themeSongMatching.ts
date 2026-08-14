@@ -118,6 +118,57 @@ export function artistsRoughlyMatch(a: string, b: string): boolean {
  * MAL/Tenrai theme strings often bundle alternate titles in parentheses, e.g.
  * `Kanade (奏（かなで）)`. AniPlaylist may store each language separately.
  */
+type ParentheticalRange = {
+  start: number;
+  end: number;
+  depth: number;
+};
+
+function collectParentheticalRanges(value: string): ParentheticalRange[] {
+  const stack: Array<{ character: '(' | '（'; index: number }> = [];
+  const ranges: ParentheticalRange[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (character === '(' || character === '（') {
+      stack.push({ character, index });
+      continue;
+    }
+    if (character !== ')' && character !== '）') {
+      continue;
+    }
+    const opener = stack[stack.length - 1];
+    const closesOpener =
+      (opener?.character === '(' && character === ')') ||
+      (opener?.character === '（' && character === '）');
+    if (!opener || !closesOpener) {
+      continue;
+    }
+    stack.pop();
+    ranges.push({
+      start: opener.index,
+      end: index + 1,
+      depth: stack.length,
+    });
+  }
+  return ranges.sort((left, right) => left.start - right.start || right.end - left.end);
+}
+
+function removeTopLevelParentheticals(
+  value: string,
+  ranges: readonly ParentheticalRange[],
+): string {
+  let cursor = 0;
+  let base = '';
+  for (const range of ranges) {
+    if (range.depth !== 0) {
+      continue;
+    }
+    base += `${value.slice(cursor, range.start)} `;
+    cursor = range.end;
+  }
+  return `${base}${value.slice(cursor)}`.replace(/\s+/g, ' ').trim();
+}
+
 export function collectTitleMatchCandidates(title: string): string[] {
   const trimmed = title.trim();
   if (!trimmed) {
@@ -125,32 +176,32 @@ export function collectTitleMatchCandidates(title: string): string[] {
   }
 
   const out = new Set<string>([trimmed]);
-
-  const asciiParenRe = /\(([^)]+)\)/g;
-  let match: RegExpExecArray | null = asciiParenRe.exec(trimmed);
-  while (match) {
-    const inner = match[1].trim();
+  const ranges = collectParentheticalRanges(trimmed);
+  for (const range of ranges) {
+    const inner = trimmed.slice(range.start + 1, range.end - 1).trim();
     if (inner) {
       out.add(inner);
     }
-    match = asciiParenRe.exec(trimmed);
   }
 
-  const fullwidthParenRe = /（([^）]+)）/g;
-  match = fullwidthParenRe.exec(trimmed);
-  while (match) {
-    const inner = match[1].trim();
-    if (inner) {
-      out.add(inner);
+  // Repeatedly remove complete trailing aliases while preserving earlier
+  // qualifiers such as `(feat. Kana Adachi)`.
+  let prefix = trimmed;
+  while (true) {
+    const trailingRanges = collectParentheticalRanges(prefix).filter(
+      (range) => range.depth === 0 && !prefix.slice(range.end).trim(),
+    );
+    const trailingRange = trailingRanges[trailingRanges.length - 1];
+    if (!trailingRange) {
+      break;
     }
-    match = fullwidthParenRe.exec(trimmed);
+    prefix = prefix.slice(0, trailingRange.start).trim();
+    if (prefix) {
+      out.add(prefix);
+    }
   }
 
-  const base = trimmed
-    .replace(/\([^)]*\)/g, ' ')
-    .replace(/（[^）]*）/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  const base = removeTopLevelParentheticals(trimmed, ranges);
   if (base) {
     out.add(base);
   }

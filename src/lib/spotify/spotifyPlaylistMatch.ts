@@ -13,6 +13,8 @@ export type PlaylistMatchResult = {
   status: PlaylistMatchStatus;
   /** Present when title/artist metadata matched after exact id/ISRC checks failed. */
   metadataMatch: PlaylistMetadataMatch | null;
+  /** One-based playlist position for an exact track-id or ISRC match. */
+  playlistPosition?: number;
 };
 
 export type PlaylistMetadataMatch = {
@@ -40,6 +42,8 @@ type PlaylistIndex = {
   cache: SpotifyPlaylistCache;
   trackIds: Set<string>;
   isrcs: Set<string>;
+  playlistPositionByTrackId: Map<string, number>;
+  playlistPositionByIsrc: Map<string, number>;
   metadataTracks: IndexedPlaylistMetadataTrack[] | null;
   metadataByTitle: Map<string, IndexedPlaylistMetadataTrack[]> | null;
 };
@@ -118,6 +122,7 @@ export function normalizePlaylistTitleForMatch(value: string): string {
       ' ',
     )
     .replace(/\b(?:tv|anime|short|op|ed)\s*サイズ/gu, ' ')
+    .replace(/\b(?:saishuu|final)\s+(?:hanashi|episode)\s+(?:version|ver)\b$/gu, ' ')
     .trim()
     .replace(/\s+/g, ' ');
 }
@@ -509,19 +514,34 @@ function buildPlaylistIndex(cache: SpotifyPlaylistCache): PlaylistIndex {
   }
   const trackIds = new Set<string>();
   const isrcs = new Set<string>();
+  const playlistPositionByTrackId = new Map<string, number>();
+  const playlistPositionByIsrc = new Map<string, number>();
   for (const track of cache.tracks) {
     trackIds.add(track.id);
+    const playlistPosition = track.metadata?.playlistPosition;
+    if (playlistPosition && !playlistPositionByTrackId.has(track.id)) {
+      playlistPositionByTrackId.set(track.id, playlistPosition);
+    }
     for (const linkedId of track.linkedFromIds) {
       trackIds.add(linkedId);
+      if (playlistPosition && !playlistPositionByTrackId.has(linkedId)) {
+        playlistPositionByTrackId.set(linkedId, playlistPosition);
+      }
     }
     if (track.isrc) {
-      isrcs.add(track.isrc.toLowerCase());
+      const normalizedIsrc = track.isrc.toLowerCase();
+      isrcs.add(normalizedIsrc);
+      if (playlistPosition && !playlistPositionByIsrc.has(normalizedIsrc)) {
+        playlistPositionByIsrc.set(normalizedIsrc, playlistPosition);
+      }
     }
   }
   const index: PlaylistIndex = {
     cache,
     trackIds,
     isrcs,
+    playlistPositionByTrackId,
+    playlistPositionByIsrc,
     metadataTracks: null,
     metadataByTitle: null,
   };
@@ -681,9 +701,11 @@ export function matchThemeRowToPlaylistDetails(
 
   for (const trackId of spotifyTrackIds) {
     if (index.trackIds.has(trackId)) {
+      const playlistPosition = index.playlistPositionByTrackId.get(trackId);
       return cacheMatchResult(resultCacheKey, {
         status: 'in',
         metadataMatch: null,
+        ...(playlistPosition ? { playlistPosition } : {}),
       });
     }
   }
@@ -691,9 +713,11 @@ export function matchThemeRowToPlaylistDetails(
   const rowIsrcs = collectRowIsrcs(row, options?.trackIsrcById);
   for (const isrc of rowIsrcs) {
     if (index.isrcs.has(isrc)) {
+      const playlistPosition = index.playlistPositionByIsrc.get(isrc);
       return cacheMatchResult(resultCacheKey, {
         status: 'in',
         metadataMatch: null,
+        ...(playlistPosition ? { playlistPosition } : {}),
       });
     }
   }

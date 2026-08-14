@@ -71,10 +71,13 @@ function themeSongPlaylistIndicator(
     );
   }
   if (match.status === 'in') {
+    const tooltip = match.playlistPosition
+      ? `In your Spotify playlist at #${match.playlistPosition}`
+      : 'In your Spotify playlist';
     return (
       <span
-        title="In your Spotify playlist"
-        aria-label="In your Spotify playlist"
+        title={tooltip}
+        aria-label={tooltip}
         className="anilist-detail-theme-song-playlist-dot is-in"
       />
     );
