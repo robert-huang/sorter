@@ -73,6 +73,7 @@ export type AniplaylistHit = {
     main?: boolean;
     link?: string;
     detail?: string;
+    link_markets?: string[];
   }>;
   other_link_ids?: string[];
   short_link?: string;

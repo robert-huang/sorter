@@ -370,8 +370,11 @@ export function AnilistDetailModal({
     return getActivePlaylistCache();
   }, [playlistCacheRevision]);
 
-  const { lookup: trackIsrcLookup, ready: trackIsrcLookupReady } =
-    useSpotifyTrackIsrcLookup(themeSongRows);
+  const {
+    lookup: trackIsrcLookup,
+    ready: trackIsrcLookupReady,
+    spotifyCountry,
+  } = useSpotifyTrackIsrcLookup(themeSongRows);
 
   const playlistMatchOptions = useMemo(
     (): PlaylistMatchOptions => ({
@@ -379,8 +382,15 @@ export function AnilistDetailModal({
       isrcLookupReady: trackIsrcLookupReady,
       localFileMatchMode,
       mediaId,
+      spotifyCountry,
     }),
-    [localFileMatchMode, mediaId, trackIsrcLookup, trackIsrcLookupReady],
+    [
+      localFileMatchMode,
+      mediaId,
+      spotifyCountry,
+      trackIsrcLookup,
+      trackIsrcLookupReady,
+    ],
   );
 
   useEffect(() => {
@@ -1232,6 +1242,7 @@ export function AnilistDetailModal({
                                   playlistMatchOptions,
                                 )}
                                 showPlaylistMatch={playlistCache !== null}
+                                spotifyCountry={spotifyCountry}
                                 onExclude={(songRow) => void onExcludeThemeSong(songRow)}
                               />
                             ))}

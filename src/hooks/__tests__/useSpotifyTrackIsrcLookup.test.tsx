@@ -7,6 +7,9 @@ import { useSpotifyTrackIsrcLookup } from '../useSpotifyTrackIsrcLookup';
 
 vi.mock('../../lib/spotify/spotifyAuth', () => ({
   ensureSpotifyAccessToken: vi.fn(async () => null),
+  ensureSpotifyAccountCountry: vi.fn(async () => null),
+  getStoredSpotifyAuth: vi.fn(() => null),
+  subscribeSpotifyAuth: vi.fn(() => () => undefined),
 }));
 
 vi.mock('../../lib/spotify/spotifyTrackIsrcStore', () => ({

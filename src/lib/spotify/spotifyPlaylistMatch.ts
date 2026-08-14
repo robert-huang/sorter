@@ -32,6 +32,8 @@ export type PlaylistMatchOptions = {
   localFileMatchMode?: SpotifyLocalFileMatchMode;
   /** Scope used to invalidate only one show's cached row results. */
   mediaId?: number;
+  /** Spotify account market used for availability indicators. */
+  spotifyCountry?: string | null;
 };
 
 type PlaylistIndex = {

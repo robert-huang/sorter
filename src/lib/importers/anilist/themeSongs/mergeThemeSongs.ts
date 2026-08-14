@@ -15,7 +15,7 @@ import {
   collectSpotifyTrackIds,
   mergeSpotifyTrackIdSources,
   parseSpotifyTrackIdFromUrl,
-  pickSpotifyLink,
+  pickSpotifyLinkDetails,
 } from './spotifyLinks';
 import type { MediaThemeSongRow, ThemeSongType } from './types';
 import { THEME_SONG_TYPE_ORDER } from './types';
@@ -228,7 +228,8 @@ export function scoreMalAniplaylistMatch(mal: ParsedMalTheme, hit: AniplaylistHi
 
 function hitToPartialRow(hit: AniplaylistHit, sortOrder: number): MediaThemeSongRow {
   const type = normalizeAniplaylistThemeType(hit.song_type, hit.song_key) ?? 'Opening';
-  const spotifyUrl = pickSpotifyLink(hit.links ?? []);
+  const spotifyLink = pickSpotifyLinkDetails(hit.links ?? []);
+  const spotifyUrl = spotifyLink?.url ?? null;
   const trackIds = collectSpotifyTrackIds(hit.links ?? [], hit.other_link_ids, spotifyUrl);
   const primaryTitle = hit.titles[0] ?? hit.song_key;
   const artist = hit.artists?.[0]?.names?.[0] ?? null;
@@ -246,6 +247,7 @@ function hitToPartialRow(hit: AniplaylistHit, sortOrder: number): MediaThemeSong
     displayTitle: primaryTitle,
     displayArtist: artist,
     spotifyUrl: resolvedUrl,
+    spotifyAvailableMarkets: spotifyLink?.availableMarkets ?? undefined,
     spotifyTrackIds: trackIds,
     spotifyIsrc: null,
     hasResolvableTrackId: mergeSpotifyTrackIdSources(trackIds, resolvedUrl).length > 0,
@@ -420,6 +422,8 @@ export function borrowSharedSpotifyMetadata(rows: MediaThemeSongRow[]): MediaThe
     return {
       ...row,
       spotifyUrl: donor.spotifyUrl ?? row.spotifyUrl,
+      spotifyAvailableMarkets:
+        donor.spotifyAvailableMarkets ?? row.spotifyAvailableMarkets,
       spotifyTrackIds: [...donor.spotifyTrackIds],
       spotifyIsrc: donor.spotifyIsrc ?? row.spotifyIsrc,
       hasResolvableTrackId: mergeSpotifyTrackIdSources(

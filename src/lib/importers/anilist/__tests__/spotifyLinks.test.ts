@@ -3,10 +3,12 @@ import {
   buildSpotifySearchUrl,
   collectSpotifyTrackIds,
   encodeSpotifySearchPathSegment,
+  isSpotifyUnavailableInMarket,
   mergeSpotifyTrackIdSources,
   normalizeSpotifyUrl,
   parseSpotifyTrackIdFromUrl,
   pickSpotifyLink,
+  pickSpotifyLinkDetails,
   sanitizeSpotifySearchQuery,
 } from '../themeSongs/spotifyLinks';
 
@@ -33,6 +35,33 @@ describe('spotifyLinks', () => {
       },
     ]);
     expect(url).toContain('63ZUSqv3yd19ko7ChvzgAj');
+  });
+
+  it('recognizes the current AniPlaylist JP-only duplicate shape', () => {
+    const picked = pickSpotifyLinkDetails([
+      {
+        platform: 'spotify',
+        main: true,
+        link: 'https://open.spotify.com/track/17Nkp414niqEx1XmfB0Q1k',
+        link_markets: ['CA', 'JP', 'US'],
+      },
+      {
+        platform: 'spotify',
+        link: 'https://open.spotify.com/track/6V4ySJsF3NvRfr0XymF8NQ',
+        link_markets: ['JP'],
+      },
+    ]);
+
+    expect(picked).toEqual({
+      url: 'https://open.spotify.com/track/6V4ySJsF3NvRfr0XymF8NQ',
+      availableMarkets: ['JP'],
+    });
+  });
+
+  it('checks selected-link availability against the Spotify account market', () => {
+    expect(isSpotifyUnavailableInMarket(['JP'], 'CA')).toBe(true);
+    expect(isSpotifyUnavailableInMarket(['CA', 'JP'], 'CA')).toBe(false);
+    expect(isSpotifyUnavailableInMarket(undefined, 'CA')).toBe(false);
   });
 
   it('strips attribution metadata from selected spotify links', () => {

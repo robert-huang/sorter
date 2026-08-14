@@ -87,6 +87,38 @@ describe('mergeThemeSongs', () => {
     expect(rows[0]?.hasResolvableTrackId).toBe(true);
   });
 
+  it('persists markets for the selected JP-only Spotify link', () => {
+    const aniHit: AniplaylistHit = {
+      id: 3095,
+      anime_id: 1436,
+      score: 50,
+      titles: ['Karappo Capsule', 'からっぽカプセル'],
+      song_key: 'ED',
+      song_type: 'Ending',
+      artists: [{ names: ['Maaya Uchida', '内田真礼'] }],
+      links: [
+        {
+          platform: 'spotify',
+          main: true,
+          link: 'https://open.spotify.com/track/17Nkp414niqEx1XmfB0Q1k',
+          link_markets: ['CA', 'JP', 'US'],
+        },
+        {
+          platform: 'spotify',
+          link: 'https://open.spotify.com/track/6V4ySJsF3NvRfr0XymF8NQ',
+          link_markets: ['JP'],
+        },
+      ],
+    };
+
+    const [row] = mergeThemeSongs([], [aniHit]);
+
+    expect(row?.spotifyUrl).toBe(
+      'https://open.spotify.com/track/6V4ySJsF3NvRfr0XymF8NQ',
+    );
+    expect(row?.spotifyAvailableMarkets).toEqual(['JP']);
+  });
+
   it('merges MAL opening with AniPlaylist Theme Song / TS (Chainsaw Man Reze-hen)', () => {
     const mal = parseMalThemes(['"IRIS OUT" by Kenshi Yonezu (米津玄師)'], []);
     const aniHit: AniplaylistHit = {

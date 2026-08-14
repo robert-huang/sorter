@@ -23,6 +23,8 @@ export type MediaThemeSongRow = {
   displayTitle: string;
   displayArtist: string | null;
   spotifyUrl: string | null;
+  /** Markets where the displayed Spotify link is playable, as reported by AniPlaylist. */
+  spotifyAvailableMarkets?: string[];
   spotifyTrackIds: string[];
   spotifyIsrc: string | null;
   hasResolvableTrackId: boolean;

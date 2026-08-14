@@ -402,6 +402,7 @@ function WeeklyCalendarThemeSongGroups({
                     { ...playlistMatchOptions, mediaId },
                   )}
                   showPlaylistMatch={showPlaylistMatch}
+                  spotifyCountry={playlistMatchOptions.spotifyCountry}
                 />
               ))}
             </ul>
@@ -866,16 +867,20 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
     return rows;
   }, [themeSongCache]);
 
-  const { lookup: trackIsrcLookup, ready: trackIsrcLookupReady } =
-    useSpotifyTrackIsrcLookup(allCachedThemeRows);
+  const {
+    lookup: trackIsrcLookup,
+    ready: trackIsrcLookupReady,
+    spotifyCountry,
+  } = useSpotifyTrackIsrcLookup(allCachedThemeRows);
 
   const playlistMatchOptions = useMemo(
     (): PlaylistMatchOptions => ({
       trackIsrcById: trackIsrcLookup,
       isrcLookupReady: trackIsrcLookupReady,
       localFileMatchMode,
+      spotifyCountry,
     }),
-    [localFileMatchMode, trackIsrcLookup, trackIsrcLookupReady],
+    [localFileMatchMode, spotifyCountry, trackIsrcLookup, trackIsrcLookupReady],
   );
 
   const chartShows = useMemo(() => {

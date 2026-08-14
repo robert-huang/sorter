@@ -1,6 +1,9 @@
 import type { ReactNode } from 'react';
 import type { MediaThemeSongRow } from '../lib/importers/anilist/themeSongs/types';
-import { normalizeSpotifyUrl } from '../lib/importers/anilist/themeSongs/spotifyLinks';
+import {
+  isSpotifyUnavailableInMarket,
+  normalizeSpotifyUrl,
+} from '../lib/importers/anilist/themeSongs/spotifyLinks';
 import {
   resolveThemeSongArtist,
   resolveThemeSongTitle,
@@ -15,11 +18,20 @@ type Props = {
   row: MediaThemeSongRow;
   playlistMatch: PlaylistMatchResult;
   showPlaylistMatch: boolean;
+  spotifyCountry?: string | null;
   onExclude?: (row: MediaThemeSongRow) => void;
 };
 
-export function ThemeSongPlaylistDot({ match }: { match: PlaylistMatchResult }) {
-  return themeSongPlaylistIndicator(match);
+export function ThemeSongPlaylistDot({
+  match,
+  marketUnavailable = false,
+  spotifyCountry,
+}: {
+  match: PlaylistMatchResult;
+  marketUnavailable?: boolean;
+  spotifyCountry?: string | null;
+}) {
+  return themeSongPlaylistIndicator(match, marketUnavailable, spotifyCountry);
 }
 
 function metadataMatchTooltip(match: PlaylistMatchResult): string {
@@ -38,7 +50,16 @@ function metadataMatchTooltip(match: PlaylistMatchResult): string {
   return `${prefix}: \n\n${position}${track.title} — ${artists}`;
 }
 
-function themeSongPlaylistIndicator(match: PlaylistMatchResult): ReactNode {
+function marketUnavailableTooltip(spotifyCountry: string | null | undefined): string {
+  const market = spotifyCountry ? ` (${spotifyCountry})` : '';
+  return `On Spotify, but unavailable in your market${market}`;
+}
+
+function themeSongPlaylistIndicator(
+  match: PlaylistMatchResult,
+  marketUnavailable = false,
+  spotifyCountry?: string | null,
+): ReactNode {
   if (match.metadataMatch) {
     const tooltip = metadataMatchTooltip(match);
     return (
@@ -58,6 +79,16 @@ function themeSongPlaylistIndicator(match: PlaylistMatchResult): ReactNode {
       />
     );
   }
+  if (marketUnavailable) {
+    const tooltip = marketUnavailableTooltip(spotifyCountry);
+    return (
+      <span
+        title={tooltip}
+        aria-label={tooltip}
+        className="anilist-detail-theme-song-playlist-dot is-market-unavailable"
+      />
+    );
+  }
   if (match.status === 'out') {
     return (
       <span
@@ -73,14 +104,18 @@ function themeSongPlaylistIndicator(match: PlaylistMatchResult): ReactNode {
 function ThemeSongPlaylistDotSlot({
   match,
   show,
+  marketUnavailable,
+  spotifyCountry,
 }: {
   match: PlaylistMatchResult;
   show: boolean;
+  marketUnavailable: boolean;
+  spotifyCountry?: string | null;
 }) {
-  if (!show) {
+  if (!show && !marketUnavailable) {
     return null;
   }
-  const dot = themeSongPlaylistIndicator(match);
+  const dot = themeSongPlaylistIndicator(match, marketUnavailable, spotifyCountry);
   return (
     <div className="anilist-detail-theme-song-playlist-dot-slot">
       {dot ?? (
@@ -141,11 +176,21 @@ function ThemeSongBody({
   );
 }
 
-export function ThemeSongRowC({ row, playlistMatch, showPlaylistMatch, onExclude }: Props) {
+export function ThemeSongRowC({
+  row,
+  playlistMatch,
+  showPlaylistMatch,
+  spotifyCountry,
+  onExclude,
+}: Props) {
   const { mode } = useThemeSongDisplayPreferences();
   const title = resolveThemeSongTitle(row, mode);
   const artist = resolveThemeSongArtist(row, mode);
   const isInsert = row.type === 'Insert';
+  const marketUnavailable = isSpotifyUnavailableInMarket(
+    row.spotifyAvailableMarkets,
+    spotifyCountry,
+  );
   return (
     <li
       className={`anilist-detail-theme-song-item${isInsert ? ' is-insert' : ''}`}
@@ -153,7 +198,12 @@ export function ThemeSongRowC({ row, playlistMatch, showPlaylistMatch, onExclude
       <div className="anilist-detail-theme-song-type" aria-hidden="true">
         {themeSongTypeBadge(row)}
       </div>
-      <ThemeSongPlaylistDotSlot match={playlistMatch} show={showPlaylistMatch} />
+      <ThemeSongPlaylistDotSlot
+        match={playlistMatch}
+        show={showPlaylistMatch || spotifyCountry != null}
+        marketUnavailable={marketUnavailable}
+        spotifyCountry={spotifyCountry}
+      />
       <div className="anilist-detail-theme-song-text">
         <ThemeSongBody row={row} title={title} artist={artist} />
       </div>

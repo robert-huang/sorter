@@ -3,6 +3,12 @@ export type AniplaylistLink = {
   main?: boolean;
   link?: string;
   detail?: string;
+  link_markets?: string[];
+};
+
+export type PickedSpotifyLink = {
+  url: string;
+  availableMarkets: string[] | null;
 };
 
 const SPOTIFY_TRACK_ID_RE = /^[0-9A-Za-z]{22}$/;
@@ -46,21 +52,50 @@ export function looksLikeSpotifyTrackId(id: string): boolean {
   return SPOTIFY_TRACK_ID_RE.test(id);
 }
 
-export function pickSpotifyLink(links: readonly AniplaylistLink[]): string | null {
+function normalizeSpotifyMarkets(markets: readonly string[] | undefined): string[] | null {
+  if (!markets) {
+    return null;
+  }
+  return [...new Set(markets.map((market) => market.trim().toUpperCase()).filter(Boolean))];
+}
+
+function isJapanOnlySpotifyLink(link: AniplaylistLink): boolean {
+  const markets = normalizeSpotifyMarkets(link.link_markets);
+  return markets?.length === 1 && markets[0] === 'JP';
+}
+
+export function pickSpotifyLinkDetails(
+  links: readonly AniplaylistLink[],
+): PickedSpotifyLink | null {
   const spotify = links.filter((l) => l.platform?.toLowerCase() === 'spotify' && l.link);
   if (spotify.length === 0) {
     return null;
   }
-  const japan = spotify.find((l) => l.detail === 'Japan link');
-  if (japan?.link) {
-    return normalizeSpotifyUrl(japan.link);
+  const picked =
+    spotify.find((link) => link.detail === 'Japan link') ??
+    spotify.find(isJapanOnlySpotifyLink) ??
+    spotify.find((link) => link.main) ??
+    spotify[0];
+  return picked?.link
+    ? {
+        url: normalizeSpotifyUrl(picked.link),
+        availableMarkets: normalizeSpotifyMarkets(picked.link_markets),
+      }
+    : null;
+}
+
+export function pickSpotifyLink(links: readonly AniplaylistLink[]): string | null {
+  return pickSpotifyLinkDetails(links)?.url ?? null;
+}
+
+export function isSpotifyUnavailableInMarket(
+  availableMarkets: readonly string[] | undefined,
+  spotifyCountry: string | null | undefined,
+): boolean {
+  if (!availableMarkets || !spotifyCountry) {
+    return false;
   }
-  const main = spotify.find((l) => l.main);
-  if (main?.link) {
-    return normalizeSpotifyUrl(main.link);
-  }
-  const fallback = spotify[0]?.link ?? null;
-  return fallback ? normalizeSpotifyUrl(fallback) : null;
+  return !availableMarkets.includes(spotifyCountry.toUpperCase());
 }
 
 /** Theme-row track IDs plus any `/track/{id}` parsed from the display URL. */

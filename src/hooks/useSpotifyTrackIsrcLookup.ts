@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { mergeSpotifyTrackIdSources } from '../lib/importers/anilist/themeSongs/spotifyLinks';
 import type { MediaThemeSongRow } from '../lib/importers/anilist/themeSongs/types';
-import { ensureSpotifyAccessToken } from '../lib/spotify/spotifyAuth';
+import {
+  ensureSpotifyAccessToken,
+  ensureSpotifyAccountCountry,
+  getStoredSpotifyAuth,
+  subscribeSpotifyAuth,
+} from '../lib/spotify/spotifyAuth';
 import {
   ensureTrackIsrcsCached,
   getTrackIsrcStoreSnapshot,
@@ -32,6 +37,7 @@ function themeTrackIdsKey(rows: readonly MediaThemeSongRow[]): string {
 export type SpotifyTrackIsrcLookup = {
   lookup: ReadonlyMap<string, string>;
   ready: boolean;
+  spotifyCountry: string | null;
 };
 
 /**
@@ -48,10 +54,20 @@ export function useSpotifyTrackIsrcLookup(
   );
   const [lookup, setLookup] = useState(() => getTrackIsrcStoreSnapshot());
   const [ready, setReady] = useState(true);
+  const [spotifyCountry, setSpotifyCountry] = useState(
+    () => getStoredSpotifyAuth()?.country ?? null,
+  );
+  const [authRevision, setAuthRevision] = useState(0);
+
+  useEffect(
+    () => subscribeSpotifyAuth(() => setAuthRevision((revision) => revision + 1)),
+    [],
+  );
 
   useEffect(() => {
     if (trackIdsKey.length === 0) {
       setLookup(getTrackIsrcStoreSnapshot());
+      setSpotifyCountry(getStoredSpotifyAuth()?.country ?? null);
       setReady(true);
       return;
     }
@@ -64,12 +80,17 @@ export function useSpotifyTrackIsrcLookup(
         return;
       }
       if (!token) {
+        setSpotifyCountry(null);
         setReady(true);
         return;
       }
-      const map = await ensureTrackIsrcsCached(trackIds, token);
+      const [map, country] = await Promise.all([
+        ensureTrackIsrcsCached(trackIds, token),
+        ensureSpotifyAccountCountry(token),
+      ]);
       if (!cancelled) {
         setLookup(map);
+        setSpotifyCountry(country);
         setReady(true);
       }
     })();
@@ -77,7 +98,7 @@ export function useSpotifyTrackIsrcLookup(
     return () => {
       cancelled = true;
     };
-  }, [trackIdsKey]);
+  }, [authRevision, trackIdsKey]);
 
-  return { lookup, ready };
+  return { lookup, ready, spotifyCountry };
 }

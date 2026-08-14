@@ -62,6 +62,7 @@ export type StoredSpotifyAuth = {
   expiresAt: number;
   displayName: string | null;
   spotifyUserId: string | null;
+  country: string | null;
 };
 
 type TokenResponse = {
@@ -75,9 +76,11 @@ type TokenResponse = {
 type SpotifyProfile = {
   id?: string;
   display_name?: string | null;
+  country?: string | null;
 };
 
 const listeners = new Set<() => void>();
+let profileHydrationPromise: Promise<string | null> | null = null;
 
 function emitChange(): void {
   for (const listener of listeners) {
@@ -129,6 +132,7 @@ function readStoredAuth(): StoredSpotifyAuth | null {
       expiresAt: parsed.expiresAt,
       displayName: parsed.displayName ?? null,
       spotifyUserId: parsed.spotifyUserId ?? null,
+      country: parsed.country?.toUpperCase() ?? null,
     };
   } catch {
     return null;
@@ -264,6 +268,7 @@ async function persistTokensFromResponse(json: TokenResponse): Promise<StoredSpo
     expiresAt: Date.now() + expiresIn * 1000,
     displayName: readStoredAuth()?.displayName ?? null,
     spotifyUserId: readStoredAuth()?.spotifyUserId ?? null,
+    country: readStoredAuth()?.country ?? null,
   };
   writeStoredAuth(auth);
   try {
@@ -272,12 +277,52 @@ async function persistTokensFromResponse(json: TokenResponse): Promise<StoredSpo
       const profile = (await profileRes.json()) as SpotifyProfile;
       auth.displayName = profile.display_name ?? null;
       auth.spotifyUserId = profile.id ?? null;
+      auth.country = profile.country?.toUpperCase() ?? null;
       writeStoredAuth(auth);
     }
   } catch {
     /* profile is optional */
   }
   return auth;
+}
+
+export async function ensureSpotifyAccountCountry(
+  accessToken?: string | null,
+): Promise<string | null> {
+  const existing = readStoredAuth();
+  if (existing?.country) {
+    return existing.country;
+  }
+  const token = accessToken ?? (await ensureSpotifyAccessToken());
+  if (!token) {
+    return null;
+  }
+  if (profileHydrationPromise) {
+    return profileHydrationPromise;
+  }
+  profileHydrationPromise = (async () => {
+    try {
+      const profileRes = await spotifyApiFetch(`${API_BASE}/me`, token);
+      if (!profileRes.ok) {
+        return null;
+      }
+      const profile = (await profileRes.json()) as SpotifyProfile;
+      const current = readStoredAuth();
+      if (!current || current.accessToken !== token) {
+        return profile.country?.toUpperCase() ?? null;
+      }
+      current.displayName = profile.display_name ?? current.displayName;
+      current.spotifyUserId = profile.id ?? current.spotifyUserId;
+      current.country = profile.country?.toUpperCase() ?? null;
+      writeStoredAuth(current);
+      return current.country;
+    } catch {
+      return null;
+    }
+  })().finally(() => {
+    profileHydrationPromise = null;
+  });
+  return profileHydrationPromise;
 }
 
 export async function ensureSpotifyAccessToken(now = Date.now()): Promise<string | null> {
@@ -438,6 +483,7 @@ export function signInToSpotify(): Promise<StoredSpotifyAuth> {
 }
 
 export function signOutSpotify(): void {
+  profileHydrationPromise = null;
   stopPlaylistIsrcBackfill();
   void clearPlaylistCache().catch(() => {
     /* The next sign-in can retry clearing unavailable durable storage. */
@@ -466,6 +512,7 @@ export function subscribeSpotifyAuth(listener: () => void): () => void {
 
 /** Test-only reset. */
 export function _clearSpotifyAuthForTesting(): void {
+  profileHydrationPromise = null;
   try {
     localStorage.removeItem(SPOTIFY_AUTH_STORAGE_KEY);
     sessionStorage.removeItem(OAUTH_PENDING_KEY);

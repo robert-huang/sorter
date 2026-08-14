@@ -118,4 +118,34 @@ describe('ThemeSongRowC', () => {
       'https://open.spotify.com/track/3EXRwq9SPcToT8MfPAgRxN',
     );
   });
+
+  it('shows an orange dot when the selected link is unavailable in the account market', async () => {
+    const row: MediaThemeSongRow = {
+      type: 'Ending',
+      sortOrder: 0,
+      displayTitle: 'からっぽカプセル',
+      displayArtist: 'Maaya Uchida',
+      spotifyUrl: 'https://open.spotify.com/track/6V4ySJsF3NvRfr0XymF8NQ',
+      spotifyAvailableMarkets: ['JP'],
+      spotifyTrackIds: ['6V4ySJsF3NvRfr0XymF8NQ'],
+      spotifyIsrc: null,
+      hasResolvableTrackId: true,
+    };
+
+    await act(async () => {
+      root.render(
+        <ThemeSongRowC
+          row={row}
+          playlistMatch={{ status: 'out', metadataMatch: null }}
+          showPlaylistMatch={false}
+          spotifyCountry="CA"
+        />,
+      );
+    });
+
+    expect(container.querySelector('.is-market-unavailable')?.getAttribute('title')).toBe(
+      'On Spotify, but unavailable in your market (CA)',
+    );
+    expect(container.querySelector('.is-out')).toBeNull();
+  });
 });
