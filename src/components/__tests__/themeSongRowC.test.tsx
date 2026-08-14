@@ -122,6 +122,30 @@ describe('ThemeSongPlaylistDot', () => {
     expect(container.querySelector('.is-in')).toBeNull();
   });
 
+  it('keeps an unavailable local-file match blue', async () => {
+    await renderDot(
+      {
+        status: 'in',
+        metadataMatch: {
+          kind: 'local',
+          track: {
+            title: `You've Got Friends ～あなたには友達がいる～`,
+            artists: ['土屋太鳳'],
+            album: 'Ai no Utagoe wo Kikasete',
+            durationMs: 289_000,
+            playlistPosition: 1855,
+          },
+        },
+      },
+      true,
+      'TW',
+    );
+
+    const dot = container.querySelector('.is-metadata');
+    expect(dot?.getAttribute('title')).toContain('#1855');
+    expect(container.querySelector('.is-market-unavailable')).toBeNull();
+  });
+
   it('preserves exact in/out indicators and leaves unknown rows without a dot', async () => {
     await renderDot({ status: 'in', metadataMatch: null });
     expect(container.querySelector('.is-in')?.getAttribute('title')).toBe(

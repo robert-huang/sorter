@@ -4,7 +4,10 @@ import { openMemoryDb } from '../../../db/__tests__/testSqlite';
 import { migrate } from '../../../db/migration-runner';
 import { anilistSourceDescriptor } from '../anilistSource';
 import type { AnilistDbExecutor, AnilistImportContext } from '../context';
-import { expandMediaThemeSongs } from '../expandMediaThemeSongs';
+import {
+  expandMediaThemeSongs,
+  getMediaThemeSongsExpansion,
+} from '../expandMediaThemeSongs';
 
 type ExecCapable = { exec: (sql: string, opts?: { bind?: unknown }) => void };
 
@@ -108,5 +111,62 @@ describe('expandMediaThemeSongs', () => {
     );
     expect(expansionRows).toEqual([{ media_id: 42, mal_id: null }]);
     expect(dirty).toHaveBeenCalledTimes(1);
+  });
+
+  it('normalizes shared aliases when reading an existing cached payload', async () => {
+    const spotifyUrl = 'https://open.spotify.com/track/4uU8sWDoApg5yFEdwrrxUd';
+    const spotifyTrackIds = ['4uU8sWDoApg5yFEdwrrxUd'];
+    const payload = {
+      version: 1 as const,
+      aniplaylistAvailable: true,
+      rows: [
+        {
+          type: 'Insert' as const,
+          sortOrder: 4,
+          displayTitle: `You've Got Friends ~Anata ni wa Tomodachi ga Iru~`,
+          displayArtist: 'Tao Tsuchiya',
+          aniTitles: [
+            `You've Got Friends ~Anata ni wa Tomodachi ga Iru~`,
+            `You've Got Friends ~あなたには友達がいる~`,
+          ],
+          aniArtists: ['Tao Tsuchiya', '土屋太鳳'],
+          spotifyUrl,
+          spotifyTrackIds,
+          spotifyIsrc: null,
+          hasResolvableTrackId: true,
+        },
+        {
+          type: 'Ending' as const,
+          sortOrder: 0,
+          displayTitle: `You've Got Friends (あなたには友達がい)`,
+          displayArtist: 'Tao Tsuchiya',
+          malTitle: `You've Got Friends (あなたには友達がい)`,
+          malArtist: 'Tao Tsuchiya',
+          spotifyUrl,
+          spotifyTrackIds,
+          spotifyIsrc: null,
+          hasResolvableTrackId: true,
+        },
+      ],
+    };
+    const readDb: AnilistDbExecutor = {
+      exec: vi.fn().mockResolvedValue([
+        {
+          media_id: 123899,
+          mal_id: 42847,
+          fetched_at: 1_700_000_000_000,
+          payload_json: JSON.stringify(payload),
+        },
+      ]),
+      execBatch: vi.fn(),
+    };
+
+    const expansion = await getMediaThemeSongsExpansion(readDb, 123899);
+
+    expect(expansion?.payload.rows[1]).toMatchObject({
+      aniTitles: payload.rows[0].aniTitles,
+      aniArtists: payload.rows[0].aniArtists,
+      spotifyTrackIds,
+    });
   });
 });

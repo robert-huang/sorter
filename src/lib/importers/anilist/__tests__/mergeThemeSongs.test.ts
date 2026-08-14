@@ -634,6 +634,62 @@ describe('compareThemeSongRowsWithinType', () => {
 });
 
 describe('borrowSharedSpotifyMetadata', () => {
+  it('borrows AniPlaylist aliases for the same recording under another theme role', () => {
+    const donor: MediaThemeSongRow = {
+      type: 'Insert',
+      sortOrder: 4,
+      displayTitle: `You've Got Friends ~Anata ni wa Tomodachi ga Iru~`,
+      displayArtist: 'Tao Tsuchiya',
+      aniTitles: [
+        `You've Got Friends ~Anata ni wa Tomodachi ga Iru~`,
+        `You've Got Friends ~あなたには友達がいる~`,
+      ],
+      aniArtists: ['Tao Tsuchiya', '土屋太鳳'],
+      aniplaylistUrl: 'https://aniplaylist.com/song/youve-got-friends',
+      spotifyUrl: 'https://open.spotify.com/track/4uU8sWDoApg5yFEdwrrxUd',
+      spotifyAvailableMarkets: ['JP'],
+      spotifyTrackIds: ['4uU8sWDoApg5yFEdwrrxUd'],
+      spotifyIsrc: null,
+      hasResolvableTrackId: true,
+    };
+    const recipient: MediaThemeSongRow = {
+      type: 'Ending',
+      sortOrder: 0,
+      displayTitle: `You've Got Friends (あなたには友達がい)`,
+      displayArtist: 'Tao Tsuchiya',
+      malTitle: `You've Got Friends (あなたには友達がい)`,
+      malArtist: 'Tao Tsuchiya',
+      spotifyUrl: null,
+      spotifyTrackIds: [],
+      spotifyIsrc: null,
+      hasResolvableTrackId: false,
+    };
+
+    const rows = borrowSharedSpotifyMetadata([donor, recipient]);
+
+    expect(rows[1]).toMatchObject({
+      aniTitles: donor.aniTitles,
+      aniArtists: donor.aniArtists,
+      aniplaylistUrl: donor.aniplaylistUrl,
+      spotifyTrackIds: donor.spotifyTrackIds,
+    });
+
+    const cachedRecipient: MediaThemeSongRow = {
+      ...recipient,
+      spotifyUrl: donor.spotifyUrl,
+      spotifyAvailableMarkets: donor.spotifyAvailableMarkets,
+      spotifyTrackIds: [...donor.spotifyTrackIds],
+      hasResolvableTrackId: true,
+    };
+    const cachedRows = borrowSharedSpotifyMetadata([donor, cachedRecipient]);
+    expect(cachedRows[1]).toMatchObject({
+      aniTitles: donor.aniTitles,
+      aniArtists: donor.aniArtists,
+      aniplaylistUrl: donor.aniplaylistUrl,
+      spotifyTrackIds: donor.spotifyTrackIds,
+    });
+  });
+
   it('does not borrow across different songs', () => {
     const donor: MediaThemeSongRow = {
       type: 'Opening',

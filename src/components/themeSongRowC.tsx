@@ -68,7 +68,8 @@ function themeSongPlaylistIndicator(
   marketUnavailable = false,
   spotifyCountry?: string | null,
 ): ReactNode {
-  if (marketUnavailable) {
+  const isLocalMetadataMatch = match.metadataMatch?.kind === 'local';
+  if (marketUnavailable && !isLocalMetadataMatch) {
     const tooltip = marketUnavailableTooltip(match, spotifyCountry);
     return (
       <span

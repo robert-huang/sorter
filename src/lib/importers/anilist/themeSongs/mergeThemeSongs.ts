@@ -400,9 +400,17 @@ export function rowsShareSongIdentity(a: MediaThemeSongRow, b: MediaThemeSongRow
   return artistsRoughlyMatchAny(artistsA, artistsB);
 }
 
+function mergeSharedAliases(
+  recipient: readonly string[] | undefined,
+  donor: readonly string[] | undefined,
+): string[] | undefined {
+  const aliases = [...new Set([...(recipient ?? []), ...(donor ?? [])])];
+  return aliases.length > 0 ? aliases : undefined;
+}
+
 /**
  * Rows that missed AniPlaylist pairing (e.g. MAL ED ep-1 OP pollution) still share
- * the same Spotify track when title+artist identify the same recording.
+ * the same recording metadata when title+artist identify the same song.
  */
 export function borrowSharedSpotifyMetadata(rows: MediaThemeSongRow[]): MediaThemeSongRow[] {
   const donors = rows.filter(
@@ -412,24 +420,47 @@ export function borrowSharedSpotifyMetadata(rows: MediaThemeSongRow[]): MediaThe
     return rows;
   }
   return rows.map((row) => {
-    if (row.spotifyTrackIds.length > 0) {
+    const needsSpotifyMetadata = row.spotifyTrackIds.length === 0;
+    const needsAniTitles = (row.aniTitles?.length ?? 0) === 0;
+    const needsAniArtists = (row.aniArtists?.length ?? 0) === 0;
+    const needsAniplaylistUrl = !row.aniplaylistUrl;
+    if (
+      !needsSpotifyMetadata &&
+      !needsAniTitles &&
+      !needsAniArtists &&
+      !needsAniplaylistUrl
+    ) {
       return row;
     }
-    const donor = donors.find((candidate) => rowsShareSongIdentity(row, candidate));
+    const donor = donors.find(
+      (candidate) =>
+        candidate !== row &&
+        rowsShareSongIdentity(row, candidate) &&
+        (needsSpotifyMetadata ||
+          (needsAniTitles && (candidate.aniTitles?.length ?? 0) > 0) ||
+          (needsAniArtists && (candidate.aniArtists?.length ?? 0) > 0) ||
+          (needsAniplaylistUrl && Boolean(candidate.aniplaylistUrl))),
+    );
     if (!donor) {
       return row;
     }
     return {
       ...row,
-      spotifyUrl: donor.spotifyUrl ?? row.spotifyUrl,
-      spotifyAvailableMarkets:
-        donor.spotifyAvailableMarkets ?? row.spotifyAvailableMarkets,
-      spotifyTrackIds: [...donor.spotifyTrackIds],
-      spotifyIsrc: donor.spotifyIsrc ?? row.spotifyIsrc,
-      hasResolvableTrackId: mergeSpotifyTrackIdSources(
-        donor.spotifyTrackIds,
-        donor.spotifyUrl,
-      ).length > 0,
+      aniTitles: mergeSharedAliases(row.aniTitles, donor.aniTitles),
+      aniArtists: mergeSharedAliases(row.aniArtists, donor.aniArtists),
+      aniplaylistUrl: row.aniplaylistUrl ?? donor.aniplaylistUrl,
+      spotifyUrl:
+        needsSpotifyMetadata ? (donor.spotifyUrl ?? row.spotifyUrl) : row.spotifyUrl,
+      spotifyAvailableMarkets: needsSpotifyMetadata
+        ? (donor.spotifyAvailableMarkets ?? row.spotifyAvailableMarkets)
+        : row.spotifyAvailableMarkets,
+      spotifyTrackIds:
+        needsSpotifyMetadata ? [...donor.spotifyTrackIds] : row.spotifyTrackIds,
+      spotifyIsrc:
+        needsSpotifyMetadata ? (donor.spotifyIsrc ?? row.spotifyIsrc) : row.spotifyIsrc,
+      hasResolvableTrackId: needsSpotifyMetadata
+        ? mergeSpotifyTrackIdSources(donor.spotifyTrackIds, donor.spotifyUrl).length > 0
+        : row.hasResolvableTrackId,
     };
   });
 }

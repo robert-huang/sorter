@@ -362,6 +362,38 @@ describe('matchThemeRowToPlaylist', () => {
     });
   });
 
+  it('uses borrowed AniPlaylist aliases to match a malformed MAL title to a local file', () => {
+    const localTrack = {
+      uri: 'spotify:local:Tao+Tsuchiya:Soundtrack:Youve+Got+Friends:289',
+      title: `You've Got Friends ～あなたには友達がいる～`,
+      artists: ['土屋太鳳'],
+      album: 'Ai no Utagoe wo Kikasete',
+      durationMs: 289_000,
+      playlistPosition: 1855,
+    };
+    const result = matchThemeRowToPlaylistDetails(
+      makeRow({
+        type: 'Ending',
+        displayTitle: `You've Got Friends (あなたには友達がい)`,
+        displayArtist: 'Tao Tsuchiya',
+        malTitle: `You've Got Friends (あなたには友達がい)`,
+        malArtist: 'Tao Tsuchiya',
+        aniTitles: [
+          `You've Got Friends ~Anata ni wa Tomodachi ga Iru~`,
+          `You've Got Friends ~あなたには友達がいる~`,
+        ],
+        aniArtists: ['Tao Tsuchiya', '土屋太鳳'],
+      }),
+      cacheWithLocalTracks([localTrack]),
+      LOCAL_FIRST,
+    );
+
+    expect(result).toEqual({
+      status: 'in',
+      metadataMatch: { kind: 'local', track: localTrack },
+    });
+  });
+
   it('matches a final-episode local edition to the base theme title', () => {
     const originalArtistTrack = {
       uri: 'spotify:local:Hayashibara+Megumi:Album:A+Happy+Life:224',

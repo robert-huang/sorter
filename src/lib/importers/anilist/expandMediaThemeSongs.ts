@@ -81,6 +81,15 @@ export type ExpandMediaThemeSongsOptions = {
   force?: boolean;
 };
 
+function normalizeThemeSongsPayload(
+  payload: MediaThemeSongsPayload,
+): MediaThemeSongsPayload {
+  return {
+    ...payload,
+    rows: borrowSharedSpotifyMetadata(payload.rows),
+  };
+}
+
 export async function getMediaThemeSongsExpansionFetchedAt(
   db: AnilistDbExecutor,
   mediaId: number,
@@ -119,7 +128,7 @@ export async function getMediaThemeSongsExpansion(
     mediaId: Number(r.media_id),
     malId: r.mal_id === null || r.mal_id === undefined ? null : Number(r.mal_id),
     fetchedAt: Number(r.fetched_at),
-    payload,
+    payload: normalizeThemeSongsPayload(payload),
   };
 }
 
@@ -144,7 +153,7 @@ export async function getMediaThemeSongsExpansionsBatch(
     for (const row of rows) {
       try {
         const payload = JSON.parse(String(row.payload_json)) as MediaThemeSongsPayload;
-        out.set(Number(row.media_id), payload);
+        out.set(Number(row.media_id), normalizeThemeSongsPayload(payload));
       } catch {
         /* skip corrupt rows */
       }
