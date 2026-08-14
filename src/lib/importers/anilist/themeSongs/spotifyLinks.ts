@@ -6,11 +6,29 @@ export type AniplaylistLink = {
 };
 
 const SPOTIFY_TRACK_ID_RE = /^[0-9A-Za-z]{22}$/;
+const SPOTIFY_METADATA_QUERY_PARAMS = new Set([
+  'si',
+  'dlsi',
+  'sp_cid',
+  '_branch_match_id',
+  '_branch_referrer',
+]);
+
+function isSpotifyHostname(hostname: string): boolean {
+  return hostname === 'spotify.com' || hostname.endsWith('.spotify.com');
+}
+
+function isSpotifyMetadataQueryParam(name: string): boolean {
+  const normalizedName = name.toLowerCase();
+  return (
+    normalizedName.startsWith('utm_') || SPOTIFY_METADATA_QUERY_PARAMS.has(normalizedName)
+  );
+}
 
 export function parseSpotifyTrackIdFromUrl(url: string): string | null {
   try {
     const parsed = new URL(url);
-    if (!parsed.hostname.includes('spotify.com')) {
+    if (!isSpotifyHostname(parsed.hostname)) {
       return null;
     }
     const parts = parsed.pathname.split('/').filter(Boolean);
@@ -35,14 +53,14 @@ export function pickSpotifyLink(links: readonly AniplaylistLink[]): string | nul
   }
   const japan = spotify.find((l) => l.detail === 'Japan link');
   if (japan?.link) {
-    return normalizeSpotifySearchUrl(japan.link);
+    return normalizeSpotifyUrl(japan.link);
   }
   const main = spotify.find((l) => l.main);
   if (main?.link) {
-    return normalizeSpotifySearchUrl(main.link);
+    return normalizeSpotifyUrl(main.link);
   }
   const fallback = spotify[0]?.link ?? null;
-  return fallback ? normalizeSpotifySearchUrl(fallback) : null;
+  return fallback ? normalizeSpotifyUrl(fallback) : null;
 }
 
 /** Theme-row track IDs plus any `/track/{id}` parsed from the display URL. */
@@ -108,25 +126,30 @@ export function sanitizeSpotifySearchQuery(title: string, artist: string | null)
   return `${normalizedTitle} ${stripParens(artist.trim())}`.replace(/\s+/g, ' ').trim();
 }
 
-/** Re-encode stored/external Spotify search URLs that have raw path characters. */
-export function normalizeSpotifySearchUrl(url: string): string {
+/** Canonicalize Spotify URLs while preserving parameters that affect link behavior. */
+export function normalizeSpotifyUrl(url: string): string {
   try {
     const parsed = new URL(url);
-    if (!parsed.hostname.includes('spotify.com')) {
+    if (!isSpotifyHostname(parsed.hostname)) {
       return url;
+    }
+    for (const name of [...parsed.searchParams.keys()]) {
+      if (isSpotifyMetadataQueryParam(name)) {
+        parsed.searchParams.delete(name);
+      }
     }
     const match = parsed.pathname.match(/^\/search\/(.+)$/);
-    if (!match?.[1]) {
-      return url;
+    if (match?.[1]) {
+      let decoded = match[1];
+      try {
+        decoded = decodeURIComponent(match[1]);
+      } catch {
+        /* keep raw segment */
+      }
+      const cleaned = decoded.replace(/\s*\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
+      parsed.pathname = `/search/${encodeSpotifySearchPathSegment(cleaned)}`;
     }
-    let decoded = match[1];
-    try {
-      decoded = decodeURIComponent(match[1]);
-    } catch {
-      /* keep raw segment */
-    }
-    const cleaned = decoded.replace(/\s*\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
-    return `https://open.spotify.com/search/${encodeSpotifySearchPathSegment(cleaned)}`;
+    return parsed.toString();
   } catch {
     return url;
   }

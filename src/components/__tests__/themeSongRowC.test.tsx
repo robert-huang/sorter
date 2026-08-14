@@ -1,8 +1,9 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import type { MediaThemeSongRow } from '../../lib/importers/anilist/themeSongs/types';
 import type { PlaylistMatchResult } from '../../lib/spotify/spotifyPlaylistMatch';
-import { ThemeSongPlaylistDot } from '../themeSongRowC';
+import { ThemeSongPlaylistDot, ThemeSongRowC } from '../themeSongRowC';
 
 let container: HTMLDivElement;
 let root: Root;
@@ -86,5 +87,35 @@ describe('ThemeSongPlaylistDot', () => {
 
     await renderDot({ status: 'unknown', metadataMatch: null });
     expect(container.querySelector('.anilist-detail-theme-song-playlist-dot')).toBeNull();
+  });
+});
+
+describe('ThemeSongRowC', () => {
+  it('uses a canonical spotify URL for existing cached theme songs', async () => {
+    const row: MediaThemeSongRow = {
+      type: 'Opening',
+      sortOrder: 1,
+      displayTitle: 'Track title',
+      displayArtist: 'Artist',
+      spotifyUrl:
+        'https://open.spotify.com/track/3EXRwq9SPcToT8MfPAgRxN?utm_source=aniplaylist&utm_medium=website',
+      spotifyTrackIds: ['3EXRwq9SPcToT8MfPAgRxN'],
+      spotifyIsrc: null,
+      hasResolvableTrackId: true,
+    };
+
+    await act(async () => {
+      root.render(
+        <ThemeSongRowC
+          row={row}
+          playlistMatch={{ status: 'unknown', metadataMatch: null }}
+          showPlaylistMatch={false}
+        />,
+      );
+    });
+
+    expect(container.querySelector('a')?.getAttribute('href')).toBe(
+      'https://open.spotify.com/track/3EXRwq9SPcToT8MfPAgRxN',
+    );
   });
 });

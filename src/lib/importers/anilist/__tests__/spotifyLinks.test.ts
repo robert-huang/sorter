@@ -4,7 +4,7 @@ import {
   collectSpotifyTrackIds,
   encodeSpotifySearchPathSegment,
   mergeSpotifyTrackIdSources,
-  normalizeSpotifySearchUrl,
+  normalizeSpotifyUrl,
   parseSpotifyTrackIdFromUrl,
   pickSpotifyLink,
   sanitizeSpotifySearchQuery,
@@ -35,6 +35,19 @@ describe('spotifyLinks', () => {
     expect(url).toContain('63ZUSqv3yd19ko7ChvzgAj');
   });
 
+  it('strips attribution metadata from selected spotify links', () => {
+    const url = pickSpotifyLink([
+      {
+        platform: 'spotify',
+        main: true,
+        link:
+          'https://open.spotify.com/track/3EXRwq9SPcToT8MfPAgRxN?utm_source=aniplaylist&utm_medium=website',
+      },
+    ]);
+
+    expect(url).toBe('https://open.spotify.com/track/3EXRwq9SPcToT8MfPAgRxN');
+  });
+
   it('encodes parentheses in spotify search path segments', () => {
     expect(encodeSpotifySearchPathSegment('foo (bar)')).toBe('foo%20%28bar%29');
   });
@@ -62,9 +75,25 @@ describe('spotifyLinks', () => {
   it('normalizes legacy spotify search urls with raw parentheses', () => {
     const legacy =
       'https://open.spotify.com/search/Hawatari%20Nioku%20Centi%20(Zentai%20Suitei%2070%25%20Kaikin%20edit)%20MAXIMUM%20THE%20HORMONE';
-    expect(normalizeSpotifySearchUrl(legacy)).toBe(
+    expect(normalizeSpotifyUrl(legacy)).toBe(
       'https://open.spotify.com/search/Hawatari%20Nioku%20Centi%20MAXIMUM%20THE%20HORMONE',
     );
+  });
+
+  it('strips known spotify share metadata while preserving link behavior', () => {
+    expect(
+      normalizeSpotifyUrl(
+        'https://open.spotify.com/track/3EXRwq9SPcToT8MfPAgRxN?si=share-id&dlsi=deep-link-id&sp_cid=session-id&utm_campaign=spring&nd=1&go=1#lyrics',
+      ),
+    ).toBe(
+      'https://open.spotify.com/track/3EXRwq9SPcToT8MfPAgRxN?nd=1&go=1#lyrics',
+    );
+  });
+
+  it('does not alter non-spotify urls', () => {
+    const url = 'https://example.com/track/id?utm_source=example';
+
+    expect(normalizeSpotifyUrl(url)).toBe(url);
   });
 
   it('collects track ids from links and other_link_ids', () => {
