@@ -110,6 +110,32 @@ describe('mergeThemeSongs', () => {
     expect(rows[0]?.malTitle).toBe('Kani☆Do-Luck! (カニ☆Do-Luck！)');
   });
 
+  it('keeps one Angel Beats opening across episode-label variants', () => {
+    const openings = dedupeThemeStrings([
+      '1: "My Soul, Your Beats!" by Lia (eps TV: 2-3, 5-9, 11; BD/DVD: 1-3, 5-13)',
+      '1: "My Soul, Your Beats!" by Lia (TV: eps 2-3, 5-9, 11; BD/DVD: eps 1-3, 5-13)',
+    ]);
+    const mal = parseMalThemes(openings, []);
+    const aniHit: AniplaylistHit = {
+      id: 17037,
+      anime_id: 3882,
+      score: 50,
+      titles: ['My Soul, Your Beats!'],
+      song_key: 'OP',
+      song_type: 'Opening',
+      artists: [{ names: ['Lia'] }],
+      links: [],
+    };
+
+    const rows = mergeThemeSongs(mal, [aniHit]);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.displayArtist).toBe('Lia');
+    expect(rows[0]?.malEpisodes).toBe(
+      'eps TV: 2-3, 5-9, 11; BD/DVD: 1-3, 5-13',
+    );
+  });
+
   it('persists the union of markets across Spotify editions', () => {
     const aniHit: AniplaylistHit = {
       id: 3095,

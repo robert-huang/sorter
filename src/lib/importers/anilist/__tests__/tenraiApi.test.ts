@@ -22,6 +22,17 @@ describe('dedupeThemeStrings', () => {
     ]);
     expect(merged).toHaveLength(1);
   });
+
+  it('dedupes Angel Beats episode-label variants without treating them as artists', () => {
+    const tenraiLine =
+      '1: "My Soul, Your Beats!" by Lia (eps TV: 2-3, 5-9, 11; BD/DVD: 1-3, 5-13)';
+    const merged = dedupeThemeStrings([
+      tenraiLine,
+      '1: "My Soul, Your Beats!" by Lia (TV: eps 2-3, 5-9, 11; BD/DVD: eps 1-3, 5-13)',
+    ]);
+
+    expect(merged).toEqual([tenraiLine]);
+  });
 });
 
 describe('unionTenraiThemesData', () => {

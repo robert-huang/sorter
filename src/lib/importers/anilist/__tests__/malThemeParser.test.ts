@@ -28,6 +28,33 @@ describe('parseMalThemeString', () => {
     });
   });
 
+  it('parses platform labels that precede episode markers', () => {
+    const parsed = parseMalThemeString(
+      '1: "My Soul, Your Beats!" by Lia (TV: eps 2-3, 5-9, 11; BD/DVD: eps 1-3, 5-13)',
+      'Opening',
+      0,
+    );
+    expect(parsed).toMatchObject({
+      type: 'Opening',
+      sortOrder: 0,
+      title: 'My Soul, Your Beats!',
+      artist: 'Lia',
+      episodes: 'TV: eps 2-3, 5-9, 11; BD/DVD: eps 1-3, 5-13',
+    });
+  });
+
+  it('does not treat ordinary artist parentheticals as episode metadata', () => {
+    const parsed = parseMalThemeString(
+      '"Song" by Artist (Acoustic Version 2)',
+      'Opening',
+      0,
+    );
+    expect(parsed).toMatchObject({
+      artist: 'Artist (Acoustic Version 2)',
+      episodes: null,
+    });
+  });
+
   it('parses official MAL API hash-prefixed theme numbers', () => {
     const parsed = parseMalThemeString(
       '#1: "takt (タクト)" by ryo (supercell) feat. Mafumafu, gaku',

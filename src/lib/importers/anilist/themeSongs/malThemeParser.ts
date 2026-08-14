@@ -7,7 +7,8 @@ export type ParsedMalTheme = {
   episodes: string | null;
 };
 
-const EPISODES_RE = /\((eps?\.?\s*[^)]+)\)\s*$/i;
+const TRAILING_PAREN_RE = /\(([^()]*)\)\s*$/;
+const EPISODE_MARKER_RE = /\b(?:eps?|episodes?)\b\.?/i;
 const NUMBERED_PREFIX_RE = /^#?(\d+)\s*:\s*/;
 const WRAPPING_QUOTE_RE = /^["'`\u2018\u2019\u201c\u201d]|["'`\u2018\u2019\u201c\u201d]$/;
 
@@ -43,10 +44,15 @@ export function parseMalThemeString(
   }
 
   let episodes: string | null = null;
-  const epMatch = EPISODES_RE.exec(text);
-  if (epMatch) {
-    episodes = epMatch[1].trim();
-    text = text.slice(0, epMatch.index).trim();
+  const trailingParen = TRAILING_PAREN_RE.exec(text);
+  const episodeText = trailingParen?.[1]?.trim() ?? '';
+  if (
+    trailingParen &&
+    EPISODE_MARKER_RE.test(episodeText) &&
+    /\d/.test(episodeText)
+  ) {
+    episodes = episodeText;
+    text = text.slice(0, trailingParen.index).trim();
   }
 
   let title = text;
