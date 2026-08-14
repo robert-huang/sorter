@@ -23,9 +23,19 @@ afterEach(() => {
   container.remove();
 });
 
-async function renderDot(match: PlaylistMatchResult): Promise<void> {
+async function renderDot(
+  match: PlaylistMatchResult,
+  marketUnavailable = false,
+  spotifyCountry?: string,
+): Promise<void> {
   await act(async () => {
-    root.render(<ThemeSongPlaylistDot match={match} />);
+    root.render(
+      <ThemeSongPlaylistDot
+        match={match}
+        marketUnavailable={marketUnavailable}
+        spotifyCountry={spotifyCountry}
+      />,
+    );
   });
 }
 
@@ -83,6 +93,33 @@ describe('ThemeSongPlaylistDot', () => {
     expect(container.querySelector('.is-in')?.getAttribute('title')).toBe(
       'In your Spotify playlist at #3488',
     );
+  });
+
+  it('uses an orange dot for unavailable playlist matches', async () => {
+    await renderDot(
+      {
+        status: 'in',
+        metadataMatch: {
+          kind: 'spotify',
+          track: {
+            title: 'Unavailable song',
+            artists: ['Artist'],
+            album: 'Album',
+            durationMs: 180_000,
+            playlistPosition: 17,
+          },
+        },
+      },
+      true,
+      'CA',
+    );
+
+    const dot = container.querySelector('.is-market-unavailable');
+    expect(dot?.getAttribute('title')).toBe(
+      'In your Spotify playlist at #17, but unavailable in your market (CA)',
+    );
+    expect(container.querySelector('.is-metadata')).toBeNull();
+    expect(container.querySelector('.is-in')).toBeNull();
   });
 
   it('preserves exact in/out indicators and leaves unknown rows without a dot', async () => {

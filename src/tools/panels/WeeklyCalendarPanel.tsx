@@ -48,6 +48,7 @@ import {
   matchThemeRowToPlaylistDetails,
   type PlaylistAggregateStatus,
   type PlaylistMatchOptions,
+  type PlaylistMatchStatus,
 } from '../../lib/spotify/spotifyPlaylistMatch';
 import { useSpotifyPlaylistCache } from '../../lib/spotify/useSpotifyPlaylistCache';
 import { useSpotifyTrackIsrcLookup } from '../../hooks/useSpotifyTrackIsrcLookup';
@@ -131,7 +132,17 @@ const TIMEZONE_OPTIONS: Array<{ value: WeeklyCalendarTimezone; label: string }> 
   { value: 'local', label: 'Local' },
 ];
 
-type ThemeSongPlaylistFilter = 'all' | 'in' | 'out';
+export type ThemeSongPlaylistFilter = 'all' | 'in' | 'out';
+
+export function themeSongMatchesPlaylistFilter(
+  status: PlaylistMatchStatus,
+  filter: ThemeSongPlaylistFilter,
+): boolean {
+  if (filter === 'all') {
+    return true;
+  }
+  return filter === 'in' ? status === 'in' : status !== 'in';
+}
 
 const NEXT_THEME_SONG_PLAYLIST_FILTER: Record<
   ThemeSongPlaylistFilter,
@@ -461,12 +472,14 @@ function WeeklyCalendarThemeSongsPanel({
     const visibleRows =
       playlistFilter === 'all'
         ? rows
-        : rows.filter(
-            (row) =>
+        : rows.filter((row) =>
+            themeSongMatchesPlaylistFilter(
               matchThemeRowToPlaylist(row, playlistCache, {
                 ...playlistMatchOptions,
                 mediaId: show.id,
-              }) === playlistFilter,
+              }),
+              playlistFilter,
+            ),
           );
     if (visibleRows.length > 0) {
       visibleCachedShows.push({ show, rows: visibleRows });

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   loadWeeklyCalendarForm,
   saveWeeklyCalendarForm,
+  themeSongMatchesPlaylistFilter,
 } from '../panels/WeeklyCalendarPanel';
 import {
   buildWeeklyCalendarCustomSeasonYearOptions,
@@ -29,5 +30,19 @@ describe('WeeklyCalendarPanel form persistence', () => {
     expect(restored.seasonScope).toBe('previous');
     expect(restored.customSeasonMinEncoded).toBe(customSeasonMinEncoded);
     expect(restored.customSeasonMaxEncoded).toBe(customSeasonMaxEncoded);
+  });
+});
+
+describe('themeSongMatchesPlaylistFilter', () => {
+  it('shows only confirmed playlist matches in the green filter', () => {
+    expect(themeSongMatchesPlaylistFilter('in', 'in')).toBe(true);
+    expect(themeSongMatchesPlaylistFilter('out', 'in')).toBe(false);
+    expect(themeSongMatchesPlaylistFilter('unknown', 'in')).toBe(false);
+  });
+
+  it('shows missing and unresolved rows in the red filter', () => {
+    expect(themeSongMatchesPlaylistFilter('in', 'out')).toBe(false);
+    expect(themeSongMatchesPlaylistFilter('out', 'out')).toBe(true);
+    expect(themeSongMatchesPlaylistFilter('unknown', 'out')).toBe(true);
   });
 });

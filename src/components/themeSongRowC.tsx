@@ -50,8 +50,16 @@ function metadataMatchTooltip(match: PlaylistMatchResult): string {
   return `${prefix}: \n\n${position}${track.title} — ${artists}`;
 }
 
-function marketUnavailableTooltip(spotifyCountry: string | null | undefined): string {
+function marketUnavailableTooltip(
+  match: PlaylistMatchResult,
+  spotifyCountry: string | null | undefined,
+): string {
   const market = spotifyCountry ? ` (${spotifyCountry})` : '';
+  if (match.status === 'in') {
+    const position = match.playlistPosition ?? match.metadataMatch?.track.playlistPosition;
+    const playlistLocation = position ? ` at #${position}` : '';
+    return `In your Spotify playlist${playlistLocation}, but unavailable in your market${market}`;
+  }
   return `On Spotify, but unavailable in your market${market}`;
 }
 
@@ -60,6 +68,16 @@ function themeSongPlaylistIndicator(
   marketUnavailable = false,
   spotifyCountry?: string | null,
 ): ReactNode {
+  if (marketUnavailable) {
+    const tooltip = marketUnavailableTooltip(match, spotifyCountry);
+    return (
+      <span
+        title={tooltip}
+        aria-label={tooltip}
+        className="anilist-detail-theme-song-playlist-dot is-market-unavailable"
+      />
+    );
+  }
   if (match.metadataMatch) {
     const tooltip = metadataMatchTooltip(match);
     return (
@@ -79,16 +97,6 @@ function themeSongPlaylistIndicator(
         title={tooltip}
         aria-label={tooltip}
         className="anilist-detail-theme-song-playlist-dot is-in"
-      />
-    );
-  }
-  if (marketUnavailable) {
-    const tooltip = marketUnavailableTooltip(spotifyCountry);
-    return (
-      <span
-        title={tooltip}
-        aria-label={tooltip}
-        className="anilist-detail-theme-song-playlist-dot is-market-unavailable"
       />
     );
   }
