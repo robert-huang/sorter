@@ -64,6 +64,21 @@ function isJapanOnlySpotifyLink(link: AniplaylistLink): boolean {
   return markets?.length === 1 && markets[0] === 'JP';
 }
 
+function collectSpotifyAvailableMarkets(
+  links: readonly AniplaylistLink[],
+): string[] | null {
+  if (links.some((link) => link.link_markets === undefined)) {
+    return null;
+  }
+  const markets = new Set<string>();
+  for (const link of links) {
+    for (const market of normalizeSpotifyMarkets(link.link_markets) ?? []) {
+      markets.add(market);
+    }
+  }
+  return [...markets];
+}
+
 export function pickSpotifyLinkDetails(
   links: readonly AniplaylistLink[],
 ): PickedSpotifyLink | null {
@@ -79,7 +94,8 @@ export function pickSpotifyLinkDetails(
   return picked?.link
     ? {
         url: normalizeSpotifyUrl(picked.link),
-        availableMarkets: normalizeSpotifyMarkets(picked.link_markets),
+        // Availability is song-level: any playable Spotify edition prevents an orange dot.
+        availableMarkets: collectSpotifyAvailableMarkets(spotify),
       }
     : null;
 }

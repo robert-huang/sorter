@@ -87,7 +87,7 @@ describe('mergeThemeSongs', () => {
     expect(rows[0]?.hasResolvableTrackId).toBe(true);
   });
 
-  it('persists markets for the selected JP-only Spotify link', () => {
+  it('persists the union of markets across Spotify editions', () => {
     const aniHit: AniplaylistHit = {
       id: 3095,
       anime_id: 1436,
@@ -116,7 +116,7 @@ describe('mergeThemeSongs', () => {
     expect(row?.spotifyUrl).toBe(
       'https://open.spotify.com/track/6V4ySJsF3NvRfr0XymF8NQ',
     );
-    expect(row?.spotifyAvailableMarkets).toEqual(['JP']);
+    expect(row?.spotifyAvailableMarkets).toEqual(['CA', 'JP', 'US']);
   });
 
   it('merges MAL opening with AniPlaylist Theme Song / TS (Chainsaw Man Reze-hen)', () => {

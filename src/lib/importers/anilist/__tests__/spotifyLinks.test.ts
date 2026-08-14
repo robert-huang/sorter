@@ -54,11 +54,35 @@ describe('spotifyLinks', () => {
 
     expect(picked).toEqual({
       url: 'https://open.spotify.com/track/6V4ySJsF3NvRfr0XymF8NQ',
-      availableMarkets: ['JP'],
+      availableMarkets: ['CA', 'JP', 'US'],
     });
   });
 
-  it('checks selected-link availability against the Spotify account market', () => {
+  it('does not mark a JP-preferred song unavailable when another edition works in Taiwan', () => {
+    const picked = pickSpotifyLinkDetails([
+      {
+        platform: 'spotify',
+        main: true,
+        link: 'https://open.spotify.com/track/6TggBYYNhXuTnNm0HzYOcS',
+        link_markets: ['JP', 'TW', 'US'],
+      },
+      {
+        platform: 'spotify',
+        detail: 'Japan link',
+        link: 'https://open.spotify.com/track/21ZIz2UxWyNqyo8IVRcpN8',
+        link_markets: ['JP'],
+      },
+    ]);
+
+    expect(picked?.url).toBe(
+      'https://open.spotify.com/track/21ZIz2UxWyNqyo8IVRcpN8',
+    );
+    expect(isSpotifyUnavailableInMarket(picked?.availableMarkets ?? undefined, 'TW')).toBe(
+      false,
+    );
+  });
+
+  it('checks song availability against the Spotify account market', () => {
     expect(isSpotifyUnavailableInMarket(['JP'], 'CA')).toBe(true);
     expect(isSpotifyUnavailableInMarket(['CA', 'JP'], 'CA')).toBe(false);
     expect(isSpotifyUnavailableInMarket(undefined, 'CA')).toBe(false);
