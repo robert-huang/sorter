@@ -49,6 +49,9 @@ interface PreparedCloudImport extends OrderedSlotImport {
   asPreRanked: boolean;
 }
 
+const NEW_ORDER_IMPORT_TOOLTIP =
+  'Left-click to import into the selected order. Right-click to append as a new order, keep this dialog open, and clear the selection.';
+
 type SortResultsImportModeProps = {
   embedded?: boolean;
   /**
@@ -74,14 +77,17 @@ type SortResultsImportModeProps = {
       onAppendToStaged: (groups: StagedGroupInput[]) => void;
       onAddSlotImports?: never;
       onImportOrderedItems?: never;
+      onImportOrderedItemsAsNewOrders?: never;
     }
   | {
       onAddSlotImports: (batches: SlotResultsImportBatch[]) => void;
       onAppendToStaged?: never;
       onImportOrderedItems?: never;
+      onImportOrderedItemsAsNewOrders?: never;
     }
   | {
       onImportOrderedItems: (imports: OrderedSlotImport[]) => void;
+      onImportOrderedItemsAsNewOrders?: (imports: OrderedSlotImport[]) => void;
       onAppendToStaged?: never;
       onAddSlotImports?: never;
     }
@@ -141,6 +147,7 @@ export function SortResultsImportMode({
   onAppendToStaged,
   onAddSlotImports,
   onImportOrderedItems,
+  onImportOrderedItemsAsNewOrders,
   embeddedHint,
   selectionMode = 'multiple',
 }: SortResultsImportModeProps) {
@@ -393,10 +400,14 @@ export function SortResultsImportMode({
       }
     : null;
 
-  function handleAdd(): void {
+  function handleAdd(asNewOrders = false): void {
     if (selectedImportable.length === 0 || addableCount === 0) return;
 
     if (onImportOrderedItems) {
+      const importOrderedItems = asNewOrders
+        ? onImportOrderedItemsAsNewOrders
+        : onImportOrderedItems;
+      if (!importOrderedItems) return;
       const imports = selectedImportable
         .map((entry) => ({
           source: slotImportSourceLabel(entry.meta),
@@ -405,13 +416,13 @@ export function SortResultsImportMode({
         }))
         .filter((entry) => entry.items.length > 0);
       if (imports.length > 0) {
-        onImportOrderedItems(imports);
+        importOrderedItems(imports);
         setSelected(new Set());
         setExpandedId(null);
         setOverrides(new Map());
         setExcluded(new Set());
       }
-      onComplete?.();
+      if (!asNewOrders) onComplete?.();
       return;
     }
 
@@ -456,10 +467,14 @@ export function SortResultsImportMode({
   }
 
   const handleCloudImports = useCallback(
-    (imports: PreparedCloudImport[]) => {
+    (imports: PreparedCloudImport[], asNewOrders = false) => {
       if (imports.length === 0) return;
       if (onImportOrderedItems) {
-        onImportOrderedItems(
+        const importOrderedItems = asNewOrders
+          ? onImportOrderedItemsAsNewOrders
+          : onImportOrderedItems;
+        if (!importOrderedItems) return;
+        importOrderedItems(
           imports.map(({ source, slotName, items }) => ({
             source,
             slotName,
@@ -479,10 +494,18 @@ export function SortResultsImportMode({
           imports.map(({ items, asPreRanked }) => ({ items, asPreRanked })),
         );
       }
-      setCloudOpen(false);
-      onComplete?.();
+      if (!asNewOrders) {
+        setCloudOpen(false);
+        onComplete?.();
+      }
     },
-    [onImportOrderedItems, onAppendToStaged, onAddSlotImports, onComplete],
+    [
+      onImportOrderedItems,
+      onImportOrderedItemsAsNewOrders,
+      onAppendToStaged,
+      onAddSlotImports,
+      onComplete,
+    ],
   );
 
   const addLabel = (() => {
@@ -564,6 +587,11 @@ export function SortResultsImportMode({
           onDraftActivity={onDraftActivity}
           onBack={() => setCloudOpen(false)}
           onImport={handleCloudImports}
+          onImportAsNewOrders={
+            onImportOrderedItemsAsNewOrders
+              ? (imports) => handleCloudImports(imports, true)
+              : undefined
+          }
         />
       </div>
     );
@@ -658,7 +686,20 @@ export function SortResultsImportMode({
           type="button"
           className="btn primary"
           disabled={addableCount < 1}
-          onClick={handleAdd}
+          title={
+            onImportOrderedItemsAsNewOrders
+              ? NEW_ORDER_IMPORT_TOOLTIP
+              : undefined
+          }
+          onClick={() => handleAdd()}
+          onContextMenu={
+            onImportOrderedItemsAsNewOrders
+              ? (event) => {
+                  event.preventDefault();
+                  handleAdd(true);
+                }
+              : undefined
+          }
         >
           {addLabel}
         </button>
@@ -695,6 +736,7 @@ function CloudResultsPicker({
   onDraftActivity,
   onBack,
   onImport,
+  onImportAsNewOrders,
 }: {
   excludeSlotId?: string;
   existingIds?: Set<string>;
@@ -704,6 +746,7 @@ function CloudResultsPicker({
   onDraftActivity?: () => void;
   onBack: () => void;
   onImport: (imports: PreparedCloudImport[]) => void;
+  onImportAsNewOrders?: (imports: PreparedCloudImport[]) => void;
 }) {
   const [rows, setRows] = useState<CloudPickerRow[] | null>(null);
   const [listError, setListError] = useState<string | null>(null);
@@ -986,31 +1029,37 @@ function CloudResultsPicker({
     [editTarget, onDraftActivity],
   );
 
+  const buildPreparedImports = useCallback(
+    (): PreparedCloudImport[] =>
+      selectedEntries
+        .map((entry): PreparedCloudImport | null => {
+          const items = effectiveItemsForEntry(entry);
+          if (items.length === 0) return null;
+          const cloudId = entry.meta.id.slice('cloud:'.length);
+          const row = rows?.find(
+            (candidate) => candidate.meta.cloudId === cloudId,
+          );
+          return {
+            source: `Cloud sort: ${row?.meta.displayName ?? entry.meta.name}`,
+            slotName: row?.meta.displayName ?? entry.meta.name,
+            items,
+            asPreRanked:
+              showPreRankedToggle && (asPreRanked[entry.meta.id] ?? true),
+          };
+        })
+        .filter((entry): entry is PreparedCloudImport => entry !== null),
+    [
+      selectedEntries,
+      effectiveItemsForEntry,
+      rows,
+      showPreRankedToggle,
+      asPreRanked,
+    ],
+  );
+
   const submit = useCallback(() => {
-    const imports = selectedEntries
-      .map((entry): PreparedCloudImport | null => {
-        const items = effectiveItemsForEntry(entry);
-        if (items.length === 0) return null;
-        const cloudId = entry.meta.id.slice('cloud:'.length);
-        const row = rows?.find((candidate) => candidate.meta.cloudId === cloudId);
-        return {
-          source: `Cloud sort: ${row?.meta.displayName ?? entry.meta.name}`,
-          slotName: row?.meta.displayName ?? entry.meta.name,
-          items,
-          asPreRanked:
-            showPreRankedToggle && (asPreRanked[entry.meta.id] ?? true),
-        };
-      })
-      .filter((entry): entry is PreparedCloudImport => entry !== null);
-    onImport(imports);
-  }, [
-    selectedEntries,
-    effectiveItemsForEntry,
-    rows,
-    showPreRankedToggle,
-    asPreRanked,
-    onImport,
-  ]);
+    onImport(buildPreparedImports());
+  }, [buildPreparedImports, onImport]);
 
   const editStubItem: Item | null = editTarget
     ? {
@@ -1132,7 +1181,23 @@ function CloudResultsPicker({
           type="button"
           className="btn primary"
           disabled={addableCount < 1}
+          title={onImportAsNewOrders ? NEW_ORDER_IMPORT_TOOLTIP : undefined}
           onClick={submit}
+          onContextMenu={
+            onImportAsNewOrders
+              ? (event) => {
+                  event.preventDefault();
+                  const imports = buildPreparedImports();
+                  if (imports.length > 0) {
+                    onImportAsNewOrders(imports);
+                    setSelected(new Set());
+                    setExpandedId(null);
+                    setOverrides(new Map());
+                    setExcluded(new Set());
+                  }
+                }
+              : undefined
+          }
         >
           Import from Drive ({addableCount})
         </button>

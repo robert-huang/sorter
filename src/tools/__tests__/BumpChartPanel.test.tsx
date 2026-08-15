@@ -197,11 +197,17 @@ async function importSingle(sideIndex: number, label: string): Promise<void> {
   });
 }
 
-function createCompletedSlot(name: string, itemPrefix: string): void {
-  const state = seedAsSorted([
-    { id: `${itemPrefix}-a`, label: `${name} A` },
-    { id: `${itemPrefix}-b`, label: `${name} B` },
-  ]);
+function createCompletedSlot(
+  name: string,
+  itemPrefix: string,
+  items?: Item[],
+): void {
+  const state = seedAsSorted(
+    items ?? [
+      { id: `${itemPrefix}-a`, label: `${name} A` },
+      { id: `${itemPrefix}-b`, label: `${name} B` },
+    ],
+  );
   const created = createSlot(
     {
       items: state.items,
@@ -218,6 +224,7 @@ function createCompletedSlot(name: string, itemPrefix: string): void {
 async function importCompletedSlot(
   sideIndex: number,
   slotName: string,
+  asNewOrder = false,
 ): Promise<void> {
   await act(async () => {
     button('Import ranked items', sideIndex).click();
@@ -238,7 +245,18 @@ async function importCompletedSlot(
     selector.click();
   });
   await act(async () => {
-    button('Import ranked items (2)').click();
+    const importButton = button('Import ranked items (2)');
+    if (asNewOrder) {
+      const contextMenu = new MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        button: 2,
+      });
+      expect(importButton.dispatchEvent(contextMenu)).toBe(false);
+      expect(contextMenu.defaultPrevented).toBe(true);
+    } else {
+      importButton.click();
+    }
     await Promise.resolve();
     await Promise.resolve();
   });
@@ -383,6 +401,98 @@ describe('BumpChartPanel staging flow', () => {
       '[aria-label="Rename Previous order"]',
     );
     expect(previousName?.textContent).toBe('Spring rankings');
+  });
+
+  it('right-click imports a sorter slot as a new trailing order without changing existing orders', async () => {
+    createCompletedSlot('Imported rankings', 'imported', [
+      {
+        id: 'AAAAAAAAAAAAAQ',
+        label: 'Imported rankings A',
+        source: { kind: 'anilist', externalId: 1 },
+        anilistLabelMode: 'custom',
+        anilistLabelSource: {
+          kind: 'media',
+          titleFields: {
+            id: 1,
+            title_romaji: 'Canonical imported title',
+            title_english: null,
+            title_native: null,
+          },
+          format: 'TV',
+        },
+      },
+      { id: 'BBBBBBBBBBBBBQ', label: 'Imported rankings B' },
+    ]);
+    await act(async () => {
+      root.render(
+        <BumpChartPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    await importSingle(0, 'Existing previous item');
+    await renameOrder('Previous order', 'Existing previous');
+    await importSingle(1, 'Existing current item');
+    await renameOrder('Current order', 'Existing current');
+
+    await importCompletedSlot(0, 'Imported rankings', true);
+    const clearedImportButton = button('Import ranked items (0)');
+    expect(clearedImportButton.disabled).toBe(true);
+    expect(clearedImportButton.title).toBe(
+      'Left-click to import into the selected order. Right-click to append as a new order, keep this dialog open, and clear the selection.',
+    );
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+    expect(dialog).not.toBeNull();
+    const importedCard = container.querySelectorAll<HTMLElement>(
+      '.bump-chart-import-card',
+    )[2];
+    expect(
+      importedCard?.querySelector<HTMLInputElement>(
+        '.bump-chart-preserve-labels input',
+      )?.checked,
+    ).toBe(true);
+    await act(async () => {
+      dialog!.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      );
+      await Promise.resolve();
+    });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+
+    const cards = Array.from(
+      container.querySelectorAll<HTMLElement>('.bump-chart-import-card'),
+    );
+    expect(cards).toHaveLength(3);
+    expect(
+      cards.map(
+        (card) =>
+          card.querySelector('.bump-chart-order-name-button')?.textContent,
+      ),
+    ).toEqual([
+      'Existing previous',
+      'Existing current',
+      'Imported rankings',
+    ]);
+    await act(async () => {
+      button('Generate chart').click();
+    });
+    const columnText = (columnIndex: number): string =>
+      Array.from(
+        container.querySelectorAll<HTMLElement>(
+          `[data-bump-column-cell="${columnIndex}"]`,
+        ),
+        (cell) => cell.textContent ?? '',
+      ).join(' ');
+    expect(columnText(0)).toContain('Existing previous item');
+    expect(columnText(0)).not.toContain('Existing current item');
+    expect(columnText(1)).toContain('Existing current item');
+    expect(columnText(1)).not.toContain('Imported rankings A');
+    expect(columnText(2)).toContain('Imported rankings A');
+    expect(columnText(2)).toContain('Imported rankings B');
   });
 
   it('edits order names in Bump staging and renders them in a chart header row', async () => {

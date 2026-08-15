@@ -186,6 +186,115 @@ describe('SortResultsImportMode cloud entry point', () => {
     container.remove();
   });
 
+  it('right-click sends a Drive slot through the new-order import path', async () => {
+    vi.spyOn(storage, 'isStatePersistenceAvailable').mockReturnValue(true);
+    const provider: CloudProvider = {
+      signIn: vi.fn(),
+      handleAuthRedirect: vi.fn(),
+      signOut: vi.fn(),
+      getAuthState: () => ({ status: 'signed-in', folderId: 'folder-1' }),
+      refreshTokenIfNeeded: vi.fn(),
+      pickFolder: vi.fn(),
+      clearFolder: vi.fn(),
+      subscribeAuthChange: vi.fn(() => () => undefined),
+      listCloudSlots: vi.fn().mockResolvedValue([
+        {
+          cloudId: 'cloud-ranked',
+          displayName: 'Drive rankings',
+          filename: 'drive-rankings.sorter',
+          sizeBytes: 100,
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          etag: 'etag-ranked',
+          done: true,
+        },
+      ]),
+      pullSlot: vi.fn().mockResolvedValue({
+        blob: completedBlob(),
+        etag: 'etag-ranked',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      }),
+      annotateSlotCompletion: vi.fn(),
+      pushSlot: vi.fn(),
+      removeCloudSlot: vi.fn(),
+    };
+    cloud._setCloudProviderForTesting(provider);
+    const onImportOrderedItems = vi.fn();
+    const onImportOrderedItemsAsNewOrders = vi.fn();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <SortResultsImportMode
+          embedded
+          onImportOrderedItems={onImportOrderedItems}
+          onImportOrderedItemsAsNewOrders={
+            onImportOrderedItemsAsNewOrders
+          }
+        />,
+      );
+    });
+
+    const click = async (label: string): Promise<void> => {
+      const target = Array.from(container.querySelectorAll('button')).find(
+        (candidate) => candidate.textContent?.trim() === label,
+      );
+      if (!target) throw new Error(`Missing button: ${label}`);
+      await act(async () => {
+        target.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    };
+    await click('Google Drive…');
+    await click('Load');
+
+    const importButton = Array.from(container.querySelectorAll('button')).find(
+      (candidate) =>
+        candidate.textContent?.trim() === 'Import from Drive (2)',
+    );
+    expect(importButton).toBeDefined();
+    const contextMenu = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      button: 2,
+    });
+    await act(async () => {
+      expect(importButton!.dispatchEvent(contextMenu)).toBe(false);
+      await Promise.resolve();
+    });
+
+    expect(contextMenu.defaultPrevented).toBe(true);
+    expect(container.textContent).toContain('Google Drive slots');
+    const clearedImportButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('button'),
+    ).find(
+      (candidate) =>
+        candidate.textContent?.trim() === 'Import from Drive (0)',
+    );
+    expect(clearedImportButton?.disabled).toBe(true);
+    expect(clearedImportButton?.title).toBe(
+      'Left-click to import into the selected order. Right-click to append as a new order, keep this dialog open, and clear the selection.',
+    );
+    expect(
+      container.querySelector<HTMLInputElement>(
+        '[aria-label="Select Drive rankings"]',
+      )?.checked,
+    ).toBe(false);
+    expect(onImportOrderedItems).not.toHaveBeenCalled();
+    expect(onImportOrderedItemsAsNewOrders).toHaveBeenCalledWith([
+      {
+        source: 'Cloud sort: Drive rankings',
+        slotName: 'Drive rankings',
+        items: [
+          { id: 'a', label: 'Alpha' },
+          { id: 'b', label: 'Beta' },
+        ],
+      },
+    ]);
+    act(() => root.unmount());
+    container.remove();
+  });
+
   it('uses and updates the shared persisted cloud-slot order', async () => {
     window.localStorage.setItem(
       storage.SETTINGS_KEY,

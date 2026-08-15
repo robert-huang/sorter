@@ -2817,6 +2817,69 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
     [markWorkspaceMutation],
   );
 
+  const appendImportsAsOrders = useCallback(
+    async (imports: OrderedSlotImport[]): Promise<void> => {
+      const stagingRevision = stagingRevisionRef.current;
+      setPendingImports((count) => count + 1);
+      setImportError(null);
+      try {
+        const hydratedImports = (
+          await Promise.all(
+            imports.map(async (entry) => ({
+              ...entry,
+              items: await hydrateBumpChartItems(
+                bumpItemsFromSortResults(entry.items),
+              ),
+            })),
+          )
+        ).filter((entry) => entry.items.length > 0);
+        if (
+          hydratedImports.length === 0 ||
+          stagingRevisionRef.current !== stagingRevision
+        ) {
+          return;
+        }
+        markWorkspaceMutation();
+        setColumns((current) =>
+          hydratedImports.reduce<BumpColumnDraft[]>((next, entry) => {
+            const currentColumn = next[next.length - 1]!;
+            const promotedColumn: BumpColumnDraft = {
+              ...currentColumn,
+              id: columnId(new Set(next.map(({ id }) => id))),
+              kind: 'previous',
+            };
+            return [
+              ...next.slice(0, -1),
+              promotedColumn,
+              {
+                id: 'current',
+                kind: 'current',
+                name: entry.slotName,
+                draft: {
+                  groups: [
+                    {
+                      id: stageId(),
+                      source: entry.source,
+                      items: entry.items,
+                    },
+                  ],
+                  preserveCustomLabels: true,
+                },
+              },
+            ];
+          }, current),
+        );
+      } catch (error) {
+        setImportError(
+          error instanceof Error ? error.message : 'Item import failed.',
+        );
+      } finally {
+        setPendingImports((count) => Math.max(0, count - 1));
+      }
+    },
+    [markWorkspaceMutation],
+  );
+
   const closeImporter = (): void => setImportColumnId(null);
 
   const importCallbacks =
@@ -2859,6 +2922,9 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
               }
             })();
             closeImporter();
+          },
+          onImportOrderedItemsAsNewOrders: (imports: OrderedSlotImport[]) => {
+            void appendImportsAsOrders(imports);
           },
         };
 

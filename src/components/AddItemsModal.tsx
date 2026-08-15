@@ -113,6 +113,8 @@ interface Props {
   onAddSlotImports?: (batches: SlotResultsImportBatch[]) => void;
   /** Consumers that need each completed slot's display title and ordering. */
   onImportOrderedItems?: (imports: OrderedSlotImport[]) => void;
+  /** Bump Chart shortcut: import each selected slot as a new trailing order. */
+  onImportOrderedItemsAsNewOrders?: (imports: OrderedSlotImport[]) => void;
 }
 
 export function AddItemsModal({
@@ -130,6 +132,7 @@ export function AddItemsModal({
   onAddPreRanked,
   onAddSlotImports,
   onImportOrderedItems,
+  onImportOrderedItemsAsNewOrders,
 }: Props) {
   const [tab, setTab] = useState<AddItemsModalTab>(
     () => initialTab ?? readLastAddItemsTab(),
@@ -241,6 +244,9 @@ export function AddItemsModal({
             hiddenRestoreIds={hiddenRestoreIds}
             showPreRankedToggle={!forcePreRanked}
             onImportOrderedItems={onImportOrderedItems}
+            onImportOrderedItemsAsNewOrders={
+              onImportOrderedItemsAsNewOrders
+            }
             onComplete={onCancel}
           />
         ) : (
