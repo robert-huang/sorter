@@ -8,10 +8,12 @@ import {
 import type { SourceDbSyncControls } from '../hooks/useSourceDbSync';
 import type { AnimeToAnimeTheme } from '../animeToAnime/theme';
 import { ToolsSettingsMenu } from './ToolsSettingsMenu';
+import type { ToolId } from './toolTypes';
 
 interface Props {
   theme: AnimeToAnimeTheme;
   onToggleTheme: () => void;
+  activeTool: ToolId;
   historyBackGuard: boolean;
   onToggleHistoryBackGuard: () => void;
   dbSync: SourceDbSyncControls;
@@ -21,6 +23,7 @@ interface Props {
 export function ToolsHeader({
   theme,
   onToggleTheme,
+  activeTool,
   historyBackGuard,
   onToggleHistoryBackGuard,
   dbSync,
@@ -57,6 +60,7 @@ export function ToolsHeader({
           {themeBtnGlyph}
         </button>
         <ToolsSettingsMenu
+          activeTool={activeTool}
           historyBackGuard={historyBackGuard}
           onToggleHistoryBackGuard={onToggleHistoryBackGuard}
           dbSync={dbSync}

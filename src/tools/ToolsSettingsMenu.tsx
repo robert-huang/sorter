@@ -9,6 +9,7 @@ import { SpotifySection } from '../components/SpotifySection';
 import { StorageDiagnosticsSection } from '../components/StorageDiagnosticsSection';
 import type { SourceDbSyncControls } from '../hooks/useSourceDbSync';
 import { useToolsPreferences } from '../hooks/useToolsPreferences';
+import type { ToolId } from './toolTypes';
 
 type SettingsTab = 'settings' | 'database';
 
@@ -35,12 +36,14 @@ function persistTab(tab: SettingsTab): void {
 }
 
 interface Props {
+  activeTool: ToolId;
   historyBackGuard: boolean;
   onToggleHistoryBackGuard: () => void;
   dbSync: SourceDbSyncControls;
 }
 
 export function ToolsSettingsMenu({
+  activeTool,
   historyBackGuard,
   onToggleHistoryBackGuard,
   dbSync,
@@ -121,108 +124,128 @@ export function ToolsSettingsMenu({
             {tab === 'settings' && (
               <div className="settings-tab-scroll">
                 <AnilistDisplayPreferencesPanel standalone />
-                <div className="settings-divider" />
-                <p className="edit-item-advanced-title">Seasonal Scores</p>
-                <label
-                  className="settings-item checkbox"
-                  title="Show total watch counts such as ×2 and count every watch in both the score total and rated-count denominator."
+                <div
+                  className={`tools-settings-section${activeTool === 'seasonal-scores' ? ' active' : ''}`}
+                  data-tool-settings-section="seasonal-scores"
                 >
-                  <input
-                    type="checkbox"
-                    checked={toolsPrefs.seasonalScoresShowRepeats}
-                    onChange={(e) =>
-                      setSeasonalScoresShowRepeats(e.target.checked)
+                  <div className="settings-divider" />
+                  <p className="edit-item-advanced-title">Seasonal Scores</p>
+                  <label
+                    className="settings-item checkbox"
+                    title="Show repeated watch counts as ×n and count the entry n times for average ratings."
+                  >
+                    <input
+                      type="checkbox"
+                      checked={toolsPrefs.seasonalScoresShowRepeats}
+                      onChange={(e) =>
+                        setSeasonalScoresShowRepeats(e.target.checked)
+                      }
+                    />
+                    Show repeats
+                  </label>
+                  <label
+                    className="settings-item checkbox"
+                    title="Place shows in every season column their broadcast dates overlap (ongoing shows extend through today)."
+                  >
+                    <input
+                      type="checkbox"
+                      checked={toolsPrefs.seasonalScoresSpanAiringSeasons}
+                      onChange={(e) =>
+                        setSeasonalScoresSpanAiringSeasons(e.target.checked)
+                      }
+                    />
+                    Span airing seasons
+                  </label>
+                </div>
+                <div
+                  className={`tools-settings-section${activeTool === 'weekly-calendar' ? ' active' : ''}`}
+                  data-tool-settings-section="weekly-calendar"
+                >
+                  <div className="settings-divider" />
+                  <p className="edit-item-advanced-title">Weekly Calendar</p>
+                  <label
+                    className="settings-item checkbox"
+                    title="Show entries whose airing weekday cannot be determined in an extra Unknown column."
+                  >
+                    <input
+                      type="checkbox"
+                      checked={toolsPrefs.weeklyCalendarShowUnscheduledColumn}
+                      onChange={(e) =>
+                        setWeeklyCalendarShowUnscheduledColumn(e.target.checked)
+                      }
+                    />
+                    Unknown Airing Day column
+                  </label>
+                </div>
+                <div
+                  className={`tools-settings-section${activeTool === 'shared-staff' ? ' active' : ''}`}
+                  data-tool-settings-section="shared-staff"
+                >
+                  <div className="settings-divider" />
+                  <p className="edit-item-advanced-title">Shared Staff</p>
+                  <label
+                    className="settings-item checkbox"
+                    title="When off, the Shared Staff compare chart hides non-core production credits (e.g. Storyboard, Production Assistant) and only lists key roles like Director, Music, and Script."
+                  >
+                    <input
+                      type="checkbox"
+                      checked={toolsPrefs.productionAllRoles}
+                      onChange={(e) => setProductionAllRoles(e.target.checked)}
+                    />
+                    Show all production roles
+                  </label>
+                </div>
+                <div
+                  className={`tools-settings-section${activeTool === 'bump-chart' ? ' active' : ''}`}
+                  data-tool-settings-section="bump-chart"
+                >
+                  <div className="settings-divider" />
+                  <p className="edit-item-advanced-title">Bump Chart</p>
+                  <label
+                    className="settings-item checkbox"
+                    title="Exact logical IDs always match first.&#10;&#10;When enabled, remaining rows match only when an exact stored label (including a custom label) or AniList title-language variant identifies one unique pair.&#10;&#10;Ambiguous titles and conflicting AniList IDs stay disconnected.&#10;&#10;The info icon marks inferred lines."
+                  >
+                    <input
+                      type="checkbox"
+                      checked={toolsPrefs.bumpChartBestMatchByTitle}
+                      onChange={(e) =>
+                        setBumpChartBestMatchByTitle(e.target.checked)
+                      }
+                    />
+                    Best match by title
+                  </label>
+                  <label
+                    className="settings-item checkbox"
+                    title="When enabled, available item images are included in Bump Chart PNG exports."
+                  >
+                    <input
+                      type="checkbox"
+                      checked={toolsPrefs.bumpChartIncludeExportImages}
+                      onChange={(e) =>
+                        setBumpChartIncludeExportImages(e.target.checked)
+                      }
+                    />
+                    Include images in PNG exports
+                  </label>
+                  <label
+                    className="settings-item checkbox"
+                    title={
+                      toolsPrefs.bumpChartIncludeExportImages
+                        ? 'When enabled, PNG exports try to replace unavailable AniList covers with verified MyAnimeList images. Live chart images are unchanged.'
+                        : 'Turn on Include images in PNG exports to use MyAnimeList fallback images.'
                     }
-                  />
-                  Show repeats
-                </label>
-                <label
-                  className="settings-item checkbox"
-                  title="Place shows in every season column their broadcast dates overlap (ongoing shows extend through today)."
-                >
-                  <input
-                    type="checkbox"
-                    checked={toolsPrefs.seasonalScoresSpanAiringSeasons}
-                    onChange={(e) =>
-                      setSeasonalScoresSpanAiringSeasons(e.target.checked)
-                    }
-                  />
-                  Span airing seasons
-                </label>
-                <div className="settings-divider" />
-                <p className="edit-item-advanced-title">Weekly Calendar</p>
-                <label
-                  className="settings-item checkbox"
-                  title="Show entries whose airing weekday cannot be determined in an extra Unknown column."
-                >
-                  <input
-                    type="checkbox"
-                    checked={toolsPrefs.weeklyCalendarShowUnscheduledColumn}
-                    onChange={(e) =>
-                      setWeeklyCalendarShowUnscheduledColumn(e.target.checked)
-                    }
-                  />
-                  Unknown Airing Day column
-                </label>
-                <div className="settings-divider" />
-                <p className="edit-item-advanced-title">Shared Staff</p>
-                <label
-                  className="settings-item checkbox"
-                  title="When off, the Shared Staff compare chart hides non-core production credits (e.g. Storyboard, Production Assistant) and only lists key roles like Director, Music, and Script."
-                >
-                  <input
-                    type="checkbox"
-                    checked={toolsPrefs.productionAllRoles}
-                    onChange={(e) => setProductionAllRoles(e.target.checked)}
-                  />
-                  Show all production roles
-                </label>
-                <div className="settings-divider" />
-                <p className="edit-item-advanced-title">Bump Chart</p>
-                <label
-                  className="settings-item checkbox"
-                  title="Exact logical IDs always match first.&#10;&#10;When enabled, remaining rows match only when an exact stored label (including a custom label) or AniList title-language variant identifies one unique pair.&#10;&#10;Ambiguous titles and conflicting AniList IDs stay disconnected.&#10;&#10;The info icon marks inferred lines."
-                >
-                  <input
-                    type="checkbox"
-                    checked={toolsPrefs.bumpChartBestMatchByTitle}
-                    onChange={(e) =>
-                      setBumpChartBestMatchByTitle(e.target.checked)
-                    }
-                  />
-                  Best match by title
-                </label>
-                <label
-                  className="settings-item checkbox"
-                  title="When enabled, available item images are included in Bump Chart PNG exports."
-                >
-                  <input
-                    type="checkbox"
-                    checked={toolsPrefs.bumpChartIncludeExportImages}
-                    onChange={(e) =>
-                      setBumpChartIncludeExportImages(e.target.checked)
-                    }
-                  />
-                  Include images in PNG exports
-                </label>
-                <label
-                  className="settings-item checkbox"
-                  title={
-                    toolsPrefs.bumpChartIncludeExportImages
-                      ? 'When enabled, PNG exports try to replace unavailable AniList covers with verified MyAnimeList images. Live chart images are unchanged.'
-                      : 'Turn on Include images in PNG exports to use MyAnimeList fallback images.'
-                  }
-                >
-                  <input
-                    type="checkbox"
-                    checked={toolsPrefs.bumpChartMalExportImages}
-                    disabled={!toolsPrefs.bumpChartIncludeExportImages}
-                    onChange={(e) =>
-                      setBumpChartMalExportImages(e.target.checked)
-                    }
-                  />
-                  Use MyAnimeList images in PNG exports
-                </label>
+                  >
+                    <input
+                      type="checkbox"
+                      checked={toolsPrefs.bumpChartMalExportImages}
+                      disabled={!toolsPrefs.bumpChartIncludeExportImages}
+                      onChange={(e) =>
+                        setBumpChartMalExportImages(e.target.checked)
+                      }
+                    />
+                    Use MyAnimeList images in PNG exports
+                  </label>
+                </div>
               </div>
             )}
 

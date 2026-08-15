@@ -212,6 +212,7 @@ export function ToolsApp() {
       <ToolsHeader
         theme={theme}
         onToggleTheme={onToggleTheme}
+        activeTool={activeTool}
         historyBackGuard={historyBackGuard}
         onToggleHistoryBackGuard={onToggleHistoryBackGuard}
         dbSync={dbSync}

@@ -672,6 +672,15 @@ html {
   overflow-x: hidden;
 }
 
+.tools-settings-section {
+  opacity: 0.4;
+  transition: opacity 140ms ease;
+}
+
+.tools-settings-section.active {
+  opacity: 1;
+}
+
 /* Pinned action region beneath the scrollable slot list. Hugs its
    content so the scrollbar above stops exactly at the divider. */
 .settings-tab-actions {

@@ -51,6 +51,7 @@ describe('ToolsSettingsMenu', () => {
     await act(async () => {
       root.render(
         <ToolsSettingsMenu
+          activeTool="bump-chart"
           historyBackGuard={false}
           onToggleHistoryBackGuard={vi.fn()}
           dbSync={DB_SYNC}
@@ -78,6 +79,14 @@ describe('ToolsSettingsMenu', () => {
       'Shared Staff',
       'Bump Chart',
     ]);
+    const settingsSections = Array.from(
+      container.querySelectorAll<HTMLElement>('[data-tool-settings-section]'),
+    );
+    expect(
+      settingsSections
+        .filter((section) => section.classList.contains('active'))
+        .map((section) => section.dataset.toolSettingsSection),
+    ).toEqual(['bump-chart']);
 
     const findCheckbox = (label: string): HTMLInputElement | undefined =>
       Array.from(
@@ -170,5 +179,37 @@ describe('ToolsSettingsMenu', () => {
       databaseTab?.click();
     });
     expect(container.textContent).toContain('Advanced storage diagnostics');
+  });
+
+  it('fades every tool-specific section on tabs without their own settings', async () => {
+    await act(async () => {
+      root.render(
+        <ToolsSettingsMenu
+          activeTool="shared-credits"
+          historyBackGuard={false}
+          onToggleHistoryBackGuard={vi.fn()}
+          dbSync={DB_SYNC}
+        />,
+      );
+    });
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Settings"]')
+        ?.click();
+    });
+
+    const settingsSections = Array.from(
+      container.querySelectorAll<HTMLElement>('[data-tool-settings-section]'),
+    );
+    expect(settingsSections).toHaveLength(4);
+    expect(settingsSections.every((section) => !section.classList.contains('active'))).toBe(
+      true,
+    );
+    expect(
+      container
+        .querySelector('.settings-anilist-display-prefs')
+        ?.closest('.tools-settings-section'),
+    ).toBeNull();
+    expect(container.querySelector('.settings-footer')?.closest('.tools-settings-section')).toBeNull();
   });
 });
