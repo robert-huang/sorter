@@ -362,6 +362,83 @@ describe('matchThemeRowToPlaylist', () => {
     });
   });
 
+  it('matches Servant x Service singer versions to their numbered endings', () => {
+    const localTracks = [
+      {
+        uri: null,
+        title: 'ハチミツ時間 (三好紗耶ver)',
+        artists: ['三好紗耶 (CV:中原麻衣)'],
+        album: 'サーバント×サービス オリジナルサウンドトラック',
+        durationMs: null,
+        playlistPosition: 4008,
+      },
+      {
+        uri: null,
+        title: 'ハチミツ時間 (千早恵ver)',
+        artists: ['千早恵 (CV:豊崎愛生)'],
+        album: 'サーバント×サービス オリジナルサウンドトラック',
+        durationMs: null,
+        playlistPosition: 4009,
+      },
+      {
+        uri: null,
+        title: 'ハチミツ時間 (ルーシーver)',
+        artists: ['山神ルーシー(略) (CV:茅野愛衣)'],
+        album: 'サーバント×サービス オリジナルサウンドトラック',
+        durationMs: null,
+        playlistPosition: 4010,
+      },
+    ];
+    const rows = [
+      makeRow({
+        type: 'Ending',
+        sortOrder: 1,
+        displayTitle: 'Hachimitsu Doki (ハチミツ時間)',
+        displayArtist: 'Saya Miyoshi (CV: Mai Nakahara)',
+        malArtist: 'Saya Miyoshi (CV: Mai Nakahara)',
+        aniTitles: ['Hachimitsudoki', 'ハチミツ時間'],
+        aniArtists: [
+          'Saya Miyoshi (CV: Mai Nakahara)',
+          '三好紗耶 (CV: 中原麻衣)',
+        ],
+      }),
+      makeRow({
+        type: 'Ending',
+        sortOrder: 2,
+        displayTitle: 'Hachimitsu Doki (ハチミツ時間)',
+        // MAL/Tenrai currently repeats Saya's credit for ED3.
+        displayArtist: 'Saya Miyoshi (CV: Mai Nakahara)',
+        malArtist: 'Saya Miyoshi (CV: Mai Nakahara)',
+        aniTitles: ['Hachimitsudoki', 'ハチミツ時間'],
+        aniArtists: [
+          'Megumi Chihaya (CV: Aki Toyosaki)',
+          '千早恵 (CV: 豊崎愛生)',
+        ],
+      }),
+      makeRow({
+        type: 'Ending',
+        sortOrder: 0,
+        displayTitle: 'Hachimitsu Doki (ハチミツ時間)',
+        displayArtist: 'Lucy Yamagami (CV: Ai Kayano)',
+        malArtist: 'Lucy Yamagami (CV: Ai Kayano)',
+        aniTitles: ['Hachimitsudoki', 'ハチミツ時間'],
+        aniArtists: [
+          'Lucy Yamagami (CV: Ai Kayano)',
+          '山神ルーシー (CV: 茅野愛衣)',
+        ],
+      }),
+    ];
+    const cache = cacheWithLocalTracks(localTracks);
+
+    expect(
+      rows.map(
+        (row) =>
+          matchThemeRowToPlaylistDetails(row, cache, LOCAL_FIRST).metadataMatch?.track
+            .playlistPosition,
+      ),
+    ).toEqual([4008, 4009, 4010]);
+  });
+
   it('uses borrowed AniPlaylist aliases to match a malformed MAL title to a local file', () => {
     const localTrack = {
       uri: 'spotify:local:Tao+Tsuchiya:Soundtrack:Youve+Got+Friends:289',

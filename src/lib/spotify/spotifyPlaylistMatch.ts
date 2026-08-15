@@ -68,6 +68,9 @@ const METADATA_TITLE_ONLY_THRESHOLD = 0.94;
 const METADATA_MATCH_MARGIN = 0.04;
 const DISTINCTIVE_EXACT_TITLE_MIN_LENGTH = 8;
 const MAX_RESULT_CACHE_ENTRIES = 10_000;
+const TRAILING_VERSION_CREDIT = /\s*[\(（]([^()（）]+)[\)）]\s*$/u;
+const VERSION_CREDIT_SUFFIX =
+  /(?:^|[\s\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\u30fc])(?:ver(?:sion)?\.?|バージョン)$/iu;
 const ARTIST_CREDIT_PREFIX = /^c\s*[.]?\s*v\s*[.:]?\s*/iu;
 const ARTIST_SEPARATOR =
   /\s*(?:,|、|&|;|\/|\+|×|\b(?:and|with)\b|\bfeat(?:uring)?\.?)\s*/iu;
@@ -115,8 +118,17 @@ function normalizeMatchText(value: string): string {
     .replace(/\s+/g, ' ');
 }
 
+function stripTrailingVersionCredit(value: string): string {
+  const match = TRAILING_VERSION_CREDIT.exec(value);
+  const credit = match?.[1]?.normalize('NFKC').trim();
+  if (!match || !credit || !VERSION_CREDIT_SUFFIX.test(credit)) {
+    return value;
+  }
+  return value.slice(0, match.index).trim();
+}
+
 export function normalizePlaylistTitleForMatch(value: string): string {
-  return normalizeMatchText(value)
+  return normalizeMatchText(stripTrailingVersionCredit(value))
     .replace(
       /\b(?:tv|anime|short|full|op|ed|opening|ending)\s*(?:size|version|ver|edit)\b/gu,
       ' ',
@@ -327,10 +339,15 @@ function rowTitleCandidates(row: MediaThemeSongRow): string[] {
 }
 
 function rowArtistCandidates(row: MediaThemeSongRow): string[] {
+  const aniplaylistArtists = collectPlaylistArtistMatchCandidates(row.aniArtists ?? []);
+  if (aniplaylistArtists.length > 0) {
+    // The paired AniPlaylist hit identifies the specific recording when MAL
+    // repeats or miscredits performers across numbered theme variants.
+    return aniplaylistArtists;
+  }
   return collectPlaylistArtistMatchCandidates([
     row.displayArtist,
     row.malArtist,
-    ...(row.aniArtists ?? []),
   ]);
 }
 
