@@ -408,6 +408,96 @@ function mergeSharedAliases(
   return aliases.length > 0 ? aliases : undefined;
 }
 
+function rowsShareSpotifyIdentity(
+  a: MediaThemeSongRow,
+  b: MediaThemeSongRow,
+): boolean {
+  const trackIds = new Set(a.spotifyTrackIds);
+  if (b.spotifyTrackIds.some((trackId) => trackIds.has(trackId))) {
+    return true;
+  }
+  return Boolean(a.spotifyIsrc && b.spotifyIsrc && a.spotifyIsrc === b.spotifyIsrc);
+}
+
+function isMalOnlyRow(row: MediaThemeSongRow): boolean {
+  return Boolean(row.malRaw) && !row.songKey;
+}
+
+function isAniplaylistOnlyRow(row: MediaThemeSongRow): boolean {
+  return !row.malRaw && Boolean(row.songKey);
+}
+
+function mergeBorrowedSourceRows(
+  malRow: MediaThemeSongRow,
+  aniplaylistRow: MediaThemeSongRow,
+): MediaThemeSongRow {
+  const spotifyTrackIds = [
+    ...new Set([...malRow.spotifyTrackIds, ...aniplaylistRow.spotifyTrackIds]),
+  ];
+  const spotifyUrl = malRow.spotifyUrl ?? aniplaylistRow.spotifyUrl;
+  return {
+    ...aniplaylistRow,
+    ...malRow,
+    songKey: aniplaylistRow.songKey,
+    aniTitles: mergeSharedAliases(malRow.aniTitles, aniplaylistRow.aniTitles),
+    aniArtists: mergeSharedAliases(malRow.aniArtists, aniplaylistRow.aniArtists),
+    aniplaylistUrl: malRow.aniplaylistUrl ?? aniplaylistRow.aniplaylistUrl,
+    spotifyUrl,
+    spotifyAvailableMarkets: mergeSharedAliases(
+      malRow.spotifyAvailableMarkets,
+      aniplaylistRow.spotifyAvailableMarkets,
+    ),
+    spotifyTrackIds,
+    spotifyIsrc: malRow.spotifyIsrc ?? aniplaylistRow.spotifyIsrc,
+    hasResolvableTrackId:
+      mergeSpotifyTrackIdSources(spotifyTrackIds, spotifyUrl).length > 0,
+  };
+}
+
+/**
+ * Alias borrowing can prove that independently emitted MAL and AniPlaylist rows
+ * describe the same role and recording. Coalesce only that complementary source
+ * pair; the same recording remains separate when used as an OP, ED, or insert.
+ */
+function coalesceBorrowedSourceRows(rows: MediaThemeSongRow[]): MediaThemeSongRow[] {
+  const pairedAniplaylistIndexes = new Set<number>();
+  const replacementByIndex = new Map<number, MediaThemeSongRow>();
+  const removedIndexes = new Set<number>();
+
+  rows.forEach((malRow, malIndex) => {
+    if (!isMalOnlyRow(malRow)) {
+      return;
+    }
+    const aniplaylistIndex = rows.findIndex(
+      (candidate, candidateIndex) =>
+        !pairedAniplaylistIndexes.has(candidateIndex) &&
+        isAniplaylistOnlyRow(candidate) &&
+        candidate.type === malRow.type &&
+        rowsShareSongIdentity(malRow, candidate) &&
+        rowsShareSpotifyIdentity(malRow, candidate),
+    );
+    if (aniplaylistIndex < 0) {
+      return;
+    }
+
+    pairedAniplaylistIndexes.add(aniplaylistIndex);
+    const replacementIndex = Math.min(malIndex, aniplaylistIndex);
+    replacementByIndex.set(
+      replacementIndex,
+      mergeBorrowedSourceRows(malRow, rows[aniplaylistIndex]!),
+    );
+    removedIndexes.add(Math.max(malIndex, aniplaylistIndex));
+  });
+
+  return rows.flatMap((row, index) => {
+    const replacement = replacementByIndex.get(index);
+    if (replacement) {
+      return [replacement];
+    }
+    return removedIndexes.has(index) ? [] : [row];
+  });
+}
+
 /**
  * Rows that missed AniPlaylist pairing (e.g. MAL ED ep-1 OP pollution) still share
  * the same recording metadata when title+artist identify the same song.
@@ -419,7 +509,7 @@ export function borrowSharedSpotifyMetadata(rows: MediaThemeSongRow[]): MediaThe
   if (donors.length === 0) {
     return rows;
   }
-  return rows.map((row) => {
+  const borrowedRows = rows.map((row) => {
     const needsSpotifyMetadata = row.spotifyTrackIds.length === 0;
     const needsAniTitles = (row.aniTitles?.length ?? 0) === 0;
     const needsAniArtists = (row.aniArtists?.length ?? 0) === 0;
@@ -463,6 +553,7 @@ export function borrowSharedSpotifyMetadata(rows: MediaThemeSongRow[]): MediaThe
         : row.hasResolvableTrackId,
     };
   });
+  return coalesceBorrowedSourceRows(borrowedRows);
 }
 
 export function sortThemeRows(rows: readonly MediaThemeSongRow[]): MediaThemeSongRow[] {

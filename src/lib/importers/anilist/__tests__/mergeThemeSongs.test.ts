@@ -87,6 +87,110 @@ describe('mergeThemeSongs', () => {
     expect(rows[0]?.hasResolvableTrackId).toBe(true);
   });
 
+  it('coalesces the borrowed Ponpoko MAL and AniPlaylist ending rows', () => {
+    const mal = parseMalThemes(
+      [],
+      [
+        '"Itsu demo Dare ka ga (いつでも誰かが; Always, someone is...)" by Shang Shang Typhoon',
+      ],
+    );
+    const aniHit: AniplaylistHit = {
+      id: 15698,
+      anime_id: 2460,
+      score: 50,
+      titles: ['Itsu demo Dareka ga', 'いつでも誰かが'],
+      song_key: 'ED',
+      song_type: 'Ending',
+      artists: [{ names: ['Shang Shang Typhoon', '上々颱風', 'SST'] }],
+      links: [
+        {
+          platform: 'spotify',
+          main: true,
+          link: 'https://open.spotify.com/track/3naMRyLXw84R6USrfjgc7E',
+        },
+      ],
+    };
+
+    const rows = mergeThemeSongs(mal, [aniHit]);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      type: 'Ending',
+      songKey: 'ED',
+      malTitle: 'Itsu demo Dare ka ga (いつでも誰かが; Always, someone is...)',
+      spotifyTrackIds: ['3naMRyLXw84R6USrfjgc7E'],
+    });
+  });
+
+  it('coalesces the borrowed HELLO WORLD MAL and AniPlaylist opening rows', () => {
+    const mal = parseMalThemes(
+      [
+        '"Opening Theme feat. AAAMYYY (オープニングテーマ feat.AAAMYYY)" by Okamoto Sho, Okamoto Kouki featuring AAAMYYY',
+      ],
+      [],
+    );
+    const aniHit: AniplaylistHit = {
+      id: 27061,
+      anime_id: 1602,
+      score: 50,
+      titles: ['Opening Theme', 'オープニングテーマ'],
+      song_key: 'OP',
+      song_type: 'Opening',
+      artists: [
+        { names: ['SHO OKAMOTO', 'オカモトショウ'] },
+        { names: ['Koki Okamoto', 'オカモトコウキ'] },
+        { names: ['AAAMYYY'] },
+      ],
+      links: [
+        {
+          platform: 'spotify',
+          main: true,
+          link: 'https://open.spotify.com/track/4ESMHUDSoX6G5FQKzqJSEr',
+        },
+      ],
+    };
+
+    const rows = mergeThemeSongs(mal, [aniHit]);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      type: 'Opening',
+      songKey: 'OP',
+      malTitle: 'Opening Theme feat. AAAMYYY (オープニングテーマ feat.AAAMYYY)',
+      spotifyTrackIds: ['4ESMHUDSoX6G5FQKzqJSEr'],
+    });
+  });
+
+  it('keeps one borrowed recording separate across opening, ending, and insert roles', () => {
+    const mal = parseMalThemes(
+      ['"Shared Song" by Shared Artist'],
+      ['"Shared Song" by Shared Artist'],
+    );
+    const aniHit: AniplaylistHit = {
+      id: 30,
+      anime_id: 300,
+      score: 50,
+      titles: ['Shared Song'],
+      song_key: 'IN',
+      song_type: 'Insert',
+      artists: [{ names: ['Shared Artist'] }],
+      links: [
+        {
+          platform: 'spotify',
+          main: true,
+          link: 'https://open.spotify.com/track/4uU8sWDoApg5yFEdwrrxUd',
+        },
+      ],
+    };
+
+    const rows = mergeThemeSongs(mal, [aniHit]);
+
+    expect(rows.map((row) => row.type)).toEqual(['Opening', 'Ending', 'Insert']);
+    expect(rows.every((row) => row.spotifyTrackIds.includes('4uU8sWDoApg5yFEdwrrxUd'))).toBe(
+      true,
+    );
+  });
+
   it('merges the Aiura opening despite width and symbol-spacing differences', () => {
     const mal = parseMalThemes(
       ['"Kani☆Do-Luck! (カニ☆Do-Luck！)" by Aiu♥rabu (あいう♥らぶ)'],
