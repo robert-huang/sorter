@@ -10,8 +10,10 @@ import {
   groupHitsByAnimeId,
   isAniplaylistThemeType,
   isAniplaylistRemoteProxyUrl,
+  parseRetryAfterMs,
   resolveAniplaylistSearchUrl,
   scoreMediaToAnimeTitle,
+  searchAniplaylist,
   searchAniplaylistForMediaTitles,
   searchAniplaylistQueriesUntilHits,
   type AniplaylistHit,
@@ -360,6 +362,75 @@ describe('searchAniplaylistQueriesUntilHits', () => {
 
     expect(search).toHaveBeenCalledTimes(1);
     expect(search.mock.calls[0]?.[0]).toBe('Example Show Season 1');
+  });
+});
+
+describe('searchAniplaylist rate limiting', () => {
+  it('waits for Retry-After and retries the same search automatically', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 429,
+          headers: { 'Retry-After': '2' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response('{"results":[{"hits":[]}]}', {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+
+    try {
+      const resultPromise = searchAniplaylist('Example Show');
+      await vi.advanceTimersByTimeAsync(1_999);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+
+      await expect(resultPromise).resolves.toEqual([]);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock.mock.calls[1]?.[1]?.body).toBe(
+        fetchMock.mock.calls[0]?.[1]?.body,
+      );
+    } finally {
+      vi.useRealTimers();
+      fetchMock.mockRestore();
+    }
+  });
+
+  it('parses Retry-After seconds and HTTP dates', () => {
+    expect(parseRetryAfterMs('2', 1_000)).toBe(2_000);
+    expect(
+      parseRetryAfterMs('Thu, 01 Jan 1970 00:00:05 GMT', 1_000),
+    ).toBe(4_000);
+    expect(parseRetryAfterMs('invalid', 1_000)).toBeNull();
+  });
+
+  it('stops after the bounded number of automatic retries', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(null, {
+        status: 429,
+        headers: { 'Retry-After': '0.001' },
+      }),
+    );
+
+    try {
+      const resultPromise = searchAniplaylist('Example Show');
+      const rejection = expect(resultPromise).rejects.toMatchObject({
+        httpStatus: 429,
+        retryAfterMs: 1,
+      });
+      await vi.runAllTimersAsync();
+
+      await rejection;
+      expect(fetchMock).toHaveBeenCalledTimes(5);
+    } finally {
+      vi.useRealTimers();
+      fetchMock.mockRestore();
+    }
   });
 });
 

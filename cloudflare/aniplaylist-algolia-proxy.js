@@ -14,6 +14,7 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers':
     'Content-Type, Accept, x-algolia-application-id, x-algolia-api-key',
+  'Access-Control-Expose-Headers': 'Retry-After',
 };
 
 export default {
@@ -38,12 +39,18 @@ export default {
       body: request.body,
     });
 
+    const responseHeaders = {
+      ...CORS_HEADERS,
+      'Content-Type': upstream.headers.get('Content-Type') ?? 'application/json',
+    };
+    const retryAfter = upstream.headers.get('Retry-After');
+    if (retryAfter) {
+      responseHeaders['Retry-After'] = retryAfter;
+    }
+
     return new Response(upstream.body, {
       status: upstream.status,
-      headers: {
-        ...CORS_HEADERS,
-        'Content-Type': upstream.headers.get('Content-Type') ?? 'application/json',
-      },
+      headers: responseHeaders,
     });
   },
 };

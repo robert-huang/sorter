@@ -12,8 +12,13 @@ export const ANIPLAYLIST_LOCAL_PROXY_PATH = '/api/aniplaylist/algolia';
 
 const DIRECT_ALGOLIA_URL = `https://${ANIPLAYLIST_ALGOLIA_APP_ID.toLowerCase()}-dsn.algolia.net/1/indexes/*/queries`;
 const USER_TOKEN_STORAGE_KEY = 'aniplaylist:algolia-user-token';
+const MAX_RATE_LIMIT_RETRIES = 4;
+const RATE_LIMIT_BACKOFF_BASE_MS = 1_000;
+const RATE_LIMIT_BACKOFF_MAX_MS = 30_000;
+const RATE_LIMIT_JITTER_MS = 250;
 
 const ENV = ((import.meta as unknown as { env?: Record<string, string | undefined> }).env) ?? {};
+let aniplaylistCooldownUntil = 0;
 
 /**
  * Algolia only accepts aniplaylist.com as Origin/Referer. Browsers always send
@@ -107,11 +112,13 @@ export function normalizeAniplaylistThemeType(
 
 export class AniplaylistSearchError extends Error {
   readonly httpStatus: number;
+  readonly retryAfterMs: number | null;
 
-  constructor(httpStatus: number, message?: string) {
+  constructor(httpStatus: number, message?: string, retryAfterMs: number | null = null) {
     super(message ?? `AniPlaylist search failed (${httpStatus})`);
     this.name = 'AniplaylistSearchError';
     this.httpStatus = httpStatus;
+    this.retryAfterMs = retryAfterMs;
   }
 }
 
@@ -164,6 +171,67 @@ export function buildAniplaylistSearchParams(query: string, page: number): strin
   return params.toString();
 }
 
+export function parseRetryAfterMs(
+  retryAfter: string | null,
+  now: number = Date.now(),
+): number | null {
+  const value = retryAfter?.trim();
+  if (!value) {
+    return null;
+  }
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.ceil(seconds * 1_000);
+  }
+  const retryAt = Date.parse(value);
+  return Number.isFinite(retryAt) ? Math.max(0, retryAt - now) : null;
+}
+
+function fallbackRateLimitDelayMs(retryIndex: number): number {
+  const backoff = Math.min(
+    RATE_LIMIT_BACKOFF_BASE_MS * 2 ** retryIndex,
+    RATE_LIMIT_BACKOFF_MAX_MS,
+  );
+  return backoff + Math.floor(Math.random() * RATE_LIMIT_JITTER_MS);
+}
+
+function extendAniplaylistCooldown(delayMs: number): void {
+  aniplaylistCooldownUntil = Math.max(
+    aniplaylistCooldownUntil,
+    Date.now() + delayMs,
+  );
+}
+
+async function waitForAniplaylistCooldown(): Promise<void> {
+  const delayMs = aniplaylistCooldownUntil - Date.now();
+  if (delayMs > 0) {
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, delayMs);
+    });
+  }
+}
+
+async function fetchAniplaylistWithRateLimitRetry(
+  url: string,
+  init: RequestInit,
+): Promise<Response> {
+  for (let retryIndex = 0; ; retryIndex += 1) {
+    await waitForAniplaylistCooldown();
+    const response = await fetch(url, init);
+    if (response.status !== 429) {
+      return response;
+    }
+
+    const retryAfterMs =
+      parseRetryAfterMs(response.headers.get('Retry-After')) ??
+      fallbackRateLimitDelayMs(retryIndex);
+    extendAniplaylistCooldown(retryAfterMs);
+    if (retryIndex >= MAX_RATE_LIMIT_RETRIES) {
+      throw new AniplaylistSearchError(429, undefined, retryAfterMs);
+    }
+  }
+}
+
 export async function searchAniplaylist(query: string): Promise<AniplaylistHit[]> {
   const allHits: AniplaylistHit[] = [];
   let page = 0;
@@ -179,7 +247,7 @@ export async function searchAniplaylist(query: string): Promise<AniplaylistHit[]
     };
 
     const searchUrl = resolveAniplaylistSearchUrl();
-    const res = await fetch(searchUrl, {
+    const res = await fetchAniplaylistWithRateLimitRetry(searchUrl, {
       method: 'POST',
       headers: buildAniplaylistRequestHeaders(searchUrl),
       body: JSON.stringify(body),

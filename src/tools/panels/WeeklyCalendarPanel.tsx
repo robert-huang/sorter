@@ -960,6 +960,7 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
         kind === 'cached' ? setRefreshingThemeSongsCached : setRefreshingThemeSongsPending;
       void (async () => {
         setRefreshing(true);
+        setError(null);
         try {
           for (const mediaId of mediaIds) {
             await runAnilistMediaThemeSongsExpansion(mediaId, undefined, { force: true });
@@ -973,6 +974,8 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
               });
             }
           }
+        } catch (e) {
+          setError(e instanceof Error ? e.message : 'Theme song refresh failed.');
         } finally {
           setRefreshing(false);
         }

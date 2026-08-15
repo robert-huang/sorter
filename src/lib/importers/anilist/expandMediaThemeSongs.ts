@@ -348,6 +348,11 @@ export async function expandMediaThemeSongs(
         );
       }
     } catch (err) {
+      // A throttled response is transient. The request helper has already waited
+      // and retried; if those retries are exhausted, preserve the previous cache.
+      if (err instanceof AniplaylistSearchError && err.httpStatus === 429) {
+        throw err;
+      }
       const detail =
         err instanceof AniplaylistSearchError
           ? err.httpStatus === 403

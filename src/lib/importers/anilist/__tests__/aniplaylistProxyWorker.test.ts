@@ -41,4 +41,27 @@ describe('AniPlaylist Algolia proxy', () => {
     expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
     expect(response.headers.get('Content-Type')).toBe('application/json');
   });
+
+  it('forwards and exposes Retry-After from throttled responses', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(null, {
+        status: 429,
+        headers: { 'Retry-After': '12' },
+      }),
+    );
+
+    const response = await worker.fetch(
+      new Request('https://worker.example/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{"requests":[]}',
+      }),
+    );
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get('Retry-After')).toBe('12');
+    expect(response.headers.get('Access-Control-Expose-Headers')).toBe(
+      'Retry-After',
+    );
+  });
 });
