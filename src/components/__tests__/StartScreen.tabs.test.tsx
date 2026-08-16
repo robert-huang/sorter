@@ -5,6 +5,17 @@ import {
   SORTER_IMPORT_LAST_TAB_LS_KEY,
   StartScreen,
 } from '../StartScreen';
+import type { SlotsManifest } from '../../lib/types';
+
+vi.mock('../../lib/storage', async () => {
+  const actual = await vi.importActual<typeof import('../../lib/storage')>(
+    '../../lib/storage',
+  );
+  return {
+    ...actual,
+    isStatePersistenceAvailable: () => true,
+  };
+});
 
 let container: HTMLDivElement;
 let root: Root;
@@ -27,7 +38,10 @@ afterEach(() => {
   localStorage.removeItem(SORTER_IMPORT_LAST_TAB_LS_KEY);
 });
 
-function renderStartScreen(key: string): void {
+function renderStartScreen(
+  key: string,
+  sortResultsManifest?: SlotsManifest,
+): void {
   root.render(
     <StartScreen
       key={key}
@@ -42,6 +56,7 @@ function renderStartScreen(key: string): void {
       onDraftActivity={vi.fn()}
       onDraftCapabilitiesChange={vi.fn()}
       dbSyncRevision={0}
+      sortResultsManifest={sortResultsManifest}
     />,
   );
 }
@@ -76,5 +91,39 @@ describe('Sorter importer tabs', () => {
     expect(tabByText('Sort from scratch').getAttribute('aria-selected')).toBe(
       'true',
     );
+  });
+
+  it('shows browser saves when storage hydrates without remounting the importer', async () => {
+    localStorage.setItem(SORTER_IMPORT_LAST_TAB_LS_KEY, 'sortresults');
+    const emptyManifest: SlotsManifest = {
+      version: 1,
+      activeId: null,
+      slots: [],
+    };
+    const hydratedManifest: SlotsManifest = {
+      version: 1,
+      activeId: null,
+      slots: [
+        {
+          id: 'hydrated',
+          name: 'Hydrated browser save',
+          createdAt: '2026-08-16T12:00:00.000Z',
+          updatedAt: '2026-08-16T12:00:00.000Z',
+          totalItems: 2,
+          comparisons: 1,
+          done: true,
+        },
+      ],
+    };
+
+    await act(async () => {
+      renderStartScreen('hydration', emptyManifest);
+    });
+    expect(container.textContent).toContain('No saved slots yet.');
+
+    await act(async () => {
+      renderStartScreen('hydration', hydratedManifest);
+    });
+    expect(container.textContent).toContain('Hydrated browser save');
   });
 });

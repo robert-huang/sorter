@@ -19,6 +19,7 @@ import {
   classifyCloudSlotImport,
   cloudSlotImportId,
   effectiveSlotImportItems,
+  listSlotImportEntries,
   listSlotImportEntriesFromStorage,
   slotImportOverlayKey,
   slotImportSourceLabel,
@@ -32,7 +33,7 @@ import {
   refreshSorterStorageFromIndexedDb,
 } from '../lib/storage';
 import { STATE_REVISION_KEY } from '../lib/stateStorageDb';
-import type { Item } from '../lib/types';
+import type { Item, SlotsManifest } from '../lib/types';
 import {
   CloudSlotSortControls,
   filterCloudSlotRows,
@@ -80,6 +81,8 @@ type SortResultsImportModeProps = {
   selectionMode?: 'multiple' | 'single';
   /** Replace the browser-save selection summary with sort and search controls. */
   showBrowserSortControls?: boolean;
+  /** App-owned manifest; updates when the asynchronous storage boot completes. */
+  browserSaveManifest?: SlotsManifest;
 } & (
   | {
       onAppendToStaged: (groups: StagedGroupInput[]) => void;
@@ -159,6 +162,7 @@ export function SortResultsImportMode({
   embeddedHint,
   selectionMode = 'multiple',
   showBrowserSortControls = false,
+  browserSaveManifest,
 }: SortResultsImportModeProps) {
   const [revision, setRevision] = useState(0);
   const [cloudOpen, setCloudOpen] = useState(false);
@@ -207,11 +211,13 @@ export function SortResultsImportMode({
   }, [revision]);
 
   const entries = useMemo(
-    () =>
-      listSlotImportEntriesFromStorage(
-        excludeSlotId ? { excludeSlotId } : undefined,
-      ),
-    [excludeSlotId, revision],
+    () => {
+      const options = excludeSlotId ? { excludeSlotId } : undefined;
+      return browserSaveManifest
+        ? listSlotImportEntries(browserSaveManifest, options)
+        : listSlotImportEntriesFromStorage(options);
+    },
+    [browserSaveManifest, excludeSlotId, revision],
   );
   const importable = useMemo(
     () => entries.filter((e) => e.status === 'importable'),

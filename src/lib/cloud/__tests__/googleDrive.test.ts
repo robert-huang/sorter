@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { GoogleDriveProvider } from '../googleDrive';
+import {
+  GoogleDriveProvider,
+  buildGoogleOAuthAuthorizationUrl,
+} from '../googleDrive';
 
 beforeEach(() => {
   localStorage.clear();
@@ -20,6 +23,26 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   localStorage.clear();
+});
+
+describe('Google Drive OAuth', () => {
+  it('forces account selection while retaining consent for refresh tokens', () => {
+    const url = new URL(
+      buildGoogleOAuthAuthorizationUrl({
+        clientId: 'client-id',
+        redirectUrl: 'https://sorter.example.com/',
+        challenge: 'pkce-challenge',
+        state: 'oauth-state',
+      }),
+    );
+
+    expect(url.origin + url.pathname).toBe(
+      'https://accounts.google.com/o/oauth2/v2/auth',
+    );
+    expect(url.searchParams.get('prompt')).toBe('select_account consent');
+    expect(url.searchParams.get('access_type')).toBe('offline');
+    expect(url.searchParams.get('response_type')).toBe('code');
+  });
 });
 
 describe('GoogleDriveProvider.listCloudSlots', () => {

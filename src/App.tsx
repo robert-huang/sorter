@@ -2652,6 +2652,7 @@ export function App() {
         onDraftActivity={parkActiveSession}
         onDraftCapabilitiesChange={setDraftCaps}
         dbSyncRevision={dbSyncRevision}
+        sortResultsManifest={manifest}
       />
     </div>
   );

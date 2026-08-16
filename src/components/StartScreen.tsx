@@ -16,6 +16,7 @@ import type {
   Item,
   ItemId,
   SlotMeta,
+  SlotsManifest,
 } from '../lib/types';
 import {
   canonicalKey,
@@ -342,6 +343,8 @@ interface Props {
    * fav ticks, which a Drive pull doesn't touch).
    */
   dbSyncRevision: number;
+  /** Replaced when sorter storage hydration or local slot metadata changes. */
+  sortResultsManifest?: SlotsManifest;
 }
 
 interface StagedFile {
@@ -376,6 +379,7 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
     onDraftActivity,
     onDraftCapabilitiesChange,
     dbSyncRevision,
+    sortResultsManifest,
   },
   ref,
 ) {
@@ -1874,6 +1878,7 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
         <SortResultsImportMode
           onAppendToStaged={onAppendSortResultsToStaged}
           onDraftActivity={notifyDraftActivity}
+          browserSaveManifest={sortResultsManifest}
         />
       )}
 

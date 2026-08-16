@@ -264,6 +264,40 @@ function restorePreAuthHash(): void {
   }
 }
 
+export function buildGoogleOAuthAuthorizationUrl({
+  clientId,
+  redirectUrl,
+  challenge,
+  state,
+}: {
+  clientId: string;
+  redirectUrl: string;
+  challenge: string;
+  state: string;
+}): string {
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUrl,
+    response_type: 'code',
+    scope: DRIVE_SCOPE,
+    code_challenge: challenge,
+    code_challenge_method: 'S256',
+    state,
+    // Drive's refresh tokens are only issued when this is set. Without
+    // it, the access token expires in ~1h and the user has to fully
+    // re-auth (Safari ITP user experience for everyone). With it,
+    // `refreshTokenIfNeeded` can silently keep the session alive.
+    access_type: 'offline',
+    // Force account selection and consent on every sign-in. Consent keeps
+    // refresh-token issuance reliable for returning users.
+    prompt: 'select_account consent',
+    // Request the granular consent UI variant where the user can
+    // tick `drive.file`. (Default behavior; explicit for clarity.)
+    include_granted_scopes: 'true',
+  });
+  return `${AUTH_ENDPOINT}?${params.toString()}`;
+}
+
 // ---------- impl ----------
 
 export class GoogleDriveProvider implements CloudProvider {
@@ -340,29 +374,14 @@ export class GoogleDriveProvider implements CloudProvider {
     const challenge = await pkceChallenge(verifier);
     writePkce({ verifier, state });
     stashPreAuthHash();
-    const params = new URLSearchParams({
-      client_id: GOOGLE_CLIENT_ID,
-      redirect_uri: redirectUri(),
-      response_type: 'code',
-      scope: DRIVE_SCOPE,
-      code_challenge: challenge,
-      code_challenge_method: 'S256',
-      state,
-      // Drive's refresh tokens are only issued when this is set. Without
-      // it, the access token expires in ~1h and the user has to fully
-      // re-auth (Safari ITP user experience for everyone). With it,
-      // `refreshTokenIfNeeded` can silently keep the session alive.
-      access_type: 'offline',
-      // Force the consent screen on every sign-in. Without this Google
-      // sometimes skips the consent step on returning users and
-      // doesn't issue a fresh refresh token, leaving us in a quiet
-      // hanging state. Personal scale: one extra click is fine.
-      prompt: 'consent',
-      // Request the granular consent UI variant where the user can
-      // tick `drive.file`. (Default behavior; explicit for clarity.)
-      include_granted_scopes: 'true',
-    });
-    window.location.assign(`${AUTH_ENDPOINT}?${params.toString()}`);
+    window.location.assign(
+      buildGoogleOAuthAuthorizationUrl({
+        clientId: GOOGLE_CLIENT_ID,
+        redirectUrl: redirectUri(),
+        challenge,
+        state,
+      }),
+    );
   }
 
   async handleAuthRedirect(): Promise<AuthState> {
