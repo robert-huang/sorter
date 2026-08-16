@@ -2497,6 +2497,7 @@ function SavedBumpCharts({
   slots,
   deletingId,
   onLoad,
+  onStage,
   onRequestDelete,
   onCancelDelete,
   onConfirmDelete,
@@ -2504,6 +2505,7 @@ function SavedBumpCharts({
   slots: readonly SavedBumpChartMeta[];
   deletingId: string | null;
   onLoad: (id: string) => void;
+  onStage: (id: string) => void;
   onRequestDelete: (id: string) => void;
   onCancelDelete: () => void;
   onConfirmDelete: (id: string) => void;
@@ -2585,7 +2587,12 @@ function SavedBumpCharts({
                     <button
                       type="button"
                       className="btn small primary"
+                      title="Left-click to render this chart. Right-click to load it into the staging area."
                       onClick={() => onLoad(slot.id)}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        onStage(slot.id);
+                      }}
                     >
                       Load
                     </button>
@@ -3319,6 +3326,34 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
     setDeletingSavedId(null);
   };
 
+  const stageNamedChart = (id: string): void => {
+    const workspace = loadSavedBumpChart(id);
+    if (!workspace) {
+      setStorageError('The saved chart could not be loaded.');
+      return;
+    }
+    const savedChartName =
+      savedCharts.find((savedChart) => savedChart.id === id)?.name ??
+      'Saved chart';
+    markWorkspaceMutation();
+    setColumns(
+      workspace.columns.map((column) => ({
+        id: column.id,
+        kind: column.kind,
+        ...(column.name ? { name: column.name } : {}),
+        draft: draftFromSnapshot(column, savedChartName),
+      })),
+    );
+    setChart(null);
+    setBumpChartBestMatchByTitle(workspace.bestMatchByTitle);
+    setImportColumnId(null);
+    setImportError(null);
+    setExportError(null);
+    setFailedMalExportLabels([]);
+    setStorageError(null);
+    setDeletingSavedId(null);
+  };
+
   const saveCurrentChart = async (
     name: string,
     replaceId?: string,
@@ -3443,6 +3478,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
             slots={savedCharts}
             deletingId={deletingSavedId}
             onLoad={loadNamedChart}
+            onStage={stageNamedChart}
             onRequestDelete={setDeletingSavedId}
             onCancelDelete={() => setDeletingSavedId(null)}
             onConfirmDelete={deleteNamedChart}

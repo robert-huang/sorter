@@ -1091,6 +1091,81 @@ describe('BumpChartPanel staging flow', () => {
     expect(document.querySelector('.modal-backdrop')).toBeNull();
   });
 
+  it('stages a saved chart on right-click without rendering it', async () => {
+    await saveNamedBumpChart(
+      'Chart to stage',
+      {
+        version: 2,
+        view: 'chart',
+        columns: [
+          {
+            id: 'saved-previous',
+            kind: 'previous',
+            name: 'Earlier order',
+            items: [
+              {
+                item: { id: 'saved-a', label: 'Saved previous item' },
+                logicalId: 'AAAAAAAAAAAAAA',
+              },
+            ],
+            hiddenItemIds: [],
+            preserveCustomLabels: false,
+          },
+          {
+            id: 'saved-current',
+            kind: 'current',
+            name: 'Latest order',
+            items: [
+              {
+                item: { id: 'saved-b', label: 'Saved current item' },
+                logicalId: 'BBBBBBBBBBBBBA',
+              },
+            ],
+            hiddenItemIds: [],
+            preserveCustomLabels: false,
+          },
+        ],
+        bestMatchByTitle: true,
+        lastImportTab: 'single',
+      },
+    );
+    await act(async () => {
+      root.render(
+        <BumpChartPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const loadButton = button('Load');
+    expect(loadButton.title).toBe(
+      'Left-click to render this chart. Right-click to load it into the staging area.',
+    );
+    const contextMenuEvent = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      button: 2,
+    });
+    await act(async () => {
+      loadButton.dispatchEvent(contextMenuEvent);
+    });
+
+    expect(contextMenuEvent.defaultPrevented).toBe(true);
+    expect(container.querySelector('.bump-chart-grid--timeline')).toBeNull();
+    expect(container.textContent).toContain('1. Earlier order');
+    expect(container.textContent).toContain('2. Latest order');
+    await act(async () => {
+      container
+        .querySelectorAll<HTMLButtonElement>('.staged-panel-group-row')
+        .forEach((group) => group.click());
+    });
+    expect(container.textContent).toContain('Saved previous item');
+    expect(container.textContent).toContain('Saved current item');
+  });
+
   it('pins a lineage when its added or removed marker icon is clicked', async () => {
     await act(async () => {
       root.render(

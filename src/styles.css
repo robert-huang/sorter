@@ -8580,6 +8580,7 @@ a:where(.anime-to-anime-anilist-link):visited {
 .bump-chart-saved-actions {
   flex: 0 0 auto;
   gap: 6px;
+  justify-content: space-evenly;
 }
 
 .bump-chart-import-grid {
