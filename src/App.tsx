@@ -741,9 +741,10 @@ export function App() {
   // link decode reads the same path it would have seen if no OAuth
   // round-trip had happened.
   //
-  // Both are once-only — the deps array is intentionally `[]` and the
-  // eslint suppression below is for `flashSkipped`, which is a stable
-  // useCallback.
+  // The effect runs once immediately and again if asynchronous storage
+  // initialization enables cloud backup. That second pass is required to
+  // redeem a Google callback that arrived before IndexedDB was ready.
+  // `flashSkipped` is a stable useCallback.
   useEffect(() => {
     if (typeof window === 'undefined') return;
     let canceled = false;
@@ -784,7 +785,7 @@ export function App() {
       canceled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [cloudAvailable]);
 
   // Subscribe to cloud auth state changes so the gear menu re-renders
   // on every transition (sign-in completes, folder picked, sign-out,
