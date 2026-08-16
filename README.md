@@ -937,7 +937,7 @@ The included `.github/workflows/deploy.yml` builds + publishes the app to GitHub
    The workflow's `npm run build` step reads these via `${{ secrets.* }}` and inlines them into the deployed bundle. If any is missing, that feature shows a "not configured" banner; the rest of the app still works.
 2. **Register the GitHub Pages URL with your OAuth client** — in Google Cloud Console → APIs & Services → Credentials → your OAuth client:
     - Authorized JavaScript origins: `https://<your-username>.github.io`
-    - Authorized redirect URIs: `https://<your-username>.github.io/<repo-name>/` *(trailing slash is mandatory — Google does exact-string matching on redirect URIs and the app sends `window.location.origin + window.location.pathname`, which for an `index.html` at the directory root resolves to `…/<repo>/`)*
+    - Authorized redirect URIs: `https://<your-username>.github.io/<repo-name>/` *(trailing slash is mandatory — Google does exact-string matching, and every app entry point uses this shared root callback before returning to its originating page)*
 
 ## Where state physically lives
 

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   GoogleDriveProvider,
   buildGoogleOAuthAuthorizationUrl,
+  buildGoogleOAuthRedirectUri,
 } from '../googleDrive';
 
 beforeEach(() => {
@@ -26,6 +27,22 @@ afterEach(() => {
 });
 
 describe('Google Drive OAuth', () => {
+  it('uses the registered app root from every HTML entry point', () => {
+    expect(
+      buildGoogleOAuthRedirectUri(
+        'https://robert-huang.github.io/sorter/tools.html?tab=settings',
+      ),
+    ).toBe('https://robert-huang.github.io/sorter/');
+    expect(
+      buildGoogleOAuthRedirectUri(
+        'https://robert-huang.github.io/sorter/index.html',
+      ),
+    ).toBe('https://robert-huang.github.io/sorter/');
+    expect(
+      buildGoogleOAuthRedirectUri('http://localhost:5173/'),
+    ).toBe('http://localhost:5173/');
+  });
+
   it('forces account selection while retaining consent for refresh tokens', () => {
     const url = new URL(
       buildGoogleOAuthAuthorizationUrl({

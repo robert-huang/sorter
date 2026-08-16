@@ -93,6 +93,7 @@ const TOKEN_KEY = 'sorter:cloud:tokens:v1';
 const FOLDER_KEY = 'sorter:cloud:folder:v1';
 const PKCE_KEY = 'sorter:cloud:pkce:v1';
 const PRE_AUTH_HASH_KEY = 'sorter:preAuthHash';
+const PRE_AUTH_LOCATION_KEY = 'sorter:preAuthLocation';
 
 // ---------- types ----------
 
@@ -239,6 +240,10 @@ function clearPkce(): void {
 
 function stashPreAuthHash(): void {
   try {
+    sessionStorage.setItem(
+      PRE_AUTH_LOCATION_KEY,
+      window.location.pathname + window.location.search + window.location.hash,
+    );
     const h = window.location.hash;
     if (h && h.length > 1) {
       sessionStorage.setItem(PRE_AUTH_HASH_KEY, h);
@@ -258,6 +263,21 @@ function restorePreAuthHash(): void {
       const newUrl = window.location.pathname + window.location.search + h;
       window.history.replaceState(null, '', newUrl);
       sessionStorage.removeItem(PRE_AUTH_HASH_KEY);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function restorePreAuthLocation(): void {
+  try {
+    const returnUrl = sessionStorage.getItem(PRE_AUTH_LOCATION_KEY);
+    sessionStorage.removeItem(PRE_AUTH_LOCATION_KEY);
+    if (!returnUrl) return;
+    const currentUrl =
+      window.location.pathname + window.location.search + window.location.hash;
+    if (returnUrl !== currentUrl) {
+      window.location.replace(returnUrl);
     }
   } catch {
     /* ignore */
@@ -418,6 +438,7 @@ export class GoogleDriveProvider implements CloudProvider {
       // signed-out — the UI re-offers Sign in on next render.
       clearPkce();
       this.fireAuthChange();
+      restorePreAuthLocation();
       return this.getAuthState();
     }
 
@@ -426,12 +447,14 @@ export class GoogleDriveProvider implements CloudProvider {
     if (!pkce || !code) {
       // No verifier means we can't redeem — treat as a bounce-through.
       this.fireAuthChange();
+      restorePreAuthLocation();
       return this.getAuthState();
     }
     if (incomingState && incomingState !== pkce.state) {
       // CSRF / link-mixup: drop the response.
       console.warn('cloud auth state mismatch; ignoring redirect');
       this.fireAuthChange();
+      restorePreAuthLocation();
       return this.getAuthState();
     }
 
@@ -456,6 +479,7 @@ export class GoogleDriveProvider implements CloudProvider {
     if (!resp.ok) {
       console.warn('token exchange failed', resp.status, await safeText(resp));
       this.fireAuthChange();
+      restorePreAuthLocation();
       return this.getAuthState();
     }
     const data = (await resp.json()) as {
@@ -466,6 +490,7 @@ export class GoogleDriveProvider implements CloudProvider {
     if (!data.access_token || typeof data.expires_in !== 'number') {
       console.warn('token response malformed');
       this.fireAuthChange();
+      restorePreAuthLocation();
       return this.getAuthState();
     }
     writeTokens({
@@ -474,6 +499,7 @@ export class GoogleDriveProvider implements CloudProvider {
       expiresAt: Date.now() + data.expires_in * 1000,
     });
     this.fireAuthChange();
+    restorePreAuthLocation();
     return this.getAuthState();
   }
 
@@ -1278,10 +1304,14 @@ export class GoogleDriveProvider implements CloudProvider {
 
 // ---------- helpers (URL / response) ----------
 
+export function buildGoogleOAuthRedirectUri(currentUrl: string): string {
+  // Every HTML entry point lives at the app root. Use that shared directory
+  // callback so tools.html and index.html do not require separate registrations.
+  return new URL('.', currentUrl).href;
+}
+
 function redirectUri(): string {
-  // Strip hash + search so the registered redirect URI exactly matches
-  // {origin}{pathname}. OAuth providers reject any drift.
-  return window.location.origin + window.location.pathname;
+  return buildGoogleOAuthRedirectUri(window.location.href);
 }
 
 async function safeText(resp: Response): Promise<string> {
