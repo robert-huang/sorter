@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react';
 import type { SlotResultsImportBatch } from '../lib/completedSortEditH';
 import {
   annotateSlotCompletion,
@@ -72,6 +78,8 @@ type SortResultsImportModeProps = {
   embeddedHint?: string;
   /** Restrict consumers such as Reorder Favourites to one completed slot. */
   selectionMode?: 'multiple' | 'single';
+  /** Replace the browser-save selection summary with sort and search controls. */
+  showBrowserSortControls?: boolean;
 } & (
   | {
       onAppendToStaged: (groups: StagedGroupInput[]) => void;
@@ -150,6 +158,7 @@ export function SortResultsImportMode({
   onImportOrderedItemsAsNewOrders,
   embeddedHint,
   selectionMode = 'multiple',
+  showBrowserSortControls = false,
 }: SortResultsImportModeProps) {
   const [revision, setRevision] = useState(0);
   const [cloudOpen, setCloudOpen] = useState(false);
@@ -204,7 +213,6 @@ export function SortResultsImportMode({
       ),
     [excludeSlotId, revision],
   );
-
   const importable = useMemo(
     () => entries.filter((e) => e.status === 'importable'),
     [entries],
@@ -536,6 +544,29 @@ export function SortResultsImportMode({
     return `Add ${addableCount} item${addableCount === 1 ? '' : 's'}`;
   })();
 
+  const renderBrowserEntry = (entry: SlotImportEntry): ReactNode => (
+    <SlotImportRow
+      key={entry.meta.id}
+      entry={entry}
+      selected={selected.has(entry.meta.id)}
+      expanded={expandedId === entry.meta.id}
+      asPreRanked={asPreRanked[entry.meta.id] ?? true}
+      showPreRankedToggle={showPreRankedToggle}
+      existingIds={existingIds}
+      hiddenRestoreIds={hiddenRestoreIds}
+      overrides={overrides}
+      excluded={excluded}
+      selectionMode={selectionMode}
+      onToggleSelect={(on) => toggleSelected(entry.meta.id, on)}
+      onToggleExpand={() =>
+        setExpandedId((id) => (id === entry.meta.id ? null : entry.meta.id))
+      }
+      onTogglePreRanked={(value) => setSlotPreRanked(entry.meta.id, value)}
+      onEditItem={openEdit}
+      onRemoveItem={removePreviewItem}
+    />
+  );
+
   const description = (
     <>
       {!embedded && (
@@ -624,6 +655,11 @@ export function SortResultsImportMode({
 
       {entries.length === 0 ? (
         <p className="csv-hint">No saved slots yet.</p>
+      ) : showBrowserSortControls ? (
+        <SortableBrowserSaveResults
+          entries={entries}
+          renderEntry={renderBrowserEntry}
+        />
       ) : (
         <>
           <div className="sort-results-import-toolbar">
@@ -632,14 +668,14 @@ export function SortResultsImportMode({
             </span>
             <div className="sort-results-import-toolbar-actions">
               {selectionMode === 'multiple' && (
-              <button
-                type="button"
-                className="btn btn-sm"
-                onClick={selectAllImportable}
-                disabled={importable.length === 0}
-              >
-                Select all completed
-              </button>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={selectAllImportable}
+                  disabled={importable.length === 0}
+                >
+                  Select all completed
+                </button>
               )}
               <button
                 type="button"
@@ -672,7 +708,9 @@ export function SortResultsImportMode({
                     id === entry.meta.id ? null : entry.meta.id,
                   )
                 }
-                onTogglePreRanked={(v) => setSlotPreRanked(entry.meta.id, v)}
+                onTogglePreRanked={(value) =>
+                  setSlotPreRanked(entry.meta.id, value)
+                }
                 onEditItem={openEdit}
                 onRemoveItem={removePreviewItem}
               />
@@ -716,6 +754,57 @@ export function SortResultsImportMode({
         />
       )}
     </div>
+  );
+}
+
+function SortableBrowserSaveResults({
+  entries,
+  renderEntry,
+}: {
+  entries: SlotImportEntry[];
+  renderEntry: (entry: SlotImportEntry) => ReactNode;
+}) {
+  const [sortPreference, setSortPreference] =
+    useState<CloudSlotSortPreference>(readCloudSlotSortPreference);
+  const [searchQuery, setSearchQuery] = useState('');
+  const metadata = (entry: SlotImportEntry) => ({
+    displayName: entry.meta.name,
+    updatedAt: entry.meta.updatedAt,
+  });
+  const displayedEntries = useMemo(
+    () =>
+      sortCloudSlotRows(
+        filterCloudSlotRows(entries, metadata, searchQuery),
+        metadata,
+        sortPreference,
+      ),
+    [entries, searchQuery, sortPreference],
+  );
+
+  function changeSortPreference(preference: CloudSlotSortPreference): void {
+    setSortPreference(preference);
+    persistCloudSlotSortPreference(preference);
+  }
+
+  return (
+    <>
+      <CloudSlotSortControls
+        preference={sortPreference}
+        searchQuery={searchQuery}
+        onChange={changeSortPreference}
+        onSearchQueryChange={setSearchQuery}
+        ariaLabel="Browser save sorting"
+        searchAriaLabel="Search browser saves by name"
+      />
+      <ul className="sort-results-import-list" role="list">
+        {displayedEntries.map(renderEntry)}
+      </ul>
+      {displayedEntries.length === 0 && (
+        <p className="csv-hint">
+          No browser saves match “{searchQuery.trim()}”.
+        </p>
+      )}
+    </>
   );
 }
 

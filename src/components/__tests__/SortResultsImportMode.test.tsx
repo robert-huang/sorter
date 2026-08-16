@@ -4,6 +4,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import * as cloud from '../../lib/cloud';
 import type { CloudProvider } from '../../lib/cloud';
 import { seedAsSorted } from '../../lib/insertionSort';
+import * as slotResultsImport from '../../lib/slotResultsImport';
 import * as storage from '../../lib/storage';
 import type { AutosaveBlob } from '../../lib/storage';
 import { SortResultsImportMode } from '../SortResultsImportMode';
@@ -44,6 +45,56 @@ function setInputValue(input: HTMLInputElement, value: string): void {
 }
 
 describe('SortResultsImportMode cloud entry point', () => {
+  it('keeps the selection toolbar for the sorter by default', () => {
+    vi.spyOn(storage, 'isStatePersistenceAvailable').mockReturnValue(true);
+    vi.spyOn(
+      slotResultsImport,
+      'listSlotImportEntriesFromStorage',
+    ).mockReturnValue([
+      {
+        meta: {
+          id: 'sorter-save',
+          name: 'Sorter save',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-02T00:00:00.000Z',
+          totalItems: 2,
+          comparisons: 1,
+          done: true,
+        },
+        status: 'importable',
+        itemCount: 2,
+        items: [
+          { id: 'AAAAAAAAAAAAAQ', label: 'Alpha' },
+          { id: 'BBBBBBBBBBBBBQ', label: 'Beta' },
+        ],
+      },
+    ]);
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    act(() => {
+      root.render(
+        <SortResultsImportMode
+          embedded
+          onAppendToStaged={vi.fn()}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain('1 importable · 0 selected');
+    expect(container.textContent).toContain('Select all completed');
+    expect(container.textContent).toContain('Clear');
+    expect(
+      container.querySelector('[aria-label="Browser save sorting"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector('[aria-label="Search browser saves by name"]'),
+    ).toBeNull();
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
   it('keeps browser saves as the default and opens Drive only on demand', () => {
     vi.spyOn(storage, 'isStatePersistenceAvailable').mockReturnValue(true);
     const container = document.createElement('div');

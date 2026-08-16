@@ -349,6 +349,61 @@ describe('BumpChartPanel staging flow', () => {
     ).toBe('Clear');
   });
 
+  it('shows browser-save sort and search controls only in its results importer', async () => {
+    createCompletedSlot('Zulu rankings', 'zulu');
+    createCompletedSlot('Alpha rankings', 'alpha');
+    await act(async () => {
+      root.render(
+        <BumpChartPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    await act(async () => {
+      button('Import ranked items', 0).click();
+    });
+    await act(async () => {
+      button('Results').click();
+    });
+
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+    expect(
+      dialog?.querySelector('[aria-label="Browser save sorting"]'),
+    ).not.toBeNull();
+    const search = dialog?.querySelector<HTMLInputElement>(
+      '[aria-label="Search browser saves by name"]',
+    );
+    expect(search).not.toBeNull();
+    expect(dialog?.textContent).not.toContain('2 importable · 0 selected');
+    expect(
+      Array.from(dialog?.querySelectorAll('button') ?? []).some(
+        (candidate) => candidate.textContent?.trim() === 'Select all completed',
+      ),
+    ).toBe(false);
+
+    await act(async () => {
+      button('Title').click();
+    });
+    expect(
+      Array.from(
+        dialog?.querySelectorAll('.sort-results-import-row-title') ?? [],
+      ).map((row) => row.textContent),
+    ).toEqual(['Alpha rankings', 'Zulu rankings']);
+
+    await act(async () => {
+      setInputValue(search!, 'Zulu');
+    });
+    expect(
+      Array.from(
+        dialog?.querySelectorAll('.sort-results-import-row-title') ?? [],
+      ).map((row) => row.textContent),
+    ).toEqual(['Zulu rankings']);
+  });
+
   it('names an empty panel from its first completed sorter slot', async () => {
     createCompletedSlot('Winter rankings', 'winter');
     createCompletedSlot('Spring rankings', 'spring');

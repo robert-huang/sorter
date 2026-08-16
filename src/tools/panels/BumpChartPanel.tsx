@@ -3749,6 +3749,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
           hiddenRestoreIds={new Set()}
           dbSyncRevision={panelProps.dbSyncRevision}
           forcePreRanked
+          showBrowserSaveSortControls
           initialTab={importTab}
           onTabChange={(tab) => {
             importTabTouchedBeforeHydration.current = true;

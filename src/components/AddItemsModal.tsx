@@ -95,6 +95,8 @@ interface Props {
   dbSyncRevision: number;
   /** Hosts such as Bump Chart always preserve imported list order. */
   forcePreRanked?: boolean;
+  /** Hosts such as Bump Chart can sort and search browser-save results. */
+  showBrowserSaveSortControls?: boolean;
   /** Tab selected when the modal opens. Defaults to the last-used tab. */
   initialTab?: AddItemsModalTab;
   /** Lets a host remember the selected tab after the modal closes. */
@@ -124,6 +126,7 @@ export function AddItemsModal({
   excludeSlotId,
   dbSyncRevision,
   forcePreRanked = false,
+  showBrowserSaveSortControls = false,
   initialTab,
   onTabChange,
   onCancel,
@@ -243,6 +246,7 @@ export function AddItemsModal({
             existingIds={existingIds}
             hiddenRestoreIds={hiddenRestoreIds}
             showPreRankedToggle={!forcePreRanked}
+            showBrowserSortControls={showBrowserSaveSortControls}
             onImportOrderedItems={onImportOrderedItems}
             onImportOrderedItemsAsNewOrders={
               onImportOrderedItemsAsNewOrders
@@ -256,6 +260,7 @@ export function AddItemsModal({
             existingIds={existingIds}
             hiddenRestoreIds={hiddenRestoreIds}
             showPreRankedToggle={!forcePreRanked}
+            showBrowserSortControls={showBrowserSaveSortControls}
             onAddSlotImports={onAddSlotImports!}
             onComplete={onCancel}
           />

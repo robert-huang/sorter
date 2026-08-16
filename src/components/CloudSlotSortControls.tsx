@@ -1,4 +1,3 @@
-import type { CloudSlotMeta } from '../lib/cloud';
 import { readSettings, updateSettings } from '../lib/storage';
 
 export type CloudSlotSortKey = 'title' | 'date';
@@ -7,6 +6,11 @@ export type CloudSlotSortDirection = 'asc' | 'desc';
 export interface CloudSlotSortPreference {
   sortKey: CloudSlotSortKey;
   direction: CloudSlotSortDirection;
+}
+
+export interface SlotSortMetadata {
+  displayName: string;
+  updatedAt: string;
 }
 
 export const DEFAULT_CLOUD_SLOT_SORT: CloudSlotSortPreference = {
@@ -41,7 +45,7 @@ export function persistCloudSlotSortPreference(
 
 export function sortCloudSlotRows<T>(
   rows: readonly T[],
-  metadata: (row: T) => CloudSlotMeta,
+  metadata: (row: T) => SlotSortMetadata,
   preference: CloudSlotSortPreference,
 ): T[] {
   const multiplier = preference.direction === 'asc' ? 1 : -1;
@@ -63,7 +67,7 @@ export function sortCloudSlotRows<T>(
 
 export function filterCloudSlotRows<T>(
   rows: readonly T[],
-  metadata: (row: T) => CloudSlotMeta,
+  metadata: (row: T) => SlotSortMetadata,
   query: string,
 ): T[] {
   const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -96,11 +100,15 @@ export function CloudSlotSortControls({
   searchQuery,
   onChange,
   onSearchQueryChange,
+  ariaLabel = 'Cloud file sorting',
+  searchAriaLabel = 'Search cloud slots by name',
 }: {
   preference: CloudSlotSortPreference;
   searchQuery: string;
   onChange: (preference: CloudSlotSortPreference) => void;
   onSearchQueryChange: (query: string) => void;
+  ariaLabel?: string;
+  searchAriaLabel?: string;
 }) {
   function chooseSort(sortKey: CloudSlotSortKey): void {
     const direction =
@@ -124,7 +132,7 @@ export function CloudSlotSortControls({
   return (
     <div
       className="cloud-library-sort-controls"
-      aria-label="Cloud file sorting"
+      aria-label={ariaLabel}
     >
       <span className="cloud-library-sort-label">Sort by</span>
       <div
@@ -154,7 +162,7 @@ export function CloudSlotSortControls({
       <input
         type="search"
         className="slot-search cloud-library-sort-search"
-        aria-label="Search cloud slots by name"
+        aria-label={searchAriaLabel}
         placeholder="Search names…"
         value={searchQuery}
         onChange={(event) => onSearchQueryChange(event.target.value)}
