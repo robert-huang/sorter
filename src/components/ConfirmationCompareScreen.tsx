@@ -25,6 +25,7 @@ import { DetailButtonSlot } from './DetailButton';
 import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
 import { CircularArrowGlyph } from './CircularArrowGlyph';
 import { RemoveGlyph } from './RemoveGlyph';
+import { reorderKeepingControlPosition } from './reorderScrollH';
 import { usePrefersReducedMotion } from './usePrefersReducedMotion';
 
 interface Props {
@@ -588,7 +589,17 @@ export function ConfirmationCompareScreen({
                               type="button"
                               className="icon-btn"
                               disabled={index === 0}
-                              onClick={() => onReorderConfirmed(index, -1)}
+                              onClick={(event) =>
+                                reorderKeepingControlPosition(
+                                  event.currentTarget,
+                                  () => onReorderConfirmed(index, -1),
+                                  {
+                                    scrollContainer:
+                                      confirmedListRef.current,
+                                    direction: -1,
+                                  },
+                                )
+                              }
                               title="Move up"
                               aria-label={`Move ${item.label} up`}
                             >
@@ -598,7 +609,17 @@ export function ConfirmationCompareScreen({
                               type="button"
                               className="icon-btn"
                               disabled={index === listIds.length - 1}
-                              onClick={() => onReorderConfirmed(index, 1)}
+                              onClick={(event) =>
+                                reorderKeepingControlPosition(
+                                  event.currentTarget,
+                                  () => onReorderConfirmed(index, 1),
+                                  {
+                                    scrollContainer:
+                                      confirmedListRef.current,
+                                    direction: 1,
+                                  },
+                                )
+                              }
                               title="Move down"
                               aria-label={`Move ${item.label} down`}
                             >

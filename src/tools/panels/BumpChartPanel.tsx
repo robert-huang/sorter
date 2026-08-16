@@ -7,6 +7,7 @@ import {
   useState,
   useTransition,
   type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from 'react';
 import {
@@ -19,6 +20,7 @@ import {
 } from '../../components/EditItemModal';
 import { DragScroll } from '../../components/DragScroll';
 import { Modal } from '../../components/Modal';
+import { reorderKeepingControlPosition } from '../../components/reorderScrollH';
 import {
   StagedItemsPanel,
   type StagedGroup,
@@ -3110,6 +3112,49 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
     });
   };
 
+  const moveOrderFromControl = (
+    event: ReactMouseEvent<HTMLButtonElement>,
+    targetColumnId: string,
+    orderIndex: number,
+    direction: -1 | 1,
+  ): void => {
+    const stagingView = event.currentTarget.closest<HTMLElement>(
+      '.bump-chart-staging-view',
+    );
+    const targetIndex = orderIndex + direction;
+    const resolveControl = (index: number): HTMLButtonElement | null =>
+      stagingView?.querySelector<HTMLButtonElement>(
+        `[data-bump-order-index="${index}"][data-bump-order-direction="${direction}"]`,
+      ) ?? null;
+    const resolveCard = (index: number): HTMLElement | null =>
+      resolveControl(index)?.closest<HTMLElement>('.bump-chart-import-card') ??
+      null;
+    const sourceCard = event.currentTarget.closest<HTMLElement>(
+      '.bump-chart-import-card',
+    );
+    const targetCard = resolveCard(targetIndex);
+    reorderKeepingControlPosition(
+      event.currentTarget,
+      () => moveOrder(targetColumnId, direction),
+      {
+        resolveControl: () => resolveControl(targetIndex),
+        animationPairs:
+          sourceCard && targetCard
+            ? [
+                {
+                  beforeElement: sourceCard,
+                  resolveAfterElement: () => resolveCard(targetIndex),
+                },
+                {
+                  beforeElement: targetCard,
+                  resolveAfterElement: () => resolveCard(orderIndex),
+                },
+              ]
+            : undefined,
+      },
+    );
+  };
+
   const clearStaged = (): void => {
     stagingRevisionRef.current += 1;
     markWorkspaceMutation();
@@ -3439,16 +3484,24 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
                         type="button"
                         className="btn small"
                         disabled={index === 0}
-                        onClick={() => moveOrder(column.id, -1)}
+                        onClick={(event) =>
+                          moveOrderFromControl(event, column.id, index, -1)
+                        }
                         aria-label={`Move Previous order ${index + 1} up`}
+                        data-bump-order-index={index}
+                        data-bump-order-direction="-1"
                       >
                         ↑
                       </button>
                       <button
                         type="button"
                         className="btn small"
-                        onClick={() => moveOrder(column.id, 1)}
+                        onClick={(event) =>
+                          moveOrderFromControl(event, column.id, index, 1)
+                        }
                         aria-label={`Move Previous order ${index + 1} down`}
+                        data-bump-order-index={index}
+                        data-bump-order-direction="1"
                       >
                         ↓
                       </button>
@@ -3508,8 +3561,17 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
                       <button
                         type="button"
                         className="btn small"
-                        onClick={() => moveOrder(currentDraftColumn.id, -1)}
+                        onClick={(event) =>
+                          moveOrderFromControl(
+                            event,
+                            currentDraftColumn.id,
+                            columns.length - 1,
+                            -1,
+                          )
+                        }
                         aria-label="Move Current order up"
+                        data-bump-order-index={columns.length - 1}
+                        data-bump-order-direction="-1"
                       >
                         ↑
                       </button>
@@ -3518,6 +3580,8 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
                         className="btn small"
                         disabled
                         aria-label="Move Current order down"
+                        data-bump-order-index={columns.length - 1}
+                        data-bump-order-direction="1"
                       >
                         ↓
                       </button>

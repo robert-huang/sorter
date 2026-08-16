@@ -30,6 +30,7 @@ import { DetailButtonSlot } from './DetailButton';
 import { REMOVE_ITEM_TOOLTIP } from './ItemCard';
 import { RemoveGlyph } from './RemoveGlyph';
 import { ItemThumb } from './ItemThumb';
+import { reorderKeepingControlPosition } from './reorderScrollH';
 import {
   activeRankingIds,
   hiddenIdsInDisplayOrder,
@@ -59,6 +60,14 @@ function hideUnrankedOnContextMenu(
   event.preventDefault();
   event.stopPropagation();
   onHide(id, true);
+}
+
+function reorderFromControl(
+  event: ReactMouseEvent<HTMLButtonElement>,
+  direction: -1 | 1,
+  reorder: () => void,
+): void {
+  reorderKeepingControlPosition(event.currentTarget, reorder, { direction });
 }
 
 /** Item ids shown in the unified completed-ranking section (LIST tab). */
@@ -133,7 +142,11 @@ function CompletedRankingSection({
                         <>
                           <button
                             className="icon-btn"
-                            onClick={() => onReorder(ii, -1)}
+                            onClick={(event) =>
+                              reorderFromControl(event, -1, () =>
+                                onReorder(ii, -1),
+                              )
+                            }
                             disabled={ii === 0}
                             title="Nudge up"
                           >
@@ -141,7 +154,11 @@ function CompletedRankingSection({
                           </button>
                           <button
                             className="icon-btn"
-                            onClick={() => onReorder(ii, 1)}
+                            onClick={(event) =>
+                              reorderFromControl(event, 1, () =>
+                                onReorder(ii, 1),
+                              )
+                            }
                             disabled={ii === rankedIds.length - 1}
                             title="Nudge down"
                           >
@@ -762,13 +779,18 @@ function InsertContextSection({
                                   <>
                                     <button
                                       className="icon-btn"
-                                      onClick={() =>
-                                        prevRow &&
-                                        onReorderTarget(
-                                          gap,
-                                          prevRow.absoluteIndex,
-                                        )
-                                      }
+                                      onClick={(event) => {
+                                        if (!prevRow) return;
+                                        reorderFromControl(
+                                          event,
+                                          -1,
+                                          () =>
+                                            onReorderTarget(
+                                              gap,
+                                              prevRow.absoluteIndex,
+                                            ),
+                                        );
+                                      }}
                                       disabled={!prevRow}
                                       title="Nudge up (restarts the current insert)"
                                       aria-label={`Move ${item.label} up`}
@@ -777,13 +799,18 @@ function InsertContextSection({
                                     </button>
                                     <button
                                       className="icon-btn"
-                                      onClick={() =>
-                                        nextRow &&
-                                        onReorderTarget(
-                                          gap,
-                                          nextRow.absoluteIndex,
-                                        )
-                                      }
+                                      onClick={(event) => {
+                                        if (!nextRow) return;
+                                        reorderFromControl(
+                                          event,
+                                          1,
+                                          () =>
+                                            onReorderTarget(
+                                              gap,
+                                              nextRow.absoluteIndex,
+                                            ),
+                                        );
+                                      }}
                                       disabled={!nextRow}
                                       title="Nudge down (restarts the current insert)"
                                       aria-label={`Move ${item.label} down`}
@@ -1384,7 +1411,11 @@ function CurrentMergeRow({
                     <>
                       <button
                         className="x reorder"
-                        onClick={() => onReorder(slice, ii, -1)}
+                        onClick={(event) =>
+                          reorderFromControl(event, -1, () =>
+                            onReorder(slice, ii, -1),
+                          )
+                        }
                         disabled={!canUp}
                         title="Move up"
                         aria-label={`Move ${item.label} up`}
@@ -1393,7 +1424,11 @@ function CurrentMergeRow({
                       </button>
                       <button
                         className="x reorder"
-                        onClick={() => onReorder(slice, ii, 1)}
+                        onClick={(event) =>
+                          reorderFromControl(event, 1, () =>
+                            onReorder(slice, ii, 1),
+                          )
+                        }
                         disabled={!canDown}
                         title="Move down"
                         aria-label={`Move ${item.label} down`}
@@ -1495,7 +1530,11 @@ function SublistView({
                       <>
                         <button
                           className="icon-btn"
-                          onClick={() => onReorder(queueIndex, ii, -1)}
+                          onClick={(event) =>
+                            reorderFromControl(event, -1, () =>
+                              onReorder(queueIndex, ii, -1),
+                            )
+                          }
                           disabled={ii === 0}
                           title="Move up"
                         >
@@ -1503,7 +1542,11 @@ function SublistView({
                         </button>
                         <button
                           className="icon-btn"
-                          onClick={() => onReorder(queueIndex, ii, 1)}
+                          onClick={(event) =>
+                            reorderFromControl(event, 1, () =>
+                              onReorder(queueIndex, ii, 1),
+                            )
+                          }
                           disabled={ii === sub.length - 1}
                           title="Move down"
                         >
@@ -1989,7 +2032,11 @@ function InsertionListView({
                             <>
                               <button
                                 className="icon-btn"
-                                onClick={() => onReorderInSorted(ii, -1)}
+                                onClick={(event) =>
+                                  reorderFromControl(event, -1, () =>
+                                    onReorderInSorted(ii, -1),
+                                  )
+                                }
                                 disabled={ii === 0}
                                 title="Nudge up (cancels and restarts the current insert)"
                               >
@@ -1997,7 +2044,11 @@ function InsertionListView({
                               </button>
                               <button
                                 className="icon-btn"
-                                onClick={() => onReorderInSorted(ii, 1)}
+                                onClick={(event) =>
+                                  reorderFromControl(event, 1, () =>
+                                    onReorderInSorted(ii, 1),
+                                  )
+                                }
                                 disabled={ii === state.sorted.length - 1}
                                 title="Nudge down (cancels and restarts the current insert)"
                               >
