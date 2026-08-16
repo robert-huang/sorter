@@ -366,6 +366,7 @@ function InteractiveItemLabel({
 
 function BumpStage({
   title,
+  orderNumber,
   name,
   draft,
   onRename,
@@ -379,6 +380,7 @@ function BumpStage({
   headingActions,
 }: {
   title: string;
+  orderNumber: number;
   name?: string;
   draft: BumpSideDraft;
   onRename: (name: string | undefined) => void;
@@ -450,7 +452,7 @@ function BumpStage({
                 title={`Rename ${title}`}
                 onClick={() => setEditingName(true)}
               >
-                {name ?? title}
+                {`${orderNumber}. ${name ?? title}`}
               </button>
             )}
           </h3>
@@ -3451,6 +3453,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
                 <BumpStage
                   key={column.id}
                   title={orderFallbackLabel(index, previousColumns.length + 1)}
+                  orderNumber={index + 1}
                   name={column.name}
                   draft={column.draft}
                   onRename={(name) => renameColumn(column.id, name)}
@@ -3523,6 +3526,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
               {currentDraftColumn && (
                 <BumpStage
                   title="Current order"
+                  orderNumber={columns.length}
                   name={currentDraftColumn.name}
                   draft={currentDraftColumn.draft}
                   onRename={(name) =>

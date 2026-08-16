@@ -367,10 +367,10 @@ describe('BumpChartPanel staging flow', () => {
     let previousName = container.querySelector<HTMLButtonElement>(
       '[aria-label="Rename Previous order"]',
     );
-    expect(previousName?.textContent).toBe('Winter rankings');
+    expect(previousName?.textContent).toBe('1. Winter rankings');
 
     await importCompletedSlot(0, 'Spring rankings');
-    expect(previousName?.textContent).toBe('Winter rankings');
+    expect(previousName?.textContent).toBe('1. Winter rankings');
 
     const previousCard = container.querySelectorAll(
       '.bump-chart-import-card',
@@ -387,7 +387,19 @@ describe('BumpChartPanel staging flow', () => {
     previousName = container.querySelector<HTMLButtonElement>(
       '[aria-label="Rename Previous order"]',
     );
-    expect(previousName?.textContent).toBe('My snapshot');
+    expect(previousName?.textContent).toBe('1. My snapshot');
+    await act(async () => {
+      previousName?.click();
+    });
+    const previousNameInput = container.querySelector<HTMLInputElement>(
+      '[aria-label="Name Previous order"]',
+    );
+    expect(previousNameInput?.value).toBe('My snapshot');
+    await act(async () => {
+      previousNameInput?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      );
+    });
 
     await act(async () => {
       previousCard
@@ -400,7 +412,7 @@ describe('BumpChartPanel staging flow', () => {
     previousName = container.querySelector<HTMLButtonElement>(
       '[aria-label="Rename Previous order"]',
     );
-    expect(previousName?.textContent).toBe('Spring rankings');
+    expect(previousName?.textContent).toBe('1. Spring rankings');
   });
 
   it('right-click imports a sorter slot as a new trailing order without changing existing orders', async () => {
@@ -473,9 +485,9 @@ describe('BumpChartPanel staging flow', () => {
           card.querySelector('.bump-chart-order-name-button')?.textContent,
       ),
     ).toEqual([
-      'Existing previous',
-      'Existing current',
-      'Imported rankings',
+      '1. Existing previous',
+      '2. Existing current',
+      '3. Imported rankings',
     ]);
     await act(async () => {
       button('Generate chart').click();
@@ -515,10 +527,10 @@ describe('BumpChartPanel staging flow', () => {
     const cards = container.querySelectorAll('.bump-chart-import-card');
     expect(
       cards[0]?.querySelector('.bump-chart-order-name-button')?.textContent,
-    ).toBe(previousName);
+    ).toBe(`1. ${previousName}`);
     expect(
       cards[1]?.querySelector('.bump-chart-order-name-button')?.textContent,
-    ).toBe('Spring rankings');
+    ).toBe('2. Spring rankings');
     expect(
       cards[0]
         ?.querySelector('.bump-chart-order-name-button')
@@ -569,7 +581,7 @@ describe('BumpChartPanel staging flow', () => {
     cards = container.querySelectorAll('.bump-chart-import-card');
     expect(
       cards[0]?.querySelector('.bump-chart-order-name-button')?.textContent,
-    ).toBe('Previous order');
+    ).toBe('1. Previous order');
     expect(cards[0]?.textContent).toContain('0 staged');
 
     await renameOrder('Previous order', 'Renamed previous');
@@ -584,7 +596,7 @@ describe('BumpChartPanel staging flow', () => {
         (card) =>
           card.querySelector('.bump-chart-order-name-button')?.textContent,
       ),
-    ).toEqual(['Previous order', 'Current order']);
+    ).toEqual(['1. Previous order', '2. Current order']);
   });
 
   it('keeps names attached while orders are promoted, moved, and removed', async () => {
@@ -634,11 +646,11 @@ describe('BumpChartPanel staging flow', () => {
     cards = container.querySelectorAll('.bump-chart-import-card');
     expect(
       cards[0]?.querySelector('.bump-chart-order-name-button')?.textContent,
-    ).toBe('Named snapshot');
+    ).toBe('1. Named snapshot');
     expect(cards[0]?.textContent).not.toContain('1 hidden');
     expect(
       cards[1]?.querySelector('.bump-chart-order-name-button')?.textContent,
-    ).toBe('Current order');
+    ).toBe('2. Current order');
     expect(cards[1]?.textContent).toContain('1 hidden');
 
     await act(async () => {
@@ -651,7 +663,7 @@ describe('BumpChartPanel staging flow', () => {
     cards = container.querySelectorAll('.bump-chart-import-card');
     expect(
       cards[1]?.querySelector('.bump-chart-order-name-button')?.textContent,
-    ).toBe('Named snapshot');
+    ).toBe('2. Named snapshot');
     expect(cards[0]?.textContent).toContain('1 hidden');
     expect(cards[1]?.textContent).not.toContain('1 hidden');
 
@@ -661,7 +673,7 @@ describe('BumpChartPanel staging flow', () => {
     cards = container.querySelectorAll('.bump-chart-import-card');
     expect(
       cards[1]?.querySelector('.bump-chart-order-name-button')?.textContent,
-    ).toBe('Named snapshot');
+    ).toBe('2. Named snapshot');
 
     await act(async () => {
       container
@@ -673,7 +685,7 @@ describe('BumpChartPanel staging flow', () => {
     cards = container.querySelectorAll('.bump-chart-import-card');
     expect(
       cards[0]?.querySelector('.bump-chart-order-name-button')?.textContent,
-    ).toBe('Named snapshot');
+    ).toBe('1. Named snapshot');
 
     await act(async () => {
       container
@@ -685,10 +697,10 @@ describe('BumpChartPanel staging flow', () => {
     cards = container.querySelectorAll('.bump-chart-import-card');
     expect(
       cards[1]?.querySelector('.bump-chart-order-name-button')?.textContent,
-    ).toBe('Current order');
+    ).toBe('2. Current order');
     expect(
       cards[0]?.querySelector('.bump-chart-order-name-button')?.textContent,
-    ).toBe('Named snapshot');
+    ).toBe('1. Named snapshot');
   });
 
   it('promotes the current order, reorders and removes it, and clears columns', async () => {
@@ -2152,7 +2164,7 @@ describe('BumpChartPanel staging flow', () => {
         container.querySelectorAll('.bump-chart-order-name-button'),
         (name) => name.textContent,
       ),
-    ).toEqual(['Saved baseline', 'Saved current']);
+    ).toEqual(['1. Saved baseline', '2. Saved current']);
     const loadedGroups = container.querySelectorAll<HTMLButtonElement>(
       '.bump-chart-import-card .staged-panel-group-row',
     );
