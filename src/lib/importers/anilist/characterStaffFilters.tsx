@@ -32,6 +32,11 @@
  * shared with the media filter module (re-exported from filters.tsx)
  * so the chip group has a consistent look-and-feel across all three
  * source kinds.
+ *
+ * Option lists cascade from left to right: each picker is discovered
+ * from candidates that survived the filters before it. The picker does
+ * not apply its own selection while discovering options, so users can
+ * still broaden a multi-select without clearing it first.
  */
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
@@ -412,8 +417,9 @@ interface CharacterChipOptions {
   voiceActors: VoiceActorOption[];
 }
 
-async function loadCharacterChipOptions(
+export async function loadCharacterChipOptions(
   characterIds: readonly number[],
+  state: CharacterFilterChipState = CHARACTER_INITIAL_CHIP_STATE,
 ): Promise<CharacterChipOptions> {
   if (characterIds.length === 0) {
     return {
@@ -426,10 +432,26 @@ async function loadCharacterChipOptions(
   }
   const db = defaultDbForFilters();
   const user = await getLatestAnilistUser(db);
+  // "appears in" follows gender + rank; voice actor additionally
+  // follows "appears in". Later chips never rewrite earlier menus.
+  const precedingAppearsInState: CharacterFilterChipState = {
+    ...CHARACTER_INITIAL_CHIP_STATE,
+    genders: state.genders,
+    favouriteRankMin: state.favouriteRankMin,
+    favouriteRankMax: state.favouriteRankMax,
+  };
+  const precedingVoiceActorState: CharacterFilterChipState = {
+    ...precedingAppearsInState,
+    appearsInMediaIds: state.appearsInMediaIds,
+  };
+  const [appearsInCandidateIds, voiceActorCandidateIds] = await Promise.all([
+    computeAllowedCharacterIds(characterIds, precedingAppearsInState),
+    computeAllowedCharacterIds(characterIds, precedingVoiceActorState),
+  ]);
   const [chars, mediaOptions, voiceActors, totalFavourites] = await Promise.all([
     getCharactersByIds(db, characterIds),
-    getMediaAppearancesForCharacters(db, characterIds),
-    getVoiceActorsByCharacterIds(db, characterIds),
+    getMediaAppearancesForCharacters(db, Array.from(appearsInCandidateIds)),
+    getVoiceActorsByCharacterIds(db, Array.from(voiceActorCandidateIds)),
     user ? getFavouriteCount(db, user.id, 'CHARACTERS') : Promise.resolve(0),
   ]);
   const genders = new Set<string>();
@@ -561,17 +583,23 @@ function CharacterChips({
     voiceActors: [],
   });
   const idsKey = externalIdsArray.slice().sort((a, b) => a - b).join(',');
+  const optionStateKey = JSON.stringify({
+    genders: state.genders,
+    favouriteRankMin: state.favouriteRankMin,
+    favouriteRankMax: state.favouriteRankMax,
+    appearsInMediaIds: state.appearsInMediaIds,
+  });
   const chipOptionsRevision = useCharacterStaffChipOptionsRevision();
   useEffect(() => {
     let cancelled = false;
-    void loadCharacterChipOptions(externalIdsArray).then((next) => {
+    void loadCharacterChipOptions(externalIdsArray, state).then((next) => {
       if (!cancelled) setOptions(next);
     });
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idsKey, chipOptionsRevision]);
+  }, [idsKey, optionStateKey, chipOptionsRevision]);
 
   const set = (patch: Partial<CharacterFilterChipState>) =>
     onChipStateChange({ ...state, ...patch });
@@ -739,8 +767,9 @@ interface StaffChipOptions {
   voicedInMedia: MediaOption[];
 }
 
-async function loadStaffChipOptions(
+export async function loadStaffChipOptions(
   staffIds: readonly number[],
+  state: StaffFilterChipState = STAFF_INITIAL_CHIP_STATE,
 ): Promise<StaffChipOptions> {
   if (staffIds.length === 0) {
     return {
@@ -753,9 +782,26 @@ async function loadStaffChipOptions(
   }
   const db = defaultDbForFilters();
   const user = await getLatestAnilistUser(db);
-  const [rows, voicedInMedia, totalFavourites] = await Promise.all([
+  // Language follows gender + rank; "voiced in" additionally follows
+  // language. This mirrors the rendered chip order below.
+  const precedingLanguageState: StaffFilterChipState = {
+    ...STAFF_INITIAL_CHIP_STATE,
+    genders: state.genders,
+    favouriteRankMin: state.favouriteRankMin,
+    favouriteRankMax: state.favouriteRankMax,
+  };
+  const precedingVoicedInState: StaffFilterChipState = {
+    ...precedingLanguageState,
+    languages: state.languages,
+  };
+  const [languageCandidateIds, voicedInCandidateIds] = await Promise.all([
+    computeAllowedStaffIds(staffIds, precedingLanguageState),
+    computeAllowedStaffIds(staffIds, precedingVoicedInState),
+  ]);
+  const [rows, languageRows, voicedInMedia, totalFavourites] = await Promise.all([
     getStaffByIds(db, staffIds),
-    getMediaVoicedByStaff(db, staffIds),
+    getStaffByIds(db, Array.from(languageCandidateIds)),
+    getMediaVoicedByStaff(db, Array.from(voicedInCandidateIds)),
     user ? getFavouriteCount(db, user.id, 'STAFF') : Promise.resolve(0),
   ]);
   const genders = new Set<string>();
@@ -763,10 +809,12 @@ async function loadStaffChipOptions(
   let favouritesMax = 0;
   for (const r of rows) {
     genders.add(normaliseGender(r.gender));
-    languages.add(normaliseLanguage(r.language_v2));
     if (r.favourites !== null && r.favourites > favouritesMax) {
       favouritesMax = r.favourites;
     }
+  }
+  for (const row of languageRows) {
+    languages.add(normaliseLanguage(row.language_v2));
   }
   return {
     genders: sortGenderOptions(genders),
@@ -861,17 +909,23 @@ function StaffChips({
     voicedInMedia: [],
   });
   const idsKey = externalIdsArray.slice().sort((a, b) => a - b).join(',');
+  const optionStateKey = JSON.stringify({
+    genders: state.genders,
+    favouriteRankMin: state.favouriteRankMin,
+    favouriteRankMax: state.favouriteRankMax,
+    languages: state.languages,
+  });
   const chipOptionsRevision = useCharacterStaffChipOptionsRevision();
   useEffect(() => {
     let cancelled = false;
-    void loadStaffChipOptions(externalIdsArray).then((next) => {
+    void loadStaffChipOptions(externalIdsArray, state).then((next) => {
       if (!cancelled) setOptions(next);
     });
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idsKey, chipOptionsRevision]);
+  }, [idsKey, optionStateKey, chipOptionsRevision]);
 
   const set = (patch: Partial<StaffFilterChipState>) =>
     onChipStateChange({ ...state, ...patch });

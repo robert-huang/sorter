@@ -24,6 +24,8 @@ import {
   characterFilterModule,
   computeAllowedCharacterIds,
   computeAllowedStaffIds,
+  loadCharacterChipOptions,
+  loadStaffChipOptions,
   setCharacterStaffFilterDbForTesting,
   staffIsInitialState,
   staffFilterModule,
@@ -585,6 +587,34 @@ describe('favourite-rank filter (characters)', () => {
     expect(Array.from(top2).sort((a, b) => a - b)).toEqual([1, 2]);
   });
 
+  it('updates later media and voice-actor options from the rank-filtered characters', async () => {
+    seedAnilistUser(db, 7, 'me');
+    seedCharacter(db, 1);
+    seedCharacter(db, 2);
+    seedCharacter(db, 3);
+    seedCharacterFavourite(db, 7, 1, 0);
+    seedCharacterFavourite(db, 7, 2, 1);
+    seedCharacterFavourite(db, 7, 3, 2);
+    seedMedia(db, 100, 'Top one');
+    seedMedia(db, 200, 'Top two');
+    seedMedia(db, 300, 'Filtered out');
+    seedMediaCharacter(db, 100, 1, 'MAIN');
+    seedMediaCharacter(db, 200, 2, 'MAIN');
+    seedMediaCharacter(db, 300, 3, 'MAIN');
+    seedStaff(db, 1000);
+    seedStaff(db, 2000);
+    seedVoiceActor(db, 100, 1, 1000);
+    seedVoiceActor(db, 300, 3, 2000);
+
+    const options = await loadCharacterChipOptions(
+      [1, 2, 3],
+      charChips({ favouriteRankMax: 2 }),
+    );
+
+    expect(options.mediaOptions.map(({ id }) => id)).toEqual([100, 200]);
+    expect(options.voiceActors.map(({ id }) => id)).toEqual([1000]);
+  });
+
   it('mid-range: rankMin AND rankMax slice a window (e.g. ranks 2..3)', async () => {
     seedAnilistUser(db, 7, 'me');
     seedCharacter(db, 1);
@@ -695,6 +725,31 @@ describe('favourite-rank filter (staff)', () => {
       staffChips({ favouriteRankMax: 1 }),
     );
     expect(Array.from(top1)).toEqual([1]);
+  });
+
+  it('updates later language and voiced-in options from the rank-filtered staff', async () => {
+    seedAnilistUser(db, 7, 'me');
+    seedStaff(db, 1, { language_v2: 'JAPANESE' });
+    seedStaff(db, 2, { language_v2: 'ENGLISH' });
+    seedStaff(db, 3, { language_v2: 'KOREAN' });
+    seedStaffFavourite(db, 7, 1, 0);
+    seedStaffFavourite(db, 7, 2, 1);
+    seedStaffFavourite(db, 7, 3, 2);
+    seedCharacter(db, 50);
+    seedMedia(db, 100, 'Top staff show');
+    seedMedia(db, 300, 'Filtered staff show');
+    seedMediaCharacter(db, 100, 50, 'MAIN');
+    seedMediaCharacter(db, 300, 50, 'MAIN');
+    seedVoiceActor(db, 100, 50, 1);
+    seedVoiceActor(db, 300, 50, 3);
+
+    const options = await loadStaffChipOptions(
+      [1, 2, 3],
+      staffChips({ favouriteRankMax: 2 }),
+    );
+
+    expect(options.languages).toEqual(['ENGLISH', 'JAPANESE']);
+    expect(options.voicedInMedia.map(({ id }) => id)).toEqual([100]);
   });
 
   it('combines with language (intersection)', async () => {
