@@ -10,7 +10,10 @@ import {
 } from '../themeSongs/mergeThemeSongs';
 import type { MediaThemeSongRow } from '../themeSongs/types';
 import type { AniplaylistHit } from '../themeSongs/aniplaylistApi';
-import { dedupeThemeStrings } from '../themeSongs/tenraiApi';
+import {
+  dedupeThemeStrings,
+  unionTenraiThemesData,
+} from '../themeSongs/tenraiApi';
 
 describe('artistsRoughlyMatch', () => {
   it('matches flipped Latin name order with shared CV credit', () => {
@@ -238,6 +241,79 @@ describe('mergeThemeSongs', () => {
     expect(rows[0]?.malEpisodes).toBe(
       'eps TV: 2-3, 5-9, 11; BD/DVD: 1-3, 5-13',
     );
+  });
+
+  it('keeps one Oshi no Ko opening when Tenrai and MAL use title aliases', () => {
+    const themes = unionTenraiThemesData(
+      {
+        openings: ['"アイドル" by YOASOBI'],
+        endings: [
+          '1: "Idol (アイドル)" by YOASOBI (eps 1)',
+          '2: "Mephisto (メフィスト)" by Ziyoou-vachi (eps 2-11)',
+        ],
+      },
+      {
+        openings: ['"Idol (アイドル)" by YOASOBI'],
+        endings: [
+          '1: "Idol (アイドル)" by YOASOBI (ep 1)',
+          '2: "Mephisto (メフィスト)" by Ziyoou-vachi (eps 2-11)',
+        ],
+      },
+    );
+    const mal = parseMalThemes(themes.openings, themes.endings);
+    const hits: AniplaylistHit[] = [
+      {
+        id: 20023,
+        anime_id: 5852,
+        score: 60,
+        titles: ['Idol', 'アイドル'],
+        song_key: 'OP',
+        song_type: 'Opening',
+        artists: [{ names: ['YOASOBI'] }],
+        links: [
+          {
+            platform: 'spotify',
+            main: true,
+            link: 'https://open.spotify.com/track/7ovUcF5uHTBRzUpB6ZOmvt',
+          },
+        ],
+      },
+      {
+        id: 20061,
+        anime_id: 5852,
+        score: 60,
+        titles: ['Mephisto', 'メフィスト'],
+        song_key: 'ED',
+        song_type: 'Ending',
+        artists: [{ names: ['QUEEN BEE', '女王蜂', 'Ziyoou-vachi'] }],
+        links: [],
+      },
+    ];
+
+    const rows = mergeThemeSongs(mal, hits);
+
+    expect(rows.filter((row) => row.type === 'Opening')).toHaveLength(1);
+    expect(rows.filter((row) => row.type === 'Ending')).toHaveLength(2);
+    expect(
+      rows.some(
+        (row) =>
+          row.type === 'Ending' &&
+          row.displayTitle === 'Idol (アイドル)' &&
+          row.malEpisodes === 'eps 1',
+      ),
+    ).toBe(true);
+
+    const duplicatedMal = parseMalThemes(
+      ['"アイドル" by YOASOBI', '"Idol (アイドル)" by YOASOBI'],
+      themes.endings,
+    );
+    const rowsFromDuplicatedSources = mergeThemeSongs(duplicatedMal, hits);
+    expect(
+      rowsFromDuplicatedSources.filter((row) => row.type === 'Opening'),
+    ).toHaveLength(1);
+    expect(
+      rowsFromDuplicatedSources.filter((row) => row.type === 'Ending'),
+    ).toHaveLength(2);
   });
 
   it('persists the union of markets across Spotify editions', () => {

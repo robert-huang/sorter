@@ -155,7 +155,7 @@ describe('enrichMalThemesWithOfficialIfNeeded', () => {
     });
 
     const result = await enrichMalThemesWithOfficialIfNeeded(tenrai, 123, {
-      aniplaylistThemeCount: 2,
+      aniplaylistOpeningCount: 1,
       aniplaylistEndingCount: 1,
     });
 
@@ -177,7 +177,31 @@ describe('enrichMalThemesWithOfficialIfNeeded', () => {
     };
 
     const result = await enrichMalThemesWithOfficialIfNeeded(tenrai, 456, {
-      aniplaylistThemeCount: 2,
+      aniplaylistOpeningCount: 1,
+      aniplaylistEndingCount: 1,
+    });
+
+    expect(fetchMalOfficialThemesMock).not.toHaveBeenCalled();
+    expect(result).toBe(tenrai);
+  });
+
+  it('does not treat AniPlaylist inserts as missing MAL themes', async () => {
+    const tenrai: MalThemeFetchResult = {
+      status: 'ok',
+      provider: 'tenrai',
+      data: {
+        openings: ['"アイドル" by YOASOBI'],
+        endings: [
+          '1: "Idol (アイドル)" by YOASOBI (eps 1)',
+          '2: "Mephisto (メフィスト)" by Ziyoou-vachi (eps 2-11)',
+        ],
+      },
+      themesHttpStatus: 200,
+      fullHttpStatus: 200,
+    };
+
+    const result = await enrichMalThemesWithOfficialIfNeeded(tenrai, 52034, {
+      aniplaylistOpeningCount: 1,
       aniplaylistEndingCount: 1,
     });
 

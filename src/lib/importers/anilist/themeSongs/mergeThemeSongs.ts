@@ -498,6 +498,59 @@ function coalesceBorrowedSourceRows(rows: MediaThemeSongRow[]): MediaThemeSongRo
   });
 }
 
+function mergeSameRoleSpotifyRows(
+  primary: MediaThemeSongRow,
+  duplicate: MediaThemeSongRow,
+): MediaThemeSongRow {
+  const spotifyTrackIds = [
+    ...new Set([...primary.spotifyTrackIds, ...duplicate.spotifyTrackIds]),
+  ];
+  const spotifyUrl = primary.spotifyUrl ?? duplicate.spotifyUrl;
+  return {
+    ...duplicate,
+    ...primary,
+    sortOrder: Math.min(primary.sortOrder, duplicate.sortOrder),
+    songKey: primary.songKey ?? duplicate.songKey,
+    malRaw: primary.malRaw ?? duplicate.malRaw,
+    malTitle: primary.malTitle ?? duplicate.malTitle,
+    malArtist: primary.malArtist ?? duplicate.malArtist,
+    malEpisodes: primary.malEpisodes ?? duplicate.malEpisodes,
+    aniTitles: mergeSharedAliases(primary.aniTitles, duplicate.aniTitles),
+    aniArtists: mergeSharedAliases(primary.aniArtists, duplicate.aniArtists),
+    aniplaylistUrl: primary.aniplaylistUrl ?? duplicate.aniplaylistUrl,
+    spotifyUrl,
+    spotifyAvailableMarkets: mergeSharedAliases(
+      primary.spotifyAvailableMarkets,
+      duplicate.spotifyAvailableMarkets,
+    ),
+    spotifyTrackIds,
+    spotifyIsrc: primary.spotifyIsrc ?? duplicate.spotifyIsrc,
+    hasResolvableTrackId:
+      mergeSpotifyTrackIdSources(spotifyTrackIds, spotifyUrl).length > 0,
+  };
+}
+
+/** One recording used under one role is one song row, regardless of source or sequence label. */
+function coalesceSameRoleSpotifyRows(rows: MediaThemeSongRow[]): MediaThemeSongRow[] {
+  const merged: MediaThemeSongRow[] = [];
+  for (const row of rows) {
+    const duplicateIndex = merged.findIndex(
+      (candidate) =>
+        candidate.type === row.type &&
+        rowsShareSpotifyIdentity(candidate, row),
+    );
+    if (duplicateIndex < 0) {
+      merged.push(row);
+      continue;
+    }
+    merged[duplicateIndex] = mergeSameRoleSpotifyRows(
+      merged[duplicateIndex]!,
+      row,
+    );
+  }
+  return merged;
+}
+
 /**
  * Rows that missed AniPlaylist pairing (e.g. MAL ED ep-1 OP pollution) still share
  * the same recording metadata when title+artist identify the same song.
@@ -553,7 +606,9 @@ export function borrowSharedSpotifyMetadata(rows: MediaThemeSongRow[]): MediaThe
         : row.hasResolvableTrackId,
     };
   });
-  return coalesceBorrowedSourceRows(borrowedRows);
+  return coalesceSameRoleSpotifyRows(
+    coalesceBorrowedSourceRows(borrowedRows),
+  );
 }
 
 export function sortThemeRows(rows: readonly MediaThemeSongRow[]): MediaThemeSongRow[] {

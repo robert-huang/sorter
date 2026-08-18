@@ -17,6 +17,7 @@ import {
   searchAniplaylistForMediaTitles,
   AniplaylistSearchError,
   collectMediaTitleStrings,
+  normalizeAniplaylistThemeType,
 } from './themeSongs/aniplaylistApi';
 import {
   enrichMalThemesWithOfficialIfNeeded,
@@ -334,8 +335,16 @@ export async function expandMediaThemeSongs(
       }
 
       const enriched = await enrichMalThemesWithOfficialIfNeeded(themeResult, malId, {
-        aniplaylistThemeCount: aniHits.length,
-        aniplaylistEndingCount: aniHits.filter((h) => h.song_type === 'Ending').length,
+        aniplaylistOpeningCount: aniHits.filter(
+          (hit) =>
+            normalizeAniplaylistThemeType(hit.song_type, hit.song_key) ===
+            'Opening',
+        ).length,
+        aniplaylistEndingCount: aniHits.filter(
+          (hit) =>
+            normalizeAniplaylistThemeType(hit.song_type, hit.song_key) ===
+            'Ending',
+        ).length,
       });
       if (enriched !== themeResult) {
         themeResult = enriched;

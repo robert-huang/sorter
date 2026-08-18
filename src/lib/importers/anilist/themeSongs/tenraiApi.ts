@@ -1,5 +1,9 @@
 import { parseMalThemeString } from './malThemeParser';
-import { foldJapaneseRomanization, normalizeThemeDashes } from './themeSongMatching';
+import {
+  artistsRoughlyMatch,
+  collectTitleMatchCandidates,
+  titlesMatchStronglyAny,
+} from './themeSongMatching';
 
 const TENRAI_BASE = 'https://api.tenrai.org/v1';
 
@@ -61,40 +65,56 @@ function episodeNumsFromMalEpisodes(episodes: string | null): string {
   return nums.join(',');
 }
 
-function themeStringDedupeKey(raw: string): string {
+type ThemeStringDedupeDetails = {
+  titleCandidates: string[];
+  artist: string;
+  episodeKey: string;
+};
+
+function themeStringDedupeDetails(raw: string): ThemeStringDedupeDetails {
   const parsed = parseMalThemeString(raw, 'Opening', 0);
-  const title = normalizeThemeDashes(
-    foldJapaneseRomanization(parsed.title.toLowerCase()).replace(/[\u2018\u2019\u201b]/g, "'"),
-  );
-  const episodeKey = episodeNumsFromMalEpisodes(parsed.episodes);
-  if (episodeKey) {
-    // Same ED on the same episode with EN vs JP performer credits (Re:Zero Stay Alive).
-    return `${title}|${episodeKey}`;
+  return {
+    titleCandidates: collectTitleMatchCandidates(parsed.title),
+    artist: parsed.artist ?? '',
+    episodeKey: episodeNumsFromMalEpisodes(parsed.episodes),
+  };
+}
+
+function themeStringsMatch(
+  left: ThemeStringDedupeDetails,
+  right: ThemeStringDedupeDetails,
+): boolean {
+  if (
+    left.episodeKey !== right.episodeKey ||
+    !titlesMatchStronglyAny(left.titleCandidates, right.titleCandidates)
+  ) {
+    return false;
   }
-  const artist = foldJapaneseRomanization((parsed.artist ?? '').toLowerCase()).replace(
-    /[\u2018\u2019\u201b]/g,
-    "'",
-  );
-  return `${title}|${artist}`;
+  if (left.episodeKey) {
+    // Same ED on the same episode with EN vs JP performer credits (Re:Zero Stay Alive).
+    return true;
+  }
+  if (!left.artist || !right.artist) {
+    return left.artist === right.artist;
+  }
+  return artistsRoughlyMatch(left.artist, right.artist);
 }
 
 /** Union theme strings from multiple sources, deduping by parsed title + artist. */
 export function dedupeThemeStrings(strings: readonly string[]): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
+  const out: Array<{ raw: string; details: ThemeStringDedupeDetails }> = [];
   for (const raw of strings) {
     const trimmed = raw.trim();
     if (!trimmed) {
       continue;
     }
-    const key = themeStringDedupeKey(trimmed);
-    if (seen.has(key)) {
+    const details = themeStringDedupeDetails(trimmed);
+    if (out.some((existing) => themeStringsMatch(existing.details, details))) {
       continue;
     }
-    seen.add(key);
-    out.push(trimmed);
+    out.push({ raw: trimmed, details });
   }
-  return out;
+  return out.map(({ raw }) => raw);
 }
 
 export function unionTenraiThemesData(

@@ -2,7 +2,6 @@ import {
   fetchTenraiThemes,
   formatTenraiFailureDetail,
   unionTenraiThemesData,
-  type TenraiThemesData,
   type TenraiThemesFetchResult,
 } from './tenraiApi';
 import { fetchMalOfficialThemes, isMalOfficialApiConfigured } from './malOfficialApi';
@@ -14,34 +13,27 @@ export type MalThemeFetchResult = TenraiThemesFetchResult & {
 };
 
 export type MalThemeFetchHints = {
-  /** Opening/Ending/Insert hits from the matched AniPlaylist cluster. */
-  aniplaylistThemeCount?: number;
+  /** Opening hits from the matched AniPlaylist cluster. */
+  aniplaylistOpeningCount?: number;
+  /** Ending hits from the matched AniPlaylist cluster. */
   aniplaylistEndingCount?: number;
 };
-
-function countThemes(data: TenraiThemesData | null | undefined): number {
-  if (!data) {
-    return 0;
-  }
-  return data.openings.length + data.endings.length;
-}
 
 function isThinVersusAniplaylist(
   tenrai: TenraiThemesFetchResult,
   hints: MalThemeFetchHints,
 ): boolean {
-  const total = countThemes(tenrai.data);
   if (
-    hints.aniplaylistThemeCount != null &&
-    hints.aniplaylistThemeCount > 0 &&
-    total < hints.aniplaylistThemeCount
+    hints.aniplaylistOpeningCount != null &&
+    hints.aniplaylistOpeningCount > 0 &&
+    (tenrai.data?.openings.length ?? 0) < hints.aniplaylistOpeningCount
   ) {
     return true;
   }
   if (
     hints.aniplaylistEndingCount != null &&
     hints.aniplaylistEndingCount > 0 &&
-    (tenrai.data?.endings.length ?? 0) === 0
+    (tenrai.data?.endings.length ?? 0) < hints.aniplaylistEndingCount
   ) {
     return true;
   }
