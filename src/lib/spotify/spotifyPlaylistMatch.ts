@@ -67,11 +67,13 @@ const METADATA_ARTIST_THRESHOLD = 0.78;
 const METADATA_TITLE_ONLY_THRESHOLD = 0.94;
 const METADATA_MATCH_MARGIN = 0.04;
 const DISTINCTIVE_EXACT_TITLE_MIN_LENGTH = 8;
+const DISTINCTIVE_EXACT_NON_LATIN_TITLE_MIN_LENGTH = 4;
 const MAX_RESULT_CACHE_ENTRIES = 10_000;
 const TRAILING_VERSION_CREDIT = /\s*[\(（]([^()（）]+)[\)）]\s*$/u;
 const VERSION_CREDIT_SUFFIX =
   /(?:^|[\s\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\u30fc])(?:ver(?:sion)?\.?|バージョン)$/iu;
 const ARTIST_CREDIT_PREFIX = /^c\s*[.]?\s*v\s*[.:]?\s*/iu;
+const ARTIST_CREDIT_TOKEN = /\bc\s*[.]?\s*v\s*[.:]?\b/giu;
 const ARTIST_SEPARATOR =
   /\s*(?:,|、|&|;|\/|\+|×|\b(?:and|with)\b|\bfeat(?:uring)?\.?)\s*/iu;
 const ARTIST_BRACKET_PATTERNS = [
@@ -308,8 +310,9 @@ function bestArtistSimilarity(left: readonly string[], right: readonly string[])
 function collectArtistScripts(values: readonly string[]): Set<ArtistScript> {
   const scripts = new Set<ArtistScript>();
   for (const value of values) {
+    const comparableValue = value.replace(ARTIST_CREDIT_TOKEN, ' ');
     for (const { script, pattern } of ARTIST_SCRIPT_PATTERNS) {
-      if (pattern.test(value)) {
+      if (pattern.test(comparableValue)) {
         scripts.add(script);
       }
     }
@@ -327,6 +330,17 @@ function artistScriptsAreIncomparable(
     return false;
   }
   return [...leftScripts].every((script) => !rightScripts.has(script));
+}
+
+function exactTitleCanBridgeArtistScripts(title: string): boolean {
+  const length = [...title.replace(/\s+/gu, '')].length;
+  if (length >= DISTINCTIVE_EXACT_TITLE_MIN_LENGTH) {
+    return true;
+  }
+  const hasNonLatinScript = ARTIST_SCRIPT_PATTERNS.some(
+    ({ script, pattern }) => script !== 'latin' && pattern.test(title),
+  );
+  return hasNonLatinScript && length >= DISTINCTIVE_EXACT_NON_LATIN_TITLE_MIN_LENGTH;
 }
 
 function rowTitleCandidates(row: MediaThemeSongRow): string[] {
@@ -372,10 +386,10 @@ function scorePlaylistTrackMetadata(
   if (artistScore != null) {
     if (
       titleScore === 1 &&
-      playlistTitle.length >= DISTINCTIVE_EXACT_TITLE_MIN_LENGTH &&
+      exactTitleCanBridgeArtistScripts(playlistTitle) &&
       artistScriptsAreIncomparable(artistCandidates, playlistArtists)
     ) {
-      // Let exact substantial titles bridge Romanized/Japanese tags; the
+      // Let exact distinctive titles bridge Romanized/Japanese tags; the
       // identity-margin check below still rejects multiple plausible tracks.
       return {
         match,
@@ -444,6 +458,7 @@ function indexPlaylistMetadataTrack(
 function findPlaylistMetadataMatch(
   row: MediaThemeSongRow,
   index: PlaylistIndex,
+  kind?: PlaylistMetadataMatch['kind'],
 ): PlaylistMetadataMatch | null {
   ensurePlaylistMetadataIndex(index);
   const metadataTracks = index.metadataTracks ?? [];
@@ -452,13 +467,17 @@ function findPlaylistMetadataMatch(
   if (titles.length === 0) {
     return null;
   }
-  const exactTitleTracks = titles.flatMap(
-    (title) => metadataByTitle.get(title) ?? [],
-  );
+  const exactTitleTracks = titles
+    .flatMap((title) => metadataByTitle.get(title) ?? [])
+    .filter((track) => kind === undefined || track.match.kind === kind);
+  const eligibleMetadataTracks =
+    kind === undefined
+      ? metadataTracks
+      : metadataTracks.filter((track) => track.match.kind === kind);
   const playlistTracks =
     exactTitleTracks.length > 0
       ? [...new Set(exactTitleTracks)]
-      : metadataTracks.filter((track) =>
+      : eligibleMetadataTracks.filter((track) =>
           titles.some((title) => {
             const shorterLength = Math.min(title.length, track.normalizedTitle.length);
             const longerLength = Math.max(title.length, track.normalizedTitle.length);
@@ -716,6 +735,16 @@ export function matchThemeRowToPlaylistDetails(
   const index = buildPlaylistIndex(cache);
   const spotifyTrackIds = rowSpotifyTrackIds(row);
 
+  if (mode === 'local-first') {
+    const localMatch = findPlaylistMetadataMatch(row, index, 'local');
+    if (localMatch) {
+      return cacheMatchResult(resultCacheKey, {
+        status: 'in',
+        metadataMatch: localMatch,
+      });
+    }
+  }
+
   for (const trackId of spotifyTrackIds) {
     if (index.trackIds.has(trackId)) {
       const playlistPosition = index.playlistPositionByTrackId.get(trackId);
@@ -754,11 +783,11 @@ export function matchThemeRowToPlaylistDetails(
   }
 
   if (mode === 'local-first') {
-    const metadataMatch = findPlaylistMetadataMatch(row, index);
-    if (metadataMatch) {
+    const spotifyMetadataMatch = findPlaylistMetadataMatch(row, index, 'spotify');
+    if (spotifyMetadataMatch) {
       return cacheMatchResult(resultCacheKey, {
         status: 'in',
-        metadataMatch,
+        metadataMatch: spotifyMetadataMatch,
       });
     }
   }

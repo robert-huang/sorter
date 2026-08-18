@@ -825,9 +825,7 @@ describe('matchThemeRowToPlaylist', () => {
     ).toEqual({ status: 'unknown', metadataMatch: null });
   });
 
-  it.each(['local-first', 'spotify-first'] as const)(
-    'keeps an exact Spotify catalog match green in %s mode when a metadata duplicate exists',
-    (localFileMatchMode) => {
+  it('applies local-first precedence before an exact Spotify catalog match', () => {
     const playlistCache: SpotifyPlaylistCache = {
       ...cache,
       localTracks: [
@@ -846,11 +844,23 @@ describe('matchThemeRowToPlaylist', () => {
       matchThemeRowToPlaylistDetails(
         makeRow({ spotifyTrackIds: ['track-a'], hasResolvableTrackId: true }),
         playlistCache,
-        { localFileMatchMode },
+        LOCAL_FIRST,
+      ),
+    ).toEqual({
+      status: 'in',
+      metadataMatch: {
+        kind: 'local',
+        track: playlistCache.localTracks![0],
+      },
+    });
+    expect(
+      matchThemeRowToPlaylistDetails(
+        makeRow({ spotifyTrackIds: ['track-a'], hasResolvableTrackId: true }),
+        playlistCache,
+        { localFileMatchMode: 'spotify-first' },
       ),
     ).toEqual({ status: 'in', metadataMatch: null });
-    },
-  );
+  });
 
   it('applies Off, Local First, and Spotify First precedence', () => {
     const localTrack = {
@@ -898,7 +908,7 @@ describe('matchThemeRowToPlaylist', () => {
     ).toEqual({ status: 'unknown', metadataMatch: null });
   });
 
-  it('waits for alternate-edition ISRC lookup before allowing a blue match', () => {
+  it('does not delay a local-first match for alternate-edition ISRC lookup', () => {
     const playlistCache = cacheWithLocalTracks([
       {
         uri: 'spotify:local:Artist:Album:Test+Song:180',
@@ -919,7 +929,258 @@ describe('matchThemeRowToPlaylist', () => {
         ...LOCAL_FIRST,
         isrcLookupReady: false,
       }),
+    ).toEqual({
+      status: 'in',
+      metadataMatch: {
+        kind: 'local',
+        track: playlistCache.localTracks![0],
+      },
+    });
+    expect(
+      matchThemeRowToPlaylistDetails(row, playlistCache, {
+        localFileMatchMode: 'spotify-first',
+        isrcLookupReady: false,
+      }),
     ).toEqual({ status: 'unknown', metadataMatch: null });
+  });
+
+  it('prefers the later local Non Non Biyori copies over catalog copies', () => {
+    const castArtists = [
+      'Renge Miyauchi (CV: Kotori Koiwai)',
+      '一条 蛍 (CV.村川梨衣)',
+      'Natsumi Koshigaya (CV: Ayane Sakura)',
+      'Komari Koshigaya (CV: Kana Asumi)',
+    ];
+    const catalogTracks = [
+      ['2ntCDDs3W9Tl9aOuEQSiBa', 'なないろびより', ['nano.RIPE'], 1101],
+      ['7IQJiV7P4H53BQk5Lj6CmS', 'のんのん日和', castArtists, 1102],
+      ['1XI88ElXasHMdjTu4liZCp', 'こだまことだま', ['nano.RIPE'], 1103],
+      ['3zmCyWGe2griKG51XTFDXU', 'おかえり', castArtists, 1104],
+      ['5zWfrDDWsz7gFwlpvpZtZs', 'つぎはぎもよう', ['nano.RIPE'], 1105],
+      ['5nQHZXUCfCXZZEIc7gnEwg', 'ただいま', castArtists, 1106],
+      ['0XcPSrDlTM13CNVESeD6T0', 'あおのらくがき', ['nano.RIPE'], 1107],
+      ['7mZ1p68OUfr5pd7JfjbPmE', 'おもいで', castArtists, 1108],
+    ] as const;
+    const localTracks = [
+      {
+        uri: null,
+        title: 'なないろびより',
+        artists: ['nano.RIPE'],
+        album: 'のんのんびよりでいず',
+        durationMs: 268_000,
+        playlistPosition: 2517,
+      },
+      {
+        uri: null,
+        title: 'のんのん日和',
+        artists: [
+          '宮内れんげ(小岩井ことり),一条蛍(村川梨衣),越谷夏海(佐倉綾音),越谷小鞠(阿澄佳奈)',
+        ],
+        album: 'のんのん日和',
+        durationMs: 256_000,
+        playlistPosition: 2518,
+      },
+      {
+        uri: null,
+        title: 'こだまことだま',
+        artists: ['nano.RIPE'],
+        album: 'のんのんびよりでいず',
+        durationMs: 255_000,
+        playlistPosition: 2519,
+      },
+      {
+        uri: null,
+        title: 'おかえり',
+        artists: [
+          '宮内れんげ (CV.小岩井ことり)、一条 蛍 (CV.村川梨衣)、越谷夏海 (CV.佐倉綾音)、越谷小鞠 (CV.阿澄佳奈)',
+        ],
+        album: 'のんのんびよりでいず',
+        durationMs: 331_000,
+        playlistPosition: 2521,
+      },
+      {
+        uri: null,
+        title: 'あおのらくがき',
+        artists: ['nano.RIPE'],
+        album: 'のんのんびよりでいず',
+        durationMs: 323_000,
+        playlistPosition: 2522,
+      },
+      {
+        uri: null,
+        title: 'おもいで',
+        artists: [
+          '宮内れんげ (CV.小岩井ことり)、一条 蛍 (CV.村川梨衣)、越谷夏海 (CV.佐倉綾音)、越谷小鞠 (CV.阿澄佳奈)',
+        ],
+        album: 'のんのんびよりでいず',
+        durationMs: 337_000,
+        playlistPosition: 2523,
+      },
+      {
+        uri: null,
+        title: 'つぎはぎもよう',
+        artists: ['nano.RIPE'],
+        album: 'のんのんびよりでいず',
+        durationMs: 272_000,
+        playlistPosition: 2524,
+      },
+      {
+        uri: null,
+        title: 'ただいま',
+        artists: [
+          '宮内れんげ (CV.小岩井ことり)、一条 蛍 (CV.村川梨衣)、越谷夏海 (CV.佐倉綾音)、越谷小鞠 (CV.阿澄佳奈)',
+        ],
+        album: 'のんのんびよりでいず',
+        durationMs: 291_000,
+        playlistPosition: 2525,
+      },
+    ];
+    const playlistCache: SpotifyPlaylistCache = {
+      playlistId: 'weeb',
+      fetchedAt: Date.now(),
+      tracks: catalogTracks.map(([id, title, artists, playlistPosition]) => ({
+        id,
+        isrc: null,
+        linkedFromIds: [],
+        metadata: {
+          title,
+          artists: [...artists],
+          album: 'のんのんびよりでいず',
+          durationMs: null,
+          playlistPosition,
+        },
+      })),
+      localTracks,
+    };
+    const themes = [
+      ['Nanairo Biyori (なないろびより)', 'nano.RIPE', ['2ntCDDs3W9Tl9aOuEQSiBa']],
+      ['Non Non Biyori (のんのん日和)', castArtists[0], ['7IQJiV7P4H53BQk5Lj6CmS']],
+      ['Kodama Kotodama (こだまことだま)', 'nano.RIPE', ['1XI88ElXasHMdjTu4liZCp']],
+      ['Okaeri (おかえり)', castArtists[0], ['6jFOkevc51LJX8gpZAmPln']],
+      ['Ao no Rakugaki (あおのらくがき)', 'nano.RIPE', ['0XcPSrDlTM13CNVESeD6T0']],
+      ['Omoide (おもいで)', castArtists[0], ['7mZ1p68OUfr5pd7JfjbPmE']],
+      ['Tsugihagi Moyou (つぎはぎもよう)', 'nano.RIPE', ['5zWfrDDWsz7gFwlpvpZtZs']],
+      ['Tadaima (ただいま)', castArtists[0], ['5nQHZXUCfCXZZEIc7gnEwg']],
+    ] as const;
+    const results = themes.map(([displayTitle, displayArtist, spotifyTrackIds]) =>
+      matchThemeRowToPlaylistDetails(
+        makeRow({
+          displayTitle,
+          displayArtist,
+          aniArtists: displayArtist === 'nano.RIPE' ? ['nano.RIPE'] : castArtists,
+          spotifyTrackIds: [...spotifyTrackIds],
+          hasResolvableTrackId: true,
+        }),
+        playlistCache,
+        LOCAL_FIRST,
+      ),
+    );
+
+    expect(results.map((result) => result.metadataMatch?.kind)).toEqual(
+      Array.from({ length: themes.length }, () => 'local'),
+    );
+    expect(results.map((result) => result.metadataMatch?.track.playlistPosition)).toEqual([
+      2517, 2518, 2519, 2521, 2522, 2523, 2524, 2525,
+    ]);
+  });
+
+  it('matches reused Non Non Biyori OVA themes without AniPlaylist artist aliases', () => {
+    const playlistCache = cacheWithLocalTracks([
+      {
+        uri: null,
+        title: 'なないろびより',
+        artists: ['nano.RIPE'],
+        album: 'のんのんびよりでいず',
+        durationMs: 268_000,
+        playlistPosition: 2517,
+      },
+      {
+        uri: null,
+        title: 'のんのん日和',
+        artists: [
+          '宮内れんげ(小岩井ことり),一条蛍(村川梨衣),越谷夏海(佐倉綾音),越谷小鞠(阿澄佳奈)',
+        ],
+        album: 'のんのん日和',
+        durationMs: 256_000,
+        playlistPosition: 2518,
+      },
+      {
+        uri: null,
+        title: 'こだまことだま',
+        artists: ['nano.RIPE'],
+        album: 'のんのんびよりでいず',
+        durationMs: 255_000,
+        playlistPosition: 2519,
+      },
+      {
+        uri: null,
+        title: 'おかえり',
+        artists: [
+          '宮内れんげ (CV.小岩井ことり)、一条 蛍 (CV.村川梨衣)、越谷夏海 (CV.佐倉綾音)、越谷小鞠 (CV.阿澄佳奈)',
+        ],
+        album: 'のんのんびよりでいず',
+        durationMs: 331_000,
+        playlistPosition: 2521,
+      },
+      {
+        uri: null,
+        title: 'つぎはぎもよう',
+        artists: ['nano.RIPE'],
+        album: 'のんのんびよりでいず',
+        durationMs: 272_000,
+        playlistPosition: 2524,
+      },
+      {
+        uri: null,
+        title: 'ただいま',
+        artists: [
+          '宮内れんげ (CV.小岩井ことり)、一条 蛍 (CV.村川梨衣)、越谷夏海 (CV.佐倉綾音)、越谷小鞠 (CV.阿澄佳奈)',
+        ],
+        album: 'のんのんびよりでいず',
+        durationMs: 291_000,
+        playlistPosition: 2525,
+      },
+    ]);
+    const ovaRows = [
+      makeRow({
+        displayTitle: 'Nanairo Biyori (なないろびより)',
+        displayArtist: 'nano.RIPE',
+      }),
+      makeRow({
+        type: 'Ending',
+        displayTitle: 'Non Non Biyori (のんのん日和)',
+        displayArtist:
+          'Renge Miyauchi (Kotori Koiwai), Hotaru Ichijou (Rie Murakawa), Natsumi Koshigaya (Ayane Sakura), Komari Koshigaya (Kana Asumi)',
+      }),
+      makeRow({
+        displayTitle: 'Kodama Kotodama (こだまことだま)',
+        displayArtist: 'nano.RIPE',
+      }),
+      makeRow({
+        type: 'Ending',
+        displayTitle: 'Okaeri (おかえり)',
+        displayArtist:
+          'Renge Miyauchi (Kotori Koiwai), Hotaru Ichijou (Rie Murakawa), Natsumi Koshigaya (Ayane Sakura), Komari Koshigaya (Kana Asumi)',
+      }),
+      makeRow({
+        displayTitle: 'Tsugihagi Moyou (つぎはぎもよう)',
+        displayArtist: 'nano.RIPE',
+      }),
+      makeRow({
+        type: 'Ending',
+        displayTitle: 'Tadaima (ただいま)',
+        displayArtist:
+          'Renge Miyauchi (CV: Kotori Koiwai), Hotaru Ichijou (CV: Rie Murakawa), Natsumi Koshigaya (CV: Ayane Sakura), Komari Koshigaya (CV: Kana Asumi)',
+      }),
+    ];
+
+    expect(
+      ovaRows.map(
+        (row) =>
+          matchThemeRowToPlaylistDetails(row, playlistCache, LOCAL_FIRST).metadataMatch
+            ?.track.playlistPosition,
+      ),
+    ).toEqual([2517, 2518, 2519, 2521, 2524, 2525]);
   });
 
   it('reuses row match results until the show or playlist revision changes', () => {
