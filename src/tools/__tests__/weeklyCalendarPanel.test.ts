@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+  formatCachedThemeSongMatchProgress,
   loadWeeklyCalendarForm,
   saveWeeklyCalendarForm,
   themeSongMatchesPlaylistFilter,
@@ -44,5 +45,13 @@ describe('themeSongMatchesPlaylistFilter', () => {
     expect(themeSongMatchesPlaylistFilter('in', 'out')).toBe(false);
     expect(themeSongMatchesPlaylistFilter('out', 'out')).toBe(true);
     expect(themeSongMatchesPlaylistFilter('unknown', 'out')).toBe(true);
+  });
+});
+
+describe('formatCachedThemeSongMatchProgress', () => {
+  it('shows completed and total ISRC lookups for cached songs', () => {
+    expect(
+      formatCachedThemeSongMatchProgress({ completed: 12, total: 37 }),
+    ).toBe('Loading cached theme songs… 12/37');
   });
 });

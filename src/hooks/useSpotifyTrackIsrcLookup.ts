@@ -11,6 +11,7 @@ import {
   ensureTrackIsrcsCached,
   getTrackIsrcStoreSnapshot,
 } from '../lib/spotify/spotifyTrackIsrcStore';
+import type { SpotifyTrackIsrcProgress } from '../lib/importers/anilist/themeSongs/spotifyIsrc';
 
 const EMPTY_TRACK_IDS: string[] = [];
 
@@ -37,6 +38,7 @@ function themeTrackIdsKey(rows: readonly MediaThemeSongRow[]): string {
 export type SpotifyTrackIsrcLookup = {
   lookup: ReadonlyMap<string, string>;
   ready: boolean;
+  progress: SpotifyTrackIsrcProgress | null;
   spotifyCountry: string | null;
 };
 
@@ -54,6 +56,7 @@ export function useSpotifyTrackIsrcLookup(
   );
   const [lookup, setLookup] = useState(() => getTrackIsrcStoreSnapshot());
   const [ready, setReady] = useState(true);
+  const [progress, setProgress] = useState<SpotifyTrackIsrcProgress | null>(null);
   const [spotifyCountry, setSpotifyCountry] = useState(
     () => getStoredSpotifyAuth()?.country ?? null,
   );
@@ -69,11 +72,13 @@ export function useSpotifyTrackIsrcLookup(
       setLookup(getTrackIsrcStoreSnapshot());
       setSpotifyCountry(getStoredSpotifyAuth()?.country ?? null);
       setReady(true);
+      setProgress(null);
       return;
     }
 
     let cancelled = false;
     setReady(false);
+    setProgress({ completed: 0, total: trackIds.length });
     void (async () => {
       const token = await ensureSpotifyAccessToken();
       if (cancelled) {
@@ -82,16 +87,22 @@ export function useSpotifyTrackIsrcLookup(
       if (!token) {
         setSpotifyCountry(null);
         setReady(true);
+        setProgress(null);
         return;
       }
       const [map, country] = await Promise.all([
-        ensureTrackIsrcsCached(trackIds, token),
+        ensureTrackIsrcsCached(trackIds, token, (nextProgress) => {
+          if (!cancelled) {
+            setProgress(nextProgress);
+          }
+        }),
         ensureSpotifyAccountCountry(token),
       ]);
       if (!cancelled) {
         setLookup(map);
         setSpotifyCountry(country);
         setReady(true);
+        setProgress(null);
       }
     })();
 
@@ -100,5 +111,5 @@ export function useSpotifyTrackIsrcLookup(
     };
   }, [authRevision, trackIdsKey]);
 
-  return { lookup, ready, spotifyCountry };
+  return { lookup, ready, progress, spotifyCountry };
 }

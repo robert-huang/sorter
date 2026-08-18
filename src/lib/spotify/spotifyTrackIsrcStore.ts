@@ -1,6 +1,9 @@
 import type { CachedPlaylistTrack } from './spotifyPlaylist';
 import { isSpotifyApiBanned } from './spotifyApi';
-import { fetchSpotifyIsrcByTrackIds } from '../importers/anilist/themeSongs/spotifyIsrc';
+import {
+  fetchSpotifyIsrcByTrackIds,
+  type SpotifyTrackIsrcProgressCallback,
+} from '../importers/anilist/themeSongs/spotifyIsrc';
 import {
   clearSpotifyTrackIsrcs,
   putSpotifyTrackIsrcs,
@@ -153,12 +156,25 @@ export function listPlaylistTracksMissingIsrc(tracks: readonly CachedPlaylistTra
 export async function ensureTrackIsrcsCached(
   trackIds: readonly string[],
   accessToken?: string | null,
+  onProgress?: SpotifyTrackIsrcProgressCallback,
 ): Promise<ReadonlyMap<string, string>> {
   await hydrateTrackIsrcStore();
   const store = getMemoryStore();
-  const missing = [...new Set(trackIds)].filter((id) => !store[id]);
+  const uniqueTrackIds = [...new Set(trackIds)];
+  const missing = uniqueTrackIds.filter((id) => !store[id]);
+  const cachedCount = uniqueTrackIds.length - missing.length;
+  onProgress?.({ completed: cachedCount, total: uniqueTrackIds.length });
   if (missing.length > 0 && !isSpotifyApiBanned('tracks')) {
-    const fetched = await fetchSpotifyIsrcByTrackIds(missing, accessToken);
+    const fetched = await fetchSpotifyIsrcByTrackIds(
+      missing,
+      accessToken,
+      ({ completed }) => {
+        onProgress?.({
+          completed: cachedCount + completed,
+          total: uniqueTrackIds.length,
+        });
+      },
+    );
     await mergeTrackIsrcsIntoStore(fetched);
   }
   return getTrackIsrcStoreSnapshot();

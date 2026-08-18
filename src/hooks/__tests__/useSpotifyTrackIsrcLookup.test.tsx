@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { MediaThemeSongRow } from '../../lib/importers/anilist/themeSongs/types';
 import { ensureSpotifyAccessToken } from '../../lib/spotify/spotifyAuth';
+import { ensureTrackIsrcsCached } from '../../lib/spotify/spotifyTrackIsrcStore';
 import { useSpotifyTrackIsrcLookup } from '../useSpotifyTrackIsrcLookup';
 
 vi.mock('../../lib/spotify/spotifyAuth', () => ({
@@ -114,5 +115,51 @@ describe('useSpotifyTrackIsrcLookup', () => {
     });
 
     expect(vi.mocked(ensureSpotifyAccessToken)).toHaveBeenCalledTimes(2);
+  });
+
+  it('exposes completed and total track lookups while cached songs load', async () => {
+    let finishLookup: (() => void) | null = null;
+    vi.mocked(ensureSpotifyAccessToken).mockResolvedValue('token');
+    vi.mocked(ensureTrackIsrcsCached).mockImplementation(
+      async (_trackIds, _token, onProgress) => {
+        onProgress?.({ completed: 2, total: 4 });
+        await new Promise<void>((resolve) => {
+          finishLookup = resolve;
+        });
+        return new Map();
+      },
+    );
+
+    function Probe() {
+      const { ready, progress } = useSpotifyTrackIsrcLookup([
+        makeRow(['track-a', 'track-b', 'track-c', 'track-d']),
+      ]);
+      return (
+        <div>
+          {ready || progress === null
+            ? 'ready'
+            : `${progress.completed}/${progress.total}`}
+        </div>
+      );
+    }
+
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root.render(<Probe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toBe('2/4');
+
+    await act(async () => {
+      finishLookup?.();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toBe('ready');
   });
 });

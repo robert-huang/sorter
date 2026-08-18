@@ -53,6 +53,7 @@ import {
 import { useSpotifyPlaylistCache } from '../../lib/spotify/useSpotifyPlaylistCache';
 import { useSpotifyTrackIsrcLookup } from '../../hooks/useSpotifyTrackIsrcLookup';
 import { useSpotifyLocalFileMatchPreference } from '../../hooks/useSpotifyLocalFileMatchPreference';
+import type { SpotifyTrackIsrcProgress } from '../../lib/importers/anilist/themeSongs/spotifyIsrc';
 import { ThemeSongRowC } from '../../components/themeSongRowC';
 import {
   DEFAULT_WEEKLY_CALENDAR_FORM,
@@ -142,6 +143,12 @@ export function themeSongMatchesPlaylistFilter(
     return true;
   }
   return filter === 'in' ? status === 'in' : status !== 'in';
+}
+
+export function formatCachedThemeSongMatchProgress(
+  progress: SpotifyTrackIsrcProgress,
+): string {
+  return `Loading cached theme songs… ${progress.completed}/${progress.total}`;
 }
 
 const NEXT_THEME_SONG_PLAYLIST_FILTER: Record<
@@ -433,6 +440,7 @@ function WeeklyCalendarThemeSongsPanel({
   refreshingCached,
   refreshingPending,
   loading,
+  isrcLookupProgress,
 }: {
   shows: WeeklyCalendarEntry[];
   themeSongCache: Map<number, MediaThemeSongsPayload>;
@@ -444,6 +452,7 @@ function WeeklyCalendarThemeSongsPanel({
   refreshingCached: boolean;
   refreshingPending: boolean;
   loading: boolean;
+  isrcLookupProgress: SpotifyTrackIsrcProgress | null;
 }) {
   const [playlistFilter, setPlaylistFilter] = useState<ThemeSongPlaylistFilter>('all');
 
@@ -524,6 +533,11 @@ function WeeklyCalendarThemeSongsPanel({
           </button>
         ) : null}
       </div>
+      {!loading && isrcLookupProgress !== null && isrcLookupProgress.total > 0 ? (
+        <p className="tool-muted" aria-live="polite">
+          {formatCachedThemeSongMatchProgress(isrcLookupProgress)}
+        </p>
+      ) : null}
       {loading ? (
         <p className="tool-muted">Loading cached theme songs…</p>
       ) : withCache.length === 0 ? (
@@ -897,6 +911,7 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
   const {
     lookup: trackIsrcLookup,
     ready: trackIsrcLookupReady,
+    progress: trackIsrcLookupProgress,
     spotifyCountry,
   } = useSpotifyTrackIsrcLookup(allCachedThemeRows);
 
@@ -1275,6 +1290,9 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
               refreshingCached={refreshingThemeSongsCached}
               refreshingPending={refreshingThemeSongsPending}
               loading={themeSongCacheLoading}
+              isrcLookupProgress={
+                trackIsrcLookupReady ? null : trackIsrcLookupProgress
+              }
             />
           ) : null}
         </>

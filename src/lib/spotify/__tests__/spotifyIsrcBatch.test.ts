@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fetchSpotifyIsrcByTrackIds } from '../../importers/anilist/themeSongs/spotifyIsrc';
+import {
+  TRACK_FETCH_CONCURRENCY,
+  fetchSpotifyIsrcByTrackIds,
+} from '../../importers/anilist/themeSongs/spotifyIsrc';
 import { spotifyApiFetch } from '../spotifyApi';
 import { _setSpotifyTrackIsrcPersistenceForTesting } from '../spotifyPlaylistCacheDb';
 import {
@@ -60,6 +63,49 @@ describe('fetchSpotifyIsrcByTrackIds', () => {
     );
     expect(result.get('track-a')).toBe('ISRC-track-a');
     expect(result.get('track-b')).toBe('ISRC-track-b');
+  });
+
+  it('limits parallel track lookups to five', async () => {
+    const pending: Array<() => void> = [];
+    let activeRequests = 0;
+    let maxActiveRequests = 0;
+    vi.mocked(spotifyApiFetch).mockImplementation(
+      (url: string) =>
+        new Promise<Response>((resolve) => {
+          activeRequests += 1;
+          maxActiveRequests = Math.max(maxActiveRequests, activeRequests);
+          const trackId = url.split('/tracks/')[1]?.split('?')[0] ?? '';
+          pending.push(() => {
+            activeRequests -= 1;
+            resolve({
+              ok: true,
+              json: async () => ({
+                id: trackId,
+                external_ids: { isrc: `ISRC-${trackId}` },
+              }),
+            } as Response);
+          });
+        }),
+    );
+    const trackIds = Array.from(
+      { length: TRACK_FETCH_CONCURRENCY + 1 },
+      (_, index) => `track-${index}`,
+    );
+
+    const lookup = fetchSpotifyIsrcByTrackIds(trackIds, 'token');
+
+    await vi.waitFor(() => {
+      expect(spotifyApiFetch).toHaveBeenCalledTimes(TRACK_FETCH_CONCURRENCY);
+    });
+    expect(TRACK_FETCH_CONCURRENCY).toBe(5);
+    expect(maxActiveRequests).toBe(TRACK_FETCH_CONCURRENCY);
+
+    pending.splice(0).forEach((resolve) => resolve());
+    await vi.waitFor(() => {
+      expect(spotifyApiFetch).toHaveBeenCalledTimes(trackIds.length);
+    });
+    pending.splice(0).forEach((resolve) => resolve());
+    await lookup;
   });
 
   it('skips API calls for IDs already in the local store', async () => {

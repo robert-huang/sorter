@@ -17,7 +17,16 @@ type SpotifyTrackResponse = {
 };
 
 /** Parallel `GET /tracks/{id}` lookups (batch `?ids=` removed Feb 2026). */
-const TRACK_FETCH_CONCURRENCY = 5;
+export const TRACK_FETCH_CONCURRENCY = 5;
+
+export type SpotifyTrackIsrcProgress = {
+  completed: number;
+  total: number;
+};
+
+export type SpotifyTrackIsrcProgressCallback = (
+  progress: SpotifyTrackIsrcProgress,
+) => void;
 
 async function fetchSpotifyTrackIsrc(
   trackId: string,
@@ -81,25 +90,39 @@ async function mapWithConcurrency<T, R>(
 export async function fetchSpotifyIsrcByTrackIds(
   trackIds: readonly string[],
   accessToken?: string | null,
+  onProgress?: SpotifyTrackIsrcProgressCallback,
 ): Promise<Map<string, string>> {
+  const uniqueTrackIds = [...new Set(trackIds)];
+  onProgress?.({ completed: 0, total: uniqueTrackIds.length });
   await hydrateTrackIsrcStore();
   const token = accessToken ?? (await ensureSpotifyAccessToken());
-  if (!token || trackIds.length === 0 || isSpotifyApiBanned('tracks')) {
+  if (!token || uniqueTrackIds.length === 0 || isSpotifyApiBanned('tracks')) {
     return new Map();
   }
 
   const out = new Map<string, string>();
-  for (const trackId of trackIds) {
+  for (const trackId of uniqueTrackIds) {
     const cached = getCachedTrackIsrc(trackId);
     if (cached) {
       out.set(trackId, cached);
     }
   }
+  onProgress?.({ completed: out.size, total: uniqueTrackIds.length });
 
-  const uncached = [...new Set(trackIds)].filter((trackId) => !getCachedTrackIsrc(trackId));
+  const uncached = uniqueTrackIds.filter((trackId) => !getCachedTrackIsrc(trackId));
   if (uncached.length > 0 && !isSpotifyApiBanned('tracks')) {
-    const rows = await mapWithConcurrency(uncached, TRACK_FETCH_CONCURRENCY, (trackId) =>
-      fetchSpotifyTrackIsrc(trackId, token),
+    let completed = out.size;
+    const rows = await mapWithConcurrency(
+      uncached,
+      TRACK_FETCH_CONCURRENCY,
+      async (trackId) => {
+        try {
+          return await fetchSpotifyTrackIsrc(trackId, token);
+        } finally {
+          completed += 1;
+          onProgress?.({ completed, total: uniqueTrackIds.length });
+        }
+      },
     );
     for (const row of rows) {
       if (row) {

@@ -13,7 +13,7 @@ import {
 } from './spotifyPlaylist';
 
 /** Tracks per backfill iteration — each ID is a separate `GET /tracks/{id}` call. */
-export const PLAYLIST_ISRC_BACKFILL_BATCH_SIZE = 10;
+export const PLAYLIST_ISRC_BACKFILL_BATCH_SIZE = 5;
 
 /** Pause between batched ISRC API calls during background backfill. */
 export const PLAYLIST_ISRC_BACKFILL_DELAY_MS = 250;
