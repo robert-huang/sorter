@@ -78,7 +78,7 @@ export function useSpotifyTrackIsrcLookup(
 
     let cancelled = false;
     setReady(false);
-    setProgress({ completed: 0, total: trackIds.length });
+    setProgress(null);
     void (async () => {
       const token = await ensureSpotifyAccessToken();
       if (cancelled) {

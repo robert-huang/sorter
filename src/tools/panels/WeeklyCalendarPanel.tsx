@@ -145,10 +145,64 @@ export function themeSongMatchesPlaylistFilter(
   return filter === 'in' ? status === 'in' : status !== 'in';
 }
 
-export function formatCachedThemeSongMatchProgress(
+export type ThemeSongCacheLoadProgress = {
+  completed: number;
+  total: number;
+};
+
+type ThemeSongCacheBatchLoader = (
+  mediaIds: readonly number[],
+) => Promise<Map<number, MediaThemeSongsPayload>>;
+
+export type ThemeSongCacheBatchProgress = ThemeSongCacheLoadProgress & {
+  cache: Map<number, MediaThemeSongsPayload>;
+};
+
+export const THEME_SONG_CACHE_LOAD_CHUNK_SIZE = 50;
+
+export async function loadCachedThemeSongsInChunks(
+  mediaIds: readonly number[],
+  loadBatch: ThemeSongCacheBatchLoader,
+  onProgress: (progress: ThemeSongCacheBatchProgress) => void,
+): Promise<Map<number, MediaThemeSongsPayload>> {
+  const uniqueMediaIds = [...new Set(mediaIds)].filter((mediaId) => mediaId > 0);
+  const cache = new Map<number, MediaThemeSongsPayload>();
+  onProgress({ completed: 0, total: uniqueMediaIds.length, cache: new Map() });
+
+  for (
+    let index = 0;
+    index < uniqueMediaIds.length;
+    index += THEME_SONG_CACHE_LOAD_CHUNK_SIZE
+  ) {
+    const chunk = uniqueMediaIds.slice(
+      index,
+      index + THEME_SONG_CACHE_LOAD_CHUNK_SIZE,
+    );
+    const loaded = await loadBatch(chunk);
+    for (const [mediaId, payload] of loaded) {
+      cache.set(mediaId, payload);
+    }
+    onProgress({
+      completed: Math.min(index + chunk.length, uniqueMediaIds.length),
+      total: uniqueMediaIds.length,
+      cache: new Map(cache),
+    });
+  }
+
+  return cache;
+}
+
+export function formatCachedThemeSongLoadProgress(
+  progress: ThemeSongCacheLoadProgress,
+): string {
+  const unit = progress.total === 1 ? 'show' : 'shows';
+  return `Loading cached theme songs… ${progress.completed}/${progress.total} ${unit}`;
+}
+
+export function formatSpotifyTrackMatchProgress(
   progress: SpotifyTrackIsrcProgress,
 ): string {
-  return `Loading cached theme songs… ${progress.completed}/${progress.total}`;
+  return `Matching Spotify tracks… ${progress.completed}/${progress.total}`;
 }
 
 const NEXT_THEME_SONG_PLAYLIST_FILTER: Record<
@@ -440,6 +494,7 @@ function WeeklyCalendarThemeSongsPanel({
   refreshingCached,
   refreshingPending,
   loading,
+  cacheLoadProgress,
   isrcLookupProgress,
 }: {
   shows: WeeklyCalendarEntry[];
@@ -452,6 +507,7 @@ function WeeklyCalendarThemeSongsPanel({
   refreshingCached: boolean;
   refreshingPending: boolean;
   loading: boolean;
+  cacheLoadProgress: ThemeSongCacheLoadProgress | null;
   isrcLookupProgress: SpotifyTrackIsrcProgress | null;
 }) {
   const [playlistFilter, setPlaylistFilter] = useState<ThemeSongPlaylistFilter>('all');
@@ -499,6 +555,12 @@ function WeeklyCalendarThemeSongsPanel({
     playlistCache === null
       ? 'Select a Spotify playlist to filter theme songs'
       : THEME_SONG_PLAYLIST_FILTER_LABELS[playlistFilter];
+  let cacheStatusMessage: string | null = null;
+  if (!loading && withCache.length === 0) {
+    cacheStatusMessage = `No cached theme songs for shows in this chart. Open a show's detail modal to load them.`;
+  } else if (!loading && visibleCachedShows.length === 0) {
+    cacheStatusMessage = 'No cached theme songs match the playlist filter.';
+  }
 
   return (
     <section className="tool-weekly-theme-songs-panel">
@@ -533,23 +595,20 @@ function WeeklyCalendarThemeSongsPanel({
           </button>
         ) : null}
       </div>
-      {!loading && isrcLookupProgress !== null && isrcLookupProgress.total > 0 ? (
+      {loading && cacheLoadProgress !== null ? (
         <p className="tool-muted" aria-live="polite">
-          {formatCachedThemeSongMatchProgress(isrcLookupProgress)}
+          {formatCachedThemeSongLoadProgress(cacheLoadProgress)}
         </p>
       ) : null}
-      {loading ? (
-        <p className="tool-muted">Loading cached theme songs…</p>
-      ) : withCache.length === 0 ? (
-        <p className="tool-muted">
-          No cached theme songs for shows in this chart. Open a show&apos;s detail modal to load
-          them.
+      {!loading && isrcLookupProgress !== null && isrcLookupProgress.total > 0 ? (
+        <p className="tool-muted" aria-live="polite">
+          {formatSpotifyTrackMatchProgress(isrcLookupProgress)}
         </p>
-      ) : visibleCachedShows.length === 0 ? (
-        <p className="tool-muted">
-          No cached theme songs match the playlist filter.
-        </p>
-      ) : (
+      ) : null}
+      {cacheStatusMessage !== null ? (
+        <p className="tool-muted">{cacheStatusMessage}</p>
+      ) : null}
+      {visibleCachedShows.length > 0 ? (
         <div className="tool-weekly-theme-songs-groups">
           {visibleCachedShows.map(({ show, rows }) => {
             return (
@@ -570,7 +629,7 @@ function WeeklyCalendarThemeSongsPanel({
             );
           })}
         </div>
-      )}
+      ) : null}
       {!loading && withoutCache.length > 0 ? (
         <div className="tool-weekly-theme-songs-pending">
           <p className="tool-weekly-theme-songs-pending-label">
@@ -810,6 +869,8 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
   const [loadedThemeSongCacheKey, setLoadedThemeSongCacheKey] = useState<string | null>(
     null,
   );
+  const [themeSongCacheLoadProgress, setThemeSongCacheLoadProgress] =
+    useState<ThemeSongCacheLoadProgress | null>(null);
   const [refreshingThemeSongsCached, setRefreshingThemeSongsCached] = useState(false);
   const [refreshingThemeSongsPending, setRefreshingThemeSongsPending] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -890,6 +951,21 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
     toolsPreferences.weeklyCalendarShowUnscheduledColumn,
   ]);
 
+  const themeSongCacheRequest = useMemo(() => {
+    if (!form.showThemeSongs || result?.kind !== 'columns') {
+      return null;
+    }
+    const mediaIds = collectWeeklyCalendarMediaIds(result);
+    return {
+      mediaIds,
+      key: `${dbSyncRevision}:${mediaIds.join(',')}`,
+    };
+  }, [dbSyncRevision, form.showThemeSongs, result]);
+
+  const themeSongCacheLoading =
+    themeSongCacheRequest !== null &&
+    loadedThemeSongCacheKey !== themeSongCacheRequest.key;
+
   const themeSongCounts = useMemo(() => {
     const counts = new Map<number, number>();
     for (const [mediaId, payload] of themeSongCache) {
@@ -901,12 +977,15 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
   }, [themeSongCache]);
 
   const allCachedThemeRows = useMemo(() => {
+    if (themeSongCacheLoading) {
+      return [];
+    }
     const rows: MediaThemeSongRow[] = [];
     for (const payload of themeSongCache.values()) {
       rows.push(...payload.rows);
     }
     return rows;
-  }, [themeSongCache]);
+  }, [themeSongCache, themeSongCacheLoading]);
 
   const {
     lookup: trackIsrcLookup,
@@ -932,35 +1011,43 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
     return collectWeeklyCalendarShows(result);
   }, [result]);
 
-  const themeSongCacheRequest = useMemo(() => {
-    if (!form.showThemeSongs || result?.kind !== 'columns') {
-      return null;
-    }
-    const mediaIds = collectWeeklyCalendarMediaIds(result);
-    return {
-      mediaIds,
-      key: `${dbSyncRevision}:${mediaIds.join(',')}`,
-    };
-  }, [dbSyncRevision, form.showThemeSongs, result]);
-
-  const themeSongCacheLoading =
-    themeSongCacheRequest !== null &&
-    loadedThemeSongCacheKey !== themeSongCacheRequest.key;
-
   useEffect(() => {
     if (!themeSongCacheRequest) {
       setThemeSongCache(new Map());
       setLoadedThemeSongCacheKey(null);
+      setThemeSongCacheLoadProgress(null);
       return;
     }
     const { key, mediaIds } = themeSongCacheRequest;
     let cancelled = false;
-    void productionReads.getMediaThemeSongsExpansionsBatch(mediaIds).then((cache) => {
-      if (!cancelled) {
-        setThemeSongCache(cache);
-        setLoadedThemeSongCacheKey(key);
-      }
-    });
+    setError(null);
+    void loadCachedThemeSongsInChunks(
+      mediaIds,
+      (chunk) => productionReads.getMediaThemeSongsExpansionsBatch(chunk),
+      ({ cache, completed, total }) => {
+        if (!cancelled) {
+          setThemeSongCache(cache);
+          setThemeSongCacheLoadProgress({ completed, total });
+        }
+      },
+    )
+      .then(() => {
+        if (!cancelled) {
+          setLoadedThemeSongCacheKey(key);
+          setThemeSongCacheLoadProgress(null);
+        }
+      })
+      .catch((loadError: unknown) => {
+        if (!cancelled) {
+          setError(
+            loadError instanceof Error
+              ? loadError.message
+              : 'Failed to load cached theme songs.',
+          );
+          setLoadedThemeSongCacheKey(key);
+          setThemeSongCacheLoadProgress(null);
+        }
+      });
     return () => {
       cancelled = true;
     };
@@ -1290,6 +1377,7 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
               refreshingCached={refreshingThemeSongsCached}
               refreshingPending={refreshingThemeSongsPending}
               loading={themeSongCacheLoading}
+              cacheLoadProgress={themeSongCacheLoadProgress}
               isrcLookupProgress={
                 trackIsrcLookupReady ? null : trackIsrcLookupProgress
               }

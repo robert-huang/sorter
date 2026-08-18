@@ -117,6 +117,50 @@ describe('useSpotifyTrackIsrcLookup', () => {
     expect(vi.mocked(ensureSpotifyAccessToken)).toHaveBeenCalledTimes(2);
   });
 
+  it('does not show a misleading zero counter while the local ISRC cache hydrates', async () => {
+    let finishLookup: (() => void) | null = null;
+    vi.mocked(ensureSpotifyAccessToken).mockResolvedValue('token');
+    vi.mocked(ensureTrackIsrcsCached).mockImplementation(async () => {
+      await new Promise<void>((resolve) => {
+        finishLookup = resolve;
+      });
+      return new Map();
+    });
+
+    function Probe() {
+      const { ready, progress } = useSpotifyTrackIsrcLookup([
+        makeRow(['track-a', 'track-b']),
+      ]);
+      let label = 'ready';
+      if (!ready) {
+        label =
+          progress === null
+            ? 'hydrating'
+            : `${progress.completed}/${progress.total}`;
+      }
+      return <div>{label}</div>;
+    }
+
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root.render(<Probe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toBe('hydrating');
+
+    await act(async () => {
+      finishLookup?.();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toBe('ready');
+  });
+
   it('exposes completed and total track lookups while cached songs load', async () => {
     let finishLookup: (() => void) | null = null;
     vi.mocked(ensureSpotifyAccessToken).mockResolvedValue('token');
