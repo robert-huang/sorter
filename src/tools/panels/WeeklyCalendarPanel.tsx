@@ -159,7 +159,8 @@ export type ThemeSongCacheBatchProgress = ThemeSongCacheLoadProgress & {
   cache: Map<number, MediaThemeSongsPayload>;
 };
 
-export const THEME_SONG_CACHE_LOAD_CHUNK_SIZE = 50;
+// Balance worker round-trip throughput with frequent visible progress updates.
+export const THEME_SONG_CACHE_LOAD_CHUNK_SIZE = 25;
 
 export async function loadCachedThemeSongsInChunks(
   mediaIds: readonly number[],

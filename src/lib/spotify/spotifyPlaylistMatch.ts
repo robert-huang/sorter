@@ -52,6 +52,7 @@ type IndexedPlaylistMetadataTrack = {
   match: PlaylistMetadataMatch;
   normalizedTitle: string;
   artistCandidates: string[];
+  hasArtistEnsemble: boolean;
   identity: string;
 };
 
@@ -67,7 +68,7 @@ const METADATA_ARTIST_THRESHOLD = 0.78;
 const METADATA_TITLE_ONLY_THRESHOLD = 0.94;
 const METADATA_MATCH_MARGIN = 0.04;
 const DISTINCTIVE_EXACT_TITLE_MIN_LENGTH = 8;
-const DISTINCTIVE_EXACT_NON_LATIN_TITLE_MIN_LENGTH = 4;
+const DISTINCTIVE_EXACT_NON_LATIN_ENSEMBLE_TITLE_MIN_LENGTH = 4;
 const MAX_RESULT_CACHE_ENTRIES = 10_000;
 const TRAILING_VERSION_CREDIT = /\s*[\(（]([^()（）]+)[\)）]\s*$/u;
 const VERSION_CREDIT_SUFFIX =
@@ -239,6 +240,10 @@ function splitArtistSegments(value: string): string[] {
     .flatMap((segment) => splitMiddleDotArtists(segment));
 }
 
+function hasArtistEnsemble(values: readonly string[]): boolean {
+  return values.some((value) => splitArtistSegments(value).length > 1);
+}
+
 function collectArtistExpressionVariants(
   expression: string,
   variants: Set<string>,
@@ -332,7 +337,11 @@ function artistScriptsAreIncomparable(
   return [...leftScripts].every((script) => !rightScripts.has(script));
 }
 
-function exactTitleCanBridgeArtistScripts(title: string): boolean {
+function exactTitleCanBridgeArtistScripts(
+  title: string,
+  rowHasArtistEnsemble: boolean,
+  trackHasArtistEnsemble: boolean,
+): boolean {
   const length = [...title.replace(/\s+/gu, '')].length;
   if (length >= DISTINCTIVE_EXACT_TITLE_MIN_LENGTH) {
     return true;
@@ -340,7 +349,12 @@ function exactTitleCanBridgeArtistScripts(title: string): boolean {
   const hasNonLatinScript = ARTIST_SCRIPT_PATTERNS.some(
     ({ script, pattern }) => script !== 'latin' && pattern.test(title),
   );
-  return hasNonLatinScript && length >= DISTINCTIVE_EXACT_NON_LATIN_TITLE_MIN_LENGTH;
+  return (
+    hasNonLatinScript &&
+    rowHasArtistEnsemble &&
+    trackHasArtistEnsemble &&
+    length >= DISTINCTIVE_EXACT_NON_LATIN_ENSEMBLE_TITLE_MIN_LENGTH
+  );
 }
 
 function rowTitleCandidates(row: MediaThemeSongRow): string[] {
@@ -372,6 +386,7 @@ function playlistTrackArtistCandidates(track: CachedPlaylistTrackMetadata): stri
 function scorePlaylistTrackMetadata(
   titleCandidates: readonly string[],
   artistCandidates: readonly string[],
+  rowHasArtistEnsemble: boolean,
   indexedTrack: IndexedPlaylistMetadataTrack,
 ): ScoredPlaylistTrack | null {
   metadataScoreEvaluationCount += 1;
@@ -386,7 +401,11 @@ function scorePlaylistTrackMetadata(
   if (artistScore != null) {
     if (
       titleScore === 1 &&
-      exactTitleCanBridgeArtistScripts(playlistTitle) &&
+      exactTitleCanBridgeArtistScripts(
+        playlistTitle,
+        rowHasArtistEnsemble,
+        indexedTrack.hasArtistEnsemble,
+      ) &&
       artistScriptsAreIncomparable(artistCandidates, playlistArtists)
     ) {
       // Let exact distinctive titles bridge Romanized/Japanese tags; the
@@ -451,6 +470,8 @@ function indexPlaylistMetadataTrack(
     match,
     normalizedTitle,
     artistCandidates,
+    hasArtistEnsemble:
+      match.track.artists.length > 1 || hasArtistEnsemble(match.track.artists),
     identity: `${normalizedTitle}\u0000${[...artistCandidates].sort().join('\u0000')}`,
   };
 }
@@ -491,8 +512,15 @@ function findPlaylistMetadataMatch(
     return null;
   }
   const artists = rowArtistCandidates(row);
+  const rowHasArtistEnsemble = hasArtistEnsemble([
+    row.displayArtist ?? '',
+    row.malArtist ?? '',
+    ...(row.aniArtists ?? []),
+  ]);
   const candidates = playlistTracks
-    .map((track) => scorePlaylistTrackMetadata(titles, artists, track))
+    .map((track) =>
+      scorePlaylistTrackMetadata(titles, artists, rowHasArtistEnsemble, track),
+    )
     .filter((candidate): candidate is ScoredPlaylistTrack => candidate !== null)
     .sort(
       (a, b) =>

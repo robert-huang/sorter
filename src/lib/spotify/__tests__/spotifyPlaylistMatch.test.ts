@@ -649,6 +649,38 @@ describe('matchThemeRowToPlaylist', () => {
     expect(result).toEqual({ status: 'unknown', metadataMatch: null });
   });
 
+  it.each(['Opening', 'Ending'] as const)(
+    'does not match Oshi no Ko %s to the Ai character song at playlist position 4158',
+    (type) => {
+      const result = matchThemeRowToPlaylistDetails(
+        makeRow({
+          type,
+          displayTitle: 'Idol (アイドル)',
+          displayArtist: 'YOASOBI',
+          malTitle: 'Idol (アイドル)',
+          malArtist: 'YOASOBI',
+          aniTitles: ['Idol', 'アイドル'],
+          aniArtists: ['YOASOBI'],
+          spotifyTrackIds: ['7ovUcF5uHTBRzUpB6ZOmvt'],
+          hasResolvableTrackId: true,
+        }),
+        cacheWithLocalTracks([
+          {
+            uri: 'spotify:local:アイ（CV：高橋李依）:「推しの子」:アイドル:214',
+            title: 'アイドル',
+            artists: ['アイ（CV：高橋李依）'],
+            album: '「推しの子」',
+            durationMs: 214_000,
+            playlistPosition: 4158,
+          },
+        ]),
+        LOCAL_FIRST,
+      );
+
+      expect(result).toEqual({ status: 'out', metadataMatch: null });
+    },
+  );
+
   it('uses MAL and AniPlaylist variants for conservative fuzzy local matching', () => {
     const localTrack = {
       uri: 'spotify:local:Younha:Bleach:Houkibosi:248',
