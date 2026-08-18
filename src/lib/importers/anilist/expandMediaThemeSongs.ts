@@ -231,7 +231,11 @@ async function persistThemeSongsExpansion(
     },
   ]);
   if (ctx.onDirtyIncrement) {
-    await ctx.onDirtyIncrement();
+    await ctx.onDirtyIncrement({
+      kind: 'media-theme-songs',
+      mediaId,
+      payload,
+    });
   }
 }
 

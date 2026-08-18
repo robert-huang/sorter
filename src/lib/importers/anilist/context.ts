@@ -29,6 +29,7 @@ import {
   markAnilistAccountInvalid,
 } from './anilistAuth';
 import type { AnilistProgressReporter } from './progress';
+import type { MediaThemeSongsPayload } from './themeSongs/types';
 import { executeAnilistQuery, type ExecuteAnilistQueryOptions } from './transport';
 
 export type SqlBindable = SqlParam;
@@ -61,6 +62,14 @@ export type AnilistExecuteQuery = <T>(
   variables: Record<string, unknown>,
 ) => Promise<T | null>;
 
+export type AnilistDbChange =
+  | {
+      kind: 'media-theme-songs';
+      mediaId: number;
+      payload: MediaThemeSongsPayload;
+    }
+  | { kind: 'unrelated' };
+
 export interface AnilistImportContext {
   executeQuery: AnilistExecuteQuery;
   db: AnilistDbExecutor;
@@ -77,7 +86,7 @@ export interface AnilistImportContext {
    * (lazy detail expansion, per-entry refresh). The Phase D cloud panel
    * increments a "N pending changes" counter from here.
    */
-  onDirtyIncrement?: () => Promise<void> | void;
+  onDirtyIncrement?: (change?: AnilistDbChange) => Promise<void> | void;
   /**
    * Synchronous progress callback fired by importers so the UI can
    * surface "fetching page 3…" / "writing 412 rows…" instead of a

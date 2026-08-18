@@ -13,10 +13,13 @@ import { dbSyncErrorMessage } from '../lib/db/dbSyncErrorMessage';
 import { pullDbFromDrive, pushDbToDrive } from '../lib/db/sync';
 import { recordSourceDbDirtyWrite } from '../lib/db/syncManifest';
 import { ANILIST_SOURCE_ID } from '../lib/importers/anilist/anilistSource';
+import type { AnilistDbChange } from '../lib/importers/anilist/context';
 import { handleAnilistAuthRedirect } from '../lib/importers/anilist/anilistAuth';
 import { configureAnilistRunnerHooks } from '../lib/importers/anilist/runners';
 import { InFlightTracker } from '../lib/inFlightTracker';
 import { isAutosaveAvailable } from '../lib/storage';
+
+export type SourceDbSyncChange = AnilistDbChange | { kind: 'all' };
 
 export interface SourceDbSyncControls {
   autosaveAvailable: boolean;
@@ -30,6 +33,7 @@ export interface SourceDbSyncControls {
   dbPullingIds: ReadonlySet<string>;
   sourceDbErrors: Record<string, string>;
   dbSyncRevision: number;
+  dbSyncChange: SourceDbSyncChange;
   /** Ad-hoc local DB write — bumps pending counter and refreshes sync UI. */
   bumpSourceDbDirty: (sourceId: string) => void;
   /** Refresh sync UI after something else already recorded a dirty write. */
@@ -60,6 +64,9 @@ export function useSourceDbSync(): SourceDbSyncControls {
     {},
   );
   const [dbSyncRevision, setDbSyncRevision] = useState(0);
+  const [dbSyncChange, setDbSyncChange] = useState<SourceDbSyncChange>({
+    kind: 'all',
+  });
 
   const dbPushTrackerRef = useRef(new InFlightTracker());
   const dbPullTrackerRef = useRef(new InFlightTracker());
@@ -108,14 +115,23 @@ export function useSourceDbSync(): SourceDbSyncControls {
     };
   }, [cloudAvailable]);
 
-  const bumpSourceDbDirty = useCallback((sourceId: string) => {
-    recordSourceDbDirtyWrite(sourceId);
-    setDbSyncRevision((r) => r + 1);
+  const bumpDbSync = useCallback((change: SourceDbSyncChange) => {
+    setDbSyncChange(change);
+    setDbSyncRevision((revision) => revision + 1);
   }, []);
 
-  const refreshDbSyncRevision = useCallback(() => {
-    setDbSyncRevision((r) => r + 1);
-  }, []);
+  const bumpSourceDbDirty = useCallback(
+    (sourceId: string) => {
+      recordSourceDbDirtyWrite(sourceId);
+      bumpDbSync({ kind: 'unrelated' });
+    },
+    [bumpDbSync],
+  );
+
+  const refreshDbSyncRevision = useCallback(
+    () => bumpDbSync({ kind: 'unrelated' }),
+    [bumpDbSync],
+  );
 
   const onDbPushSource = useCallback(
     (sourceId: string) => {
@@ -130,20 +146,20 @@ export function useSourceDbSync(): SourceDbSyncControls {
       void (async () => {
         try {
           await pushDbToDrive(sourceId);
-          setDbSyncRevision((r) => r + 1);
+          bumpDbSync({ kind: 'unrelated' });
         } catch (err) {
           setSourceDbErrors((prev) => ({
             ...prev,
             [sourceId]: dbSyncErrorMessage(err),
           }));
-          setDbSyncRevision((r) => r + 1);
+          bumpDbSync({ kind: 'unrelated' });
         } finally {
           dbPushTrackerRef.current.release(sourceId);
           setDbPushingIds(dbPushTrackerRef.current.snapshot());
         }
       })();
     },
-    [autosaveAvailable, cloudStatus],
+    [autosaveAvailable, bumpDbSync, cloudStatus],
   );
 
   const onDbPullSource = useCallback(
@@ -159,31 +175,31 @@ export function useSourceDbSync(): SourceDbSyncControls {
       void (async () => {
         try {
           await pullDbFromDrive(sourceId);
-          setDbSyncRevision((r) => r + 1);
+          bumpDbSync({ kind: 'all' });
         } catch (err) {
           setSourceDbErrors((prev) => ({
             ...prev,
             [sourceId]: dbSyncErrorMessage(err),
           }));
-          setDbSyncRevision((r) => r + 1);
+          bumpDbSync({ kind: 'unrelated' });
         } finally {
           dbPullTrackerRef.current.release(sourceId);
           setDbPullingIds(dbPullTrackerRef.current.snapshot());
         }
       })();
     },
-    [autosaveAvailable, cloudStatus],
+    [autosaveAvailable, bumpDbSync, cloudStatus],
   );
 
   useEffect(() => {
     configureAnilistRunnerHooks({
       onAutoPushRequested: () => onDbPushSource(ANILIST_SOURCE_ID),
-      onDirtyBumped: () => setDbSyncRevision((r) => r + 1),
+      onDirtyBumped: (_newCount, change) => bumpDbSync(change),
     });
     return () => {
       configureAnilistRunnerHooks({});
     };
-  }, [onDbPushSource]);
+  }, [bumpDbSync, onDbPushSource]);
 
   const onCloudSignIn = useCallback(() => {
     setCloudActionError(null);
@@ -227,6 +243,7 @@ export function useSourceDbSync(): SourceDbSyncControls {
     dbPullingIds,
     sourceDbErrors,
     dbSyncRevision,
+    dbSyncChange,
     bumpSourceDbDirty,
     refreshDbSyncRevision,
     onDbPushSource,

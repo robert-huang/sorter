@@ -8,6 +8,7 @@ import {
   loadWeeklyCalendarForm,
   saveWeeklyCalendarForm,
   themeSongMatchesPlaylistFilter,
+  updateThemeSongCacheEntry,
 } from '../panels/WeeklyCalendarPanel';
 import {
   buildWeeklyCalendarCustomSeasonYearOptions,
@@ -101,5 +102,35 @@ describe('cached theme-song loading', () => {
     expect(
       formatSpotifyTrackMatchProgress({ completed: 1200, total: 6752 }),
     ).toBe('Matching Spotify tracks… 1200/6752');
+  });
+
+  it('updates one cached show without replacing the rest of the cache', () => {
+    const originalPayload: MediaThemeSongsPayload = {
+      version: 1,
+      aniplaylistAvailable: true,
+      rows: [],
+    };
+    const updatedPayload: MediaThemeSongsPayload = {
+      ...originalPayload,
+      excludedRowKeys: ['Opening\u00000\u0000Idol\u0000YOASOBI'],
+    };
+    const otherPayload: MediaThemeSongsPayload = {
+      ...originalPayload,
+      aniplaylistAvailable: false,
+    };
+    const cache = new Map([
+      [150672, originalPayload],
+      [163134, otherPayload],
+    ]);
+
+    const updatedCache = updateThemeSongCacheEntry(
+      cache,
+      150672,
+      updatedPayload,
+    );
+
+    expect(updatedCache.get(150672)).toBe(updatedPayload);
+    expect(updatedCache.get(163134)).toBe(otherPayload);
+    expect(cache.get(150672)).toBe(originalPayload);
   });
 });

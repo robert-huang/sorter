@@ -19,6 +19,7 @@ const DB_SYNC: SourceDbSyncControls = {
   dbPullingIds: new Set(),
   sourceDbErrors: {},
   dbSyncRevision: 0,
+  dbSyncChange: { kind: 'all' },
   bumpSourceDbDirty: vi.fn(),
   refreshDbSyncRevision: vi.fn(),
   onDbPushSource: vi.fn(),

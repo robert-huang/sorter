@@ -111,6 +111,11 @@ describe('expandMediaThemeSongs', () => {
     );
     expect(expansionRows).toEqual([{ media_id: 42, mal_id: null }]);
     expect(dirty).toHaveBeenCalledTimes(1);
+    expect(dirty).toHaveBeenCalledWith({
+      kind: 'media-theme-songs',
+      mediaId: 42,
+      payload: expect.objectContaining({ rows: [] }),
+    });
   });
 
   it('normalizes shared aliases when reading an existing cached payload', async () => {

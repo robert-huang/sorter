@@ -97,6 +97,7 @@ import { useCurrentAnilistFavourites } from '../useCurrentAnilistFavourites';
 import { useToolsPreferences } from '../../hooks/useToolsPreferences';
 
 const LS_KEY = 'anime-tools-weekly-calendar-form';
+const DEFAULT_DB_SYNC_CHANGE = { kind: 'all' } as const;
 
 type PersistedWeeklyCalendarForm = Pick<
   WeeklyCalendarForm,
@@ -190,6 +191,16 @@ export async function loadCachedThemeSongsInChunks(
   }
 
   return cache;
+}
+
+export function updateThemeSongCacheEntry(
+  cache: ReadonlyMap<number, MediaThemeSongsPayload>,
+  mediaId: number,
+  payload: MediaThemeSongsPayload,
+): Map<number, MediaThemeSongsPayload> {
+  const next = new Map(cache);
+  next.set(mediaId, payload);
+  return next;
 }
 
 export function formatCachedThemeSongLoadProgress(
@@ -853,7 +864,11 @@ export function WeeklyCalendarColumnsView({
   );
 }
 
-export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelProps) {
+export function WeeklyCalendarPanel({
+  onOpenMedia,
+  dbSyncRevision,
+  dbSyncChange = DEFAULT_DB_SYNC_CHANGE,
+}: ToolPanelProps) {
   const playlistCache = useSpotifyPlaylistCache();
   const { mode: localFileMatchMode } = useSpotifyLocalFileMatchPreference();
   const favourites = useCurrentAnilistFavourites();
@@ -873,9 +888,15 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
     useState<ThemeSongCacheLoadProgress | null>(null);
   const [refreshingThemeSongsCached, setRefreshingThemeSongsCached] = useState(false);
   const [refreshingThemeSongsPending, setRefreshingThemeSongsPending] = useState(false);
+  const [themeSongFullSyncRevision, setThemeSongFullSyncRevision] = useState(
+    dbSyncChange.kind === 'all' ? dbSyncRevision : 0,
+  );
   const abortRef = useRef<AbortController | null>(null);
   const chartSessionRef = useRef(0);
   const fetchedIdentityRef = useRef<WeeklyCalendarFetchIdentity | null>(null);
+  const themeSongOverridesRef = useRef(
+    new Map<number, MediaThemeSongsPayload>(),
+  );
 
   const onAfterListRefresh = useCallback((username: string) => {
     bustWeeklyCalendarUserListMemo(username);
@@ -958,9 +979,9 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
     const mediaIds = collectWeeklyCalendarMediaIds(result);
     return {
       mediaIds,
-      key: `${dbSyncRevision}:${mediaIds.join(',')}`,
+      key: `${themeSongFullSyncRevision}:${mediaIds.join(',')}`,
     };
-  }, [dbSyncRevision, form.showThemeSongs, result]);
+  }, [form.showThemeSongs, result, themeSongFullSyncRevision]);
 
   const themeSongCacheLoading =
     themeSongCacheRequest !== null &&
@@ -1012,21 +1033,56 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
   }, [result]);
 
   useEffect(() => {
+    if (dbSyncChange.kind === 'all') {
+      setThemeSongFullSyncRevision(dbSyncRevision);
+    }
+  }, [dbSyncChange, dbSyncRevision]);
+
+  useEffect(() => {
+    if (
+      dbSyncChange.kind !== 'media-theme-songs' ||
+      !themeSongCacheRequest?.mediaIds.includes(dbSyncChange.mediaId)
+    ) {
+      return;
+    }
+    themeSongOverridesRef.current.set(
+      dbSyncChange.mediaId,
+      dbSyncChange.payload,
+    );
+    setThemeSongCache((cache) =>
+      updateThemeSongCacheEntry(
+        cache,
+        dbSyncChange.mediaId,
+        dbSyncChange.payload,
+      ),
+    );
+  }, [dbSyncChange, dbSyncRevision, themeSongCacheRequest]);
+
+  useEffect(() => {
     if (!themeSongCacheRequest) {
       setThemeSongCache(new Map());
       setLoadedThemeSongCacheKey(null);
       setThemeSongCacheLoadProgress(null);
+      themeSongOverridesRef.current.clear();
       return;
     }
     const { key, mediaIds } = themeSongCacheRequest;
+    const requestedMediaIds = new Set(mediaIds);
     let cancelled = false;
+    themeSongOverridesRef.current.clear();
     setError(null);
     void loadCachedThemeSongsInChunks(
       mediaIds,
       (chunk) => productionReads.getMediaThemeSongsExpansionsBatch(chunk),
       ({ cache, completed, total }) => {
         if (!cancelled) {
-          setThemeSongCache(cache);
+          const cacheWithOverrides = new Map(cache);
+          for (const [mediaId, payload] of themeSongOverridesRef.current) {
+            if (requestedMediaIds.has(mediaId)) {
+              cacheWithOverrides.set(mediaId, payload);
+            }
+          }
+          setThemeSongCache(cacheWithOverrides);
           setThemeSongCacheLoadProgress({ completed, total });
         }
       },
@@ -1069,11 +1125,9 @@ export function WeeklyCalendarPanel({ onOpenMedia, dbSyncRevision }: ToolPanelPr
             invalidateThemeSongPlaylistMatches(mediaId);
             const expansion = await productionReads.getMediaThemeSongsExpansion(mediaId);
             if (expansion) {
-              setThemeSongCache((prev) => {
-                const next = new Map(prev);
-                next.set(mediaId, expansion.payload);
-                return next;
-              });
+              setThemeSongCache((cache) =>
+                updateThemeSongCacheEntry(cache, mediaId, expansion.payload),
+              );
             }
           }
         } catch (e) {

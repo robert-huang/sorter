@@ -153,8 +153,15 @@ export function ToolsApp() {
       onOpenStaff,
       bindMediaRelationsRefreshHandler,
       dbSyncRevision: dbSync.dbSyncRevision,
+      dbSyncChange: dbSync.dbSyncChange,
     }),
-    [bindMediaRelationsRefreshHandler, dbSync.dbSyncRevision, onOpenMedia, onOpenStaff],
+    [
+      bindMediaRelationsRefreshHandler,
+      dbSync.dbSyncChange,
+      dbSync.dbSyncRevision,
+      onOpenMedia,
+      onOpenStaff,
+    ],
   );
 
   useEffect(() => {

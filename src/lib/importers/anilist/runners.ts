@@ -29,7 +29,10 @@ import {
 import { ANILIST_SOURCE_ID } from './anilistSource';
 import { bumpCharacterStaffFilterChipOptions } from './characterStaffFilters';
 import { findAnilistAccountByName, resolveAccessTokenForUsername } from './anilistAuth';
-import { makeAnilistImportContext } from './context';
+import {
+  makeAnilistImportContext,
+  type AnilistDbChange,
+} from './context';
 import { importAnilistFavourites } from './favourites';
 import { importAnilistList } from './importer';
 import { writeLastAnilistUsername } from './lastUsername';
@@ -77,7 +80,7 @@ export interface AnilistRunnerHooks {
    * triggers App.tsx's dbSyncRevision bump so the source panel
    * picks up the new value.
    */
-  onDirtyBumped?: (newCount: number) => void;
+  onDirtyBumped?: (newCount: number, change: AnilistDbChange) => void;
 }
 
 let hooks: AnilistRunnerHooks = {};
@@ -106,9 +109,9 @@ function buildContext(
     onAutoPushRequested: async () => {
       if (hooks.onAutoPushRequested) await hooks.onAutoPushRequested();
     },
-    onDirtyIncrement: async () => {
+    onDirtyIncrement: async (change = { kind: 'unrelated' }) => {
       const next = recordSourceDbDirtyWrite(ANILIST_SOURCE_ID);
-      if (hooks.onDirtyBumped) hooks.onDirtyBumped(next);
+      if (hooks.onDirtyBumped) hooks.onDirtyBumped(next, change);
     },
     onProgress,
     accessToken: accessToken ?? undefined,

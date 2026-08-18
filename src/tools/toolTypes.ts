@@ -14,6 +14,7 @@ export type ToolId =
   | 'stats';
 
 import type { ToolsMediaRelationsResponse } from '../lib/importers/anilist/toolsMediaRelationsApi';
+import type { SourceDbSyncChange } from '../hooks/useSourceDbSync';
 
 /** Props every tool panel receives so result rows can open the detail modals. */
 export interface ToolPanelProps {
@@ -32,8 +33,10 @@ export interface ToolPanelProps {
   bindMediaRelationsRefreshHandler?: (
     handler: ((mediaId: number, response: ToolsMediaRelationsResponse) => void) | null,
   ) => void;
-  /** Bumps when the local AniList DB changes (e.g. theme-song expansion from a detail modal). */
+  /** Bumps whenever the local AniList DB or its sync state changes. */
   dbSyncRevision: number;
+  /** Scope of the change associated with `dbSyncRevision`. */
+  dbSyncChange?: SourceDbSyncChange;
 }
 
 export const TOOLS_ACTIVE_TOOL_KEY = 'anime-tools-active-tool';
