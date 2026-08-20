@@ -149,7 +149,14 @@ export function applyTrackIsrcStoreToPlaylistTracks(
 }
 
 export function listPlaylistTracksMissingIsrc(tracks: readonly CachedPlaylistTrack[]): string[] {
-  return tracks.filter((track) => !track.isrc).map((track) => track.id);
+  const missingTrackIds = new Set<string>();
+  for (const track of tracks) {
+    if (!track.isrc) {
+      // Preserve first appearance in playlist order without scheduling duplicate lookups.
+      missingTrackIds.add(track.id);
+    }
+  }
+  return [...missingTrackIds];
 }
 
 /** Fetch missing ISRCs from Spotify and persist them in IndexedDB. */

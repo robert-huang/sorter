@@ -36,6 +36,7 @@ import {
   startPlaylistIsrcBackfill,
   subscribePlaylistIsrcBackfill,
 } from '../lib/spotify/spotifyPlaylistIsrcBackfill';
+import { listPlaylistTracksMissingIsrc } from '../lib/spotify/spotifyTrackIsrcStore';
 import type { ThemeSongNameDisplayMode } from '../lib/spotify/themeSongDisplayPreferences';
 import type { SpotifyLocalFileMatchMode } from '../lib/spotify/spotifyLocalFileMatchPreferences';
 
@@ -134,15 +135,21 @@ export function SpotifySection() {
     : null;
   const activeCacheNeedsIsrcBackfill =
     activeCache?.tracks.some((track) => !track.isrc) === true;
+  const activeMissingIsrcCount =
+    activeCache ? listPlaylistTracksMissingIsrc(activeCache.tracks).length : 0;
   const trackApiBan = useSpotifyApiBan('tracks');
   const playlistListApiBan = useSpotifyApiBan('playlist-list');
   const playlistItemsApiBan = useSpotifyApiBan('playlist-items');
   const trackBanMessage = trackApiBan
-    ? formatSpotifyScopeRateLimit(
+    ? `${formatSpotifyScopeRateLimit(
         'track lookup',
         trackApiBan.bannedUntil,
         trackApiBan.retryAfterKnown,
-      )
+      )}${
+        activeMissingIsrcCount > 0
+          ? ` ${activeMissingIsrcCount} ISRC${activeMissingIsrcCount === 1 ? '' : 's'} left to backfill.`
+          : ''
+      }`
     : null;
   const playlistListBanMessage = playlistListApiBan
     ? formatSpotifyScopeRateLimit(

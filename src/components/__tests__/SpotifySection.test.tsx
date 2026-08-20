@@ -1,7 +1,10 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { _clearSpotifyApiBanForTesting } from '../../lib/spotify/spotifyApi';
+import {
+  _clearSpotifyApiBanForTesting,
+  setSpotifyApiBan,
+} from '../../lib/spotify/spotifyApi';
 import {
   SPOTIFY_AUTH_STORAGE_KEY,
   _clearSpotifyAuthForTesting,
@@ -11,6 +14,7 @@ import {
   PLAYLIST_STORAGE_KEY,
   _clearSpotifyPlaylistForTesting,
   _resetSpotifyPlaylistCacheMemoryForTesting,
+  _writePlaylistCacheForTesting,
   setSelectedSpotifyPlaylist,
 } from '../../lib/spotify/spotifyPlaylist';
 import {
@@ -161,5 +165,50 @@ describe('SpotifySection local-file matching control', () => {
     expect(localStorage.getItem(PLAYLIST_STORAGE_KEY)).toContain(
       'selected-playlist',
     );
+  });
+
+  it('shows the remaining ISRC count in the track quota warning', async () => {
+    localStorage.setItem(
+      SPOTIFY_AUTH_STORAGE_KEY,
+      JSON.stringify({
+        accessToken: 'token',
+        refreshToken: '',
+        expiresAt: Date.now() + 120_000,
+        displayName: 'Test User',
+        spotifyUserId: 'user-1',
+      }),
+    );
+    setSelectedSpotifyPlaylist({
+      id: 'selected-playlist',
+      name: 'Anime Themes',
+    });
+    await _writePlaylistCacheForTesting({
+      playlistId: 'selected-playlist',
+      fetchedAt: Date.now(),
+      tracks: [
+        { id: 'missing-1', isrc: null, linkedFromIds: [] },
+        { id: 'complete', isrc: 'USRC001', linkedFromIds: [] },
+        { id: 'missing-2', isrc: null, linkedFromIds: [] },
+      ],
+    });
+    setSpotifyApiBan(
+      'tracks',
+      Date.now() + 3 * 60 * 60 * 1000,
+      'QUOTA_EXCEEDED',
+      true,
+    );
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ items: [], total: 0 }), { status: 200 }),
+    );
+
+    await act(async () => {
+      root.render(<SpotifySection />);
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain(
+      'Spotify track lookup API quota exceeded',
+    );
+    expect(container.textContent).toContain('2 ISRCs left to backfill.');
   });
 });

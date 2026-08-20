@@ -162,7 +162,8 @@ async function runPlaylistIsrcBackfill(
     completed: 0,
   });
 
-  while (missing.length > 0 && token === runToken) {
+  let pending = missing;
+  while (pending.length > 0 && token === runToken) {
     if (isSpotifyApiBanned('tracks')) {
       pauseUntilTrackCooldownEnds(
         playlistId,
@@ -173,7 +174,7 @@ async function runPlaylistIsrcBackfill(
       return;
     }
 
-    const batch = missing.slice(0, PLAYLIST_ISRC_BACKFILL_BATCH_SIZE);
+    const batch = pending.slice(0, PLAYLIST_ISRC_BACKFILL_BATCH_SIZE);
     // Resolve auth for each chunk so a long cooldown cannot resume with an expired token.
     const fetched = await fetchSpotifyIsrcByTrackIds(batch);
     if (token !== runToken) {
@@ -186,6 +187,9 @@ async function runPlaylistIsrcBackfill(
       return;
     }
 
+    // A track can legitimately return no ISRC. Advance past attempted tracks so
+    // one unresolved item cannot monopolize every subsequent batch.
+    pending = pending.slice(batch.length);
     missing = listPlaylistTracksMissingIsrc(tracks);
     setState({
       status: 'running',
@@ -194,7 +198,7 @@ async function runPlaylistIsrcBackfill(
       completed: initialMissing - missing.length,
     });
 
-    if (missing.length === 0) {
+    if (pending.length === 0) {
       break;
     }
 

@@ -20,6 +20,7 @@ import {
 import {
   _clearTrackIsrcStoreForTesting,
   applyTrackIsrcStoreToPlaylistTracks,
+  listPlaylistTracksMissingIsrc,
   mergeTrackIsrcsIntoStore,
 } from '../spotifyTrackIsrcStore';
 import {
@@ -90,6 +91,22 @@ describe('applyTrackIsrcStoreToPlaylistTracks', () => {
   });
 });
 
+describe('listPlaylistTracksMissingIsrc', () => {
+  it('returns unique missing IDs in their first playlist order', () => {
+    const tracks: CachedPlaylistTrack[] = [
+      { id: 'missing-later', isrc: null, linkedFromIds: [] },
+      { id: 'complete', isrc: 'USRC001', linkedFromIds: [] },
+      { id: 'missing-first', isrc: null, linkedFromIds: [] },
+      { id: 'missing-later', isrc: null, linkedFromIds: [] },
+    ];
+
+    expect(listPlaylistTracksMissingIsrc(tracks)).toEqual([
+      'missing-later',
+      'missing-first',
+    ]);
+  });
+});
+
 describe('startPlaylistIsrcBackfill', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -146,5 +163,32 @@ describe('startPlaylistIsrcBackfill', () => {
     expect(fetchSpotifyIsrcByTrackIds).toHaveBeenCalledOnce();
     expect(fetchSpotifyIsrcByTrackIds).toHaveBeenCalledWith(['missing-1']);
     expect(getPlaylistIsrcBackfillState().status).toBe('idle');
+  });
+
+  it('advances in playlist order when a track has no ISRC', async () => {
+    const trackIds = [
+      'unavailable',
+      'missing-1',
+      'missing-2',
+      'missing-3',
+      'missing-4',
+      'missing-5',
+    ];
+    await writePlaylistCacheForTest(
+      'playlist-1',
+      trackIds.map((id) => ({ id, isrc: null, linkedFromIds: [] })),
+    );
+
+    startPlaylistIsrcBackfill('playlist-1');
+    await vi.runAllTimersAsync();
+
+    expect(vi.mocked(fetchSpotifyIsrcByTrackIds).mock.calls.map(([ids]) => ids)).toEqual([
+      ['unavailable', 'missing-1', 'missing-2', 'missing-3', 'missing-4'],
+      ['missing-5'],
+    ]);
+    expect(getPlaylistCache('playlist-1')?.tracks[0]?.isrc).toBeNull();
+    expect(getPlaylistCache('playlist-1')?.tracks.slice(1).every((track) => track.isrc)).toBe(
+      true,
+    );
   });
 });
