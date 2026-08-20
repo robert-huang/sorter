@@ -796,20 +796,6 @@ export function matchThemeRowToPlaylistDetails(
     }
   }
 
-  const hasResolvableLink = spotifyTrackIds.length > 0 || row.spotifyIsrc != null;
-  if (
-    hasResolvableLink &&
-    options?.isrcLookupReady === false &&
-    rowIsrcs.size === 0
-  ) {
-    // Do not let a metadata match temporarily replace an exact green match
-    // while alternate-edition ISRC resolution is still in flight.
-    return cacheMatchResult(resultCacheKey, {
-      status: 'unknown',
-      metadataMatch: null,
-    });
-  }
-
   if (mode === 'local-first') {
     const spotifyMetadataMatch = findPlaylistMetadataMatch(row, index, 'spotify');
     if (spotifyMetadataMatch) {
@@ -818,6 +804,20 @@ export function matchThemeRowToPlaylistDetails(
         metadataMatch: spotifyMetadataMatch,
       });
     }
+  }
+
+  const hasResolvableLink = spotifyTrackIds.length > 0 || row.spotifyIsrc != null;
+  if (
+    hasResolvableLink &&
+    options?.isrcLookupReady === false &&
+    rowIsrcs.size === 0
+  ) {
+    // Avoid reporting a missing exact-only match while alternate-edition
+    // ISRC resolution is still in flight.
+    return cacheMatchResult(resultCacheKey, {
+      status: 'unknown',
+      metadataMatch: null,
+    });
   }
 
   if (hasResolvableLink) {

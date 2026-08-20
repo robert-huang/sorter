@@ -1,4 +1,8 @@
-import { malThemeMatchesAniplaylistHit } from './themeSongMatching';
+import {
+  collectTitleMatchCandidates,
+  malThemeMatchesAniplaylistHit,
+  themeRecordingMatchesAniplaylistHit,
+} from './themeSongMatching';
 import type { ThemeSongType } from './types';
 
 export const ANIPLAYLIST_ALGOLIA_APP_ID = 'P4B7HT5P18';
@@ -417,6 +421,57 @@ export async function searchAniplaylistQueriesUntilHits(
     }
   }
   return [];
+}
+
+type ThemeRecordingSearchInput = {
+  title: string;
+  artist: string | null;
+};
+
+function collectThemeRecordingSearchQueries(title: string): string[] {
+  const queries = new Set<string>();
+  for (const candidate of collectTitleMatchCandidates(title)) {
+    const query = normalizeAniplaylistSearchQuery(candidate);
+    if (query) {
+      queries.add(query);
+    }
+  }
+  return [...queries];
+}
+
+/**
+ * Find source-confirmed aliases for recordings reused by OVAs or under a new
+ * OP/ED role when that anime's own AniPlaylist cluster omits the reuse.
+ */
+export async function searchAniplaylistForRecordingAliases(
+  themes: readonly ThemeRecordingSearchInput[],
+  existingHits: readonly AniplaylistHit[],
+  search: (query: string) => Promise<AniplaylistHit[]> = searchAniplaylist,
+): Promise<AniplaylistHit[]> {
+  const knownHits = [...existingHits];
+  const additions: AniplaylistHit[] = [];
+  const knownIds = new Set(existingHits.map((hit) => hit.id));
+
+  for (const theme of themes) {
+    if (knownHits.some((hit) => themeRecordingMatchesAniplaylistHit(theme, hit))) {
+      continue;
+    }
+    for (const query of collectThemeRecordingSearchQueries(theme.title)) {
+      const hits = await search(query);
+      const source = hits.find((hit) => themeRecordingMatchesAniplaylistHit(theme, hit));
+      if (!source) {
+        continue;
+      }
+      knownHits.push(source);
+      if (!knownIds.has(source.id)) {
+        knownIds.add(source.id);
+        additions.push(source);
+      }
+      break;
+    }
+  }
+
+  return additions;
 }
 
 /**

@@ -1,5 +1,5 @@
 /**
- * Lazy theme-song expansion: AniList idMal → Jikan/MAL themes → AniPlaylist merge.
+ * Lazy theme-song expansion: AniList idMal → Tenrai/MAL themes → AniPlaylist merge.
  */
 
 import type { AnilistImportContext } from './context';
@@ -14,6 +14,7 @@ import { needsGraphDataRefresh } from './toolsFetchPolicy';
 import {
   findMatchingAnimeCluster,
   groupHitsByAnimeId,
+  searchAniplaylistForRecordingAliases,
   searchAniplaylistForMediaTitles,
   AniplaylistSearchError,
   collectMediaTitleStrings,
@@ -25,7 +26,11 @@ import {
   formatMalThemeFailureDetail,
 } from './themeSongs/malThemeFetch';
 import { parseMalThemes } from './themeSongs/malThemeParser';
-import { borrowSharedSpotifyMetadata, mergeThemeSongs } from './themeSongs/mergeThemeSongs';
+import {
+  applyAniplaylistRecordingAliases,
+  borrowSharedSpotifyMetadata,
+  mergeThemeSongs,
+} from './themeSongs/mergeThemeSongs';
 import { enrichRowsWithSpotifyIsrc } from './themeSongs/spotifyIsrc';
 import {
   applyThemeSongExclusions,
@@ -320,6 +325,9 @@ export async function expandMediaThemeSongs(
   };
 
   let aniHits: Awaited<ReturnType<typeof searchAniplaylistForMediaTitles>> = [];
+  let recordingAliasHits: Awaited<
+    ReturnType<typeof searchAniplaylistForRecordingAliases>
+  > = [];
   const mediaTitles = {
     english: fetchedMedia.title.english ?? cachedMedia?.title_english ?? null,
     romaji: fetchedMedia.title.romaji ?? cachedMedia?.title_romaji ?? null,
@@ -360,6 +368,10 @@ export async function expandMediaThemeSongs(
           themeResult.data?.endings ?? [],
         );
       }
+      recordingAliasHits = await searchAniplaylistForRecordingAliases(
+        malThemes,
+        aniHits,
+      );
     } catch (err) {
       // A throttled response is transient. The request helper has already waited
       // and retried; if those retries are exhausted, preserve the previous cache.
@@ -379,6 +391,7 @@ export async function expandMediaThemeSongs(
   }
 
   let rows = mergeThemeSongs(malThemes, aniHits);
+  rows = applyAniplaylistRecordingAliases(rows, recordingAliasHits);
   rows = await enrichRowsWithSpotifyIsrc(rows);
   rows = borrowSharedSpotifyMetadata(rows);
   rows = applyThemeSongExclusions(rows, preservedExcludedRowKeys);

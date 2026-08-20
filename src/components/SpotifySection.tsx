@@ -36,7 +36,11 @@ import {
   startPlaylistIsrcBackfill,
   subscribePlaylistIsrcBackfill,
 } from '../lib/spotify/spotifyPlaylistIsrcBackfill';
-import { listPlaylistTracksMissingIsrc } from '../lib/spotify/spotifyTrackIsrcStore';
+import {
+  getSpotifyTrackIsrcDemand,
+  listPlaylistTracksMissingIsrc,
+  subscribeSpotifyTrackIsrcDemand,
+} from '../lib/spotify/spotifyTrackIsrcStore';
 import type { ThemeSongNameDisplayMode } from '../lib/spotify/themeSongDisplayPreferences';
 import type { SpotifyLocalFileMatchMode } from '../lib/spotify/spotifyLocalFileMatchPreferences';
 
@@ -110,6 +114,9 @@ export function SpotifySection() {
   const [loadingPlaylists, setLoadingPlaylists] = useState(false);
   const [refreshingCache, setRefreshingCache] = useState(false);
   const [isrcBackfill, setIsrcBackfill] = useState(() => getPlaylistIsrcBackfillState());
+  const [themeTrackIsrcDemand, setThemeTrackIsrcDemand] = useState(() =>
+    getSpotifyTrackIsrcDemand(),
+  );
   const [signingIn, setSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const attemptedBackfillCaches = useRef(new Set<string>());
@@ -141,16 +148,24 @@ export function SpotifySection() {
   const playlistListApiBan = useSpotifyApiBan('playlist-list');
   const playlistItemsApiBan = useSpotifyApiBan('playlist-items');
   const trackBanMessage = trackApiBan
-    ? `${formatSpotifyScopeRateLimit(
+    ? formatSpotifyScopeRateLimit(
         'track lookup',
         trackApiBan.bannedUntil,
         trackApiBan.retryAfterKnown,
-      )}${
-        activeMissingIsrcCount > 0
-          ? ` ${activeMissingIsrcCount} ISRC${activeMissingIsrcCount === 1 ? '' : 's'} left to backfill.`
-          : ''
-      }`
+      )
     : null;
+  const isrcBackfillRemainingMessage =
+    activeMissingIsrcCount > 0
+      ? `${activeMissingIsrcCount} playlist ISRC${
+          activeMissingIsrcCount === 1 ? '' : 's'
+        } left to backfill.`
+      : null;
+  const themeTrackIsrcRemainingMessage =
+    themeTrackIsrcDemand.missing > 0
+      ? `${themeTrackIsrcDemand.missing} theme-song ISRC${
+          themeTrackIsrcDemand.missing === 1 ? '' : 's'
+        } left to backfill.`
+      : null;
   const playlistListBanMessage = playlistListApiBan
     ? formatSpotifyScopeRateLimit(
         'playlist list',
@@ -204,6 +219,12 @@ export function SpotifySection() {
     return subscribePlaylistIsrcBackfill(() => {
       setIsrcBackfill(getPlaylistIsrcBackfillState());
       setCacheRevision((n) => n + 1);
+    });
+  }, []);
+
+  useEffect(() => {
+    return subscribeSpotifyTrackIsrcDemand(() => {
+      setThemeTrackIsrcDemand(getSpotifyTrackIsrcDemand());
     });
   }, []);
 
@@ -448,6 +469,16 @@ export function SpotifySection() {
           {trackBanMessage ? (
             <div className="settings-status settings-anilist-hint settings-cache-stale" role="status">
               {trackBanMessage}
+            </div>
+          ) : null}
+          {isrcBackfillRemainingMessage ? (
+            <div className="settings-status settings-anilist-hint settings-cache-stale" role="status">
+              {isrcBackfillRemainingMessage}
+            </div>
+          ) : null}
+          {themeTrackIsrcRemainingMessage ? (
+            <div className="settings-status settings-anilist-hint settings-cache-stale" role="status">
+              {themeTrackIsrcRemainingMessage}
             </div>
           ) : null}
           {selectedPlaylist &&

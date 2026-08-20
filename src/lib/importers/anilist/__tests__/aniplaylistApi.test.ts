@@ -15,6 +15,7 @@ import {
   scoreMediaToAnimeTitle,
   searchAniplaylist,
   searchAniplaylistForMediaTitles,
+  searchAniplaylistForRecordingAliases,
   searchAniplaylistQueriesUntilHits,
   type AniplaylistHit,
 } from '../themeSongs/aniplaylistApi';
@@ -481,6 +482,55 @@ describe('searchAniplaylistForMediaTitles', () => {
 
     expect(search).toHaveBeenCalledOnce();
     expect(search).toHaveBeenCalledWith('Tamako love story');
+  });
+});
+
+describe('searchAniplaylistForRecordingAliases', () => {
+  it('finds a source-confirmed alias across anime entries and OP/ED roles', async () => {
+    const source = hit({
+      id: 2437,
+      anime_id: 1194,
+      score: 60,
+      song_key: 'OP',
+      song_type: 'Opening',
+      titles: ['Yuki Toki', 'ユキトキ'],
+      artists: [{ names: ['yanaginagi', 'Nagi Yanagi', 'Yanagi Nagi', 'やなぎなぎ'] }],
+    });
+    const search = vi
+      .fn<(query: string) => Promise<AniplaylistHit[]>>()
+      .mockResolvedValue([source]);
+
+    await expect(
+      searchAniplaylistForRecordingAliases(
+        [{ title: 'Yukitoki (ユキトキ)', artist: 'Nagi Yanagi' }],
+        [],
+        search,
+      ),
+    ).resolves.toEqual([source]);
+    expect(search).toHaveBeenCalledWith('Yukitoki (ユキトキ)');
+  });
+
+  it('does not infer that a compact artist name is an alias', async () => {
+    const unsupportedAlias = hit({
+      id: 2437,
+      anime_id: 1194,
+      score: 60,
+      song_key: 'OP',
+      song_type: 'Opening',
+      titles: ['Yuki Toki', 'ユキトキ'],
+      artists: [{ names: ['yanaginagi'] }],
+    });
+    const search = vi
+      .fn<(query: string) => Promise<AniplaylistHit[]>>()
+      .mockResolvedValue([unsupportedAlias]);
+
+    await expect(
+      searchAniplaylistForRecordingAliases(
+        [{ title: 'Yukitoki (ユキトキ)', artist: 'Nagi Yanagi' }],
+        [],
+        search,
+      ),
+    ).resolves.toEqual([]);
   });
 });
 

@@ -284,6 +284,20 @@ export function artistsRoughlyMatchAny(
   return false;
 }
 
+/** Same recording across anime entries or OP/ED roles, with artist confirmation. */
+export function themeRecordingMatchesAniplaylistHit(
+  theme: Pick<MalThemeMatchInput, 'title' | 'artist'>,
+  hit: Pick<AniplaylistHit, 'titles' | 'artists'>,
+): boolean {
+  if (!theme.artist) {
+    return false;
+  }
+  return (
+    titlesMatchStronglyAny(hit.titles, collectTitleMatchCandidates(theme.title)) &&
+    artistsRoughlyMatchAny(hit.artists ?? [], theme.artist)
+  );
+}
+
 export type MalThemeMatchInput = {
   type: string;
   title: string;

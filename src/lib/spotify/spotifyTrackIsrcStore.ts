@@ -38,12 +38,58 @@ function readLegacyStore(): TrackIsrcStore {
 
 let trackIsrcStore: TrackIsrcStore | null = null;
 let trackIsrcHydration: Promise<void> | null = null;
+let demandedTrackIds: string[] = [];
+
+export type SpotifyTrackIsrcDemand = {
+  total: number;
+  missing: number;
+};
+
+let trackIsrcDemand: SpotifyTrackIsrcDemand = {
+  total: 0,
+  missing: 0,
+};
+const trackIsrcDemandListeners = new Set<() => void>();
 
 function getMemoryStore(): TrackIsrcStore {
   if (!trackIsrcStore) {
     trackIsrcStore = readLegacyStore();
   }
   return trackIsrcStore;
+}
+
+function refreshTrackIsrcDemand(trackIds?: readonly string[]): void {
+  if (trackIds) {
+    demandedTrackIds = [...new Set(trackIds)];
+  }
+  const store = getMemoryStore();
+  const next: SpotifyTrackIsrcDemand = {
+    total: demandedTrackIds.length,
+    missing: demandedTrackIds.filter((trackId) => !store[trackId]).length,
+  };
+  if (
+    next.total === trackIsrcDemand.total &&
+    next.missing === trackIsrcDemand.missing
+  ) {
+    return;
+  }
+  trackIsrcDemand = next;
+  for (const listener of trackIsrcDemandListeners) {
+    listener();
+  }
+}
+
+export function getSpotifyTrackIsrcDemand(): SpotifyTrackIsrcDemand {
+  return trackIsrcDemand;
+}
+
+export function subscribeSpotifyTrackIsrcDemand(
+  listener: () => void,
+): () => void {
+  trackIsrcDemandListeners.add(listener);
+  return () => {
+    trackIsrcDemandListeners.delete(listener);
+  };
 }
 
 function removeLegacyStore(): void {
@@ -114,6 +160,7 @@ export async function mergeTrackIsrcsIntoStore(
     for (const { trackId, isrc } of changedRecords) {
       store[trackId] = isrc;
     }
+    refreshTrackIsrcDemand();
   }
 }
 
@@ -168,6 +215,7 @@ export async function ensureTrackIsrcsCached(
   await hydrateTrackIsrcStore();
   const store = getMemoryStore();
   const uniqueTrackIds = [...new Set(trackIds)];
+  refreshTrackIsrcDemand(uniqueTrackIds);
   const missing = uniqueTrackIds.filter((id) => !store[id]);
   const cachedCount = uniqueTrackIds.length - missing.length;
   onProgress?.({ completed: cachedCount, total: uniqueTrackIds.length });
@@ -197,4 +245,9 @@ export async function _clearTrackIsrcStoreForTesting(): Promise<void> {
   }
   trackIsrcStore = null;
   trackIsrcHydration = null;
+  demandedTrackIds = [];
+  trackIsrcDemand = { total: 0, missing: 0 };
+  for (const listener of trackIsrcDemandListeners) {
+    listener();
+  }
 }

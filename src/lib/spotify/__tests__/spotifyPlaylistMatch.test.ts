@@ -151,6 +151,14 @@ describe('playlist metadata normalization', () => {
     expect(leftCandidates.some((candidate) => rightCandidates.includes(candidate))).toBe(true);
   });
 
+  it('does not invent compact aliases from a spaced artist name', () => {
+    const compactCandidates = collectPlaylistArtistMatchCandidates(['yanaginagi']);
+    const spacedCandidates = collectPlaylistArtistMatchCandidates(['Nagi Yanagi']);
+    expect(spacedCandidates.some((candidate) => compactCandidates.includes(candidate))).toBe(
+      false,
+    );
+  });
+
   it.each([
     ['目蓋の裏 (TV ver.)', '目蓋の裏'],
     ['星座になれたら -Anime Ver.-', '星座になれたら'],
@@ -272,6 +280,112 @@ describe('matchThemeRowToPlaylist', () => {
         isrcLookupReady: false,
       }),
     ).toBe('unknown');
+  });
+
+  it('matches source-enriched Oregairu rows while alternate Spotify ISRCs are pending', () => {
+    const yukitokiTrack = {
+      title: 'ユキトキ',
+      artists: ['yanaginagi'],
+      album: 'ユキトキ',
+      durationMs: 269_000,
+      playlistPosition: 560,
+    };
+    const everydayWorldTrack = {
+      title: 'エブリデイワールド',
+      artists: ['雪ノ下雪乃(CV.早見沙織)& 由比ヶ浜結衣(CV.東山奈央)'],
+      album: 'エブリデイワールド',
+      durationMs: 285_000,
+      playlistPosition: 563,
+    };
+    const oregairuCache: SpotifyPlaylistCache = {
+      playlistId: '5MYMd8cHxY2FWkumyIVT3z',
+      fetchedAt: Date.now(),
+      tracks: [
+        {
+          id: '1iPHE585l3CwihqF65B45W',
+          isrc: 'JPPI01351170',
+          linkedFromIds: [],
+          metadata: yukitokiTrack,
+        },
+        {
+          id: '3EhbMsVhE1YUGQq9DLsr5h',
+          isrc: 'JPPI01551230',
+          linkedFromIds: [],
+          metadata: everydayWorldTrack,
+        },
+      ],
+    };
+    const pendingLocalMatchOptions = {
+      ...LOCAL_FIRST,
+      trackIsrcById: new Map<string, string>(),
+      isrcLookupReady: false,
+    };
+
+    const kanYukitoki = makeRow({
+      type: 'Ending',
+      sortOrder: 3,
+      displayTitle: 'Yukitoki (ユキトキ)',
+      displayArtist: 'Nagi Yanagi',
+      malTitle: 'Yukitoki (ユキトキ)',
+      malArtist: 'Nagi Yanagi',
+      malEpisodes: 'eps 12',
+      aniTitles: ['Yuki Toki', 'ユキトキ'],
+      aniArtists: ['yanaginagi', 'Nagi Yanagi', 'Yanagi Nagi', 'やなぎなぎ'],
+    });
+    expect(
+      matchThemeRowToPlaylistDetails(
+        kanYukitoki,
+        oregairuCache,
+        pendingLocalMatchOptions,
+      ),
+    ).toEqual({
+      status: 'in',
+      metadataMatch: { kind: 'spotify', track: yukitokiTrack },
+    });
+    const localYukitokiTrack = {
+      ...yukitokiTrack,
+      uri: 'spotify:local:yanaginagi:ユキトキ:ユキトキ:269',
+    };
+    expect(
+      matchThemeRowToPlaylistDetails(
+        kanYukitoki,
+        cacheWithLocalTracks([localYukitokiTrack]),
+        pendingLocalMatchOptions,
+      ),
+    ).toEqual({
+      status: 'in',
+      metadataMatch: { kind: 'local', track: localYukitokiTrack },
+    });
+
+    const zokuEverydayWorld = makeRow({
+      type: 'Ending',
+      displayTitle: 'Everyday World (エブリデイワールド)',
+      displayArtist:
+        'Yukino Yukinoshita (Saori Hayami) & Yui Yuigahama (Nao Touyama)',
+      malTitle: 'Everyday World (エブリデイワールド)',
+      malArtist:
+        'Yukino Yukinoshita (Saori Hayami) & Yui Yuigahama (Nao Touyama)',
+      malEpisodes: 'eps 1-6, 8-11, 13; BD/DVD: eps 1-3, 5-6, 8-13',
+      aniTitles: ['Everyday World', 'エブリデイワールド'],
+      aniArtists: [
+        'Yukino Yukinoshita (CV: Saori Hayami)',
+        '雪ノ下雪乃 (CV: 早見沙織)',
+        'Yui Yuigahama (CV: Nao Touyama)',
+        '由比ヶ浜結衣 (CV: 東山奈央)',
+      ],
+      spotifyTrackIds: ['5glSSrrnDdeBCghSp8MLbl', '6F92jbTUESX6ntbCo2i1z0'],
+      hasResolvableTrackId: true,
+    });
+    expect(
+      matchThemeRowToPlaylistDetails(
+        zokuEverydayWorld,
+        oregairuCache,
+        pendingLocalMatchOptions,
+      ),
+    ).toEqual({
+      status: 'in',
+      metadataMatch: { kind: 'spotify', track: everydayWorldTrack },
+    });
   });
 
   it('matches track id parsed from spotifyUrl when spotifyTrackIds is empty', () => {

@@ -6,6 +6,7 @@ import {
   artistsRoughlyMatchAny as hitArtistsMatchMalArtist,
   collectTitleMatchCandidates,
   malThemeMatchesAniplaylistHit,
+  themeRecordingMatchesAniplaylistHit,
   titlesMatchStronglyAny,
   titlesRoughlyMatch,
   titlesRoughlyMatchAny,
@@ -406,6 +407,45 @@ function mergeSharedAliases(
 ): string[] | undefined {
   const aliases = [...new Set([...(recipient ?? []), ...(donor ?? [])])];
   return aliases.length > 0 ? aliases : undefined;
+}
+
+/** Apply aliases from the same confirmed recording even when its anime or OP/ED role differs. */
+export function applyAniplaylistRecordingAliases(
+  rows: readonly MediaThemeSongRow[],
+  aliasHits: readonly AniplaylistHit[],
+): MediaThemeSongRow[] {
+  if (aliasHits.length === 0) {
+    return [...rows];
+  }
+  return rows.map((row) => {
+    const matchingHits = aliasHits.filter((hit) =>
+      themeRecordingMatchesAniplaylistHit(
+        {
+          title: row.malTitle ?? row.displayTitle,
+          artist: row.malArtist ?? row.displayArtist,
+        },
+        hit,
+      ),
+    );
+    if (matchingHits.length === 0) {
+      return row;
+    }
+    return {
+      ...row,
+      aniTitles: matchingHits.reduce(
+        (aliases, hit) => mergeSharedAliases(aliases, hit.titles),
+        row.aniTitles,
+      ),
+      aniArtists: matchingHits.reduce(
+        (aliases, hit) =>
+          mergeSharedAliases(
+            aliases,
+            (hit.artists ?? []).flatMap((artist) => artist.names ?? []),
+          ),
+        row.aniArtists,
+      ),
+    };
+  });
 }
 
 function rowsShareSpotifyIdentity(

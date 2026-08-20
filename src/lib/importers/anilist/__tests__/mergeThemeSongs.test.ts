@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseMalThemes } from '../themeSongs/malThemeParser';
 import {
+  applyAniplaylistRecordingAliases,
   artistsRoughlyMatch,
   borrowSharedSpotifyMetadata,
   compareThemeSongRowsWithinType,
@@ -810,6 +811,52 @@ describe('compareThemeSongRowsWithinType', () => {
     ].sort(compareThemeSongRowsWithinType);
 
     expect(rows.map((row) => row.displayTitle)).toEqual(['OP', 'OP2']);
+  });
+});
+
+describe('applyAniplaylistRecordingAliases', () => {
+  it('adds confirmed aliases to a reused recording without changing its theme role', () => {
+    const kanEnding: MediaThemeSongRow = {
+      type: 'Ending',
+      sortOrder: 3,
+      displayTitle: 'Yukitoki (ユキトキ)',
+      displayArtist: 'Nagi Yanagi',
+      malTitle: 'Yukitoki (ユキトキ)',
+      malArtist: 'Nagi Yanagi',
+      malEpisodes: 'eps 12',
+      spotifyUrl: null,
+      spotifyTrackIds: [],
+      spotifyIsrc: null,
+      hasResolvableTrackId: false,
+    };
+    const baseOpening: AniplaylistHit = {
+      id: 2437,
+      anime_id: 1194,
+      score: 60,
+      song_key: 'OP',
+      song_type: 'Opening',
+      titles: ['Yuki Toki', 'ユキトキ'],
+      artists: [
+        {
+          names: ['yanaginagi', 'Nagi Yanagi', 'Yanagi Nagi', 'やなぎなぎ'],
+        },
+      ],
+      links: [],
+    };
+
+    const [enriched] = applyAniplaylistRecordingAliases(
+      [kanEnding],
+      [baseOpening],
+    );
+
+    expect(enriched?.type).toBe('Ending');
+    expect(enriched?.aniTitles).toEqual(['Yuki Toki', 'ユキトキ']);
+    expect(enriched?.aniArtists).toEqual([
+      'yanaginagi',
+      'Nagi Yanagi',
+      'Yanagi Nagi',
+      'やなぎなぎ',
+    ]);
   });
 });
 

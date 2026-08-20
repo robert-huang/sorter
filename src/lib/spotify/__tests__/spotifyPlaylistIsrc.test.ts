@@ -20,6 +20,8 @@ import {
 import {
   _clearTrackIsrcStoreForTesting,
   applyTrackIsrcStoreToPlaylistTracks,
+  ensureTrackIsrcsCached,
+  getSpotifyTrackIsrcDemand,
   listPlaylistTracksMissingIsrc,
   mergeTrackIsrcsIntoStore,
 } from '../spotifyTrackIsrcStore';
@@ -104,6 +106,29 @@ describe('listPlaylistTracksMissingIsrc', () => {
       'missing-later',
       'missing-first',
     ]);
+  });
+});
+
+describe('Spotify track ISRC demand', () => {
+  it('retains the unresolved theme-track count while lookups are throttled', async () => {
+    await mergeTrackIsrcsIntoStore(new Map([['theme-cached', 'USRC001']]));
+    setSpotifyApiBan(
+      'tracks',
+      Date.now() + 3 * 60 * 60 * 1000,
+      'QUOTA_EXCEEDED',
+      true,
+    );
+
+    await ensureTrackIsrcsCached(
+      ['theme-missing-1', 'theme-cached', 'theme-missing-2', 'theme-missing-1'],
+      'token',
+    );
+
+    expect(getSpotifyTrackIsrcDemand()).toEqual({
+      total: 3,
+      missing: 2,
+    });
+    expect(fetchSpotifyIsrcByTrackIds).not.toHaveBeenCalled();
   });
 });
 

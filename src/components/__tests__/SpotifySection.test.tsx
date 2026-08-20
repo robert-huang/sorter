@@ -25,7 +25,10 @@ import {
   createPlaylistCachePersistence,
   createTrackIsrcPersistence,
 } from '../../lib/spotify/__tests__/spotifyCachePersistenceTestUtils';
-import { _clearTrackIsrcStoreForTesting } from '../../lib/spotify/spotifyTrackIsrcStore';
+import {
+  _clearTrackIsrcStoreForTesting,
+  ensureTrackIsrcsCached,
+} from '../../lib/spotify/spotifyTrackIsrcStore';
 import { SpotifySection } from '../SpotifySection';
 
 let container: HTMLDivElement;
@@ -167,7 +170,7 @@ describe('SpotifySection local-file matching control', () => {
     );
   });
 
-  it('shows the remaining ISRC count in the track quota warning', async () => {
+  it('shows playlist and theme-song ISRC counts independently of the throttled API scope', async () => {
     localStorage.setItem(
       SPOTIFY_AUTH_STORAGE_KEY,
       JSON.stringify({
@@ -192,10 +195,20 @@ describe('SpotifySection local-file matching control', () => {
       ],
     });
     setSpotifyApiBan(
+      'playlist-items',
+      Date.now() + 3 * 60 * 60 * 1000,
+      'QUOTA_EXCEEDED',
+      true,
+    );
+    setSpotifyApiBan(
       'tracks',
       Date.now() + 3 * 60 * 60 * 1000,
       'QUOTA_EXCEEDED',
       true,
+    );
+    await ensureTrackIsrcsCached(
+      ['theme-missing-1', 'theme-missing-2', 'theme-missing-2'],
+      'token',
     );
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ items: [], total: 0 }), { status: 200 }),
@@ -207,8 +220,13 @@ describe('SpotifySection local-file matching control', () => {
     });
 
     expect(container.textContent).toContain(
-      'Spotify track lookup API quota exceeded',
+      'Spotify playlist items API quota exceeded',
     );
-    expect(container.textContent).toContain('2 ISRCs left to backfill.');
+    expect(container.textContent).toContain(
+      '2 playlist ISRCs left to backfill.',
+    );
+    expect(container.textContent).toContain(
+      '2 theme-song ISRCs left to backfill.',
+    );
   });
 });
