@@ -25,6 +25,8 @@ export type ToolsPreferences = {
   seasonalScoresSpanAiringSeasons: boolean;
   /** Include a Weekly Calendar column for entries with no known airing day. */
   weeklyCalendarShowUnscheduledColumn: boolean;
+  /** Load and display cached theme songs in Weekly Calendar. */
+  weeklyCalendarShowThemeSongs: boolean;
 };
 
 const STORAGE_KEY = 'anime-tools:preferences:v1';
@@ -39,6 +41,7 @@ const DEFAULT_PREFS: ToolsPreferences = {
   seasonalScoresShowRepeats: false,
   seasonalScoresSpanAiringSeasons: false,
   weeklyCalendarShowUnscheduledColumn: false,
+  weeklyCalendarShowThemeSongs: false,
 };
 
 let cached: ToolsPreferences | null = null;
@@ -74,6 +77,10 @@ function defaultPreferencesWithLegacyPanelValues(): ToolsPreferences {
       LEGACY_WEEKLY_CALENDAR_FORM_KEY,
       'showUnscheduledColumn',
     ),
+    weeklyCalendarShowThemeSongs: readLegacyBoolean(
+      LEGACY_WEEKLY_CALENDAR_FORM_KEY,
+      'showThemeSongs',
+    ),
   };
 }
 
@@ -108,7 +115,8 @@ export function loadToolsPreferences(): ToolsPreferences {
       cached = defaultPreferencesWithLegacyPanelValues();
       if (
         cached.seasonalScoresSpanAiringSeasons ||
-        cached.weeklyCalendarShowUnscheduledColumn
+        cached.weeklyCalendarShowUnscheduledColumn ||
+        cached.weeklyCalendarShowThemeSongs
       ) {
         persistMigratedPreferences(cached);
       }
@@ -138,10 +146,18 @@ export function loadToolsPreferences(): ToolsPreferences {
               LEGACY_WEEKLY_CALENDAR_FORM_KEY,
               'showUnscheduledColumn',
             ),
+      weeklyCalendarShowThemeSongs:
+        typeof parsed.weeklyCalendarShowThemeSongs === 'boolean'
+          ? parsed.weeklyCalendarShowThemeSongs
+          : readLegacyBoolean(
+              LEGACY_WEEKLY_CALENDAR_FORM_KEY,
+              'showThemeSongs',
+            ),
     };
     if (
       typeof parsed.seasonalScoresSpanAiringSeasons !== 'boolean' ||
-      typeof parsed.weeklyCalendarShowUnscheduledColumn !== 'boolean'
+      typeof parsed.weeklyCalendarShowUnscheduledColumn !== 'boolean' ||
+      typeof parsed.weeklyCalendarShowThemeSongs !== 'boolean'
     ) {
       persistMigratedPreferences(cached);
     }

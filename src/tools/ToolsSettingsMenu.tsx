@@ -60,6 +60,7 @@ export function ToolsSettingsMenu({
     setSeasonalScoresShowRepeats,
     setSeasonalScoresSpanAiringSeasons,
     setWeeklyCalendarShowUnscheduledColumn,
+    setWeeklyCalendarShowThemeSongs,
   } = useToolsPreferences();
 
   function selectTab(next: SettingsTab): void {
@@ -163,6 +164,19 @@ export function ToolsSettingsMenu({
                 >
                   <div className="settings-divider" />
                   <p className="edit-item-advanced-title">Weekly Calendar</p>
+                  <label
+                    className="settings-item checkbox"
+                    title="Load and display cached theme songs for shows in Weekly Calendar."
+                  >
+                    <input
+                      type="checkbox"
+                      checked={toolsPrefs.weeklyCalendarShowThemeSongs}
+                      onChange={(e) =>
+                        setWeeklyCalendarShowThemeSongs(e.target.checked)
+                      }
+                    />
+                    Show theme songs
+                  </label>
                   <label
                     className="settings-item checkbox"
                     title="Show entries whose airing weekday cannot be determined in an extra Unknown column."

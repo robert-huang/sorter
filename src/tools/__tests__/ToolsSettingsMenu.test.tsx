@@ -96,19 +96,23 @@ describe('ToolsSettingsMenu', () => {
 
     const showRepeatsCheckbox = findCheckbox('Show repeats');
     const spanAiringCheckbox = findCheckbox('Span airing seasons');
+    const showThemeSongsCheckbox = findCheckbox('Show theme songs');
     const unknownAiringDayCheckbox = findCheckbox('Unknown Airing Day column');
     expect(showRepeatsCheckbox?.checked).toBe(false);
     expect(spanAiringCheckbox?.checked).toBe(false);
+    expect(showThemeSongsCheckbox?.checked).toBe(false);
     expect(unknownAiringDayCheckbox?.checked).toBe(false);
 
     await act(async () => {
       showRepeatsCheckbox?.click();
       spanAiringCheckbox?.click();
+      showThemeSongsCheckbox?.click();
       unknownAiringDayCheckbox?.click();
     });
     expect(loadToolsPreferences()).toMatchObject({
       seasonalScoresShowRepeats: true,
       seasonalScoresSpanAiringSeasons: true,
+      weeklyCalendarShowThemeSongs: true,
       weeklyCalendarShowUnscheduledColumn: true,
     });
 

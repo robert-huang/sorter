@@ -15,6 +15,7 @@ export function useToolsPreferences(): {
   setSeasonalScoresShowRepeats: (enabled: boolean) => void;
   setSeasonalScoresSpanAiringSeasons: (enabled: boolean) => void;
   setWeeklyCalendarShowUnscheduledColumn: (enabled: boolean) => void;
+  setWeeklyCalendarShowThemeSongs: (enabled: boolean) => void;
 } {
   const [prefs, setPrefs] = useState<ToolsPreferences>(() => loadToolsPreferences());
 
@@ -52,6 +53,10 @@ export function useToolsPreferences(): {
     saveToolsPreferences({ weeklyCalendarShowUnscheduledColumn: enabled });
   };
 
+  const setWeeklyCalendarShowThemeSongs = (enabled: boolean): void => {
+    saveToolsPreferences({ weeklyCalendarShowThemeSongs: enabled });
+  };
+
   return {
     prefs,
     setProductionAllRoles,
@@ -61,6 +66,7 @@ export function useToolsPreferences(): {
     setSeasonalScoresShowRepeats,
     setSeasonalScoresSpanAiringSeasons,
     setWeeklyCalendarShowUnscheduledColumn,
+    setWeeklyCalendarShowThemeSongs,
   };
 }
 

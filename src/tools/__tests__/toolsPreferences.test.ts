@@ -25,6 +25,7 @@ describe('tools preferences', () => {
       seasonalScoresShowRepeats: false,
       seasonalScoresSpanAiringSeasons: false,
       weeklyCalendarShowUnscheduledColumn: false,
+      weeklyCalendarShowThemeSongs: false,
     });
   });
 
@@ -53,12 +54,14 @@ describe('tools preferences', () => {
       seasonalScoresShowRepeats: true,
       seasonalScoresSpanAiringSeasons: true,
       weeklyCalendarShowUnscheduledColumn: true,
+      weeklyCalendarShowThemeSongs: true,
     });
 
     expect(loadToolsPreferences()).toMatchObject({
       seasonalScoresShowRepeats: true,
       seasonalScoresSpanAiringSeasons: true,
       weeklyCalendarShowUnscheduledColumn: true,
+      weeklyCalendarShowThemeSongs: true,
     });
   });
 
@@ -69,16 +72,21 @@ describe('tools preferences', () => {
     );
     localStorage.setItem(
       'anime-tools-weekly-calendar-form',
-      JSON.stringify({ showUnscheduledColumn: true }),
+      JSON.stringify({
+        showUnscheduledColumn: true,
+        showThemeSongs: true,
+      }),
     );
 
     expect(loadToolsPreferences()).toMatchObject({
       seasonalScoresSpanAiringSeasons: true,
       weeklyCalendarShowUnscheduledColumn: true,
+      weeklyCalendarShowThemeSongs: true,
     });
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')).toMatchObject({
       seasonalScoresSpanAiringSeasons: true,
       weeklyCalendarShowUnscheduledColumn: true,
+      weeklyCalendarShowThemeSongs: true,
     });
   });
 });

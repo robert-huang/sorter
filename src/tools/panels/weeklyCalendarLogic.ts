@@ -206,7 +206,6 @@ export type WeeklyCalendarForm = {
   mediaStatusFilters: WeeklyCalendarMediaStatusFilter[];
   formatFilters: WeeklyCalendarFormatFilter[];
   showUnscheduledColumn: boolean;
-  showThemeSongs: boolean;
 };
 
 export function defaultWeeklyCalendarCustomSeasonEncoded(now: Date = new Date()): number {
@@ -238,7 +237,6 @@ export const DEFAULT_WEEKLY_CALENDAR_FORM: WeeklyCalendarForm = {
   mediaStatusFilters: [...DEFAULT_WEEKLY_CALENDAR_MEDIA_STATUS_FILTERS],
   formatFilters: [...DEFAULT_WEEKLY_CALENDAR_FORMAT_FILTERS],
   showUnscheduledColumn: false,
-  showThemeSongs: false,
 };
 
 export type WeeklyCalendarEntry = {

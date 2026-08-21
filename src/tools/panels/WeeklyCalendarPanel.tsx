@@ -109,7 +109,6 @@ type PersistedWeeklyCalendarForm = Pick<
   | 'timezone'
   | 'formatFilters'
   | 'mediaStatusFilters'
-  | 'showThemeSongs'
 >;
 
 type WeeklyCalendarFetchIdentity = {
@@ -285,7 +284,6 @@ export function loadWeeklyCalendarForm(): WeeklyCalendarForm {
             : DEFAULT_WEEKLY_CALENDAR_FORM.timezone,
         formatFilters: normalizeWeeklyCalendarFormatFilters(parsed.formatFilters),
         mediaStatusFilters: normalizeWeeklyCalendarMediaStatusFilters(parsed.mediaStatusFilters),
-        showThemeSongs: parsed.showThemeSongs ?? false,
       };
     }
   } catch {
@@ -309,7 +307,6 @@ export function saveWeeklyCalendarForm(form: WeeklyCalendarForm): void {
       timezone: form.timezone,
       formatFilters: form.formatFilters,
       mediaStatusFilters: form.mediaStatusFilters,
-      showThemeSongs: form.showThemeSongs,
     };
     localStorage.setItem(LS_KEY, JSON.stringify(persisted));
   } catch {
@@ -874,6 +871,7 @@ export function WeeklyCalendarPanel({
   const { mode: localFileMatchMode } = useSpotifyLocalFileMatchPreference();
   const favourites = useCurrentAnilistFavourites();
   const { prefs: toolsPreferences } = useToolsPreferences();
+  const showThemeSongs = toolsPreferences.weeklyCalendarShowThemeSongs;
   const [form, setForm] = useState<WeeklyCalendarForm>(() => loadWeeklyCalendarForm());
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -974,7 +972,7 @@ export function WeeklyCalendarPanel({
   ]);
 
   const themeSongCacheRequest = useMemo(() => {
-    if (!form.showThemeSongs || result?.kind !== 'columns') {
+    if (!showThemeSongs || result?.kind !== 'columns') {
       return null;
     }
     const mediaIds = collectWeeklyCalendarMediaIds(result);
@@ -982,7 +980,7 @@ export function WeeklyCalendarPanel({
       mediaIds,
       key: `${themeSongFullSyncRevision}:${mediaIds.join(',')}`,
     };
-  }, [form.showThemeSongs, result, themeSongFullSyncRevision]);
+  }, [result, showThemeSongs, themeSongFullSyncRevision]);
 
   const themeSongCacheLoading =
     themeSongCacheRequest !== null &&
@@ -1271,16 +1269,6 @@ export function WeeklyCalendarPanel({
               max={form.scoreMax ?? null}
               onChange={(patch) => patchForm(patch)}
             />
-
-            <label className="tool-checkbox">
-              <input
-                type="checkbox"
-                checked={form.showThemeSongs}
-                disabled={running}
-                onChange={(e) => patchForm({ showThemeSongs: e.target.checked })}
-              />
-              Show theme songs
-            </label>
           </div>
 
           <div className="tool-adaptation-primary-filters tool-seasonal-primary-filters tool-weekly-primary-filters">
@@ -1384,7 +1372,6 @@ export function WeeklyCalendarPanel({
               disabled={running}
               onChange={(timezone) => patchForm({ timezone })}
             />
-
           </div>
         </div>
 
@@ -1411,7 +1398,7 @@ export function WeeklyCalendarPanel({
             <WeeklyCalendarColumnsView
               result={result}
               timeZone={timeZone}
-              showThemeSongs={form.showThemeSongs}
+              showThemeSongs={showThemeSongs}
               themeSongCounts={themeSongCounts}
               themeSongCache={themeSongCache}
               playlistCache={playlistCache}
@@ -1420,7 +1407,7 @@ export function WeeklyCalendarPanel({
               onOpenMedia={onOpenMedia}
             />
           </div>
-          {form.showThemeSongs ? (
+          {showThemeSongs ? (
             <WeeklyCalendarThemeSongsPanel
               shows={chartShows}
               themeSongCache={themeSongCache}
