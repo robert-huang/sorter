@@ -12,6 +12,7 @@ import {
   getTrackIsrcStoreSnapshot,
 } from '../lib/spotify/spotifyTrackIsrcStore';
 import type { SpotifyTrackIsrcProgress } from '../lib/importers/anilist/themeSongs/spotifyIsrc';
+import { useSpotifyApiBan } from './useSpotifyApiBannedUntil';
 
 const EMPTY_TRACK_IDS: string[] = [];
 
@@ -49,6 +50,7 @@ export type SpotifyTrackIsrcLookup = {
 export function useSpotifyTrackIsrcLookup(
   rows: readonly MediaThemeSongRow[],
 ): SpotifyTrackIsrcLookup {
+  const trackApiBan = useSpotifyApiBan('tracks');
   const trackIdsKey = themeTrackIdsKey(rows);
   const trackIds = useMemo(
     () => (trackIdsKey.length === 0 ? EMPTY_TRACK_IDS : trackIdsKey.split(',')),
@@ -109,7 +111,7 @@ export function useSpotifyTrackIsrcLookup(
     return () => {
       cancelled = true;
     };
-  }, [authRevision, trackIdsKey]);
+  }, [authRevision, trackApiBan?.bannedUntil, trackIdsKey]);
 
   return { lookup, ready, progress, spotifyCountry };
 }

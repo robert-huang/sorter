@@ -3,6 +3,10 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { MediaThemeSongRow } from '../../lib/importers/anilist/themeSongs/types';
 import { ensureSpotifyAccessToken } from '../../lib/spotify/spotifyAuth';
+import {
+  _clearSpotifyApiBanForTesting,
+  setSpotifyApiBan,
+} from '../../lib/spotify/spotifyApi';
 import { ensureTrackIsrcsCached } from '../../lib/spotify/spotifyTrackIsrcStore';
 import { useSpotifyTrackIsrcLookup } from '../useSpotifyTrackIsrcLookup';
 
@@ -43,6 +47,8 @@ afterEach(() => {
     root?.unmount();
   });
   container?.remove();
+  _clearSpotifyApiBanForTesting();
+  vi.useRealTimers();
   vi.clearAllMocks();
 });
 
@@ -115,6 +121,42 @@ describe('useSpotifyTrackIsrcLookup', () => {
     });
 
     expect(vi.mocked(ensureSpotifyAccessToken)).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries the same theme-track set after its Spotify cooldown expires', async () => {
+    vi.useFakeTimers();
+    const now = Date.now();
+    vi.setSystemTime(now);
+    setSpotifyApiBan(
+      'tracks',
+      now + 1_000,
+      'QUOTA_EXCEEDED',
+      true,
+      now,
+    );
+    vi.mocked(ensureSpotifyAccessToken).mockResolvedValue('token');
+    vi.mocked(ensureTrackIsrcsCached).mockResolvedValue(new Map());
+
+    function Probe(): null {
+      useSpotifyTrackIsrcLookup([makeRow(['track-a', 'track-b'])]);
+      return null;
+    }
+
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root.render(<Probe />);
+      await Promise.resolve();
+    });
+    expect(vi.mocked(ensureTrackIsrcsCached)).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+
+    expect(vi.mocked(ensureTrackIsrcsCached)).toHaveBeenCalledTimes(2);
   });
 
   it('does not show a misleading zero counter while the local ISRC cache hydrates', async () => {
