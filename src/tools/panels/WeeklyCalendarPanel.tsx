@@ -1339,6 +1339,9 @@ export function WeeklyCalendarPanel({
                   formatFilters: toggleInArray(form.formatFilters, format),
                 })
               }
+              onReplaceAll={(formats) =>
+                patchForm({ formatFilters: [...formats] })
+              }
             />
           </div>
 

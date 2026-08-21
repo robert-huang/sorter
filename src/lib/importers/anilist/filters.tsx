@@ -2392,6 +2392,7 @@ function AnilistChips({
         options={formatOptionsForType(options.mediaType)}
         selected={state.formats}
         onToggle={(v) => set({ formats: toggleInArray(state.formats, v) })}
+        onReplaceAll={(values) => set({ formats: [...values] })}
       />
       <MultiSelectChip
         label="year"

@@ -1695,6 +1695,9 @@ export function StatsPanel({
                 formatFilters: toggleInArray(form.formatFilters as string[], format) as StatsForm['formatFilters'],
               })
             }
+            onReplaceAll={(formats) =>
+              patchForm({ formatFilters: [...formats] as StatsForm['formatFilters'] })
+            }
           />
 
           <StatsMinCountChip

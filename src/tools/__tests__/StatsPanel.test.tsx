@@ -170,7 +170,39 @@ describe('stats staff name gender colours', () => {
   });
 });
 
-describe('StatsPanel gender filter', () => {
+describe('StatsPanel filters', () => {
+  it('bulk selects and clears media formats', () => {
+    act(() => {
+      root.render(
+        <StatsPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+    });
+
+    const findButton = (label: string): HTMLButtonElement | undefined =>
+      Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find(
+        (button) => button.textContent?.trim() === label,
+      );
+    const formatButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('.filter-chip-button'),
+    ).find((button) => button.textContent?.trim().startsWith('format'));
+
+    expect(formatButton?.textContent).toContain('all');
+    act(() => formatButton?.click());
+    expect(findButton('Select all')?.disabled).toBe(true);
+    expect(findButton('Clear')?.disabled).toBe(false);
+
+    act(() => findButton('Clear')?.click());
+    expect(formatButton?.textContent?.trim()).toBe('format');
+    expect(findButton('Select all')?.disabled).toBe(false);
+
+    act(() => findButton('Select all')?.click());
+    expect(formatButton?.textContent).toContain('all');
+  });
+
   it('renders gender immediately after the active people-role filter', () => {
     act(() => {
       root.render(
