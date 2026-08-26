@@ -1113,6 +1113,10 @@ html {
   color: var(--text);
 }
 
+.settings-item.settings-anilist-sign-in-secondary {
+  color: var(--text-muted);
+}
+
 .settings-anilist-accounts .settings-anilist-hint {
   max-width: none;
   display: block;

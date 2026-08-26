@@ -73,6 +73,9 @@ export function AnilistAccountsSection() {
   const configured = isAnilistOAuthConfigured();
   const callbackUrl = getAnilistOAuthCallbackUrl();
   const showDevSetup = import.meta.env.DEV && configured;
+  const hasSignedInAccount = accounts.some(
+    (account) => accountStatusLabel(account) === null,
+  );
 
   return (
     <div className="settings-anilist-accounts">
@@ -145,7 +148,9 @@ export function AnilistAccountsSection() {
       {configured && (
         <button
           type="button"
-          className="settings-item settings-item-status-text"
+          className={`settings-item settings-item-status-text${
+            hasSignedInAccount ? ' settings-anilist-sign-in-secondary' : ''
+          }`}
           disabled={signingIn}
           onClick={() => void onSignIn()}
         >
@@ -153,8 +158,12 @@ export function AnilistAccountsSection() {
         </button>
       )}
       <div className="settings-status settings-anilist-hint">
-        Opens AniList in a pop-up, then auto-returns.
-        <br />
+        {!hasSignedInAccount ? (
+          <>
+            Opens AniList in a pop-up, then auto-returns.
+            <br />
+          </>
+        ) : null}
         Sign in to import hidden lists and enable mutations.
       </div>
       {error && (
