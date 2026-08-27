@@ -78,13 +78,16 @@ describe('AnilistAccountsSection', () => {
     ).toBe(false);
   });
 
-  it('hides pop-up guidance and fades sign-in after an account is signed in', () => {
+  it('hides sign-in guidance and fades sign-in after an account is signed in', () => {
     vi.mocked(listAnilistAccounts).mockReturnValue([VALID_ACCOUNT]);
 
     renderSection();
 
     expect(container.textContent).not.toContain(
       'Opens AniList in a pop-up, then auto-returns.',
+    );
+    expect(container.textContent).not.toContain(
+      'Sign in to import hidden lists and enable mutations.',
     );
     expect(
       signInButton()?.classList.contains('settings-anilist-sign-in-secondary'),

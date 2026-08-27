@@ -404,6 +404,7 @@ export function SettingsMenu({
                       a http(s) origin to enable it.
                     </div>
                     <AnilistAccountsSection />
+                    <div className="settings-divider" />
                     <SpotifySection />
                   </>
                 ) : (
@@ -421,6 +422,7 @@ export function SettingsMenu({
                   <>
                     <div className="settings-divider" />
                     <AnilistAccountsSection />
+                    <div className="settings-divider" />
                     <SpotifySection />
                   </>
                 ) : null}

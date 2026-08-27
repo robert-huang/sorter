@@ -272,6 +272,7 @@ export function ToolsSettingsMenu({
                       enable it.
                     </div>
                     <AnilistAccountsSection />
+                    <div className="settings-divider" />
                     <SpotifySection />
                   </>
                 ) : (
@@ -332,6 +333,7 @@ export function ToolsSettingsMenu({
                     )}
                     <div className="settings-divider" />
                     <AnilistAccountsSection />
+                    <div className="settings-divider" />
                     <SpotifySection />
                   </>
                 )}

@@ -157,15 +157,13 @@ export function AnilistAccountsSection() {
           {signingIn ? 'Waiting for AniList…' : 'Sign in to AniList…'}
         </button>
       )}
-      <div className="settings-status settings-anilist-hint">
-        {!hasSignedInAccount ? (
-          <>
-            Opens AniList in a pop-up, then auto-returns.
-            <br />
-          </>
-        ) : null}
-        Sign in to import hidden lists and enable mutations.
-      </div>
+      {!hasSignedInAccount && (
+        <div className="settings-status settings-anilist-hint">
+          Opens AniList in a pop-up, then auto-returns.
+          <br />
+          Sign in to import hidden lists and enable mutations.
+        </div>
+      )}
       {error && (
         <div className="settings-source-db-error" role="alert">
           {error}
