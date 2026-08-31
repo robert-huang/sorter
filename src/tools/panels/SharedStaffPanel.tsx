@@ -125,8 +125,10 @@ function progressLabel(progress: SharedStaffRunProgress | null): string | null {
   switch (progress.phase) {
     case 'resolve':
       return `Resolving show ${progress.showIndex}/${progress.showTotal}: ${progress.label}…`;
+    case 'fetch-cast':
+      return `Fetching cast (${progress.showIndex}/${progress.showTotal})…`;
     case 'load-show':
-      return `Loading credits for ${progress.label}…`;
+      return `Loading credits (${progress.showIndex}/${progress.showTotal}): ${progress.label}…`;
     case 'single-scan':
       return `Scanning staff filmographies (${progress.staffIndex}/${progress.staffTotal}): ${progress.staffName}…`;
     case 'single-top':

@@ -575,7 +575,8 @@ export async function fetchProductionStaffFilmography(
 
 export type SharedStaffRunProgress =
   | { phase: 'resolve'; showIndex: number; showTotal: number; label: string }
-  | { phase: 'load-show'; label: string }
+  | { phase: 'fetch-cast'; showIndex: number; showTotal: number }
+  | { phase: 'load-show'; showIndex: number; showTotal: number; label: string }
   | { phase: 'single-scan'; staffIndex: number; staffTotal: number; staffName: string }
   | { phase: 'single-top'; label: string };
 
@@ -633,12 +634,22 @@ export async function runSharedStaffCompare(options: {
   }
 
   const shows: ShowStaffBundle[] = [];
+  const showTotal = resolved.length;
   await ensureMediaCastFreshBatch(
     resolved.map((show) => show.id),
     fetchOptions,
+    ({ completed, total }) => {
+      onProgress?.({ phase: 'fetch-cast', showIndex: completed, showTotal: total });
+    },
   );
-  for (const show of resolved) {
-    onProgress?.({ phase: 'load-show', label: show.title });
+  for (let i = 0; i < resolved.length; i += 1) {
+    const show = resolved[i]!;
+    onProgress?.({
+      phase: 'load-show',
+      showIndex: i + 1,
+      showTotal,
+      label: show.title,
+    });
     shows.push(await fetchShowStaffBundle(show.id, show.title, signal, fetchOptions));
   }
 
