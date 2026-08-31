@@ -13,6 +13,7 @@ import {
   formatWeeklyCalendarListStatusFilterLabel,
   buildWeeklyCalendarCustomSeasonYearOptions,
   buildWeeklyCalendarSeasonSegments,
+  getWeeklyCalendarCustomSeasonMax,
   WEEKLY_CALENDAR_CUSTOM_SEASON_PAST_COUNT,
   defaultWeeklyCalendarCustomSeasonRange,
   getCurrentAnilistSeason,
@@ -119,12 +120,14 @@ describe('defaultWeeklyCalendarCustomSeasonRange', () => {
 });
 
 describe('buildWeeklyCalendarCustomSeasonYearOptions', () => {
-  it('spans configured past seasons through next season', () => {
+  it('spans configured past seasons through one year ahead', () => {
     const now = new Date('2026-04-15T12:00:00Z');
     const options = buildWeeklyCalendarCustomSeasonYearOptions(now);
-    expect(options).toHaveLength(WEEKLY_CALENDAR_CUSTOM_SEASON_PAST_COUNT + 2);
+    const max = getWeeklyCalendarCustomSeasonMax(now);
+    expect(options).toHaveLength(WEEKLY_CALENDAR_CUSTOM_SEASON_PAST_COUNT + 5);
     expect(options[0]).toBe(encodeSeasonYear('SPRING', 2016));
-    expect(options[options.length - 1]).toBe(encodeSeasonYear('SUMMER', 2026));
+    expect(options[options.length - 1]).toBe(encodeSeasonYear(max.season, max.year));
+    expect(options[options.length - 1]).toBe(encodeSeasonYear('SPRING', 2027));
   });
 });
 
@@ -158,17 +161,17 @@ describe('resolveWeeklyCalendarSeasonSpecs', () => {
     ).toEqual([{ season: 'WINTER', year: 2026 }]);
 
     const spring2016 = options[0]!;
-    const summer2026 = options[options.length - 1]!;
+    const maxSeason = options[options.length - 1]!;
     expect(
       resolveWeeklyCalendarSeasonSpecs(
         {
           seasonScope: 'custom',
           customSeasonMinEncoded: spring2016,
-          customSeasonMaxEncoded: summer2026,
+          customSeasonMaxEncoded: maxSeason,
         },
         now,
       ),
-    ).toHaveLength(WEEKLY_CALENDAR_CUSTOM_SEASON_PAST_COUNT + 2);
+    ).toHaveLength(options.length);
   });
 });
 

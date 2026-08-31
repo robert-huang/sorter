@@ -367,13 +367,22 @@ export function isAnilistSeasonBeforeCurrent(spec: AnilistSeasonAt, now: Date = 
   return compareAnilistSeasonAt(spec, getCurrentAnilistSeason(now)) < 0;
 }
 
-/** Past seasons available in the custom picker (plus current through next). */
+/** Past seasons available in the custom picker (plus current through the future horizon). */
 export const WEEKLY_CALENDAR_CUSTOM_SEASON_PAST_COUNT = 40;
 
-/** Custom season picker: {@link WEEKLY_CALENDAR_CUSTOM_SEASON_PAST_COUNT} seasons ago through next. */
+/** How far ahead the custom season slider extends from today (calendar years). */
+export const WEEKLY_CALENDAR_CUSTOM_SEASON_FUTURE_YEARS = 1;
+
+export function getWeeklyCalendarCustomSeasonMax(now: Date = new Date()): AnilistSeasonAt {
+  const horizon = new Date(now);
+  horizon.setUTCFullYear(horizon.getUTCFullYear() + WEEKLY_CALENDAR_CUSTOM_SEASON_FUTURE_YEARS);
+  return getCurrentAnilistSeason(horizon);
+}
+
+/** Custom season picker: past seasons through {@link WEEKLY_CALENDAR_CUSTOM_SEASON_FUTURE_YEARS} ahead. */
 export function buildWeeklyCalendarCustomSeasonYearOptions(now: Date = new Date()): number[] {
   const current = getCurrentAnilistSeason(now);
-  const next = getNextAnilistSeason(current);
+  const max = getWeeklyCalendarCustomSeasonMax(now);
   let min = current;
   for (let i = 0; i < WEEKLY_CALENDAR_CUSTOM_SEASON_PAST_COUNT; i++) {
     min = getPreviousAnilistSeason(min);
@@ -382,7 +391,7 @@ export function buildWeeklyCalendarCustomSeasonYearOptions(now: Date = new Date(
   let cursor = min;
   while (true) {
     options.push(encodeSeasonYear(cursor.season, cursor.year));
-    if (cursor.season === next.season && cursor.year === next.year) {
+    if (cursor.season === max.season && cursor.year === max.year) {
       break;
     }
     cursor = getNextAnilistSeason(cursor);
