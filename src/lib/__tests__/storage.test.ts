@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { deriveCloudSyncState } from '../cloudSync';
 import type { AutosaveBlob, AutosaveError, AutosaveRecovery } from '../storage';
 import {
   AUTOSAVE_DEBOUNCE_MS,
@@ -35,6 +36,7 @@ import {
   setCloudId,
   setCloudOptIn,
   setCloudPushed,
+  setCloudPulled,
   scheduleAutosave,
   persistCanonicalBlobOnLoad,
   setActiveSlot,
@@ -1880,6 +1882,33 @@ describe('deriveAdoptedCloudSlotTimestamps', () => {
     expect(adopted?.cloudId).toBe('drive-file-AAAA');
     // Synced, not "local changes pending".
     expect((adopted?.updatedAt ?? '') > (adopted?.cloudPushedAt ?? '')).toBe(false);
+  });
+});
+
+describe('per-slot cloud Pull metadata', () => {
+  it('replaceSlotBlob + setCloudPulled reads as synced (incl. Drive clock skew)', () => {
+    const slot = mintSlot(makeBlob(0), 'A');
+    setCloudOptIn(slot.id, true);
+    setCloudPushed(slot.id, {
+      cloudId: 'drive-1',
+      cloudEtag: '1',
+      cloudPushedAt: '2026-01-01T00:00:00.000Z',
+      cloudUpdatedAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    const driveFuture = '2099-06-01T12:00:00.000Z';
+    expect(replaceSlotBlob(slot.id, makeBlob(9))).toBe(true);
+    setCloudPulled(slot.id, {
+      cloudId: 'drive-1',
+      cloudEtag: '2',
+      cloudUpdatedAt: driveFuture,
+      displayName: 'Remote name',
+    });
+
+    const adopted = readManifest().slots.find((s) => s.id === slot.id);
+    expect(adopted?.updatedAt).toBe(driveFuture);
+    expect(adopted?.cloudPushedAt).toBe(driveFuture);
+    expect(deriveCloudSyncState(adopted!)).toBe('synced');
   });
 });
 

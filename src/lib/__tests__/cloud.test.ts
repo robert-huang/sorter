@@ -370,6 +370,7 @@ describe('cloud-meta helpers', () => {
     const afterPull = Date.now();
     const slot = readManifest().slots.find((s) => s.id === r!.meta.id);
     expect(slot?.cloudUpdatedAt).toBe('2026-05-20T02:00:00.000Z');
+    expect(slot?.updatedAt).toBe('2026-05-20T02:00:00.000Z');
     expect(slot?.cloudEtag).toBe('7');
     expect(slot?.name).toBe('Remote authoritative name');
     expect(deriveCloudSyncState(slot!)).toBe('synced');

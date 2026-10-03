@@ -1777,14 +1777,12 @@ export function App() {
           });
           const refreshed = readManifest();
           setManifest(refreshed);
-          // If the pulled slot is the loaded-into-memory one, swap the
-          // in-memory state to match. Otherwise the user would still
-          // see their old pre-pull view until they Resume the slot.
-          // We read the active id from the fresh manifest rather than
-          // closing over `loadedSlotId` (which is computed AFTER this
-          // handler in source order) — same source-of-truth, no
-          // forward-reference noise.
-          if (refreshed.activeId === id) {
+          // If this tab has the pulled slot in memory, swap to the pulled
+          // bytes. Use loadedSlotIdRef (per-tab) — not manifest.activeId,
+          // which tracks the last global writer and can point at another
+          // tab's slot while we still autosave here.
+          if (loadedSlotIdRef.current === id) {
+            discardPendingAutosave();
             const session = loadSlotSession(id);
             if (session) {
               setLoadedSlotId(id);

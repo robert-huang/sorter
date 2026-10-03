@@ -1074,11 +1074,19 @@ export function setCloudPulled(
     displayName: string;
   },
 ): SlotsManifest {
-  const { displayName, ...cloudPatch } = patch;
+  const { displayName, cloudUpdatedAt, ...cloudPatch } = patch;
+  const ts = deriveAdoptedCloudSlotTimestamps(
+    cloudUpdatedAt,
+    new Date().toISOString(),
+  );
   return updateSlotMeta(id, {
     ...cloudPatch,
     name: displayName,
-    cloudPushedAt: new Date().toISOString(),
+    cloudUpdatedAt: ts.cloudUpdatedAt,
+    cloudPushedAt: ts.cloudPushedAt,
+    // Align with library adopt: recency follows Drive's modified time and
+    // updatedAt must stay <= cloudPushedAt (see deriveCloudSyncState).
+    updatedAt: ts.updatedAt,
   });
 }
 
