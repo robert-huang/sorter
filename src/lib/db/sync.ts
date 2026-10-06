@@ -2,6 +2,8 @@ import { CloudEtagMismatchError } from '../cloud/googleDrive';
 import {
   downloadSourceDb,
   findSourceDbFile,
+  headSourceDb,
+  sourceDbEtagsSameRevision,
   uploadSourceDb,
 } from '../cloud/googleDrive';
 import {
@@ -137,14 +139,29 @@ export async function pushDbToDrive(sourceId: string): Promise<PushResult> {
 
   const remote = await findSourceDbFile(sourceId);
   const meta = getSourceSyncMeta(sourceId);
+  let ifMatchEtag = meta.remoteEtag;
 
   if (remote) {
     if (meta.remoteEtag && remote.etag !== meta.remoteEtag) {
-      patchSourceSyncMeta(sourceId, { driftDetected: true });
-      throw codedError(
-        REMOTE_DRIFTED,
-        'Remote database changed since last sync — pull first to merge.',
-      );
+      const head = await headSourceDb(remote.id);
+      if (
+        head &&
+        sourceDbEtagsSameRevision(meta.remoteEtag, remote.etag, head.etagFields)
+      ) {
+        // Same Drive revision — meta stored `version` while list/head
+        // now prefer md5Checksum (or vice versa). Refresh the alias.
+        ifMatchEtag = remote.etag;
+        patchSourceSyncMeta(sourceId, {
+          remoteEtag: remote.etag,
+          driftDetected: false,
+        });
+      } else {
+        patchSourceSyncMeta(sourceId, { driftDetected: true });
+        throw codedError(
+          REMOTE_DRIFTED,
+          'Remote database changed since last sync — pull first to merge.',
+        );
+      }
     }
 
     const { bytes: remoteBytes } = await downloadSourceDb(remote.id);
@@ -162,7 +179,7 @@ export async function pushDbToDrive(sourceId: string): Promise<PushResult> {
       sourceId,
       localBytes,
       remote?.id ?? meta.remoteFileId,
-      remote && meta.remoteEtag ? meta.remoteEtag : undefined,
+      remote && ifMatchEtag ? ifMatchEtag : undefined,
     );
   } catch (err) {
     if (err instanceof CloudEtagMismatchError) {

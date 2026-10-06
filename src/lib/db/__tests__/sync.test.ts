@@ -9,6 +9,7 @@ import { testSourceDescriptor, TEST_SOURCE_ID } from '../testSource';
 import { getTestSqlite } from './testSqlite';
 
 const findSourceDbFile = vi.fn();
+const headSourceDb = vi.fn();
 const uploadSourceDb = vi.fn();
 const downloadSourceDb = vi.fn();
 
@@ -17,6 +18,7 @@ vi.mock('../../cloud/googleDrive', async (importOriginal) => {
   return {
     ...actual,
     findSourceDbFile: (...args: unknown[]) => findSourceDbFile(...args),
+    headSourceDb: (...args: unknown[]) => headSourceDb(...args),
     uploadSourceDb: (...args: unknown[]) => uploadSourceDb(...args),
     downloadSourceDb: (...args: unknown[]) => downloadSourceDb(...args),
   };
@@ -143,6 +145,7 @@ beforeEach(() => {
   });
   _clearDbSyncManifestForTesting();
   findSourceDbFile.mockReset();
+  headSourceDb.mockReset();
   uploadSourceDb.mockReset();
   downloadSourceDb.mockReset();
   vi.mocked(openSourceDb).mockClear();
@@ -187,12 +190,51 @@ describe('pushDbToDrive', () => {
       hasLocalDb: true,
     });
     findSourceDbFile.mockResolvedValue({ id: 'file-1', etag: 'etag-new' });
+    headSourceDb.mockResolvedValue({
+      etag: 'etag-new',
+      etagFields: { version: 'etag-new', modifiedTime: '2026-02-01T00:00:00.000Z' },
+      size: 100,
+    });
 
     await expect(pushDbToDrive(TEST_SOURCE_ID)).rejects.toMatchObject({
       code: REMOTE_DRIFTED,
     });
     expect(getSourceSyncMeta(TEST_SOURCE_ID).driftDetected).toBe(true);
     expect(uploadSourceDb).not.toHaveBeenCalled();
+  });
+
+  it('does not treat md5 vs version etag aliases as remote drift', async () => {
+    await seedThing('x', 'one', 10);
+    const snapshot = localBytesBySource.get(TEST_SOURCE_ID)!;
+    patchSourceSyncMeta(TEST_SOURCE_ID, {
+      remoteEtag: 'version-1',
+      remoteFileId: 'file-1',
+      hasLocalDb: true,
+      lastPushAt: 1000,
+    });
+    findSourceDbFile.mockResolvedValue({ id: 'file-1', etag: 'md5-abc' });
+    headSourceDb.mockResolvedValue({
+      etag: 'md5-abc',
+      etagFields: {
+        md5Checksum: 'md5-abc',
+        version: 'version-1',
+        modifiedTime: '2026-01-01T00:00:00.000Z',
+      },
+      size: snapshot.byteLength,
+    });
+    downloadSourceDb.mockResolvedValue({ bytes: snapshot, etag: 'md5-abc' });
+    uploadSourceDb.mockResolvedValue({ id: 'file-1', newEtag: 'md5-def' });
+
+    const result = await pushDbToDrive(TEST_SOURCE_ID);
+
+    expect(result.remoteEtag).toBe('md5-def');
+    expect(getSourceSyncMeta(TEST_SOURCE_ID).driftDetected).toBe(false);
+    expect(uploadSourceDb).toHaveBeenCalledWith(
+      TEST_SOURCE_ID,
+      expect.any(Uint8Array),
+      'file-1',
+      'md5-abc',
+    );
   });
 
   it('throws REMOTE_SCHEMA_NEWER when remote schema is ahead', async () => {

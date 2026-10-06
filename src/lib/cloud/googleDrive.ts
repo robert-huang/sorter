@@ -318,6 +318,44 @@ export function buildGoogleOAuthAuthorizationUrl({
   return `${AUTH_ENDPOINT}?${params.toString()}`;
 }
 
+type DriveSourceDbEtagFields = {
+  md5Checksum?: string;
+  version?: string;
+  modifiedTime?: string;
+};
+
+function sourceDbEtagCandidates(fields: DriveSourceDbEtagFields): string[] {
+  const out: string[] = [];
+  if (fields.md5Checksum) out.push(fields.md5Checksum);
+  if (fields.version) out.push(fields.version);
+  if (fields.modifiedTime) out.push(fields.modifiedTime);
+  return out;
+}
+
+function pickSourceDbEtag(fields: DriveSourceDbEtagFields): string {
+  const picked = sourceDbEtagCandidates(fields);
+  if (picked.length === 0) {
+    throw new Error('Drive file metadata missing etag fields.');
+  }
+  return picked[0]!;
+}
+
+/**
+ * Drive exposes the same file revision as md5Checksum, version, and/or
+ * modifiedTime. We store one token in sync meta but may read another on
+ * the next push — treat overlapping candidates as the same revision, not
+ * cross-device drift.
+ */
+export function sourceDbEtagsSameRevision(
+  a: string,
+  b: string,
+  fields: DriveSourceDbEtagFields,
+): boolean {
+  if (a === b) return true;
+  const candidates = new Set(sourceDbEtagCandidates(fields));
+  return candidates.has(a) && candidates.has(b);
+}
+
 // ---------- impl ----------
 
 export class GoogleDriveProvider implements CloudProvider {
@@ -1074,14 +1112,15 @@ export class GoogleDriveProvider implements CloudProvider {
     if (!file) {
       return null;
     }
-    const etag = file.md5Checksum ?? file.version ?? file.modifiedTime;
-    if (!etag) {
-      throw new Error('findSourceDbFile: remote file has no etag fields.');
-    }
+    const etag = pickSourceDbEtag(file);
     return { id: file.id, etag };
   }
 
-  async headSourceDb(fileId: string): Promise<{ etag: string; size: number } | null> {
+  async headSourceDb(fileId: string): Promise<{
+    etag: string;
+    etagFields: DriveSourceDbEtagFields;
+    size: number;
+  } | null> {
     await this.refreshTokenIfNeeded();
     const resp = await this.authedFetch(
       `${DRIVE_API}/files/${encodeURIComponent(fileId)}?fields=md5Checksum,version,modifiedTime,size`,
@@ -1098,11 +1137,13 @@ export class GoogleDriveProvider implements CloudProvider {
       modifiedTime?: string;
       size?: string;
     };
-    const etag = data.md5Checksum ?? data.version ?? data.modifiedTime;
-    if (!etag) {
-      return null;
-    }
-    return { etag, size: data.size ? Number(data.size) : 0 };
+    const etagFields: DriveSourceDbEtagFields = {
+      md5Checksum: data.md5Checksum,
+      version: data.version,
+      modifiedTime: data.modifiedTime,
+    };
+    const etag = pickSourceDbEtag(etagFields);
+    return { etag, etagFields, size: data.size ? Number(data.size) : 0 };
   }
 
   async downloadSourceDb(fileId: string): Promise<{ bytes: Uint8Array; etag: string }> {
@@ -1118,10 +1159,7 @@ export class GoogleDriveProvider implements CloudProvider {
       version?: string;
       modifiedTime?: string;
     };
-    const etag = meta.md5Checksum ?? meta.version ?? meta.modifiedTime;
-    if (!etag) {
-      throw new Error('downloadSourceDb: remote file has no etag fields.');
-    }
+    const etag = pickSourceDbEtag(meta);
     const bodyResp = await this.authedFetch(
       `${DRIVE_API}/files/${encodeURIComponent(fileId)}?alt=media`,
     );
@@ -1146,7 +1184,9 @@ export class GoogleDriveProvider implements CloudProvider {
       const current = await this.headSourceDb(fileId);
       if (current === null) {
         fileId = null;
-      } else if (current.etag !== ifMatchEtag) {
+      } else if (
+        !sourceDbEtagsSameRevision(ifMatchEtag, current.etag, current.etagFields)
+      ) {
         throw new CloudEtagMismatchError(current.etag, ifMatchEtag);
       }
     }
@@ -1217,10 +1257,9 @@ export class GoogleDriveProvider implements CloudProvider {
     if (!data.id) {
       throw new Error('uploadSourceDb response missing id.');
     }
-    const newEtag = data.md5Checksum ?? data.version ?? data.modifiedTime;
-    if (!newEtag) {
-      throw new Error('uploadSourceDb response missing etag fields.');
-    }
+    const newEtagFromResponse = pickSourceDbEtag(data);
+    const head = await this.headSourceDb(data.id);
+    const newEtag = head?.etag ?? newEtagFromResponse;
     return { id: data.id, newEtag };
   }
 
@@ -1450,7 +1489,7 @@ export async function findSourceDbFile(
 
 export async function headSourceDb(
   fileId: string,
-): Promise<{ etag: string; size: number } | null> {
+): Promise<{ etag: string; etagFields: DriveSourceDbEtagFields; size: number } | null> {
   return getDriveOps().headSourceDb(fileId);
 }
 
