@@ -70,6 +70,14 @@ describe('resolveNotesUpdate', () => {
     });
   });
 
+  it('preserves real newlines in replace text (mass / * full replace)', () => {
+    const multiline = 'stuff\nnextline';
+    expect(resolveNotesUpdate('old', { find: '*', replace: multiline })).toEqual({
+      kind: 'set',
+      notes: multiline,
+    });
+  });
+
   describe('does not trim find/replace values written to notes', () => {
     it('keeps trailing spaces on blank-only replace', () => {
       expect(resolveNotesUpdate('', { find: '', replace: ' #airing ' })).toEqual({

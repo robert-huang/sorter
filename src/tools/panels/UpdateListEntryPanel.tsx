@@ -6,6 +6,7 @@ import {
 import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolClearableInput } from '../ToolClearableInput';
+import { ToolClearableTextarea } from '../ToolClearableTextarea';
 import { ToolRunButton } from '../ToolRunButton';
 import { updateListEntry, massUpdateListEntryNotes } from './updateListEntryApi';
 import {
@@ -165,7 +166,8 @@ export function UpdateListEntryPanel(_props: ToolPanelProps) {
       </p>
       <p className="tool-panel-lead tool-panel-lead-secondary">
         Notes support find-and-replace (
-        <code>*</code> replaces the entire note).
+        <code>*</code> replaces the entire note). Use Enter for new lines —{' '}
+        <code>\n</code> is not interpreted as a line break.
       </p>
       <p className="tool-panel-lead tool-panel-lead-secondary">
         Use <strong>Mass Update Notes</strong> to run mass_tagger.py-style find/replace rules
@@ -289,7 +291,7 @@ export function UpdateListEntryPanel(_props: ToolPanelProps) {
             Notes Find
           </label>
           <div className="tool-update-list-entry-control">
-            <ToolClearableInput
+            <ToolClearableTextarea
               id={FIELD_IDS.notesFind}
               className="tool-update-list-entry-notes-input"
               disabled={running}
@@ -304,11 +306,11 @@ export function UpdateListEntryPanel(_props: ToolPanelProps) {
             >
               Notes Replace
             </label>
-            <ToolClearableInput
+            <ToolClearableTextarea
               id={FIELD_IDS.notesReplace}
               className="tool-update-list-entry-notes-input"
               disabled={running}
-              placeholder="Replace With"
+              placeholder="Replace with (multi-line OK)"
               value={form.notesReplace}
               onChange={(notesReplace) => patchForm({ notesReplace })}
             />

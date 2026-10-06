@@ -7638,6 +7638,22 @@ a:where(.anime-to-anime-anilist-link):visited {
   padding-right: 1.5rem;
 }
 
+.tool-clearable-input--multiline {
+  align-items: start;
+}
+
+.tool-clearable-input--multiline .tool-clearable-input-clear {
+  align-self: center;
+}
+
+.tool-clearable-input textarea.slot-search {
+  resize: vertical;
+  line-height: 1.35;
+  font-family: inherit;
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
 .tool-clearable-input input[type='number'] {
   appearance: textfield;
   -moz-appearance: textfield;
