@@ -1236,6 +1236,8 @@ export function AnilistDetailModal({
                               <ThemeSongRowC
                                 key={`${type}-${row.songKey ?? row.displayTitle}-${index}`}
                                 row={row}
+                                mediaId={mediaId}
+                                animeTitle={pickTitle(detail, fallbackTitle)}
                                 playlistMatch={matchThemeRowToPlaylistDetails(
                                   row,
                                   playlistCache,

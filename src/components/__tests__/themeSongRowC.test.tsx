@@ -219,4 +219,31 @@ describe('ThemeSongRowC', () => {
     );
     expect(container.querySelector('.is-out')).toBeNull();
   });
+
+  it('shows preview toggle when media context is provided', async () => {
+    const row: MediaThemeSongRow = {
+      type: 'Opening',
+      sortOrder: 0,
+      displayTitle: 'Grow Up',
+      displayArtist: 'Hysteric Blue',
+      spotifyUrl: null,
+      spotifyTrackIds: [],
+      spotifyIsrc: null,
+      hasResolvableTrackId: false,
+    };
+
+    await act(async () => {
+      root.render(
+        <ThemeSongRowC
+          row={row}
+          mediaId={1281}
+          animeTitle="Ghost Stories"
+          playlistMatch={{ status: 'unknown', metadataMatch: null }}
+          showPlaylistMatch={false}
+        />,
+      );
+    });
+
+    expect(container.querySelector('.anilist-detail-theme-song-preview-toggle')).not.toBeNull();
+  });
 });

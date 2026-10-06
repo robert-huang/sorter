@@ -446,11 +446,13 @@ export function WeeklyCalendarThemeSongShowTitle({
 
 function WeeklyCalendarThemeSongGroups({
   mediaId,
+  animeTitle,
   rows,
   playlistCache,
   playlistMatchOptions,
 }: {
   mediaId: number;
+  animeTitle: string;
   rows: readonly MediaThemeSongRow[];
   playlistCache: ReturnType<typeof useSpotifyPlaylistCache>;
   playlistMatchOptions: PlaylistMatchOptions;
@@ -475,6 +477,8 @@ function WeeklyCalendarThemeSongGroups({
                 <ThemeSongRowC
                   key={`${type}-${row.songKey ?? row.displayTitle}-${index}`}
                   row={row}
+                  mediaId={mediaId}
+                  animeTitle={animeTitle}
                   playlistMatch={matchThemeRowToPlaylistDetails(
                     row,
                     playlistCache,
@@ -630,6 +634,7 @@ function WeeklyCalendarThemeSongsPanel({
                 />
                 <WeeklyCalendarThemeSongGroups
                   mediaId={show.id}
+                  animeTitle={show.title}
                   rows={rows}
                   playlistCache={playlistCache}
                   playlistMatchOptions={playlistMatchOptions}

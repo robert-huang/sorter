@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { useThemeSongPreview } from '../hooks/useThemeSongPreview';
 import type { MediaThemeSongRow } from '../lib/importers/anilist/themeSongs/types';
 import {
   isSpotifyUnavailableInMarket,
@@ -13,6 +14,7 @@ import {
 import type { PlaylistMatchResult } from '../lib/spotify/spotifyPlaylistMatch';
 import { useThemeSongDisplayPreferences } from '../hooks/useThemeSongDisplayPreferences';
 import { RemoveGlyph } from './RemoveGlyph';
+import { ThemeSongPreviewPlayer } from './ThemeSongPreviewPlayer';
 
 type Props = {
   row: MediaThemeSongRow;
@@ -20,6 +22,8 @@ type Props = {
   showPlaylistMatch: boolean;
   spotifyCountry?: string | null;
   onExclude?: (row: MediaThemeSongRow) => void;
+  mediaId?: number;
+  animeTitle?: string;
 };
 
 export function ThemeSongPlaylistDot({
@@ -163,17 +167,23 @@ function ThemeSongBody({
   row,
   title,
   artist,
+  previewToggle,
+  previewPanel,
 }: {
   row: MediaThemeSongRow;
   title: string;
   artist: string | null;
+  previewToggle: ReactNode;
+  previewPanel: ReactNode;
 }) {
   const episodeLine = themeSongEpisodeLine(row);
-  const useStackedLayout = row.type === 'Insert' || episodeLine !== null;
+  const useStackedLayout =
+    row.type === 'Insert' || episodeLine !== null || previewPanel !== null;
   return (
     <div className={useStackedLayout ? 'anilist-detail-theme-song-insert-body' : undefined}>
       <span className="anilist-detail-theme-song-line">
         <ThemeSongTitleLink row={row} title={title} />
+        {previewToggle}
         {artist ? (
           <>
             <span className="anilist-detail-theme-song-sep"> - </span>
@@ -181,6 +191,7 @@ function ThemeSongBody({
           </>
         ) : null}
       </span>
+      {previewPanel}
       {episodeLine ? (
         <div className="anilist-detail-theme-song-insert-ep">{episodeLine}</div>
       ) : null}
@@ -194,10 +205,69 @@ export function ThemeSongRowC({
   showPlaylistMatch,
   spotifyCountry,
   onExclude,
+  mediaId,
+  animeTitle,
 }: Props) {
   const { mode } = useThemeSongDisplayPreferences();
   const title = resolveThemeSongTitle(row, mode);
   const artist = resolveThemeSongArtist(row, mode);
+  const englishTitle = resolveThemeSongTitle(row, 'english');
+  const englishArtist = resolveThemeSongArtist(row, 'english');
+  const previewEnabled =
+    mediaId != null && typeof animeTitle === 'string' && animeTitle.trim().length > 0;
+  const preview = useThemeSongPreview({
+    enabled: previewEnabled,
+    mediaId: mediaId ?? 0,
+    animeTitle: animeTitle?.trim() ?? '',
+    row,
+    songTitle: englishTitle,
+    songArtist: englishArtist,
+  });
+  const previewFailed = preview.status === 'unavailable' || preview.status === 'error';
+  const previewToggle = previewEnabled ? (
+    <button
+      type="button"
+      className={[
+        'anilist-detail-theme-song-preview-toggle',
+        previewFailed ? 'is-failed' : '',
+        preview.status === 'ready' ? 'is-ready' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      onClick={(event) => {
+        event.stopPropagation();
+        void preview.togglePreview();
+      }}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        void preview.retryPreview();
+      }}
+      aria-expanded={preview.playerOpen}
+      aria-label={
+        previewFailed
+          ? 'Song preview unavailable'
+          : preview.playerOpen
+            ? 'Close song preview'
+            : 'Play song preview'
+      }
+      title={
+        preview.playerOpen
+          ? 'Close preview'
+          : previewFailed
+            ? preview.failureTooltip
+            : preview.failureTooltip
+      }
+    >
+      {preview.status === 'loading' ? '…' : '▶'}
+    </button>
+  ) : null;
+  const previewPanel =
+    preview.playerOpen && preview.status === 'ready' && preview.urls ? (
+      <ThemeSongPreviewPlayer urls={preview.urls} label={`${title} preview`} />
+    ) : preview.playerOpen && preview.status === 'loading' ? (
+      <p className="anilist-detail-theme-song-preview-loading">Loading preview…</p>
+    ) : null;
   const isInsert = row.type === 'Insert';
   const marketUnavailable = isSpotifyUnavailableInMarket(
     row.spotifyAvailableMarkets,
@@ -217,7 +287,13 @@ export function ThemeSongRowC({
         spotifyCountry={spotifyCountry}
       />
       <div className="anilist-detail-theme-song-text">
-        <ThemeSongBody row={row} title={title} artist={artist} />
+        <ThemeSongBody
+          row={row}
+          title={title}
+          artist={artist}
+          previewToggle={previewToggle}
+          previewPanel={previewPanel}
+        />
       </div>
       {onExclude ? (
         <button

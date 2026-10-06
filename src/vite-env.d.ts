@@ -2,6 +2,7 @@
 
 interface ImportMetaEnv {
   readonly VITE_ANIPLAYLIST_PROXY_URL?: string;
+  readonly VITE_ANISONGDB_PROXY_URL?: string;
   readonly VITE_MAL_CLIENT_ID?: string;
   readonly VITE_MAL_PROXY_URL?: string;
   readonly VITE_SPOTIFY_CLIENT_ID?: string;

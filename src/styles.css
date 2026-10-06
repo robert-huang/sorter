@@ -2062,6 +2062,80 @@ html {
   color: var(--text-muted);
 }
 
+.anilist-detail-theme-song-preview-toggle {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0 0.2em;
+  margin: 0;
+  font: inherit;
+  line-height: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  vertical-align: baseline;
+}
+
+.anilist-detail-theme-song-preview-toggle:hover {
+  opacity: 0.85;
+}
+
+.anilist-detail-theme-song-preview-toggle.is-failed {
+  color: #e91429;
+}
+
+.anilist-detail-theme-song-preview-toggle.is-ready {
+  color: var(--accent);
+}
+
+.anilist-detail-theme-song-preview {
+  margin-top: 4px;
+  max-width: 280px;
+}
+
+.anilist-detail-theme-song-preview-video {
+  display: block;
+  width: 100%;
+  max-height: 120px;
+  background: #000;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.anilist-detail-theme-song-preview-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.anilist-detail-theme-song-preview-seek {
+  flex: 1;
+  min-width: 0;
+}
+
+.anilist-detail-theme-song-preview-volume {
+  width: 56px;
+}
+
+.anilist-detail-theme-song-preview-volume-label {
+  display: flex;
+  align-items: center;
+}
+
+.anilist-detail-theme-song-preview-state {
+  font-size: 10px;
+  color: var(--text-muted);
+  width: 1.2em;
+  text-align: center;
+}
+
+.anilist-detail-theme-song-preview-loading,
+.anilist-detail-theme-song-preview-error {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
 .anilist-detail-theme-song-insert-body {
   display: flex;
   flex-direction: column;

@@ -59,6 +59,22 @@ function spotifyApiProxy(): ProxyOptions {
   };
 }
 
+function anisongdbSearchProxy(): ProxyOptions {
+  return {
+    target: 'https://anisongdb.com',
+    changeOrigin: true,
+    secure: true,
+    rewrite: () => '/api/search_request',
+    configure: (proxy) => {
+      proxy.on('proxyReq', (proxyReq) => {
+        proxyReq.setHeader('Origin', 'https://anisongdb.com');
+        proxyReq.setHeader('Referer', 'https://anisongdb.com/');
+        proxyReq.setHeader('X-Client-Id', 'AnisongDB');
+      });
+    },
+  };
+}
+
 // base: './' so the built dist/ works both when served over http(s)://
 // and when opened directly as a file:// URL (double-click index.html).
 export default defineConfig(({ mode }) => {
@@ -74,6 +90,7 @@ export default defineConfig(({ mode }) => {
         '/api/aniplaylist/algolia': aniplaylistAlgoliaProxy(),
         '/api/mal': malApiProxy(malClientId),
         '/api/spotify': spotifyApiProxy(),
+        '/api/anisongdb/search': anisongdbSearchProxy(),
       },
     },
     preview: {
@@ -82,6 +99,7 @@ export default defineConfig(({ mode }) => {
         '/api/aniplaylist/algolia': aniplaylistAlgoliaProxy(),
         '/api/mal': malApiProxy(malClientId),
         '/api/spotify': spotifyApiProxy(),
+        '/api/anisongdb/search': anisongdbSearchProxy(),
       },
     },
     optimizeDeps: {
