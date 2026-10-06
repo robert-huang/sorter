@@ -783,7 +783,10 @@ export function formatWeeklyCalendarDetailLines(
   if (dateRange) {
     parts.push(dateRange);
   }
-  const left = computeEpisodesLeft(entry.totalEpisodes, entry.progress);
+  const left =
+    entry.listStatus === 'COMPLETED'
+      ? null
+      : computeEpisodesLeft(entry.totalEpisodes, entry.progress);
   return {
     primary: parts.length > 0 ? parts.join(', ') : null,
     episodesLeft: left != null ? `${left} episodes left` : null,

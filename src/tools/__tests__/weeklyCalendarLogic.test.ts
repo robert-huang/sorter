@@ -617,6 +617,20 @@ describe('formatWeeklyCalendarDetailLines', () => {
     expect(lines.secondary).toBeTruthy();
     expect(lines.primary).not.toContain('Tue');
   });
+
+  it('omits episodes left when list status is COMPLETED', () => {
+    const lines = formatWeeklyCalendarDetailLines(
+      entry({
+        id: 1,
+        title: 'Show',
+        listStatus: 'COMPLETED',
+        progress: 8,
+        totalEpisodes: 12,
+      }),
+      'UTC',
+    );
+    expect(lines.episodesLeft).toBeNull();
+  });
 });
 
 describe('resolveEntrySchedule', () => {

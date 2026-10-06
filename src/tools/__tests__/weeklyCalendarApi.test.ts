@@ -117,7 +117,7 @@ describe('fetchWeeklyCalendarWatchingEntries', () => {
 
   it('bustWeeklyCalendarUserListMemo clears persistent cache', async () => {
     await fetchWeeklyCalendarWatchingEntries('rh_test');
-    bustWeeklyCalendarUserListMemo('rh_test');
+    await bustWeeklyCalendarUserListMemo('rh_test');
 
     await expect(
       persistentCacheGet('weekly-calendar:watching:v2:rh_test'),
@@ -189,5 +189,46 @@ describe('fetchWeeklyCalendarSeasonEntries', () => {
           options.variables?.seasonYear === 2020,
       ),
     ).toBe(true);
+  });
+
+  it('bustWeeklyCalendarUserListMemo drops season cache so list progress can refresh', async () => {
+    const previousSeason = { season: 'SPRING' as const, year: 2020 };
+    depaginateMock.mockImplementation(async ({ variables }) => {
+      if (variables && 'seasonYear' in variables) {
+        return [watchingEntry(7).media];
+      }
+      return [
+        {
+          status: 'COMPLETED',
+          score: 90,
+          progress: 8,
+          media: { id: 7 },
+        },
+      ];
+    });
+
+    const first = await fetchWeeklyCalendarSeasonEntries('rh_test', previousSeason);
+    expect(first.entries[0]?.progress).toBe(8);
+
+    await bustWeeklyCalendarUserListMemo('rh_test');
+    _clearSessionMemoForTesting();
+
+    depaginateMock.mockImplementation(async ({ variables }) => {
+      if (variables && 'seasonYear' in variables) {
+        return [watchingEntry(7).media];
+      }
+      return [
+        {
+          status: 'COMPLETED',
+          score: 90,
+          progress: 12,
+          media: { id: 7 },
+        },
+      ];
+    });
+
+    const second = await fetchWeeklyCalendarSeasonEntries('rh_test', previousSeason);
+    expect(second.entries[0]?.progress).toBe(12);
+    expect(depaginateMock).toHaveBeenCalledTimes(4);
   });
 });

@@ -896,15 +896,19 @@ export function WeeklyCalendarPanel({
   const themeSongOverridesRef = useRef(
     new Map<number, MediaThemeSongsPayload>(),
   );
+  const onRunRef = useRef<(forceRefresh?: boolean) => Promise<void>>(async () => {});
 
-  const onAfterListRefresh = useCallback((username: string) => {
-    bustWeeklyCalendarUserListMemo(username);
+  const onAfterListRefresh = useCallback(async (username: string) => {
+    await bustWeeklyCalendarUserListMemo(username);
     const handle = username.trim().toLowerCase();
-    if (fetchedIdentityRef.current?.username === handle) {
-      setRawEntries(null);
-      setSeasonLabel(null);
-      fetchedIdentityRef.current = null;
+    const identity = fetchedIdentityRef.current;
+    if (identity?.username !== handle) {
+      return;
     }
+    setRawEntries(null);
+    setSeasonLabel(null);
+    fetchedIdentityRef.current = null;
+    await onRunRef.current(false);
   }, []);
 
   const { refreshing: refreshingList, refreshUsernameList } = useUsernameListRefresh({
@@ -1205,6 +1209,10 @@ export function WeeklyCalendarPanel({
     },
     [form.customSeasonMaxEncoded, form.customSeasonMinEncoded, form.seasonScope, form.username],
   );
+
+  useEffect(() => {
+    onRunRef.current = onRun;
+  }, [onRun]);
 
   useEffect(() => {
     if (rawEntries === null) {

@@ -10,12 +10,14 @@ import type { ToolsFetchOptions } from '../../lib/importers/anilist/toolsFetchPo
 import {
   getPersistentToolsCacheGeneration,
   persistentCacheDelete,
+  persistentCacheDeletePrefix,
   persistentCacheGet,
   persistentCacheSet,
 } from '../../lib/importers/anilist/toolsPersistentCache';
 import {
   TOOLS_SESSION_TTL_MS,
   sessionMemoDelete,
+  sessionMemoDeletePrefix,
   withSessionTtlMemo,
 } from '../../lib/importers/anilist/toolsSessionMemo';
 import type { AnilistMediaFormat } from '../../lib/importers/anilist/types';
@@ -334,6 +336,10 @@ function weeklyCalendarSeasonCacheKey(handle: string, seasonSpec: AnilistSeasonA
   return `weekly-calendar:season:v3:${handle}:${seasonSpec.season}:${seasonSpec.year}`;
 }
 
+function weeklyCalendarSeasonCachePrefix(handle: string): string {
+  return `weekly-calendar:season:v3:${handle}:`;
+}
+
 async function fetchSeasonAiringEntriesCached(
   username: string,
   seasonSpec: AnilistSeasonAt,
@@ -371,17 +377,24 @@ async function fetchSeasonAiringEntriesCached(
 }
 
 /** Bust session + localStorage cache for user-list-derived weekly calendar data. */
-export function bustWeeklyCalendarUserListMemo(username: string): void {
+export async function bustWeeklyCalendarUserListMemo(username: string): Promise<void> {
   const handle = username.trim().toLowerCase();
   if (!handle) {
     return;
   }
   const watchingKey = `weekly-calendar:watching:v2:${handle}`;
   const listMapKey = `weekly-calendar:list-map:${handle}`;
+  const seasonPrefix = weeklyCalendarSeasonCachePrefix(handle);
   sessionMemoDelete(watchingKey);
   sessionMemoDelete(listMapKey);
-  void persistentCacheDelete(watchingKey);
-  void persistentCacheDelete(listMapKey);
+  // Season fetches bake list progress into cached entries; bust those too
+  // when the username ↻ refresh re-imports list progress from AniList.
+  sessionMemoDeletePrefix(seasonPrefix);
+  await Promise.all([
+    persistentCacheDelete(watchingKey),
+    persistentCacheDelete(listMapKey),
+    persistentCacheDeletePrefix(seasonPrefix),
+  ]);
 }
 
 export async function fetchWeeklyCalendarWatchingEntries(
