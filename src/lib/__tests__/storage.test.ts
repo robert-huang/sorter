@@ -1886,6 +1886,38 @@ describe('deriveAdoptedCloudSlotTimestamps', () => {
 });
 
 describe('per-slot cloud Pull metadata', () => {
+  it('canonical hydration writes keep a cloud-pulled slot synced', async () => {
+    const slot = mintSlot(makeBlob(0), 'A');
+    const drivePast = '2026-01-02T03:04:05.000Z';
+    const ts = deriveAdoptedCloudSlotTimestamps(
+      drivePast,
+      '2026-06-05T12:00:00.000Z',
+    );
+    setCloudPushed(slot.id, {
+      cloudId: 'drive-1',
+      cloudEtag: '1',
+      cloudPushedAt: ts.cloudPushedAt,
+      cloudUpdatedAt: ts.cloudUpdatedAt,
+    });
+    setCloudOptIn(slot.id, true);
+    updateSlotMeta(slot.id, { updatedAt: ts.updatedAt });
+
+    const base = makeBlob(0);
+    const hydrated: AutosaveBlob = {
+      ...base,
+      items: {
+        ...base.items,
+        a: { ...base.items.a, label: 'Hydrated title' },
+      },
+    };
+    persistCanonicalBlobOnLoad(slot.id, hydrated);
+    scheduleAutosave(hydrated);
+    await flushAutosave();
+
+    const adopted = readManifest().slots.find((s) => s.id === slot.id);
+    expect(deriveCloudSyncState(adopted!)).toBe('synced');
+  });
+
   it('replaceSlotBlob + setCloudPulled reads as synced (incl. Drive clock skew)', () => {
     const slot = mintSlot(makeBlob(0), 'A');
     setCloudOptIn(slot.id, true);

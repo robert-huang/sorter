@@ -1197,22 +1197,30 @@ export function App() {
         return;
       }
       if (cloudBinding) {
+        // Re-derive at mint time (cap-modal delay, clock skew) so
+        // `updatedAt <= cloudPushedAt` holds even if the user waited
+        // between the Drive download and confirming the mint.
+        const ts = deriveAdoptedCloudSlotTimestamps(
+          cloudBinding.cloudUpdatedAt,
+          new Date().toISOString(),
+        );
         // Order matters: stamp cloud fields, then flip opt-in. Both
         // calls go through the same atomic manifest writer in
         // storage.ts so the on-disk shape stays consistent even if a
         // refresh interrupts us between calls.
-        setCloudPushed(result.meta.id, cloudBinding);
+        setCloudPushed(result.meta.id, {
+          cloudId: cloudBinding.cloudId,
+          cloudEtag: cloudBinding.cloudEtag,
+          cloudPushedAt: ts.cloudPushedAt,
+          cloudUpdatedAt: ts.cloudUpdatedAt,
+        });
         setCloudOptIn(result.meta.id, true);
         // A freshly-pulled cloud copy is not a local edit. `createSlot`
         // stamps `updatedAt = now`, which (a) propels the slot to the top
-        // of the list as "just now" and (b) lands a hair *after* the
-        // `cloudPushedAt` computed before the mint, tripping the
-        // `updatedAt > cloudPushedAt` test and mislabelling it "local
-        // changes pending". Re-stamp `updatedAt` with the cloud file's own
-        // last-modified time so the slot sorts into its real recency
-        // position and reads as "synced" (cloudPushedAt is "now", which is
-        // >= the cloud copy's date).
-        updateSlotMeta(result.meta.id, { updatedAt: cloudBinding.cloudUpdatedAt });
+        // of the list as "just now" and (b) can trip `updatedAt >
+        // cloudPushedAt`. Re-stamp from the cloud file's modified time so
+        // the slot sorts by real recency and reads as "synced".
+        updateSlotMeta(result.meta.id, { updatedAt: ts.updatedAt });
       }
       setManifest(readManifest());
       if (activate) {
@@ -2033,6 +2041,10 @@ export function App() {
     const sourceItems = state.items;
     void hydrateAnilistItemRecord(sourceItems).then((hydratedItems) => {
       if (cancelled || hydratedItems === sourceItems) return;
+      // Hydration is display metadata only — persist before the autosave
+      // effect runs so `performWrite` hits the no-op path instead of
+      // bumping `updatedAt` and flipping a freshly-pulled slot yellow.
+      let canonicalBlob: AutosaveBlob | null = null;
       setState((cur) => {
         if (!cur) return cur;
         let items = cur.items;
@@ -2051,8 +2063,15 @@ export function App() {
             items[key] = hydrated;
           }
         }
-        return items === cur.items ? cur : ({ ...cur, items } as SortState);
+        if (items === cur.items) return cur;
+        const next = { ...cur, items } as SortState;
+        canonicalBlob = buildBlob(next, undoRingRef.current);
+        return next;
       });
+      const id = loadedSlotIdRef.current;
+      if (canonicalBlob && id) {
+        persistCanonicalBlobOnLoad(id, canonicalBlob);
+      }
     });
 
     return () => {
@@ -2069,6 +2088,7 @@ export function App() {
   // don't push an undo frame — this is a cosmetic relabel, not an edit.
   useEffect(() => {
     return subscribeAnilistDisplayPreferences(() => {
+      let canonicalBlob: AutosaveBlob | null = null;
       setState((cur) => {
         if (!cur) return cur;
         let changed = false;
@@ -2078,8 +2098,15 @@ export function App() {
           if (next !== item) changed = true;
           items[id] = next;
         }
-        return changed ? ({ ...cur, items } as SortState) : cur;
+        if (!changed) return cur;
+        const nextState = { ...cur, items } as SortState;
+        canonicalBlob = buildBlob(nextState, undoRingRef.current);
+        return nextState;
       });
+      const id = loadedSlotIdRef.current;
+      if (canonicalBlob && id) {
+        persistCanonicalBlobOnLoad(id, canonicalBlob);
+      }
     });
   }, []);
 
