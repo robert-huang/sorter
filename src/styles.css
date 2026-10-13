@@ -835,6 +835,12 @@ html {
   background: var(--surface-2);
 }
 
+.settings-item-import-drop.is-import-drop-target {
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-2));
+  outline: 1px dashed color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: -1px;
+}
+
 .settings-item.danger {
   color: var(--danger);
 }

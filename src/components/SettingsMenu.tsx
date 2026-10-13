@@ -1,4 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { bindSettingsImportDropHandlers } from './settingsImportDropH';
 import { HistoryBackGuardSetting } from './HistoryBackGuardSetting';
 import { SettingsGitHubLink } from './SettingsGitHubLink';
 import { SlotList } from './SlotList';
@@ -184,6 +185,8 @@ export function SettingsMenu({
 }: Props) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<GearTab>(() => readPersistedTab());
+  const [loadSaveDropActive, setLoadSaveDropActive] = useState(false);
+  const [restoreBackupDropActive, setRestoreBackupDropActive] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
   // Separate hidden input for archive restore so we can scope its
   // change handler to "this is an archive" rather than "this is a
@@ -267,6 +270,38 @@ export function SettingsMenu({
     e.target.value = '';
   }
 
+  const rejectImportDrop = useCallback((message: string) => {
+    alert(message);
+  }, []);
+
+  const loadSaveDropHandlers = useMemo(
+    () =>
+      bindSettingsImportDropHandlers(
+        'single-slot',
+        (file) => {
+          setOpen(false);
+          onLoadFromFile(file);
+        },
+        rejectImportDrop,
+        setLoadSaveDropActive,
+      ),
+    [onLoadFromFile, rejectImportDrop],
+  );
+
+  const restoreBackupDropHandlers = useMemo(
+    () =>
+      bindSettingsImportDropHandlers(
+        'archive',
+        (file) => {
+          setOpen(false);
+          onRestoreFromBackup(file);
+        },
+        rejectImportDrop,
+        setRestoreBackupDropActive,
+      ),
+    [onRestoreFromBackup, rejectImportDrop],
+  );
+
   // Auto-close the popover after the user resumes a slot so the menu
   // doesn't sit overtop the new sort view.
   function handleSwitch(id: string): void {
@@ -349,13 +384,25 @@ export function SettingsMenu({
                 </div>
                 <div className="settings-tab-actions">
                   <div className="settings-divider" />
-                  <button className="settings-item" onClick={onLoadClick}>
+                  <button
+                    type="button"
+                    className={`settings-item settings-item-import-drop${
+                      loadSaveDropActive ? ' is-import-drop-target' : ''
+                    }`}
+                    onClick={onLoadClick}
+                    title="Choose a single-slot save file, or drop one here"
+                    {...loadSaveDropHandlers}
+                  >
                     Load save file…
                   </button>
                   <button
-                    className="settings-item"
+                    type="button"
+                    className={`settings-item settings-item-import-drop${
+                      restoreBackupDropActive ? ' is-import-drop-target' : ''
+                    }`}
                     onClick={onRestoreClick}
-                    title="Import a previously-saved archive file"
+                    title="Import a backup archive, or drop one here"
+                    {...restoreBackupDropHandlers}
                   >
                     Restore from backup…
                   </button>
