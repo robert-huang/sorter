@@ -30,6 +30,22 @@ const DEFAULT_REORDER_ITEM_SELECTOR = '.queue-item-row, .chip';
 let reorderSequence = 0;
 let activeReorderTransition: ActiveReorderTransition | null = null;
 
+/** Snap geometry to physical pixels — reduces shimmer/jump on Windows Chrome. */
+function roundDevicePx(value: number): number {
+  const dpr = window.devicePixelRatio || 1;
+  return Math.round(value * dpr) / dpr;
+}
+
+/**
+ * Wait until after React/DOM layout has settled. One rAF is often enough on
+ * macOS; Windows Chrome frequently paints the swapped list on the second frame.
+ */
+function afterNextLayout(callback: (frameTime: number) => void): void {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(callback);
+  });
+}
+
 function cancelActiveReorderTransition(): void {
   if (!activeReorderTransition) return;
   const transition = activeReorderTransition;
@@ -132,19 +148,19 @@ function animateReorderTransition(
     finished = true;
     scrollByOffset(
       scrollContainer,
-      left - appliedLeft,
-      top - appliedTop,
+      roundDevicePx(left - appliedLeft),
+      roundDevicePx(top - appliedTop),
     );
     appliedLeft = left;
     appliedTop = top;
     restore();
     if (movedControl.isConnected) {
       const finalRect = movedControl.getBoundingClientRect();
-      scrollByOffset(
-        scrollContainer,
-        finalRect.left - controlBefore.left,
-        finalRect.top - controlBefore.top,
-      );
+      const settleLeft = roundDevicePx(finalRect.left - controlBefore.left);
+      const settleTop = roundDevicePx(finalRect.top - controlBefore.top);
+      if (Math.abs(settleLeft) > 0.5 || Math.abs(settleTop) > 0.5) {
+        scrollByOffset(scrollContainer, settleLeft, settleTop);
+      }
     }
   };
   const transition: ActiveReorderTransition = {
@@ -168,17 +184,17 @@ function animateReorderTransition(
         : reorderAnimationProgress(linearProgress);
     const remaining = 1 - progress;
     for (const target of targets) {
-      const translation = `translate(${target.x * remaining}px, ${
-        target.y * remaining
-      }px)`;
+      const dx = roundDevicePx(target.x * remaining);
+      const dy = roundDevicePx(target.y * remaining);
+      const translation = `translate3d(${dx}px, ${dy}px, 0)`;
       target.element.style.transform = target.previousTransform
         ? `${translation} ${target.previousTransform}`
         : translation;
       target.element.style.willChange = 'transform';
       if (target.active) target.element.style.zIndex = '1';
     }
-    const nextLeft = left * progress;
-    const nextTop = top * progress;
+    const nextLeft = roundDevicePx(left * progress);
+    const nextTop = roundDevicePx(top * progress);
     scrollByOffset(
       scrollContainer,
       nextLeft - appliedLeft,
@@ -220,7 +236,7 @@ export function reorderKeepingControlPosition(
   });
   reorder();
 
-  requestAnimationFrame((frameTime) => {
+  afterNextLayout((frameTime) => {
     if (sequence !== reorderSequence) return;
     const movedControl = options.resolveControl?.() ?? control;
     if (!movedControl.isConnected) return;
@@ -228,8 +244,8 @@ export function reorderKeepingControlPosition(
     const animateSwap =
       !prefersReducedMotion() && animationSnapshots.length > 0;
     const after = movedControl.getBoundingClientRect();
-    const leftDelta = after.left - before.left;
-    const topDelta = after.top - before.top;
+    const leftDelta = roundDevicePx(after.left - before.left);
+    const topDelta = roundDevicePx(after.top - before.top);
     const scrollContainer = options.scrollContainer;
 
     if (!animateSwap) {
@@ -244,8 +260,12 @@ export function reorderKeepingControlPosition(
         if (!element.isConnected) continue;
         const finalRect = element.getBoundingClientRect();
         const active = pairIndex === 0;
-        const x = active ? -leftDelta : rect.left - finalRect.left;
-        const y = active ? -topDelta : rect.top - finalRect.top;
+        const x = roundDevicePx(
+          active ? -leftDelta : rect.left - finalRect.left,
+        );
+        const y = roundDevicePx(
+          active ? -topDelta : rect.top - finalRect.top,
+        );
         if (x === 0 && y === 0) continue;
         targets.push({
           element,
