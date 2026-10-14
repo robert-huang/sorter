@@ -1,3 +1,5 @@
+import { flushSync } from 'react-dom';
+
 export interface KeepReorderControlPositionOptions {
   scrollContainer?: HTMLElement | null;
   resolveControl?: () => HTMLElement | null;
@@ -34,16 +36,6 @@ let activeReorderTransition: ActiveReorderTransition | null = null;
 function roundDevicePx(value: number): number {
   const dpr = window.devicePixelRatio || 1;
   return Math.round(value * dpr) / dpr;
-}
-
-/**
- * Wait until after React/DOM layout has settled. One rAF is often enough on
- * macOS; Windows Chrome frequently paints the swapped list on the second frame.
- */
-function afterNextLayout(callback: (frameTime: number) => void): void {
-  requestAnimationFrame(() => {
-    requestAnimationFrame(callback);
-  });
 }
 
 function cancelActiveReorderTransition(): void {
@@ -107,6 +99,22 @@ function cubicBezierCoordinate(
     3 * remaining * time * time * secondControl +
     time * time * time
   );
+}
+
+function applyReorderTransforms(
+  targets: ReorderTransitionTarget[],
+  remaining: number,
+): void {
+  for (const target of targets) {
+    const dx = roundDevicePx(target.x * remaining);
+    const dy = roundDevicePx(target.y * remaining);
+    const translation = `translate3d(${dx}px, ${dy}px, 0)`;
+    target.element.style.transform = target.previousTransform
+      ? `${translation} ${target.previousTransform}`
+      : translation;
+    target.element.style.willChange = 'transform';
+    if (target.active) target.element.style.zIndex = '1';
+  }
 }
 
 function reorderAnimationProgress(linearProgress: number): number {
@@ -183,16 +191,7 @@ function animateReorderTransition(
         ? linearProgress
         : reorderAnimationProgress(linearProgress);
     const remaining = 1 - progress;
-    for (const target of targets) {
-      const dx = roundDevicePx(target.x * remaining);
-      const dy = roundDevicePx(target.y * remaining);
-      const translation = `translate3d(${dx}px, ${dy}px, 0)`;
-      target.element.style.transform = target.previousTransform
-        ? `${translation} ${target.previousTransform}`
-        : translation;
-      target.element.style.willChange = 'transform';
-      if (target.active) target.element.style.zIndex = '1';
-    }
+    applyReorderTransforms(targets, remaining);
     const nextLeft = roundDevicePx(left * progress);
     const nextTop = roundDevicePx(top * progress);
     scrollByOffset(
@@ -234,50 +233,54 @@ export function reorderKeepingControlPosition(
     const rect = pair.beforeElement.getBoundingClientRect();
     return { pair, rect };
   });
-  reorder();
+  // Commit the reordered React tree before paint so FLIP measurements and
+  // the initial inverse transform land in the same frame (avoids a one-frame
+  // flash that shows up as jumpiness on Windows Chrome).
+  flushSync(() => {
+    reorder();
+  });
 
-  afterNextLayout((frameTime) => {
-    if (sequence !== reorderSequence) return;
-    const movedControl = options.resolveControl?.() ?? control;
-    if (!movedControl.isConnected) return;
+  if (sequence !== reorderSequence) return;
+  const movedControl = options.resolveControl?.() ?? control;
+  if (!movedControl.isConnected) return;
 
-    const animateSwap =
-      !prefersReducedMotion() && animationSnapshots.length > 0;
-    const after = movedControl.getBoundingClientRect();
-    const leftDelta = roundDevicePx(after.left - before.left);
-    const topDelta = roundDevicePx(after.top - before.top);
-    const scrollContainer = options.scrollContainer;
+  const animateSwap =
+    !prefersReducedMotion() && animationSnapshots.length > 0;
+  const after = movedControl.getBoundingClientRect();
+  const leftDelta = roundDevicePx(after.left - before.left);
+  const topDelta = roundDevicePx(after.top - before.top);
+  const scrollContainer = options.scrollContainer;
 
-    if (!animateSwap) {
-      scrollByOffset(scrollContainer, leftDelta, topDelta);
+  if (!animateSwap) {
+    scrollByOffset(scrollContainer, leftDelta, topDelta);
+  }
+
+  if (animateSwap) {
+    const targets: ReorderTransitionTarget[] = [];
+    for (const [pairIndex, { pair, rect }] of animationSnapshots.entries()) {
+      const element = pair.resolveAfterElement?.() ?? pair.beforeElement;
+      if (!element.isConnected) continue;
+      const finalRect = element.getBoundingClientRect();
+      const active = pairIndex === 0;
+      const x = roundDevicePx(active ? -leftDelta : rect.left - finalRect.left);
+      const y = roundDevicePx(active ? -topDelta : rect.top - finalRect.top);
+      if (x === 0 && y === 0) continue;
+      targets.push({
+        element,
+        x,
+        y,
+        previousTransform: element.style.transform,
+        previousWillChange: element.style.willChange,
+        previousZIndex: element.style.zIndex,
+        active,
+      });
     }
-
-    if (animateSwap) {
-      const targets: ReorderTransitionTarget[] = [];
-      for (const [pairIndex, { pair, rect }] of animationSnapshots.entries()) {
-        const element =
-          pair.resolveAfterElement?.() ?? pair.beforeElement;
-        if (!element.isConnected) continue;
-        const finalRect = element.getBoundingClientRect();
-        const active = pairIndex === 0;
-        const x = roundDevicePx(
-          active ? -leftDelta : rect.left - finalRect.left,
-        );
-        const y = roundDevicePx(
-          active ? -topDelta : rect.top - finalRect.top,
-        );
-        if (x === 0 && y === 0) continue;
-        targets.push({
-          element,
-          x,
-          y,
-          previousTransform: element.style.transform,
-          previousWillChange: element.style.willChange,
-          previousZIndex: element.style.zIndex,
-          active,
-        });
-      }
-      if (targets.length > 0) {
+    if (targets.length > 0) {
+      // Paint the inverted positions before the browser composites the
+      // post-reorder layout; the rAF loop uses the frame timestamp as t=0.
+      applyReorderTransforms(targets, 1);
+      requestAnimationFrame((frameTime) => {
+        if (sequence !== reorderSequence) return;
         animateReorderTransition(
           targets,
           movedControl,
@@ -288,13 +291,13 @@ export function reorderKeepingControlPosition(
           frameTime,
           sequence,
         );
-      } else {
-        scrollByOffset(scrollContainer, leftDelta, topDelta);
-      }
+      });
+    } else {
+      scrollByOffset(scrollContainer, leftDelta, topDelta);
     }
+  }
 
-    if (movedControl !== control) {
-      movedControl.focus({ preventScroll: true });
-    }
-  });
+  if (movedControl !== control) {
+    movedControl.focus({ preventScroll: true });
+  }
 }

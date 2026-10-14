@@ -22,21 +22,6 @@ function translateY(element: HTMLElement): number {
   return Number(match?.[1]);
 }
 
-/** Flush the double-rAF layout wait used after reorder. */
-function flushLayoutWait(frames: FrameRequestCallback[], time = 0): void {
-  frames.shift()?.(time);
-  frames.shift()?.(time);
-}
-
-function stubAnimationFrameQueue(): FrameRequestCallback[] {
-  const frames: FrameRequestCallback[] = [];
-  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
-    frames.push(callback);
-    return frames.length;
-  });
-  return frames;
-}
-
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -54,12 +39,10 @@ describe('reorderKeepingControlPosition', () => {
     const scrollBy = vi
       .spyOn(window, 'scrollBy')
       .mockImplementation(() => undefined);
-    const frames = stubAnimationFrameQueue();
 
     reorderKeepingControlPosition(control, () => {
       reordered = true;
     });
-    flushLayoutWait(frames);
 
     expect(scrollBy).toHaveBeenCalledWith(0, -70);
   });
@@ -78,7 +61,6 @@ describe('reorderKeepingControlPosition', () => {
     const pageScroll = vi
       .spyOn(window, 'scrollBy')
       .mockImplementation(() => undefined);
-    const frames = stubAnimationFrameQueue();
 
     reorderKeepingControlPosition(
       control,
@@ -87,7 +69,6 @@ describe('reorderKeepingControlPosition', () => {
       },
       { scrollContainer: scroller },
     );
-    flushLayoutWait(frames);
 
     expect(scroller.scrollLeft).toBe(30);
     expect(scroller.scrollTop).toBe(80);
@@ -104,12 +85,10 @@ describe('reorderKeepingControlPosition', () => {
     const scrollBy = vi
       .spyOn(window, 'scrollBy')
       .mockImplementation(() => undefined);
-    const frames = stubAnimationFrameQueue();
 
     reorderKeepingControlPosition(original, vi.fn(), {
       resolveControl: () => moved,
     });
-    flushLayoutWait(frames);
 
     expect(scrollBy).toHaveBeenCalledWith(0, -110);
     expect(focus).toHaveBeenCalledWith({ preventScroll: true });
@@ -155,11 +134,11 @@ describe('reorderKeepingControlPosition', () => {
       { direction: 1 },
     );
 
-    flushLayoutWait(frames, 0);
     expect(scrollBy).not.toHaveBeenCalled();
     expect(source.style.transform).toBe('translate3d(0px, -50px, 0)');
     expect(source.style.zIndex).toBe('1');
     expect(target.style.transform).toBe('translate3d(0px, 50px, 0)');
+    frames.shift()?.(0);
     frames.shift()?.(80);
     expect(scrolledTop).toBeGreaterThan(0);
     expect(scrolledTop).toBeLessThan(50);
@@ -219,8 +198,7 @@ describe('reorderKeepingControlPosition', () => {
       { direction: 1 },
     );
     runFrame(1, 0);
-    runFrame(2, 0);
-    runFrame(3, 80);
+    runFrame(2, 80);
     expect(scrolledTop).toBeGreaterThan(0);
     expect(scrolledTop).toBeLessThan(50);
 
@@ -252,12 +230,10 @@ describe('reorderKeepingControlPosition', () => {
       'matchMedia',
       vi.fn(() => ({ matches: true })) as unknown as typeof window.matchMedia,
     );
-    const frames = stubAnimationFrameQueue();
 
     reorderKeepingControlPosition(control, vi.fn(), {
       animationPairs: [{ beforeElement: row }],
     });
-    flushLayoutWait(frames);
 
     expect(row.style.transform).toBe('');
     expect(scrollBy).toHaveBeenCalledWith(0, -40);
