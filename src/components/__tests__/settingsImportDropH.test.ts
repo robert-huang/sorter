@@ -15,11 +15,12 @@ function makeDropEvent(file: File, fileCount = 1): {
   currentTarget: HTMLElement;
   dataTransfer: DataTransfer;
 } {
+  const fileList = fileCount === 1 ? [file] : [file, file];
   const dt = {
     types: ['Files'],
-    files: fileCount === 1 ? [file] : [file, file],
+    files: Object.assign(fileList, { length: fileList.length }),
     dropEffect: 'none',
-  } as DataTransfer;
+  } as unknown as DataTransfer;
   return {
     preventDefault: vi.fn(),
     stopPropagation: vi.fn(),
