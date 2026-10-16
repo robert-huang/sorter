@@ -1229,7 +1229,10 @@ export function MultiSelectChip<T extends string | number>({
                 {selectedOptions.length > 0 && unselectedOptions.length > 0 && (
                   <div className="filter-chip-divider" />
                 )}
-                {options.length > 0 && unselectedOptions.length === 0 && search && (
+                {options.length > 0 &&
+                  selectedOptions.length === 0 &&
+                  unselectedOptions.length === 0 &&
+                  searchNeedle && (
                   <div className="filter-chip-empty">(no matches)</div>
                 )}
                 {unselectedOptions.map((opt) =>
