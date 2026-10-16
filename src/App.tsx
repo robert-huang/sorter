@@ -2041,11 +2041,7 @@ export function App() {
     const sourceItems = state.items;
     void hydrateAnilistItemRecord(sourceItems).then((hydratedItems) => {
       if (cancelled || hydratedItems === sourceItems) return;
-      // Hydration is display metadata only — persist before the autosave
-      // effect runs so `performWrite` hits the no-op path instead of
-      // bumping `updatedAt` and flipping a freshly-pulled slot yellow.
-      let canonicalBlob: AutosaveBlob | null = null;
-      setState((cur) => {
+      const applyHydration = (cur: SortState | null): SortState | null => {
         if (!cur) return cur;
         let items = cur.items;
         for (const key of refreshableAnilistItemKeys) {
@@ -2063,15 +2059,22 @@ export function App() {
             items[key] = hydrated;
           }
         }
-        if (items === cur.items) return cur;
-        const next = { ...cur, items } as SortState;
-        canonicalBlob = buildBlob(next, undoRingRef.current);
-        return next;
-      });
+        return items === cur.items ? cur : ({ ...cur, items } as SortState);
+      };
+      // Hydration is display metadata only — persist before the autosave
+      // effect runs so `performWrite` hits the no-op path instead of
+      // bumping `updatedAt` and flipping a freshly-pulled slot yellow.
+      // Computed outside the setState updater: React 18 may defer running
+      // updaters until render, so a value captured inside one isn't
+      // reliably available right after setState returns.
+      const base = stateRef.current;
+      const next = applyHydration(base);
+      if (!next || next === base) return;
       const id = loadedSlotIdRef.current;
-      if (canonicalBlob && id) {
-        persistCanonicalBlobOnLoad(id, canonicalBlob);
+      if (id) {
+        persistCanonicalBlobOnLoad(id, buildBlob(next, undoRingRef.current));
       }
+      setState((cur) => (cur === base ? next : applyHydration(cur)));
     });
 
     return () => {
@@ -2088,8 +2091,7 @@ export function App() {
   // don't push an undo frame — this is a cosmetic relabel, not an edit.
   useEffect(() => {
     return subscribeAnilistDisplayPreferences(() => {
-      let canonicalBlob: AutosaveBlob | null = null;
-      setState((cur) => {
+      const relabel = (cur: SortState | null): SortState | null => {
         if (!cur) return cur;
         let changed = false;
         const items: Record<ItemId, Item> = {};
@@ -2098,15 +2100,16 @@ export function App() {
           if (next !== item) changed = true;
           items[id] = next;
         }
-        if (!changed) return cur;
-        const nextState = { ...cur, items } as SortState;
-        canonicalBlob = buildBlob(nextState, undoRingRef.current);
-        return nextState;
-      });
+        return changed ? ({ ...cur, items } as SortState) : cur;
+      };
+      const base = stateRef.current;
+      const next = relabel(base);
+      if (!next || next === base) return;
       const id = loadedSlotIdRef.current;
-      if (canonicalBlob && id) {
-        persistCanonicalBlobOnLoad(id, canonicalBlob);
+      if (id) {
+        persistCanonicalBlobOnLoad(id, buildBlob(next, undoRingRef.current));
       }
+      setState((cur) => (cur === base ? next : relabel(cur)));
     });
   }, []);
 
