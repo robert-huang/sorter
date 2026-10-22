@@ -1025,7 +1025,9 @@ describe('getStaffFilmography', () => {
     const credit = film.credits[0];
     expect(credit.media.id).toBe(1);
     expect(credit.productionRoles).toEqual(['Director']);
-    expect(credit.voicedCharacters).toEqual([{ id: 50, name: 'Alphonse' }]);
+    expect(credit.voicedCharacters).toEqual([
+      { id: 50, name: 'Alphonse', role: 'MAIN' },
+    ]);
   });
 
   it('collects multiple distinct production roles for one media, ordered by sort_order', async () => {
@@ -1046,14 +1048,16 @@ describe('getStaffFilmography', () => {
     seedStaff(db, 10, 'VA Person');
     seedMediaWithStats(db, 1, 2000, 5);
     seedCharacter(db, 50, 'Edward');
-    seedMediaCharacter(db, 1, 50, 0);
+    seedMediaCharacter(db, 1, 50, 0, 'SUPPORTING');
     // Same staff voices the same character in two languages (two CVA rows
     // per the (… , language) PK) — the character must list once.
     seedCharacterVoiceActor(db, 1, 50, 10, 'JAPANESE');
     seedCharacterVoiceActor(db, 1, 50, 10, 'ENGLISH');
 
     const film = await getStaffFilmography(exec, 10);
-    expect(film.credits[0].voicedCharacters).toEqual([{ id: 50, name: 'Edward' }]);
+    expect(film.credits[0].voicedCharacters).toEqual([
+      { id: 50, name: 'Edward', role: 'SUPPORTING' },
+    ]);
   });
 
   it('orders credits by start_year desc, then favourites desc, nulls last', async () => {

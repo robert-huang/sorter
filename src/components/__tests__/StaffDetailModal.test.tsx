@@ -96,7 +96,11 @@ function makeCredit(mediaId: number, overrides: Record<string, unknown> = {}) {
   return {
     media: makeMedia(mediaId),
     productionRoles: ['Director'],
-    voicedCharacters: [] as Array<{ id: number; name: string }>,
+    voicedCharacters: [] as Array<{
+      id: number;
+      name: string;
+      role: string | null;
+    }>,
     ...overrides,
   };
 }
@@ -353,7 +357,10 @@ describe('StaffDetailModal — my-list toggle + navigation', () => {
         credits: [
           makeCredit(1, {
             productionRoles: [],
-            voicedCharacters: [{ id: 555, name: 'Spike Spiegel' }],
+            voicedCharacters: [
+              { id: 555, name: 'Spike Spiegel', role: 'MAIN' },
+              { id: 556, name: 'Ein', role: 'SUPPORTING' },
+            ],
           }),
         ],
       }),
@@ -380,6 +387,12 @@ describe('StaffDetailModal — my-list toggle + navigation', () => {
       container.querySelectorAll('a.anilist-detail-character-name'),
     ).find((el) => (el.textContent ?? '').includes('Spike Spiegel'));
     expect(charEl?.getAttribute('href')).toBe(anilistUrlForCharacter(555));
+    expect(charEl?.querySelector('strong')?.textContent).toBe('Spike Spiegel');
+    const supportingEl = Array.from(
+      container.querySelectorAll('a.anilist-detail-character-name'),
+    ).find((el) => (el.textContent ?? '').includes('Ein'));
+    expect(supportingEl).toBeDefined();
+    expect(supportingEl?.querySelector('strong')).toBeNull();
     expect(onOpenMedia).not.toHaveBeenCalled();
   });
 
@@ -397,7 +410,9 @@ describe('StaffDetailModal — my-list toggle + navigation', () => {
           makeCredit(1, {
             media: makeMedia(1, { type: 'MANGA' }),
             productionRoles: [],
-            voicedCharacters: [{ id: 127118, name: 'Sakura Yamauchi' }],
+            voicedCharacters: [
+              { id: 127118, name: 'Sakura Yamauchi', role: null },
+            ],
           }),
         ],
       }),

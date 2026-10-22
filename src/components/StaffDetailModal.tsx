@@ -132,7 +132,11 @@ function CreditRoleLine({
                       : ''
                   }`}
                 >
-                  {character.name}
+                  {character.role === 'MAIN' ? (
+                    <strong>{character.name}</strong>
+                  ) : (
+                    character.name
+                  )}
                   {isFavourite ? (
                     <>
                       {' '}

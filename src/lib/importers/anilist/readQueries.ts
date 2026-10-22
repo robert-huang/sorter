@@ -467,7 +467,7 @@ export interface StaffFilmographyCredit {
   /** Production roles from `media_staff`, deduped, in cache sort order. */
   productionRoles: string[];
   /** Characters this staff voiced in this media (display-name resolved). */
-  voicedCharacters: Array<{ id: number; name: string }>;
+  voicedCharacters: Array<{ id: number; name: string; role: string | null }>;
 }
 
 export interface StaffFilmography {
@@ -542,10 +542,14 @@ export async function getStaffFilmography(
       SELECT m.*,
              c.id          AS character_id,
              c.name_full   AS character_name_full,
-             c.name_native AS character_name_native
+             c.name_native AS character_name_native,
+             mc.role       AS character_role
         FROM character_voice_actor cva
         JOIN media m ON m.id = cva.media_id
         JOIN character c ON c.id = cva.character_id
+        LEFT JOIN media_character mc
+          ON mc.media_id = cva.media_id
+         AND mc.character_id = cva.character_id
        WHERE cva.staff_id = ?
     `,
     [staffId],
@@ -584,6 +588,7 @@ export async function getStaffFilmography(
           undefined,
           'Character',
         ),
+        role: s(r.character_role),
       });
     }
   }
