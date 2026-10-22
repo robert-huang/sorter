@@ -39,7 +39,7 @@
  * been wiped), per-user chips degrade to "pass everything through".
  */
 
-import type { ReactNode } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { useClickOutside } from '../../hooks/useClickOutside';
 import * as client from '../../db/client';
@@ -1297,6 +1297,13 @@ export function multiSelectChipBulkSelectDisabled<T>(
  * clicks land on whichever thumb the cursor is over (the underlying
  * fill/track are decoration only).
  */
+/** Up/Right step forward one notch, Down/Left step back; other keys 0. */
+export function arrowKeyStepDelta(key: string): -1 | 0 | 1 {
+  if (key === 'ArrowUp' || key === 'ArrowRight') return 1;
+  if (key === 'ArrowDown' || key === 'ArrowLeft') return -1;
+  return 0;
+}
+
 export function DualRangeSlider({
   min,
   max,
@@ -1380,6 +1387,21 @@ export function DualRangeSlider({
     onChange(sortedDualRangePair(v, dragAnchorRef.current));
   };
 
+  // Native range keyboard stepping would pair against a stale drag
+  // anchor, so step explicitly against the current partner thumb.
+  const handleArrowKey = (
+    e: KeyboardEvent<HTMLInputElement>,
+    handle: 'lo' | 'hi',
+  ): void => {
+    const delta = arrowKeyStepDelta(e.key);
+    if (delta === 0 || disabled) return;
+    e.preventDefault();
+    const current = handle === 'lo' ? safeLo : safeHi;
+    const partner = handle === 'lo' ? safeHi : safeLo;
+    const next = Math.min(Math.max(current + delta * step, min), max);
+    onChange(sortedDualRangePair(next, partner));
+  };
+
   return (
     <div className={`dual-range-slider ${disabled ? 'disabled' : ''}`}>
       <div className="dual-range-track" />
@@ -1396,6 +1418,7 @@ export function DualRangeSlider({
         value={loThumb}
         disabled={disabled}
         onPointerDown={beginLoDrag}
+        onKeyDown={(e) => handleArrowKey(e, 'lo')}
         onChange={(e) => {
           handleLoChange(Number(e.target.value));
         }}
@@ -1410,6 +1433,7 @@ export function DualRangeSlider({
         value={hiThumb}
         disabled={disabled}
         onPointerDown={beginHiDrag}
+        onKeyDown={(e) => handleArrowKey(e, 'hi')}
         onChange={(e) => {
           handleHiChange(Number(e.target.value));
         }}
@@ -1580,6 +1604,31 @@ export function SeasonYearChip({
     });
   }
 
+  // Arrow keys in a year input step that bound one season instead of
+  // one year; the other bound is pushed along if they would cross.
+  function onYearInputKeyDown(
+    e: KeyboardEvent<HTMLInputElement>,
+    bound: 'min' | 'max',
+  ): void {
+    if (e.key === 'Enter') {
+      e.currentTarget.blur();
+      return;
+    }
+    const delta = arrowKeyStepDelta(e.key);
+    if (delta === 0) return;
+    e.preventDefault();
+    const lastIndex = options.length - 1;
+    const clampIndex = (index: number): number =>
+      Math.min(Math.max(index, 0), lastIndex);
+    if (bound === 'min') {
+      const nextLo = clampIndex(loIndex + delta);
+      onSliderChange([nextLo, Math.max(hiIndex, nextLo)]);
+    } else {
+      const nextHi = clampIndex(hiIndex + delta);
+      onSliderChange([Math.min(loIndex, nextHi), nextHi]);
+    }
+  }
+
   return (
     <div ref={rootRef} className={`filter-chip ${active ? 'active' : ''}`}>
       <button
@@ -1608,9 +1657,7 @@ export function SeasonYearChip({
                   value={minText}
                   onChange={(e) => setMinText(e.target.value)}
                   onBlur={commitMin}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-                  }}
+                  onKeyDown={(e) => onYearInputKeyDown(e, 'min')}
                   className="filter-chip-slider-input"
                   placeholder={String(sliderMinYear)}
                   aria-label="season-year minimum (year)"
@@ -1631,9 +1678,7 @@ export function SeasonYearChip({
                   value={maxText}
                   onChange={(e) => setMaxText(e.target.value)}
                   onBlur={commitMax}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-                  }}
+                  onKeyDown={(e) => onYearInputKeyDown(e, 'max')}
                   className="filter-chip-slider-input"
                   placeholder={String(sliderMaxYear)}
                   aria-label="season-year maximum (year)"

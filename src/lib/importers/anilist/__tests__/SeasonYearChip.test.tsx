@@ -75,4 +75,88 @@ describe('SeasonYearChip', () => {
       seasonYearMax: null,
     });
   });
+
+  function renderOpenChip(
+    min: number | null,
+    max: number | null,
+  ): ReturnType<typeof vi.fn> {
+    const onChange = vi.fn();
+    act(() => {
+      root.render(
+        <SeasonYearChip
+          options={seasonYearOptionsForSelectedYears([], [2024, 2025])}
+          min={min}
+          max={max}
+          onChange={onChange}
+        />,
+      );
+    });
+    act(() => {
+      container.querySelector<HTMLButtonElement>('.filter-chip-button')?.click();
+    });
+    return onChange;
+  }
+
+  function pressKey(target: Element, key: string): void {
+    act(() => {
+      target.dispatchEvent(
+        new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }),
+      );
+    });
+  }
+
+  it('steps the minimum year input one season with Up/Right and Down/Left', () => {
+    const onChange = renderOpenChip(encodeSeasonYear('SPRING', 2024), null);
+    const minInput = container.querySelector<HTMLInputElement>(
+      'input[aria-label="season-year minimum (year)"]',
+    )!;
+
+    pressKey(minInput, 'ArrowUp');
+    expect(onChange).toHaveBeenLastCalledWith({
+      seasonYearMin: encodeSeasonYear('SUMMER', 2024),
+      seasonYearMax: null,
+    });
+    pressKey(minInput, 'ArrowRight');
+    expect(onChange).toHaveBeenLastCalledWith({
+      seasonYearMin: encodeSeasonYear('SUMMER', 2024),
+      seasonYearMax: null,
+    });
+    pressKey(minInput, 'ArrowLeft');
+    expect(onChange).toHaveBeenLastCalledWith({
+      seasonYearMin: null,
+      seasonYearMax: null,
+    });
+  });
+
+  it('steps the maximum year input and pushes the minimum along', () => {
+    const onChange = renderOpenChip(
+      encodeSeasonYear('FALL', 2024),
+      encodeSeasonYear('FALL', 2024),
+    );
+    const maxInput = container.querySelector<HTMLInputElement>(
+      'input[aria-label="season-year maximum (year)"]',
+    )!;
+
+    pressKey(maxInput, 'ArrowDown');
+    expect(onChange).toHaveBeenLastCalledWith({
+      seasonYearMin: encodeSeasonYear('SUMMER', 2024),
+      seasonYearMax: encodeSeasonYear('SUMMER', 2024),
+    });
+  });
+
+  it('steps a slider thumb against its partner without a prior drag', () => {
+    const onChange = renderOpenChip(
+      encodeSeasonYear('SPRING', 2024),
+      encodeSeasonYear('SPRING', 2025),
+    );
+    const maxSlider = container.querySelectorAll<HTMLInputElement>(
+      'input[type="range"]',
+    )[1]!;
+
+    pressKey(maxSlider, 'ArrowRight');
+    expect(onChange).toHaveBeenLastCalledWith({
+      seasonYearMin: encodeSeasonYear('SPRING', 2024),
+      seasonYearMax: encodeSeasonYear('SUMMER', 2025),
+    });
+  });
 });

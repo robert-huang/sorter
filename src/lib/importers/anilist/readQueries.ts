@@ -256,6 +256,23 @@ export async function getListEntriesByMediaIds(
   return out;
 }
 
+/** Non-empty list-entry notes for a user, keyed by media id. */
+export async function getListNotesByMediaId(
+  db: AnilistDbExecutor,
+  anilistUserId: number,
+): Promise<Map<number, string>> {
+  const rows = await db.exec(
+    `SELECT media_id, notes FROM media_list_entry
+     WHERE anilist_user_id = ? AND notes IS NOT NULL AND notes != ''`,
+    [anilistUserId],
+  );
+  const out = new Map<number, string>();
+  for (const r of rows) {
+    out.set(reqN(r.media_id), String(r.notes));
+  }
+  return out;
+}
+
 /**
  * Full detail-panel payload for one media id: the row itself, ordered
  * studios, ordered tags with rank, characters + their voice actors,
@@ -1657,6 +1674,8 @@ export const productionReads = {
     anilistUserId: number,
     mediaIds: readonly number[],
   ) => getListEntriesByMediaIds(defaultDb(), anilistUserId, mediaIds),
+  getListNotesByMediaId: (anilistUserId: number) =>
+    getListNotesByMediaId(defaultDb(), anilistUserId),
   getMediaDetail: (mediaId: number) => getMediaDetail(defaultDb(), mediaId),
   hasMediaCharacters: (mediaId: number) =>
     hasMediaCharacters(defaultDb(), mediaId),

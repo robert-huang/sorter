@@ -30,6 +30,7 @@ import {
   getLastFullRefresh,
   getLatestAnilistUser,
   getListEntriesByMediaIds,
+  getListNotesByMediaId,
   getListedMedia,
   getListedMediaCount,
   getMediaByIds,
@@ -461,6 +462,27 @@ describe('getListEntriesByMediaIds', () => {
     const user = seedUser(db);
     const map = await getListEntriesByMediaIds(exec, user.id, []);
     expect(map.size).toBe(0);
+  });
+});
+
+describe('getListNotesByMediaId', () => {
+  it('returns only non-empty notes for the given user', async () => {
+    const user = seedUser(db);
+    seedMedia(db, 1);
+    seedMedia(db, 2);
+    seedMedia(db, 3);
+    seedListEntry(db, user.id, 1, 1000);
+    seedListEntry(db, user.id, 2, 2000);
+    seedListEntry(db, user.id, 3, 3000);
+    db.exec(
+      `UPDATE media_list_entry SET notes = CASE media_id
+         WHEN 1 THEN '#airing rewatch' WHEN 2 THEN '' ELSE NULL END
+       WHERE anilist_user_id = ?`,
+      { bind: [user.id] },
+    );
+
+    const notes = await getListNotesByMediaId(exec, user.id);
+    expect([...notes]).toEqual([[1, '#airing rewatch']]);
   });
 });
 

@@ -209,6 +209,16 @@ type CandidateSource =
       type: AnilistFavouriteType;
     };
 
+function itemNotesMatchSearch(
+  item: Item,
+  notesByMediaId: ReadonlyMap<number, string>,
+  needle: string,
+): boolean {
+  if (item.source?.kind !== 'anilist') return false;
+  const notes = notesByMediaId.get(item.source.externalId);
+  return notes !== undefined && notes.toLowerCase().includes(needle);
+}
+
 function selectionAfterCandidateLoad(
   items: Item[],
   selectAll: boolean,
@@ -657,14 +667,40 @@ export function AnilistStartMode({
   // already passed through. Empty search is a no-op (toLowerCase a
   // trimmed empty string short-circuits trivially), so users who
   // never touch the search bar see exactly the chip-filtered set.
+  // The loaded user's list-entry notes (e.g. `#airing`), so the search
+  // box can match them alongside titles.
+  const [listNotesByMediaId, setListNotesByMediaId] = useState<
+    ReadonlyMap<number, string>
+  >(new Map());
+  const candidateUserId = candidateSource?.userId ?? null;
+  useEffect(() => {
+    if (candidateUserId === null) {
+      setListNotesByMediaId(new Map());
+      return;
+    }
+    let cancelled = false;
+    void productionReads
+      .getListNotesByMediaId(candidateUserId)
+      .then((notes) => {
+        if (!cancelled) setListNotesByMediaId(notes);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [candidateUserId, importTick, dbSyncRevision]);
+
   const visibleItems = useMemo<Item[]>(() => {
     const needle = search.trim().toLowerCase();
     const chipPassed = visibleIds === null
       ? items
       : items.filter((it) => visibleIds.has(it.id));
     if (needle === '') return chipPassed;
-    return chipPassed.filter((it) => itemMatchesSearch(it, needle));
-  }, [items, visibleIds, search]);
+    return chipPassed.filter(
+      (it) =>
+        itemMatchesSearch(it, needle) ||
+        itemNotesMatchSearch(it, listNotesByMediaId, needle),
+    );
+  }, [items, visibleIds, search, listNotesByMediaId]);
 
   const selectedCount = useMemo(() => {
     let n = 0;
