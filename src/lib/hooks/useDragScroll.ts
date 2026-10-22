@@ -114,7 +114,8 @@ export function useDragScroll<T extends HTMLElement = HTMLDivElement>(
   }, [removeWindowEndListeners]);
 
   const onPointerDown = useCallback<PointerEventHandler<T>>((event) => {
-    if (event.button !== 0) {
+    // Touch already pans natively (and chains vertical swipes to the page).
+    if (event.button !== 0 || event.pointerType === 'touch') {
       return;
     }
 

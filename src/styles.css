@@ -7549,6 +7549,37 @@ a:where(.anime-to-anime-anilist-link):visited {
   transform: translateX(-50%);
 }
 
+@media (max-width: 640px) {
+  .tool-reorder-favourites-panel--has-toolbar {
+    padding-bottom: 3.5rem;
+  }
+
+  .tool-reorder-favourites-toolbar {
+    bottom: max(6px, env(safe-area-inset-bottom, 0px));
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    gap: 4px;
+    width: calc(100vw - 12px);
+    max-width: none;
+    padding: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .tool-reorder-favourites-toolbar .btn {
+    flex: 0 0 auto;
+    padding: 4px 8px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .tool-reorder-favourites-toolbar .tool-reorder-favourites-dirty-hint {
+    flex: 0 0 auto;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+}
+
 .tool-reorder-favourites-mode-hint,
 .tool-reorder-favourites-dirty-hint {
   font-size: 0.875rem;
@@ -7578,6 +7609,8 @@ a:where(.anime-to-anime-anilist-link):visited {
 
 .tool-reorder-favourites-grid.is-drag-active .tool-reorder-favourites-chip {
   touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
   transition:
     opacity 120ms ease,
     border-color 120ms ease;
@@ -7597,11 +7630,20 @@ a:where(.anime-to-anime-anilist-link):visited {
   border: 2px solid var(--border-subtle, rgba(255, 255, 255, 0.14));
   background: var(--surface-sunken, rgba(0, 0, 0, 0.25));
   cursor: grab;
-  user-select: none;
   transition:
     transform 120ms ease,
     opacity 120ms ease,
     border-color 120ms ease;
+}
+
+/* Mouse drags/shift-clicks would otherwise select label text. Touch keeps
+   text selectable so iOS find-in-page can jump to a name and long-press
+   can copy it. */
+@media (hover: hover) and (pointer: fine) {
+  .tool-reorder-favourites-chip {
+    user-select: none;
+    -webkit-user-select: none;
+  }
 }
 
 .tool-reorder-favourites-chip-link-target {
@@ -7984,7 +8026,6 @@ a:where(.anime-to-anime-anilist-link):visited {
 
 .tool-drag-scroll {
   cursor: grab;
-  touch-action: none;
 }
 
 .tool-drag-scroll.is-drag-scroll-dragging {

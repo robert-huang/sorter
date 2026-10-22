@@ -10,10 +10,12 @@ beforeAll(() => {
   if (typeof globalThis.PointerEvent === 'undefined') {
     class MockPointerEvent extends MouseEvent {
       readonly pointerId: number;
+      readonly pointerType: string;
 
       constructor(type: string, params: PointerEventInit = {}) {
         super(type, params);
         this.pointerId = params.pointerId ?? 0;
+        this.pointerType = params.pointerType ?? '';
       }
     }
     globalThis.PointerEvent = MockPointerEvent as typeof PointerEvent;
@@ -66,6 +68,7 @@ function pointer(
   clientX: number,
   clientY = 0,
   pointerId = 1,
+  pointerType = 'mouse',
 ): void {
   const event = new PointerEvent(type, {
     bubbles: true,
@@ -75,7 +78,7 @@ function pointer(
     pointerId,
     button: 0,
     buttons: type === 'pointerup' || type === 'pointercancel' ? 0 : 1,
-    pointerType: 'mouse',
+    pointerType,
     isPrimary: true,
   });
   target.dispatchEvent(event);
@@ -108,6 +111,26 @@ describe('useDragScroll', () => {
 
     expect(el.classList.contains('is-drag-scroll-dragging')).toBe(false);
     expect(dragChanges).toEqual([true, false]);
+  });
+
+  it('leaves touch panning to the browser', () => {
+    const dragChanges: boolean[] = [];
+    act(() => {
+      root.render(
+        <DragScrollHarness
+          onDragChange={(dragging) => dragChanges.push(dragging)}
+        />,
+      );
+    });
+
+    const el = getScrollEl();
+    el.scrollLeft = 100;
+    pointer('pointerdown', el, 10, 0, 1, 'touch');
+    pointer('pointermove', el, 60, 0, 1, 'touch');
+
+    expect(el.classList.contains('is-drag-scroll-dragging')).toBe(false);
+    expect(el.scrollLeft).toBe(100);
+    expect(dragChanges).toEqual([]);
   });
 
   it('removes the dragging class on lostpointercapture', () => {

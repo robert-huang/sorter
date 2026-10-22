@@ -185,7 +185,7 @@ const STANDALONE_CHART_SCRIPT = String.raw`
   };
 
   root.addEventListener('pointerdown', (event) => {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || event.pointerType === 'touch') return;
     const scroller = document.scrollingElement || document.documentElement;
     dragState = {
       pointerId: event.pointerId,
@@ -271,7 +271,7 @@ export function createStandaloneBumpChartHtml(node: HTMLElement): string {
 ${styles}
 html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); }
 body { padding: 16px; box-sizing: border-box; overflow: auto; }
-.bump-chart-grid { margin: 0; cursor: grab; touch-action: none; }
+.bump-chart-grid { margin: 0; cursor: grab; }
 .bump-chart-grid.is-bump-dragging,
 .bump-chart-grid.is-bump-dragging * { cursor: grabbing !important; user-select: none !important; }
 .bump-chart-rank { cursor: default; }
