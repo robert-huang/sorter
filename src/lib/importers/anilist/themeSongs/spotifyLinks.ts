@@ -206,6 +206,21 @@ export function normalizeSpotifyUrl(url: string): string {
   }
 }
 
+/** Link to open in a new tab: normalized, with Spotify's autoplay suppressed. */
+export function spotifyOpenUrl(url: string): string {
+  const normalized = normalizeSpotifyUrl(url);
+  try {
+    const parsed = new URL(normalized);
+    if (!isSpotifyHostname(parsed.hostname)) {
+      return normalized;
+    }
+    parsed.searchParams.set('autoplay_ok', '0');
+    return parsed.toString();
+  } catch {
+    return normalized;
+  }
+}
+
 export function buildSpotifySearchUrl(title: string, artist: string | null): string {
   const q = sanitizeSpotifySearchQuery(title, artist);
   return `https://open.spotify.com/search/${encodeSpotifySearchPathSegment(q)}`;

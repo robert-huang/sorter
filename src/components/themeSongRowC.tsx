@@ -3,7 +3,7 @@ import { useThemeSongPreview } from '../hooks/useThemeSongPreview';
 import type { MediaThemeSongRow } from '../lib/importers/anilist/themeSongs/types';
 import {
   isSpotifyUnavailableInMarket,
-  normalizeSpotifyUrl,
+  spotifyOpenUrl,
 } from '../lib/importers/anilist/themeSongs/spotifyLinks';
 import {
   resolveThemeSongArtist,
@@ -151,7 +151,7 @@ function ThemeSongTitleLink({
   if (row.spotifyUrl) {
     return (
       <a
-        href={normalizeSpotifyUrl(row.spotifyUrl)}
+        href={spotifyOpenUrl(row.spotifyUrl)}
         target="_blank"
         rel="noopener noreferrer"
         onClick={(e) => e.stopPropagation()}

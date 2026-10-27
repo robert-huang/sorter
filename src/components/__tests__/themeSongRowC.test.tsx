@@ -186,7 +186,7 @@ describe('ThemeSongRowC', () => {
     });
 
     expect(container.querySelector('a')?.getAttribute('href')).toBe(
-      'https://open.spotify.com/track/3EXRwq9SPcToT8MfPAgRxN',
+      'https://open.spotify.com/track/3EXRwq9SPcToT8MfPAgRxN?autoplay_ok=0',
     );
   });
 

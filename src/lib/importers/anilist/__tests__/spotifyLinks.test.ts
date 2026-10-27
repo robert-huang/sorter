@@ -10,7 +10,29 @@ import {
   pickSpotifyLink,
   pickSpotifyLinkDetails,
   sanitizeSpotifySearchQuery,
+  spotifyOpenUrl,
 } from '../themeSongs/spotifyLinks';
+
+describe('spotifyOpenUrl', () => {
+  it('appends autoplay_ok=0 after stripping tracking params', () => {
+    expect(
+      spotifyOpenUrl('https://open.spotify.com/track/3EXRwq9SPcToT8MfPAgRxN?si=abc&utm_source=x'),
+    ).toBe('https://open.spotify.com/track/3EXRwq9SPcToT8MfPAgRxN?autoplay_ok=0');
+  });
+
+  it('overrides an existing autoplay_ok and keeps other params', () => {
+    expect(
+      spotifyOpenUrl('https://open.spotify.com/track/3EXRwq9SPcToT8MfPAgRxN?context=a&autoplay_ok=1'),
+    ).toBe('https://open.spotify.com/track/3EXRwq9SPcToT8MfPAgRxN?context=a&autoplay_ok=0');
+  });
+
+  it('applies to search links and leaves non-Spotify links alone', () => {
+    expect(spotifyOpenUrl('https://open.spotify.com/search/foo')).toBe(
+      'https://open.spotify.com/search/foo?autoplay_ok=0',
+    );
+    expect(spotifyOpenUrl('https://example.com/a')).toBe('https://example.com/a');
+  });
+});
 
 describe('spotifyLinks', () => {
   it('parses track id from spotify url', () => {
