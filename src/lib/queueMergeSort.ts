@@ -9,6 +9,7 @@ import {
   skipHiddenInsertProbes,
   startInsert,
   startRankAwareInsert,
+  type InsertResult,
 } from './binaryInsertion';
 import { shuffledCopy } from './shuffle';
 import { isItemInActiveRanking } from './sortPopulation';
@@ -504,6 +505,12 @@ function cloneAutoInsert(
     ).slice(),
     frame: ai.frame ? { ...ai.frame } : null,
     lastInsertedPosition: ai.lastInsertedPosition,
+    ...(ai.alternatingBounds
+      ? {
+          alternatingBounds: true,
+          upperAnchorId: ai.upperAnchorId ?? null,
+        }
+      : {}),
   };
 }
 
@@ -612,15 +619,75 @@ function installAutoInsert(
     if (!hidden.has(id)) pendingInserts.push(id);
   }
   const sourceSublist = pendingInserts.slice();
+  const alternatingBounds = sourceSublist.length >= 3;
   progress.currentAutoInsert = {
     target,
-    pendingInserts,
+    pendingInserts: alternatingBounds
+      ? alternateEndpoints(sourceSublist)
+      : pendingInserts,
     sourceSublist,
     frame: null,
     lastInsertedPosition: null,
+    ...(alternatingBounds
+      ? { alternatingBounds: true, upperAnchorId: null }
+      : {}),
   };
   progress.done = false;
   drainAutoInsert(progress, hidden, opts);
+}
+
+/**
+ * Best, worst, 2nd best, 2nd worst, … of a rank-ordered list. Each
+ * landing then bounds every still-pending item from one side.
+ *
+ * Example: [a, b, c, d, e] → [a, e, b, d, c].
+ */
+function alternateEndpoints(ids: readonly ItemId[]): ItemId[] {
+  const out: ItemId[] = [];
+  let best = 0;
+  let worst = ids.length - 1;
+  while (best <= worst) {
+    out.push(ids[best++]);
+    if (best <= worst) out.push(ids[worst--]);
+  }
+  return out;
+}
+
+/** Start the next auto-insert search inside every known bound. */
+function startAutoInsertSearch(
+  ai: AutoInsertFrame,
+  insertingId: ItemId,
+): InsertResult {
+  const upperIndex =
+    ai.upperAnchorId != null && ai.upperAnchorId !== insertingId
+      ? ai.target.indexOf(ai.upperAnchorId)
+      : -1;
+  if (upperIndex < 0) {
+    return startRankAwareInsert(ai.target, insertingId, ai.lastInsertedPosition);
+  }
+  const lo = ai.lastInsertedPosition === null ? 0 : ai.lastInsertedPosition + 1;
+  return startInsert(ai.target, insertingId, lo, upperIndex - 1);
+}
+
+/**
+ * Record where an auto-insert item landed. In alternating mode a
+ * worst-side landing (ranked below the next pending item) becomes the
+ * upper anchor; best-side landings advance the lower anchor.
+ */
+function recordAutoInsertLanding(
+  ai: AutoInsertFrame,
+  insertingId: ItemId,
+  position: number,
+): void {
+  if (ai.alternatingBounds && ai.pendingInserts.length > 0) {
+    const landedRank = ai.sourceSublist.indexOf(insertingId);
+    const nextRank = ai.sourceSublist.indexOf(ai.pendingInserts[0]);
+    if (landedRank > nextRank) {
+      ai.upperAnchorId = insertingId;
+      return;
+    }
+  }
+  ai.lastInsertedPosition = position;
 }
 
 /**
@@ -1072,7 +1139,7 @@ function resolveAutoInsertAt(
     insertingId,
     ...ai.target.slice(position),
   ];
-  ai.lastInsertedPosition = position;
+  recordAutoInsertLanding(ai, insertingId, position);
   ai.frame = null;
   drainAutoInsert(next, hidden, opts);
 }
@@ -1150,10 +1217,10 @@ function applyAutoInsertPick(
 
 /**
  * Drain the auto-insert frame's pendingInserts onto `ai.frame`. Picks
- * the rank-aware lower bound (`lastInsertedPosition + 1`) so each
- * subsequent insert only searches the suffix of `target` that hasn't
- * been bounded out yet — this is "Option B" rank-aware tightening from
- * the plan, valid because pendingInserts is FIFO in rank order.
+ * the rank-aware lower bound (`lastInsertedPosition + 1`) — and, for
+ * alternating frames, the worst-side upper anchor — so each subsequent
+ * insert only searches the window of `target` that hasn't been bounded
+ * out yet. Valid because the source sublist is in rank order.
  *
  * When pendingInserts is empty AND frame is null, the auto-insert is
  * done: push `ai.target` back onto the queue and clear
@@ -1171,10 +1238,10 @@ function drainAutoInsert(
   if (!ai) return;
   while (ai.frame === null && ai.pendingInserts.length > 0) {
     const id = ai.pendingInserts[0];
-    // Rank-aware lower bound via the shared helper (anchor =
-    // lastInsertedPosition). Valid because pendingInserts is FIFO in
-    // rank order — see startRankAwareInsert / drainPending.
-    const res = startRankAwareInsert(ai.target, id, ai.lastInsertedPosition);
+    // Rank-aware bounds (lower = lastInsertedPosition, upper = the
+    // worst-side anchor in alternating mode). Valid because the source
+    // sublist is in rank order — see startRankAwareInsert / drainPending.
+    const res = startAutoInsertSearch(ai, id);
     ai.pendingInserts.shift();
     const frame = adoptInsertFrameResult(res, ai.target, hidden, (position) => {
       ai.target = [
@@ -1182,7 +1249,7 @@ function drainAutoInsert(
         id,
         ...ai.target.slice(position),
       ];
-      ai.lastInsertedPosition = position;
+      recordAutoInsertLanding(ai, id, position);
     });
     if (frame) {
       ai.frame = frame;
@@ -1274,6 +1341,7 @@ function evictSourceIdFromAutoInsert(
   }
   ai.frame = res;
   ai.lastInsertedPosition = null;
+  if (ai.alternatingBounds) ai.upperAnchorId = null;
 }
 
 export function hideItem(
@@ -2327,6 +2395,7 @@ export function reorderInsertTarget(
       ai.frame = res;
     }
     ai.lastInsertedPosition = null;
+    if (ai.alternatingBounds) ai.upperAnchorId = null;
   } else {
     return state;
   }

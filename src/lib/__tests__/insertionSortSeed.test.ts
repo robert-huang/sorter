@@ -126,6 +126,34 @@ describe('initInsertionSort (flat from scratch)', () => {
 });
 
 describe('seedInsertionFromSublists', () => {
+  it('keeps alternating bounds correct after hiding run items', () => {
+    // Run a..g drains a, g, b, f, c, e, d. Hiding b and c used to move the
+    // source midpoint so `e` counted as best-side and boxed `d` below it.
+    const seed: Item[] = Array.from({ length: 10 }, (_, i) => ({
+      id: `s${i}`,
+      label: `S${i}`,
+    }));
+    const runIds = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
+    const run: Item[] = runIds.map((id) => ({ id, label: id.toUpperCase() }));
+    const { state: s0 } = seedInsertionFromSublists(
+      { sublists: [seed, run], extras: [] },
+      { shuffle: false },
+    );
+    const oracle = [
+      's0', 'a', 's1', 'b', 's2', 'c', 's3', 'd', 's4', 'e', 's5', 'f',
+      's6', 'g', 's7', 's8', 's9',
+    ];
+
+    const atB = driveUntilInserting(s0, oracle, 'b');
+    const hidden = hideItem(hideItem(atB, 'b'), 'c');
+    const { state } = runWithOracle(hidden, oracle);
+
+    expect(state.done).toBe(true);
+    expect(getRanking(state)).toEqual(
+      oracle.filter((id) => id !== 'b' && id !== 'c'),
+    );
+  });
+
   it('uses the first sublist as the frozen seed regardless of size', () => {
     const { state } = seedInsertionFromSublists(
       { sublists: [[X, Y, Z], [A, B, C, D, E]], extras: [] },

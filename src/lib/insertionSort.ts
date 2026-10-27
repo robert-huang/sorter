@@ -364,6 +364,10 @@ function startActiveRunInsert(
  * numeric anchor or replace the worst-side id anchor according to the
  * asserting source order. Legacy saved runs retain the fixed-upper behavior
  * that matches their best→worst→interior pending order.
+ *
+ * Side is decided against the next same-run pending item rather than the
+ * source midpoint: hiding run items shrinks `activeRunSourceIds`, which can
+ * move the midpoint past a worst-side item.
  */
 function recordActiveRunLanding(
   progress: InsertionProgress,
@@ -371,10 +375,17 @@ function recordActiveRunLanding(
   position: number,
 ): void {
   if (progress.activeRunAlternatingBounds && progress.activeRunSourceIds) {
-    const sourceIndex = progress.activeRunSourceIds.indexOf(insertingId);
-    if (sourceIndex >= Math.ceil(progress.activeRunSourceIds.length / 2)) {
+    const sourceIds = progress.activeRunSourceIds;
+    const sourceIndex = sourceIds.indexOf(insertingId);
+    if (sourceIndex < 0) return;
+    const nextId =
+      progress.pendingRunIds?.[0] === progress.activeRunId
+        ? progress.pending[0]
+        : undefined;
+    const nextIndex = nextId === undefined ? -1 : sourceIds.indexOf(nextId);
+    if (nextIndex >= 0 && sourceIndex > nextIndex) {
       progress.activeRunUpperAnchorId = insertingId;
-    } else if (sourceIndex >= 0) {
+    } else {
       progress.activeRunAnchor = position;
     }
     return;

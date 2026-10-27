@@ -140,9 +140,21 @@ export interface AutoInsertFrame {
    * Position of the most-recently-landed item in `target`, used to
    * narrow the next insert's `lo` bound (rank-aware: the next item
    * ranks AFTER the previous one in user-expressed order). Null before
-   * the first insert lands.
+   * the first insert lands. With `alternatingBounds`, only best-side
+   * landings update it.
    */
   lastInsertedPosition: number | null;
+  /**
+   * True when `pendingInserts` alternates best/worst remaining endpoints
+   * of `sourceSublist`. Absent on legacy saved frames, which drain in
+   * rank order with a lower bound only.
+   */
+  alternatingBounds?: boolean;
+  /**
+   * Worst-side landed id bounding every remaining insert from above.
+   * Tracked by id because best-side landings shift its index.
+   */
+  upperAnchorId?: ItemId | null;
 }
 
 /** Fields shared between MergeProgress and InsertionProgress. */

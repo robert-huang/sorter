@@ -1250,6 +1250,146 @@ describe('drainAutoInsert rank-aware bound tightening', () => {
     expect(s.queue).toEqual([oracle]);
   });
 
+  function alternatingFixture(): { s0: MergeState; oracle: string[] } {
+    const target: Item[] = Array.from({ length: 40 }, (_, i) => ({
+      id: `t${String(i).padStart(2, '0')}`,
+      label: `T${i}`,
+    }));
+    const run: Item[] = ['x1', 'x2', 'x3', 'x4', 'x5'].map((id) => ({
+      id,
+      label: id.toUpperCase(),
+    }));
+    const s0 = seedFromSublists({ sublists: [target, run], extras: [] });
+    // x1..x5 interleave evenly through the target.
+    const oracle: string[] = [];
+    target.forEach((item, i) => {
+      oracle.push(item.id);
+      if (i % 8 === 3) oracle.push(run[Math.floor(i / 8)]!.id);
+    });
+    return { s0, oracle };
+  }
+
+  it('alternates best/worst endpoints and bounds each insert from both sides', () => {
+    const { s0, oracle } = alternatingFixture();
+    const ai0 = s0.currentAutoInsert!;
+    expect(ai0.frame!.insertingId).toBe('x1');
+    expect(ai0.pendingInserts).toEqual(['x5', 'x2', 'x4', 'x3']);
+    expect(ai0.sourceSublist).toEqual(['x1', 'x2', 'x3', 'x4', 'x5']);
+
+    const inFlight = (id: string) => (s: MergeState) =>
+      s.currentAutoInsert?.frame?.insertingId === id;
+
+    // x5 (worst) searches only below where x1 landed.
+    const s1 = runUntil(s0, oracle, inFlight('x5'));
+    const ai1 = s1.currentAutoInsert!;
+    expect(ai1.frame!.lo).toBe(ai1.target.indexOf('x1') + 1);
+    expect(ai1.frame!.hi).toBe(ai1.target.length - 1);
+
+    // x2 searches strictly between x1 and x5.
+    const s2 = runUntil(s1, oracle, inFlight('x2'));
+    const ai2 = s2.currentAutoInsert!;
+    expect(ai2.upperAnchorId).toBe('x5');
+    expect(ai2.frame!.lo).toBe(ai2.target.indexOf('x1') + 1);
+    expect(ai2.frame!.hi).toBe(ai2.target.indexOf('x5') - 1);
+
+    // x3 (last) is boxed in by x2 and x4.
+    const s3 = runUntil(s2, oracle, inFlight('x3'));
+    const ai3 = s3.currentAutoInsert!;
+    expect(ai3.upperAnchorId).toBe('x4');
+    expect(ai3.frame!.lo).toBe(ai3.target.indexOf('x2') + 1);
+    expect(ai3.frame!.hi).toBe(ai3.target.indexOf('x4') - 1);
+
+    const done = runUntil(s3, oracle);
+    expect(done.done).toBe(true);
+    expect(done.queue).toEqual([oracle]);
+  });
+
+  it('lands a 21-item run into a 300-item list correctly for random rankings', () => {
+    let seed = 7;
+    const random = () => {
+      seed = (seed * 1103515245 + 12345) % 2 ** 31;
+      return seed / 2 ** 31;
+    };
+    const target: Item[] = Array.from({ length: 300 }, (_, i) => ({
+      id: `t${i}`,
+      label: `T${i}`,
+    }));
+    const run: Item[] = Array.from({ length: 21 }, (_, i) => ({
+      id: `r${i}`,
+      label: `R${i}`,
+    }));
+    for (let trial = 0; trial < 20; trial++) {
+      // Random insertion points, kept in run order.
+      const slots = run
+        .map(() => Math.floor(random() * (target.length + 1)))
+        .sort((a, b) => a - b);
+      const oracle: string[] = [];
+      let r = 0;
+      for (let i = 0; i <= target.length; i++) {
+        while (r < run.length && slots[r] === i) oracle.push(run[r++]!.id);
+        if (i < target.length) oracle.push(target[i]!.id);
+      }
+      const s0 = seedFromSublists({ sublists: [target, run], extras: [] });
+      expect(s0.currentAutoInsert?.alternatingBounds).toBe(true);
+      const done = runUntil(s0, oracle);
+      expect(done.done).toBe(true);
+      expect(done.queue).toEqual([oracle]);
+      expect(done.comparisons).toBeLessThanOrEqual(
+        21 * Math.ceil(Math.log2(300 + 21)),
+      );
+    }
+  });
+
+  it('keeps alternating bounds correct after hiding pending run items', () => {
+    const target: Item[] = Array.from({ length: 40 }, (_, i) => ({
+      id: `t${String(i).padStart(2, '0')}`,
+      label: `T${i}`,
+    }));
+    const runIds = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
+    const run: Item[] = runIds.map((id) => ({ id, label: id.toUpperCase() }));
+    const oracle: string[] = [];
+    target.forEach((item, i) => {
+      oracle.push(item.id);
+      if (i % 5 === 2 && i / 5 < runIds.length) {
+        oracle.push(runIds[Math.floor(i / 5)]!);
+      }
+    });
+    const s0 = seedFromSublists({ sublists: [target, run], extras: [] });
+    const atB = runUntil(
+      s0,
+      oracle,
+      (s) => s.currentAutoInsert?.frame?.insertingId === 'b',
+    );
+    const hidden = hideItem(hideItem(atB, 'b'), 'c');
+    const done = runUntil(hidden, oracle);
+
+    expect(done.done).toBe(true);
+    expect(done.queue).toEqual([
+      oracle.filter((id) => id !== 'b' && id !== 'c'),
+    ]);
+  });
+
+  it('keeps legacy saved frames on the lower-bound-only drain', () => {
+    const { s0, oracle } = alternatingFixture();
+    const legacy = snapshotProgress(s0);
+    const ai = legacy.currentAutoInsert!;
+    delete ai.alternatingBounds;
+    delete ai.upperAnchorId;
+    ai.pendingInserts = ['x2', 'x3', 'x4', 'x5'];
+    const s1 = restoreProgress(s0, legacy);
+
+    const s2 = runUntil(
+      s1,
+      oracle,
+      (s) => s.currentAutoInsert?.frame?.insertingId === 'x2',
+    );
+    const ai2 = s2.currentAutoInsert!;
+    expect(ai2.frame!.lo).toBe(ai2.target.indexOf('x1') + 1);
+    expect(ai2.frame!.hi).toBe(ai2.target.length - 1);
+    const done = runUntil(s2, oracle);
+    expect(done.queue).toEqual([oracle]);
+  });
+
   it('exiles hidden target ids when the auto-insert closes', () => {
     // 1-into-5, hide one of the target ids mid-auto-insert. The
     // probe-skip path keeps the auto-insert running; hidden ids stay in

@@ -625,6 +625,9 @@ export function rewriteIdInProgress(
             ...progress.currentAutoInsert,
             target: mapArr(progress.currentAutoInsert.target),
             pendingInserts: mapArr(progress.currentAutoInsert.pendingInserts),
+            ...(progress.currentAutoInsert.upperAnchorId != null
+              ? { upperAnchorId: mapId(progress.currentAutoInsert.upperAnchorId) }
+              : {}),
             sourceSublist: mapArr(
               progress.currentAutoInsert.sourceSublist ??
                 [
