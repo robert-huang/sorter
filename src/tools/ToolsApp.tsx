@@ -36,6 +36,7 @@ import { UpdateListEntryPanel } from './panels/UpdateListEntryPanel';
 import { AdaptationScoresPanel } from './panels/AdaptationScoresPanel';
 import { WeeklyCalendarPanel } from './panels/WeeklyCalendarPanel';
 import { StatsPanel } from './panels/StatsPanel';
+import { ScoreComparisonPanel } from './panels/ScoreComparisonPanel';
 import { BumpChartPanel } from './panels/BumpChartPanel';
 import type { ToolsMediaRelationsResponse } from '../lib/importers/anilist/toolsMediaRelationsApi';
 
@@ -64,6 +65,11 @@ const TOOL_TABS: ReadonlyArray<ToolTab<ToolId>> = [
     id: 'adaptation-scores',
     label: 'Adaptation Scores',
     title: 'Map source and adaptation pairs across your anime and manga lists.',
+  },
+  {
+    id: 'score-comparison',
+    label: 'User Scores',
+    title: "Compare several users' AniList scores side by side.",
   },
   {
     id: 'stats',
@@ -258,6 +264,9 @@ export function ToolsApp() {
         </div>
         <div hidden={activeTool !== 'update-list-entry'}>
           <UpdateListEntryPanel {...panelProps} />
+        </div>
+        <div hidden={activeTool !== 'score-comparison'}>
+          <ScoreComparisonPanel {...panelProps} />
         </div>
         <div hidden={activeTool !== 'stats'}>
           <StatsPanel {...panelProps} />

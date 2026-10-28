@@ -45,6 +45,7 @@ const fixedToolFormKeys = [
   'anime-tools-franchise-activities-view',
   'anime-tools-adaptation-scores-form',
   'anime-tools-adaptation-scores-filters',
+  'anime-tools-score-comparison-settings',
   'anime-tools-stats-form',
   'anime-tools-stats-filters',
   'anime-tools-weekly-calendar-form',

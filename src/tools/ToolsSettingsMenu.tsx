@@ -35,6 +35,45 @@ function persistTab(tab: SettingsTab): void {
   }
 }
 
+/** Keeps the draft text locally so clearing the field doesn't snap back; only valid numbers save. */
+function SettingsNumberInput({
+  label,
+  className,
+  value,
+  disabled,
+  isValid,
+  onCommit,
+}: {
+  label: string;
+  className?: string;
+  value: number;
+  disabled: boolean;
+  isValid: (value: number) => boolean;
+  onCommit: (value: number) => void;
+}) {
+  const [text, setText] = useState(String(value));
+  useEffect(() => {
+    setText((prev) => (Number(prev) === value ? prev : String(value)));
+  }, [value]);
+  return (
+    <label className={['tools-settings-number', className].filter(Boolean).join(' ')}>
+      {label}
+      <input
+        className="slot-search"
+        type="number"
+        value={text}
+        disabled={disabled}
+        onChange={(e) => {
+          setText(e.target.value);
+          const parsed = Number(e.target.value);
+          if (e.target.value.trim() !== '' && isValid(parsed)) onCommit(parsed);
+        }}
+        onBlur={() => setText(String(value))}
+      />
+    </label>
+  );
+}
+
 interface Props {
   activeTool: ToolId;
   historyBackGuard: boolean;
@@ -61,6 +100,9 @@ export function ToolsSettingsMenu({
     setSeasonalScoresSpanAiringSeasons,
     setWeeklyCalendarShowUnscheduledColumn,
     setWeeklyCalendarShowThemeSongs,
+    setScoreComparisonRescale,
+    setScoreComparisonTargetMean,
+    setScoreComparisonTargetStdDev,
   } = useToolsPreferences();
 
   function selectTab(next: SettingsTab): void {
@@ -259,6 +301,39 @@ export function ToolsSettingsMenu({
                     />
                     Use MyAnimeList images in PNG exports
                   </label>
+                </div>
+                <div
+                  className={`tools-settings-section${activeTool === 'score-comparison' ? ' active' : ''}`}
+                  data-tool-settings-section="score-comparison"
+                >
+                  <div className="settings-divider" />
+                  <p className="edit-item-advanced-title">User Scores</p>
+                  <div
+                    className="settings-item checkbox tools-settings-score-scale"
+                    title="When on, normalized scores are shown on this scale (mean + z × std dev) instead of as raw z-scores."
+                  >
+                    <input
+                      type="checkbox"
+                      aria-label="Rescale normalized scores"
+                      checked={toolsPrefs.scoreComparisonRescale}
+                      onChange={(e) => setScoreComparisonRescale(e.target.checked)}
+                    />
+                    <SettingsNumberInput
+                      label="Mean"
+                      value={toolsPrefs.scoreComparisonTargetMean}
+                      disabled={!toolsPrefs.scoreComparisonRescale}
+                      isValid={Number.isFinite}
+                      onCommit={setScoreComparisonTargetMean}
+                    />
+                    <SettingsNumberInput
+                      label="Std Dev"
+                      className="tools-settings-number--narrow"
+                      value={toolsPrefs.scoreComparisonTargetStdDev}
+                      disabled={!toolsPrefs.scoreComparisonRescale}
+                      isValid={(n) => Number.isFinite(n) && n > 0}
+                      onCommit={setScoreComparisonTargetStdDev}
+                    />
+                  </div>
                 </div>
               </div>
             )}

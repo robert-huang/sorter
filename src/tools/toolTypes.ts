@@ -7,6 +7,7 @@ export type ToolId =
   | 'weekly-calendar'
   | 'franchise-scores'
   | 'adaptation-scores'
+  | 'score-comparison'
   | 'favourites'
   | 'reorder-favourites'
   | 'bump-chart'
@@ -47,6 +48,7 @@ const TOOL_IDS: readonly ToolId[] = [
   'seasonal-scores',
   'franchise-scores',
   'adaptation-scores',
+  'score-comparison',
   'stats',
   'weekly-calendar',
   'favourites',

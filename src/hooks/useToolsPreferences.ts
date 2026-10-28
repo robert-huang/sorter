@@ -16,6 +16,9 @@ export function useToolsPreferences(): {
   setSeasonalScoresSpanAiringSeasons: (enabled: boolean) => void;
   setWeeklyCalendarShowUnscheduledColumn: (enabled: boolean) => void;
   setWeeklyCalendarShowThemeSongs: (enabled: boolean) => void;
+  setScoreComparisonRescale: (enabled: boolean) => void;
+  setScoreComparisonTargetMean: (mean: number) => void;
+  setScoreComparisonTargetStdDev: (stdDev: number) => void;
 } {
   const [prefs, setPrefs] = useState<ToolsPreferences>(() => loadToolsPreferences());
 
@@ -57,8 +60,23 @@ export function useToolsPreferences(): {
     saveToolsPreferences({ weeklyCalendarShowThemeSongs: enabled });
   };
 
+  const setScoreComparisonRescale = (enabled: boolean): void => {
+    saveToolsPreferences({ scoreComparisonRescale: enabled });
+  };
+
+  const setScoreComparisonTargetMean = (mean: number): void => {
+    saveToolsPreferences({ scoreComparisonTargetMean: mean });
+  };
+
+  const setScoreComparisonTargetStdDev = (stdDev: number): void => {
+    saveToolsPreferences({ scoreComparisonTargetStdDev: stdDev });
+  };
+
   return {
     prefs,
+    setScoreComparisonRescale,
+    setScoreComparisonTargetMean,
+    setScoreComparisonTargetStdDev,
     setProductionAllRoles,
     setBumpChartBestMatchByTitle,
     setBumpChartIncludeExportImages,

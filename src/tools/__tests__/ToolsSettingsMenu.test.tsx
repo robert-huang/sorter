@@ -206,7 +206,7 @@ describe('ToolsSettingsMenu', () => {
     const settingsSections = Array.from(
       container.querySelectorAll<HTMLElement>('[data-tool-settings-section]'),
     );
-    expect(settingsSections).toHaveLength(4);
+    expect(settingsSections).toHaveLength(5);
     expect(settingsSections.every((section) => !section.classList.contains('active'))).toBe(
       true,
     );

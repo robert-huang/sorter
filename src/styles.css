@@ -11106,3 +11106,276 @@ a:where(.anime-to-anime-anilist-link):visited {
 .tool-stats-time-chart-total-label {
   text-align: left;
 }
+
+/* User Scores */
+.tool-score-compare-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tool-score-compare-user-chips,
+.tool-score-compare-options,
+.tool-score-compare-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.tool-score-compare-user-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 3px 8px 3px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+
+.tool-score-compare-user-chip-remove {
+  display: inline-flex;
+  padding: 2px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.tool-score-compare-user-chip-remove:hover {
+  color: var(--text);
+}
+
+.tool-score-compare-options .tool-checkbox {
+  align-self: center;
+  margin: 0;
+}
+
+.tool-score-compare-options .tool-checkbox input {
+  margin: 0;
+}
+
+.tool-score-compare-controls .tool-field {
+  margin: 0;
+}
+
+/* `.slot-search` carries a 6px bottom margin that offsets it in flex rows. */
+.tool-score-compare-controls .slot-search {
+  margin: 0;
+}
+
+.tool-score-compare-min-lists-field {
+  flex: 0 0 auto;
+  max-width: none;
+}
+
+.tools-settings-score-scale {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tools-settings-number {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Beats `.settings-item.checkbox input`, which sizes the checkbox to 13px. */
+.settings-item.checkbox .tools-settings-number input.slot-search {
+  width: calc(3ch + 36px);
+  height: 26px;
+  margin: 0;
+}
+
+.settings-item.checkbox .tools-settings-number--narrow input.slot-search {
+  width: calc(2ch + 36px);
+}
+
+.tools-settings-number:has(input:disabled) {
+  opacity: 0.45;
+}
+
+.tool-score-compare-controls .filter-bar {
+  padding: 0;
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+/* Shrink-wrap and center like Shared Credits; scroll once the panel width is hit. */
+.tool-score-compare-outer {
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.tool-score-compare-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.tool-score-compare-count {
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.tool-score-compare-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: max-content;
+  font-size: 13px;
+}
+
+.tool-score-compare-table th,
+.tool-score-compare-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.tool-score-compare-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface);
+  vertical-align: middle;
+}
+
+.tool-score-compare-table tfoot th,
+.tool-score-compare-table tfoot td {
+  position: sticky;
+  bottom: 0;
+  background: var(--surface-2);
+  font-weight: 600;
+}
+
+.tool-score-compare-stat,
+.tool-score-compare-stat-th {
+  min-width: 64px;
+}
+
+.tool-score-compare-stat-head {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.tool-score-compare-stat-caret {
+  padding: 0 2px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tool-score-compare-stat-caret:hover {
+  color: var(--text);
+}
+
+.tool-score-compare-stat-menu {
+  min-width: 120px;
+  text-align: left;
+  font-weight: 400;
+}
+
+.tool-score-compare-title,
+.tool-score-compare-title-th {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--surface);
+  text-align: left;
+  max-width: 320px;
+}
+
+.tool-score-compare-table thead .tool-score-compare-title-th,
+.tool-score-compare-table tfoot .tool-score-compare-title {
+  z-index: 3;
+}
+
+.tool-score-compare-user-th,
+.tool-score-compare-stat-th {
+  text-align: center;
+}
+
+.tool-score-compare-user-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.tool-score-compare-user-head .filter-chip {
+  padding: 1px 5px;
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.tool-score-compare-user-head .filter-chip-menu {
+  text-align: left;
+}
+
+.tool-score-compare-refresh.btn.icon-only {
+  min-width: 20px;
+  min-height: 20px;
+  padding: 2px 3px;
+  font-size: 11px;
+  border: none;
+  background: none;
+  box-shadow: none;
+  color: var(--text-muted);
+}
+
+.tool-score-compare-refresh.btn.icon-only + .tool-score-compare-user-chip-remove {
+  margin-left: -6px;
+}
+
+.tool-score-compare-refresh.btn.icon-only:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.tool-score-compare-sort-btn {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+}
+
+.tool-score-compare-cell {
+  text-align: center;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.tool-score-compare-cell--excluded {
+  opacity: 0.35;
+}
+
+.tool-score-compare-row--failing > td:not(.tool-score-compare-cell--excluded) {
+  opacity: 0.6;
+}
+
+.tool-score-compare-fav {
+  margin-left: 4px;
+  color: var(--danger);
+  font-size: 0.85em;
+}
+
+.tool-score-compare-stat {
+  font-weight: 600;
+}

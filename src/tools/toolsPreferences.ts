@@ -27,6 +27,11 @@ export type ToolsPreferences = {
   weeklyCalendarShowUnscheduledColumn: boolean;
   /** Load and display cached theme songs in Weekly Calendar. */
   weeklyCalendarShowThemeSongs: boolean;
+  /** Map User Scores z-scores onto the target mean / std dev below. */
+  scoreComparisonRescale: boolean;
+  scoreComparisonTargetMean: number;
+  /** Always > 0. */
+  scoreComparisonTargetStdDev: number;
 };
 
 const STORAGE_KEY = 'anime-tools:preferences:v1';
@@ -42,7 +47,18 @@ const DEFAULT_PREFS: ToolsPreferences = {
   seasonalScoresSpanAiringSeasons: false,
   weeklyCalendarShowUnscheduledColumn: false,
   weeklyCalendarShowThemeSongs: false,
+  scoreComparisonRescale: false,
+  scoreComparisonTargetMean: 70,
+  scoreComparisonTargetStdDev: 15,
 };
+
+function finiteOr(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function positiveOr(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback;
+}
 
 let cached: ToolsPreferences | null = null;
 const listeners = new Set<() => void>();
@@ -153,6 +169,15 @@ export function loadToolsPreferences(): ToolsPreferences {
               LEGACY_WEEKLY_CALENDAR_FORM_KEY,
               'showThemeSongs',
             ),
+      scoreComparisonRescale: parsed.scoreComparisonRescale === true,
+      scoreComparisonTargetMean: finiteOr(
+        parsed.scoreComparisonTargetMean,
+        DEFAULT_PREFS.scoreComparisonTargetMean,
+      ),
+      scoreComparisonTargetStdDev: positiveOr(
+        parsed.scoreComparisonTargetStdDev,
+        DEFAULT_PREFS.scoreComparisonTargetStdDev,
+      ),
     };
     if (
       typeof parsed.seasonalScoresSpanAiringSeasons !== 'boolean' ||

@@ -42,6 +42,7 @@
 import type { KeyboardEvent, ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { useClickOutside } from '../../hooks/useClickOutside';
+import { useFloatingMenuStyle } from '../../hooks/useFloatingMenuStyle';
 import * as client from '../../db/client';
 import type { DbRow } from '../../db/rpc';
 import {
@@ -749,6 +750,8 @@ interface ChipsHostProps {
   externalIds: ReadonlySet<string | number>;
   chipState: FilterChipState;
   onChipStateChange: (patch: FilterChipState) => void;
+  /** Skip the list status + score chips (hosts that filter per user themselves). */
+  hideUserChips?: boolean;
 }
 
 // AniList splits `format` cleanly by media type: the first group only
@@ -1049,8 +1052,14 @@ export function MultiSelectChip<T extends string | number>({
   searchPlaceholder,
   menuClassName,
   getOptionAnilistUrl,
+  triggerLabel,
+  floatingMenu = false,
 }: {
   label: string;
+  /** Replaces the "label · count" trigger text (e.g. a compact "3"). */
+  triggerLabel?: ReactNode;
+  /** Position the menu against the viewport so scroll containers don't clip it. */
+  floatingMenu?: boolean;
   /** Optional native tooltip on the chip trigger (e.g. filter semantics). */
   labelHint?: string;
   options: readonly T[];
@@ -1087,7 +1096,10 @@ export function MultiSelectChip<T extends string | number>({
   // the same mousedown that opens the menu would also fire the
   // outside-click handler and immediately close it again.
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   useClickOutside(rootRef, open, () => setOpen(false));
+  const menuStyle = useFloatingMenuStyle(floatingMenu, open, triggerRef, menuRef);
   const count = selected.length;
 
   // Format-or-stringify helper, used both for rendering and for the
@@ -1162,20 +1174,28 @@ export function MultiSelectChip<T extends string | number>({
       className={`filter-chip ${count > 0 ? 'active' : ''}`}
     >
       <button
+        ref={triggerRef}
         type="button"
         className="filter-chip-button"
         aria-expanded={open}
         title={labelHint}
         onClick={() => setOpen((x) => !x)}
+        aria-label={triggerLabel === undefined ? undefined : label}
       >
-        {label}
-        {chipCountLabel}
+        {triggerLabel ?? (
+          <>
+            {label}
+            {chipCountLabel}
+          </>
+        )}
       </button>
       {open && (
         <div
+          ref={menuRef}
           className={['filter-chip-menu', menuClassName]
             .filter(Boolean)
             .join(' ')}
+          style={menuStyle}
           role="menu"
         >
           {(searchable && options.length > 0) ||
@@ -1800,11 +1820,16 @@ export function ScoreRangeChip({
   min,
   max,
   onChange,
+  mode,
+  onModeChange,
 }: {
   pill: ScoreRangeChipState['userScoreInclude'];
   min: number | null;
   max: number | null;
   onChange: (patch: Partial<ScoreRangeChipState>) => void;
+  /** Multi-user hosts: "one person" (any) vs "everyone" (all) must match. */
+  mode?: 'any' | 'all';
+  onModeChange?: (mode: 'any' | 'all') => void;
 }): ReactNode {
   const SLIDER_MIN = 1;
   const SLIDER_MAX = 100;
@@ -1904,6 +1929,30 @@ export function ScoreRangeChip({
               default) means no rated/unrated filter; deselecting one
               narrows to the other. Deselecting both is treated as
               "both selected" — see toggleScoreBucket. */}
+          {mode && onModeChange && (
+            <div className="filter-chip-range-row">
+              <div className="filter-chip-segmented filter-chip-segmented-fill">
+                <button
+                  type="button"
+                  className={mode === 'any' ? 'active' : ''}
+                  aria-pressed={mode === 'any'}
+                  onClick={() => onModeChange('any')}
+                  title="Pass when at least one person matches; others may be unrated"
+                >
+                  One person
+                </button>
+                <button
+                  type="button"
+                  className={mode === 'all' ? 'active' : ''}
+                  aria-pressed={mode === 'all'}
+                  onClick={() => onModeChange('all')}
+                  title="Pass only when every person with the show matches"
+                >
+                  Everyone
+                </button>
+              </div>
+            </div>
+          )}
           <div className="filter-chip-range-row">
             <div className="filter-chip-segmented filter-chip-segmented-fill">
               <button
@@ -2123,6 +2172,7 @@ function VoiceActorChip({
   options,
   selected,
   onToggle,
+  onReplaceAll,
   selectedRoles,
   onToggleRole,
   cachedCount,
@@ -2133,6 +2183,7 @@ function VoiceActorChip({
   options: readonly VoiceActorOption[];
   selected: readonly number[];
   onToggle: (id: number) => void;
+  onReplaceAll: (ids: number[]) => void;
   /** Active role refinement. Empty = "any role". */
   selectedRoles: readonly AnilistCharacterRole[];
   onToggleRole: (role: AnilistCharacterRole) => void;
@@ -2225,6 +2276,34 @@ function VoiceActorChip({
               onChange={(e) => setSearch(e.target.value)}
               autoFocus
             />
+            {options.length > 0 && (
+              <div className="filter-chip-toolbar">
+                <button
+                  type="button"
+                  className="filter-chip-action"
+                  disabled={matchingUnselected.length === 0}
+                  onClick={() =>
+                    onReplaceAll([...selected, ...matchingUnselected.map((o) => o.id)])
+                  }
+                  title={
+                    needle
+                      ? 'Add every voice actor that matches the current search'
+                      : 'Select every voice actor'
+                  }
+                >
+                  {needle ? 'Select all visible' : 'Select all'}
+                </button>
+                <button
+                  type="button"
+                  className="filter-chip-action"
+                  disabled={count === 0}
+                  onClick={() => onReplaceAll([])}
+                  title="Clear the current selection"
+                >
+                  Clear
+                </button>
+              </div>
+            )}
           </div>
           <div className="filter-chip-menu-scroll">
             {selectedOptions.map((o) => (
@@ -2311,10 +2390,11 @@ type BulkExpandStatus =
   | { kind: 'running'; done: number; total: number }
   | { kind: 'error'; message: string };
 
-function AnilistChips({
+export function AnilistChips({
   externalIds,
   chipState,
   onChipStateChange,
+  hideUserChips = false,
 }: ChipsHostProps): ReactNode {
   const state = chipState as AnilistFilterChipState;
   const externalIdsArray = Array.from(externalIds, (x) => Number(x));
@@ -2414,15 +2494,17 @@ function AnilistChips({
   //   tag, tag options (mode + rank), exclude tag.
   return (
     <>
-      <MultiSelectChip<AnilistMediaListStatus>
-        label="list status"
-        options={ALL_LIST_STATUSES}
-        selected={state.listStatuses}
-        onToggle={(v) =>
-          set({ listStatuses: toggleInArray(state.listStatuses, v) })
-        }
-        onReplaceAll={(vals) => set({ listStatuses: [...vals] })}
-      />
+      {!hideUserChips && (
+        <MultiSelectChip<AnilistMediaListStatus>
+          label="list status"
+          options={ALL_LIST_STATUSES}
+          selected={state.listStatuses}
+          onToggle={(v) =>
+            set({ listStatuses: toggleInArray(state.listStatuses, v) })
+          }
+          onReplaceAll={(vals) => set({ listStatuses: [...vals] })}
+        />
+      )}
       <MultiSelectChip
         label="status"
         options={ALL_STATUSES}
@@ -2457,12 +2539,14 @@ function AnilistChips({
           onChange={(patch) => set(patch)}
         />
       )}
-      <ScoreRangeChip
-        pill={state.userScoreInclude}
-        min={state.scoreMin}
-        max={state.scoreMax}
-        onChange={(patch) => set(patch)}
-      />
+      {!hideUserChips && (
+        <ScoreRangeChip
+          pill={state.userScoreInclude}
+          min={state.scoreMin}
+          max={state.scoreMax}
+          onChange={(patch) => set(patch)}
+        />
+      )}
       {options.mediaType !== 'MANGA' && (
         <MultiSelectChip<number>
           label="studio"
@@ -2490,6 +2574,7 @@ function AnilistChips({
           onToggle={(id) =>
             set({ voiceActorIds: toggleInArray(state.voiceActorIds, id) })
           }
+          onReplaceAll={(ids) => set({ voiceActorIds: ids })}
           // Defensive `?? []`: persisted slot state from before this
           // field shipped will be missing `voiceActorRoles`. Reading
           // through a fallback keeps the chip working until the next
