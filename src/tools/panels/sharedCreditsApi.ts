@@ -23,6 +23,7 @@ import {
   TOOLS_USER_LIST_STATUSES,
 } from '../../lib/importers/anilist/toolsAnilistAccess';
 import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportContext';
+import { resolveQueryMatch, staffQueryKey, type QueryMatch } from '../toolQueryCache';
 import {
   formatStartDateKey,
   mergeStaffShowMaps,
@@ -42,7 +43,11 @@ export type ToolStaffNameFields = PersonNameFields & {
 
 const USER_LIST_STATUSES = TOOLS_USER_LIST_STATUSES;
 
-type StaffSearchHit = { id: number; name: { full: string; native?: string | null } };
+type StaffSearchHit = {
+  id: number;
+  name: { full: string; native?: string | null };
+  image?: { large?: string | null } | null;
+};
 
 /** Root `Staff(search:)` returns one row; `Page.staff` returns a list. */
 export function pickStaffSearchMatch(
@@ -179,45 +184,93 @@ function mergeProductionEdge(map: StaffShowMap, edge: ProductionEdge): void {
   });
 }
 
+/** Cache key for one Shared Credits query; ids and names never collide. */
+export function staffInputQueryKey(raw: string, useIds: boolean): string {
+  return staffQueryKey(useIds ? `#${raw.trim()}` : raw);
+}
+
+function parseStaffIdInput(raw: string): number {
+  const id = Number.parseInt(raw, 10);
+  if (!Number.isFinite(id)) {
+    throw new Error(`Invalid staff id "${raw}".`);
+  }
+  return id;
+}
+
+async function searchStaffByName(name: string): Promise<QueryMatch> {
+  const data = await executeAnilistQuery<{
+    Staff: StaffSearchHit | StaffSearchHit[] | null;
+  }>(TOOLS_STAFF_SEARCH_QUERY, { search: name.trim() });
+  const match = pickStaffSearchMatch(data?.Staff);
+  if (!match?.id) {
+    throw new Error(`Could not find staff matching "${name}".`);
+  }
+  return {
+    id: match.id,
+    title: pickPersonName({
+      id: match.id,
+      name_full: match.name.full,
+      name_native: match.name.native ?? null,
+    }),
+    coverImage: match.image?.large ?? null,
+  };
+}
+
+async function lookupStaffById(id: number, signal?: AbortSignal): Promise<QueryMatch> {
+  const fields = (await fetchStaffNameFieldsFromApi([id], signal))[id]!;
+  return {
+    id,
+    title: pickPersonName({ id, name_full: fields.name_full, name_native: fields.name_native }),
+    coverImage: fields.image ?? null,
+  };
+}
+
+/** Resolve one staff query (name search, or id → name) through the 30-day query cache. */
+export async function resolveStaffQuery(
+  raw: string,
+  useIds: boolean,
+  signal?: AbortSignal,
+  options?: { forceRefresh?: boolean },
+): Promise<QueryMatch> {
+  signal?.throwIfAborted();
+  const search = useIds
+    ? () => lookupStaffById(parseStaffIdInput(raw), signal)
+    : () => searchStaffByName(raw);
+  const result = await resolveQueryMatch(staffInputQueryKey(raw, useIds), search, options);
+  // executeAnilistQuery does not yet take a signal, but re-check after
+  // the query resolves so a cancelled run stops here.
+  signal?.throwIfAborted();
+  return result;
+}
+
 export async function resolveStaffIdByName(
   name: string,
   signal?: AbortSignal,
 ): Promise<number> {
-  signal?.throwIfAborted();
-  // executeAnilistQuery does not yet take a signal, but re-check after
-  // the query resolves so a stale rapid-Compare-then-cancel sequence
-  // doesn't silently warm the memo for the aborted run.
-  const result = await withSessionMemo(`tools:staff-search:${name.toLowerCase()}`, async () => {
-    const data = await executeAnilistQuery<{
-      Staff: StaffSearchHit | StaffSearchHit[] | null;
-    }>(TOOLS_STAFF_SEARCH_QUERY, { search: name });
-    const match = pickStaffSearchMatch(data?.Staff);
-    if (!match?.id) {
-      throw new Error(`Could not find staff matching "${name}".`);
-    }
-    return match.id;
-  });
-  signal?.throwIfAborted();
-  return result;
+  return (await resolveStaffQuery(name, false, signal)).id;
 }
 
 export async function resolveStaffIds(
   inputs: string[],
   useIds: boolean,
   signal?: AbortSignal,
+  options?: {
+    forceRefresh?: boolean;
+    onResolved?: (query: string, match: QueryMatch) => void;
+  },
 ): Promise<number[]> {
   const ids: number[] = [];
   for (const raw of inputs) {
     signal?.throwIfAborted();
-    if (useIds) {
-      const id = Number.parseInt(raw, 10);
-      if (!Number.isFinite(id)) {
-        throw new Error(`Invalid staff id "${raw}".`);
-      }
-      ids.push(id);
-    } else {
-      ids.push(await resolveStaffIdByName(raw, signal));
+    if (useIds && !options?.onResolved) {
+      ids.push(parseStaffIdInput(raw));
+      continue;
     }
+    const match = await resolveStaffQuery(raw, useIds, signal, {
+      forceRefresh: options?.forceRefresh,
+    });
+    options?.onResolved?.(raw, match);
+    ids.push(match.id);
   }
   return ids;
 }
@@ -290,11 +343,13 @@ export async function fetchStaffNameFieldsByIds(
   options?: ToolsFetchOptions,
 ): Promise<Record<number, ToolStaffNameFields>> {
   signal?.throwIfAborted();
-  const key = `tools:staff-names:${[...staffIds].sort((a, b) => a - b).join(',')}`;
+  // A compare may list the same person twice (e.g. a nickname and the full name).
+  const uniqueIds = [...new Set(staffIds)].sort((a, b) => a - b);
+  const key = `tools:staff-names:${uniqueIds.join(',')}`;
   return withSessionMemo(
     key,
     async () => {
-      let fields = await fetchStaffNameFieldsFromApi(staffIds, signal);
+      let fields = await fetchStaffNameFieldsFromApi(uniqueIds, signal);
       fields = await enrichStaffNameFieldsImages(fields);
       return fields;
     },

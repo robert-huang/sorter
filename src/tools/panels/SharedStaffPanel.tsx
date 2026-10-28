@@ -13,7 +13,19 @@ import {
   type SharedStaffResult,
   type SharedStaffSection,
 } from './sharedStaffLogic';
-import { runSharedStaffCompare, type SharedStaffRunProgress } from './sharedStaffApi';
+import {
+  runSharedStaffCompare,
+  searchAnimeShow,
+  type SharedStaffRunProgress,
+} from './sharedStaffApi';
+import {
+  ToolQueryStagingList,
+  mergeStagedQueries,
+  normalizeStagedQueries,
+  pendingQueries,
+  useQueryRowStates,
+} from '../ToolQueryStaging';
+import { showQueryKey } from '../toolQueryCache';
 import {
   anilistUrlForCharacter,
 } from '../../lib/importers/anilist/anilistLinks';
@@ -37,6 +49,7 @@ import type { FavouriteEntityIds } from '../../lib/importers/anilist/readQueries
 
 const DEFAULT_FORM: SharedStaffForm = {
   showText: '',
+  stagedQueries: [],
   sortByPopularity: true,
   ignoreRelated: false,
   includeAll: false,
@@ -76,6 +89,7 @@ function loadForm(): SharedStaffForm {
       return {
         ...DEFAULT_FORM,
         showText: typeof parsed.showText === 'string' ? parsed.showText : '',
+        stagedQueries: normalizeStagedQueries(parsed.stagedQueries),
         sortByPopularity:
           typeof parsed.sortByPopularity === 'boolean'
             ? parsed.sortByPopularity
@@ -106,6 +120,7 @@ function saveForm(form: SharedStaffForm): void {
   try {
     const persisted: PersistedSharedStaffForm = {
       showText: form.showText,
+      stagedQueries: form.stagedQueries,
       sortByPopularity: form.sortByPopularity,
       ignoreRelated: form.ignoreRelated,
       includeAll: form.includeAll,
@@ -353,6 +368,45 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
     patchForm({ showText: '' });
   }, [patchForm]);
 
+  const pending = pendingQueries(form.stagedQueries, parseShowInputs(form.showText));
+  const compareQueries = [...form.stagedQueries, ...pending];
+  const keyFor = useCallback(
+    (query: string) => showQueryKey(query, form.sortByPopularity),
+    [form.sortByPopularity],
+  );
+  const { stateFor, setRowState } = useQueryRowStates(compareQueries.map(keyFor));
+
+  const onAddToStaged = useCallback(() => {
+    setForm((prev) => ({
+      ...prev,
+      stagedQueries: mergeStagedQueries(prev.stagedQueries, parseShowInputs(prev.showText)),
+      showText: '',
+    }));
+  }, []);
+
+  const onRemoveStaged = useCallback((query: string) => {
+    setForm((prev) => ({
+      ...prev,
+      stagedQueries: prev.stagedQueries.filter((existing) => existing !== query),
+    }));
+  }, []);
+
+  const onRefreshQuery = useCallback(
+    (query: string) => {
+      const key = keyFor(query);
+      setRowState(key, { kind: 'loading' });
+      void searchAnimeShow(query, form.sortByPopularity, undefined, { forceRefresh: true })
+        .then((match) => setRowState(key, { kind: 'resolved', match }))
+        .catch((e: unknown) =>
+          setRowState(key, {
+            kind: 'error',
+            message: e instanceof Error ? e.message : 'Search failed.',
+          }),
+        );
+    },
+    [form.sortByPopularity, keyFor, setRowState],
+  );
+
   const onCancel = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
@@ -361,12 +415,13 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
   }, []);
 
   const onCompare = useCallback(async (forceRefresh = false) => {
-    const shows = parseShowInputs(form.showText);
+    const shows = compareQueries;
     if (shows.length === 0) {
       setError('Enter at least one show title.');
       setResult(null);
       return;
     }
+    onAddToStaged();
 
     abortRef.current?.abort();
     const controller = new AbortController();
@@ -390,6 +445,7 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
         topMatchCount: form.topMatchCount,
         signal: controller.signal,
         onProgress: setProgress,
+        onResolved: (query, match) => setRowState(keyFor(query), { kind: 'resolved', match }),
         fetchOptions: forceRefresh ? { forceRefresh: true } : undefined,
       });
 
@@ -417,10 +473,11 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
         setProgress(null);
       }
     }
-  }, [form]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form, keyFor, setRowState]);
 
   const statusText = running ? progressLabel(progress) : null;
-  const showCount = parseShowInputs(form.showText).length;
+  const showCount = compareQueries.length;
   const singleShowEligible = showCount === 1;
   const singleShowOptionsActive = singleShowEligible && form.enableSingleShowMode;
   const singleShowReport = result?.kind === 'compare' ? result.singleShowReport : undefined;
@@ -457,23 +514,55 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
         <div className="tool-field">
           <div className="tool-field-label-row tool-field-label-header">
             <span className="tool-field-label">Shows (one per line)</span>
-            <button
-              type="button"
-              className="btn btn-small"
-              disabled={running || form.showText.length === 0}
-              onClick={onClearShowText}
-              title="Clear the textarea"
-            >
-              Clear
-            </button>
+            <div className="tool-field-label-header-actions">
+              <button
+                type="button"
+                className="btn btn-small"
+                disabled={running || form.showText.length === 0}
+                onClick={onClearShowText}
+                title="Clear the textarea"
+              >
+                Clear
+              </button>
+              <button
+                type="button"
+                className="btn btn-small primary"
+                disabled={running || pending.length === 0}
+                onClick={onAddToStaged}
+                title="Move these lines into the staged list below"
+              >
+                Add to staged
+              </button>
+            </div>
           </div>
           <textarea
-            className="tool-textarea csv-textarea"
-            rows={6}
+            className="tool-textarea csv-textarea tool-textarea--compact"
+            rows={3}
             value={form.showText}
             disabled={running}
             onChange={(e) => patchForm({ showText: e.target.value })}
             placeholder={'e.g. Steins;Gate\nYour Name'}
+          />
+          <ToolQueryStagingList
+            staged={form.stagedQueries}
+            pending={pending}
+            stateFor={stateFor}
+            keyFor={keyFor}
+            renderMatch={(match) => (
+              <ToolShowButton
+                mediaId={match.id}
+                title={match.title}
+                coverImage={match.coverImage}
+                onOpenMedia={onOpenMedia}
+                compact
+                favourite={favourites.mediaIds.has(match.id)}
+              />
+            )}
+            onRefresh={onRefreshQuery}
+            onRemove={onRemoveStaged}
+            onClear={() => patchForm({ stagedQueries: [] })}
+            disabled={running}
+            emptyHint="No shows staged yet. Type titles above and click Add to staged."
           />
         </div>
 

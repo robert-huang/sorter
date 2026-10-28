@@ -7977,6 +7977,89 @@ a:where(.anime-to-anime-anilist-link):visited {
   min-height: 13rem;
 }
 
+/* Half height: the staged list below holds the queries. */
+.tool-form-card .tool-textarea.csv-textarea.tool-textarea--compact {
+  min-height: 6.5rem;
+}
+
+/* Staged query list (Shared Staff / Shared Credits) */
+.tool-query-staging {
+  margin-top: 8px;
+  margin-bottom: 12px;
+  gap: 8px;
+}
+
+.tool-query-staging-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tool-query-staging-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 13px;
+  min-width: 0;
+}
+
+.tool-query-staging-row.pending {
+  border-style: dashed;
+  background: transparent;
+  opacity: 0.78;
+}
+
+.tool-query-staging-query {
+  flex: 0 0 32%;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  color: var(--text-muted);
+}
+
+.tool-query-staging-match {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+}
+
+.tool-query-staging-new {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.tool-query-staging-refresh.btn.icon-only {
+  flex-shrink: 0;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 2px 4px;
+  font-size: 12px;
+  border: none;
+  background: none;
+  box-shadow: none;
+  color: var(--text-muted);
+}
+
+.tool-query-staging-refresh.btn.icon-only:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.tool-query-staging-remove {
+  flex-shrink: 0;
+}
+
 .tool-actions {
   display: flex;
   flex-wrap: wrap;

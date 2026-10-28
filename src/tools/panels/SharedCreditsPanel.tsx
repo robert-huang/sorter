@@ -16,9 +16,18 @@ import {
 } from './sharedCreditsLogic';
 import {
   resolveStaffIds,
+  resolveStaffQuery,
   runSharedCreditsCompare,
+  staffInputQueryKey,
   type SharedCreditsRunProgress,
 } from './sharedCreditsApi';
+import {
+  ToolQueryStagingList,
+  mergeStagedQueries,
+  normalizeStagedQueries,
+  pendingQueries,
+  useQueryRowStates,
+} from '../ToolQueryStaging';
 import { SharedCreditsResultsTable } from './sharedCreditsTable';
 import { ToolShowButton, ToolStaffButton } from '../toolEntityLinks';
 import { ToolSegmentedFilter } from '../ToolSegmentedFilter';
@@ -26,6 +35,7 @@ import { useCurrentAnilistFavourites } from '../useCurrentAnilistFavourites';
 
 const DEFAULT_FORM: SharedCreditsForm = {
   staffText: '',
+  stagedQueries: [],
   useIds: false,
   roleMode: 'voice',
   minMatches: null,
@@ -74,6 +84,7 @@ function loadForm(): SharedCreditsForm {
       return {
         ...DEFAULT_FORM,
         staffText: typeof parsed.staffText === 'string' ? parsed.staffText : '',
+        stagedQueries: normalizeStagedQueries(parsed.stagedQueries),
         useIds: typeof parsed.useIds === 'boolean' ? parsed.useIds : DEFAULT_FORM.useIds,
         roleMode,
         minMatches:
@@ -105,6 +116,7 @@ function saveForm(form: SharedCreditsForm): void {
   try {
     const persisted: PersistedSharedCreditsForm = {
       staffText: form.staffText,
+      stagedQueries: form.stagedQueries,
       useIds: form.useIds,
       roleMode: form.roleMode,
       minMatches: form.minMatches,
@@ -188,6 +200,51 @@ export function SharedCreditsPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps)
     patchForm({ staffText: '' });
   }, [patchForm]);
 
+  const pending = pendingQueries(
+    form.stagedQueries,
+    parseStaffInputs(form.staffText, form.useIds),
+  );
+  const compareQueries = [...form.stagedQueries, ...pending];
+  const keyFor = useCallback(
+    (query: string) => staffInputQueryKey(query, form.useIds),
+    [form.useIds],
+  );
+  const { stateFor, setRowState } = useQueryRowStates(compareQueries.map(keyFor));
+
+  const onAddToStaged = useCallback(() => {
+    setForm((prev) => ({
+      ...prev,
+      stagedQueries: mergeStagedQueries(
+        prev.stagedQueries,
+        parseStaffInputs(prev.staffText, prev.useIds),
+      ),
+      staffText: '',
+    }));
+  }, []);
+
+  const onRemoveStaged = useCallback((query: string) => {
+    setForm((prev) => ({
+      ...prev,
+      stagedQueries: prev.stagedQueries.filter((existing) => existing !== query),
+    }));
+  }, []);
+
+  const onRefreshQuery = useCallback(
+    (query: string) => {
+      const key = keyFor(query);
+      setRowState(key, { kind: 'loading' });
+      void resolveStaffQuery(query, form.useIds, undefined, { forceRefresh: true })
+        .then((match) => setRowState(key, { kind: 'resolved', match }))
+        .catch((e: unknown) =>
+          setRowState(key, {
+            kind: 'error',
+            message: e instanceof Error ? e.message : 'Search failed.',
+          }),
+        );
+    },
+    [form.useIds, keyFor, setRowState],
+  );
+
   const onCancel = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
@@ -196,12 +253,13 @@ export function SharedCreditsPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps)
   }, []);
 
   const onCompare = useCallback(async (forceRefresh = false) => {
-    const inputs = parseStaffInputs(form.staffText, form.useIds);
+    const inputs = compareQueries;
     if (inputs.length === 0) {
       setError('Enter at least one staff name or id.');
       setResult(null);
       return;
     }
+    onAddToStaged();
     if (form.usernameInclude.trim() && form.usernameExclude.trim()) {
       setError('Use either include or exclude username, not both.');
       setResult(null);
@@ -225,7 +283,10 @@ export function SharedCreditsPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps)
     setProgress({ phase: 'resolve' });
 
     try {
-      const staffIds = await resolveStaffIds(inputs, form.useIds, controller.signal);
+      const staffIds = await resolveStaffIds(inputs, form.useIds, controller.signal, {
+        forceRefresh,
+        onResolved: (query, match) => setRowState(keyFor(query), { kind: 'resolved', match }),
+      });
       const { staffNameFields, lists, userMediaIds, usernameMode } =
         await runSharedCreditsCompare({
           staffIds,
@@ -269,7 +330,8 @@ export function SharedCreditsPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps)
         setProgress(null);
       }
     }
-  }, [form]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form, keyFor, setRowState]);
 
   const statusText = running ? progressLabel(progress) : null;
 
@@ -303,6 +365,15 @@ export function SharedCreditsPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps)
               >
                 Clear
               </button>
+              <button
+                type="button"
+                className="btn btn-small primary"
+                disabled={running || pending.length === 0}
+                onClick={onAddToStaged}
+                title="Move these lines into the staged list below"
+              >
+                Add to staged
+              </button>
               <label className="tool-checkbox tool-checkbox-header">
                 <input
                   type="checkbox"
@@ -315,12 +386,33 @@ export function SharedCreditsPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps)
             </div>
           </div>
           <textarea
-            className="tool-textarea csv-textarea"
-            rows={6}
+            className="tool-textarea csv-textarea tool-textarea--compact"
+            rows={3}
             value={form.staffText}
             disabled={running}
             onChange={(e) => patchForm({ staffText: e.target.value })}
             placeholder={'e.g. Kana Hanazawa\nYuki Kaji'}
+          />
+          <ToolQueryStagingList
+            staged={form.stagedQueries}
+            pending={pending}
+            stateFor={stateFor}
+            keyFor={keyFor}
+            renderMatch={(match) => (
+              <ToolStaffButton
+                staffId={match.id}
+                name={match.title}
+                imageUrl={match.coverImage}
+                onOpenStaff={onOpenStaff}
+                compact
+                favourite={favourites.staffIds.has(match.id)}
+              />
+            )}
+            onRefresh={onRefreshQuery}
+            onRemove={onRemoveStaged}
+            onClear={() => patchForm({ stagedQueries: [] })}
+            disabled={running}
+            emptyHint="No staff staged yet. Type names above and click Add to staged."
           />
         </div>
 

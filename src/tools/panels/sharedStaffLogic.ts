@@ -43,6 +43,8 @@ export type ShowStaffBundle = {
 
 export type SharedStaffForm = {
   showText: string;
+  /** Show queries added via "Add to staged"; Compare runs these, then any un-added `showText` lines. */
+  stagedQueries: string[];
   sortByPopularity: boolean;
   ignoreRelated: boolean;
   /**

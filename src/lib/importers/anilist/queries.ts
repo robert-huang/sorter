@@ -603,7 +603,8 @@ export const TOOLS_STAFF_SEARCH_QUERY = `
 query ToolsStaffSearch($search: String!) {
   Staff(search: $search, sort: FAVOURITES_DESC) {
     id
-    name { full }
+    name { full native }
+    image { large }
   }
 }
 `.trim();
@@ -776,6 +777,7 @@ query ToolsMediaSearch($search: String!, $sort: [MediaSort]) {
   Media(search: $search, type: ANIME, sort: $sort) {
     id
     title { english romaji }
+    coverImage { large }
   }
 }
 `.trim();

@@ -10,10 +10,7 @@ import {
 import { executeAnilistQuery } from '../../lib/importers/anilist/transport';
 import { pickCharacterName, pickPersonName } from '../../lib/importers/anilist/personDisplayLabel';
 import type { ToolsFetchOptions } from '../../lib/importers/anilist/toolsFetchPolicy';
-import {
-  withSessionMemo,
-  withSessionTtlMemo,
-} from '../../lib/importers/anilist/toolsSessionMemo';
+import { withSessionTtlMemo } from '../../lib/importers/anilist/toolsSessionMemo';
 import {
   persistentCacheDelete,
   persistentCacheGet,
@@ -30,6 +27,7 @@ import {
   readShowStaffBundleFromDb,
 } from '../../lib/importers/anilist/toolsAnilistAccess';
 import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportContext';
+import { resolveQueryMatch, showQueryKey, type QueryMatch } from '../toolQueryCache';
 import { pickMediaTitle } from './sharedCreditsLogic';
 import {
   mergeRoleIntoMap,
@@ -46,25 +44,31 @@ export async function searchAnimeShow(
   search: string,
   sortByPopularity: boolean,
   signal?: AbortSignal,
-): Promise<{ id: number; title: string }> {
+  options?: { forceRefresh?: boolean },
+): Promise<QueryMatch> {
   signal?.throwIfAborted();
   const sort = sortByPopularity ? ['POPULARITY_DESC'] : ['SEARCH_MATCH'];
-  const cacheKey = `tools:media-search:${search.toLowerCase()}:${sort.join(',')}`;
-  return withSessionMemo(cacheKey, async () => {
-    const data = await executeAnilistQuery<{
-      Media: {
-        id: number;
-        title: { english?: string | null; romaji?: string | null };
-      } | null;
-    }>(TOOLS_MEDIA_SEARCH_QUERY, { search, sort });
-    if (!data?.Media?.id) {
-      throw new Error(`Could not find show matching "${search}".`);
-    }
-    return {
-      id: data.Media.id,
-      title: pickMediaTitle(data.Media.title),
-    };
-  });
+  return resolveQueryMatch(
+    showQueryKey(search, sortByPopularity),
+    async () => {
+      const data = await executeAnilistQuery<{
+        Media: {
+          id: number;
+          title: { english?: string | null; romaji?: string | null };
+          coverImage?: { large?: string | null } | null;
+        } | null;
+      }>(TOOLS_MEDIA_SEARCH_QUERY, { search: search.trim(), sort });
+      if (!data?.Media?.id) {
+        throw new Error(`Could not find show matching "${search}".`);
+      }
+      return {
+        id: data.Media.id,
+        title: pickMediaTitle(data.Media.title),
+        coverImage: data.Media.coverImage?.large ?? null,
+      };
+    },
+    options,
+  );
 }
 
 async function fetchShowStudiosLive(
@@ -588,6 +592,8 @@ export async function runSharedStaffCompare(options: {
   topMatchCount: number;
   signal?: AbortSignal;
   onProgress?: (progress: SharedStaffRunProgress) => void;
+  /** Fires as each show query resolves, so the staged list can show the match. */
+  onResolved?: (query: string, match: QueryMatch) => void;
   fetchOptions?: ToolsFetchOptions;
 }): Promise<{
   shows: ShowStaffBundle[];
@@ -617,10 +623,11 @@ export async function runSharedStaffCompare(options: {
     topMatchCount,
     signal,
     onProgress,
+    onResolved,
     fetchOptions,
   } = options;
 
-  const resolved: Array<{ id: number; title: string }> = [];
+  const resolved: QueryMatch[] = [];
   for (let i = 0; i < showSearches.length; i += 1) {
     onProgress?.({
       phase: 'resolve',
@@ -628,9 +635,11 @@ export async function runSharedStaffCompare(options: {
       showTotal: showSearches.length,
       label: showSearches[i]!,
     });
-    resolved.push(
-      await searchAnimeShow(showSearches[i]!, sortByPopularity, signal),
-    );
+    const match = await searchAnimeShow(showSearches[i]!, sortByPopularity, signal, {
+      forceRefresh: fetchOptions?.forceRefresh,
+    });
+    onResolved?.(showSearches[i]!, match);
+    resolved.push(match);
   }
 
   const shows: ShowStaffBundle[] = [];

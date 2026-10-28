@@ -71,6 +71,8 @@ export function mergeStaffShowMaps(...maps: Array<StaffShowMap | null>): StaffSh
 
 export type SharedCreditsForm = {
   staffText: string;
+  /** Staff queries added via "Add to staged"; Compare runs these, then any un-added `staffText` lines. */
+  stagedQueries: string[];
   useIds: boolean;
   roleMode: StaffRoleMode;
   minMatches: number | null;
