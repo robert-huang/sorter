@@ -11631,6 +11631,30 @@ a:where(.anime-to-anime-anilist-link):visited {
   gap: 8px;
 }
 
+.tools-settings-fit-button {
+  margin-left: auto;
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text);
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* The row already uses --surface-2 on hover, so the button needs its own tint. */
+.tools-settings-fit-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+
+.tools-settings-fit-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .tools-settings-number {
   display: inline-flex;
   align-items: center;
@@ -11642,10 +11666,6 @@ a:where(.anime-to-anime-anilist-link):visited {
   width: calc(3ch + 36px);
   height: 26px;
   margin: 0;
-}
-
-.settings-item.checkbox .tools-settings-number--narrow input.slot-search {
-  width: calc(2ch + 36px);
 }
 
 .tools-settings-number:has(input:disabled) {

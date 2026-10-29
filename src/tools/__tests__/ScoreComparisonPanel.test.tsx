@@ -221,6 +221,7 @@ describe('ScoreComparisonPanel', () => {
     const head = await pickStat('Standard Deviation');
     expect(container.querySelector('.tool-score-compare-stat-menu')).toBeNull();
     expect(head.textContent).toContain('Standard Deviation');
+    expect(head.querySelector('button')!.title).toContain('fewer than 2 raters');
     expect(bodyRows().find((row) => row[0] === 'Alpha')![1]).toBe('5');
   });
 

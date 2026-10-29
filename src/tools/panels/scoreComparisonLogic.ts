@@ -120,6 +120,36 @@ export function userWholeListStats(
   return meanAndStdDev(scores);
 }
 
+export type RescaleTarget = { mean: number; stdDev: number };
+
+/**
+ * Target mean / std dev that rescale one user's lowest and highest z-scores in the
+ * passing rows onto [low, high], e.g. z from -3.03..2.07 → mean ≈ 59.4, std dev ≈ 19.6
+ * for 0..100. Z-scores keep the whole-list baseline; only the fitted range follows filters.
+ * Null when fewer than two distinct z-scores pass.
+ */
+export function fitRescaleTarget(
+  rows: readonly ComparisonRow[],
+  userIndex: number,
+  stats: UserListStats | null,
+  low = 0,
+  high = 100,
+): RescaleTarget | null {
+  let zMin = Infinity;
+  let zMax = -Infinity;
+  for (const row of rows) {
+    const cell = row.cells[userIndex];
+    if (!row.passes || !cell || cell.excluded || !cell.entry) continue;
+    const z = zScore(cell.entry.score, stats);
+    if (z === null) continue;
+    zMin = Math.min(zMin, z);
+    zMax = Math.max(zMax, z);
+  }
+  if (!(zMax > zMin)) return null;
+  const stdDev = (high - low) / (zMax - zMin);
+  return { mean: low - zMin * stdDev, stdDev };
+}
+
 function meanAndStdDev(values: readonly number[]): UserListStats | null {
   if (values.length === 0) return null;
   const mean = values.reduce((sum, v) => sum + v, 0) / values.length;
@@ -266,7 +296,10 @@ function passingValues(
   return values;
 }
 
-/** Divides by the rated (passing) count; null when nobody rated it. */
+/**
+ * Divides by the rated (passing) count; null when nobody rated it. Std dev also needs
+ * two raters: one rating would read as a misleading 0 (null sorts last either way).
+ */
 export function rowStat(
   row: ComparisonRow,
   stat: ComparisonStat,
@@ -275,7 +308,8 @@ export function rowStat(
 ): number | null {
   const summary = meanAndStdDev(passingValues(row, userStats, normalization));
   if (!summary) return null;
-  return stat === 'mean' ? summary.mean : summary.stdDev;
+  if (stat === 'mean') return summary.mean;
+  return summary.ratedCount < 2 ? null : summary.stdDev;
 }
 
 /** Per-user mean / std dev of raw scores over passing rated cells in passing rows. */

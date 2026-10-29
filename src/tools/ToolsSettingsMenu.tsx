@@ -10,6 +10,17 @@ import { StorageDiagnosticsSection } from '../components/StorageDiagnosticsSecti
 import type { SourceDbSyncControls } from '../hooks/useSourceDbSync';
 import { useToolsPreferences } from '../hooks/useToolsPreferences';
 import type { ToolId } from './toolTypes';
+import { useScoreComparisonFit, type ScoreComparisonFit } from './scoreComparisonFitStore';
+
+function roundFitValue(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function fitButtonTitle(fit: ScoreComparisonFit | null): string {
+  if (!fit) return 'Needs the first user in User Scores to have at least two different scores in the filtered rows.';
+  const { mean, stdDev } = fit.target;
+  return `Sets the scale so ${fit.username}'s lowest and highest scores in the filtered rows land on 0 and 100 (mean ${roundFitValue(mean)}, standard deviation ${roundFitValue(stdDev)}).\n\nUses only the first user so everyone stays on one shared scale: a per-user fit would give each column its own scale and the columns would no longer be comparable. Other users can land a little outside 0–100.`;
+}
 
 type SettingsTab = 'settings' | 'database';
 
@@ -104,6 +115,7 @@ export function ToolsSettingsMenu({
     setScoreComparisonTargetMean,
     setScoreComparisonTargetStdDev,
   } = useToolsPreferences();
+  const scoreComparisonFit = useScoreComparisonFit();
 
   function selectTab(next: SettingsTab): void {
     setTab(next);
@@ -327,12 +339,27 @@ export function ToolsSettingsMenu({
                     />
                     <SettingsNumberInput
                       label="Std Dev"
-                      className="tools-settings-number--narrow"
+                      className="tools-settings-number"
                       value={toolsPrefs.scoreComparisonTargetStdDev}
                       disabled={!toolsPrefs.scoreComparisonRescale}
                       isValid={(n) => Number.isFinite(n) && n > 0}
                       onCommit={setScoreComparisonTargetStdDev}
                     />
+                    <button
+                      type="button"
+                      className="tools-settings-fit-button"
+                      disabled={!scoreComparisonFit}
+                      title={fitButtonTitle(scoreComparisonFit)}
+                      onClick={() => {
+                        if (!scoreComparisonFit) return;
+                        const { mean, stdDev } = scoreComparisonFit.target;
+                        setScoreComparisonRescale(true);
+                        setScoreComparisonTargetMean(roundFitValue(mean));
+                        setScoreComparisonTargetStdDev(roundFitValue(stdDev));
+                      }}
+                    >
+                      Fit to 0–100
+                    </button>
                   </div>
                 </div>
               </div>

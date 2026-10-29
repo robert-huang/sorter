@@ -21,6 +21,7 @@ import { ToolShowButton } from '../toolEntityLinks';
 import { ToolUserChipsField } from '../ToolUserChipsField';
 import type { ToolPanelProps } from '../toolTypes';
 import { useToolsDisplayLabelRevision } from '../useToolsDisplayLabelRevision';
+import { publishScoreComparisonFit } from '../scoreComparisonFitStore';
 import { loadComparisonList, type LoadedComparisonList } from './scoreComparisonApi';
 import {
   COMPARISON_STAT_OPTIONS,
@@ -41,6 +42,7 @@ import {
   userKey,
   userSortColumn,
   userWholeListStats,
+  fitRescaleTarget,
   visibleComparisonRows,
   type ComparisonCell,
   type ComparisonFilters,
@@ -73,8 +75,23 @@ const STAT_OPTION_LABELS: Record<ComparisonStatOption, string> = {
   mean: 'Mean',
   stddev: 'Standard Deviation',
   normalizedMean: 'Normalized Mean',
-  normalizedStddev: 'Normalized Standard Deviation',
+  normalizedStddev: 'Disagreement',
 };
+
+const STAT_OPTION_TOOLTIPS: Record<ComparisonStatOption, string> = {
+  mean: 'The average of the raters\' scores.',
+  normalizedMean:
+    'The average of each rater\'s score relative to their own scoring habits (normalized to mean 0, standard deviation 1, customizable in the settings menu).',
+  stddev:
+    'How far apart the raters\' scores are (standard deviation of the scores, in score points). Blank with fewer than 2 raters.',
+  normalizedStddev:
+    'How far apart the raters are once each person\'s scoring habits are factored out: each score becomes "how far above or below my own average, in my own standard deviations", then this is the spread of those values. Blank with fewer than 2 raters.\n\nRough guide (unscaled):\n0–0.3: they feel about the same\n~0.5: a noticeable split\n1+: a strong split, one loved it and another didn\'t',
+};
+
+function statOptionTooltip(option: ComparisonStatOption, suffix?: string): string {
+  const tooltip = STAT_OPTION_TOOLTIPS[option];
+  return suffix ? `${tooltip}\n\n${suffix}` : tooltip;
+}
 
 function loadKey(username: string, mediaType: ComparisonMediaType): string {
   return `${mediaType}:${userKey(username)}`;
@@ -230,7 +247,7 @@ function StatColumnHeader({
         <button
           type="button"
           className="tool-chart-sort-th tool-score-compare-sort-btn"
-          title={menuTitle}
+          title={statOptionTooltip(stat, menuTitle)}
           onClick={onSort}
         >
           {STAT_OPTION_LABELS[stat]}
@@ -255,7 +272,7 @@ function StatColumnHeader({
             role="menu"
           >
             {COMPARISON_STAT_OPTIONS.map((option) => (
-              <label key={option} className="filter-chip-option">
+              <label key={option} className="filter-chip-option" title={statOptionTooltip(option)}>
                 <input
                   type="radio"
                   name="score-compare-stat"
@@ -529,6 +546,14 @@ export function ScoreComparisonPanel({ onOpenMedia }: ToolPanelProps) {
     () => buildComparisonRows(users, mediaById, filters, allowedMediaIds),
     [users, mediaById, filters, allowedMediaIds],
   );
+
+  const firstUsername = users[0]?.username;
+  const firstUserStats = userStats[0] ?? null;
+  useEffect(() => {
+    const target = firstUsername ? fitRescaleTarget(rows, 0, firstUserStats) : null;
+    publishScoreComparisonFit(firstUsername && target ? { username: firstUsername, target } : null);
+  }, [rows, firstUsername, firstUserStats]);
+  useEffect(() => () => publishScoreComparisonFit(null), []);
   const ctx: SortContext = useMemo(
     () => ({ usernames, userStats, normalization, stat }),
     [usernames, userStats, normalization, stat],

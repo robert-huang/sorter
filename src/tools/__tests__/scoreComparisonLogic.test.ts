@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildComparisonRows,
   DEFAULT_SCORE_FILTER,
+  fitRescaleTarget,
   RAW_NORMALIZATION,
   nextComparisonSort,
   normalizeScoreComparisonSettings,
@@ -63,6 +64,40 @@ describe('userWholeListStats / zScore', () => {
   });
 });
 
+describe('fitRescaleTarget', () => {
+  const stats = userWholeListStats([entry(20), entry(40), entry(70), entry(90), entry(95)])!;
+  const fitRow = (id: number, score: number, patch: { passes?: boolean; excluded?: boolean } = {}) => ({
+    media: { id, title: `T${id}`, coverImage: null },
+    cells: [cell(score, patch.excluded ?? false)],
+    passes: patch.passes ?? true,
+  });
+  const rescale = (target: { mean: number; stdDev: number }, score: number) =>
+    target.mean + zScore(score, stats)! * target.stdDev;
+
+  it('maps the lowest and highest passing scores onto 0 and 100', () => {
+    const target = fitRescaleTarget([fitRow(1, 40), fitRow(2, 70), fitRow(3, 95), fitRow(4, 0)], 0, stats)!;
+    expect(rescale(target, 40)).toBeCloseTo(0);
+    expect(rescale(target, 95)).toBeCloseTo(100);
+  });
+
+  it('ignores filtered-out rows and excluded cells', () => {
+    const rows = [
+      fitRow(1, 20, { passes: false }),
+      fitRow(2, 90, { excluded: true }),
+      fitRow(3, 40),
+      fitRow(4, 70),
+    ];
+    const target = fitRescaleTarget(rows, 0, stats)!;
+    expect(rescale(target, 40)).toBeCloseTo(0);
+    expect(rescale(target, 70)).toBeCloseTo(100);
+  });
+
+  it('is null without at least two different passing scores', () => {
+    expect(fitRescaleTarget([fitRow(1, 0)], 0, stats)).toBeNull();
+    expect(fitRescaleTarget([fitRow(1, 80), fitRow(2, 80)], 0, stats)).toBeNull();
+  });
+});
+
 describe('rowStat', () => {
   it('divides by the rated count and skips unrated and excluded cells', () => {
     const row = { media: { id: 1, title: 'A', coverImage: null }, cells: [cell(60), cell(0), cell(80), cell(10, true)], passes: true };
@@ -80,6 +115,37 @@ describe('rowStat', () => {
   it('is null when nobody rated it', () => {
     const row = { media: { id: 1, title: 'A', coverImage: null }, cells: [cell(0), cell(null)], passes: true };
     expect(rowStat(row, 'mean', [], RAW_NORMALIZATION)).toBeNull();
+  });
+
+  it('leaves std dev blank with a single rater, raw or normalized, but keeps the mean', () => {
+    const stats = { mean: 70, stdDev: 10, ratedCount: 2 };
+    const row = {
+      media: { id: 1, title: 'A', coverImage: null },
+      cells: [cell(80), cell(0), cell(90, true)],
+      passes: true,
+    };
+    expect(rowStat(row, 'stddev', [stats, stats, stats], RAW_NORMALIZATION)).toBeNull();
+    expect(rowStat(row, 'stddev', [stats, stats, stats], { kind: 'z' })).toBeNull();
+    expect(rowStat(row, 'mean', [stats, stats, stats], RAW_NORMALIZATION)).toBe(80);
+  });
+
+  it('sorts single-rater std dev rows last in both directions', () => {
+    const media = (id: number, title: string) => ({ id, title, coverImage: null });
+    const rows = [
+      { media: media(1, 'Solo'), cells: [cell(80), cell(0)], passes: true },
+      { media: media(2, 'Close'), cells: [cell(70), cell(72)], passes: true },
+      { media: media(3, 'Far'), cells: [cell(40), cell(90)], passes: true },
+    ];
+    const ctx = {
+      usernames: ['a', 'b'],
+      userStats: [],
+      normalization: RAW_NORMALIZATION,
+      stat: 'stddev' as const,
+    };
+    const titles = (direction: 'asc' | 'desc') =>
+      sortComparisonRows(rows, { column: 'stat', direction }, ctx).map((r) => r.media.title);
+    expect(titles('desc')).toEqual(['Far', 'Close', 'Solo']);
+    expect(titles('asc')).toEqual(['Close', 'Far', 'Solo']);
   });
 });
 
