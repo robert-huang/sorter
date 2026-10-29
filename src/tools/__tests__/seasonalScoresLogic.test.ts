@@ -5,6 +5,7 @@ import {
   buildMultiUserSeasonalColumns,
   mergeSeasonalUserLists,
   seasonalScoreTooltip,
+  seasonalRepeatTooltip,
   applySeasonalFormatFilters,
   applySeasonalGenreFilters,
   discoverSeasonalGenres,
@@ -155,6 +156,19 @@ describe('multi-user seasonal scores', () => {
     ]);
     expect(seasonalScoreTooltip(merged[0]!.entries)).toBe(
       '1 completed, 1 rated, 1 watching, 1 planning\nalice: 85\nbob: watching\ncara: planning',
+    );
+  });
+
+  it('lists each user in the repeat-badge hover with watch count and non-active status', () => {
+    const merged = mergeSeasonalUserLists([
+      { username: 'robert', shows: [show(1, { score: 80, repeat: 1, listStatus: 'COMPLETED' })] },
+      { username: 'alexp', shows: [show(1, { score: 70, listStatus: 'COMPLETED' })] },
+      { username: 'mannerpots', shows: [show(1, { listStatus: 'PLANNING' })] },
+      { username: 'zig1000', shows: [show(1, { listStatus: 'REPEATING' })] },
+      { username: 'dan', shows: [show(1, { listStatus: 'PAUSED', repeat: 2 })] },
+    ]);
+    expect(seasonalRepeatTooltip(merged[0]!.entries)).toBe(
+      'robert ×2, alexp, mannerpots (P), zig1000, dan ×3 (H)',
     );
   });
 

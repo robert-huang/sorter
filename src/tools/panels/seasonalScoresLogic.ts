@@ -1108,6 +1108,31 @@ export function seasonalScoreTooltip(
   return [parts.join(', '), ...userLines].join('\n');
 }
 
+/** Status letters for the repeat hover; watching, rewatching and completed stay unmarked. */
+const REPEAT_TOOLTIP_STATUS_LETTERS: Record<string, string> = {
+  PLANNING: 'P',
+  PAUSED: 'H',
+  DROPPED: 'D',
+};
+
+/** Hover text for a merged ×N badge, one item per user, e.g. "robert ×2, alexp, mannerpots (P)". */
+export function seasonalRepeatTooltip(
+  entries: readonly SeasonalUserEntry[] | undefined,
+): string | undefined {
+  if (!entries || entries.length === 0) {
+    return undefined;
+  }
+  return entries
+    .map((entry) => {
+      const watches = seasonalShowWatchCount(entry);
+      const status = entry.listStatus ? REPEAT_TOOLTIP_STATUS_LETTERS[entry.listStatus] : undefined;
+      return [entry.username, watches > 1 ? `×${watches}` : null, status ? `(${status})` : null]
+        .filter(Boolean)
+        .join(' ');
+    })
+    .join(', ');
+}
+
 export function averageScore(
   shows: SeasonalShow[],
   includeRepeats = false,

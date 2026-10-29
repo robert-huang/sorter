@@ -16,6 +16,7 @@ import {
   buildMultiUserSeasonalColumns,
   mergeFilteredSeasonalUserLists,
   mergeSeasonalUserLists,
+  seasonalRepeatTooltip,
   seasonalScoreTooltip,
   type SeasonalUserShows,
   countSeasonalShowsBySourceBucket,
@@ -447,7 +448,10 @@ export function SeasonalColumnsView({
                         className={seasonTitleClassName(show)}
                         labelSuffix={
                           showRepeats && formatRepeatSuffix(show.repeat) ? (
-                            <span className="tool-stats-repeat">
+                            <span
+                              className="tool-stats-repeat"
+                              title={seasonalRepeatTooltip(show.entries)}
+                            >
                               {formatRepeatSuffix(show.repeat)}
                             </span>
                           ) : undefined
