@@ -51,6 +51,7 @@ const fixedToolFormKeys = [
   'anime-tools-weekly-calendar-form',
   'anime-tools-update-list-entry-form',
   'anime-tools-reorder-favourites-form',
+  'anime-tools-user-history',
 ] as const;
 
 const fixedSettingKeys = [

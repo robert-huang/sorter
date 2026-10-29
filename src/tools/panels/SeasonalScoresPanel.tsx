@@ -1,19 +1,22 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
-import { ToolUsernameField } from '../ToolUsernameField';
+import { ToolUserChipsField } from '../ToolUserChipsField';
 import { ToolSegmentedFilter } from '../ToolSegmentedFilter';
 import { useUsernameListRefresh } from '../useUsernameListRefresh';
 import { useToolsDisplayLabelRevision } from '../useToolsDisplayLabelRevision';
 import { relabelSeasonalShows } from '../toolsDisplayRelabel';
 import { fetchUserSeasonalShows, bustSeasonalSessionMemo } from './seasonalScoresApi';
 import {
-  buildSeasonalColumns,
+  buildMultiUserSeasonalColumns,
+  mergeFilteredSeasonalUserLists,
+  mergeSeasonalUserLists,
+  seasonalScoreTooltip,
+  type SeasonalUserShows,
   countSeasonalShowsBySourceBucket,
   DEFAULT_SEASONAL_SOURCE_FILTERS,
   applySeasonalFormatFilters,
   applySeasonalGenreFilters,
-  applySeasonalListStatusFilters,
   applySeasonalSeasonYearFilters,
   countSeasonalShowsBy,
   discoverSeasonalGenres,
@@ -45,7 +48,6 @@ import {
   type SeasonalScoresResult,
   type SeasonalSourceFilters,
   type SeasonColumn,
-  type SeasonalShow,
   SEASONAL_SOURCE_FILTER_KEYS,
 } from './seasonalScoresLogic';
 import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
@@ -76,7 +78,7 @@ const DEFAULT_NOTES_FILTER = '#airing';
 const ANIME_FORMAT_OPTIONS: readonly string[] = formatOptionsForType('ANIME');
 
 const DEFAULT_FORM: SeasonalScoresForm = {
-  username: '',
+  usernames: [],
   seasonText: '',
   // Default new users to `allseasons` so first-run produces a useful chart
   // without forcing them to learn the textarea grammar.
@@ -84,20 +86,57 @@ const DEFAULT_FORM: SeasonalScoresForm = {
   skipEmpty: false,
   airingNotesOnly: false,
   notesFilter: DEFAULT_NOTES_FILTER,
-  includePlanning: false,
   spanAiringSeasons: false,
 };
 
 type PersistedSeasonalForm = Pick<
   SeasonalScoresForm,
-  | 'username'
-  | 'seasonText'
-  | 'seasonMode'
-  | 'skipEmpty'
-  | 'airingNotesOnly'
-  | 'notesFilter'
-  | 'includePlanning'
->;
+  'usernames' | 'seasonText' | 'seasonMode' | 'skipEmpty' | 'airingNotesOnly' | 'notesFilter'
+> & {
+  /** @deprecated single-user saves; migrated into `usernames`. */
+  username?: string;
+  /** @deprecated now the PLANNING list status; migrated in {@link loadPrimaryFilters}. */
+  includePlanning?: boolean;
+};
+
+function normalizeUsernames(parsed: Partial<PersistedSeasonalForm>): string[] {
+  const names = Array.isArray(parsed.usernames)
+    ? parsed.usernames.filter((name): name is string => typeof name === 'string')
+    : [];
+  if (names.length > 0) {
+    return dedupeUsernames(names);
+  }
+  const single = withLastAnilistUsername(parsed.username ?? '').trim();
+  return single ? [single] : [];
+}
+
+function dedupeUsernames(names: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const name of names) {
+    const handle = name.trim();
+    const key = handle.toLowerCase();
+    if (handle && !seen.has(key)) {
+      seen.add(key);
+      out.push(handle);
+    }
+  }
+  return out;
+}
+
+/** Legacy `includePlanning: true` in the saved form, before it became a list status. */
+function readLegacyIncludePlanning(): boolean {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    return raw ? (JSON.parse(raw) as Partial<PersistedSeasonalForm>).includePlanning === true : false;
+  } catch {
+    return false;
+  }
+}
+
+function usersKey(usernames: readonly string[]): string {
+  return usernames.map((name) => name.trim().toLowerCase()).join('\n');
+}
 
 function normalizeSeasonMode(value: unknown): SeasonMode {
   if (value === 'alltime' || value === 'all' || value === 'allseasons' || value === 'custom') {
@@ -157,12 +196,17 @@ function parsePrimaryFilters(parsed: PersistedPrimaryFilters): PrimaryFilters {
 }
 
 function loadPrimaryFilters(): PrimaryFilters {
+  let filters: PrimaryFilters;
   try {
     const raw = localStorage.getItem(LS_PRIMARY_FILTERS_KEY);
-    return parsePrimaryFilters(raw ? (JSON.parse(raw) as PersistedPrimaryFilters) : {});
+    filters = parsePrimaryFilters(raw ? (JSON.parse(raw) as PersistedPrimaryFilters) : {});
   } catch {
-    return parsePrimaryFilters({});
+    filters = parsePrimaryFilters({});
   }
+  if (readLegacyIncludePlanning() && !filters.listStatusFilters.includes('PLANNING')) {
+    filters.listStatusFilters = [...filters.listStatusFilters, 'PLANNING'];
+  }
+  return filters;
 }
 
 function savePrimaryFilters(filters: PrimaryFilters): void {
@@ -191,7 +235,7 @@ function loadForm(): SeasonalScoresForm {
       const seasonText = parsed.seasonText ?? '';
       return {
         ...DEFAULT_FORM,
-        username: withLastAnilistUsername(parsed.username ?? ''),
+        usernames: normalizeUsernames(parsed),
         seasonText,
         // Pre-toggle saves don't carry a mode — preserve the user's previous
         // textarea content by inferring `custom` when text exists, otherwise
@@ -208,31 +252,29 @@ function loadForm(): SeasonalScoresForm {
           typeof parsed.notesFilter === 'string'
             ? parsed.notesFilter
             : DEFAULT_NOTES_FILTER,
-        includePlanning: parsed.includePlanning ?? false,
       };
     }
     const legacySeasonText = localStorage.getItem(LS_SEASON_TEXT_KEY) ?? '';
     return {
       ...DEFAULT_FORM,
-      username: withLastAnilistUsername(''),
+      usernames: normalizeUsernames({}),
       seasonText: legacySeasonText,
       seasonMode: legacySeasonText.trim().length > 0 ? 'custom' : DEFAULT_FORM.seasonMode,
     };
   } catch {
-    return { ...DEFAULT_FORM, username: withLastAnilistUsername('') };
+    return { ...DEFAULT_FORM, usernames: normalizeUsernames({}) };
   }
 }
 
 function saveForm(form: SeasonalScoresForm): void {
   try {
     const persisted: PersistedSeasonalForm = {
-      username: form.username,
+      usernames: form.usernames,
       seasonText: form.seasonText,
       seasonMode: form.seasonMode,
       skipEmpty: form.skipEmpty,
       airingNotesOnly: form.airingNotesOnly,
       notesFilter: form.notesFilter,
-      includePlanning: form.includePlanning,
     };
     localStorage.setItem(LS_KEY, JSON.stringify(persisted));
   } catch {
@@ -373,6 +415,7 @@ export function SeasonalColumnsView({
                       ]
                         .filter(Boolean)
                         .join(' ')}
+                      title={seasonalScoreTooltip(show.entries)}
                     >
                       {formatSeasonalScoreLabel(show.score, show.listStatus)}
                     </span>
@@ -435,18 +478,18 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
   const [formatFilters, setFormatFilters] = useState<SeasonalFormatFilters>(
     initialPrimaryFilters.formatFilters,
   );
-  const [cachedShows, setCachedShows] = useState<SeasonalShow[] | null>(null);
+  const [cachedLists, setCachedLists] = useState<SeasonalUserShows[] | null>(null);
   const [running, setRunning] = useState(false);
+  const [refreshingUser, setRefreshingUser] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   /** Bumped only on a successful list fetch so the chart remounts and snaps right once. */
   const chartSessionRef = useRef(0);
-  // Username at fetch time so a different user typed in can clear the
-  // cached shows. The PLANNING dimension used to live here too; it now
-  // doesn't — every fetch includes PLANNING and the checkbox filters
-  // client-side via `bucketShowsForSeason`.
-  const fetchedUsernameRef = useRef<string | null>(null);
-  const primaryFiltersUsernameRef = useRef<string | null>(null);
+  // Users at fetch time so changing the user list clears the cached lists.
+  // Every fetch includes PLANNING; the PLANNING list status filters client-side.
+  const fetchedUsersRef = useRef<string | null>(null);
+  const primaryFiltersUsersRef = useRef<string | null>(null);
+  const formUsersKey = usersKey(form.usernames);
 
   useEffect(() => {
     saveForm(form);
@@ -456,9 +499,18 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
     saveSourceFilters(sourceFilters);
   }, [sourceFilters]);
 
+  const relabeledLists = useMemo(
+    () =>
+      cachedLists == null
+        ? null
+        : cachedLists.map((list) => ({ ...list, shows: relabelSeasonalShows(list.shows) })),
+    [cachedLists, displayLabelRevision],
+  );
+
+  /** Every show on any user's list, before filters (chip options and totals). */
   const relabeledCachedShows = useMemo(
-    () => (cachedShows == null ? null : relabelSeasonalShows(cachedShows)),
-    [cachedShows, displayLabelRevision],
+    () => (relabeledLists == null ? null : mergeSeasonalUserLists(relabeledLists)),
+    [relabeledLists],
   );
 
   const yearOptions = useMemo(
@@ -488,11 +540,10 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
 
   useEffect(() => {
     if (relabeledCachedShows == null) {
-      primaryFiltersUsernameRef.current = null;
+      primaryFiltersUsersRef.current = null;
       return;
     }
-    const handle = form.username.trim().toLowerCase();
-    if (primaryFiltersUsernameRef.current === handle) {
+    if (primaryFiltersUsersRef.current === formUsersKey) {
       return;
     }
     const persisted = loadPrimaryFilters();
@@ -501,8 +552,8 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
     setListStatusFilters(persisted.listStatusFilters);
     setGenreFilters(persisted.genreFilters);
     setFormatFilters(persisted.formatFilters);
-    primaryFiltersUsernameRef.current = handle;
-  }, [relabeledCachedShows, form.username]);
+    primaryFiltersUsersRef.current = formUsersKey;
+  }, [relabeledCachedShows, formUsersKey]);
 
   useEffect(() => {
     savePrimaryFilters({
@@ -515,9 +566,9 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
   }, [seasonYearFilter, listStatusFilters, yearFilters, genreFilters, formatFilters]);
 
   const buildColumns = useCallback(
-    (shows: SeasonalShow[]) =>
-      buildSeasonalColumns(
-        relabelSeasonalShows(shows),
+    (lists: SeasonalUserShows[]) =>
+      buildMultiUserSeasonalColumns(
+        lists,
         effectiveSeasonalForm({
           ...form,
           spanAiringSeasons:
@@ -534,7 +585,6 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
         },
       ),
     [
-      displayLabelRevision,
       form,
       sourceFilters,
       yearFilters,
@@ -548,15 +598,14 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
   );
 
   const result = useMemo((): SeasonalScoresResult | null => {
-    if (!cachedShows) {
+    if (!relabeledLists) {
       return null;
     }
-    const handle = form.username.trim().toLowerCase();
-    if (fetchedUsernameRef.current !== null && handle !== fetchedUsernameRef.current) {
+    if (fetchedUsersRef.current !== null && formUsersKey !== fetchedUsersRef.current) {
       return null;
     }
-    return buildColumns(cachedShows);
-  }, [cachedShows, buildColumns, form.username]);
+    return buildColumns(relabeledLists);
+  }, [relabeledLists, buildColumns, formUsersKey]);
 
   const patchForm = useCallback((patch: Partial<SeasonalScoresForm>) => {
     setError(null);
@@ -570,10 +619,10 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
   }, []);
 
   const onRun = useCallback(async (forceRefresh = false) => {
-    const username = form.username.trim();
-    if (!username) {
-      setError('Enter an AniList username.');
-      setCachedShows(null);
+    const usernames = form.usernames;
+    if (usernames.length === 0) {
+      setError('Enter at least one user.');
+      setCachedLists(null);
       return;
     }
 
@@ -581,20 +630,33 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
     const controller = new AbortController();
     abortRef.current = controller;
 
-    const handle = username.toLowerCase();
+    const fetchedKey = usersKey(usernames);
 
     setRunning(true);
     setError(null);
-    setCachedShows(null);
+    setCachedLists(null);
 
     try {
-      const shows = await fetchUserSeasonalShows(
-        username,
-        controller.signal,
-        forceRefresh ? { forceRefresh: true } : undefined,
+      const lists = await Promise.all(
+        usernames.map(async (username): Promise<SeasonalUserShows> => {
+          try {
+            const shows = await fetchUserSeasonalShows(
+              username,
+              controller.signal,
+              forceRefresh ? { forceRefresh: true } : undefined,
+            );
+            return { username, shows };
+          } catch (e) {
+            if (e instanceof DOMException && e.name === 'AbortError') {
+              throw e;
+            }
+            const reason = e instanceof Error ? e.message : 'Failed to load list.';
+            throw new Error(`${username}: ${reason}`);
+          }
+        }),
       );
-      setCachedShows(shows);
-      fetchedUsernameRef.current = handle;
+      setCachedLists(lists);
+      fetchedUsersRef.current = fetchedKey;
       chartSessionRef.current += 1;
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') {
@@ -607,19 +669,55 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
         setRunning(false);
       }
     }
-  }, [form.username]);
+  }, [form.usernames]);
 
   useEffect(() => {
-    const handle = form.username.trim().toLowerCase();
     if (
-      cachedShows != null &&
-      fetchedUsernameRef.current !== null &&
-      handle !== fetchedUsernameRef.current
+      cachedLists != null &&
+      fetchedUsersRef.current !== null &&
+      formUsersKey !== fetchedUsersRef.current
     ) {
-      setCachedShows(null);
-      fetchedUsernameRef.current = null;
+      setCachedLists(null);
+      fetchedUsersRef.current = null;
     }
-  }, [form.username, cachedShows]);
+  }, [formUsersKey, cachedLists]);
+
+  const addUser = useCallback(
+    (username: string) => {
+      setError(null);
+      setForm((prev) => ({ ...prev, usernames: dedupeUsernames([...prev.usernames, username]) }));
+    },
+    [],
+  );
+
+  const removeUser = useCallback((username: string) => {
+    setError(null);
+    const key = username.trim().toLowerCase();
+    setForm((prev) => ({
+      ...prev,
+      usernames: prev.usernames.filter((name) => name.trim().toLowerCase() !== key),
+    }));
+  }, []);
+
+  const refreshUser = useCallback(
+    (username: string) => {
+      setRefreshingUser(username);
+      refreshUsernameList(username, running);
+    },
+    [refreshUsernameList, running],
+  );
+
+  useEffect(() => {
+    if (!refreshingList) {
+      setRefreshingUser(null);
+    }
+  }, [refreshingList]);
+
+  const isUserLoading = useCallback(
+    (username: string) =>
+      running || (refreshingList && refreshingUser?.toLowerCase() === username.toLowerCase()),
+    [running, refreshingList, refreshingUser],
+  );
 
   const visibleYearCount =
     relabeledCachedShows == null
@@ -628,14 +726,16 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
 
   // Shows left after each chip, applied in buildSeasonalColumns order.
   const visibleCounts = useMemo(() => {
-    if (relabeledCachedShows == null) {
+    if (relabeledLists == null) {
       return null;
     }
     let shows = applySeasonalSeasonYearFilters(
-      applySeasonalYearFilters(relabeledCachedShows, yearFilters),
+      applySeasonalYearFilters(
+        mergeFilteredSeasonalUserLists(relabeledLists, form, { listStatusFilters }),
+        yearFilters,
+      ),
       seasonYearFilter,
     );
-    shows = applySeasonalListStatusFilters(shows, listStatusFilters);
     const listStatus = shows.length;
     shows = applySeasonalGenreFilters(shows, genreFilters);
     const genre = shows.length;
@@ -644,7 +744,8 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
     const source = applySeasonalSourceFilters(shows, sourceFilters).length;
     return { listStatus, genre, format, source };
   }, [
-    relabeledCachedShows,
+    relabeledLists,
+    form,
     yearFilters,
     seasonYearFilter,
     listStatusFilters,
@@ -697,21 +798,24 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
     return countSeasonalShowsBySourceBucket(relabeledCachedShows);
   }, [relabeledCachedShows]);
 
+  /** Counts list entries (one per user per show), not merged shows. */
   const listStatusFilterCounts = useMemo(() => {
-    if (!relabeledCachedShows) {
+    if (!relabeledLists) {
       return null;
     }
     const counts = new Map<SeasonalListStatus, number>();
-    for (const show of relabeledCachedShows) {
-      const status = show.listStatus;
-      if (status == null || !SEASONAL_LIST_STATUS_OPTIONS.includes(status as SeasonalListStatus)) {
-        continue;
+    for (const list of relabeledLists) {
+      for (const show of list.shows) {
+        const status = show.listStatus;
+        if (status == null || !SEASONAL_LIST_STATUS_OPTIONS.includes(status as SeasonalListStatus)) {
+          continue;
+        }
+        const key = status as SeasonalListStatus;
+        counts.set(key, (counts.get(key) ?? 0) + 1);
       }
-      const key = status as SeasonalListStatus;
-      counts.set(key, (counts.get(key) ?? 0) + 1);
     }
     return counts;
-  }, [relabeledCachedShows]);
+  }, [relabeledLists]);
 
   const formatListStatusFilterOption = useCallback(
     (status: SeasonalListStatus) => {
@@ -770,15 +874,15 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
           }
         }}
       >
+        <ToolUserChipsField
+          inputName="seasonal-scores-username"
+          usernames={form.usernames}
+          isLoading={isUserLoading}
+          onAdd={addUser}
+          onRemove={removeUser}
+          onRefresh={refreshUser}
+        />
         <div className="tool-adaptation-primary-filters tool-seasonal-primary-filters">
-          <ToolUsernameField
-            label="User"
-            value={form.username}
-            disabled={running}
-            refreshing={refreshingList}
-            onChange={(username) => patchForm({ username })}
-            onRefresh={() => refreshUsernameList(form.username, running)}
-          />
           <MultiSelectChip
             label="year"
             options={yearOptions}
@@ -913,9 +1017,11 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
           <label className="tool-checkbox">
             <input
               type="checkbox"
-              checked={form.includePlanning}
+              checked={listStatusFilters.includes('PLANNING')}
               disabled={running}
-              onChange={(e) => patchForm({ includePlanning: e.target.checked })}
+              onChange={() =>
+                setListStatusFilters((prev) => toggleInArray(prev, 'PLANNING'))
+              }
             />
             Include Planning
           </label>

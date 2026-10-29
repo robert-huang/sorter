@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { AnilistMediaSource } from '../../lib/importers/anilist/types';
 import {
+  SEASONAL_LIST_STATUS_OPTIONS,
+  buildMultiUserSeasonalColumns,
+  mergeSeasonalUserLists,
+  seasonalScoreTooltip,
   applySeasonalFormatFilters,
   applySeasonalGenreFilters,
   discoverSeasonalGenres,
@@ -59,6 +63,112 @@ const sampleShows: SeasonalShow[] = [
   },
 ];
 
+describe('multi-user seasonal scores', () => {
+  const form: SeasonalScoresForm = {
+    usernames: ['alice', 'bob'],
+    seasonText: 'Winter 2024',
+    seasonMode: 'custom',
+    skipEmpty: false,
+    airingNotesOnly: false,
+    notesFilter: '#airing',
+    spanAiringSeasons: false,
+  };
+  const show = (id: number, extra: Partial<SeasonalShow>): SeasonalShow => ({
+    id,
+    title: `Show ${id}`,
+    season: 'WINTER',
+    seasonYear: 2024,
+    score: null,
+    notes: null,
+    listStatus: 'COMPLETED',
+    ...extra,
+  });
+
+  it('averages each show over the users who rated it, then averages the shows', () => {
+    const result = buildMultiUserSeasonalColumns(
+      [
+        { username: 'alice', shows: [show(1, { score: 80 }), show(2, { score: 60 })] },
+        {
+          username: 'bob',
+          shows: [show(1, { score: 90 }), show(2, { listStatus: 'CURRENT' }), show(3, { score: 70 })],
+        },
+      ],
+      form,
+    );
+    expect(result.kind).toBe('columns');
+    if (result.kind !== 'columns') return;
+    const byId = new Map(result.columns[0]!.shows.map((s) => [s.id, s]));
+    expect([...byId.keys()].sort()).toEqual([1, 2, 3]);
+    expect(byId.get(1)!.score).toBe(85);
+    expect(byId.get(2)!.score).toBe(60);
+    expect(result.columns[0]!.average).toBe(71.667);
+  });
+
+  it('shows a status letter only when nobody rated the show', () => {
+    const merged = mergeSeasonalUserLists([
+      { username: 'alice', shows: [show(1, { listStatus: 'PLANNING' })] },
+      { username: 'bob', shows: [show(1, { listStatus: 'CURRENT' })] },
+    ]);
+    expect(merged[0]!.score).toBeNull();
+    expect(merged[0]!.listStatus).toBe('CURRENT');
+  });
+
+  it('weights each rater by watch count when repeats are on', () => {
+    const merged = mergeSeasonalUserLists(
+      [
+        { username: 'alice', shows: [show(1, { score: 90, repeat: 2 })] },
+        { username: 'bob', shows: [show(1, { score: 60 })] },
+      ],
+      true,
+    );
+    expect(merged[0]!.score).toBe(82.5);
+    expect(merged[0]!.repeat).toBe(3);
+  });
+
+  it('applies list status filters to each user entry before merging', () => {
+    const result = buildMultiUserSeasonalColumns(
+      [
+        { username: 'alice', shows: [show(1, { score: 80 })] },
+        { username: 'bob', shows: [show(1, { listStatus: 'PLANNING' }), show(2, { listStatus: 'PLANNING' })] },
+      ],
+      form,
+    );
+    if (result.kind !== 'columns') throw new Error(result.message);
+    expect(result.columns[0]!.shows.map((s) => s.id)).toEqual([1]);
+    expect(result.columns[0]!.shows[0]!.entries?.map((e) => e.username)).toEqual(['alice']);
+  });
+
+  it('includes planning entries once PLANNING is selected', () => {
+    const result = buildMultiUserSeasonalColumns(
+      [{ username: 'bob', shows: [show(2, { listStatus: 'PLANNING' })] }],
+      form,
+      { listStatusFilters: [...SEASONAL_LIST_STATUS_OPTIONS] },
+    );
+    expect(result.kind === 'columns' && result.columns[0]!.shows.map((s) => s.id)).toEqual([2]);
+  });
+
+  it('builds hover text with status counts and one line per user', () => {
+    const merged = mergeSeasonalUserLists([
+      { username: 'alice', shows: [show(1, { score: 85 })] },
+      { username: 'bob', shows: [show(1, { listStatus: 'CURRENT' })] },
+      { username: 'cara', shows: [show(1, { listStatus: 'PLANNING' })] },
+    ]);
+    expect(seasonalScoreTooltip(merged[0]!.entries)).toBe(
+      '1 completed, 1 rated, 1 watching, 1 planning\nalice: 85\nbob: watching\ncara: planning',
+    );
+  });
+
+  it('matches the single-list result for one user', () => {
+    const single = buildSeasonalColumns(sampleShows, form);
+    const multi = buildMultiUserSeasonalColumns([{ username: 'alice', shows: sampleShows }], form);
+    if (single.kind !== 'columns' || multi.kind !== 'columns') throw new Error('expected columns');
+    expect(multi.columns.map((c) => [c.label, c.average, c.ratedCount])).toEqual(
+      single.columns.map((c) => [c.label, c.average, c.ratedCount]),
+    );
+    expect(multi.columns[0]!.shows.map((s) => s.score)).toEqual([90, 80]);
+  });
+});
+
 describe('seasonal genre and format filters', () => {
   const shows: SeasonalShow[] = [
     { ...sampleShows[0]!, genres: ['Action', 'Drama'], format: 'TV' },
@@ -85,13 +195,12 @@ describe('seasonal genre and format filters', () => {
     const result = buildSeasonalColumns(
       shows,
       {
-        username: 'u',
+        usernames: ['u'],
         seasonText: 'Winter 2024',
         seasonMode: 'custom',
         skipEmpty: false,
         airingNotesOnly: false,
         notesFilter: '#airing',
-        includePlanning: false,
         spanAiringSeasons: false,
       },
       { genreFilters: ['Action', 'Comedy'], formatFilters: ['TV'] },
@@ -176,11 +285,10 @@ describe('seasonalScoresLogic', () => {
 
   it('buildSeasonalColumns buckets and averages per season', () => {
     const result = buildSeasonalColumns(sampleShows, {
-      username: 'user',
+      usernames: ['user'],
       seasonText: 'Winter 2024\nSpring 2024',
       skipEmpty: false,
       airingNotesOnly: false,
-      includePlanning: false,
       spanAiringSeasons: false,
       seasonMode: 'custom',
     });
@@ -208,11 +316,10 @@ describe('seasonalScoresLogic', () => {
       },
     ];
     const form: SeasonalScoresForm = {
-      username: 'user',
+      usernames: ['user'],
       seasonText: 'Winter 2024',
       skipEmpty: false,
       airingNotesOnly: false,
-      includePlanning: false,
       spanAiringSeasons: false,
       seasonMode: 'custom',
     };
@@ -241,11 +348,10 @@ describe('seasonalScoresLogic', () => {
     const result = buildSeasonalColumns(
       rangeShows,
       {
-        username: 'user',
+        usernames: ['user'],
         seasonText: 'allseasons',
         skipEmpty: false,
         airingNotesOnly: false,
-        includePlanning: false,
         spanAiringSeasons: false,
         seasonMode: 'allseasons',
       },
@@ -318,11 +424,10 @@ describe('seasonalScoresLogic', () => {
     ];
     expect(averageScore(shows)).toBe(80);
     const result = buildSeasonalColumns(shows, {
-      username: 'user',
+      usernames: ['user'],
       seasonText: 'Winter 2024',
       skipEmpty: false,
       airingNotesOnly: false,
-      includePlanning: false,
       spanAiringSeasons: false,
       seasonMode: 'custom',
     });
@@ -394,14 +499,13 @@ describe('seasonalScoresLogic', () => {
     ];
     expect(averageScore(shows)).toBe(80);
     const result = buildSeasonalColumns(shows, {
-      username: 'user',
+      usernames: ['user'],
       seasonText: 'Winter 2024',
       skipEmpty: false,
       airingNotesOnly: false,
-      includePlanning: true,
       spanAiringSeasons: false,
       seasonMode: 'custom',
-    });
+    }, { listStatusFilters: [...SEASONAL_LIST_STATUS_OPTIONS] });
     expect(result.kind).toBe('columns');
     if (result.kind === 'columns') {
       expect(result.columns[0]?.average).toBe(80);
@@ -433,11 +537,10 @@ describe('seasonalScoresLogic', () => {
       },
     ];
     const result = buildSeasonalColumns(shows, {
-      username: 'user',
+      usernames: ['user'],
       seasonText: 'Winter 2024',
       skipEmpty: false,
       airingNotesOnly: false,
-      includePlanning: false,
       spanAiringSeasons: false,
       seasonMode: 'custom',
     });
@@ -457,11 +560,10 @@ describe('seasonalScoresLogic', () => {
 
   it('buildSeasonalColumns merges the full list in alltime mode', () => {
     const result = buildSeasonalColumns(sampleShows, {
-      username: 'user',
+      usernames: ['user'],
       seasonText: 'alltime',
       skipEmpty: false,
       airingNotesOnly: false,
-      includePlanning: false,
       spanAiringSeasons: false,
       seasonMode: 'alltime',
     });
@@ -613,7 +715,7 @@ describe('seasonalScoresLogic', () => {
     expect(filtered.map((show) => show.title)).toEqual(['Winter 2024']);
   });
 
-  it('applySeasonalListStatusFilters keeps only selected list statuses but not planning', () => {
+  it('applySeasonalListStatusFilters keeps only selected list statuses, including planning', () => {
     const shows: SeasonalShow[] = [
       {
         id: 1,
@@ -644,7 +746,10 @@ describe('seasonalScoresLogic', () => {
       },
     ];
     const filtered = applySeasonalListStatusFilters(shows, ['COMPLETED']);
-    expect(filtered.map((show) => show.title)).toEqual(['Done', 'Plan']);
+    expect(filtered.map((show) => show.title)).toEqual(['Done']);
+    expect(
+      applySeasonalListStatusFilters(shows, ['COMPLETED', 'PLANNING']).map((show) => show.title),
+    ).toEqual(['Done', 'Plan']);
   });
 
   it('buildSeasonalColumns applies seasonYear and list-status filters over cached shows', () => {
@@ -678,12 +783,11 @@ describe('seasonalScoresLogic', () => {
       },
     ];
     const form: SeasonalScoresForm = {
-      username: 'tester',
+      usernames: ['tester'],
       seasonText: 'alltime',
       seasonMode: 'alltime',
       skipEmpty: false,
       airingNotesOnly: false,
-      includePlanning: false,
       spanAiringSeasons: false,
     };
     const filtered = buildSeasonalColumns(shows, effectiveSeasonalForm(form), {
@@ -721,12 +825,11 @@ describe('seasonalScoresLogic', () => {
       },
     ];
     const form: SeasonalScoresForm = {
-      username: 'tester',
+      usernames: ['tester'],
       seasonText: 'alltime',
       seasonMode: 'alltime',
       skipEmpty: false,
       airingNotesOnly: false,
-      includePlanning: false,
       spanAiringSeasons: false,
     };
     const filtered = buildSeasonalColumns(shows, effectiveSeasonalForm(form), {
@@ -782,11 +885,10 @@ describe('seasonalScoresLogic', () => {
 
   it('empty shows + `allseasons` returns the privacy/empty-list message', () => {
     const result = buildSeasonalColumns([], {
-      username: 'user',
+      usernames: ['user'],
       seasonText: 'allseasons',
       skipEmpty: false,
       airingNotesOnly: false,
-      includePlanning: false,
       spanAiringSeasons: false,
       seasonMode: 'allseasons',
     });
@@ -801,11 +903,10 @@ describe('seasonalScoresLogic', () => {
       { id: 1, title: 'Movie A', season: null, seasonYear: null, score: 85, notes: null },
     ];
     const result = buildSeasonalColumns(moviesOnly, {
-      username: 'user',
+      usernames: ['user'],
       seasonText: 'all',
       skipEmpty: false,
       airingNotesOnly: false,
-      includePlanning: false,
       spanAiringSeasons: false,
       seasonMode: 'all',
     });
@@ -817,11 +918,10 @@ describe('seasonalScoresLogic', () => {
 
   it('skipEmpty drops columns with no matching shows', () => {
     const result = buildSeasonalColumns(sampleShows, {
-      username: 'user',
+      usernames: ['user'],
       seasonText: 'Winter 2024\nFall 2099',
       skipEmpty: true,
       airingNotesOnly: false,
-      includePlanning: false,
       spanAiringSeasons: false,
       seasonMode: 'custom',
     });
@@ -837,11 +937,10 @@ describe('seasonalScoresLogic', () => {
       { id: 2, title: 'B', season: 'WINTER', seasonYear: 2024, score: null, notes: null },
     ];
     const result = buildSeasonalColumns(shows, {
-      username: 'user',
+      usernames: ['user'],
       seasonText: 'Winter 2024',
       skipEmpty: false,
       airingNotesOnly: false,
-      includePlanning: false,
       spanAiringSeasons: false,
       seasonMode: 'custom',
     });
@@ -859,14 +958,13 @@ describe('seasonalScoresLogic', () => {
       { id: 2, title: 'P2', season: 'WINTER', seasonYear: 2024, score: null, notes: null, listStatus: 'PLANNING' },
     ];
     const result = buildSeasonalColumns(shows, {
-      username: 'user',
+      usernames: ['user'],
       seasonText: 'Winter 2024',
       skipEmpty: false,
       airingNotesOnly: false,
-      includePlanning: true,
       spanAiringSeasons: false,
       seasonMode: 'custom',
-    });
+    }, { listStatusFilters: [...SEASONAL_LIST_STATUS_OPTIONS] });
     expect(result.kind).toBe('columns');
     if (result.kind === 'columns') {
       expect(result.columns[0]?.average).toBeNull();
@@ -882,12 +980,11 @@ describe('seasonalScoresLogic', () => {
       { id: 3, title: 'C', season: 'WINTER', seasonYear: 2024, score: 70, notes: '#watching weekly' },
     ];
     const result = buildSeasonalColumns(shows, {
-      username: 'user',
+      usernames: ['user'],
       seasonText: 'Winter 2024',
       skipEmpty: false,
       airingNotesOnly: true,
       notesFilter: '#watching',
-      includePlanning: false,
       spanAiringSeasons: false,
       seasonMode: 'custom',
     });
@@ -908,14 +1005,13 @@ describe('seasonalScoresLogic', () => {
       { id: 7, title: 'Paused unrated',   season: 'WINTER', seasonYear: 2024, score: null, notes: null, listStatus: 'PAUSED' },
     ];
     const result = buildSeasonalColumns(shows, {
-      username: 'user',
+      usernames: ['user'],
       seasonText: 'Winter 2024',
       skipEmpty: false,
       airingNotesOnly: false,
-      includePlanning: true,
       spanAiringSeasons: false,
       seasonMode: 'custom',
-    });
+    }, { listStatusFilters: [...SEASONAL_LIST_STATUS_OPTIONS] });
     expect(result.kind).toBe('columns');
     if (result.kind === 'columns') {
       expect(result.columns[0]?.shows.map((s) => s.title)).toEqual([
@@ -936,11 +1032,10 @@ describe('seasonalScoresLogic', () => {
       { id: 2, title: 'B', season: 'SPRING', seasonYear: 2024, score: 70, notes: null },
     ];
     const result = buildSeasonalColumns(shows, {
-      username: 'user',
+      usernames: ['user'],
       seasonText: 'Winter 2024\n2024',
       skipEmpty: false,
       airingNotesOnly: false,
-      includePlanning: false,
       spanAiringSeasons: false,
       seasonMode: 'custom',
     });
@@ -954,11 +1049,10 @@ describe('seasonalScoresLogic', () => {
 
   it('returns empty kind when season text is blank', () => {
     const result = buildSeasonalColumns(sampleShows, {
-      username: 'user',
+      usernames: ['user'],
       seasonText: '   \n  ',
       skipEmpty: false,
       airingNotesOnly: false,
-      includePlanning: false,
       spanAiringSeasons: false,
       seasonMode: 'custom',
     });
@@ -967,12 +1061,11 @@ describe('seasonalScoresLogic', () => {
 
   describe('effectiveSeasonalForm', () => {
     const baseForm: SeasonalScoresForm = {
-      username: 'user',
+      usernames: ['user'],
       seasonText: 'Winter 2024',
       seasonMode: 'custom',
       skipEmpty: false,
       airingNotesOnly: false,
-      includePlanning: false,
       spanAiringSeasons: false,
     };
 
@@ -1039,12 +1132,11 @@ describe('seasonalScoresLogic', () => {
 
   describe('spanAiringSeasons', () => {
     const spanForm = {
-      username: 'user',
+      usernames: ['user'],
       seasonText: 'Spring 2026\nSummer 2026',
       seasonMode: 'custom' as const,
       skipEmpty: false,
       airingNotesOnly: false,
-      includePlanning: false,
       spanAiringSeasons: true,
     };
 

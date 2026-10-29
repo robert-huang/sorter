@@ -68,9 +68,12 @@ describe('tool username persistence', () => {
       root.render(<SeasonalScoresPanel {...props} />);
     });
 
-    expect(usernameInput().value).toBe('SeasonalUser');
+    const chips = [...container.querySelectorAll('.tool-user-chip')];
+    expect(chips).toHaveLength(1);
+    expect(chips[0].textContent).toContain('SeasonalUser');
+    expect(container.textContent).not.toContain('GlobalUser');
     expect(
-      JSON.parse(localStorage.getItem('anime-tools-seasonal-scores-form') ?? '{}').username,
-    ).toBe('SeasonalUser');
+      JSON.parse(localStorage.getItem('anime-tools-seasonal-scores-form') ?? '{}').usernames,
+    ).toEqual(['SeasonalUser']);
   });
 });

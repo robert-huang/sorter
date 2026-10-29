@@ -10623,8 +10623,7 @@ a:where(.anime-to-anime-anilist-link):visited {
   margin-bottom: 0;
 }
 
-.tool-adaptation-primary-filters .tool-field-username,
-.tool-seasonal-primary-filters .tool-field-username {
+.tool-adaptation-primary-filters .tool-field-username {
   flex: 0 0 auto;
   min-width: 0;
   max-width: none;
@@ -10656,8 +10655,7 @@ a:where(.anime-to-anime-anilist-link):visited {
   margin: 0;
 }
 
-.tool-adaptation-primary-filters .anime-to-anime-endpoint-user-input,
-.tool-seasonal-primary-filters .anime-to-anime-endpoint-user-input {
+.tool-adaptation-primary-filters .anime-to-anime-endpoint-user-input {
   width: 100px;
   flex: 0 0 auto;
   min-width: 0;
@@ -11197,7 +11195,7 @@ a:where(.anime-to-anime-anilist-link):visited {
   gap: 10px;
 }
 
-.tool-score-compare-user-chips,
+.tool-user-chips,
 .tool-score-compare-options,
 .tool-score-compare-filters {
   display: flex;
@@ -11206,12 +11204,12 @@ a:where(.anime-to-anime-anilist-link):visited {
   gap: 8px;
 }
 
-.tool-score-compare-users .tool-score-compare-user-chips {
+.tool-user-chips-field .tool-user-chips {
   flex: 1 1 auto;
   min-width: 0;
 }
 
-.tool-score-compare-user-chip {
+.tool-user-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -11223,7 +11221,7 @@ a:where(.anime-to-anime-anilist-link):visited {
   box-sizing: border-box;
 }
 
-.tool-score-compare-user-chip-remove {
+.tool-user-chip-remove {
   display: inline-flex;
   padding: 2px;
   border: none;
@@ -11232,8 +11230,42 @@ a:where(.anime-to-anime-anilist-link):visited {
   cursor: pointer;
 }
 
-.tool-score-compare-user-chip-remove:hover {
+.tool-user-chip-remove:hover {
   color: var(--text);
+}
+
+.tool-user-history-anchor {
+  position: relative;
+  display: inline-flex;
+}
+
+.tool-user-history {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 30;
+  min-width: 100%;
+  max-height: 240px;
+  margin: 0;
+  padding: 4px 0;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 18%);
+  box-sizing: border-box;
+}
+
+.tool-user-history-option {
+  padding: 5px 12px;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tool-user-history-option.active {
+  background: var(--bg-subtle);
 }
 
 .tool-score-compare-options .tool-checkbox {
@@ -11416,7 +11448,7 @@ a:where(.anime-to-anime-anilist-link):visited {
   text-align: left;
 }
 
-.tool-score-compare-refresh.btn.icon-only {
+.tool-user-chip-refresh.btn.icon-only {
   min-width: 20px;
   min-height: 20px;
   padding: 2px 3px;
@@ -11427,11 +11459,11 @@ a:where(.anime-to-anime-anilist-link):visited {
   color: var(--text-muted);
 }
 
-.tool-score-compare-refresh.btn.icon-only + .tool-score-compare-user-chip-remove {
+.tool-user-chip-refresh.btn.icon-only + .tool-user-chip-remove {
   margin-left: -6px;
 }
 
-.tool-score-compare-refresh.btn.icon-only:hover:not(:disabled) {
+.tool-user-chip-refresh.btn.icon-only:hover:not(:disabled) {
   color: var(--text);
 }
 

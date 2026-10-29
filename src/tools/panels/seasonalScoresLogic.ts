@@ -30,6 +30,16 @@ export type SeasonalShow = {
   /** AniList MediaFormat (TV, MOVIE, …). */
   format?: string | null;
   genres?: string[];
+  /** Per-user list entries behind a merged multi-user show. */
+  entries?: SeasonalUserEntry[];
+};
+
+export type SeasonalUserEntry = {
+  username: string;
+  listStatus: string | null;
+  score: number | null;
+  repeat: number | null;
+  notes: string | null;
 };
 
 export type SeasonSpec = {
@@ -132,20 +142,25 @@ export function applySeasonalSourceFilters(
   return shows.filter((show) => allowed.has(seasonalSourceFilterBucket(show.source)));
 }
 
-/** AniList list statuses on the status chip — PLANNING is excluded; use Include Planning. */
+/** AniList list statuses on the status chip; the Include Planning checkbox mirrors PLANNING. */
 export const SEASONAL_LIST_STATUS_OPTIONS = [
   'COMPLETED',
   'CURRENT',
   'REPEATING',
   'PAUSED',
+  'PLANNING',
 ] as const;
 
 export type SeasonalListStatus = (typeof SEASONAL_LIST_STATUS_OPTIONS)[number];
 
 export type SeasonalListStatusFilters = SeasonalListStatus[];
 
+/** Planning is off by default. */
 export const DEFAULT_SEASONAL_LIST_STATUS_FILTERS: SeasonalListStatusFilters = [
-  ...SEASONAL_LIST_STATUS_OPTIONS,
+  'COMPLETED',
+  'CURRENT',
+  'REPEATING',
+  'PAUSED',
 ];
 
 /** Coerce persisted/localStorage values into a valid list-status selection. */
@@ -178,14 +193,11 @@ export function applySeasonalListStatusFilters(
     return shows;
   }
   const allowed = new Set<string>(selected);
-  return shows.filter((show) => {
-    // Planning is gated by the Include Planning checkbox in bucketShowsForSeason.
-    if (show.listStatus === 'PLANNING') {
-      return true;
-    }
-    const status = show.listStatus;
-    return status != null && allowed.has(status);
-  });
+  const known = new Set<string>(SEASONAL_LIST_STATUS_OPTIONS);
+  // The chip only governs the statuses it lists; missing/unknown statuses pass.
+  return shows.filter(
+    (show) => show.listStatus == null || !known.has(show.listStatus) || allowed.has(show.listStatus),
+  );
 }
 
 /** Selected genres; empty means every genre. A show matches when it has any selected genre. */
@@ -376,14 +388,13 @@ export function countSeasonalShowsBySourceBucket(
 }
 
 export type SeasonalScoresForm = {
-  username: string;
+  usernames: string[];
   seasonText: string;
   seasonMode: SeasonMode;
   skipEmpty: boolean;
   airingNotesOnly: boolean;
   /** Optional only for callers restoring legacy form shapes. */
   notesFilter?: string;
-  includePlanning: boolean;
   /** Bucket by broadcast start/end overlap instead of a single AniList season tag. */
   spanAiringSeasons: boolean;
 };
@@ -421,6 +432,7 @@ export type SeasonColumn = {
     score: number | null;
     repeat?: number | null;
     listStatus?: string | null;
+    entries?: SeasonalUserEntry[];
     /** Span mode: placed via airing overlap, not the show's AniList season tag. */
     extendedPlacement?: boolean;
   }>;
@@ -913,29 +925,144 @@ export function showMatchesSeasonSpec(
   return intervalsOverlap(clamped, seasonSpecCalendarInterval(spec));
 }
 
+/** Shows in one season column. List status and notes are per-user entry filters, applied earlier. */
 export function bucketShowsForSeason(
   shows: SeasonalShow[],
   spec: SeasonSpec,
-  airingNotesOnly: boolean,
-  notesFilter: string,
-  includePlanning: boolean,
   spanAiringSeasons: boolean,
   now: Date = new Date(),
 ): SeasonalShow[] {
   return shows
-    .filter((show) => {
-      if (!includePlanning && isSeasonalPlanningShow(show)) {
-        return false;
-      }
-      if (!showMatchesSeasonSpec(show, spec, { spanAiringSeasons, now })) {
-        return false;
-      }
-      if (airingNotesOnly && !(show.notes ?? '').includes(notesFilter)) {
-        return false;
-      }
-      return true;
-    })
+    .filter((show) => showMatchesSeasonSpec(show, spec, { spanAiringSeasons, now }))
     .sort((a, b) => seasonalShowSortKey(b) - seasonalShowSortKey(a));
+}
+
+export type SeasonalEntryFilterOptions = {
+  listStatusFilters: SeasonalListStatusFilters;
+  airingNotesOnly: boolean;
+  notesFilter: string;
+};
+
+/** Filters one user's list entries (status and notes belong to the entry, not the show). */
+export function applySeasonalEntryFilters(
+  shows: SeasonalShow[],
+  options: SeasonalEntryFilterOptions,
+): SeasonalShow[] {
+  const byStatus = applySeasonalListStatusFilters(shows, options.listStatusFilters);
+  if (!options.airingNotesOnly) {
+    return byStatus;
+  }
+  return byStatus.filter((show) => (show.notes ?? '').includes(options.notesFilter));
+}
+
+export type SeasonalUserShows = {
+  username: string;
+  shows: SeasonalShow[];
+};
+
+/** Unrated entries pick the most active status for the merged status letter. */
+const UNRATED_STATUS_PRIORITY = ['CURRENT', 'REPEATING', 'PAUSED', 'PLANNING'];
+
+function mergedUnratedStatus(entries: readonly SeasonalUserEntry[]): string | null {
+  for (const status of UNRATED_STATUS_PRIORITY) {
+    if (entries.some((entry) => entry.listStatus === status)) {
+      return status;
+    }
+  }
+  return entries[0]?.listStatus ?? null;
+}
+
+function mergeSeasonalShowEntries(
+  base: SeasonalShow,
+  entries: SeasonalUserEntry[],
+  includeRepeats: boolean,
+): SeasonalShow {
+  const raters = entries.filter((entry) => normalizeSeasonalListScore(entry.score) != null);
+  const watches =
+    entries.length === 1
+      ? entries[0]!.repeat
+      : entries.reduce((total, entry) => total + seasonalShowWatchCount(entry), 0) - 1;
+  if (raters.length === 0) {
+    return {
+      ...base,
+      score: null,
+      repeat: watches,
+      listStatus: mergedUnratedStatus(entries),
+      entries,
+    };
+  }
+  let weightedTotal = 0;
+  let weight = 0;
+  for (const rater of raters) {
+    const raterWeight = includeRepeats ? seasonalShowWatchCount(rater) : 1;
+    weightedTotal += normalizeSeasonalListScore(rater.score)! * raterWeight;
+    weight += raterWeight;
+  }
+  return {
+    ...base,
+    score: Math.round((weightedTotal / weight) * 10) / 10,
+    repeat: watches,
+    listStatus: raters[0]!.listStatus,
+    entries,
+  };
+}
+
+/**
+ * One show per media id across users. The score is the mean of the users who
+ * rated it (watch-weighted when repeats are on); unrated shows keep a status letter.
+ */
+export function mergeSeasonalUserLists(
+  perUser: readonly SeasonalUserShows[],
+  includeRepeats = false,
+): SeasonalShow[] {
+  const grouped = new Map<number, { base: SeasonalShow; entries: SeasonalUserEntry[] }>();
+  for (const { username, shows } of perUser) {
+    for (const show of shows) {
+      const entry: SeasonalUserEntry = {
+        username,
+        listStatus: show.listStatus ?? null,
+        score: normalizeSeasonalListScore(show.score),
+        repeat: show.repeat ?? null,
+        notes: show.notes,
+      };
+      const group = grouped.get(show.id);
+      if (group) {
+        group.entries.push(entry);
+      } else {
+        grouped.set(show.id, { base: show, entries: [entry] });
+      }
+    }
+  }
+  return [...grouped.values()].map(({ base, entries }) =>
+    mergeSeasonalShowEntries(base, entries, includeRepeats),
+  );
+}
+
+/** Hover text for a show's score: status counts, then one line per user. */
+export function seasonalScoreTooltip(
+  entries: readonly SeasonalUserEntry[] | undefined,
+): string | undefined {
+  if (!entries || entries.length === 0) {
+    return undefined;
+  }
+  const countWhere = (predicate: (entry: SeasonalUserEntry) => boolean): number =>
+    entries.filter(predicate).length;
+  const parts = [
+    `${countWhere((e) => e.listStatus === 'COMPLETED')} completed`,
+    `${countWhere((e) => normalizeSeasonalListScore(e.score) != null)} rated`,
+    `${countWhere((e) => e.listStatus === 'CURRENT' || e.listStatus === 'REPEATING')} watching`,
+  ];
+  const paused = countWhere((e) => e.listStatus === 'PAUSED');
+  if (paused > 0) {
+    parts.push(`${paused} paused`);
+  }
+  parts.push(`${countWhere((e) => e.listStatus === 'PLANNING')} planning`);
+  const userLines = entries.map((entry) => {
+    const score = normalizeSeasonalListScore(entry.score);
+    const detail = score ?? (entry.listStatus ?? 'on list').toLowerCase().replace('current', 'watching');
+    return `${entry.username}: ${detail}`;
+  });
+  return [parts.join(', '), ...userLines].join('\n');
 }
 
 export function averageScore(
@@ -1000,23 +1127,53 @@ export type BuildSeasonalColumnsOptions = {
   includeRepeats?: boolean;
 };
 
+/** Single-list convenience wrapper over {@link buildMultiUserSeasonalColumns}. */
 export function buildSeasonalColumns(
   shows: SeasonalShow[],
   form: SeasonalScoresForm,
   options?: BuildSeasonalColumnsOptions,
 ): SeasonalScoresResult {
+  return buildMultiUserSeasonalColumns(
+    [{ username: form.usernames[0] ?? '', shows }],
+    form,
+    options,
+  );
+}
+
+/** Entry filters per user, then merge by show, then show filters (see {@link mergeSeasonalUserLists}). */
+export function mergeFilteredSeasonalUserLists(
+  perUser: readonly SeasonalUserShows[],
+  form: Pick<SeasonalScoresForm, 'airingNotesOnly' | 'notesFilter'>,
+  options?: Pick<BuildSeasonalColumnsOptions, 'listStatusFilters' | 'includeRepeats'>,
+): SeasonalShow[] {
+  const entryOptions: SeasonalEntryFilterOptions = {
+    listStatusFilters: options?.listStatusFilters ?? DEFAULT_SEASONAL_LIST_STATUS_FILTERS,
+    airingNotesOnly: form.airingNotesOnly,
+    notesFilter: form.notesFilter ?? '#airing',
+  };
+  return mergeSeasonalUserLists(
+    perUser.map((user) => ({
+      username: user.username,
+      shows: applySeasonalEntryFilters(user.shows, entryOptions),
+    })),
+    options?.includeRepeats === true,
+  );
+}
+
+export function buildMultiUserSeasonalColumns(
+  perUser: readonly SeasonalUserShows[],
+  form: SeasonalScoresForm,
+  options?: BuildSeasonalColumnsOptions,
+): SeasonalScoresResult {
   const now = options?.now ?? new Date();
+  const fetchedCount = perUser.reduce((total, user) => total + user.shows.length, 0);
   let filteredShows = applySeasonalYearFilters(
-    shows,
+    mergeFilteredSeasonalUserLists(perUser, form, options),
     options?.yearFilters ?? DEFAULT_SEASONAL_YEAR_FILTERS,
   );
   filteredShows = applySeasonalSeasonYearFilters(
     filteredShows,
     options?.seasonYearFilter ?? DEFAULT_SEASONAL_SEASON_YEAR_FILTER,
-  );
-  filteredShows = applySeasonalListStatusFilters(
-    filteredShows,
-    options?.listStatusFilters ?? DEFAULT_SEASONAL_LIST_STATUS_FILTERS,
   );
   filteredShows = applySeasonalGenreFilters(filteredShows, options?.genreFilters ?? []);
   filteredShows = applySeasonalFormatFilters(filteredShows, options?.formatFilters ?? []);
@@ -1036,7 +1193,7 @@ export function buildSeasonalColumns(
     const trimmed = form.seasonText.trim().toLowerCase();
     const isPreset =
       trimmed === 'alltime' || trimmed === 'all' || trimmed === 'allseasons';
-    if (isPreset && shows.length === 0) {
+    if (isPreset && fetchedCount === 0) {
       return {
         kind: 'empty',
         message:
@@ -1066,15 +1223,7 @@ export function buildSeasonalColumns(
   }
 
   for (const spec of specs) {
-    const bucket = bucketShowsForSeason(
-      filteredShows,
-      spec,
-      form.airingNotesOnly,
-      form.notesFilter ?? '#airing',
-      form.includePlanning,
-      form.spanAiringSeasons,
-      now,
-    );
+    const bucket = bucketShowsForSeason(filteredShows, spec, form.spanAiringSeasons, now);
     if (form.skipEmpty && bucket.length === 0) {
       continue;
     }
@@ -1095,6 +1244,7 @@ export function buildSeasonalColumns(
         score: normalizeSeasonalListScore(show.score),
         repeat: show.repeat ?? null,
         listStatus: show.listStatus ?? null,
+        entries: show.entries,
         extendedPlacement: isExtendedSeasonPlacement(
           show,
           spec,

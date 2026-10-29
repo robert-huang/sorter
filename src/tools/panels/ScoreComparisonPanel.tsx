@@ -1,7 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DragScroll } from '../../components/DragScroll';
-import { CircularArrowGlyph } from '../../components/CircularArrowGlyph';
-import { RemoveGlyph } from '../../components/RemoveGlyph';
 import {
   ALL_LIST_STATUSES,
   ANILIST_INITIAL_CHIP_STATE,
@@ -20,6 +18,7 @@ import { useToolsPreferences } from '../../hooks/useToolsPreferences';
 import type { AnilistMediaListStatus } from '../../lib/importers/anilist/types';
 import { ToolAnimeMangaMediaTypeFilter } from '../ToolSegmentedFilter';
 import { ToolShowButton } from '../toolEntityLinks';
+import { ToolUserChipsField } from '../ToolUserChipsField';
 import type { ToolPanelProps } from '../toolTypes';
 import { useToolsDisplayLabelRevision } from '../useToolsDisplayLabelRevision';
 import { loadComparisonList, type LoadedComparisonList } from './scoreComparisonApi';
@@ -143,82 +142,6 @@ function useAllowedMediaIds(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idsKey, chipKey]);
   return allowed;
-}
-
-function UsernameChipsInput({
-  usernames,
-  isLoading,
-  onAdd,
-  onRemove,
-  onRefresh,
-}: {
-  usernames: readonly string[];
-  isLoading: (username: string) => boolean;
-  onAdd: (username: string) => void;
-  onRemove: (username: string) => void;
-  onRefresh: (username: string) => void;
-}) {
-  const [text, setText] = useState('');
-  const submit = () => {
-    const handle = text.trim();
-    if (!handle) return;
-    onAdd(handle);
-    setText('');
-  };
-  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      submit();
-    }
-  };
-  return (
-    <div className="tool-field tool-field-label-row tool-score-compare-users">
-      <span className="tool-field-label">Users</span>
-      <div className="tool-score-compare-user-chips">
-        {usernames.map((name) => (
-          <span key={userKey(name)} className="tool-score-compare-user-chip">
-            {name}
-            <button
-              type="button"
-              className="btn icon-only tool-score-compare-refresh"
-              disabled={isLoading(name)}
-              onClick={() => onRefresh(name)}
-              title={`Refresh ${name}'s list from AniList`}
-              aria-label={`Refresh ${name}'s list from AniList`}
-            >
-              <CircularArrowGlyph />
-            </button>
-            <button
-              type="button"
-              className="tool-score-compare-user-chip-remove"
-              aria-label={`Remove ${name}`}
-              title={`Remove ${name}`}
-              onClick={() => onRemove(name)}
-            >
-              <RemoveGlyph size={10} />
-            </button>
-          </span>
-        ))}
-        <input
-          className="slot-search tool-username-input"
-          type="text"
-          name="score-compare-username"
-          aria-label="AniList username to compare"
-          placeholder="AL Username"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={onKeyDown}
-          spellCheck={false}
-          autoComplete="one-time-code"
-          data-1p-ignore
-          data-lpignore="true"
-        />
-        <button type="button" className="btn small" disabled={!text.trim()} onClick={submit}>
-          Add
-        </button>
-      </div>
-    </div>
-  );
 }
 
 function sortIndicator(sort: ScoreComparisonSettings['sort'], column: ComparisonSortColumn) {
@@ -638,7 +561,8 @@ export function ScoreComparisonPanel({ onOpenMedia }: ToolPanelProps) {
         in a column to refresh one user.
       </p>
       <div className="tool-form-card tool-score-compare-controls">
-        <UsernameChipsInput
+        <ToolUserChipsField
+          inputName="score-compare-username"
           usernames={settings.usernames}
           isLoading={(name) => isLoading(name, settings.mediaType)}
           onAdd={addUser}
