@@ -14,6 +14,7 @@ import {
   AnilistScrapeLockHeldError,
   AnilistUnknownUserError,
   importAnilistList,
+  persistMediaGraphCheckpoint,
 } from '../importer';
 import { lastFullRefreshKey } from '../meta';
 import type {
@@ -740,6 +741,39 @@ describe('importAnilistList — wipe-and-rebuild semantics', () => {
         "SELECT rank FROM media_tag WHERE media_id = 1 AND tag_name = 'A'",
       ),
     ).toBe(90); // first wins — higher rank from the original edge
+    h.db.close();
+  });
+
+  // Regression: two users' imports sharing shows (Seasonal Scores loads every
+  // user in parallel) interleaved between one writer's junction DELETE and its
+  // INSERTs, which landed in different 500-statement transactions:
+  // `UNIQUE constraint failed: media_studio.media_id, media_studio.studio_id`.
+  it('keeps each media junction rebuild atomic when another writer interleaves', async () => {
+    const h = await makeHarness();
+    const media = Array.from({ length: 60 }, (_, i) =>
+      makeMedia(i + 1, {
+        studios: { nodes: [{ id: 10, name: 'Studio-X' }, { id: 11, name: 'Studio-Y' }] },
+        tags: Array.from({ length: 10 }, (_, t) => ({ name: `Tag-${t}`, rank: 90 - t })),
+      }),
+    );
+    const otherWriter: AnilistImportContext = { ...h.ctx, onDirtyIncrement: undefined };
+    let interleaved = false;
+    const interleavingDb: AnilistDbExecutor = {
+      exec: (sql, params) => h.ctx.db.exec(sql, params),
+      async execBatch(statements) {
+        await h.ctx.db.execBatch(statements);
+        if (!interleaved) {
+          interleaved = true;
+          await persistMediaGraphCheckpoint(otherWriter, media);
+        }
+      },
+    };
+
+    await persistMediaGraphCheckpoint({ ...h.ctx, db: interleavingDb }, media);
+
+    expect(interleaved).toBe(true);
+    expect(countRows(h.db, 'media_studio')).toBe(120);
+    expect(countRows(h.db, 'media_tag')).toBe(600);
     h.db.close();
   });
 

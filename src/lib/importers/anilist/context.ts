@@ -57,6 +57,33 @@ export async function execBatchInChunks(
   }
 }
 
+type BatchStatement = { sql: string; params?: readonly SqlBindable[] };
+
+/**
+ * Like {@link execBatchInChunks}, but never splits a group across `execBatch`
+ * transactions (a group larger than `chunkSize` runs alone). Use it for
+ * DELETE-then-INSERT rebuilds: concurrent writers of the same rows (e.g.
+ * several users' imports sharing a show) could otherwise interleave between
+ * the DELETE and the INSERTs and hit a primary-key conflict.
+ */
+export async function execStatementGroupsInChunks(
+  db: AnilistDbExecutor,
+  groups: ReadonlyArray<ReadonlyArray<BatchStatement>>,
+  chunkSize = DEFAULT_EXEC_BATCH_CHUNK_SIZE,
+): Promise<void> {
+  let batch: BatchStatement[] = [];
+  for (const group of groups) {
+    if (batch.length > 0 && batch.length + group.length > chunkSize) {
+      await db.execBatch(batch);
+      batch = [];
+    }
+    batch.push(...group);
+  }
+  if (batch.length > 0) {
+    await db.execBatch(batch);
+  }
+}
+
 export type AnilistExecuteQuery = <T>(
   query: string,
   variables: Record<string, unknown>,

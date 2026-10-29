@@ -75,7 +75,11 @@ import {
   releaseScrapeLock,
 } from '../../db/syncManifest';
 import { ANILIST_SOURCE_ID } from './anilistSource';
-import { execBatchInChunks, type AnilistImportContext, type SqlBindable } from './context';
+import {
+  execStatementGroupsInChunks,
+  type AnilistImportContext,
+  type SqlBindable,
+} from './context';
 import { buildSetMetaStmt, lastFullRefreshKey } from './meta';
 import { emitProgress } from './progress';
 import {
@@ -380,44 +384,39 @@ export async function persistMediaGraphCheckpoint(
     });
   }
 
-  const mediaIds = [...uniqueMedia.keys()];
-  const placeholders = mediaIds.map(() => '?').join(', ');
-  if (studiosAuthoritative) {
-    statements.push({
-      sql: `DELETE FROM media_studio WHERE media_id IN (${placeholders})`,
-      params: mediaIds,
-    });
-    for (const media of uniqueMedia.values()) {
+  // One group per media keeps its junction DELETE + INSERTs in one transaction.
+  const junctionGroups: Statement[][] = [];
+  for (const media of uniqueMedia.values()) {
+    const group: Statement[] = [];
+    if (studiosAuthoritative) {
+      group.push({ sql: 'DELETE FROM media_studio WHERE media_id = ?', params: [media.id] });
       for (const row of mapMediaStudioRows(media)) {
-        statements.push({
+        group.push({
           sql: 'INSERT INTO media_studio (media_id, studio_id, sort_order, is_main) VALUES (?, ?, ?, ?)',
           params: [row.media_id, row.studio_id, row.sort_order, row.is_main],
         });
       }
-    }
-    for (const mediaId of mediaIds) {
-      statements.push({
+      group.push({
         sql: 'UPDATE media SET studios_fetched_at = ? WHERE id = ?',
-        params: [now, mediaId],
+        params: [now, media.id],
       });
     }
-  }
-  if (tagsAuthoritative) {
-    statements.push({
-      sql: `DELETE FROM media_tag WHERE media_id IN (${placeholders})`,
-      params: mediaIds,
-    });
-    for (const media of uniqueMedia.values()) {
+    if (tagsAuthoritative) {
+      group.push({ sql: 'DELETE FROM media_tag WHERE media_id = ?', params: [media.id] });
       for (const row of mapMediaTagRows(media)) {
-        statements.push({
+        group.push({
           sql: 'INSERT INTO media_tag (media_id, tag_name, rank) VALUES (?, ?, ?)',
           params: [row.media_id, row.tag_name, row.rank],
         });
       }
     }
+    if (group.length > 0) junctionGroups.push(group);
   }
 
-  await execBatchInChunks(ctx.db, statements);
+  await execStatementGroupsInChunks(ctx.db, [
+    ...statements.map((statement) => [statement]),
+    ...junctionGroups,
+  ]);
   if (ctx.onDirtyIncrement) {
     await ctx.onDirtyIncrement();
   }
