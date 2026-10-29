@@ -72,7 +72,7 @@ A third mini-app: AniList analysis utilities that read (and sometimes write) the
 - **Local DB:** shares the OPFS-backed `anilist.sqlite` with the Sorter and Anime to Anime — see [Local source database](#local-source-database-anilist-cache).
 - **Theme:** shares the Anime-to-Anime theme (`anime-to-anime-theme` in `localStorage`); sun/moon toggle in the header.
 - **Detail modals:** result rows can open the same media/staff detail panels as the main Sorter.
-- **Gear menu:** Display names, AniList account sign-in, source-database Push/Pull, cloud backup — same building blocks as the other pages.
+- **Gear menu:** Display names, AniList account sign-in, source-database Push/Pull, cloud backup — same building blocks as the other pages. The Settings tab also has per-tool sections (Seasonal Scores, Weekly Calendar, Shared Staff, Bump Chart, User Scores); the active tool's section is highlighted.
 
 See [Anime Tools — tabs](#anime-tools--tabs) for what each tool does.
 
@@ -178,7 +178,9 @@ After data loads into the preview:
 
 - **Filter chips** (FilterBar) narrow the candidates. Media chips include **list status**, **status**, **genre**, **format**, **year**, **seasonYear**, **score** (your AniList score), **studio**, **voice actor** (with a lazy *"Fetch cast for N shows"* action), **tag** / **tag options** / **exclude tag**. The **seasonYear** slider uses one discrete step per allowed season; selecting years first rebuilds its timeline from only those years, so sparse selections such as 2021 + 2025 + 2026 skip every intervening year. Favourite characters/staff have their own chips (gender, favourites count, role, language, etc.).
   - The **list status** chip defaults to `CURRENT`, `COMPLETED`, `REPEATING` — so PLANNING / PAUSED / DROPPED entries are hidden until you change it.
-- **Search…** further narrows visible rows by title (matches romaji/english/native + synonyms).
+  - **Dual-thumb range sliders** (e.g. score, seasonYear) step with the arrow keys: Up/Right moves the focused thumb forward one notch, Down/Left back. In the seasonYear year boxes an arrow press moves that bound by **one season**, pushing the other bound along if they would cross.
+  - **Favourite character/staff chips cascade left to right**: each chip's options come from the favourites that survive the chips before it (e.g. *appears in* only lists shows for the selected genders/rank range; *voice actor* also follows *appears in*). A chip ignores its own selection while listing options, so a multi-select can still be broadened without clearing it.
+- **Search…** further narrows visible rows by title (matches romaji/english/native + synonyms) or by the loaded user's **list-entry notes** (e.g. `#airing`).
 - Tick the per-row checkboxes (all checked after an import). **Select all visible** / **Clear visible** help; a status line reads `{visible} of {total} shown · {selected} selected`.
 - **Append format to title (e.g. Title (TV))** appends the AniList format to each label, e.g. `Shinryaku! Ika Musume (TV)`.
 
@@ -213,11 +215,12 @@ Loads cached metadata immediately and shows: linked cover, linked resolved **tit
 - **Production** — staff credits with a **Key roles** / **All credits** toggle (persisted). Staff names are clickable → staff panel.
 - **Lazy expansion** — on first open, cast + production staff are fetched from AniList and cached (metadata stays visible if that fetch fails). The cache row begins with `Info: {date} (fresh|stale (>90d))`, followed by `Cast: {date} (complete|incomplete, fresh|stale (>90d))`, the same for staff, and `Relations: {date} (fresh|stale (>90d))` for franchise relation edges.
 - **↻ Refresh** re-fetches the basic media metadata, cast, staff, and relations (`Re-fetch cast & staff for this entry (does not auto-push)`). Relations refresh also powers Adaptation Scores scan merge when the modal is opened from that tool.
+- **Theme songs** — each OP/ED/insert row can show a **preview player** sourced from [AnisongDB](https://anisongdb.com) (AMQ's media server). Rows are matched to AnisongDB hits locally by song type + sequence number (`Opening 2` → second OP), title (season qualifiers stripped, romanization folded) and artist; only songs with a playable video/audio file get a player. The player has a seek-bar **hover preview** (a muted thumbnail video at the hovered time), a **fullscreen** button, and a volume slider shared by every preview (`theme-song-preview:volume:v1`, default 10%). Searches go to `VITE_ANISONGDB_PROXY_URL` when set, otherwise the Vite dev/preview proxy at `/api/anisongdb/search` (on localhost), otherwise `anisongdb.com` directly. The proxy adds the Origin/Referer/`X-Client-Id` headers AnisongDB expects. Spotify links open with `autoplay_ok=0` so the web player doesn't start playing on its own.
 - The media panel has **no synopsis** and **no relations UI** (relations power the Anime-to-Anime game, not this panel). Reach the AniList page through **AniList ↗**, the linked title/cover, or the browser link menu.
 
 ### Staff detail panel
 
-Shows the linked staff image and name, native name, language, favourites (`★`), an **AniList ↗** header link, and a **Filmography** of merged production + voice credits (one row per media, newest first). Each row shows the cover, title, role line (production roles and/or `voiced {characters}`), and `{year} · {format}`.
+Shows the linked staff image and name, native name, language, favourites (`★`), an **AniList ↗** header link, and a **Filmography** of merged production + voice credits (one row per media, newest first). Each row shows the cover, title, role line (production roles and/or `voiced {characters}`, with **MAIN** characters in bold), and `{year} · {format}`.
 
 - **Filmography rows** — left-click opens that media's panel above the staff panel; closing media returns to staff. **Middle-click** opens the media's AniList page.
 - **Years** — filmography expansion caches the start date returned for both voice and production credits. **↻ Refresh** repairs older partial cache rows; after current data is loaded, a row stays yearless when AniList has not announced a start year. Returning from a refreshed media panel also re-reads the updated year.
@@ -374,6 +377,13 @@ When auto-insert wins, the engine installs an `AutoInsertFrame` instead of a nor
 
 The frame uses **rank-aware bound tightening**: each subsequent insert starts its lower bound at the previously-landed position + 1, because `pendingInserts` is in rank order. That gives a `Σ ⌈log₂(N + i)⌉` bound — in practice much tighter than the rank-blind worst case above. As that gap is realized, the progress bar **jumps forward**.
 
+**Alternating bounds (small side ≥ 3 items).** Instead of draining best → worst, `pendingInserts` alternates the remaining endpoints: best, worst, 2nd best, 2nd worst, … (`[a, b, c, d, e] → [a, e, b, d, c]`, `alternateEndpoints`). Every landing then bounds all still-pending items from one side:
+
+- a **best-side** landing (ranked above the next pending item) advances the lower bound (`lastInsertedPosition`), as before;
+- a **worst-side** landing becomes the **upper anchor** (`upperAnchorId`), so later searches run in `[lastInsertedPosition + 1, upperAnchor − 1]`.
+
+The anchor is stored by **id**, not index, because best-side landings shift its index in `target`. This matters most when the small side has outliers at both ends: a worst item that lands near the bottom no longer leaves the whole tail open for every middle item. It is the same strategy the insertion engine uses for pre-ranked runs. Frames saved before this change have no `alternatingBounds` flag and keep draining in rank order with a lower bound only.
+
 **Minimum skew to trigger auto-insert** — for a given small-side size `K`, the smallest larger-side size `N` (with `N ≥ K`) where `insert < merge`:
 
 | Small `K` | Min large `N` | `N / K` |
@@ -409,7 +419,7 @@ Used when you pick **Insertion sort** from the staged-panel split button, or whe
 
 - One or more pre-ranked sublists seed a frozen `sorted[]`; any flat extras drain through `pending[]` and get binary-inserted FIFO.
 - Each pending item costs up to `⌈log₂(sorted.length + 1)⌉` comparisons in the worst case; rank-aware bound tightening can do better in practice.
-- Pre-ranked runs of three or more items insert in alternating best/worst order. Each landed endpoint tightens one side of the remaining binary-search window, which is especially useful when a run has outliers at either end.
+- Pre-ranked runs of three or more items insert in alternating best/worst order. Each landed endpoint tightens one side of the remaining binary-search window, which is especially useful when a run has outliers at either end. Whether a landing was on the worst side is decided by comparing its run rank with the **next pending item of the same run**, not the run's midpoint: hiding run items shrinks the run, which can move the midpoint past a worst-side item.
 - On completion the slot normalizes to the same merge-engine `done` shape as every other finished sort.
 
 ## On the confirmation engine
@@ -521,6 +531,19 @@ These two buttons are deliberately different:
 
 Gear menu → "Load save file…" → pick a previously-downloaded JSON. It's imported as a brand-new slot (auto-named from the file's basename) and activated.
 
+You can also **drag a file onto** "Load save file…" or "Restore from backup…" in the gear menu. The file is sniffed first: dropping a backup archive on Load (or a single-slot save on Restore) is rejected with a message pointing at the right target instead of failing halfway through the import.
+
+### Version history
+
+A finished sort keeps a history of its rankings in the slot save (`versions`, oldest first), so downloads, backups and cloud copies carry it too.
+
+- **When versions are recorded** — automatically when a sort goes from in-progress to **done** (only if the ranking differs from the newest version), and when you press **Save version** on the RESULT tab. Loading a finished save that has no history seeds one baseline version.
+- **The Current version** — edits to a finished ranking (reordering on LIST, adding items) don't record one version per move. Instead the newest version is a **live** version that is updated in place when you stop editing: switching tabs or slots, hiding/closing the page, reopening the sort, or pushing to the cloud. Save version freezes it; the next edit starts a new live version. Only the newest version can be live, and an identical ranking is never appended twice.
+- **Versions (N)** on RESULT opens the list, newest first. Each row shows the date, item count and a diff against the previous version (e.g. `3 added, 1 removed · Steins;Gate ↑4, Your Name ↓2`). Expanding a row shows the full ranking with ↑/↓/new markers plus the items removed since the previous version. Frozen versions can be deleted.
+- **Version history page** — right-click **Versions**, or gear → **Version history…** (finished sorts only). Stage other copies of the same sort (other slots, cloud saves, or dropped/picked JSON files), edit each version's date, then apply. Staged sources bring their own nested versions too. The merge sorts everything by date (existing versions win date ties), **drops any version whose ranking matches its direct predecessor**, assigns fresh ids, and freezes imported live versions (another save's live version is archived history here).
+- **Snapshots are self-contained** — each version stores its ranked ids plus each item's label/image/url at that time, so a version still renders after the item is edited or removed from the sort.
+- **Importing versions into Bump Chart** — a panel's **Sort results** importer lists a selected save's versions as a checklist, all checked by default. Each checked version becomes **its own timeline column** in date order (named `<slot> · <date>`, adding the time when two picks share a day): the first fills the clicked panel if it is empty and the rest are inserted right after it. Unchecking every version imports the save's current ranking instead. Other importers (sorter "+ Add items") always import the current ranking.
+
 ## Share link
 
 On the RESULT tab of a completed sort, the **Share link** button generates a URL that encodes the final ranking in its hash fragment (`#share=<base64url-payload>`). Anyone who opens the link in any browser sees a preview overlay and can import the ranking as a new slot in their own browser.
@@ -584,6 +607,7 @@ The Tools page is a tabbed shell (`anime-tools-active-tool` in `localStorage` re
 - **Username fields** remember the last successful AniList username (`withLastAnilistUsername`) and offer a **↻** button beside the input to force-re-import list data into the cache (what each tab imports is tab-specific — see [Tools: ↻ refresh](#tools--refresh-beside-username)).
 - **Display names** (romaji/english/native titles, full/native staff names) relabel cached result rows live when you change the preference in the gear menu.
 - **AniList rate limits** — a top banner counts down when the API returns `429`; long-running compares can be cancelled mid-run.
+- **Anime format chips** (Stats, Weekly Calendar, and the Sorter's AniList import) have **Select all / Clear** actions.
 - **Form persistence** — each tab saves its own settings to `localStorage` (textarea contents, toggles, filters) so reopening the tool restores your last setup. Per-tool "Clear" buttons wipe only the main text input, not every toggle.
 - **OAuth for writes** — read-only tools work with any public username; **Update List Entry** requires you to be signed in as that user (gear → Database → Sign in to AniList). See [AniList accounts](#anilist-accounts).
 
@@ -597,11 +621,14 @@ The Tools page is a tabbed shell (`anime-tools-active-tool` in `localStorage` re
 
 #### Tools: ↻ beside username
 
-Left-click only (right-click does nothing). Always `forceRefresh` — a full wipe-and-rebuild import for the selected types, then a scoped **source-metadata repair** for that type only (batched `media(id_in: …)` requests for listed rows missing `source_fetched_at`).
+Left-click only (right-click does nothing). Always `forceRefresh` — a full wipe-and-rebuild import for the selected types, then a scoped **source-metadata repair** for that type only (batched `media(id_in: …)` requests, 50 ids each, for listed rows missing `source_fetched_at` or `id_mal_fetched_at`). One refetch fills both markers; once set, rows are skipped even when AniList's value is genuinely null.
+
+Multi-user tabs (**Seasonal Scores**, **User Scores**) have a ↻ on each user chip instead of one beside a username field.
 
 | Tab | ↻ refreshes |
 | --- | --- |
-| **Seasonal Scores** | Anime list only |
+| **Seasonal Scores** | That user's anime list only (`mal:` users re-fetch their MAL list) |
+| **User Scores** | That user's anime or manga list (the selected media type) |
 | **Shared Credits** | Anime list only (each include/exclude username field has its own ↻) |
 | **Shared Staff** | *(no username field — no ↻)* |
 | **Favourites** | Anime list + manga list + character/staff favourites |
@@ -621,7 +648,8 @@ Most run buttons are **left-click = use cache** (import only if missing or >90 d
 
 | Tab | Button | Left-click | Right-click |
 | --- | --- | --- | --- |
-| **Seasonal Scores** | Compare | Read user's seasonal list from DB; import anime list only if stale/missing; one-time anime source repair if needed | Force anime list re-import, then chart from fresh DB rows |
+| **Seasonal Scores** | Compare | Read each user's seasonal list from DB; import anime list only if stale/missing; one-time anime source/MAL-id repair if needed | Force anime list re-import for every user, then chart from fresh DB rows |
+| **User Scores** | Compare | Load each user's list for the selected media type from DB; import only if never cached | — |
 | **Shared Credits** | Compare | Resolve staff ids; read cached filmographies; import anime list if username filter needs it and list is stale | Same, but force-refetch every input staff's filmography from AniList |
 | **Shared Staff** | Compare | Resolve show ids; read cached cast/staff from DB | Same, but force-refetch cast expansion for every input show |
 | **Franchise Scores** | Trace | Walk relations from seed; read cached relation graph + user anime/manga lists (import if stale) | Force anime + manga list re-import and bust relation-graph cache for the walk |
@@ -690,6 +718,14 @@ Given one staff/VA name per line (names or AniList ids), find anime they appear 
 
 Results open media/staff detail modals from title or name links.
 
+### Query staging and name resolution (Shared Credits + Shared Staff)
+
+Both tools keep a **staged list** under the textarea. **Add to staged** moves the textarea lines into it (case-insensitive duplicates are skipped); lines still in the textarea show as faded **pending** rows and are included in Compare after the staged ones. The staged list persists with the tool's form.
+
+Each row shows what the query resolved to (thumbnail + AniList name/title), **new** when nothing is cached yet, or the search error. Resolutions are cached for **30 days** per normalized query (session memo + IndexedDB tools cache; keys `shared-credits:query:<query>` and `shared-staff:query:<query>:<sort>`, and Shared Staff keys include the popularity/search-match sort because it changes the top hit). Opening the tool only reads the cache, so it never searches AniList on its own. The per-row ↻ re-searches that one query, and right-click Compare re-searches every query. The 30-day TTL is a trade-off: a title → id match rarely changes, but popularity-sorted searches can drift when a newer sequel overtakes the original.
+
+Two queries that resolve to the same person (e.g. a nickname and the full name) are de-duplicated by id before staff names and filmographies are fetched, so the comparison doesn't break on duplicate ids.
+
 ### Shared Staff
 
 Given one anime title or AniList id per line, compare shared studios, production staff, and voice actors.
@@ -704,7 +740,9 @@ Sections: Studios, Production, Voice actors. Single-show mode also lists categor
 
 ### Seasonal Scores
 
-Chart one user's AniList scores across seasons.
+Chart one or more users' AniList scores across seasons.
+
+- **Users** — an inline chip list (same component as User Scores): type a name and press Enter or **Add**, ↻ on a chip re-imports that user, × removes it. The input suggests previously used names from a history shared by every multi-user tool (`anime-tools-user-history`, most recent first, up to 50). Arrow keys pick a suggestion, and **Shift+Delete** forgets the highlighted one.
 
 - **Season mode** — **All seasons** (`allseasons`, default for new users), **Current year all** (`all`), or **Custom** (free-form season textarea grammar, e.g. `2024 spring`, `2023`).
 - **Year / seasonYear filters** — select any set of years, including non-contiguous years, then fine-tune the first and last season. The season slider is rebuilt as Winter → Spring → Summer → Fall for each selected year and omits unchecked years entirely.
@@ -712,10 +750,75 @@ Chart one user's AniList scores across seasons.
 - **Airing notes only** — only include shows whose list notes contain an airing marker.
 - **Include planning** — fetch PLANNING entries (off by default).
 - **Span airing seasons** — bucket shows by broadcast start/end overlap with each season window instead of AniList's single `season` tag.
+- **Genre / format chips** — multi-selects over the loaded shows (empty = all). A show passes the genre chip when it has **any** selected genre. Chip labels show `name (count)`, and each chip's counts reflect the filters applied before it (year → seasonYear → list status → genre → format → source).
 
 Columns show rated count, column average, and per-show scores (green > 80, pink < 70). Unrated on-list cells show a status letter instead: **P** planning, **W** watching (anime `CURRENT` / `REPEATING`), **R** reading (manga `CURRENT` / `REPEATING`), **H** paused. Season headers link to AniList season browse URLs.
 
-When the username matches a **linked AniList account** (gear → Sign in), seasonal data is read from a live `Page.media` query so scores and notes match AniList immediately. Third-party usernames still use the imported DB (with live fallback when the cache is empty).
+Lists are read from the imported DB (see [Tools: primary action buttons](#tools-primary-action-buttons)), memoized per user for the session.
+
+#### Multiple users
+
+Filtering happens in two stages, because some filters belong to a person and others to a show:
+
+1. **Per entry** — list status (and **Include planning**) plus **Airing notes only** are applied to each user's own entries, since status and notes belong to that user's list entry.
+2. **Merge** — entries are grouped by AniList media id into one show per row.
+3. **Per show** — year, seasonYear, genre, format and source filters run on the merged shows.
+
+Merged values:
+
+- **Show score** = mean of the users who **rated** it, rounded to 0.1. With **Show repeats** on (gear), each rater is weighted by their watch count (`repeat + 1`). Users who have the show but didn't rate it don't pull the mean down.
+- **Repeat count** = total watches across users − 1 (shown as `×n` when repeats are on).
+- **Status letter** (nobody rated it) = the most active status present: watching > repeating > paused > planning.
+- **Column average / rated count** treat each merged show as one rated item (its merged score), so a show that three people rated counts once, not three times. With repeats on, the show is weighted by its total watches across users.
+- **Score hover** lists the status counts (`2 completed, 2 rated, 1 watching, 0 planning`, plus paused when non-zero), then one `user: score` (or status) line per user.
+
+#### MyAnimeList users (`mal:username`)
+
+An undocumented-in-the-UI extra: add a chip named `mal:<MAL username>` to include a **public MyAnimeList list**. The only in-app hint is the hover text on the **Seasonal Scores** heading in the gear menu. AniList usernames can't contain `:`, so the prefix can't collide with a real AniList user.
+
+- **Fetching** — the official MAL v2 API `users/{name}/animelist` (`limit=1000`, `nsfw=true`, with list status, season, dates, media type, source, genres and cover), following `paging.next` until done. It goes through the same MAL client id / `VITE_MAL_PROXY_URL` proxy as the other MAL features. Results are memoized per session (`seasonal:mal:<name>`), and the chip's ↻ busts the memo. Errors: unknown user → `MAL user "x" not found.`; private list → `MAL list for "x" is private.`.
+- **Mapping** — MAL statuses map to AniList ones (`watching → CURRENT`, `on_hold → PAUSED`, `plan_to_watch → PLANNING`, …). **Dropped entries are skipped**, matching the AniList lists, which are loaded without DROPPED. Scores are ×10 onto AniList's 0–100 scale (MAL `0` = unrated), and media type, source and genres are translated so the existing chips work.
+- **De-duplication** — AniList rows store `idMal` (migration 014, `media.id_mal` + `id_mal_fetched_at`). A MAL entry whose id matches a show **on one of the compared AniList users' lists** merges into that AniList show, and the AniList title, cover and link win. Shows found only in the global cache (e.g. a staff filmography) don't count; matching only against the compared lists keeps the rows equal to the union of those lists.
+- **MAL-only rows** — shows no AniList user has get id `-malId`. They render as plain text with the MAL cover; they have no detail modal, and middle-click opens the MyAnimeList page.
+- **Include MAL scores** (gear, **off** by default) — when off, MAL entries are dropped **before** scoring, so they never change a score, average, rated count, status letter or hover line. MAL-only rows still fill their season slots but show no score. When on, MAL users count exactly like AniList users.
+- **Keeping MAL ids** — the list import and source repair select `idMal`. Queries that don't (relations, favourites) leave a stored MAL id alone: the upsert only overwrites `id_mal` when the incoming row actually fetched it (`id_mal_fetched_at` set). Lists imported before migration 014 are backfilled by the one-time repair above, at roughly one request per 50 listed anime.
+
+### User Scores
+
+Compare several users' scores for the same anime or manga in one table: one row per media on **any** user's list, one column per user, plus a stat column.
+
+- **Users** — the same chip field as Seasonal Scores (history dropdown, per-chip ↻, ×). Chips can be **dragged to reorder**, which reorders the columns immediately (and changes which user is "first" for Fit to 0–100). Removing a user also updates the table right away; **added users wait for Compare**, so nothing loads until you click it. Compare resets the stat to Mean and the sort to the stat column, descending.
+- **Media type** — Anime / Manga.
+- **Per-user list status** — each column header has its own status chip (default all). Cells filtered out by it are blank (or dimmed with Show all rows), and they're excluded from every stat.
+- **Min Lists** — minimum number of users whose (status-passing) entry the media must be on; blank = every user.
+- **Score range chip** — the sorter's score chip, with a mode: **one person** (someone rated it in range; others may be unrated) or **everyone** (every passing user matches the chip). The range only constrains rated entries.
+- **AniList chips** — genre, tag, format, etc. over the union of the lists (media-level only; user-level chips are hidden because they'd be ambiguous with several users).
+- **Show all rows** — keep failing rows, faded. The count (`Showing N of M`), footer stats and stat column still use only passing rows and cells.
+- **Cells** — raw score (sorter score colours), a status letter when unrated, ♥ for that user's favourite, hover = list status. Footer rows show each user's raw **Mean** and **Standard Deviation** over their passing rated cells.
+- **Sorting** — click Title, the stat or a user to sort (new column starts descending, Title ascending; click again to flip). Blanks always sort last; ties fall back to title.
+
+#### Stats and normalization
+
+Right-click the stat header (or its ▾) to pick one of four stats. Each has a tooltip, and the normalized ones also switch **every cell** to normalized values:
+
+| Stat | Formula (over the row's passing rated cells) |
+| --- | --- |
+| **Mean** | mean of raw scores |
+| **Standard Deviation** | population SD of raw scores, in score points |
+| **Normalized Mean** | mean of the users' z-scores (or rescaled scores) |
+| **Disagreement** | population SD of the users' z-scores (or rescaled scores) |
+
+- **z-score** — `z = (score − μᵤ) / σᵤ`, where `μᵤ` / `σᵤ` are the user's mean and population SD over **every rated entry on their whole list**, not just the filtered rows. The baseline is a property of the person's scoring habits, so filters don't change what "high for them" means. Unrated cells and users with zero spread have no z.
+- **Why Disagreement is normalized** — raw SD mixes "they disagree" with "one of them scores everything 20 points lower". Taking the SD of z-scores factors each person's habits out: values are "how far above my own average, in my own standard deviations". A rough guide (unscaled): 0–0.3 means they feel about the same, ~0.5 a noticeable split, and 1+ a strong split. Raw SD is still offered as **Standard Deviation**.
+- **Fewer than two raters** — both SD stats are **blank** rather than 0. One rating has no spread, and a 0 would sort as "perfect agreement". Means only need one rater.
+- **Rescale** (gear → User Scores, off by default) — show normalized values as `mean + z × stdDev` (default 70 / 15) instead of raw z (2 decimals). Because every user maps through the same target, the columns stay comparable. Rescaling multiplies Disagreement by the target SD; the target mean cancels out.
+- **Fit to 0–100** (gear) — sets the rescale target so the **first user's** lowest and highest z in the **currently passing rows** land exactly on 0 and 100:
+
+  `stdDev = (100 − 0) / (z_max − z_min)`, `mean = 0 − z_min × stdDev`
+
+  e.g. z from −3.03 to 2.07 → stdDev ≈ 19.6, mean ≈ 59.4. This keeps the distribution's shape; it's an affine map of the z-scores, not a min-max squash of each user's scores. Only the **range** follows the filters, and the z baselines stay whole-list. It uses one user on purpose: a per-user fit would give each column its own scale and the columns would no longer be comparable. Other users can therefore land slightly outside 0–100. Clicking it turns Rescale on and writes the rounded mean/SD into the inputs. The button is disabled until the first user has two distinct z-scores in the passing rows, and its tooltip shows the resulting mean/SD.
+
+Settings persist in `anime-tools-score-comparison-settings` (users, media type, chips, filters, sort, stat, show all rows); the rescale target lives in the global Tools preferences.
 
 ### Franchise Scores
 
@@ -764,7 +867,7 @@ Voice Actor and Staff charts colour known male names **cornflower blue** and kno
 
 **Tables** — expandable parent rows with per-show subrows (thumbnail + title; user score in Mean Score column). **Left-click** column headers sort **parent rows** (asc/desc toggle). **Right-click** sorts **subrows only** within fixed parent order (desc → asc → off, where off = release date oldest-first). Each chart keeps its own sort state until the next Run. **Min count** chip (click to open, like tag min rank) filters parent rows after other filters. Staff name clicks open the staff modal without expanding the row. CSV/JSON export per table.
 
-**Run** (left-click) uses cache; right-click force-refreshes the list. VA/Staff runs lazy-expand cast when needed; **Expand all cast** forces cast for the whole cached pool. ↻ beside username re-imports the list for the active media type. Linked accounts can use live list reads where applicable (same pattern as Seasonal Scores).
+**Run** (left-click) uses cache; right-click force-refreshes the list. VA/Staff runs lazy-expand cast when needed; **Expand all cast** forces cast for the whole cached pool. ↻ beside username re-imports the list for the active media type. Linked accounts can use live list reads where applicable.
 
 Form settings persist in `localStorage` (`anime-tools-stats-form`, `anime-tools-stats-filters`); table sort resets on each Run.
 
@@ -775,8 +878,9 @@ Chart **airing and upcoming anime** by weekday, or browse **seasonal catalogs** 
 - **Week start** — Monday through Sunday.
 - **Timezone** — Eastern, Pacific, UTC, or local (for broadcast time bucketing).
 - **Filters** — list status, score range, format, airing status (same chip patterns as Stats/Seasonal).
-- **Show theme songs** — optional per-show theme song blocks under each cell, with Spotify playlist match indicators when a playlist is selected in gear → Spotify settings. Green is an exact Spotify id/ISRC match, red is a resolvable Spotify song absent from the playlist, and blue is a conservative title+artist metadata match to either a local file or an alternate Spotify catalog edition; unknown/unmatched source rows have no dot. Exact green matches always win, including when another playlist item is a metadata match for the same song. The persisted **Match Local Files** setting defaults to **Off**; **Local** checks green → blue → red, while **Spotify** checks green → red and only uses blue for songs without a Spotify track. Combined character/CV credits, parenthetical title translations, multilingual aliases, and reversed romanized name order can match when one complete performer name is identifiable. A distinctive exact title can also bridge artist tags written in non-overlapping scripts when there is no competing playlist identity; incompatible artists in a comparable script, ambiguous same-title files, short generic titles, and unrelated longer titles remain unmatched. Hover a blue dot to see the cached title, artists, playlist item number, and whether the match is local or catalog. Playlist refreshes cache title, artist, album, duration, and position metadata for catalog and local tracks (plus local URI), and the settings count includes both kinds. Large playlist refreshes follow offset pages until Spotify returns the terminal short page and record that completion directly; Spotify's changing `total` value is retained for diagnostics but cannot create a false incomplete warning. A genuine legacy incomplete warning includes the fetched and reported counts. Playlist metadata and the reusable track-to-ISRC index are stored in IndexedDB, which keeps large Spotify caches out of the smaller `localStorage` quota shared with user sort slots, auth, and preferences. Existing Spotify cache blobs are migrated automatically and removed from `localStorage` only after the IndexedDB write succeeds. Click the playlist refresh button to refresh the selected playlist; right-click it to clear every cached playlist first and then refresh the selected playlist. The selection itself is preserved. Click/right-click the playlist filter chip to show songs on / not on the playlist; blue metadata matches count as on-playlist.
-- **Unscheduled column** — optional column for shows without a known weekday slot.
+- **Custom season range** — the custom picker runs from past seasons through **one year ahead** of today, so announced future seasons can be browsed.
+- **Show theme songs** (gear → Weekly Calendar) — optional per-show theme song blocks under each cell, with Spotify playlist match indicators when a playlist is selected in gear → Spotify settings. While cached songs load, the panel shows `Loading cached theme songs… n/N shows` and then `Matching Spotify tracks… n/N` (cache fetches run in batches of 25). Gear → Spotify shows how many playlist and theme-song ISRCs are still left to backfill, updating live as the backfill (batches of 5) runs. Editing or refreshing one show's theme songs re-reads only that show instead of re-running the whole calendar. Green is an exact Spotify id/ISRC match, red is a resolvable Spotify song absent from the playlist, and blue is a conservative title+artist metadata match to either a local file or an alternate Spotify catalog edition; unknown/unmatched source rows have no dot. The persisted **Match Local Files** setting defaults to **Off** (exact green/red only). **Local** checks local-file metadata first, then green, then Spotify-catalog metadata, then red. A local copy wins over the Spotify track even when the Spotify track is also on the playlist, regardless of which comes first in the playlist. **Spotify** checks green → red and only uses blue for songs without a Spotify track. Combined character/CV credits, parenthetical title translations, multilingual aliases, and reversed romanized name order can match when one complete performer name is identifiable. A distinctive exact title can also bridge artist tags written in non-overlapping scripts when there is no competing playlist identity; incompatible artists in a comparable script, ambiguous same-title files, short generic titles, and unrelated longer titles remain unmatched. Hover a blue dot to see the cached title, artists, playlist item number, and whether the match is local or catalog. Playlist refreshes cache title, artist, album, duration, and position metadata for catalog and local tracks (plus local URI), and the settings count includes both kinds. Large playlist refreshes follow offset pages until Spotify returns the terminal short page and record that completion directly; Spotify's changing `total` value is retained for diagnostics but cannot create a false incomplete warning. A genuine legacy incomplete warning includes the fetched and reported counts. Playlist metadata and the reusable track-to-ISRC index are stored in IndexedDB, which keeps large Spotify caches out of the smaller `localStorage` quota shared with user sort slots, auth, and preferences. Existing Spotify cache blobs are migrated automatically and removed from `localStorage` only after the IndexedDB write succeeds. Click the playlist refresh button to refresh the selected playlist; right-click it to clear every cached playlist first and then refresh the selected playlist. The selection itself is preserved. Click/right-click the playlist filter chip to show songs on / not on the playlist; blue metadata matches count as on-playlist.
+- **Unscheduled column** (gear → Weekly Calendar → Unknown Airing Day column) — optional column for shows without a known weekday slot.
 
 Results use the seasonal-scores-style column chart (weekday columns, score coloring, show count per day). Show titles open media detail modals.
 
@@ -787,6 +891,8 @@ The cache preserves the title and every artist string returned by Spotify's play
 - **Titles** — compare every display, MAL/Tenrai, and confirmed AniPlaylist title variant after Unicode/case/punctuation normalization. Latin accents are folded without deleting Japanese dakuten/handakuten. Broadcast-only markers such as `TV Size`, `Anime Ver.`, `OP/ED Edit`, and `TVサイズ` are ignored. Qualifiers that identify a different recording — including `instrumental`, `off vocal`, `remix`, `mix`, `edition`, character versions, featured artists, and other remaining suffix text — are preserved.
 - **Artists** — normalize full-width forms, unwrap credits in `(...)`, `[...]`, `【...】`, and `<...>`, and recognize `CV`, `CV.`, `CV:`, `C.V.`, spacing variations, and full-width punctuation. Combined credits split on commas, `、`, ampersands, `/`, `+`, `×`, `and`, `with`, `feat.`, and equivalent full-width forms. A Japanese middle dot is split only when spacing or all-Japanese-name structure makes it a separator; it remains part of Katakana names such as `ソフィー・トワイライト`. Separate Spotify artist values remain separate candidates, while non-identifying placeholders such as `Various Artists` and `unknown` are ignored.
 - **Name order** — complete two-to-four-token names get an order-independent candidate, allowing `Yui Makino` / `Makino Yui` and similar Romanized/Japanese ordering differences without comparing arbitrary substrings.
+- **Song rows** — theme songs are merged from Tenrai/MAL and AniPlaylist, and **one recording used under one role is one row**, regardless of which source or sequence label (`OP1` vs `OP`) it came from.
+- **Recording aliases** — when a recording is reused by an OVA or under a different OP/ED role and that anime's own AniPlaylist cluster omits it, AniPlaylist is searched by the song's title variants. The first hit that matches the recording **with artist confirmation** contributes its Spotify ids/aliases. This covers cases like a series OP reused as an ED elsewhere.
 - **Safety** — exact Spotify IDs, linked IDs, and ISRCs still win. Metadata matching requires compatible title/artist evidence, rejects competing identities within the ambiguity margin, does not broaden AniPlaylist anime matching, and keeps short generic titles or incompatible same-script artists unmatched.
 - **Performance and refreshes** — the app prepares reusable ID, ISRC, title, and artist lookups once when a playlist cache is first used. An exact normalized title goes straight to tracks with that title instead of checking every item in a large playlist. Once a theme song has been matched, the result is reused when the modal or calendar renders again. These prepared lookups and results are discarded only when the playlist is refreshed or that show's theme-song list changes. Weekly Calendar also waits for its cached songs to finish loading before deciding that the cache is empty.
 
@@ -817,7 +923,7 @@ Each stable lineage gets one color from the 20-colour palette across the complet
 
 Hover a path, node, or label row for 200ms to emphasize its complete lineage while fading the others; the short intent delay avoids repainting the chart while the pointer is only passing across it. Click a path or node to pin that lineage. The chart can also be panned by click-dragging its scroll area. Dragging temporarily suppresses lineage emphasis, and releasing the pointer anywhere ends the drag. A pinned lineage that disappears and later returns gets one straight dotted bridge from its removal marker to its next addition marker across the missing snapshots; hover-only focus does not show the bridge. Pairwise movement badges remain centered in each applicable corridor. Label links preserve the sorter interactions: supported AniList media/staff open detail modals on left-click, middle-click opens the source page, and right-click keeps the browser link menu. Clicking a rank—including a compact intermediate rank—opens the sorter item editor; its red Bump-only `Remove` button soft-hides only that occurrence. **Export PNG** paints the complete inner chart regardless of horizontal scroll position, including inferred markers, intermediate events, pairwise badges, and a pinned gap bridge. Export starts at 2× and progressively downscales to stay within browser canvas side and pixel-area limits. Images are omitted by default; Gear → **Settings → Bump Chart → Include images in PNG exports** enables them. AniList CDN covers remain unavailable because the CDN does not expose their pixels to browser canvas. **Use MyAnimeList images in PNG exports** enables a separate persisted, default-off fallback. Anime and manga images come directly from the official MAL API using exact MAL IDs. Character images are matched inside AniList-linked Tenrai cast lists; when an anime cast lookup returns 504, the linked official MAL anime cast endpoint is used instead. Staff and voice-actor matching uses Tenrai because MAL does not expose the required discovery and credit data. Successfully verified MAL covers are cached and included; unavailable images collapse completely instead of leaving an empty thumbnail gap. After each opted-in export, a dismissible note below the chart toolbar names any items whose MAL fallback could not be resolved or loaded.
 
-The active Bump Chart workspace autosaves every ordered column and its custom name to IndexedDB after staging, naming, editing, hiding, generating, clearing, reordering, changing import tabs, or changing **Best match by title**. Reloading always restores the active workspace to staging, including generated-chart items, names, and hidden markers, so the chart can be reviewed before regenerating. Existing version-1 Before/After active and named saves load transparently as the default two-column version-2 timeline with positional Previous/Current names; all later writes use the ordered format. Hydration finishes before debounced autosave begins, so an empty initial render cannot replace stored work. **Return to staging** returns every complete snapshot to staging as one merged **From chart** group per panel; names and hidden entries remain attached, and hidden entries can be restored before regenerating. **Save chart…** creates a named generated-timeline snapshot. Named slots retain every column, its order, custom name, hidden markers, label preference, and view. Loading a named chart opens it directly as a generated chart and restores its names and matching/display settings; **Return to staging** returns that saved snapshot to staging.
+The active Bump Chart workspace autosaves every ordered column and its custom name to IndexedDB after staging, naming, editing, hiding, generating, clearing, reordering, changing import tabs, or changing **Best match by title**. Reloading always restores the active workspace to staging, including generated-chart items, names, and hidden markers, so the chart can be reviewed before regenerating. Existing version-1 Before/After active and named saves load transparently as the default two-column version-2 timeline with positional Previous/Current names; all later writes use the ordered format. Hydration finishes before debounced autosave begins, so an empty initial render cannot replace stored work. **Return to staging** returns every complete snapshot to staging as one merged **From chart** group per panel; names and hidden entries remain attached, and hidden entries can be restored before regenerating. **Save chart…** creates a named generated-timeline snapshot. Named slots retain every column, its order, custom name, hidden markers, label preference, and view. Loading a named chart opens it directly as a generated chart and restores its names and matching/display settings; **Return to staging** returns that saved snapshot to staging. **Right-click** a saved chart's load button to load it straight into staging without rendering it, which is handy for adding a column before regenerating.
 
 ### Update List Entry
 
@@ -830,7 +936,7 @@ Authenticated `SaveMediaListEntry` for **one media id** at a time. Only fields y
 | **Status** | `CURRENT`, `REPEATING`, `COMPLETED`, `PLANNING`, `PAUSED`, `DROPPED` (same order as the list-status filter chip). |
 | **Progress / Progress volumes** | Non-negative integers. |
 | **Score** | 0–100 integer, or blank to skip. |
-| **Notes find / replace** | mass_tagger-style: empty find + replace sets notes only when current notes are blank; `find = *` replaces entire notes; non-empty find does first match replace (skip if not found). Applies to **Update** (one media id) or **Mass Update Notes** (whole list — click twice to confirm). |
+| **Notes find / replace** | mass_tagger-style: empty find + replace sets notes only when current notes are blank; `find = *` replaces entire notes; non-empty find does first match replace (skip if not found). Applies to **Update** (one media id) or **Mass Update Notes** (whole list — click twice to confirm). Both fields are multi-line textareas with a hover × to clear; type real line breaks with Enter (a literal `\n` is not interpreted). |
 
 On success the local `media_list_entry` row is patched and the seasonal-scores session cache for that user is busted so the next chart run reflects the change. Incremental DB edits bump the pending-changes counter — manual Push if cloud backup is enabled.
 
@@ -919,6 +1025,8 @@ VITE_ANILIST_CLIENT_ID=12345
 
 Uses **implicit grant** — the access token arrives in the redirect URL hash, so no server-side token exchange (AniList’s `/oauth/token` endpoint is not browser-CORS-enabled). That single redirect URL works for **localhost and production**.
 
+Once any account is signed in, the sign-in help text is hidden and the **Sign in to AniList** button is shown faded as a secondary action for adding another account.
+
 After sign-in, import **your own** AniList username on START (or in Tools) to pull hidden custom-list entries. Other people's usernames still use the public API.
 
 ```bash
@@ -958,7 +1066,12 @@ The included `.github/workflows/deploy.yml` builds + publishes the app to GitHub
 | AniList OAuth accounts | `localStorage` key `anilist:accounts:v1`. Access tokens + expiry per signed-in user. Wiped per-account on sign-out. |
 | Tools active tab | `localStorage` key `anime-tools-active-tool`. Last-selected Tools tab id. |
 | Tools global preferences | `localStorage` key `anime-tools:preferences:v1`. e.g. Shared Staff "show all production roles". |
-| Tools per-panel forms | `localStorage` keys `anime-tools-*-form` (and legacy `*-query` keys). Persist textarea + toggle state per tool. |
+| Tools per-panel forms | `localStorage` keys `anime-tools-*-form` (and legacy `*-query` keys). Persist textarea + toggle state per tool, including Shared Credits/Staff staged queries. |
+| User Scores settings | `localStorage` key `anime-tools-score-comparison-settings`. Users, media type, chips, filters, sort, stat. |
+| Tools user history | `localStorage` key `anime-tools-user-history`. Previously used usernames for the multi-user chip fields (max 50). |
+| Tools query matches | IndexedDB tools cache (`tools-api` namespace), keys `shared-credits:query:*` / `shared-staff:query:*`. 30-day TTL. |
+| Theme-song preview volume | `localStorage` key `theme-song-preview:volume:v1`. |
+| Sort versions | Inside each slot blob / save file (`versions`). |
 | Tools gear last tab | `localStorage` key `anime-tools:settings:lastTab`. Settings vs Database tab in Tools gear menu. |
 | Anime-to-Anime theme | `localStorage` key `anime-to-anime-theme`. Shared by Anime to Anime + Anime Tools. |
 | Cloud source-DB files | One `.sqlite` per source under a `db/` subfolder of your Drive folder (e.g. `db/anilist.sqlite`). |
@@ -982,13 +1095,14 @@ Coverage:
 - **Engine dispatch** (`engine.test.ts`): polymorphic getPair / comparisonsRemaining / hide / unhide / addItems, `finalizeCompletedState`, completion normalization + undo round-trip.
 - **CSV** (`csv.test.ts`): canonical key, header detection, dedup with metadata merging, multi-source parsing.
 - **Storage** (`storage.test.ts`): slot CRUD, legacy v1 migration, cap eviction (pin-aware), autosave routing + debounce + force-flush + discard-pending, v1 → v3 and v2 → v3 progress upgrades (including undo ring), v3/v4 round-trip for merge, insertion, and confirmation engine shapes, two-stage quota recovery (trim undo → evict non-pinned), manifest repair from orphaned slot blobs after manifest corruption.
+- **Sort versions** (`sortVersions.test.ts`): auto-record rules, live-version upsert/freeze, diffs and summaries, imported-version merge (date order, predecessor de-dupe, fresh ids).
 - **Share link** (`share.test.ts`): encode/decode round-trip (incl. non-ASCII labels, order preservation, dropped-undefined optional fields), failure modes (bad base64, bad JSON, wrong version, empty items, wrong-type optional fields), URL hash extraction.
 - **Cloud backup** (`cloud.test.ts`): filename build/parse, etag-mismatch handling, provider proxy behavior.
 - **AniList importer & cache** (`lib/importers/anilist/__tests__/`): `importer` / `favourites` (wipe-and-rebuild), `transport` (serialization + 429 backoff), `runners`, `lazyExpansion`, `queries.filmography`, `migration`, `mappers`, `readQueries`, `anilistSource`, `anilistAuth` (OAuth account storage + `requireAccessTokenForUsername`), `listMutations` (dynamic `SaveMediaListEntry` builder), label builders (`mediaDisplayLabel`, `personDisplayLabel`, `anilistItemLabel`, `mediaSort`), and filters (`filters`, `characterStaffFilters`, `staffRoleFilter`).
 - **Local source DB / OPFS** (`lib/db/__tests__/`): `client`, `workerInit`, `dbWorkerCore`, `dbExec`, `dbTransport`, `opfs` / `opfsLock` / `opfsInstallRetry`, `migration-runner`, `sync`, `syncManifest`, `merge` (row-level pull merge).
 - **AniList UI** (`components/__tests__/`): `AnilistDetailModal`, `StaffDetailModal` (lazy expand / refresh / my-list toggle / stale warning / middle-click), `ItemThumb`, `StagedItemsPanel` (engine split button + confirmation default for single ranked sublist), `FilterBar`, `listScreenH`, `compareScreenH`.
 - **Anime to Anime** (`animeToAnime/__tests__/`): `cachedGraph` (0–1 BFS shortest-path), `listFilter`, `pathHopLabels`, `vaCreditDisplay`, `preferences`.
-- **Anime Tools** (`tools/__tests__/`): `sharedCreditsLogic` / `sharedCreditsApi`, `sharedStaffLogic` / `sharedStaffRelatedAnime`, `seasonalScoresLogic` / `seasonalScoresApi`, `franchiseScoresLogic` / `franchiseScoresApi`, `adaptationScoresLogic` / `adaptationScoresApi`, `statsLogic` / `statsApi`, `weeklyCalendarLogic` / `weeklyCalendarApi`, `favouritesLogic` / `favouritesApi`, `updateListEntryLogic` / `updateListEntryApi`, `parseToolLines`, `staffRoleBuckets`, `toolsDisplayRelabel`, `toolsFetchPolicy`.
+- **Anime Tools** (`tools/__tests__/`): `sharedCreditsLogic` / `sharedCreditsApi`, `sharedStaffLogic` / `sharedStaffRelatedAnime`, `seasonalScoresLogic` / `seasonalScoresApi` / `seasonalMalApi` / `SeasonalScoresPanel`, `scoreComparisonLogic` / `ScoreComparisonPanel`, `ToolUserChipsField`, `toolQueryCache` / `SharedQueryStaging`, `franchiseScoresLogic` / `franchiseScoresApi`, `adaptationScoresLogic` / `adaptationScoresApi`, `statsLogic` / `statsApi`, `weeklyCalendarLogic` / `weeklyCalendarApi`, `favouritesLogic` / `favouritesApi`, `updateListEntryLogic` / `updateListEntryApi`, `parseToolLines`, `staffRoleBuckets`, `toolsDisplayRelabel`, `toolsFetchPolicy`.
 - **Hooks** (`hooks/__tests__/`): `useAnilistWaitCountdown` (rate-limit countdown).
 
 ## Save-file format & migration
@@ -1007,6 +1121,8 @@ Loaders accept any version 1–4. The upgrade path is deliberately minimal and s
 - **v3 → current**: `unplaced` is dropped on load; any items sitting in the "to be inserted" bucket disappear.
 - The undo ring is upgraded entry-by-entry the same way.
 
+**Optional fields without a version bump** — `versions` (see [Version history](#version-history)) is an optional trailing key, absent when a sort has none. Older v4 readers ignore it, and malformed entries are dropped on load. It is kept as the **last** key because autosave compares blobs as JSON strings. Merge progress may also carry `currentAutoInsert.alternatingBounds` / `upperAnchorId` (see [Auto-insert](#auto-insert-merge-engine)), and frames without them keep the old drain order.
+
 The next write persists the blob as v4. Older builds that only understand v1 / v2 / v3 will **not** be able to read v4 blobs (the version check is strict — download a JSON copy first if you need to roll back). Rationale for the lossy upgrades: this is a personal-scale app; the simplification was worth more than per-version translation shims.
 
 ## Project layout
@@ -1021,13 +1137,20 @@ src/
                         # VA/production/filmography hop buttons, path trail,
                         # WinScreen, AnimeToAnimeSettingsMenu, cachedGraph 0–1 BFS)
   tools/                # Anime Tools (ToolsApp.tsx, ToolsHeader, ToolsSettingsMenu,
-                        # ToolTabs, ToolRunButton, ToolUsernameField, toolEntityLinks)
-    panels/             # SharedCreditsPanel, SharedStaffPanel, SeasonalScoresPanel,
-                        # FranchiseScoresPanel, AdaptationScoresPanel, StatsPanel,
-                        # WeeklyCalendarPanel, FavouritesPanel,
+                        # ToolTabs, ToolRunButton, ToolUsernameField, toolEntityLinks
+                        # incl. MalShowLink, ToolUserChipsField + toolUserHistory
+                        # (multi-user chips), ToolQueryStaging + toolQueryCache
+                        # (staged queries, 30-day match cache), ToolClearableTextarea,
+                        # scoreComparisonFitStore (User Scores fit → gear menu))
+    panels/             # SharedCreditsPanel, SharedStaffPanel, SeasonalScoresPanel
+                        # (+ seasonalMalApi for mal: users), ScoreComparisonPanel
+                        # (User Scores), FranchiseScoresPanel, AdaptationScoresPanel,
+                        # StatsPanel, WeeklyCalendarPanel, FavouritesPanel,
                         # ReorderFavouritesPanel, UpdateListEntryPanel
                         # + *Logic.ts / *Api.ts per tool
-    toolsPreferences.ts # global Tools prefs (productionAllRoles)
+    toolsPreferences.ts # global Tools prefs (productionAllRoles, Seasonal Scores
+                        # repeats / span seasons / include MAL scores, Weekly Calendar
+                        # toggles, User Scores rescale target, Bump Chart options)
     toolTypes.ts        # ToolId union + active-tab localStorage
     __tests__/          # per-tool logic/api suites
   main.tsx, App.tsx, styles.css, lib/appRoutes.ts
@@ -1057,6 +1180,9 @@ src/
                         # snapshotProgress, restoreProgress, pickLeft/Right, hide/unhide,
                         # addItem, addItems, finalizeCompletedState, seedAsDoneMerge)
     csv.ts              # canonical key, header detection, parse, dedup
+    sortVersions.ts     # version history: auto-record / live upsert / diff / import merge
+    sortVersionShape.ts # version normalization (import-cycle-free, used by storage)
+    importFileKind.ts   # sniff single-slot save vs backup archive (drop targets)
     storage.ts          # isAutosaveAvailable, slot CRUD, upgradeProgress (v1/v2/v3 → v4),
                         # migrateLegacyIfNeeded, repairManifestIfCorrupt,
                         # scheduleAutosave/flushAutosave/discardPendingAutosave,
@@ -1099,7 +1225,10 @@ src/
                         # CompareScreen (engine indicator + cancel-placement;
                         #   delegates to ConfirmationCompareScreen),
                         # ConfirmationCompareScreen (asymmetric confirm layout),
-                        # ResultScreen (+ Add items, + Share link), ItemCard,
+                        # ResultScreen (+ Add items, + Share link, Save version /
+                        #   Versions), SortVersionsModal, SortHistoryPage
+                        #   (version history editor), ThemeSongPreviewPlayer
+                        #   (AnisongDB preview), ItemCard,
                         # ItemThumb (shared image + onError-fallback initials),
                         # Modal (shared dialog shell: focus trap / Escape /
                         #        restore-focus / role+aria),
@@ -1125,7 +1254,7 @@ src/
 ## Roadmap
 
 - **AniList integration** — import lists/favourites into a local OPFS SQLite cache, filter + stage to sort, media/staff detail panels, Drive backup of the cache, and OAuth for your own list mutations. (Shipped — see [Importing from AniList](#importing-from-anilist), [AniList detail panels](#anilist-detail-panels), [Local source database](#local-source-database-anilist-cache), and [AniList accounts](#anilist-accounts).) Design notes live in `.cursor/plans/`.
-- **Anime Tools** — shared credits/staff comparison, seasonal score charts, franchise relation walks, adaptation mapping, list statistics (Stats), favourites VA ranking, and Update List Entry mutations. (Shipped — see [Anime Tools — tabs](#anime-tools--tabs).)
+- **Anime Tools** — shared credits/staff comparison, seasonal score charts (multi-user, plus `mal:` lists), multi-user score comparison (User Scores), franchise relation walks, adaptation mapping, list statistics (Stats), favourites VA ranking, and Update List Entry mutations. (Shipped — see [Anime Tools — tabs](#anime-tools--tabs).)
 - Additional import sources beyond AniList, reusing the same per-source SQLite cache layer.
 
 ## License
