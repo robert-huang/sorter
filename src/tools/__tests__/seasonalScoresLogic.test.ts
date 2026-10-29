@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { AnilistMediaSource } from '../../lib/importers/anilist/types';
 import {
+  applySeasonalFormatFilters,
+  applySeasonalGenreFilters,
+  discoverSeasonalGenres,
+  normalizeSeasonalStringFilters,
   applySeasonalListStatusFilters,
   applySeasonalSeasonYearFilters,
   applySeasonalSourceFilters,
@@ -54,6 +58,53 @@ const sampleShows: SeasonalShow[] = [
     notes: null,
   },
 ];
+
+describe('seasonal genre and format filters', () => {
+  const shows: SeasonalShow[] = [
+    { ...sampleShows[0]!, genres: ['Action', 'Drama'], format: 'TV' },
+    { ...sampleShows[1]!, genres: ['Comedy'], format: 'MOVIE' },
+    { ...sampleShows[2]!, genres: [], format: null },
+  ];
+
+  it('keeps every show when nothing is selected', () => {
+    expect(applySeasonalGenreFilters(shows, [])).toHaveLength(3);
+    expect(applySeasonalFormatFilters(shows, [])).toHaveLength(3);
+  });
+
+  it('matches shows with any selected genre', () => {
+    expect(applySeasonalGenreFilters(shows, ['Drama', 'Comedy']).map((s) => s.id)).toEqual([
+      1, 2,
+    ]);
+  });
+
+  it('matches shows with a selected format', () => {
+    expect(applySeasonalFormatFilters(shows, ['MOVIE']).map((s) => s.id)).toEqual([2]);
+  });
+
+  it('applies both in buildSeasonalColumns', () => {
+    const result = buildSeasonalColumns(
+      shows,
+      {
+        username: 'u',
+        seasonText: 'Winter 2024',
+        seasonMode: 'custom',
+        skipEmpty: false,
+        airingNotesOnly: false,
+        notesFilter: '#airing',
+        includePlanning: false,
+        spanAiringSeasons: false,
+      },
+      { genreFilters: ['Action', 'Comedy'], formatFilters: ['TV'] },
+    );
+    expect(result.kind === 'columns' && result.columns[0]!.shows.map((s) => s.id)).toEqual([1]);
+  });
+
+  it('discovers genres and ignores malformed persisted values', () => {
+    expect(discoverSeasonalGenres(shows)).toEqual(['Action', 'Comedy', 'Drama']);
+    expect(normalizeSeasonalStringFilters(['TV', 3, 'TV'])).toEqual(['TV']);
+    expect(normalizeSeasonalStringFilters('TV')).toEqual([]);
+  });
+});
 
 describe('seasonalScoresLogic', () => {
   it('parseSeasonLine maps Autumn to Fall', () => {

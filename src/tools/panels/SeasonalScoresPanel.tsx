@@ -10,11 +10,16 @@ import { fetchUserSeasonalShows, bustSeasonalSessionMemo } from './seasonalScore
 import {
   buildSeasonalColumns,
   countSeasonalShowsBySourceBucket,
-  DEFAULT_SEASONAL_SEASON_YEAR_FILTER,
   DEFAULT_SEASONAL_SOURCE_FILTERS,
-  DEFAULT_SEASONAL_YEAR_FILTERS,
+  applySeasonalFormatFilters,
+  applySeasonalGenreFilters,
   applySeasonalListStatusFilters,
   applySeasonalSeasonYearFilters,
+  countSeasonalShowsBy,
+  discoverSeasonalGenres,
+  normalizeSeasonalStringFilters,
+  type SeasonalFormatFilters,
+  type SeasonalGenreFilters,
   applySeasonalSourceFilters,
   applySeasonalYearFilters,
   discoverSeasonalSeasonYearEncoded,
@@ -52,6 +57,7 @@ import {
 } from '../../lib/importers/anilist/anilistLinks';
 import { AnilistMiddleClickLink } from '../../lib/importers/anilist/AnilistMiddleClickLink';
 import {
+  formatOptionsForType,
   MultiSelectChip,
   normalizeSeasonYearRangeToOptions,
   seasonYearOptionsForSelectedYears,
@@ -67,6 +73,7 @@ const LS_PRIMARY_FILTERS_KEY = 'anime-tools-seasonal-scores-primary-filters';
 /** @deprecated migrated into {@link LS_KEY} */
 const LS_SEASON_TEXT_KEY = 'anime-tools-seasonal-scores-season-text';
 const DEFAULT_NOTES_FILTER = '#airing';
+const ANIME_FORMAT_OPTIONS: readonly string[] = formatOptionsForType('ANIME');
 
 const DEFAULT_FORM: SeasonalScoresForm = {
   username: '',
@@ -124,53 +131,51 @@ type PersistedPrimaryFilters = {
   seasonYearMax?: unknown;
   listStatuses?: unknown;
   years?: unknown;
+  genres?: unknown;
+  formats?: unknown;
 };
 
-function loadPrimaryFilters(): {
+type PrimaryFilters = {
   seasonYearFilter: SeasonalSeasonYearFilter;
   listStatusFilters: SeasonalListStatusFilters;
   yearFilters: SeasonalYearFilters;
-} {
+  genreFilters: SeasonalGenreFilters;
+  formatFilters: SeasonalFormatFilters;
+};
+
+function parsePrimaryFilters(parsed: PersistedPrimaryFilters): PrimaryFilters {
+  return {
+    seasonYearFilter: normalizeSeasonalSeasonYearFilter({
+      seasonYearMin: parsed.seasonYearMin,
+      seasonYearMax: parsed.seasonYearMax,
+    }),
+    listStatusFilters: normalizeSeasonalListStatusFilters(parsed.listStatuses),
+    yearFilters: normalizeSeasonalYearFilters(parsed.years),
+    genreFilters: normalizeSeasonalStringFilters(parsed.genres),
+    formatFilters: normalizeSeasonalStringFilters(parsed.formats),
+  };
+}
+
+function loadPrimaryFilters(): PrimaryFilters {
   try {
     const raw = localStorage.getItem(LS_PRIMARY_FILTERS_KEY);
-    if (!raw) {
-      return {
-        seasonYearFilter: { ...DEFAULT_SEASONAL_SEASON_YEAR_FILTER },
-        listStatusFilters: normalizeSeasonalListStatusFilters(undefined),
-        yearFilters: [...DEFAULT_SEASONAL_YEAR_FILTERS],
-      };
-    }
-    const parsed = JSON.parse(raw) as PersistedPrimaryFilters;
-    return {
-      seasonYearFilter: normalizeSeasonalSeasonYearFilter({
-        seasonYearMin: parsed.seasonYearMin,
-        seasonYearMax: parsed.seasonYearMax,
-      }),
-      listStatusFilters: normalizeSeasonalListStatusFilters(parsed.listStatuses),
-      yearFilters: normalizeSeasonalYearFilters(parsed.years),
-    };
+    return parsePrimaryFilters(raw ? (JSON.parse(raw) as PersistedPrimaryFilters) : {});
   } catch {
-    return {
-      seasonYearFilter: { ...DEFAULT_SEASONAL_SEASON_YEAR_FILTER },
-      listStatusFilters: normalizeSeasonalListStatusFilters(undefined),
-      yearFilters: [...DEFAULT_SEASONAL_YEAR_FILTERS],
-    };
+    return parsePrimaryFilters({});
   }
 }
 
-function savePrimaryFilters(
-  seasonYearFilter: SeasonalSeasonYearFilter,
-  listStatusFilters: SeasonalListStatusFilters,
-  yearFilters: SeasonalYearFilters,
-): void {
+function savePrimaryFilters(filters: PrimaryFilters): void {
   try {
     localStorage.setItem(
       LS_PRIMARY_FILTERS_KEY,
       JSON.stringify({
-        seasonYearMin: seasonYearFilter.seasonYearMin,
-        seasonYearMax: seasonYearFilter.seasonYearMax,
-        listStatuses: listStatusFilters,
-        years: yearFilters,
+        seasonYearMin: filters.seasonYearFilter.seasonYearMin,
+        seasonYearMax: filters.seasonYearFilter.seasonYearMax,
+        listStatuses: filters.listStatusFilters,
+        years: filters.yearFilters,
+        genres: filters.genreFilters,
+        formats: filters.formatFilters,
       }),
     );
   } catch {
@@ -424,6 +429,12 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
     useState<SeasonalListStatusFilters>(
       initialPrimaryFilters.listStatusFilters,
     );
+  const [genreFilters, setGenreFilters] = useState<SeasonalGenreFilters>(
+    initialPrimaryFilters.genreFilters,
+  );
+  const [formatFilters, setFormatFilters] = useState<SeasonalFormatFilters>(
+    initialPrimaryFilters.formatFilters,
+  );
   const [cachedShows, setCachedShows] = useState<SeasonalShow[] | null>(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -488,12 +499,20 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
     setSeasonYearFilter(persisted.seasonYearFilter);
     setYearFilters(persisted.yearFilters);
     setListStatusFilters(persisted.listStatusFilters);
+    setGenreFilters(persisted.genreFilters);
+    setFormatFilters(persisted.formatFilters);
     primaryFiltersUsernameRef.current = handle;
   }, [relabeledCachedShows, form.username]);
 
   useEffect(() => {
-    savePrimaryFilters(seasonYearFilter, listStatusFilters, yearFilters);
-  }, [seasonYearFilter, listStatusFilters, yearFilters]);
+    savePrimaryFilters({
+      seasonYearFilter,
+      listStatusFilters,
+      yearFilters,
+      genreFilters,
+      formatFilters,
+    });
+  }, [seasonYearFilter, listStatusFilters, yearFilters, genreFilters, formatFilters]);
 
   const buildColumns = useCallback(
     (shows: SeasonalShow[]) =>
@@ -508,6 +527,8 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
           yearFilters,
           seasonYearFilter,
           listStatusFilters,
+          genreFilters,
+          formatFilters,
           sourceFilters,
           includeRepeats: toolsPreferences.seasonalScoresShowRepeats,
         },
@@ -519,6 +540,8 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
       yearFilters,
       seasonYearFilter,
       listStatusFilters,
+      genreFilters,
+      formatFilters,
       toolsPreferences.seasonalScoresShowRepeats,
       toolsPreferences.seasonalScoresSpanAiringSeasons,
     ],
@@ -603,30 +626,69 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
       ? null
       : applySeasonalYearFilters(relabeledCachedShows, yearFilters).length;
 
-  const visibleListStatusCount =
-    relabeledCachedShows == null
-      ? null
-      : applySeasonalListStatusFilters(
-          applySeasonalSeasonYearFilters(
-            applySeasonalYearFilters(relabeledCachedShows, yearFilters),
-            seasonYearFilter,
-          ),
-          listStatusFilters,
-        ).length;
+  // Shows left after each chip, applied in buildSeasonalColumns order.
+  const visibleCounts = useMemo(() => {
+    if (relabeledCachedShows == null) {
+      return null;
+    }
+    let shows = applySeasonalSeasonYearFilters(
+      applySeasonalYearFilters(relabeledCachedShows, yearFilters),
+      seasonYearFilter,
+    );
+    shows = applySeasonalListStatusFilters(shows, listStatusFilters);
+    const listStatus = shows.length;
+    shows = applySeasonalGenreFilters(shows, genreFilters);
+    const genre = shows.length;
+    shows = applySeasonalFormatFilters(shows, formatFilters);
+    const format = shows.length;
+    const source = applySeasonalSourceFilters(shows, sourceFilters).length;
+    return { listStatus, genre, format, source };
+  }, [
+    relabeledCachedShows,
+    yearFilters,
+    seasonYearFilter,
+    listStatusFilters,
+    genreFilters,
+    formatFilters,
+    sourceFilters,
+  ]);
+  const visibleListStatusCount = visibleCounts?.listStatus ?? null;
+  const visibleSourceCount = visibleCounts?.source ?? null;
 
-  const visibleSourceCount =
-    relabeledCachedShows == null
-      ? null
-      : applySeasonalSourceFilters(
-          applySeasonalListStatusFilters(
-            applySeasonalSeasonYearFilters(
-              applySeasonalYearFilters(relabeledCachedShows, yearFilters),
-              seasonYearFilter,
-            ),
-            listStatusFilters,
+  const genreOptions = useMemo(
+    () => (relabeledCachedShows == null ? [] : discoverSeasonalGenres(relabeledCachedShows)),
+    [relabeledCachedShows],
+  );
+
+  const genreFilterCounts = useMemo(
+    () =>
+      relabeledCachedShows == null
+        ? null
+        : countSeasonalShowsBy(relabeledCachedShows, (show) => show.genres ?? []),
+    [relabeledCachedShows],
+  );
+
+  const formatFilterCounts = useMemo(
+    () =>
+      relabeledCachedShows == null
+        ? null
+        : countSeasonalShowsBy(relabeledCachedShows, (show) =>
+            show.format ? [show.format] : [],
           ),
-          sourceFilters,
-        ).length;
+    [relabeledCachedShows],
+  );
+
+  const formatGenreFilterOption = useCallback(
+    (genre: string) =>
+      genreFilterCounts ? `${genre} (${genreFilterCounts.get(genre) ?? 0})` : genre,
+    [genreFilterCounts],
+  );
+
+  const formatFormatFilterOption = useCallback(
+    (format: string) =>
+      formatFilterCounts ? `${format} (${formatFilterCounts.get(format) ?? 0})` : format,
+    [formatFilterCounts],
+  );
 
   const sourceFilterCounts = useMemo(() => {
     if (!relabeledCachedShows) {
@@ -758,6 +820,32 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
               setListStatusFilters((prev) => toggleInArray(prev, status))
             }
             onReplaceAll={(statuses) => setListStatusFilters([...statuses])}
+          />
+          <MultiSelectChip
+            label="genre"
+            options={genreOptions}
+            selected={genreFilters}
+            formatOption={formatGenreFilterOption}
+            menuStatus={
+              relabeledCachedShows != null && visibleCounts != null
+                ? `${visibleCounts.genre} of ${relabeledCachedShows.length}`
+                : undefined
+            }
+            onToggle={(genre) => setGenreFilters((prev) => toggleInArray(prev, genre))}
+            onReplaceAll={(genres) => setGenreFilters([...genres])}
+          />
+          <MultiSelectChip<string>
+            label="format"
+            options={ANIME_FORMAT_OPTIONS}
+            selected={formatFilters}
+            formatOption={formatFormatFilterOption}
+            menuStatus={
+              relabeledCachedShows != null && visibleCounts != null
+                ? `${visibleCounts.format} of ${relabeledCachedShows.length}`
+                : undefined
+            }
+            onToggle={(format) => setFormatFilters((prev) => toggleInArray(prev, format))}
+            onReplaceAll={(formats) => setFormatFilters([...formats])}
           />
         </div>
 

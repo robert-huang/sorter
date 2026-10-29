@@ -709,6 +709,20 @@ export async function readUserListMediaIdsFromDb(
  * Seasonal scores source after authenticated import — list entry notes and
  * hidden custom-list entries live here, not in `Page.mediaList`.
  */
+function parseSeasonalGenres(raw: unknown): string[] {
+  if (typeof raw !== 'string' || raw === '') {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((genre): genre is string => typeof genre === 'string')
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 export async function readUserSeasonalShowsFromDb(
   db: AnilistDbExecutor,
   anilistUserId: number,
@@ -723,6 +737,8 @@ export async function readUserSeasonalShowsFromDb(
             m.season,
             m.season_year,
             m.source,
+            m.format,
+            m.genres_json,
             m.start_year,
             m.start_month,
             m.start_day,
@@ -757,6 +773,8 @@ export async function readUserSeasonalShowsFromDb(
     season: (row.season as string | null) ?? null,
     seasonYear: row.season_year != null ? Number(row.season_year) : null,
     source: (row.source as SeasonalShow['source']) ?? null,
+    format: (row.format as string | null) ?? null,
+    genres: parseSeasonalGenres(row.genres_json),
     startDate:
       row.start_year != null
         ? {

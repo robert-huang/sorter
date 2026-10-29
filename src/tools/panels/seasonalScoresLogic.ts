@@ -1,4 +1,4 @@
-import { encodeSeasonYear } from '../../lib/importers/anilist/filters';
+import { compareGenres, encodeSeasonYear } from '../../lib/importers/anilist/filters';
 import { anilistMediaSourceLabel } from '../../lib/importers/anilist/mediaSourceLabel';
 import { parseLinesOnePerLine } from '../parseToolLines';
 import type { AnilistMediaSeason, AnilistMediaSource } from '../../lib/importers/anilist/types';
@@ -27,6 +27,9 @@ export type SeasonalShow = {
   listStatus?: string | null;
   /** AniList MediaSource (ORIGINAL, LIGHT_NOVEL, …) — null when not yet imported. */
   source?: AnilistMediaSource | null;
+  /** AniList MediaFormat (TV, MOVIE, …). */
+  format?: string | null;
+  genres?: string[];
 };
 
 export type SeasonSpec = {
@@ -183,6 +186,67 @@ export function applySeasonalListStatusFilters(
     const status = show.listStatus;
     return status != null && allowed.has(status);
   });
+}
+
+/** Selected genres; empty means every genre. A show matches when it has any selected genre. */
+export type SeasonalGenreFilters = string[];
+
+/** Selected AniList formats; empty means every format. */
+export type SeasonalFormatFilters = string[];
+
+/** Coerce persisted values into a string selection (genre / format chips). */
+export function normalizeSeasonalStringFilters(raw: unknown): string[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return [...new Set(raw.filter((value): value is string => typeof value === 'string'))];
+}
+
+export function applySeasonalGenreFilters(
+  shows: SeasonalShow[],
+  selected: SeasonalGenreFilters,
+): SeasonalShow[] {
+  if (selected.length === 0) {
+    return shows;
+  }
+  const allowed = new Set(selected);
+  return shows.filter((show) => (show.genres ?? []).some((genre) => allowed.has(genre)));
+}
+
+export function applySeasonalFormatFilters(
+  shows: SeasonalShow[],
+  selected: SeasonalFormatFilters,
+): SeasonalShow[] {
+  if (selected.length === 0) {
+    return shows;
+  }
+  const allowed = new Set(selected);
+  return shows.filter((show) => show.format != null && allowed.has(show.format));
+}
+
+/** Distinct genres on the list, in the importer's genre chip order. */
+export function discoverSeasonalGenres(shows: readonly SeasonalShow[]): string[] {
+  const genres = new Set<string>();
+  for (const show of shows) {
+    for (const genre of show.genres ?? []) {
+      genres.add(genre);
+    }
+  }
+  return [...genres].sort(compareGenres);
+}
+
+/** Show count per value, for `name (count)` chip labels. */
+export function countSeasonalShowsBy(
+  shows: readonly SeasonalShow[],
+  valuesOf: (show: SeasonalShow) => readonly string[],
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const show of shows) {
+    for (const value of valuesOf(show)) {
+      counts.set(value, (counts.get(value) ?? 0) + 1);
+    }
+  }
+  return counts;
 }
 
 /** Distinct AniList season years, newest first for the checkbox chip. */
@@ -928,6 +992,8 @@ export type BuildSeasonalColumnsOptions = {
   seasonYearFilter?: SeasonalSeasonYearFilter;
   /** Client-side list-status filter (instant toggle over cached shows). */
   listStatusFilters?: SeasonalListStatusFilters;
+  genreFilters?: SeasonalGenreFilters;
+  formatFilters?: SeasonalFormatFilters;
   /** Client-side adaptation-source filter (instant toggle over cached shows). */
   sourceFilters?: SeasonalSourceFilters;
   /** Weight each rated score by total watches and expose repeat counts. */
@@ -952,6 +1018,8 @@ export function buildSeasonalColumns(
     filteredShows,
     options?.listStatusFilters ?? DEFAULT_SEASONAL_LIST_STATUS_FILTERS,
   );
+  filteredShows = applySeasonalGenreFilters(filteredShows, options?.genreFilters ?? []);
+  filteredShows = applySeasonalFormatFilters(filteredShows, options?.formatFilters ?? []);
   filteredShows = applySeasonalSourceFilters(
     filteredShows,
     options?.sourceFilters ?? DEFAULT_SEASONAL_SOURCE_FILTERS,
