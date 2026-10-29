@@ -477,14 +477,11 @@ export function ScoreComparisonPanel({ onOpenMedia }: ToolPanelProps) {
     mediaType: ComparisonMediaType;
   } | null>(null);
   const mediaType = compared?.mediaType ?? settings.mediaType;
-  // Removing a user drops their column right away; additions wait for Compare.
-  const usernames = useMemo(
-    () =>
-      (compared?.usernames ?? []).filter((name) =>
-        settings.usernames.some((current) => userKey(current) === userKey(name)),
-      ),
-    [compared, settings.usernames],
-  );
+  // Removing or reordering users updates the columns right away; additions wait for Compare.
+  const usernames = useMemo(() => {
+    const comparedKeys = new Set((compared?.usernames ?? []).map(userKey));
+    return settings.usernames.filter((name) => comparedKeys.has(userKey(name)));
+  }, [compared, settings.usernames]);
   const compare = () => {
     for (const name of settings.usernames) load(name, settings.mediaType, false);
     setCompared({ usernames: settings.usernames, mediaType: settings.mediaType });
@@ -593,6 +590,7 @@ export function ScoreComparisonPanel({ onOpenMedia }: ToolPanelProps) {
           onAdd={addUser}
           onRemove={removeUser}
           onRefresh={refresh}
+          onReorder={(next) => patch({ usernames: next })}
         />
         <div className="tool-score-compare-options">
           <label className="tool-field tool-field-label-row tool-score-compare-min-lists-field">

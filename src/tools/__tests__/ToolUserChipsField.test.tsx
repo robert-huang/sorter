@@ -1,7 +1,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ToolUserChipsField } from '../ToolUserChipsField';
+import { ToolUserChipsField, moveToGap } from '../ToolUserChipsField';
 import {
   TOOL_USER_HISTORY_LS_KEY,
   forgetToolUser,
@@ -136,5 +136,70 @@ describe('ToolUserChipsField history dropdown', () => {
     expect(options()).toEqual(['alice']);
     key('Escape');
     expect(options()).toEqual([]);
+  });
+});
+
+describe('moveToGap', () => {
+  it('moves an item into the gap before the target index', () => {
+    expect(moveToGap(['a', 'b', 'c'], 0, 2)).toEqual(['b', 'a', 'c']);
+    expect(moveToGap(['a', 'b', 'c'], 0, 3)).toEqual(['b', 'c', 'a']);
+    expect(moveToGap(['a', 'b', 'c'], 2, 0)).toEqual(['c', 'a', 'b']);
+  });
+});
+
+describe('ToolUserChipsField drag reorder', () => {
+  function renderReorderable(usernames: string[]) {
+    const onReorder = vi.fn();
+    act(() => {
+      root.render(
+        <ToolUserChipsField
+          inputName="test-user"
+          usernames={usernames}
+          isLoading={() => false}
+          onAdd={vi.fn()}
+          onRemove={vi.fn()}
+          onRefresh={vi.fn()}
+          onReorder={onReorder}
+        />,
+      );
+    });
+    return onReorder;
+  }
+
+  const chips = () => [...container.querySelectorAll<HTMLElement>('.tool-user-chip')];
+
+  // jsdom has no DragEvent; chips have a zero-size rect, so clientX < 0 means "left half".
+  function fire(target: HTMLElement, type: string, clientX = 0): void {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX });
+    Object.defineProperty(event, 'dataTransfer', {
+      value: { effectAllowed: '', setData: () => {} },
+    });
+    act(() => {
+      target.dispatchEvent(event);
+    });
+  }
+
+  it('drops a chip into the gap left of the target', () => {
+    const onReorder = renderReorderable(['Alice', 'Bob', 'Carol']);
+    fire(chips()[2], 'dragstart');
+    fire(chips()[0], 'dragover', -1);
+    expect(chips()[0].classList).toContain('drop-before');
+    fire(chips()[0], 'drop', -1);
+    expect(onReorder).toHaveBeenCalledWith(['Carol', 'Alice', 'Bob']);
+    expect(chips().some((chip) => chip.classList.contains('dragging'))).toBe(false);
+  });
+
+  it('ignores drops that would not move the chip', () => {
+    const onReorder = renderReorderable(['Alice', 'Bob', 'Carol']);
+    fire(chips()[0], 'dragstart');
+    fire(chips()[1], 'dragover', -1);
+    expect(chips()[1].classList).not.toContain('drop-before');
+    fire(chips()[1], 'drop', -1);
+    expect(onReorder).not.toHaveBeenCalled();
+  });
+
+  it('is not draggable without onReorder', () => {
+    renderField(['Alice', 'Bob']);
+    expect(chips()[0].getAttribute('draggable')).toBe('false');
   });
 });

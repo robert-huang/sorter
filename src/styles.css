@@ -11555,6 +11555,36 @@ a:where(.anime-to-anime-anilist-link):visited {
   box-sizing: border-box;
 }
 
+.tool-user-chip[draggable='true'] {
+  position: relative;
+  cursor: grab;
+}
+
+.tool-user-chip.dragging {
+  opacity: 0.4;
+}
+
+/* Insertion marker drawn in the 8px gap between chips. */
+.tool-user-chip.drop-before::before,
+.tool-user-chip.drop-after::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.tool-user-chip.drop-before::before {
+  left: -6px;
+}
+
+.tool-user-chip.drop-after::after {
+  right: -6px;
+}
+
 .tool-user-chip-remove {
   display: inline-flex;
   padding: 2px;
