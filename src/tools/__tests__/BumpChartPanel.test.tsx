@@ -470,6 +470,181 @@ describe('BumpChartPanel staging flow', () => {
     expect(previousName?.textContent).toBe('1. Spring rankings');
   });
 
+  it('imports two picked sort versions as columns, oldest first', async () => {
+    const alpha = { id: 'AAAAAAAAAAAAAQ', label: 'Alpha' };
+    const beta = { id: 'BBBBBBBBBBBBBQ', label: 'Beta' };
+    const state = seedAsSorted([alpha, beta]);
+    const version = (createdAt: string, order: Item[]) => ({
+      id: `v-${createdAt}`,
+      createdAt,
+      rankedIds: order.map((it) => it.id),
+      items: Object.fromEntries(order.map((it) => [it.id, { label: it.label }])),
+    });
+    const created = createSlot(
+      {
+        items: state.items,
+        progress: state,
+        undoRing: [],
+        versions: [
+          version('2026-10-01T09:00:00', [beta, alpha]),
+          version('2026-10-09T09:00:00', [alpha, beta]),
+        ],
+      },
+      'Versioned',
+    );
+    expect(created).not.toBeNull();
+    await act(async () => {
+      root.render(
+        <BumpChartPanel dbSyncRevision={0} onOpenMedia={vi.fn()} onOpenStaff={vi.fn()} />,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    await act(async () => {
+      button('Import ranked items', 1).click();
+    });
+    const resultsTab = button('Results');
+    if (resultsTab.getAttribute('aria-selected') !== 'true') {
+      await act(async () => resultsTab.click());
+    }
+    await act(async () => {
+      document.querySelector<HTMLInputElement>('[aria-label="Select Versioned"]')!.click();
+    });
+    const versionBoxes = Array.from(
+      document.querySelectorAll<HTMLInputElement>('.sort-results-import-versions input'),
+    );
+    // Newest first in the checklist.
+    expect(
+      Array.from(document.querySelectorAll('.sort-results-import-versions label'), (l) =>
+        l.textContent?.replace(/\s+/g, ' '),
+      ),
+    ).toEqual(['2026-10-09 09:00 · 2 items', '2026-10-01 09:00 · 2 items']);
+    // Selecting the save checks every version.
+    expect(versionBoxes.map((box) => box.checked)).toEqual([true, true]);
+    await act(async () => {
+      button('Import ranked items (4)').click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const names = Array.from(
+      container.querySelectorAll<HTMLElement>('.bump-chart-import-card'),
+      (card) => card.querySelector('.bump-chart-order-name-button')?.textContent,
+    );
+    expect(names.slice(1)).toEqual(['2. Versioned · 2026-10-01', '3. Versioned · 2026-10-09']);
+    const cardText = (index: number): string =>
+      container.querySelectorAll<HTMLElement>('.bump-chart-import-card')[index]?.textContent ?? '';
+    expect(cardText(0)).toContain('0 staged');
+    expect(cardText(1)).toContain('2 staged');
+    expect(cardText(2)).toContain('2 staged');
+  });
+
+  it('inserts picked sort versions at the clicked column instead of the end', async () => {
+    const alpha = { id: 'AAAAAAAAAAAAAQ', label: 'Alpha' };
+    const beta = { id: 'BBBBBBBBBBBBBQ', label: 'Beta' };
+    const state = seedAsSorted([alpha, beta]);
+    const version = (createdAt: string, order: Item[]) => ({
+      id: `v-${createdAt}`,
+      createdAt,
+      rankedIds: order.map((it) => it.id),
+      items: Object.fromEntries(order.map((it) => [it.id, { label: it.label }])),
+    });
+    createSlot(
+      {
+        items: state.items,
+        progress: state,
+        undoRing: [],
+        versions: [
+          version('2026-10-01T09:00:00', [beta, alpha]),
+          version('2026-10-09T09:00:00', [alpha, beta]),
+        ],
+      },
+      'Versioned',
+    );
+    await act(async () => {
+      root.render(
+        <BumpChartPanel dbSyncRevision={0} onOpenMedia={vi.fn()} onOpenStaff={vi.fn()} />,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    await act(async () => {
+      button('Import ranked items', 0).click();
+    });
+    const resultsTab = button('Results');
+    if (resultsTab.getAttribute('aria-selected') !== 'true') {
+      await act(async () => resultsTab.click());
+    }
+    await act(async () => {
+      document.querySelector<HTMLInputElement>('[aria-label="Select Versioned"]')!.click();
+    });
+    await act(async () => {
+      button('Import ranked items (4)').click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const cards = Array.from(
+      container.querySelectorAll<HTMLElement>('.bump-chart-import-card'),
+    );
+    const names = cards.map(
+      (card) => card.querySelector('.bump-chart-order-name-button')?.textContent,
+    );
+    expect(names.slice(0, 2)).toEqual(['1. Versioned · 2026-10-01', '2. Versioned · 2026-10-09']);
+    expect(cards).toHaveLength(3);
+    expect(cards[0]!.textContent).toContain('2 staged');
+    expect(cards[1]!.textContent).toContain('2 staged');
+    expect(cards[2]!.textContent).toContain('0 staged');
+  });
+
+  it('imports a single picked sort version into the clicked column', async () => {
+    const alpha = { id: 'AAAAAAAAAAAAAQ', label: 'Alpha' };
+    const beta = { id: 'BBBBBBBBBBBBBQ', label: 'Beta' };
+    const state = seedAsSorted([alpha, beta]);
+    createSlot(
+      {
+        items: state.items,
+        progress: state,
+        undoRing: [],
+        versions: [
+          {
+            id: 'v-1',
+            createdAt: '2026-10-01T09:00:00',
+            rankedIds: [beta.id, alpha.id],
+            items: { [alpha.id]: { label: 'Alpha' }, [beta.id]: { label: 'Beta' } },
+          },
+        ],
+      },
+      'Versioned',
+    );
+    await act(async () => {
+      root.render(
+        <BumpChartPanel dbSyncRevision={0} onOpenMedia={vi.fn()} onOpenStaff={vi.fn()} />,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    await act(async () => {
+      button('Import ranked items', 0).click();
+    });
+    const resultsTab = button('Results');
+    if (resultsTab.getAttribute('aria-selected') !== 'true') {
+      await act(async () => resultsTab.click());
+    }
+    await act(async () => {
+      document.querySelector<HTMLInputElement>('[aria-label="Select Versioned"]')!.click();
+    });
+    await act(async () => {
+      button('Import ranked items (2)').click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const cards = Array.from(
+      container.querySelectorAll<HTMLElement>('.bump-chart-import-card'),
+    );
+    expect(cards).toHaveLength(2);
+    expect(cards[0]!.textContent).toContain('2 staged');
+    expect(cards[1]!.textContent).toContain('0 staged');
+  });
+
   it('right-click imports a sorter slot as a new trailing order without changing existing orders', async () => {
     createCompletedSlot('Imported rankings', 'imported', [
       {

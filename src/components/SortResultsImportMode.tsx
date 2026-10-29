@@ -24,16 +24,19 @@ import {
   slotImportOverlayKey,
   slotImportSourceLabel,
   slotImportStatusLabel,
+  versionImportsForSlot,
   type SlotImportEntry,
   type SlotImportExcludedRows,
   type SlotImportOverlayMap,
+  type SlotRankingImport,
 } from '../lib/slotResultsImport';
+import { formatSortVersionDate } from '../lib/sortVersions';
 import {
   isStatePersistenceAvailable,
   refreshSorterStorageFromIndexedDb,
 } from '../lib/storage';
 import { STATE_REVISION_KEY } from '../lib/stateStorageDb';
-import type { Item, SlotsManifest } from '../lib/types';
+import type { Item, SlotsManifest, SortVersion } from '../lib/types';
 import {
   CloudSlotSortControls,
   filterCloudSlotRows,
@@ -46,14 +49,53 @@ import { EditItemModal, type EditItemSavePayload } from './EditItemModal';
 import { RemoveGlyph } from './RemoveGlyph';
 import type { StagedGroupInput } from './StagedItemsPanel';
 
-export interface OrderedSlotImport {
-  source: string;
-  slotName: string;
-  items: Item[];
-}
+export type OrderedSlotImport = SlotRankingImport;
 
 interface PreparedCloudImport extends OrderedSlotImport {
   asPreRanked: boolean;
+}
+
+/** Per-save picked version ids (version-picking variant). */
+type VersionPicks = Readonly<Record<string, ReadonlySet<string>>>;
+const NO_PICKS: ReadonlySet<string> = new Set();
+
+function toggleVersionPick(
+  picks: VersionPicks,
+  slotId: string,
+  versionId: string,
+  on: boolean,
+): VersionPicks {
+  const next = new Set(picks[slotId]);
+  if (on) next.add(versionId);
+  else next.delete(versionId);
+  return { ...picks, [slotId]: next };
+}
+
+/** Checks every version of a save the first time it is selected; later manual picks stick. */
+function withAllVersionsPicked(picks: VersionPicks, entry: SlotImportEntry): VersionPicks {
+  if (picks[entry.meta.id] !== undefined || !entry.versions?.length) return picks;
+  return { ...picks, [entry.meta.id]: new Set(entry.versions.map((v) => v.id)) };
+}
+
+/** Picked versions when any are checked; otherwise the save's current ranking. */
+function rankingImportsForEntry(
+  entry: SlotImportEntry,
+  picks: ReadonlySet<string> | undefined,
+  source: string,
+  slotName: string,
+  items: Item[],
+): SlotRankingImport[] {
+  if (picks?.size) return versionImportsForSlot(entry, picks, source, slotName);
+  if (items.length === 0) return [];
+  return [
+    {
+      source,
+      slotName,
+      items,
+      createdAt: entry.meta.updatedAt,
+      ...(entry.versions ? { versions: entry.versions } : {}),
+    },
+  ];
 }
 
 const NEW_ORDER_IMPORT_TOOLTIP =
@@ -83,6 +125,13 @@ type SortResultsImportModeProps = {
   showBrowserSortControls?: boolean;
   /** App-owned manifest; updates when the asynchronous storage boot completes. */
   browserSaveManifest?: SlotsManifest;
+  /**
+   * Ordered-import consumers only: saves with recorded versions list them as a
+   * checklist, and checked versions import instead of the current ranking.
+   */
+  pickVersions?: boolean;
+  /** With `pickVersions`: selecting a save checks all of its versions. */
+  autoPickAllVersions?: boolean;
 } & (
   | {
       onAppendToStaged: (groups: StagedGroupInput[]) => void;
@@ -163,7 +212,12 @@ export function SortResultsImportMode({
   selectionMode = 'multiple',
   showBrowserSortControls = false,
   browserSaveManifest,
+  pickVersions: pickVersionsProp = false,
+  autoPickAllVersions = false,
 }: SortResultsImportModeProps) {
+  const pickVersions = pickVersionsProp && onImportOrderedItems !== undefined;
+  const autoPick = pickVersions && autoPickAllVersions;
+  const [versionPicks, setVersionPicks] = useState<VersionPicks>({});
   const [revision, setRevision] = useState(0);
   const [cloudOpen, setCloudOpen] = useState(false);
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
@@ -252,12 +306,17 @@ export function SortResultsImportMode({
       setAsPreRanked((prev) =>
         prev[id] === undefined ? { ...prev, [id]: true } : prev,
       );
+      const entry = autoPick ? importable.find((e) => e.meta.id === id) : undefined;
+      if (entry) setVersionPicks((prev) => withAllVersionsPicked(prev, entry));
     }
     onDraftActivity?.();
-  }, [onDraftActivity, selectionMode]);
+  }, [onDraftActivity, selectionMode, autoPick, importable]);
 
   const selectAllImportable = useCallback(() => {
     setSelected(new Set(importable.map((e) => e.meta.id)));
+    if (autoPick) {
+      setVersionPicks((prev) => importable.reduce(withAllVersionsPicked, prev));
+    }
     setAsPreRanked((prev) => {
       const next = { ...prev };
       for (const e of importable) {
@@ -266,19 +325,42 @@ export function SortResultsImportMode({
       return next;
     });
     onDraftActivity?.();
-  }, [importable, onDraftActivity]);
+  }, [importable, onDraftActivity, autoPick]);
 
   const clearSelection = useCallback(() => {
     setSelected(new Set());
   }, []);
 
+  const orderedImportsFor = useCallback(
+    (entry: SlotImportEntry): SlotRankingImport[] =>
+      rankingImportsForEntry(
+        entry,
+        pickVersions ? versionPicks[entry.meta.id] : undefined,
+        slotImportSourceLabel(entry.meta),
+        entry.meta.name,
+        effectiveItemsForEntry(entry),
+      ),
+    [pickVersions, versionPicks, effectiveItemsForEntry],
+  );
+
   const addableCount = useMemo(() => {
     let total = 0;
     for (const entry of selectedImportable) {
-      total += effectiveItemsForEntry(entry).length;
+      total += pickVersions
+        ? orderedImportsFor(entry).reduce((n, imp) => n + imp.items.length, 0)
+        : effectiveItemsForEntry(entry).length;
     }
     return total;
-  }, [selectedImportable, effectiveItemsForEntry]);
+  }, [selectedImportable, effectiveItemsForEntry, orderedImportsFor, pickVersions]);
+
+  const toggleVersion = useCallback(
+    (slotId: string, versionId: string, on: boolean) => {
+      setVersionPicks((prev) => toggleVersionPick(prev, slotId, versionId, on));
+      if (on) toggleSelected(slotId, true);
+      onDraftActivity?.();
+    },
+    [toggleSelected, onDraftActivity],
+  );
 
   function setSlotPreRanked(id: string, value: boolean): void {
     setAsPreRanked((prev) => ({ ...prev, [id]: value }));
@@ -423,11 +505,7 @@ export function SortResultsImportMode({
         : onImportOrderedItems;
       if (!importOrderedItems) return;
       const imports = selectedImportable
-        .map((entry) => ({
-          source: slotImportSourceLabel(entry.meta),
-          slotName: entry.meta.name,
-          items: effectiveItemsForEntry(entry),
-        }))
+        .flatMap(orderedImportsFor)
         .filter((entry) => entry.items.length > 0);
       if (imports.length > 0) {
         importOrderedItems(imports);
@@ -435,6 +513,7 @@ export function SortResultsImportMode({
         setExpandedId(null);
         setOverrides(new Map());
         setExcluded(new Set());
+        setVersionPicks({});
       }
       if (!asNewOrders) onComplete?.();
       return;
@@ -489,11 +568,7 @@ export function SortResultsImportMode({
           : onImportOrderedItems;
         if (!importOrderedItems) return;
         importOrderedItems(
-          imports.map(({ source, slotName, items }) => ({
-            source,
-            slotName,
-            items,
-          })),
+          imports.map(({ asPreRanked: _asPreRanked, ...rest }) => rest),
         );
       } else if (onAppendToStaged) {
         onAppendToStaged(
@@ -570,6 +645,8 @@ export function SortResultsImportMode({
       onTogglePreRanked={(value) => setSlotPreRanked(entry.meta.id, value)}
       onEditItem={openEdit}
       onRemoveItem={removePreviewItem}
+      versionPicks={pickVersions ? (versionPicks[entry.meta.id] ?? NO_PICKS) : undefined}
+      onToggleVersion={(versionId, on) => toggleVersion(entry.meta.id, versionId, on)}
     />
   );
 
@@ -621,6 +698,8 @@ export function SortResultsImportMode({
           hiddenRestoreIds={hiddenRestoreIds}
           showPreRankedToggle={showPreRankedToggle}
           selectionMode={selectionMode}
+          pickVersions={pickVersions}
+          autoPickAllVersions={autoPick}
           onDraftActivity={onDraftActivity}
           onBack={() => setCloudOpen(false)}
           onImport={handleCloudImports}
@@ -719,6 +798,12 @@ export function SortResultsImportMode({
                 }
                 onEditItem={openEdit}
                 onRemoveItem={removePreviewItem}
+                versionPicks={
+                  pickVersions ? (versionPicks[entry.meta.id] ?? NO_PICKS) : undefined
+                }
+                onToggleVersion={(versionId, on) =>
+                  toggleVersion(entry.meta.id, versionId, on)
+                }
               />
             ))}
           </ul>
@@ -828,6 +913,8 @@ function CloudResultsPicker({
   hiddenRestoreIds,
   showPreRankedToggle,
   selectionMode,
+  pickVersions,
+  autoPickAllVersions,
   onDraftActivity,
   onBack,
   onImport,
@@ -838,11 +925,14 @@ function CloudResultsPicker({
   hiddenRestoreIds?: Set<string>;
   showPreRankedToggle: boolean;
   selectionMode: 'multiple' | 'single';
+  pickVersions: boolean;
+  autoPickAllVersions: boolean;
   onDraftActivity?: () => void;
   onBack: () => void;
   onImport: (imports: PreparedCloudImport[]) => void;
   onImportAsNewOrders?: (imports: PreparedCloudImport[]) => void;
 }) {
+  const [versionPicks, setVersionPicks] = useState<VersionPicks>({});
   const [rows, setRows] = useState<CloudPickerRow[] | null>(null);
   const [listError, setListError] = useState<string | null>(null);
   const [authMessage, setAuthMessage] = useState<string | null>(null);
@@ -960,13 +1050,37 @@ function CloudResultsPicker({
     [overrides, excluded, existingIds, hiddenRestoreIds],
   );
 
+  const rowNameFor = useCallback(
+    (entry: SlotImportEntry): string => {
+      const cloudId = entry.meta.id.slice('cloud:'.length);
+      return rows?.find((row) => row.meta.cloudId === cloudId)?.meta.displayName ?? entry.meta.name;
+    },
+    [rows],
+  );
+
+  const orderedImportsFor = useCallback(
+    (entry: SlotImportEntry): SlotRankingImport[] => {
+      const name = rowNameFor(entry);
+      return rankingImportsForEntry(
+        entry,
+        pickVersions ? versionPicks[entry.meta.id] : undefined,
+        `Cloud sort: ${name}`,
+        name,
+        effectiveItemsForEntry(entry),
+      );
+    },
+    [rowNameFor, pickVersions, versionPicks, effectiveItemsForEntry],
+  );
+
   const addableCount = useMemo(
     () =>
       selectedEntries.reduce(
-        (count, entry) => count + effectiveItemsForEntry(entry).length,
+        (count, entry) =>
+          count +
+          orderedImportsFor(entry).reduce((n, imp) => n + imp.items.length, 0),
         0,
       ),
-    [selectedEntries, effectiveItemsForEntry],
+    [selectedEntries, orderedImportsFor],
   );
 
   const toggleSelected = useCallback(
@@ -978,10 +1092,14 @@ function CloudResultsPicker({
         setAsPreRanked((prev) =>
           prev[id] === undefined ? { ...prev, [id]: true } : prev,
         );
+        const entry = autoPickAllVersions
+          ? loadedEntries.find((e) => e.meta.id === id)
+          : undefined;
+        if (entry) setVersionPicks((prev) => withAllVersionsPicked(prev, entry));
       }
       onDraftActivity?.();
     },
-    [onDraftActivity, selectionMode],
+    [onDraftActivity, selectionMode, autoPickAllVersions, loadedEntries],
   );
 
   const loadCloudSlot = useCallback(
@@ -1023,6 +1141,10 @@ function CloudResultsPicker({
           ) ?? null,
         );
         if (entry.status === 'importable') {
+          // The freshly pulled entry is not in `loadedEntries` yet.
+          if (autoPickAllVersions) {
+            setVersionPicks((prev) => withAllVersionsPicked(prev, entry));
+          }
           toggleSelected(id, true);
         }
       } catch (error: unknown) {
@@ -1042,7 +1164,7 @@ function CloudResultsPicker({
         );
       }
     },
-    [toggleSelected],
+    [toggleSelected, autoPickAllVersions],
   );
 
   const buildOtherIds = useCallback(
@@ -1126,30 +1248,25 @@ function CloudResultsPicker({
 
   const buildPreparedImports = useCallback(
     (): PreparedCloudImport[] =>
-      selectedEntries
-        .map((entry): PreparedCloudImport | null => {
-          const items = effectiveItemsForEntry(entry);
-          if (items.length === 0) return null;
-          const cloudId = entry.meta.id.slice('cloud:'.length);
-          const row = rows?.find(
-            (candidate) => candidate.meta.cloudId === cloudId,
-          );
-          return {
-            source: `Cloud sort: ${row?.meta.displayName ?? entry.meta.name}`,
-            slotName: row?.meta.displayName ?? entry.meta.name,
-            items,
+      selectedEntries.flatMap((entry) =>
+        orderedImportsFor(entry)
+          .filter((imp) => imp.items.length > 0)
+          .map((imp) => ({
+            ...imp,
             asPreRanked:
               showPreRankedToggle && (asPreRanked[entry.meta.id] ?? true),
-          };
-        })
-        .filter((entry): entry is PreparedCloudImport => entry !== null),
-    [
-      selectedEntries,
-      effectiveItemsForEntry,
-      rows,
-      showPreRankedToggle,
-      asPreRanked,
-    ],
+          })),
+      ),
+    [selectedEntries, orderedImportsFor, showPreRankedToggle, asPreRanked],
+  );
+
+  const toggleVersion = useCallback(
+    (slotId: string, versionId: string, on: boolean) => {
+      setVersionPicks((prev) => toggleVersionPick(prev, slotId, versionId, on));
+      if (on) toggleSelected(slotId, true);
+      onDraftActivity?.();
+    },
+    [toggleSelected, onDraftActivity],
   );
 
   const submit = useCallback(() => {
@@ -1220,6 +1337,8 @@ function CloudResultsPicker({
                   }
                   onEditItem={openEdit}
                   onRemoveItem={removePreviewItem}
+                  versionPicks={pickVersions ? (versionPicks[id] ?? NO_PICKS) : undefined}
+                  onToggleVersion={(versionId, on) => toggleVersion(id, versionId, on)}
                 />
               );
             }
@@ -1289,6 +1408,7 @@ function CloudResultsPicker({
                     setExpandedId(null);
                     setOverrides(new Map());
                     setExcluded(new Set());
+                    setVersionPicks({});
                   }
                 }
               : undefined
@@ -1311,6 +1431,49 @@ function CloudResultsPicker({
   );
 }
 
+function SlotVersionChecklist({
+  slotId,
+  versions,
+  picks,
+  onToggle,
+}: {
+  slotId: string;
+  versions: readonly SortVersion[];
+  picks: ReadonlySet<string>;
+  onToggle: (versionId: string, on: boolean) => void;
+}) {
+  const newestFirst = [...versions].reverse();
+  return (
+    <fieldset
+      className="sort-results-import-versions"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <legend className="header-hint">
+        {picks.size > 0
+          ? `${picks.size} version${picks.size === 1 ? '' : 's'} selected — each imports in date order`
+          : 'Versions — none checked imports the current ranking'}
+      </legend>
+      {newestFirst.map((version) => {
+        const inputId = `sort-import-version-${slotId}-${version.id}`;
+        return (
+          <div key={version.id} className="checkbox-row">
+            <input
+              id={inputId}
+              type="checkbox"
+              checked={picks.has(version.id)}
+              onChange={(e) => onToggle(version.id, e.target.checked)}
+            />
+            <label htmlFor={inputId}>
+              {formatSortVersionDate(version.createdAt, true)} · {version.rankedIds.length} item
+              {version.rankedIds.length === 1 ? '' : 's'}
+            </label>
+          </div>
+        );
+      })}
+    </fieldset>
+  );
+}
+
 function SlotImportRow({
   entry,
   selected,
@@ -1328,6 +1491,8 @@ function SlotImportRow({
   onTogglePreRanked,
   onEditItem,
   onRemoveItem,
+  versionPicks,
+  onToggleVersion,
 }: {
   entry: SlotImportEntry;
   selected: boolean;
@@ -1345,9 +1510,14 @@ function SlotImportRow({
   onTogglePreRanked: (value: boolean) => void;
   onEditItem: (slotId: string, index: number) => void;
   onRemoveItem: (slotId: string, index: number) => void;
+  /** Set only in the version-picking variant. */
+  versionPicks?: ReadonlySet<string>;
+  onToggleVersion?: (versionId: string, on: boolean) => void;
 }) {
   const importable = entry.status === 'importable';
   const slotId = entry.meta.id;
+  const showVersions =
+    importable && versionPicks !== undefined && (entry.versions?.length ?? 0) > 0;
 
   const previewRows = useMemo(() => {
     if (!entry.items) return [];
@@ -1480,6 +1650,15 @@ function SlotImportRow({
       )}
 
       {warning && <p className="error-text">{warning}</p>}
+
+      {showVersions && (selected || expanded) && (
+        <SlotVersionChecklist
+          slotId={slotId}
+          versions={entry.versions!}
+          picks={versionPicks!}
+          onToggle={(versionId, on) => onToggleVersion?.(versionId, on)}
+        />
+      )}
 
       {importable && expanded && entry.items && (
         <ol className="sort-results-import-preview">

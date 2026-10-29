@@ -5,7 +5,8 @@ import {
   readSlotBlob,
   type AutosaveBlob,
 } from './storage';
-import type { Item, SlotMeta, SlotsManifest, SortState } from './types';
+import { formatSortVersionDate } from './sortVersionShape';
+import type { Item, SlotMeta, SlotsManifest, SortState, SortVersion } from './types';
 
 export type SlotImportStatus =
   | 'importable'
@@ -21,6 +22,62 @@ export interface SlotImportEntry {
   itemCount: number;
   /** Populated only when status is `importable`. */
   items: Item[] | null;
+  /** Recorded rankings carried by the save, oldest first; only when importable. */
+  versions?: SortVersion[];
+}
+
+/** One ordered ranking pulled from a save: its current ranking or one recorded version. */
+export interface SlotRankingImport {
+  source: string;
+  slotName: string;
+  items: Item[];
+  /** Version date, or the save's last-modified time for its current ranking. */
+  createdAt?: string;
+  /** Set when this import is a recorded version rather than the save's current ranking. */
+  versionId?: string;
+  /** The save's own version history; only on current-ranking imports. */
+  versions?: SortVersion[];
+}
+
+/**
+ * Picked versions of a save, oldest first, named `<slot> · <date>`. Dates that
+ * collide within the pick add the time. Live item metadata (source, ids) is kept
+ * where the item still exists; label, url and image come from the snapshot.
+ */
+export function versionImportsForSlot(
+  entry: SlotImportEntry,
+  versionIds: ReadonlySet<string>,
+  source: string,
+  slotName: string,
+): SlotRankingImport[] {
+  const picked = (entry.versions ?? [])
+    .filter((v) => versionIds.has(v.id))
+    .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+  const dateCounts = new Map<string, number>();
+  for (const v of picked) {
+    const day = formatSortVersionDate(v.createdAt);
+    dateCounts.set(day, (dateCounts.get(day) ?? 0) + 1);
+  }
+  const live = new Map((entry.items ?? []).map((it) => [it.id, it]));
+  return picked.map((v) => {
+    const sharesDate = (dateCounts.get(formatSortVersionDate(v.createdAt)) ?? 0) > 1;
+    const items = v.rankedIds.map((id): Item => {
+      const snap = v.items[id]!;
+      const item: Item = { ...live.get(id), id, label: snap.label };
+      if (snap.url) item.url = snap.url;
+      else delete item.url;
+      if (snap.imageUrl) item.imageUrl = snap.imageUrl;
+      else delete item.imageUrl;
+      return item;
+    });
+    return {
+      source,
+      slotName: `${slotName} · ${formatSortVersionDate(v.createdAt, sharesDate)}`,
+      items,
+      createdAt: v.createdAt,
+      versionId: v.id,
+    };
+  });
 }
 
 export interface SlotImportOptions {
@@ -143,7 +200,16 @@ export function classifySlotImport(
   if (items.length === 0) {
     return { meta, status: 'empty', itemCount: 0, items: null };
   }
-  return { meta, status: 'importable', itemCount: items.length, items };
+  return withEntryVersions(
+    { meta, status: 'importable', itemCount: items.length, items },
+    blob,
+  );
+}
+
+function withEntryVersions(entry: SlotImportEntry, blob: AutosaveBlob): SlotImportEntry {
+  return entry.status === 'importable' && blob.versions?.length
+    ? { ...entry, versions: blob.versions }
+    : entry;
 }
 
 /** Classify a downloaded Drive body without creating or reading a local slot. */
@@ -158,7 +224,7 @@ export function classifyCloudSlotImport(
     : items.length === 0
       ? 'empty'
       : 'importable';
-  return {
+  return withEntryVersions({
     meta: {
       id: cloudSlotImportId(cloudMeta.cloudId),
       name: cloudMeta.displayName,
@@ -171,7 +237,7 @@ export function classifyCloudSlotImport(
     status,
     itemCount: status === 'importable' ? items.length : 0,
     items: status === 'importable' ? items : null,
-  };
+  }, blob);
 }
 
 /**

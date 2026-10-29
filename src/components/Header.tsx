@@ -88,6 +88,8 @@ interface Props {
    *  gear-menu Saved-sorts header. Wired in App to "navigate to the
    *  START tab"; the START screen owns the actual mint flow. */
   onNewSort: () => void;
+  /** Gear menu "Version history…" page — enabled only while the sort is done. */
+  onImportVersionHistory: () => void;
 }
 
 
@@ -141,6 +143,7 @@ export function Header({
   onCloudPushAllSlots,
   onCloudPullAllSlots,
   onNewSort,
+  onImportVersionHistory,
 }: Props) {
   // `remaining` feeds the optional "~K left" suffix on the toolbar stats
   // label. The progress bar that used to live in the header has moved into
@@ -391,6 +394,8 @@ export function Header({
             onCloudPushAllSlots={onCloudPushAllSlots}
             onCloudPullAllSlots={onCloudPullAllSlots}
             onNewSort={onNewSort}
+            onImportVersionHistory={onImportVersionHistory}
+            canImportVersionHistory={state?.done === true}
           />
         </div>
       </header>

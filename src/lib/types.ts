@@ -395,6 +395,8 @@ export interface CommaInLabelWarning {
  * translated from their legacy names. See `upgradeProgress` in
  * storage.ts for the per-version acceptable-loss summary. On the next
  * write the blob is persisted as v4.
+ *
+ * `versions` is likewise optional and additive (stays on v4).
  */
 export interface SaveFile {
   version: 1 | 2 | 3 | 4;
@@ -402,6 +404,24 @@ export interface SaveFile {
   items: Record<ItemId, Item>;
   progress: SortProgress;
   undoRing: SortProgress[];
+  versions?: SortVersion[];
+}
+
+/** Display fields copied into a version so it still renders after the item is renamed or removed. */
+export type SortVersionItem = Pick<Item, 'label' | 'imageUrl' | 'url'>;
+
+/**
+ * Snapshot of a finished ranking. Frozen versions are recorded when the sort reaches done
+ * or on Save version; the newest may instead be `live`, tracking edits to the finished sort.
+ */
+export interface SortVersion {
+  id: string;
+  createdAt: string;
+  /** Best→worst. */
+  rankedIds: ItemId[];
+  items: Record<ItemId, SortVersionItem>;
+  /** Only ever on the newest version: updated in place instead of appended. */
+  live?: true;
 }
 
 /**

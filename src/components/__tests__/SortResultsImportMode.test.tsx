@@ -336,6 +336,7 @@ describe('SortResultsImportMode cloud entry point', () => {
       {
         source: 'Cloud sort: Drive rankings',
         slotName: 'Drive rankings',
+        createdAt: '2026-01-01T00:00:00.000Z',
         items: [
           { id: 'a', label: 'Alpha' },
           { id: 'b', label: 'Beta' },

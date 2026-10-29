@@ -117,6 +117,8 @@ interface Props {
   onImportOrderedItems?: (imports: OrderedSlotImport[]) => void;
   /** Bump Chart shortcut: import each selected slot as a new trailing order. */
   onImportOrderedItemsAsNewOrders?: (imports: OrderedSlotImport[]) => void;
+  /** Ordered imports only: saves with recorded versions import them, all checked by default. */
+  pickSortVersions?: boolean;
 }
 
 export function AddItemsModal({
@@ -136,6 +138,7 @@ export function AddItemsModal({
   onAddSlotImports,
   onImportOrderedItems,
   onImportOrderedItemsAsNewOrders,
+  pickSortVersions = false,
 }: Props) {
   const [tab, setTab] = useState<AddItemsModalTab>(
     () => initialTab ?? readLastAddItemsTab(),
@@ -251,6 +254,8 @@ export function AddItemsModal({
             onImportOrderedItemsAsNewOrders={
               onImportOrderedItemsAsNewOrders
             }
+            pickVersions={pickSortVersions}
+            autoPickAllVersions={pickSortVersions}
             onComplete={onCancel}
           />
         ) : (

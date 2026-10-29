@@ -33,7 +33,7 @@ import type {
   CloudSlotMeta,
 } from '../cloud';
 import { parseDisplayNameFromFilename } from '../cloud';
-import type { AutosaveBlob } from '../storage';
+import { withSortVersions, type AutosaveBlob } from '../storage';
 
 // ---------- config ----------
 
@@ -1375,6 +1375,7 @@ function buildCloudFileContent(blob: AutosaveBlob): {
   items: AutosaveBlob['items'];
   progress: AutosaveBlob['progress'];
   undoRing: AutosaveBlob['undoRing'];
+  versions?: AutosaveBlob['versions'];
 } {
   return {
     version: 3,
@@ -1382,6 +1383,7 @@ function buildCloudFileContent(blob: AutosaveBlob): {
     items: blob.items,
     progress: blob.progress,
     undoRing: blob.undoRing,
+    ...(blob.versions?.length ? { versions: blob.versions } : {}),
   };
 }
 
@@ -1419,15 +1421,19 @@ function parseCloudBlob(json: unknown): AutosaveBlob {
     items?: unknown;
     progress?: unknown;
     undoRing?: unknown;
+    versions?: unknown;
   };
   if (!obj.items || !obj.progress) {
     throw new Error('Pulled file is missing required fields.');
   }
-  return {
-    items: obj.items as AutosaveBlob['items'],
-    progress: obj.progress as AutosaveBlob['progress'],
-    undoRing: Array.isArray(obj.undoRing) ? (obj.undoRing as AutosaveBlob['undoRing']) : [],
-  };
+  return withSortVersions(
+    {
+      items: obj.items as AutosaveBlob['items'],
+      progress: obj.progress as AutosaveBlob['progress'],
+      undoRing: Array.isArray(obj.undoRing) ? (obj.undoRing as AutosaveBlob['undoRing']) : [],
+    },
+    obj.versions,
+  );
 }
 
 // ---------- gapi/picker ambient types ----------

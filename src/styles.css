@@ -301,6 +301,334 @@ html {
   border-radius: 4px;
 }
 
+.sort-history-import-drop {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 10px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 6px;
+}
+
+.sort-history-import-drop.is-import-drop-target {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.sort-history-import-errors {
+  margin: 4px 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.sort-history-import-rows {
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sort-history-import-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.sort-history-import-row > * {
+  margin: 0;
+  line-height: 20px;
+}
+
+.sort-history-import-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sort-history-import-row:has(.sort-history-version-detail) {
+  flex-wrap: wrap;
+}
+
+.sort-history-version-toggle {
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sort-history-version-toggle:hover {
+  text-decoration: underline;
+}
+
+.sort-history-version-detail {
+  flex: 1 0 100%;
+  padding-left: 160px;
+}
+
+.sort-history-import-count {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* Keeps rows without a delete button aligned with those that have one. */
+.sort-history-import-action-spacer {
+  flex: 0 0 auto;
+  width: 28px;
+}
+
+.sort-history-page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* Beats the later `.page h2` bottom margin for this header only. */
+.sort-history-page .sort-history-page-head h2 {
+  margin: 0;
+}
+
+.sort-history-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.sort-history-footer .sort-history-import-preview {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+}
+
+.sort-history-footer-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* Fixed-width column so dates line up across rows. */
+.date-time-field-display,
+.date-time-field-editor {
+  flex: 0 0 auto;
+  width: 150px;
+}
+
+.date-time-field-display {
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  cursor: text;
+}
+
+.date-time-field-display:hover:not(:disabled) {
+  border-color: var(--border);
+}
+
+.date-time-field-display:disabled {
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.date-time-field-editor {
+  position: relative;
+}
+
+/* Floats over the rows below so the date column keeps its width and the row its height. */
+.date-time-field-editor .date-time-field-picker {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  width: 190px;
+  background: var(--surface);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.sort-version-count.up {
+  color: var(--success);
+}
+
+.sort-version-count.down {
+  color: var(--danger);
+}
+
+.date-time-field-text,
+.date-time-field-picker {
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface, transparent);
+  color: var(--text);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.date-time-field-text.is-invalid {
+  border-color: var(--danger);
+}
+
+[data-theme='dark'] .date-time-field-picker {
+  color-scheme: dark;
+}
+
+.sort-history-import-row.is-deleted .sort-history-import-name {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+.sort-history-import-preview {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sort-results-import-versions {
+  margin: 4px 0 6px 28px;
+  padding: 4px 0 0;
+  border: none;
+  font-size: 13px;
+}
+
+.sort-results-import-versions .checkbox-row {
+  margin: 2px 0;
+}
+
+.sort-versions-list {
+  max-height: 60vh;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.sort-versions-row {
+  border-bottom: 1px solid var(--border);
+}
+
+.sort-versions-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sort-versions-toggle {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 4px;
+  border: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sort-versions-date {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.sort-versions-count {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.sort-versions-current {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.sort-versions-current {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent-soft, rgba(127, 127, 127, 0.18));
+  white-space: nowrap;
+}
+
+.sort-versions-summary {
+  overflow: hidden;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sort-version-ranking {
+  margin: 0 0 8px;
+  padding: 0 0 0 24px;
+  list-style: none;
+  font-size: 13px;
+}
+
+.sort-version-ranking-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.sort-version-ranking-row .rank-num {
+  min-width: 2.5em;
+  color: var(--text-faint);
+  text-align: right;
+}
+
+.sort-version-change {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.sort-version-change.up {
+  color: var(--success);
+}
+
+.sort-version-change.down {
+  color: var(--danger);
+}
+
+.sort-version-removed {
+  margin: -4px 0 8px;
+  padding: 6px 0 0 24px;
+  border-top: 1px dashed var(--border);
+  list-style: none;
+  font-size: 13px;
+}
+
+.sort-version-removed .sort-version-ranking-label {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.sort-version-change.removed {
+  color: var(--danger);
+}
+
 .share-kind-fieldset {
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -5756,6 +6084,12 @@ a:where(.anime-to-anime-anilist-link):visited {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.result-export-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .result-bottom {

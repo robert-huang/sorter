@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { SlotResultsImportBatch } from '../lib/completedSortEditH';
-import type { Item, SortState } from '../lib/types';
+import type { Item, SortState, SortVersion } from '../lib/types';
 import { comparisonsRemaining, getRanking } from '../lib/engine';
 import {
   activeRankingIds,
@@ -9,8 +9,10 @@ import {
   rankingSlotIds,
 } from './listScreenH';
 import { AddItemsModal } from './AddItemsModal';
+import { CopyIcon, DownloadIcon } from './icons';
 import { ItemThumb } from './ItemThumb';
 import { ShareLinkModal } from './ShareLinkModal';
+import { SortVersionsModal } from './SortVersionsModal';
 
 interface Props {
   state: SortState;
@@ -60,6 +62,17 @@ interface Props {
   onAddPreRanked?: (items: Item[]) => void;
   /** Results tab — multiple saved slots in one state update. */
   onAddSlotImports: (batches: SlotResultsImportBatch[]) => void;
+  /** Recorded rankings, oldest first. */
+  versions?: readonly SortVersion[];
+  onDeleteVersion?: (id: string) => void;
+  /** Records the current ranking as a version; omitted hides the button. */
+  onSaveVersion?: () => void;
+  /** The newest version is frozen and already matches the current ranking. */
+  currentIsSavedVersion?: boolean;
+  /** Runs before the versions list opens, so the live version is up to date. */
+  onOpenVersions?: () => void;
+  /** Right-click on Versions: the version history page. */
+  onOpenVersionHistory?: () => void;
 }
 
 
@@ -88,6 +101,34 @@ function downloadText(text: string, filename: string, mime: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+function CopyButton({
+  label,
+  copied,
+  onClick,
+}: {
+  label: string;
+  copied: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className="btn result-export-btn"
+      onClick={onClick}
+      aria-label={`Copy as ${label}`}
+      title={`Copy as ${label}`}
+    >
+      {copied ? (
+        '✓ Copied'
+      ) : (
+        <>
+          <CopyIcon size={14} />
+          {label}
+        </>
+      )}
+    </button>
+  );
+}
+
 export function ResultScreen({
   state,
   slotName,
@@ -102,11 +143,18 @@ export function ResultScreen({
   onAddMany,
   onAddPreRanked,
   onAddSlotImports,
+  versions = [],
+  onDeleteVersion,
+  onSaveVersion,
+  currentIsSavedVersion = false,
+  onOpenVersions,
+  onOpenVersionHistory,
 }: Props) {
   const [copied, setCopied] = useState<'csv' | 'md' | 'txt' | null>(null);
   const [showHidden, setShowHidden] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [versionsOpen, setVersionsOpen] = useState(false);
 
   // existingIds powers AddItemsModal de-dup hints. Only ids in ranking
   // slots / in-flight inserts count — not stale catalog leftovers.
@@ -154,22 +202,19 @@ export function ResultScreen({
           <h2>Final ranking</h2>
           <div className="result-export">
             <button
-              className="btn"
+              className="btn result-export-btn"
               onClick={() =>
                 downloadText(csv, `sorter-ranking.csv`, 'text/csv')
               }
+              aria-label="Download CSV"
+              title="Download CSV"
             >
-              Download CSV
+              <DownloadIcon size={14} />
+              CSV
             </button>
-            <button className="btn" onClick={() => copy(md, 'md')}>
-              {copied === 'md' ? '✓ Copied' : 'Copy as Markdown'}
-            </button>
-            <button className="btn" onClick={() => copy(txt, 'txt')}>
-              {copied === 'txt' ? '✓ Copied' : 'Copy as plain text'}
-            </button>
-            <button className="btn" onClick={() => copy(csv, 'csv')}>
-              {copied === 'csv' ? '✓ Copied' : 'Copy as CSV'}
-            </button>
+            <CopyButton label="Markdown" copied={copied === 'md'} onClick={() => copy(md, 'md')} />
+            <CopyButton label="Text" copied={copied === 'txt'} onClick={() => copy(txt, 'txt')} />
+            <CopyButton label="CSV" copied={copied === 'csv'} onClick={() => copy(csv, 'csv')} />
             <button
               className="btn"
               onClick={() => setShareOpen(true)}
@@ -177,6 +222,41 @@ export function ResultScreen({
             >
               Share link
             </button>
+            {onSaveVersion && (
+              <button
+                className="btn"
+                onClick={onSaveVersion}
+                disabled={currentIsSavedVersion}
+                title={
+                  currentIsSavedVersion
+                    ? 'The current ranking is already a saved version'
+                    : 'Keep the current ranking as a fixed version'
+                }
+              >
+                Save version
+              </button>
+            )}
+            {versions.length > 0 && (
+              <button
+                className="btn"
+                onClick={() => {
+                  onOpenVersions?.();
+                  setVersionsOpen(true);
+                }}
+                onContextMenu={(e) => {
+                  if (!onOpenVersionHistory) return;
+                  e.preventDefault();
+                  onOpenVersionHistory();
+                }}
+                title={
+                  onOpenVersionHistory
+                    ? 'Left-click to view saved rankings. Right-click to open version history to edit dates and import older copies.'
+                    : 'Rankings saved when this sort finished or on Save version, plus the current one'
+                }
+              >
+                Versions ({versions.length})
+              </button>
+            )}
           </div>
         </div>
         <ol className="result-list">
@@ -331,6 +411,13 @@ export function ResultScreen({
           ranking={ranking}
           slotName={slotName}
           onClose={() => setShareOpen(false)}
+        />
+      )}
+      {versionsOpen && versions.length > 0 && (
+        <SortVersionsModal
+          versions={versions}
+          onDelete={(id) => onDeleteVersion?.(id)}
+          onClose={() => setVersionsOpen(false)}
         />
       )}
     </div>

@@ -116,6 +116,10 @@ interface Props {
    * screen the user is about to interact with.
    */
   onNewSort: () => void;
+  /** Open the version-history importer for the active sort. */
+  onImportVersionHistory: () => void;
+  /** True when a sort is loaded and done. */
+  canImportVersionHistory: boolean;
 }
 
 /** Persisted tab selection key so reopening the gear menu lands on
@@ -182,6 +186,8 @@ export function SettingsMenu({
   onCloudPushAllSlots,
   onCloudPullAllSlots,
   onNewSort,
+  onImportVersionHistory,
+  canImportVersionHistory,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<GearTab>(() => readPersistedTab());
@@ -405,6 +411,22 @@ export function SettingsMenu({
                     {...restoreBackupDropHandlers}
                   >
                     Restore from backup…
+                  </button>
+                  <button
+                    type="button"
+                    className="settings-item"
+                    disabled={!canImportVersionHistory}
+                    onClick={() => {
+                      setOpen(false);
+                      onImportVersionHistory();
+                    }}
+                    title={
+                      canImportVersionHistory
+                        ? 'Edit version dates and turn archived copies of this sort into versions'
+                        : 'Finish the active sort to edit its version history'
+                    }
+                  >
+                    Version history…
                   </button>
                   {cloudStatus !== 'unavailable' && (
                     <>

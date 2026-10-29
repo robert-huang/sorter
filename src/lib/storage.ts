@@ -7,8 +7,10 @@ import type {
   SlotMeta,
   SlotsManifest,
   SortProgress,
+  SortVersion,
 } from './types';
 import { normalizeConfirmationProgress } from './confirmationSort';
+import { normalizeSortVersions } from './sortVersionShape';
 import { activeSortItemCount } from './sortPopulation';
 import {
   ACTIVE_SORTER_SLOT_KEY,
@@ -98,6 +100,17 @@ export interface AutosaveBlob {
   items: Record<ItemId, Item>;
   progress: SortProgress;
   undoRing: SortProgress[];
+  /** Absent when the sort has no versions; always the last key (see `autosaveBlobsEqual`). */
+  versions?: SortVersion[];
+}
+
+/** Attach normalized versions from a raw save, omitting the key when there are none. */
+export function withSortVersions<T extends Omit<AutosaveBlob, 'versions'>>(
+  blob: T,
+  rawVersions: unknown,
+): T & Pick<AutosaveBlob, 'versions'> {
+  const versions = normalizeSortVersions(rawVersions);
+  return versions ? { ...blob, versions } : blob;
 }
 
 /** Active sort population — used for slot-meta `totalItems`. */
@@ -112,6 +125,7 @@ function buildSaveFile(blob: AutosaveBlob): SaveFile {
     items: blob.items,
     progress: blob.progress,
     undoRing: blob.undoRing,
+    ...(blob.versions?.length ? { versions: blob.versions } : {}),
   };
 }
 
@@ -269,11 +283,14 @@ function queueStateWrite(
 function parseSlotFile(value: unknown): AutosaveBlob | null {
   if (!isLegacySorterSaveFile(value)) return null;
   const file = value as Partial<SaveFile>;
-  return {
-    items: file.items!,
-    progress: upgradeProgress(file.progress!),
-    undoRing: (file.undoRing ?? []).map(upgradeProgress),
-  };
+  return withSortVersions(
+    {
+      items: file.items!,
+      progress: upgradeProgress(file.progress!),
+      undoRing: (file.undoRing ?? []).map(upgradeProgress),
+    },
+    file.versions,
+  );
 }
 
 function sorterManifestRecord(manifest: SlotsManifest): Omit<SlotsManifest, 'activeId'> {
@@ -866,11 +883,14 @@ export function parseSlotBlobRaw(raw: string | null): AutosaveBlob | null {
     ) {
       return null;
     }
-    return {
-      items: file.items,
-      progress: upgradeProgress(file.progress),
-      undoRing: (file.undoRing ?? []).map(upgradeProgress),
-    };
+    return withSortVersions(
+      {
+        items: file.items,
+        progress: upgradeProgress(file.progress),
+        undoRing: (file.undoRing ?? []).map(upgradeProgress),
+      },
+      file.versions,
+    );
   } catch {
     return null;
   }
@@ -1954,11 +1974,14 @@ export async function loadSaveFromFile(file: File): Promise<AutosaveBlob> {
   if (!parsed.items || !parsed.progress) {
     throw new Error('Save file is missing required fields.');
   }
-  return {
-    items: parsed.items,
-    progress: upgradeProgress(parsed.progress),
-    undoRing: (parsed.undoRing ?? []).map(upgradeProgress),
-  };
+  return withSortVersions(
+    {
+      items: parsed.items,
+      progress: upgradeProgress(parsed.progress),
+      undoRing: (parsed.undoRing ?? []).map(upgradeProgress),
+    },
+    parsed.versions,
+  );
 }
 
 // ---------- bulk archive (all slots in one file) ----------
@@ -2140,13 +2163,16 @@ export function importAllSlots(
     // older builds — or hand-edited ones — might carry older shapes.)
     let normalized: AutosaveBlob;
     try {
-      normalized = {
-        items: raw.items,
-        progress: upgradeProgress(raw.progress),
-        undoRing: Array.isArray(raw.undoRing)
-          ? raw.undoRing.map(upgradeProgress)
-          : [],
-      };
+      normalized = withSortVersions(
+        {
+          items: raw.items,
+          progress: upgradeProgress(raw.progress),
+          undoRing: Array.isArray(raw.undoRing)
+            ? raw.undoRing.map(upgradeProgress)
+            : [],
+        },
+        raw.versions,
+      );
     } catch {
       skipped++;
       continue;

@@ -2073,3 +2073,50 @@ describe('sorter quota recovery ordering', () => {
     });
   });
 });
+
+describe('sort versions persistence', () => {
+  const versions = [
+    {
+      id: 'v1',
+      createdAt: '2026-10-01T10:00:00.000Z',
+      rankedIds: ['b', 'a'],
+      items: { a: { label: 'Alpha' }, b: { label: 'Bravo' } },
+    },
+  ];
+
+  it('round-trips versions through a save file and a slot blob', async () => {
+    const blob = { ...makeBlob(1, true), versions };
+    const raw = JSON.stringify({ version: 4, createdAt: 'x', ...blob });
+    expect((await loadSaveFromFile(makeFakeFile(raw))).versions).toEqual(versions);
+    const parsed = parseSlotBlobRaw(raw)!;
+    expect(parsed.versions).toEqual(versions);
+    expect(autosaveBlobsEqual(parsed, blob)).toBe(true);
+  });
+
+  it('carries versions through export all and restore', () => {
+    mintSlot({ ...makeBlob(1, true), versions }, 'Versioned');
+    const result = importAllSlots(exportAllSlots(), 'replace');
+    expect(result.error).toBeUndefined();
+    const [meta] = readManifest().slots;
+    expect(readSlotBlob(meta!.id)?.versions).toEqual(versions);
+  });
+
+  it('loads saves without versions and omits the key', async () => {
+    const raw = JSON.stringify({ version: 4, createdAt: 'x', ...makeBlob(1, true) });
+    const blob = await loadSaveFromFile(makeFakeFile(raw));
+    expect('versions' in blob).toBe(false);
+    expect(autosaveBlobsEqual(blob, makeBlob(1, true))).toBe(true);
+  });
+
+  it('drops malformed versions instead of rejecting the save', async () => {
+    const raw = JSON.stringify({
+      version: 4,
+      createdAt: 'x',
+      ...makeBlob(1, true),
+      versions: [{ createdAt: 'not a date', rankedIds: ['a'], items: { a: { label: 'A' } } }],
+    });
+    const blob = await loadSaveFromFile(makeFakeFile(raw));
+    expect(blob.items.a?.label).toBe('Alpha');
+    expect('versions' in blob).toBe(false);
+  });
+});

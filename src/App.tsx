@@ -8,6 +8,7 @@ import type {
   SlotsManifest,
   SortProgress,
   SortState,
+  SortVersion,
 } from './lib/types';
 import {
   addItem as engineAddItem,
@@ -104,6 +105,14 @@ import {
   updateSettings,
   type ThemeName,
 } from './lib/storage';
+import {
+  appendVersionIfChanged,
+  sameRanking,
+  shouldAutoRecordVersion,
+  snapshotSortVersion,
+  upsertLiveVersion,
+} from './lib/sortVersions';
+import { SortHistoryPage } from './components/SortHistoryPage';
 import {
   STATE_REVISION_KEY,
   getStateStorageStatus,
@@ -202,6 +211,7 @@ const UNDO_CAP = 50;
 interface SavedSession {
   state: SortState;
   undoRing: SortProgress[];
+  versions: readonly SortVersion[];
 }
 
 function deserialize(raw: AutosaveBlob | null): SavedSession | null {
@@ -215,22 +225,35 @@ function deserialize(raw: AutosaveBlob | null): SavedSession | null {
         ? ({ ...raw.progress, items: raw.items } as ConfirmationState)
         : ({ ...raw.progress, items: raw.items } as MergeState);
   const state = normalizeLoadedState(tagged);
-  return { state, undoRing: raw.undoRing ?? [] };
+  return { state, undoRing: raw.undoRing ?? [], versions: raw.versions ?? [] };
 }
 
-function buildBlob(state: SortState, undoRing: SortProgress[]): AutosaveBlob {
+function buildBlob(
+  state: SortState,
+  undoRing: SortProgress[],
+  versions: readonly SortVersion[],
+): AutosaveBlob {
   return {
     items: state.items,
     progress: engineSnapshotProgress(state),
     undoRing,
+    ...(versions.length ? { versions: [...versions] } : {}),
   };
 }
 
 /** Deserialize a slot blob and silently migrate legacy on-disk shapes. */
+/** The parts of a session a version snapshot reads. */
+function ranked(s: SortState): Pick<AutosaveBlob, 'items' | 'progress'> {
+  return { items: s.items, progress: engineSnapshotProgress(s) };
+}
+
 function loadSlotSession(id: string): SavedSession | null {
   const session = deserialize(readSlotBlob(id));
   if (!session) return null;
-  persistCanonicalBlobOnLoad(id, buildBlob(session.state, session.undoRing));
+  persistCanonicalBlobOnLoad(
+    id,
+    buildBlob(session.state, session.undoRing, session.versions),
+  );
   return session;
 }
 
@@ -254,6 +277,8 @@ function bootRead(): { manifest: SlotsManifest } {
 
 export function App() {
   const [autosaveOn, setAutosaveOn] = useState(false);
+  const autosaveOnRef = useRef(false);
+  autosaveOnRef.current = autosaveOn;
   const [stateStorageMessage, setStateStorageMessage] = useState<string | null>(
     null,
   );
@@ -270,6 +295,9 @@ export function App() {
   const [undoRing, setUndoRing] = useState<SortProgress[]>([]);
   const undoRingRef = useRef<SortProgress[]>([]);
   undoRingRef.current = undoRing;
+  const [versions, setVersions] = useState<readonly SortVersion[]>([]);
+  const versionsRef = useRef<readonly SortVersion[]>([]);
+  versionsRef.current = versions;
   const [activeTab, setActiveTab] = useState<TabId>('start');
   // The most recent user interaction that *changed the current pair*. The
   // CompareScreen animation reads this so it knows which side to slide the
@@ -507,15 +535,109 @@ export function App() {
   // -------- autosave: schedule on every state change, flush on tab close --------
   useEffect(() => {
     if (!autosaveOn || !state) return;
-    scheduleAutosave(buildBlob(state, undoRing));
-  }, [state, undoRing, autosaveOn]);
+    scheduleAutosave(buildBlob(state, undoRing, versions));
+  }, [state, undoRing, versions, autosaveOn]);
+
+  // -------- versions: freeze on finish / Save version; the newest tracks edits live --------
+  // Reordering a finished sort records nothing per move. When editing stops (tab or
+  // slot switch, tab hidden or closed, reopening, push) the live version catches up.
+  /** Synchronously commits the live version and queues it for autosave, so a following flush or slot switch persists it. */
+  const commitLiveVersion = useCallback(
+    (from: SortState | null = stateRef.current) => {
+      if (!from?.done) return;
+      const next = upsertLiveVersion(versionsRef.current, ranked(from), new Date());
+      if (next === versionsRef.current) return;
+      versionsRef.current = next;
+      setVersions(next);
+      if (autosaveOnRef.current && from === stateRef.current) {
+        scheduleAutosave(buildBlob(from, undoRingRef.current, next));
+      }
+    },
+    [],
+  );
+
+  const prevDoneForVersionsRef = useRef(false);
+  const prevStateForVersionsRef = useRef<SortState | null>(null);
+  /** The state a slot load installed — a load is not a finish, it only seeds a missing baseline. */
+  const loadedSessionStateRef = useRef<SortState | null>(null);
+  const adoptSessionVersions = useCallback((session: SavedSession) => {
+    loadedSessionStateRef.current = session.state;
+    setVersions(session.versions);
+  }, []);
+  useEffect(() => {
+    const wasDone = prevDoneForVersionsRef.current;
+    const isDone = state?.done === true;
+    prevDoneForVersionsRef.current = isDone;
+    const prevState = prevStateForVersionsRef.current;
+    prevStateForVersionsRef.current = state;
+    const isLoad = state !== null && loadedSessionStateRef.current === state;
+    loadedSessionStateRef.current = null;
+    // Reopening a finished sort stops editing its ranking: keep what it was.
+    if (wasDone && !isDone && !isLoad && state && prevState?.done) {
+      const before = prevState;
+      setVersions((prev) => upsertLiveVersion(prev, ranked(before), new Date()));
+      return;
+    }
+    if (
+      !state ||
+      !shouldAutoRecordVersion({
+        wasDone,
+        isDone,
+        isLoad,
+        hasVersions: versionsRef.current.length > 0,
+      })
+    ) {
+      return;
+    }
+    const done = state;
+    setVersions((prev) => appendVersionIfChanged(prev, ranked(done), new Date()));
+  }, [state]);
+
+  const saveVersionNow = useCallback(() => {
+    const cur = stateRef.current;
+    if (!cur?.done) return;
+    setVersions((prev) => appendVersionIfChanged(prev, ranked(cur), new Date()));
+  }, []);
+
+  /** Save version has nothing to do: the newest version is frozen and matches the ranking. */
+  const currentIsSavedVersion = useMemo(() => {
+    if (!state?.done) return false;
+    const latest = versions[versions.length - 1];
+    const snap = snapshotSortVersion(ranked(state), '');
+    return (
+      latest !== undefined &&
+      !latest.live &&
+      snap !== null &&
+      sameRanking(latest.rankedIds, snap.rankedIds)
+    );
+  }, [state, versions]);
+
+  const [historyImportOpen, setHistoryImportOpen] = useState(false);
+  const openVersionHistory = useCallback(() => {
+    commitLiveVersion();
+    setHistoryImportOpen(true);
+  }, [commitLiveVersion]);
+  // The history page belongs to one finished sort; switching slots or reopening the sort closes it.
+  useEffect(() => {
+    setHistoryImportOpen(false);
+  }, [loadedSlotId]);
+  useEffect(() => {
+    if (!state?.done) setHistoryImportOpen(false);
+  }, [state?.done]);
+
+  const deleteVersion = useCallback((id: string) => {
+    setVersions((prev) => prev.filter((v) => v.id !== id));
+  }, []);
 
   useEffect(() => {
     function onBeforeUnload(): void {
+      commitLiveVersion();
       flushAutosave();
     }
     function onVisibility(): void {
-      if (document.visibilityState === 'hidden') flushAutosave();
+      if (document.visibilityState !== 'hidden') return;
+      commitLiveVersion();
+      flushAutosave();
     }
     window.addEventListener('beforeunload', onBeforeUnload);
     document.addEventListener('visibilitychange', onVisibility);
@@ -523,7 +645,7 @@ export function App() {
       window.removeEventListener('beforeunload', onBeforeUnload);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, []);
+  }, [commitLiveVersion]);
 
   // -------- keep React manifest in sync with autosave writes --------
   // Each successful autosave bumps the slot's `updatedAt` (and counters)
@@ -688,7 +810,10 @@ export function App() {
         if (
           cur &&
           diskBlob &&
-          autosaveBlobsEqual(buildBlob(cur, undoRingRef.current), diskBlob)
+          autosaveBlobsEqual(
+            buildBlob(cur, undoRingRef.current, versionsRef.current),
+            diskBlob,
+          )
         ) {
         return;
       }
@@ -720,6 +845,7 @@ export function App() {
       setLoadedSlotId(multitabStaleSlotId);
       setState(session.state);
       setUndoRing(session.undoRing);
+      adoptSessionVersions(session);
     } else {
       // Other tab deleted the slot between the event and the click.
       // Drop in-memory state and return to START so the user picks
@@ -727,6 +853,7 @@ export function App() {
       setLoadedSlotId(null);
       setState(null);
       setUndoRing([]);
+      setVersions([]);
       setActiveTab('start');
     }
     setManifest(readManifest());
@@ -1182,7 +1309,8 @@ export function App() {
       },
       activate = true,
     ) => {
-      const blob = buildBlob(session.state, session.undoRing);
+      if (activate) commitLiveVersion();
+      const blob = buildBlob(session.state, session.undoRing, session.versions);
       const result = createSlot(blob, name, { activate });
       if (result === null) {
         // Blob write failed (typically quota exhaustion AFTER eviction
@@ -1227,6 +1355,7 @@ export function App() {
         setLoadedSlotId(result.meta.id);
         setState(session.state);
         setUndoRing(session.undoRing);
+        adoptSessionVersions(session);
         setActiveTab(
           initialTab ?? (session.state.done ? 'result' : 'rank'),
         );
@@ -1324,7 +1453,7 @@ export function App() {
 
       if (target === 'new') {
         const branched = resetBranchedSlotComparisonProgress(next, engineOptions);
-        const session: SavedSession = { state: branched, undoRing: [] };
+        const session: SavedSession = { state: branched, undoRing: [], versions: [] };
         adoptNewSession(
           session,
           derivedSlotName(sourceSlotName, 'branch'),
@@ -1462,11 +1591,11 @@ export function App() {
     (payload: SharedRanking) => {
       if (payload.kind === 'template') {
         const next = initSort(payload.items, engineOptions);
-        const session: SavedSession = { state: next, undoRing: [] };
+        const session: SavedSession = { state: next, undoRing: [], versions: [] };
         adoptNewSession(session, payload.name, 'rank');
       } else {
         const next = seedAsDoneMerge(payload.items);
-        const session: SavedSession = { state: next, undoRing: [] };
+        const session: SavedSession = { state: next, undoRing: [], versions: [] };
         adoptNewSession(session, payload.name, 'result');
       }
       clearShareHash();
@@ -1616,6 +1745,7 @@ export function App() {
       setPushingIds(pushTrackerRef.current.snapshot());
       // Flush any pending autosave to disk first so we're pushing
       // the freshest local bytes.
+      commitLiveVersion();
       flushAutosave();
       const m = readManifest();
       const slot = m.slots.find((s) => s.id === id);
@@ -1796,6 +1926,7 @@ export function App() {
               setLoadedSlotId(id);
               setState(session.state);
               setUndoRing(session.undoRing);
+              adoptSessionVersions(session);
             }
           }
         } catch (err) {
@@ -1835,6 +1966,7 @@ export function App() {
    * anyway).
    */
   const onCloudPushAllSlots = useCallback(() => {
+    commitLiveVersion();
     flushAutosave();
     const m = readManifest();
     for (const slot of m.slots) {
@@ -2072,7 +2204,10 @@ export function App() {
       if (!next || next === base) return;
       const id = loadedSlotIdRef.current;
       if (id) {
-        persistCanonicalBlobOnLoad(id, buildBlob(next, undoRingRef.current));
+        persistCanonicalBlobOnLoad(
+          id,
+          buildBlob(next, undoRingRef.current, versionsRef.current),
+        );
       }
       setState((cur) => (cur === base ? next : applyHydration(cur)));
     });
@@ -2107,7 +2242,10 @@ export function App() {
       if (!next || next === base) return;
       const id = loadedSlotIdRef.current;
       if (id) {
-        persistCanonicalBlobOnLoad(id, buildBlob(next, undoRingRef.current));
+        persistCanonicalBlobOnLoad(
+          id,
+          buildBlob(next, undoRingRef.current, versionsRef.current),
+        );
       }
       setState((cur) => (cur === base ? next : relabel(cur)));
     });
@@ -2126,10 +2264,12 @@ export function App() {
   /** Park the in-memory session so START draft work begins a fresh slot. */
   const parkActiveSession = useCallback(() => {
     if (!stateRef.current) return;
+    commitLiveVersion();
     flushAutosave();
     setLoadedSlotId(null);
     setState(null);
     setUndoRing([]);
+    setVersions([]);
     setManifest(readManifest());
   }, []);
 
@@ -2139,16 +2279,18 @@ export function App() {
         const adopted = startScreenRef.current?.tryAdoptDraft(tab);
         if (adopted) return;
       }
+      if (tab !== activeTab || historyImportOpen) commitLiveVersion();
+      setHistoryImportOpen(false);
       setActiveTab(tab);
     },
-    [activeTab],
+    [activeTab, historyImportOpen, commitLiveVersion],
   );
 
   const onStartScratch = useCallback(
     (items: Item[], initialTab?: TabId) => {
       const next = initSort(items, engineOptions);
-      const session: SavedSession = { state: next, undoRing: [] };
-      adoptNewSession(session, autoNameFromBlob(buildBlob(next, [])), initialTab);
+      const session: SavedSession = { state: next, undoRing: [], versions: [] };
+      adoptNewSession(session, autoNameFromBlob(buildBlob(next, [], [])), initialTab);
     },
     [adoptNewSession, engineOptions],
   );
@@ -2156,8 +2298,8 @@ export function App() {
   const onStartPreranked = useCallback(
     (args: { sublists: Item[][]; extras: Item[] }, initialTab?: TabId) => {
       const next = seedFromSublists(args, engineOptions);
-      const session: SavedSession = { state: next, undoRing: [] };
-      adoptNewSession(session, autoNameFromBlob(buildBlob(next, [])), initialTab);
+      const session: SavedSession = { state: next, undoRing: [], versions: [] };
+      adoptNewSession(session, autoNameFromBlob(buildBlob(next, [], [])), initialTab);
     },
     [adoptNewSession, engineOptions],
   );
@@ -2174,8 +2316,8 @@ export function App() {
   const onStartInsertion = useCallback(
     (args: { sublists: Item[][]; extras: Item[] }, initialTab?: TabId) => {
       const { state: next } = seedInsertionFromSublists(args);
-      const session: SavedSession = { state: next, undoRing: [] };
-      adoptNewSession(session, autoNameFromBlob(buildBlob(next, [])), initialTab);
+      const session: SavedSession = { state: next, undoRing: [], versions: [] };
+      adoptNewSession(session, autoNameFromBlob(buildBlob(next, [], [])), initialTab);
     },
     [adoptNewSession],
   );
@@ -2189,8 +2331,8 @@ export function App() {
   const onStartAlreadySorted = useCallback(
     (items: Item[], initialTab?: TabId) => {
       const next = seedAsDoneMerge(items);
-      const session: SavedSession = { state: next, undoRing: [] };
-      adoptNewSession(session, autoNameFromBlob(buildBlob(next, [])), initialTab);
+      const session: SavedSession = { state: next, undoRing: [], versions: [] };
+      adoptNewSession(session, autoNameFromBlob(buildBlob(next, [], [])), initialTab);
     },
     [adoptNewSession],
   );
@@ -2198,8 +2340,8 @@ export function App() {
   const onStartConfirmation = useCallback(
     (items: Item[], initialTab?: TabId) => {
       const next = seedConfirmation(items);
-      const session: SavedSession = { state: next, undoRing: [] };
-      adoptNewSession(session, autoNameFromBlob(buildBlob(next, [])), initialTab ?? 'rank');
+      const session: SavedSession = { state: next, undoRing: [], versions: [] };
+      adoptNewSession(session, autoNameFromBlob(buildBlob(next, [], [])), initialTab ?? 'rank');
     },
     [adoptNewSession],
   );
@@ -2212,6 +2354,7 @@ export function App() {
    * clicking Resume on the "active" slot expects to actually re-enter it.
    */
   const onSwitchSlot = useCallback((id: string) => {
+    commitLiveVersion();
     // Use the returned manifest — readManifest() after flushAutosave can
     // still see the outgoing activeId if a post-write listener ran first.
     const m = setActiveSlot(id);
@@ -2225,6 +2368,7 @@ export function App() {
     setManifest(m);
     setState(session.state);
     setUndoRing(session.undoRing);
+    adoptSessionVersions(session);
     setActiveTab(session.state.done ? 'result' : 'rank');
   }, []);
 
@@ -2319,6 +2463,7 @@ export function App() {
         setLoadedSlotId(null);
         setState(null);
         setUndoRing([]);
+        setVersions([]);
         setActiveTab('start');
       }
     },
@@ -2403,17 +2548,17 @@ export function App() {
   // -------- save / load file --------
   const onDownload = useCallback(() => {
     if (!state) return;
-    downloadSave(buildBlob(state, undoRing));
-  }, [state, undoRing]);
+    downloadSave(buildBlob(state, undoRing, versions));
+  }, [state, undoRing, versions]);
 
   // Force-flush the active slot and bump its recency (`updatedAt`) so it
   // rises to the top of the slot list — even when nothing changed since
   // the last autosave.
   const onSaveNow = useCallback(() => {
     if (!state) return;
-    saveNow(buildBlob(state, undoRing));
+    saveNow(buildBlob(state, undoRing, versions));
     setManifest(readManifest());
-  }, [state, undoRing]);
+  }, [state, undoRing, versions]);
 
   const onLoadFile = useCallback(
     (file: File) => {
@@ -2515,6 +2660,7 @@ export function App() {
         setLoadedSlotId(null);
         setState(null);
         setUndoRing([]);
+        setVersions([]);
         setActiveTab('start');
       }
       setManifest(readManifest());
@@ -2562,7 +2708,7 @@ export function App() {
       .filter((it): it is Item => !!it);
     if (items.length === 0) return;
     const next = initSort(items, engineOptions);
-    const session: SavedSession = { state: next, undoRing: [] };
+    const session: SavedSession = { state: next, undoRing: [], versions: [] };
     // Land on LIST so the user can preview / tweak the seeded queue
     // before committing to the first comparison.
     const slotName =
@@ -2593,7 +2739,7 @@ export function App() {
     const slotName =
       manifest.slots.find((slot) => slot.id === (loadedSlotId ?? manifest.activeId))
         ?.name ?? 'Untitled sort';
-    const session: SavedSession = { state: next, undoRing: [] };
+    const session: SavedSession = { state: next, undoRing: [], versions: [] };
     adoptNewSession(
       session,
       derivedSlotName(slotName, 'confirm'),
@@ -2757,6 +2903,12 @@ export function App() {
         onAddMany={doAddItemsList}
         onAddSlotImports={doAddSlotImports}
         onAddPreRanked={doAppendPreRanked}
+        versions={versions}
+        onDeleteVersion={deleteVersion}
+        onSaveVersion={saveVersionNow}
+        currentIsSavedVersion={currentIsSavedVersion}
+        onOpenVersions={() => commitLiveVersion()}
+        onOpenVersionHistory={openVersionHistory}
       />
       </>
     );
@@ -2970,8 +3122,21 @@ export function App() {
         onCloudPushAllSlots={onCloudPushAllSlots}
         onCloudPullAllSlots={onCloudPullAllSlots}
         onNewSort={() => handleTabChange('start')}
+        onImportVersionHistory={openVersionHistory}
       />
-      <main className="app-main">{body}</main>
+      <main className="app-main">
+        {historyImportOpen && state?.done ? (
+          <SortHistoryPage
+            versions={versions}
+            excludeSlotId={effectiveLoadedSlotId ?? undefined}
+            browserSaveManifest={manifest}
+            onApply={setVersions}
+            onClose={() => setHistoryImportOpen(false)}
+          />
+        ) : (
+          body
+        )}
+      </main>
       {slotPendingDelete && (
         <SlotDeleteConfirmModal
           slotName={slotPendingDelete.name}

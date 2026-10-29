@@ -148,6 +148,66 @@ function columnId(existingIds: ReadonlySet<string>): string {
   return id;
 }
 
+type HydratedColumnImport = {
+  source: string;
+  slotName: string;
+  items: BumpChartItem[];
+};
+
+/**
+ * Places imports at the clicked column: the first fills it when empty, the rest become
+ * new columns right after it. The trailing column must stay the single `current` one,
+ * so inserting after it hands `current` to the last inserted column.
+ */
+function insertImportsAtColumn(
+  columns: readonly BumpColumnDraft[],
+  targetColumnId: string,
+  imports: readonly HydratedColumnImport[],
+): BumpColumnDraft[] {
+  const index = columns.findIndex(({ id }) => id === targetColumnId);
+  if (index < 0 || imports.length === 0) return [...columns];
+  const target = columns[index]!;
+  const fillTarget = target.draft.groups.length === 0;
+  const filledTarget: BumpColumnDraft = fillTarget
+    ? {
+        ...target,
+        name: target.name ?? imports[0]!.slotName,
+        draft: {
+          ...target.draft,
+          groups: [{ id: stageId(), source: imports[0]!.source, items: imports[0]!.items }],
+          preserveCustomLabels: true,
+        },
+      }
+    : target;
+  const usedIds = new Set(columns.map(({ id }) => id));
+  const nextId = (): string => {
+    const id = columnId(usedIds);
+    usedIds.add(id);
+    return id;
+  };
+  const inserted: BumpColumnDraft[] = (fillTarget ? imports.slice(1) : imports).map(
+    (entry) => ({
+      id: nextId(),
+      kind: 'previous',
+      name: entry.slotName,
+      draft: {
+        groups: [{ id: stageId(), source: entry.source, items: entry.items }],
+        preserveCustomLabels: true,
+      },
+    }),
+  );
+  const segment = [filledTarget, ...inserted];
+  if (target.kind === 'current' && inserted.length > 0) {
+    segment[0] = { ...filledTarget, id: nextId(), kind: 'previous' };
+    segment[segment.length - 1] = {
+      ...segment[segment.length - 1]!,
+      id: 'current',
+      kind: 'current',
+    };
+  }
+  return [...columns.slice(0, index), ...segment, ...columns.slice(index + 1)];
+}
+
 function emptyDraft(): BumpSideDraft {
   return { groups: [], preserveCustomLabels: false };
 }
@@ -2891,6 +2951,44 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
     [markWorkspaceMutation],
   );
 
+  const insertImportsAsColumns = useCallback(
+    async (targetColumnId: string, imports: OrderedSlotImport[]): Promise<void> => {
+      const stagingRevision = stagingRevisionRef.current;
+      setPendingImports((count) => count + 1);
+      setImportError(null);
+      try {
+        const hydratedImports = (
+          await Promise.all(
+            imports.map(async (entry) => ({
+              source: entry.source,
+              slotName: entry.slotName,
+              items: await hydrateBumpChartItems(
+                bumpItemsFromSortResults(entry.items),
+              ),
+            })),
+          )
+        ).filter((entry) => entry.items.length > 0);
+        if (
+          hydratedImports.length === 0 ||
+          stagingRevisionRef.current !== stagingRevision
+        ) {
+          return;
+        }
+        markWorkspaceMutation();
+        setColumns((current) =>
+          insertImportsAtColumn(current, targetColumnId, hydratedImports),
+        );
+      } catch (error) {
+        setImportError(
+          error instanceof Error ? error.message : 'Item import failed.',
+        );
+      } finally {
+        setPendingImports((count) => Math.max(0, count - 1));
+      }
+    },
+    [markWorkspaceMutation],
+  );
+
   const closeImporter = (): void => setImportColumnId(null);
 
   const importCallbacks =
@@ -2922,6 +3020,12 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
             closeImporter();
           },
           onImportOrderedItems: (imports: OrderedSlotImport[]) => {
+            // Picked versions are separate snapshots in time, so each becomes its own column.
+            if (imports.some((entry) => entry.versionId !== undefined)) {
+              void insertImportsAsColumns(importColumnId, imports);
+              closeImporter();
+              return;
+            }
             void (async () => {
               for (const entry of imports) {
                 await appendGroup(
@@ -3786,6 +3890,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
           dbSyncRevision={panelProps.dbSyncRevision}
           forcePreRanked
           showBrowserSaveSortControls
+          pickSortVersions
           initialTab={importTab}
           onTabChange={(tab) => {
             importTabTouchedBeforeHydration.current = true;

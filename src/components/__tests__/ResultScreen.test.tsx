@@ -2,7 +2,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { initSort, seedAsDoneMerge } from '../../lib/queueMergeSort';
-import type { Item, SortState } from '../../lib/types';
+import type { Item, SortState, SortVersion } from '../../lib/types';
 import { ConfirmSortConfirmModal } from '../ConfirmSortConfirmModal';
 import { ResultScreen } from '../ResultScreen';
 
@@ -95,7 +95,11 @@ describe('ResultScreen Confirm sort entry point', () => {
       act(() => {
         root.render(<ResultScreen {...resultProps(seedAsDoneMerge([A, B]))} />);
       });
-      const copyButton = buttonByText('Copy as Markdown');
+      const copyButton = document.querySelector<HTMLButtonElement>(
+        'button[aria-label="Copy as Markdown"]',
+      );
+      expect(copyButton?.textContent).toBe('Markdown');
+      expect(copyButton?.querySelector('svg')).not.toBeNull();
       expect(copyButton).toBeDefined();
 
       await act(async () => {
@@ -159,5 +163,123 @@ describe('ConfirmSortConfirmModal', () => {
     act(() => buttonByText('Cancel')?.click());
     expect(onCancel).toHaveBeenCalledOnce();
     expect(onConfirm).not.toHaveBeenCalled();
+  });
+});
+
+describe('ResultScreen versions', () => {
+  const C: Item = { id: 'c', label: 'C' };
+  const versions: SortVersion[] = [
+    {
+      id: 'v1',
+      createdAt: '2026-10-01T09:00:00',
+      rankedIds: ['a', 'b'],
+      items: { a: { label: 'A' }, b: { label: 'B' } },
+    },
+    {
+      id: 'v2',
+      createdAt: '2026-10-09T09:00:00',
+      rankedIds: ['c', 'b', 'a'],
+      items: { a: { label: 'A' }, b: { label: 'B' }, c: { label: 'C' } },
+    },
+  ];
+
+  it('lists items removed since the previous version in the expanded ranking', () => {
+    const withRemoval: SortVersion[] = [
+      {
+        id: 'v1',
+        createdAt: '2026-10-01T09:00:00',
+        rankedIds: ['a', 'd', 'b'],
+        items: { a: { label: 'A' }, d: { label: 'Dropped' }, b: { label: 'B' } },
+      },
+      {
+        id: 'v2',
+        createdAt: '2026-10-09T09:00:00',
+        rankedIds: ['a', 'b'],
+        items: { a: { label: 'A' }, b: { label: 'B' } },
+      },
+    ];
+    act(() => {
+      root.render(
+        <ResultScreen {...resultProps(seedAsDoneMerge([A, B]))} versions={withRemoval} />,
+      );
+    });
+    act(() => buttonByText('Versions (2)')?.click());
+    act(() =>
+      document.querySelector<HTMLButtonElement>('.sort-versions-row .sort-versions-toggle')?.click(),
+    );
+    const removed = Array.from(
+      document.querySelectorAll('.sort-version-removed .sort-version-ranking-row'),
+      (row) => row.textContent,
+    );
+    expect(removed).toEqual(['2Droppedremoved']);
+  });
+
+  it('opens version history on right-click of Versions and explains it in the tooltip', () => {
+    const onOpenVersionHistory = vi.fn();
+    act(() => {
+      root.render(
+        <ResultScreen
+          {...resultProps(seedAsDoneMerge([C, B, A]))}
+          versions={versions}
+          onOpenVersionHistory={onOpenVersionHistory}
+        />,
+      );
+    });
+    const button = buttonByText('Versions (2)')!;
+    expect(button.title).toContain('Right-click to open version history');
+    const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    act(() => {
+      button.dispatchEvent(event);
+    });
+    expect(onOpenVersionHistory).toHaveBeenCalledOnce();
+    expect(event.defaultPrevented).toBe(true);
+    expect(document.querySelector('.sort-versions-row')).toBeNull();
+  });
+
+  it('hides the Versions button when the save has no versions', () => {
+    act(() => {
+      root.render(<ResultScreen {...resultProps(seedAsDoneMerge([A, B]))} />);
+    });
+    expect(container.textContent).not.toContain('Versions (');
+  });
+
+  it('lists versions newest first, diffs each against its predecessor, and deletes', () => {
+    const onDeleteVersion = vi.fn();
+    act(() => {
+      root.render(
+        <ResultScreen
+          {...resultProps(seedAsDoneMerge([C, B, A]))}
+          versions={versions}
+          onDeleteVersion={onDeleteVersion}
+        />,
+      );
+    });
+    act(() => buttonByText('Versions (2)')?.click());
+
+    const rows = Array.from(document.querySelectorAll('.sort-versions-row'));
+    expect(rows.map((row) => row.querySelector('.sort-versions-date')?.textContent)).toEqual([
+      '2026-10-09 09:00',
+      '2026-10-01 09:00',
+    ]);
+    expect(rows[0]?.querySelector('.sort-versions-summary')?.textContent).toBe(
+      '1 added · A ↓2',
+    );
+    expect(rows[1]?.querySelector('.sort-versions-summary')?.textContent).toBe('First version');
+
+    act(() => rows[0]?.querySelector<HTMLButtonElement>('.sort-versions-toggle')?.click());
+    const ranking = Array.from(
+      document.querySelectorAll('.sort-version-ranking-row'),
+      (row) => row.textContent,
+    );
+    expect(ranking).toEqual(['1Cnew', '2B', '3A↓2']);
+
+    expect(rows.every((row) => row.querySelector('.sort-versions-delete') !== null)).toBe(true);
+
+    act(() =>
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="Delete version from 2026-10-01 09:00"]')
+        ?.click(),
+    );
+    expect(onDeleteVersion).toHaveBeenCalledWith('v1');
   });
 });
