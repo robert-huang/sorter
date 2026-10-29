@@ -172,7 +172,7 @@ function UsernameChipsInput({
     }
   };
   return (
-    <div className="tool-field tool-score-compare-users">
+    <div className="tool-field tool-field-label-row tool-score-compare-users">
       <span className="tool-field-label">Users</span>
       <div className="tool-score-compare-user-chips">
         {usernames.map((name) => (

@@ -741,7 +741,7 @@ export function AdaptationScoresPanel({
       >
         <div className="tool-adaptation-primary-filters">
           <ToolUsernameField
-            label="AniList username"
+            label="User"
             value={form.username}
             disabled={running}
             refreshing={refreshingList}

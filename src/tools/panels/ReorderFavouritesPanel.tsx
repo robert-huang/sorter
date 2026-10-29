@@ -814,7 +814,7 @@ export function ReorderFavouritesPanel(props: ToolPanelProps) {
       >
         <div className="tool-reorder-favourites-controls">
           <ToolUsernameField
-            label="Username"
+            label="User"
             value={form.username}
             disabled={busy}
             hint={authHint}

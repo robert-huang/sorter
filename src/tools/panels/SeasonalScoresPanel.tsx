@@ -772,7 +772,7 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
       >
         <div className="tool-adaptation-primary-filters tool-seasonal-primary-filters">
           <ToolUsernameField
-            label="AniList username"
+            label="User"
             value={form.username}
             disabled={running}
             refreshing={refreshingList}

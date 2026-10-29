@@ -631,7 +631,7 @@ export function FranchiseScoresPanel({ onOpenMedia }: ToolPanelProps) {
         }}
       >
         <ToolUsernameField
-          label="AniList username"
+          label="User"
           value={form.username}
           disabled={running}
           refreshing={refreshingList}

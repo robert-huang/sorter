@@ -11206,6 +11206,11 @@ a:where(.anime-to-anime-anilist-link):visited {
   gap: 8px;
 }
 
+.tool-score-compare-users .tool-score-compare-user-chips {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .tool-score-compare-user-chip {
   display: inline-flex;
   align-items: center;

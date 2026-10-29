@@ -1630,7 +1630,7 @@ export function StatsPanel({
       >
         <div className="tool-adaptation-primary-filters tool-seasonal-primary-filters tool-stats-primary-filters">
           <ToolUsernameField
-            label="AniList username"
+            label="User"
             value={form.username}
             disabled={running}
             refreshing={refreshingList}
