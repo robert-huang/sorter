@@ -127,6 +127,43 @@ export function ToolShowButton({
   );
 }
 
+type MalShowLinkProps = {
+  malId: number;
+  title: string;
+  coverImage?: string | null;
+  compact?: boolean;
+  className?: string;
+  labelSuffix?: React.ReactNode;
+};
+
+/** MAL-only show: cover + plain title, no detail modal; middle-click opens MyAnimeList. */
+export function MalShowLink({
+  malId,
+  title,
+  coverImage,
+  compact = false,
+  className,
+  labelSuffix,
+}: MalShowLinkProps) {
+  return (
+    <AnilistMiddleClickLink
+      url={`https://myanimelist.net/anime/${malId}`}
+      className={['tool-entity-btn', compact ? 'tool-entity-btn--compact' : '', className ?? '']
+        .filter(Boolean)
+        .join(' ')}
+      title={`${title} (MyAnimeList)`}
+    >
+      <ToolEntityAvatar imageUrl={coverImage} label={title} variant="poster" />
+      <span className="tool-entity-label">
+        <strong>
+          {title}
+          {labelSuffix}
+        </strong>
+      </span>
+    </AnilistMiddleClickLink>
+  );
+}
+
 type ToolStaffButtonProps = {
   staffId: number;
   name: string;

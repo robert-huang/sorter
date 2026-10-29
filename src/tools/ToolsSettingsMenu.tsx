@@ -108,6 +108,7 @@ export function ToolsSettingsMenu({
     setBumpChartIncludeExportImages,
     setBumpChartMalExportImages,
     setSeasonalScoresShowRepeats,
+    setSeasonalScoresIncludeMalScores,
     setSeasonalScoresSpanAiringSeasons,
     setWeeklyCalendarShowUnscheduledColumn,
     setWeeklyCalendarShowThemeSongs,
@@ -184,7 +185,12 @@ export function ToolsSettingsMenu({
                   data-tool-settings-section="seasonal-scores"
                 >
                   <div className="settings-divider" />
-                  <p className="edit-item-advanced-title">Seasonal Scores</p>
+                  <p
+                    className="edit-item-advanced-title"
+                    title={'Add mal:username to include a public MyAnimeList list. MAL shows fill their season slots; scores are ignored unless Include MAL scores is on.\n\nShows already on an AniList list are matched by MAL id instead of being added twice.'}
+                  >
+                    Seasonal Scores
+                  </p>
                   <label
                     className="settings-item checkbox"
                     title="Show repeated watch counts as ×n and count the entry n times for average ratings."
@@ -210,6 +216,17 @@ export function ToolsSettingsMenu({
                       }
                     />
                     Span airing seasons
+                  </label>
+                  <label
+                    className="settings-item checkbox"
+                    title="Count mal: users' scores and statuses in averages, counts and score hovers. When off, their shows are only placed in season slots."
+                  >
+                    <input
+                      type="checkbox"
+                      checked={toolsPrefs.seasonalScoresIncludeMalScores}
+                      onChange={(e) => setSeasonalScoresIncludeMalScores(e.target.checked)}
+                    />
+                    Include MAL scores
                   </label>
                 </div>
                 <div

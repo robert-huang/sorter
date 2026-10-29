@@ -42,6 +42,7 @@ function fuzzy(year: number | null, month: number | null, day: number | null): A
 function fullMedia(overrides: Partial<AnilistMediaGql> = {}): AnilistMediaGql {
   return {
     id: 100,
+    idMal: 200,
     type: 'ANIME',
     title: { english: 'EN', romaji: 'RO', native: 'NA' },
     coverImage: { large: 'https://example.test/cover.jpg' },
@@ -105,6 +106,8 @@ describe('mapMediaRow', () => {
       format: 'TV',
       source: 'LIGHT_NOVEL',
       source_fetched_at: NOW,
+      id_mal: 200,
+      id_mal_fetched_at: NOW,
       status: 'FINISHED',
       episodes: 12,
       chapters: null,
@@ -160,6 +163,9 @@ describe('mapMediaRow', () => {
     expect(row.country_of_origin).toBeNull();
     expect(row.source).toBeNull();
     expect(row.source_fetched_at).toBe(NOW);
+    // Queries that don't select idMal must not mark it fetched.
+    expect(row.id_mal).toBeNull();
+    expect(row.id_mal_fetched_at).toBeNull();
     // genres_json coerces null → '[]' so JSON queries are uniform.
     expect(row.genres_json).toBe('[]');
     // synonyms_json keeps null as null — no synonym is a real signal vs empty array.

@@ -133,6 +133,8 @@ export type AnilistFuzzyDate = {
  */
 export type AnilistMediaGql = {
   id: number;
+  /** MyAnimeList id; absent on queries that don't select it. */
+  idMal?: number | null;
   type: AnilistMediaType;
   title: {
     english: string | null;
@@ -524,6 +526,10 @@ export type MediaRow = {
   source?: AnilistMediaSource | null;
   /** Set when `source(version: 3)` was imported; null = never fetched. */
   source_fetched_at?: number | null;
+  /** MyAnimeList id; null when AniList has none or it was never fetched. */
+  id_mal?: number | null;
+  /** Set when `idMal` was imported; null = never fetched. */
+  id_mal_fetched_at?: number | null;
   status: AnilistMediaStatus | null;
   episodes: number | null;
   chapters: number | null;

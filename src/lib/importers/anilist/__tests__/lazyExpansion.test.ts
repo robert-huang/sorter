@@ -12,10 +12,13 @@ import {
   repairListedMediaNullSource,
   repairMediaStudioCreditsBatch,
 } from '../lazyExpansion';
+import { MEDIA_UPSERT_SQL, mediaRowToParams } from '../importer';
+import { mapMediaRow } from '../mappers';
 import type {
   AnilistCharacterGql,
   AnilistMediaCharacterEdgeGql,
   AnilistMediaDetailResponse,
+  AnilistMediaGql,
   AnilistMediaStaffEdgeGql,
   AnilistStaffGql,
 } from '../types';
@@ -740,9 +743,9 @@ describe('repairListedMediaNullSource', () => {
     );
     db.exec(
       `INSERT INTO media (
-         id, type, source, source_fetched_at, fetched_at, updated_at
-       ) VALUES (100, 'ANIME', NULL, ?, ?, ?)`,
-      { bind: [NOW, NOW, NOW] },
+         id, type, source, source_fetched_at, id_mal, id_mal_fetched_at, fetched_at, updated_at
+       ) VALUES (100, 'ANIME', NULL, ?, NULL, ?, ?, ?)`,
+      { bind: [NOW, NOW, NOW, NOW] },
     );
     db.exec(
       `INSERT INTO media_list_entry (
@@ -799,6 +802,54 @@ describe('repairListedMediaNullSource', () => {
       mediaIds: [100],
       page: 1,
       perPage: 50,
+    });
+    db.close();
+  });
+
+  it('re-fetches listed media missing idMal and keeps it through later idMal-less upserts', async () => {
+    const db = await freshAnilistDb();
+    const executeQuery = vi.fn().mockResolvedValue({
+      Page: {
+        pageInfo: { hasNextPage: false, currentPage: 1 },
+        media: [{ ...sampleMediaGql, idMal: 555 }],
+      },
+    });
+    const ctx: AnilistImportContext = {
+      db: makeDbAdapter(db),
+      executeQuery,
+      now: () => NOW,
+    };
+    db.exec(
+      `INSERT INTO anilist_user (id, name, fetched_at, updated_at) VALUES (1, 'user', ?, ?)`,
+      { bind: [NOW, NOW] },
+    );
+    db.exec(
+      `INSERT INTO media (id, type, source, source_fetched_at, fetched_at, updated_at)
+       VALUES (100, 'ANIME', 'MANGA', ?, ?, ?)`,
+      { bind: [NOW, NOW, NOW] },
+    );
+    db.exec(
+      `INSERT INTO media_list_entry (
+         anilist_user_id, media_id, status, fetched_at, updated_at
+       ) VALUES (1, 100, 'COMPLETED', ?, ?)`,
+      { bind: [NOW, NOW] },
+    );
+
+    expect(await listedMediaNeedsSourceRepair(ctx.db, 1)).toBe(true);
+    expect(await repairListedMediaNullSource(ctx, 1)).toBe(1);
+    expect(db.selectObject('SELECT id_mal, id_mal_fetched_at FROM media WHERE id = 100')).toEqual({
+      id_mal: 555,
+      id_mal_fetched_at: NOW,
+    });
+    expect(await listedMediaNeedsSourceRepair(ctx.db, 1)).toBe(false);
+
+    // Relation / favourites queries don't select idMal; their upserts must keep the stored one.
+    db.exec(MEDIA_UPSERT_SQL, {
+      bind: mediaRowToParams(mapMediaRow(sampleMediaGql as AnilistMediaGql, NOW + 1)),
+    });
+    expect(db.selectObject('SELECT id_mal, id_mal_fetched_at FROM media WHERE id = 100')).toEqual({
+      id_mal: 555,
+      id_mal_fetched_at: NOW,
     });
     db.close();
   });

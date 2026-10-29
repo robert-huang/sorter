@@ -23,6 +23,8 @@ export type ToolsPreferences = {
   seasonalScoresShowRepeats: boolean;
   /** Place shows in every Seasonal Scores column their airing dates overlap. */
   seasonalScoresSpanAiringSeasons: boolean;
+  /** Count `mal:` users' scores and statuses in Seasonal Scores instead of only placing their shows. */
+  seasonalScoresIncludeMalScores: boolean;
   /** Include a Weekly Calendar column for entries with no known airing day. */
   weeklyCalendarShowUnscheduledColumn: boolean;
   /** Load and display cached theme songs in Weekly Calendar. */
@@ -45,6 +47,7 @@ const DEFAULT_PREFS: ToolsPreferences = {
   bumpChartMalExportImages: false,
   seasonalScoresShowRepeats: false,
   seasonalScoresSpanAiringSeasons: false,
+  seasonalScoresIncludeMalScores: false,
   weeklyCalendarShowUnscheduledColumn: false,
   weeklyCalendarShowThemeSongs: false,
   scoreComparisonRescale: false,
@@ -148,6 +151,7 @@ export function loadToolsPreferences(): ToolsPreferences {
       bumpChartMalExportImages: parsed.bumpChartMalExportImages === true,
       seasonalScoresShowRepeats:
         parsed.seasonalScoresShowRepeats === true,
+      seasonalScoresIncludeMalScores: parsed.seasonalScoresIncludeMalScores === true,
       seasonalScoresSpanAiringSeasons:
         typeof parsed.seasonalScoresSpanAiringSeasons === 'boolean'
           ? parsed.seasonalScoresSpanAiringSeasons

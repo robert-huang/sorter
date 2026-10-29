@@ -12,6 +12,7 @@ import migration010 from './migrations/010-media-theme-songs-expansion.sql?raw';
 import migration011 from './migrations/011-media-studio-is-main.sql?raw';
 import migration012 from './migrations/012-media-studios-fetched.sql?raw';
 import migration013 from './migrations/013-local-graph-expansion-markers.sql?raw';
+import migration014 from './migrations/014-media-id-mal.sql?raw';
 import type { AnilistFavouriteType, AnilistMediaType } from './types';
 
 export const ANILIST_SOURCE_ID = 'anilist';
@@ -134,6 +135,7 @@ export const anilistSourceDescriptor: SourceDescriptor = {
     { version: 11, sql: migration011 },
     { version: 12, sql: migration012 },
     { version: 13, sql: migration013 },
+    { version: 14, sql: migration014 },
   ],
   merge: {
     metadataTables: [

@@ -13,6 +13,13 @@ vi.mock('../panels/seasonalScoresApi', () => ({
   bustSeasonalSessionMemo: vi.fn(),
 }));
 
+const fetchMalSeasonalShows = vi.fn();
+
+vi.mock('../panels/seasonalMalApi', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../panels/seasonalMalApi')>()),
+  fetchMalSeasonalShows: (...args: unknown[]) => fetchMalSeasonalShows(...args),
+}));
+
 let container: HTMLDivElement;
 let root: Root;
 
@@ -204,6 +211,50 @@ describe('SeasonalScoresPanel users and planning', () => {
       container.querySelector<HTMLButtonElement>('button[aria-label="Remove bob"]')!.click();
     });
     expect(container.querySelector('.tool-season-score')).toBeNull();
+  });
+
+  it('places mal: users\' shows as plain MAL rows without counting their scores', async () => {
+    const base = { season: 'WINTER', seasonYear: 2024, notes: null, listStatus: 'COMPLETED' };
+    fetchUserSeasonalShows.mockReset();
+    fetchMalSeasonalShows.mockReset();
+    fetchUserSeasonalShows.mockResolvedValue([
+      { ...base, id: 1, malId: 500, title: 'Shared', score: 80 },
+    ]);
+    fetchMalSeasonalShows.mockResolvedValue([
+      { ...base, id: -500, malId: 500, origin: 'mal', title: 'Shared (MAL)', score: 10 },
+      { ...base, id: -600, malId: 600, origin: 'mal', title: 'MAL only', score: 90 },
+    ]);
+    localStorage.setItem(
+      'anime-tools-seasonal-scores-form',
+      JSON.stringify({ usernames: ['alice', 'mal:carl'], seasonMode: 'custom', seasonText: 'Winter 2024' }),
+    );
+    const onOpenMedia = vi.fn();
+    act(() => {
+      root.render(
+        <SeasonalScoresPanel onOpenMedia={onOpenMedia} onOpenStaff={vi.fn()} dbSyncRevision={0} />,
+      );
+    });
+    const compare = Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find(
+      (button) => button.textContent?.trim() === 'Compare',
+    )!;
+    await act(async () => {
+      compare.click();
+    });
+
+    expect(fetchUserSeasonalShows.mock.calls.map((call) => call[0])).toEqual(['alice']);
+    expect(fetchMalSeasonalShows.mock.calls.map((call) => call[0])).toEqual(['carl']);
+    const cells = Array.from(container.querySelectorAll<HTMLElement>('.tool-season-cell'));
+    expect(cells.map((cell) => cell.querySelector('.tool-season-score')!.textContent)).toEqual([
+      '80',
+      '—',
+    ]);
+    expect(cells[0]!.textContent).toContain('Shared');
+    expect(cells[0]!.textContent).not.toContain('(MAL)');
+
+    const malLink = cells[1]!.querySelector<HTMLAnchorElement>('a.tool-season-title')!;
+    expect(malLink.getAttribute('href')).toBe('https://myanimelist.net/anime/600');
+    act(() => malLink.click());
+    expect(onOpenMedia).not.toHaveBeenCalled();
   });
 });
 

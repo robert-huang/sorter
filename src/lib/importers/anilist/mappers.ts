@@ -109,6 +109,8 @@ export function mapMediaRow(media: AnilistMediaGql, now: number): MediaRow {
     format: media.format ?? null,
     source: media.source ?? null,
     source_fetched_at: now,
+    id_mal: media.idMal ?? null,
+    id_mal_fetched_at: media.idMal !== undefined ? now : null,
     status: media.status ?? null,
     episodes: media.episodes ?? null,
     chapters: media.chapters ?? null,

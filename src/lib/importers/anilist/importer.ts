@@ -173,11 +173,16 @@ export type ImportAnilistListResult = {
  * them to themselves would be a no-op (and SQLite forbids updating PK
  * columns in ON CONFLICT clauses anyway).
  */
-function buildUpsertSql(table: string, pkCols: string[], allCols: string[]): string {
+function buildUpsertSql(
+  table: string,
+  pkCols: string[],
+  allCols: string[],
+  updateOverrides: Record<string, string> = {},
+): string {
   const placeholders = allCols.map(() => '?').join(', ');
   const updates = allCols
     .filter((c) => !pkCols.includes(c))
-    .map((c) => `${c} = excluded.${c}`)
+    .map((c) => `${c} = ${updateOverrides[c] ?? `excluded.${c}`}`)
     .join(', ');
   return `INSERT INTO ${table} (${allCols.join(', ')}) VALUES (${placeholders}) ` +
     `ON CONFLICT(${pkCols.join(', ')}) DO UPDATE SET ${updates}`;
@@ -193,6 +198,8 @@ const MEDIA_COLS = [
   'format',
   'source',
   'source_fetched_at',
+  'id_mal',
+  'id_mal_fetched_at',
   'status',
   'episodes',
   'chapters',
@@ -251,11 +258,24 @@ const CUSTOM_LIST_COLS = [
   'updated_at',
 ] as const;
 
-export const MEDIA_UPSERT_SQL = buildUpsertSql('media', ['id'], [...MEDIA_COLS]);
+/** Queries that don't select `idMal` (relations, favourites) must not wipe a stored one. */
+const MEDIA_ID_MAL_OVERRIDES: Record<string, string> = {
+  id_mal:
+    'CASE WHEN excluded.id_mal_fetched_at IS NULL THEN media.id_mal ELSE excluded.id_mal END',
+  id_mal_fetched_at: 'COALESCE(excluded.id_mal_fetched_at, media.id_mal_fetched_at)',
+};
+
+export const MEDIA_UPSERT_SQL = buildUpsertSql(
+  'media',
+  ['id'],
+  [...MEDIA_COLS],
+  MEDIA_ID_MAL_OVERRIDES,
+);
 export const MEDIA_METADATA_UPSERT_SQL = buildUpsertSql(
   'media',
   ['id'],
   MEDIA_METADATA_COLS,
+  MEDIA_ID_MAL_OVERRIDES,
 );
 export const STUDIO_UPSERT_SQL = buildUpsertSql('studio', ['id'], ['id', 'name', 'fetched_at']);
 export const TAG_UPSERT_SQL = buildUpsertSql('tag', ['name'], ['name', 'fetched_at']);
@@ -286,6 +306,9 @@ export function mediaRowToParams(row: MediaRow): SqlBindable[] {
     if (c === 'source_fetched_at') {
       return row.source_fetched_at ?? null;
     }
+    if (c === 'id_mal' || c === 'id_mal_fetched_at') {
+      return row[c] ?? null;
+    }
     if (c === 'studios_fetched_at') {
       return row.studios_fetched_at ?? null;
     }
@@ -300,6 +323,9 @@ export function mediaMetadataRowToParams(row: MediaRow): SqlBindable[] {
     }
     if (column === 'source_fetched_at') {
       return row.source_fetched_at ?? null;
+    }
+    if (column === 'id_mal' || column === 'id_mal_fetched_at') {
+      return row[column] ?? null;
     }
     return row[column];
   });

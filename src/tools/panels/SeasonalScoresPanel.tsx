@@ -8,6 +8,11 @@ import { useToolsDisplayLabelRevision } from '../useToolsDisplayLabelRevision';
 import { relabelSeasonalShows } from '../toolsDisplayRelabel';
 import { fetchUserSeasonalShows, bustSeasonalSessionMemo } from './seasonalScoresApi';
 import {
+  bustMalSeasonalSessionMemo,
+  fetchMalSeasonalShows,
+  parseMalUsername,
+} from './seasonalMalApi';
+import {
   buildMultiUserSeasonalColumns,
   mergeFilteredSeasonalUserLists,
   mergeSeasonalUserLists,
@@ -51,7 +56,7 @@ import {
   SEASONAL_SOURCE_FILTER_KEYS,
 } from './seasonalScoresLogic';
 import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
-import { formatRepeatSuffix, ToolShowButton } from '../toolEntityLinks';
+import { formatRepeatSuffix, MalShowLink, ToolShowButton } from '../toolEntityLinks';
 import { DragScroll } from '../../components/DragScroll';
 import { applyHeaderScrollbarGutter } from '../../lib/chartSplitTableSync';
 import {
@@ -132,6 +137,10 @@ function readLegacyIncludePlanning(): boolean {
   } catch {
     return false;
   }
+}
+
+function seasonTitleClassName(show: { extendedPlacement?: boolean }): string {
+  return show.extendedPlacement ? 'tool-season-title tool-season-title--extended' : 'tool-season-title';
 }
 
 function usersKey(usernames: readonly string[]): string {
@@ -419,27 +428,32 @@ export function SeasonalColumnsView({
                     >
                       {formatSeasonalScoreLabel(show.score, show.listStatus)}
                     </span>
-                    <ToolShowButton
-                      mediaId={show.id}
-                      title={show.title}
-                      coverImage={show.coverImage}
-                      onOpenMedia={onOpenMedia}
-                      compact
-                      favourite={favourites.mediaIds.has(show.id)}
-                      className={[
-                        'tool-season-title',
-                        show.extendedPlacement ? 'tool-season-title--extended' : '',
-                      ]
-                        .filter(Boolean)
-                        .join(' ')}
-                      labelSuffix={
-                        showRepeats && formatRepeatSuffix(show.repeat) ? (
-                          <span className="tool-stats-repeat">
-                            {formatRepeatSuffix(show.repeat)}
-                          </span>
-                        ) : undefined
-                      }
-                    />
+                    {show.origin === 'mal' && show.malId != null ? (
+                      <MalShowLink
+                        malId={show.malId}
+                        title={show.title}
+                        coverImage={show.coverImage}
+                        compact
+                        className={seasonTitleClassName(show)}
+                      />
+                    ) : (
+                      <ToolShowButton
+                        mediaId={show.id}
+                        title={show.title}
+                        coverImage={show.coverImage}
+                        onOpenMedia={onOpenMedia}
+                        compact
+                        favourite={favourites.mediaIds.has(show.id)}
+                        className={seasonTitleClassName(show)}
+                        labelSuffix={
+                          showRepeats && formatRepeatSuffix(show.repeat) ? (
+                            <span className="tool-stats-repeat">
+                              {formatRepeatSuffix(show.repeat)}
+                            </span>
+                          ) : undefined
+                        }
+                      />
+                    )}
                   </div>
                 </div>
               ))}
@@ -582,6 +596,7 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
           formatFilters,
           sourceFilters,
           includeRepeats: toolsPreferences.seasonalScoresShowRepeats,
+          includeMalScores: toolsPreferences.seasonalScoresIncludeMalScores,
         },
       ),
     [
@@ -594,6 +609,7 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
       formatFilters,
       toolsPreferences.seasonalScoresShowRepeats,
       toolsPreferences.seasonalScoresSpanAiringSeasons,
+      toolsPreferences.seasonalScoresIncludeMalScores,
     ],
   );
 
@@ -640,11 +656,11 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
       const lists = await Promise.all(
         usernames.map(async (username): Promise<SeasonalUserShows> => {
           try {
-            const shows = await fetchUserSeasonalShows(
-              username,
-              controller.signal,
-              forceRefresh ? { forceRefresh: true } : undefined,
-            );
+            const fetchOptions = forceRefresh ? { forceRefresh: true } : undefined;
+            const malName = parseMalUsername(username);
+            const shows = malName
+              ? await fetchMalSeasonalShows(malName, controller.signal, fetchOptions)
+              : await fetchUserSeasonalShows(username, controller.signal, fetchOptions);
             return { username, shows };
           } catch (e) {
             if (e instanceof DOMException && e.name === 'AbortError') {
@@ -701,6 +717,12 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
 
   const refreshUser = useCallback(
     (username: string) => {
+      const malName = parseMalUsername(username);
+      if (malName) {
+        // MAL lists aren't stored in the AniList DB; the next Compare refetches.
+        bustMalSeasonalSessionMemo(malName);
+        return;
+      }
       setRefreshingUser(username);
       refreshUsernameList(username, running);
     },

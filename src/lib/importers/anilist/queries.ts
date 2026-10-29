@@ -52,6 +52,7 @@ export const TOOLS_MEDIA_RELATION_TYPE_FIELD = `relationType(version: ${ANILIST_
 
 const MEDIA_FIELD_SELECTION = `
   id
+  idMal
   type
   title { english romaji native }
   coverImage { large }

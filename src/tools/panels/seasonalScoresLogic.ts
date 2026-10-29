@@ -15,6 +15,10 @@ export type SeasonalShow = {
   title: string;
   titleSource?: import('../../lib/importers/anilist/mediaDisplayLabel').MediaTitleFields;
   coverImage?: string | null;
+  /** MyAnimeList id: AniList `idMal`, or the MAL id itself for MAL-only shows. */
+  malId?: number | null;
+  /** `mal` for shows imported from a `mal:` user; such shows use `id = -malId`. */
+  origin?: 'anilist' | 'mal';
   season: string | null;
   seasonYear: number | null;
   startDate?: SeasonalFuzzyDate | null;
@@ -40,6 +44,8 @@ export type SeasonalUserEntry = {
   score: number | null;
   repeat: number | null;
   notes: string | null;
+  /** From a `mal:` user; ignored for scores and hover unless MAL scores are included. */
+  isMal?: boolean;
 };
 
 export type SeasonSpec = {
@@ -429,6 +435,8 @@ export type SeasonColumn = {
     id: number;
     title: string;
     coverImage: string | null;
+    malId?: number | null;
+    origin?: SeasonalShow['origin'];
     score: number | null;
     repeat?: number | null;
     listStatus?: string | null;
@@ -1007,35 +1015,70 @@ function mergeSeasonalShowEntries(
   };
 }
 
+function isMalShow(show: Pick<SeasonalShow, 'origin'>): boolean {
+  return show.origin === 'mal';
+}
+
+/** AniList id per MAL id, so MAL entries land on the AniList show instead of a duplicate row. */
+function anilistIdsByMalId(perUser: readonly SeasonalUserShows[]): Map<number, number> {
+  const byMalId = new Map<number, number>();
+  for (const { shows } of perUser) {
+    for (const show of shows) {
+      if (!isMalShow(show) && show.malId != null && !byMalId.has(show.malId)) {
+        byMalId.set(show.malId, show.id);
+      }
+    }
+  }
+  return byMalId;
+}
+
+/** MAL-only rows with MAL scores ignored: placed in their season, but no score, status or hover. */
+function plainMalShow(base: SeasonalShow): SeasonalShow {
+  return { ...base, score: null, repeat: null, listStatus: null, entries: [] };
+}
+
 /**
  * One show per media id across users. The score is the mean of the users who
  * rated it (watch-weighted when repeats are on); unrated shows keep a status letter.
+ *
+ * `mal:` users' shows merge onto the AniList show with the same `malId` (AniList
+ * title, cover and link win); unmatched ones stay MAL-only rows keyed by `-malId`.
+ * Unless `includeMalScores`, MAL entries are dropped before scoring, so they never
+ * change a score, average, count or hover.
  */
 export function mergeSeasonalUserLists(
   perUser: readonly SeasonalUserShows[],
   includeRepeats = false,
+  includeMalScores = false,
 ): SeasonalShow[] {
+  const anilistIdByMalId = anilistIdsByMalId(perUser);
   const grouped = new Map<number, { base: SeasonalShow; entries: SeasonalUserEntry[] }>();
   for (const { username, shows } of perUser) {
     for (const show of shows) {
+      const isMal = isMalShow(show);
       const entry: SeasonalUserEntry = {
         username,
         listStatus: show.listStatus ?? null,
         score: normalizeSeasonalListScore(show.score),
         repeat: show.repeat ?? null,
         notes: show.notes,
+        isMal,
       };
-      const group = grouped.get(show.id);
-      if (group) {
-        group.entries.push(entry);
-      } else {
-        grouped.set(show.id, { base: show, entries: [entry] });
+      const key = isMal && show.malId != null ? (anilistIdByMalId.get(show.malId) ?? show.id) : show.id;
+      const group = grouped.get(key);
+      if (!group) {
+        grouped.set(key, { base: show, entries: [entry] });
+        continue;
       }
+      if (isMalShow(group.base) && !isMal) group.base = show;
+      group.entries.push(entry);
     }
   }
-  return [...grouped.values()].map(({ base, entries }) =>
-    mergeSeasonalShowEntries(base, entries, includeRepeats),
-  );
+  return [...grouped.values()].map(({ base, entries }) => {
+    const scored = includeMalScores ? entries : entries.filter((entry) => !entry.isMal);
+    if (scored.length === 0) return plainMalShow(base);
+    return mergeSeasonalShowEntries(base, scored, includeRepeats);
+  });
 }
 
 /** Hover text for a show's score: status counts, then one line per user. */
@@ -1125,6 +1168,8 @@ export type BuildSeasonalColumnsOptions = {
   sourceFilters?: SeasonalSourceFilters;
   /** Weight each rated score by total watches and expose repeat counts. */
   includeRepeats?: boolean;
+  /** Count `mal:` users' scores, statuses and hover lines like AniList users. */
+  includeMalScores?: boolean;
 };
 
 /** Single-list convenience wrapper over {@link buildMultiUserSeasonalColumns}. */
@@ -1144,7 +1189,10 @@ export function buildSeasonalColumns(
 export function mergeFilteredSeasonalUserLists(
   perUser: readonly SeasonalUserShows[],
   form: Pick<SeasonalScoresForm, 'airingNotesOnly' | 'notesFilter'>,
-  options?: Pick<BuildSeasonalColumnsOptions, 'listStatusFilters' | 'includeRepeats'>,
+  options?: Pick<
+    BuildSeasonalColumnsOptions,
+    'listStatusFilters' | 'includeRepeats' | 'includeMalScores'
+  >,
 ): SeasonalShow[] {
   const entryOptions: SeasonalEntryFilterOptions = {
     listStatusFilters: options?.listStatusFilters ?? DEFAULT_SEASONAL_LIST_STATUS_FILTERS,
@@ -1157,6 +1205,7 @@ export function mergeFilteredSeasonalUserLists(
       shows: applySeasonalEntryFilters(user.shows, entryOptions),
     })),
     options?.includeRepeats === true,
+    options?.includeMalScores === true,
   );
 }
 
@@ -1241,6 +1290,8 @@ export function buildMultiUserSeasonalColumns(
         id: show.id,
         title: show.title,
         coverImage: show.coverImage ?? null,
+        malId: show.malId ?? null,
+        origin: show.origin,
         score: normalizeSeasonalListScore(show.score),
         repeat: show.repeat ?? null,
         listStatus: show.listStatus ?? null,

@@ -13,6 +13,7 @@ export function useToolsPreferences(): {
   setBumpChartIncludeExportImages: (enabled: boolean) => void;
   setBumpChartMalExportImages: (enabled: boolean) => void;
   setSeasonalScoresShowRepeats: (enabled: boolean) => void;
+  setSeasonalScoresIncludeMalScores: (enabled: boolean) => void;
   setSeasonalScoresSpanAiringSeasons: (enabled: boolean) => void;
   setWeeklyCalendarShowUnscheduledColumn: (enabled: boolean) => void;
   setWeeklyCalendarShowThemeSongs: (enabled: boolean) => void;
@@ -46,6 +47,10 @@ export function useToolsPreferences(): {
 
   const setSeasonalScoresShowRepeats = (enabled: boolean): void => {
     saveToolsPreferences({ seasonalScoresShowRepeats: enabled });
+  };
+
+  const setSeasonalScoresIncludeMalScores = (enabled: boolean): void => {
+    saveToolsPreferences({ seasonalScoresIncludeMalScores: enabled });
   };
 
   const setSeasonalScoresSpanAiringSeasons = (enabled: boolean): void => {
@@ -82,6 +87,7 @@ export function useToolsPreferences(): {
     setBumpChartIncludeExportImages,
     setBumpChartMalExportImages,
     setSeasonalScoresShowRepeats,
+    setSeasonalScoresIncludeMalScores,
     setSeasonalScoresSpanAiringSeasons,
     setWeeklyCalendarShowUnscheduledColumn,
     setWeeklyCalendarShowThemeSongs,

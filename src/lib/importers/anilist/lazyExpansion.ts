@@ -655,10 +655,13 @@ export async function repairMediaStudioCreditsBatch(
   return repaired;
 }
 
+/** Listed media missing `source(version: 3)` or `idMal`; one MediaByIds refetch fills both. */
+const NEEDS_METADATA_REPAIR_SQL = '(m.source_fetched_at IS NULL OR m.id_mal_fetched_at IS NULL)';
+
 /**
  * Re-fetch full metadata for listed media that never had `source(version: 3)`
- * imported (stub clobber, pre-v3 row, or never touched). Idempotent — rows
- * with `source_fetched_at` set are skipped even when `source` IS NULL.
+ * or `idMal` imported (stub clobber, pre-v3/pre-014 row, or never touched).
+ * Idempotent — rows with both markers set are skipped even when the values are NULL.
  *
  * Uses batched `media(id_in: …)` requests (50 ids each) instead of one
  * `Media(id:)` per row so large manga backfills stay inside rate limits.
@@ -676,12 +679,12 @@ export async function repairListedMediaNullSource(
            INNER JOIN media_list_entry mle ON mle.media_id = m.id
           WHERE mle.anilist_user_id = ?
             AND m.type = ?
-            AND m.source_fetched_at IS NULL`
+            AND ${NEEDS_METADATA_REPAIR_SQL}`
       : `SELECT DISTINCT m.id
            FROM media m
            INNER JOIN media_list_entry mle ON mle.media_id = m.id
           WHERE mle.anilist_user_id = ?
-            AND m.source_fetched_at IS NULL`,
+            AND ${NEEDS_METADATA_REPAIR_SQL}`,
     typeFilter ? [anilistUserId, typeFilter] : [anilistUserId],
   );
 
@@ -705,7 +708,7 @@ export async function repairListedMediaNullSource(
   return repaired;
 }
 
-/** True when any listed anime row still needs a v3 source import. */
+/** True when any listed anime row still needs a v3 source or `idMal` import. */
 export async function listedMediaNeedsSourceRepair(
   db: AnilistDbExecutor,
   anilistUserId: number,
@@ -716,7 +719,7 @@ export async function listedMediaNeedsSourceRepair(
        INNER JOIN media_list_entry mle ON mle.media_id = m.id
       WHERE mle.anilist_user_id = ?
         AND m.type = 'ANIME'
-        AND m.source_fetched_at IS NULL
+        AND ${NEEDS_METADATA_REPAIR_SQL}
       LIMIT 1`,
     [anilistUserId],
   );

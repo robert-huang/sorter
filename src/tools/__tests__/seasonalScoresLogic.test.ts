@@ -158,6 +158,56 @@ describe('multi-user seasonal scores', () => {
     );
   });
 
+  describe('mal: users', () => {
+    const malShow = (malId: number, extra: Partial<SeasonalShow> = {}): SeasonalShow =>
+      show(-malId, { malId, origin: 'mal', title: `MAL ${malId}`, ...extra });
+
+    it('merges a MAL entry onto the AniList show with the same malId, keeping AniList details', () => {
+      const merged = mergeSeasonalUserLists([
+        { username: 'mal:carl', shows: [malShow(500, { score: 40 })] },
+        { username: 'alice', shows: [show(1, { malId: 500, score: 80 })] },
+      ]);
+      expect(merged).toHaveLength(1);
+      expect(merged[0]).toMatchObject({ id: 1, title: 'Show 1', score: 80 });
+      expect(merged[0]!.entries?.map((e) => e.username)).toEqual(['alice']);
+    });
+
+    it('merges two MAL users onto one MAL-only row', () => {
+      const merged = mergeSeasonalUserLists(
+        [
+          { username: 'mal:carl', shows: [malShow(500, { score: 40 })] },
+          { username: 'mal:dana', shows: [malShow(500, { score: 60 })] },
+        ],
+        false,
+        true,
+      );
+      expect(merged).toHaveLength(1);
+      expect(merged[0]).toMatchObject({ id: -500, score: 50 });
+    });
+
+    it('ignores MAL scores, statuses and hover lines unless they are included', () => {
+      const lists = [
+        { username: 'alice', shows: [show(1, { malId: 500, score: 80 })] },
+        { username: 'mal:carl', shows: [malShow(500, { score: 40 }), malShow(600, { score: 90 })] },
+      ];
+      const ignored = buildMultiUserSeasonalColumns(lists, form);
+      if (ignored.kind !== 'columns') throw new Error(ignored.message);
+      const ignoredById = new Map(ignored.columns[0]!.shows.map((s) => [s.id, s]));
+      expect(ignoredById.get(1)!.score).toBe(80);
+      expect(ignoredById.get(-600)).toMatchObject({ score: null, listStatus: null, entries: [] });
+      expect(seasonalScoreTooltip(ignoredById.get(-600)!.entries)).toBeUndefined();
+      expect(ignored.columns[0]!.average).toBe(80);
+      expect(ignored.columns[0]!.ratedCount).toBe(1);
+
+      const included = buildMultiUserSeasonalColumns(lists, form, { includeMalScores: true });
+      if (included.kind !== 'columns') throw new Error(included.message);
+      const includedById = new Map(included.columns[0]!.shows.map((s) => [s.id, s]));
+      expect(includedById.get(1)!.score).toBe(60);
+      expect(includedById.get(-600)!.score).toBe(90);
+      expect(included.columns[0]!.ratedCount).toBe(2);
+    });
+  });
+
   it('matches the single-list result for one user', () => {
     const single = buildSeasonalColumns(sampleShows, form);
     const multi = buildMultiUserSeasonalColumns([{ username: 'alice', shows: sampleShows }], form);
