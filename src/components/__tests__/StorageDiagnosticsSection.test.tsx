@@ -2,6 +2,12 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { StorageDiagnosticsSection } from '../StorageDiagnosticsSection';
+import {
+  _clearDbSyncManifestForTesting,
+  acquireScrapeLock,
+  getSourceSyncMeta,
+} from '../../lib/db/syncManifest';
+import { ANILIST_SOURCE_ID } from '../../lib/importers/anilist/anilistSource';
 
 const diagnosticsMocks = vi.hoisted(() => ({
   collect: vi.fn(),
@@ -59,6 +65,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  _clearDbSyncManifestForTesting();
   act(() => root.unmount());
   container.remove();
   vi.restoreAllMocks();
@@ -170,6 +177,25 @@ describe('StorageDiagnosticsSection', () => {
       });
       expect(action).toHaveBeenCalledOnce();
     }
+  });
+
+  it('shows and clears a held AniList scrape lock', async () => {
+    const acquired = acquireScrapeLock(ANILIST_SOURCE_ID);
+    expect(acquired).not.toBeNull();
+    await render();
+    await openDiagnostics();
+
+    expect(container.textContent).toContain('Held since');
+    expect(button('Clear scrape lock').disabled).toBe(false);
+
+    act(() => {
+      button('Clear scrape lock').click();
+    });
+
+    expect(getSourceSyncMeta(ANILIST_SOURCE_ID).scrapeLock).toBeNull();
+    expect(container.textContent).toContain('Not held');
+    expect(button('Clear scrape lock').disabled).toBe(true);
+    expect(container.textContent).toContain('AniList scrape lock cleared.');
   });
 
   it('shows immediate feedback and explains an automatic persistence denial', async () => {

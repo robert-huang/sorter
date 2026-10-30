@@ -134,17 +134,37 @@ function markLocalDbPresent(): void {
   patchSourceSyncMeta(ANILIST_SOURCE_ID, { hasLocalDb: true });
 }
 
+let scrapeQueue: Promise<unknown> = Promise.resolve();
+
+/**
+ * Runs lock-taking imports one at a time within this tab. The scrape lock is
+ * per source, so parallel callers (e.g. multi-user Seasonal Scores) would
+ * otherwise fail with AnilistScrapeLockHeldError against their own tab.
+ */
+function queueAnilistScrape<T>(run: () => Promise<T>, abortSignal?: AbortSignal): Promise<T> {
+  const next = scrapeQueue.then(() => {
+    abortSignal?.throwIfAborted();
+    return run();
+  });
+  scrapeQueue = next.catch(() => undefined);
+  return next;
+}
+
 export async function runAnilistImport(
   username: string,
   type: AnilistMediaType,
   onProgress?: AnilistProgressReporter,
   abortSignal?: AbortSignal,
 ): Promise<ImportAnilistListResult> {
-  const result = await importAnilistList(buildContext(onProgress, { username }), {
-    username,
-    type,
+  const result = await queueAnilistScrape(
+    () =>
+      importAnilistList(buildContext(onProgress, { username }), {
+        username,
+        type,
+        abortSignal,
+      }),
     abortSignal,
-  });
+  );
   writeLastAnilistUsername(result.username);
   markLocalDbPresent();
   return result;
@@ -156,11 +176,15 @@ export async function runAnilistFavourites(
   onProgress?: AnilistProgressReporter,
   abortSignal?: AbortSignal,
 ): Promise<ImportAnilistFavouritesResult> {
-  const result = await importAnilistFavourites(buildContext(onProgress), {
-    username,
-    type,
+  const result = await queueAnilistScrape(
+    () =>
+      importAnilistFavourites(buildContext(onProgress), {
+        username,
+        type,
+        abortSignal,
+      }),
     abortSignal,
-  });
+  );
   writeLastAnilistUsername(result.username);
   markLocalDbPresent();
   if (type === 'CHARACTERS' || type === 'STAFF') {

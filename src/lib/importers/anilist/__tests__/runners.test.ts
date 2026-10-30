@@ -148,6 +148,28 @@ describe('runners hasLocalDb bookkeeping', () => {
     expect(writeLastAnilistUsername).not.toHaveBeenCalled();
   });
 
+  it('runs parallel same-tab imports one at a time instead of overlapping', async () => {
+    let active = 0;
+    let maxActive = 0;
+    importAnilistList.mockImplementation(async (_ctx: unknown, options: { username: string }) => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active -= 1;
+      if (options.username === 'b') throw new Error('request failed');
+      return { type: 'ANIME', anilistUserId: 1, username: options.username, chunksFetched: 1, entriesWritten: 1 };
+    });
+
+    const results = await Promise.allSettled([
+      runAnilistImport('a', 'ANIME'),
+      runAnilistImport('b', 'ANIME'),
+      runAnilistImport('c', 'ANIME'),
+    ]);
+
+    expect(maxActive).toBe(1);
+    expect(results.map((r) => r.status)).toEqual(['fulfilled', 'rejected', 'fulfilled']);
+  });
+
   it('does not remember the username after a failed favourites import', async () => {
     importAnilistFavourites.mockRejectedValue(new Error('request failed'));
 

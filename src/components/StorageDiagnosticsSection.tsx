@@ -8,6 +8,8 @@ import {
   requestPersistentStorage,
   type StorageDiagnostics,
 } from '../lib/storageDiagnostics';
+import { clearScrapeLock, getSourceSyncMeta } from '../lib/db/syncManifest';
+import { ANILIST_SOURCE_ID } from '../lib/importers/anilist/anilistSource';
 
 const DIAGNOSTIC_HELP = {
   originUsage:
@@ -31,6 +33,8 @@ const ACTION_HELP = {
     'Remove cached track lists for playlists that are not currently selected. The selected playlist and track-to-ISRC mappings are kept.',
   all:
     'Remove all disposable image, Tools/API, and non-selected Spotify playlist caches. Sorter saves, Bump Chart saves, settings, accounts, source databases, and Spotify ISRC mappings are kept.',
+  scrapeLock:
+    'Release the AniList import lock left behind when a tab closes mid-import. It also expires on its own 5 minutes after the last import activity. Safe to clear: an import still running in another tab keeps going.',
   persistence:
     'Ask the browser to protect this site’s stored data from automatic eviction when the device is under storage pressure.',
 } as const;
@@ -65,6 +69,11 @@ export function StorageDiagnosticsSection() {
   const [pressurePercent, setPressurePercent] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [scrapeLockHeldSince, setScrapeLockHeldSince] = useState<number | null>(null);
+
+  function readScrapeLock(): void {
+    setScrapeLockHeldSince(getSourceSyncMeta(ANILIST_SOURCE_ID).scrapeLock?.heldSince ?? null);
+  }
 
   useEffect(() => {
     if (!navigator.storage?.estimate) {
@@ -85,6 +94,7 @@ export function StorageDiagnosticsSection() {
 
   async function refresh(): Promise<void> {
     setBusy(true);
+    readScrapeLock();
     try {
       const next = await collectStorageDiagnostics();
       setDiagnostics(next);
@@ -202,6 +212,14 @@ export function StorageDiagnosticsSection() {
                     </dt>
                     <dd>{diagnostics.lastCleanupError ?? 'None'}</dd>
                   </div>
+                  <div>
+                    <dt title={ACTION_HELP.scrapeLock}>AniList scrape lock</dt>
+                    <dd>
+                      {scrapeLockHeldSince == null
+                        ? 'Not held'
+                        : `Held since ${new Date(scrapeLockHeldSince).toLocaleTimeString()}`}
+                    </dd>
+                  </div>
                 </dl>
 
                 <h4>Browser stores</h4>
@@ -252,6 +270,19 @@ export function StorageDiagnosticsSection() {
                 }
               >
                 Clear tools/API cache
+              </button>
+              <button
+                type="button"
+                className="btn small"
+                disabled={busy || scrapeLockHeldSince == null}
+                title={ACTION_HELP.scrapeLock}
+                onClick={() => {
+                  clearScrapeLock(ANILIST_SOURCE_ID);
+                  readScrapeLock();
+                  setStatus('AniList scrape lock cleared.');
+                }}
+              >
+                Clear scrape lock
               </button>
               <button
                 type="button"

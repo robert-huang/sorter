@@ -280,6 +280,11 @@ export function refreshScrapeLock(
  * No-op if the lock has been replaced or already released, so callers can
  * always call this in a `finally` block without checking ownership.
  */
+/** Manual override: drop the lock regardless of owner (an owning import keeps running). */
+export function clearScrapeLock(sourceId: string): void {
+  patchSourceSyncMeta(sourceId, { scrapeLock: null });
+}
+
 export function releaseScrapeLock(sourceId: string, token: string): void {
   const existing = getSourceSyncMeta(sourceId).scrapeLock;
   if (!existing || existing.token !== token) {
