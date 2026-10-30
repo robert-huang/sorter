@@ -120,13 +120,15 @@ describe('collectNewPlaylistSongs', () => {
     const result = collectNewPlaylistSongs(
       [
         {
+          show: { id: 1, title: 'A' },
           rows: [
             makeRow({ type: 'Insert', spotifyTrackIds: ['a-ins'] }),
             makeRow({ spotifyTrackIds: ['a-op'], spotifyAvailableMarkets: ['JP'] }),
           ],
         },
-        { rows: [makeRow({ spotifyTrackIds: [] })] },
+        { show: { id: 2, title: 'Empty' }, rows: [makeRow({ spotifyTrackIds: [] })] },
         {
+          show: { id: 3, title: 'B' },
           rows: [
             makeRow({ type: 'Ending', spotifyTrackIds: ['b-ed'] }),
             makeRow({ spotifyTrackIds: ['a-op'] }),
@@ -138,5 +140,10 @@ describe('collectNewPlaylistSongs', () => {
     expect(result.trackIds).toEqual(['a-op', 'a-ins', 'b-ed']);
     expect(result.showCount).toBe(2);
     expect(result.unavailableCount).toBe(1);
+    expect(result.shows.map(({ title, songs }) => [title, songs.map((s) => s.type)])).toEqual([
+      ['A', ['Opening', 'Insert']],
+      ['B', ['Ending']],
+    ]);
+    expect(result.shows[0]?.songs[0]).toMatchObject({ title: 'Song', artist: 'Artist', unavailable: true });
   });
 });

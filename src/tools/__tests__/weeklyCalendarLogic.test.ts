@@ -41,6 +41,9 @@ import {
   type WeeklyCalendarEntry,
   type WeeklyCalendarRawEntry,
   DEFAULT_WEEKLY_CALENDAR_FORM,
+  describeWeeklyCalendarFilters,
+  SPOTIFY_PLAYLIST_DESCRIPTION_MAX,
+  weeklyCalendarPlaylistDefaultName,
 } from '../panels/weeklyCalendarLogic';
 
 function entry(
@@ -65,6 +68,59 @@ function entry(
     ...overrides,
   };
 }
+
+describe('weeklyCalendarPlaylistDefaultName', () => {
+  it('appends the local date', () => {
+    const now = new Date(2026, 9, 3, 23, 30);
+    expect(weeklyCalendarPlaylistDefaultName('Fall 2026', now)).toBe('Fall 2026 theme songs · 2026-10-03');
+    expect(weeklyCalendarPlaylistDefaultName(null, now)).toBe('Weekly Calendar theme songs · 2026-10-03');
+  });
+});
+
+describe('describeWeeklyCalendarFilters', () => {
+  it('summarizes season, user and active filters, skipping formats when all are on', () => {
+    expect(
+      describeWeeklyCalendarFilters(
+        {
+          ...DEFAULT_WEEKLY_CALENDAR_FORM,
+          username: ' robert ',
+          seasonScope: 'current',
+          listStatusFilters: ['CURRENT', 'NOT_ON_LIST'],
+        },
+        'Fall 2026',
+      ),
+    ).toBe(
+      'Weekly Calendar theme songs · Fall 2026 · robert · list: current, not on list · airing: releasing, not yet released',
+    );
+  });
+
+  it('includes formats, score and extra parts when narrowed', () => {
+    expect(
+      describeWeeklyCalendarFilters(
+        {
+          ...DEFAULT_WEEKLY_CALENDAR_FORM,
+          formatFilters: ['TV', 'ONA'],
+          userScoreInclude: 'rated',
+          scoreMin: 70,
+          scoreMax: null,
+        },
+        null,
+        ['songs not on the playlist only'],
+      ),
+    ).toBe(
+      'Weekly Calendar theme songs · watching list · list: current, repeating · airing: releasing, not yet released · formats: TV, ONA · score rated 70–100 · songs not on the playlist only',
+    );
+  });
+
+  it("stays within Spotify's description limit", () => {
+    const description = describeWeeklyCalendarFilters(
+      { ...DEFAULT_WEEKLY_CALENDAR_FORM, username: 'x'.repeat(400) },
+      null,
+    );
+    expect(description).toHaveLength(SPOTIFY_PLAYLIST_DESCRIPTION_MAX);
+    expect(description.endsWith('…')).toBe(true);
+  });
+});
 
 describe('getCurrentAnilistSeason', () => {
   it('maps July to Summer of the same year', () => {

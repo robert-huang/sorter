@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
 import { ToolUsernameField } from '../ToolUsernameField';
@@ -64,6 +72,7 @@ import {
   collectNewPlaylistSongs,
 } from '../../lib/spotify/themeSongPlaylistEditing';
 import { CreateSpotifyPlaylistModal } from '../../components/CreateSpotifyPlaylistModal';
+import { PlusGlyph } from '../../components/PlusGlyph';
 import {
   DEFAULT_WEEKLY_CALENDAR_FORM,
   buildWeeklyCalendarCustomSeasonYearOptions,
@@ -87,6 +96,8 @@ import {
   WEEKLY_CALENDAR_LIST_STATUS_OPTIONS,
   WEEKLY_CALENDAR_FORMAT_OPTIONS,
   WEEKLY_CALENDAR_MEDIA_STATUS_OPTIONS,
+  describeWeeklyCalendarFilters,
+  weeklyCalendarPlaylistDefaultName,
   type WeeklyCalendarForm,
   type WeeklyCalendarFormatFilter,
   type WeeklyCalendarListStatusFilter,
@@ -423,7 +434,8 @@ export function WeeklyCalendarThemeSongShowTitle({
   onOpenMedia,
 }: {
   show: WeeklyCalendarEntry;
-  songCount?: number;
+  /** Rendered after the title, e.g. `(3)`; omitted for shows without cached songs. */
+  songCount?: ReactNode;
   favourite: boolean;
   onOpenMedia: ToolPanelProps['onOpenMedia'];
 }) {
@@ -445,9 +457,7 @@ export function WeeklyCalendarThemeSongShowTitle({
           .join(' ')}
       >
         {appendFavouriteStar(show.title, favourite)}
-        {songCount != null ? (
-          <span className="tool-weekly-theme-songs-show-count">({songCount})</span>
-        ) : null}
+        {songCount ?? null}
       </span>
     </AnilistMiddleClickLink>
   );
@@ -514,6 +524,9 @@ function WeeklyCalendarThemeSongGroups({
   );
 }
 
+/** How long the "Created <playlist>" confirmation stays under the heading. */
+const CREATE_PLAYLIST_STATUS_MS = 10_000;
+
 function WeeklyCalendarThemeSongsPanel({
   shows,
   themeSongCache,
@@ -528,6 +541,7 @@ function WeeklyCalendarThemeSongsPanel({
   cacheLoadProgress,
   isrcLookupProgress,
   seasonLabel,
+  calendarForm,
 }: {
   shows: WeeklyCalendarEntry[];
   themeSongCache: Map<number, MediaThemeSongsPayload>;
@@ -543,6 +557,8 @@ function WeeklyCalendarThemeSongsPanel({
   isrcLookupProgress: SpotifyTrackIsrcProgress | null;
   /** Loaded season, used for the new playlist's default name. */
   seasonLabel: string | null;
+  /** Calendar filters, summarized in the new playlist's description. */
+  calendarForm: WeeklyCalendarForm;
 }) {
   const [playlistFilter, setPlaylistFilter] = useState<ThemeSongPlaylistFilter>('all');
   const [creatingPlaylist, setCreatingPlaylist] = useState(false);
@@ -554,6 +570,14 @@ function WeeklyCalendarThemeSongsPanel({
       setPlaylistFilter('all');
     }
   }, [playlistCache]);
+
+  useEffect(() => {
+    if (createStatus === null) {
+      return;
+    }
+    const timer = window.setTimeout(() => setCreateStatus(null), CREATE_PLAYLIST_STATUS_MS);
+    return () => window.clearTimeout(timer);
+  }, [createStatus]);
 
   if (shows.length === 0) {
     return null;
@@ -639,7 +663,7 @@ function WeeklyCalendarThemeSongsPanel({
           title={createPlaylistDisabledReason ?? 'Create a Spotify playlist from the theme songs shown below'}
           aria-label="Create Spotify playlist from shown theme songs"
         >
-          +
+          <PlusGlyph />
         </button>
         {withCache.length > 0 ? (
           <button
@@ -661,8 +685,20 @@ function WeeklyCalendarThemeSongsPanel({
       ) : null}
       {creatingPlaylist ? (
         <CreateSpotifyPlaylistModal
-          defaultName={`${seasonLabel ?? 'Weekly Calendar'} theme songs`}
+          defaultName={weeklyCalendarPlaylistDefaultName(seasonLabel)}
+          description={describeWeeklyCalendarFilters(
+            calendarForm,
+            seasonLabel,
+            playlistFilter === 'all' || !playlistCache
+              ? []
+              : [playlistFilter === 'in' ? 'songs on the playlist only' : 'songs not on the playlist only'],
+          )}
           songs={newPlaylistSongs}
+          unloadedShowCount={withoutCache.length}
+          loadingUnloaded={refreshingPending}
+          onLoadUnloaded={() =>
+            onRefreshThemeSongs(withoutCache.map((show) => show.id), 'pending')
+          }
           onClose={() => setCreatingPlaylist(false)}
           onCreated={({ name, added }) => {
             setCreatingPlaylist(false);
@@ -686,11 +722,33 @@ function WeeklyCalendarThemeSongsPanel({
       {visibleCachedShows.length > 0 ? (
         <div className="tool-weekly-theme-songs-groups">
           {visibleCachedShows.map(({ show, rows }) => {
+            const shownStatus = playlistCache
+              ? aggregatePlaylistMatchForRows(rows, playlistCache, {
+                  ...playlistMatchOptions,
+                  mediaId: show.id,
+                })
+              : null;
             return (
               <div key={show.id} className="tool-weekly-theme-songs-show">
                 <WeeklyCalendarThemeSongShowTitle
                   show={show}
-                  songCount={rows.length}
+                  songCount={
+                    <span className="tool-weekly-theme-songs-show-count">
+                      ({' '}
+                      <WeeklyCalendarShowPlaylistAdd
+                        mediaId={show.id}
+                        rows={themeSongCache.get(show.id)?.rows ?? rows}
+                        playlistCache={playlistCache}
+                        playlistMatchOptions={playlistMatchOptions}
+                        baseClassName="tool-weekly-theme-songs-show-count-value"
+                        modifier={shownStatus ? `is-${shownStatus}` : ''}
+                        title={themeSongBadgeTitle(rows.length, shownStatus)}
+                      >
+                        🎵 {rows.length}
+                      </WeeklyCalendarShowPlaylistAdd>
+                      {' '})
+                    </span>
+                  }
                   favourite={favouriteMediaIds.has(show.id)}
                   onOpenMedia={onOpenMedia}
                 />
@@ -758,7 +816,53 @@ function themeSongBadgeTitle(
   return base;
 }
 
-/** Song-count badge; right-click adds the show's missing songs next to its others on the playlist. */
+/** Right-click target that adds all of a show's missing songs next to its others on the playlist. */
+function WeeklyCalendarShowPlaylistAdd({
+  mediaId,
+  rows,
+  playlistCache,
+  playlistMatchOptions,
+  baseClassName,
+  modifier = '',
+  title,
+  children,
+}: {
+  mediaId: number;
+  /** Every cached row of the show, not just the ones a filter shows. */
+  rows: readonly MediaThemeSongRow[];
+  playlistCache: ReturnType<typeof useSpotifyPlaylistCache>;
+  playlistMatchOptions: PlaylistMatchOptions;
+  baseClassName: string;
+  modifier?: string;
+  title: string;
+  children: ReactNode;
+}) {
+  const showMatchOptions = useMemo(
+    () => ({ ...playlistMatchOptions, mediaId }),
+    [mediaId, playlistMatchOptions],
+  );
+  const editor = useThemeSongPlaylistEditor(rows, showMatchOptions);
+  const addableCount =
+    editor && playlistCache ? addablePlaylistTracks(rows, playlistCache, showMatchOptions).length : 0;
+  const tooltip =
+    addableCount > 0 && editor
+      ? `${title}\nRight-click to add ${addableCount} song${addableCount === 1 ? '' : 's'} to ${editor.playlistName}`
+      : title;
+  return (
+    <PlaylistEditIndicator
+      baseClassName={baseClassName}
+      modifier={modifier}
+      tooltip={tooltip}
+      kind={addableCount > 0 ? 'add' : null}
+      playlistName={editor?.playlistName ?? null}
+      onEdit={() => editor!.addRows(rows)}
+    >
+      {children}
+    </PlaylistEditIndicator>
+  );
+}
+
+/** Calendar song-count badge. */
 function WeeklyCalendarThemeSongBadge({
   mediaId,
   songCount,
@@ -774,29 +878,18 @@ function WeeklyCalendarThemeSongBadge({
   playlistCache: ReturnType<typeof useSpotifyPlaylistCache>;
   playlistMatchOptions: PlaylistMatchOptions;
 }) {
-  const showMatchOptions = useMemo(
-    () => ({ ...playlistMatchOptions, mediaId }),
-    [mediaId, playlistMatchOptions],
-  );
-  const editor = useThemeSongPlaylistEditor(rows, showMatchOptions);
-  const addableCount =
-    editor && playlistCache ? addablePlaylistTracks(rows, playlistCache, showMatchOptions).length : 0;
-  const baseTitle = themeSongBadgeTitle(songCount, playlistStatus);
-  const title =
-    addableCount > 0 && editor
-      ? `${baseTitle}\nRight-click to add ${addableCount} song${addableCount === 1 ? '' : 's'} to ${editor.playlistName}`
-      : baseTitle;
   return (
-    <PlaylistEditIndicator
+    <WeeklyCalendarShowPlaylistAdd
+      mediaId={mediaId}
+      rows={rows}
+      playlistCache={playlistCache}
+      playlistMatchOptions={playlistMatchOptions}
       baseClassName="tool-weekly-theme-song-badge"
       modifier={playlistStatus ? `is-${playlistStatus}` : ''}
-      tooltip={title}
-      kind={addableCount > 0 ? 'add' : null}
-      playlistName={editor?.playlistName ?? null}
-      onEdit={() => editor!.addRows(rows)}
+      title={themeSongBadgeTitle(songCount, playlistStatus)}
     >
       🎵 {songCount}
-    </PlaylistEditIndicator>
+    </WeeklyCalendarShowPlaylistAdd>
   );
 }
 
@@ -1542,6 +1635,7 @@ export function WeeklyCalendarPanel({
                 trackIsrcLookupReady ? null : trackIsrcLookupProgress
               }
               seasonLabel={seasonLabel}
+              calendarForm={form}
             />
           ) : null}
         </>

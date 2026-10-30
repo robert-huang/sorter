@@ -185,12 +185,17 @@ describe('createSpotifyPlaylistWithTracks', () => {
     const result = await createSpotifyPlaylistWithTracks({
       name: 'Fall',
       isPublic: true,
+      description: 'Weekly Calendar theme songs · Fall 2026',
       trackIds: ids,
       onProgress: (p) => progress.push(p.added),
     });
 
     expect(fetchMock.mock.calls[0]?.[0]).toContain('/me/playlists');
-    expect(requestBody(0)).toEqual({ name: 'Fall', public: true });
+    expect(requestBody(0)).toEqual({
+      name: 'Fall',
+      public: true,
+      description: 'Weekly Calendar theme songs · Fall 2026',
+    });
     expect((requestBody(1) as { uris: string[] }).uris).toHaveLength(100);
     expect((requestBody(2) as { uris: string[] }).uris).toHaveLength(50);
     expect(progress).toEqual([0, 100, 150]);
@@ -203,7 +208,12 @@ describe('createSpotifyPlaylistWithTracks', () => {
       .mockResolvedValueOnce(okResponse({ id: 'new-1' }))
       .mockResolvedValueOnce(okResponse())
       .mockResolvedValueOnce(new Response('{}', { status: 500 }));
-    const attempt = createSpotifyPlaylistWithTracks({ name: 'Fall', isPublic: false, trackIds: ids });
+    const attempt = createSpotifyPlaylistWithTracks({
+      name: 'Fall',
+      isPublic: false,
+      description: '',
+      trackIds: ids,
+    });
     await expect(attempt).rejects.toBeInstanceOf(SpotifyPlaylistPartialCreateError);
     await expect(attempt).rejects.toThrow('only added 100 of 150 songs');
   });

@@ -129,10 +129,19 @@ export function planPlaylistInserts(
   return inserts.map(({ afterPosition, tracks }) => ({ afterPosition, tracks }));
 }
 
+export type NewPlaylistSong = {
+  type: MediaThemeSongRow['type'];
+  title: string;
+  artist: string | null;
+  unavailable: boolean;
+};
+
 export type NewPlaylistSongs = {
   trackIds: string[];
   showCount: number;
   unavailableCount: number;
+  /** Shows that contribute songs, for listing what the playlist will contain. */
+  shows: Array<{ id: number; title: string; songs: NewPlaylistSong[] }>;
 };
 
 /**
@@ -140,15 +149,18 @@ export type NewPlaylistSongs = {
  * Spotify track and repeated ids are skipped; market-unavailable songs are kept.
  */
 export function collectNewPlaylistSongs(
-  shows: ReadonlyArray<{ rows: readonly MediaThemeSongRow[] }>,
+  shows: ReadonlyArray<{
+    show: { id: number; title: string };
+    rows: readonly MediaThemeSongRow[];
+  }>,
   spotifyCountry?: string | null,
 ): NewPlaylistSongs {
   const seen = new Set<string>();
   const trackIds: string[] = [];
-  let showCount = 0;
+  const listed: NewPlaylistSongs['shows'] = [];
   let unavailableCount = 0;
-  for (const { rows } of shows) {
-    let showAdded = false;
+  for (const { show, rows } of shows) {
+    const songs: NewPlaylistSong[] = [];
     for (const row of sortThemeRowsForPlaylist(rows)) {
       const id = themeRowCandidateTrackIds(row)[0];
       if (!id || seen.has(id)) {
@@ -156,14 +168,17 @@ export function collectNewPlaylistSongs(
       }
       seen.add(id);
       trackIds.push(id);
-      showAdded = true;
-      if (isSpotifyUnavailableInMarket(row.spotifyAvailableMarkets, spotifyCountry)) {
+      const unavailable = isSpotifyUnavailableInMarket(row.spotifyAvailableMarkets, spotifyCountry);
+      if (unavailable) {
         unavailableCount += 1;
       }
+      songs.push({ type: row.type, title: row.displayTitle, artist: row.displayArtist, unavailable });
     }
-    if (showAdded) showCount += 1;
+    if (songs.length > 0) {
+      listed.push({ id: show.id, title: show.title, songs });
+    }
   }
-  return { trackIds, showCount, unavailableCount };
+  return { trackIds, showCount: listed.length, unavailableCount, shows: listed };
 }
 
 /** Tracks to add for `rows`, skipping ones already on the playlist and duplicate ids. */

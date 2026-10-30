@@ -10425,6 +10425,124 @@ a:where(.anime-to-anime-anilist-link):visited {
   color: var(--muted);
 }
 
+.create-playlist-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.create-playlist-form .create-playlist-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  /* The form's gap spaces the rows; drop the shared tool-field bottom margin. */
+  margin: 0;
+}
+
+.create-playlist-field .tool-field-label {
+  width: 72px;
+}
+
+.slot-search.create-playlist-name-input {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  margin: 0;
+}
+
+/* 10px row gap + 10px = 20px, matches modal padding. */
+.create-playlist-form .modal-actions {
+  margin-top: 10px;
+}
+
+/* Sits closer to its neighbours than the form's 10px row gap. */
+.create-playlist-form .create-playlist-summary {
+  margin: 4px 0 -4px;
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.create-playlist-shows {
+  max-height: 320px;
+  overflow: auto;
+  margin: 0;
+  padding: 8px 10px;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+
+.create-playlist-shows > li + li {
+  margin-top: 8px;
+}
+
+.create-playlist-show-title {
+  font-weight: 600;
+}
+
+.create-playlist-songs {
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+  opacity: 0.8;
+}
+
+.create-playlist-songs > li.is-unavailable {
+  color: #d4a017;
+}
+
+.create-playlist-song-type {
+  display: inline-block;
+  width: 24px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.create-playlist-warning {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid #d4a017;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.create-playlist-warning .btn {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.tool-weekly-theme-songs-show-count-value.is-in {
+  color: #1db954;
+}
+
+.tool-weekly-theme-songs-show-count-value.is-out {
+  color: #e91429;
+}
+
+.tool-weekly-theme-songs-show-count-value.is-mixed {
+  color: #d4a017;
+}
+
+.tool-weekly-theme-songs-show-count-value.is-addable {
+  cursor: pointer;
+}
+
+.tool-weekly-theme-songs-show-count-value.is-edit-busy {
+  cursor: progress;
+  animation: themeSongBadgePulse 0.9s ease-in-out infinite alternate;
+}
+
+.tool-weekly-theme-songs-show-count-value.is-edit-failed {
+  color: #e91429;
+  font-weight: 700;
+}
+
 .tool-weekly-theme-songs-pending {
   margin: 12px 0 0;
   font-size: 11px;

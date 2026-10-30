@@ -327,7 +327,7 @@ describe('score and calendar favourite annotations', () => {
           />
           <WeeklyCalendarThemeSongShowTitle
             show={show}
-            songCount={2}
+            songCount={<span>(2)</span>}
             favourite
             onOpenMedia={vi.fn()}
           />

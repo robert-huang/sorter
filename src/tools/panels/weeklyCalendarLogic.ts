@@ -208,6 +208,61 @@ export type WeeklyCalendarForm = {
   showUnscheduledColumn: boolean;
 };
 
+/** Default new-playlist name, dated so repeat exports are distinguishable: `Fall 2026 theme songs · 2026-10-30`. */
+export function weeklyCalendarPlaylistDefaultName(
+  seasonLabel: string | null,
+  now: Date = new Date(),
+): string {
+  const pad = (value: number): string => String(value).padStart(2, '0');
+  const date = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  return `${seasonLabel ?? 'Weekly Calendar'} theme songs · ${date}`;
+}
+
+/** Spotify rejects playlist descriptions longer than this. */
+export const SPOTIFY_PLAYLIST_DESCRIPTION_MAX = 300;
+
+function filterValueLabel(value: string): string {
+  return value.toLowerCase().replace(/_/g, ' ');
+}
+
+function scoreFilterLabel(form: WeeklyCalendarForm): string | null {
+  const parts: string[] = [];
+  if (form.userScoreInclude !== 'any') {
+    parts.push(form.userScoreInclude);
+  }
+  if (form.scoreMin !== null || form.scoreMax !== null) {
+    parts.push(`${form.scoreMin ?? 0}–${form.scoreMax ?? 100}`);
+  }
+  return parts.length > 0 ? `score ${parts.join(' ')}` : null;
+}
+
+/**
+ * One-line summary of the calendar's season and filters for a new playlist's description.
+ * Example: `Weekly Calendar theme songs · Fall 2026 · robert · list: current, repeating · airing: releasing`.
+ * Formats are omitted when every format is selected.
+ */
+export function describeWeeklyCalendarFilters(
+  form: WeeklyCalendarForm,
+  seasonLabel: string | null,
+  extra: readonly string[] = [],
+): string {
+  const allFormats = form.formatFilters.length === WEEKLY_CALENDAR_FORMAT_OPTIONS.length;
+  const parts = [
+    'Weekly Calendar theme songs',
+    form.seasonScope === 'watching' ? 'watching list' : seasonLabel,
+    form.username.trim() || null,
+    `list: ${form.listStatusFilters.map(filterValueLabel).join(', ')}`,
+    `airing: ${form.mediaStatusFilters.map(filterValueLabel).join(', ')}`,
+    allFormats ? null : `formats: ${form.formatFilters.join(', ')}`,
+    scoreFilterLabel(form),
+    ...extra,
+  ].filter((part): part is string => Boolean(part));
+  const description = parts.join(' · ');
+  return description.length > SPOTIFY_PLAYLIST_DESCRIPTION_MAX
+    ? `${description.slice(0, SPOTIFY_PLAYLIST_DESCRIPTION_MAX - 1)}…`
+    : description;
+}
+
 export function defaultWeeklyCalendarCustomSeasonEncoded(now: Date = new Date()): number {
   const current = getCurrentAnilistSeason(now);
   return encodeSeasonYear(current.season, current.year);

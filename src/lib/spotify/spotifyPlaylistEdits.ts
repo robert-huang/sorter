@@ -239,6 +239,8 @@ export class SpotifyPlaylistPartialCreateError extends Error {
 export async function createSpotifyPlaylistWithTracks(options: {
   name: string;
   isPublic: boolean;
+  /** Omitted, Spotify shows the description as "null". */
+  description: string;
   trackIds: readonly string[];
   onProgress?: (progress: CreatePlaylistProgress) => void;
 }): Promise<{ id: string; name: string; added: number }> {
@@ -247,7 +249,7 @@ export async function createSpotifyPlaylistWithTracks(options: {
     `${SPOTIFY_API}/me/playlists`,
     token,
     'POST',
-    { name: options.name, public: options.isPublic },
+    { name: options.name, public: options.isPublic, description: options.description },
   );
   if (!created.id) {
     throw new Error('Spotify did not return the new playlist.');
