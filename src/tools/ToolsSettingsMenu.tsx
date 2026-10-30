@@ -9,6 +9,10 @@ import { SpotifySection } from '../components/SpotifySection';
 import { StorageDiagnosticsSection } from '../components/StorageDiagnosticsSection';
 import type { SourceDbSyncControls } from '../hooks/useSourceDbSync';
 import { useToolsPreferences } from '../hooks/useToolsPreferences';
+import {
+  useSelectedPlaylistName,
+  useSpotifySignedIn,
+} from '../hooks/useThemeSongPlaylistEditor';
 import type { ToolId } from './toolTypes';
 import { useScoreComparisonFit, type ScoreComparisonFit } from './scoreComparisonFitStore';
 
@@ -112,10 +116,26 @@ export function ToolsSettingsMenu({
     setSeasonalScoresSpanAiringSeasons,
     setWeeklyCalendarShowUnscheduledColumn,
     setWeeklyCalendarShowThemeSongs,
+    setWeeklyCalendarAllowPlaylistRemoval,
     setScoreComparisonRescale,
     setScoreComparisonTargetMean,
     setScoreComparisonTargetStdDev,
   } = useToolsPreferences();
+  const selectedPlaylistName = useSelectedPlaylistName();
+  const spotifySignedIn = useSpotifySignedIn();
+  const playlistRemovalDisabledReason = !toolsPrefs.weeklyCalendarShowThemeSongs
+    ? 'Turn on Show theme songs first.'
+    : !spotifySignedIn
+      ? 'Sign in to Spotify first.'
+      : !selectedPlaylistName
+        ? 'Select a Spotify playlist first.'
+        : null;
+  const playlistRemovalTitle = [
+    'Shift+right-click a green theme-song dot, then Shift+right-click it again to confirm, to remove that song from your Spotify playlist. Moving the mouse away cancels. Also applies in media detail modals.',
+    playlistRemovalDisabledReason,
+  ]
+    .filter(Boolean)
+    .join('\n\n');
   const scoreComparisonFit = useScoreComparisonFit();
 
   function selectTab(next: SettingsTab): void {
@@ -247,6 +267,20 @@ export function ToolsSettingsMenu({
                       }
                     />
                     Show theme songs
+                  </label>
+                  <label
+                    className="settings-item checkbox"
+                    title={playlistRemovalTitle}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={toolsPrefs.weeklyCalendarAllowPlaylistRemoval}
+                      disabled={playlistRemovalDisabledReason != null}
+                      onChange={(e) =>
+                        setWeeklyCalendarAllowPlaylistRemoval(e.target.checked)
+                      }
+                    />
+                    Allow Shift+right-click remove from playlist
                   </label>
                   <label
                     className="settings-item checkbox"

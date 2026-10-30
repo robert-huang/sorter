@@ -12,19 +12,31 @@ const SPOTIFY_API_ORIGIN = 'https://api.spotify.com';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
   'Access-Control-Allow-Headers':
     'Accept, Authorization, Content-Type, If-Modified-Since, If-None-Match',
   'Access-Control-Expose-Headers': 'ETag, Last-Modified, Retry-After',
 };
 
-function isAllowedSpotifyPath(pathname) {
-  return (
-    pathname === '/v1/me' ||
-    pathname === '/v1/me/playlists' ||
-    /^\/v1\/playlists\/[0-9A-Za-z]+\/items$/.test(pathname) ||
-    /^\/v1\/tracks\/[0-9A-Za-z]+$/.test(pathname)
-  );
+const PLAYLIST_ITEMS_PATH = /^\/v1\/playlists\/[0-9A-Za-z]+\/items$/;
+
+/** Endpoints per method: reads, plus the playlist add/remove/create writes. */
+function isAllowedSpotifyRequest(method, pathname) {
+  if (method === 'GET') {
+    return (
+      pathname === '/v1/me' ||
+      pathname === '/v1/me/playlists' ||
+      PLAYLIST_ITEMS_PATH.test(pathname) ||
+      /^\/v1\/tracks\/[0-9A-Za-z]+$/.test(pathname)
+    );
+  }
+  if (method === 'POST') {
+    return pathname === '/v1/me/playlists' || PLAYLIST_ITEMS_PATH.test(pathname);
+  }
+  if (method === 'DELETE') {
+    return PLAYLIST_ITEMS_PATH.test(pathname);
+  }
+  return false;
 }
 
 export default {
@@ -32,7 +44,7 @@ export default {
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: CORS_HEADERS });
     }
-    if (request.method !== 'GET') {
+    if (!['GET', 'POST', 'DELETE'].includes(request.method)) {
       return new Response('Method not allowed', { status: 405, headers: CORS_HEADERS });
     }
 
@@ -43,7 +55,7 @@ export default {
 
     const url = new URL(request.url);
     const spotifyPath = url.pathname.replace(/^\/spotify/, '');
-    if (!isAllowedSpotifyPath(spotifyPath)) {
+    if (!isAllowedSpotifyRequest(request.method, spotifyPath)) {
       return new Response('Spotify endpoint not allowed', {
         status: 403,
         headers: CORS_HEADERS,
@@ -63,8 +75,14 @@ export default {
     if (ifModifiedSince) {
       upstreamHeaders['If-Modified-Since'] = ifModifiedSince;
     }
+    const isWrite = request.method !== 'GET';
+    if (isWrite) {
+      upstreamHeaders['Content-Type'] = request.headers.get('Content-Type') ?? 'application/json';
+    }
     const upstream = await fetch(upstreamUrl, {
+      method: request.method,
       headers: upstreamHeaders,
+      ...(isWrite ? { body: await request.text() } : {}),
     });
 
     const headers = new Headers({

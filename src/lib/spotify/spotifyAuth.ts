@@ -31,12 +31,15 @@ const AUTHORIZE_ENDPOINT = 'https://accounts.spotify.com/authorize';
 const TOKEN_ENDPOINT = 'https://accounts.spotify.com/api/token';
 const API_BASE = 'https://api.spotify.com/v1';
 
-/** Read private playlists + relinked track metadata. */
-const SPOTIFY_SCOPES = [
+/** Read private playlists + relinked track metadata, and edit playlists. */
+const SPOTIFY_SCOPE_LIST = [
   'playlist-read-private',
   'playlist-read-collaborative',
+  'playlist-modify-private',
+  'playlist-modify-public',
   'user-read-private',
-].join(' ');
+];
+export const SPOTIFY_SCOPES = SPOTIFY_SCOPE_LIST.join(' ');
 
 export const SPOTIFY_OAUTH_MESSAGE_TYPE = 'spotify-oauth-callback';
 export const SPOTIFY_AUTH_CHANGED = 'spotify-auth-changed';
@@ -63,12 +66,15 @@ export type StoredSpotifyAuth = {
   displayName: string | null;
   spotifyUserId: string | null;
   country: string | null;
+  /** Space-separated scopes Spotify granted; missing for sign-ins saved before it was recorded. */
+  scope: string | null;
 };
 
 type TokenResponse = {
   access_token?: string;
   refresh_token?: string;
   expires_in?: number;
+  scope?: string;
   error?: string;
   error_description?: string;
 };
@@ -126,6 +132,12 @@ function readStoredAuth(): StoredSpotifyAuth | null {
     if (!parsed.accessToken || typeof parsed.expiresAt !== 'number') {
       return null;
     }
+    if (!hasRequiredScopes(parsed.scope)) {
+      // Signed in before a scope was added: drop the sign-in so the user re-authorizes.
+      // Only the tokens go; the selected playlist and its cache survive.
+      localStorage.removeItem(SPOTIFY_AUTH_STORAGE_KEY);
+      return null;
+    }
     return {
       accessToken: parsed.accessToken,
       refreshToken: parsed.refreshToken ?? '',
@@ -133,10 +145,19 @@ function readStoredAuth(): StoredSpotifyAuth | null {
       displayName: parsed.displayName ?? null,
       spotifyUserId: parsed.spotifyUserId ?? null,
       country: parsed.country?.toUpperCase() ?? null,
+      scope: parsed.scope ?? null,
     };
   } catch {
     return null;
   }
+}
+
+function hasRequiredScopes(scope: string | null | undefined): boolean {
+  if (!scope) {
+    return false;
+  }
+  const granted = new Set(scope.split(/\s+/));
+  return SPOTIFY_SCOPE_LIST.every((required) => granted.has(required));
 }
 
 function writeStoredAuth(auth: StoredSpotifyAuth): void {
@@ -269,6 +290,8 @@ async function persistTokensFromResponse(json: TokenResponse): Promise<StoredSpo
     displayName: readStoredAuth()?.displayName ?? null,
     spotifyUserId: readStoredAuth()?.spotifyUserId ?? null,
     country: readStoredAuth()?.country ?? null,
+    // Refresh responses can omit scope; the grant is unchanged then.
+    scope: json.scope ?? readStoredAuth()?.scope ?? null,
   };
   writeStoredAuth(auth);
   try {

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   SPOTIFY_AUTH_STORAGE_KEY,
+  SPOTIFY_SCOPES,
   _clearSpotifyAuthForTesting,
   decodeSpotifyOAuthState,
   encodeSpotifyOAuthState,
@@ -48,6 +49,7 @@ describe('spotifyAuth helpers', () => {
         expiresAt: Date.now() + 60_000,
         displayName: 'Robert',
         spotifyUserId: 'user',
+        scope: SPOTIFY_SCOPES,
       }),
     );
     vi.mocked(spotifyApiFetch).mockResolvedValue({
@@ -61,5 +63,28 @@ describe('spotifyAuth helpers', () => {
 
     await expect(ensureSpotifyAccountCountry('token')).resolves.toBe('CA');
     expect(getStoredSpotifyAuth()?.country).toBe('CA');
+  });
+
+  it.each([
+    ['no recorded scope', undefined],
+    ['read-only scope', 'playlist-read-private playlist-read-collaborative user-read-private'],
+  ])('signs out a sign-in with %s so the user re-authorizes for playlist edits', (_, scope) => {
+    localStorage.setItem(
+      SPOTIFY_AUTH_STORAGE_KEY,
+      JSON.stringify({ accessToken: 'token', refreshToken: 'r', expiresAt: Date.now() + 60_000, scope }),
+    );
+    localStorage.setItem('spotify:playlist:v1', '{"id":"pl"}');
+
+    expect(getStoredSpotifyAuth()).toBeNull();
+    expect(localStorage.getItem(SPOTIFY_AUTH_STORAGE_KEY)).toBeNull();
+    expect(localStorage.getItem('spotify:playlist:v1')).toBe('{"id":"pl"}');
+  });
+
+  it('keeps a sign-in that has every scope', () => {
+    localStorage.setItem(
+      SPOTIFY_AUTH_STORAGE_KEY,
+      JSON.stringify({ accessToken: 'token', expiresAt: Date.now() + 60_000, scope: SPOTIFY_SCOPES }),
+    );
+    expect(getStoredSpotifyAuth()?.scope).toBe(SPOTIFY_SCOPES);
   });
 });

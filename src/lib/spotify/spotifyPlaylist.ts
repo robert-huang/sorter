@@ -529,6 +529,20 @@ export async function _writePlaylistCacheForTesting(
   return writePlaylistCache(cache);
 }
 
+/** Rewrite a cached playlist after a local edit; false when it isn't cached. */
+export async function editPlaylistCache(
+  playlistId: string,
+  edit: (cache: SpotifyPlaylistCache) => SpotifyPlaylistCache,
+): Promise<boolean> {
+  await hydrateSpotifyPlaylistCaches();
+  const cache = getPlaylistCache(playlistId);
+  if (!cache) {
+    return false;
+  }
+  await writePlaylistCache(edit(cache));
+  return true;
+}
+
 /** Patch playlist track rows in cache (e.g. background ISRC backfill). */
 export async function updatePlaylistCacheTracks(
   playlistId: string,
@@ -615,8 +629,25 @@ function isUnregisteredSpotifyUser(message: string | null): boolean {
   );
 }
 
-async function fetchJson<T>(url: string, accessToken: string): Promise<T> {
-  const res = await spotifyApiFetch(url, accessToken);
+export const SPOTIFY_PLAYLIST_EDIT_FORBIDDEN_MESSAGE =
+  'Spotify refused the edit. Sign in to Spotify again to allow playlist edits, or pick a playlist you own or collaborate on.';
+
+/** Spotify Web API call with a JSON body; throws the same readable errors as reads. */
+export async function sendSpotifyJson<T>(
+  url: string,
+  accessToken: string,
+  method: 'POST' | 'DELETE',
+  body: unknown,
+): Promise<T> {
+  return fetchJson<T>(url, accessToken, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+async function fetchJson<T>(url: string, accessToken: string, init?: RequestInit): Promise<T> {
+  const res = await spotifyApiFetch(url, accessToken, init);
   if (!res.ok) {
     let message: string | null = null;
     try {
@@ -633,6 +664,9 @@ async function fetchJson<T>(url: string, accessToken: string): Promise<T> {
       throw new Error(SPOTIFY_UNREGISTERED_USER_MESSAGE);
     }
     const detail = message ? `: ${message}` : '';
+    if (res.status === 403 && init?.method && init.method !== 'GET') {
+      throw new Error(SPOTIFY_PLAYLIST_EDIT_FORBIDDEN_MESSAGE);
+    }
     if (res.status === 403 && url.includes('/items')) {
       throw new Error(
         `Spotify API 403${detail} — playlist tracks are only available for playlists you own or collaborate on. Pick a different playlist.`,

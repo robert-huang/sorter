@@ -28,6 +28,7 @@ describe('Spotify API proxy', () => {
     expect(upstreamFetch).toHaveBeenCalledWith(
       'https://api.spotify.com/v1/tracks/abc123?market=CA',
       {
+        method: 'GET',
         headers: {
           Accept: 'application/json',
           Authorization: 'Bearer test-token',
@@ -73,6 +74,7 @@ describe('Spotify API proxy', () => {
     );
 
     expect(upstreamFetch).toHaveBeenCalledWith('https://api.spotify.com/v1/me/playlists', {
+      method: 'GET',
       headers: {
         Accept: 'application/json',
         Authorization: 'Bearer test-token',
@@ -82,5 +84,54 @@ describe('Spotify API proxy', () => {
     expect(response.status).toBe(304);
     expect(response.headers.get('ETag')).toBe('"playlist-version"');
     expect(response.headers.get('Cache-Control')).toBe('private, max-age=0');
+  });
+
+  it.each([
+    ['POST', '/v1/playlists/plAAAA/items', '{"uris":["spotify:track:AAAA"],"position":3}'],
+    ['DELETE', '/v1/playlists/plAAAA/items', '{"items":[{"uri":"spotify:track:AAAA"}]}'],
+    ['POST', '/v1/me/playlists', '{"name":"Fall 2026 theme songs","public":true}'],
+  ])('forwards %s %s with its JSON body', async (method, path, body) => {
+    const upstreamFetch = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('{"snapshot_id":"s"}', { status: 201 }));
+
+    const response = await worker.fetch(
+      new Request(`https://worker.example/spotify${path}`, {
+        method,
+        headers: { Authorization: 'Bearer test-token', 'Content-Type': 'application/json' },
+        body,
+      }),
+    );
+
+    expect(upstreamFetch).toHaveBeenCalledWith(`https://api.spotify.com${path}`, {
+      method,
+      headers: {
+        Accept: 'application/json',
+        Authorization: 'Bearer test-token',
+        'Content-Type': 'application/json',
+      },
+      body,
+    });
+    expect(response.status).toBe(201);
+    expect(response.headers.get('Access-Control-Allow-Methods')).toContain(method);
+  });
+
+  it.each([
+    ['POST', '/v1/tracks/abc123'],
+    ['DELETE', '/v1/me/playlists'],
+    ['PUT', '/v1/playlists/plAAAA/items'],
+  ])('rejects %s %s', async (method, path) => {
+    const upstreamFetch = vi.spyOn(globalThis, 'fetch');
+
+    const response = await worker.fetch(
+      new Request(`https://worker.example/spotify${path}`, {
+        method,
+        headers: { Authorization: 'Bearer test-token' },
+        body: '{}',
+      }),
+    );
+
+    expect(response.status).toBe(method === 'PUT' ? 405 : 403);
+    expect(upstreamFetch).not.toHaveBeenCalled();
   });
 });

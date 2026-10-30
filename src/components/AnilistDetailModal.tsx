@@ -49,6 +49,7 @@ import {
 } from '../lib/spotify/spotifyPlaylistMatch';
 import { subscribeSpotifyAuth } from '../lib/spotify/spotifyAuth';
 import { useSpotifyTrackIsrcLookup } from '../hooks/useSpotifyTrackIsrcLookup';
+import { useThemeSongPlaylistEditor } from '../hooks/useThemeSongPlaylistEditor';
 import { useSpotifyLocalFileMatchPreference } from '../hooks/useSpotifyLocalFileMatchPreference';
 import {
   allThemeSongSourcesFailed,
@@ -392,6 +393,7 @@ export function AnilistDetailModal({
       trackIsrcLookupReady,
     ],
   );
+  const playlistEditor = useThemeSongPlaylistEditor(themeSongRows, playlistMatchOptions);
 
   useEffect(() => {
     const bump = () => setPlaylistCacheRevision((n) => n + 1);
@@ -1245,6 +1247,7 @@ export function AnilistDetailModal({
                                 )}
                                 showPlaylistMatch={playlistCache !== null}
                                 spotifyCountry={spotifyCountry}
+                                playlistEditor={playlistCache ? playlistEditor : null}
                                 onExclude={(songRow) => void onExcludeThemeSong(songRow)}
                               />
                             ))}

@@ -767,7 +767,7 @@ Filtering happens in two stages, because some filters belong to a person and oth
 Merged values:
 
 - **Show score** = mean of the users who **rated** it, rounded to 0.1. With **Show repeats** on (gear), each rater is weighted by their watch count (`repeat + 1`). Users who have the show but didn't rate it don't pull the mean down.
-- **Repeat count** = total watches across users − 1 (shown as `×n` when repeats are on).
+- **Repeat count** = total watches across users − 1 (shown as `×n` when repeats are on). Hover `×n` to see who watched it, e.g. `robert ×2, alexp, mannerpots (P), dan ×3 (H)`. Repeats show as `×k`; only Planning **(P)**, Paused **(H)** and Dropped **(D)** get a status letter.
 - **Status letter** (nobody rated it) = the most active status present: watching > repeating > paused > planning.
 - **Column average / rated count** treat each merged show as one rated item (its merged score), so a show that three people rated counts once, not three times. With repeats on, the show is weighted by its total watches across users.
 - **Score hover** lists the status counts (`2 completed, 2 rated, 1 watching, 0 planning`, plus paused when non-zero), then one `user: score` (or status) line per user.
@@ -883,6 +883,17 @@ Chart **airing and upcoming anime** by weekday, or browse **seasonal catalogs** 
 - **Unscheduled column** (gear → Weekly Calendar → Unknown Airing Day column) — optional column for shows without a known weekday slot.
 
 Results use the seasonal-scores-style column chart (weekday columns, score coloring, show count per day). Show titles open media detail modals.
+
+#### Editing the Spotify playlist
+
+Theme-song dots can edit the selected playlist, in both the Weekly Calendar and media detail modals. Editing needs the `playlist-modify-private` / `playlist-modify-public` scopes, so a sign-in saved without them (including any from before they were added) is dropped and you're shown as signed out until you sign in again. The selected playlist and its cache are kept. A 403 means you need to sign in again or pick a playlist you can edit.
+
+- **Add a song** — right-click a red dot, or an orange (market-unavailable) dot whose song isn't on the playlist. The dot spins, then turns green. On failure it shows ✕ for 2 seconds, then returns to its previous colour with the error kept in the tooltip. Blue dots aren't addable, so adds follow **Match Local Files**: in **Local** mode a song that's on the playlist as a local file stays blue and isn't added.
+- **Add a whole show** — right-click a show's song-count badge to add all of its addable songs (OP → ED → insert). Each song is slotted in OP → ED → insert order next to the show's songs already on the playlist: right after the closest earlier one (OP2 lands after OP1, before ED1), or just before the first one if it comes ahead of all of them. Later items shift down. A show with nothing on the playlist is appended. Single-song adds use the same rule. The AniPlaylist-picked Spotify version is preferred.
+- **Remove a song** — needs gear → Weekly Calendar → **Allow Shift+right-click remove from playlist** (off by default; also applies in modals). Shift+right-click a green dot to arm it (red ring), then Shift+right-click again to remove. Moving the mouse away cancels. Removal deletes every copy of that track from the playlist.
+- **Create a playlist** — the **+** button in the **Theme songs (cached)** heading opens a dialog for the name (default `<season> theme songs`) and a **Public** checkbox (on by default). It adds every song the panel currently shows, including inserts and market-unavailable songs, in batches of 100. The new playlist isn't selected automatically. If an add batch fails, the error says how many songs made it in.
+
+Edits update the cached playlist positions locally, so dots and badges update without refetching the playlist.
 
 #### Spotify theme-song metadata matching
 
@@ -1061,7 +1072,7 @@ The included `.github/workflows/deploy.yml` builds + publishes the app to GitHub
 | Pre-auth URL hash (transient) | `sessionStorage` key `sorter:preAuthHash`. Restores any in-flight `#share=…` payload after the OAuth redirect. |
 | Cloud slot files | One JSON file per opted-in slot inside the Drive folder you picked. Named `<slotName>_<slotId>.sorter.json`. |
 | AniList cache (source DB) | SQLite in **OPFS**: `/anilist.sqlite` (or `/anilist-mem.sqlite` in the in-memory fallback). Shared by Sorter + Anime to Anime + Anime Tools. |
-| Source DB sync metadata | `localStorage` key `sorter:db-sync:v1`. Per-source etags, push/pull times, pending-change count, scrape lock. |
+| Source DB sync metadata | `localStorage` key `sorter:db-sync:v1`. Per-source etags, push/pull times, pending-change count, scrape lock. A stale scrape lock expires after 5 minutes, or can be cleared with **Clear scrape lock** in the advanced storage diagnostics. |
 | AniList display preferences | `localStorage` key `anilist:display-preferences:v1`. Title language + staff-name format. |
 | AniList OAuth accounts | `localStorage` key `anilist:accounts:v1`. Access tokens + expiry per signed-in user. Wiped per-account on sign-out. |
 | Tools active tab | `localStorage` key `anime-tools-active-tool`. Last-selected Tools tab id. |

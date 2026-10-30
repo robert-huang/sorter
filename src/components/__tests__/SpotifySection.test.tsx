@@ -7,6 +7,7 @@ import {
 } from '../../lib/spotify/spotifyApi';
 import {
   SPOTIFY_AUTH_STORAGE_KEY,
+  SPOTIFY_SCOPES,
   _clearSpotifyAuthForTesting,
 } from '../../lib/spotify/spotifyAuth';
 import { _clearSpotifyLocalFileMatchPreferencesForTesting } from '../../lib/spotify/spotifyLocalFileMatchPreferences';
@@ -120,6 +121,7 @@ describe('SpotifySection local-file matching control', () => {
         expiresAt: Date.now() + 120_000,
         displayName: 'Test User',
         spotifyUserId: 'user-1',
+        scope: SPOTIFY_SCOPES,
       }),
     );
     setSelectedSpotifyPlaylist({
@@ -179,6 +181,7 @@ describe('SpotifySection local-file matching control', () => {
         expiresAt: Date.now() + 120_000,
         displayName: 'Test User',
         spotifyUserId: 'user-1',
+        scope: SPOTIFY_SCOPES,
       }),
     );
     setSelectedSpotifyPlaylist({

@@ -1,8 +1,10 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MediaThemeSongRow } from '../../lib/importers/anilist/themeSongs/types';
 import type { PlaylistMatchResult } from '../../lib/spotify/spotifyPlaylistMatch';
+import type { ThemeSongPlaylistEditor } from '../../hooks/useThemeSongPlaylistEditor';
+import { PLAYLIST_EDIT_FAILED_MS } from '../../hooks/usePlaylistEditAction';
 import { ThemeSongPlaylistDot, ThemeSongRowC } from '../themeSongRowC';
 
 let container: HTMLDivElement;
@@ -245,5 +247,141 @@ describe('ThemeSongRowC', () => {
     });
 
     expect(container.querySelector('.anilist-detail-theme-song-preview-toggle')).not.toBeNull();
+  });
+});
+
+describe('ThemeSongRowC playlist edits', () => {
+  const row: MediaThemeSongRow = {
+    type: 'Opening',
+    sortOrder: 1,
+    displayTitle: 'Track title',
+    displayArtist: 'Artist',
+    spotifyUrl: null,
+    spotifyTrackIds: ['AAAAAAAAAAAAAA'],
+    spotifyIsrc: null,
+    hasResolvableTrackId: true,
+  };
+  const OUT: PlaylistMatchResult = { status: 'out', metadataMatch: null };
+  const IN: PlaylistMatchResult = { status: 'in', metadataMatch: null, playlistPosition: 4 };
+
+  function editor(overrides: Partial<ThemeSongPlaylistEditor> = {}): ThemeSongPlaylistEditor {
+    return {
+      playlistName: 'Anime OPs',
+      allowRemove: false,
+      addRows: vi.fn(async () => {}),
+      removeRow: vi.fn(async () => {}),
+      ...overrides,
+    };
+  }
+
+  async function renderRow(
+    match: PlaylistMatchResult,
+    playlistEditor: ThemeSongPlaylistEditor,
+    spotifyCountry?: string,
+  ): Promise<void> {
+    await act(async () => {
+      root.render(
+        <ThemeSongRowC
+          row={{ ...row, spotifyAvailableMarkets: spotifyCountry ? ['JP'] : undefined }}
+          playlistMatch={match}
+          showPlaylistMatch
+          spotifyCountry={spotifyCountry}
+          playlistEditor={playlistEditor}
+        />,
+      );
+    });
+  }
+
+  function dot(): HTMLElement {
+    return container.querySelector('.anilist-detail-theme-song-playlist-dot') as HTMLElement;
+  }
+
+  function rightClick(shiftKey = false): void {
+    dot().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, shiftKey }));
+  }
+
+  it('adds a red song on right-click, spinning until the edit settles', async () => {
+    let finish: () => void = () => {};
+    const addRows = vi.fn(() => new Promise<void>((resolve) => (finish = resolve)));
+    const playlistEditor = editor({ addRows });
+    await renderRow(OUT, playlistEditor);
+
+    expect(dot().classList).toContain('is-addable');
+    expect(dot().title).toBe('Not in your Spotify playlist\nRight-click to add to Anime OPs');
+
+    act(() => rightClick());
+    expect(addRows).toHaveBeenCalledWith([expect.objectContaining({ displayTitle: 'Track title' })]);
+    expect(dot().classList).toContain('is-edit-busy');
+    expect(dot().title).toBe('Adding to Anime OPs…');
+    act(() => rightClick());
+    expect(addRows).toHaveBeenCalledOnce();
+
+    await act(async () => finish());
+    await renderRow(IN, playlistEditor);
+    expect(dot().classList).toContain('is-in');
+    expect(dot().classList).not.toContain('is-edit-busy');
+  });
+
+  it('adds an orange song that is not on the playlist, but not one that already is', async () => {
+    await renderRow(OUT, editor(), 'CA');
+    expect(dot().classList).toContain('is-market-unavailable');
+    expect(dot().classList).toContain('is-addable');
+
+    await renderRow(IN, editor(), 'CA');
+    expect(dot().classList).toContain('is-market-unavailable');
+    expect(dot().classList).not.toContain('is-addable');
+    expect(dot().classList).not.toContain('is-removable');
+  });
+
+  it('removes a green song only when removal is allowed', async () => {
+    await renderRow(IN, editor());
+    expect(dot().classList).not.toContain('is-removable');
+    expect(dot().title).toBe('In your Spotify playlist at #4');
+
+    const removeRow = vi.fn(async () => {});
+    await renderRow(IN, editor({ allowRemove: true, removeRow }));
+    expect(dot().classList).toContain('is-removable');
+    expect(dot().title).toContain('Shift+right-click twice to remove from Anime OPs');
+    await act(async () => rightClick());
+    expect(dot().classList).not.toContain('is-remove-armed');
+    await act(async () => rightClick(true));
+    expect(removeRow).not.toHaveBeenCalled();
+    expect(dot().classList).toContain('is-remove-armed');
+    expect(dot().title).toBe('Shift+right-click again to remove from Anime OPs');
+    await act(async () => rightClick(true));
+    expect(removeRow).toHaveBeenCalledOnce();
+  });
+
+  it('disarms a pending remove when the pointer leaves the dot', async () => {
+    const removeRow = vi.fn(async () => {});
+    await renderRow(IN, editor({ allowRemove: true, removeRow }));
+    await act(async () => rightClick(true));
+    expect(dot().classList).toContain('is-remove-armed');
+
+    act(() => {
+      dot().dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body }));
+    });
+    expect(dot().classList).not.toContain('is-remove-armed');
+    await act(async () => rightClick(true));
+    expect(removeRow).not.toHaveBeenCalled();
+  });
+
+  it('shows an x on failure, then returns to the dot with the error kept in the tooltip', async () => {
+    vi.useFakeTimers();
+    try {
+      await renderRow(OUT, editor({ addRows: vi.fn(async () => Promise.reject(new Error('nope'))) }));
+      await act(async () => rightClick());
+
+      expect(dot().classList).toContain('is-edit-failed');
+      expect(dot().textContent).toBe('✕');
+      expect(dot().title).toContain("Couldn't add: nope");
+
+      act(() => vi.advanceTimersByTime(PLAYLIST_EDIT_FAILED_MS));
+      expect(dot().classList).toContain('is-out');
+      expect(dot().textContent).toBe('');
+      expect(dot().title).toContain("Couldn't add: nope");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

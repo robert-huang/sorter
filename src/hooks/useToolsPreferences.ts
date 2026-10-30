@@ -17,6 +17,7 @@ export function useToolsPreferences(): {
   setSeasonalScoresSpanAiringSeasons: (enabled: boolean) => void;
   setWeeklyCalendarShowUnscheduledColumn: (enabled: boolean) => void;
   setWeeklyCalendarShowThemeSongs: (enabled: boolean) => void;
+  setWeeklyCalendarAllowPlaylistRemoval: (enabled: boolean) => void;
   setScoreComparisonRescale: (enabled: boolean) => void;
   setScoreComparisonTargetMean: (mean: number) => void;
   setScoreComparisonTargetStdDev: (stdDev: number) => void;
@@ -65,6 +66,10 @@ export function useToolsPreferences(): {
     saveToolsPreferences({ weeklyCalendarShowThemeSongs: enabled });
   };
 
+  const setWeeklyCalendarAllowPlaylistRemoval = (enabled: boolean): void => {
+    saveToolsPreferences({ weeklyCalendarAllowPlaylistRemoval: enabled });
+  };
+
   const setScoreComparisonRescale = (enabled: boolean): void => {
     saveToolsPreferences({ scoreComparisonRescale: enabled });
   };
@@ -91,6 +96,7 @@ export function useToolsPreferences(): {
     setSeasonalScoresSpanAiringSeasons,
     setWeeklyCalendarShowUnscheduledColumn,
     setWeeklyCalendarShowThemeSongs,
+    setWeeklyCalendarAllowPlaylistRemoval,
   };
 }
 

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useThemeSongPreview } from '../hooks/useThemeSongPreview';
 import type { MediaThemeSongRow } from '../lib/importers/anilist/themeSongs/types';
 import {
@@ -15,6 +15,12 @@ import type { PlaylistMatchResult } from '../lib/spotify/spotifyPlaylistMatch';
 import { useThemeSongDisplayPreferences } from '../hooks/useThemeSongDisplayPreferences';
 import { RemoveGlyph } from './RemoveGlyph';
 import { ThemeSongPreviewPlayer } from './ThemeSongPreviewPlayer';
+import { usePlaylistEditAction } from '../hooks/usePlaylistEditAction';
+import type { ThemeSongPlaylistEditor } from '../hooks/useThemeSongPlaylistEditor';
+import {
+  isPlaylistAddable,
+  isPlaylistRemovable,
+} from '../lib/spotify/themeSongPlaylistEditing';
 
 type Props = {
   row: MediaThemeSongRow;
@@ -24,6 +30,8 @@ type Props = {
   onExclude?: (row: MediaThemeSongRow) => void;
   mediaId?: number;
   animeTitle?: string;
+  /** Enables right-click add/remove on the playlist dot. */
+  playlistEditor?: ThemeSongPlaylistEditor | null;
 };
 
 export function ThemeSongPlaylistDot({
@@ -67,74 +75,182 @@ function marketUnavailableTooltip(
   return `On Spotify, but unavailable in your market${market}`;
 }
 
+type PlaylistDotDescriptor = { modifier: string; tooltip: string };
+
+function playlistDotDescriptor(
+  match: PlaylistMatchResult,
+  marketUnavailable: boolean,
+  spotifyCountry?: string | null,
+): PlaylistDotDescriptor | null {
+  const isLocalMetadataMatch = match.metadataMatch?.kind === 'local';
+  if (marketUnavailable && !isLocalMetadataMatch) {
+    return {
+      modifier: 'is-market-unavailable',
+      tooltip: marketUnavailableTooltip(match, spotifyCountry),
+    };
+  }
+  if (match.metadataMatch) {
+    return { modifier: 'is-metadata', tooltip: metadataMatchTooltip(match) };
+  }
+  if (match.status === 'in') {
+    return {
+      modifier: 'is-in',
+      tooltip: match.playlistPosition
+        ? `In your Spotify playlist at #${match.playlistPosition}`
+        : 'In your Spotify playlist',
+    };
+  }
+  if (match.status === 'out') {
+    return { modifier: 'is-out', tooltip: 'Not in your Spotify playlist' };
+  }
+  return null;
+}
+
 function themeSongPlaylistIndicator(
   match: PlaylistMatchResult,
   marketUnavailable = false,
   spotifyCountry?: string | null,
 ): ReactNode {
-  const isLocalMetadataMatch = match.metadataMatch?.kind === 'local';
-  if (marketUnavailable && !isLocalMetadataMatch) {
-    const tooltip = marketUnavailableTooltip(match, spotifyCountry);
-    return (
-      <span
-        title={tooltip}
-        aria-label={tooltip}
-        className="anilist-detail-theme-song-playlist-dot is-market-unavailable"
-      />
-    );
+  const dot = playlistDotDescriptor(match, marketUnavailable, spotifyCountry);
+  if (!dot) {
+    return null;
   }
-  if (match.metadataMatch) {
-    const tooltip = metadataMatchTooltip(match);
-    return (
-      <span
-        title={tooltip}
-        aria-label={tooltip}
-        className="anilist-detail-theme-song-playlist-dot is-metadata"
-      />
-    );
+  return (
+    <span
+      title={dot.tooltip}
+      aria-label={dot.tooltip}
+      className={`anilist-detail-theme-song-playlist-dot ${dot.modifier}`}
+    />
+  );
+}
+
+function playlistEditKind(
+  match: PlaylistMatchResult,
+  editor: ThemeSongPlaylistEditor | null | undefined,
+): 'add' | 'remove' | null {
+  if (!editor) {
+    return null;
   }
-  if (match.status === 'in') {
-    const tooltip = match.playlistPosition
-      ? `In your Spotify playlist at #${match.playlistPosition}`
-      : 'In your Spotify playlist';
-    return (
-      <span
-        title={tooltip}
-        aria-label={tooltip}
-        className="anilist-detail-theme-song-playlist-dot is-in"
-      />
-    );
+  if (isPlaylistAddable(match)) {
+    return 'add';
   }
-  if (match.status === 'out') {
-    return (
-      <span
-        title="Not in your Spotify playlist"
-        aria-label="Not in your Spotify playlist"
-        className="anilist-detail-theme-song-playlist-dot is-out"
-      />
-    );
+  return editor.allowRemove && isPlaylistRemovable(match) ? 'remove' : null;
+}
+
+/**
+ * Right-click target for a playlist edit: spinner while busy, a brief x on failure.
+ * Removal needs Shift+right-click twice; leaving the indicator disarms it.
+ */
+export function PlaylistEditIndicator({
+  baseClassName,
+  modifier,
+  tooltip,
+  kind,
+  playlistName,
+  onEdit,
+  children,
+}: {
+  baseClassName: string;
+  modifier: string;
+  tooltip: string;
+  kind: 'add' | 'remove' | null;
+  playlistName: string | null;
+  onEdit: () => Promise<unknown>;
+  children?: ReactNode;
+}) {
+  const action = usePlaylistEditAction();
+  const [removeArmed, setRemoveArmed] = useState(false);
+  const armed = removeArmed && kind === 'remove' && action.phase === 'idle';
+  const verb = kind === 'remove' ? 'Removing from' : 'Adding to';
+  let className = `${baseClassName} ${modifier}`;
+  let label = tooltip;
+  if (armed) {
+    className += ' is-remove-armed';
+    label = `Shift+right-click again to remove from ${playlistName ?? 'playlist'}`;
+  } else if (action.phase === 'busy') {
+    className = `${baseClassName} is-edit-busy`;
+    label = `${verb} ${playlistName ?? 'playlist'}…`;
+  } else if (action.phase === 'failed') {
+    className = `${baseClassName} is-edit-failed`;
   }
-  return null;
+  if (kind && action.phase === 'idle') {
+    className += kind === 'add' ? ' is-addable' : ' is-removable';
+  }
+  if (action.error) {
+    label = `Couldn't ${kind === 'remove' ? 'remove' : 'add'}: ${action.error}\n\n${label}`;
+  }
+  return (
+    <span
+      title={label}
+      aria-label={label}
+      aria-busy={action.phase === 'busy' || undefined}
+      className={className}
+      onContextMenu={
+        kind
+          ? (event) => {
+              if (kind === 'remove' && !event.shiftKey) {
+                return;
+              }
+              event.preventDefault();
+              event.stopPropagation();
+              if (kind === 'remove' && !armed) {
+                setRemoveArmed(true);
+                return;
+              }
+              setRemoveArmed(false);
+              action.run(onEdit);
+            }
+          : undefined
+      }
+      onMouseLeave={removeArmed ? () => setRemoveArmed(false) : undefined}
+    >
+      {action.phase === 'failed' ? '✕' : children}
+    </span>
+  );
+}
+
+function playlistEditHint(kind: 'add' | 'remove' | null, playlistName: string): string {
+  if (kind === 'add') return `\nRight-click to add to ${playlistName}`;
+  if (kind === 'remove') return `\nShift+right-click twice to remove from ${playlistName}`;
+  return '';
 }
 
 function ThemeSongPlaylistDotSlot({
+  row,
   match,
   show,
   marketUnavailable,
   spotifyCountry,
+  playlistEditor,
 }: {
+  row: MediaThemeSongRow;
   match: PlaylistMatchResult;
   show: boolean;
   marketUnavailable: boolean;
   spotifyCountry?: string | null;
+  playlistEditor?: ThemeSongPlaylistEditor | null;
 }) {
   if (!show && !marketUnavailable) {
     return null;
   }
-  const dot = themeSongPlaylistIndicator(match, marketUnavailable, spotifyCountry);
+  const dot = playlistDotDescriptor(match, marketUnavailable, spotifyCountry);
+  const kind = playlistEditKind(match, playlistEditor);
   return (
     <div className="anilist-detail-theme-song-playlist-dot-slot">
-      {dot ?? (
+      {dot ? (
+        <PlaylistEditIndicator
+          baseClassName="anilist-detail-theme-song-playlist-dot"
+          modifier={dot.modifier}
+          tooltip={`${dot.tooltip}${playlistEditHint(kind, playlistEditor?.playlistName ?? '')}`}
+          kind={kind}
+          playlistName={playlistEditor?.playlistName ?? null}
+          onEdit={() =>
+            kind === 'remove'
+              ? playlistEditor!.removeRow(row)
+              : playlistEditor!.addRows([row])
+          }
+        />
+      ) : (
         <span className="anilist-detail-theme-song-playlist-dot is-placeholder" aria-hidden="true" />
       )}
     </div>
@@ -207,6 +323,7 @@ export function ThemeSongRowC({
   onExclude,
   mediaId,
   animeTitle,
+  playlistEditor,
 }: Props) {
   const { mode } = useThemeSongDisplayPreferences();
   const title = resolveThemeSongTitle(row, mode);
@@ -281,6 +398,8 @@ export function ThemeSongRowC({
         {themeSongTypeBadge(row)}
       </div>
       <ThemeSongPlaylistDotSlot
+        row={row}
+        playlistEditor={playlistEditor}
         match={playlistMatch}
         show={showPlaylistMatch || spotifyCountry != null}
         marketUnavailable={marketUnavailable}

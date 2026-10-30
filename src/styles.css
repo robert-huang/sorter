@@ -2603,6 +2603,36 @@ html {
   visibility: hidden;
 }
 
+.anilist-detail-theme-song-playlist-dot.is-addable,
+.anilist-detail-theme-song-playlist-dot.is-removable {
+  cursor: pointer;
+}
+
+/* First Shift+right-click on a green dot: a red ring asks for the second one. */
+.anilist-detail-theme-song-playlist-dot.is-remove-armed::before {
+  box-shadow: 0 0 0 2px #e91429;
+}
+
+/* Right-click playlist edit in flight: a ring spinner the size of the dot. */
+.anilist-detail-theme-song-playlist-dot.is-edit-busy::before {
+  box-sizing: border-box;
+  background: none;
+  border: 1.5px solid var(--text-muted);
+  border-top-color: transparent;
+  animation: iconSpin 0.8s linear infinite;
+}
+
+.anilist-detail-theme-song-playlist-dot.is-edit-failed {
+  color: #e91429;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.anilist-detail-theme-song-playlist-dot.is-edit-failed::before {
+  display: none;
+}
+
 .anilist-detail-theme-song-exclude {
   flex-shrink: 0;
 }
@@ -10292,6 +10322,27 @@ a:where(.anime-to-anime-anilist-link):visited {
 
 .tool-weekly-theme-song-badge.is-mixed {
   color: #d4a017;
+}
+
+.tool-weekly-theme-song-badge.is-addable {
+  cursor: pointer;
+}
+
+.tool-weekly-theme-song-badge.is-edit-busy {
+  cursor: progress;
+  opacity: 0.55;
+  animation: themeSongBadgePulse 0.9s ease-in-out infinite alternate;
+}
+
+.tool-weekly-theme-song-badge.is-edit-failed {
+  color: #e91429;
+  font-weight: 700;
+}
+
+@keyframes themeSongBadgePulse {
+  to {
+    opacity: 1;
+  }
 }
 
 .tool-weekly-theme-songs-panel .anilist-detail-theme-songs {

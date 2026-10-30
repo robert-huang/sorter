@@ -29,6 +29,8 @@ export type ToolsPreferences = {
   weeklyCalendarShowUnscheduledColumn: boolean;
   /** Load and display cached theme songs in Weekly Calendar. */
   weeklyCalendarShowThemeSongs: boolean;
+  /** Right-click a green theme-song dot to remove it from the Spotify playlist (also in media modals). */
+  weeklyCalendarAllowPlaylistRemoval: boolean;
   /** Map User Scores z-scores onto the target mean / std dev below. */
   scoreComparisonRescale: boolean;
   scoreComparisonTargetMean: number;
@@ -50,6 +52,7 @@ const DEFAULT_PREFS: ToolsPreferences = {
   seasonalScoresIncludeMalScores: false,
   weeklyCalendarShowUnscheduledColumn: false,
   weeklyCalendarShowThemeSongs: false,
+  weeklyCalendarAllowPlaylistRemoval: false,
   scoreComparisonRescale: false,
   scoreComparisonTargetMean: 70,
   scoreComparisonTargetStdDev: 15,
@@ -173,6 +176,7 @@ export function loadToolsPreferences(): ToolsPreferences {
               LEGACY_WEEKLY_CALENDAR_FORM_KEY,
               'showThemeSongs',
             ),
+      weeklyCalendarAllowPlaylistRemoval: parsed.weeklyCalendarAllowPlaylistRemoval === true,
       scoreComparisonRescale: parsed.scoreComparisonRescale === true,
       scoreComparisonTargetMean: finiteOr(
         parsed.scoreComparisonTargetMean,
