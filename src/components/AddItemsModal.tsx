@@ -844,6 +844,7 @@ export function AnilistHydrationControls({
                     <span>Cached list</span>
                     <span className="anilist-hydration-select">
                       <select
+                        className="select-chevron"
                         value={selectedKey}
                         disabled={busy || matchingSources.length === 0}
                         onChange={(event) => {

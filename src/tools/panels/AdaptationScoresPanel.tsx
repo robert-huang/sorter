@@ -812,7 +812,7 @@ export function AdaptationScoresPanel({
             </label>
             {filters.showDifference !== 'off' ? (
               <select
-                className="slot-search tool-adaptation-show-diff"
+                className="slot-search select-chevron tool-adaptation-show-diff"
                 value={filters.showDifference}
                 onChange={(e) => {
                   const mode = e.target.value as Exclude<ShowDifferenceMode, 'off'>;

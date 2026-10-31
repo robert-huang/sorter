@@ -1558,7 +1558,7 @@ export function WeeklyCalendarPanel({
               <span className="tool-field-label">Week starts on</span>
               <div className="tool-weekly-week-start-field">
                 <select
-                  className="settings-spotify-select"
+                  className="settings-spotify-select select-chevron"
                   disabled={running}
                   value={form.weekStartDay}
                   onChange={(e) =>

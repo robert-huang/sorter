@@ -220,7 +220,7 @@ export function UpdateListEntryPanel(_props: ToolPanelProps) {
           <div className="tool-update-list-entry-control">
             <select
               id={FIELD_IDS.status}
-              className="slot-search tool-update-list-entry-status"
+              className="slot-search select-chevron tool-update-list-entry-status"
               disabled={running}
               value={form.status}
               onChange={(e) => patchForm({ status: e.target.value })}

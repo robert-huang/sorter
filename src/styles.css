@@ -6770,24 +6770,6 @@ a:where(.anime-to-anime-anilist-link):visited {
   display: block;
 }
 
-.anilist-hydration-select select {
-  appearance: none;
-  padding-right: 34px;
-}
-
-.anilist-hydration-select::after {
-  position: absolute;
-  top: 50%;
-  right: 12px;
-  width: 7px;
-  height: 7px;
-  border-right: 2px solid var(--text-muted);
-  border-bottom: 2px solid var(--text-muted);
-  content: '';
-  pointer-events: none;
-  transform: translateY(-70%) rotate(45deg);
-}
-
 .anilist-hydration-source-field {
   display: flex;
   min-width: 0;
@@ -10317,32 +10299,9 @@ a:where(.anime-to-anime-anilist-link):visited {
   align-items: center;
 }
 
-.tool-weekly-week-start-field {
-  position: relative;
-}
-
-/* Own chevron: the native one sits further right on macOS than on Windows. */
 .tool-weekly-week-start-field .settings-spotify-select {
   width: 100%;
   min-width: 6rem;
-  padding-right: 30px;
-  appearance: none;
-}
-
-.tool-weekly-week-start-field::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  right: 10px;
-  width: 10px;
-  height: 6px;
-  margin-top: -3px;
-  background: var(--text);
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
-    center / contain no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
-    center / contain no-repeat;
-  pointer-events: none;
 }
 
 .tool-weekly-season-segmented {
@@ -12119,4 +12078,21 @@ a:where(.anime-to-anime-anilist-link):visited {
 
 .tool-score-compare-stat {
   font-weight: 600;
+}
+
+/* Opt-in dropdown chevron. The native arrow can't be positioned and sits much
+   further right on macOS than on Windows. Last in the file so it beats each
+   select's own padding/background shorthand. */
+select.select-chevron {
+  --select-chevron-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%231f2328' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  appearance: none;
+  padding-right: 22px;
+  background-image: var(--select-chevron-image);
+  background-position: right 8px center;
+  background-repeat: no-repeat;
+  background-size: 10px 6px;
+}
+
+[data-theme='dark'] select.select-chevron {
+  --select-chevron-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23ffffff' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }

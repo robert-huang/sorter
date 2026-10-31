@@ -827,7 +827,7 @@ export function ReorderFavouritesPanel(props: ToolPanelProps) {
             <span className="tool-field-label">Type</span>
             <select
               id={FIELD_IDS.favouriteType}
-              className="slot-search tool-reorder-favourites-type"
+              className="slot-search select-chevron tool-reorder-favourites-type"
               value={form.favouriteType}
               disabled={busy}
               onChange={(e) =>

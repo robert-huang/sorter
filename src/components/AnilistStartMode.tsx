@@ -1239,7 +1239,7 @@ export function AnilistStartMode({
           Favourites cache:
         </span>
         <select
-          className="anilist-start-input"
+          className="anilist-start-input select-chevron"
           style={{ flex: '0 0 auto' }}
           value={favType}
           onChange={(e) => setFavType(e.target.value as AnilistFavouriteType)}

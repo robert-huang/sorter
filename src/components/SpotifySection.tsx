@@ -422,7 +422,7 @@ export function SpotifySection() {
           ) : (
             <div className="settings-spotify-playlist-row">
               <select
-                className="settings-spotify-select settings-spotify-select-compact"
+                className="settings-spotify-select settings-spotify-select-compact select-chevron"
                 value={selectedPlaylist?.id ?? ''}
                 onChange={(e) => onSelectPlaylist(e.target.value)}
                 aria-label="Anime themes playlist"
