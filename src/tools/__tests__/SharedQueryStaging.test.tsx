@@ -8,6 +8,7 @@ import {
 } from '../../lib/importers/anilist/toolsPersistentCache';
 import { _clearSessionMemoForTesting } from '../../lib/importers/anilist/toolsSessionMemo';
 import { QUERY_MATCH_TTL_MS, showQueryKey, staffQueryKey } from '../toolQueryCache';
+import { textWithUnstagedQueries } from '../ToolQueryStaging';
 
 const runSharedStaffCompare = vi.fn();
 const searchAnimeShow = vi.fn();
@@ -116,6 +117,14 @@ function rows(): Array<{ query: string; match: string; pending: boolean }> {
 }
 
 const panelProps = { onOpenMedia: vi.fn(), onOpenStaff: vi.fn(), dbSyncRevision: 0 };
+
+describe('textWithUnstagedQueries', () => {
+  it('puts staged queries first and skips textarea duplicates', () => {
+    expect(
+      textWithUnstagedQueries(['Steins;Gate', 'Your Name'], ['your name', 'Mob Psycho']),
+    ).toBe('Steins;Gate\nYour Name\nMob Psycho');
+  });
+});
 
 describe('Shared Staff staged queries', () => {
   async function render(): Promise<void> {

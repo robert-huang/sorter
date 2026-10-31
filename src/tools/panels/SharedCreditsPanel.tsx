@@ -24,6 +24,7 @@ import {
 import {
   ToolQueryStagingList,
   mergeStagedQueries,
+  textWithUnstagedQueries,
   normalizeStagedQueries,
   pendingQueries,
   useQueryRowStates,
@@ -222,6 +223,17 @@ export function SharedCreditsPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps)
     }));
   }, []);
 
+  const onClearStaged = useCallback(() => {
+    setForm((prev) => ({
+      ...prev,
+      stagedQueries: [],
+      staffText: textWithUnstagedQueries(
+        prev.stagedQueries,
+        parseStaffInputs(prev.staffText, prev.useIds),
+      ),
+    }));
+  }, []);
+
   const onRemoveStaged = useCallback((query: string) => {
     setForm((prev) => ({
       ...prev,
@@ -410,7 +422,7 @@ export function SharedCreditsPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps)
             )}
             onRefresh={onRefreshQuery}
             onRemove={onRemoveStaged}
-            onClear={() => patchForm({ stagedQueries: [] })}
+            onClear={onClearStaged}
             disabled={running}
             emptyHint="No staff staged yet. Type names above and click Add to staged."
           />

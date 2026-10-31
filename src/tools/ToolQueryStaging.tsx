@@ -37,6 +37,14 @@ export function mergeStagedQueries(staged: readonly string[], incoming: readonly
   return out;
 }
 
+/** Textarea text after un-staging: staged queries first, then lines not already among them. */
+export function textWithUnstagedQueries(
+  staged: readonly string[],
+  lines: readonly string[],
+): string {
+  return mergeStagedQueries(staged, lines).join('\n');
+}
+
 /**
  * Per-row resolution state keyed by cache key. New keys are looked up in
  * the query cache only (never AniList); callers set results after a
@@ -154,7 +162,7 @@ export function ToolQueryStagingList({
               className="btn btn-small"
               disabled={disabled}
               onClick={onClear}
-              title="Remove every staged query"
+              title="Move every staged query back into the text box"
             >
               Clear staged
             </button>

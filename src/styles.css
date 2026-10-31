@@ -8392,7 +8392,7 @@ a:where(.anime-to-anime-anilist-link):visited {
   align-items: center;
   gap: 8px;
   min-height: 34px;
-  padding: 3px 6px;
+  padding: 6px 6px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--surface);

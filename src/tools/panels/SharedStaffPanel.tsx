@@ -21,6 +21,7 @@ import {
 import {
   ToolQueryStagingList,
   mergeStagedQueries,
+  textWithUnstagedQueries,
   normalizeStagedQueries,
   pendingQueries,
   useQueryRowStates,
@@ -384,6 +385,14 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
     }));
   }, []);
 
+  const onClearStaged = useCallback(() => {
+    setForm((prev) => ({
+      ...prev,
+      stagedQueries: [],
+      showText: textWithUnstagedQueries(prev.stagedQueries, parseShowInputs(prev.showText)),
+    }));
+  }, []);
+
   const onRemoveStaged = useCallback((query: string) => {
     setForm((prev) => ({
       ...prev,
@@ -560,7 +569,7 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
             )}
             onRefresh={onRefreshQuery}
             onRemove={onRemoveStaged}
-            onClear={() => patchForm({ stagedQueries: [] })}
+            onClear={onClearStaged}
             disabled={running}
             emptyHint="No shows staged yet. Type titles above and click Add to staged."
           />

@@ -1,5 +1,32 @@
-import { useState, type ReactNode } from 'react';
-import { useThemeSongPreview } from '../hooks/useThemeSongPreview';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  useThemeSongPreview,
+  type ThemeSongPreviewStatus,
+} from '../hooks/useThemeSongPreview';
+
+const PREVIEW_FAILURE_FLASH_MS = 5000;
+
+/** True briefly after a lookup fails; cached failures restored on load don't flash. */
+function usePreviewFailureFlash(status: ThemeSongPreviewStatus): boolean {
+  const previousStatusRef = useRef(status);
+  const [flashing, setFlashing] = useState(false);
+
+  useEffect(() => {
+    const previous = previousStatusRef.current;
+    previousStatusRef.current = status;
+    const failed = status === 'unavailable' || status === 'error';
+    if (!failed) {
+      setFlashing(false);
+      return;
+    }
+    if (previous !== 'loading') return;
+    setFlashing(true);
+    const timer = window.setTimeout(() => setFlashing(false), PREVIEW_FAILURE_FLASH_MS);
+    return () => window.clearTimeout(timer);
+  }, [status]);
+
+  return flashing;
+}
 import type { MediaThemeSongRow } from '../lib/importers/anilist/themeSongs/types';
 import {
   isSpotifyUnavailableInMarket,
@@ -341,12 +368,13 @@ export function ThemeSongRowC({
     songArtist: englishArtist,
   });
   const previewFailed = preview.status === 'unavailable' || preview.status === 'error';
+  const showFailureFlash = usePreviewFailureFlash(preview.status);
   const previewToggle = previewEnabled ? (
     <button
       type="button"
       className={[
         'anilist-detail-theme-song-preview-toggle',
-        previewFailed ? 'is-failed' : '',
+        showFailureFlash ? 'is-failed' : '',
         preview.status === 'ready' ? 'is-ready' : '',
       ]
         .filter(Boolean)
