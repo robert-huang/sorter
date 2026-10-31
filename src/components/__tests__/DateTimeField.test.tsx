@@ -56,6 +56,13 @@ describe('DateTimeField', () => {
     );
   });
 
+  it('selects all of the text when the editor opens', () => {
+    render(vi.fn());
+    const text = openEditor();
+    expect(document.activeElement).toBe(text);
+    expect([text.selectionStart, text.selectionEnd]).toEqual([0, text.value.length]);
+  });
+
   it('saves a typed date alone as midnight', () => {
     const onChange = vi.fn();
     render(onChange);

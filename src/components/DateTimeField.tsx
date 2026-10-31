@@ -72,6 +72,7 @@ export function DateTimeField({ value, onChange, label, disabled = false }: Prop
         placeholder="YYYY-MM-DD HH:MM"
         value={text}
         autoFocus
+        onFocus={(e) => e.target.select()}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={onKeyDown}
       />
