@@ -12,14 +12,18 @@ export function formatDateTimeLocal(value: string): string {
 
 const DATE_TIME_RE =
   /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/;
+/** Compact `YYYYMMDD`, optionally followed by `HHMM` or `HH:MM`. */
+const COMPACT_DATE_TIME_RE = /^(\d{4})(\d{2})(\d{2})(?:[ T]?(\d{2}):?(\d{2}))?$/;
 
 /**
  * Parses typed local date/time text into a minute-precision `datetime-local` value, or
  * null when it is not a real date/time. A date alone means midnight; seconds are dropped.
- * e.g. "2026-1-5" → "2026-01-05T00:00", "2026-01-05 14:30:15" → "2026-01-05T14:30".
+ * e.g. "2026-1-5" → "2026-01-05T00:00", "2026-01-05 14:30:15" → "2026-01-05T14:30",
+ * "20261030" → "2026-10-30T00:00", "20261030 1430" → "2026-10-30T14:30".
  */
 export function parseDateTimeText(text: string): string | null {
-  const match = DATE_TIME_RE.exec(text.trim());
+  const trimmed = text.trim();
+  const match = DATE_TIME_RE.exec(trimmed) ?? COMPACT_DATE_TIME_RE.exec(trimmed);
   if (!match) return null;
   const [year, month, day, hour = 0, minute = 0, second = 0] = match
     .slice(1)

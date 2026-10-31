@@ -12,8 +12,23 @@ describe('parseDateTimeText', () => {
     expect(parseDateTimeText('2026-01-05T14:30:15')).toBe('2026-01-05T14:30');
   });
 
+  it('accepts compact YYYYMMDD with an optional time', () => {
+    expect(parseDateTimeText('20261030')).toBe('2026-10-30T00:00');
+    expect(parseDateTimeText('20261030 1430')).toBe('2026-10-30T14:30');
+    expect(parseDateTimeText('20261030T14:30')).toBe('2026-10-30T14:30');
+  });
+
   it('rejects text that is not a real date/time', () => {
-    for (const text of ['', 'soon', '2026-02-30', '2026-01-05 25:00', '2026-13-01', '05/01/2026']) {
+    for (const text of [
+      '',
+      'soon',
+      '2026-02-30',
+      '2026-01-05 25:00',
+      '2026-13-01',
+      '05/01/2026',
+      '20260230',
+      '2026103',
+    ]) {
       expect(parseDateTimeText(text)).toBeNull();
     }
   });
