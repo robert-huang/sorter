@@ -98,6 +98,22 @@ function rankingImportsForEntry(
   ];
 }
 
+const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/**
+ * Button label when imports become versions: `Import 2 slots from Drive`, or with
+ * specific versions checked, `Import 3 versions (2 slots) from browser`.
+ */
+export function versionImportLabel(
+  slotCount: number,
+  versionCount: number,
+  source: 'browser' | 'Drive',
+): string {
+  if (slotCount === 0) return `Import from ${source}`;
+  if (versionCount === slotCount) return `Import ${plural(slotCount, 'slot')} from ${source}`;
+  return `Import ${plural(versionCount, 'version')} (${plural(slotCount, 'slot')}) from ${source}`;
+}
+
 const NEW_ORDER_IMPORT_TOOLTIP =
   'Left-click to import into the selected order. Right-click to append as a new order, keep this dialog open, and clear the selection.';
 
@@ -132,6 +148,11 @@ type SortResultsImportModeProps = {
   pickVersions?: boolean;
   /** With `pickVersions`: selecting a save checks all of its versions. */
   autoPickAllVersions?: boolean;
+  /**
+   * Imports become versions (Sort history): buttons count slots/versions instead of
+   * items, and importing only clears the selection instead of closing the picker.
+   */
+  importAsVersions?: boolean;
 } & (
   | {
       onAppendToStaged: (groups: StagedGroupInput[]) => void;
@@ -214,6 +235,7 @@ export function SortResultsImportMode({
   browserSaveManifest,
   pickVersions: pickVersionsProp = false,
   autoPickAllVersions = false,
+  importAsVersions = false,
 }: SortResultsImportModeProps) {
   const pickVersions = pickVersionsProp && onImportOrderedItems !== undefined;
   const autoPick = pickVersions && autoPickAllVersions;
@@ -515,7 +537,7 @@ export function SortResultsImportMode({
         setExcluded(new Set());
         setVersionPicks({});
       }
-      if (!asNewOrders) onComplete?.();
+      if (!asNewOrders && !importAsVersions) onComplete?.();
       return;
     }
 
@@ -583,7 +605,7 @@ export function SortResultsImportMode({
           imports.map(({ items, asPreRanked }) => ({ items, asPreRanked })),
         );
       }
-      if (!asNewOrders) {
+      if (!asNewOrders && !importAsVersions) {
         setCloudOpen(false);
         onComplete?.();
       }
@@ -594,10 +616,18 @@ export function SortResultsImportMode({
       onAppendToStaged,
       onAddSlotImports,
       onComplete,
+      importAsVersions,
     ],
   );
 
   const addLabel = (() => {
+    if (onImportOrderedItems && importAsVersions) {
+      const versionCount = selectedImportable.reduce(
+        (n, entry) => n + orderedImportsFor(entry).filter((imp) => imp.items.length > 0).length,
+        0,
+      );
+      return versionImportLabel(selectedImportable.length, versionCount, 'browser');
+    }
     if (onImportOrderedItems) {
       return `Import ranked items (${addableCount})`;
     }
@@ -700,6 +730,7 @@ export function SortResultsImportMode({
           selectionMode={selectionMode}
           pickVersions={pickVersions}
           autoPickAllVersions={autoPick}
+          importAsVersions={importAsVersions && onImportOrderedItems !== undefined}
           onDraftActivity={onDraftActivity}
           onBack={() => setCloudOpen(false)}
           onImport={handleCloudImports}
@@ -915,6 +946,7 @@ function CloudResultsPicker({
   selectionMode,
   pickVersions,
   autoPickAllVersions,
+  importAsVersions,
   onDraftActivity,
   onBack,
   onImport,
@@ -927,6 +959,8 @@ function CloudResultsPicker({
   selectionMode: 'multiple' | 'single';
   pickVersions: boolean;
   autoPickAllVersions: boolean;
+  /** See `SortResultsImportMode`; the picker stays open, so importing clears its selection. */
+  importAsVersions: boolean;
   onDraftActivity?: () => void;
   onBack: () => void;
   onImport: (imports: PreparedCloudImport[]) => void;
@@ -1269,9 +1303,30 @@ function CloudResultsPicker({
     [toggleSelected, onDraftActivity],
   );
 
+  const clearPicked = useCallback(() => {
+    setSelected(new Set());
+    setExpandedId(null);
+    setOverrides(new Map());
+    setExcluded(new Set());
+    setVersionPicks({});
+  }, []);
+
   const submit = useCallback(() => {
-    onImport(buildPreparedImports());
-  }, [buildPreparedImports, onImport]);
+    const imports = buildPreparedImports();
+    onImport(imports);
+    if (importAsVersions && imports.length > 0) clearPicked();
+  }, [buildPreparedImports, onImport, importAsVersions, clearPicked]);
+
+  const importLabel = importAsVersions
+    ? versionImportLabel(
+        selectedEntries.length,
+        selectedEntries.reduce(
+          (n, entry) => n + orderedImportsFor(entry).filter((imp) => imp.items.length > 0).length,
+          0,
+        ),
+        'Drive',
+      )
+    : `Import from Drive (${addableCount})`;
 
   const editStubItem: Item | null = editTarget
     ? {
@@ -1404,17 +1459,13 @@ function CloudResultsPicker({
                   const imports = buildPreparedImports();
                   if (imports.length > 0) {
                     onImportAsNewOrders(imports);
-                    setSelected(new Set());
-                    setExpandedId(null);
-                    setOverrides(new Map());
-                    setExcluded(new Set());
-                    setVersionPicks({});
+                    clearPicked();
                   }
                 }
               : undefined
           }
         >
-          Import from Drive ({addableCount})
+          {importLabel}
         </button>
       </div>
       {editTarget && editStubItem && (

@@ -119,7 +119,12 @@ describe('SortHistoryPage', () => {
     await act(async () => {
       document.querySelector<HTMLInputElement>('[aria-label="Select Archived copy"]')!.click();
     });
-    await act(async () => button('Import ranked items (3)').click());
+    await act(async () => button('Import 1 slot from browser').click());
+    // The picker stays open with its selection cleared, ready for another import.
+    expect(
+      document.querySelector<HTMLInputElement>('[aria-label="Select Archived copy"]')?.checked,
+    ).toBe(false);
+    expect(button('Import from browser').disabled).toBe(true);
 
     const rows = Array.from(
       document.querySelectorAll(

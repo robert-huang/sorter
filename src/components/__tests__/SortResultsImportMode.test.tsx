@@ -7,7 +7,16 @@ import { seedAsSorted } from '../../lib/insertionSort';
 import * as slotResultsImport from '../../lib/slotResultsImport';
 import * as storage from '../../lib/storage';
 import type { AutosaveBlob } from '../../lib/storage';
-import { SortResultsImportMode } from '../SortResultsImportMode';
+import { SortResultsImportMode, versionImportLabel } from '../SortResultsImportMode';
+
+describe('versionImportLabel', () => {
+  it('counts slots, or versions when specific ones are checked', () => {
+    expect(versionImportLabel(2, 2, 'Drive')).toBe('Import 2 slots from Drive');
+    expect(versionImportLabel(1, 1, 'browser')).toBe('Import 1 slot from browser');
+    expect(versionImportLabel(2, 3, 'browser')).toBe('Import 3 versions (2 slots) from browser');
+    expect(versionImportLabel(0, 0, 'Drive')).toBe('Import from Drive');
+  });
+});
 
 beforeAll(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT =
@@ -233,6 +242,79 @@ describe('SortResultsImportMode cloud entry point', () => {
         ],
       },
     ]);
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it('imports Drive slots as versions, counting slots and staying open', async () => {
+    vi.spyOn(storage, 'isStatePersistenceAvailable').mockReturnValue(true);
+    cloud._setCloudProviderForTesting({
+      signIn: vi.fn(),
+      handleAuthRedirect: vi.fn(),
+      signOut: vi.fn(),
+      getAuthState: () => ({ status: 'signed-in', folderId: 'folder-1' }),
+      refreshTokenIfNeeded: vi.fn(),
+      pickFolder: vi.fn(),
+      clearFolder: vi.fn(),
+      subscribeAuthChange: vi.fn(() => () => undefined),
+      listCloudSlots: vi.fn().mockResolvedValue([
+        {
+          cloudId: 'cloud-1',
+          displayName: 'Archived',
+          filename: 'archived.sorter',
+          sizeBytes: 100,
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          etag: 'etag-1',
+          done: true,
+        },
+      ]),
+      pullSlot: vi.fn().mockResolvedValue({
+        blob: completedBlob(),
+        etag: 'etag-1',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      }),
+      annotateSlotCompletion: vi.fn(),
+      pushSlot: vi.fn(),
+      removeCloudSlot: vi.fn(),
+    });
+    const onImportOrderedItems = vi.fn();
+    const onComplete = vi.fn();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <SortResultsImportMode
+          embedded
+          showPreRankedToggle={false}
+          pickVersions
+          importAsVersions
+          onImportOrderedItems={onImportOrderedItems}
+          onComplete={onComplete}
+        />,
+      );
+    });
+    const findButton = (label: string): HTMLButtonElement => {
+      const target = Array.from(container.querySelectorAll('button')).find(
+        (candidate) => candidate.textContent?.trim() === label,
+      );
+      if (!target) throw new Error(`Missing button: ${label}; content: ${container.textContent}`);
+      return target;
+    };
+    await act(async () => findButton('Google Drive…').click());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      findButton('Load').click();
+      await Promise.resolve();
+    });
+
+    await act(async () => findButton('Import 1 slot from Drive').click());
+    expect(onImportOrderedItems).toHaveBeenCalledOnce();
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(container.textContent).toContain('Google Drive slots');
+    expect(findButton('Import from Drive').disabled).toBe(true);
     act(() => root.unmount());
     container.remove();
   });

@@ -362,6 +362,7 @@ export function SortHistoryPage({
             browserSaveManifest={browserSaveManifest}
             showPreRankedToggle={false}
             pickVersions
+            importAsVersions
             onImportOrderedItems={(imports) =>
               stage(
                 imports
@@ -369,7 +370,6 @@ export function SortHistoryPage({
                   .filter((row): row is StagedSource => row !== null),
               )
             }
-            onComplete={() => setPickerOpen(false)}
           />
         )}
 
