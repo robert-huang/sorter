@@ -424,6 +424,45 @@ function InteractiveItemLabel({
   );
 }
 
+/** Matches `bottom` on `.bump-chart-generate-row`. */
+const FLOATING_ROW_BOTTOM_PX = 12;
+
+/** Sticky action row that only draws its backdrop while stuck over content. */
+function FloatingActionRow({ children }: { children: ReactNode }) {
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const [isFloating, setIsFloating] = useState(false);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel || typeof IntersectionObserver === 'undefined') return;
+    // The sentinel trails the row; once it is below the viewport the row is stuck.
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry) return;
+        const viewportBottom =
+          entry.rootBounds?.bottom ?? window.innerHeight - FLOATING_ROW_BOTTOM_PX;
+        setIsFloating(
+          !entry.isIntersecting && entry.boundingClientRect.top >= viewportBottom,
+        );
+      },
+      { rootMargin: `0px 0px -${FLOATING_ROW_BOTTOM_PX}px 0px` },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <>
+      <div
+        className={`bump-chart-generate-row${isFloating ? ' is-floating' : ''}`}
+      >
+        {children}
+      </div>
+      <div ref={sentinelRef} aria-hidden="true" />
+    </>
+  );
+}
+
 function BumpStage({
   title,
   orderNumber,
@@ -3755,7 +3794,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
               </button>
             </div>
           </div>
-          <div className="bump-chart-generate-row">
+          <FloatingActionRow>
             <button
               type="button"
               className="btn"
@@ -3782,7 +3821,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
                   ? 'Preparing imports…'
                   : 'Generate chart'}
             </button>
-          </div>
+          </FloatingActionRow>
           {importError && <p className="tool-error">{importError}</p>}
         </div>
       ) : (
