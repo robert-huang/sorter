@@ -412,6 +412,7 @@ export async function initializeSorterStorage(): Promise<void> {
       totalItems: visibleItemCount(legacyBlob),
       comparisons: legacyBlob.progress.comparisons,
       done: legacyBlob.progress.done,
+      versionCount: legacyBlob.versions?.length ?? 0,
     };
     manifestCache = { version: 1, activeId: id, slots: [meta] };
     slotBlobCache.set(id, legacyBlob);
@@ -556,7 +557,12 @@ export function isStatePersistenceAvailable(): boolean {
 export function readManifest(): SlotsManifest {
   return {
     ...manifestCache,
-    slots: [...manifestCache.slots],
+    // Slots written before `versionCount` existed take it from their in-memory blob.
+    slots: manifestCache.slots.map((slot) =>
+      slot.versionCount !== undefined
+        ? slot
+        : { ...slot, versionCount: slotBlobCache.get(slot.id)?.versions?.length ?? 0 },
+    ),
   };
 }
 
@@ -585,6 +591,7 @@ function synthesizeMetaFromBlob(id: string, blob: AutosaveBlob): SlotMeta {
     totalItems: visibleItemCount(blob),
     comparisons: blob.progress.comparisons,
     done: blob.progress.done,
+    versionCount: blob.versions?.length ?? 0,
   };
 }
 
@@ -749,6 +756,7 @@ export function createSlot(
     totalItems: visibleItemCount(blob),
     comparisons: blob.progress.comparisons,
     done: blob.progress.done,
+    versionCount: blob.versions?.length ?? 0,
   };
 
   // Pre-evict to cap BEFORE the blob write so we free quota first; the
@@ -1145,6 +1153,7 @@ export function replaceSlotBlob(id: string, blob: AutosaveBlob): boolean {
           totalItems: visibleItemCount(blob),
           comparisons: blob.progress.comparisons,
           done: blob.progress.done,
+          versionCount: blob.versions?.length ?? 0,
         }
       : slot,
   );
@@ -1716,6 +1725,7 @@ function commitWriteSuccess(blob: AutosaveBlob, recovery?: AutosaveRecovery): vo
           totalItems: visibleItemCount(blob),
           comparisons: blob.progress.comparisons,
           done: blob.progress.done,
+          versionCount: blob.versions?.length ?? 0,
         }
       : slot,
   );

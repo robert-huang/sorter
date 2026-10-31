@@ -175,6 +175,39 @@ describe('SortHistoryPage', () => {
     expect(applied[0]!.createdAt).toBe(new Date('2025-12-24T18:30').toISOString());
   });
 
+  it("stages a file's current ranking once when it matches its newest version", async () => {
+    const versionDate = new Date('2026-10-31T00:35').toISOString();
+    const file = saveFile([A, B, C], 'matching.json', Date.parse('2026-10-31T00:37'));
+    const text = JSON.parse(await file.text()) as Record<string, unknown>;
+    text.versions = [
+      {
+        id: 'vAAAAAAAAAAAAA',
+        createdAt: versionDate,
+        rankedIds: [A.id, B.id, C.id],
+        items: { [A.id]: { label: A.label }, [B.id]: { label: B.label }, [C.id]: { label: C.label } },
+        live: true,
+      },
+    ];
+    const withVersion = {
+      name: 'matching.json',
+      lastModified: Date.parse('2026-10-31T00:37'),
+      text: async () => JSON.stringify(text),
+    } as unknown as File;
+    const onApply = vi.fn();
+    act(() => {
+      root.render(<SortHistoryPage versions={[]} onApply={onApply} onClose={vi.fn()} />);
+    });
+    await upload([withVersion]);
+
+    expect(document.querySelector('[aria-label="Staged versions"] li.is-duplicate')).toBeNull();
+    expect(
+      document.querySelector('[aria-label="Edit Date for matching"]')?.textContent,
+    ).toBe('2026-10-31 00:35');
+    await act(async () => button('Save changes').click());
+    expect(document.body.textContent).toContain('Adds 1 version.');
+    expect(document.body.textContent).not.toContain('identical ranking');
+  });
+
   it('redates and deletes recorded versions, re-sorting on save', async () => {
     const snap = (id: string, createdAt: string, order: Item[]): SortVersion => ({
       id,

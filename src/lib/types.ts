@@ -438,6 +438,8 @@ export interface SlotMeta {
   totalItems: number;
   comparisons: number;
   done: boolean;
+  /** Recorded versions in the slot's blob; absent until the slot's next write. */
+  versionCount?: number;
   /**
    * When true, this slot is excluded from `createSlot`'s eviction loop
    * — it won't be auto-deleted to make room for a new slot. The user

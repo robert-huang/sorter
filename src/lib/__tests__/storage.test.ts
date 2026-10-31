@@ -1131,7 +1131,7 @@ describe('repairManifestIfCorrupt', () => {
     _resetSorterStorageCacheForTesting();
     await initializeSorterStorage();
 
-    expect(readManifest().slots).toEqual([meta]);
+    expect(readManifest().slots).toEqual([{ ...meta, versionCount: 0 }]);
     expect(
       await readStateRecord(
         STATE_METADATA_STORE,

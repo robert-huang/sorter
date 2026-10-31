@@ -4150,6 +4150,18 @@ a:where(.anime-to-anime-anilist-link):visited {
   height: 15px;
 }
 
+.slot-version-badge {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(127, 127, 127, 0.18);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .slot-name-row > .pin-icon {
   width: 18px;
   height: 18px;

@@ -136,6 +136,18 @@ describe('SlotList metadata classes', () => {
     expect(metadata[0]?.classList.contains('slot-meta--done')).toBe(true);
     expect(metadata[1]?.classList.contains('slot-meta--done')).toBe(false);
   });
+
+  it('badges slots with more than one recorded version', async () => {
+    await renderSlotList([
+      slot('versioned', true, { versionCount: 3 }),
+      slot('single', true, { versionCount: 1 }),
+      slot('none', true, { versionCount: 0 }),
+      slot('legacy', true),
+    ]);
+    const badges = Array.from(container.querySelectorAll('.slot-version-badge'));
+    expect(badges.map((b) => b.textContent)).toEqual(['v3']);
+    expect(badges[0]?.getAttribute('title')).toBe('3 recorded versions');
+  });
 });
 
 describe('SlotList status icons', () => {

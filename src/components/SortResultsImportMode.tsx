@@ -1510,7 +1510,7 @@ function SlotVersionChecklist({
       <legend className="header-hint">
         {picks.size > 0
           ? `${picks.size} version${picks.size === 1 ? '' : 's'} selected — each imports in date order`
-          : 'Versions — none checked imports the current ranking'}
+          : 'No versions selected — importing the current ranking'}
       </legend>
       {newestFirst.map((version) => {
         const inputId = `sort-import-version-${slotId}-${version.id}`;

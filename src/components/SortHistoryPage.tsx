@@ -52,6 +52,24 @@ function fromDateTimeLocal(value: string, fallbackIso: string): string {
   return Number.isNaN(ms) ? fallbackIso : new Date(ms).toISOString();
 }
 
+/**
+ * A save's current ranking is usually also its newest recorded version; stage it once,
+ * dated as that version, instead of as a same-ranking duplicate dated by the file.
+ */
+function foldCurrentIntoNewest(
+  snapshot: SortVersion,
+  nested: SortVersion[],
+): { snapshot: SortVersion; nested: SortVersion[] } {
+  const newest = nested[nested.length - 1];
+  if (!newest || !sameRanking(newest.rankedIds, snapshot.rankedIds)) {
+    return { snapshot, nested };
+  }
+  return {
+    snapshot: { ...snapshot, createdAt: newest.createdAt },
+    nested: nested.slice(0, -1),
+  };
+}
+
 let stagedKeySeq = 0;
 const nextStagedKey = (): string => `staged-${++stagedKeySeq}`;
 
@@ -59,12 +77,12 @@ function stagedFromRankingImport(imp: SlotRankingImport): StagedSource | null {
   const createdAt = imp.createdAt ?? new Date().toISOString();
   const snapshot = snapshotFromRankedItems(imp.items, createdAt);
   if (!snapshot) return null;
+  const folded = foldCurrentIntoNewest(snapshot, imp.versionId ? [] : (imp.versions ?? []));
   return {
     key: nextStagedKey(),
     name: imp.slotName,
-    date: isoToLocal(createdAt),
-    snapshot,
-    nested: imp.versionId ? [] : (imp.versions ?? []),
+    date: isoToLocal(folded.snapshot.createdAt),
+    ...folded,
   };
 }
 
@@ -76,12 +94,12 @@ async function stagedFromFile(file: File): Promise<StagedSource> {
   const createdAt = new Date(file.lastModified || Date.now()).toISOString();
   const snapshot = snapshotSortVersion(blob, createdAt);
   if (!snapshot) throw new Error("no ranked items");
+  const folded = foldCurrentIntoNewest(snapshot, blob.versions ?? []);
   return {
     key: nextStagedKey(),
     name: file.name.replace(/\.json$/i, ""),
-    date: isoToLocal(createdAt),
-    snapshot,
-    nested: blob.versions ?? [],
+    date: isoToLocal(folded.snapshot.createdAt),
+    ...folded,
   };
 }
 

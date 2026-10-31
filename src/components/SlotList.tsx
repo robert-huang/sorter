@@ -452,6 +452,7 @@ function SlotRow({
   }
 
   const isPinned = !!slot.pinned;
+  const versionCount = slot.versionCount ?? 0;
   const syncState = deriveCloudSyncState(slot);
   const meta = [
     pluralize(itemCount, 'item'),
@@ -500,6 +501,14 @@ function SlotRow({
             >
               {slot.name}
             </button>
+          )}
+          {versionCount > 1 && (
+            <span
+              className="slot-version-badge"
+              title={`${pluralize(versionCount, 'recorded version')}`}
+            >
+              v{versionCount}
+            </span>
           )}
         </div>
         <div className={`slot-meta${slot.done ? ' slot-meta--done' : ''}`}>
