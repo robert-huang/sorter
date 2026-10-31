@@ -865,7 +865,9 @@ export function pinSlot(id: string, pinned: boolean): SlotsManifest {
     if (s.id !== id) return s;
     if ((s.pinned ?? false) === pinned) return s;
     changed = true;
-    return { ...s, pinned, updatedAt: new Date().toISOString() };
+    // Pinning is local-only, so it leaves `updatedAt` alone: bumping it would mark a
+    // synced slot as having changes to push.
+    return { ...s, pinned };
   });
   if (changed) writeManifest(m);
   return m;

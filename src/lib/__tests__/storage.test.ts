@@ -363,10 +363,6 @@ describe('createSlot', () => {
       });
     }
     pinSlot(created[0], true);
-    // pinSlot bumps updatedAt; revert so the deterministic ordering holds.
-    updateSlotMeta(created[0], {
-      updatedAt: new Date(2026, 0, 1).toISOString(),
-    });
     const result = createSlot(makeBlob(99), 'After Pin');
     expect(result).not.toBeNull();
     const { evicted } = result!;
@@ -430,9 +426,6 @@ describe('peekEvictionTarget', () => {
       });
     }
     pinSlot(ids[0], true);
-    updateSlotMeta(ids[0], {
-      updatedAt: new Date(2026, 0, 1).toISOString(),
-    });
     const target = peekEvictionTarget();
     expect(target?.id).toBe(ids[1]);
   });
@@ -464,12 +457,18 @@ describe('peekEvictionTarget', () => {
 });
 
 describe('pinSlot', () => {
-  it('toggles the pinned flag and bumps updatedAt', () => {
+  it('toggles the pinned flag without bumping updatedAt (pins are not synced)', () => {
     const meta = mintSlot(makeBlob(), 'P');
-    const beforeUpdated = readManifest().slots[0].updatedAt;
+    updateSlotMeta(meta.id, {
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      cloudOptIn: true,
+      cloudId: 'drive-id',
+      cloudPushedAt: '2026-01-01T00:00:00.000Z',
+    });
     const m = pinSlot(meta.id, true);
     expect(m.slots[0].pinned).toBe(true);
-    expect(m.slots[0].updatedAt >= beforeUpdated).toBe(true);
+    expect(m.slots[0].updatedAt).toBe('2026-01-01T00:00:00.000Z');
+    expect(deriveCloudSyncState(m.slots[0])).toBe('synced');
     const m2 = pinSlot(meta.id, false);
     expect(m2.slots[0].pinned).toBe(false);
   });
