@@ -5,7 +5,11 @@ import {
   readSlotBlob,
   type AutosaveBlob,
 } from './storage';
-import { formatSortVersionDate } from './sortVersionShape';
+import {
+  formatSortVersionDate,
+  summarizeVersions,
+  type VersionSummary,
+} from './sortVersionShape';
 import type { Item, SlotMeta, SlotsManifest, SortState, SortVersion } from './types';
 
 export type SlotImportStatus =
@@ -263,13 +267,23 @@ export function listSlotImportEntriesFromStorage(
   return listSlotImportEntries(readManifest(), options);
 }
 
+/** "4 versions · latest 2026-10-30", or '' when there are none. */
+export function versionSummaryLabel(summary: VersionSummary): string {
+  if (summary.count === 0) return '';
+  const count = `${summary.count} version${summary.count === 1 ? '' : 's'}`;
+  return summary.latestAt ? `${count} · latest ${formatSortVersionDate(summary.latestAt)}` : count;
+}
+
 export function slotImportStatusLabel(
   entry: SlotImportEntry,
   comparisons?: number,
 ): string {
   switch (entry.status) {
-    case 'importable':
-      return `${entry.itemCount} item${entry.itemCount === 1 ? '' : 's'} · done`;
+    case 'importable': {
+      const items = `${entry.itemCount} item${entry.itemCount === 1 ? '' : 's'} · done`;
+      const versions = versionSummaryLabel(summarizeVersions(entry.versions));
+      return versions ? `${items} · ${versions}` : items;
+    }
     case 'in_progress': {
       const n = comparisons ?? entry.meta.comparisons;
       const items = `${entry.meta.totalItems} item${entry.meta.totalItems === 1 ? '' : 's'}`;

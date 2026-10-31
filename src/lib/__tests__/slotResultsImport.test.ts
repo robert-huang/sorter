@@ -14,6 +14,7 @@ import {
   slotImportOverlayKey,
   slotImportSourceLabel,
   slotImportStatusLabel,
+  versionSummaryLabel,
 } from '../slotResultsImport';
 
 const A: Item = { id: 'a', label: 'Alpha' };
@@ -211,6 +212,33 @@ describe('slotImportStatusLabel', () => {
       items: null,
     });
     expect(label).toBe('12 items · in progress (5 comparisons in)');
+  });
+
+  it('adds the version count and newest date to completed slots', () => {
+    const version = (id: string, createdAt: string) => ({
+      id,
+      createdAt,
+      rankedIds: ['a'],
+      items: { a: { label: 'A' } },
+    });
+    const label = slotImportStatusLabel({
+      meta: meta({ done: true, totalItems: 1 }),
+      status: 'importable',
+      itemCount: 1,
+      items: [A],
+      versions: [
+        version('v1', '2026-10-30T12:00:00.000Z'),
+        version('v2', '2026-01-05T12:00:00.000Z'),
+      ],
+    });
+    expect(label).toBe('1 item · done · 2 versions · latest 2026-10-30');
+  });
+});
+
+describe('versionSummaryLabel', () => {
+  it('is empty without versions and omits a missing date', () => {
+    expect(versionSummaryLabel({ count: 0 })).toBe('');
+    expect(versionSummaryLabel({ count: 1 })).toBe('1 version');
   });
 });
 

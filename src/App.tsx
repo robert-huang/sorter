@@ -156,6 +156,7 @@ import {
   handleAuthRedirect as cloudHandleAuthRedirect,
   pickFolder as cloudPickFolder,
   pullSlot as cloudPullSlot,
+  repairCloudSlotMetadata,
   pushSlot as cloudPushSlot,
   registerDefaultCloudProvider,
   removeCloudSlot as cloudRemoveCloudSlot,
@@ -1901,6 +1902,9 @@ export function App() {
       void (async () => {
         try {
           const result = await cloudPullSlot(cloudId);
+          void repairCloudSlotMetadata(cloudId, result, result.blob, result.updatedAt).catch(
+            () => undefined,
+          );
           let strippedUndo = false;
           let wrote = replaceSlotBlob(id, result.blob);
           if (!wrote && result.blob.undoRing.length > 0) {
@@ -2422,6 +2426,9 @@ export function App() {
       }
       try {
         const pulled = await cloudPullSlot(meta.cloudId);
+        void repairCloudSlotMetadata(meta.cloudId, pulled, pulled.blob, pulled.updatedAt).catch(
+          () => undefined,
+        );
         const session = deserialize(pulled.blob);
         if (!session) {
           flashSkipped('Pulled file was not a valid sorter slot.');

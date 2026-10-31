@@ -7,11 +7,13 @@ import {
 } from 'react';
 import type { SlotResultsImportBatch } from '../lib/completedSortEditH';
 import {
-  annotateSlotCompletion,
   getAuthState,
   listCloudSlots,
   pullSlot,
+  repairCloudSlotMetadata,
+  summarizeVersions,
   type CloudSlotMeta,
+  type CloudVersionSummary,
 } from '../lib/cloud';
 import {
   applySlotImportEdits,
@@ -25,6 +27,7 @@ import {
   slotImportSourceLabel,
   slotImportStatusLabel,
   versionImportsForSlot,
+  versionSummaryLabel,
   type SlotImportEntry,
   type SlotImportExcludedRows,
   type SlotImportOverlayMap,
@@ -58,6 +61,12 @@ interface PreparedCloudImport extends OrderedSlotImport {
 /** Per-save picked version ids (version-picking variant). */
 type VersionPicks = Readonly<Record<string, ReadonlySet<string>>>;
 const NO_PICKS: ReadonlySet<string> = new Set();
+
+/** Unloaded completed Drive file, with its stamped version summary when present. */
+function cloudReadyLabel(versions: CloudVersionSummary | undefined): string {
+  const summary = versions ? versionSummaryLabel(versions) : '';
+  return summary ? `completed · ${summary} · ready to load` : 'completed · ready to load';
+}
 
 function toggleVersionPick(
   picks: VersionPicks,
@@ -1148,15 +1157,14 @@ function CloudResultsPicker({
       try {
         const pulled = await pullSlot(meta.cloudId);
         const bodyDone = pulled.blob.progress.done === true;
+        const bodyVersions = summarizeVersions(pulled.blob.versions);
         let warning: string | undefined;
-        if (meta.done !== bodyDone) {
-          try {
-            await annotateSlotCompletion(meta.cloudId, bodyDone);
-          } catch (error: unknown) {
-            const detail =
-              error instanceof Error ? error.message : 'metadata update failed';
-            warning = `Loaded, but completion metadata could not be updated: ${detail}`;
-          }
+        try {
+          await repairCloudSlotMetadata(meta.cloudId, meta, pulled.blob, meta.updatedAt);
+        } catch (error: unknown) {
+          const detail =
+            error instanceof Error ? error.message : 'metadata update failed';
+          warning = `Loaded, but completion metadata could not be updated: ${detail}`;
         }
 
         const entry = classifyCloudSlotImport(meta, pulled.blob);
@@ -1166,7 +1174,7 @@ function CloudResultsPicker({
             row.meta.cloudId === meta.cloudId
               ? {
                   ...row,
-                  meta: { ...row.meta, done: bodyDone },
+                  meta: { ...row.meta, done: bodyDone, versions: bodyVersions },
                   phase: bodyDone ? 'loaded' : 'in_progress',
                   entry,
                   warning,
@@ -1407,7 +1415,7 @@ function CloudResultsPicker({
                   : row.phase === 'failed'
                     ? row.error ?? 'could not load'
                     : row.meta.done === true
-                      ? 'completed · ready to load'
+                      ? cloudReadyLabel(row.meta.versions)
                       : 'legacy save · completion unknown';
             return (
               <li

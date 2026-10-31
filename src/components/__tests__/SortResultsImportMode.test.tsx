@@ -225,7 +225,10 @@ describe('SortResultsImportMode cloud entry point', () => {
     });
     await click('Check & load');
 
-    expect(annotate).toHaveBeenCalledWith('cloud-1', true);
+    expect(annotate).toHaveBeenCalledWith('cloud-1', true, {
+      versions: { count: 0 },
+      preserveModifiedTime: '2026-01-01T00:00:00.000Z',
+    });
     expect(container.textContent).toContain(
       'Loaded, but completion metadata could not be updated: Drive denied the PATCH',
     );

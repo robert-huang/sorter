@@ -28,6 +28,7 @@
  */
 
 import type { AutosaveBlob } from './storage';
+import { summarizeVersions, type VersionSummary } from './sortVersionShape';
 
 // Re-export the typed etag-mismatch error from the Drive impl so
 // callers don't have to reach into the provider module. Pure value
@@ -95,6 +96,26 @@ export interface CloudSlotMeta {
   etag: string;
   sorterSlotId?: string;
   done?: boolean;
+  /** Recorded version count and newest version date; absent on files pushed before these were stamped. */
+  versions?: CloudVersionSummary;
+}
+
+export type CloudVersionSummary = VersionSummary;
+
+/** Extra fields for a metadata-only repair of a cloud slot file. */
+export interface CloudMetadataRepair {
+  versions?: CloudVersionSummary;
+  /** Written back unchanged so the repair doesn't look like an edit of the save. */
+  preserveModifiedTime?: string;
+}
+
+export { summarizeVersions };
+
+export function sameVersionSummary(
+  a: CloudVersionSummary | undefined,
+  b: CloudVersionSummary,
+): boolean {
+  return a !== undefined && a.count === b.count && a.latestAt === b.latestAt;
 }
 
 /** Result of a Pull: the inbound blob and authoritative cloud metadata. */
@@ -104,6 +125,9 @@ export interface CloudPullResult {
   etag: string;
   updatedAt: string;
   sorterSlotId?: string;
+  /** The file's stamped metadata, compared with the body by `repairCloudSlotMetadata`. */
+  done?: boolean;
+  versions?: CloudVersionSummary;
 }
 
 /** Result of a Push: the (possibly-new) cloud id and the new etag. */
@@ -190,8 +214,12 @@ export interface CloudProvider {
   /** Download a single slot file's full contents. */
   pullSlot(cloudId: string): Promise<CloudPullResult>;
 
-  /** Stamp body-validated completion state without re-uploading the file. */
-  annotateSlotCompletion(cloudId: string, done: boolean): Promise<void>;
+  /** Stamp body-validated completion state (and version summary) without re-uploading the file. */
+  annotateSlotCompletion(
+    cloudId: string,
+    done: boolean,
+    repair?: CloudMetadataRepair,
+  ): Promise<void>;
 
   /** Upload a slot's blob. `cloudId === null` creates a new file under
    *  the chosen folder; a string id targets an existing file by id.
@@ -303,11 +331,29 @@ export function pullSlot(cloudId: string): Promise<CloudPullResult> {
   return getProvider().pullSlot(cloudId);
 }
 
+/**
+ * Re-stamps a pulled file's completion and version metadata when they don't match its
+ * body, keeping its modified time. Resolves to whether a repair was written.
+ */
+export async function repairCloudSlotMetadata(
+  cloudId: string,
+  stamped: { done?: boolean; versions?: CloudVersionSummary },
+  blob: Pick<AutosaveBlob, 'progress' | 'versions'>,
+  modifiedTime: string,
+): Promise<boolean> {
+  const done = blob.progress.done === true;
+  const versions = summarizeVersions(blob.versions);
+  if (stamped.done === done && sameVersionSummary(stamped.versions, versions)) return false;
+  await annotateSlotCompletion(cloudId, done, { versions, preserveModifiedTime: modifiedTime });
+  return true;
+}
+
 export function annotateSlotCompletion(
   cloudId: string,
   done: boolean,
+  repair?: CloudMetadataRepair,
 ): Promise<void> {
-  return getProvider().annotateSlotCompletion(cloudId, done);
+  return getProvider().annotateSlotCompletion(cloudId, done, repair);
 }
 
 export function pushSlot(

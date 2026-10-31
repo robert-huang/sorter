@@ -16,6 +16,24 @@ export function sortVersionItem(item: Pick<Item, 'label' | 'imageUrl' | 'url'>):
 const pad2 = (n: number): string => String(n).padStart(2, '0');
 
 /** Local date, e.g. "2026-10-28", or "2026-10-28 14:05" with `withTime`. */
+export interface VersionSummary {
+  count: number;
+  /** ISO date of the newest version; absent when there are none. */
+  latestAt?: string;
+}
+
+/** Version count and newest date, e.g. for Drive metadata and importer rows. */
+export function summarizeVersions(
+  versions: readonly { createdAt: string }[] | undefined,
+): VersionSummary {
+  let latest: string | undefined;
+  for (const v of versions ?? []) {
+    if (latest === undefined || Date.parse(v.createdAt) > Date.parse(latest)) latest = v.createdAt;
+  }
+  const count = versions?.length ?? 0;
+  return latest === undefined ? { count } : { count, latestAt: latest };
+}
+
 export function formatSortVersionDate(iso: string, withTime = false): string {
   const d = new Date(iso);
   const date = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;

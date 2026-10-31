@@ -30,6 +30,7 @@ import {
   _resetCloudProviderForTesting,
   _setCloudProviderForTesting,
   annotateSlotCompletion,
+  repairCloudSlotMetadata,
   buildSlotFilename,
   getAuthState,
   listCloudSlots,
@@ -231,6 +232,26 @@ describe('cloud proxy', () => {
       'removeCloudSlot:F1F1',
       'signOut',
     ]);
+  });
+
+  it('repairs pulled metadata only when it disagrees with the body', async () => {
+    const stub = new StubProvider();
+    const annotate = vi.spyOn(stub, 'annotateSlotCompletion');
+    _setCloudProviderForTesting(stub);
+    const blob = { ...makeBlob(), versions: [] };
+    const modified = '2026-05-20T00:00:00.000Z';
+    const done = blob.progress.done === true;
+
+    await expect(
+      repairCloudSlotMetadata('F1F1', { done, versions: { count: 0 } }, blob, modified),
+    ).resolves.toBe(false);
+    expect(annotate).not.toHaveBeenCalled();
+
+    await expect(repairCloudSlotMetadata('F1F1', { done }, blob, modified)).resolves.toBe(true);
+    expect(annotate).toHaveBeenCalledWith('F1F1', done, {
+      versions: { count: 0 },
+      preserveModifiedTime: modified,
+    });
   });
 
   it('routes a pull through the stub and returns the bundled result', async () => {
@@ -989,6 +1010,56 @@ describe('GoogleDriveProvider completion metadata', () => {
       undefined,
       undefined,
     ]);
+  });
+
+  it('parses stamped version summaries, ignoring malformed counts', async () => {
+    setupSignedInWithFolder();
+    const props = [
+      { sorterVersionCount: '3', sorterLatestVersion: '2026-10-30T12:00:00.000Z' },
+      { sorterVersionCount: '0' },
+      { sorterVersionCount: 'many' },
+      {},
+    ];
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          files: props.map((appProperties, index) => ({
+            id: `ID${index}`,
+            name: `Slot${index}_abc.sorter.json`,
+            modifiedTime: '2026-05-20T00:00:00.000Z',
+            version: String(index + 1),
+            appProperties,
+          })),
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    const slots = await new GoogleDriveProvider().listCloudSlots();
+    expect(slots.map((slot) => slot.versions)).toEqual([
+      { count: 3, latestAt: '2026-10-30T12:00:00.000Z' },
+      { count: 0 },
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it('PATCHes the version summary alongside completion, clearing a missing date', async () => {
+    setupSignedInWithFolder();
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('', { status: 200 }));
+    await new GoogleDriveProvider().annotateSlotCompletion('DRIVE-ID', true, {
+      versions: { count: 0 },
+      preserveModifiedTime: '2026-05-20T00:00:00.000Z',
+    });
+    expect(JSON.parse(String((fetchSpy.mock.calls[0][1] as RequestInit).body))).toEqual({
+      appProperties: {
+        sorterDone: 'true',
+        sorterVersionCount: '0',
+        sorterLatestVersion: null,
+      },
+      modifiedTime: '2026-05-20T00:00:00.000Z',
+    });
   });
 
   it('PATCHes only the validated completion app property', async () => {

@@ -30,9 +30,11 @@ import type {
   CloudPullResult,
   CloudPushOptions,
   CloudPushResult,
+  CloudMetadataRepair,
   CloudSlotMeta,
+  CloudVersionSummary,
 } from '../cloud';
-import { parseDisplayNameFromFilename } from '../cloud';
+import { parseDisplayNameFromFilename, summarizeVersions } from '../cloud';
 import { withSortVersions, type AutosaveBlob } from '../storage';
 
 // ---------- config ----------
@@ -206,6 +208,25 @@ function parseCompletionProperty(value: string | undefined): boolean | undefined
   if (value === 'true') return true;
   if (value === 'false') return false;
   return undefined;
+}
+
+/** `null` clears a stale latest date; Drive deletes app properties set to null. */
+function versionProperties(summary: CloudVersionSummary): Record<string, string | null> {
+  return {
+    sorterVersionCount: String(summary.count),
+    sorterLatestVersion: summary.latestAt ?? null,
+  };
+}
+
+function parseVersionProperties(
+  props: Record<string, string> | undefined,
+): CloudVersionSummary | undefined {
+  const raw = props?.sorterVersionCount;
+  if (raw === undefined || !/^\d+$/.test(raw)) return undefined;
+  const latest = props?.sorterLatestVersion;
+  return latest && !Number.isNaN(Date.parse(latest))
+    ? { count: Number(raw), latestAt: latest }
+    : { count: Number(raw) };
 }
 
 function readPkce(): PkceState | null {
@@ -786,6 +807,7 @@ export class GoogleDriveProvider implements CloudProvider {
       etag: f.md5Checksum ?? f.version ?? f.modifiedTime,
       sorterSlotId: f.appProperties?.sorterSlotId,
       done: parseCompletionProperty(f.appProperties?.sorterDone),
+      versions: parseVersionProperties(f.appProperties),
     }));
   }
 
@@ -826,10 +848,16 @@ export class GoogleDriveProvider implements CloudProvider {
       etag: meta.md5Checksum ?? meta.version ?? meta.modifiedTime,
       updatedAt: meta.modifiedTime,
       sorterSlotId: meta.appProperties?.sorterSlotId,
+      done: parseCompletionProperty(meta.appProperties?.sorterDone),
+      versions: parseVersionProperties(meta.appProperties),
     };
   }
 
-  async annotateSlotCompletion(cloudId: string, done: boolean): Promise<void> {
+  async annotateSlotCompletion(
+    cloudId: string,
+    done: boolean,
+    repair: CloudMetadataRepair = {},
+  ): Promise<void> {
     await this.refreshTokenIfNeeded();
     const resp = await this.authedFetch(
       `${DRIVE_API}/files/${encodeURIComponent(cloudId)}`,
@@ -837,7 +865,11 @@ export class GoogleDriveProvider implements CloudProvider {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          appProperties: { sorterDone: done ? 'true' : 'false' },
+          appProperties: {
+            sorterDone: done ? 'true' : 'false',
+            ...(repair.versions ? versionProperties(repair.versions) : {}),
+          },
+          ...(repair.preserveModifiedTime ? { modifiedTime: repair.preserveModifiedTime } : {}),
         }),
       },
     );
@@ -918,6 +950,7 @@ export class GoogleDriveProvider implements CloudProvider {
       appProperties: {
         sorterSlotId: opts.sorterSlotId,
         sorterDone: blob.progress.done ? 'true' : 'false',
+        ...versionProperties(summarizeVersions(blob.versions)),
       },
     };
     if (cloudId === null) {
