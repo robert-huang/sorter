@@ -2406,6 +2406,8 @@ export interface Settings {
   /** Shared ordering for every Google Drive slot browser. */
   cloudSlotSortKey?: 'title' | 'date';
   cloudSlotSortDirection?: 'asc' | 'desc';
+  /** Last source picked in the saved-slot importers. */
+  slotImportSource?: 'browser' | 'drive';
 }
 
 export function readSettings(): Settings {

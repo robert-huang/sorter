@@ -36,7 +36,9 @@ import {
 import { formatSortVersionDate } from '../lib/sortVersions';
 import {
   isStatePersistenceAvailable,
+  readSettings,
   refreshSorterStorageFromIndexedDb,
+  updateSettings,
 } from '../lib/storage';
 import { STATE_REVISION_KEY } from '../lib/stateStorageDb';
 import type { Item, SlotsManifest, SortVersion } from '../lib/types';
@@ -250,7 +252,14 @@ export function SortResultsImportMode({
   const autoPick = pickVersions && autoPickAllVersions;
   const [versionPicks, setVersionPicks] = useState<VersionPicks>({});
   const [revision, setRevision] = useState(0);
-  const [cloudOpen, setCloudOpen] = useState(false);
+  const [cloudOpen, setCloudOpen] = useState(
+    () => readSettings().slotImportSource === 'drive',
+  );
+  // Only explicit switches are remembered; closing after a Drive import keeps Drive.
+  const chooseImportSource = (source: 'browser' | 'drive'): void => {
+    updateSettings({ slotImportSource: source });
+    setCloudOpen(source === 'drive');
+  };
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
   const [asPreRanked, setAsPreRanked] = useState<Record<string, boolean>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -741,7 +750,7 @@ export function SortResultsImportMode({
           autoPickAllVersions={autoPick}
           importAsVersions={importAsVersions && onImportOrderedItems !== undefined}
           onDraftActivity={onDraftActivity}
-          onBack={() => setCloudOpen(false)}
+          onBack={() => chooseImportSource('browser')}
           onImport={handleCloudImports}
           onImportAsNewOrders={
             onImportOrderedItemsAsNewOrders
@@ -771,7 +780,7 @@ export function SortResultsImportMode({
           <button
             type="button"
             className="btn btn-sm"
-            onClick={() => setCloudOpen(true)}
+            onClick={() => chooseImportSource('drive')}
           >
             Google Drive…
           </button>

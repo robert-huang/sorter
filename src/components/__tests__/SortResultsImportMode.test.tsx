@@ -137,6 +137,43 @@ describe('SortResultsImportMode cloud entry point', () => {
     container.remove();
   });
 
+  it('reopens on the last source the user switched to', () => {
+    vi.spyOn(storage, 'isStatePersistenceAvailable').mockReturnValue(true);
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    let root = createRoot(container);
+    const render = (): void =>
+      act(() => {
+        root.render(
+          <SortResultsImportMode embedded onAppendToStaged={vi.fn()} />,
+        );
+      });
+    const remount = (): void => {
+      act(() => root.unmount());
+      root = createRoot(container);
+      render();
+    };
+    const clickButton = (label: string): void => {
+      const button = Array.from(container.querySelectorAll('button')).find(
+        (candidate) => candidate.textContent?.trim() === label,
+      );
+      act(() => button?.click());
+    };
+
+    render();
+    clickButton('Google Drive…');
+    remount();
+    expect(container.textContent).toContain('Google Drive slots');
+
+    clickButton('Back to browser saves');
+    remount();
+    expect(container.textContent).toContain('Saved in this browser');
+    expect(container.textContent).not.toContain('Google Drive slots');
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
   it('keeps the START heading and description while browsing Drive', () => {
     vi.spyOn(storage, 'isStatePersistenceAvailable').mockReturnValue(true);
     const container = document.createElement('div');
