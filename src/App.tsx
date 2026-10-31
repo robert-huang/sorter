@@ -55,6 +55,7 @@ import {
   createConfirmationFromCompletedSort,
   derivedSlotName,
   resetBranchedSlotComparisonProgress,
+  restoreSortFromVersion,
   type CompletedSortEditAction,
   type SlotResultsImportBatch,
 } from './lib/completedSortEditH';
@@ -736,6 +737,23 @@ export function App() {
       setState(next);
     },
     [pushUndo],
+  );
+
+  /** Saves edited history; the newest version becomes the sort's ranking (undoable). */
+  const applyVersionHistory = useCallback(
+    (next: SortVersion[]) => {
+      const newest = next[next.length - 1];
+      if (newest) {
+        applyWithUndo((cur) => {
+          const current = snapshotSortVersion(ranked(cur), '');
+          if (!current || sameRanking(current.rankedIds, newest.rankedIds)) return cur;
+          return restoreSortFromVersion(cur, newest);
+        });
+      }
+      versionsRef.current = next;
+      setVersions(next);
+    },
+    [applyWithUndo],
   );
 
   const flashSkipped = useCallback((msg: string) => {
@@ -2542,14 +2560,15 @@ export function App() {
   const onDownloadSlot = useCallback((id: string) => {
     const blob = readSlotBlob(id);
     if (!blob) return;
-    downloadSave(blob);
+    downloadSave(blob, readManifest().slots.find((s) => s.id === id)?.name);
   }, []);
 
   // -------- save / load file --------
   const onDownload = useCallback(() => {
     if (!state) return;
-    downloadSave(buildBlob(state, undoRing, versions));
-  }, [state, undoRing, versions]);
+    const slotName = manifest.slots.find((s) => s.id === (loadedSlotId ?? manifest.activeId))?.name;
+    downloadSave(buildBlob(state, undoRing, versions), slotName);
+  }, [state, undoRing, versions, manifest, loadedSlotId]);
 
   // Force-flush the active slot and bump its recency (`updatedAt`) so it
   // rises to the top of the slot list — even when nothing changed since
@@ -3130,7 +3149,7 @@ export function App() {
             versions={versions}
             excludeSlotId={effectiveLoadedSlotId ?? undefined}
             browserSaveManifest={manifest}
-            onApply={setVersions}
+            onApply={applyVersionHistory}
             onClose={() => setHistoryImportOpen(false)}
           />
         ) : (

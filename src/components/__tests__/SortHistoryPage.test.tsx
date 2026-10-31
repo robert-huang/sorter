@@ -192,10 +192,6 @@ describe('SortHistoryPage', () => {
     act(() => {
       root.render(<SortHistoryPage versions={versions} onApply={onApply} onClose={vi.fn()} />);
     });
-    expect(
-      document.querySelector('[aria-label="Delete version from 2026-04-01 09:00"]'),
-    ).toBeNull();
-
     const toggles = Array.from(
       document.querySelectorAll<HTMLButtonElement>('.sort-history-version-toggle'),
     );
@@ -227,5 +223,34 @@ describe('SortHistoryPage', () => {
       [C.id, A.id, B.id],
     ]);
     expect(applied.map((v) => v.live)).toEqual([undefined, undefined, true]);
+  });
+
+  it('deleting the current version previews restoring the newest remaining ranking', async () => {
+    const snap = (id: string, createdAt: string, order: Item[]): SortVersion => ({
+      id,
+      createdAt,
+      rankedIds: order.map((it) => it.id),
+      items: Object.fromEntries(order.map((it) => [it.id, { label: it.label }])),
+    });
+    const versions = [
+      snap('one', new Date('2026-01-01T09:00').toISOString(), [A, B, C]),
+      { ...snap('two', new Date('2026-02-01T09:00').toISOString(), [C, B, A]), live: true as const },
+    ];
+    const onApply = vi.fn();
+    act(() => {
+      root.render(<SortHistoryPage versions={versions} onApply={onApply} onClose={vi.fn()} />);
+    });
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="Delete version from 2026-02-01 09:00"]')!
+        .click(),
+    );
+    await act(async () => button('Save changes').click());
+    expect(document.body.textContent).toContain(
+      'The ranking becomes the version from 2026-01-01 09:00; items it lacks are hidden.',
+    );
+    await act(async () => button('Confirm').click());
+    const applied = onApply.mock.calls[0]![0] as SortVersion[];
+    expect(applied.map((v) => v.rankedIds)).toEqual([[A.id, B.id, C.id]]);
   });
 });

@@ -18,6 +18,7 @@ import type {
   Item,
   ItemId,
   SortState,
+  SortVersion,
 } from './types';
 
 /** What the user is trying to do to a completed (`done`) sort. */
@@ -42,6 +43,29 @@ export function completedSortEditItemCount(action: CompletedSortEditAction): num
     default:
       return action.items.length;
   }
+}
+
+/**
+ * Makes a finished sort's visible ranking match `version`. Items the version lacks are
+ * hidden (kept at the bottom so they can be reinserted); its items missing from the sort
+ * are recreated from the snapshot. Same state back when the sort isn't finished.
+ */
+export function restoreSortFromVersion(state: SortState, version: SortVersion): SortState {
+  const done = finalizeCompletedState(state);
+  if (!done.done || done.engine !== 'merge') return state;
+  const keep = new Set(version.rankedIds);
+  const extras = done.queue.flat().filter((id) => !keep.has(id));
+  const items = { ...done.items };
+  for (const id of version.rankedIds) {
+    items[id] = items[id] ?? { id, ...version.items[id]! };
+  }
+  const hidden = [...new Set([...done.hidden, ...extras])].filter((id) => !keep.has(id));
+  return {
+    ...done,
+    queue: [[...version.rankedIds, ...extras]],
+    hidden,
+    items,
+  };
 }
 
 /** Deep-clone sort state for minting a new slot without touching the original. */

@@ -6,15 +6,17 @@ import {
   createConfirmationFromCompletedSort,
   derivedSlotName,
   resetBranchedSlotComparisonProgress,
+  restoreSortFromVersion,
 } from '../completedSortEditH';
 import {
   finalizeCompletedState,
+  getRanking,
   restoreProgress,
   snapshotProgress,
 } from '../engine';
 import { getPair, initSort as mergeInitSort, pickLeft, pickRight, seedAsDoneMerge } from '../queueMergeSort';
 import { seedAsSorted } from '../insertionSort';
-import type { Item, MergeState } from '../types';
+import type { Item, MergeState, SortVersion } from '../types';
 
 const A: Item = { id: 'a', label: 'A' };
 const B: Item = { id: 'b', label: 'B' };
@@ -216,5 +218,40 @@ describe('applySlotImportBatches', () => {
       x: X,
       y: Y,
     });
+  });
+});
+
+describe('restoreSortFromVersion', () => {
+  it('ranks by the version, hiding extras and recreating missing items', () => {
+    const state = seedAsDoneMerge([A, B, X]);
+    const version: SortVersion = {
+      id: 'v1',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      rankedIds: ['b', 'y', 'a'],
+      items: { a: { label: 'A' }, b: { label: 'B' }, y: { label: 'Y' } },
+    };
+    const restored = restoreSortFromVersion(state, version) as MergeState;
+    expect(restored.done).toBe(true);
+    expect(restored.queue).toEqual([['b', 'y', 'a', 'x']]);
+    expect(restored.hidden).toEqual(['x']);
+    expect(restored.items.y).toEqual({ id: 'y', label: 'Y' });
+    expect(getRanking(restored).filter((id) => !restored.hidden.includes(id))).toEqual([
+      'b',
+      'y',
+      'a',
+    ]);
+  });
+
+  it('unhides version items and leaves unfinished sorts alone', () => {
+    const state = { ...seedAsDoneMerge([A, B]), hidden: ['b'] };
+    const version: SortVersion = {
+      id: 'v1',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      rankedIds: ['b', 'a'],
+      items: { a: { label: 'A' }, b: { label: 'B' } },
+    };
+    expect((restoreSortFromVersion(state, version) as MergeState).hidden).toEqual([]);
+    const unfinished = mergeInitSort([A, B], { shuffleAtStart: false });
+    expect(restoreSortFromVersion(unfinished, version)).toBe(unfinished);
   });
 });

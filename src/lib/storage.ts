@@ -1946,14 +1946,30 @@ function timestampForFilename(): string {
   );
 }
 
-export function downloadSave(blob: AutosaveBlob): void {
+/**
+ * `sorter-<slot name>-<timestamp>.json`, or `sorter-<timestamp>.json` without a name.
+ * Characters illegal on common filesystems become `_`.
+ */
+export function saveDownloadFilename(slotName?: string): string {
+  const cleaned = (slotName ?? '')
+    .replace(/[\\/:*?"<>|]+/g, '_')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 80);
+  return cleaned
+    ? `sorter-${cleaned}-${timestampForFilename()}.json`
+    : `sorter-${timestampForFilename()}.json`;
+}
+
+export function downloadSave(blob: AutosaveBlob, slotName?: string): void {
   const file = buildSaveFile(blob);
   const json = JSON.stringify(file, null, 2);
   const blobObj = new Blob([json], { type: 'application/json' });
   const url = URL.createObjectURL(blobObj);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `sorter-${timestampForFilename()}.json`;
+  a.download = saveDownloadFilename(slotName);
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

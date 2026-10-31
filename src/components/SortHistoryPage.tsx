@@ -2,6 +2,7 @@ import { useMemo, useRef, useState, type DragEvent } from "react";
 import type { SlotRankingImport } from "../lib/slotResultsImport";
 import {
   mergeImportedVersions,
+  sameRanking,
   snapshotFromRankedItems,
   snapshotSortVersion,
   sortVersionDiffCounts,
@@ -37,7 +38,12 @@ type StagedSource = {
   nested: SortVersion[];
 };
 
-type PendingSave = MergedSortVersions & { deleted: number; redated: number };
+type PendingSave = MergedSortVersions & {
+  deleted: number;
+  redated: number;
+  /** Newest version whose ranking replaces the sort's current one, if it differs. */
+  restores: SortVersion | null;
+};
 
 const isoToLocal = (iso: string): string => toDateTimeLocal(new Date(iso));
 
@@ -160,9 +166,19 @@ function previewText(pending: PendingSave): string {
   if (pending.skipped > 0)
     parts.push(`${plural(pending.skipped, "identical ranking")} skipped`);
   const text = parts.join("; ");
-  return text
+  const summary = text
     ? `${text.charAt(0).toUpperCase()}${text.slice(1)}.`
     : "No changes.";
+  if (!pending.restores) return summary;
+  const date = formatDateTimeLocal(isoToLocal(pending.restores.createdAt));
+  return `${summary} The ranking becomes the version from ${date}; items it lacks are hidden.`;
+}
+
+function deleteTitle(isDeleted: boolean, isLive: boolean): string {
+  if (isDeleted) return "Keep this version";
+  return isLive
+    ? "Delete this version; saving makes the newest remaining version the ranking"
+    : "Delete this version";
 }
 
 /** "2 up · 1 down · 1 removed", with up and down coloured. */
@@ -193,7 +209,7 @@ function VersionCounts({
 /**
  * Edits the active save's version history: redate or delete recorded versions and
  * import archived copies (save files, browser saves, Drive saves). Saving re-sorts by
- * date and recalculates each version's changes. The current ranking is untouched.
+ * date and recalculates each version's changes. The newest version becomes the ranking.
  */
 export function SortHistoryPage({
   versions,
@@ -310,7 +326,14 @@ export function SortHistoryPage({
     const redated = Object.keys(dateEdits).filter(
       (id) => !deleted.has(id),
     ).length;
-    setPending({ ...merged, deleted: deleted.size, redated });
+    // Opening the page commits the live version, so the newest recorded one is the sort's ranking.
+    const current = versions[versions.length - 1];
+    const newest = merged.versions[merged.versions.length - 1];
+    const restores =
+      newest && current && !sameRanking(newest.rankedIds, current.rankedIds)
+        ? newest
+        : null;
+    setPending({ ...merged, deleted: deleted.size, redated, restores });
   };
 
   const confirmSave = (): void => {
@@ -335,8 +358,8 @@ export function SortHistoryPage({
         <p className="header-hint">
           Change a version&rsquo;s date or delete it, and import archived copies
           of this sort. Saving re-sorts versions by date and recalculates what
-          changed between them. The current ranking and the source saves are not
-          changed.
+          changed between them. The newest version becomes the current ranking;
+          items it lacks are hidden. Source saves are not changed.
         </p>
 
         <h3>Versions</h3>
@@ -384,24 +407,15 @@ export function SortHistoryPage({
                   <span className="sort-history-import-count">
                     {plural(version.rankedIds.length, "item")}
                   </span>
-                  {version.live ? (
-                    <span
-                      className="sort-history-import-action-spacer"
-                      aria-hidden="true"
-                    />
-                  ) : (
-                    <button
-                      type="button"
-                      className="btn icon-only"
-                      aria-label={`${isDeleted ? "Keep" : "Delete"} version from ${label}`}
-                      title={
-                        isDeleted ? "Keep this version" : "Delete this version"
-                      }
-                      onClick={() => toggleDeleted(version.id)}
-                    >
-                      {isDeleted ? "↺" : <RemoveGlyph size={12} />}
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    className="btn icon-only"
+                    aria-label={`${isDeleted ? "Keep" : "Delete"} version from ${label}`}
+                    title={deleteTitle(isDeleted, version.live === true)}
+                    onClick={() => toggleDeleted(version.id)}
+                  >
+                    {isDeleted ? "↺" : <RemoveGlyph size={12} />}
+                  </button>
                   {expanded && (
                     <div className="sort-history-version-detail">
                       <VersionRanking version={version} prev={prev} />
