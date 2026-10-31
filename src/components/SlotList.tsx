@@ -502,7 +502,7 @@ function SlotRow({
               {slot.name}
             </button>
           )}
-          {versionCount > 1 && (
+          {versionCount > 0 && (
             <span
               className="slot-version-badge"
               title={`${pluralize(versionCount, 'recorded version')}`}
