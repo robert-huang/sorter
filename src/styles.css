@@ -10317,9 +10317,30 @@ a:where(.anime-to-anime-anilist-link):visited {
   align-items: center;
 }
 
+.tool-weekly-week-start-field {
+  position: relative;
+}
+
+/* Own chevron: the native one sits further right on macOS than on Windows. */
 .tool-weekly-week-start-field .settings-spotify-select {
   width: 100%;
   min-width: 6rem;
+  padding-right: 30px;
+  appearance: none;
+}
+
+.tool-weekly-week-start-field::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-70%) rotate(45deg);
+  pointer-events: none;
+  color: var(--text);
 }
 
 .tool-weekly-season-segmented {

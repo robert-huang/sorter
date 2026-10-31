@@ -734,7 +734,7 @@ function WeeklyCalendarThemeSongsPanel({
                   show={show}
                   songCount={
                     <span className="tool-weekly-theme-songs-show-count">
-                      ({' '}
+                      {' '}
                       <WeeklyCalendarShowPlaylistAdd
                         mediaId={show.id}
                         rows={themeSongCache.get(show.id)?.rows ?? rows}
@@ -746,7 +746,7 @@ function WeeklyCalendarThemeSongsPanel({
                       >
                         🎵 {rows.length}
                       </WeeklyCalendarShowPlaylistAdd>
-                      {' '})
+                      {' '}
                     </span>
                   }
                   favourite={favouriteMediaIds.has(show.id)}
