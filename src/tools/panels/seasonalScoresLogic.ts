@@ -3,6 +3,12 @@ import { anilistMediaSourceLabel } from '../../lib/importers/anilist/mediaSource
 import { parseLinesOnePerLine } from '../parseToolLines';
 import type { AnilistMediaSeason, AnilistMediaSource } from '../../lib/importers/anilist/types';
 import { ALL_ANILIST_MEDIA_SOURCES } from '../../lib/importers/anilist/types';
+import {
+  DEFAULT_SCORE_FILTER,
+  scoreFilterActive,
+  scoresPassScoreFilter,
+  type ComparisonScoreFilter,
+} from './scoreFilterLogic';
 
 export type SeasonalFuzzyDate = {
   year: number | null;
@@ -1195,7 +1201,23 @@ export type BuildSeasonalColumnsOptions = {
   includeRepeats?: boolean;
   /** Count `mal:` users' scores, statuses and hover lines like AniList users. */
   includeMalScores?: boolean;
+  /** User Scores' score chip, matched against each show's per-user entries. */
+  scoreFilter?: ComparisonScoreFilter;
 };
+
+/** Shows whose counted users pass the score chip ("one person" vs "everyone"). */
+export function applySeasonalScoreFilter(
+  shows: SeasonalShow[],
+  filter: ComparisonScoreFilter,
+): SeasonalShow[] {
+  if (!scoreFilterActive(filter)) return shows;
+  return shows.filter((show) =>
+    scoresPassScoreFilter(
+      (show.entries ?? []).map((entry) => normalizeSeasonalListScore(entry.score) ?? 0),
+      filter,
+    ),
+  );
+}
 
 /** Single-list convenience wrapper over {@link buildMultiUserSeasonalColumns}. */
 export function buildSeasonalColumns(
@@ -1254,6 +1276,10 @@ export function buildMultiUserSeasonalColumns(
   filteredShows = applySeasonalSourceFilters(
     filteredShows,
     options?.sourceFilters ?? DEFAULT_SEASONAL_SOURCE_FILTERS,
+  );
+  filteredShows = applySeasonalScoreFilter(
+    filteredShows,
+    options?.scoreFilter ?? DEFAULT_SCORE_FILTER,
   );
   const specs = parseSeasonSpecs(
     form.seasonText,

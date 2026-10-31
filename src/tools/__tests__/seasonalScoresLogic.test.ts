@@ -8,6 +8,7 @@ import {
   seasonalRepeatTooltip,
   applySeasonalFormatFilters,
   applySeasonalGenreFilters,
+  applySeasonalScoreFilter,
   discoverSeasonalGenres,
   normalizeSeasonalStringFilters,
   applySeasonalListStatusFilters,
@@ -36,6 +37,44 @@ import {
   type SeasonalShow,
 } from '../panels/seasonalScoresLogic';
 import { encodeSeasonYear } from '../../lib/importers/anilist/filters';
+
+describe('applySeasonalScoreFilter', () => {
+  const show = (id: number, scores: (number | null)[]): SeasonalShow => ({
+    id,
+    title: `Show ${id}`,
+    season: 'WINTER',
+    seasonYear: 2026,
+    score: null,
+    notes: null,
+    entries: scores.map((score, index) => ({
+      username: `user${index}`,
+      listStatus: score == null ? 'PLANNING' : 'COMPLETED',
+      score,
+      repeat: null,
+      notes: null,
+    })),
+  });
+  const shows = [show(1, [85, null]), show(2, [85, 90]), show(3, [60, 90])];
+  const highScores = { pill: 'any', min: 80, max: null } as const;
+
+  it('"one person" keeps a show when any user rated it in range', () => {
+    expect(
+      applySeasonalScoreFilter(shows, { ...highScores, mode: 'any' }).map((s) => s.id),
+    ).toEqual([1, 2, 3]);
+  });
+
+  it('"everyone" needs every user to match (unrated users pass the range)', () => {
+    expect(
+      applySeasonalScoreFilter(shows, { ...highScores, mode: 'all' }).map((s) => s.id),
+    ).toEqual([1, 2]);
+  });
+
+  it('leaves shows alone when the chip is inactive', () => {
+    expect(
+      applySeasonalScoreFilter(shows, { mode: 'all', pill: 'any', min: null, max: null }),
+    ).toBe(shows);
+  });
+});
 
 const sampleShows: SeasonalShow[] = [
   {

@@ -1,6 +1,20 @@
 import type { AnilistMediaListStatus } from '../../lib/importers/anilist/types';
 import { ALL_LIST_STATUSES } from '../../lib/importers/anilist/filters';
 import { compareStatsSortValues } from './statsLogic';
+import {
+  DEFAULT_SCORE_FILTER,
+  normalizeScoreFilter,
+  scoresPassScoreFilter,
+  type ComparisonScoreFilter,
+} from './scoreFilterLogic';
+
+export {
+  DEFAULT_SCORE_FILTER,
+  scoreFilterActive,
+  scoresPassScoreFilter,
+  type ComparisonScoreFilter,
+  type ComparisonScoreMode,
+} from './scoreFilterLogic';
 
 export type ComparisonMediaType = 'ANIME' | 'MANGA';
 export type ComparisonStat = 'mean' | 'stddev';
@@ -21,7 +35,6 @@ export function isNormalizedStat(option: ComparisonStatOption): boolean {
 export function baseStat(option: ComparisonStatOption): ComparisonStat {
   return option === 'stddev' || option === 'normalizedStddev' ? 'stddev' : 'mean';
 }
-export type ComparisonScoreMode = 'any' | 'all';
 export type ComparisonSortDirection = 'asc' | 'desc';
 /** `title`, `stat`, or `user:<lowercased username>`. */
 export type ComparisonSortColumn = string;
@@ -46,20 +59,6 @@ export type ComparisonUserList = {
 };
 
 export type UserListStats = { mean: number; stdDev: number; ratedCount: number };
-
-export type ComparisonScoreFilter = {
-  mode: ComparisonScoreMode;
-  pill: 'any' | 'rated' | 'unrated';
-  min: number | null;
-  max: number | null;
-};
-
-export const DEFAULT_SCORE_FILTER: ComparisonScoreFilter = {
-  mode: 'any',
-  pill: 'any',
-  min: null,
-  max: null,
-};
 
 export type ComparisonFilters = {
   /** Keyed by lowercased username; missing key = all statuses. Kept after a user is removed. */
@@ -168,24 +167,6 @@ function isPassingCell(cell: ComparisonCell): cell is ComparisonCell & { entry: 
   return cell.entry !== null && !cell.excluded;
 }
 
-function scoreInRange(score: number, filter: ComparisonScoreFilter): boolean {
-  if (filter.min !== null && score < filter.min) return false;
-  if (filter.max !== null && score > filter.max) return false;
-  return true;
-}
-
-/** Single-user semantics from the sorter's score chip: range applies to rated only. */
-function cellMatchesScore(entry: ComparisonEntry, filter: ComparisonScoreFilter): boolean {
-  const rated = entry.score > 0;
-  if (filter.pill === 'rated' && !rated) return false;
-  if (filter.pill === 'unrated') return !rated;
-  return !rated || scoreInRange(entry.score, filter);
-}
-
-function scoreFilterActive(filter: ComparisonScoreFilter): boolean {
-  return filter.pill !== 'any' || filter.min !== null || filter.max !== null;
-}
-
 /**
  * `any` ("one person"): someone rated it in range; others may be unrated.
  * `all` ("everyone"): every passing user matches the score chip.
@@ -194,16 +175,10 @@ export function rowPassesScoreRange(
   cells: readonly ComparisonCell[],
   filter: ComparisonScoreFilter,
 ): boolean {
-  if (!scoreFilterActive(filter)) return true;
-  const passing = cells.filter(isPassingCell);
-  if (passing.length === 0) return false;
-  if (filter.mode === 'all') {
-    return passing.every((cell) => cellMatchesScore(cell.entry, filter));
-  }
-  if (filter.pill === 'unrated') {
-    return passing.some((cell) => cell.entry.score <= 0);
-  }
-  return passing.some((cell) => cell.entry.score > 0 && scoreInRange(cell.entry.score, filter));
+  return scoresPassScoreFilter(
+    cells.filter(isPassingCell).map((cell) => cell.entry.score),
+    filter,
+  );
 }
 
 export function passingCellCount(cells: readonly ComparisonCell[]): number {
@@ -424,28 +399,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function normalizeBound(value: unknown): number | null {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 100
-    ? value
-    : null;
-}
-
 function normalizeStatuses(value: unknown): AnilistMediaListStatus[] | null {
   if (!Array.isArray(value)) return null;
   return value.filter((s): s is AnilistMediaListStatus =>
     (ALL_LIST_STATUSES as readonly unknown[]).includes(s),
   );
-}
-
-function normalizeScoreFilter(value: unknown): ComparisonScoreFilter {
-  if (!isRecord(value)) return DEFAULT_SCORE_FILTER;
-  const pill = value.pill === 'rated' || value.pill === 'unrated' ? value.pill : 'any';
-  return {
-    mode: value.mode === 'all' ? 'all' : 'any',
-    pill,
-    min: pill === 'unrated' ? null : normalizeBound(value.min),
-    max: pill === 'unrated' ? null : normalizeBound(value.max),
-  };
 }
 
 function normalizeFilters(value: unknown): ComparisonFilters {

@@ -69,9 +69,11 @@ import {
   MultiSelectChip,
   normalizeSeasonYearRangeToOptions,
   seasonYearOptionsForSelectedYears,
+  ScoreRangeChip,
   SeasonYearChip,
   toggleInArray,
 } from '../../lib/importers/anilist/filters';
+import { normalizeScoreFilter, type ComparisonScoreFilter } from './scoreFilterLogic';
 import { useCurrentAnilistFavourites } from '../useCurrentAnilistFavourites';
 import { useToolsPreferences } from '../../hooks/useToolsPreferences';
 
@@ -182,6 +184,7 @@ type PersistedPrimaryFilters = {
   years?: unknown;
   genres?: unknown;
   formats?: unknown;
+  score?: unknown;
 };
 
 type PrimaryFilters = {
@@ -190,6 +193,7 @@ type PrimaryFilters = {
   yearFilters: SeasonalYearFilters;
   genreFilters: SeasonalGenreFilters;
   formatFilters: SeasonalFormatFilters;
+  scoreFilter: ComparisonScoreFilter;
 };
 
 function parsePrimaryFilters(parsed: PersistedPrimaryFilters): PrimaryFilters {
@@ -202,6 +206,7 @@ function parsePrimaryFilters(parsed: PersistedPrimaryFilters): PrimaryFilters {
     yearFilters: normalizeSeasonalYearFilters(parsed.years),
     genreFilters: normalizeSeasonalStringFilters(parsed.genres),
     formatFilters: normalizeSeasonalStringFilters(parsed.formats),
+    scoreFilter: normalizeScoreFilter(parsed.score),
   };
 }
 
@@ -230,6 +235,7 @@ function savePrimaryFilters(filters: PrimaryFilters): void {
         years: filters.yearFilters,
         genres: filters.genreFilters,
         formats: filters.formatFilters,
+        score: filters.scoreFilter,
       }),
     );
   } catch {
@@ -496,6 +502,9 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
   const [formatFilters, setFormatFilters] = useState<SeasonalFormatFilters>(
     initialPrimaryFilters.formatFilters,
   );
+  const [scoreFilter, setScoreFilter] = useState<ComparisonScoreFilter>(
+    initialPrimaryFilters.scoreFilter,
+  );
   const [cachedLists, setCachedLists] = useState<SeasonalUserShows[] | null>(null);
   const [running, setRunning] = useState(false);
   const [refreshingUser, setRefreshingUser] = useState<string | null>(null);
@@ -570,6 +579,7 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
     setListStatusFilters(persisted.listStatusFilters);
     setGenreFilters(persisted.genreFilters);
     setFormatFilters(persisted.formatFilters);
+    setScoreFilter(persisted.scoreFilter);
     primaryFiltersUsersRef.current = formUsersKey;
   }, [relabeledCachedShows, formUsersKey]);
 
@@ -580,8 +590,9 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
       yearFilters,
       genreFilters,
       formatFilters,
+      scoreFilter,
     });
-  }, [seasonYearFilter, listStatusFilters, yearFilters, genreFilters, formatFilters]);
+  }, [seasonYearFilter, listStatusFilters, yearFilters, genreFilters, formatFilters, scoreFilter]);
 
   const buildColumns = useCallback(
     (lists: SeasonalUserShows[]) =>
@@ -599,6 +610,7 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
           genreFilters,
           formatFilters,
           sourceFilters,
+          scoreFilter,
           includeRepeats: toolsPreferences.seasonalScoresShowRepeats,
           includeMalScores: toolsPreferences.seasonalScoresIncludeMalScores,
         },
@@ -611,6 +623,7 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
       listStatusFilters,
       genreFilters,
       formatFilters,
+      scoreFilter,
       toolsPreferences.seasonalScoresShowRepeats,
       toolsPreferences.seasonalScoresSpanAiringSeasons,
       toolsPreferences.seasonalScoresIncludeMalScores,
@@ -976,6 +989,26 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
             }
             onToggle={(format) => setFormatFilters((prev) => toggleInArray(prev, format))}
             onReplaceAll={(formats) => setFormatFilters([...formats])}
+          />
+          <ScoreRangeChip
+            pill={scoreFilter.pill}
+            min={scoreFilter.min}
+            max={scoreFilter.max}
+            {...(form.usernames.length > 1
+              ? {
+                  mode: scoreFilter.mode,
+                  onModeChange: (mode: ComparisonScoreFilter['mode']) =>
+                    setScoreFilter((prev) => ({ ...prev, mode })),
+                }
+              : {})}
+            onChange={(next) =>
+              setScoreFilter((prev) => ({
+                ...prev,
+                pill: next.userScoreInclude ?? prev.pill,
+                min: next.scoreMin !== undefined ? next.scoreMin : prev.min,
+                max: next.scoreMax !== undefined ? next.scoreMax : prev.max,
+              }))
+            }
           />
         </div>
 
