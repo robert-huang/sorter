@@ -402,6 +402,23 @@ export function SortResultsImportMode({
     [toggleSelected, onDraftActivity],
   );
 
+  /**
+   * Select a save. `allVersions` checks every version only the first time (manual
+   * picks stick afterwards); `false` clears them so it imports the current ranking.
+   */
+  const selectWithVersions = useCallback(
+    (entry: SlotImportEntry, allVersions: boolean) => {
+      // Set picks first so toggleSelected's first-selection auto-pick sees them and skips.
+      setVersionPicks((prev) =>
+        allVersions
+          ? withAllVersionsPicked(prev, entry)
+          : { ...prev, [entry.meta.id]: new Set<string>() },
+      );
+      toggleSelected(entry.meta.id, true);
+    },
+    [toggleSelected],
+  );
+
   function setSlotPreRanked(id: string, value: boolean): void {
     setAsPreRanked((prev) => ({ ...prev, [id]: value }));
     onDraftActivity?.();
@@ -695,6 +712,7 @@ export function SortResultsImportMode({
       onRemoveItem={removePreviewItem}
       versionPicks={pickVersions ? (versionPicks[entry.meta.id] ?? NO_PICKS) : undefined}
       onToggleVersion={(versionId, on) => toggleVersion(entry.meta.id, versionId, on)}
+      onSelectWithVersions={(all) => selectWithVersions(entry, all)}
     />
   );
 
@@ -853,6 +871,7 @@ export function SortResultsImportMode({
                 onToggleVersion={(versionId, on) =>
                   toggleVersion(entry.meta.id, versionId, on)
                 }
+                onSelectWithVersions={(all) => selectWithVersions(entry, all)}
               />
             ))}
           </ul>
@@ -1561,6 +1580,7 @@ function SlotImportRow({
   onRemoveItem,
   versionPicks,
   onToggleVersion,
+  onSelectWithVersions,
 }: {
   entry: SlotImportEntry;
   selected: boolean;
@@ -1581,11 +1601,14 @@ function SlotImportRow({
   /** Set only in the version-picking variant. */
   versionPicks?: ReadonlySet<string>;
   onToggleVersion?: (versionId: string, on: boolean) => void;
+  /** Left click selects (every version the first time); right click selects with none. */
+  onSelectWithVersions?: (allVersions: boolean) => void;
 }) {
   const importable = entry.status === 'importable';
   const slotId = entry.meta.id;
   const showVersions =
     importable && versionPicks !== undefined && (entry.versions?.length ?? 0) > 0;
+  const versionRowActions = showVersions && onSelectWithVersions !== undefined;
 
   const previewRows = useMemo(() => {
     if (!entry.items) return [];
@@ -1624,7 +1647,19 @@ function SlotImportRow({
     if (!importable) return;
     const target = e.target as HTMLElement;
     if (target.closest('button, input, label, a')) return;
+    if (versionRowActions && !selected) {
+      onSelectWithVersions!(true);
+      return;
+    }
     onToggleSelect(!selected);
+  }
+
+  function onRowContextMenu(e: React.MouseEvent): void {
+    if (!importable || !versionRowActions) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('button, input, label, a')) return;
+    e.preventDefault();
+    onSelectWithVersions!(false);
   }
 
   function onRowKeyDown(e: React.KeyboardEvent): void {
@@ -1651,7 +1686,13 @@ function SlotImportRow({
         role={importable ? 'button' : undefined}
         tabIndex={importable ? 0 : undefined}
         onClick={onRowClick}
+        onContextMenu={onRowContextMenu}
         onKeyDown={onRowKeyDown}
+        title={
+          versionRowActions
+            ? 'Click to select (every version the first time) · right-click for the current ranking only'
+            : undefined
+        }
       >
         <input
           type={selectionMode === 'single' ? 'radio' : 'checkbox'}

@@ -137,6 +137,80 @@ describe('SortResultsImportMode cloud entry point', () => {
     container.remove();
   });
 
+  it('left-click selects every version, right-click selects the current ranking only', () => {
+    vi.spyOn(storage, 'isStatePersistenceAvailable').mockReturnValue(true);
+    const version = (id: string, createdAt: string) => ({
+      id,
+      createdAt,
+      rankedIds: ['AAAAAAAAAAAAAQ'],
+      items: { AAAAAAAAAAAAAQ: { label: 'Alpha' } },
+    });
+    vi.spyOn(slotResultsImport, 'listSlotImportEntriesFromStorage').mockReturnValue([
+      {
+        meta: {
+          id: 'versioned-save',
+          name: 'Versioned save',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-03T00:00:00.000Z',
+          totalItems: 1,
+          comparisons: 0,
+          done: true,
+        },
+        status: 'importable',
+        itemCount: 1,
+        items: [{ id: 'AAAAAAAAAAAAAQ', label: 'Alpha' }],
+        versions: [
+          version('vA', '2026-01-01T00:00:00.000Z'),
+          version('vB', '2026-01-02T00:00:00.000Z'),
+        ],
+      } as unknown as slotResultsImport.SlotImportEntry,
+    ]);
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    act(() => {
+      root.render(
+        <SortResultsImportMode embedded pickVersions onImportOrderedItems={vi.fn()} />,
+      );
+    });
+    const row = (): HTMLElement =>
+      container.querySelector<HTMLElement>('.sort-results-import-row-main')!;
+    const slotBox = (): HTMLInputElement =>
+      container.querySelector<HTMLInputElement>('[aria-label="Select Versioned save"]')!;
+    const picked = (): string[] =>
+      Array.from(
+        container.querySelectorAll<HTMLInputElement>('input[id^="sort-import-version-"]'),
+      )
+        .filter((input) => input.checked)
+        .map((input) => input.id.split('-').pop()!);
+
+    // First click checks every version (newest first in the list).
+    act(() => row().click());
+    expect(slotBox().checked).toBe(true);
+    expect(picked()).toEqual(['vB', 'vA']);
+
+    act(() =>
+      container.querySelector<HTMLInputElement>('#sort-import-version-versioned-save-vA')!.click(),
+    );
+    expect(picked()).toEqual(['vB']);
+
+    // Later clicks only toggle the save; manual picks stick.
+    act(() => row().click());
+    expect(slotBox().checked).toBe(false);
+    act(() => row().click());
+    expect(slotBox().checked).toBe(true);
+    expect(picked()).toEqual(['vB']);
+
+    act(() => {
+      row().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    });
+    expect(slotBox().checked).toBe(true);
+    expect(picked()).toEqual([]);
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
   it('reopens on the last source the user switched to', () => {
     vi.spyOn(storage, 'isStatePersistenceAvailable').mockReturnValue(true);
     const container = document.createElement('div');
