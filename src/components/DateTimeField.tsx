@@ -79,6 +79,8 @@ export function DateTimeField({ value, onChange, label, disabled = false }: Prop
         type="datetime-local"
         className="date-time-field-picker"
         aria-label={label}
+        // Out of the tab order so Tab leaves the field and commits the typed text.
+        tabIndex={-1}
         value={value}
         onChange={(e) => {
           if (!e.target.value) return;
