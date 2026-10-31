@@ -180,6 +180,10 @@ export type MergedSortVersions = {
   added: number;
   /** Versions dropped because they matched their direct predecessor. */
   skipped: number;
+  /** Indexes into `existing` that were dropped. */
+  skippedExisting: ReadonlySet<number>;
+  /** Indexes into `imported` that were dropped. */
+  skippedImported: ReadonlySet<number>;
 };
 
 /**
@@ -191,19 +195,30 @@ export function mergeImportedVersions(
   imported: readonly SortVersion[],
 ): MergedSortVersions {
   const tagged = [
-    ...existing.map((v) => ({ v, imported: false })),
+    ...existing.map((v, index) => ({ v, index, imported: false })),
     // Another save's live version is archived history here.
-    ...imported.map((v) => ({ v: frozenVersion(v), imported: true })),
+    ...imported.map((v, index) => ({ v: frozenVersion(v), index, imported: true })),
   ];
   // Array.prototype.sort is stable, so equal dates keep existing-before-imported.
   tagged.sort((a, b) => Date.parse(a.v.createdAt) - Date.parse(b.v.createdAt));
   const versions: SortVersion[] = [];
+  const skippedExisting = new Set<number>();
+  const skippedImported = new Set<number>();
   let added = 0;
-  for (const { v, imported: isImported } of tagged) {
+  for (const { v, index, imported: isImported } of tagged) {
     const prev = versions[versions.length - 1];
-    if (prev && sameRanking(prev.rankedIds, v.rankedIds)) continue;
+    if (prev && sameRanking(prev.rankedIds, v.rankedIds)) {
+      (isImported ? skippedImported : skippedExisting).add(index);
+      continue;
+    }
     versions.push({ ...v, id: newSortVersionId() });
     if (isImported) added++;
   }
-  return { versions: onlyNewestLive(versions), added, skipped: tagged.length - versions.length };
+  return {
+    versions: onlyNewestLive(versions),
+    added,
+    skipped: tagged.length - versions.length,
+    skippedExisting,
+    skippedImported,
+  };
 }

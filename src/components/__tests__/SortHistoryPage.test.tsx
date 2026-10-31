@@ -162,6 +162,10 @@ describe('SortHistoryPage', () => {
       saveFile([A, B], 'two.json', Date.parse('2026-03-01T08:00:00')),
     ]);
     await typeDate('Date for one', '2025-12-24 18:30');
+    const duplicateRows = Array.from(
+      document.querySelectorAll('[aria-label="Staged versions"] li.is-duplicate'),
+    ).map((row) => row.querySelector('.sort-history-import-name')?.textContent);
+    expect(duplicateRows).toEqual(['two']);
 
     await act(async () => button('Save changes').click());
     expect(document.body.textContent).toContain('Adds 1 version; 1 identical ranking skipped.');

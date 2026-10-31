@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState, type DragEvent } from 'react';
-import type { SlotRankingImport } from '../lib/slotResultsImport';
+import { useMemo, useRef, useState, type DragEvent } from "react";
+import type { SlotRankingImport } from "../lib/slotResultsImport";
 import {
   mergeImportedVersions,
   snapshotFromRankedItems,
@@ -7,15 +7,15 @@ import {
   sortVersionDiffCounts,
   summarizeSortVersionDiff,
   type MergedSortVersions,
-} from '../lib/sortVersions';
-import { formatDateTimeLocal, toDateTimeLocal } from '../lib/dateTimeText';
-import { loadSaveFromFile } from '../lib/storage';
-import type { SlotsManifest, SortVersion } from '../lib/types';
-import { DateTimeField } from './DateTimeField';
-import { RemoveGlyph } from './RemoveGlyph';
-import { SortResultsImportMode } from './SortResultsImportMode';
-import { VersionRanking } from './SortVersionsModal';
-import { dragEventHasFiles } from './settingsImportDropH';
+} from "../lib/sortVersions";
+import { formatDateTimeLocal, toDateTimeLocal } from "../lib/dateTimeText";
+import { loadSaveFromFile } from "../lib/storage";
+import type { SlotsManifest, SortVersion } from "../lib/types";
+import { DateTimeField } from "./DateTimeField";
+import { RemoveGlyph } from "./RemoveGlyph";
+import { SortResultsImportMode } from "./SortResultsImportMode";
+import { VersionRanking } from "./SortVersionsModal";
+import { dragEventHasFiles } from "./settingsImportDropH";
 
 interface Props {
   /** The active save's versions, oldest first. */
@@ -65,14 +65,14 @@ function stagedFromRankingImport(imp: SlotRankingImport): StagedSource | null {
 async function stagedFromFile(file: File): Promise<StagedSource> {
   const blob = await loadSaveFromFile(file);
   if (!blob.progress.done) {
-    throw new Error('in progress — only finished sorts can be imported');
+    throw new Error("in progress — only finished sorts can be imported");
   }
   const createdAt = new Date(file.lastModified || Date.now()).toISOString();
   const snapshot = snapshotSortVersion(blob, createdAt);
-  if (!snapshot) throw new Error('no ranked items');
+  if (!snapshot) throw new Error("no ranked items");
   return {
     key: nextStagedKey(),
-    name: file.name.replace(/\.json$/i, ''),
+    name: file.name.replace(/\.json$/i, ""),
     date: isoToLocal(createdAt),
     snapshot,
     nested: blob.versions ?? [],
@@ -83,24 +83,96 @@ async function stagedFromFile(file: File): Promise<StagedSource> {
 function stagedSourceVersions(rows: readonly StagedSource[]): SortVersion[] {
   return rows.flatMap((row) => [
     ...row.nested,
-    { ...row.snapshot, createdAt: fromDateTimeLocal(row.date, row.snapshot.createdAt) },
+    {
+      ...row.snapshot,
+      createdAt: fromDateTimeLocal(row.date, row.snapshot.createdAt),
+    },
   ]);
 }
 
-const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;
+/** Recorded versions minus deletions, with edited dates applied. */
+function keptVersions(
+  versions: readonly SortVersion[],
+  deleted: ReadonlySet<string>,
+  dateEdits: Readonly<Record<string, string>>,
+): SortVersion[] {
+  return versions
+    .filter((v) => !deleted.has(v.id))
+    .map((v) => {
+      const edit = dateEdits[v.id];
+      return edit === undefined
+        ? v
+        : { ...v, createdAt: fromDateTimeLocal(edit, v.createdAt) };
+    });
+}
+
+type DuplicateMarks = {
+  /** Recorded version ids that saving would drop. */
+  existing: ReadonlySet<string>;
+  /** Staged keys whose own ranking saving would drop. */
+  staged: ReadonlySet<string>;
+  /** Per staged key, how many of its earlier versions saving would drop. */
+  nested: ReadonlyMap<string, number>;
+};
+
+/** Maps the merge's skipped indexes back onto rows, following `stagedSourceVersions` order. */
+function duplicateMarks(
+  kept: readonly SortVersion[],
+  staged: readonly StagedSource[],
+  merged: MergedSortVersions,
+): DuplicateMarks {
+  const existing = new Set(
+    kept.filter((_, i) => merged.skippedExisting.has(i)).map((v) => v.id),
+  );
+  const stagedKeys = new Set<string>();
+  const nested = new Map<string, number>();
+  let offset = 0;
+  for (const row of staged) {
+    let nestedSkipped = 0;
+    for (let i = 0; i < row.nested.length; i++) {
+      if (merged.skippedImported.has(offset + i)) nestedSkipped++;
+    }
+    if (nestedSkipped > 0) nested.set(row.key, nestedSkipped);
+    if (merged.skippedImported.has(offset + row.nested.length))
+      stagedKeys.add(row.key);
+    offset += row.nested.length + 1;
+  }
+  return { existing, staged: stagedKeys, nested };
+}
+
+/** Marks a row that saving would drop as an identical ranking. */
+function DuplicateBadge({ title }: { title: string }) {
+  return (
+    <span className="sort-history-duplicate-badge" title={title}>
+      Duplicate
+    </span>
+  );
+}
+
+const plural = (n: number, word: string): string =>
+  `${n} ${word}${n === 1 ? "" : "s"}`;
 
 function previewText(pending: PendingSave): string {
   const parts: string[] = [];
-  if (pending.added > 0) parts.push(`Adds ${plural(pending.added, 'version')}`);
+  if (pending.added > 0) parts.push(`Adds ${plural(pending.added, "version")}`);
   if (pending.deleted > 0) parts.push(`deletes ${pending.deleted}`);
   if (pending.redated > 0) parts.push(`redates ${pending.redated}`);
-  if (pending.skipped > 0) parts.push(`${plural(pending.skipped, 'identical ranking')} skipped`);
-  const text = parts.join('; ');
-  return text ? `${text.charAt(0).toUpperCase()}${text.slice(1)}.` : 'No changes.';
+  if (pending.skipped > 0)
+    parts.push(`${plural(pending.skipped, "identical ranking")} skipped`);
+  const text = parts.join("; ");
+  return text
+    ? `${text.charAt(0).toUpperCase()}${text.slice(1)}.`
+    : "No changes.";
 }
 
 /** "2 up · 1 down · 1 removed", with up and down coloured. */
-function VersionCounts({ prev, version }: { prev: SortVersion | null; version: SortVersion }) {
+function VersionCounts({
+  prev,
+  version,
+}: {
+  prev: SortVersion | null;
+  version: SortVersion;
+}) {
   const counts = sortVersionDiffCounts(prev, version);
   if (!counts) return <>First version</>;
   if (counts.length === 0) return <>No changes</>;
@@ -108,8 +180,10 @@ function VersionCounts({ prev, version }: { prev: SortVersion | null; version: S
     <>
       {counts.map(({ kind, count }, i) => (
         <span key={kind}>
-          {i > 0 && ' · '}
-          <span className={`sort-version-count ${kind}`}>{`${count} ${kind}`}</span>
+          {i > 0 && " · "}
+          <span
+            className={`sort-version-count ${kind}`}
+          >{`${count} ${kind}`}</span>
         </span>
       ))}
     </>
@@ -129,7 +203,9 @@ export function SortHistoryPage({
   onClose,
 }: Props) {
   const [staged, setStaged] = useState<StagedSource[]>([]);
-  const [dateEdits, setDateEdits] = useState<Readonly<Record<string, string>>>({});
+  const [dateEdits, setDateEdits] = useState<Readonly<Record<string, string>>>(
+    {},
+  );
   const [deleted, setDeleted] = useState<ReadonlySet<string>>(() => new Set());
   const [errors, setErrors] = useState<string[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -142,7 +218,10 @@ export function SortHistoryPage({
   const existingRows = useMemo(
     () =>
       versions
-        .map((version, i) => ({ version, prev: i > 0 ? versions[i - 1]! : null }))
+        .map((version, i) => ({
+          version,
+          prev: i > 0 ? versions[i - 1]! : null,
+        }))
         .reverse(),
     [versions],
   );
@@ -150,7 +229,8 @@ export function SortHistoryPage({
     () => [...staged].sort((a, b) => Date.parse(a.date) - Date.parse(b.date)),
     [staged],
   );
-  const dirty = staged.length > 0 || deleted.size > 0 || Object.keys(dateEdits).length > 0;
+  const dirty =
+    staged.length > 0 || deleted.size > 0 || Object.keys(dateEdits).length > 0;
 
   const touch = (): void => {
     setPending(null);
@@ -168,9 +248,12 @@ export function SortHistoryPage({
     const failures: string[] = [];
     const added: StagedSource[] = [];
     results.forEach((result, i) => {
-      if (result.status === 'fulfilled') added.push(result.value);
+      if (result.status === "fulfilled") added.push(result.value);
       else {
-        const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
+        const reason =
+          result.reason instanceof Error
+            ? result.reason.message
+            : String(result.reason);
         failures.push(`${files[i]!.name}: ${reason}`);
       }
     });
@@ -206,7 +289,9 @@ export function SortHistoryPage({
   };
 
   const editStagedDate = (key: string, date: string): void => {
-    setStaged((prev) => prev.map((row) => (row.key === key ? { ...row, date } : row)));
+    setStaged((prev) =>
+      prev.map((row) => (row.key === key ? { ...row, date } : row)),
+    );
     touch();
   };
 
@@ -215,22 +300,23 @@ export function SortHistoryPage({
     touch();
   };
 
+  const { merged, duplicates } = useMemo(() => {
+    const kept = keptVersions(versions, deleted, dateEdits);
+    const result = mergeImportedVersions(kept, stagedSourceVersions(staged));
+    return { merged: result, duplicates: duplicateMarks(kept, staged, result) };
+  }, [versions, deleted, dateEdits, staged]);
+
   const prepareSave = (): void => {
-    const kept = versions
-      .filter((v) => !deleted.has(v.id))
-      .map((v) => {
-        const edit = dateEdits[v.id];
-        return edit === undefined ? v : { ...v, createdAt: fromDateTimeLocal(edit, v.createdAt) };
-      });
-    const redated = Object.keys(dateEdits).filter((id) => !deleted.has(id)).length;
-    const merged = mergeImportedVersions(kept, stagedSourceVersions(staged));
+    const redated = Object.keys(dateEdits).filter(
+      (id) => !deleted.has(id),
+    ).length;
     setPending({ ...merged, deleted: deleted.size, redated });
   };
 
   const confirmSave = (): void => {
     if (!pending) return;
     onApply(pending.versions);
-    setSavedMessage(`Saved · ${plural(pending.versions.length, 'version')}`);
+    setSavedMessage(`Saved · ${plural(pending.versions.length, "version")}`);
     setStaged([]);
     setDateEdits({});
     setDeleted(new Set());
@@ -247,25 +333,31 @@ export function SortHistoryPage({
           </button>
         </div>
         <p className="header-hint">
-          Change a version&rsquo;s date or delete it, and import archived copies of this sort.
-          Saving re-sorts versions by date and recalculates what changed between them. The
-          current ranking and the source saves are not changed.
+          Change a version&rsquo;s date or delete it, and import archived copies
+          of this sort. Saving re-sorts versions by date and recalculates what
+          changed between them. The current ranking and the source saves are not
+          changed.
         </p>
 
         <h3>Versions</h3>
         {existingRows.length === 0 ? (
           <p className="header-hint">No versions recorded yet.</p>
         ) : (
-          <ul className="sort-history-import-rows" aria-label="Recorded versions">
+          <ul
+            className="sort-history-import-rows"
+            aria-label="Recorded versions"
+          >
             {existingRows.map(({ version, prev }) => {
               const isDeleted = deleted.has(version.id);
-              const date = dateEdits[version.id] ?? isoToLocal(version.createdAt);
+              const date =
+                dateEdits[version.id] ?? isoToLocal(version.createdAt);
               const label = formatDateTimeLocal(isoToLocal(version.createdAt));
               const expanded = expandedId === version.id;
+              const isDuplicate = duplicates.existing.has(version.id);
               return (
                 <li
                   key={version.id}
-                  className={`sort-history-import-row${isDeleted ? ' is-deleted' : ''}`}
+                  className={`sort-history-import-row${isDeleted ? " is-deleted" : ""}${isDuplicate ? " is-duplicate" : ""}`}
                 >
                   <DateTimeField
                     label={`Date for version from ${label}`}
@@ -280,24 +372,34 @@ export function SortHistoryPage({
                     title={summarizeSortVersionDiff(prev, version)}
                     onClick={() => setExpandedId(expanded ? null : version.id)}
                   >
-                    <span aria-hidden="true">{expanded ? '▾' : '▸'}</span>{' '}
+                    <span aria-hidden="true">{expanded ? "▾" : "▸"}</span>{" "}
                     <VersionCounts prev={prev} version={version} />
                   </button>
-                  {version.live && <span className="sort-versions-current">Current</span>}
+                  {version.live && (
+                    <span className="sort-versions-current">Current</span>
+                  )}
+                  {isDuplicate && (
+                    <DuplicateBadge title="Same ranking as the version before it; saving drops it." />
+                  )}
                   <span className="sort-history-import-count">
-                    {plural(version.rankedIds.length, 'item')}
+                    {plural(version.rankedIds.length, "item")}
                   </span>
                   {version.live ? (
-                    <span className="sort-history-import-action-spacer" aria-hidden="true" />
+                    <span
+                      className="sort-history-import-action-spacer"
+                      aria-hidden="true"
+                    />
                   ) : (
                     <button
                       type="button"
                       className="btn icon-only"
-                      aria-label={`${isDeleted ? 'Keep' : 'Delete'} version from ${label}`}
-                      title={isDeleted ? 'Keep this version' : 'Delete this version'}
+                      aria-label={`${isDeleted ? "Keep" : "Delete"} version from ${label}`}
+                      title={
+                        isDeleted ? "Keep this version" : "Delete this version"
+                      }
                       onClick={() => toggleDeleted(version.id)}
                     >
-                      {isDeleted ? '↺' : <RemoveGlyph size={12} />}
+                      {isDeleted ? "↺" : <RemoveGlyph size={12} />}
                     </button>
                   )}
                   {expanded && (
@@ -313,7 +415,7 @@ export function SortHistoryPage({
 
         <h3>Import</h3>
         <div
-          className={`sort-history-import-drop${dropActive ? ' is-import-drop-target' : ''}`}
+          className={`sort-history-import-drop${dropActive ? " is-import-drop-target" : ""}`}
           onDragOver={(e) => {
             if (!dragEventHasFiles(e)) return;
             e.preventDefault();
@@ -322,11 +424,19 @@ export function SortHistoryPage({
           onDragLeave={() => setDropActive(false)}
           onDrop={onDrop}
         >
-          <button type="button" className="btn" onClick={() => fileInputRef.current?.click()}>
+          <button
+            type="button"
+            className="btn"
+            onClick={() => fileInputRef.current?.click()}
+          >
             Load save file…
           </button>
-          <button type="button" className="btn" onClick={() => setPickerOpen((open) => !open)}>
-            {pickerOpen ? 'Hide sorter slots' : 'Import sorter slot…'}
+          <button
+            type="button"
+            className="btn"
+            onClick={() => setPickerOpen((open) => !open)}
+          >
+            {pickerOpen ? "Hide sorter slots" : "Import sorter slot…"}
           </button>
           <span className="header-hint">or drop save files here</span>
           <input
@@ -338,7 +448,7 @@ export function SortHistoryPage({
             aria-label="Save files to import as versions"
             onChange={(e) => {
               const files = Array.from(e.target.files ?? []);
-              e.target.value = '';
+              e.target.value = "";
               void addFiles(files);
             }}
           />
@@ -375,31 +485,42 @@ export function SortHistoryPage({
 
         {sortedStaged.length > 0 && (
           <ul className="sort-history-import-rows" aria-label="Staged versions">
-            {sortedStaged.map((row) => (
-              <li key={row.key} className="sort-history-import-row">
-                <DateTimeField
-                  label={`Date for ${row.name}`}
-                  value={row.date}
-                  onChange={(next) => editStagedDate(row.key, next)}
-                />
-                <span className="sort-history-import-name">{row.name}</span>
-                <span className="sort-history-import-count">
-                  {plural(row.snapshot.rankedIds.length, 'item')}
-                  {row.nested.length > 0
-                    ? ` · +${plural(row.nested.length, 'earlier version')}`
-                    : ''}
-                </span>
-                <button
-                  type="button"
-                  className="btn icon-only"
-                  aria-label={`Remove ${row.name}`}
-                  title="Remove"
-                  onClick={() => removeStaged(row.key)}
+            {sortedStaged.map((row) => {
+              const isDuplicate = duplicates.staged.has(row.key);
+              const nestedSkipped = duplicates.nested.get(row.key) ?? 0;
+              return (
+                <li
+                  key={row.key}
+                  className={`sort-history-import-row${isDuplicate ? " is-duplicate" : ""}`}
                 >
-                  <RemoveGlyph size={12} />
-                </button>
-              </li>
-            ))}
+                  <DateTimeField
+                    label={`Date for ${row.name}`}
+                    value={row.date}
+                    onChange={(next) => editStagedDate(row.key, next)}
+                  />
+                  <span className="sort-history-import-name">{row.name}</span>
+                  {isDuplicate && (
+                    <DuplicateBadge title="Same ranking as the version before it; saving skips it." />
+                  )}
+                  <span className="sort-history-import-count">
+                    {plural(row.snapshot.rankedIds.length, "item")}
+                    {row.nested.length > 0
+                      ? ` · +${plural(row.nested.length, "earlier version")}`
+                      : ""}
+                    {nestedSkipped > 0 ? ` (${nestedSkipped} duplicate)` : ""}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn icon-only"
+                    aria-label={`Remove ${row.name}`}
+                    title="Remove"
+                    onClick={() => removeStaged(row.key)}
+                  >
+                    <RemoveGlyph size={12} />
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         )}
 
@@ -418,7 +539,11 @@ export function SortHistoryPage({
                 </button>
               </>
             ) : (
-              <button className="btn primary" disabled={!dirty} onClick={prepareSave}>
+              <button
+                className="btn primary"
+                disabled={!dirty}
+                onClick={prepareSave}
+              >
                 Save changes
               </button>
             )}

@@ -496,6 +496,19 @@ html {
   color: var(--text-muted);
 }
 
+.sort-history-import-row.is-duplicate > :not(.sort-history-duplicate-badge) {
+  opacity: 0.5;
+}
+
+.sort-history-duplicate-badge {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(127, 127, 127, 0.18);
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .sort-history-import-preview {
   font-size: 13px;
   font-weight: 600;
