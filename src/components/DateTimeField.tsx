@@ -55,6 +55,8 @@ export function DateTimeField({ value, onChange, label, disabled = false }: Prop
         aria-label={`Edit ${label}`}
         title="Click to edit"
         disabled={disabled}
+        // Tabbing in opens the editor with the text selected, so typing overwrites it.
+        onFocus={open}
         onClick={open}
       >
         {formatDateTimeLocal(value)}

@@ -63,6 +63,14 @@ describe('DateTimeField', () => {
     expect([text.selectionStart, text.selectionEnd]).toEqual([0, text.value.length]);
   });
 
+  it('opens with the text selected when focused by keyboard', () => {
+    render(vi.fn());
+    act(() => container.querySelector<HTMLButtonElement>('[aria-label="Edit Date"]')!.focus());
+    const text = container.querySelector<HTMLInputElement>('[aria-label="Date text"]')!;
+    expect(document.activeElement).toBe(text);
+    expect([text.selectionStart, text.selectionEnd]).toEqual([0, text.value.length]);
+  });
+
   it('saves a typed date alone as midnight', () => {
     const onChange = vi.fn();
     render(onChange);
