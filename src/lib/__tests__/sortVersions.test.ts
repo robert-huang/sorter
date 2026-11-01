@@ -14,6 +14,7 @@ import {
   upsertLiveVersion,
   versionsFromImportSource,
 } from '../sortVersions';
+import { sortVersionItem } from '../sortVersionShape';
 import type { AutosaveBlob } from '../storage';
 import type { Item, SortVersion } from '../types';
 
@@ -37,7 +38,7 @@ function version(order: Item[], createdAt: string, id = createdAt): SortVersion 
     id,
     createdAt,
     rankedIds: order.map((it) => it.id),
-    items: Object.fromEntries(order.map((it) => [it.id, { label: it.label }])),
+    items: Object.fromEntries(order.map((it) => [it.id, sortVersionItem(it)])),
   };
 }
 
@@ -255,6 +256,7 @@ describe('versionImportsForSlot', () => {
     expect(imports[0]!.items[1]).toEqual({
       id: A.id,
       label: 'Alpha',
+      url: 'https://a.example',
       source: { kind: 'anilist', externalId: 1 },
     });
     expect(imports[0]).toMatchObject({ source: 'Sort: Top anime', versionId: v1.id });

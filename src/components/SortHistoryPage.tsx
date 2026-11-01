@@ -2,7 +2,7 @@ import { useMemo, useRef, useState, type DragEvent } from "react";
 import type { SlotRankingImport } from "../lib/slotResultsImport";
 import {
   mergeImportedVersions,
-  sameRanking,
+  sameVersionContent,
   snapshotFromRankedItems,
   snapshotSortVersion,
   sortVersionDiffCounts,
@@ -54,14 +54,14 @@ function fromDateTimeLocal(value: string, fallbackIso: string): string {
 
 /**
  * A save's current ranking is usually also its newest recorded version; stage it once,
- * dated as that version, instead of as a same-ranking duplicate dated by the file.
+ * dated as that version, instead of as a duplicate dated by the file.
  */
 function foldCurrentIntoNewest(
   snapshot: SortVersion,
   nested: SortVersion[],
 ): { snapshot: SortVersion; nested: SortVersion[] } {
   const newest = nested[nested.length - 1];
-  if (!newest || !sameRanking(newest.rankedIds, snapshot.rankedIds)) {
+  if (!newest || !sameVersionContent(newest, snapshot)) {
     return { snapshot, nested };
   }
   return {
@@ -348,7 +348,7 @@ export function SortHistoryPage({
     const current = versions[versions.length - 1];
     const newest = merged.versions[merged.versions.length - 1];
     const restores =
-      newest && current && !sameRanking(newest.rankedIds, current.rankedIds)
+      newest && current && !sameVersionContent(newest, current)
         ? newest
         : null;
     setPending({ ...merged, deleted: deleted.size, redated, restores });

@@ -35,7 +35,7 @@ import type {
   CloudVersionSummary,
 } from '../cloud';
 import { parseDisplayNameFromFilename, summarizeVersions } from '../cloud';
-import { withSortVersions, type AutosaveBlob } from '../storage';
+import { storedVersionFields, withSortVersions, type AutosaveBlob } from '../storage';
 
 // ---------- config ----------
 
@@ -1408,15 +1408,14 @@ function buildCloudFileContent(blob: AutosaveBlob): {
   items: AutosaveBlob['items'];
   progress: AutosaveBlob['progress'];
   undoRing: AutosaveBlob['undoRing'];
-  versions?: AutosaveBlob['versions'];
-} {
+} & ReturnType<typeof storedVersionFields> {
   return {
     version: 3,
     createdAt: new Date().toISOString(),
     items: blob.items,
     progress: blob.progress,
     undoRing: blob.undoRing,
-    ...(blob.versions?.length ? { versions: blob.versions } : {}),
+    ...storedVersionFields(blob),
   };
 }
 
@@ -1455,6 +1454,7 @@ function parseCloudBlob(json: unknown): AutosaveBlob {
     progress?: unknown;
     undoRing?: unknown;
     versions?: unknown;
+    versionItems?: unknown;
   };
   if (!obj.items || !obj.progress) {
     throw new Error('Pulled file is missing required fields.');
@@ -1466,6 +1466,7 @@ function parseCloudBlob(json: unknown): AutosaveBlob {
       undoRing: Array.isArray(obj.undoRing) ? (obj.undoRing as AutosaveBlob['undoRing']) : [],
     },
     obj.versions,
+    obj.versionItems,
   );
 }
 

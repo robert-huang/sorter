@@ -108,7 +108,7 @@ import {
 } from './lib/storage';
 import {
   appendVersionIfChanged,
-  sameRanking,
+  sameVersionContent,
   shouldAutoRecordVersion,
   snapshotSortVersion,
   upsertLiveVersion,
@@ -610,7 +610,7 @@ export function App() {
       latest !== undefined &&
       !latest.live &&
       snap !== null &&
-      sameRanking(latest.rankedIds, snap.rankedIds)
+      sameVersionContent(latest, snap)
     );
   }, [state, versions]);
 
@@ -747,7 +747,7 @@ export function App() {
       if (newest) {
         applyWithUndo((cur) => {
           const current = snapshotSortVersion(ranked(cur), '');
-          if (!current || sameRanking(current.rankedIds, newest.rankedIds)) return cur;
+          if (!current || sameVersionContent(current, newest)) return cur;
           return restoreSortFromVersion(cur, newest);
         });
       }

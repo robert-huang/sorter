@@ -5,12 +5,14 @@ import {
   newSortVersionId,
   normalizeSortVersions,
   onlyNewestLive,
+  sameVersionContent,
   sortVersionItem,
+  versionItemRenamed,
 } from './sortVersionShape';
 import type { AutosaveBlob } from './storage';
 import type { Item, ItemId, SortVersion, SortVersionItem } from './types';
 
-export { formatSortVersionDate, newSortVersionId, normalizeSortVersions };
+export { formatSortVersionDate, newSortVersionId, normalizeSortVersions, sameVersionContent };
 
 type RankedBlob = Pick<AutosaveBlob, 'items' | 'progress'>;
 
@@ -31,10 +33,6 @@ export function snapshotSortVersion(blob: RankedBlob, createdAt: string): SortVe
   return snapshotFromRankedItems(extractCompletedRankingItems(blob as AutosaveBlob), createdAt);
 }
 
-export function sameRanking(a: readonly ItemId[], b: readonly ItemId[]): boolean {
-  return a.length === b.length && a.every((id, i) => id === b[i]);
-}
-
 /**
  * Automatic freezing: a sort going from in-progress to done records, and a loaded
  * finished save with no history gets a baseline. Reordering a finished sort only
@@ -53,7 +51,8 @@ export function shouldAutoRecordVersion(transition: {
 
 /**
  * Records the ranking as a frozen version. A live newest version is frozen as-is first
- * (it was a real earlier ranking); an identical ranking is not appended twice.
+ * (it was a real earlier ranking); an identical ranking with the same custom names
+ * and images is not appended twice.
  * Same array back when nothing changes (or the sort isn't done).
  */
 export function appendVersionIfChanged(
@@ -65,7 +64,7 @@ export function appendVersionIfChanged(
   if (!snap) return versions;
   const latest = versions[versions.length - 1];
   const base = latest?.live ? [...versions.slice(0, -1), frozenVersion(latest)] : versions;
-  if (latest && sameRanking(latest.rankedIds, snap.rankedIds)) return base;
+  if (latest && sameVersionContent(latest, snap)) return base;
   return [...base, snap];
 }
 
@@ -82,7 +81,7 @@ export function upsertLiveVersion(
   const snap = snapshotSortVersion(blob, now.toISOString());
   if (!snap) return versions;
   const latest = versions[versions.length - 1];
-  if (latest && sameRanking(latest.rankedIds, snap.rankedIds)) return versions;
+  if (latest && sameVersionContent(latest, snap)) return versions;
   const live: SortVersion = { ...snap, live: true };
   if (latest?.live) return [...versions.slice(0, -1), { ...live, id: latest.id }];
   return [...versions, live];
@@ -95,10 +94,12 @@ export type SortVersionDiff = {
   removed: ItemId[];
   /** Biggest moves first; `delta > 0` means moved up. Ranks are 1-based. */
   moved: SortVersionMove[];
+  /** In both, with a custom name added, changed or reset; in `next`'s order. */
+  renamed: ItemId[];
 };
 
 export function diffSortVersions(prev: SortVersion | null, next: SortVersion): SortVersionDiff {
-  if (!prev) return { added: [], removed: [], moved: [] };
+  if (!prev) return { added: [], removed: [], moved: [], renamed: [] };
   const prevRank = new Map(prev.rankedIds.map((id, i) => [id, i + 1]));
   const nextIds = new Set(next.rankedIds);
   const added: ItemId[] = [];
@@ -113,10 +114,15 @@ export function diffSortVersions(prev: SortVersion | null, next: SortVersion): S
   });
   const removed = prev.rankedIds.filter((id) => !nextIds.has(id));
   moved.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta) || a.to - b.to);
-  return { added, removed, moved };
+  const renamed = next.rankedIds.filter((id) => {
+    const before = prev.items[id];
+    const after = next.items[id];
+    return before && after && versionItemRenamed(id, before, after);
+  });
+  return { added, removed, moved, renamed };
 }
 
-/** e.g. "3 added, 1 removed · Steins;Gate ↑4, Your Name ↓2". */
+/** e.g. "3 added, 1 removed, 1 renamed · Steins;Gate ↑4, Your Name ↓2". */
 export function summarizeSortVersionDiff(
   prev: SortVersion | null,
   next: SortVersion,
@@ -127,6 +133,7 @@ export function summarizeSortVersionDiff(
   const counts: string[] = [];
   if (diff.added.length) counts.push(`${diff.added.length} added`);
   if (diff.removed.length) counts.push(`${diff.removed.length} removed`);
+  if (diff.renamed.length) counts.push(`${diff.renamed.length} renamed`);
   const moves = diff.moved
     .slice(0, maxMoves)
     .map((m) => `${next.items[m.id]?.label ?? m.id} ${m.delta > 0 ? '↑' : '↓'}${Math.abs(m.delta)}`);
@@ -136,7 +143,7 @@ export function summarizeSortVersionDiff(
   return parts.length ? parts.join(' · ') : 'No changes';
 }
 
-export type SortVersionCountKind = 'up' | 'down' | 'added' | 'removed';
+export type SortVersionCountKind = 'up' | 'down' | 'added' | 'removed' | 'renamed';
 export type SortVersionCount = { kind: SortVersionCountKind; count: number };
 
 /** Non-zero change counts in display order; null for the first version. */
@@ -152,11 +159,12 @@ export function sortVersionDiffCounts(
     { kind: 'down', count: diff.moved.length - up },
     { kind: 'added', count: diff.added.length },
     { kind: 'removed', count: diff.removed.length },
+    { kind: 'renamed', count: diff.renamed.length },
   ];
   return counts.filter(({ count }) => count > 0);
 }
 
-/** Compact counts, e.g. "3 up · 2 down · 1 added · 1 removed". */
+/** Compact counts, e.g. "3 up · 2 down · 1 added · 1 removed · 1 renamed". */
 export function countSortVersionDiff(prev: SortVersion | null, next: SortVersion): string {
   const counts = sortVersionDiffCounts(prev, next);
   if (!counts) return 'First version';
@@ -169,7 +177,7 @@ export function versionsFromImportSource(
   blob: RankedBlob & { versions?: readonly SortVersion[] },
   createdAt: string,
 ): SortVersion[] {
-  const nested = normalizeSortVersions(blob.versions) ?? [];
+  const nested = [...(blob.versions ?? [])];
   const current = snapshotSortVersion(blob, createdAt);
   return current ? [...nested, current] : nested;
 }
@@ -187,8 +195,8 @@ export type MergedSortVersions = {
 };
 
 /**
- * Combine existing and imported versions by `createdAt`, drop any whose ranking
- * matches its direct predecessor, and assign fresh ids. Existing wins date ties.
+ * Combine existing and imported versions by `createdAt`, drop any matching its direct
+ * predecessor (`sameVersionContent`), and assign fresh ids. Existing wins date ties.
  */
 export function mergeImportedVersions(
   existing: readonly SortVersion[],
@@ -207,7 +215,7 @@ export function mergeImportedVersions(
   let added = 0;
   for (const { v, index, imported: isImported } of tagged) {
     const prev = versions[versions.length - 1];
-    if (prev && sameRanking(prev.rankedIds, v.rankedIds)) {
+    if (prev && sameVersionContent(prev, v)) {
       (isImported ? skippedImported : skippedExisting).add(index);
       continue;
     }

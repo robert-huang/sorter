@@ -10,7 +10,7 @@ import type {
   SortVersion,
 } from './types';
 import { normalizeConfirmationProgress } from './confirmationSort';
-import { normalizeSortVersions } from './sortVersionShape';
+import { normalizeSortVersions, storedSortVersions } from './sortVersionShape';
 import { activeSortItemCount } from './sortPopulation';
 import {
   ACTIVE_SORTER_SLOT_KEY,
@@ -108,9 +108,17 @@ export interface AutosaveBlob {
 export function withSortVersions<T extends Omit<AutosaveBlob, 'versions'>>(
   blob: T,
   rawVersions: unknown,
+  rawVersionItems?: unknown,
 ): T & Pick<AutosaveBlob, 'versions'> {
-  const versions = normalizeSortVersions(rawVersions);
+  const versions = normalizeSortVersions(rawVersions, rawVersionItems, blob.items);
   return versions ? { ...blob, versions } : blob;
+}
+
+/** On-disk `versions` / `versionItems` keys for a blob; empty when it has no versions. */
+export function storedVersionFields(
+  blob: Pick<AutosaveBlob, 'items' | 'versions'>,
+): Pick<SaveFile, 'versions' | 'versionItems'> {
+  return blob.versions?.length ? storedSortVersions(blob.versions, blob.items) : {};
 }
 
 /** Active sort population — used for slot-meta `totalItems`. */
@@ -125,7 +133,7 @@ function buildSaveFile(blob: AutosaveBlob): SaveFile {
     items: blob.items,
     progress: blob.progress,
     undoRing: blob.undoRing,
-    ...(blob.versions?.length ? { versions: blob.versions } : {}),
+    ...storedVersionFields(blob),
   };
 }
 
@@ -290,6 +298,7 @@ function parseSlotFile(value: unknown): AutosaveBlob | null {
       undoRing: (file.undoRing ?? []).map(upgradeProgress),
     },
     file.versions,
+    file.versionItems,
   );
 }
 
@@ -900,15 +909,25 @@ export function parseSlotBlobRaw(raw: string | null): AutosaveBlob | null {
         undoRing: (file.undoRing ?? []).map(upgradeProgress),
       },
       file.versions,
+      file.versionItems,
     );
   } catch {
     return null;
   }
 }
 
-/** Compare autosave payloads ignoring SaveFile wrapper metadata (`createdAt`). */
+/**
+ * Compare autosave payloads ignoring SaveFile wrapper metadata (`createdAt`). Versions
+ * are compared as saved: decoded version items carry resolved names and metadata that
+ * an in-memory snapshot of the same content doesn't.
+ */
 export function autosaveBlobsEqual(a: AutosaveBlob, b: AutosaveBlob): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
+  return JSON.stringify(storedBlob(a)) === JSON.stringify(storedBlob(b));
+}
+
+function storedBlob(blob: AutosaveBlob): ArchivedBlob {
+  const { versions: _versions, ...rest } = blob;
+  return { ...rest, ...storedVersionFields(blob) };
 }
 
 /**
@@ -1196,7 +1215,7 @@ export function persistCanonicalBlobOnLoad(
   blob: AutosaveBlob,
 ): void {
   const existing = readSlotBlob(id);
-  if (existing && JSON.stringify(existing) === JSON.stringify(blob)) {
+  if (existing && autosaveBlobsEqual(existing, blob)) {
     if (currentActiveId === id) {
       resetAutosaveBookkeeping(blob.progress.comparisons);
     }
@@ -1786,9 +1805,9 @@ function performWrite(blob: AutosaveBlob, options?: { touchLastUsed?: boolean })
   // string, because `buildSaveFile` stamps a fresh `createdAt` on every
   // call — raw-string comparison would never match. `readSlotBlob`
   // parses the on-disk blob back into the same AutosaveBlob shape, so
-  // JSON-stringifying both sides compares only the user-visible content
-  // (items + progress + undoRing) which is what `updatedAt` semantics
-  // actually represent.
+  // `autosaveBlobsEqual` compares only the user-visible content
+  // (items + progress + undoRing + versions) which is what `updatedAt`
+  // semantics actually represent.
   //
   // Bookkeeping: we still update `lastFlushTime` and
   // `comparisonsAtLastFlush` so subsequent scheduleAutosave calls treat
@@ -1799,7 +1818,7 @@ function performWrite(blob: AutosaveBlob, options?: { touchLastUsed?: boolean })
   // refresh) and we do NOT call `notifyError(null, ...)` because there
   // was nothing to clear/recover from.
   const existing = readSlotBlob(currentActiveId);
-  if (existing && JSON.stringify(existing) === JSON.stringify(blob)) {
+  if (existing && autosaveBlobsEqual(existing, blob)) {
     lastFlushTime = Date.now();
     comparisonsAtLastFlush = blob.progress.comparisons;
     // Toolbar Save: user explicitly touched this slot — bump recency even
@@ -2009,6 +2028,7 @@ export async function loadSaveFromFile(file: File): Promise<AutosaveBlob> {
       undoRing: (parsed.undoRing ?? []).map(upgradeProgress),
     },
     parsed.versions,
+    parsed.versionItems,
   );
 }
 
@@ -2030,8 +2050,12 @@ export interface SlotArchive {
   exportedAt: string;
   manifest: SlotsManifest;
   /** id -> blob. Keys must match `manifest.slots[i].id`. */
-  blobs: Record<string, AutosaveBlob>;
+  blobs: Record<string, ArchivedBlob>;
 }
+
+/** A slot blob as archived: versions in their on-disk shape. */
+export type ArchivedBlob = Omit<AutosaveBlob, 'versions'> &
+  Pick<SaveFile, 'versions' | 'versionItems'>;
 
 export interface ImportAllResult {
   imported: number;
@@ -2060,12 +2084,12 @@ export interface ImportAllResult {
  */
 export function exportAllSlots(): string {
   const manifest = readManifest();
-  const blobs: Record<string, AutosaveBlob> = {};
+  const blobs: Record<string, ArchivedBlob> = {};
   const survivingSlots: SlotMeta[] = [];
   for (const meta of manifest.slots) {
     const blob = readSlotBlob(meta.id);
     if (!blob) continue;
-    blobs[meta.id] = blob;
+    blobs[meta.id] = storedBlob(blob);
     survivingSlots.push(meta);
   }
   const trimmedManifest: SlotsManifest = {
@@ -2180,7 +2204,7 @@ export function importAllSlots(
   const validImports: Array<{ meta: SlotMeta; blob: AutosaveBlob }> = [];
   let skipped = 0;
   for (const meta of archive.manifest.slots) {
-    const raw = archive.blobs[meta.id] as Partial<AutosaveBlob> | undefined;
+    const raw = archive.blobs[meta.id] as Partial<ArchivedBlob> | undefined;
     if (!raw || typeof raw !== 'object' || !raw.items || !raw.progress) {
       skipped++;
       continue;
@@ -2200,6 +2224,7 @@ export function importAllSlots(
             : [],
         },
         raw.versions,
+        raw.versionItems,
       );
     } catch {
       skipped++;

@@ -7,6 +7,7 @@ import {
 } from './storage';
 import {
   formatSortVersionDate,
+  itemAtVersion,
   summarizeVersions,
   type VersionSummary,
 } from './sortVersionShape';
@@ -45,8 +46,8 @@ export interface SlotRankingImport {
 
 /**
  * Picked versions of a save, oldest first, named `<slot> · <date>`. Dates that
- * collide within the pick add the time. Live item metadata (source, ids) is kept
- * where the item still exists; label, url and image come from the snapshot.
+ * collide within the pick add the time. Items carry the version's names and images
+ * (custom-name marker included) on the save's current metadata (`itemAtVersion`).
  */
 export function versionImportsForSlot(
   entry: SlotImportEntry,
@@ -65,15 +66,7 @@ export function versionImportsForSlot(
   const live = new Map((entry.items ?? []).map((it) => [it.id, it]));
   return picked.map((v) => {
     const sharesDate = (dateCounts.get(formatSortVersionDate(v.createdAt)) ?? 0) > 1;
-    const items = v.rankedIds.map((id): Item => {
-      const snap = v.items[id]!;
-      const item: Item = { ...live.get(id), id, label: snap.label };
-      if (snap.url) item.url = snap.url;
-      else delete item.url;
-      if (snap.imageUrl) item.imageUrl = snap.imageUrl;
-      else delete item.imageUrl;
-      return item;
-    });
+    const items = v.rankedIds.map((id) => itemAtVersion(live.get(id), id, v.items[id]!));
     return {
       source,
       slotName: `${slotName} · ${formatSortVersionDate(v.createdAt, sharesDate)}`,

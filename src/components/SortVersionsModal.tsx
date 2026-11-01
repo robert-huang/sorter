@@ -23,12 +23,13 @@ function rankChangeLabel(delta: number | undefined, isNew: boolean): string {
 
 /** A version's full ranking with changes marked against its predecessor, plus removed items. */
 export function VersionRanking({ version, prev }: { version: SortVersion; prev: SortVersion | null }) {
-  const { moves, added, removed } = useMemo(() => {
+  const { moves, added, removed, renamed } = useMemo(() => {
     const diff = diffSortVersions(prev, version);
     return {
       moves: new Map(diff.moved.map((m) => [m.id, m.delta])),
       added: new Set(diff.added),
       removed: diff.removed,
+      renamed: new Set(diff.renamed),
     };
   }, [prev, version]);
   return (
@@ -46,6 +47,14 @@ export function VersionRanking({ version, prev }: { version: SortVersion; prev: 
                 className={`sort-version-change${delta > 0 ? ' up' : ''}${delta < 0 ? ' down' : ''}`}
               >
                 {change}
+              </span>
+            )}
+            {renamed.has(id) && (
+              <span
+                className="sort-version-change renamed"
+                title={`Was "${prev?.items[id]?.label ?? id}"`}
+              >
+                renamed
               </span>
             )}
           </li>

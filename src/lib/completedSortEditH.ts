@@ -13,6 +13,7 @@ import {
   appendPreRankedSublist,
   resetBranchedComparisonProgress as resetMergeBranchedComparisonProgress,
 } from './queueMergeSort';
+import { itemAtVersion } from './sortVersionShape';
 import type {
   ConfirmationState,
   Item,
@@ -47,8 +48,9 @@ export function completedSortEditItemCount(action: CompletedSortEditAction): num
 
 /**
  * Makes a finished sort's visible ranking match `version`. Items the version lacks are
- * hidden (kept at the bottom so they can be reinserted); its items missing from the sort
- * are recreated from the snapshot. Same state back when the sort isn't finished.
+ * hidden (kept at the bottom so they can be reinserted); its items get back the names
+ * and images they had then, and ones missing from the sort are recreated from the
+ * version. Same state back when the sort isn't finished.
  */
 export function restoreSortFromVersion(state: SortState, version: SortVersion): SortState {
   const done = finalizeCompletedState(state);
@@ -57,7 +59,7 @@ export function restoreSortFromVersion(state: SortState, version: SortVersion): 
   const extras = done.queue.flat().filter((id) => !keep.has(id));
   const items = { ...done.items };
   for (const id of version.rankedIds) {
-    items[id] = items[id] ?? { id, ...version.items[id]! };
+    items[id] = itemAtVersion(items[id], id, version.items[id]!);
   }
   const hidden = [...new Set([...done.hidden, ...extras])].filter((id) => !keep.has(id));
   return {

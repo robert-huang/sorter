@@ -396,7 +396,8 @@ export interface CommaInLabelWarning {
  * storage.ts for the per-version acceptable-loss summary. On the next
  * write the blob is persisted as v4.
  *
- * `versions` is likewise optional and additive (stays on v4).
+ * `versions` is likewise optional and additive (stays on v4). Older v4 files stored a
+ * whole snapshot per version item; `normalizeSortVersions` repairs those on read.
  */
 export interface SaveFile {
   version: 1 | 2 | 3 | 4;
@@ -404,11 +405,21 @@ export interface SaveFile {
   items: Record<ItemId, Item>;
   progress: SortProgress;
   undoRing: SortProgress[];
-  versions?: SortVersion[];
+  versions?: StoredSortVersion[];
+  /** Items some version ranks that `items` no longer has. */
+  versionItems?: Record<ItemId, Item>;
 }
 
-/** Display fields copied into a version so it still renders after the item is renamed or removed. */
-export type SortVersionItem = Pick<Item, 'label' | 'imageUrl' | 'url'>;
+/** An item as a version had it, so it still renders after the item is renamed or removed. */
+export type SortVersionItem = Omit<Item, 'id'>;
+
+/** What a saved version keeps per item: only fields the user chose (see `versionItemOverride`). */
+export type SortVersionOverride = Partial<Pick<Item, 'label' | 'imageUrl' | 'url'>>;
+
+/** On-disk version: items are rebuilt from the save's items plus these overrides. */
+export type StoredSortVersion = Omit<SortVersion, 'items'> & {
+  overrides?: Record<ItemId, SortVersionOverride>;
+};
 
 /**
  * Snapshot of a finished ranking. Frozen versions are recorded when the sort reaches done
