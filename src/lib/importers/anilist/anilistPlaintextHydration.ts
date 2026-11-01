@@ -131,6 +131,7 @@ export function hydrateItemsFromExactAnilistNames(
   const tokens = aliasIndex(candidatesById.values(), (c) => normalizedSet(c.searchTokens ?? []));
 
   const proposed = new Map<number, string>();
+  const titleMatched = new Set<number>();
   const issues: AnilistHydrationIssue[] = [];
   const presentIds = new Set(inputItems.filter(isHydrated).map((item) => item.id));
   let attemptedCount = 0;
@@ -157,6 +158,7 @@ export function hydrateItemsFromExactAnilistNames(
       return;
     }
     proposed.set(index, [...candidateIds][0]);
+    if (titles.has(normalized)) titleMatched.add(index);
   });
 
   const inputsByCandidate = new Map<string, number[]>();
@@ -169,30 +171,31 @@ export function hydrateItemsFromExactAnilistNames(
   const items = [...inputItems];
   let matchedCount = 0;
   for (const [candidateId, indices] of inputsByCandidate) {
+    // A real-title claim beats synonym claims, e.g. "Happy Sugar Life" takes the anime
+    // and "White Sugar Garden, Black Salt Cage" stays manual for a later manga pass.
+    const titleClaims = indices.filter((index) => titleMatched.has(index));
+    const claims = titleClaims.length > 0 ? titleClaims : indices;
     // A row resolving to an entry the list already has would duplicate it.
-    if (indices.length !== 1 || presentIds.has(candidateId)) {
-      for (const index of indices) {
-        const item = inputItems[index];
-        if (item) {
-          const conflicts = inputItems
-            .filter((other, i) => i !== index && (indices.includes(i) || other.id === candidateId))
-            .map((other) => other.label);
-          issues.push({
-            index,
-            itemId: item.id,
-            label: item.label,
-            reason: 'duplicate_candidate',
-            conflicts,
-          });
-        }
-      }
-      continue;
-    }
-    const index = indices[0];
+    const winner =
+      claims.length === 1 && !presentIds.has(candidateId) ? claims[0] : undefined;
     const candidate = candidatesById.get(candidateId);
-    if (candidate && index !== undefined) {
-      items[index] = candidate;
+    if (candidate && winner !== undefined) {
+      items[winner] = candidate;
       matchedCount += 1;
+    }
+    for (const index of indices) {
+      const item = inputItems[index];
+      if (!item || index === winner) continue;
+      const conflicts = inputItems
+        .filter((other, i) => i !== index && (indices.includes(i) || other.id === candidateId))
+        .map((other) => other.label);
+      issues.push({
+        index,
+        itemId: item.id,
+        label: item.label,
+        reason: 'duplicate_candidate',
+        conflicts,
+      });
     }
   }
 

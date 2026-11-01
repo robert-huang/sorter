@@ -116,14 +116,27 @@ describe('AniList plaintext hydration', () => {
     ]);
   });
 
-  it('names the other row claiming the same entry through a synonym', () => {
+  it('gives an entry to the real-title row over a synonym row', () => {
     const entry = cached('anilist:1', 'Happy Sugar Life', ['White Sugar Garden']);
     const rows = [manual('Happy Sugar Life'), manual('White Sugar Garden')];
     const result = hydrateItemsFromExactAnilistNames(rows, [entry]);
-    expect(result.issues.map((i) => i.conflicts)).toEqual([
-      ['White Sugar Garden'],
-      ['Happy Sugar Life'],
+    expect(result.items).toEqual([entry, rows[1]]);
+    expect(result.issues).toEqual([
+      {
+        index: 1,
+        itemId: rows[1]!.id,
+        label: 'White Sugar Garden',
+        reason: 'duplicate_candidate',
+        conflicts: ['Happy Sugar Life'],
+      },
     ]);
+  });
+
+  it('keeps two synonym rows for one entry manual', () => {
+    const entry = cached('anilist:1', 'Title', ['A', 'B']);
+    const result = hydrateItemsFromExactAnilistNames([manual('A'), manual('B')], [entry]);
+    expect(result.matchedCount).toBe(0);
+    expect(result.issues.map((i) => i.conflicts)).toEqual([['B'], ['A']]);
   });
 
   it('offers tied synonym matches for a manual pick and applies it', () => {
