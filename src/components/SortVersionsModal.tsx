@@ -36,7 +36,8 @@ export function VersionRanking({ version, prev }: { version: SortVersion; prev: 
     <>
     <ol className="sort-version-ranking">
       {version.rankedIds.map((id, i) => {
-        const change = rankChangeLabel(moves.get(id), prev !== null && added.has(id));
+        const isNew = prev !== null && added.has(id);
+        const change = rankChangeLabel(moves.get(id), isNew);
         const delta = moves.get(id) ?? 0;
         return (
           <li key={id} className="sort-version-ranking-row">
@@ -44,7 +45,7 @@ export function VersionRanking({ version, prev }: { version: SortVersion; prev: 
             <span className="sort-version-ranking-label">{version.items[id]?.label ?? id}</span>
             {change && (
               <span
-                className={`sort-version-change${delta > 0 ? ' up' : ''}${delta < 0 ? ' down' : ''}`}
+                className={`sort-version-change${delta > 0 ? ' up' : ''}${delta < 0 ? ' down' : ''}${isNew ? ' new' : ''}`}
               >
                 {change}
               </span>

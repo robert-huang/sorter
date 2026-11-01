@@ -27,6 +27,10 @@
      are meant to read against the surface, not a colored chip. */
   --success: #16a34a;
   --warning: #d97706;
+  /* Newly appeared items (e.g. version history), apart from moves and renames. */
+  --new-ink: #0d9488;
+  /* Spare ink, not used yet. */
+  --purple-ink: #9333ea;
   --header-bg: #3c4961;
   --header-text: #ffffff;
   --header-active-border: #ffffff;
@@ -77,6 +81,8 @@
   /* Brighter on dark surface so the inline indicator still pops. */
   --success: #4ade80;
   --warning: #fbbf24;
+  --new-ink: #2dd4bf;
+  --purple-ink: #c084fc;
   --header-bg: var(--surface);
   --header-text: var(--text);
   --header-active-border: var(--accent);
@@ -469,6 +475,10 @@ html {
   color: var(--danger);
 }
 
+.sort-version-count.renamed {
+  color: var(--warning);
+}
+
 .date-time-field-text,
 .date-time-field-picker {
   box-sizing: border-box;
@@ -623,6 +633,14 @@ html {
 
 .sort-version-change.down {
   color: var(--danger);
+}
+
+.sort-version-change.new {
+  color: var(--new-ink);
+}
+
+.sort-version-change.renamed {
+  color: var(--warning);
 }
 
 .sort-version-removed {
