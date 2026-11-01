@@ -88,6 +88,23 @@ describe('looksLikeHeader', () => {
 });
 
 describe('parseCsvRows', () => {
+  it('keeps a stray quote from swallowing the following lines', () => {
+    const r = parseCsvRows('A\n"Bungaku Shoujo" Movie\nB\n"Foo, Bar",https://x\nC', 'test', false);
+    expect(r.rows.map((row) => row.label)).toEqual([
+      'A',
+      '"Bungaku Shoujo" Movie',
+      'B',
+      'Foo, Bar',
+      'C',
+    ]);
+    expect(r.rows[3]!.url).toBe('https://x');
+  });
+
+  it('still parses valid multi-line quoted cells', () => {
+    const r = parseCsvRows('"Line one\nline two"\nB', 'test', false);
+    expect(r.rows.map((row) => row.label)).toEqual(['Line one\nline two', 'B']);
+  });
+
   it('parses basic CSV without header', () => {
     const r = parseCsvRows('A\nB\nC', 'test', false);
     expect(r.rows.map((x) => x.label)).toEqual(['A', 'B', 'C']);

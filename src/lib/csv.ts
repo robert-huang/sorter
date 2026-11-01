@@ -244,6 +244,32 @@ export interface ParseResult {
  * with proper quoting or (b) manually fix the row in the
  * EditItemModal using the attached `rawCells`.
  */
+const BROKEN_QUOTE_CODES = new Set(['InvalidQuotes', 'MissingQuotes']);
+
+/**
+ * Comma CSV, except a malformed quote can't swallow later lines: a title like
+ * `"Bungaku Shoujo" Movie` opens a quoted field that papaparse runs to the next
+ * stray quote, merging hundreds of rows into one. When that happens, parse line by
+ * line and read lines with broken quotes literally, quotes included.
+ */
+function parseCommaCsv(text: string): string[][] {
+  const parsed = Papa.parse<string[]>(text, PAPA_COMMA_CSV_OPTIONS);
+  if (!parsed.errors.some((error) => BROKEN_QUOTE_CODES.has(error.code))) {
+    return parsed.data ?? [];
+  }
+  const rows: string[][] = [];
+  for (const line of text.split(/\r\n|\r|\n/u)) {
+    if (!line.trim()) continue;
+    const quoted = Papa.parse<string[]>(line, PAPA_COMMA_CSV_OPTIONS);
+    const broken = quoted.errors.some((error) => BROKEN_QUOTE_CODES.has(error.code));
+    const cells = broken
+      ? Papa.parse<string[]>(line, { ...PAPA_COMMA_CSV_OPTIONS, quoteChar: '\u0000' }).data
+      : quoted.data;
+    rows.push(...(cells ?? []));
+  }
+  return rows;
+}
+
 export function parseCsvRows(
   text: string,
   sourceName: string,
@@ -254,8 +280,7 @@ export function parseCsvRows(
   extraColumns: ExtraColumnsWarning[];
   commaInLabel: CommaInLabelWarning[];
 } {
-  const parsed = Papa.parse<string[]>(text, PAPA_COMMA_CSV_OPTIONS);
-  const allRows = (parsed.data ?? []).filter(
+  const allRows = parseCommaCsv(text).filter(
     (r) => Array.isArray(r) && r.some((cell) => (cell ?? '').trim() !== ''),
   );
   if (allRows.length === 0) {
