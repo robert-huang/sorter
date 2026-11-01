@@ -25,6 +25,8 @@ import {
 } from '../lib/importers/anilist/anilistItemMaterialization';
 import {
   hydrateItemsFromExactAnilistNames,
+  resolveAmbiguousHydration,
+  type AnilistHydrationIssue,
   type AnilistHydrationResult,
 } from '../lib/importers/anilist/anilistPlaintextHydration';
 import { readLastAnilistUsername } from '../lib/importers/anilist/lastUsername';
@@ -648,11 +650,88 @@ function MultipleTab({
 }
 
 function hydrationIssueLabel(reason: string): string {
-  if (reason === 'ambiguous_alias') return 'matches multiple cached items';
+  if (reason === 'ambiguous_alias') return 'matches multiple cached items equally';
   if (reason === 'duplicate_candidate') {
     return 'duplicates another row for the same cached item';
   }
   return 'has no exact cached match';
+}
+
+const COLLAPSED_ISSUE_COUNT = 10;
+
+/** e.g. "Suntory Minami Alps no Tennen Mizu · SPECIAL · #97962". */
+function hydrationCandidateLabel(candidate: Item): string {
+  const source = candidate.anilistLabelSource;
+  const format = source?.kind === 'media' ? source.format : null;
+  const id = /:(\d+)$/.exec(candidate.id)?.[1];
+  return [candidate.label, format, id ? `#${id}` : null].filter(Boolean).join(' · ');
+}
+
+/** Lets the user choose which matched entry an ambiguous row is. */
+function AmbiguousHydrationPick({
+  issue,
+  onPick,
+}: {
+  issue: AnilistHydrationIssue;
+  onPick: (issue: AnilistHydrationIssue, candidate: Item) => void;
+}) {
+  const candidates = issue.candidates ?? [];
+  return (
+    <select
+      className="select-chevron anilist-hydration-pick"
+      value=""
+      aria-label={`Choose the AniList entry for ${issue.label}`}
+      onChange={(event) => {
+        const candidate = candidates.find((c) => c.id === event.target.value);
+        if (candidate) onPick(issue, candidate);
+      }}
+    >
+      <option value="">Choose…</option>
+      {candidates.map((candidate) => (
+        <option key={candidate.id} value={candidate.id}>
+          {hydrationCandidateLabel(candidate)}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/** First few issues, with the rest behind "…and N more" in a scrollable box. */
+function HydrationIssueList({
+  issues,
+  onPick,
+}: {
+  issues: readonly AnilistHydrationIssue[];
+  onPick: (issue: AnilistHydrationIssue, candidate: Item) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  if (issues.length === 0) return null;
+  const hidden = issues.length - COLLAPSED_ISSUE_COUNT;
+  const shown = expanded ? issues : issues.slice(0, COLLAPSED_ISSUE_COUNT);
+  return (
+    <>
+      <ul className={expanded ? 'anilist-hydration-issues is-expanded' : 'anilist-hydration-issues'}>
+        {shown.map((issue) => (
+          <li key={`${issue.index}:${issue.label}`}>
+            “{issue.label}” {hydrationIssueLabel(issue.reason)}
+            {issue.candidates && issue.candidates.length > 0 && (
+              <AmbiguousHydrationPick issue={issue} onPick={onPick} />
+            )}
+          </li>
+        ))}
+      </ul>
+      {hidden > 0 && (
+        <button
+          type="button"
+          className="anilist-hydration-issues-toggle"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((current) => !current)}
+        >
+          {expanded ? 'Show fewer' : `…and ${hidden} more`}
+        </button>
+      )}
+    </>
+  );
 }
 
 function cachedSourceRefreshTooltip(
@@ -688,6 +767,18 @@ export function AnilistHydrationControls({
   const [sourceRevision, setSourceRevision] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AnilistHydrationResult | null>(null);
+  const [runId, setRunId] = useState(0);
+
+  function pickCandidate(issue: AnilistHydrationIssue, candidate: Item): void {
+    if (!result) return;
+    const next = resolveAmbiguousHydration(result, items, issue, candidate);
+    if (!next) {
+      setError(`“${issue.label}” changed since matching; match again to pick.`);
+      return;
+    }
+    setResult(next);
+    onHydrated(next);
+  }
 
   useEffect(() => {
     if (items.length > 0) return;
@@ -758,6 +849,7 @@ export function AnilistHydrationControls({
         selectedSource.source,
       );
       const next = hydrateItemsFromExactAnilistNames(items, candidates);
+      setRunId((current) => current + 1);
       setResult(next);
       onHydrated(next);
     } catch (cause: unknown) {
@@ -908,22 +1000,16 @@ export function AnilistHydrationControls({
       {error && <div className="form-error">{error}</div>}
       {result && (
         <div className="header-hint anilist-hydration-result">
-          Matched {result.matchedCount} of {result.items.length}.
-          {result.items.length > result.matchedCount
+          Matched {result.matchedCount} of {result.attemptedCount}
+          {result.attemptedCount < result.items.length
+            ? ` unhydrated (${result.items.length - result.attemptedCount} already hydrated)`
+            : ''}
+          .
+          {result.attemptedCount > result.matchedCount
             ? ' Unresolved rows remain manual and can be edited in staging.'
             : ''}
-          {result.issues.length > 0 && (
-            <ul>
-              {result.issues.slice(0, 10).map((issue) => (
-                <li key={`${issue.index}:${issue.label}`}>
-                  “{issue.label}” {hydrationIssueLabel(issue.reason)}
-                </li>
-              ))}
-              {result.issues.length > 10 && (
-                <li>…and {result.issues.length - 10} more</li>
-              )}
-            </ul>
-          )}
+          {/* Keyed per run so a new run collapses the list but a pick doesn't. */}
+          <HydrationIssueList key={runId} issues={result.issues} onPick={pickCandidate} />
         </div>
       )}
     </div>

@@ -6858,6 +6858,29 @@ a:where(.anime-to-anime-anilist-link):visited {
   margin-top: 16px;
 }
 
+.anilist-hydration-pick {
+  margin-left: 8px;
+  max-width: 100%;
+}
+
+.anilist-hydration-issues.is-expanded {
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.anilist-hydration-issues-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.anilist-hydration-issues-toggle:hover {
+  text-decoration: underline;
+}
+
 @media (max-width: 640px) {
   .anilist-hydration-fields {
     grid-template-columns: 1fr;

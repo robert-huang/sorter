@@ -9,30 +9,108 @@ export interface AnilistHydrationIssue {
   index: number;
   label: string;
   reason: AnilistHydrationIssueReason;
+  /** For `ambiguous_alias`: the entries the name matched, for a manual pick. */
+  candidates?: Item[];
 }
 
 export interface AnilistHydrationResult {
   items: Item[];
   matchedCount: number;
+  /** Rows that needed hydrating; already-hydrated rows are left out of matching. */
+  attemptedCount: number;
   issues: AnilistHydrationIssue[];
+}
+
+/** Already an AniList entry, e.g. from an earlier hydration against another list. */
+function isHydrated(item: Item): boolean {
+  if (item.source && item.source.kind !== 'manual') return true;
+  return /^anilist(-staff|-character|-studios)?:\d+$/.test(item.id);
+}
+
+/**
+ * Applies a manual pick for an ambiguous row on top of the current items (which an
+ * earlier `onHydrated` may already have updated). Null when the row no longer holds
+ * that name, e.g. the list was edited after matching.
+ */
+export function resolveAmbiguousHydration(
+  result: AnilistHydrationResult,
+  currentItems: readonly Item[],
+  issue: AnilistHydrationIssue,
+  candidate: Item,
+): AnilistHydrationResult | null {
+  const row = currentItems[issue.index];
+  if (
+    !row ||
+    isHydrated(row) ||
+    normalizeAnilistHydrationName(row.label) !== normalizeAnilistHydrationName(issue.label)
+  ) {
+    return null;
+  }
+  const items = [...currentItems];
+  items[issue.index] = candidate;
+  return {
+    items,
+    matchedCount: result.matchedCount + 1,
+    attemptedCount: result.attemptedCount,
+    issues: result.issues
+      .filter((other) => other !== issue)
+      // The pick is now in the list, so other rows can't take it too.
+      .map((other) =>
+        other.candidates
+          ? { ...other, candidates: other.candidates.filter((c) => c.id !== candidate.id) }
+          : other,
+      ),
+  };
 }
 
 export function normalizeAnilistHydrationName(value: string): string {
   return value.normalize('NFKC').trim().replace(/\s+/gu, ' ').toLowerCase();
 }
 
-function candidateAliases(item: Item): Set<string> {
+/** The label and the entry's real titles or names, in every display language. */
+function titleAliases(item: Item): string[] {
+  const source = item.anilistLabelSource;
+  const values = [item.label];
+  if (source?.kind === 'media') {
+    const { title_romaji, title_english, title_native } = source.titleFields;
+    values.push(...[title_romaji, title_english, title_native].filter((v) => v !== null));
+  } else if (source?.kind === 'person' || source?.kind === 'character') {
+    const { name_full, name_native } = source.nameFields;
+    values.push(...[name_full, name_native].filter((v) => v !== null));
+  }
+  return values;
+}
+
+function normalizedSet(values: readonly string[]): Set<string> {
   const aliases = new Set<string>();
-  for (const value of [item.label, ...(item.searchTokens ?? [])]) {
+  for (const value of values) {
     const normalized = normalizeAnilistHydrationName(value);
     if (normalized) aliases.add(normalized);
   }
   return aliases;
 }
 
+function aliasIndex(
+  candidates: Iterable<Item>,
+  aliasesOf: (item: Item) => Set<string>,
+): Map<string, Set<string>> {
+  const index = new Map<string, Set<string>>();
+  for (const candidate of candidates) {
+    for (const alias of aliasesOf(candidate)) {
+      const ids = index.get(alias) ?? new Set<string>();
+      ids.add(candidate.id);
+      index.set(alias, ids);
+    }
+  }
+  return index;
+}
+
 /**
+ * Hydrate rows that aren't AniList entries yet; hydrated rows pass through untouched.
  * Resolve only globally one-to-one exact aliases. No input-order tiebreak is
  * used: if two rows claim one candidate, both stay manual for explicit repair.
+ * Real titles and names outrank search tokens (AniList synonyms): e.g. the Suntory
+ * tie-in lists `Kimi no Na wa.` as a synonym, which mustn't tie with the movie.
  */
 export function hydrateItemsFromExactAnilistNames(
   inputItems: readonly Item[],
@@ -43,26 +121,27 @@ export function hydrateItemsFromExactAnilistNames(
     candidatesById.set(candidate.id, candidate);
   }
 
-  const aliases = new Map<string, Set<string>>();
-  for (const candidate of candidatesById.values()) {
-    for (const alias of candidateAliases(candidate)) {
-      const ids = aliases.get(alias) ?? new Set<string>();
-      ids.add(candidate.id);
-      aliases.set(alias, ids);
-    }
-  }
+  const titles = aliasIndex(candidatesById.values(), (c) => normalizedSet(titleAliases(c)));
+  const tokens = aliasIndex(candidatesById.values(), (c) => normalizedSet(c.searchTokens ?? []));
 
   const proposed = new Map<number, string>();
   const issues: AnilistHydrationIssue[] = [];
+  const presentIds = new Set(inputItems.filter(isHydrated).map((item) => item.id));
+  let attemptedCount = 0;
   inputItems.forEach((item, index) => {
+    if (isHydrated(item)) return;
+    attemptedCount += 1;
     const normalized = normalizeAnilistHydrationName(item.label);
-    const candidateIds = aliases.get(normalized);
+    const candidateIds = titles.get(normalized) ?? tokens.get(normalized);
     if (!candidateIds || candidateIds.size === 0) {
       issues.push({ index, label: item.label, reason: 'unmatched' });
       return;
     }
     if (candidateIds.size > 1) {
-      issues.push({ index, label: item.label, reason: 'ambiguous_alias' });
+      const candidates = [...candidateIds]
+        .filter((id) => !presentIds.has(id))
+        .map((id) => candidatesById.get(id)!);
+      issues.push({ index, label: item.label, reason: 'ambiguous_alias', candidates });
       return;
     }
     proposed.set(index, [...candidateIds][0]);
@@ -78,7 +157,8 @@ export function hydrateItemsFromExactAnilistNames(
   const items = [...inputItems];
   let matchedCount = 0;
   for (const [candidateId, indices] of inputsByCandidate) {
-    if (indices.length !== 1) {
+    // A row resolving to an entry the list already has would duplicate it.
+    if (indices.length !== 1 || presentIds.has(candidateId)) {
       for (const index of indices) {
         const item = inputItems[index];
         if (item) {
@@ -100,5 +180,5 @@ export function hydrateItemsFromExactAnilistNames(
   }
 
   issues.sort((a, b) => a.index - b.index);
-  return { items, matchedCount, issues };
+  return { items, matchedCount, attemptedCount, issues };
 }

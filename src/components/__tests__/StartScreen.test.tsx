@@ -26,6 +26,7 @@ describe('StartScreen staged item editing', () => {
       {
         items: [hydrated],
         matchedCount: 1,
+        attemptedCount: 1,
         issues: [],
       },
     );
