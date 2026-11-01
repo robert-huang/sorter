@@ -2564,18 +2564,31 @@ export function App() {
   // the SlotCapConfirmModal's "Download oldest first" escape hatch.
   // Distinct from `onDownload`, which exports the IN-MEMORY active session
   // (which may differ from the on-disk blob if there's a pending autosave).
-  const onDownloadSlot = useCallback((id: string) => {
-    const blob = readSlotBlob(id);
-    if (!blob) return;
-    downloadSave(blob, readManifest().slots.find((s) => s.id === id)?.name);
-  }, []);
+  const onDownloadSlot = useCallback(
+    (id: string) => {
+      const name = readManifest().slots.find((s) => s.id === id)?.name;
+      const cur = stateRef.current;
+      if (id === loadedSlotIdRef.current && cur) {
+        // The loaded slot's disk copy may lag edits whose live version isn't committed.
+        commitLiveVersion();
+        downloadSave(buildBlob(cur, undoRingRef.current, versionsRef.current), name);
+        return;
+      }
+      const blob = readSlotBlob(id);
+      if (!blob) return;
+      downloadSave(blob, name);
+    },
+    [commitLiveVersion],
+  );
 
   // -------- save / load file --------
   const onDownload = useCallback(() => {
     if (!state) return;
     const slotName = manifest.slots.find((s) => s.id === (loadedSlotId ?? manifest.activeId))?.name;
-    downloadSave(buildBlob(state, undoRing, versions), slotName);
-  }, [state, undoRing, versions, manifest, loadedSlotId]);
+    // Exporting stops editing, like a push: record the ranking as the live version first.
+    commitLiveVersion();
+    downloadSave(buildBlob(state, undoRing, versionsRef.current), slotName);
+  }, [state, undoRing, manifest, loadedSlotId, commitLiveVersion]);
 
   // Force-flush the active slot and bump its recency (`updatedAt`) so it
   // rises to the top of the slot list — even when nothing changed since
