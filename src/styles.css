@@ -6858,9 +6858,28 @@ a:where(.anime-to-anime-anilist-link):visited {
   margin-top: 16px;
 }
 
+/* Outside `.anilist-hydration-fields`, so it needs the field theme itself. */
 .anilist-hydration-pick {
-  margin-left: 8px;
+  box-sizing: border-box;
   max-width: 100%;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background-color: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  color-scheme: light;
+}
+
+[data-theme='dark'] .anilist-hydration-pick {
+  color-scheme: dark;
+}
+
+.anilist-hydration-pick:focus {
+  border-color: var(--accent);
+  outline: 2px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  outline-offset: 1px;
 }
 
 .anilist-hydration-issues.is-expanded {

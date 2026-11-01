@@ -180,11 +180,11 @@ export function applyStartScreenHydration(
   previewSources: readonly PreviewSource[],
   result: AnilistHydrationResult,
 ): OverlayMap {
-  const unresolved = new Set(result.issues.map(({ index }) => index));
+  const unresolved = new Set(result.issues.map(({ itemId }) => itemId));
   const hydratedByOriginalId = new Map<string, Item>();
   inputItems.forEach((item, index) => {
     const hydrated = result.items[index];
-    if (!unresolved.has(index) && hydrated) {
+    if (!unresolved.has(item.id) && hydrated) {
       hydratedByOriginalId.set(item.id, hydrated);
     }
   });

@@ -7,10 +7,14 @@ export type AnilistHydrationIssueReason =
 
 export interface AnilistHydrationIssue {
   index: number;
+  /** The row's id when matched; positions shift when callers re-dedupe hydrated rows. */
+  itemId: string;
   label: string;
   reason: AnilistHydrationIssueReason;
   /** For `ambiguous_alias`: the entries the name matched, for a manual pick. */
   candidates?: Item[];
+  /** For `duplicate_candidate`: labels of the other rows holding or claiming the entry. */
+  conflicts?: string[];
 }
 
 export interface AnilistHydrationResult {
@@ -27,10 +31,16 @@ function isHydrated(item: Item): boolean {
   return /^anilist(-staff|-character|-studios)?:\d+$/.test(item.id);
 }
 
+/** Where a still-unhydrated row is now, found by the id it had when matched. */
+function currentIndex(currentItems: readonly Item[], issue: AnilistHydrationIssue): number {
+  return currentItems.findIndex((item) => item.id === issue.itemId && !isHydrated(item));
+}
+
 /**
- * Applies a manual pick for an ambiguous row on top of the current items (which an
- * earlier `onHydrated` may already have updated). Null when the row no longer holds
- * that name, e.g. the list was edited after matching.
+ * Applies a manual pick for an ambiguous row on top of the current items. Callers may
+ * have re-deduped the list since matching (hydrated rows take AniList ids and can
+ * merge), so rows are found by id and remaining issues get their current positions.
+ * Null when the row is gone, e.g. the list was edited after matching.
  */
 export function resolveAmbiguousHydration(
   result: AnilistHydrationResult,
@@ -38,28 +48,24 @@ export function resolveAmbiguousHydration(
   issue: AnilistHydrationIssue,
   candidate: Item,
 ): AnilistHydrationResult | null {
-  const row = currentItems[issue.index];
-  if (
-    !row ||
-    isHydrated(row) ||
-    normalizeAnilistHydrationName(row.label) !== normalizeAnilistHydrationName(issue.label)
-  ) {
-    return null;
-  }
+  const index = currentIndex(currentItems, issue);
+  if (index < 0) return null;
   const items = [...currentItems];
-  items[issue.index] = candidate;
+  items[index] = candidate;
+  const issues: AnilistHydrationIssue[] = [];
+  for (const other of result.issues) {
+    if (other === issue) continue;
+    const otherIndex = currentIndex(currentItems, other);
+    if (otherIndex < 0) continue;
+    // The pick is now in the list, so other rows can't take it too.
+    const candidates = other.candidates?.filter((c) => c.id !== candidate.id);
+    issues.push({ ...other, index: otherIndex, ...(candidates ? { candidates } : {}) });
+  }
   return {
     items,
     matchedCount: result.matchedCount + 1,
     attemptedCount: result.attemptedCount,
-    issues: result.issues
-      .filter((other) => other !== issue)
-      // The pick is now in the list, so other rows can't take it too.
-      .map((other) =>
-        other.candidates
-          ? { ...other, candidates: other.candidates.filter((c) => c.id !== candidate.id) }
-          : other,
-      ),
+    issues,
   };
 }
 
@@ -134,14 +140,20 @@ export function hydrateItemsFromExactAnilistNames(
     const normalized = normalizeAnilistHydrationName(item.label);
     const candidateIds = titles.get(normalized) ?? tokens.get(normalized);
     if (!candidateIds || candidateIds.size === 0) {
-      issues.push({ index, label: item.label, reason: 'unmatched' });
+      issues.push({ index, itemId: item.id, label: item.label, reason: 'unmatched' });
       return;
     }
     if (candidateIds.size > 1) {
       const candidates = [...candidateIds]
         .filter((id) => !presentIds.has(id))
         .map((id) => candidatesById.get(id)!);
-      issues.push({ index, label: item.label, reason: 'ambiguous_alias', candidates });
+      issues.push({
+        index,
+        itemId: item.id,
+        label: item.label,
+        reason: 'ambiguous_alias',
+        candidates,
+      });
       return;
     }
     proposed.set(index, [...candidateIds][0]);
@@ -162,10 +174,15 @@ export function hydrateItemsFromExactAnilistNames(
       for (const index of indices) {
         const item = inputItems[index];
         if (item) {
+          const conflicts = inputItems
+            .filter((other, i) => i !== index && (indices.includes(i) || other.id === candidateId))
+            .map((other) => other.label);
           issues.push({
             index,
+            itemId: item.id,
             label: item.label,
             reason: 'duplicate_candidate',
+            conflicts,
           });
         }
       }

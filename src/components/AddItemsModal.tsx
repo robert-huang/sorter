@@ -714,6 +714,9 @@ function HydrationIssueList({
         {shown.map((issue) => (
           <li key={`${issue.index}:${issue.label}`}>
             “{issue.label}” {hydrationIssueLabel(issue.reason)}
+            {issue.conflicts && issue.conflicts.length > 0 && (
+              <> ({issue.conflicts.map((label) => `“${label}”`).join(', ')})</>
+            )}
             {issue.candidates && issue.candidates.length > 0 && (
               <AmbiguousHydrationPick issue={issue} onPick={onPick} />
             )}
@@ -773,7 +776,7 @@ export function AnilistHydrationControls({
     if (!result) return;
     const next = resolveAmbiguousHydration(result, items, issue, candidate);
     if (!next) {
-      setError(`“${issue.label}” changed since matching; match again to pick.`);
+      setError(`“${issue.label}” is no longer in the list; match again to pick.`);
       return;
     }
     setResult(next);

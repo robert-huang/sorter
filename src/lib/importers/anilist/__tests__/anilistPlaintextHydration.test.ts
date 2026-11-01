@@ -106,7 +106,23 @@ describe('AniList plaintext hydration', () => {
     const result = hydrateItemsFromExactAnilistNames([existing, row], [existing]);
     expect(result.items[1]).toBe(row);
     expect(result.issues).toEqual([
-      { index: 1, label: 'Cowboy Bebop', reason: 'duplicate_candidate' },
+      {
+        index: 1,
+        itemId: row.id,
+        label: 'Cowboy Bebop',
+        reason: 'duplicate_candidate',
+        conflicts: ['Cowboy Bebop'],
+      },
+    ]);
+  });
+
+  it('names the other row claiming the same entry through a synonym', () => {
+    const entry = cached('anilist:1', 'Happy Sugar Life', ['White Sugar Garden']);
+    const rows = [manual('Happy Sugar Life'), manual('White Sugar Garden')];
+    const result = hydrateItemsFromExactAnilistNames(rows, [entry]);
+    expect(result.issues.map((i) => i.conflicts)).toEqual([
+      ['White Sugar Garden'],
+      ['Happy Sugar Life'],
     ]);
   });
 
@@ -122,6 +138,21 @@ describe('AniList plaintext hydration', () => {
     expect(picked.matchedCount).toBe(1);
     // The other row can no longer take the entry that's now in the list.
     expect(picked.issues).toEqual([{ ...result.issues[1]!, candidates: [one] }]);
+  });
+
+  it('finds rows by id after the caller re-dedupes the list', () => {
+    const one = cached('anilist:1', 'One', ['Shared']);
+    const two = cached('anilist:2', 'Two', ['Shared']);
+    const bebop = cached('anilist:5', 'Cowboy Bebop');
+    const rows = [manual('Cowboy Bebop'), manual('bebop again', 'manual:dupe'), manual('Shared')];
+    const result = hydrateItemsFromExactAnilistNames(rows, [one, two, bebop]);
+    expect(result.issues.find((i) => i.reason === 'ambiguous_alias')?.index).toBe(2);
+
+    // The caller merged a row after hydrating, so "Shared" moved up one.
+    const current = [bebop, rows[2]!];
+    const ambiguous = result.issues.find((i) => i.reason === 'ambiguous_alias')!;
+    const picked = resolveAmbiguousHydration(result, current, ambiguous, one)!;
+    expect(picked.items).toEqual([bebop, one]);
   });
 
   it('ignores a pick for a row edited since matching', () => {
