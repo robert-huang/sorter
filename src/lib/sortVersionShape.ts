@@ -227,17 +227,32 @@ function isAnilistCdnImageUrl(value: string): boolean {
 }
 
 /**
- * Legacy snapshots stored every name and image, so custom AniList names can't be told
- * apart from automatic ones; they're treated as automatic. AniList's own images
- * (including covers AniList has since replaced) aren't overrides either.
+ * Legacy snapshots stored every name and image with no custom-name marker. A name is
+ * custom when it matches none of the item's automatic names, the same inference
+ * unmarked current items get, so a repaired version agrees with the current ranking.
+ * Without AniList data to compare (a dropped item) it's treated as automatic.
+ * AniList's own images (including covers AniList has since replaced) aren't overrides.
  */
 function legacyOverride(id: ItemId, snap: Record<string, unknown>, base: Item | undefined) {
   const parsed = parseOverride(snap);
   if (!isAnilistItemId(id)) return parsed;
   const out: SortVersionOverride = {};
+  if (
+    parsed.label !== undefined &&
+    base?.anilistLabelSource &&
+    isCustomAnilistItemLabel({ ...base, label: parsed.label, anilistLabelMode: undefined })
+  ) {
+    out.label = parsed.label;
+  }
   const defaultImage = base?.anilistImageSource ?? base?.imageUrl;
+  const currentCustomImage =
+    base?.anilistImageSource && base.imageUrl !== base.anilistImageSource ? base.imageUrl : undefined;
   const { imageUrl } = parsed;
-  if (imageUrl && imageUrl !== defaultImage && !isAnilistCdnImageUrl(imageUrl)) {
+  if (
+    imageUrl &&
+    imageUrl !== defaultImage &&
+    (imageUrl === currentCustomImage || !isAnilistCdnImageUrl(imageUrl))
+  ) {
     out.imageUrl = imageUrl;
   }
   return out;

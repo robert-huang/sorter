@@ -121,6 +121,21 @@ describe('normalizeSortVersions legacy repair', () => {
     expect(stored.versions.every((v) => v.overrides === undefined)).toBe(true);
   });
 
+  it('agrees with the current ranking on unmarked custom names and images', () => {
+    const current: Item = { ...lynn, label: 'Lynn!', imageUrl: 'https://s4.anilist.co/staff/pick.jpg' };
+    const raw = [
+      {
+        id: 'v0',
+        createdAt: T1,
+        rankedIds: [lynn.id],
+        items: { [lynn.id]: { label: 'Lynn!', imageUrl: 'https://s4.anilist.co/staff/pick.jpg' } },
+      },
+    ];
+    const out = normalizeSortVersions(raw, undefined, { [lynn.id]: current })!;
+    // Otherwise the first live-version commit after loading would record a change.
+    expect(sameVersionContent(out[0]!, version([current], T2))).toBe(true);
+  });
+
   it("drops covers AniList has since replaced but keeps the user's own images", () => {
     const raw = [
       {

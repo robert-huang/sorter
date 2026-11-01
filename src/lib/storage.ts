@@ -288,6 +288,22 @@ function queueStateWrite(
   return stateWriteQueue;
 }
 
+/**
+ * Slots whose versions on disk differ from how they'd be saved now (e.g. legacy
+ * whole-item snapshots); `persistCanonicalBlobOnLoad` rewrites them even though the
+ * decoded content is unchanged.
+ */
+const slotsWithNonCanonicalVersions = new Set<string>();
+
+function versionsStoredCanonically(file: Partial<SaveFile>, blob: AutosaveBlob): boolean {
+  const onDisk = { versions: file.versions, versionItems: file.versionItems };
+  const canonical = storedVersionFields(blob);
+  return (
+    JSON.stringify(onDisk.versions) === JSON.stringify(canonical.versions) &&
+    JSON.stringify(onDisk.versionItems) === JSON.stringify(canonical.versionItems)
+  );
+}
+
 function parseSlotFile(value: unknown): AutosaveBlob | null {
   if (!isLegacySorterSaveFile(value)) return null;
   const file = value as Partial<SaveFile>;
@@ -387,11 +403,16 @@ export async function initializeSorterStorage(): Promise<void> {
   manifestCache = { version: 1, activeId, slots: currentSlots };
 
   slotBlobCache.clear();
+  slotsWithNonCanonicalVersions.clear();
   for (const [key, value] of await readAllStateEntries<unknown>(
     SORTER_SLOT_STORE,
   )) {
     const blob = parseSlotFile(value);
-    if (blob) slotBlobCache.set(String(key), blob);
+    if (!blob) continue;
+    slotBlobCache.set(String(key), blob);
+    if (!versionsStoredCanonically(value as Partial<SaveFile>, blob)) {
+      slotsWithNonCanonicalVersions.add(String(key));
+    }
   }
   const perSlotMeta = new Map<string, SlotMeta>();
   for (const [key, value] of await readAllStateEntries<unknown>(
@@ -1215,7 +1236,11 @@ export function persistCanonicalBlobOnLoad(
   blob: AutosaveBlob,
 ): void {
   const existing = readSlotBlob(id);
-  if (existing && autosaveBlobsEqual(existing, blob)) {
+  if (
+    existing &&
+    autosaveBlobsEqual(existing, blob) &&
+    !slotsWithNonCanonicalVersions.has(id)
+  ) {
     if (currentActiveId === id) {
       resetAutosaveBookkeeping(blob.progress.comparisons);
     }
@@ -1491,6 +1516,7 @@ function notifyError(
  */
 function tryWriteSlotBlob(id: string, blob: AutosaveBlob): boolean {
   slotBlobCache.set(id, blob);
+  slotsWithNonCanonicalVersions.delete(id);
   return true;
 }
 

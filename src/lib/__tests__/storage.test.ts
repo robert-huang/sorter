@@ -656,6 +656,53 @@ describe('persistCanonicalBlobOnLoad', () => {
       beforeUpdatedAt,
     );
   });
+
+  it('rewrites legacy versions in the saved format without bumping updatedAt', async () => {
+    const blob = makeBlob(1, true);
+    const slot = mintSlot(blob, 'Versioned');
+    await flushStateStorageWrites();
+    const legacyVersions = [
+      {
+        id: 'v1',
+        createdAt: '2026-10-01T10:00:00.000Z',
+        rankedIds: ['anilist-staff:95053', 'a'],
+        items: { 'anilist-staff:95053': { label: 'Minori Chihara' }, a: { label: 'Alpha' } },
+      },
+    ];
+    await commitStateChanges([
+      {
+        type: 'put',
+        store: SORTER_SLOT_STORE,
+        key: slot.id,
+        value: { version: 4, createdAt: 'x', ...blob, versions: legacyVersions },
+      },
+    ]);
+    await _restartStateStorageForTesting();
+    _resetSorterStorageCacheForTesting();
+    await initializeSorterStorage();
+    const beforeUpdatedAt = readManifest().slots.find((s) => s.id === slot.id)!.updatedAt;
+
+    const loaded = readSlotBlob(slot.id)!;
+    persistCanonicalBlobOnLoad(slot.id, loaded);
+    await flushStateStorageWrites();
+
+    const onDisk = (await readStateRecord<SaveFile>(SORTER_SLOT_STORE, slot.id))!;
+    expect(onDisk.versions).toEqual([
+      {
+        id: 'v1',
+        createdAt: '2026-10-01T10:00:00.000Z',
+        rankedIds: ['anilist-staff:95053', 'a'],
+        overrides: { a: { label: 'Alpha' } },
+      },
+    ]);
+    expect(onDisk.versionItems?.['anilist-staff:95053']?.source).toEqual({
+      kind: 'anilist-staff',
+      externalId: 95053,
+    });
+    expect(readManifest().slots.find((s) => s.id === slot.id)!.updatedAt).toBe(
+      beforeUpdatedAt,
+    );
+  });
 });
 
 describe('discardPendingAutosave', () => {
