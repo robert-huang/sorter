@@ -47,7 +47,10 @@ import {
   type StartMode,
 } from './StagedItemsPanel';
 import Papa from 'papaparse';
-import type { AnilistHydrationResult } from '../lib/importers/anilist/anilistPlaintextHydration';
+import type {
+  AnilistHydrationIssue,
+  AnilistHydrationResult,
+} from '../lib/importers/anilist/anilistPlaintextHydration';
 
 /**
  * In-memory edit overlay for the START tab. Keyed by
@@ -172,6 +175,22 @@ export function applySorterStagedGroupEdit(
       )
     : group.markedItemIds;
   return { ...group, items, markedItemIds };
+}
+
+/** Opens the editor on the first source row that produced the issue's item. */
+export function editHydrationIssueRow(
+  perSource: readonly PreviewSource[],
+  openEdit: (sourceName: string, rowNumber: number) => void,
+): (issue: AnilistHydrationIssue) => void {
+  return (issue) => {
+    for (const source of perSource) {
+      const row = source.items.find(({ item }) => item.id === issue.itemId);
+      if (row) {
+        openEdit(source.sourceName, row.sourceRow);
+        return;
+      }
+    }
+  };
 }
 
 export function applyStartScreenHydration(
@@ -1659,6 +1678,7 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
           <AnilistHydrationControls
             items={scratchResult.items}
             dbSyncRevision={dbSyncRevision}
+            onEditIssue={editHydrationIssueRow(scratchResult.perSource, onEditOccurrenceScratch)}
             onHydrated={(result) => {
               setOverrides((current) =>
                 applyStartScreenHydration(
@@ -1837,6 +1857,10 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
           <AnilistHydrationControls
             items={prerankedResult.items}
             dbSyncRevision={dbSyncRevision}
+            onEditIssue={editHydrationIssueRow(
+              prerankedResult.perSource,
+              onEditOccurrencePreranked,
+            )}
             onHydrated={(result) => {
               setOverrides((current) =>
                 applyStartScreenHydration(

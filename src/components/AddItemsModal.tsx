@@ -700,9 +700,11 @@ function AmbiguousHydrationPick({
 function HydrationIssueList({
   issues,
   onPick,
+  onEditIssue,
 }: {
   issues: readonly AnilistHydrationIssue[];
   onPick: (issue: AnilistHydrationIssue, candidate: Item) => void;
+  onEditIssue?: (issue: AnilistHydrationIssue) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   if (issues.length === 0) return null;
@@ -713,7 +715,19 @@ function HydrationIssueList({
       <ul className={expanded ? 'anilist-hydration-issues is-expanded' : 'anilist-hydration-issues'}>
         {shown.map((issue) => (
           <li key={`${issue.index}:${issue.label}`}>
-            “{issue.label}” {hydrationIssueLabel(issue.reason)}
+            {onEditIssue && issue.reason === 'unmatched' ? (
+              <button
+                type="button"
+                className="anilist-hydration-issues-toggle"
+                title="Edit this row"
+                onClick={() => onEditIssue(issue)}
+              >
+                “{issue.label}”
+              </button>
+            ) : (
+              <>“{issue.label}”</>
+            )}{' '}
+            {hydrationIssueLabel(issue.reason)}
             {issue.conflicts && issue.conflicts.length > 0 && (
               <> ({issue.conflicts.map((label) => `“${label}”`).join(', ')})</>
             )}
@@ -752,10 +766,13 @@ export function AnilistHydrationControls({
   items,
   dbSyncRevision,
   onHydrated,
+  onEditIssue,
 }: {
   items: Item[];
   dbSyncRevision: number;
   onHydrated: (result: AnilistHydrationResult) => void;
+  /** Opens the row's editor from an unmatched issue; omitted where rows can't be edited. */
+  onEditIssue?: (issue: AnilistHydrationIssue) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [sources, setSources] = useState<CachedAnilistSourceSummary[] | null>(
@@ -1012,7 +1029,12 @@ export function AnilistHydrationControls({
             ? ' Unresolved rows remain manual and can be edited in staging.'
             : ''}
           {/* Keyed per run so a new run collapses the list but a pick doesn't. */}
-          <HydrationIssueList key={runId} issues={result.issues} onPick={pickCandidate} />
+          <HydrationIssueList
+            key={runId}
+            issues={result.issues}
+            onPick={pickCandidate}
+            onEditIssue={onEditIssue}
+          />
         </div>
       )}
     </div>

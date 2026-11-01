@@ -2,10 +2,25 @@ import { describe, expect, it } from 'vitest';
 import {
   applySorterStagedGroupEdit,
   applyStartScreenHydration,
+  editHydrationIssueRow,
 } from '../StartScreen';
 import type { StagedGroup } from '../StagedItemsPanel';
 
 describe('StartScreen staged item editing', () => {
+  it('opens the editor on the source row behind an unmatched issue', () => {
+    const opened: Array<[string, number]> = [];
+    const openEdit = editHydrationIssueRow(
+      [
+        { sourceName: 'a', items: [{ item: { id: 'one', label: 'One' }, sourceRow: 1 }] },
+        { sourceName: 'b', items: [{ item: { id: 'two', label: 'Two' }, sourceRow: 4 }] },
+      ],
+      (sourceName, rowNumber) => opened.push([sourceName, rowNumber]),
+    );
+    openEdit({ index: 1, itemId: 'two', label: 'Two', reason: 'unmatched' });
+    openEdit({ index: 2, itemId: 'gone', label: 'Gone', reason: 'unmatched' });
+    expect(opened).toEqual([['b', 4]]);
+  });
+
   it('applies exact hydration to the initial import preview', () => {
     const manual = { id: 'cached-title', label: 'cached title' };
     const hydrated = {
