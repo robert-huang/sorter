@@ -43,11 +43,17 @@ function doneBlob(order: Item[]) {
   return { items: state.items, progress: state, undoRing: [] };
 }
 
-function saveFile(order: Item[], name: string, lastModified: number, done = true): File {
+function saveFile(
+  order: Item[],
+  name: string,
+  lastModified: number,
+  done = true,
+  createdAt = 'x',
+): File {
   const blob = doneBlob(order);
   const text = JSON.stringify({
     version: 4,
-    createdAt: 'x',
+    createdAt,
     ...blob,
     progress: { ...blob.progress, done },
   });
@@ -150,6 +156,25 @@ describe('SortHistoryPage', () => {
     expect(applied[0]!.createdAt).toBe(new Date(fileDate).toISOString());
     expect(onClose).not.toHaveBeenCalled();
     expect(document.body.textContent).toContain('Saved · 3 versions');
+  });
+
+  it("dates a file by its saved time, not when it was downloaded", async () => {
+    const onApply = vi.fn();
+    act(() => {
+      root.render(<SortHistoryPage versions={[]} onApply={onApply} onClose={vi.fn()} />);
+    });
+    const downloaded = Date.parse('2026-11-02T09:59:00');
+    await upload([
+      saveFile([A, B], 'later.json', downloaded, true, '2026-10-24T02:04:00.000Z'),
+      saveFile([B, A], 'earlier.json', downloaded, true, '2026-08-18T15:57:00.000Z'),
+    ]);
+    await act(async () => button('Save changes').click());
+    await act(async () => button('Confirm').click());
+    const applied = onApply.mock.calls[0]![0] as SortVersion[];
+    expect(applied.map((v) => v.createdAt)).toEqual([
+      '2026-08-18T15:57:00.000Z',
+      '2026-10-24T02:04:00.000Z',
+    ]);
   });
 
   it('applies an edited date and skips a ranking identical to its predecessor', async () => {

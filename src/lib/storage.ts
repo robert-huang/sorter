@@ -2034,8 +2034,26 @@ export function downloadSave(blob: AutosaveBlob, slotName?: string): void {
 }
 
 export async function loadSaveFromFile(file: File): Promise<AutosaveBlob> {
+  return (await loadDatedSaveFromFile(file)).blob;
+}
+
+/**
+ * The save plus when it was written (`createdAt`, stamped at download). Prefer this
+ * over `File.lastModified`, which is when the file landed on disk, not the save time.
+ */
+export async function loadDatedSaveFromFile(
+  file: File,
+): Promise<{ blob: AutosaveBlob; savedAt: string | null }> {
   const text = await file.text();
   const parsed = JSON.parse(text) as SaveFile;
+  const savedAt =
+    typeof parsed.createdAt === 'string' && !Number.isNaN(Date.parse(parsed.createdAt))
+      ? parsed.createdAt
+      : null;
+  return { blob: parseSaveFile(parsed), savedAt };
+}
+
+function parseSaveFile(parsed: SaveFile): AutosaveBlob {
   if (
     parsed.version !== 1 &&
     parsed.version !== 2 &&

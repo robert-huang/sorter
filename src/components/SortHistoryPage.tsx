@@ -10,7 +10,7 @@ import {
   type MergedSortVersions,
 } from "../lib/sortVersions";
 import { formatDateTimeLocal, toDateTimeLocal } from "../lib/dateTimeText";
-import { loadSaveFromFile } from "../lib/storage";
+import { loadDatedSaveFromFile } from "../lib/storage";
 import type { SlotsManifest, SortVersion } from "../lib/types";
 import { DateTimeField } from "./DateTimeField";
 import { RemoveGlyph } from "./RemoveGlyph";
@@ -87,11 +87,11 @@ function stagedFromRankingImport(imp: SlotRankingImport): StagedSource | null {
 }
 
 async function stagedFromFile(file: File): Promise<StagedSource> {
-  const blob = await loadSaveFromFile(file);
+  const { blob, savedAt } = await loadDatedSaveFromFile(file);
   if (!blob.progress.done) {
     throw new Error("in progress — only finished sorts can be imported");
   }
-  const createdAt = new Date(file.lastModified || Date.now()).toISOString();
+  const createdAt = savedAt ?? new Date(file.lastModified || Date.now()).toISOString();
   const snapshot = snapshotSortVersion(blob, createdAt);
   if (!snapshot) throw new Error("no ranked items");
   const folded = foldCurrentIntoNewest(snapshot, blob.versions ?? []);
