@@ -131,8 +131,6 @@ export type StatsForm = {
   genderFilters: StatsGenderFilter[];
   vaShowMainRoleInfo: boolean;
   vaShowDiff: boolean;
-  /** Staff/VA charts: colour show titles whose cast data is over 90 days old. */
-  highlightStaleCast: boolean;
   tagOptions: StatsTagOptions;
   studioKindFilters: StatsStudioKindFilter[];
 };

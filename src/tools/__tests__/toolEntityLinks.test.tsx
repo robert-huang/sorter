@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   appendFavouriteStarBeforeRole,
+  StaleStaffIdsContext,
   ToolCharacterName,
   ToolShowButton,
   ToolStaffButton,
@@ -67,5 +68,22 @@ describe('tool entity favourite annotations', () => {
       'Character Name ★ (MAIN)',
     );
     expect(appendFavouriteStarBeforeRole('Production', false)).toBe('Production');
+  });
+});
+
+describe('stale staff highlighting', () => {
+  it('marks only staff whose ids are in the stale context', () => {
+    act(() => {
+      root.render(
+        <StaleStaffIdsContext.Provider value={new Set([2])}>
+          <ToolStaffButton staffId={2} name="Stale Staff" onOpenStaff={vi.fn()} />
+          <ToolStaffButton staffId={3} name="Fresh Staff" onOpenStaff={vi.fn()} />
+        </StaleStaffIdsContext.Provider>,
+      );
+    });
+
+    const stale = container.querySelectorAll('.tool-stale-cast-title');
+    expect(stale).toHaveLength(1);
+    expect(stale[0].textContent).toBe('Stale Staff');
   });
 });

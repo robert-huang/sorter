@@ -1,11 +1,11 @@
 import { depaginate } from '../../lib/importers/anilist/depaginate';
 import { resolveAccessTokenForUsername } from '../../lib/importers/anilist/anilistAuth';
-import { isGraphTimestampStale } from '../../lib/importers/anilist/graphConstants';
 import { TOOLS_STATS_LIST_QUERY } from '../../lib/importers/anilist/queries';
 import type { ToolsFetchOptions } from '../../lib/importers/anilist/toolsFetchPolicy';
 import {
   ensureMediaCastFreshBatch,
   ensureMediaStudiosFreshBatch,
+  findStaleCastMediaIds,
   readShowStaffBundleFromDb,
 } from '../../lib/importers/anilist/toolsAnilistAccess';
 import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportContext';
@@ -17,9 +17,7 @@ import {
 import { pickMediaTitle } from './sharedCreditsLogic';
 import { pickCharacterName, pickPersonName } from '../../lib/importers/anilist/personDisplayLabel';
 import {
-  getMediaCastExpansionStatus,
   getMediaDetail,
-  type MediaCastExpansionStatus,
 } from '../../lib/importers/anilist/readQueries';
 import {
   getProductionCreditsAtMedia,
@@ -94,28 +92,6 @@ function parseGenresJson(json: string | null | undefined): string[] {
   } catch {
     return [];
   }
-}
-
-function isStatsCastExpansionStale(status: MediaCastExpansionStatus): boolean {
-  if (!status.charactersComplete && !status.staffComplete) {
-    return false;
-  }
-  return (
-    isGraphTimestampStale(status.charactersFetchedAt) ||
-    isGraphTimestampStale(status.staffFetchedAt)
-  );
-}
-
-export async function staleStatsCastMediaIds(mediaIds: readonly number[]): Promise<number[]> {
-  const ctx = getToolsImportContext();
-  const stale: number[] = [];
-  for (const mediaId of new Set(mediaIds)) {
-    const status = await getMediaCastExpansionStatus(ctx.db, mediaId);
-    if (status && isStatsCastExpansionStale(status)) {
-      stale.push(mediaId);
-    }
-  }
-  return stale;
 }
 
 function emptyStatsStartDate(): StatsStartDate {
@@ -457,7 +433,7 @@ export async function expandStatsCast(
   options?: StatsFetchOptions,
 ): Promise<StatsCachedData> {
   const entries = await attachCastToEntries(cached.entries, options);
-  const staleCastMediaIds = await staleStatsCastMediaIds(entries.map((e) => e.mediaId));
+  const staleCastMediaIds = await findStaleCastMediaIds(entries.map((e) => e.mediaId));
   return { ...cached, entries, castExpanded: true, staleCastMediaIds };
 }
 
@@ -466,7 +442,7 @@ export async function refreshStatsCastFromDb(
   options?: Pick<StatsFetchOptions, 'signal'>,
 ): Promise<StatsCachedData> {
   const entries = await readCastForEntriesFromDb(cached.entries, options);
-  const staleCastMediaIds = await staleStatsCastMediaIds(entries.map((e) => e.mediaId));
+  const staleCastMediaIds = await findStaleCastMediaIds(entries.map((e) => e.mediaId));
   return { ...cached, entries, staleCastMediaIds };
 }
 

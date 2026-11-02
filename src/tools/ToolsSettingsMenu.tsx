@@ -120,6 +120,7 @@ export function ToolsSettingsMenu({
     setScoreComparisonRescale,
     setScoreComparisonTargetMean,
     setScoreComparisonTargetStdDev,
+    setHighlightStaleCast,
   } = useToolsPreferences();
   const selectedPlaylistName = useSelectedPlaylistName();
   const spotifySignedIn = useSpotifySignedIn();
@@ -200,6 +201,17 @@ export function ToolsSettingsMenu({
             {tab === 'settings' && (
               <div className="settings-tab-scroll">
                 <AnilistDisplayPreferencesPanel standalone />
+                <label
+                  className="settings-item checkbox"
+                  title={'Colour names whose cached AniList data is older than 90 days:\n\n• Shows with stale cast in Stats and Shared Staff.\n• Staff / VAs with stale credits in Favourites and Shared Credits.\n• Franchise entries with stale relations in Franchise Scores.'}
+                >
+                  <input
+                    type="checkbox"
+                    checked={toolsPrefs.highlightStaleCast}
+                    onChange={(e) => setHighlightStaleCast(e.target.checked)}
+                  />
+                  Highlight stale cached data (&gt;90 days)
+                </label>
                 <div
                   className={`tools-settings-section${activeTool === 'seasonal-scores' ? ' active' : ''}`}
                   data-tool-settings-section="seasonal-scores"

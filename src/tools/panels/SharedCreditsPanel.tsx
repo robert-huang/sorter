@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ToolPanelProps } from '../toolTypes';
+import { useStaleStaffIds } from '../useStaleCastMediaIds';
 import { ToolRunButton } from '../ToolRunButton';
 import { ToolUsernameField } from '../ToolUsernameField';
 import { useUsernameListRefresh } from '../useUsernameListRefresh';
@@ -30,7 +31,7 @@ import {
   useQueryRowStates,
 } from '../ToolQueryStaging';
 import { SharedCreditsResultsTable } from './sharedCreditsTable';
-import { ToolShowButton, ToolStaffButton } from '../toolEntityLinks';
+import { StaleStaffIdsContext, ToolShowButton, ToolStaffButton } from '../toolEntityLinks';
 import { ToolSegmentedFilter } from '../ToolSegmentedFilter';
 import { useCurrentAnilistFavourites } from '../useCurrentAnilistFavourites';
 
@@ -153,7 +154,7 @@ function progressLabel(progress: SharedCreditsRunProgress | null): string | null
   }
 }
 
-export function SharedCreditsPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps) {
+export function SharedCreditsPanel({ onOpenMedia, onOpenStaff, dbSyncRevision }: ToolPanelProps) {
   const { refreshing: refreshingList, refreshUsernameList } = useUsernameListRefresh();
   const favourites = useCurrentAnilistFavourites();
   const displayLabelRevision = useToolsDisplayLabelRevision();
@@ -162,6 +163,12 @@ export function SharedCreditsPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps)
   const [progress, setProgress] = useState<SharedCreditsRunProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SharedCreditsResult | null>(null);
+  const comparedStaffIds = useMemo(() => {
+    if (result?.kind === 'table') return result.staffIds;
+    if (result?.kind === 'diff') return result.blocks.map((block) => block.staffId);
+    return [];
+  }, [result]);
+  const staleStaffIds = useStaleStaffIds(comparedStaffIds, dbSyncRevision);
   const abortRef = useRef<AbortController | null>(null);
   const rebuildSourceRef = useRef<SharedCreditsRebuildSource | null>(null);
   // Monotonic generation guard: every new Compare and every relabel start
@@ -348,6 +355,7 @@ export function SharedCreditsPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps)
   const statusText = running ? progressLabel(progress) : null;
 
   return (
+    <StaleStaffIdsContext.Provider value={staleStaffIds}>
     <section className="tool-panel">
       <p className="tool-panel-lead">
         Find anime shared between voice actors or production staff — port of{' '}
@@ -594,5 +602,6 @@ export function SharedCreditsPanel({ onOpenMedia, onOpenStaff }: ToolPanelProps)
         </div>
       )}
     </section>
+    </StaleStaffIdsContext.Provider>
   );
 }

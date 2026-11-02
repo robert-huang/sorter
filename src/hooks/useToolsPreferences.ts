@@ -21,6 +21,7 @@ export function useToolsPreferences(): {
   setScoreComparisonRescale: (enabled: boolean) => void;
   setScoreComparisonTargetMean: (mean: number) => void;
   setScoreComparisonTargetStdDev: (stdDev: number) => void;
+  setHighlightStaleCast: (enabled: boolean) => void;
 } {
   const [prefs, setPrefs] = useState<ToolsPreferences>(() => loadToolsPreferences());
 
@@ -82,8 +83,13 @@ export function useToolsPreferences(): {
     saveToolsPreferences({ scoreComparisonTargetStdDev: stdDev });
   };
 
+  const setHighlightStaleCast = (enabled: boolean): void => {
+    saveToolsPreferences({ highlightStaleCast: enabled });
+  };
+
   return {
     prefs,
+    setHighlightStaleCast,
     setScoreComparisonRescale,
     setScoreComparisonTargetMean,
     setScoreComparisonTargetStdDev,

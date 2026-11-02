@@ -208,6 +208,8 @@ ${fields}
 export type FetchToolsMediaRelationsBatchOptions = {
   signal?: AbortSignal;
   fetchOptions?: ToolsFetchOptions;
+  /** Force a live fetch for just these ids (e.g. stale relations), regardless of cache. */
+  refreshMediaIds?: ReadonlySet<number>;
   batchSize?: number;
   onItem?: (response: ToolsMediaRelationsResponse) => void;
 };
@@ -232,7 +234,11 @@ export async function fetchToolsMediaRelationsBatch(
   const pending: number[] = [];
 
   for (const mediaId of mediaIds) {
-    if (forceAll || needsGraphDataRefresh(markerMap.get(mediaId) ?? null, fetchOptions)) {
+    if (
+      forceAll ||
+      options.refreshMediaIds?.has(mediaId) ||
+      needsGraphDataRefresh(markerMap.get(mediaId) ?? null, fetchOptions)
+    ) {
       pending.push(mediaId);
       continue;
     }

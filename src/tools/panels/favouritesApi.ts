@@ -336,6 +336,15 @@ export async function runFavouritesAnalysis(
   const vaTotalCharacterCounts = new Map<number, number>();
   const vaMainRoleCharacterCounts = new Map<number, number>();
   const vaIdList = [...vaIds];
+  const refreshStaffIds = fetchOptions?.refreshStaffIds ?? [];
+  if (refreshStaffIds.length > 0) {
+    onProgress({
+      phase: 'expand-staff-filmography',
+      index: 1,
+      total: refreshStaffIds.length,
+    });
+    await ensureStaffFilmographyFreshBatch(refreshStaffIds, { forceRefresh: true, signal });
+  }
   await ensureStaffFilmographyFreshBatch(vaIdList, graphOptions);
   for (let i = 0; i < vaIdList.length; i += 1) {
     signal?.throwIfAborted();

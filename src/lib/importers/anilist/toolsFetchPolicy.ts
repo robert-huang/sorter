@@ -12,6 +12,8 @@ export type FavouritesFetchOptions = {
   forceRefreshFavourites?: boolean;
   /** Expand Roles — full graph expansion into SQLite before building the report. */
   expandRoles?: boolean;
+  /** Stale-data warning — force re-fetch only these VAs' filmography before the run. */
+  refreshStaffIds?: readonly number[];
 };
 
 export function favouritesImportOptions(

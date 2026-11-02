@@ -6,7 +6,15 @@ import type { ToolPanelProps } from '../toolTypes';
 import { ToolClearableInput } from '../ToolClearableInput';
 import { ToolRunButton } from '../ToolRunButton';
 import { ToolUsernameField } from '../ToolUsernameField';
-import { CharacterNameInlineList, ToolCharacterName, ToolShowButton, ToolStaffButton } from '../toolEntityLinks';
+import {
+  CharacterNameInlineList,
+  StaleStaffIdsContext,
+  ToolCharacterName,
+  ToolShowButton,
+  ToolStaffButton,
+} from '../toolEntityLinks';
+import { useStaleStaffIds } from '../useStaleCastMediaIds';
+import { useToolsPreferences } from '../../hooks/useToolsPreferences';
 import { useUsernameListRefresh } from '../useUsernameListRefresh';
 import { useToolsDisplayLabelRevision } from '../useToolsDisplayLabelRevision';
 import {
@@ -642,6 +650,8 @@ function FavouriteCharactersBlock({
   );
 }
 
+const EMPTY_STAFF_IDS: ReadonlySet<number> = new Set();
+
 export function FavouritesPanel({
   onOpenMedia,
   onOpenStaff,
@@ -668,6 +678,25 @@ export function FavouritesPanel({
   const [progress, setProgress] = useState<FavouritesRunProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<FavouritesResult | null>(null);
+  // VA counts come from each VA's cached filmography, so flag the stale ones.
+  const resultStaffIds = useMemo(
+    () =>
+      result
+        ? [...result.byCount.map((row) => row.staffId), ...result.favouriteStaff.map((s) => s.id)]
+        : [],
+    [result],
+  );
+  const staleCheckRevision = useMemo(() => ({}), [dbSyncRevision, result]);
+  const staleStaffIds = useStaleStaffIds(resultStaffIds, staleCheckRevision, {
+    ignoreHighlightSetting: true,
+  });
+  const { highlightStaleCast } = useToolsPreferences().prefs;
+  const highlightedStaleStaffIds = highlightStaleCast ? staleStaffIds : EMPTY_STAFF_IDS;
+  // Session-only: any run replaces `result`, which brings the warning back.
+  const [staleWarningDismissed, setStaleWarningDismissed] = useState(false);
+  useEffect(() => {
+    setStaleWarningDismissed(false);
+  }, [result]);
   const [resultFormKey, setResultFormKey] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const rebuildSourceRef = useRef<FavouritesRebuildSource | null>(null);
@@ -817,6 +846,10 @@ export function FavouritesPanel({
     void runAnalysis({ expandRoles: true });
   }, [runAnalysis]);
 
+  const onRefreshStaleStaff = useCallback(() => {
+    void runAnalysis({ refreshStaffIds: [...staleStaffIds] });
+  }, [runAnalysis, staleStaffIds]);
+
   const statusText = progressLabel(progress);
   const mainRolePct =
     result && result.numSeen > 0
@@ -828,6 +861,7 @@ export function FavouritesPanel({
       : null;
 
   return (
+    <StaleStaffIdsContext.Provider value={highlightedStaleStaffIds}>
     <section className="tool-panel">
       <p className="tool-panel-lead">
         Find voice actors behind your favourite characters — port of{' '}
@@ -902,6 +936,28 @@ export function FavouritesPanel({
         </div>
 
         {statusText && <p className="tool-status">{statusText}</p>}
+        {showResults && staleStaffIds.size > 0 && !staleWarningDismissed && (
+          <p className="tool-status settings-anilist-hint settings-cache-stale" role="status">
+            Credits for {staleStaffIds.size} VA{staleStaffIds.size === 1 ? '' : 's'} are
+            older than 90 days{highlightStaleCast ? ' (highlighted below)' : ''}.{' '}
+            <button
+              type="button"
+              className="tool-stats-inline-action"
+              disabled={running}
+              onClick={onRefreshStaleStaff}
+            >
+              Refresh {staleStaffIds.size === 1 ? 'it' : 'them'}
+            </button>{' '}
+            or refresh individual staff in the staff modal.{' '}
+            <button
+              type="button"
+              className="tool-stats-inline-action tool-stats-inline-dismiss"
+              onClick={() => setStaleWarningDismissed(true)}
+            >
+              dismiss
+            </button>
+          </p>
+        )}
         {error && <p className="tool-error">{error}</p>}
       </form>
 
@@ -1006,5 +1062,6 @@ export function FavouritesPanel({
         </div>
       )}
     </section>
+    </StaleStaffIdsContext.Provider>
   );
 }

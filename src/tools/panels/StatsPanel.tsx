@@ -112,6 +112,7 @@ import {
   type StatsTimeWatchedRow,
 } from './statsLogic';
 import { useCurrentAnilistFavourites } from '../useCurrentAnilistFavourites';
+import { useToolsPreferences } from '../../hooks/useToolsPreferences';
 import type { FavouriteEntityIds } from '../../lib/importers/anilist/readQueries';
 
 const LS_KEY = 'anime-tools-stats-form';
@@ -134,15 +135,11 @@ const DEFAULT_FORM: StatsForm = {
   genderFilters: [],
   vaShowMainRoleInfo: false,
   vaShowDiff: false,
-  highlightStaleCast: true,
   tagOptions: { ...DEFAULT_STATS_TAG_OPTIONS },
   studioKindFilters: [...STATS_STUDIO_KIND_OPTIONS],
 };
 
-type PersistedStatsForm = Pick<
-  StatsForm,
-  'username' | 'mediaType' | 'aggregationType' | 'vaShowMainRoleInfo' | 'vaShowDiff' | 'highlightStaleCast'
->;
+type PersistedStatsForm = Pick<StatsForm, 'username' | 'mediaType' | 'aggregationType' | 'vaShowMainRoleInfo' | 'vaShowDiff'>;
 
 type PersistedStatsFilters = Pick<
   StatsForm,
@@ -175,7 +172,6 @@ function loadForm(): StatsForm {
       vaShowMainRoleInfo:
         parsed.vaShowMainRoleInfo === true || (parsed as { vaMainOnly?: boolean }).vaMainOnly === true,
       vaShowDiff: parsed.vaShowDiff === true,
-      highlightStaleCast: parsed.highlightStaleCast !== false,
       mediaStatusFilters: normalizeStatsMediaStatusFilters(filters.mediaStatusFilters),
       formatFilters:
         mediaType === 'MANGA'
@@ -217,7 +213,6 @@ function saveForm(form: StatsForm): void {
       aggregationType: form.aggregationType,
       vaShowMainRoleInfo: form.vaShowMainRoleInfo,
       vaShowDiff: form.vaShowDiff,
-      highlightStaleCast: form.highlightStaleCast,
     };
     localStorage.setItem(LS_KEY, JSON.stringify(persisted));
     const filters: PersistedStatsFilters = {
@@ -442,7 +437,7 @@ export function StatsSubrowNameCell({
                 ? 'anilist-detail-media-title--favourite'
                 : undefined,
               muteSubrowTitle ? 'tool-stats-non-animation-subrow-title' : undefined,
-              staleCast ? 'tool-stats-stale-cast-title' : undefined,
+              staleCast ? 'tool-stale-cast-title' : undefined,
             ]
               .filter(Boolean)
               .join(' ')}
@@ -1407,10 +1402,11 @@ export function StatsPanel({
       });
   }, [cached, runFetch]);
 
+  const { highlightStaleCast } = useToolsPreferences().prefs;
   const staleCastIds = cached?.staleCastMediaIds ?? [];
   const highlightedStaleCast = useMemo(
-    () => (form.highlightStaleCast ? new Set(cached?.staleCastMediaIds ?? []) : undefined),
-    [cached?.staleCastMediaIds, form.highlightStaleCast],
+    () => (highlightStaleCast ? new Set(cached?.staleCastMediaIds ?? []) : undefined),
+    [cached?.staleCastMediaIds, highlightStaleCast],
   );
   // Session-only: any run or chart reload replaces `cached`, which brings the warning back.
   const [staleWarningDismissed, setStaleWarningDismissed] = useState(false);
@@ -1842,17 +1838,6 @@ export function StatsPanel({
               />
             </>
           ) : null}
-
-          {form.aggregationType === 'STAFF' || form.aggregationType === 'VA' ? (
-            <StatsToggleChip
-              label="Highlight Stale Cast"
-              active={form.highlightStaleCast}
-              disabled={running}
-              onToggle={() => patchForm({ highlightStaleCast: !form.highlightStaleCast })}
-              title="Colour show titles whose cast data is older than 90 days"
-            />
-          ) : null}
-
           {form.aggregationType === 'GENRES_TAGS' ? (
             <TagOptionsChip
               mode={form.tagOptions.tagMode}
@@ -1912,7 +1897,7 @@ export function StatsPanel({
             >
               Cast data for {staleCastIds.length} show
               {staleCastIds.length === 1 ? '' : 's'} is older than 90 days
-              {form.highlightStaleCast ? ' (highlighted in the chart)' : ''}.{' '}
+              {highlightStaleCast ? ' (highlighted in the chart)' : ''}.{' '}
               <button
                 type="button"
                 className="tool-stats-inline-action"

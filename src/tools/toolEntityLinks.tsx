@@ -8,6 +8,13 @@ import { AnilistMiddleClickLink } from '../lib/importers/anilist/AnilistMiddleCl
 import type { AnilistMediaType } from '../lib/importers/anilist/types';
 import { UserIcon } from '../components/icons';
 import type { ToolPanelProps } from './toolTypes';
+import { createContext, useContext } from 'react';
+
+/**
+ * Staff whose cached filmography is over 90 days old. Panels whose results come
+ * from staff filmographies (Favourites, Shared Credits) provide it; elsewhere it's empty.
+ */
+export const StaleStaffIdsContext = createContext<ReadonlySet<number>>(new Set());
 
 export function appendFavouriteStar(label: string, favourite: boolean): string {
   return favourite ? `${label} ★` : label;
@@ -198,6 +205,7 @@ export function ToolStaffButton({
   gender,
   favourite,
 }: ToolStaffButtonProps) {
+  const stale = useContext(StaleStaffIdsContext).has(staffId);
   return (
     <AnilistMiddleClickLink
       url={anilistUrlForStaffId(staffId)}
@@ -205,11 +213,16 @@ export function ToolStaffButton({
         'tool-entity-btn',
         compact ? 'tool-entity-btn--compact' : '',
         staffGenderButtonClass(gender),
+        stale ? 'tool-stale-cast-title' : '',
         className ?? '',
       ]
         .filter(Boolean)
         .join(' ')}
-      title={`View ${name}'s filmography`}
+      title={
+        stale
+          ? `View ${name}'s filmography (cached credits are older than 90 days)`
+          : `View ${name}'s filmography`
+      }
       onPrimaryClick={() => onOpenStaff(staffId, name)}
     >
       <ToolEntityAvatar imageUrl={imageUrl} label={name} variant="round" />

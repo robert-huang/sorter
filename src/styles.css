@@ -10705,8 +10705,12 @@ a:where(.anime-to-anime-anilist-link):visited {
   color: var(--warn-text);
 }
 
-.tool-stats-stale-cast-title {
-  color: var(--warn-text);
+/* Stale (>90d) cached data: show titles (Stats, Shared Staff) and staff names
+   (Favourites, Shared Credits). Overrides the staff gender colours while stale. */
+.tool-stale-cast-title,
+.tool-stale-cast-title .tool-entity-label strong,
+.tool-stale-cast-title:hover .tool-entity-label strong {
+  color: var(--warn-text) !important;
 }
 
 /* Link-style action inside a status line, e.g. the stale-cast warning. */

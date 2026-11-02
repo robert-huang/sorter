@@ -22,6 +22,7 @@ import {
 } from './lazyExpansion';
 import {
   getCharacterMediaFetchedAt,
+  getMediaRelationsExpansionFetchedAtBatch,
   getProductionCreditsAtMedia,
   getStaffFilmographyFetchedAt,
   getVaCreditsAtMedia,
@@ -36,6 +37,7 @@ import type { ToolsFetchOptions } from './toolsFetchPolicy';
 import { needsGraphDataRefresh } from './toolsFetchPolicy';
 import { getToolsImportContext } from './toolsImportContext';
 import { favCharactersDobSchemaKey } from './meta';
+import { isGraphTimestampStale } from './graphConstants';
 import {
   getAnilistUserByName,
   getLastFavouritesRefresh,
@@ -182,6 +184,50 @@ export async function ensureCharacterMediaFreshBatch(
     force,
     signal: options?.signal,
   });
+}
+
+/**
+ * Shows whose expanded cast was fetched over 90 days ago. Stale cast is still
+ * served (see toolsFetchPolicy), so tools flag these for an explicit refresh.
+ */
+export async function findStaleCastMediaIds(mediaIds: readonly number[]): Promise<number[]> {
+  const ctx = getToolsImportContext();
+  const stale: number[] = [];
+  for (const mediaId of new Set(mediaIds)) {
+    const status = await getMediaCastExpansionStatus(ctx.db, mediaId);
+    if (!status || (!status.charactersComplete && !status.staffComplete)) continue;
+    if (
+      isGraphTimestampStale(status.charactersFetchedAt) ||
+      isGraphTimestampStale(status.staffFetchedAt)
+    ) {
+      stale.push(mediaId);
+    }
+  }
+  return stale;
+}
+
+/** Staff whose cached filmography (credits / voiced characters) was fetched over 90 days ago. */
+export async function findStaleStaffFilmographyIds(
+  staffIds: readonly number[],
+): Promise<number[]> {
+  const ctx = getToolsImportContext();
+  const stale: number[] = [];
+  for (const staffId of new Set(staffIds)) {
+    const fetchedAt = await getStaffFilmographyFetchedAt(ctx.db, staffId);
+    if (fetchedAt !== null && isGraphTimestampStale(fetchedAt)) stale.push(staffId);
+  }
+  return stale;
+}
+
+/** Media whose cached relations (sequels, adaptations, …) were fetched over 90 days ago. */
+export async function findStaleRelationMediaIds(
+  mediaIds: readonly number[],
+): Promise<number[]> {
+  const ctx = getToolsImportContext();
+  const fetchedAt = await getMediaRelationsExpansionFetchedAtBatch(ctx.db, [...new Set(mediaIds)]);
+  return [...fetchedAt]
+    .filter(([, at]) => isGraphTimestampStale(at))
+    .map(([mediaId]) => mediaId);
 }
 
 export async function ensureMediaCastFreshWithContext(

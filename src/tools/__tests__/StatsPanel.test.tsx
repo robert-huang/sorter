@@ -94,7 +94,7 @@ describe('StatsSubrowNameCell', () => {
       );
     });
     const title = container.querySelector('.tool-stats-subrow-show-title')!;
-    expect(title.classList.contains('tool-stats-stale-cast-title')).toBe(true);
+    expect(title.classList.contains('tool-stale-cast-title')).toBe(true);
     expect(title.getAttribute('title')).toBe('Cast data for this show is older than 90 days');
   });
 

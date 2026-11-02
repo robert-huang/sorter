@@ -13,6 +13,7 @@ import {
 import type { ToolsFetchOptions } from '../../lib/importers/anilist/toolsFetchPolicy';
 import {
   ensureUserMediaListFresh,
+  findStaleRelationMediaIds,
   readUserMediaListEntriesFromDb,
 } from '../../lib/importers/anilist/toolsAnilistAccess';
 import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportContext';
@@ -89,6 +90,7 @@ async function fetchFranchiseRelationsBatch(
   mediaIds: readonly number[],
   signal?: AbortSignal,
   options?: ToolsFetchOptions,
+  refreshMediaIds?: ReadonlySet<number>,
 ): Promise<Map<number, FranchiseRelationsResponse | null>> {
   if (mediaIds.length === 0) {
     return new Map();
@@ -96,6 +98,7 @@ async function fetchFranchiseRelationsBatch(
   const responses = await fetchToolsMediaRelationsBatch(mediaIds, {
     signal,
     fetchOptions: options,
+    refreshMediaIds,
   });
   const out = new Map<number, FranchiseRelationsResponse | null>();
   for (const id of mediaIds) {
@@ -155,6 +158,8 @@ export type RunFranchiseScoresOptions = {
   signal?: AbortSignal;
   onProgress?: (progress: FranchiseRunProgress) => void;
   fetchOptions?: ToolsFetchOptions;
+  /** Re-fetch only these nodes' relations (stale-data warning); lists stay cached. */
+  refreshRelationIds?: readonly number[];
   /** Cap on franchise nodes — guards a runaway OTHER web. */
   maxNodes?: number;
 };
@@ -162,6 +167,8 @@ export type RunFranchiseScoresOptions = {
 export type RunFranchiseScoresResult = {
   seed: { id: number; title: string };
   entries: FranchiseEntry[];
+  /** Walked nodes whose cached relations are over 90 days old (may be missing new entries). */
+  staleRelationIds: number[];
 };
 
 /**
@@ -179,6 +186,7 @@ export async function runFranchiseScores(
     signal,
     onProgress,
     fetchOptions,
+    refreshRelationIds,
     maxNodes,
   } = options;
 
@@ -186,10 +194,11 @@ export async function runFranchiseScores(
   onProgress?.({ phase: 'resolve', label: seedSearch });
   const seed = await searchFranchiseSeed(seedSearch, signal);
 
+  const refreshIds = refreshRelationIds ? new Set(refreshRelationIds) : undefined;
   const nodes = await bfsFranchiseRelations(
     seed.id,
     relationToggles,
-    (ids, sig) => fetchFranchiseRelationsBatch(ids, sig, fetchOptions),
+    (ids, sig) => fetchFranchiseRelationsBatch(ids, sig, fetchOptions, refreshIds),
     {
       signal,
       maxNodes,
@@ -208,5 +217,6 @@ export async function runFranchiseScores(
   }
 
   const entries = buildFranchiseEntries(seed.id, nodes, listMap);
-  return { seed, entries };
+  const staleRelationIds = await findStaleRelationMediaIds(entries.map((entry) => entry.id));
+  return { seed, entries, staleRelationIds };
 }

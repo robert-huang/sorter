@@ -6,7 +6,8 @@
  *   - Relations are walked through `fetchToolsMediaRelationsBatch`,
  *     which persists edges in SQLite (`media_relation` +
  *     `media_relations_expansion`) and only hits AniList when the
- *     marker is missing or stale (>90d). BFS fetches one depth level
+ *     marker is missing. Markers older than 90d are served but reported
+ *     in `staleRelationIds` for a targeted refresh. BFS fetches one depth level
  *     per batch (up to 15 media per GraphQL call). Session memo dedupes
  *     within a tab; SQLite survives reloads and Drive sync.
  *   - Right-click Trace (forceRefresh) busts the SQLite marker and
@@ -315,5 +316,58 @@ describe('franchise relations cross-session cache', () => {
     });
 
     expect(executeAnilistQueryMock).toHaveBeenCalledTimes(4);
+  });
+});
+
+describe('franchise stale relations', () => {
+  it('flags relations older than 90 days and refreshes only those ids', async () => {
+    executeAnilistQueryMock
+      .mockResolvedValueOnce({ Media: { id: 100, title: { english: 'Seed', romaji: null } } })
+      .mockResolvedValueOnce(
+        batchRelationsResponse([
+          { selfId: 100, edges: [{ relationType: 'SEQUEL', nodeId: 200 }] },
+        ]),
+      )
+      .mockResolvedValueOnce(batchRelationsResponse([{ selfId: 200 }]));
+
+    const fresh = await runFranchiseScores({ seedSearch: 'Seed', username: 'rh_test' });
+    expect(fresh.staleRelationIds).toEqual([]);
+
+    const hundredDaysAgo = Date.now() - 100 * 24 * 60 * 60 * 1000;
+    sqliteDb.exec({
+      sql: 'UPDATE media_relations_expansion SET fetched_at = ? WHERE media_id = 100',
+      bind: [hundredDaysAgo],
+    });
+
+    // Stale relations are still served from SQLite, just flagged.
+    const callsBeforeStale = executeAnilistQueryMock.mock.calls.length;
+    const stale = await runFranchiseScores({ seedSearch: 'Seed', username: 'rh_test' });
+    expect(stale.staleRelationIds).toEqual([100]);
+    expect(executeAnilistQueryMock).toHaveBeenCalledTimes(callsBeforeStale);
+
+    // Refreshing 100 picks up a newly announced sequel (300), which is fetched as missing.
+    executeAnilistQueryMock
+      .mockResolvedValueOnce(
+        batchRelationsResponse([
+          {
+            selfId: 100,
+            edges: [
+              { relationType: 'SEQUEL', nodeId: 200 },
+              { relationType: 'SEQUEL', nodeId: 300 },
+            ],
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(batchRelationsResponse([{ selfId: 300 }]));
+    const refreshed = await runFranchiseScores({
+      seedSearch: 'Seed',
+      username: 'rh_test',
+      refreshRelationIds: stale.staleRelationIds,
+    });
+
+    expect(refreshed.entries.map((entry) => entry.id).sort()).toEqual([100, 200, 300]);
+    expect(refreshed.staleRelationIds).toEqual([]);
+    expect(executeAnilistQueryMock).toHaveBeenCalledTimes(callsBeforeStale + 2);
+    expect(ensureUserMediaListFreshMock).toHaveBeenLastCalledWith('rh_test', 'MANGA', undefined);
   });
 });

@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { useToolsPreferences } from '../../hooks/useToolsPreferences';
 import type { ToolPanelProps } from '../toolTypes';
 import { ToolRunButton } from '../ToolRunButton';
 import { ToolUsernameField } from '../ToolUsernameField';
@@ -305,6 +314,7 @@ export function FranchiseTable({
   onToggleActivityMedia?: (mediaId: number) => void;
 }) {
   const favourites = useCurrentAnilistFavourites();
+  const staleRelationIds = useContext(FranchiseStaleRelationIdsContext);
   // Brief visual confirmation that the clipboard write succeeded; clears
   // itself so a follow-up Copy fires the toast again.
   const [copied, setCopied] = useState(false);
@@ -388,7 +398,11 @@ export function FranchiseTable({
                     mediaType={entry.mediaType}
                     onOpenMedia={onOpenMedia}
                     compact
-                    className="tool-franchise-title-link"
+                    className={
+                      staleRelationIds.has(entry.id)
+                        ? 'tool-franchise-title-link tool-stale-cast-title'
+                        : 'tool-franchise-title-link'
+                    }
                     favourite={favourites.mediaIds.has(entry.id)}
                   />
                   <span
@@ -431,6 +445,11 @@ export function FranchiseTable({
   );
 }
 
+const EMPTY_MEDIA_IDS: ReadonlySet<number> = new Set();
+
+/** Entries whose cached relations are over 90 days old (yellow titles). */
+const FranchiseStaleRelationIdsContext = createContext<ReadonlySet<number>>(EMPTY_MEDIA_IDS);
+
 export function FranchiseScoresPanel({ onOpenMedia }: ToolPanelProps) {
   // Refresh button must update BOTH the anime + manga lists (franchise
   // reads each user's list and stamps watched/scored status onto every
@@ -450,6 +469,14 @@ export function FranchiseScoresPanel({ onOpenMedia }: ToolPanelProps) {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<FranchiseResultState | null>(null);
   const [progress, setProgress] = useState<FranchiseRunProgress | null>(null);
+  const [staleRelationIds, setStaleRelationIds] = useState<number[]>([]);
+  // Session-only: every trace sets a new list, which brings the warning back.
+  const [staleWarningDismissed, setStaleWarningDismissed] = useState(false);
+  const { highlightStaleCast } = useToolsPreferences().prefs;
+  const highlightedStaleRelationIds = useMemo(
+    () => (highlightStaleCast ? new Set(staleRelationIds) : EMPTY_MEDIA_IDS),
+    [highlightStaleCast, staleRelationIds],
+  );
   const abortRef = useRef<AbortController | null>(null);
   // Stash the raw entries so display-preference changes can relabel
   // without refetching the network.
@@ -506,6 +533,7 @@ export function FranchiseScoresPanel({ onOpenMedia }: ToolPanelProps) {
       runForm: FranchiseForm,
       forceRefresh = false,
       preserveResult = false,
+      refreshRelationIds?: readonly number[],
     ) => {
       const username = runForm.username.trim();
       const showText = runForm.showText.trim();
@@ -540,8 +568,11 @@ export function FranchiseScoresPanel({ onOpenMedia }: ToolPanelProps) {
           signal: controller.signal,
           onProgress: setProgress,
           fetchOptions: forceRefresh ? { forceRefresh: true } : undefined,
+          refreshRelationIds,
         });
         entriesRef.current = { entries: run.entries, seed: run.seed };
+        setStaleRelationIds(run.staleRelationIds);
+        setStaleWarningDismissed(false);
         completedRunRef.current = { username, showText };
         if (run.entries.length === 0) {
           setResult({
@@ -574,6 +605,11 @@ export function FranchiseScoresPanel({ onOpenMedia }: ToolPanelProps) {
   const onRun = useCallback(
     (forceRefresh = false) => runForForm(form, forceRefresh),
     [form, runForForm],
+  );
+
+  const onRefreshStaleRelations = useCallback(
+    () => runForForm(form, false, true, staleRelationIds),
+    [form, runForForm, staleRelationIds],
   );
 
   // Once a franchise has been traced, changing relation types immediately
@@ -698,21 +734,48 @@ export function FranchiseScoresPanel({ onOpenMedia }: ToolPanelProps) {
         </div>
 
         {running && <p className="tool-status">{describeProgress(progress)}</p>}
+        {result?.kind === 'columns' &&
+          staleRelationIds.length > 0 &&
+          !staleWarningDismissed && (
+            <p className="tool-status settings-anilist-hint settings-cache-stale" role="status">
+              Relations for {staleRelationIds.length} entr
+              {staleRelationIds.length === 1 ? 'y are' : 'ies are'} older than 90 days
+              {highlightStaleCast ? ' (highlighted below)' : ''}, so newer sequels or
+              adaptations may be missing.{' '}
+              <button
+                type="button"
+                className="tool-stats-inline-action"
+                disabled={running}
+                onClick={() => void onRefreshStaleRelations()}
+              >
+                Refresh {staleRelationIds.length === 1 ? 'it' : 'them'}
+              </button>{' '}
+              <button
+                type="button"
+                className="tool-stats-inline-action tool-stats-inline-dismiss"
+                onClick={() => setStaleWarningDismissed(true)}
+              >
+                dismiss
+              </button>
+            </p>
+          )}
         {error && <p className="tool-error">{error}</p>}
       </form>
 
       {result?.kind === 'empty' && <p className="tool-empty">{result.message}</p>}
 
       {result?.kind === 'columns' && (
-        <FranchiseFilteredView
-          entries={result.entries}
-          seedId={result.seed.id}
-          seedTitle={result.seed.title}
-          franchiseUsername={form.username.trim()}
-          filters={filters}
-          onPatchFilters={patchFilters}
-          onOpenMedia={onOpenMedia}
-        />
+        <FranchiseStaleRelationIdsContext.Provider value={highlightedStaleRelationIds}>
+          <FranchiseFilteredView
+            entries={result.entries}
+            seedId={result.seed.id}
+            seedTitle={result.seed.title}
+            franchiseUsername={form.username.trim()}
+            filters={filters}
+            onPatchFilters={patchFilters}
+            onOpenMedia={onOpenMedia}
+          />
+        </FranchiseStaleRelationIdsContext.Provider>
       )}
     </section>
   );

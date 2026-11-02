@@ -36,6 +36,11 @@ export type ToolsPreferences = {
   scoreComparisonTargetMean: number;
   /** Always > 0. */
   scoreComparisonTargetStdDev: number;
+  /**
+   * Colour names whose cached AniList data is over 90 days old: shows by cast
+   * (Stats, Shared Staff) and staff by filmography (Favourites, Shared Credits).
+   */
+  highlightStaleCast: boolean;
 };
 
 const STORAGE_KEY = 'anime-tools:preferences:v1';
@@ -56,6 +61,7 @@ const DEFAULT_PREFS: ToolsPreferences = {
   scoreComparisonRescale: false,
   scoreComparisonTargetMean: 70,
   scoreComparisonTargetStdDev: 15,
+  highlightStaleCast: true,
 };
 
 function finiteOr(value: unknown, fallback: number): number {
@@ -186,6 +192,7 @@ export function loadToolsPreferences(): ToolsPreferences {
         parsed.scoreComparisonTargetStdDev,
         DEFAULT_PREFS.scoreComparisonTargetStdDev,
       ),
+      highlightStaleCast: parsed.highlightStaleCast !== false,
     };
     if (
       typeof parsed.seasonalScoresSpanAiringSeasons !== 'boolean' ||
