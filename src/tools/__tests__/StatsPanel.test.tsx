@@ -87,6 +87,17 @@ afterEach(() => {
 });
 
 describe('StatsSubrowNameCell', () => {
+  it('marks a show title whose cast data is stale', () => {
+    act(() => {
+      root.render(
+        <StatsSubrowNameCell entry={entry} favourites={favourites} onOpenMedia={vi.fn()} staleCast />,
+      );
+    });
+    const title = container.querySelector('.tool-stats-subrow-show-title')!;
+    expect(title.classList.contains('tool-stats-stale-cast-title')).toBe(true);
+    expect(title.getAttribute('title')).toBe('Cast data for this show is older than 90 days');
+  });
+
   it('keeps character links separate from the media-row link target', () => {
     act(() => {
       root.render(

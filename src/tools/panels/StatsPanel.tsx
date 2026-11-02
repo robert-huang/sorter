@@ -37,6 +37,7 @@ import {
   bustStatsSessionMemo,
   expandStatsCast,
   fetchStatsData,
+  refreshStaleStatsCast,
   refreshStatsCastFromDb,
   statsCachedNeedsCast,
   type StatsFetchProgress,
@@ -133,11 +134,15 @@ const DEFAULT_FORM: StatsForm = {
   genderFilters: [],
   vaShowMainRoleInfo: false,
   vaShowDiff: false,
+  highlightStaleCast: true,
   tagOptions: { ...DEFAULT_STATS_TAG_OPTIONS },
   studioKindFilters: [...STATS_STUDIO_KIND_OPTIONS],
 };
 
-type PersistedStatsForm = Pick<StatsForm, 'username' | 'mediaType' | 'aggregationType' | 'vaShowMainRoleInfo' | 'vaShowDiff'>;
+type PersistedStatsForm = Pick<
+  StatsForm,
+  'username' | 'mediaType' | 'aggregationType' | 'vaShowMainRoleInfo' | 'vaShowDiff' | 'highlightStaleCast'
+>;
 
 type PersistedStatsFilters = Pick<
   StatsForm,
@@ -170,6 +175,7 @@ function loadForm(): StatsForm {
       vaShowMainRoleInfo:
         parsed.vaShowMainRoleInfo === true || (parsed as { vaMainOnly?: boolean }).vaMainOnly === true,
       vaShowDiff: parsed.vaShowDiff === true,
+      highlightStaleCast: parsed.highlightStaleCast !== false,
       mediaStatusFilters: normalizeStatsMediaStatusFilters(filters.mediaStatusFilters),
       formatFilters:
         mediaType === 'MANGA'
@@ -211,6 +217,7 @@ function saveForm(form: StatsForm): void {
       aggregationType: form.aggregationType,
       vaShowMainRoleInfo: form.vaShowMainRoleInfo,
       vaShowDiff: form.vaShowDiff,
+      highlightStaleCast: form.highlightStaleCast,
     };
     localStorage.setItem(LS_KEY, JSON.stringify(persisted));
     const filters: PersistedStatsFilters = {
@@ -280,6 +287,8 @@ const STATS_STUDIO_TYPE_TOOLTIP =
   'Non-animation: producer, distributor, or other supporting studio credits (isMain false). ' +
   'Legacy rows without isMain use sort order 0; when no studio has isMain true, sort order 0 is also treated as animation. ' +
   'Producer-only studio rows are muted and italic; mixed rows mute only the non-animation show subrows.';
+
+const STATS_STALE_CAST_HINT = 'Cast data for this show is older than 90 days';
 
 const STATS_NON_ANIMATION_STUDIO_HINT =
   'Non-animation studio credit (producer, distributor, or other supporting role—not the primary animation studio).';
@@ -395,11 +404,14 @@ export function StatsSubrowNameCell({
   link,
   favourites,
   onOpenMedia,
+  staleCast = false,
 }: {
   entry: StatsEntry;
   link?: StatsSubrowLink;
   favourites: FavouriteEntityIds;
   onOpenMedia: ToolPanelProps['onOpenMedia'];
+  /** Cast data for this show is over 90 days old. */
+  staleCast?: boolean;
 }) {
   const repeatSuffix = formatRepeatSuffix(entry.repeat);
   const vaCharacters = link?.characters ?? [];
@@ -430,10 +442,17 @@ export function StatsSubrowNameCell({
                 ? 'anilist-detail-media-title--favourite'
                 : undefined,
               muteSubrowTitle ? 'tool-stats-non-animation-subrow-title' : undefined,
+              staleCast ? 'tool-stats-stale-cast-title' : undefined,
             ]
               .filter(Boolean)
               .join(' ')}
-            title={muteSubrowTitle ? STATS_NON_ANIMATION_STUDIO_HINT : undefined}
+            title={
+              muteSubrowTitle
+                ? STATS_NON_ANIMATION_STUDIO_HINT
+                : staleCast
+                  ? STATS_STALE_CAST_HINT
+                  : undefined
+            }
           >
             {appendFavouriteStar(
               entry.title,
@@ -814,6 +833,7 @@ function StatsTable({
   expandedKeys,
   onToggleExpand,
   emptyMessage,
+  staleCastMediaIds,
 }: {
   title: string;
   rows: StatsParentRow[];
@@ -829,6 +849,8 @@ function StatsTable({
   expandedKeys: Set<string>;
   onToggleExpand: (key: string) => void;
   emptyMessage?: string;
+  /** Shows to highlight as having stale cast; omit to highlight none. */
+  staleCastMediaIds?: ReadonlySet<number>;
 }) {
   const isAnime = mediaType === 'ANIME';
   const headerWrapRef = useRef<HTMLDivElement>(null);
@@ -1142,6 +1164,7 @@ function StatsTable({
                               isAnime={isAnime}
                               favourites={favourites}
                               onOpenMedia={onOpenMedia}
+                              staleCast={staleCastMediaIds?.has(sub.entry.mediaId) ?? false}
                             />
                           ))
                         : null}
@@ -1164,6 +1187,7 @@ function StatsSubrowTr({
   isAnime,
   favourites,
   onOpenMedia,
+  staleCast,
 }: {
   sub: StatsSubrow;
   showMainRoleInfo: boolean;
@@ -1171,6 +1195,7 @@ function StatsSubrowTr({
   isAnime: boolean;
   favourites: FavouriteEntityIds;
   onOpenMedia: ToolPanelProps['onOpenMedia'];
+  staleCast: boolean;
 }) {
   const entry = sub.entry;
   const isMainRole = statsSubrowHasMainRole(sub.link);
@@ -1188,6 +1213,7 @@ function StatsSubrowTr({
           link={sub.link}
           favourites={favourites}
           onOpenMedia={onOpenMedia}
+          staleCast={staleCast}
         />
       </td>
       <td className="tool-stats-subrow-count">{formatStatsSubrowCountLabel(entry)}</td>
@@ -1380,6 +1406,48 @@ export function StatsPanel({
         }
       });
   }, [cached, runFetch]);
+
+  const staleCastIds = cached?.staleCastMediaIds ?? [];
+  const highlightedStaleCast = useMemo(
+    () => (form.highlightStaleCast ? new Set(cached?.staleCastMediaIds ?? []) : undefined),
+    [cached?.staleCastMediaIds, form.highlightStaleCast],
+  );
+  // Session-only: any run or chart reload replaces `cached`, which brings the warning back.
+  const [staleWarningDismissed, setStaleWarningDismissed] = useState(false);
+  useEffect(() => {
+    setStaleWarningDismissed(false);
+  }, [cached]);
+
+  const onRefreshStaleCast = useCallback(() => {
+    if (!cached || running) {
+      return;
+    }
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setRunning(true);
+    setError(null);
+    setProgress(null);
+    void refreshStaleStatsCast(cached, { onProgress: setProgress, signal: controller.signal })
+      .then((refreshed) => {
+        if (!controller.signal.aborted) {
+          setCached(refreshed);
+        }
+      })
+      .catch((err) => {
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          return;
+        }
+        setError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (abortRef.current === controller) {
+          abortRef.current = null;
+          setRunning(false);
+          setProgress(null);
+        }
+      });
+  }, [cached, running]);
 
   useEffect(() => {
     if (!cached) {
@@ -1775,6 +1843,16 @@ export function StatsPanel({
             </>
           ) : null}
 
+          {form.aggregationType === 'STAFF' || form.aggregationType === 'VA' ? (
+            <StatsToggleChip
+              label="Highlight Stale Cast"
+              active={form.highlightStaleCast}
+              disabled={running}
+              onToggle={() => patchForm({ highlightStaleCast: !form.highlightStaleCast })}
+              title="Colour show titles whose cast data is older than 90 days"
+            />
+          ) : null}
+
           {form.aggregationType === 'GENRES_TAGS' ? (
             <TagOptionsChip
               mode={form.tagOptions.tagMode}
@@ -1825,16 +1903,32 @@ export function StatsPanel({
         </div>
 
         {describeProgress(progress) && <p className="tool-status">{describeProgress(progress)}</p>}
-        {cached != null &&
-          (cached.staleCastMediaCount ?? 0) > 0 &&
+        {staleCastIds.length > 0 &&
+          !staleWarningDismissed &&
           (form.aggregationType === 'STAFF' || form.aggregationType === 'VA') && (
             <p
               className="tool-status settings-anilist-hint settings-cache-stale"
               role="status"
             >
-              Cast data for {cached.staleCastMediaCount} show
-              {cached.staleCastMediaCount === 1 ? '' : 's'} is older than 90 days. Use ↻ on the
-              username field or refresh individual shows in the media modal.
+              Cast data for {staleCastIds.length} show
+              {staleCastIds.length === 1 ? '' : 's'} is older than 90 days
+              {form.highlightStaleCast ? ' (highlighted in the chart)' : ''}.{' '}
+              <button
+                type="button"
+                className="tool-stats-inline-action"
+                disabled={running}
+                onClick={onRefreshStaleCast}
+              >
+                Refresh {staleCastIds.length === 1 ? 'it' : 'them'}
+              </button>{' '}
+              or refresh individual shows in the media modal.{' '}
+              <button
+                type="button"
+                className="tool-stats-inline-action tool-stats-inline-dismiss"
+                onClick={() => setStaleWarningDismissed(true)}
+              >
+                dismiss
+              </button>
             </p>
           )}
         {error && <p className="tool-error">{error}</p>}
@@ -1868,6 +1962,7 @@ export function StatsPanel({
                     expandedKeys={expandedKeys}
                     onToggleExpand={onToggleExpand}
                     emptyMessage={aggregationEmptyHint}
+                    staleCastMediaIds={highlightedStaleCast}
                   />
                 </StatsCappedChart>
               )}
@@ -1889,6 +1984,7 @@ export function StatsPanel({
                     expandedKeys={expandedKeys}
                     onToggleExpand={onToggleExpand}
                     emptyMessage={aggregationEmptyHint}
+                    staleCastMediaIds={highlightedStaleCast}
                   />
                 </StatsCappedChart>
               )}

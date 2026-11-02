@@ -106,19 +106,16 @@ function isStatsCastExpansionStale(status: MediaCastExpansionStatus): boolean {
   );
 }
 
-export async function countStaleStatsCastMedia(mediaIds: readonly number[]): Promise<number> {
-  if (mediaIds.length === 0) {
-    return 0;
-  }
+export async function staleStatsCastMediaIds(mediaIds: readonly number[]): Promise<number[]> {
   const ctx = getToolsImportContext();
-  let count = 0;
-  for (const mediaId of mediaIds) {
+  const stale: number[] = [];
+  for (const mediaId of new Set(mediaIds)) {
     const status = await getMediaCastExpansionStatus(ctx.db, mediaId);
     if (status && isStatsCastExpansionStale(status)) {
-      count += 1;
+      stale.push(mediaId);
     }
   }
-  return count;
+  return stale;
 }
 
 function emptyStatsStartDate(): StatsStartDate {
@@ -460,8 +457,8 @@ export async function expandStatsCast(
   options?: StatsFetchOptions,
 ): Promise<StatsCachedData> {
   const entries = await attachCastToEntries(cached.entries, options);
-  const staleCastMediaCount = await countStaleStatsCastMedia(entries.map((e) => e.mediaId));
-  return { ...cached, entries, castExpanded: true, staleCastMediaCount };
+  const staleCastMediaIds = await staleStatsCastMediaIds(entries.map((e) => e.mediaId));
+  return { ...cached, entries, castExpanded: true, staleCastMediaIds };
 }
 
 export async function refreshStatsCastFromDb(
@@ -469,6 +466,22 @@ export async function refreshStatsCastFromDb(
   options?: Pick<StatsFetchOptions, 'signal'>,
 ): Promise<StatsCachedData> {
   const entries = await readCastForEntriesFromDb(cached.entries, options);
-  const staleCastMediaCount = await countStaleStatsCastMedia(entries.map((e) => e.mediaId));
-  return { ...cached, entries, staleCastMediaCount };
+  const staleCastMediaIds = await staleStatsCastMediaIds(entries.map((e) => e.mediaId));
+  return { ...cached, entries, staleCastMediaIds };
+}
+
+/** Re-fetch cast only for the shows flagged stale, then re-read the chart's cast. */
+export async function refreshStaleStatsCast(
+  cached: StatsCachedData,
+  options?: StatsFetchOptions,
+): Promise<StatsCachedData> {
+  const staleIds = cached.staleCastMediaIds ?? [];
+  await ensureMediaCastFreshBatch(
+    staleIds,
+    { ...options, forceRefresh: true },
+    ({ completed, total }) => {
+      options?.onProgress?.({ phase: 'cast', index: completed, total });
+    },
+  );
+  return refreshStatsCastFromDb(cached, options);
 }

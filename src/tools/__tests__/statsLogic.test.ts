@@ -88,6 +88,7 @@ const baseForm: StatsForm = {
   genderFilters: [],
   vaShowMainRoleInfo: false,
   vaShowDiff: false,
+  highlightStaleCast: true,
   tagOptions: { tagMode: 'or', tagMinRank: 0 },
   studioKindFilters: ['animation', 'non_animation'],
 };

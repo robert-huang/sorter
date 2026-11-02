@@ -131,6 +131,8 @@ export type StatsForm = {
   genderFilters: StatsGenderFilter[];
   vaShowMainRoleInfo: boolean;
   vaShowDiff: boolean;
+  /** Staff/VA charts: colour show titles whose cast data is over 90 days old. */
+  highlightStaleCast: boolean;
   tagOptions: StatsTagOptions;
   studioKindFilters: StatsStudioKindFilter[];
 };
@@ -334,7 +336,7 @@ export type StatsCachedData = {
   /** True after {@link expandStatsCast} has attached staff/VA credits to every entry. */
   castExpanded?: boolean;
   /** Shows with cast cache older than 90d (set after cast expansion). */
-  staleCastMediaCount?: number;
+  staleCastMediaIds?: number[];
 };
 
 export type StatsBuildResult = {
