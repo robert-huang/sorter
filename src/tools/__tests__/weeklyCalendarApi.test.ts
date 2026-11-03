@@ -82,7 +82,7 @@ describe('fetchWeeklyCalendarWatchingEntries', () => {
     expect(second[0]).toMatchObject({ progress: 5, format: 'TV' });
     expect(depaginateMock).toHaveBeenCalledTimes(1);
     await expect(
-      persistentCacheGet('weekly-calendar:watching:v2:rh_test'),
+      persistentCacheGet('weekly-calendar:watching:v3:rh_test'),
     ).resolves.toEqual({
       hit: true,
       value: second,
@@ -102,10 +102,10 @@ describe('fetchWeeklyCalendarWatchingEntries', () => {
     expect(depaginateMock).toHaveBeenCalledTimes(2);
   });
 
-  it('ignores pre-format cache entries from the previous key version', async () => {
+  it('ignores cache entries from the previous key version (no list dates)', async () => {
     await persistentCacheSet(
-      'weekly-calendar:watching:rh_test',
-      [{ id: 99, title: 'Stale entry without format' }],
+      'weekly-calendar:watching:v2:rh_test',
+      [{ id: 99, title: 'Stale entry without list dates' }],
       60_000,
     );
 
@@ -120,7 +120,7 @@ describe('fetchWeeklyCalendarWatchingEntries', () => {
     await bustWeeklyCalendarUserListMemo('rh_test');
 
     await expect(
-      persistentCacheGet('weekly-calendar:watching:v2:rh_test'),
+      persistentCacheGet('weekly-calendar:watching:v3:rh_test'),
     ).resolves.toEqual({ hit: false });
 
     _clearSessionMemoForTesting();

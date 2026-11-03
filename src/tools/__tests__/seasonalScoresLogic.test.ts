@@ -8,6 +8,7 @@ import {
   seasonalRepeatTooltip,
   applySeasonalFormatFilters,
   applySeasonalGenreFilters,
+  applySeasonalListDateFilter,
   applySeasonalScoreFilter,
   discoverSeasonalGenres,
   normalizeSeasonalStringFilters,
@@ -37,6 +38,37 @@ import {
   type SeasonalShow,
 } from '../panels/seasonalScoresLogic';
 import { encodeSeasonYear } from '../../lib/importers/anilist/filters';
+
+describe('applySeasonalListDateFilter', () => {
+  const show = (id: number, completedYears: (number | null)[]): SeasonalShow => ({
+    id,
+    title: `Show ${id}`,
+    season: 'WINTER',
+    seasonYear: 2026,
+    score: null,
+    notes: null,
+    entries: completedYears.map((year, index) => ({
+      username: `user${index}`,
+      listStatus: 'COMPLETED',
+      score: 80,
+      repeat: null,
+      notes: null,
+      listDates: { startedYear: year, startedMonth: 1, completedYear: year, completedMonth: 2 },
+    })),
+  });
+  const state = { listDateField: 'completed' as const, listDateMin: 2023 * 12, listDateMax: 2023 * 12 + 11 };
+  const shows = [show(1, [2023, 2019]), show(2, [2023, 2023]), show(3, [null])];
+
+  it('one person keeps shows any user completed in range; everyone needs all users', () => {
+    expect(applySeasonalListDateFilter(shows, { state, mode: 'any' }).map((s) => s.id)).toEqual([1, 2]);
+    expect(applySeasonalListDateFilter(shows, { state, mode: 'all' }).map((s) => s.id)).toEqual([2]);
+  });
+
+  it('passes everything when no range is set', () => {
+    const open = { ...state, listDateMin: null, listDateMax: null };
+    expect(applySeasonalListDateFilter(shows, { state: open, mode: 'all' })).toHaveLength(3);
+  });
+});
 
 describe('applySeasonalScoreFilter', () => {
   const show = (id: number, scores: (number | null)[]): SeasonalShow => ({

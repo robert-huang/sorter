@@ -21,6 +21,10 @@ import {
   withSessionTtlMemo,
 } from '../../lib/importers/anilist/toolsSessionMemo';
 import type { AnilistMediaFormat } from '../../lib/importers/anilist/types';
+import {
+  listEntryDatesFromFuzzy,
+  type ListEntryDates,
+} from '../../lib/importers/anilist/listDateFilter';
 import { pickMediaTitle } from './sharedCreditsLogic';
 import {
   computeAiredEpisodeCount,
@@ -76,14 +80,24 @@ type GqlMedia = {
 
 type SeasonFetchResult = { entries: WeeklyCalendarRawEntry[]; seasonLabel: string };
 
-export type UserListEntryMap = Map<
-  number,
-  { status: string | null; score: number | null; progress: number }
->;
+type UserListEntrySnapshot = {
+  status: string | null;
+  score: number | null;
+  progress: number;
+  listDates?: ListEntryDates;
+};
 
-type SerializedUserListEntryMap = Array<
-  [number, { status: string | null; score: number | null; progress: number }]
->;
+export type UserListEntryMap = Map<number, UserListEntrySnapshot>;
+
+type SerializedUserListEntryMap = Array<[number, UserListEntrySnapshot]>;
+
+type GqlListEntryFields = {
+  status?: string | null;
+  score?: number | null;
+  progress?: number | null;
+  startedAt?: GqlFuzzyDate;
+  completedAt?: GqlFuzzyDate;
+};
 
 function serializeUserListEntryMap(map: UserListEntryMap): SerializedUserListEntryMap {
   return [...map.entries()];
@@ -150,11 +164,7 @@ function pastAiringAtsFromMedia(media: GqlMedia): number[] {
 
 function mapMediaToRawEntry(
   media: GqlMedia,
-  list: {
-    status?: string | null;
-    score?: number | null;
-    progress?: number | null;
-  } | null,
+  list: (Omit<GqlListEntryFields, 'startedAt' | 'completedAt'> & { listDates?: ListEntryDates }) | null,
 ): WeeklyCalendarRawEntry {
   const progress = list?.progress ?? 0;
   const nextEpisode = media.nextAiringEpisode?.episode ?? null;
@@ -165,6 +175,7 @@ function mapMediaToRawEntry(
     format: media.format ?? null,
     score: normalizeSeasonalListScore(list?.score),
     listStatus: list?.status ?? null,
+    listDates: list?.listDates,
     progress,
     totalEpisodes: media.episodes ?? null,
     popularity: media.popularity ?? null,
@@ -191,20 +202,10 @@ async function fetchWatchingEntriesLive(
     {
       Page: {
         pageInfo: { hasNextPage: boolean };
-        mediaList: Array<{
-          status?: string | null;
-          score?: number | null;
-          progress?: number | null;
-          media: GqlMedia;
-        }>;
+        mediaList: Array<GqlListEntryFields & { media: GqlMedia }>;
       } | null;
     },
-    {
-      status?: string | null;
-      score?: number | null;
-      progress?: number | null;
-      media: GqlMedia;
-    }
+    GqlListEntryFields & { media: GqlMedia }
   >({
     query: TOOLS_WEEKLY_CALENDAR_WATCHING_QUERY,
     variables: {
@@ -219,7 +220,12 @@ async function fetchWatchingEntriesLive(
     }),
   });
 
-  return entries.map((entry) => mapMediaToRawEntry(entry.media, entry));
+  return entries.map((entry) =>
+    mapMediaToRawEntry(entry.media, {
+      ...entry,
+      listDates: listEntryDatesFromFuzzy(entry.startedAt, entry.completedAt),
+    }),
+  );
 }
 
 async function fetchUserListEntryMapLive(
@@ -232,20 +238,10 @@ async function fetchUserListEntryMapLive(
     {
       Page: {
         pageInfo: { hasNextPage: boolean };
-        mediaList: Array<{
-          status?: string | null;
-          score?: number | null;
-          progress?: number | null;
-          media: { id: number };
-        }>;
+        mediaList: Array<GqlListEntryFields & { media: { id: number } }>;
       } | null;
     },
-    {
-      status?: string | null;
-      score?: number | null;
-      progress?: number | null;
-      media: { id: number };
-    }
+    GqlListEntryFields & { media: { id: number } }
   >({
     query: TOOLS_USER_ANIME_LIST_QUERY,
     variables: {
@@ -266,6 +262,7 @@ async function fetchUserListEntryMapLive(
       status: entry.status ?? null,
       score: normalizeSeasonalListScore(entry.score),
       progress: entry.progress ?? 0,
+      listDates: listEntryDatesFromFuzzy(entry.startedAt, entry.completedAt),
     });
   }
   return map;
@@ -277,7 +274,7 @@ async function fetchUserListEntryMapCached(
   options?: WeeklyCalendarFetchOptions,
 ): Promise<UserListEntryMap> {
   const handle = username.trim().toLowerCase();
-  const key = `weekly-calendar:list-map:${handle}`;
+  const key = `weekly-calendar:list-map:v2:${handle}`;
   const serialized = await withWeeklyCalendarUserListCache(
     key,
     async () => serializeUserListEntryMap(await fetchUserListEntryMapLive(username, signal)),
@@ -333,11 +330,11 @@ async function fetchSeasonAiringEntriesLive(
 }
 
 function weeklyCalendarSeasonCacheKey(handle: string, seasonSpec: AnilistSeasonAt): string {
-  return `weekly-calendar:season:v3:${handle}:${seasonSpec.season}:${seasonSpec.year}`;
+  return `weekly-calendar:season:v4:${handle}:${seasonSpec.season}:${seasonSpec.year}`;
 }
 
 function weeklyCalendarSeasonCachePrefix(handle: string): string {
-  return `weekly-calendar:season:v3:${handle}:`;
+  return `weekly-calendar:season:v4:${handle}:`;
 }
 
 async function fetchSeasonAiringEntriesCached(
@@ -382,8 +379,8 @@ export async function bustWeeklyCalendarUserListMemo(username: string): Promise<
   if (!handle) {
     return;
   }
-  const watchingKey = `weekly-calendar:watching:v2:${handle}`;
-  const listMapKey = `weekly-calendar:list-map:${handle}`;
+  const watchingKey = `weekly-calendar:watching:v3:${handle}`;
+  const listMapKey = `weekly-calendar:list-map:v2:${handle}`;
   const seasonPrefix = weeklyCalendarSeasonCachePrefix(handle);
   sessionMemoDelete(watchingKey);
   sessionMemoDelete(listMapKey);
@@ -403,7 +400,7 @@ export async function fetchWeeklyCalendarWatchingEntries(
   options?: WeeklyCalendarFetchOptions,
 ): Promise<WeeklyCalendarRawEntry[]> {
   const handle = username.trim().toLowerCase();
-  const key = `weekly-calendar:watching:v2:${handle}`;
+  const key = `weekly-calendar:watching:v3:${handle}`;
   return withWeeklyCalendarUserListCache(
     key,
     () => fetchWatchingEntriesLive(username, signal),

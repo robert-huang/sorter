@@ -1690,6 +1690,60 @@ html {
   position: relative;
 }
 
+/* Tri-state tag rows: blank / ✓ include (green) / ✗ exclude (red). */
+.filter-chip-tristate {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+}
+
+.filter-chip-tristate:hover {
+  background: var(--surface-hover, rgba(127, 127, 127, 0.12));
+}
+
+/* Same footprint as the native 13px checkbox it replaces (incl. the capped-menu margin-top). */
+.filter-chip-tristate-box {
+  display: inline-flex;
+  flex: 0 0 13px;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 13px;
+  height: 13px;
+  margin: 3px 3px 3px 4px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: #fff;
+}
+
+.filter-chip-menu-capped .filter-chip-tristate-box {
+  margin-top: 2px;
+}
+
+.filter-chip-tristate-box svg {
+  display: block;
+  width: 9px;
+  height: 9px;
+}
+
+.filter-chip-tristate--include .filter-chip-tristate-box {
+  border-color: var(--success);
+  background: var(--success);
+}
+
+.filter-chip-tristate--exclude .filter-chip-tristate-box {
+  border-color: var(--danger);
+  background: var(--danger);
+}
+
+.filter-chip-tristate--exclude .filter-chip-option-text {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
 .filter-chip-option-link-target {
   position: absolute;
   inset: 0;
@@ -1810,6 +1864,8 @@ html {
 }
 
 .filter-chip-divider {
+  /* An empty flex item in the scrolling column would otherwise shrink to 0 once the list overflows. */
+  flex-shrink: 0;
   height: 1px;
   margin: 4px 0;
   background: var(--border);
@@ -2014,7 +2070,9 @@ html {
   margin-top: 2px;
 }
 
-.filter-chip-menu-capped .filter-chip-option > span:not(.filter-chip-option-text) {
+.filter-chip-menu-capped
+  .filter-chip-option
+  > span:not(.filter-chip-option-text):not(.filter-chip-tristate-box) {
   flex: 1 1 auto;
   min-width: 0;
   white-space: normal;

@@ -12,11 +12,17 @@ import {
 } from '../../lib/importers/anilist/anilistLinks';
 import { AnilistMiddleClickLink } from '../../lib/importers/anilist/AnilistMiddleClickLink';
 import {
+  ListDateChip,
   MultiSelectChip,
   ScoreRangeChip,
   TagOptionsChip,
   toggleInArray,
 } from '../../lib/importers/anilist/filters';
+import {
+  DEFAULT_LIST_DATE_FILTER,
+  listDateOptions,
+  normalizeListDateFilter,
+} from '../../lib/importers/anilist/listDateFilter';
 import {
   applyHeaderScrollbarGutter,
   syncTableColumnsByIndex,
@@ -127,6 +133,7 @@ const DEFAULT_FORM: StatsForm = {
   userScoreInclude: 'any',
   scoreMin: null,
   scoreMax: null,
+  listDate: { ...DEFAULT_LIST_DATE_FILTER },
   minCount: 0,
   showSummary: false,
   aggregationType: 'VA',
@@ -149,6 +156,7 @@ type PersistedStatsFilters = Pick<
   | 'userScoreInclude'
   | 'scoreMin'
   | 'scoreMax'
+  | 'listDate'
   | 'minCount'
   | 'staffRoleFilters'
   | 'vaRoleFilters'
@@ -184,6 +192,7 @@ function loadForm(): StatsForm {
           : 'any',
       scoreMin: typeof filters.scoreMin === 'number' ? filters.scoreMin : null,
       scoreMax: typeof filters.scoreMax === 'number' ? filters.scoreMax : null,
+      listDate: normalizeListDateFilter(filters.listDate),
       minCount:
         typeof filters.minCount === 'number' && filters.minCount >= 0
           ? Math.floor(filters.minCount)
@@ -222,6 +231,7 @@ function saveForm(form: StatsForm): void {
       userScoreInclude: form.userScoreInclude,
       scoreMin: form.scoreMin,
       scoreMax: form.scoreMax,
+      listDate: form.listDate,
       minCount: form.minCount,
       staffRoleFilters: form.staffRoleFilters,
       vaRoleFilters: form.vaRoleFilters,
@@ -1529,7 +1539,17 @@ export function StatsPanel({
     form.userScoreInclude,
     form.scoreMin,
     form.scoreMax,
+    form.listDate,
   ]);
+
+  const listDateSliderOptions = useMemo(
+    () =>
+      listDateOptions(
+        (displayCached?.entries ?? []).map((entry) => entry.listDates),
+        form.listDate.listDateField,
+      ),
+    [displayCached, form.listDate.listDateField],
+  );
 
   const built = useMemo((): StatsBuildResult | null => {
     if (!filteredPool) {
@@ -1716,6 +1736,12 @@ export function StatsPanel({
             min={form.scoreMin}
             max={form.scoreMax}
             onChange={(patch) => patchForm(patch)}
+          />
+          <ListDateChip
+            options={listDateSliderOptions}
+            value={form.listDate}
+            mediaType={form.mediaType}
+            onChange={(patch) => patchForm({ listDate: { ...form.listDate, ...patch } })}
           />
           <StatsToggleChip
             label="User Stats Summary"

@@ -691,6 +691,8 @@ query ToolsUserAnimeList(
       score(format: POINT_100)
       progress
       notes
+      startedAt { year month day }
+      completedAt { year month day }
       media {
         id
         title { english romaji native }
@@ -742,6 +744,8 @@ query ToolsWeeklyCalendarWatching(
       status
       score(format: POINT_100)
       progress
+      startedAt { year month day }
+      completedAt { year month day }
       media {
         ${WEEKLY_CALENDAR_MEDIA_FIELDS}
       }
@@ -959,6 +963,8 @@ query ToolsStatsList(
       progressVolumes
       repeat
       notes
+      startedAt { year month day }
+      completedAt { year month day }
       media {
         id
         title { english romaji native }

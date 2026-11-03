@@ -54,6 +54,7 @@ import {
   type SeasonalScoresResult,
   type SeasonalSourceFilters,
   type SeasonColumn,
+  type SeasonalListDateFilter,
   SEASONAL_SOURCE_FILTER_KEYS,
 } from './seasonalScoresLogic';
 import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsername';
@@ -66,6 +67,7 @@ import {
 import { AnilistMiddleClickLink } from '../../lib/importers/anilist/AnilistMiddleClickLink';
 import {
   formatOptionsForType,
+  ListDateChip,
   MultiSelectChip,
   normalizeSeasonYearRangeToOptions,
   seasonYearOptionsForSelectedYears,
@@ -73,6 +75,10 @@ import {
   SeasonYearChip,
   toggleInArray,
 } from '../../lib/importers/anilist/filters';
+import {
+  listDateOptions,
+  normalizeMultiUserListDateFilter,
+} from '../../lib/importers/anilist/listDateFilter';
 import { normalizeScoreFilter, type ComparisonScoreFilter } from './scoreFilterLogic';
 import { useCurrentAnilistFavourites } from '../useCurrentAnilistFavourites';
 import { useToolsPreferences } from '../../hooks/useToolsPreferences';
@@ -185,6 +191,8 @@ type PersistedPrimaryFilters = {
   genres?: unknown;
   formats?: unknown;
   score?: unknown;
+  listDate?: unknown;
+  listDateMode?: unknown;
 };
 
 type PrimaryFilters = {
@@ -194,6 +202,7 @@ type PrimaryFilters = {
   genreFilters: SeasonalGenreFilters;
   formatFilters: SeasonalFormatFilters;
   scoreFilter: ComparisonScoreFilter;
+  listDateFilter: SeasonalListDateFilter;
 };
 
 function parsePrimaryFilters(parsed: PersistedPrimaryFilters): PrimaryFilters {
@@ -207,6 +216,7 @@ function parsePrimaryFilters(parsed: PersistedPrimaryFilters): PrimaryFilters {
     genreFilters: normalizeSeasonalStringFilters(parsed.genres),
     formatFilters: normalizeSeasonalStringFilters(parsed.formats),
     scoreFilter: normalizeScoreFilter(parsed.score),
+    listDateFilter: normalizeMultiUserListDateFilter(parsed.listDate, parsed.listDateMode),
   };
 }
 
@@ -236,6 +246,8 @@ function savePrimaryFilters(filters: PrimaryFilters): void {
         genres: filters.genreFilters,
         formats: filters.formatFilters,
         score: filters.scoreFilter,
+        listDate: filters.listDateFilter.state,
+        listDateMode: filters.listDateFilter.mode,
       }),
     );
   } catch {
@@ -505,6 +517,9 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
   const [scoreFilter, setScoreFilter] = useState<ComparisonScoreFilter>(
     initialPrimaryFilters.scoreFilter,
   );
+  const [listDateFilter, setListDateFilter] = useState<SeasonalListDateFilter>(
+    initialPrimaryFilters.listDateFilter,
+  );
   const [cachedLists, setCachedLists] = useState<SeasonalUserShows[] | null>(null);
   const [running, setRunning] = useState(false);
   const [refreshingUser, setRefreshingUser] = useState<string | null>(null);
@@ -580,6 +595,7 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
     setGenreFilters(persisted.genreFilters);
     setFormatFilters(persisted.formatFilters);
     setScoreFilter(persisted.scoreFilter);
+    setListDateFilter(persisted.listDateFilter);
     primaryFiltersUsersRef.current = formUsersKey;
   }, [relabeledCachedShows, formUsersKey]);
 
@@ -591,8 +607,28 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
       genreFilters,
       formatFilters,
       scoreFilter,
+      listDateFilter,
     });
-  }, [seasonYearFilter, listStatusFilters, yearFilters, genreFilters, formatFilters, scoreFilter]);
+  }, [
+    seasonYearFilter,
+    listStatusFilters,
+    yearFilters,
+    genreFilters,
+    formatFilters,
+    scoreFilter,
+    listDateFilter,
+  ]);
+
+  const listDateSliderOptions = useMemo(
+    () =>
+      listDateOptions(
+        (relabeledCachedShows ?? []).flatMap((show) =>
+          (show.entries ?? []).map((entry) => entry.listDates),
+        ),
+        listDateFilter.state.listDateField,
+      ),
+    [relabeledCachedShows, listDateFilter.state.listDateField],
+  );
 
   const buildColumns = useCallback(
     (lists: SeasonalUserShows[]) =>
@@ -611,6 +647,7 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
           formatFilters,
           sourceFilters,
           scoreFilter,
+          listDateFilter,
           includeRepeats: toolsPreferences.seasonalScoresShowRepeats,
           includeMalScores: toolsPreferences.seasonalScoresIncludeMalScores,
         },
@@ -624,6 +661,7 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
       genreFilters,
       formatFilters,
       scoreFilter,
+      listDateFilter,
       toolsPreferences.seasonalScoresShowRepeats,
       toolsPreferences.seasonalScoresSpanAiringSeasons,
       toolsPreferences.seasonalScoresIncludeMalScores,
@@ -1008,6 +1046,20 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
                 min: next.scoreMin !== undefined ? next.scoreMin : prev.min,
                 max: next.scoreMax !== undefined ? next.scoreMax : prev.max,
               }))
+            }
+          />
+          <ListDateChip
+            options={listDateSliderOptions}
+            value={listDateFilter.state}
+            {...(form.usernames.length > 1
+              ? {
+                  mode: listDateFilter.mode,
+                  onModeChange: (mode: SeasonalListDateFilter['mode']) =>
+                    setListDateFilter((prev) => ({ ...prev, mode })),
+                }
+              : {})}
+            onChange={(patch) =>
+              setListDateFilter((prev) => ({ ...prev, state: { ...prev.state, ...patch } }))
             }
           />
         </div>

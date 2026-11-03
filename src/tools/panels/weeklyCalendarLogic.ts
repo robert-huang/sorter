@@ -6,6 +6,16 @@ import type {
 } from '../../lib/importers/anilist/types';
 import { TOOLS_SEASONAL_LIST_STATUSES } from '../../lib/importers/anilist/toolsAnilistAccess';
 import {
+  DEFAULT_LIST_DATE_FILTER,
+  formatListMonth,
+  LIST_DATE_FIELD_LABELS,
+  listDateChipName,
+  listDateFilterActive,
+  listDatePasses,
+  type ListDateFilterState,
+  type ListEntryDates,
+} from '../../lib/importers/anilist/listDateFilter';
+import {
   normalizeSeasonalListScore,
   type SeasonalFuzzyDate,
 } from './seasonalScoresLogic';
@@ -203,6 +213,7 @@ export type WeeklyCalendarForm = {
   userScoreInclude: WeeklyCalendarScoreFilters['userScoreInclude'];
   scoreMin: number | null;
   scoreMax: number | null;
+  listDate: ListDateFilterState;
   mediaStatusFilters: WeeklyCalendarMediaStatusFilter[];
   formatFilters: WeeklyCalendarFormatFilter[];
   showUnscheduledColumn: boolean;
@@ -236,6 +247,13 @@ function scoreFilterLabel(form: WeeklyCalendarForm): string | null {
   return parts.length > 0 ? `score ${parts.join(' ')}` : null;
 }
 
+function listDateFilterLabel(listDate: ListDateFilterState | undefined): string | null {
+  if (!listDate || !listDateFilterActive(listDate)) return null;
+  const from = listDate.listDateMin === null ? '…' : formatListMonth(listDate.listDateMin);
+  const to = listDate.listDateMax === null ? '…' : formatListMonth(listDate.listDateMax);
+  return `${listDateChipName('ANIME')} ${LIST_DATE_FIELD_LABELS[listDate.listDateField]} ${from}–${to}`;
+}
+
 /**
  * One-line summary of the calendar's season and filters for a new playlist's description.
  * Example: `Weekly Calendar theme songs · Fall 2026 · robert · list: current, repeating · airing: releasing`.
@@ -255,6 +273,7 @@ export function describeWeeklyCalendarFilters(
     `airing: ${form.mediaStatusFilters.map(filterValueLabel).join(', ')}`,
     allFormats ? null : `formats: ${form.formatFilters.join(', ')}`,
     scoreFilterLabel(form),
+    listDateFilterLabel(form.listDate),
     ...extra,
   ].filter((part): part is string => Boolean(part));
   const description = parts.join(' · ');
@@ -289,6 +308,7 @@ export const DEFAULT_WEEKLY_CALENDAR_FORM: WeeklyCalendarForm = {
   userScoreInclude: 'any',
   scoreMin: null,
   scoreMax: null,
+  listDate: { ...DEFAULT_LIST_DATE_FILTER },
   mediaStatusFilters: [...DEFAULT_WEEKLY_CALENDAR_MEDIA_STATUS_FILTERS],
   formatFilters: [...DEFAULT_WEEKLY_CALENDAR_FORMAT_FILTERS],
   showUnscheduledColumn: false,
@@ -301,6 +321,8 @@ export type WeeklyCalendarEntry = {
   format: AnilistMediaFormat | null;
   score: number | null;
   listStatus: string | null;
+  /** The user's list started / completed dates; absent when not on the list. */
+  listDates?: ListEntryDates;
   progress: number;
   totalEpisodes: number | null;
   popularity: number | null;
@@ -1019,6 +1041,7 @@ export function finalizeWeeklyCalendarResult(
     (entry) =>
       entryMatchesWeeklyListStatusFilters(entry.listStatus, form.listStatusFilters) &&
       entryMatchesWeeklyScoreFilters(entry.score, form) &&
+      listDatePasses(entry.listDates, form.listDate) &&
       entryMatchesWeeklyMediaStatusFilters(entry.mediaStatus, form.mediaStatusFilters) &&
       entryMatchesWeeklyFormatFilters(entry.format, form.formatFilters),
   );

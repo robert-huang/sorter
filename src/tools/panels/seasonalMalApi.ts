@@ -8,6 +8,7 @@ import {
   withSessionTtlMemo,
 } from '../../lib/importers/anilist/toolsSessionMemo';
 import type { AnilistMediaSource } from '../../lib/importers/anilist/types';
+import { listEntryDatesFromMal } from '../../lib/importers/anilist/listDateFilter';
 import type { SeasonalFuzzyDate, SeasonalShow } from './seasonalScoresLogic';
 
 const MAL_USERNAME_PREFIX = 'mal:';
@@ -26,7 +27,12 @@ export type MalListEntry = {
     source?: string | null;
     genres?: { id: number; name: string }[] | null;
   };
-  list_status?: { status?: string | null; score?: number | null } | null;
+  list_status?: {
+    status?: string | null;
+    score?: number | null;
+    start_date?: string | null;
+    finish_date?: string | null;
+  } | null;
 };
 
 type MalListPage = { data?: MalListEntry[]; paging?: { next?: string } };
@@ -134,6 +140,7 @@ export function malListEntryToSeasonalShow(entry: MalListEntry): SeasonalShow | 
     repeat: null,
     notes: null,
     listStatus,
+    listDates: listEntryDatesFromMal(entry.list_status?.start_date, entry.list_status?.finish_date),
     source: MAL_SOURCE_TO_ANILIST[node.source ?? ''] ?? null,
     format: MAL_FORMAT_TO_ANILIST[node.media_type ?? ''] ?? null,
     genres: [...new Set(genres)],

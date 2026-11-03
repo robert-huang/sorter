@@ -1,6 +1,7 @@
 import { depaginate } from '../../lib/importers/anilist/depaginate';
 import { resolveAccessTokenForUsername } from '../../lib/importers/anilist/anilistAuth';
 import { TOOLS_STATS_LIST_QUERY } from '../../lib/importers/anilist/queries';
+import { listEntryDatesFromFuzzy } from '../../lib/importers/anilist/listDateFilter';
 import type { ToolsFetchOptions } from '../../lib/importers/anilist/toolsFetchPolicy';
 import {
   ensureMediaCastFreshBatch,
@@ -79,6 +80,8 @@ type GqlStatsListEntry = {
   progressVolumes?: number | null;
   repeat?: number | null;
   notes?: string | null;
+  startedAt?: { year?: number | null; month?: number | null } | null;
+  completedAt?: { year?: number | null; month?: number | null } | null;
   media: GqlStatsListMedia;
 };
 
@@ -336,6 +339,7 @@ function mapGqlEntry(entry: GqlStatsListEntry, mediaType: StatsMediaType): Stats
     score: normalizeSeasonalListScore(entry.score),
     repeat: entry.repeat ?? null,
     notes: entry.notes ?? null,
+    listDates: listEntryDatesFromFuzzy(entry.startedAt, entry.completedAt),
     progress: entry.progress ?? 0,
     progressVolumes: entry.progressVolumes ?? null,
     episodes: media.episodes ?? null,

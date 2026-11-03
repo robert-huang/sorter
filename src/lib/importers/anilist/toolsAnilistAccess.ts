@@ -30,6 +30,7 @@ import {
   hasStaffFilmography,
 } from './graphQueries';
 import { pickMediaTitle as pickMediaRowTitle } from './mediaDisplayLabel';
+import { listEntryDatesFromRow } from './listDateFilter';
 import { characterDateOfBirthFromRow } from './mappers';
 import { pickCharacterName, pickPersonName } from './personDisplayLabel';
 import { runAnilistImport, runAnilistFavourites } from './runners';
@@ -795,7 +796,11 @@ export async function readUserSeasonalShowsFromDb(
             mle.status,
             mle.score,
             mle.repeat,
-            mle.notes
+            mle.notes,
+            mle.started_year,
+            mle.started_month,
+            mle.completed_year,
+            mle.completed_month
        FROM media_list_entry mle
        JOIN media m ON m.id = mle.media_id
       WHERE mle.anilist_user_id = ?
@@ -845,6 +850,12 @@ export async function readUserSeasonalShowsFromDb(
     repeat: row.repeat != null ? Number(row.repeat) : null,
     notes: (row.notes as string | null) ?? null,
     listStatus: (row.status as string | null) ?? null,
+    listDates: listEntryDatesFromRow({
+      started_year: row.started_year != null ? Number(row.started_year) : null,
+      started_month: row.started_month != null ? Number(row.started_month) : null,
+      completed_year: row.completed_year != null ? Number(row.completed_year) : null,
+      completed_month: row.completed_month != null ? Number(row.completed_month) : null,
+    }),
   }));
 }
 

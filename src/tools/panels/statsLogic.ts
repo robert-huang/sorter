@@ -5,6 +5,11 @@ import {
   normalizeGenderFilterSelections,
   sortGenderOptions,
 } from '../../lib/importers/anilist/genderFilter';
+import {
+  listDatePasses,
+  type ListDateFilterState,
+  type ListEntryDates,
+} from '../../lib/importers/anilist/listDateFilter';
 import type { MediaTitleFields } from '../../lib/importers/anilist/mediaDisplayLabel';
 import {
   KEY_ANIME_PRODUCTION_ROLES,
@@ -122,6 +127,7 @@ export type StatsForm = {
   userScoreInclude: WeeklyCalendarScoreFilters['userScoreInclude'];
   scoreMin: number | null;
   scoreMax: number | null;
+  listDate: ListDateFilterState;
   /** Minimum parent-row count after aggregation (0 = no filter). */
   minCount: number;
   showSummary: boolean;
@@ -176,6 +182,8 @@ export type StatsEntry = {
   score: number | null;
   repeat: number | null;
   notes: string | null;
+  /** The user's list started / completed dates (list date chip). */
+  listDates?: ListEntryDates;
   progress: number;
   progressVolumes: number | null;
   episodes: number | null;
@@ -582,7 +590,8 @@ export function filterStatsPool(entries: readonly StatsEntry[], form: StatsForm)
       entryMatchesMediaStatus(entry, form.mediaStatusFilters) &&
       entryMatchesFormat(entry, form.formatFilters) &&
       entryMatchesListStatus(entry, form.listStatusFilters) &&
-      entryMatchesScore(entry, form),
+      entryMatchesScore(entry, form) &&
+      listDatePasses(entry.listDates, form.listDate),
   );
 }
 

@@ -59,9 +59,21 @@ describe('malListEntryToSeasonalShow', () => {
       repeat: null,
       notes: null,
       listStatus: 'COMPLETED',
+      listDates: { startedYear: null, startedMonth: null, completedYear: null, completedMonth: null },
       source: 'LIGHT_NOVEL',
       format: 'TV',
       genres: ['Adventure'],
+    });
+  });
+
+  it('reads the list start and finish dates for the list date chip', () => {
+    const dated = entry(48, 'completed', 7);
+    dated.list_status = { ...dated.list_status, start_date: '2023-04-02', finish_date: '2023-07' };
+    expect(malListEntryToSeasonalShow(dated)?.listDates).toEqual({
+      startedYear: 2023,
+      startedMonth: 4,
+      completedYear: 2023,
+      completedMonth: 7,
     });
   });
 

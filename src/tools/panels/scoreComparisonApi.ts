@@ -9,6 +9,7 @@ import {
   getListedMedia,
 } from '../../lib/importers/anilist/readQueries';
 import type { MediaRow } from '../../lib/importers/anilist/types';
+import { listEntryDatesFromRow } from '../../lib/importers/anilist/listDateFilter';
 import type { ComparisonEntry, ComparisonMediaType } from './scoreComparisonLogic';
 
 export type LoadedComparisonList = {
@@ -43,7 +44,11 @@ export async function loadComparisonList(
   ]);
   const entries = new Map<number, ComparisonEntry>();
   for (const [mediaId, row] of rows) {
-    entries.set(mediaId, { status: row.status, score: row.score ?? 0 });
+    entries.set(mediaId, {
+      status: row.status,
+      score: row.score ?? 0,
+      listDates: listEntryDatesFromRow(row),
+    });
   }
   return { name: user.name, entries, media, favouriteMediaIds: favourites.mediaIds };
 }

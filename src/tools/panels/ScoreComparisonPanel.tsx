@@ -4,6 +4,7 @@ import {
   ALL_LIST_STATUSES,
   ANILIST_INITIAL_CHIP_STATE,
   AnilistChips,
+  ListDateChip,
   MultiSelectChip,
   ScoreRangeChip,
   computeAllowedMediaIds,
@@ -12,6 +13,10 @@ import {
   type AnilistFilterChipState,
 } from '../../lib/importers/anilist/filters';
 import { pickMediaTitle } from '../../lib/importers/anilist/mediaDisplayLabel';
+import {
+  DEFAULT_MULTI_USER_LIST_DATE_FILTER,
+  listDateOptions,
+} from '../../lib/importers/anilist/listDateFilter';
 import { useClickOutside } from '../../lib/hooks/useClickOutside';
 import { useFloatingMenuStyle } from '../../lib/hooks/useFloatingMenuStyle';
 import { useToolsPreferences } from '../../hooks/useToolsPreferences';
@@ -538,6 +543,15 @@ export function ScoreComparisonPanel({ onOpenMedia }: ToolPanelProps) {
   const mediaIds = useMemo(() => [...mediaById.keys()].sort((a, b) => a - b), [mediaById]);
   const mediaIdSet = useMemo(() => new Set<number>(mediaIds), [mediaIds]);
   const allowedMediaIds = useAllowedMediaIds(mediaIds, chipState);
+  const listDateFilter = filters.listDate ?? DEFAULT_MULTI_USER_LIST_DATE_FILTER;
+  const listDateSliderOptions = useMemo(
+    () =>
+      listDateOptions(
+        users.flatMap((user) => [...user.entries.values()].map((entry) => entry.listDates)),
+        listDateFilter.state.listDateField,
+      ),
+    [users, listDateFilter.state.listDateField],
+  );
 
   const rows = useMemo(
     () => buildComparisonRows(users, mediaById, filters, allowedMediaIds),
@@ -614,7 +628,7 @@ export function ScoreComparisonPanel({ onOpenMedia }: ToolPanelProps) {
           />
           <label
             className="tool-checkbox"
-            title={'Show every row, including ones hidden by the filters (show filters, Min Lists, score range). Failing rows are faded; cells hidden by a user\'s status filter are dimmed instead of blank.\n\nThe count, footer stats, and Stat column still use only the rows and cells that pass.'}
+            title={'Show every row, including ones hidden by the filters (show filters, Min Lists, score range, watch / read dates). Failing rows are faded; cells hidden by a user\'s status filter are dimmed instead of blank.\n\nThe count, footer stats, and Stat column still use only the rows and cells that pass.'}
           >
             <input
               type="checkbox"
@@ -639,6 +653,18 @@ export function ScoreComparisonPanel({ onOpenMedia }: ToolPanelProps) {
                   min: next.scoreMin !== undefined ? next.scoreMin : filters.score.min,
                   max: next.scoreMax !== undefined ? next.scoreMax : filters.score.max,
                 },
+              })
+            }
+          />
+          <ListDateChip
+            options={listDateSliderOptions}
+            value={listDateFilter.state}
+            mediaType={mediaType}
+            mode={listDateFilter.mode}
+            onModeChange={(mode) => patchFilters({ listDate: { ...listDateFilter, mode } })}
+            onChange={(next) =>
+              patchFilters({
+                listDate: { ...listDateFilter, state: { ...listDateFilter.state, ...next } },
               })
             }
           />

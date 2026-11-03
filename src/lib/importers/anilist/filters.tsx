@@ -25,10 +25,10 @@
  *   - voice actor     multi-select OR (matches if cached cast joins ANY
  *                     selected staff; lazy-loaded — chip exposes a
  *                     bulk-expand button for the uncached candidates)
- *   - tag             multi-select with mode (OR / AND) + min rank
- *                     threshold (mode + rank live in the tagoption chip)
- *   - tag options     mode (OR / AND) + min rank threshold for `tag`
- *   - exclude tag     multi-select; matches removed from results
+ *   - list date       per-user list-entry started / completed dates
+ *                     (month range; undated entries hidden while set)
+ *   - tag             tri-state per tag (✓ include / ✗ exclude) with
+ *                     mode (OR / AND) + min rank threshold in the menu
  *
  * The filter operates almost entirely on the media table + its
  * junctions inside `anilist.sqlite`. User-scoping is opportunistic —
@@ -67,6 +67,21 @@ import {
   type MediaOption,
   type VoiceActorOption,
 } from './readQueries';
+import {
+  formatListMonth,
+  LIST_DATE_FIELD_LABELS,
+  listDateChipName,
+  listDateFilterActive,
+  listDateOptions,
+  listDatePasses,
+  listEntryDatesFromRow,
+  listMonthYear,
+  normalizeListDateFilter,
+  parseListMonth,
+  type ListDateField,
+  type ListDateFilterState,
+  type ListEntryDates,
+} from './listDateFilter';
 import { runAnilistMediaLazyExpansion } from './runners';
 import type {
   AnilistCharacterRole,
@@ -131,6 +146,11 @@ export interface AnilistFilterChipState extends FilterChipState {
   userScoreInclude: 'any' | 'rated' | 'unrated';
   scoreMin: number | null;
   scoreMax: number | null;
+  // Per-user list date chip (see listDateFilter.ts). Optional because
+  // slot state persisted before this chip shipped won't have them.
+  listDateField?: ListDateFilterState['listDateField'];
+  listDateMin?: number | null;
+  listDateMax?: number | null;
   // Season-year range over (season, season_year) tuples, encoded as
   // year*4 + season_idx (WINTER=0, SPRING=1, SUMMER=2, FALL=3) so a
   // single integer comparison covers the whole chronological order.
@@ -323,6 +343,9 @@ export const ANILIST_INITIAL_CHIP_STATE: AnilistFilterChipState = {
   userScoreInclude: 'any',
   scoreMin: null,
   scoreMax: null,
+  listDateField: 'active',
+  listDateMin: null,
+  listDateMax: null,
   seasonYearMin: null,
   seasonYearMax: null,
   voiceActorIds: [],
@@ -570,7 +593,8 @@ export function isInitialState(state: AnilistFilterChipState): boolean {
     state.voiceActorIds.length === 0 &&
     !listStatusActive &&
     !userScoreActive &&
-    !seasonYearActive
+    !seasonYearActive &&
+    !listDateFilterActive(normalizeListDateFilter(state))
   );
 }
 
@@ -686,6 +710,28 @@ export async function computeAllowedMediaIds(
           if (state.scoreMax !== null && score > state.scoreMax) continue;
         }
         filtered.add(id);
+      }
+      allowed = filtered;
+    }
+  }
+
+  // Stage 4: per-user list date. Items without a list entry count as
+  // undated, so they're hidden while a range is set.
+  const listDate = normalizeListDateFilter(state);
+  if (listDateFilterActive(listDate) && allowed.size > 0) {
+    const userId = await getUserId();
+    if (userId !== null) {
+      const entries = await getListEntriesByMediaIds(
+        defaultDbForFilters(),
+        userId,
+        Array.from(allowed),
+      );
+      const filtered = new Set<number>();
+      for (const id of allowed) {
+        const entry = entries.get(id);
+        if (listDatePasses(entry ? listEntryDatesFromRow(entry) : null, listDate)) {
+          filtered.add(id);
+        }
       }
       allowed = filtered;
     }
@@ -823,6 +869,18 @@ interface ChipOptions {
   // the format chip's option set and whether the VA chip shows at all
   // (manga has no voice actors).
   mediaType: AnilistMediaType | null;
+  /** Latest user's list-entry dates for the candidates (list date slider steps). */
+  listDates: ListEntryDates[];
+}
+
+async function loadCandidateListDates(
+  db: AnilistDbExecutor,
+  externalIds: readonly number[],
+): Promise<ListEntryDates[]> {
+  const user = await getLatestAnilistUser(db);
+  if (!user) return [];
+  const entries = await getListEntriesByMediaIds(db, user.id, externalIds);
+  return Array.from(entries.values(), listEntryDatesFromRow);
 }
 
 async function loadChipOptions(
@@ -838,6 +896,7 @@ async function loadChipOptions(
       voiceActors: [],
       cachedCastMediaIds: new Set(),
       mediaType: null,
+      listDates: [],
     };
   }
   const db = defaultDbForFilters();
@@ -926,6 +985,7 @@ async function loadChipOptions(
     voiceActors,
     cachedCastMediaIds,
     mediaType,
+    listDates: await loadCandidateListDates(db, externalIds),
   };
 }
 
@@ -2045,6 +2105,234 @@ export function ScoreRangeChip({
   );
 }
 
+const LIST_DATE_FIELD_BUTTONS: ReadonlyArray<{ field: ListDateField; label: string; title: string }> = [
+  {
+    field: 'active',
+    label: 'Active',
+    title:
+      'On the go at some point in the range: started on or before the range end, and finished on or after the range start. Entries with no finish date (watching, paused, dropped) count as still going. e.g. started 2022/12, finished 2024/03 passes 2023/01 — 2023/12.',
+  },
+  { field: 'started', label: 'Started', title: 'Your list start date falls in the range' },
+  { field: 'completed', label: 'Finished', title: 'Your list finish date falls in the range' },
+];
+
+/**
+ * "watch dates" / "read dates" chip: filters on the user's own list-entry dates. Same
+ * layout as {@link ScoreRangeChip}; the slider runs over indices into
+ * `options` (like {@link SeasonYearChip}) so months nobody has dates in
+ * are skipped. Slider edges collapse to null, and with no range set the
+ * chip is a passthrough. Undated entries are hidden whenever a range is set.
+ */
+export function ListDateChip({
+  options,
+  value,
+  onChange,
+  mode,
+  onModeChange,
+  mediaType,
+}: {
+  /** Encoded months from {@link listDateOptions}, sorted ascending. */
+  options: readonly number[];
+  value: ListDateFilterState;
+  onChange: (patch: Partial<ListDateFilterState>) => void;
+  /** Multi-user hosts: "one person" (any) vs "everyone" (all) must match. */
+  mode?: 'any' | 'all';
+  onModeChange?: (mode: 'any' | 'all') => void;
+  /** MANGA names the chip "read dates"; anything else "watch dates". */
+  mediaType?: 'ANIME' | 'MANGA' | null;
+}): ReactNode {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  useClickOutside(rootRef, open, () => setOpen(false));
+  const { listDateField: field, listDateMin: min, listDateMax: max } = value;
+  const active = listDateFilterActive(value);
+  const name = listDateChipName(mediaType);
+  const label = active
+    ? `${name} · ${LIST_DATE_FIELD_LABELS[field]} ${rangeLabel(min, max, formatListMonth)}`
+    : name;
+
+  const hasOptions = options.length > 0;
+  const lastIndex = Math.max(0, options.length - 1);
+  const firstOption = hasOptions ? options[0]! : 0;
+  const lastOption = hasOptions ? options[lastIndex]! : 0;
+  const firstAtOrAfterMin = min === null ? 0 : options.findIndex((option) => option >= min);
+  const loIndex = firstAtOrAfterMin === -1 ? lastIndex : firstAtOrAfterMin;
+  let hiIndex = lastIndex;
+  if (max !== null) {
+    while (hiIndex > 0 && options[hiIndex]! > max) hiIndex -= 1;
+  }
+
+  // The boxes show only the year; the exact months are labelled under the slider.
+  const boundText = (bound: number | null): string =>
+    bound === null ? '' : String(listMonthYear(bound));
+  const [minText, setMinText] = useState<string>(boundText(min));
+  const [maxText, setMaxText] = useState<string>(boundText(max));
+  useEffect(() => setMinText(boundText(min)), [min]);
+  useEffect(() => setMaxText(boundText(max)), [max]);
+
+  /** Sets the start (or end), collapsing the slider edge to null and pushing the other bound along. */
+  function setBound(bound: 'min' | 'max', value: number | null): void {
+    if (bound === 'min') {
+      const next = value === null || value <= firstOption ? null : value;
+      const nextMax = max !== null && next !== null && max < next ? next : max;
+      onChange({ listDateMin: next, listDateMax: nextMax });
+      setMinText(boundText(next));
+    } else {
+      const next = value === null || value >= lastOption ? null : value;
+      const nextMin = min !== null && next !== null && min > next ? next : min;
+      onChange({ listDateMin: nextMin, listDateMax: next });
+      setMaxText(boundText(next));
+    }
+  }
+
+  function commit(bound: 'min' | 'max'): void {
+    const text = bound === 'min' ? minText : maxText;
+    const current = bound === 'min' ? min : max;
+    const parsed = parseListMonth(text, bound === 'min' ? 'start' : 'end');
+    // A blurred box still showing the bound's own year keeps the bound's month.
+    const unchangedYear = current !== null && text.trim() === boundText(current);
+    if (parsed === undefined || unchangedYear) {
+      (bound === 'min' ? setMinText : setMaxText)(boundText(current));
+      return;
+    }
+    setBound(bound, parsed);
+  }
+
+  /** Up / Right steps one calendar month later, Down / Left one earlier, within the slider's span. */
+  function onBoxKeyDown(e: KeyboardEvent<HTMLInputElement>, bound: 'min' | 'max'): void {
+    if (e.key === 'Enter') {
+      e.currentTarget.blur();
+      return;
+    }
+    const delta = arrowKeyStepDelta(e.key);
+    if (delta === 0) return;
+    e.preventDefault();
+    const current = bound === 'min' ? (min ?? firstOption) : (max ?? lastOption);
+    setBound(bound, Math.min(Math.max(current + delta, firstOption), lastOption));
+  }
+
+  function onSliderChange([newLo, newHi]: [number, number]): void {
+    onChange({
+      listDateMin: newLo === 0 ? null : options[newLo]!,
+      listDateMax: newHi === lastIndex ? null : options[newHi]!,
+    });
+  }
+
+  const clear = (): void => onChange({ listDateMin: null, listDateMax: null });
+
+  return (
+    <div ref={rootRef} className={`filter-chip ${active ? 'active' : ''}`}>
+      <button
+        type="button"
+        className="filter-chip-button"
+        aria-expanded={open}
+        onClick={() => setOpen((x) => !x)}
+        onContextMenu={(e) => {
+          if (!active) return;
+          e.preventDefault();
+          clear();
+        }}
+        title={`${name} — your list's start / finish dates. Undated entries are hidden while a range is set. Right-click to clear.`}
+      >
+        {label}
+      </button>
+      {open && (
+        <div className="filter-chip-menu filter-chip-menu-wide" role="menu">
+          {mode && onModeChange && (
+            <div className="filter-chip-range-row">
+              <div className="filter-chip-segmented filter-chip-segmented-fill">
+                <button
+                  type="button"
+                  className={mode === 'any' ? 'active' : ''}
+                  aria-pressed={mode === 'any'}
+                  onClick={() => onModeChange('any')}
+                  title="Pass when at least one person's dates match"
+                >
+                  One person
+                </button>
+                <button
+                  type="button"
+                  className={mode === 'all' ? 'active' : ''}
+                  aria-pressed={mode === 'all'}
+                  onClick={() => onModeChange('all')}
+                  title="Pass only when every person with the show matches"
+                >
+                  Everyone
+                </button>
+              </div>
+            </div>
+          )}
+          <div className="filter-chip-range-row">
+            <div className="filter-chip-segmented filter-chip-segmented-fill">
+              {LIST_DATE_FIELD_BUTTONS.map((button) => (
+                <button
+                  key={button.field}
+                  type="button"
+                  className={field === button.field ? 'active' : ''}
+                  aria-pressed={field === button.field}
+                  onClick={() => onChange({ listDateField: button.field })}
+                  title={button.title}
+                >
+                  {button.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {!hasOptions ? (
+            <div className="filter-chip-empty">(no list entries have dates)</div>
+          ) : (
+            <>
+            <div className="filter-chip-slider-row">
+              <input
+                type="text"
+                inputMode="numeric"
+                value={minText}
+                onChange={(e) => setMinText(e.target.value)}
+                onBlur={() => commit('min')}
+                onKeyDown={(e) => onBoxKeyDown(e, 'min')}
+                className="filter-chip-slider-input"
+                placeholder={String(listMonthYear(firstOption))}
+                aria-label={`${name} from (year, or YYYYMM)`}
+                title="Type a year, or 202610 / 2026-10 for a month. Arrow keys step one month."
+              />
+              <DualRangeSlider
+                min={0}
+                max={lastIndex}
+                value={[loIndex, Math.max(loIndex, hiIndex)]}
+                onChange={onSliderChange}
+                ariaLabelMin={`${name} range start`}
+                ariaLabelMax={`${name} range end`}
+              />
+              <input
+                type="text"
+                inputMode="numeric"
+                value={maxText}
+                onChange={(e) => setMaxText(e.target.value)}
+                onBlur={() => commit('max')}
+                onKeyDown={(e) => onBoxKeyDown(e, 'max')}
+                className="filter-chip-slider-input"
+                placeholder={String(listMonthYear(lastOption))}
+                aria-label={`${name} to (year, or YYYYMM)`}
+                title="Type a year, or 202610 / 2026-10 for a month. Arrow keys step one month."
+              />
+            </div>
+            <div className="filter-chip-slider-labels">
+              <span>{formatListMonth(min ?? firstOption)}</span>
+              <span>{formatListMonth(max ?? lastOption)}</span>
+            </div>
+            </>
+          )}
+          {hasOptions && active && (
+            <button type="button" className="filter-chip-action" onClick={clear}>
+              Clear range
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** "60-90" / "≥ 60" / "≤ 90" depending on which bounds are present.
  *  Assumes the caller has already filtered out the both-null case. */
 export function rangeLabel<T>(
@@ -2056,6 +2344,229 @@ export function rangeLabel<T>(
   if (min !== null) return `≥ ${format(min)}`;
   if (max !== null) return `≤ ${format(max)}`;
   return '';
+}
+
+export type TagMark = 'none' | 'include' | 'exclude';
+
+export type TagSelection = { tagNames: string[]; tagExclude: string[] };
+
+export function tagMarkOf(selection: TagSelection, name: string): TagMark {
+  if (selection.tagNames.includes(name)) return 'include';
+  if (selection.tagExclude.includes(name)) return 'exclude';
+  return 'none';
+}
+
+/** Sets `names` to `mark`, keeping each tag in at most one of include / exclude. */
+export function markTags(
+  selection: TagSelection,
+  names: readonly string[],
+  mark: TagMark,
+): TagSelection {
+  const drop = new Set(names);
+  const tagNames = selection.tagNames.filter((n) => !drop.has(n));
+  const tagExclude = selection.tagExclude.filter((n) => !drop.has(n));
+  if (mark === 'include') tagNames.push(...names);
+  if (mark === 'exclude') tagExclude.push(...names);
+  return { tagNames, tagExclude };
+}
+
+const TAG_MARK_CYCLE: readonly TagMark[] = ['none', 'include', 'exclude'];
+
+/** Left-click steps none → include → exclude → none; right-click steps back. */
+export function cycleTagMark(
+  selection: TagSelection,
+  name: string,
+  direction: 'forward' | 'back',
+): TagSelection {
+  const index = TAG_MARK_CYCLE.indexOf(tagMarkOf(selection, name));
+  const step = direction === 'forward' ? 1 : TAG_MARK_CYCLE.length - 1;
+  return markTags(selection, [name], TAG_MARK_CYCLE[(index + step) % TAG_MARK_CYCLE.length]!);
+}
+
+/** "tag · 2 ✓ · 1 ✗ · AND, rank ≥ 60"; each part only when set. */
+export function tagFilterChipLabel(
+  selection: TagSelection,
+  mode: TagFilterMode,
+  minRank: number,
+): string {
+  const parts: string[] = [];
+  if (selection.tagNames.length > 0) parts.push(`${selection.tagNames.length} ✓`);
+  if (selection.tagExclude.length > 0) parts.push(`${selection.tagExclude.length} ✗`);
+  const options: string[] = [];
+  if (mode === 'and') options.push('AND');
+  if (minRank > 0) options.push(`rank ≥ ${minRank}`);
+  if (options.length > 0) parts.push(options.join(', '));
+  return parts.length > 0 ? `tag · ${parts.join(' · ')}` : 'tag';
+}
+
+/**
+ * Combined tag chip for the sorter filter bar: tri-state rows (✓ include,
+ * ✗ exclude) plus the OR / AND mode and min rank from {@link TagOptionsChip}.
+ * Marked rows stay pinned on top while searching. "Select all" marks the
+ * visible tags ✓; right-click it to mark them ✗ instead.
+ */
+export function TagFilterChip({
+  options,
+  tagNames,
+  tagExclude,
+  mode,
+  minRank,
+  onChange,
+}: {
+  options: readonly string[];
+  tagNames: readonly string[];
+  tagExclude: readonly string[];
+  mode: TagFilterMode;
+  minRank: number;
+  onChange: (patch: Partial<TagSelection> & { tagMode?: TagFilterMode; tagMinRank?: number }) => void;
+}): ReactNode {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const rootRef = useRef<HTMLDivElement>(null);
+  useClickOutside(rootRef, open, () => setOpen(false));
+
+  const selection: TagSelection = { tagNames: [...tagNames], tagExclude: [...tagExclude] };
+  const markedCount = tagNames.length + tagExclude.length;
+  const active = markedCount > 0 || mode !== 'or' || minRank > 0;
+  const needle = search.trim().toLowerCase();
+  const marked = options.filter((n) => tagNames.includes(n) || tagExclude.includes(n));
+  const unmarked = options.filter(
+    (n) => !tagNames.includes(n) && !tagExclude.includes(n) && (!needle || n.toLowerCase().includes(needle)),
+  );
+  const bulkTargets = needle ? options.filter((n) => n.toLowerCase().includes(needle)) : options;
+  const bulkDisabled = (mark: TagMark): boolean =>
+    bulkTargets.length === 0 || bulkTargets.every((n) => tagMarkOf(selection, n) === mark);
+
+  const bulkMark = (mark: TagMark): void => {
+    if (bulkDisabled(mark)) return;
+    onChange(markTags(selection, bulkTargets, mark));
+  };
+
+  const renderRow = (name: string): ReactNode => {
+    const mark = tagMarkOf(selection, name);
+    const stateLabel = { none: 'not set', include: 'included', exclude: 'excluded' }[mark];
+    return (
+      <button
+        key={name}
+        type="button"
+        role="menuitemcheckbox"
+        aria-checked={mark === 'none' ? false : mark === 'include' ? true : 'mixed'}
+        aria-label={`${name}: ${stateLabel}`}
+        className={`filter-chip-option filter-chip-tristate filter-chip-tristate--${mark}`}
+        onClick={() => onChange(cycleTagMark(selection, name, 'forward'))}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          onChange(cycleTagMark(selection, name, 'back'));
+        }}
+        title="Click: include → exclude → off. Right-click goes back."
+      >
+        <span className="filter-chip-tristate-box" aria-hidden>
+          {mark !== 'none' && (
+            <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+              {mark === 'include' ? <path d="M2 5.2 4.2 7.4 8 2.8" strokeLinejoin="round" /> : <path d="M2.5 2.5l5 5m0-5-5 5" />}
+            </svg>
+          )}
+        </span>
+        <span className="filter-chip-option-text">{name}</span>
+      </button>
+    );
+  };
+
+  return (
+    <div ref={rootRef} className={`filter-chip ${active ? 'active' : ''}`}>
+      <button
+        type="button"
+        className="filter-chip-button"
+        aria-expanded={open}
+        onClick={() => setOpen((x) => !x)}
+        title="Tags: click a tag to include (✓), again to exclude (✗)"
+      >
+        {tagFilterChipLabel(selection, mode, minRank)}
+      </button>
+      {open && (
+        <div className={`filter-chip-menu ${FILTER_CHIP_MENU_CAPPED_CLASS}`} role="menu">
+          <div className="filter-chip-menu-header">
+            {options.length > 0 && (
+              <input
+                type="search"
+                className="filter-chip-search"
+                placeholder="Search tags…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                autoFocus
+              />
+            )}
+            <div className="filter-chip-range-row">
+              <span>mode</span>
+              <div className="filter-chip-segmented">
+                <button
+                  type="button"
+                  className={mode === 'or' ? 'active' : ''}
+                  onClick={() => onChange({ tagMode: 'or' })}
+                >
+                  OR
+                </button>
+                <button
+                  type="button"
+                  className={mode === 'and' ? 'active' : ''}
+                  onClick={() => onChange({ tagMode: 'and' })}
+                >
+                  AND
+                </button>
+              </div>
+            </div>
+            <label className="filter-chip-range-row">
+              <span>rank ≥</span>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={5}
+                value={minRank}
+                onChange={(e) => onChange({ tagMinRank: Number(e.target.value) || 0 })}
+                className="filter-chip-number"
+              />
+            </label>
+            {options.length > 0 && (
+              <div className="filter-chip-toolbar">
+                <button
+                  type="button"
+                  className="filter-chip-action"
+                  disabled={bulkDisabled('include') && bulkDisabled('exclude')}
+                  onClick={() => bulkMark('include')}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    bulkMark('exclude');
+                  }}
+                  title={`${needle ? 'Include every tag that matches the search' : 'Include every tag'}. Right-click to exclude them instead.`}
+                >
+                  {needle ? 'Select all visible' : 'Select all'}
+                </button>
+                <button
+                  type="button"
+                  className="filter-chip-action"
+                  disabled={markedCount === 0}
+                  onClick={() => onChange({ tagNames: [], tagExclude: [] })}
+                  title="Clear every included and excluded tag"
+                >
+                  Clear
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="filter-chip-menu-scroll">
+            {options.length === 0 && <div className="filter-chip-empty">(no options)</div>}
+            {marked.map(renderRow)}
+            {marked.length > 0 && unmarked.length > 0 && <div className="filter-chip-divider" />}
+            {options.length > 0 && marked.length === 0 && unmarked.length === 0 && needle && (
+              <div className="filter-chip-empty">(no matches)</div>
+            )}
+            {unmarked.map(renderRow)}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -2410,6 +2921,7 @@ export function AnilistChips({
     voiceActors: [],
     cachedCastMediaIds: new Set(),
     mediaType: null,
+    listDates: [],
   });
   // Bulk-expand status is local to the chip group (not persisted in
   // chipState — it's a transient job, not a filter selection). Bumps
@@ -2435,6 +2947,7 @@ export function AnilistChips({
 
   const set = (patch: Partial<AnilistFilterChipState>) =>
     onChipStateChange(patchState(state, patch));
+  const listDate = normalizeListDateFilter(state);
   const seasonYearOptions = seasonYearOptionsForSelectedYears(
     options.seasonYearEncoded,
     state.years,
@@ -2490,8 +3003,8 @@ export function AnilistChips({
 
   // Chip render order, per the agreed UX:
   //   list status, status, genre, format, year (multiselect),
-  //   seasonYear (range), score (range), studio, voice actor,
-  //   tag, tag options (mode + rank), exclude tag.
+  //   seasonYear (range), score (range), list date (range), studio,
+  //   voice actor, tag (include / exclude + mode + rank).
   return (
     <>
       {!hideUserChips && (
@@ -2547,6 +3060,14 @@ export function AnilistChips({
           onChange={(patch) => set(patch)}
         />
       )}
+      {!hideUserChips && (
+        <ListDateChip
+          options={listDateOptions(options.listDates, listDate.listDateField)}
+          mediaType={options.mediaType}
+          value={listDate}
+          onChange={(patch) => set(patch)}
+        />
+      )}
       {options.mediaType !== 'MANGA' && (
         <MultiSelectChip<number>
           label="studio"
@@ -2593,32 +3114,13 @@ export function AnilistChips({
           bulkExpandStatus={bulkExpandStatus}
         />
       )}
-      <MultiSelectChip
-        label="tag"
+      <TagFilterChip
         options={options.tagNames}
-        selected={state.tagNames}
-        onToggle={(v) =>
-          set({ tagNames: toggleInArray(state.tagNames, v) })
-        }
-        onReplaceAll={(vals) => set({ tagNames: [...vals] })}
-        searchable
-        searchPlaceholder="Search tags…"
-      />
-      <TagOptionsChip
+        tagNames={state.tagNames}
+        tagExclude={state.tagExclude}
         mode={state.tagMode}
         minRank={state.tagMinRank}
         onChange={(patch) => set(patch)}
-      />
-      <MultiSelectChip
-        label="exclude tag"
-        options={options.tagNames}
-        selected={state.tagExclude}
-        onToggle={(v) =>
-          set({ tagExclude: toggleInArray(state.tagExclude, v) })
-        }
-        onReplaceAll={(vals) => set({ tagExclude: [...vals] })}
-        searchable
-        searchPlaceholder="Search tags to exclude…"
       />
     </>
   );

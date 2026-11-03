@@ -785,6 +785,36 @@ describe('computeAllowedMediaIds', () => {
     );
   }
 
+  it('list date keeps entries active in the range and hides undated or unlisted ones', async () => {
+    for (const id of [1, 2, 3, 4]) seedMedia(db, id);
+    seedUser(db, 999, 'me');
+    const seedDated = (
+      mediaId: number,
+      started: [number, number] | null,
+      completed: [number, number] | null,
+    ): void => {
+      db.exec(
+        `INSERT INTO media_list_entry (
+          anilist_user_id, media_id, score, status, repeat,
+          started_year, started_month, started_day,
+          completed_year, completed_month, completed_day,
+          anilist_created_at, anilist_updated_at, fetched_at, updated_at
+        ) VALUES (999, ?, 0, 'COMPLETED', NULL, ?, ?, NULL, ?, ?, NULL, NULL, 0, 0, 0)`,
+        {
+          bind: [mediaId, started?.[0] ?? null, started?.[1] ?? null, completed?.[0] ?? null, completed?.[1] ?? null],
+        } as never,
+      );
+    };
+    seedDated(1, [2022, 12], [2024, 3]);
+    seedDated(2, [2020, 1], [2020, 2]);
+    seedDated(3, null, null);
+    const allowed = await computeAllowedMediaIds(
+      [1, 2, 3, 4],
+      chips({ listDateField: 'active', listDateMin: 2023 * 12, listDateMax: 2023 * 12 + 11 }),
+    );
+    expect(Array.from(allowed)).toEqual([1]);
+  });
+
   it('scoreMin filters out rated entries whose user score is below the lower bound', async () => {
     seedMedia(db, 1);
     seedMedia(db, 2);

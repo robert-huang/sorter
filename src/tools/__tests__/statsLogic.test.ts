@@ -80,6 +80,7 @@ const baseForm: StatsForm = {
   userScoreInclude: 'any',
   scoreMin: null,
   scoreMax: null,
+  listDate: { listDateField: 'active', listDateMin: null, listDateMax: null },
   minCount: 0,
   showSummary: false,
   aggregationType: 'VA',
@@ -135,6 +136,23 @@ describe('filterStatsPool', () => {
       listStatusFilters: ['COMPLETED'],
     });
     expect(filtered.map((e) => e.mediaId)).toEqual([2]);
+  });
+
+  it('applies the list date chip and hides undated entries while a range is set', () => {
+    const dated = (startedYear: number, completedYear: number) => ({
+      startedYear,
+      startedMonth: 3,
+      completedYear,
+      completedMonth: 6,
+    });
+    const pool = [
+      entry({ mediaId: 1, title: 'A', listDates: dated(2023, 2023) }),
+      entry({ mediaId: 2, title: 'B', listDates: dated(2020, 2020) }),
+      entry({ mediaId: 3, title: 'C' }),
+    ];
+    const range = { listDateField: 'completed' as const, listDateMin: 2023 * 12, listDateMax: 2023 * 12 + 11 };
+    expect(filterStatsPool(pool, { ...baseForm, listDate: range }).map((e) => e.mediaId)).toEqual([1]);
+    expect(filterStatsPool(pool, baseForm).map((e) => e.mediaId)).toEqual([1, 2, 3]);
   });
 });
 

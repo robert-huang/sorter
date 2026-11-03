@@ -6,6 +6,7 @@ import {
   RAW_NORMALIZATION,
   nextComparisonSort,
   normalizeScoreComparisonSettings,
+  rowPassesListDate,
   rowPassesScoreRange,
   rowStat,
   sortComparisonRows,
@@ -146,6 +147,43 @@ describe('rowStat', () => {
       sortComparisonRows(rows, { column: 'stat', direction }, ctx).map((r) => r.media.title);
     expect(titles('desc')).toEqual(['Far', 'Close', 'Solo']);
     expect(titles('asc')).toEqual(['Close', 'Far', 'Solo']);
+  });
+});
+
+describe('rowPassesListDate', () => {
+  const dated = (year: number, excluded = false): ComparisonCell => ({
+    entry: {
+      ...entry(80),
+      listDates: { startedYear: year, startedMonth: 1, completedYear: year, completedMonth: 6 },
+    },
+    excluded,
+    favourite: false,
+  });
+  const state = { listDateField: 'completed' as const, listDateMin: 2023 * 12, listDateMax: 2023 * 12 + 11 };
+
+  it('one person passes when any counted user matches; everyone needs all of them', () => {
+    expect(rowPassesListDate([dated(2023), dated(2019)], { state, mode: 'any' })).toBe(true);
+    expect(rowPassesListDate([dated(2023), dated(2019)], { state, mode: 'all' })).toBe(false);
+    expect(rowPassesListDate([dated(2023), dated(2019, true)], { state, mode: 'all' })).toBe(true);
+  });
+
+  it('feeds into buildComparisonRows', () => {
+    const users = [
+      user('a', { 1: { ...entry(80), listDates: dated(2023).entry!.listDates } }),
+      user('b', { 1: entry(70) }),
+    ];
+    const filters: ComparisonFilters = {
+      userStatuses: {},
+      score: DEFAULT_SCORE_FILTER,
+      minLists: null,
+      listDate: { state, mode: 'all' },
+    };
+    const [row] = buildComparisonRows(users, mediaMap({ 1: 'Show' }), filters, null);
+    expect(row?.passes).toBe(false);
+    expect(
+      buildComparisonRows(users, mediaMap({ 1: 'Show' }), { ...filters, listDate: { state, mode: 'any' } }, null)[0]
+        ?.passes,
+    ).toBe(true);
   });
 });
 

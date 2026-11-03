@@ -16,9 +16,11 @@ import { withLastAnilistUsername } from '../../lib/importers/anilist/lastUsernam
 import {
   MultiSelectChip,
   DualRangeSlider,
+  ListDateChip,
   ScoreRangeChip,
   toggleInArray,
 } from '../../lib/importers/anilist/filters';
+import { listDateOptions } from '../../lib/importers/anilist/listDateFilter';
 import { useClickOutside } from '../../lib/hooks/useClickOutside';
 import {
   appendFavouriteStar,
@@ -1175,6 +1177,15 @@ export function WeeklyCalendarPanel({
     toolsPreferences.weeklyCalendarShowUnscheduledColumn,
   ]);
 
+  const listDateSliderOptions = useMemo(
+    () =>
+      listDateOptions(
+        (rawEntries ?? []).map((entry) => entry.listDates),
+        form.listDate.listDateField,
+      ),
+    [rawEntries, form.listDate.listDateField],
+  );
+
   const themeSongCacheRequest = useMemo(() => {
     if (!showThemeSongs || result?.kind !== 'columns') {
       return null;
@@ -1476,6 +1487,11 @@ export function WeeklyCalendarPanel({
               min={form.scoreMin ?? null}
               max={form.scoreMax ?? null}
               onChange={(patch) => patchForm(patch)}
+            />
+            <ListDateChip
+              options={listDateSliderOptions}
+              value={form.listDate}
+              onChange={(patch) => patchForm({ listDate: { ...form.listDate, ...patch } })}
             />
           </div>
 

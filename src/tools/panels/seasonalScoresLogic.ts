@@ -9,6 +9,13 @@ import {
   scoresPassScoreFilter,
   type ComparisonScoreFilter,
 } from './scoreFilterLogic';
+import {
+  DEFAULT_MULTI_USER_LIST_DATE_FILTER,
+  listDateFilterActive,
+  listDatesPassForUsers,
+  type ListEntryDates,
+  type MultiUserListDateFilter,
+} from '../../lib/importers/anilist/listDateFilter';
 
 export type SeasonalFuzzyDate = {
   year: number | null;
@@ -35,6 +42,8 @@ export type SeasonalShow = {
   notes: string | null;
   /** AniList list status (e.g. PLANNING when include-planning fetch is enabled). */
   listStatus?: string | null;
+  /** The user's list started / completed dates (list date chip). */
+  listDates?: ListEntryDates;
   /** AniList MediaSource (ORIGINAL, LIGHT_NOVEL, …) — null when not yet imported. */
   source?: AnilistMediaSource | null;
   /** AniList MediaFormat (TV, MOVIE, …). */
@@ -50,6 +59,7 @@ export type SeasonalUserEntry = {
   score: number | null;
   repeat: number | null;
   notes: string | null;
+  listDates?: ListEntryDates;
   /** From a `mal:` user; ignored for scores and hover unless MAL scores are included. */
   isMal?: boolean;
 };
@@ -1068,6 +1078,7 @@ export function mergeSeasonalUserLists(
         score: normalizeSeasonalListScore(show.score),
         repeat: show.repeat ?? null,
         notes: show.notes,
+        listDates: show.listDates,
         isMal,
       };
       const key = isMal && show.malId != null ? (anilistIdByMalId.get(show.malId) ?? show.id) : show.id;
@@ -1203,7 +1214,26 @@ export type BuildSeasonalColumnsOptions = {
   includeMalScores?: boolean;
   /** User Scores' score chip, matched against each show's per-user entries. */
   scoreFilter?: ComparisonScoreFilter;
+  /** List date chip, matched against each show's per-user entries like the score chip. */
+  listDateFilter?: SeasonalListDateFilter;
 };
+
+export type SeasonalListDateFilter = MultiUserListDateFilter;
+
+/** Shows whose counted users' list dates pass ("one person" vs "everyone"). */
+export function applySeasonalListDateFilter(
+  shows: SeasonalShow[],
+  filter: SeasonalListDateFilter,
+): SeasonalShow[] {
+  if (!listDateFilterActive(filter.state)) return shows;
+  return shows.filter((show) =>
+    listDatesPassForUsers(
+      (show.entries ?? []).map((entry) => entry.listDates),
+      filter.state,
+      filter.mode,
+    ),
+  );
+}
 
 /** Shows whose counted users pass the score chip ("one person" vs "everyone"). */
 export function applySeasonalScoreFilter(
@@ -1280,6 +1310,10 @@ export function buildMultiUserSeasonalColumns(
   filteredShows = applySeasonalScoreFilter(
     filteredShows,
     options?.scoreFilter ?? DEFAULT_SCORE_FILTER,
+  );
+  filteredShows = applySeasonalListDateFilter(
+    filteredShows,
+    options?.listDateFilter ?? DEFAULT_MULTI_USER_LIST_DATE_FILTER,
   );
   const specs = parseSeasonSpecs(
     form.seasonText,

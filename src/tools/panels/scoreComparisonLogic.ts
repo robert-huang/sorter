@@ -2,6 +2,13 @@ import type { AnilistMediaListStatus } from '../../lib/importers/anilist/types';
 import { ALL_LIST_STATUSES } from '../../lib/importers/anilist/filters';
 import { compareStatsSortValues } from './statsLogic';
 import {
+  DEFAULT_MULTI_USER_LIST_DATE_FILTER,
+  listDatesPassForUsers,
+  normalizeMultiUserListDateFilter,
+  type ListEntryDates,
+  type MultiUserListDateFilter,
+} from '../../lib/importers/anilist/listDateFilter';
+import {
   DEFAULT_SCORE_FILTER,
   normalizeScoreFilter,
   scoresPassScoreFilter,
@@ -43,6 +50,7 @@ export type ComparisonEntry = {
   status: AnilistMediaListStatus;
   /** 0–100; 0 means unrated. */
   score: number;
+  listDates?: ListEntryDates;
 };
 
 export type ComparisonMedia = {
@@ -64,6 +72,8 @@ export type ComparisonFilters = {
   /** Keyed by lowercased username; missing key = all statuses. Kept after a user is removed. */
   userStatuses: Readonly<Record<string, readonly AnilistMediaListStatus[]>>;
   score: ComparisonScoreFilter;
+  /** List date chip; matched over the same counted users as the score chip. */
+  listDate?: MultiUserListDateFilter;
   /** Null = no minimum. */
   minLists: number | null;
 };
@@ -181,6 +191,18 @@ export function rowPassesScoreRange(
   );
 }
 
+/** Same counted users as {@link rowPassesScoreRange}: `any` needs one in range, `all` needs every one. */
+export function rowPassesListDate(
+  cells: readonly ComparisonCell[],
+  filter: MultiUserListDateFilter,
+): boolean {
+  return listDatesPassForUsers(
+    cells.filter(isPassingCell).map((cell) => cell.entry.listDates),
+    filter.state,
+    filter.mode,
+  );
+}
+
 export function passingCellCount(cells: readonly ComparisonCell[]): number {
   return cells.filter(isPassingCell).length;
 }
@@ -219,7 +241,9 @@ export function buildComparisonRows(
     if (cells.every((cell) => cell.entry === null)) continue;
     const passes =
       mediaAllowed &&
-      rowPassesMinLists(cells, filters.minLists) && rowPassesScoreRange(cells, filters.score);
+      rowPassesMinLists(cells, filters.minLists) &&
+      rowPassesScoreRange(cells, filters.score) &&
+      rowPassesListDate(cells, filters.listDate ?? DEFAULT_MULTI_USER_LIST_DATE_FILTER);
     rows.push({ media, cells, passes });
   }
   return rows;
@@ -419,7 +443,13 @@ function normalizeFilters(value: unknown): ComparisonFilters {
     typeof value.minLists === 'number' && Number.isInteger(value.minLists) && value.minLists > 0
       ? value.minLists
       : null;
-  return { userStatuses, score: normalizeScoreFilter(value.score), minLists };
+  const listDate = isRecord(value.listDate) ? value.listDate : {};
+  return {
+    userStatuses,
+    score: normalizeScoreFilter(value.score),
+    listDate: normalizeMultiUserListDateFilter(listDate.state, listDate.mode),
+    minLists,
+  };
 }
 
 function normalizeSort(value: unknown): ComparisonSort {
