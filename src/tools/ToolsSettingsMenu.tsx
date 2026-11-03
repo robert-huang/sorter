@@ -15,15 +15,21 @@ import {
 } from '../hooks/useThemeSongPlaylistEditor';
 import type { ToolId } from './toolTypes';
 import { useScoreComparisonFit, type ScoreComparisonFit } from './scoreComparisonFitStore';
+import {
+  DEFAULT_SCORE_COMPARISON_TARGET_MEAN,
+  DEFAULT_SCORE_COMPARISON_TARGET_STD_DEV,
+} from './toolsPreferences';
 
 function roundFitValue(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+const FIT_RESET_HINT = `Right-click to reset to the default (mean ${DEFAULT_SCORE_COMPARISON_TARGET_MEAN}, standard deviation ${DEFAULT_SCORE_COMPARISON_TARGET_STD_DEV}).`;
+
 function fitButtonTitle(fit: ScoreComparisonFit | null): string {
-  if (!fit) return 'Needs the first user in User Scores to have at least two different scores in the filtered rows.';
+  if (!fit) return `Needs the first user in User Scores to have at least two different scores in the filtered rows.\n\n${FIT_RESET_HINT}`;
   const { mean, stdDev } = fit.target;
-  return `Sets the scale so ${fit.username}'s lowest and highest scores in the filtered rows land on 0 and 100 (mean ${roundFitValue(mean)}, standard deviation ${roundFitValue(stdDev)}).\n\nUses only the first user so everyone stays on one shared scale: a per-user fit would give each column its own scale and the columns would no longer be comparable. Other users can land a little outside 0–100.`;
+  return `Sets the scale so ${fit.username}'s lowest and highest scores in the filtered rows land on 0 and 100 (mean ${roundFitValue(mean)}, standard deviation ${roundFitValue(stdDev)}).\n\nUses only the first user so everyone stays on one shared scale: a per-user fit would give each column its own scale and the columns would no longer be comparable. Other users can land a little outside 0–100.\n\n${FIT_RESET_HINT}`;
 }
 
 type SettingsTab = 'settings' | 'database';
@@ -411,7 +417,8 @@ export function ToolsSettingsMenu({
                     <button
                       type="button"
                       className="tools-settings-fit-button"
-                      disabled={!scoreComparisonFit}
+                      // aria-disabled, not disabled: disabled buttons don't receive the right-click reset.
+                      aria-disabled={!scoreComparisonFit}
                       title={fitButtonTitle(scoreComparisonFit)}
                       onClick={() => {
                         if (!scoreComparisonFit) return;
@@ -419,6 +426,11 @@ export function ToolsSettingsMenu({
                         setScoreComparisonRescale(true);
                         setScoreComparisonTargetMean(roundFitValue(mean));
                         setScoreComparisonTargetStdDev(roundFitValue(stdDev));
+                      }}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setScoreComparisonTargetMean(DEFAULT_SCORE_COMPARISON_TARGET_MEAN);
+                        setScoreComparisonTargetStdDev(DEFAULT_SCORE_COMPARISON_TARGET_STD_DEV);
                       }}
                     >
                       Fit to 0–100

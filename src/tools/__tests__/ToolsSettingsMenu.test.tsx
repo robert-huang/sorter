@@ -6,6 +6,7 @@ import { ToolsSettingsMenu } from '../ToolsSettingsMenu';
 import {
   _clearToolsPreferencesForTesting,
   loadToolsPreferences,
+  saveToolsPreferences,
 } from '../toolsPreferences';
 
 const DB_SYNC: SourceDbSyncControls = {
@@ -216,5 +217,44 @@ describe('ToolsSettingsMenu', () => {
         ?.closest('.tools-settings-section'),
     ).toBeNull();
     expect(container.querySelector('.settings-footer')?.closest('.tools-settings-section')).toBeNull();
+  });
+
+  it('right-click on Fit to 0–100 resets the scale to the defaults, even with no fit', async () => {
+    saveToolsPreferences({ scoreComparisonTargetMean: 55, scoreComparisonTargetStdDev: 22 });
+    await act(async () => {
+      root.render(
+        <ToolsSettingsMenu
+          activeTool="score-comparison"
+          historyBackGuard={false}
+          onToggleHistoryBackGuard={vi.fn()}
+          dbSync={DB_SYNC}
+        />,
+      );
+    });
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Settings"]')
+        ?.click();
+    });
+
+    const fitButton = container.querySelector<HTMLButtonElement>('.tools-settings-fit-button');
+    expect(fitButton?.getAttribute('aria-disabled')).toBe('true');
+    expect(fitButton?.title).toContain('Right-click to reset');
+
+    await act(async () => {
+      fitButton?.click();
+    });
+    expect(loadToolsPreferences()).toMatchObject({
+      scoreComparisonTargetMean: 55,
+      scoreComparisonTargetStdDev: 22,
+    });
+
+    await act(async () => {
+      fitButton?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    });
+    expect(loadToolsPreferences()).toMatchObject({
+      scoreComparisonTargetMean: 70,
+      scoreComparisonTargetStdDev: 15,
+    });
   });
 });

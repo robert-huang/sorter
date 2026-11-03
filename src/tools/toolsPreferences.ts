@@ -47,6 +47,9 @@ const STORAGE_KEY = 'anime-tools:preferences:v1';
 const LEGACY_SEASONAL_FORM_KEY = 'anime-tools-seasonal-scores-form';
 const LEGACY_WEEKLY_CALENDAR_FORM_KEY = 'anime-tools-weekly-calendar-form';
 
+export const DEFAULT_SCORE_COMPARISON_TARGET_MEAN = 70;
+export const DEFAULT_SCORE_COMPARISON_TARGET_STD_DEV = 15;
+
 const DEFAULT_PREFS: ToolsPreferences = {
   productionAllRoles: false,
   bumpChartBestMatchByTitle: true,
@@ -59,8 +62,8 @@ const DEFAULT_PREFS: ToolsPreferences = {
   weeklyCalendarShowThemeSongs: false,
   weeklyCalendarAllowPlaylistRemoval: false,
   scoreComparisonRescale: false,
-  scoreComparisonTargetMean: 70,
-  scoreComparisonTargetStdDev: 15,
+  scoreComparisonTargetMean: DEFAULT_SCORE_COMPARISON_TARGET_MEAN,
+  scoreComparisonTargetStdDev: DEFAULT_SCORE_COMPARISON_TARGET_STD_DEV,
   highlightStaleCast: true,
 };
 
