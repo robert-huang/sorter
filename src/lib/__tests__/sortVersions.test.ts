@@ -120,6 +120,28 @@ describe('upsertLiveVersion', () => {
   });
 });
 
+describe('start over as a new version', () => {
+  it('freezes the finished ranking once, then records the re-sort as the next version', () => {
+    // Edited finished sort: newest version is live.
+    const live = { ...version([B, A, C], T2, 'live'), live: true as const };
+    const before = [version([A, B, C], T1), live];
+    // Start over: freeze the finished ranking, then the reopen hook catches up.
+    let versions = appendVersionIfChanged(before, doneBlob([B, A, C]), new Date(T2));
+    versions = upsertLiveVersion(versions, doneBlob([B, A, C]), new Date(T2));
+    expect(versions.map((v) => [v.rankedIds, v.live])).toEqual([
+      [[A.id, B.id, C.id], undefined],
+      [[B.id, A.id, C.id], undefined],
+    ]);
+    // The restarted sort finishes in a new order.
+    versions = appendVersionIfChanged(versions, doneBlob([C, B, A]), new Date(T3));
+    expect(versions.map((v) => v.rankedIds)).toEqual([
+      [A.id, B.id, C.id],
+      [B.id, A.id, C.id],
+      [C.id, B.id, A.id],
+    ]);
+  });
+});
+
 describe('diffSortVersions / summarizeSortVersionDiff', () => {
   it('reports added, removed and the biggest moves first', () => {
     const prev = version([A, B, C, D], T1);

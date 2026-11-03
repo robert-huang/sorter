@@ -2740,13 +2740,25 @@ export function App() {
   // first merge comparisons happen between previously-adjacent items —
   // the highest-information pairing for confirming or revising the
   // earlier ranking.
-  const performStartOver = useCallback(() => {
+  //
+  // `target: 'version'` restarts in this slot instead: the finished ranking is
+  // frozen as a version first, the new sort records the next one when it finishes,
+  // and ↶ Undo can return to the finished sort.
+  const performStartOver = useCallback((target: 'slot' | 'version' = 'slot') => {
     if (!state) return;
     const items = engineGetRanking(state)
       .map((id) => state.items[id])
       .filter((it): it is Item => !!it);
     if (items.length === 0) return;
     const next = initSort(items, engineOptions);
+    if (target === 'version') {
+      const finished = state;
+      setVersions((prev) => appendVersionIfChanged(prev, ranked(finished), new Date()));
+      pushUndo(state);
+      setState(next);
+      setActiveTab('list');
+      return;
+    }
     const session: SavedSession = { state: next, undoRing: [], versions: [] };
     // Land on LIST so the user can preview / tweak the seeded queue
     // before committing to the first comparison.
@@ -2754,7 +2766,7 @@ export function App() {
       manifest.slots.find((s) => s.id === (loadedSlotId ?? manifest.activeId))?.name ??
       'Untitled sort';
     adoptNewSession(session, derivedSlotName(slotName, 'redo'), 'list');
-  }, [state, manifest.slots, manifest.activeId, loadedSlotId, adoptNewSession, engineOptions]);
+  }, [state, manifest.slots, manifest.activeId, loadedSlotId, adoptNewSession, engineOptions, pushUndo]);
 
   const requestStartOver = useCallback(() => {
     if (!state) return;
@@ -3227,7 +3239,11 @@ export function App() {
           onConfirm={(dontAsk) => {
             if (dontAsk) updateSettings({ suppressStartOverConfirm: true });
             setStartOverPending(null);
-            performStartOver();
+            performStartOver('slot');
+          }}
+          onNewVersion={() => {
+            setStartOverPending(null);
+            performStartOver('version');
           }}
         />
       )}
