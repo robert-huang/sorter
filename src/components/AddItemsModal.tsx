@@ -4,11 +4,12 @@ import type { Item } from '../lib/types';
 import {
   canonicalKey,
   looksLikeHeader,
-  parseCsvRows,
-  parseSources,
   PAPA_COMMA_CSV_OPTIONS,
 } from '../lib/csv';
 import { AnilistStartMode } from './AnilistStartMode';
+import { EditItemModal } from './EditItemModal';
+import { ImportPreview, type PreviewRowStatus } from './ImportPreview';
+import { useStagedRowEdits } from './useStagedRowEdits';
 import { CircularArrowGlyph } from './CircularArrowGlyph';
 import { InfoIcon } from './icons';
 import { Modal } from './Modal';
@@ -157,6 +158,8 @@ export function AddItemsModal({
 
   const modalClassName = [
     'modal-wide',
+    'modal-add-items',
+    tab === 'multiple' ? 'modal-wide-multiple' : '',
     tab === 'anilist' ? 'modal-wide-anilist' : '',
     tab === 'sortresults' ? 'modal-wide-sort-results' : '',
   ]
@@ -452,8 +455,8 @@ function MultipleTab({
   // they go through addItems (N singletons). For insertion engine,
   // pending is FIFO either way so the checkbox is hidden.
   const [asPreRanked, setAsPreRanked] = useState(false);
-  const [hydratedItems, setHydratedItems] = useState<Item[] | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const edits = useStagedRowEdits(text, skipHeader);
 
   function onFile(e: React.ChangeEvent<HTMLInputElement>): void {
     const file = e.target.files?.[0];
@@ -472,27 +475,18 @@ function MultipleTab({
     return Array.isArray(first) ? looksLikeHeader(first) : false;
   }, [text]);
 
-  const parsed = useMemo(() => {
-    if (!text.trim()) return { items: [] as Item[] };
-    const rows = parseCsvRows(text, 'add items', skipHeader);
-    const r = parseSources([
-      {
-        sourceName: 'add items',
-        rawRows: rows.rows,
-        detectedHeader: rows.detectedHeader,
-      },
-    ]);
-    return { items: r.items };
-  }, [text, skipHeader]);
+  const effectiveItems = edits.result.items;
 
-  useEffect(() => {
-    setHydratedItems(null);
-  }, [text, skipHeader]);
-
-  const effectiveItems = hydratedItems ?? parsed.items;
+  const rowStatus = (item: Item): PreviewRowStatus | null => {
+    if (hiddenRestoreIds.has(item.id)) return 'reinsert';
+    if (isActiveSortDuplicate(item.id, existingIds, hiddenRestoreIds)) {
+      return 'skip';
+    }
+    return null;
+  };
 
   const importSummary = useMemo(() => {
-    const n = parsed.items.length;
+    const n = effectiveItems.length;
     if (n === 0) return null;
     let restore = 0;
     let skip = 0;
@@ -577,9 +571,9 @@ function MultipleTab({
         />
       </div>
       <AnilistHydrationControls
-        items={parsed.items}
+        items={effectiveItems}
         dbSyncRevision={dbSyncRevision}
-        onHydrated={(result) => setHydratedItems(result.items)}
+        onHydrated={edits.applyHydration}
       />
       <div className="checkbox-row">
         <input
@@ -632,6 +626,38 @@ function MultipleTab({
       >
         {importSummary ?? 'No items parsed yet.'}
       </div>
+      <div className="add-items-staging">
+        <ImportPreview
+          sources={edits.result.perSource}
+          totalItems={effectiveItems.length}
+          warnings={edits.result.warnings}
+          extraColumns={edits.result.extraColumns}
+          commaInLabel={edits.result.commaInLabel}
+          startLabel={submitLabel}
+          startDisabled
+          onStart={onSubmit}
+          hideStart
+          rowStatus={rowStatus}
+          onEditOccurrence={edits.openEdit}
+          onRemoveRow={edits.removeRow}
+        />
+      </div>
+      {edits.editTarget && (
+        <EditItemModal
+          item={{
+            id: edits.editTarget.currentId,
+            label: edits.editTarget.currentLabel,
+            url: edits.editTarget.currentUrl,
+            imageUrl: edits.editTarget.currentImageUrl,
+          }}
+          onCancel={edits.cancelEdit}
+          onSave={edits.saveEdit}
+          allowEditId
+          currentId={edits.editTarget.currentId}
+          otherIds={edits.editTarget.otherIds}
+          rawRow={edits.editTarget.rawRow}
+        />
+      )}
       <div className="modal-actions">
         <button type="button" className="btn" onClick={onCancel}>
           Cancel

@@ -1,6 +1,7 @@
 import {
   addItem as engineAddItem,
   addItems as engineAddItems,
+  appendPreRanked as engineAppendPreRanked,
   finalizeCompletedState,
   getRanking,
   type EngineOptions,
@@ -11,6 +12,7 @@ import {
 } from './insertionSort';
 import {
   appendPreRankedSublist,
+  initSort,
   resetBranchedComparisonProgress as resetMergeBranchedComparisonProgress,
 } from './queueMergeSort';
 import { itemAtVersion } from './sortVersionShape';
@@ -86,6 +88,65 @@ export function createConfirmationFromCompletedSort(
   return items.length > 0 ? seedConfirmation(items) : null;
 }
 
+export type SectionResortMethod = 'merge' | 'confirm';
+
+/**
+ * Starts re-sorting visible ranks `startIndex..endIndex` (0-based, inclusive)
+ * of a finished sort in place. Merge always shuffles; confirm walks the range
+ * in its current order. The rest of the ranking is frozen in `section` and
+ * spliced back by `finalizeCompletedState` when the range finishes.
+ *
+ * Example: ranking A B C D E, range 1..3 → engine sorts B C D, frozen
+ * before = [A], after = [E].
+ *
+ * Returns null unless the sort is finished and the range covers 2+ visible items.
+ */
+export function seedSectionResort(
+  state: SortState,
+  startIndex: number,
+  endIndex: number,
+  method: SectionResortMethod,
+  options: EngineOptions,
+): SortState | null {
+  const done = finalizeCompletedState(state);
+  if (!done.done || done.engine !== 'merge' || done.section) return null;
+  const visible = getRanking(done);
+  if (startIndex < 0 || endIndex >= visible.length || endIndex - startIndex < 1) {
+    return null;
+  }
+  const order = done.queue[0] ?? [];
+  const first = order.indexOf(visible[startIndex]!);
+  const last = order.indexOf(visible[endIndex]!);
+  const hidden = new Set(done.hidden);
+  const inside = order.slice(first, last + 1);
+  const sectionItems = inside
+    .filter((id) => !hidden.has(id))
+    .map((id) => done.items[id])
+    .filter((item): item is Item => !!item);
+
+  const inner: SortState =
+    method === 'merge'
+      ? initSort(sectionItems, { ...options, shuffleAtStart: true })
+      : seedConfirmation(sectionItems);
+  return {
+    ...inner,
+    hidden: done.hidden.slice(),
+    items: done.items,
+    section: {
+      before: order.slice(0, first),
+      after: order.slice(last + 1),
+      tailPlaceholders: inside.filter((id) => hidden.has(id)),
+      originalOrder: order.slice(),
+      originalHidden: done.hidden.slice(),
+      originalToBeInserted: done.toBeInserted.slice(),
+      priorComparisons: done.comparisons,
+      priorTotalComparisonsEverNeeded: done.totalComparisonsEverNeeded,
+      startRank: startIndex + 1,
+      endRank: endIndex + 1,
+    },
+  } as SortState;
+}
+
 /** Suffixes we recognize when branching again from an already-derived slot. */
 const DERIVED_SLOT_SUFFIXES = [
   ' (new)',
@@ -158,7 +219,7 @@ export function applySlotImportBatches(
   for (const batch of batches) {
     if (batch.items.length === 0) continue;
     if (batch.asPreRanked && cur.engine === 'merge') {
-      const result = appendPreRankedSublist(cur, batch.items, options);
+      const result = engineAppendPreRanked(cur, batch.items, options);
       cur = result.state;
       skipped.push(...result.skipped);
       restored.push(...result.restored);

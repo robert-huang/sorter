@@ -1,3 +1,4 @@
+import { frozenSectionIds } from './sectionResortShape';
 import type { ItemId, SortProgress, SortState } from './types';
 
 /** Ids that occupy a visible ranking slot (sorted, pending, queue, etc.). */
@@ -16,6 +17,7 @@ export function rankingSlotIds(state: SortProgress): Set<ItemId> {
     }
     for (const id of state.toBeInserted) ranked.add(id);
   }
+  for (const id of frozenSectionIds(state.section)) ranked.add(id);
   return ranked;
 }
 

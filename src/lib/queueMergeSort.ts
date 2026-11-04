@@ -11,6 +11,7 @@ import {
   startRankAwareInsert,
   type InsertResult,
 } from './binaryInsertion';
+import { sectionField } from './sectionResortShape';
 import { shuffledCopy } from './shuffle';
 import { isItemInActiveRanking } from './sortPopulation';
 import type {
@@ -450,6 +451,7 @@ export function snapshotProgress(state: MergeState): MergeProgress {
     pendingManualInserts: state.pendingManualInserts.slice(),
     currentManualInsert: cloneManualInsert(state.currentManualInsert),
     currentAutoInsert: cloneAutoInsert(state.currentAutoInsert),
+    ...sectionField(state.section),
   };
 }
 
@@ -475,6 +477,7 @@ export function restoreProgress(
     pendingManualInserts: progress.pendingManualInserts.slice(),
     currentManualInsert: cloneManualInsert(progress.currentManualInsert),
     currentAutoInsert: cloneAutoInsert(progress.currentAutoInsert),
+    ...sectionField(progress.section),
     items: state.items,
   };
 }

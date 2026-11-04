@@ -19,6 +19,33 @@ import { getCompareProgress, selectUndoSnapshot } from '../engine';
 
 const item = (id: string, label: string): Item => ({ id, label });
 
+describe('confirmationSort hidden frontier', () => {
+  const four = () => seedConfirmation(['1', '2', '3', '4'].map((id) => item(id, id)));
+
+  it('compares the candidate with the last visible confirmed item when the frontier is hidden', () => {
+    let s = pickLeft(four());
+    expect(getPair(s)).toEqual({ leftId: '2', rightId: '3' });
+    s = hideItem(s, '2');
+    expect(getPair(s)).toEqual({ leftId: '1', rightId: '3' });
+  });
+
+  it('confirms the candidate for free when every confirmed item is hidden', () => {
+    const s = hideItem(four(), '1');
+    expect(s.confirmed).toEqual(['1', '2']);
+    expect(s.candidate).toBe('3');
+    expect(s.comparisons).toBe(0);
+    expect(getPair(s)).toEqual({ leftId: '2', rightId: '3' });
+  });
+
+  it('a right pick against the only visible confirmed item lands just above it', () => {
+    let s = pickLeft(four());
+    s = hideItem(s, '1');
+    s = pickRight(s);
+    expect(s.phase).toBe('confirm');
+    expect(s.confirmed).toEqual(['1', '3', '2']);
+  });
+});
+
 describe('confirmationSort', () => {
   it('seeds [1..3] with confirmed=[1], candidate=2, queue=[3]', () => {
     const s = seedConfirmation([item('1', '1'), item('2', '2'), item('3', '3')]);

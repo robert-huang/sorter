@@ -4922,6 +4922,14 @@ a:where(.anime-to-anime-anilist-link):visited {
   opacity: 0.92;
 }
 
+.compare-section-label {
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+
 .compare-help {
   text-align: center;
   font-size: 13px;
@@ -6288,6 +6296,222 @@ a:where(.anime-to-anime-anilist-link):visited {
   width: min(640px, calc(100% - 32px));
 }
 
+.modal-wide-multiple {
+  width: min(900px, calc(100% - 32px));
+  max-height: 88vh;
+}
+
+.add-items-staging .preview {
+  margin-top: 12px;
+}
+
+.preview-item-status {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.preview-item-status-reinsert {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.anilist-start .filter-bar {
+  margin-bottom: 0;
+}
+
+.section-resort-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  font-size: 13px;
+}
+
+.section-frozen {
+  opacity: 0.55;
+}
+
+.section-frozen:hover,
+.section-frozen:focus-within {
+  opacity: 0.8;
+}
+
+.section-resort-split {
+  grid-template-columns: minmax(260px, 2fr) 3fr;
+  align-items: start;
+  margin: 12px 0;
+}
+
+@media (max-width: 960px) {
+  .section-resort-split {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* The full ranking stays in view while the live re-sort on the right scrolls. */
+.section-resort-full {
+  position: sticky;
+  top: 8px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+}
+
+.section-resort-full .queue-sublist {
+  margin-bottom: 0;
+}
+
+/* Two row heights: a placeholder for the range, not a list of its items. */
+.section-resort-slot {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-height: 84px;
+  margin: 6px 0;
+  padding: 8px 12px;
+  border: 2px dashed color-mix(in srgb, var(--accent) 60%, var(--border));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+}
+
+.section-resort-slot-ranks {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.section-resort-slot-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.section-live {
+  min-width: 0;
+}
+
+.section-live .list-merge-context-grid {
+  grid-template-columns: 1fr;
+}
+
+/* Range picker lists the whole ranking, so only the list scrolls. */
+.modal.modal-section-resort {
+  width: min(960px, calc(100% - 32px));
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.section-resort-hint {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 0;
+}
+
+.section-resort-ranks {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.section-resort-rank {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.section-resort-rank input {
+  width: 72px;
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.section-resort-rank input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.section-resort-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.section-resort-row {
+  display: grid;
+  grid-template-columns: 48px 40px 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+}
+
+.section-resort-row:last-child {
+  border-bottom: none;
+}
+
+.section-resort-row:hover {
+  background: var(--surface-2);
+}
+
+.section-resort-row.selected {
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface));
+}
+
+.section-resort-rank-num {
+  font-weight: 700;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.section-resort-thumb {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.section-resort-thumb img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.section-resort-footer {
+  align-items: center;
+}
+
+.section-resort-summary {
+  margin-right: auto;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
 .modal-wide-sort-results .sort-results-import-embedded {
   margin: 0;
   padding: 14px 16px 16px;
@@ -6484,6 +6708,17 @@ a:where(.anime-to-anime-anilist-link):visited {
   gap: 2px;
   border-bottom: 1px solid var(--border);
   margin: 4px 0 14px;
+}
+
+/* Keep the tabs reachable while a tall tab (AniList, Multiple staging) scrolls. */
+.modal-add-items .modal-tabs {
+  position: sticky;
+  /* Sticks inside the modal's 20px padding; pull up to the panel's top edge. */
+  top: -20px;
+  z-index: 2;
+  margin-top: -4px;
+  padding-top: 8px;
+  background: var(--surface);
 }
 
 .modal-tab {

@@ -1,5 +1,10 @@
 import { useMemo, useState } from 'react';
-import type { SlotResultsImportBatch } from '../lib/completedSortEditH';
+import type {
+  SectionResortMethod,
+  SlotResultsImportBatch,
+} from '../lib/completedSortEditH';
+import { sectionResortLabel } from '../lib/sectionResortShape';
+import { SectionResortModal } from './SectionResortModal';
 import type { Item, SortState, SortVersion } from '../lib/types';
 import { comparisonsRemaining, getRanking } from '../lib/engine';
 import {
@@ -73,6 +78,10 @@ interface Props {
   onOpenVersions?: () => void;
   /** Right-click on Versions: the version history page. */
   onOpenVersionHistory?: () => void;
+  /** Re-sort ranks `start..end` (0-based) in place; omitted hides the button. */
+  onStartSectionResort?: (start: number, end: number, method: SectionResortMethod) => void;
+  /** Abandon an in-progress section re-sort and restore the ranking from before it. */
+  onCancelSectionResort?: () => void;
 }
 
 
@@ -149,10 +158,13 @@ export function ResultScreen({
   currentIsSavedVersion = false,
   onOpenVersions,
   onOpenVersionHistory,
+  onStartSectionResort,
+  onCancelSectionResort,
 }: Props) {
   const [copied, setCopied] = useState<'csv' | 'md' | 'txt' | null>(null);
   const [showHidden, setShowHidden] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [sectionOpen, setSectionOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [versionsOpen, setVersionsOpen] = useState(false);
 
@@ -166,11 +178,20 @@ export function ResultScreen({
     return (
       <div className="page">
         <div className="page-section" style={{ textAlign: 'center' }}>
-          <h2>Sort not finished yet</h2>
+          <h2>
+            {state.section
+              ? sectionResortLabel(state.section)
+              : 'Sort not finished yet'}
+          </h2>
           <p style={{ color: 'var(--text-muted)' }}>
             ~{comparisonsRemaining(state)} comparisons left · {state.comparisons}{' '}
             comparison{state.comparisons === 1 ? '' : 's'} made
           </p>
+          {state.section && onCancelSectionResort && (
+            <button className="btn" onClick={onCancelSectionResort}>
+              Cancel re-sort
+            </button>
+          )}
         </div>
       </div>
     );
@@ -360,6 +381,16 @@ export function ResultScreen({
         <button className="btn" onClick={() => setAddOpen(true)}>
           + Add items
         </button>
+        {onStartSectionResort && (
+          <button
+            className="btn"
+            onClick={() => setSectionOpen(true)}
+            disabled={ranking.length < 2}
+            title="Sort a range of ranks again in this slot; the rest of the list stays put"
+          >
+            Re-sort a section
+          </button>
+        )}
         <button
           className="btn"
           onClick={onConfirmSort}
@@ -403,6 +434,16 @@ export function ResultScreen({
           onAddSlotImports={(batches) => {
             onAddSlotImports(batches);
             setAddOpen(false);
+          }}
+        />
+      )}
+      {sectionOpen && onStartSectionResort && (
+        <SectionResortModal
+          ranking={ranking}
+          onCancel={() => setSectionOpen(false)}
+          onStart={(start, end, method) => {
+            setSectionOpen(false);
+            onStartSectionResort(start, end, method);
           }}
         />
       )}

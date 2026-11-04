@@ -339,7 +339,7 @@ To fix order inside an active merge without using ↑/↓, undo back past the me
 One button, four tabs:
 
 - **Single** — Label + URL + Image URL fields, identical to the original add-item form.
-- **Multiple** — paste a CSV or load a `.csv` file, with the same header-detection hint and dedup behavior as the START-tab importer. Items already in the sort (by canonical label) are skipped with a banner explaining how many were dropped.
+- **Multiple** — paste a CSV or load a `.csv` file, with the same header-detection hint and dedup behavior as the START-tab importer. The tab opens wider and shows a staging list of the parsed rows. Each row can be edited (label, URL, image, id) or removed before adding. Rows are tagged **already in sort** (they'll be skipped) or **hidden · reinsert** (adding brings them back), and the same warnings as START are shown (duplicates, extra columns, comma-split titles). Edits are dropped when the pasted text or the header checkbox changes, because row numbers shift.
 - **AniList** — import from a user's list or favourites cache.
 - **Results** — import completed browser or Google Drive slots. Drive slots can be sorted by title/date and filtered by name before loading.
 
@@ -448,6 +448,25 @@ On a completed sort you can click **+ Add items** to add more items in one batch
 - A confirmation modal explains the trade-off and reminds you to Download a JSON copy first if you want a long-term safety net. **Create new slot** (recommended) keeps the finished ranking recoverable; **Modify this slot** changes it in place (one Undo backs it out).
 
 **Mid-sort** (not done): merge engine uses `addItem` / `appendPreRankedSublist`; insertion engine uses binary-insert `addItems`; confirmation engine does not support mid-sort adds.
+
+## Re-sort a section (RESULT and LIST tabs)
+
+On a completed sort, **Re-sort a section** (RESULT bottom bar, or next to **+ Add item(s)** on LIST) re-ranks one contiguous range of the ranking and leaves everything else in place.
+
+1. Pick the range in the modal. Click a row to set the start and shift-click to extend, or type the **From** / **To** ranks. The whole list is a valid range.
+2. Choose a method:
+   - **Merge sort** — the range's items are shuffled and merge-sorted from scratch.
+   - **Confirm order** — the range is walked in its current order with the confirmation engine, so an already-correct section costs only `n − 1` comparisons.
+3. The slot's finished ranking is saved as a version first, so the pre-re-sort order is always recoverable from Version history. Starting the re-sort is one Undo step.
+
+While it runs, RANK and RESULT show **"Re-sorting ranks X–Y"** and a **Cancel re-sort** button. Cancel puts the ranking from before the re-sort back. Items hidden or dismissed during the re-sort return to their old ranks, nudges to rows outside the range are undone, and items added during the re-sort move to Hidden (from there you can Reinsert them). When the last comparison is made, the re-sorted section is spliced back between the rows above and below it, and its comparisons are added to the slot's totals.
+
+On LIST the re-sort is a split view, like the insertion context. The right side is the live sort of the section. The left side is the full ranking, with a two-row slot marking where the section will go back in. It stays in view while the right side scrolls. The rows outside the range on the left are dimmed:
+
+- They can be nudged up or down and hidden or restored, but they can't be moved across or into the range.
+- **↻** moves a row into the re-sort, where it gets ranked along with the section.
+- Items hidden outside the range show **Restore** (back to their old rank outside the range) and **Reinsert** (into the re-sort) in the hidden list.
+- Adding an item during a re-sort adds it to the section. Adding an item that is already outside the range is skipped like any other duplicate; if that outside item is hidden, adding it reinserts it fresh into the re-sort, like adding any hidden item. Use **Restore** in the hidden list to put it back at its old rank instead.
 
 ## Undo
 

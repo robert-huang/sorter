@@ -19,7 +19,6 @@ import type {
   SlotsManifest,
 } from '../lib/types';
 import {
-  canonicalKey,
   looksLikeHeader,
   parseCsvRows,
   parseExtrasText,
@@ -47,118 +46,24 @@ import {
   type StartMode,
 } from './StagedItemsPanel';
 import Papa from 'papaparse';
-import type {
-  AnilistHydrationIssue,
-  AnilistHydrationResult,
-} from '../lib/importers/anilist/anilistPlaintextHydration';
+import type { AnilistHydrationIssue } from '../lib/importers/anilist/anilistPlaintextHydration';
+import {
+  applyImportEditPayload,
+  applyImportEdits,
+  applyStartScreenHydration,
+  buildImportEditTarget,
+  dropSourceFromExclusions,
+  dropSourceFromOverrides,
+  excludePreviewItemFromSource,
+  filterCommaInLabelForExcluded,
+  filterExtraColumnsForExcluded,
+  importEditHasChange,
+  type ExcludedRows,
+  type ImportEditTarget,
+  type OverlayMap,
+} from './importEditsH';
 
-/**
- * In-memory edit overlay for the START tab. Keyed by
- * `${sourceName}:${originalRowNumber}` because that handle is stable
- * across re-parses and is already shown to the user in the dedup
- * warning text.
- *
- * Each override field is independent — any subset may be present.
- * Semantics:
- *  - `label`: present means "rewrite the row's label".
- *  - `id`:    present means "force this idOverride on the RawRow".
- *  - `url` / `imageUrl`: an empty string means "explicitly clear the
- *    source's URL/IMAGE". A non-empty string sets it. A missing key
- *    means the source value is unchanged.
- *  - `replacement`: complete cache-backed metadata for a canonical
- *    AniList id; explicit field overrides still win.
- *
- * The overlay is applied to RawRow values BEFORE parseSources runs
- * its dedup pass, so the user can disambiguate two rows that collapse
- * to the same canonical id (rename one's label, or assign one an
- * explicit id) AND fix mis-parsed URL/image metadata without going
- * back to the raw CSV.
- *
- * Brutally cleared on any source-text mutation (textarea edit, file
- * replaced/removed, header-skip toggle) because row numbers shift
- * and we'd otherwise apply stale overrides to unrelated rows.
- */
-type OverlayMap = Map<
-  string,
-  {
-    replacement?: Item;
-    label?: string;
-    id?: string;
-    url?: string;
-    imageUrl?: string;
-  }
->;
-
-function overlayKey(sourceName: string, sourceRow: number): string {
-  return `${sourceName}:${sourceRow}`;
-}
-
-function applyOverrides(rows: RawRow[], overrides: OverlayMap): RawRow[] {
-  if (overrides.size === 0) return rows;
-  return rows.map((r) => {
-    const o = overrides.get(overlayKey(r.sourceName, r.sourceRow));
-    if (!o) return r;
-    const next: RawRow = { ...r };
-    if (o.replacement !== undefined) next.itemOverride = o.replacement;
-    if (o.label !== undefined) next.label = o.label;
-    if (o.id !== undefined) next.idOverride = o.id;
-    // For url/imageUrl, empty-string overrides are treated as
-    // "explicitly cleared" — RawRow uses `undefined` to mean missing,
-    // so map '' → undefined while still distinguishing "no override"
-    // (key absent) from "cleared" (key present and empty).
-    if (o.url !== undefined) next.url = o.url || undefined;
-    if (o.imageUrl !== undefined) next.imageUrl = o.imageUrl || undefined;
-    return next;
-  });
-}
-
-/** Drop every overlay entry whose key is sourced from `sourceName`. */
-function dropSourceFromOverrides(
-  overrides: OverlayMap,
-  sourceName: string,
-): OverlayMap {
-  if (overrides.size === 0) return overrides;
-  const prefix = `${sourceName}:`;
-  let touched = false;
-  const next = new Map(overrides);
-  for (const k of next.keys()) {
-    if (k.startsWith(prefix)) {
-      next.delete(k);
-      touched = true;
-    }
-  }
-  return touched ? next : overrides;
-}
-
-/** Rows the user removed from the import preview (keyed like overrides). */
-type ExcludedRows = Set<string>;
-
-function dropSourceFromExclusions(
-  excluded: ExcludedRows,
-  sourceName: string,
-): ExcludedRows {
-  if (excluded.size === 0) return excluded;
-  const prefix = `${sourceName}:`;
-  const next = new Set<string>();
-  let touched = false;
-  for (const k of excluded) {
-    if (k.startsWith(prefix)) touched = true;
-    else next.add(k);
-  }
-  return touched ? next : excluded;
-}
-
-function applyImportEdits(
-  rows: RawRow[],
-  overrides: OverlayMap,
-  excluded: ExcludedRows,
-): RawRow[] {
-  const overridden = applyOverrides(rows, overrides);
-  if (excluded.size === 0) return overridden;
-  return overridden.filter(
-    (r) => !excluded.has(overlayKey(r.sourceName, r.sourceRow)),
-  );
-}
+export { applyStartScreenHydration };
 
 export function applySorterStagedGroupEdit(
   group: StagedGroup,
@@ -191,80 +96,6 @@ export function editHydrationIssueRow(
       }
     }
   };
-}
-
-export function applyStartScreenHydration(
-  current: OverlayMap,
-  inputItems: readonly Item[],
-  previewSources: readonly PreviewSource[],
-  result: AnilistHydrationResult,
-): OverlayMap {
-  const unresolved = new Set(result.issues.map(({ itemId }) => itemId));
-  const hydratedByOriginalId = new Map<string, Item>();
-  inputItems.forEach((item, index) => {
-    const hydrated = result.items[index];
-    if (!unresolved.has(item.id) && hydrated) {
-      hydratedByOriginalId.set(item.id, hydrated);
-    }
-  });
-  const next = new Map(current);
-  previewSources.forEach((source) => {
-    source.items.forEach(({ item, sourceRow }) => {
-      const hydrated = hydratedByOriginalId.get(item.id);
-      if (!hydrated) return;
-      next.set(overlayKey(source.sourceName, sourceRow), {
-        replacement: hydrated,
-        id: hydrated.id,
-        label: hydrated.label,
-        url: hydrated.url ?? '',
-        imageUrl: hydrated.imageUrl ?? '',
-      });
-    });
-  });
-  return next;
-}
-
-function filterExtraColumnsForExcluded(
-  warnings: ExtraColumnsWarning[],
-  excluded: ExcludedRows,
-): ExtraColumnsWarning[] {
-  if (excluded.size === 0) return warnings;
-  return warnings.filter(
-    (w) => !excluded.has(overlayKey(w.sourceName, w.rowNumber)),
-  );
-}
-
-function filterCommaInLabelForExcluded(
-  warnings: CommaInLabelWarning[],
-  excluded: ExcludedRows,
-): CommaInLabelWarning[] {
-  if (excluded.size === 0) return warnings;
-  return warnings.filter(
-    (w) => !excluded.has(overlayKey(w.sourceName, w.rowNumber)),
-  );
-}
-
-/** Exclude every row in `sourceName` that dedups to the same id as `rowNumber`. */
-function excludePreviewItemFromSource(
-  rows: RawRow[],
-  overrides: OverlayMap,
-  excluded: ExcludedRows,
-  sourceName: string,
-  rowNumber: number,
-): ExcludedRows {
-  const overridden = applyOverrides(rows, overrides);
-  const target = overridden.find(
-    (r) => r.sourceName === sourceName && r.sourceRow === rowNumber,
-  );
-  if (!target) return excluded;
-  const targetId = target.idOverride ?? canonicalKey(target.label);
-  const next = new Set(excluded);
-  for (const r of overridden) {
-    if (r.sourceName !== sourceName) continue;
-    const id = r.idOverride ?? canonicalKey(r.label);
-    if (id === targetId) next.add(overlayKey(r.sourceName, r.sourceRow));
-  }
-  return next;
 }
 
 function dropSourceEdits(
@@ -536,28 +367,7 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
   // The dedup-warning row the user clicked Edit on. Drives the
   // EditItemModal. Stored as a transient object containing everything
   // the modal needs to render and write back to overrides on save.
-  const [editTarget, setEditTarget] = useState<{
-    sourceName: string;
-    rowNumber: number;
-    /** The label dedup actually saw (post-override). Pre-fills the modal. */
-    currentLabel: string;
-    /** The id dedup actually saw (post-override). Pre-fills the advanced field. */
-    currentId: string;
-    /** Current url/image (post-override). Pre-fills the URL / Image URL fields. */
-    currentUrl: string | undefined;
-    currentImageUrl: string | undefined;
-    /** All other ids in the current preview (excludes this row), for collision check. */
-    otherIds: Map<string, string>;
-    /**
-     * Verbatim parsed cells when the originating row tripped an
-     * `ExtraColumnsWarning`. Forwarded to EditItemModal as `rawRow` so
-     * the user can manually copy substrings into the right fields when
-     * an unquoted comma broke the parse. Undefined for rows that
-     * parsed cleanly — the modal then renders without the
-     * "Original row" panel, same as before.
-     */
-    rawRow: string[] | undefined;
-  } | null>(null);
+  const [editTarget, setEditTarget] = useState<ImportEditTarget | null>(null);
 
   /**
    * Staged-item edit target. Separate from `editTarget` (which is
@@ -1347,40 +1157,14 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
       result: { items: Item[] },
     ) =>
       (sourceName: string, rowNumber: number): void => {
-        // Find the post-override RawRow for this occurrence so the
-        // modal pre-fills with whatever the user has already typed in
-        // a previous edit pass — not the original source-text value.
-        const overridden = applyOverrides(rawRows, overrides);
-        const row = overridden.find(
-          (r) => r.sourceName === sourceName && r.sourceRow === rowNumber,
-        );
-        if (!row) return;
-        // Match the id assignment dedup uses: explicit override wins,
-        // otherwise canonicalKey(label). This stays correct even when
-        // two rows have the same label and only one of them carries
-        // an idOverride.
-        const currentId = row.idOverride ?? canonicalKey(row.label);
-        // Build otherIds: every id currently in the deduped result
-        // EXCEPT the id this row currently maps to. That way the
-        // collision check fires on a clash with any other existing
-        // row, but a no-op edit (same id) doesn't trip it. We index
-        // by id → label so the error message can name the colliding
-        // item.
-        const otherIds = new Map<string, string>();
-        for (const it of result.items) {
-          if (it.id === currentId) continue;
-          otherIds.set(it.id, it.label);
-        }
-        setEditTarget({
+        const target = buildImportEditTarget(
+          rawRows,
+          overrides,
+          result.items,
           sourceName,
           rowNumber,
-          currentLabel: row.label,
-          currentId,
-          currentUrl: row.url,
-          currentImageUrl: row.imageUrl,
-          otherIds,
-          rawRow: row.rawCells,
-        });
+        );
+        if (target) setEditTarget(target);
       },
     [overrides],
   );
@@ -1454,69 +1238,8 @@ export const StartScreen = forwardRef<StartScreenHandle, Props>(function StartSc
   const onEditSave = useCallback(
     (payload: EditItemSavePayload) => {
       if (!editTarget) return;
-      const key = overlayKey(editTarget.sourceName, editTarget.rowNumber);
-      const hasChange =
-        payload.hydratedItem !== undefined ||
-        (payload.label !== undefined && payload.label !== editTarget.currentLabel) ||
-        (payload.id !== undefined && payload.id !== editTarget.currentId) ||
-        (payload.url !== undefined && payload.url !== (editTarget.currentUrl ?? '')) ||
-        (payload.imageUrl !== undefined &&
-          payload.imageUrl !== (editTarget.currentImageUrl ?? ''));
-      setOverrides((prev) => {
-        const next = new Map(prev);
-        const cur = next.get(key) ?? {};
-        const updated: {
-          replacement?: Item;
-          label?: string;
-          id?: string;
-          url?: string;
-          imageUrl?: string;
-        } = { ...cur };
-        if (payload.hydratedItem !== undefined) {
-          updated.replacement = payload.hydratedItem;
-          updated.id = payload.id ?? payload.hydratedItem.id;
-          updated.label = payload.label ?? payload.hydratedItem.label;
-          updated.url = payload.url ?? payload.hydratedItem.url ?? '';
-          updated.imageUrl =
-            payload.imageUrl ?? payload.hydratedItem.imageUrl ?? '';
-        }
-        if (payload.label !== undefined && payload.label !== editTarget.currentLabel) {
-          updated.label = payload.label;
-        }
-        if (payload.id !== undefined && payload.id !== editTarget.currentId) {
-          updated.id = payload.id;
-        }
-        // URL / image: payload always carries empty string when the
-        // user cleared the field. Compare against the row's current
-        // value (treating undefined as '' for the comparison) so a
-        // no-op pass-through doesn't write a redundant override. An
-        // empty-string override IS meaningful when the source CSV
-        // had a value — that's how the user clears mis-parsed URLs.
-        if (payload.url !== undefined && payload.url !== (editTarget.currentUrl ?? '')) {
-          updated.url = payload.url;
-        }
-        if (
-          payload.imageUrl !== undefined &&
-          payload.imageUrl !== (editTarget.currentImageUrl ?? '')
-        ) {
-          updated.imageUrl = payload.imageUrl;
-        }
-        // If no field actually changed vs the live values (e.g. user
-        // opened the modal then saved without touching anything),
-        // drop the entry rather than persisting a no-op.
-        if (
-          updated.replacement === undefined &&
-          updated.label === undefined &&
-          updated.id === undefined &&
-          updated.url === undefined &&
-          updated.imageUrl === undefined
-        ) {
-          next.delete(key);
-        } else {
-          next.set(key, updated);
-        }
-        return next;
-      });
+      const hasChange = importEditHasChange(editTarget, payload);
+      setOverrides((prev) => applyImportEditPayload(prev, editTarget, payload));
       if (hasChange) notifyDraftActivity();
       setEditTarget(null);
     },

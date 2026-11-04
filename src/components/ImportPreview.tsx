@@ -1,5 +1,10 @@
 import { useMemo, useState } from 'react';
-import type { CommaInLabelWarning, DedupWarning, ExtraColumnsWarning } from '../lib/types';
+import type {
+  CommaInLabelWarning,
+  DedupWarning,
+  ExtraColumnsWarning,
+  Item,
+} from '../lib/types';
 import type { PreviewItem } from '../lib/csv';
 import { AnilistMiddleClickLink } from '../lib/importers/anilist/AnilistMiddleClickLink';
 import { canOpenItemDetail } from './itemDetailContext';
@@ -16,6 +21,13 @@ export interface PreviewSource {
    */
   items: PreviewItem[];
 }
+
+export type PreviewRowStatus = 'skip' | 'reinsert';
+
+const ROW_STATUS_TEXT: Record<PreviewRowStatus, { label: string; title: string }> = {
+  skip: { label: 'already in sort', title: 'Already in the active sort — will be skipped' },
+  reinsert: { label: 'hidden · reinsert', title: 'Hidden in the active sort — adding reinserts it' },
+};
 
 interface Props {
   sources: PreviewSource[];
@@ -40,6 +52,10 @@ interface Props {
   startLabel: string;
   startDisabled: boolean;
   onStart: () => void;
+  /** Hosts with their own submit button (Add items modal) hide the Start row. */
+  hideStart?: boolean;
+  /** Per-row outcome tag, e.g. whether adding the row skips or reinserts it. */
+  rowStatus?: (item: Item) => PreviewRowStatus | null;
   /** Sublist count for the totals row; for the scratch mode this is just one. */
   sublistCount?: number;
   singletonCount?: number;
@@ -72,6 +88,8 @@ export function ImportPreview({
   startLabel,
   startDisabled,
   onStart,
+  hideStart = false,
+  rowStatus,
   sublistCount,
   singletonCount,
   onEditOccurrence,
@@ -97,6 +115,7 @@ export function ImportPreview({
           source={src}
           onEditRow={onEditOccurrence}
           onRemoveRow={onRemoveRow}
+          rowStatus={rowStatus}
         />
       ))}
       <div className="preview-totals">{totalsText}</div>
@@ -128,15 +147,17 @@ export function ImportPreview({
           </ul>
         </div>
       )}
-      <div className="preview-start-row">
-        <button
-          className="btn primary"
-          onClick={onStart}
-          disabled={startDisabled}
-        >
-          {startLabel}
-        </button>
-      </div>
+      {!hideStart && (
+        <div className="preview-start-row">
+          <button
+            className="btn primary"
+            onClick={onStart}
+            disabled={startDisabled}
+          >
+            {startLabel}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -341,6 +362,7 @@ function SourceBlock({
   source,
   onEditRow,
   onRemoveRow,
+  rowStatus,
 }: {
   source: PreviewSource;
   /**
@@ -354,6 +376,7 @@ function SourceBlock({
     currentLabel: string,
   ) => void;
   onRemoveRow?: (sourceName: string, rowNumber: number) => void;
+  rowStatus?: (item: Item) => PreviewRowStatus | null;
 }) {
   const initiallyOpen = source.items.length <= 10;
   const [open, setOpen] = useState(initiallyOpen);
@@ -374,6 +397,7 @@ function SourceBlock({
         <ul className="preview-items">
           {source.items.map((pi, i) => {
             const it = pi.item;
+            const status = rowStatus?.(it) ?? null;
             return (
               <li key={it.id}>
                 <span className="rank">{i + 1}.</span>
@@ -381,6 +405,14 @@ function SourceBlock({
                   {it.label}
                 </span>
                 <span className="preview-item-trailing">
+                  {status && (
+                    <span
+                      className={`preview-item-status preview-item-status-${status}`}
+                      title={ROW_STATUS_TEXT[status].title}
+                    >
+                      {ROW_STATUS_TEXT[status].label}
+                    </span>
+                  )}
                   {(it.url || it.imageUrl) && (
                     <span className="preview-item-indicators">
                       {it.url && (

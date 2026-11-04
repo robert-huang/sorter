@@ -170,6 +170,31 @@ interface SortProgressBase {
    * sort has ever needed from any point.
    */
   totalComparisonsEverNeeded: number;
+  /** Set while a finished ranking re-sorts one contiguous range in place; see `SectionResort`. */
+  section?: SectionResort;
+}
+
+/**
+ * Frozen context around a section re-sort. The engine only sees the range's
+ * items; these ids keep their ranks and are spliced back around the result
+ * (`before + sorted section + tailPlaceholders + after`) when it finishes.
+ * Hidden frozen ids stay in `hidden` and keep their placeholder here.
+ */
+export interface SectionResort {
+  before: ItemId[];
+  after: ItemId[];
+  /** Ids already hidden inside the range at the start, in their original order. */
+  tailPlaceholders: ItemId[];
+  /** Finished `queue[0]` and `hidden` at the start, used by Cancel. */
+  originalOrder: ItemId[];
+  originalHidden: ItemId[];
+  /** Finished `toBeInserted` at the start; restored on splice and Cancel. Absent in older saves. */
+  originalToBeInserted?: ItemId[];
+  priorComparisons: number;
+  priorTotalComparisonsEverNeeded: number;
+  /** 1-based visible ranks the range covered at the start, for labels. */
+  startRank: number;
+  endRank: number;
 }
 
 /**

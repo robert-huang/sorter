@@ -1351,7 +1351,7 @@ export function AnilistStartMode({
         <>
           <FilterBar items={items} onVisibleChange={setVisibleIds} />
 
-          <div className="anilist-start-bar anilist-preview-actions" style={{ marginTop: 4 }}>
+          <div className="anilist-start-bar anilist-preview-actions">
             <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
               {visibleItems.length} of {items.length} shown · {selectedCount} selected
             </span>

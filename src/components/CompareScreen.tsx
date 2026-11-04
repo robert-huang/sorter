@@ -8,6 +8,7 @@ import {
 } from 'react';
 import type { EditItemSavePayload } from './EditItemModal';
 import type { Item, ItemId, SortState } from '../lib/types';
+import { sectionResortLabel } from '../lib/sectionResortShape';
 import {
   getCompareProgress,
   getPair,
@@ -778,6 +779,9 @@ export function CompareScreen({
       >
         <div className="compare-progress-fill" style={{ width: `${pct}%` }} />
       </div>
+      {state.section && (
+        <div className="compare-section-label">{sectionResortLabel(state.section)}</div>
+      )}
       {banner}
       <div className="compare-help">
         Which do you prefer? Click a card or use ← / → · ↑ to undo · middle-click to open link

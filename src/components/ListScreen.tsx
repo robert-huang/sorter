@@ -6,7 +6,9 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from 'react';
-import { getPair } from '../lib/engine';
+import { getPair, getRanking } from '../lib/engine';
+import { frozenSectionIds, sectionResortLabel } from '../lib/sectionResortShape';
+import { SectionResortModal } from './SectionResortModal';
 import {
   getActivePendingId,
   getRemainingIds,
@@ -15,7 +17,10 @@ import {
   canReorderInCurrentMerge,
   type CurrentMergeSlice,
 } from '../lib/queueMergeSort';
-import type { SlotResultsImportBatch } from '../lib/completedSortEditH';
+import type {
+  SectionResortMethod,
+  SlotResultsImportBatch,
+} from '../lib/completedSortEditH';
 import type {
   ConfirmationState,
   InsertionState,
@@ -204,6 +209,7 @@ function CompletedRankingSection({
  * (struck through) in the main ranking list above.
  */
 function HiddenItemsSection({
+  frozenIds,
   ids,
   items,
   state,
@@ -215,6 +221,8 @@ function HiddenItemsSection({
   onRestoreHidden,
   onForget,
 }: {
+  /** Section re-sort: hidden ids outside the range offer both Restore (in place) and Reinsert (into the re-sort). */
+  frozenIds: Set<string>;
   ids: string[];
   items: Record<string, Item>;
   state: SortState;
@@ -276,7 +284,8 @@ function HiddenItemsSection({
                   allowInlineRestore ? rankingSlots : activeRankingSlots
                 ).has(id);
                 const canAct = !!item;
-                const rank = inRanking ? rankLabelForHiddenId(state, id) : '—';
+                const frozen = frozenIds.has(id);
+                const rank = inRanking && !frozen ? rankLabelForHiddenId(state, id) : '—';
                 const inCurrentMerge =
                   state.engine === 'merge' &&
                   state.current !== null &&
@@ -298,6 +307,33 @@ function HiddenItemsSection({
                         </span>
                       )}
                     </span>
+                    {frozen ? (
+                    <span className="actions">
+                      {canAct && (
+                        <>
+                          <LabeledIconButton
+                            glyph={<CircularArrowGlyph direction="counterclockwise" />}
+                            label="Restore"
+                            onClick={() => onUnhide(id)}
+                            title="Restore at its rank outside the re-sort"
+                          />
+                          <LabeledIconButton
+                            glyph={<CircularArrowGlyph />}
+                            label="Reinsert"
+                            onClick={() => onReinsert(id)}
+                            title="Move into the re-sort"
+                          />
+                        </>
+                      )}
+                      <LabeledIconButton
+                        className="icon-btn danger icon-btn-text"
+                        glyph={<RemoveGlyph />}
+                        label="Dismiss"
+                        onClick={() => onForget(id)}
+                        title="Remove from the sort entirely"
+                      />
+                    </span>
+                    ) : (
                     <span className="actions">
                       {canAct && useRestore && (
                         <LabeledIconButton
@@ -343,6 +379,7 @@ function HiddenItemsSection({
                         }
                       />
                     </span>
+                    )}
                   </div>
                 );
               })}
@@ -430,6 +467,167 @@ interface Props {
    * `engine.rewriteIdInProgress`.
    */
   onEditItem: (id: string, patch: EditItemSavePayload) => void;
+  /** Re-sort visible ranks `start..end` (0-based) of a finished sort in place. */
+  onStartSectionResort?: (start: number, end: number, method: SectionResortMethod) => void;
+  /** Section re-sort: swap a frozen row with its visible neighbour outside the range. */
+  onMoveFrozen?: (id: string, dir: -1 | 1) => void;
+  /** Section re-sort: put the ranking back as it was before the re-sort. */
+  onCancelSectionResort?: () => void;
+}
+
+/**
+ * Dimmed rows above or below a section re-sort. They keep the finished-ranking
+ * actions, but ↑/↓ stop at the range boundary; ↻ moves the item into the re-sort.
+ */
+function FrozenSectionRows({
+  ids,
+  firstRank,
+  items,
+  hidden,
+  onHide,
+  onUnhide,
+  onEdit,
+  onMove,
+  onReturnToPending,
+}: {
+  ids: string[];
+  /** Rank shown for the first visible row. */
+  firstRank: number;
+  items: Record<string, Item>;
+  hidden: Set<string>;
+  onHide: HideItemHandler;
+  onUnhide: (id: string) => void;
+  onEdit: (item: Item) => void;
+  onMove?: (id: string, dir: -1 | 1) => void;
+  onReturnToPending: (id: string) => void;
+}) {
+  const visible = ids.filter((id) => !hidden.has(id));
+  if (ids.length === 0) return null;
+  return (
+    <div className="queue-sublist section-frozen">
+      <div className="queue-sublist-items">
+        {ids.map((id) => {
+          const item = items[id];
+          if (!item) return null;
+          const isHidden = hidden.has(id);
+          const vi = visible.indexOf(id);
+          return (
+            <div key={id} className={`queue-item-row ${isHidden ? 'hidden' : ''}`}>
+              <span className="rank">{isHidden ? '—' : `${firstRank + vi}.`}</span>
+              <Thumb item={item} />
+              <span className="label-cell" title={item.label}>
+                {item.label}
+              </span>
+              <span className="actions">
+                <ItemRowActions
+                  item={item}
+                  variant="row"
+                  onEdit={onEdit}
+                  reorder={
+                    isHidden ? null : (
+                      <>
+                        {onMove && visible.length > 1 && (
+                          <>
+                            <button
+                              className="icon-btn"
+                              onClick={(event) =>
+                                reorderFromControl(event, -1, () => onMove(id, -1))
+                              }
+                              disabled={vi === 0}
+                              title="Nudge up"
+                            >
+                              ↑
+                            </button>
+                            <button
+                              className="icon-btn"
+                              onClick={(event) =>
+                                reorderFromControl(event, 1, () => onMove(id, 1))
+                              }
+                              disabled={vi === visible.length - 1}
+                              title="Nudge down"
+                            >
+                              ↓
+                            </button>
+                          </>
+                        )}
+                        <button
+                          className="icon-btn"
+                          onClick={() => onReturnToPending(id)}
+                          title="Move into the re-sort"
+                        >
+                          <CircularArrowGlyph />
+                        </button>
+                      </>
+                    )
+                  }
+                  trailing={
+                    <HideOrRestoreButton
+                      id={id}
+                      isHidden={isHidden}
+                      allowRestore
+                      onHide={onHide}
+                      onUnhide={onUnhide}
+                    />
+                  }
+                />
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function SectionResortBanner({
+  label,
+  onCancel,
+}: {
+  label: string;
+  onCancel?: () => void;
+}) {
+  return (
+    <div className="section-resort-banner">
+      <span>
+        <strong>{label}</strong> · dimmed rows keep their ranks. Use the RANK tab to compare.
+      </span>
+      {onCancel && (
+        <button type="button" className="btn" onClick={onCancel}>
+          Cancel re-sort
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Stand-in on the full-ranking side for the ranks being re-sorted on the right. */
+function SectionResortSlot({
+  startRank,
+  count,
+}: {
+  startRank: number;
+  count: number;
+}) {
+  const slotRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    // scrollIntoView would also scroll the page; only the sticky panel should move.
+    const slot = slotRef.current;
+    const panel = slot?.closest<HTMLElement>('.section-resort-full');
+    if (!slot || !panel) return;
+    // The sticky panel is the slot's offsetParent, so offsetTop is panel-relative.
+    panel.scrollTop = slot.offsetTop - (panel.clientHeight - slot.offsetHeight) / 2;
+  }, []);
+  const endRank = startRank + Math.max(count, 1) - 1;
+  return (
+    <div ref={slotRef} className="section-resort-slot" role="note">
+      <span className="section-resort-slot-ranks">
+        {count > 0 ? `Ranks ${startRank}–${endRank}` : `Rank ${startRank}`}
+      </span>
+      <span className="section-resort-slot-meta">
+        {count} item{count === 1 ? '' : 's'} being re-sorted →
+      </span>
+    </div>
+  );
 }
 
 function Thumb({ item }: { item: Item }) {
@@ -1061,6 +1259,50 @@ export function ListScreen(props: Props) {
   const rankingSlots = useMemo(() => rankingSlotIds(state), [state]);
   const activeRankingSlots = useMemo(() => activeRankingIds(state), [state]);
   const hiddenIds = useMemo(() => hiddenIdsInDisplayOrder(state), [state]);
+  const hiddenSet = useMemo(() => new Set(state.hidden), [state.hidden]);
+  const frozenIds = useMemo(() => frozenSectionIds(state.section), [state.section]);
+  const [frozenEditId, setFrozenEditId] = useState<string | null>(null);
+  const frozenEditItem = frozenEditId ? items[frozenEditId] ?? null : null;
+  const section = state.section;
+  const beforeVisible = section
+    ? section.before.filter((id) => !hiddenSet.has(id)).length
+    : 0;
+  const sectionVisible = section
+    ? [...activeRankingSlots].filter((id) => !frozenIds.has(id) && !hiddenSet.has(id))
+        .length
+    : 0;
+  const frozenOtherIds = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const it of Object.values(items)) {
+      if (it.id !== frozenEditId) m.set(it.id, it.label);
+    }
+    return m;
+  }, [items, frozenEditId]);
+  const afterVisible = section
+    ? [...section.tailPlaceholders, ...section.after].filter((id) => !hiddenSet.has(id))
+        .length
+    : 0;
+  const engineView =
+    state.engine === 'insertion' ? (
+      <InsertionListView {...props} state={state} />
+    ) : state.engine === 'confirmation' ? (
+      <ConfirmationListView {...props} state={state} />
+    ) : (
+      <MergeListView {...props} state={state} />
+    );
+  const frozenRows = (ids: string[], firstRank: number) => (
+    <FrozenSectionRows
+      ids={ids}
+      firstRank={firstRank}
+      items={items}
+      hidden={hiddenSet}
+      onHide={props.onHide}
+      onUnhide={props.onUnhide}
+      onEdit={(it) => setFrozenEditId(it.id)}
+      onMove={props.onMoveFrozen}
+      onReturnToPending={props.onReturnToPending}
+    />
+  );
 
   return (
     <div className="page page--list">
@@ -1071,14 +1313,53 @@ export function ListScreen(props: Props) {
         hiddenCount={hiddenCount}
         onRename={props.onRenameSlot}
       />
-      {state.engine === 'insertion' ? (
-        <InsertionListView {...props} state={state} />
-      ) : state.engine === 'confirmation' ? (
-        <ConfirmationListView {...props} state={state} />
+      {section ? (
+        <>
+          <SectionResortBanner
+            label={sectionResortLabel(section)}
+            onCancel={props.onCancelSectionResort}
+          />
+          <div className="list-merge-context-grid section-resort-split">
+            <div className="list-merge-context-panel section-resort-full">
+              <div className="list-merge-context-heading">
+                Full ranking ({beforeVisible + sectionVisible + afterVisible})
+              </div>
+              {frozenRows(section.before, 1)}
+              <SectionResortSlot
+                startRank={beforeVisible + 1}
+                count={sectionVisible}
+              />
+              {frozenRows(
+                [...section.tailPlaceholders, ...section.after],
+                beforeVisible + sectionVisible + 1,
+              )}
+            </div>
+            <div className="list-merge-context-panel section-live">
+              <div className="list-merge-context-heading">
+                {sectionResortLabel(section)}
+              </div>
+              {engineView}
+            </div>
+          </div>
+        </>
       ) : (
-        <MergeListView {...props} state={state} />
+        engineView
+      )}
+      {frozenEditItem && (
+        <EditItemModal
+          item={frozenEditItem}
+          onCancel={() => setFrozenEditId(null)}
+          onSave={(patch) => {
+            props.onEditItem(frozenEditItem.id, patch);
+            setFrozenEditId(null);
+          }}
+          allowEditId
+          currentId={frozenEditItem.id}
+          otherIds={frozenOtherIds}
+        />
       )}
       <HiddenItemsSection
+        frozenIds={frozenIds}
         ids={hiddenIds}
         items={items}
         state={state}
@@ -1115,8 +1396,17 @@ function MergeListView({
   onEditItem,
   onReturnToPending,
   onReorderInsertTarget,
+  onStartSectionResort,
 }: Props & { state: MergeState }) {
   const [addOpen, setAddOpen] = useState(false);
+  const [sectionOpen, setSectionOpen] = useState(false);
+  const finalRanking = useMemo(
+    () =>
+      getRanking(state)
+        .map((id) => state.items[id])
+        .filter((it): it is Item => !!it),
+    [state],
+  );
   // The item currently open in the EditItemModal. We track by id (not
   // by Item reference) so the modal re-reads from state.items[id] on
   // any external update — keeps the form in sync if the user has an
@@ -1312,7 +1602,28 @@ function MergeListView({
         <button className="btn" onClick={() => setAddOpen(true)}>
           + Add item(s)
         </button>
+        {state.done && onStartSectionResort && (
+          <button
+            className="btn"
+            onClick={() => setSectionOpen(true)}
+            disabled={finalRanking.length < 2}
+            title="Sort a range of ranks again in this slot; the rest of the list stays put"
+          >
+            Re-sort a section
+          </button>
+        )}
       </div>
+
+      {sectionOpen && onStartSectionResort && (
+        <SectionResortModal
+          ranking={finalRanking}
+          onCancel={() => setSectionOpen(false)}
+          onStart={(start, end, method) => {
+            setSectionOpen(false);
+            onStartSectionResort(start, end, method);
+          }}
+        />
+      )}
 
       {addOpen && (
         <AddItemsModal

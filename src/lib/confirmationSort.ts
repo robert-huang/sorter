@@ -10,6 +10,7 @@ import {
   startInsert,
   worstCaseInsertCost,
 } from './binaryInsertion';
+import { sectionField } from './sectionResortShape';
 import type {
   ConfirmationProgress,
   ConfirmationState,
@@ -87,9 +88,31 @@ export function getPair(
 
   if (state.phase !== 'confirm' || !state.candidate) return null;
   if (hidden.has(state.candidate)) return null;
-  const frontier = state.confirmed[state.confirmed.length - 1];
-  if (!frontier || hidden.has(frontier)) return null;
-  return { leftId: frontier, rightId: state.candidate };
+  const frontier = visibleFrontierIndex(state.confirmed, hidden);
+  if (frontier === -1) return null;
+  return { leftId: state.confirmed[frontier]!, rightId: state.candidate };
+}
+
+/** Index of the last confirmed item that isn't hidden; hidden ones keep their slot but aren't compared. */
+function visibleFrontierIndex(confirmed: readonly ItemId[], hidden: ReadonlySet<ItemId>): number {
+  for (let i = confirmed.length - 1; i >= 0; i--) {
+    if (!hidden.has(confirmed[i]!)) return i;
+  }
+  return -1;
+}
+
+/** With nothing visible to compare against, the candidate is confirmed for free (like the first seeded item). */
+function confirmCandidatesWithoutFrontier(progress: ConfirmationProgress): void {
+  const hidden = new Set(progress.hidden);
+  while (
+    progress.phase === 'confirm' &&
+    progress.candidate !== null &&
+    visibleFrontierIndex(progress.confirmed, hidden) === -1
+  ) {
+    progress.confirmed = [...progress.confirmed, progress.candidate];
+    progress.candidate = null;
+    advanceCandidate(progress);
+  }
 }
 
 export function getPeekRightIds(state: ConfirmationState, n = 3): ItemId[] {
@@ -241,6 +264,7 @@ export function snapshotProgress(
     done: state.done,
     hidden: state.hidden.slice(),
     totalComparisonsEverNeeded: state.totalComparisonsEverNeeded,
+    ...sectionField(state.section),
   };
 }
 
@@ -262,6 +286,7 @@ export function restoreProgress(
         }
       : null,
     hidden: progress.hidden.slice(),
+    ...sectionField(progress.section),
     items: state.items,
   };
 }
@@ -398,10 +423,17 @@ function applyConfirmPick(
     return { ...next, items: state.items };
   }
   if (side === 'right') {
-    // Sole confirmed item + first comparison: prepend candidate as [2,1]
+    // Sole visible confirmed item: put the candidate just above it
     // instead of a pointless binary-insert sub-phase.
-    if (next.confirmed.length === 1) {
-      next.confirmed = [next.candidate!, next.confirmed[0]];
+    const hidden = new Set(next.hidden);
+    const visibleConfirmed = next.confirmed.filter((id) => !hidden.has(id));
+    if (visibleConfirmed.length === 1) {
+      const at = next.confirmed.indexOf(visibleConfirmed[0]!);
+      next.confirmed = [
+        ...next.confirmed.slice(0, at),
+        next.candidate!,
+        ...next.confirmed.slice(at),
+      ];
       next.candidate = null;
       advanceCandidate(next);
       bumpTotalComparisons(next);
@@ -690,6 +722,7 @@ export function hideItem(
     }
   }
 
+  confirmCandidatesWithoutFrontier(next);
   markDoneIfFinished(next);
   return { ...next, items: state.items };
 }

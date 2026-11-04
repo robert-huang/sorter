@@ -13,7 +13,11 @@ import type {
 import {
   addItem as engineAddItem,
   addItems as engineAddItems,
+  appendPreRanked as engineAppendPreRanked,
+  cancelSectionResort as engineCancelSectionResort,
   dismissHidden as engineDismissHidden,
+  finalizeCompletedState,
+  moveFrozenItem as engineMoveFrozenItem,
   normalizeLoadedState,
   type EngineOptions,
   forgetHiddenItem as engineForgetHiddenItem,
@@ -35,7 +39,6 @@ import {
   updateItemId as engineUpdateItemId,
 } from './lib/engine';
 import {
-  appendPreRankedSublist,
   breakApartSublist,
   cancelManualInsert,
   forgetItem,
@@ -56,7 +59,9 @@ import {
   derivedSlotName,
   resetBranchedSlotComparisonProgress,
   restoreSortFromVersion,
+  seedSectionResort,
   type CompletedSortEditAction,
+  type SectionResortMethod,
   type SlotResultsImportBatch,
 } from './lib/completedSortEditH';
 import { formatDocumentTitle, scheduleDocumentTitle } from './lib/documentTitleH';
@@ -1143,7 +1148,7 @@ export function App() {
       setState((cur) => {
         if (!cur || cur.engine !== 'merge') return cur;
         pushUndo(cur);
-        return reorderInSublist(cur, queueIndex, itemIndex, dir);
+        return finalizeCompletedState(reorderInSublist(cur, queueIndex, itemIndex, dir));
       });
     },
     [pushUndo],
@@ -1153,7 +1158,7 @@ export function App() {
     (slice: 'merged' | 'left' | 'right', itemIndex: number, dir: -1 | 1) => {
       setState((cur) => {
         if (!cur || cur.engine !== 'merge') return cur;
-        const next = reorderInCurrentMerge(cur, slice, itemIndex, dir);
+        const next = finalizeCompletedState(reorderInCurrentMerge(cur, slice, itemIndex, dir));
         if (next === cur) return cur;
         pushUndo(cur);
         return next;
@@ -1166,7 +1171,7 @@ export function App() {
     (indexA: number, indexB: number) => {
       setState((cur) => {
         if (!cur || cur.engine !== 'merge') return cur;
-        const next = reorderInsertTarget(cur, indexA, indexB);
+        const next = finalizeCompletedState(reorderInsertTarget(cur, indexA, indexB));
         if (next === cur) return cur;
         pushUndo(cur);
         return next;
@@ -1180,7 +1185,7 @@ export function App() {
       setState((cur) => {
         if (!cur || cur.engine !== 'merge') return cur;
         pushUndo(cur);
-        return breakApartSublist(cur, queueIndex, engineOptions);
+        return finalizeCompletedState(breakApartSublist(cur, queueIndex, engineOptions));
       });
     },
     [pushUndo, engineOptions],
@@ -1213,7 +1218,7 @@ export function App() {
       setState((cur) => {
         if (!cur || cur.engine !== 'merge') return cur;
         pushUndo(cur);
-        return forgetItem(cur, id, engineOptions);
+        return finalizeCompletedState(forgetItem(cur, id, engineOptions));
       });
     },
     [pushUndo, engineOptions],
@@ -1223,7 +1228,7 @@ export function App() {
     setState((cur) => {
       if (!cur || cur.engine !== 'merge') return cur;
       pushUndo(cur);
-      return cancelManualInsert(cur, engineOptions);
+      return finalizeCompletedState(cancelManualInsert(cur, engineOptions));
     });
   }, [pushUndo, engineOptions]);
 
@@ -1259,7 +1264,7 @@ export function App() {
       setState((cur) => {
         if (!cur) return cur;
         pushUndo(cur);
-        const next = engineReturnToPending(cur, id);
+        const next = engineReturnToPending(cur, id, engineOptions);
         if (next !== cur) {
           flashSkipped(
             `Re-inserting "${cur.items[id]?.label ?? id}" — pulled back out of the sorted list.`,
@@ -1268,7 +1273,35 @@ export function App() {
         return next;
       });
     },
-    [pushUndo, flashSkipped],
+    [pushUndo, flashSkipped, engineOptions],
+  );
+
+  // ---- section re-sort: frozen rows outside the range ----
+  const doMoveFrozen = useCallback(
+    (id: ItemId, dir: -1 | 1) => {
+      applyWithUndo((cur) => engineMoveFrozenItem(cur, id, dir));
+    },
+    [applyWithUndo],
+  );
+
+  const doCancelSectionResort = useCallback(() => {
+    applyWithUndo((cur) => engineCancelSectionResort(cur));
+  }, [applyWithUndo]);
+
+  // The finished ranking is frozen as a version before the range is reopened, so the
+  // re-sort only ever appends versions (one now, one when the range finishes).
+  const startSectionResort = useCallback(
+    (startIndex: number, endIndex: number, method: SectionResortMethod) => {
+      if (!state?.done) return;
+      const next = seedSectionResort(state, startIndex, endIndex, method, engineOptions);
+      if (!next) return;
+      const finished = state;
+      setVersions((prev) => appendVersionIfChanged(prev, ranked(finished), new Date()));
+      pushUndo(state);
+      setState(next);
+      setActiveTab('rank');
+    },
+    [state, engineOptions, pushUndo],
   );
 
   const doUndo = useCallback(() => {
@@ -1520,7 +1553,7 @@ export function App() {
       setState((cur) => {
         if (!cur || cur.engine !== 'merge') return cur;
         pushUndo(cur);
-        const { state: next, skipped, restored } = appendPreRankedSublist(
+        const { state: next, skipped, restored } = engineAppendPreRanked(
           cur,
           items,
           engineOptions,
@@ -2914,6 +2947,9 @@ export function App() {
         onReinsertHidden={doReinsertHidden}
         onForgetHidden={doForgetHidden}
         onEditItem={doEditItem}
+        onStartSectionResort={startSectionResort}
+        onMoveFrozen={doMoveFrozen}
+        onCancelSectionResort={doCancelSectionResort}
       />
       </>
     );
@@ -2960,6 +2996,8 @@ export function App() {
         currentIsSavedVersion={currentIsSavedVersion}
         onOpenVersions={() => commitLiveVersion()}
         onOpenVersionHistory={openVersionHistory}
+        onStartSectionResort={startSectionResort}
+        onCancelSectionResort={doCancelSectionResort}
       />
       </>
     );
