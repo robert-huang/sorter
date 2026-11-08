@@ -138,6 +138,7 @@ async function readMediaMetadataFromDb(
       studios: StatsStudioLink[];
       meanScore: number | null;
       format: string | null;
+      source: string | null;
       status: string | null;
       episodes: number | null;
       chapters: number | null;
@@ -155,6 +156,7 @@ async function readMediaMetadataFromDb(
       studios: StatsStudioLink[];
       meanScore: number | null;
       format: string | null;
+      source: string | null;
       status: string | null;
       episodes: number | null;
       chapters: number | null;
@@ -182,6 +184,7 @@ async function readMediaMetadataFromDb(
       studios,
       meanScore: detail.media.mean_score,
       format: detail.media.format,
+      source: detail.media.source ?? null,
       status: detail.media.status,
       episodes: detail.media.episodes,
       chapters: detail.media.chapters,
@@ -377,6 +380,7 @@ async function buildStatsEntries(
       ...entry,
       meanScore: entry.meanScore ?? db.meanScore,
       format: entry.format ?? (db.format as StatsEntry['format']),
+      source: db.source as StatsEntry['source'],
       mediaStatus: entry.mediaStatus ?? (db.status as StatsEntry['mediaStatus']),
       episodes: entry.episodes ?? db.episodes,
       chapters: entry.chapters ?? db.chapters,

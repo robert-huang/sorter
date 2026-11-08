@@ -25,6 +25,7 @@
  *   - voice actor     multi-select OR (matches if cached cast joins ANY
  *                     selected staff; lazy-loaded — chip exposes a
  *                     bulk-expand button for the uncached candidates)
+ *   - source          multi-select OR (media.source; OTHER also matches no source)
  *   - list date       per-user list-entry started / completed dates
  *                     (month range; undated entries hidden while set)
  *   - tag             tri-state per tag (✓ include / ✗ exclude) with
@@ -83,14 +84,17 @@ import {
   type ListEntryDates,
 } from './listDateFilter';
 import { runAnilistMediaLazyExpansion } from './runners';
-import type {
-  AnilistCharacterRole,
-  AnilistMediaFormat,
-  AnilistMediaListStatus,
-  AnilistMediaSeason,
-  AnilistMediaStatus,
-  AnilistMediaType,
+import {
+  ALL_ANILIST_MEDIA_SOURCES,
+  type AnilistCharacterRole,
+  type AnilistMediaFormat,
+  type AnilistMediaListStatus,
+  type AnilistMediaSeason,
+  type AnilistMediaSource,
+  type AnilistMediaStatus,
+  type AnilistMediaType,
 } from './types';
+import { anilistMediaSourceLabel } from './mediaSourceLabel';
 
 // ---------------------------------------------------------------------
 // Chip state
@@ -109,6 +113,8 @@ export interface AnilistFilterChipState extends FilterChipState {
   years: number[];
   formats: AnilistMediaFormat[];
   statuses: AnilistMediaStatus[];
+  /** Adaptation sources; empty = all. OTHER also matches media with no source. */
+  sources?: AnilistMediaSource[];
   studioIds: number[];
   tagNames: string[];
   tagMode: TagFilterMode;
@@ -334,6 +340,7 @@ export const ANILIST_INITIAL_CHIP_STATE: AnilistFilterChipState = {
   years: [],
   formats: [],
   statuses: [],
+  sources: [],
   studioIds: [],
   tagNames: [],
   tagMode: 'or',
@@ -424,6 +431,13 @@ export function buildAnilistFilterSql(
   if (state.statuses.length > 0) {
     clauses.push(`m.status IN (${placeholders(state.statuses.length)})`);
     params.push(...state.statuses);
+  }
+  // `?? []`: slot state persisted before the source chip has no `sources`.
+  const sources = state.sources ?? [];
+  if (sources.length > 0) {
+    const inClause = `m.source IN (${placeholders(sources.length)})`;
+    clauses.push(sources.includes('OTHER') ? `(${inClause} OR m.source IS NULL)` : inClause);
+    params.push(...sources);
   }
 
   // User-score range + rated/unrated pill: per-user, applied post-SQL
@@ -587,6 +601,7 @@ export function isInitialState(state: AnilistFilterChipState): boolean {
     state.years.length === 0 &&
     state.formats.length === 0 &&
     state.statuses.length === 0 &&
+    (state.sources ?? []).length === 0 &&
     state.studioIds.length === 0 &&
     state.tagNames.length === 0 &&
     state.tagExclude.length === 0 &&
@@ -857,6 +872,8 @@ interface ChipOptions {
   genres: string[];
   years: number[];
   studios: Array<{ id: number; name: string }>;
+  /** Sources present in the slot, in AniList enum order; no source counts as OTHER. */
+  sources: AnilistMediaSource[];
   tagNames: string[];
   seasonYearEncoded: number[]; // sorted ascending
   // VAs are only discovered for shows whose cast has been lazy-fetched.
@@ -891,6 +908,7 @@ async function loadChipOptions(
       genres: [],
       years: [],
       studios: [],
+      sources: [],
       tagNames: [],
       seasonYearEncoded: [],
       voiceActors: [],
@@ -903,6 +921,7 @@ async function loadChipOptions(
   const media = await getMediaByIds(db, externalIds);
   const genres = new Set<string>();
   const years = new Set<number>();
+  const sources = new Set<AnilistMediaSource>();
   const seasonYearEncoded = new Set<number>();
   // Track which media types are present so a homogeneous slot (the
   // common case for list imports and per-type favourites) resolves to
@@ -925,6 +944,7 @@ async function loadChipOptions(
       }
     }
     if (m.start_year !== null) years.add(m.start_year);
+    sources.add(m.source ?? 'OTHER');
     if (m.season !== null && m.season_year !== null) {
       // Encode here (rather than at chip-render time) so the
       // SeasonYearChip can sort + dedupe by a primitive int.
@@ -980,6 +1000,7 @@ async function loadChipOptions(
       id: Number(r.id),
       name: String(r.name),
     })),
+    sources: ALL_ANILIST_MEDIA_SOURCES.filter((source) => sources.has(source)),
     tagNames: tagRows.map((r) => String(r.tag_name)),
     seasonYearEncoded: Array.from(seasonYearEncoded).sort((a, b) => a - b),
     voiceActors,
@@ -2916,6 +2937,7 @@ export function AnilistChips({
     genres: [],
     years: [],
     studios: [],
+    sources: [],
     tagNames: [],
     seasonYearEncoded: [],
     voiceActors: [],
@@ -3004,7 +3026,7 @@ export function AnilistChips({
   // Chip render order, per the agreed UX:
   //   list status, status, genre, format, year (multiselect),
   //   seasonYear (range), score (range), list date (range), studio,
-  //   voice actor, tag (include / exclude + mode + rank).
+  //   voice actor, source, tag (include / exclude + mode + rank).
   return (
     <>
       {!hideUserChips && (
@@ -3114,6 +3136,14 @@ export function AnilistChips({
           bulkExpandStatus={bulkExpandStatus}
         />
       )}
+      <MultiSelectChip<AnilistMediaSource>
+        label="source"
+        options={options.sources}
+        selected={state.sources ?? []}
+        formatOption={anilistMediaSourceLabel}
+        onToggle={(v) => set({ sources: toggleInArray(state.sources ?? [], v) })}
+        onReplaceAll={(values) => set({ sources: [...values] })}
+      />
       <TagFilterChip
         options={options.tagNames}
         tagNames={state.tagNames}

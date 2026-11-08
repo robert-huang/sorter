@@ -1028,6 +1028,21 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
             onToggle={(format) => setFormatFilters((prev) => toggleInArray(prev, format))}
             onReplaceAll={(formats) => setFormatFilters([...formats])}
           />
+          <MultiSelectChip<SeasonalSourceFilterKey>
+            label="source"
+            options={SEASONAL_SOURCE_FILTER_KEYS}
+            selected={sourceFilters}
+            formatOption={formatSourceFilterOption}
+            menuStatus={
+              relabeledCachedShows != null && visibleSourceCount != null
+                ? `${visibleSourceCount} of ${relabeledCachedShows.length}`
+                : undefined
+            }
+            onToggle={(value) =>
+              setSourceFilters((prev) => toggleInArray(prev, value))
+            }
+            onReplaceAll={(values) => setSourceFilters([...values])}
+          />
           <ScoreRangeChip
             pill={scoreFilter.pill}
             min={scoreFilter.min}
@@ -1136,21 +1151,6 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
             />
             Include Planning
           </label>
-          <MultiSelectChip<SeasonalSourceFilterKey>
-            label="source"
-            options={SEASONAL_SOURCE_FILTER_KEYS}
-            selected={sourceFilters}
-            formatOption={formatSourceFilterOption}
-            menuStatus={
-              relabeledCachedShows != null && visibleSourceCount != null
-                ? `${visibleSourceCount} of ${relabeledCachedShows.length}`
-                : undefined
-            }
-            onToggle={(value) =>
-              setSourceFilters((prev) => toggleInArray(prev, value))
-            }
-            onReplaceAll={(values) => setSourceFilters([...values])}
-          />
         </div>
 
         <div className="tool-actions">

@@ -265,6 +265,23 @@ describe('buildAnilistFilterSql', () => {
     expect(out!.params).toEqual([1, 2020, 2021, 'TV', 'MOVIE', 'FINISHED']);
   });
 
+  it('sources emit an IN clause, and OTHER also matches media with no source', () => {
+    const manga = buildAnilistFilterSql([1], chips({ sources: ['MANGA', 'LIGHT_NOVEL'] }));
+    expect(manga!.sql).toMatch(/m\.source IN \(\?, \?\)/);
+    expect(manga!.sql).not.toMatch(/m\.source IS NULL/);
+    expect(manga!.params).toEqual([1, 'MANGA', 'LIGHT_NOVEL']);
+
+    const other = buildAnilistFilterSql([1], chips({ sources: ['OTHER'] }));
+    expect(other!.sql).toMatch(/\(m\.source IN \(\?\) OR m\.source IS NULL\)/);
+  });
+
+  it('slot state saved before the source chip (no `sources`) is not filtered by source', () => {
+    const { sources: _omit, ...legacy } = chips({ listStatuses: [] });
+    expect(buildAnilistFilterSql([1], legacy)).toBeNull();
+    expect(isInitialState(legacy)).toBe(true);
+    expect(isInitialState(chips({ listStatuses: [], sources: ['ORIGINAL'] }))).toBe(false);
+  });
+
   // --- user-score chip is post-SQL ---
   //
   // Score now filters the USER's own media_list_entry.score (and the

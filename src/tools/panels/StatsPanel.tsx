@@ -49,6 +49,13 @@ import {
   type StatsFetchProgress,
 } from './statsApi';
 import {
+  DEFAULT_SEASONAL_SOURCE_FILTERS,
+  normalizeSeasonalSourceFilters,
+  SEASONAL_SOURCE_FILTER_KEYS,
+  seasonalSourceFilterLabel,
+  type SeasonalSourceFilterKey,
+} from './seasonalScoresLogic';
+import {
   availableStatsAggregationTypes,
   buildActiveStatsChartRows,
   buildStatsSummary,
@@ -129,6 +136,7 @@ const DEFAULT_FORM: StatsForm = {
   mediaType: 'ANIME',
   mediaStatusFilters: [...DEFAULT_STATS_MEDIA_STATUS_FILTERS],
   formatFilters: [...STATS_ANIME_FORMAT_OPTIONS],
+  sourceFilters: [...DEFAULT_SEASONAL_SOURCE_FILTERS],
   listStatusFilters: [...DEFAULT_STATS_LIST_STATUS_FILTERS],
   userScoreInclude: 'any',
   scoreMin: null,
@@ -152,6 +160,7 @@ type PersistedStatsFilters = Pick<
   StatsForm,
   | 'mediaStatusFilters'
   | 'formatFilters'
+  | 'sourceFilters'
   | 'listStatusFilters'
   | 'userScoreInclude'
   | 'scoreMin'
@@ -185,6 +194,7 @@ function loadForm(): StatsForm {
         mediaType === 'MANGA'
           ? normalizeStatsMangaFormatFilters(filters.formatFilters)
           : normalizeStatsAnimeFormatFilters(filters.formatFilters),
+      sourceFilters: normalizeSeasonalSourceFilters(filters.sourceFilters),
       listStatusFilters: normalizeStatsListStatusFilters(filters.listStatusFilters),
       userScoreInclude:
         filters.userScoreInclude === 'rated' || filters.userScoreInclude === 'unrated'
@@ -227,6 +237,7 @@ function saveForm(form: StatsForm): void {
     const filters: PersistedStatsFilters = {
       mediaStatusFilters: form.mediaStatusFilters,
       formatFilters: form.formatFilters,
+      sourceFilters: form.sourceFilters,
       listStatusFilters: form.listStatusFilters,
       userScoreInclude: form.userScoreInclude,
       scoreMin: form.scoreMin,
@@ -1788,6 +1799,14 @@ export function StatsPanel({
             onReplaceAll={(formats) =>
               patchForm({ formatFilters: [...formats] as StatsForm['formatFilters'] })
             }
+          />
+          <MultiSelectChip<SeasonalSourceFilterKey>
+            label="source"
+            options={SEASONAL_SOURCE_FILTER_KEYS}
+            selected={form.sourceFilters}
+            formatOption={seasonalSourceFilterLabel}
+            onToggle={(source) => patchForm({ sourceFilters: toggleInArray(form.sourceFilters, source) })}
+            onReplaceAll={(sources) => patchForm({ sourceFilters: [...sources] })}
           />
 
           <StatsMinCountChip

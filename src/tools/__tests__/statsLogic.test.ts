@@ -37,6 +37,7 @@ import {
 } from '../panels/statsLogic';
 import { UNKNOWN_GENDER } from '../../lib/importers/anilist/genderFilter';
 import { statsCachedNeedsCast } from '../panels/statsApi';
+import { DEFAULT_SEASONAL_SOURCE_FILTERS } from '../panels/seasonalScoresLogic';
 
 function entry(overrides: Partial<StatsEntry> & Pick<StatsEntry, 'mediaId' | 'title'>): StatsEntry {
   return {
@@ -76,6 +77,7 @@ const baseForm: StatsForm = {
   mediaType: 'ANIME',
   mediaStatusFilters: [...DEFAULT_STATS_MEDIA_STATUS_FILTERS],
   formatFilters: ['TV'],
+  sourceFilters: [...DEFAULT_SEASONAL_SOURCE_FILTERS],
   listStatusFilters: [...DEFAULT_STATS_LIST_STATUS_FILTERS],
   userScoreInclude: 'any',
   scoreMin: null,
@@ -116,6 +118,18 @@ describe('parseCustomTagsFromNotes', () => {
 });
 
 describe('filterStatsPool', () => {
+  it('source chip keeps selected sources, and OTHER covers entries with no source', () => {
+    const pool = [
+      entry({ mediaId: 1, title: 'Manga', source: 'MANGA' }),
+      entry({ mediaId: 2, title: 'Original', source: 'ORIGINAL' }),
+      entry({ mediaId: 3, title: 'Unknown', source: null }),
+    ];
+    expect(filterStatsPool(pool, baseForm).map((e) => e.mediaId)).toEqual([1, 2, 3]);
+    expect(
+      filterStatsPool(pool, { ...baseForm, sourceFilters: ['MANGA', 'OTHER'] }).map((e) => e.mediaId),
+    ).toEqual([1, 3]);
+  });
+
   it('includes planning entries for staff when PLANNING is selected', () => {
     const pool = [
       entry({ mediaId: 1, title: 'A', listStatus: 'PLANNING' }),

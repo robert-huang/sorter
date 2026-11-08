@@ -20,6 +20,7 @@ import {
 import type {
   AnilistCharacterRole,
   AnilistMediaFormat,
+  AnilistMediaSource,
   AnilistMediaStatus,
   AnilistMediaType,
 } from '../../lib/importers/anilist/types';
@@ -36,10 +37,13 @@ import {
   type WeeklyCalendarScoreFilters,
 } from './weeklyCalendarLogic';
 import {
+  isAllSeasonalSourcesSelected,
   isSeasonalStatusLetterShow,
   listStatusScoreLabel,
   normalizeSeasonalListScore,
   scoreDisplayToneClass,
+  seasonalSourceFilterBucket,
+  type SeasonalSourceFilters,
 } from './seasonalScoresLogic';
 
 export type StatsMediaType = AnilistMediaType;
@@ -123,6 +127,8 @@ export type StatsForm = {
   mediaType: StatsMediaType;
   mediaStatusFilters: StatsMediaStatusFilter[];
   formatFilters: StatsFormatFilter[] | StatsMangaFormatFilter[];
+  /** Adaptation source; entries with no source count as OTHER. */
+  sourceFilters: SeasonalSourceFilters;
   listStatusFilters: StatsListStatus[];
   userScoreInclude: WeeklyCalendarScoreFilters['userScoreInclude'];
   scoreMin: number | null;
@@ -177,6 +183,7 @@ export type StatsEntry = {
   coverImage: string | null;
   mediaType: StatsMediaType;
   format: AnilistMediaFormat | null;
+  source?: AnilistMediaSource | null;
   mediaStatus: AnilistMediaStatus | null;
   listStatus: string;
   score: number | null;
@@ -575,6 +582,13 @@ function entryMatchesFormat(
   return (filters as readonly string[]).includes(entry.format);
 }
 
+function entryMatchesSource(entry: StatsEntry, filters: SeasonalSourceFilters): boolean {
+  if (isAllSeasonalSourcesSelected(filters)) {
+    return true;
+  }
+  return filters.includes(seasonalSourceFilterBucket(entry.source));
+}
+
 function entryMatchesScore(entry: StatsEntry, form: Pick<StatsForm, 'userScoreInclude' | 'scoreMin' | 'scoreMax'>): boolean {
   return entryMatchesWeeklyScoreFilters(entry.score, {
     userScoreInclude: form.userScoreInclude,
@@ -589,6 +603,7 @@ export function filterStatsPool(entries: readonly StatsEntry[], form: StatsForm)
       entry.mediaType === form.mediaType &&
       entryMatchesMediaStatus(entry, form.mediaStatusFilters) &&
       entryMatchesFormat(entry, form.formatFilters) &&
+      entryMatchesSource(entry, form.sourceFilters) &&
       entryMatchesListStatus(entry, form.listStatusFilters) &&
       entryMatchesScore(entry, form) &&
       listDatePasses(entry.listDates, form.listDate),
