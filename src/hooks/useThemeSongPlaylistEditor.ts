@@ -31,7 +31,8 @@ async function outboundPrequelIds(mediaId: number): Promise<number[]> {
     return (relations?.edges ?? [])
       .filter((edge) => edge.relationType === 'PREQUEL')
       .map((edge) => edge.node.id);
-  } catch {
+  } catch (err) {
+    console.warn('prequel playlist anchor: relations lookup failed', mediaId, err);
     return [];
   }
 }
@@ -66,7 +67,8 @@ async function emptyShowAfterPosition(
   }
   try {
     return await findPrequelPlaylistAnchor(options.mediaId, cache, prequelAnchorReads, options);
-  } catch {
+  } catch (err) {
+    console.warn('prequel playlist anchor: lookup failed, appending instead', options.mediaId, err);
     return undefined;
   }
 }
