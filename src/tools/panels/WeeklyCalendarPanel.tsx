@@ -93,7 +93,6 @@ import {
   normalizeWeeklyCalendarFormatFilters,
   normalizeWeeklyCalendarListStatusFilters,
   normalizeWeeklyCalendarMediaStatusFilters,
-  normalizeWeeklyCalendarWatchingListStatusFilters,
   resolveWeeklyCalendarSeasonSpecs,
   weeklyCalendarFetchKey,
   weeklyCalendarTimezoneToIana,
@@ -136,7 +135,6 @@ type PersistedWeeklyCalendarForm = Pick<
   | 'formatFilters'
   | 'mediaStatusFilters'
   | 'listStatusFilters'
-  | 'watchingListStatusFilters'
 >;
 
 type WeeklyCalendarFetchIdentity = {
@@ -313,9 +311,6 @@ export function loadWeeklyCalendarForm(): WeeklyCalendarForm {
         formatFilters: normalizeWeeklyCalendarFormatFilters(parsed.formatFilters),
         mediaStatusFilters: normalizeWeeklyCalendarMediaStatusFilters(parsed.mediaStatusFilters),
         listStatusFilters: normalizeWeeklyCalendarListStatusFilters(parsed.listStatusFilters),
-        watchingListStatusFilters: normalizeWeeklyCalendarWatchingListStatusFilters(
-          parsed.watchingListStatusFilters,
-        ),
       };
     }
   } catch {
@@ -340,7 +335,6 @@ export function saveWeeklyCalendarForm(form: WeeklyCalendarForm): void {
       formatFilters: form.formatFilters,
       mediaStatusFilters: form.mediaStatusFilters,
       listStatusFilters: form.listStatusFilters,
-      watchingListStatusFilters: form.watchingListStatusFilters,
     };
     localStorage.setItem(LS_KEY, JSON.stringify(persisted));
   } catch {

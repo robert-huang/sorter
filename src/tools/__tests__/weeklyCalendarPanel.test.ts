@@ -38,7 +38,7 @@ describe('WeeklyCalendarPanel form persistence', () => {
     expect(restored.customSeasonMaxEncoded).toBe(customSeasonMaxEncoded);
   });
 
-  it('restores the watching list and season list status sets separately', () => {
+  it('saves the season list status set but resets the user list set on reload', () => {
     saveWeeklyCalendarForm({
       ...DEFAULT_WEEKLY_CALENDAR_FORM,
       listStatusFilters: ['PLANNING', 'NOT_ON_LIST'],
@@ -47,15 +47,7 @@ describe('WeeklyCalendarPanel form persistence', () => {
 
     const restored = loadWeeklyCalendarForm();
     expect(restored.listStatusFilters).toEqual(['PLANNING', 'NOT_ON_LIST']);
-    expect(restored.watchingListStatusFilters).toEqual(['CURRENT', 'PAUSED']);
-  });
-
-  it('drops NOT ON LIST from a saved watching list set', () => {
-    localStorage.setItem(
-      'anime-tools-weekly-calendar-form',
-      JSON.stringify({ watchingListStatusFilters: ['NOT_ON_LIST'] }),
-    );
-    expect(loadWeeklyCalendarForm().watchingListStatusFilters).toEqual(['CURRENT', 'REPEATING']);
+    expect(restored.watchingListStatusFilters).toEqual(['CURRENT', 'REPEATING']);
   });
 });
 

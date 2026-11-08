@@ -71,16 +71,6 @@ export function weeklyCalendarListStatusOptions(
     : [...WEEKLY_CALENDAR_LIST_STATUS_OPTIONS];
 }
 
-export function normalizeWeeklyCalendarWatchingListStatusFilters(
-  raw: unknown,
-): WeeklyCalendarAnilistListStatus[] {
-  if (!Array.isArray(raw)) {
-    return [...WEEKLY_CALENDAR_WATCHING_STATUSES];
-  }
-  const selected = TOOLS_SEASONAL_LIST_STATUSES.filter((status) => raw.includes(status));
-  return selected.length > 0 ? [...selected] : [...WEEKLY_CALENDAR_WATCHING_STATUSES];
-}
-
 type WeeklyListStatusFilterFields = Pick<
   WeeklyCalendarForm,
   'seasonScope' | 'listStatusFilters' | 'watchingListStatusFilters'
@@ -264,7 +254,7 @@ export type WeeklyCalendarForm = {
   customSeasonMaxEncoded: number;
   /** List status picks for the season tabs. */
   listStatusFilters: WeeklyCalendarListStatusFilter[];
-  /** List status picks for the watching list; NOT ON LIST never applies there. */
+  /** List status picks for the watching list; not saved, and NOT ON LIST never applies there. */
   watchingListStatusFilters: WeeklyCalendarAnilistListStatus[];
   userScoreInclude: WeeklyCalendarScoreFilters['userScoreInclude'];
   scoreMin: number | null;
