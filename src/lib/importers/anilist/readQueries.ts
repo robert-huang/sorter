@@ -23,7 +23,7 @@ import {
   getMediaThemeSongsExpansionFetchedAt,
   getMediaThemeSongsExpansionsBatch,
 } from './expandMediaThemeSongs';
-import { getMediaRelationsExpansionFetchedAt } from './graphQueries';
+import { getMediaRelationsExpansionFetchedAt, getToolsMediaRelationsFromDbBatch } from './graphQueries';
 import { mediaTitleSearchParts, pickMediaTitle } from './mediaDisplayLabel';
 import {
   characterNameSearchParts,
@@ -1727,6 +1727,8 @@ export const productionReads = {
     getMediaCastExpansionStatus(defaultDb(), mediaId),
   getMediaRelationsExpansionFetchedAt: (mediaId: number) =>
     getMediaRelationsExpansionFetchedAt(defaultDb(), mediaId),
+  getToolsMediaRelationsFromDbBatch: (mediaIds: readonly number[]) =>
+    getToolsMediaRelationsFromDbBatch(defaultDb(), mediaIds),
   getMediaThemeSongsExpansion: (mediaId: number) =>
     getMediaThemeSongsExpansion(defaultDb(), mediaId),
   getMediaThemeSongsExpansionFetchedAt: (mediaId: number) =>

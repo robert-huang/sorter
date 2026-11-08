@@ -17,6 +17,18 @@ export function isPlaylistAddable(match: PlaylistMatchResult): boolean {
   return match.status === 'out' && match.metadataMatch == null;
 }
 
+/** Whether any of the show's songs is already on the playlist as an exact match. */
+export function showHasPlacedSongs(
+  showRows: readonly MediaThemeSongRow[],
+  cache: SpotifyPlaylistCache | null,
+  options?: PlaylistMatchOptions,
+): boolean {
+  return showRows.some((row) => {
+    const match = matchThemeRowToPlaylistDetails(row, cache, options);
+    return isPlaylistRemovable(match) && match.playlistPosition != null;
+  });
+}
+
 /** Exact id/ISRC matches only: a metadata match has no known track to delete. */
 export function isPlaylistRemovable(match: PlaylistMatchResult): boolean {
   return match.status === 'in' && match.metadataMatch == null;
@@ -81,7 +93,8 @@ export type PlaylistInsert = {
  * Where each added song goes, keeping the show's OP, ED, insert order next to
  * its songs already on the playlist. Example: OP1 at #10 and ED1 at #11, so
  * OP2 goes after #10. Songs ahead of every placed one go just before the first;
- * a show with nothing on the playlist is appended. Inserts are returned
+ * a show with nothing on the playlist goes after `emptyShowAfterPosition`
+ * (e.g. its prequel's last song), else is appended. Inserts are returned
  * last-position first, so running them in order never shifts a later anchor.
  */
 export function planPlaylistInserts(
@@ -89,6 +102,7 @@ export function planPlaylistInserts(
   rowsToAdd: readonly MediaThemeSongRow[],
   cache: SpotifyPlaylistCache | null,
   options?: PlaylistMatchOptions,
+  emptyShowAfterPosition?: number,
 ): PlaylistInsert[] {
   const adding = new Set(rowsToAdd);
   const rows = sortThemeRowsForPlaylist([...new Set([...showRows, ...rowsToAdd])]);
@@ -120,7 +134,7 @@ export function planPlaylistInserts(
   }
   const inserts = groups.map(({ previous: anchor, tracks }, index) => ({
     index,
-    afterPosition: anchor ?? (firstPlaced != null ? firstPlaced - 1 : undefined),
+    afterPosition: anchor ?? (firstPlaced != null ? firstPlaced - 1 : emptyShowAfterPosition),
     tracks,
   }));
   inserts.sort(
