@@ -7,6 +7,7 @@ import type { AnilistDbExecutor } from '../context';
 import {
   describeAnimeRandomPickFailure,
   getAnimeCacheStats,
+  getInboundRelationSourcesBatch,
   getMediaRelations,
   getMediaRelationsExpansionFetchedAt,
   getToolsMediaRelationsFromDbBatch,
@@ -437,6 +438,20 @@ describe('graphQueries cache pick', () => {
       node: { id: 71 },
     });
     expect(await getMediaRelationsExpansionFetchedAt(adapter, 70)).toBe(NOW);
+  });
+
+  it('getInboundRelationSourcesBatch finds shows that list each id as their sequel', async () => {
+    seedMedia(sqlite, 80, 'ANIME');
+    seedMedia(sqlite, 81, 'ANIME');
+    seedMedia(sqlite, 82, 'ANIME');
+    sqlite.exec(
+      `INSERT INTO media_relation (from_media_id, to_media_id, relation_type)
+         VALUES (?, ?, ?), (?, ?, ?), (?, ?, ?)`,
+      { bind: [80, 81, 'SEQUEL', 81, 82, 'SEQUEL', 82, 81, 'PREQUEL'] },
+    );
+
+    const sources = await getInboundRelationSourcesBatch(adapter, [81, 82, 999], 'SEQUEL');
+    expect(Object.fromEntries(sources)).toEqual({ 81: [80], 82: [81] });
   });
 
   it('searchAnimeInCache matches romaji and synonyms', async () => {

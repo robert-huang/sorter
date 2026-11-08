@@ -67,6 +67,23 @@ describe('findPrequelPlaylistAnchor', () => {
     await expect(findPrequelPlaylistAnchor(3, cache, r)).resolves.toBe(4);
   });
 
+  it("counts a title/artist match for the prequel's song (a local file)", async () => {
+    const withLocal: SpotifyPlaylistCache = {
+      ...cacheWith([]),
+      localTracks: [
+        { uri: null, title: 'Liar', artists: ['Artist'], album: 'Album', durationMs: 180_000, playlistPosition: 7 },
+      ],
+    };
+    const liar = { ...row('liar-id'), displayTitle: 'Liar' };
+    const r: PrequelAnchorReads = {
+      prequelIds: async (ids) => new Map(ids.map((id) => [id, id === 2 ? [1] : []])),
+      themeRows: async () => new Map([[1, [liar]]]),
+    };
+    await expect(
+      findPrequelPlaylistAnchor(2, withLocal, r, { localFileMatchMode: 'local-first' }),
+    ).resolves.toBe(7);
+  });
+
   it('is undefined with no prequel, no cache, or a relation cycle', async () => {
     await expect(findPrequelPlaylistAnchor(1, cache, reads({}, {}))).resolves.toBeUndefined();
     await expect(

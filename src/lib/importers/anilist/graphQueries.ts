@@ -811,6 +811,27 @@ export async function getMediaRelationsExpansionFetchedAtBatch(
   return out;
 }
 
+/** Shows stored as having `relationType` pointing at each id (e.g. SEQUEL → the id's prequels). */
+export async function getInboundRelationSourcesBatch(
+  db: AnilistDbExecutor,
+  ids: readonly number[],
+  relationType: string,
+): Promise<Map<number, number[]>> {
+  const out = new Map<number, number[]>();
+  for (const chunk of chunkIds(ids)) {
+    const rows = await db.exec(
+      `SELECT from_media_id, to_media_id FROM media_relation
+        WHERE to_media_id IN (${placeholders(chunk.length)}) AND relation_type = ?`,
+      [...chunk, relationType],
+    );
+    for (const row of rows) {
+      const toId = reqN(row.to_media_id);
+      out.set(toId, [...(out.get(toId) ?? []), reqN(row.from_media_id)]);
+    }
+  }
+  return out;
+}
+
 export async function getToolsMediaRelationsFromDb(
   db: AnilistDbExecutor,
   fromMediaId: number,

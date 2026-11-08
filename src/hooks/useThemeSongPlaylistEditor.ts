@@ -20,16 +20,32 @@ import {
   type PrequelAnchorReads,
 } from '../lib/spotify/prequelPlaylistAnchor';
 import { productionReads } from '../lib/importers/anilist/readQueries';
+import { fetchToolsMediaRelationsCached } from '../lib/importers/anilist/toolsMediaRelationsApi';
 import type { MediaThemeSongRow } from '../lib/importers/anilist/themeSongs/types';
 import { useToolsPreferences } from './useToolsPreferences';
 
-const cachedPrequelAnchorReads: PrequelAnchorReads = {
+/** Outbound PREQUEL edges, fetched once if the DB has none (the calendar never loads relations). */
+async function outboundPrequelIds(mediaId: number): Promise<number[]> {
+  try {
+    const relations = await fetchToolsMediaRelationsCached(mediaId);
+    return (relations?.edges ?? [])
+      .filter((edge) => edge.relationType === 'PREQUEL')
+      .map((edge) => edge.node.id);
+  } catch {
+    return [];
+  }
+}
+
+const prequelAnchorReads: PrequelAnchorReads = {
   prequelIds: async (mediaIds) => {
-    const relations = await productionReads.getToolsMediaRelationsFromDbBatch(mediaIds);
+    const [outbound, inboundSequels] = await Promise.all([
+      Promise.all(mediaIds.map(outboundPrequelIds)),
+      productionReads.getInboundRelationSourcesBatch(mediaIds, 'SEQUEL'),
+    ]);
     return new Map(
-      [...relations].map(([id, { edges }]) => [
+      mediaIds.map((id, index) => [
         id,
-        edges.filter((edge) => edge.relationType === 'PREQUEL').map((edge) => edge.node.id),
+        [...new Set([...outbound[index]!, ...(inboundSequels.get(id) ?? [])])],
       ]),
     );
   },
@@ -49,7 +65,7 @@ async function emptyShowAfterPosition(
     return undefined;
   }
   try {
-    return await findPrequelPlaylistAnchor(options.mediaId, cache, cachedPrequelAnchorReads, options);
+    return await findPrequelPlaylistAnchor(options.mediaId, cache, prequelAnchorReads, options);
   } catch {
     return undefined;
   }

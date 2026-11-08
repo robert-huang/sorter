@@ -541,6 +541,7 @@ export function StaffDetailModal({
                       gap: 6,
                       fontSize: 12,
                       marginBottom: 8,
+                      cursor: 'pointer',
                     }}
                   >
                     <input

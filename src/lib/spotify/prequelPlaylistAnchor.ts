@@ -14,7 +14,10 @@ export type PrequelAnchorReads = {
   themeRows: (mediaIds: readonly number[]) => Promise<Map<number, readonly MediaThemeSongRow[]>>;
 };
 
-/** Last playlist position (1-based) holding one of `rows`' exact matches. */
+/**
+ * Last playlist position (1-based) holding one of `rows`, counting title/artist
+ * matches too (another edition or a local file still marks where the show sits).
+ */
 export function lastPlaylistPosition(
   rows: readonly MediaThemeSongRow[],
   cache: SpotifyPlaylistCache | null,
@@ -23,8 +26,11 @@ export function lastPlaylistPosition(
   let last: number | undefined;
   for (const row of rows) {
     const match = matchThemeRowToPlaylistDetails(row, cache, options);
-    if (isPlaylistRemovable(match) && match.playlistPosition != null) {
-      last = Math.max(last ?? 0, match.playlistPosition);
+    const position = isPlaylistRemovable(match)
+      ? match.playlistPosition
+      : match.metadataMatch?.track.playlistPosition;
+    if (position != null && position > 0) {
+      last = Math.max(last ?? 0, position);
     }
   }
   return last;
