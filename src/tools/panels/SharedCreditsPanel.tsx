@@ -30,6 +30,12 @@ import {
   pendingQueries,
   useQueryRowStates,
 } from '../ToolQueryStaging';
+import {
+  handleToolCommentShortcut,
+  TOOL_COMMENT_HINT,
+  toolCommentsOnly,
+  withToolComments,
+} from '../toolLineComments';
 import { SharedCreditsResultsTable } from './sharedCreditsTable';
 import { StaleStaffIdsContext, ToolShowButton, ToolStaffButton } from '../toolEntityLinks';
 import { ToolSegmentedFilter } from '../ToolSegmentedFilter';
@@ -226,7 +232,7 @@ export function SharedCreditsPanel({ onOpenMedia, onOpenStaff, dbSyncRevision }:
         prev.stagedQueries,
         parseStaffInputs(prev.staffText, prev.useIds),
       ),
-      staffText: '',
+      staffText: toolCommentsOnly(prev.staffText),
     }));
   }, []);
 
@@ -234,9 +240,12 @@ export function SharedCreditsPanel({ onOpenMedia, onOpenStaff, dbSyncRevision }:
     setForm((prev) => ({
       ...prev,
       stagedQueries: [],
-      staffText: textWithUnstagedQueries(
-        prev.stagedQueries,
-        parseStaffInputs(prev.staffText, prev.useIds),
+      staffText: withToolComments(
+        textWithUnstagedQueries(
+          prev.stagedQueries,
+          parseStaffInputs(prev.staffText, prev.useIds),
+        ),
+        prev.staffText,
       ),
     }));
   }, []);
@@ -411,7 +420,11 @@ export function SharedCreditsPanel({ onOpenMedia, onOpenStaff, dbSyncRevision }:
             value={form.staffText}
             disabled={running}
             onChange={(e) => patchForm({ staffText: e.target.value })}
-            placeholder={'e.g. Kana Hanazawa\nYuki Kaji'}
+            onKeyDown={(e) =>
+              handleToolCommentShortcut(e, (staffText) => patchForm({ staffText }))
+            }
+            placeholder={`e.g. Kana Hanazawa\nYuki Kaji\n${TOOL_COMMENT_HINT}`}
+            title={TOOL_COMMENT_HINT}
           />
           <ToolQueryStagingList
             staged={form.stagedQueries}

@@ -8,6 +8,7 @@ import {
 } from '../../lib/importers/anilist/personDisplayLabel';
 import type { ToolStaffNameFields } from './sharedCreditsApi';
 import { parseLinesOnePerLine } from '../parseToolLines';
+import { stripToolComments } from '../toolLineComments';
 
 export type MediaTitleSource = MediaTitleFields;
 
@@ -152,7 +153,7 @@ type StartDateParts = {
 };
 
 export function parseStaffInputs(text: string, _useIds?: boolean): string[] {
-  return parseLinesOnePerLine(text);
+  return parseLinesOnePerLine(stripToolComments(text));
 }
 
 export function formatStartDateKey(date: StartDateParts): string {

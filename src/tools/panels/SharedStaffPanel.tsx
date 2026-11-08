@@ -27,6 +27,12 @@ import {
   pendingQueries,
   useQueryRowStates,
 } from '../ToolQueryStaging';
+import {
+  handleToolCommentShortcut,
+  TOOL_COMMENT_HINT,
+  toolCommentsOnly,
+  withToolComments,
+} from '../toolLineComments';
 import { showQueryKey } from '../toolQueryCache';
 import {
   anilistUrlForCharacter,
@@ -393,7 +399,7 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff, dbSyncRevision }: T
     setForm((prev) => ({
       ...prev,
       stagedQueries: mergeStagedQueries(prev.stagedQueries, parseShowInputs(prev.showText)),
-      showText: '',
+      showText: toolCommentsOnly(prev.showText),
     }));
   }, []);
 
@@ -401,7 +407,10 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff, dbSyncRevision }: T
     setForm((prev) => ({
       ...prev,
       stagedQueries: [],
-      showText: textWithUnstagedQueries(prev.stagedQueries, parseShowInputs(prev.showText)),
+      showText: withToolComments(
+        textWithUnstagedQueries(prev.stagedQueries, parseShowInputs(prev.showText)),
+        prev.showText,
+      ),
     }));
   }, []);
 
@@ -562,7 +571,11 @@ export function SharedStaffPanel({ onOpenMedia, onOpenStaff, dbSyncRevision }: T
             value={form.showText}
             disabled={running}
             onChange={(e) => patchForm({ showText: e.target.value })}
-            placeholder={'e.g. Steins;Gate\nYour Name'}
+            onKeyDown={(e) =>
+              handleToolCommentShortcut(e, (showText) => patchForm({ showText }))
+            }
+            placeholder={`e.g. Steins;Gate\nYour Name\n${TOOL_COMMENT_HINT}`}
+            title={TOOL_COMMENT_HINT}
           />
           <ToolQueryStagingList
             staged={form.stagedQueries}

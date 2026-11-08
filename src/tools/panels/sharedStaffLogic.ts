@@ -6,6 +6,7 @@ import {
   type VaRoleCell,
 } from '../../lib/importers/anilist/toolsDictUtils';
 import { parseLinesOnePerLine } from '../parseToolLines';
+import { stripToolComments } from '../toolLineComments';
 import {
   anyTrimmedRoleInSet,
   MUSIC_ROLES,
@@ -107,7 +108,7 @@ const SECTIONS = [
 ];
 
 export function parseShowInputs(text: string): string[] {
-  return parseLinesOnePerLine(text);
+  return parseLinesOnePerLine(stripToolComments(text));
 }
 
 export function normalizeStaffName(name: string): string {
