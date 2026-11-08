@@ -1,4 +1,4 @@
-import { compareGenres, encodeSeasonYear } from '../../lib/importers/anilist/filters';
+import { compareGenres, encodeSeasonYear, formatOptionsForType } from '../../lib/importers/anilist/filters';
 import { anilistMediaSourceLabel } from '../../lib/importers/anilist/mediaSourceLabel';
 import { parseLinesOnePerLine } from '../parseToolLines';
 import type { AnilistMediaSeason, AnilistMediaSource } from '../../lib/importers/anilist/types';
@@ -233,22 +233,36 @@ export function normalizeSeasonalStringFilters(raw: unknown): string[] {
   return [...new Set(raw.filter((value): value is string => typeof value === 'string'))];
 }
 
+/** Format chip options (Seasonal Scores is anime-only). */
+export const SEASONAL_FORMAT_OPTIONS: readonly string[] = formatOptionsForType('ANIME');
+
+function selectsEveryOption<T>(selected: readonly T[], options: readonly T[]): boolean {
+  const allowed = new Set(selected);
+  return options.every((option) => allowed.has(option));
+}
+
+/**
+ * `allGenres` is the chip's option list (every genre on the loaded lists).
+ * Selecting all of them is a no-op, so shows with no genres stay visible.
+ */
 export function applySeasonalGenreFilters(
   shows: SeasonalShow[],
   selected: SeasonalGenreFilters,
+  allGenres: readonly string[],
 ): SeasonalShow[] {
-  if (selected.length === 0) {
+  if (selected.length === 0 || selectsEveryOption(selected, allGenres)) {
     return shows;
   }
   const allowed = new Set(selected);
   return shows.filter((show) => (show.genres ?? []).some((genre) => allowed.has(genre)));
 }
 
+/** Selecting every format is a no-op, so shows with no format stay visible. */
 export function applySeasonalFormatFilters(
   shows: SeasonalShow[],
   selected: SeasonalFormatFilters,
 ): SeasonalShow[] {
-  if (selected.length === 0) {
+  if (selected.length === 0 || selectsEveryOption(selected, SEASONAL_FORMAT_OPTIONS)) {
     return shows;
   }
   const allowed = new Set(selected);
@@ -307,11 +321,13 @@ export function normalizeSeasonalYearFilters(raw: unknown): SeasonalYearFilters 
     .sort((a, b) => b - a);
 }
 
+/** `allYears` is the chip's option list; selecting all of it keeps shows with no season year. */
 export function applySeasonalYearFilters(
   shows: SeasonalShow[],
   selected: SeasonalYearFilters,
+  allYears: readonly number[],
 ): SeasonalShow[] {
-  if (selected.length === 0) {
+  if (selected.length === 0 || selectsEveryOption(selected, allYears)) {
     return shows;
   }
   const allowed = new Set(selected);
@@ -1300,15 +1316,21 @@ export function buildMultiUserSeasonalColumns(
 ): SeasonalScoresResult {
   const now = options?.now ?? new Date();
   const fetchedCount = perUser.reduce((total, user) => total + user.shows.length, 0);
+  const allShows = perUser.flatMap((user) => user.shows);
   let filteredShows = applySeasonalYearFilters(
     mergeFilteredSeasonalUserLists(perUser, form, options),
     options?.yearFilters ?? DEFAULT_SEASONAL_YEAR_FILTERS,
+    discoverSeasonalYears(allShows),
   );
   filteredShows = applySeasonalSeasonYearFilters(
     filteredShows,
     options?.seasonYearFilter ?? DEFAULT_SEASONAL_SEASON_YEAR_FILTER,
   );
-  filteredShows = applySeasonalGenreFilters(filteredShows, options?.genreFilters ?? []);
+  filteredShows = applySeasonalGenreFilters(
+    filteredShows,
+    options?.genreFilters ?? [],
+    discoverSeasonalGenres(allShows),
+  );
   filteredShows = applySeasonalFormatFilters(filteredShows, options?.formatFilters ?? []);
   filteredShows = applySeasonalSourceFilters(
     filteredShows,

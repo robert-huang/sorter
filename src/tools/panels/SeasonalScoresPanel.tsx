@@ -23,6 +23,7 @@ import {
   DEFAULT_SEASONAL_SOURCE_FILTERS,
   applySeasonalFormatFilters,
   applySeasonalGenreFilters,
+  SEASONAL_FORMAT_OPTIONS,
   applySeasonalSeasonYearFilters,
   countSeasonalShowsBy,
   discoverSeasonalGenres,
@@ -66,7 +67,6 @@ import {
 } from '../../lib/importers/anilist/anilistLinks';
 import { AnilistMiddleClickLink } from '../../lib/importers/anilist/AnilistMiddleClickLink';
 import {
-  formatOptionsForType,
   ListDateChip,
   MultiSelectChip,
   normalizeSeasonYearRangeToOptions,
@@ -89,7 +89,6 @@ const LS_PRIMARY_FILTERS_KEY = 'anime-tools-seasonal-scores-primary-filters';
 /** @deprecated migrated into {@link LS_KEY} */
 const LS_SEASON_TEXT_KEY = 'anime-tools-seasonal-scores-season-text';
 const DEFAULT_NOTES_FILTER = '#airing';
-const ANIME_FORMAT_OPTIONS: readonly string[] = formatOptionsForType('ANIME');
 
 const DEFAULT_FORM: SeasonalScoresForm = {
   usernames: [],
@@ -799,9 +798,15 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
   const visibleYearCount =
     relabeledCachedShows == null
       ? null
-      : applySeasonalYearFilters(relabeledCachedShows, yearFilters).length;
+      : applySeasonalYearFilters(relabeledCachedShows, yearFilters, yearOptions).length;
 
-  // Shows left after each chip, applied in buildSeasonalColumns order.
+  const genreOptions = useMemo(
+    () => (relabeledCachedShows == null ? [] : discoverSeasonalGenres(relabeledCachedShows)),
+    [relabeledCachedShows],
+  );
+
+  // Shows left after each chip, applied in buildSeasonalColumns order. Each
+  // chip's option counts come from the pool reaching it (`*Pool`).
   const visibleCounts = useMemo(() => {
     if (relabeledLists == null) {
       return null;
@@ -810,22 +815,28 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
       applySeasonalYearFilters(
         mergeFilteredSeasonalUserLists(relabeledLists, form, { listStatusFilters }),
         yearFilters,
+        yearOptions,
       ),
       seasonYearFilter,
     );
+    const genrePool = shows;
     const listStatus = shows.length;
-    shows = applySeasonalGenreFilters(shows, genreFilters);
+    shows = applySeasonalGenreFilters(shows, genreFilters, genreOptions);
+    const formatPool = shows;
     const genre = shows.length;
     shows = applySeasonalFormatFilters(shows, formatFilters);
+    const sourcePool = shows;
     const format = shows.length;
     const source = applySeasonalSourceFilters(shows, sourceFilters).length;
-    return { listStatus, genre, format, source };
+    return { listStatus, genre, format, source, genrePool, formatPool, sourcePool };
   }, [
     relabeledLists,
     form,
     yearFilters,
+    yearOptions,
     seasonYearFilter,
     listStatusFilters,
+    genreOptions,
     genreFilters,
     formatFilters,
     sourceFilters,
@@ -833,27 +844,22 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
   const visibleListStatusCount = visibleCounts?.listStatus ?? null;
   const visibleSourceCount = visibleCounts?.source ?? null;
 
-  const genreOptions = useMemo(
-    () => (relabeledCachedShows == null ? [] : discoverSeasonalGenres(relabeledCachedShows)),
-    [relabeledCachedShows],
-  );
-
   const genreFilterCounts = useMemo(
     () =>
-      relabeledCachedShows == null
+      visibleCounts == null
         ? null
-        : countSeasonalShowsBy(relabeledCachedShows, (show) => show.genres ?? []),
-    [relabeledCachedShows],
+        : countSeasonalShowsBy(visibleCounts.genrePool, (show) => show.genres ?? []),
+    [visibleCounts],
   );
 
   const formatFilterCounts = useMemo(
     () =>
-      relabeledCachedShows == null
+      visibleCounts == null
         ? null
-        : countSeasonalShowsBy(relabeledCachedShows, (show) =>
+        : countSeasonalShowsBy(visibleCounts.formatPool, (show) =>
             show.format ? [show.format] : [],
           ),
-    [relabeledCachedShows],
+    [visibleCounts],
   );
 
   const formatGenreFilterOption = useCallback(
@@ -869,11 +875,11 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
   );
 
   const sourceFilterCounts = useMemo(() => {
-    if (!relabeledCachedShows) {
+    if (!visibleCounts) {
       return null;
     }
-    return countSeasonalShowsBySourceBucket(relabeledCachedShows);
-  }, [relabeledCachedShows]);
+    return countSeasonalShowsBySourceBucket(visibleCounts.sourcePool);
+  }, [visibleCounts]);
 
   /** Counts list entries (one per user per show), not merged shows. */
   const listStatusFilterCounts = useMemo(() => {
@@ -1017,7 +1023,7 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
           />
           <MultiSelectChip<string>
             label="format"
-            options={ANIME_FORMAT_OPTIONS}
+            options={SEASONAL_FORMAT_OPTIONS}
             selected={formatFilters}
             formatOption={formatFormatFilterOption}
             menuStatus={

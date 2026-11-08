@@ -176,12 +176,13 @@ export function normalizeWeeklyCalendarMediaStatusFilters(
   return selected.length > 0 ? [...selected] : [...DEFAULT_WEEKLY_CALENDAR_MEDIA_STATUS_FILTERS];
 }
 
+/** Shows with no airing status only drop out once a status is deselected. */
 export function entryMatchesWeeklyMediaStatusFilters(
   mediaStatus: string | null | undefined,
   filters: readonly WeeklyCalendarMediaStatusFilter[],
 ): boolean {
   if (mediaStatus == null) {
-    return false;
+    return filters.length === WEEKLY_CALENDAR_MEDIA_STATUS_OPTIONS.length;
   }
   return filters.includes(mediaStatus as WeeklyCalendarMediaStatusFilter);
 }
@@ -219,11 +220,15 @@ export function normalizeWeeklyCalendarFormatFilters(
   return selected.length > 0 ? [...selected] : [...DEFAULT_WEEKLY_CALENDAR_FORMAT_FILTERS];
 }
 
+/** Shows with no format only drop out once a format is deselected. */
 export function entryMatchesWeeklyFormatFilters(
   format: AnilistMediaFormat | null | undefined,
   filters: readonly WeeklyCalendarFormatFilter[],
 ): boolean {
-  return format != null && filters.includes(format as WeeklyCalendarFormatFilter);
+  if (format == null) {
+    return filters.length === WEEKLY_CALENDAR_FORMAT_OPTIONS.length;
+  }
+  return filters.includes(format as WeeklyCalendarFormatFilter);
 }
 
 export type WeeklyCalendarWeekStartDay =

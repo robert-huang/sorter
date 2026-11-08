@@ -30,6 +30,8 @@ import {
   statsGenderFilterOptions,
   mapStatsStudioLinks,
   statsStudioIsAnimation,
+  STATS_ANIME_FORMAT_OPTIONS,
+  STATS_MEDIA_STATUS_OPTIONS,
   type StatsCachedData,
   type StatsEntry,
   type StatsForm,
@@ -118,6 +120,13 @@ describe('parseCustomTagsFromNotes', () => {
 });
 
 describe('filterStatsPool', () => {
+  it('keeps entries missing a format or airing status while every option is selected', () => {
+    const pool = [entry({ mediaId: 1, title: 'Bare', format: null, mediaStatus: null })];
+    const all = { ...baseForm, formatFilters: [...STATS_ANIME_FORMAT_OPTIONS], mediaStatusFilters: [...STATS_MEDIA_STATUS_OPTIONS] };
+    expect(filterStatsPool(pool, all)).toHaveLength(1);
+    expect(filterStatsPool(pool, baseForm)).toHaveLength(0);
+  });
+
   it('source chip keeps selected sources, and OTHER covers entries with no source', () => {
     const pool = [
       entry({ mediaId: 1, title: 'Manga', source: 'MANGA' }),

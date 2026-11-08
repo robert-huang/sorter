@@ -613,6 +613,59 @@ export function isInitialState(state: AnilistFilterChipState): boolean {
   );
 }
 
+function selectsEvery<T>(selected: readonly T[], options: readonly T[]): boolean {
+  const chosen = new Set(selected);
+  return options.every((option) => chosen.has(option));
+}
+
+/**
+ * Clears chips whose selection covers every option `loadChipOptions`
+ * offers for these candidates, so "Select all" filters nothing — items
+ * with no year / format / status / studio stay in, instead of failing
+ * an `IN (...)` they can never match. Genres are left alone: they AND
+ * together, so selecting all of them is a real (strict) filter.
+ */
+async function clearAllSelectedChips(
+  candidateMediaIds: readonly number[],
+  state: AnilistFilterChipState,
+): Promise<AnilistFilterChipState> {
+  const next: AnilistFilterChipState = { ...state };
+  if (state.statuses.length > 0 && selectsEvery(state.statuses, ALL_STATUSES)) {
+    next.statuses = [];
+  }
+  const sources = state.sources ?? [];
+  if (state.years.length > 0 || state.formats.length > 0 || sources.length > 0) {
+    const media = await getMediaByIds(defaultDbForFilters(), candidateMediaIds);
+    const types = new Set(media.map((m) => m.type));
+    const mediaType =
+      types.size === 1 && (types.has('ANIME') || types.has('MANGA'))
+        ? (media[0]!.type as AnilistMediaType)
+        : null;
+    const years = media.flatMap((m) => (m.start_year === null ? [] : [m.start_year]));
+    if (state.years.length > 0 && selectsEvery(state.years, years)) {
+      next.years = [];
+    }
+    if (state.formats.length > 0 && selectsEvery(state.formats, formatOptionsForType(mediaType))) {
+      next.formats = [];
+    }
+    const presentSources = media.map((m) => m.source ?? 'OTHER');
+    if (sources.length > 0 && selectsEvery(sources, presentSources)) {
+      next.sources = [];
+    }
+  }
+  if (state.studioIds.length > 0) {
+    const ph = new Array(candidateMediaIds.length).fill('?').join(', ');
+    const rows = await defaultExec(
+      `SELECT DISTINCT studio_id FROM media_studio WHERE media_id IN (${ph})`,
+      [...candidateMediaIds],
+    );
+    if (selectsEvery(state.studioIds, rows.map((r) => Number(r.studio_id)))) {
+      next.studioIds = [];
+    }
+  }
+  return next;
+}
+
 /**
  * Compute the subset of `candidateMediaIds` that pass `state`. The
  * SQL chips run first, then the per-user list-status chip is applied
@@ -621,9 +674,13 @@ export function isInitialState(state: AnilistFilterChipState): boolean {
  */
 export async function computeAllowedMediaIds(
   candidateMediaIds: readonly number[],
-  state: AnilistFilterChipState,
+  requestedState: AnilistFilterChipState,
 ): Promise<Set<number>> {
   if (candidateMediaIds.length === 0) return new Set();
+  if (isInitialState(requestedState)) {
+    return new Set(candidateMediaIds);
+  }
+  const state = await clearAllSelectedChips(candidateMediaIds, requestedState);
   if (isInitialState(state)) {
     return new Set(candidateMediaIds);
   }
@@ -853,7 +910,7 @@ export function compareGenres(a: string, b: string): number {
   if (b === GENRE_PINNED_LAST) return -1;
   return a.localeCompare(b);
 }
-const ALL_STATUSES: AnilistMediaStatus[] = [
+export const ALL_STATUSES: AnilistMediaStatus[] = [
   'FINISHED',
   'RELEASING',
   'NOT_YET_RELEASED',
@@ -1098,6 +1155,7 @@ export function MediaOptionMultiSelectChip({
     <MultiSelectChip<number>
       label={label}
       options={mediaOptions.map((m) => m.id)}
+      allSelectedFilters
       selected={selected}
       onToggle={onToggle}
       formatOption={(id) => byId.get(id)?.title ?? String(id)}
@@ -1135,8 +1193,12 @@ export function MultiSelectChip<T extends string | number>({
   getOptionAnilistUrl,
   triggerLabel,
   floatingMenu = false,
+  allSelectedFilters = false,
 }: {
   label: string;
+  /** Set when selecting every option still narrows results (e.g. AND-matched
+   *  genres), so the chip stays highlighted. */
+  allSelectedFilters?: boolean;
   /** Replaces the "label · count" trigger text (e.g. a compact "3"). */
   triggerLabel?: ReactNode;
   /** Position the menu against the viewport so scroll containers don't clip it. */
@@ -1252,7 +1314,7 @@ export function MultiSelectChip<T extends string | number>({
   return (
     <div
       ref={rootRef}
-      className={`filter-chip ${count > 0 ? 'active' : ''}`}
+      className={`filter-chip ${count > 0 && (allSelectedFilters || !allSelected) ? 'active' : ''}`}
     >
       <button
         ref={triggerRef}
@@ -3049,6 +3111,7 @@ export function AnilistChips({
       <MultiSelectChip
         label="genre"
         options={options.genres}
+        allSelectedFilters
         selected={state.genres}
         onToggle={(v) => set({ genres: toggleInArray(state.genres, v) })}
       />

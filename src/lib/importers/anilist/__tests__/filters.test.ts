@@ -15,6 +15,7 @@ import { anilistSourceDescriptor } from '../anilistSource';
 import type { AnilistDbExecutor } from '../context';
 import {
   ALL_LIST_STATUSES,
+  ALL_STATUSES,
   ANILIST_INITIAL_CHIP_STATE,
   anilistFilterModule,
   buildAnilistFilterSql,
@@ -713,6 +714,28 @@ describe('computeAllowedMediaIds', () => {
     seedMedia(db, 4, { start_year: 2021 }); // not in candidate set
     const allowed = await computeAllowedMediaIds([1, 2, 3], chips({ years: [2021] }));
     expect(Array.from(allowed).sort((a, b) => a - b)).toEqual([2, 3]);
+  });
+
+  it('treats every year / format / status / studio selected as no filter, keeping items missing the field', async () => {
+    seedMedia(db, 1, { start_year: 2020 });
+    seedMedia(db, 2, { start_year: null, format: null, status: null });
+    seedStudio(db, 100, 'A');
+    linkStudio(db, 1, 100);
+    const sorted = async (state: AnilistFilterChipState) =>
+      Array.from(await computeAllowedMediaIds([1, 2], state)).sort((a, b) => a - b);
+    expect(await sorted(chips({ years: [2020] }))).toEqual([1, 2]);
+    expect(await sorted(chips({ formats: formatOptionsForType('ANIME') }))).toEqual([1, 2]);
+    expect(await sorted(chips({ statuses: [...ALL_STATUSES] }))).toEqual([1, 2]);
+    expect(await sorted(chips({ studioIds: [100] }))).toEqual([1, 2]);
+    expect(await sorted(chips({ formats: ['TV'] }))).toEqual([1]);
+  });
+
+  it('keeps genres strict when every genre is selected (genres AND together)', async () => {
+    seedMedia(db, 1, { genres_json: '["Action","Drama"]' });
+    seedMedia(db, 2, { genres_json: '["Action"]' });
+    seedMedia(db, 3, { genres_json: '[]' });
+    const allowed = await computeAllowedMediaIds([1, 2, 3], chips({ genres: ['Action', 'Drama'] }));
+    expect(Array.from(allowed)).toEqual([1]);
   });
 
   it('filters by genre using the anchored JSON token (no substring collisions)', async () => {

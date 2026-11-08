@@ -644,6 +644,7 @@ function CharacterChips({
       />
       <MultiSelectChip<number>
         label="voice actor"
+        allSelectedFilters
         options={options.voiceActors.map((v) => v.id)}
         selected={state.voiceActorIds}
         onToggle={(v) =>

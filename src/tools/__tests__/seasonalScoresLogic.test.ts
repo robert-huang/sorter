@@ -8,6 +8,7 @@ import {
   seasonalRepeatTooltip,
   applySeasonalFormatFilters,
   applySeasonalGenreFilters,
+  SEASONAL_FORMAT_OPTIONS,
   applySeasonalListDateFilter,
   applySeasonalScoreFilter,
   discoverSeasonalGenres,
@@ -311,14 +312,20 @@ describe('seasonal genre and format filters', () => {
     { ...sampleShows[1]!, genres: ['Comedy'], format: 'MOVIE' },
     { ...sampleShows[2]!, genres: [], format: null },
   ];
+  const allGenres = ['Action', 'Comedy', 'Drama'];
 
   it('keeps every show when nothing is selected', () => {
-    expect(applySeasonalGenreFilters(shows, [])).toHaveLength(3);
+    expect(applySeasonalGenreFilters(shows, [], allGenres)).toHaveLength(3);
     expect(applySeasonalFormatFilters(shows, [])).toHaveLength(3);
   });
 
+  it('treats selecting every option as no filter, so shows missing a genre or format stay', () => {
+    expect(applySeasonalGenreFilters(shows, allGenres, allGenres)).toHaveLength(3);
+    expect(applySeasonalFormatFilters(shows, [...SEASONAL_FORMAT_OPTIONS])).toHaveLength(3);
+  });
+
   it('matches shows with any selected genre', () => {
-    expect(applySeasonalGenreFilters(shows, ['Drama', 'Comedy']).map((s) => s.id)).toEqual([
+    expect(applySeasonalGenreFilters(shows, ['Drama', 'Comedy'], allGenres).map((s) => s.id)).toEqual([
       1, 2,
     ]);
   });
@@ -413,10 +420,13 @@ describe('seasonalScoresLogic', () => {
       2026, 2025, 2022, 2021,
     ]);
     expect(
-      applySeasonalYearFilters(rangeShows, [2021, 2025, 2026]).map(
+      applySeasonalYearFilters(rangeShows, [2021, 2025, 2026], discoverSeasonalYears(rangeShows)).map(
         (show) => show.id,
       ),
     ).toEqual([101, 103, 104]);
+    expect(
+      applySeasonalYearFilters(rangeShows, discoverSeasonalYears(rangeShows), discoverSeasonalYears(rangeShows)),
+    ).toHaveLength(rangeShows.length);
   });
 
   it('buildSeasonalColumns buckets and averages per season', () => {

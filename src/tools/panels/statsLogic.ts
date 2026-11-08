@@ -565,9 +565,10 @@ function entryMatchesListStatus(
   return filters.includes(entry.listStatus as StatsListStatus);
 }
 
+// Entries missing a status or format only drop out once an option is deselected.
 function entryMatchesMediaStatus(entry: StatsEntry, filters: readonly StatsMediaStatusFilter[]): boolean {
   if (!entry.mediaStatus) {
-    return false;
+    return filters.length === STATS_MEDIA_STATUS_OPTIONS.length;
   }
   return filters.includes(entry.mediaStatus as StatsMediaStatusFilter);
 }
@@ -577,7 +578,7 @@ function entryMatchesFormat(
   filters: readonly (StatsFormatFilter | StatsMangaFormatFilter)[],
 ): boolean {
   if (!entry.format) {
-    return false;
+    return filters.length === (entry.mediaType === 'MANGA' ? STATS_MANGA_FORMAT_OPTIONS : STATS_ANIME_FORMAT_OPTIONS).length;
   }
   return (filters as readonly string[]).includes(entry.format);
 }

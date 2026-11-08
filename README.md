@@ -628,6 +628,7 @@ The Tools page is a tabbed shell (`anime-tools-active-tool` in `localStorage` re
 - **Display names** (romaji/english/native titles, full/native staff names) relabel cached result rows live when you change the preference in the gear menu.
 - **AniList rate limits** — a top banner counts down when the API returns `429`; long-running compares can be cancelled mid-run.
 - **Anime format chips** (Stats, Weekly Calendar, and the Sorter's AniList import) have **Select all / Clear** actions.
+- **Every option selected = no filter.** A chip with everything selected isn't highlighted and keeps items missing that field (no genre, format, year, studio, airing status, …). Exceptions stay highlighted because selecting everything still narrows: the Sorter's **genre** chip (genres AND together) and cast-based chips (**voice actor**, **appears in**, **voiced in**), which drop items with no cached cast.
 - **Form persistence** — each tab saves its own settings to `localStorage` (textarea contents, toggles, filters) so reopening the tool restores your last setup. Per-tool "Clear" buttons wipe only the main text input, not every toggle.
 - **OAuth for writes** — read-only tools work with any public username; **Update List Entry** requires you to be signed in as that user (gear → Database → Sign in to AniList). See [AniList accounts](#anilist-accounts).
 

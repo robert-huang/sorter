@@ -31,6 +31,8 @@ import {
   WEEKLY_CALENDAR_NOT_ON_LIST_LABEL,
   entryMatchesWeeklyFormatFilters,
   entryMatchesWeeklyMediaStatusFilters,
+  WEEKLY_CALENDAR_FORMAT_OPTIONS,
+  WEEKLY_CALENDAR_MEDIA_STATUS_OPTIONS,
   entryMatchesWeeklyScoreFilters,
   formatWeeklyCalendarFormatFilterLabel,
   formatWeeklyCalendarMediaStatusFilterLabel,
@@ -532,6 +534,13 @@ describe('finalizeWeeklyCalendarResult', () => {
     );
     expect(normalizeWeeklyCalendarFormatFilters(['TV', 'OVA', 'INVALID'])).toEqual(['TV', 'OVA']);
     expect(formatWeeklyCalendarFormatFilterLabel('TV_SHORT')).toBe('TV_SHORT');
+  });
+
+  it('keeps entries missing a format or airing status until an option is deselected', () => {
+    expect(entryMatchesWeeklyFormatFilters(null, [...WEEKLY_CALENDAR_FORMAT_OPTIONS])).toBe(true);
+    expect(entryMatchesWeeklyFormatFilters(null, ['TV'])).toBe(false);
+    expect(entryMatchesWeeklyMediaStatusFilters(null, [...WEEKLY_CALENDAR_MEDIA_STATUS_OPTIONS])).toBe(true);
+    expect(entryMatchesWeeklyMediaStatusFilters(null, DEFAULT_WEEKLY_CALENDAR_MEDIA_STATUS_FILTERS)).toBe(false);
   });
 
   it('filters movies when MOVIE is deselected', () => {
