@@ -1248,7 +1248,8 @@ export function statsRatedScore(entry: StatsEntry): number | null {
   return ratedScore(entry);
 }
 
-const STATS_STATUS_LETTER_SORT_RANK: Record<'P' | 'W' | 'R' | 'H', number> = {
+const STATS_STATUS_LETTER_SORT_RANK: Record<'P' | 'W' | 'R' | 'H' | 'D', number> = {
+  D: -50,
   P: -40,
   W: -30,
   R: -20,

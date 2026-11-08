@@ -37,6 +37,26 @@ describe('WeeklyCalendarPanel form persistence', () => {
     expect(restored.customSeasonMinEncoded).toBe(customSeasonMinEncoded);
     expect(restored.customSeasonMaxEncoded).toBe(customSeasonMaxEncoded);
   });
+
+  it('restores the watching list and season list status sets separately', () => {
+    saveWeeklyCalendarForm({
+      ...DEFAULT_WEEKLY_CALENDAR_FORM,
+      listStatusFilters: ['PLANNING', 'NOT_ON_LIST'],
+      watchingListStatusFilters: ['CURRENT', 'PAUSED'],
+    });
+
+    const restored = loadWeeklyCalendarForm();
+    expect(restored.listStatusFilters).toEqual(['PLANNING', 'NOT_ON_LIST']);
+    expect(restored.watchingListStatusFilters).toEqual(['CURRENT', 'PAUSED']);
+  });
+
+  it('drops NOT ON LIST from a saved watching list set', () => {
+    localStorage.setItem(
+      'anime-tools-weekly-calendar-form',
+      JSON.stringify({ watchingListStatusFilters: ['NOT_ON_LIST'] }),
+    );
+    expect(loadWeeklyCalendarForm().watchingListStatusFilters).toEqual(['CURRENT', 'REPEATING']);
+  });
 });
 
 describe('themeSongMatchesPlaylistFilter', () => {

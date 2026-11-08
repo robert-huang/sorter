@@ -22,6 +22,7 @@ import {
   countSeasonalShowsBySourceBucket,
   discoverSeasonalSeasonYearEncoded,
   discoverSeasonalYears,
+  DEFAULT_SEASONAL_LIST_STATUS_FILTERS,
   DEFAULT_SEASONAL_SOURCE_FILTERS,
   effectiveSeasonalForm,
   encodeSeasonalShowSeasonYear,
@@ -885,6 +886,24 @@ describe('seasonalScoresLogic', () => {
     expect(
       applySeasonalListStatusFilters(shows, ['COMPLETED', 'PLANNING']).map((show) => show.title),
     ).toEqual(['Done', 'Plan']);
+  });
+
+  it('DROPPED is a status chip option, and the default selection is every status but planning', () => {
+    const dropped: SeasonalShow = {
+      id: 4,
+      title: 'Dropped',
+      season: 'WINTER',
+      seasonYear: 2024,
+      score: null,
+      notes: null,
+      listStatus: 'DROPPED',
+    };
+    expect(SEASONAL_LIST_STATUS_OPTIONS).toContain('DROPPED');
+    expect(DEFAULT_SEASONAL_LIST_STATUS_FILTERS).toEqual(['COMPLETED', 'CURRENT', 'REPEATING', 'PAUSED', 'DROPPED']);
+    expect(applySeasonalListStatusFilters([dropped], DEFAULT_SEASONAL_LIST_STATUS_FILTERS)).toEqual([dropped]);
+    expect(applySeasonalListStatusFilters([dropped], ['COMPLETED'])).toEqual([]);
+    expect(formatSeasonalScoreLabel(null, 'DROPPED')).toBe('D');
+    expect(formatSeasonalScoreLabel(60, 'DROPPED')).toBe('60');
   });
 
   it('buildSeasonalColumns applies seasonYear and list-status filters over cached shows', () => {

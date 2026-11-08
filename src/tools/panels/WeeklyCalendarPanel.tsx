@@ -91,11 +91,15 @@ import {
   formatWeeklyCalendarMediaStatusFilterLabel,
   normalizeCustomSeasonRange,
   normalizeWeeklyCalendarFormatFilters,
+  normalizeWeeklyCalendarListStatusFilters,
   normalizeWeeklyCalendarMediaStatusFilters,
+  normalizeWeeklyCalendarWatchingListStatusFilters,
   resolveWeeklyCalendarSeasonSpecs,
   weeklyCalendarFetchKey,
   weeklyCalendarTimezoneToIana,
-  WEEKLY_CALENDAR_LIST_STATUS_OPTIONS,
+  activeWeeklyListStatusFilters,
+  toggleWeeklyListStatusFilter,
+  weeklyCalendarListStatusOptions,
   WEEKLY_CALENDAR_FORMAT_OPTIONS,
   WEEKLY_CALENDAR_MEDIA_STATUS_OPTIONS,
   describeWeeklyCalendarFilters,
@@ -131,6 +135,8 @@ type PersistedWeeklyCalendarForm = Pick<
   | 'timezone'
   | 'formatFilters'
   | 'mediaStatusFilters'
+  | 'listStatusFilters'
+  | 'watchingListStatusFilters'
 >;
 
 type WeeklyCalendarFetchIdentity = {
@@ -306,6 +312,10 @@ export function loadWeeklyCalendarForm(): WeeklyCalendarForm {
             : DEFAULT_WEEKLY_CALENDAR_FORM.timezone,
         formatFilters: normalizeWeeklyCalendarFormatFilters(parsed.formatFilters),
         mediaStatusFilters: normalizeWeeklyCalendarMediaStatusFilters(parsed.mediaStatusFilters),
+        listStatusFilters: normalizeWeeklyCalendarListStatusFilters(parsed.listStatusFilters),
+        watchingListStatusFilters: normalizeWeeklyCalendarWatchingListStatusFilters(
+          parsed.watchingListStatusFilters,
+        ),
       };
     }
   } catch {
@@ -329,6 +339,8 @@ export function saveWeeklyCalendarForm(form: WeeklyCalendarForm): void {
       timezone: form.timezone,
       formatFilters: form.formatFilters,
       mediaStatusFilters: form.mediaStatusFilters,
+      listStatusFilters: form.listStatusFilters,
+      watchingListStatusFilters: form.watchingListStatusFilters,
     };
     localStorage.setItem(LS_KEY, JSON.stringify(persisted));
   } catch {
@@ -1444,9 +1456,13 @@ export function WeeklyCalendarPanel({
   return (
     <section className="tool-panel">
       <p className="tool-panel-lead">
-        Chart airing and upcoming shows from a user&apos;s watching list by weekday — or browse a season ({currentSeasonLabel}).
-        <br />
-        Enable <strong>NOT ON LIST</strong> in the list status filter to show all shows from those seasons.
+        Chart airing and upcoming shows from a user&apos;s list by weekday — or browse a season ({currentSeasonLabel}).
+        {form.seasonScope !== 'watching' ? (
+          <>
+            <br />
+            Enable <strong>NOT ON LIST</strong> in the list status filter to show all shows from those seasons.
+          </>
+        ) : null}
       </p>
 
       <form
@@ -1472,14 +1488,10 @@ export function WeeklyCalendarPanel({
 
             <MultiSelectChip<WeeklyCalendarListStatusFilter>
               label="list status"
-              options={[...WEEKLY_CALENDAR_LIST_STATUS_OPTIONS]}
-              selected={form.listStatusFilters}
+              options={weeklyCalendarListStatusOptions(form.seasonScope)}
+              selected={activeWeeklyListStatusFilters(form)}
               formatOption={formatWeeklyCalendarListStatusFilterLabel}
-              onToggle={(status) =>
-                patchForm({
-                  listStatusFilters: toggleInArray(form.listStatusFilters, status),
-                })
-              }
+              onToggle={(status) => patchForm(toggleWeeklyListStatusFilter(form, status))}
             />
 
             <ScoreRangeChip

@@ -77,14 +77,15 @@ describe('malListEntryToSeasonalShow', () => {
     });
   });
 
-  it('maps statuses, treats 0 as unrated, and skips dropped entries', () => {
+  it('maps statuses (including dropped) and treats 0 as unrated', () => {
     expect(malListEntryToSeasonalShow(entry(1, 'watching', 0))).toMatchObject({
       listStatus: 'CURRENT',
       score: null,
     });
     expect(malListEntryToSeasonalShow(entry(1, 'on_hold', 5))!.listStatus).toBe('PAUSED');
     expect(malListEntryToSeasonalShow(entry(1, 'plan_to_watch', 0))!.listStatus).toBe('PLANNING');
-    expect(malListEntryToSeasonalShow(entry(1, 'dropped', 3))).toBeNull();
+    expect(malListEntryToSeasonalShow(entry(1, 'dropped', 3))!.listStatus).toBe('DROPPED');
+    expect(malListEntryToSeasonalShow(entry(1, 'unknown_status', 3))).toBeNull();
   });
 });
 
@@ -103,7 +104,7 @@ describe('fetchMalSeasonalShows', () => {
       })
       .mockResolvedValueOnce({ status: 200, data: { data: [entry(2, 'dropped', 2)], paging: {} } });
     const shows = await fetchMalSeasonalShows('pagey');
-    expect(shows.map((show) => show.id)).toEqual([-1]);
+    expect(shows.map((show) => show.id)).toEqual([-1, -2]);
     expect(fetchMalOfficialJson.mock.calls[0][0]).toMatch(/^\/v2\/users\/pagey\/animelist\?fields=/);
     expect(fetchMalOfficialJson.mock.calls[1][0]).toBe('/v2/users/pagey/animelist?offset=1&limit=1');
   });

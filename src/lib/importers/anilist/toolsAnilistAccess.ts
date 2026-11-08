@@ -94,13 +94,15 @@ export const TOOLS_CONSUMED_LIST_STATUSES = [...TOOLS_USER_LIST_STATUSES] as con
  * without it, toggling the checkbox forced a full re-fetch. The
  * planning rows are cheap to fetch and tiny relative to the rest of
  * the list, so the cost is negligible. `bucketShowsForSeason` does the
- * actual planning filter in seasonalScoresLogic.
+ * actual planning filter in seasonalScoresLogic. DROPPED is fetched too so the
+ * status chips can offer it; it's off by default.
  */
 export const TOOLS_SEASONAL_LIST_STATUSES = [
   'COMPLETED',
   'CURRENT',
   'REPEATING',
   'PAUSED',
+  'DROPPED',
   'PLANNING',
 ] as const;
 

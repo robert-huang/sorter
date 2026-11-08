@@ -274,7 +274,7 @@ async function fetchUserListEntryMapCached(
   options?: WeeklyCalendarFetchOptions,
 ): Promise<UserListEntryMap> {
   const handle = username.trim().toLowerCase();
-  const key = `weekly-calendar:list-map:v2:${handle}`;
+  const key = weeklyCalendarListMapCacheKey(handle);
   const serialized = await withWeeklyCalendarUserListCache(
     key,
     async () => serializeUserListEntryMap(await fetchUserListEntryMapLive(username, signal)),
@@ -329,12 +329,21 @@ async function fetchSeasonAiringEntriesLive(
   return { entries, seasonLabel };
 }
 
+// Bump these when the cached list statuses or fields change (v5/v3/v4: DROPPED added).
+export function weeklyCalendarWatchingCacheKey(handle: string): string {
+  return `weekly-calendar:watching:v4:${handle}`;
+}
+
+function weeklyCalendarListMapCacheKey(handle: string): string {
+  return `weekly-calendar:list-map:v3:${handle}`;
+}
+
 function weeklyCalendarSeasonCacheKey(handle: string, seasonSpec: AnilistSeasonAt): string {
-  return `weekly-calendar:season:v4:${handle}:${seasonSpec.season}:${seasonSpec.year}`;
+  return `${weeklyCalendarSeasonCachePrefix(handle)}${seasonSpec.season}:${seasonSpec.year}`;
 }
 
 function weeklyCalendarSeasonCachePrefix(handle: string): string {
-  return `weekly-calendar:season:v4:${handle}:`;
+  return `weekly-calendar:season:v5:${handle}:`;
 }
 
 async function fetchSeasonAiringEntriesCached(
@@ -379,8 +388,8 @@ export async function bustWeeklyCalendarUserListMemo(username: string): Promise<
   if (!handle) {
     return;
   }
-  const watchingKey = `weekly-calendar:watching:v3:${handle}`;
-  const listMapKey = `weekly-calendar:list-map:v2:${handle}`;
+  const watchingKey = weeklyCalendarWatchingCacheKey(handle);
+  const listMapKey = weeklyCalendarListMapCacheKey(handle);
   const seasonPrefix = weeklyCalendarSeasonCachePrefix(handle);
   sessionMemoDelete(watchingKey);
   sessionMemoDelete(listMapKey);
@@ -400,7 +409,7 @@ export async function fetchWeeklyCalendarWatchingEntries(
   options?: WeeklyCalendarFetchOptions,
 ): Promise<WeeklyCalendarRawEntry[]> {
   const handle = username.trim().toLowerCase();
-  const key = `weekly-calendar:watching:v3:${handle}`;
+  const key = weeklyCalendarWatchingCacheKey(handle);
   return withWeeklyCalendarUserListCache(
     key,
     () => fetchWatchingEntriesLive(username, signal),

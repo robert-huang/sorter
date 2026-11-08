@@ -170,6 +170,7 @@ export const SEASONAL_LIST_STATUS_OPTIONS = [
   'CURRENT',
   'REPEATING',
   'PAUSED',
+  'DROPPED',
   'PLANNING',
 ] as const;
 
@@ -177,13 +178,9 @@ export type SeasonalListStatus = (typeof SEASONAL_LIST_STATUS_OPTIONS)[number];
 
 export type SeasonalListStatusFilters = SeasonalListStatus[];
 
-/** Planning is off by default. */
-export const DEFAULT_SEASONAL_LIST_STATUS_FILTERS: SeasonalListStatusFilters = [
-  'COMPLETED',
-  'CURRENT',
-  'REPEATING',
-  'PAUSED',
-];
+/** Every status except planning. */
+export const DEFAULT_SEASONAL_LIST_STATUS_FILTERS: SeasonalListStatusFilters =
+  SEASONAL_LIST_STATUS_OPTIONS.filter((status) => status !== 'PLANNING');
 
 /** Coerce persisted/localStorage values into a valid list-status selection. */
 export function normalizeSeasonalListStatusFilters(raw: unknown): SeasonalListStatusFilters {
@@ -509,7 +506,7 @@ export function listStatusScoreLabel(
   listStatus: string | null | undefined,
   score: number | null | undefined,
   mediaType?: string | null,
-): 'P' | 'W' | 'R' | 'H' | null {
+): 'P' | 'W' | 'R' | 'H' | 'D' | null {
   if (normalizeSeasonalListScore(score) != null) {
     return null;
   }
@@ -521,6 +518,9 @@ export function listStatusScoreLabel(
   }
   if (listStatus === 'PAUSED') {
     return 'H';
+  }
+  if (listStatus === 'DROPPED') {
+    return 'D';
   }
   return null;
 }
@@ -578,6 +578,9 @@ function seasonalShowSortKey(show: SeasonalShow): number {
   }
   if (statusLabel === 'P') {
     return -3;
+  }
+  if (statusLabel === 'D') {
+    return -4;
   }
   return normalizeSeasonalListScore(show.score) ?? 0;
 }
@@ -985,7 +988,7 @@ export type SeasonalUserShows = {
 };
 
 /** Unrated entries pick the most active status for the merged status letter. */
-const UNRATED_STATUS_PRIORITY = ['CURRENT', 'REPEATING', 'PAUSED', 'PLANNING'];
+const UNRATED_STATUS_PRIORITY = ['CURRENT', 'REPEATING', 'PAUSED', 'PLANNING', 'DROPPED'];
 
 function mergedUnratedStatus(entries: readonly SeasonalUserEntry[]): string | null {
   for (const status of UNRATED_STATUS_PRIORITY) {
@@ -1117,6 +1120,10 @@ export function seasonalScoreTooltip(
     parts.push(`${paused} paused`);
   }
   parts.push(`${countWhere((e) => e.listStatus === 'PLANNING')} planning`);
+  const dropped = countWhere((e) => e.listStatus === 'DROPPED');
+  if (dropped > 0) {
+    parts.push(`${dropped} dropped`);
+  }
   const userLines = entries.map((entry) => {
     const score = normalizeSeasonalListScore(entry.score);
     const detail = score ?? (entry.listStatus ?? 'on list').toLowerCase().replace('current', 'watching');

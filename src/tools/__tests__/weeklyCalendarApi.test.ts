@@ -82,7 +82,7 @@ describe('fetchWeeklyCalendarWatchingEntries', () => {
     expect(second[0]).toMatchObject({ progress: 5, format: 'TV' });
     expect(depaginateMock).toHaveBeenCalledTimes(1);
     await expect(
-      persistentCacheGet('weekly-calendar:watching:v3:rh_test'),
+      persistentCacheGet('weekly-calendar:watching:v4:rh_test'),
     ).resolves.toEqual({
       hit: true,
       value: second,
@@ -102,10 +102,10 @@ describe('fetchWeeklyCalendarWatchingEntries', () => {
     expect(depaginateMock).toHaveBeenCalledTimes(2);
   });
 
-  it('ignores cache entries from the previous key version (no list dates)', async () => {
+  it('ignores cache entries from the previous key version (fetched without DROPPED)', async () => {
     await persistentCacheSet(
-      'weekly-calendar:watching:v2:rh_test',
-      [{ id: 99, title: 'Stale entry without list dates' }],
+      'weekly-calendar:watching:v3:rh_test',
+      [{ id: 99, title: 'Stale entry from a fetch without DROPPED' }],
       60_000,
     );
 
@@ -120,7 +120,7 @@ describe('fetchWeeklyCalendarWatchingEntries', () => {
     await bustWeeklyCalendarUserListMemo('rh_test');
 
     await expect(
-      persistentCacheGet('weekly-calendar:watching:v3:rh_test'),
+      persistentCacheGet('weekly-calendar:watching:v4:rh_test'),
     ).resolves.toEqual({ hit: false });
 
     _clearSessionMemoForTesting();

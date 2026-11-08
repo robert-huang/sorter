@@ -108,7 +108,7 @@ describe('describeWeeklyCalendarFilters', () => {
         ['songs not on the playlist only'],
       ),
     ).toBe(
-      'Weekly Calendar theme songs · watching list · list: current, repeating · airing: releasing, not yet released · formats: TV, ONA · score rated 70–100 · songs not on the playlist only',
+      'Weekly Calendar theme songs · user list · list: current, repeating · airing: releasing, not yet released · formats: TV, ONA · score rated 70–100 · songs not on the playlist only',
     );
   });
 
@@ -416,7 +416,7 @@ describe('finalizeWeeklyCalendarResult', () => {
       [raw],
       {
         ...DEFAULT_WEEKLY_CALENDAR_FORM,
-        listStatusFilters: ['CURRENT', 'REPEATING'],
+        watchingListStatusFilters: ['CURRENT', 'REPEATING'],
       },
       null,
     );
@@ -480,7 +480,7 @@ describe('finalizeWeeklyCalendarResult', () => {
       [raw],
       {
         ...DEFAULT_WEEKLY_CALENDAR_FORM,
-        listStatusFilters: ['REPEATING'],
+        watchingListStatusFilters: ['REPEATING'],
         showUnscheduledColumn: true,
       },
       null,
@@ -492,7 +492,7 @@ describe('finalizeWeeklyCalendarResult', () => {
       [raw],
       {
         ...DEFAULT_WEEKLY_CALENDAR_FORM,
-        listStatusFilters: ['REPEATING'],
+        watchingListStatusFilters: ['REPEATING'],
         mediaStatusFilters: ['FINISHED'],
         showUnscheduledColumn: true,
       },
@@ -579,6 +579,7 @@ describe('finalizeWeeklyCalendarResult', () => {
       [raw],
       {
         ...DEFAULT_WEEKLY_CALENDAR_FORM,
+        seasonScope: 'current',
         listStatusFilters: ['CURRENT', 'REPEATING'],
         showUnscheduledColumn: false,
       },
@@ -590,6 +591,7 @@ describe('finalizeWeeklyCalendarResult', () => {
       [raw],
       {
         ...DEFAULT_WEEKLY_CALENDAR_FORM,
+        seasonScope: 'current',
         listStatusFilters: [WEEKLY_CALENDAR_NOT_ON_LIST_FILTER],
         showUnscheduledColumn: false,
       },

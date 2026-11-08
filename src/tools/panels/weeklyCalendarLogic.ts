@@ -62,6 +62,59 @@ export function normalizeWeeklyCalendarListStatusFilters(
   return selected.length > 0 ? [...selected] : [...DEFAULT_WEEKLY_CALENDAR_LIST_STATUS_FILTERS];
 }
 
+/** The watching list only has rows with a list entry, so NOT ON LIST is season-only. */
+export function weeklyCalendarListStatusOptions(
+  seasonScope: WeeklyCalendarSeasonScope,
+): WeeklyCalendarListStatusFilter[] {
+  return seasonScope === 'watching'
+    ? [...TOOLS_SEASONAL_LIST_STATUSES]
+    : [...WEEKLY_CALENDAR_LIST_STATUS_OPTIONS];
+}
+
+export function normalizeWeeklyCalendarWatchingListStatusFilters(
+  raw: unknown,
+): WeeklyCalendarAnilistListStatus[] {
+  if (!Array.isArray(raw)) {
+    return [...WEEKLY_CALENDAR_WATCHING_STATUSES];
+  }
+  const selected = TOOLS_SEASONAL_LIST_STATUSES.filter((status) => raw.includes(status));
+  return selected.length > 0 ? [...selected] : [...WEEKLY_CALENDAR_WATCHING_STATUSES];
+}
+
+type WeeklyListStatusFilterFields = Pick<
+  WeeklyCalendarForm,
+  'seasonScope' | 'listStatusFilters' | 'watchingListStatusFilters'
+>;
+
+/** The watching list and the season tabs each keep their own list status picks. */
+export function activeWeeklyListStatusFilters(
+  form: WeeklyListStatusFilterFields,
+): WeeklyCalendarListStatusFilter[] {
+  return form.seasonScope === 'watching' ? form.watchingListStatusFilters : form.listStatusFilters;
+}
+
+/** Form patch that toggles a status in the set for the current scope. */
+export function toggleWeeklyListStatusFilter(
+  form: WeeklyListStatusFilterFields,
+  status: WeeklyCalendarListStatusFilter,
+): Partial<WeeklyCalendarForm> {
+  if (form.seasonScope === 'watching') {
+    if (status === WEEKLY_CALENDAR_NOT_ON_LIST_FILTER) return {};
+    const current = form.watchingListStatusFilters;
+    return {
+      watchingListStatusFilters: current.includes(status)
+        ? current.filter((s) => s !== status)
+        : [...current, status],
+    };
+  }
+  const current = form.listStatusFilters;
+  return {
+    listStatusFilters: current.includes(status)
+      ? current.filter((s) => s !== status)
+      : [...current, status],
+  };
+}
+
 export function entryMatchesWeeklyListStatusFilters(
   listStatus: string | null,
   filters: readonly WeeklyCalendarListStatusFilter[],
@@ -209,7 +262,10 @@ export type WeeklyCalendarForm = {
   /** Encoded season+year range when `seasonScope` is `custom` (see `encodeSeasonYear`). */
   customSeasonMinEncoded: number;
   customSeasonMaxEncoded: number;
+  /** List status picks for the season tabs. */
   listStatusFilters: WeeklyCalendarListStatusFilter[];
+  /** List status picks for the watching list; NOT ON LIST never applies there. */
+  watchingListStatusFilters: WeeklyCalendarAnilistListStatus[];
   userScoreInclude: WeeklyCalendarScoreFilters['userScoreInclude'];
   scoreMin: number | null;
   scoreMax: number | null;
@@ -267,9 +323,9 @@ export function describeWeeklyCalendarFilters(
   const allFormats = form.formatFilters.length === WEEKLY_CALENDAR_FORMAT_OPTIONS.length;
   const parts = [
     'Weekly Calendar theme songs',
-    form.seasonScope === 'watching' ? 'watching list' : seasonLabel,
+    form.seasonScope === 'watching' ? 'user list' : seasonLabel,
     form.username.trim() || null,
-    `list: ${form.listStatusFilters.map(filterValueLabel).join(', ')}`,
+    `list: ${activeWeeklyListStatusFilters(form).map(filterValueLabel).join(', ')}`,
     `airing: ${form.mediaStatusFilters.map(filterValueLabel).join(', ')}`,
     allFormats ? null : `formats: ${form.formatFilters.join(', ')}`,
     scoreFilterLabel(form),
@@ -305,6 +361,7 @@ export const DEFAULT_WEEKLY_CALENDAR_FORM: WeeklyCalendarForm = {
   customSeasonMinEncoded: defaultCustomSeasonRange.customSeasonMinEncoded,
   customSeasonMaxEncoded: defaultCustomSeasonRange.customSeasonMaxEncoded,
   listStatusFilters: [...DEFAULT_WEEKLY_CALENDAR_LIST_STATUS_FILTERS],
+  watchingListStatusFilters: [...WEEKLY_CALENDAR_WATCHING_STATUSES],
   userScoreInclude: 'any',
   scoreMin: null,
   scoreMax: null,
@@ -1039,7 +1096,7 @@ export function finalizeWeeklyCalendarResult(
   const seasonMode = isWeeklyCalendarSeasonScope(form.seasonScope);
   const filtered = entries.filter(
     (entry) =>
-      entryMatchesWeeklyListStatusFilters(entry.listStatus, form.listStatusFilters) &&
+      entryMatchesWeeklyListStatusFilters(entry.listStatus, activeWeeklyListStatusFilters(form)) &&
       entryMatchesWeeklyScoreFilters(entry.score, form) &&
       listDatePasses(entry.listDates, form.listDate) &&
       entryMatchesWeeklyMediaStatusFilters(entry.mediaStatus, form.mediaStatusFilters) &&

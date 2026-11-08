@@ -45,11 +45,11 @@ export function parseMalUsername(username: string): string | null {
   return name || null;
 }
 
-/** Seasonal Scores loads AniList lists without DROPPED, so MAL drops are skipped too. */
 const MAL_STATUS_TO_ANILIST: Record<string, string> = {
   watching: 'CURRENT',
   completed: 'COMPLETED',
   on_hold: 'PAUSED',
+  dropped: 'DROPPED',
   plan_to_watch: 'PLANNING',
 };
 
