@@ -1482,6 +1482,7 @@ export function WeeklyCalendarPanel({
 
             <MultiSelectChip<WeeklyCalendarListStatusFilter>
               label="list status"
+              emptyFilters
               options={weeklyCalendarListStatusOptions(form.seasonScope)}
               selected={activeWeeklyListStatusFilters(form)}
               formatOption={formatWeeklyCalendarListStatusFilterLabel}
@@ -1549,6 +1550,7 @@ export function WeeklyCalendarPanel({
 
             <MultiSelectChip<WeeklyCalendarMediaStatusFilter>
               label="airing status"
+              emptyFilters
               options={[...WEEKLY_CALENDAR_MEDIA_STATUS_OPTIONS]}
               selected={form.mediaStatusFilters}
               formatOption={formatWeeklyCalendarMediaStatusFilterLabel}
@@ -1561,6 +1563,7 @@ export function WeeklyCalendarPanel({
 
             <MultiSelectChip<WeeklyCalendarFormatFilter>
               label="format"
+              emptyFilters
               options={[...WEEKLY_CALENDAR_FORMAT_OPTIONS]}
               selected={form.formatFilters}
               formatOption={formatWeeklyCalendarFormatFilterLabel}

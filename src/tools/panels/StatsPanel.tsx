@@ -1735,6 +1735,7 @@ export function StatsPanel({
           />
           <MultiSelectChip
             label="list status"
+            emptyFilters
             options={[...STATS_LIST_STATUS_OPTIONS]}
             selected={form.listStatusFilters}
             formatOption={(s) => s}
@@ -1774,6 +1775,7 @@ export function StatsPanel({
 
           <MultiSelectChip
             label="airing status"
+            emptyFilters
             options={[...STATS_MEDIA_STATUS_OPTIONS]}
             selected={form.mediaStatusFilters}
             formatOption={formatStatsMediaStatusLabel}
@@ -1784,6 +1786,7 @@ export function StatsPanel({
 
           <MultiSelectChip
             label="format"
+            emptyFilters
             options={
               form.mediaType === 'MANGA'
                 ? [...STATS_MANGA_FORMAT_OPTIONS]
@@ -1802,6 +1805,7 @@ export function StatsPanel({
           />
           <MultiSelectChip<SeasonalSourceFilterKey>
             label="source"
+            emptyFilters
             options={SEASONAL_SOURCE_FILTER_KEYS}
             selected={form.sourceFilters}
             formatOption={seasonalSourceFilterLabel}
@@ -1830,6 +1834,7 @@ export function StatsPanel({
           {form.aggregationType === 'STAFF' ? (
             <MultiSelectChip
               label="production roles"
+              emptyFilters
               options={staffRoleOptions}
               selected={form.staffRoleFilters}
               formatOption={(role) => role === 'OTHER' ? 'Other' : role}
@@ -1845,6 +1850,7 @@ export function StatsPanel({
           {form.aggregationType === 'VA' ? (
             <MultiSelectChip
               label="character roles"
+              emptyFilters
               options={[...STATS_CHARACTER_ROLE_OPTIONS]}
               selected={form.vaRoleFilters}
               formatOption={(r) => r}
@@ -1902,6 +1908,7 @@ export function StatsPanel({
           {form.aggregationType === 'STUDIOS' ? (
             <MultiSelectChip
               label="studio type"
+              emptyFilters
               labelHint={STATS_STUDIO_TYPE_TOOLTIP}
               options={[...STATS_STUDIO_KIND_OPTIONS]}
               selected={form.studioKindFilters}

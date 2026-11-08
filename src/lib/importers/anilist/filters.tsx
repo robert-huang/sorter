@@ -1177,6 +1177,17 @@ export function MediaOptionMultiSelectChip({
   );
 }
 
+/** Whether a multi-select chip is currently narrowing results. */
+function isMultiSelectChipActive(
+  count: number,
+  allSelected: boolean,
+  allSelectedFilters: boolean,
+  emptyFilters: boolean,
+): boolean {
+  if (count === 0) return emptyFilters;
+  return allSelectedFilters || !allSelected;
+}
+
 export function MultiSelectChip<T extends string | number>({
   label,
   labelHint,
@@ -1194,11 +1205,14 @@ export function MultiSelectChip<T extends string | number>({
   triggerLabel,
   floatingMenu = false,
   allSelectedFilters = false,
+  emptyFilters = false,
 }: {
   label: string;
   /** Set when selecting every option still narrows results (e.g. AND-matched
    *  genres), so the chip stays highlighted. */
   allSelectedFilters?: boolean;
+  /** Set when selecting nothing hides every item, so the empty chip is highlighted. */
+  emptyFilters?: boolean;
   /** Replaces the "label · count" trigger text (e.g. a compact "3"). */
   triggerLabel?: ReactNode;
   /** Position the menu against the viewport so scroll containers don't clip it. */
@@ -1314,7 +1328,7 @@ export function MultiSelectChip<T extends string | number>({
   return (
     <div
       ref={rootRef}
-      className={`filter-chip ${count > 0 && (allSelectedFilters || !allSelected) ? 'active' : ''}`}
+      className={`filter-chip ${isMultiSelectChipActive(count, allSelected, allSelectedFilters, emptyFilters) ? 'active' : ''}`}
     >
       <button
         ref={triggerRef}

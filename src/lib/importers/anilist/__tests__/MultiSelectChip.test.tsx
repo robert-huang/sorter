@@ -22,7 +22,7 @@ afterEach(() => {
   container.remove();
 });
 
-function chipIsActive(selected: string[], allSelectedFilters?: boolean): boolean {
+function chipIsActive(selected: string[], allSelectedFilters?: boolean, emptyFilters?: boolean): boolean {
   act(() => {
     root.render(
       <MultiSelectChip<string>
@@ -31,6 +31,7 @@ function chipIsActive(selected: string[], allSelectedFilters?: boolean): boolean
         selected={selected}
         onToggle={vi.fn()}
         allSelectedFilters={allSelectedFilters}
+        emptyFilters={emptyFilters}
       />,
     );
   });
@@ -46,5 +47,9 @@ describe('MultiSelectChip highlight', () => {
 
   it('keeps an all-selected chip highlighted when selecting everything still filters', () => {
     expect(chipIsActive(['TV', 'MOVIE'], true)).toBe(true);
+  });
+
+  it('highlights an empty chip when selecting nothing hides everything', () => {
+    expect(chipIsActive([], false, true)).toBe(true);
   });
 });

@@ -1173,6 +1173,7 @@ export function FranchiseActivitiesSection({
       <div className="tool-franchise-activities-toolbar">
         <MultiSelectChip
           label="activity type"
+          emptyFilters
           options={FRANCHISE_ACTIVITY_TYPE_OPTIONS}
           selected={selectedTypes}
           formatOption={formatFranchiseActivityType}
@@ -1323,6 +1324,7 @@ function FranchiseFilterBar({
         />
         <MultiSelectChip
           label="list status"
+          emptyFilters
           options={FRANCHISE_LIST_STATUS_OPTIONS}
           selected={filters.listStatuses}
           onToggle={(status) =>
@@ -1340,6 +1342,7 @@ function FranchiseFilterBar({
         />
         <MultiSelectChip
           label="format"
+          emptyFilters
           options={FRANCHISE_FORMAT_OPTIONS}
           selected={filters.formatFilters}
           formatOption={formatFranchiseFormatFilterLabel}

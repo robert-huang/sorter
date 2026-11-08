@@ -995,6 +995,7 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
           />
           <MultiSelectChip
             label="list status"
+            emptyFilters
             options={SEASONAL_LIST_STATUS_OPTIONS}
             selected={listStatusFilters}
             formatOption={formatListStatusFilterOption}
@@ -1036,6 +1037,7 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
           />
           <MultiSelectChip<SeasonalSourceFilterKey>
             label="source"
+            emptyFilters
             options={SEASONAL_SOURCE_FILTER_KEYS}
             selected={sourceFilters}
             formatOption={formatSourceFilterOption}

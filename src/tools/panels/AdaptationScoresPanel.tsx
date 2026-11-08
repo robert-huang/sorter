@@ -758,6 +758,7 @@ export function AdaptationScoresPanel({
           />
           <MultiSelectChip
             label="list status"
+            emptyFilters
             options={ADAPTATION_LIST_STATUS_OPTIONS}
             selected={filters.listStatuses}
             onToggle={(status) =>
