@@ -25,6 +25,7 @@ import {
   applySeasonalGenreFilters,
   SEASONAL_FORMAT_OPTIONS,
   applySeasonalSeasonYearFilters,
+  applySeasonalNotesFilterToLists,
   countSeasonalShowsBy,
   discoverSeasonalGenres,
   normalizeSeasonalStringFilters,
@@ -795,22 +796,31 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
     [running, refreshingList, refreshingUser],
   );
 
-  const visibleYearCount =
-    relabeledCachedShows == null
-      ? null
-      : applySeasonalYearFilters(relabeledCachedShows, yearFilters, yearOptions).length;
-
   const genreOptions = useMemo(
     () => (relabeledCachedShows == null ? [] : discoverSeasonalGenres(relabeledCachedShows)),
     [relabeledCachedShows],
   );
 
-  // Shows left after each chip, applied in buildSeasonalColumns order. Each
-  // chip's option counts come from the pool reaching it (`*Pool`).
+  // Shows left after each chip: notes, year, season year, list status, genre,
+  // format, source (the result is the same in any order; only counts differ).
+  // Each chip's option counts come from the pool reaching it (`*Pool`).
   const visibleCounts = useMemo(() => {
     if (relabeledLists == null) {
       return null;
     }
+    const notesLists = applySeasonalNotesFilterToLists(relabeledLists, form);
+    const year = applySeasonalYearFilters(
+      mergeSeasonalUserLists(notesLists),
+      yearFilters,
+      yearOptions,
+    ).length;
+    // List entries (one per user per show) past notes, year and season year.
+    const listStatusPool = notesLists.flatMap((list) =>
+      applySeasonalSeasonYearFilters(
+        applySeasonalYearFilters(list.shows, yearFilters, yearOptions),
+        seasonYearFilter,
+      ),
+    );
     let shows = applySeasonalSeasonYearFilters(
       applySeasonalYearFilters(
         mergeFilteredSeasonalUserLists(relabeledLists, form, { listStatusFilters }),
@@ -828,7 +838,17 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
     const sourcePool = shows;
     const format = shows.length;
     const source = applySeasonalSourceFilters(shows, sourceFilters).length;
-    return { listStatus, genre, format, source, genrePool, formatPool, sourcePool };
+    return {
+      year,
+      listStatus,
+      genre,
+      format,
+      source,
+      listStatusPool,
+      genrePool,
+      formatPool,
+      sourcePool,
+    };
   }, [
     relabeledLists,
     form,
@@ -883,22 +903,20 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
 
   /** Counts list entries (one per user per show), not merged shows. */
   const listStatusFilterCounts = useMemo(() => {
-    if (!relabeledLists) {
+    if (!visibleCounts) {
       return null;
     }
     const counts = new Map<SeasonalListStatus, number>();
-    for (const list of relabeledLists) {
-      for (const show of list.shows) {
-        const status = show.listStatus;
-        if (status == null || !SEASONAL_LIST_STATUS_OPTIONS.includes(status as SeasonalListStatus)) {
-          continue;
-        }
-        const key = status as SeasonalListStatus;
-        counts.set(key, (counts.get(key) ?? 0) + 1);
+    for (const show of visibleCounts.listStatusPool) {
+      const status = show.listStatus;
+      if (status == null || !SEASONAL_LIST_STATUS_OPTIONS.includes(status as SeasonalListStatus)) {
+        continue;
       }
+      const key = status as SeasonalListStatus;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
     }
     return counts;
-  }, [relabeledLists]);
+  }, [visibleCounts]);
 
   const formatListStatusFilterOption = useCallback(
     (status: SeasonalListStatus) => {
@@ -971,8 +989,8 @@ export function SeasonalScoresPanel({ onOpenMedia }: ToolPanelProps) {
             options={yearOptions}
             selected={yearFilters}
             menuStatus={
-              relabeledCachedShows != null && visibleYearCount != null
-                ? `${visibleYearCount} of ${relabeledCachedShows.length}`
+              relabeledCachedShows != null && visibleCounts != null
+                ? `${visibleCounts.year} of ${relabeledCachedShows.length}`
                 : undefined
             }
             onToggle={(year) =>

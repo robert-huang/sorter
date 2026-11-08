@@ -1003,6 +1003,22 @@ export type SeasonalUserShows = {
   shows: SeasonalShow[];
 };
 
+/** The notes filter alone, ahead of every chip (it narrows what the chip counts start from). */
+export function applySeasonalNotesFilterToLists(
+  perUser: readonly SeasonalUserShows[],
+  form: Pick<SeasonalScoresForm, 'airingNotesOnly' | 'notesFilter'>,
+): SeasonalUserShows[] {
+  const options: SeasonalEntryFilterOptions = {
+    listStatusFilters: [...SEASONAL_LIST_STATUS_OPTIONS],
+    airingNotesOnly: form.airingNotesOnly,
+    notesFilter: form.notesFilter ?? '#airing',
+  };
+  return perUser.map((user) => ({
+    ...user,
+    shows: applySeasonalEntryFilters(user.shows, options),
+  }));
+}
+
 /** Unrated entries pick the most active status for the merged status letter. */
 const UNRATED_STATUS_PRIORITY = ['CURRENT', 'REPEATING', 'PAUSED', 'PLANNING', 'DROPPED'];
 

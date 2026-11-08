@@ -1188,6 +1188,18 @@ function isMultiSelectChipActive(
   return allSelectedFilters || !allSelected;
 }
 
+/** Trigger suffix; blank whenever the chip isn't narrowing results. */
+function multiSelectChipCountLabel(
+  count: number,
+  allSelected: boolean,
+  allSelectedFilters: boolean,
+  emptyFilters: boolean,
+): string {
+  if (count === 0) return emptyFilters ? ' · 0' : '';
+  if (!allSelected) return ` · ${count}`;
+  return allSelectedFilters ? ' · all' : '';
+}
+
 export function MultiSelectChip<T extends string | number>({
   label,
   labelHint,
@@ -1322,8 +1334,12 @@ export function MultiSelectChip<T extends string | number>({
       ? 'Add every option that matches the current search'
       : 'Select every option';
 
-  const chipCountLabel =
-    count === 0 ? '' : allSelected ? ' · all' : ` · ${count}`;
+  const chipCountLabel = multiSelectChipCountLabel(
+    count,
+    allSelected,
+    allSelectedFilters,
+    emptyFilters,
+  );
 
   return (
     <div

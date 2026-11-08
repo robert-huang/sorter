@@ -206,17 +206,17 @@ describe('StatsPanel filters', () => {
       container.querySelectorAll<HTMLButtonElement>('.filter-chip-button'),
     ).find((button) => button.textContent?.trim().startsWith('format'));
 
-    expect(formatButton?.textContent).toContain('all');
+    expect(formatButton?.textContent?.trim()).toBe('format');
     act(() => formatButton?.click());
     expect(findButton('Select all')?.disabled).toBe(true);
     expect(findButton('Clear')?.disabled).toBe(false);
 
     act(() => findButton('Clear')?.click());
-    expect(formatButton?.textContent?.trim()).toBe('format');
+    expect(formatButton?.textContent?.trim()).toBe('format · 0');
     expect(findButton('Select all')?.disabled).toBe(false);
 
     act(() => findButton('Select all')?.click());
-    expect(formatButton?.textContent).toContain('all');
+    expect(formatButton?.textContent?.trim()).toBe('format');
   });
 
   it('renders gender immediately after the active people-role filter', () => {

@@ -8,6 +8,7 @@ import {
   seasonalRepeatTooltip,
   applySeasonalFormatFilters,
   applySeasonalGenreFilters,
+  applySeasonalNotesFilterToLists,
   SEASONAL_FORMAT_OPTIONS,
   applySeasonalListDateFilter,
   applySeasonalScoreFilter,
@@ -303,6 +304,24 @@ describe('multi-user seasonal scores', () => {
       single.columns.map((c) => [c.label, c.average, c.ratedCount]),
     );
     expect(multi.columns[0]!.shows.map((s) => s.score)).toEqual([90, 80]);
+  });
+});
+
+describe('applySeasonalNotesFilterToLists', () => {
+  it('applies only the notes filter, keeping every list status', () => {
+    const lists = [
+      {
+        username: 'a',
+        shows: [
+          { ...sampleShows[0]!, notes: '#airing', listStatus: 'PLANNING' },
+          { ...sampleShows[1]!, notes: null, listStatus: 'COMPLETED' },
+        ],
+      },
+    ];
+    const on = applySeasonalNotesFilterToLists(lists, { airingNotesOnly: true, notesFilter: '#airing' });
+    expect(on[0]!.shows.map((s) => s.id)).toEqual([sampleShows[0]!.id]);
+    const off = applySeasonalNotesFilterToLists(lists, { airingNotesOnly: false, notesFilter: '#airing' });
+    expect(off[0]!.shows).toHaveLength(2);
   });
 });
 

@@ -52,4 +52,16 @@ describe('MultiSelectChip highlight', () => {
   it('highlights an empty chip when selecting nothing hides everything', () => {
     expect(chipIsActive([], false, true)).toBe(true);
   });
+
+  it('shows a count only while the chip narrows results', () => {
+    const label = (selected: string[], allSelectedFilters?: boolean, emptyFilters?: boolean) => {
+      chipIsActive(selected, allSelectedFilters, emptyFilters);
+      return container.querySelector('.filter-chip-button')!.textContent;
+    };
+    expect(label(['TV', 'MOVIE'])).toBe('format');
+    expect(label(['TV', 'MOVIE'], true)).toBe('format · all');
+    expect(label(['TV'])).toBe('format · 1');
+    expect(label([])).toBe('format');
+    expect(label([], false, true)).toBe('format · 0');
+  });
 });
