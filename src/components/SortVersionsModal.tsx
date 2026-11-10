@@ -1,14 +1,17 @@
 import { useMemo, useState } from 'react';
 import {
+  DEFAULT_SORT_VERSION_MOVEMENT_MODE,
   diffSortVersions,
   formatSortVersionDate,
   summarizeSortVersionDiff,
+  type SortVersionMovementMode,
 } from '../lib/sortVersions';
 import type { SortVersion } from '../lib/types';
 import { Modal } from './Modal';
 interface Props {
   /** Oldest first, as stored. */
   versions: readonly SortVersion[];
+  movementMode?: SortVersionMovementMode;
   onClose: () => void;
 }
 
@@ -18,17 +21,31 @@ function rankChangeLabel(delta: number | undefined, isNew: boolean): string {
   return delta > 0 ? `↑${delta}` : `↓${-delta}`;
 }
 
-/** A version's full ranking with changes marked against its predecessor, plus removed items. */
-export function VersionRanking({ version, prev }: { version: SortVersion; prev: SortVersion | null }) {
-  const { moves, added, removed, renamed } = useMemo(() => {
-    const diff = diffSortVersions(prev, version);
+/**
+ * A version's full ranking with changes marked against its predecessor, plus removed items.
+ * Rows always show each item's raw rank change. Under the movement mode, changes the
+ * summary doesn't count as moves (items that only shifted to make room) are faded.
+ */
+export function VersionRanking({
+  version,
+  prev,
+  mode = DEFAULT_SORT_VERSION_MOVEMENT_MODE,
+}: {
+  version: SortVersion;
+  prev: SortVersion | null;
+  mode?: SortVersionMovementMode;
+}) {
+  const { moves, movers, added, removed, renamed } = useMemo(() => {
+    const diff = diffSortVersions(prev, version, 'raw');
+    const counted = mode === 'raw' ? diff : diffSortVersions(prev, version, mode);
     return {
       moves: new Map(diff.moved.map((m) => [m.id, m.delta])),
+      movers: new Set(counted.moved.map((m) => m.id)),
       added: new Set(diff.added),
       removed: diff.removed,
       renamed: new Set(diff.renamed),
     };
-  }, [prev, version]);
+  }, [prev, version, mode]);
   return (
     <>
     <ol className="sort-version-ranking">
@@ -42,7 +59,8 @@ export function VersionRanking({ version, prev }: { version: SortVersion; prev: 
             <span className="sort-version-ranking-label">{version.items[id]?.label ?? id}</span>
             {change && (
               <span
-                className={`sort-version-change${delta > 0 ? ' up' : ''}${delta < 0 ? ' down' : ''}${isNew ? ' new' : ''}`}
+                className={`sort-version-change${delta > 0 ? ' up' : ''}${delta < 0 ? ' down' : ''}${isNew ? ' new' : ''}${delta && !movers.has(id) ? ' is-shift' : ''}`}
+                title={delta && !movers.has(id) ? 'Shifted to make room for other moves' : undefined}
               >
                 {change}
               </span>
@@ -75,7 +93,11 @@ export function VersionRanking({ version, prev }: { version: SortVersion; prev: 
 }
 
 /** Read-only history of finished rankings, newest first, each diffed against its direct predecessor. */
-export function SortVersionsModal({ versions, onClose }: Props) {
+export function SortVersionsModal({
+  versions,
+  movementMode = DEFAULT_SORT_VERSION_MOVEMENT_MODE,
+  onClose,
+}: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const rows = useMemo(
     () =>
@@ -96,7 +118,7 @@ export function SortVersionsModal({ versions, onClose }: Props) {
         {rows.map(({ version, prev }) => {
           const expanded = expandedId === version.id;
           const date = formatSortVersionDate(version.createdAt, true);
-          const summary = summarizeSortVersionDiff(prev, version);
+          const summary = summarizeSortVersionDiff(prev, version, movementMode);
           return (
             <li key={version.id} className="sort-versions-row">
               <div className="sort-versions-row-head">
@@ -121,7 +143,9 @@ export function SortVersionsModal({ versions, onClose }: Props) {
                   </span>
                 </button>
               </div>
-              {expanded && <VersionRanking version={version} prev={prev} />}
+              {expanded && (
+                <VersionRanking version={version} prev={prev} mode={movementMode} />
+              )}
             </li>
           );
         })}

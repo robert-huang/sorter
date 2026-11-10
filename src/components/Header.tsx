@@ -8,6 +8,7 @@ import { isConfirmationState } from '../lib/types';
 import { comparisonsRemaining, optimisticComparisonsRemaining } from '../lib/engine';
 import type { StartDraftCapabilities } from './StartScreen';
 import type { ThemeName } from '../lib/storage';
+import type { SortVersionMovementMode } from '../lib/sortVersions';
 
 export type TabId = 'start' | 'list' | 'rank' | 'result';
 
@@ -56,6 +57,8 @@ interface Props {
   onToggleAutoInsertEnabled: () => void;
   historyBackGuard: boolean;
   onToggleHistoryBackGuard: () => void;
+  versionMovementMode: SortVersionMovementMode;
+  onChangeVersionMovementMode: (mode: SortVersionMovementMode) => void;
   // ---------- cloud backup (tier 0b) ----------
   cloudStatus: CloudMenuStatus;
   cloudFolderName?: string;
@@ -123,6 +126,8 @@ export function Header({
   onToggleAutoInsertEnabled,
   historyBackGuard,
   onToggleHistoryBackGuard,
+  versionMovementMode,
+  onChangeVersionMovementMode,
   cloudStatus,
   cloudFolderName,
   onCloudSignIn,
@@ -374,6 +379,8 @@ export function Header({
             onToggleAutoInsertEnabled={onToggleAutoInsertEnabled}
             historyBackGuard={historyBackGuard}
             onToggleHistoryBackGuard={onToggleHistoryBackGuard}
+            versionMovementMode={versionMovementMode}
+            onChangeVersionMovementMode={onChangeVersionMovementMode}
             cloudStatus={cloudStatus}
             cloudFolderName={cloudFolderName}
             onCloudSignIn={onCloudSignIn}

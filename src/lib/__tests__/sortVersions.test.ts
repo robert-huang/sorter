@@ -174,13 +174,47 @@ describe('diffSortVersions / summarizeSortVersionDiff', () => {
   it('reports added, removed and the biggest moves first', () => {
     const prev = version([A, B, C, D], T1);
     const next = version([D, A, B, { id: 'gggggggggggggg', label: 'Epsilon' }], T2);
-    const diff = diffSortVersions(prev, next);
+    const diff = diffSortVersions(prev, next, 'raw');
     expect(diff.added).toEqual(['gggggggggggggg']);
     expect(diff.removed).toEqual([C.id]);
     expect(diff.moved[0]).toEqual({ id: D.id, from: 4, to: 1, delta: 3 });
-    expect(summarizeSortVersionDiff(prev, next)).toBe(
+    expect(summarizeSortVersionDiff(prev, next, 'raw')).toBe(
       '1 new, 1 removed · Delta ↑3, Alpha ↓1, Beta ↓1',
     );
+  });
+
+  it('by default only counts items whose order changed, measured among kept items', () => {
+    const prev = version([A, B, C, D], T1);
+    const next = version([D, A, B, { id: 'gggggggggggggg', label: 'Epsilon' }], T2);
+    // Alpha and Beta only slid down to make room; Delta passed both of them (Gamma was removed).
+    expect(diffSortVersions(prev, next).moved).toEqual([{ id: D.id, from: 4, to: 1, delta: 2 }]);
+    expect(summarizeSortVersionDiff(prev, next)).toBe('1 new, 1 removed · Delta ↑2');
+  });
+
+  it('counts both sides of a swap that could be told either way', () => {
+    const prev = version([A, B], T1);
+    expect(summarizeSortVersionDiff(prev, version([B, A], T2))).toBe('Beta ↑1, Alpha ↓1');
+  });
+
+  it('keeps items that only slid aside, but counts both items of a swap', () => {
+    const ids = 'ABQgwBQgwA'.split('');
+    const items = ids.map((c, i) => ({ id: c.repeat(13) + String(i), label: `I${i}` }));
+    const [u, at, ch, so, ao, na, io, ka, yu] = items;
+    const prev = version([u!, at!, ch!, so!, ao!, na!, io!, ka!, yu!], T1);
+    const next = version([at!, ch!, yu!, ao!, so!, na!, u!, io!, ka!], T2);
+    expect(diffSortVersions(prev, next).moved.map((m) => m.id).sort()).toEqual(
+      [u!.id, so!.id, ao!.id, yu!.id].sort(),
+    );
+  });
+
+  it('counts one long move as one move, not every item it passed', () => {
+    const order = [A, B, C, D, { id: 'gggggggggggggg', label: 'Epsilon' }];
+    const prev = version(order, T1);
+    const next = version([order[4]!, ...order.slice(0, 4)], T2);
+    expect(diffSortVersions(prev, next).moved).toEqual([
+      { id: 'gggggggggggggg', from: 5, to: 1, delta: 4 },
+    ]);
+    expect(diffSortVersions(prev, next, 'raw').moved).toHaveLength(5);
   });
 
   it('labels the oldest version and an unchanged one', () => {
@@ -193,7 +227,13 @@ describe('diffSortVersions / summarizeSortVersionDiff', () => {
     const prev = version([A, B, C, D], T1);
     const next = version([D, C, B, A], T2);
     // Equal moves are listed by their new rank.
-    expect(summarizeSortVersionDiff(prev, next, 2)).toBe('Delta ↑3, Alpha ↓3, +2 more moved');
+    expect(summarizeSortVersionDiff(prev, next, 'raw', 2)).toBe(
+      'Delta ↑3, Alpha ↓3, +2 more moved',
+    );
+    // In a reversal any one item could be the one kept, so every item counts.
+    expect(summarizeSortVersionDiff(prev, next, 'ordering', 2)).toBe(
+      'Delta ↑3, Alpha ↓3, +2 more moved',
+    );
   });
 });
 
@@ -363,7 +403,8 @@ describe('countSortVersionDiff', () => {
   it('counts moves up and down, additions and removals', () => {
     const prev = version([A, B, C, D], T1);
     const next = version([C, A, B], T2);
-    expect(countSortVersionDiff(prev, next)).toBe('1 up · 2 down · 1 removed');
+    expect(countSortVersionDiff(prev, next, 'raw')).toBe('1 up · 2 down · 1 removed');
+    expect(countSortVersionDiff(prev, next)).toBe('1 up · 1 removed');
     expect(countSortVersionDiff(next, version([C, A, B, D], T3))).toBe('1 new');
   });
 

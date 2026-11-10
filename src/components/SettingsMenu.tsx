@@ -9,6 +9,8 @@ import { SpotifySection } from './SpotifySection';
 import { SourceDatabasesSection } from './sourceDatabasesSection';
 import { StorageDiagnosticsSection } from './StorageDiagnosticsSection';
 import type { SlotsManifest } from '../lib/types';
+import type { SortVersionMovementMode } from '../lib/sortVersions';
+import { readSettings, updateSettings } from '../lib/storage';
 
 /**
  * Cloud-section auth tier rendered in the gear menu.
@@ -65,6 +67,9 @@ interface Props {
   onToggleAutoInsertEnabled: () => void;
   historyBackGuard: boolean;
   onToggleHistoryBackGuard: () => void;
+  /** How version history counts moves. */
+  versionMovementMode: SortVersionMovementMode;
+  onChangeVersionMovementMode: (mode: SortVersionMovementMode) => void;
   // ---------- cloud backup (tier 0b) ----------
   /** Current cloud menu tier; collapses the section when 'unavailable'. */
   cloudStatus: CloudMenuStatus;
@@ -129,6 +134,11 @@ interface Props {
 const GEAR_TAB_LS_KEY = 'settings:lastTab';
 type GearTab = 'slots' | 'databases';
 
+const VERSION_MOVEMENT_OPTIONS: { value: SortVersionMovementMode; label: string }[] = [
+  { value: 'ordering', label: 'Moved items' },
+  { value: 'raw', label: 'Raw changes' },
+];
+
 function readPersistedTab(): GearTab {
   try {
     const v = localStorage.getItem(GEAR_TAB_LS_KEY);
@@ -166,6 +176,8 @@ export function SettingsMenu({
   onToggleAutoInsertEnabled,
   historyBackGuard,
   onToggleHistoryBackGuard,
+  versionMovementMode,
+  onChangeVersionMovementMode,
   cloudStatus,
   cloudFolderName,
   onCloudSignIn,
@@ -191,6 +203,14 @@ export function SettingsMenu({
 }: Props) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<GearTab>(() => readPersistedTab());
+  const [optionsCollapsed, setOptionsCollapsed] = useState(
+    () => !!readSettings().sortOptionsCollapsed,
+  );
+  const toggleOptionsCollapsed = (): void => {
+    const next = !optionsCollapsed;
+    setOptionsCollapsed(next);
+    updateSettings({ sortOptionsCollapsed: next });
+  };
   const [loadSaveDropActive, setLoadSaveDropActive] = useState(false);
   const [restoreBackupDropActive, setRestoreBackupDropActive] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -509,26 +529,59 @@ export function SettingsMenu({
           <div className="settings-footer">
             {tab === 'slots' && (
               <>
-                <div className="settings-divider" />
-                <label className="settings-item checkbox">
-                  <input
-                    type="checkbox"
-                    checked={showEstimatedRemaining}
-                    onChange={onToggleShowEstimatedRemaining}
-                  />{' '}
-                  Show estimated comparisons left
-                </label>
-                <label
-                  className="settings-item checkbox"
-                  title="When on, the sort can swap a popped queue pair for binary insertion when the smaller side is small enough that insertion beats the full merge. Turn off to force classic merge on every pair."
+                {optionsCollapsed && <div className="settings-divider" />}
+                <button
+                  type="button"
+                  className={`settings-divider-toggle${optionsCollapsed ? ' is-collapsed' : ''}`}
+                  aria-expanded={!optionsCollapsed}
+                  aria-label={optionsCollapsed ? 'Show sort options' : 'Hide sort options'}
+                  title={optionsCollapsed ? 'Show sort options' : 'Hide sort options'}
+                  onClick={toggleOptionsCollapsed}
                 >
-                  <input
-                    type="checkbox"
-                    checked={autoInsertEnabled}
-                    onChange={onToggleAutoInsertEnabled}
-                  />{' '}
-                  Auto-insert skewed pairs
-                </label>
+                  <span aria-hidden="true">{optionsCollapsed ? '•••' : '▴'}</span>
+                </button>
+                {!optionsCollapsed && (
+                  <>
+                    <label className="settings-item checkbox">
+                      <input
+                        type="checkbox"
+                        checked={showEstimatedRemaining}
+                        onChange={onToggleShowEstimatedRemaining}
+                      />{' '}
+                      Show estimated comparisons left
+                    </label>
+                    <label
+                      className="settings-item checkbox"
+                      title="When on, the sort can swap a popped queue pair for binary insertion when the smaller side is small enough that insertion beats the full merge. Turn off to force classic merge on every pair."
+                    >
+                      <input
+                        type="checkbox"
+                        checked={autoInsertEnabled}
+                        onChange={onToggleAutoInsertEnabled}
+                      />{' '}
+                      Auto-insert skewed pairs
+                    </label>
+                    <div
+                      className="filter-chip-range-row settings-option-chips"
+                      title="Moved items: only items that changed place against the others (moving one item 60 places counts as 1). Raw changes: every item whose rank number changed, including ones that only shifted to make room."
+                    >
+                      <span>Movement summary</span>
+                      <div className="filter-chip-segmented" role="group" aria-label="Movement summary">
+                        {VERSION_MOVEMENT_OPTIONS.map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            className={versionMovementMode === option.value ? 'active' : ''}
+                            aria-pressed={versionMovementMode === option.value}
+                            onClick={() => onChangeVersionMovementMode(option.value)}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
               </>
             )}
             {/* Cloud-account controls shared across both tabs. Only the

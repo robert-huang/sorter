@@ -11,6 +11,7 @@ import type {
 } from './types';
 import { normalizeConfirmationProgress } from './confirmationSort';
 import { normalizeSortVersions, storedSortVersions } from './sortVersionShape';
+import type { SortVersionMovementMode } from './sortVersions';
 import { activeSortItemCount } from './sortPopulation';
 import {
   ACTIVE_SORTER_SLOT_KEY,
@@ -2472,6 +2473,10 @@ export interface Settings {
    * (sort in progress, START draft, A2A round). Default off.
    */
   historyBackGuard?: boolean;
+  /** How version diffs count moves; absent means ordering-based. */
+  versionMovementMode?: SortVersionMovementMode;
+  /** Gear menu Slots tab: whether the sort options checkboxes are collapsed. */
+  sortOptionsCollapsed?: boolean;
   /** Shared ordering for every Google Drive slot browser. */
   cloudSlotSortKey?: 'title' | 'date';
   cloudSlotSortDirection?: 'asc' | 'desc';

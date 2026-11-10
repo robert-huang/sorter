@@ -6,6 +6,7 @@ import type {
 import { sectionResortLabel } from '../lib/sectionResortShape';
 import { SectionResortModal } from './SectionResortModal';
 import type { Item, SortState, SortVersion } from '../lib/types';
+import type { SortVersionMovementMode } from '../lib/sortVersions';
 import { comparisonsRemaining, getRanking } from '../lib/engine';
 import {
   activeRankingIds,
@@ -69,6 +70,8 @@ interface Props {
   onAddSlotImports: (batches: SlotResultsImportBatch[]) => void;
   /** Recorded rankings, oldest first. */
   versions?: readonly SortVersion[];
+  /** How the versions modal counts moves. */
+  versionMovementMode?: SortVersionMovementMode;
   /** Records the current ranking as a version; omitted hides the button. */
   onSaveVersion?: () => void;
   /** The newest version is frozen and already matches the current ranking. */
@@ -152,6 +155,7 @@ export function ResultScreen({
   onAddPreRanked,
   onAddSlotImports,
   versions = [],
+  versionMovementMode,
   onSaveVersion,
   currentIsSavedVersion = false,
   onOpenVersions,
@@ -455,6 +459,7 @@ export function ResultScreen({
       {versionsOpen && versions.length > 0 && (
         <SortVersionsModal
           versions={versions}
+          movementMode={versionMovementMode}
           onClose={() => setVersionsOpen(false)}
         />
       )}

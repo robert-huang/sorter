@@ -113,7 +113,9 @@ import {
 } from './lib/storage';
 import {
   appendVersionIfChanged,
+  DEFAULT_SORT_VERSION_MOVEMENT_MODE,
   renameSortVersion,
+  type SortVersionMovementMode,
   sameVersionContent,
   shouldAutoRecordVersion,
   snapshotSortVersion,
@@ -367,6 +369,11 @@ export function App() {
   const [historyBackGuard, setHistoryBackGuardState] = useState(
     () => !!readSettings().historyBackGuard,
   );
+  const [versionMovementMode, setVersionMovementModeState] =
+    useState<SortVersionMovementMode>(
+      () =>
+        readSettings().versionMovementMode ?? DEFAULT_SORT_VERSION_MOVEMENT_MODE,
+    );
   // Stable options bag rebuilt on every toggle change. The engine
   // module re-resolves its own defaults if we pass `undefined`, but
   // we always have a value here so we just pass it straight through.
@@ -708,6 +715,14 @@ export function App() {
       return next;
     });
   }, []);
+
+  const changeVersionMovementMode = useCallback(
+    (mode: SortVersionMovementMode) => {
+      setVersionMovementModeState(mode);
+      updateSettings({ versionMovementMode: mode });
+    },
+    [],
+  );
 
   const toggleHistoryBackGuard = useCallback(() => {
     setHistoryBackGuardState((cur) => {
@@ -2982,6 +2997,7 @@ export function App() {
         {startScreenEl}
         <ResultScreen
         state={state}
+        versionMovementMode={versionMovementMode}
         dbSyncRevision={dbSyncRevision}
         slotName={loadedSlotName}
         slotId={effectiveLoadedSlotId ?? undefined}
@@ -3194,6 +3210,8 @@ export function App() {
         onToggleAutoInsertEnabled={toggleAutoInsertEnabled}
         historyBackGuard={historyBackGuard}
         onToggleHistoryBackGuard={toggleHistoryBackGuard}
+        versionMovementMode={versionMovementMode}
+        onChangeVersionMovementMode={changeVersionMovementMode}
         cloudStatus={cloudStatus}
         cloudFolderName={cloudAuth.folderName}
         onCloudSignIn={onCloudSignIn}
@@ -3224,6 +3242,7 @@ export function App() {
             browserSaveManifest={manifest}
             onApply={applyVersionHistory}
             onRename={renameVersion}
+            movementMode={versionMovementMode}
             onClose={() => setHistoryImportOpen(false)}
           />
         ) : (

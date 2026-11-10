@@ -126,20 +126,99 @@ export type SortVersionDiff = {
   renamed: ItemId[];
 };
 
-export function diffSortVersions(prev: SortVersion | null, next: SortVersion): SortVersionDiff {
-  if (!prev) return { added: [], removed: [], moved: [], renamed: [] };
-  const prevRank = new Map(prev.rankedIds.map((id, i) => [id, i + 1]));
-  const nextIds = new Set(next.rankedIds);
-  const added: ItemId[] = [];
+/**
+ * How moves are counted:
+ * - `ordering`: only items whose order against the other kept items changed. Moving one
+ *   item 60 places is 1 move; delta is its shift among kept items.
+ * - `raw`: every item whose rank number changed, including ones that only slid to make room.
+ */
+export type SortVersionMovementMode = 'ordering' | 'raw';
+
+export const DEFAULT_SORT_VERSION_MOVEMENT_MODE: SortVersionMovementMode = 'ordering';
+
+/**
+ * For each index of `values` (a permutation of 0..n-1), the length of the longest strictly
+ * increasing run ending there. Fenwick tree of prefix maxima over values, O(n log n).
+ */
+function increasingRunLengths(values: readonly number[]): number[] {
+  const tree = new Array<number>(values.length + 1).fill(0);
+  return values.map((value) => {
+    let before = 0;
+    for (let k = value; k > 0; k -= k & -k) before = Math.max(before, tree[k]!);
+    for (let k = value + 1; k <= values.length; k += k & -k) tree[k] = Math.max(tree[k]!, before + 1);
+    return before + 1;
+  });
+}
+
+/**
+ * Indices that belong to every longest strictly increasing subsequence of `values`.
+ * An index is on some longest run when the runs ending and starting there add up to the
+ * longest length, and on all of them when it's the only such index at its run position.
+ */
+function alwaysInLongestRun(values: readonly number[]): Set<number> {
+  const n = values.length;
+  const ending = increasingRunLengths(values);
+  const starting = increasingRunLengths(values.map((v) => n - 1 - v).reverse()).reverse();
+  const longest = ending.reduce((max, length) => Math.max(max, length), 0);
+  const onSomeRun = values.map((_, i) => ending[i]! + starting[i]! - 1 === longest);
+  const atPosition = new Map<number, number>();
+  onSomeRun.forEach((on, i) => {
+    if (on) atPosition.set(ending[i]!, (atPosition.get(ending[i]!) ?? 0) + 1);
+  });
+  const always = new Set<number>();
+  onSomeRun.forEach((on, i) => {
+    if (on && atPosition.get(ending[i]!) === 1) always.add(i);
+  });
+  return always;
+}
+
+function rawMoves(prevRank: ReadonlyMap<ItemId, number>, next: SortVersion): SortVersionMove[] {
   const moved: SortVersionMove[] = [];
   next.rankedIds.forEach((id, i) => {
     const from = prevRank.get(id);
-    if (from === undefined) {
-      added.push(id);
-    } else if (from !== i + 1) {
+    if (from !== undefined && from !== i + 1) {
       moved.push({ id, from, to: i + 1, delta: from - (i + 1) });
     }
   });
+  return moved;
+}
+
+/**
+ * Items that aren't part of every longest run kept in the same relative order. A single
+ * long move stays 1 move: A B C D → B C D A is A ↓3, not 4. When runs tie, every item
+ * whose place is ambiguous counts: A B → B A moves both (B ↑1, A ↓1).
+ */
+function orderingMoves(
+  prev: SortVersion,
+  prevRank: ReadonlyMap<ItemId, number>,
+  next: SortVersion,
+): SortVersionMove[] {
+  const nextIds = new Set(next.rankedIds);
+  const prevKept = prev.rankedIds.filter((id) => nextIds.has(id));
+  const prevPos = new Map(prevKept.map((id, i) => [id, i]));
+  const nextKept = next.rankedIds.filter((id) => prevPos.has(id));
+  const nextRank = new Map(next.rankedIds.map((id, i) => [id, i + 1]));
+  const stayed = alwaysInLongestRun(nextKept.map((id) => prevPos.get(id)!));
+  const moved: SortVersionMove[] = [];
+  nextKept.forEach((id, i) => {
+    const delta = prevPos.get(id)! - i;
+    if (stayed.has(i) || delta === 0) return;
+    moved.push({ id, from: prevRank.get(id)!, to: nextRank.get(id)!, delta });
+  });
+  return moved;
+}
+
+export function diffSortVersions(
+  prev: SortVersion | null,
+  next: SortVersion,
+  mode: SortVersionMovementMode = DEFAULT_SORT_VERSION_MOVEMENT_MODE,
+): SortVersionDiff {
+  if (!prev) return { added: [], removed: [], moved: [], renamed: [] };
+  const prevRank = new Map(prev.rankedIds.map((id, i) => [id, i + 1]));
+  const nextIds = new Set(next.rankedIds);
+  const added = next.rankedIds.filter((id) => !prevRank.has(id));
+  const moved =
+    mode === 'raw' ? rawMoves(prevRank, next) : orderingMoves(prev, prevRank, next);
   const removed = prev.rankedIds.filter((id) => !nextIds.has(id));
   moved.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta) || a.to - b.to);
   const renamed = next.rankedIds.filter((id) => {
@@ -154,10 +233,11 @@ export function diffSortVersions(prev: SortVersion | null, next: SortVersion): S
 export function summarizeSortVersionDiff(
   prev: SortVersion | null,
   next: SortVersion,
+  mode: SortVersionMovementMode = DEFAULT_SORT_VERSION_MOVEMENT_MODE,
   maxMoves = 3,
 ): string {
   if (!prev) return 'First version';
-  const diff = diffSortVersions(prev, next);
+  const diff = diffSortVersions(prev, next, mode);
   const counts: string[] = [];
   if (diff.added.length) counts.push(`${diff.added.length} new`);
   if (diff.removed.length) counts.push(`${diff.removed.length} removed`);
@@ -178,9 +258,10 @@ export type SortVersionCount = { kind: SortVersionCountKind; count: number };
 export function sortVersionDiffCounts(
   prev: SortVersion | null,
   next: SortVersion,
+  mode: SortVersionMovementMode = DEFAULT_SORT_VERSION_MOVEMENT_MODE,
 ): SortVersionCount[] | null {
   if (!prev) return null;
-  const diff = diffSortVersions(prev, next);
+  const diff = diffSortVersions(prev, next, mode);
   const up = diff.moved.filter((m) => m.delta > 0).length;
   const counts: SortVersionCount[] = [
     { kind: 'up', count: up },
@@ -202,8 +283,12 @@ export const SORT_VERSION_COUNT_WORDS: Readonly<Record<SortVersionCountKind, str
 };
 
 /** Compact counts, e.g. "3 up · 2 down · 1 new · 1 removed · 1 renamed". */
-export function countSortVersionDiff(prev: SortVersion | null, next: SortVersion): string {
-  const counts = sortVersionDiffCounts(prev, next);
+export function countSortVersionDiff(
+  prev: SortVersion | null,
+  next: SortVersion,
+  mode: SortVersionMovementMode = DEFAULT_SORT_VERSION_MOVEMENT_MODE,
+): string {
+  const counts = sortVersionDiffCounts(prev, next, mode);
   if (!counts) return 'First version';
   if (counts.length === 0) return 'No changes';
   return counts.map(({ kind, count }) => `${count} ${SORT_VERSION_COUNT_WORDS[kind]}`).join(' · ');

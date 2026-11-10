@@ -731,6 +731,11 @@ html {
   color: var(--danger);
 }
 
+/* Raw rank change the summary doesn't count as a move. */
+.sort-version-change.is-shift {
+  opacity: 0.4;
+}
+
 .sort-version-change.new {
   color: var(--new-ink);
 }
@@ -1321,6 +1326,56 @@ html {
   width: 13px;
   height: 13px;
   margin: 0;
+}
+
+/* Divider that doubles as the collapse control for the Slots-tab sort
+   options. Open: a hairline with a chevron, same height as a plain
+   .settings-divider plus its margins. Collapsed: a dashed "•••" row
+   between two dividers, marking the hidden section. */
+.settings-divider-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 13px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 9px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.6;
+}
+
+.settings-divider-toggle::before,
+.settings-divider-toggle::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.settings-divider-toggle.is-collapsed {
+  height: 20px;
+  padding: 0 10px;
+  letter-spacing: 2px;
+}
+
+.settings-divider-toggle.is-collapsed::before,
+.settings-divider-toggle.is-collapsed::after {
+  height: 0;
+  background: none;
+  border-top: 1px dashed var(--border);
+}
+
+.settings-divider-toggle:hover,
+.settings-divider-toggle:focus-visible {
+  opacity: 1;
+}
+
+.settings-option-chips > span {
+  font-size: 13px;
 }
 
 .settings-divider {
@@ -9805,12 +9860,20 @@ a:where(.anime-to-anime-anilist-link):visited {
   flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 8px;
+  gap: 2px 8px;
   margin-bottom: 12px;
 }
 
 .bump-chart-import-heading > :first-child {
   flex: 1 1 180px;
+}
+
+/* Full-width break so the Import button always sits on its own row below
+   the title and actions, instead of wrapping only when space runs out. */
+.bump-chart-import-heading::after {
+  content: '';
+  order: 1;
+  flex-basis: 100%;
 }
 
 .bump-chart-import-heading > div {
@@ -9819,6 +9882,7 @@ a:where(.anime-to-anime-anilist-link):visited {
 
 .bump-chart-import-heading > .btn {
   flex: 0 0 auto;
+  order: 2;
 }
 
 .bump-chart-import-heading h3,
@@ -9877,6 +9941,12 @@ a:where(.anime-to-anime-anilist-link):visited {
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
+}
+
+/* 2px under the heading's 12px margin-bottom: the faint dashed border reads
+   as further away than the solid Import button above the checkbox. */
+.bump-chart-import-action-row + .bump-chart-staging-area {
+  margin-top: 10px;
 }
 
 .bump-chart-preserve-labels {

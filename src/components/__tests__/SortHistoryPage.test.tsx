@@ -254,18 +254,23 @@ describe('SortHistoryPage', () => {
       document.querySelectorAll<HTMLButtonElement>('.sort-history-version-toggle'),
     );
     expect(toggles.map((t) => t.textContent?.replace(/^[▸▾]\s*/, ''))).toEqual([
+      // Swaps count both items; Gamma jumping to the top is one move.
       '↑1↓1',
-      '↑1↓2',
+      '↑1',
       '↑1↓1',
       'First version',
     ]);
     expect(
       Array.from(toggles[1]!.querySelectorAll('.sort-version-count'), (c) => c.getAttribute('title')),
-    ).toEqual(['1 up', '2 down']);
+    ).toEqual(['1 up']);
     await act(async () => toggles[1]!.click());
+    // The count says only Gamma moved, but rows show every raw rank change.
     expect(
       Array.from(document.querySelectorAll('.sort-version-ranking-row'), (row) => row.textContent),
     ).toEqual(['1Gamma↑2', '2Beta↓1', '3Alpha↓1']);
+    expect(
+      Array.from(document.querySelectorAll('.sort-version-change.is-shift'), (c) => c.textContent),
+    ).toEqual(['↓1', '↓1']);
 
     await typeDate('Date for version from 2026-01-01 09:00', '2026-02-15 09:00');
     await act(async () =>

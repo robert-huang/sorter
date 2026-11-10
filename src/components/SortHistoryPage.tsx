@@ -15,8 +15,10 @@ import {
   sortVersionDiffCounts,
   summarizeSortVersionDiff,
   withSortVersionName,
+  DEFAULT_SORT_VERSION_MOVEMENT_MODE,
   type MergedSortVersions,
   type SortVersionCountKind,
+  type SortVersionMovementMode,
 } from "../lib/sortVersions";
 import {
   formatDateTimeLocal,
@@ -40,6 +42,8 @@ interface Props {
   onApply: (versions: SortVersion[]) => void;
   /** Sets or clears (blank) one recorded version's name. */
   onRename: (id: string, name: string) => void;
+  /** How the change counts and rankings count moves. */
+  movementMode?: SortVersionMovementMode;
   onClose: () => void;
 }
 
@@ -245,11 +249,13 @@ function versionCountMark(kind: SortVersionCountKind): ReactNode {
 function VersionCounts({
   prev,
   version,
+  mode,
 }: {
   prev: SortVersion | null;
   version: SortVersion;
+  mode: SortVersionMovementMode;
 }) {
-  const counts = sortVersionDiffCounts(prev, version);
+  const counts = sortVersionDiffCounts(prev, version, mode);
   if (!counts) return <>First version</>;
   if (counts.length === 0) return <>No changes</>;
   return (
@@ -279,6 +285,7 @@ export function SortHistoryPage({
   browserSaveManifest,
   onApply,
   onRename,
+  movementMode = DEFAULT_SORT_VERSION_MOVEMENT_MODE,
   onClose,
 }: Props) {
   const [staged, setStaged] = useState<StagedSource[]>([]);
@@ -504,11 +511,15 @@ export function SortHistoryPage({
                     type="button"
                     className="sort-history-import-name sort-history-version-toggle"
                     aria-expanded={expanded}
-                    title={summarizeSortVersionDiff(prev, version)}
+                    title={summarizeSortVersionDiff(prev, version, movementMode)}
                     onClick={() => setExpandedId(expanded ? null : version.id)}
                   >
                     <span aria-hidden="true">{expanded ? "▾" : "▸"}</span>{" "}
-                    <VersionCounts prev={prev} version={version} />
+                    <VersionCounts
+                      prev={prev}
+                      version={version}
+                      mode={movementMode}
+                    />
                   </button>
                   {version.live && (
                     <span className="sort-versions-current">Current</span>
@@ -537,7 +548,7 @@ export function SortHistoryPage({
                   </button>
                   {expanded && (
                     <div className="sort-history-version-detail">
-                      <VersionRanking version={version} prev={prev} />
+                      <VersionRanking version={version} prev={prev} mode={movementMode} />
                     </div>
                   )}
                 </li>

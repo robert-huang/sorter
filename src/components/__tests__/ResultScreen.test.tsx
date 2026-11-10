@@ -257,7 +257,7 @@ describe('ResultScreen versions', () => {
       '2026-10-01 09:00',
     ]);
     expect(rows[0]?.querySelector('.sort-versions-summary')?.textContent).toBe(
-      '1 new · A ↓2',
+      '1 new · B ↑1, A ↓1',
     );
     expect(rows[1]?.querySelector('.sort-versions-summary')?.textContent).toBe('First version');
 
@@ -266,6 +266,7 @@ describe('ResultScreen versions', () => {
       document.querySelectorAll('.sort-version-ranking-row'),
       (row) => row.textContent,
     );
+    // Rows show raw rank changes: B kept #2, A went #1 → #3. C is new.
     expect(ranking).toEqual(['1Cnew', '2B', '3A↓2']);
 
     expect(document.querySelector('[aria-label^="Delete version"]')).toBeNull();
