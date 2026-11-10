@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { formatDateTimeLocal, parseDateTimeText, toDateTimeLocal } from '../dateTimeText';
+import {
+  formatDateTimeLocal,
+  formatDateTimeSeconds,
+  parseDateTimeText,
+  toDateTimeLocal,
+} from '../dateTimeText';
+
+describe('formatDateTimeSeconds', () => {
+  it('formats an ISO timestamp as local time with seconds', () => {
+    expect(formatDateTimeSeconds(new Date(2026, 0, 5, 9, 3, 7).toISOString())).toBe(
+      '2026-01-05 09:03:07',
+    );
+  });
+});
 
 describe('parseDateTimeText', () => {
   it('treats a date alone as midnight', () => {

@@ -203,7 +203,22 @@ function parseVersion(raw: unknown): ParsedVersion | null {
     entries: entries as Record<ItemId, Record<string, unknown>>,
     legacy,
     ...(raw.live === true ? { live: true as const } : {}),
+    ...withSortVersionName(optionalString(raw.name)),
   };
+}
+
+/** `{ name }` for a non-blank name, else `{}`, so unnamed versions don't store the key. */
+export function withSortVersionName(name: string | undefined): { name?: string } {
+  const trimmed = name?.trim();
+  return trimmed ? { name: trimmed } : {};
+}
+
+/** The version's name, or its date when it has none. */
+export function sortVersionLabel(
+  version: Pick<SortVersion, 'createdAt' | 'name'>,
+  withTime = false,
+): string {
+  return version.name || formatSortVersionDate(version.createdAt, withTime);
 }
 
 function parseOverride(raw: Record<string, unknown> | undefined): SortVersionOverride {

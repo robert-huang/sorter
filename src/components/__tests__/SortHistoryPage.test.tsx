@@ -109,7 +109,7 @@ describe('SortHistoryPage', () => {
     const onClose = vi.fn();
     act(() => {
       root.render(
-        <SortHistoryPage versions={[existing]} onApply={onApply} onClose={onClose} />,
+        <SortHistoryPage versions={[existing]} onApply={onApply} onRename={vi.fn()} onClose={onClose} />,
       );
     });
 
@@ -161,7 +161,7 @@ describe('SortHistoryPage', () => {
   it("dates a file by its saved time, not when it was downloaded", async () => {
     const onApply = vi.fn();
     act(() => {
-      root.render(<SortHistoryPage versions={[]} onApply={onApply} onClose={vi.fn()} />);
+      root.render(<SortHistoryPage versions={[]} onApply={onApply} onRename={vi.fn()} onClose={vi.fn()} />);
     });
     const downloaded = Date.parse('2026-11-02T09:59:00');
     await upload([
@@ -180,7 +180,7 @@ describe('SortHistoryPage', () => {
   it('applies an edited date and skips a ranking identical to its predecessor', async () => {
     const onApply = vi.fn();
     act(() => {
-      root.render(<SortHistoryPage versions={[]} onApply={onApply} onClose={vi.fn()} />);
+      root.render(<SortHistoryPage versions={[]} onApply={onApply} onRename={vi.fn()} onClose={vi.fn()} />);
     });
     await upload([
       saveFile([A, B], 'one.json', Date.parse('2026-02-01T08:00:00')),
@@ -220,7 +220,7 @@ describe('SortHistoryPage', () => {
     } as unknown as File;
     const onApply = vi.fn();
     act(() => {
-      root.render(<SortHistoryPage versions={[]} onApply={onApply} onClose={vi.fn()} />);
+      root.render(<SortHistoryPage versions={[]} onApply={onApply} onRename={vi.fn()} onClose={vi.fn()} />);
     });
     await upload([withVersion]);
 
@@ -248,17 +248,20 @@ describe('SortHistoryPage', () => {
     ];
     const onApply = vi.fn();
     act(() => {
-      root.render(<SortHistoryPage versions={versions} onApply={onApply} onClose={vi.fn()} />);
+      root.render(<SortHistoryPage versions={versions} onApply={onApply} onRename={vi.fn()} onClose={vi.fn()} />);
     });
     const toggles = Array.from(
       document.querySelectorAll<HTMLButtonElement>('.sort-history-version-toggle'),
     );
     expect(toggles.map((t) => t.textContent?.replace(/^[▸▾]\s*/, ''))).toEqual([
-      '1 up · 1 down',
-      '1 up · 2 down',
-      '1 up · 1 down',
+      '↑1↓1',
+      '↑1↓2',
+      '↑1↓1',
       'First version',
     ]);
+    expect(
+      Array.from(toggles[1]!.querySelectorAll('.sort-version-count'), (c) => c.getAttribute('title')),
+    ).toEqual(['1 up', '2 down']);
     await act(async () => toggles[1]!.click());
     expect(
       Array.from(document.querySelectorAll('.sort-version-ranking-row'), (row) => row.textContent),
@@ -283,6 +286,71 @@ describe('SortHistoryPage', () => {
     expect(applied.map((v) => v.live)).toEqual([undefined, undefined, true]);
   });
 
+  it('saves a version name when the field loses focus, without Save changes', async () => {
+    const snap = (id: string, createdAt: string, order: Item[], name?: string): SortVersion => ({
+      id,
+      createdAt,
+      rankedIds: order.map((it) => it.id),
+      items: Object.fromEntries(order.map((it) => [it.id, { label: it.label }])),
+      ...(name ? { name } : {}),
+    });
+    const versions = [
+      snap('one', new Date('2026-01-01T09:00').toISOString(), [A, B, C]),
+      snap('two', new Date('2026-02-01T09:00').toISOString(), [B, A, C], 'Old name'),
+      snap('three', new Date('2026-03-01T09:00').toISOString(), [C, B, A], 'Clear me'),
+    ];
+    const onApply = vi.fn();
+    const onRename = vi.fn();
+    act(() => {
+      root.render(
+        <SortHistoryPage
+          versions={versions}
+          onApply={onApply}
+          onRename={onRename}
+          onClose={vi.fn()}
+        />,
+      );
+    });
+    const nameInput = (date: string) =>
+      document.querySelector<HTMLInputElement>(`[aria-label="Name for version from ${date}"]`)!;
+    expect(nameInput('2026-02-01 09:00').value).toBe('Old name');
+    expect(button('Save changes').disabled).toBe(true);
+
+    const setName = async (date: string, value: string) =>
+      act(async () => {
+        const input = nameInput(date);
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+        input.focus();
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    const blur = async (date: string) => act(async () => nameInput(date).blur());
+
+    await setName('2026-01-01 09:00', 'Winter');
+    expect(onRename).not.toHaveBeenCalled();
+    await blur('2026-01-01 09:00');
+    expect(onRename).toHaveBeenLastCalledWith('one', 'Winter');
+
+    await setName('2026-03-01 09:00', '');
+    await blur('2026-03-01 09:00');
+    expect(onRename).toHaveBeenLastCalledWith('three', '');
+
+    // Unchanged (after trimming) or Escape-reverted names don't save.
+    await setName('2026-02-01 09:00', ' Old name ');
+    await blur('2026-02-01 09:00');
+    await setName('2026-02-01 09:00', 'Discarded');
+    await act(async () => {
+      nameInput('2026-02-01 09:00').dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      );
+    });
+    expect(nameInput('2026-02-01 09:00').value).toBe('Old name');
+    await blur('2026-02-01 09:00');
+
+    expect(onRename).toHaveBeenCalledTimes(2);
+    expect(button('Save changes').disabled).toBe(true);
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
   it('deleting the current version previews restoring the newest remaining ranking', async () => {
     const snap = (id: string, createdAt: string, order: Item[]): SortVersion => ({
       id,
@@ -296,7 +364,7 @@ describe('SortHistoryPage', () => {
     ];
     const onApply = vi.fn();
     act(() => {
-      root.render(<SortHistoryPage versions={versions} onApply={onApply} onClose={vi.fn()} />);
+      root.render(<SortHistoryPage versions={versions} onApply={onApply} onRename={vi.fn()} onClose={vi.fn()} />);
     });
     await act(async () =>
       document

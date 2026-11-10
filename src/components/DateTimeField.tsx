@@ -8,13 +8,15 @@ interface Props {
   /** Accessible name, e.g. "Date for january". */
   label: string;
   disabled?: boolean;
+  /** Shows only the day until clicked; the editor still takes the full date and time. */
+  compact?: boolean;
 }
 
 /**
  * Date/time shown as text; clicking edits it as text with a native picker underneath.
  * Typed text is only saved when it parses; a date alone means midnight.
  */
-export function DateTimeField({ value, onChange, label, disabled = false }: Props) {
+export function DateTimeField({ value, onChange, label, disabled = false, compact = false }: Props) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState('');
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -48,24 +50,27 @@ export function DateTimeField({ value, onChange, label, disabled = false }: Prop
   };
 
   if (!editing) {
+    const full = formatDateTimeLocal(value);
     return (
       <button
         type="button"
-        className="date-time-field-display"
+        className={`date-time-field-display${compact ? ' is-compact' : ''}`}
         aria-label={`Edit ${label}`}
-        title="Click to edit"
+        title={compact ? `${full} (click to edit)` : 'Click to edit'}
         disabled={disabled}
         // Tabbing in opens the editor with the text selected, so typing overwrites it.
         onFocus={open}
         onClick={open}
       >
-        {formatDateTimeLocal(value)}
+        {compact ? full.slice(0, 'YYYY-MM-DD'.length) : full}
       </button>
     );
   }
 
   return (
-    <div className="date-time-field-editor" ref={wrapperRef} onBlur={onBlur}>
+    <div
+      className={`date-time-field-editor${compact ? ' is-compact' : ''}`}
+      ref={wrapperRef} onBlur={onBlur}>
       <input
         type="text"
         className={`date-time-field-text${invalid ? ' is-invalid' : ''}`}

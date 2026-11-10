@@ -1551,6 +1551,7 @@ function SlotVersionChecklist({
               onChange={(e) => onToggle(version.id, e.target.checked)}
             />
             <label htmlFor={inputId}>
+              {version.name ? `${version.name} · ` : ''}
               {formatSortVersionDate(version.createdAt, true)} · {version.rankedIds.length} item
               {version.rankedIds.length === 1 ? '' : 's'}
             </label>

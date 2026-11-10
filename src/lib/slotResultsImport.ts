@@ -8,6 +8,7 @@ import {
 import {
   formatSortVersionDate,
   itemAtVersion,
+  sortVersionLabel,
   summarizeVersions,
   type VersionSummary,
 } from './sortVersionShape';
@@ -40,13 +41,15 @@ export interface SlotRankingImport {
   createdAt?: string;
   /** Set when this import is a recorded version rather than the save's current ranking. */
   versionId?: string;
+  /** The recorded version's custom name, e.g. for a Bump Chart column heading. */
+  versionName?: string;
   /** The save's own version history; only on current-ranking imports. */
   versions?: SortVersion[];
 }
 
 /**
- * Picked versions of a save, oldest first, named `<slot> · <date>`. Dates that
- * collide within the pick add the time. Items carry the version's names and images
+ * Picked versions of a save, oldest first, named `<slot> · <version name>`, or
+ * `<slot> · <date>` when unnamed. Dates that collide within the pick add the time. Items carry the version's names and images
  * (custom-name marker included) on the save's current metadata (`itemAtVersion`).
  */
 export function versionImportsForSlot(
@@ -69,10 +72,11 @@ export function versionImportsForSlot(
     const items = v.rankedIds.map((id) => itemAtVersion(live.get(id), id, v.items[id]!));
     return {
       source,
-      slotName: `${slotName} · ${formatSortVersionDate(v.createdAt, sharesDate)}`,
+      slotName: `${slotName} · ${sortVersionLabel(v, sharesDate)}`,
       items,
       createdAt: v.createdAt,
       versionId: v.id,
+      ...(v.name ? { versionName: v.name } : {}),
     };
   });
 }

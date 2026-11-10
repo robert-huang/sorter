@@ -113,6 +113,7 @@ import {
 } from './lib/storage';
 import {
   appendVersionIfChanged,
+  renameSortVersion,
   sameVersionContent,
   shouldAutoRecordVersion,
   snapshotSortVersion,
@@ -632,10 +633,6 @@ export function App() {
     if (!state?.done) setHistoryImportOpen(false);
   }, [state?.done]);
 
-  const deleteVersion = useCallback((id: string) => {
-    setVersions((prev) => prev.filter((v) => v.id !== id));
-  }, []);
-
   useEffect(() => {
     function onBeforeUnload(): void {
       commitLiveVersion();
@@ -761,6 +758,13 @@ export function App() {
     },
     [applyWithUndo],
   );
+
+  const renameVersion = useCallback((id: string, name: string) => {
+    const next = renameSortVersion(versionsRef.current, id, name);
+    if (next === versionsRef.current) return;
+    versionsRef.current = next;
+    setVersions(next);
+  }, []);
 
   const flashSkipped = useCallback((msg: string) => {
     setSkippedMessage(msg);
@@ -2991,7 +2995,6 @@ export function App() {
         onAddSlotImports={doAddSlotImports}
         onAddPreRanked={doAppendPreRanked}
         versions={versions}
-        onDeleteVersion={deleteVersion}
         onSaveVersion={saveVersionNow}
         currentIsSavedVersion={currentIsSavedVersion}
         onOpenVersions={() => commitLiveVersion()}
@@ -3220,6 +3223,7 @@ export function App() {
             excludeSlotId={effectiveLoadedSlotId ?? undefined}
             browserSaveManifest={manifest}
             onApply={applyVersionHistory}
+            onRename={renameVersion}
             onClose={() => setHistoryImportOpen(false)}
           />
         ) : (

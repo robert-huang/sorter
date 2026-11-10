@@ -10,6 +10,12 @@ export function formatDateTimeLocal(value: string): string {
   return value.replace('T', ' ').slice(0, 16);
 }
 
+/** Local `YYYY-MM-DD HH:MM:SS` for an ISO timestamp. */
+export function formatDateTimeSeconds(iso: string): string {
+  const date = new Date(iso);
+  return `${formatDateTimeLocal(toDateTimeLocal(date))}:${pad2(date.getSeconds())}`;
+}
+
 const DATE_TIME_RE =
   /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/;
 /** Compact `YYYYMMDD`, optionally followed by `HHMM` or `HH:MM`. */

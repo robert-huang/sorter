@@ -243,15 +243,10 @@ describe('ResultScreen versions', () => {
     expect(container.textContent).not.toContain('Versions (');
   });
 
-  it('lists versions newest first, diffs each against its predecessor, and deletes', () => {
-    const onDeleteVersion = vi.fn();
+  it('lists versions newest first, read-only, each diffed against its predecessor', () => {
     act(() => {
       root.render(
-        <ResultScreen
-          {...resultProps(seedAsDoneMerge([C, B, A]))}
-          versions={versions}
-          onDeleteVersion={onDeleteVersion}
-        />,
+        <ResultScreen {...resultProps(seedAsDoneMerge([C, B, A]))} versions={versions} />,
       );
     });
     act(() => buttonByText('Versions (2)')?.click());
@@ -262,7 +257,7 @@ describe('ResultScreen versions', () => {
       '2026-10-01 09:00',
     ]);
     expect(rows[0]?.querySelector('.sort-versions-summary')?.textContent).toBe(
-      '1 added · A ↓2',
+      '1 new · A ↓2',
     );
     expect(rows[1]?.querySelector('.sort-versions-summary')?.textContent).toBe('First version');
 
@@ -273,13 +268,6 @@ describe('ResultScreen versions', () => {
     );
     expect(ranking).toEqual(['1Cnew', '2B', '3A↓2']);
 
-    expect(rows.every((row) => row.querySelector('.sort-versions-delete') !== null)).toBe(true);
-
-    act(() =>
-      document
-        .querySelector<HTMLButtonElement>('[aria-label="Delete version from 2026-10-01 09:00"]')
-        ?.click(),
-    );
-    expect(onDeleteVersion).toHaveBeenCalledWith('v1');
+    expect(document.querySelector('[aria-label^="Delete version"]')).toBeNull();
   });
 });

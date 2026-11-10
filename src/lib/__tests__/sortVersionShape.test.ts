@@ -67,6 +67,12 @@ describe('storedSortVersions', () => {
     });
   });
 
+  it('saves and loads a version name', () => {
+    const { stored, decoded } = roundTrip([{ ...version([lynn], T1), name: 'Winter' }], live);
+    expect(stored.versions[0].name).toBe('Winter');
+    expect(decoded[0]!.name).toBe('Winter');
+  });
+
   it('stores one copy of an item the sort dropped and rebuilds it', () => {
     const { stored, decoded } = roundTrip([version([lynn], T1)], {});
     expect(Object.keys(stored.versionItems)).toEqual([lynn.id]);

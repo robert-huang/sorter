@@ -1,15 +1,28 @@
-import { useMemo, useRef, useState, type DragEvent } from "react";
+import {
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type ReactNode,
+} from "react";
 import type { SlotRankingImport } from "../lib/slotResultsImport";
 import {
   mergeImportedVersions,
   sameVersionContent,
   snapshotFromRankedItems,
   snapshotSortVersion,
+  SORT_VERSION_COUNT_WORDS,
   sortVersionDiffCounts,
   summarizeSortVersionDiff,
+  withSortVersionName,
   type MergedSortVersions,
+  type SortVersionCountKind,
 } from "../lib/sortVersions";
-import { formatDateTimeLocal, toDateTimeLocal } from "../lib/dateTimeText";
+import {
+  formatDateTimeLocal,
+  formatDateTimeSeconds,
+  toDateTimeLocal,
+} from "../lib/dateTimeText";
 import { loadDatedSaveFromFile } from "../lib/storage";
 import type { SlotsManifest, SortVersion } from "../lib/types";
 import { DateTimeField } from "./DateTimeField";
@@ -25,6 +38,8 @@ interface Props {
   excludeSlotId?: string;
   browserSaveManifest?: SlotsManifest;
   onApply: (versions: SortVersion[]) => void;
+  /** Sets or clears (blank) one recorded version's name. */
+  onRename: (id: string, name: string) => void;
   onClose: () => void;
 }
 
@@ -65,7 +80,11 @@ function foldCurrentIntoNewest(
     return { snapshot, nested };
   }
   return {
-    snapshot: { ...snapshot, createdAt: newest.createdAt },
+    snapshot: {
+      ...snapshot,
+      createdAt: newest.createdAt,
+      ...withSortVersionName(newest.name),
+    },
     nested: nested.slice(0, -1),
   };
 }
@@ -75,8 +94,9 @@ const nextStagedKey = (): string => `staged-${++stagedKeySeq}`;
 
 function stagedFromRankingImport(imp: SlotRankingImport): StagedSource | null {
   const createdAt = imp.createdAt ?? new Date().toISOString();
-  const snapshot = snapshotFromRankedItems(imp.items, createdAt);
-  if (!snapshot) return null;
+  const ranked = snapshotFromRankedItems(imp.items, createdAt);
+  if (!ranked) return null;
+  const snapshot = { ...ranked, ...withSortVersionName(imp.versionName) };
   const folded = foldCurrentIntoNewest(snapshot, imp.versionId ? [] : (imp.versions ?? []));
   return {
     key: nextStagedKey(),
@@ -123,10 +143,10 @@ function keptVersions(
   return versions
     .filter((v) => !deleted.has(v.id))
     .map((v) => {
-      const edit = dateEdits[v.id];
-      return edit === undefined
+      const dateEdit = dateEdits[v.id];
+      return dateEdit === undefined
         ? v
-        : { ...v, createdAt: fromDateTimeLocal(edit, v.createdAt) };
+        : { ...v, createdAt: fromDateTimeLocal(dateEdit, v.createdAt) };
     });
 }
 
@@ -189,7 +209,10 @@ function previewText(pending: PendingSave): string {
     : "No changes.";
   if (!pending.restores) return summary;
   const date = formatDateTimeLocal(isoToLocal(pending.restores.createdAt));
-  return `${summary} The ranking becomes the version from ${date}; items it lacks are hidden.`;
+  const which = pending.restores.name
+    ? `“${pending.restores.name}” (${date})`
+    : `the version from ${date}`;
+  return `${summary} The ranking becomes ${which}; items it lacks are hidden.`;
 }
 
 function deleteTitle(isDeleted: boolean, isLive: boolean): string {
@@ -200,6 +223,25 @@ function deleteTitle(isDeleted: boolean, isLive: boolean): string {
 }
 
 /** "2 up · 1 down · 1 removed", with up and down coloured. */
+const VERSION_COUNT_SYMBOLS: Readonly<
+  Record<SortVersionCountKind, { symbol: string } | { badge: string }>
+> = {
+  up: { symbol: "↑" },
+  down: { symbol: "↓" },
+  added: { badge: "NEW" },
+  removed: { badge: "REMOVED" },
+  renamed: { badge: "RENAMED" },
+};
+
+function versionCountMark(kind: SortVersionCountKind): ReactNode {
+  const mark = VERSION_COUNT_SYMBOLS[kind];
+  return "badge" in mark ? (
+    <span className="sort-version-count-badge">{mark.badge}</span>
+  ) : (
+    mark.symbol
+  );
+}
+
 function VersionCounts({
   prev,
   version,
@@ -212,12 +254,14 @@ function VersionCounts({
   if (counts.length === 0) return <>No changes</>;
   return (
     <>
-      {counts.map(({ kind, count }, i) => (
-        <span key={kind}>
-          {i > 0 && " · "}
-          <span
-            className={`sort-version-count ${kind}`}
-          >{`${count} ${kind}`}</span>
+      {counts.map(({ kind, count }) => (
+        <span
+          key={kind}
+          className={`sort-version-count ${kind}`}
+          title={`${count} ${SORT_VERSION_COUNT_WORDS[kind]}`}
+        >
+          {versionCountMark(kind)}
+          {count}
         </span>
       ))}
     </>
@@ -234,12 +278,17 @@ export function SortHistoryPage({
   excludeSlotId,
   browserSaveManifest,
   onApply,
+  onRename,
   onClose,
 }: Props) {
   const [staged, setStaged] = useState<StagedSource[]>([]);
   const [dateEdits, setDateEdits] = useState<Readonly<Record<string, string>>>(
     {},
   );
+  /** Names being typed, keyed by version id; committed on blur. */
+  const [nameDrafts, setNameDrafts] = useState<
+    Readonly<Record<string, string>>
+  >({});
   const [deleted, setDeleted] = useState<ReadonlySet<string>>(() => new Set());
   const [errors, setErrors] = useState<string[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -264,7 +313,9 @@ export function SortHistoryPage({
     [staged],
   );
   const dirty =
-    staged.length > 0 || deleted.size > 0 || Object.keys(dateEdits).length > 0;
+    staged.length > 0 ||
+    deleted.size > 0 ||
+    Object.keys(dateEdits).length > 0;
 
   const touch = (): void => {
     setPending(null);
@@ -312,6 +363,21 @@ export function SortHistoryPage({
     touch();
   };
 
+  const dropNameDraft = (id: string): void =>
+    setNameDrafts((prev) => {
+      const { [id]: _dropped, ...rest } = prev;
+      return rest;
+    });
+
+  /** Saves straight away, outside Save changes; names don't affect rankings. */
+  const commitName = (version: SortVersion): void => {
+    const draft = nameDrafts[version.id];
+    dropNameDraft(version.id);
+    if (draft === undefined || draft.trim() === (version.name ?? "")) return;
+    onRename(version.id, draft);
+    touch();
+  };
+
   const toggleDeleted = (id: string): void => {
     setDeleted((prev) => {
       const next = new Set(prev);
@@ -351,7 +417,12 @@ export function SortHistoryPage({
       newest && current && !sameVersionContent(newest, current)
         ? newest
         : null;
-    setPending({ ...merged, deleted: deleted.size, redated, restores });
+    setPending({
+      ...merged,
+      deleted: deleted.size,
+      redated,
+      restores,
+    });
   };
 
   const confirmSave = (): void => {
@@ -393,6 +464,11 @@ export function SortHistoryPage({
               const date =
                 dateEdits[version.id] ?? isoToLocal(version.createdAt);
               const label = formatDateTimeLocal(isoToLocal(version.createdAt));
+              const fullDate = formatDateTimeSeconds(
+                dateEdits[version.id]
+                  ? fromDateTimeLocal(date, version.createdAt)
+                  : version.createdAt,
+              );
               const expanded = expandedId === version.id;
               const isDuplicate = duplicates.existing.has(version.id);
               return (
@@ -400,11 +476,29 @@ export function SortHistoryPage({
                   key={version.id}
                   className={`sort-history-import-row${isDeleted ? " is-deleted" : ""}${isDuplicate ? " is-duplicate" : ""}`}
                 >
-                  <DateTimeField
-                    label={`Date for version from ${label}`}
-                    value={date}
+                  <input
+                    type="text"
+                    className="sort-history-version-name"
+                    value={nameDrafts[version.id] ?? version.name ?? ""}
+                    placeholder={fullDate}
+                    title={fullDate}
+                    maxLength={80}
                     disabled={isDeleted}
-                    onChange={(next) => editExistingDate(version, next)}
+                    aria-label={`Name for version from ${label}`}
+                    onChange={(e) =>
+                      setNameDrafts((prev) => ({
+                        ...prev,
+                        [version.id]: e.target.value,
+                      }))
+                    }
+                    onBlur={() => commitName(version)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") e.currentTarget.blur();
+                      else if (e.key === "Escape") {
+                        e.stopPropagation();
+                        dropNameDraft(version.id);
+                      }
+                    }}
                   />
                   <button
                     type="button"
@@ -422,6 +516,13 @@ export function SortHistoryPage({
                   {isDuplicate && (
                     <DuplicateBadge title="Same ranking as the version before it; saving drops it." />
                   )}
+                  <DateTimeField
+                    label={`Date for version from ${label}`}
+                    value={date}
+                    disabled={isDeleted}
+                    compact
+                    onChange={(next) => editExistingDate(version, next)}
+                  />
                   <span className="sort-history-import-count">
                     {plural(version.rankedIds.length, "item")}
                   </span>

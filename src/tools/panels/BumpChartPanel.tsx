@@ -3090,7 +3090,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
               {
                 id: 'current',
                 kind: 'current',
-                name: entry.slotName,
+                name: entry.versionName ?? entry.slotName,
                 draft: {
                   groups: [
                     {
@@ -3126,7 +3126,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
           await Promise.all(
             imports.map(async (entry) => ({
               source: entry.source,
-              slotName: entry.slotName,
+              slotName: entry.versionName ?? entry.slotName,
               items: await hydrateBumpChartItems(
                 bumpItemsFromSortResults(entry.items),
               ),

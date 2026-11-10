@@ -376,9 +376,64 @@ html {
   text-decoration: underline;
 }
 
+/* Indented past the 150px name column plus the row gap. */
 .sort-history-version-detail {
   flex: 1 0 100%;
   padding-left: 160px;
+}
+
+.sort-history-version-toggle .sort-version-count + .sort-version-count {
+  margin-left: 8px;
+}
+
+/* Small caps-height pill, centred on the digits rather than the text baseline. */
+.sort-version-count-badge {
+  display: inline-block;
+  margin-right: 2px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 18%, transparent);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  letter-spacing: 0.04em;
+  vertical-align: 1px;
+}
+
+/* Matches the date column width: borderless until hovered or focused. */
+.sort-history-version-name {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  width: 150px;
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+}
+
+/* The date stands in for a missing name, as it does everywhere else. */
+.sort-history-version-name::placeholder {
+  color: var(--text-muted);
+  opacity: 0.55;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.sort-history-version-name:hover:not(:disabled),
+.sort-history-version-name:focus {
+  border-color: var(--border);
+  outline: none;
+}
+
+.sort-history-version-name:focus {
+  border-color: var(--accent);
+}
+
+.sort-history-version-name:disabled {
+  color: var(--text-muted);
 }
 
 .sort-history-import-count {
@@ -443,6 +498,19 @@ html {
   cursor: text;
 }
 
+.date-time-field-display.is-compact {
+  width: auto;
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Compact fields sit in a right-hand column, so the picker opens leftwards. */
+.date-time-field-editor.is-compact .date-time-field-picker {
+  left: auto;
+  right: 0;
+}
+
 .date-time-field-display:hover:not(:disabled) {
   border-color: var(--border);
 }
@@ -477,6 +545,14 @@ html {
 
 .sort-version-count.renamed {
   color: var(--warning);
+}
+
+.sort-version-count.added {
+  color: var(--new-ink);
+}
+
+.sort-version-count.removed {
+  color: var(--text-muted);
 }
 
 .date-time-field-text,
@@ -569,9 +645,17 @@ html {
   cursor: pointer;
 }
 
+/* Just fits "2026-01-05 14:05" in tabular digits; longer names ellipsize. */
 .sort-versions-date {
+  flex: 0 0 9.1em;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+.sort-versions-date.is-named {
+  font-weight: 600;
 }
 
 .sort-versions-count {
@@ -595,7 +679,19 @@ html {
   white-space: nowrap;
 }
 
+/* Right-aligned group: the Current badge (live version only), then the item count. */
+.sort-versions-toggle .sort-versions-current,
+.sort-versions-toggle .sort-versions-count {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.sort-versions-toggle .sort-versions-current + .sort-versions-count {
+  margin-left: 0;
+}
+
 .sort-versions-summary {
+  min-width: 0;
   overflow: hidden;
   color: var(--text-muted);
   text-overflow: ellipsis;

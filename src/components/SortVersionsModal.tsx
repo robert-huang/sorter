@@ -6,12 +6,9 @@ import {
 } from '../lib/sortVersions';
 import type { SortVersion } from '../lib/types';
 import { Modal } from './Modal';
-import { RemoveGlyph } from './RemoveGlyph';
-
 interface Props {
   /** Oldest first, as stored. */
   versions: readonly SortVersion[];
-  onDelete: (id: string) => void;
   onClose: () => void;
 }
 
@@ -78,7 +75,7 @@ export function VersionRanking({ version, prev }: { version: SortVersion; prev: 
 }
 
 /** Read-only history of finished rankings, newest first, each diffed against its direct predecessor. */
-export function SortVersionsModal({ versions, onDelete, onClose }: Props) {
+export function SortVersionsModal({ versions, onClose }: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const rows = useMemo(
     () =>
@@ -99,6 +96,7 @@ export function SortVersionsModal({ versions, onDelete, onClose }: Props) {
         {rows.map(({ version, prev }) => {
           const expanded = expandedId === version.id;
           const date = formatSortVersionDate(version.createdAt, true);
+          const summary = summarizeSortVersionDiff(prev, version);
           return (
             <li key={version.id} className="sort-versions-row">
               <div className="sort-versions-row-head">
@@ -106,32 +104,22 @@ export function SortVersionsModal({ versions, onDelete, onClose }: Props) {
                   type="button"
                   className="sort-versions-toggle"
                   aria-expanded={expanded}
+                  title={summary}
                   onClick={() => setExpandedId(expanded ? null : version.id)}
                 >
                   <span aria-hidden="true">{expanded ? '▾' : '▸'}</span>
-                  <span className="sort-versions-date">{date}</span>
+                  <span
+                    className={`sort-versions-date${version.name ? ' is-named' : ''}`}
+                    title={version.name ? date : undefined}
+                  >
+                    {version.name || date}
+                  </span>
+                  <span className="sort-versions-summary">{summary}</span>
                   {version.live && <span className="sort-versions-current">Current</span>}
                   <span className="sort-versions-count">
                     {version.rankedIds.length} item{version.rankedIds.length === 1 ? '' : 's'}
                   </span>
-                  <span className="sort-versions-summary">
-                    {summarizeSortVersionDiff(prev, version)}
-                  </span>
                 </button>
-                {!version.live && (
-                  <button
-                    type="button"
-                    className="btn icon-only sort-versions-delete"
-                    aria-label={`Delete version from ${date}`}
-                    title="Delete this version"
-                    onClick={() => {
-                      if (expanded) setExpandedId(null);
-                      onDelete(version.id);
-                    }}
-                  >
-                    <RemoveGlyph size={12} />
-                  </button>
-                )}
               </div>
               {expanded && <VersionRanking version={version} prev={prev} />}
             </li>

@@ -69,7 +69,6 @@ interface Props {
   onAddSlotImports: (batches: SlotResultsImportBatch[]) => void;
   /** Recorded rankings, oldest first. */
   versions?: readonly SortVersion[];
-  onDeleteVersion?: (id: string) => void;
   /** Records the current ranking as a version; omitted hides the button. */
   onSaveVersion?: () => void;
   /** The newest version is frozen and already matches the current ranking. */
@@ -153,7 +152,6 @@ export function ResultScreen({
   onAddPreRanked,
   onAddSlotImports,
   versions = [],
-  onDeleteVersion,
   onSaveVersion,
   currentIsSavedVersion = false,
   onOpenVersions,
@@ -457,7 +455,6 @@ export function ResultScreen({
       {versionsOpen && versions.length > 0 && (
         <SortVersionsModal
           versions={versions}
-          onDelete={(id) => onDeleteVersion?.(id)}
           onClose={() => setVersionsOpen(false)}
         />
       )}

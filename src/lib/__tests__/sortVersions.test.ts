@@ -7,6 +7,7 @@ import {
   formatSortVersionDate,
   mergeImportedVersions,
   normalizeSortVersions,
+  renameSortVersion,
   countSortVersionDiff,
   shouldAutoRecordVersion,
   snapshotSortVersion,
@@ -45,6 +46,27 @@ function version(order: Item[], createdAt: string, id = createdAt): SortVersion 
 const T1 = '2026-10-01T10:00:00.000Z';
 const T2 = '2026-10-10T10:00:00.000Z';
 const T3 = '2026-10-20T10:00:00.000Z';
+
+describe('renameSortVersion', () => {
+  const versions = [version([A, B], T1), { ...version([B, A], T2), name: 'Old' }];
+
+  it('sets a trimmed name on the matching version only', () => {
+    const next = renameSortVersion(versions, T1, '  Winter  ');
+    expect(next.map((v) => v.name)).toEqual(['Winter', 'Old']);
+    expect(next[1]).toBe(versions[1]);
+  });
+
+  it('clears the name when blank', () => {
+    const next = renameSortVersion(versions, T2, '   ');
+    expect('name' in next[1]!).toBe(false);
+  });
+
+  it('returns the same array when nothing changes', () => {
+    expect(renameSortVersion(versions, T2, ' Old ')).toBe(versions);
+    expect(renameSortVersion(versions, T1, '')).toBe(versions);
+    expect(renameSortVersion(versions, 'missing', 'x')).toBe(versions);
+  });
+});
 
 describe('appendVersionIfChanged', () => {
   it('records the first finished ranking with copied display fields', () => {
@@ -113,6 +135,12 @@ describe('upsertLiveVersion', () => {
     expect(next[1]).toMatchObject({ id: 'live', rankedIds: [C.id, A.id, B.id], createdAt: T3, live: true });
   });
 
+  it('keeps the live version name when its ranking updates in place', () => {
+    const live = { ...version([B, A], T2, 'live'), live: true as const, name: 'Winter' };
+    const next = upsertLiveVersion([live], doneBlob([C, A, B]), new Date(T3));
+    expect(next[0]).toMatchObject({ id: 'live', name: 'Winter', rankedIds: [C.id, A.id, B.id] });
+  });
+
   it('returns the same array when the newest version already matches or the sort is open', () => {
     const versions = [version([A, B], T1)];
     expect(upsertLiveVersion(versions, doneBlob([A, B]), new Date(T2))).toBe(versions);
@@ -151,7 +179,7 @@ describe('diffSortVersions / summarizeSortVersionDiff', () => {
     expect(diff.removed).toEqual([C.id]);
     expect(diff.moved[0]).toEqual({ id: D.id, from: 4, to: 1, delta: 3 });
     expect(summarizeSortVersionDiff(prev, next)).toBe(
-      '1 added, 1 removed · Delta ↑3, Alpha ↓1, Beta ↓1',
+      '1 new, 1 removed · Delta ↑3, Alpha ↓1, Beta ↓1',
     );
   });
 
@@ -189,6 +217,14 @@ describe('mergeImportedVersions', () => {
     );
     expect(result.versions.map((v) => v.createdAt)).toEqual([T1, T3]);
     expect(result).toMatchObject({ added: 1, skipped: 1 });
+  });
+
+  it("keeps a dropped duplicate's name on the unnamed copy that survives", () => {
+    const result = mergeImportedVersions(
+      [version([B, A], T1)],
+      [{ ...version([B, A], T2), name: 'Winter' }],
+    );
+    expect(result.versions.map((v) => [v.createdAt, v.name])).toEqual([[T1, 'Winter']]);
   });
 
   it("imports a source's nested versions along with its current ranking", () => {
@@ -236,6 +272,17 @@ describe('normalizeSortVersions', () => {
     expect(out[1]!.rankedIds).toEqual([A.id]);
     expect(out[1]!.items[A.id]).toEqual({ label: A.id });
     expect(out[1]!.id).toMatch(/^v/);
+  });
+
+  it('keeps a trimmed name and drops blank or non-string names', () => {
+    const raw = [
+      { ...version([A, B], T1, 'named'), name: '  Winter 2026 ' },
+      { ...version([B, A], T2, 'blank'), name: '   ' },
+      { ...version([A, B], T3, 'number'), name: 7 },
+    ];
+    const out = normalizeSortVersions(raw)!;
+    expect(out.map((v) => v.name)).toEqual(['Winter 2026', undefined, undefined]);
+    expect(out.slice(1).every((v) => !('name' in v))).toBe(true);
   });
 
   it('returns undefined when nothing valid remains', () => {
@@ -294,6 +341,16 @@ describe('versionImportsForSlot', () => {
     ]);
     expect(imports[0]!.slotName).toBe('Top anime · 2026-10-28 09:05');
   });
+
+  it('names a version by its custom name instead of the date and passes it on', () => {
+    const named = { ...version([A, B], '2026-10-01T09:00:00'), name: 'Winter' };
+    const unnamed = version([B, A], '2026-10-05T09:00:00');
+    const imports = versionImportsForSlot(entry([named, unnamed]), new Set([named.id, unnamed.id]), 's', 'Top anime');
+    expect(imports.map((imp) => [imp.slotName, imp.versionName])).toEqual([
+      ['Top anime · Winter', 'Winter'],
+      ['Top anime · 2026-10-05', undefined],
+    ]);
+  });
 });
 
 describe('snapshotSortVersion', () => {
@@ -307,7 +364,7 @@ describe('countSortVersionDiff', () => {
     const prev = version([A, B, C, D], T1);
     const next = version([C, A, B], T2);
     expect(countSortVersionDiff(prev, next)).toBe('1 up · 2 down · 1 removed');
-    expect(countSortVersionDiff(next, version([C, A, B, D], T3))).toBe('1 added');
+    expect(countSortVersionDiff(next, version([C, A, B, D], T3))).toBe('1 new');
   });
 
   it('reports the first and unchanged versions', () => {

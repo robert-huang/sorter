@@ -7,12 +7,21 @@ import {
   onlyNewestLive,
   sameVersionContent,
   sortVersionItem,
+  sortVersionLabel,
   versionItemRenamed,
+  withSortVersionName,
 } from './sortVersionShape';
 import type { AutosaveBlob } from './storage';
 import type { Item, ItemId, SortVersion, SortVersionItem } from './types';
 
-export { formatSortVersionDate, newSortVersionId, normalizeSortVersions, sameVersionContent };
+export {
+  formatSortVersionDate,
+  newSortVersionId,
+  normalizeSortVersions,
+  sameVersionContent,
+  sortVersionLabel,
+  withSortVersionName,
+};
 
 type RankedBlob = Pick<AutosaveBlob, 'items' | 'progress'>;
 
@@ -68,6 +77,20 @@ export function appendVersionIfChanged(
   return [...base, snap];
 }
 
+/** Sets (trimmed) or clears (blank) one version's name; same array back when nothing changes. */
+export function renameSortVersion(
+  versions: readonly SortVersion[],
+  id: string,
+  name: string,
+): readonly SortVersion[] {
+  const named = withSortVersionName(name);
+  const target = versions.find((v) => v.id === id);
+  if (!target || target.name === named.name) return versions;
+  const { name: _old, ...rest } = target;
+  const renamed: SortVersion = { ...rest, ...named };
+  return versions.map((v) => (v === target ? renamed : v));
+}
+
 /**
  * Keeps the newest version in step with a finished sort's current ranking: updates the
  * live version in place, or starts one after a frozen version. Same array back when the
@@ -83,7 +106,12 @@ export function upsertLiveVersion(
   const latest = versions[versions.length - 1];
   if (latest && sameVersionContent(latest, snap)) return versions;
   const live: SortVersion = { ...snap, live: true };
-  if (latest?.live) return [...versions.slice(0, -1), { ...live, id: latest.id }];
+  if (latest?.live) {
+    return [
+      ...versions.slice(0, -1),
+      { ...live, id: latest.id, ...withSortVersionName(latest.name) },
+    ];
+  }
   return [...versions, live];
 }
 
@@ -122,7 +150,7 @@ export function diffSortVersions(prev: SortVersion | null, next: SortVersion): S
   return { added, removed, moved, renamed };
 }
 
-/** e.g. "3 added, 1 removed, 1 renamed · Steins;Gate ↑4, Your Name ↓2". */
+/** e.g. "3 new, 1 removed, 1 renamed · Steins;Gate ↑4, Your Name ↓2". */
 export function summarizeSortVersionDiff(
   prev: SortVersion | null,
   next: SortVersion,
@@ -131,7 +159,7 @@ export function summarizeSortVersionDiff(
   if (!prev) return 'First version';
   const diff = diffSortVersions(prev, next);
   const counts: string[] = [];
-  if (diff.added.length) counts.push(`${diff.added.length} added`);
+  if (diff.added.length) counts.push(`${diff.added.length} new`);
   if (diff.removed.length) counts.push(`${diff.removed.length} removed`);
   if (diff.renamed.length) counts.push(`${diff.renamed.length} renamed`);
   const moves = diff.moved
@@ -164,12 +192,21 @@ export function sortVersionDiffCounts(
   return counts.filter(({ count }) => count > 0);
 }
 
-/** Compact counts, e.g. "3 up · 2 down · 1 added · 1 removed · 1 renamed". */
+/** Display word for each count kind; `added` items read as "new". */
+export const SORT_VERSION_COUNT_WORDS: Readonly<Record<SortVersionCountKind, string>> = {
+  up: 'up',
+  down: 'down',
+  added: 'new',
+  removed: 'removed',
+  renamed: 'renamed',
+};
+
+/** Compact counts, e.g. "3 up · 2 down · 1 new · 1 removed · 1 renamed". */
 export function countSortVersionDiff(prev: SortVersion | null, next: SortVersion): string {
   const counts = sortVersionDiffCounts(prev, next);
   if (!counts) return 'First version';
   if (counts.length === 0) return 'No changes';
-  return counts.map(({ kind, count }) => `${count} ${kind}`).join(' · ');
+  return counts.map(({ kind, count }) => `${count} ${SORT_VERSION_COUNT_WORDS[kind]}`).join(' · ');
 }
 
 /** Versions carried by a source save plus its own current ranking, dated `createdAt`. */
@@ -216,6 +253,8 @@ export function mergeImportedVersions(
   for (const { v, index, imported: isImported } of tagged) {
     const prev = versions[versions.length - 1];
     if (prev && sameVersionContent(prev, v)) {
+      // The surviving copy inherits a name only the dropped duplicate had.
+      if (!prev.name && v.name) versions[versions.length - 1] = { ...prev, name: v.name };
       (isImported ? skippedImported : skippedExisting).add(index);
       continue;
     }

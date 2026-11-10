@@ -458,6 +458,8 @@ export interface SortVersion {
   items: Record<ItemId, SortVersionItem>;
   /** Only ever on the newest version: updated in place instead of appended. */
   live?: true;
+  /** User-chosen name, e.g. "Winter 2026"; displays fall back to the date when absent. */
+  name?: string;
 }
 
 /**
