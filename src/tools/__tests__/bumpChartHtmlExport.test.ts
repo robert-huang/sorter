@@ -112,6 +112,77 @@ describe('standalone Bump Chart HTML export', () => {
     );
   });
 
+  it('pins row heights and event widths so baked paths stay attached', () => {
+    const chart = chartFixture();
+    chart.insertAdjacentHTML(
+      'afterbegin',
+      '<div class="bump-chart-order-name-row"></div>' +
+        '<div class="bump-chart-row"><div data-bump-event="true"></div></div>',
+    );
+    const sizes = new Map<string, Partial<DOMRect>>([
+      ['bump-chart-order-name-row', { height: 56.5 }],
+      ['bump-chart-row', { height: 81.25 }],
+    ]);
+    for (const element of chart.querySelectorAll<HTMLElement>('div')) {
+      const size = element.dataset.bumpEvent
+        ? { width: 173.5 }
+        : sizes.get(element.className);
+      if (size) {
+        vi.spyOn(element, 'getBoundingClientRect').mockReturnValue(
+          size as DOMRect,
+        );
+      }
+    }
+
+    const exported = new DOMParser().parseFromString(
+      createStandaloneBumpChartHtml(chart),
+      'text/html',
+    );
+
+    const header = exported.querySelector<HTMLElement>(
+      '.bump-chart-order-name-row',
+    );
+    const row = exported.querySelector<HTMLElement>('.bump-chart-row');
+    const event = exported.querySelector<HTMLElement>('[data-bump-event]');
+    expect(header?.style.height).toBe('56.5px');
+    expect(row?.style.height).toBe('81.25px');
+    expect(row?.style.maxHeight).toBe('81.25px');
+    expect(event?.style.width).toBe('173.5px');
+  });
+
+  it('zooms with the floating control and resets when the percentage is clicked', () => {
+    const exported = new DOMParser().parseFromString(
+      createStandaloneBumpChartHtml(chartFixture()),
+      'text/html',
+    );
+    document.body.innerHTML = exported.body.innerHTML;
+    const script = document.body.querySelector('script')?.textContent;
+    if (!script) {
+      throw new Error('Standalone chart script was not exported');
+    }
+    window.eval(script);
+
+    const root = document.querySelector<HTMLElement>(
+      '[data-bump-export-root]',
+    )!;
+    const value = document.querySelector<HTMLButtonElement>(
+      '.bump-chart-zoom-value',
+    )!;
+    const zoomOut = document.querySelector<HTMLButtonElement>(
+      '[title="Zoom out"]',
+    )!;
+    expect(value.textContent).toBe('100%');
+
+    zoomOut.click();
+    zoomOut.click();
+    expect(value.textContent).toBe('80%');
+    expect(root.style.zoom).toBe('0.8');
+
+    value.click();
+    expect(value.textContent).toBe('100%');
+    expect(root.style.zoom).toBe('1');
+  });
+
   it('downloads one HTML file without a backend', () => {
     const createObjectUrl = vi.fn((_blob: Blob) => 'blob:bump-chart');
     const revokeObjectUrl = vi.fn();

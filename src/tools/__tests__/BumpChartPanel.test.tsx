@@ -780,8 +780,11 @@ describe('BumpChartPanel staging flow', () => {
     );
     expect(names).toEqual([previousName, 'Spring rankings']);
     expect(
-      header?.querySelectorAll('.bump-chart-order-name-cell'),
-    ).toHaveLength(2);
+      Array.from(
+        header?.querySelectorAll('.bump-chart-order-name-cell') ?? [],
+        (cell) => cell.getAttribute('title'),
+      ),
+    ).toEqual([previousName, 'Spring rankings']);
     expect(
       header?.querySelectorAll('.bump-chart-order-name-corridor'),
     ).toHaveLength(1);
@@ -1439,6 +1442,75 @@ describe('BumpChartPanel staging flow', () => {
     expect(container.querySelector('.bump-chart-connection.is-active')).toBeNull();
   });
 
+  it('zooms the chart from the floating control and resets on click', async () => {
+    await saveActiveBumpChartWorkspace({
+      version: 2,
+      view: 'chart',
+      columns: [
+        {
+          id: 'previous-1',
+          kind: 'previous',
+          items: [
+            {
+              item: { id: 'AAAAAAAAAAAAAA', label: 'Zoomed item' },
+              logicalId: 'AAAAAAAAAAAAAA',
+            },
+          ],
+          hiddenItemIds: [],
+          preserveCustomLabels: false,
+        },
+        {
+          id: 'current',
+          kind: 'current',
+          items: [
+            {
+              item: { id: 'AAAAAAAAAAAAAA', label: 'Zoomed item' },
+              logicalId: 'AAAAAAAAAAAAAA',
+            },
+          ],
+          hiddenItemIds: [],
+          preserveCustomLabels: false,
+        },
+      ],
+      bestMatchByTitle: true,
+      lastImportTab: 'single',
+    });
+    await act(async () => {
+      root.render(
+        <BumpChartPanel
+          dbSyncRevision={0}
+          onOpenMedia={vi.fn()}
+          onOpenStaff={vi.fn()}
+        />,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      button('Generate chart').click();
+    });
+
+    const scaler = container.querySelector<HTMLElement>(
+      '.bump-chart-zoom-scaler',
+    );
+    const value = container.querySelector('.bump-chart-zoom-value');
+    expect(value?.textContent).toBe('100%');
+    expect(scaler?.style.transform).toBe('');
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[title="Zoom out"]')?.click();
+    });
+    expect(value?.textContent).toBe('90%');
+    expect(scaler?.style.transform).toBe('scale(0.9)');
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('[title="Reset zoom"]')
+        ?.click();
+    });
+    expect(value?.textContent).toBe('100%');
+    expect(scaler?.style.transform).toBe('');
+  });
+
   it('live-updates timeline matching after editing a logical id', async () => {
     await saveActiveBumpChartWorkspace({
       version: 2,
@@ -1487,6 +1559,9 @@ describe('BumpChartPanel staging flow', () => {
     });
 
     expect(container.querySelectorAll('.bump-chart-connection')).toHaveLength(1);
+    expect(
+      container.querySelector('.bump-chart-connection > title')?.textContent,
+    ).toBe('After label');
     expect(container.querySelectorAll('.bump-chart-change-marker')).toHaveLength(
       0,
     );

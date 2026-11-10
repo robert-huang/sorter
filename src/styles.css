@@ -10223,6 +10223,80 @@ a:where(.anime-to-anime-anilist-link):visited {
   z-index: 5;
 }
 
+/* Scales with a transform so the chart's measured layout stays in unscaled units. */
+.bump-chart-zoom-scaler {
+  transform-origin: 0 0;
+}
+
+.bump-chart-zoom-sizer.is-zoomed {
+  flex: none;
+  overflow: hidden;
+}
+
+/* Zero-height sticky dock: the control sits just under the chart, and floats at the
+   viewport bottom while the chart runs past it. bottom = control height + gaps. */
+.bump-chart-zoom-dock {
+  position: sticky;
+  z-index: 6;
+  bottom: 58px;
+  width: 90vw;
+  height: 0;
+  margin-inline: calc(50% - 45vw);
+}
+
+.bump-chart-zoom-dock .bump-chart-zoom {
+  position: absolute;
+  top: 8px;
+  left: 12px;
+}
+
+.bump-chart-zoom {
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.bump-chart-zoom-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+}
+
+.bump-chart-zoom-step svg {
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.bump-chart-zoom-value {
+  min-width: 3.5em;
+  padding: 4px 2px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.bump-chart-zoom-value:hover,
+.bump-chart-zoom-value:focus-visible {
+  color: var(--accent);
+}
+
 .bump-chart-lineage-bridge {
   fill: none;
   stroke: currentColor;

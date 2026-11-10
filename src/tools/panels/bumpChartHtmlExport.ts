@@ -1,3 +1,10 @@
+import {
+  BUMP_CHART_DEFAULT_ZOOM,
+  BUMP_CHART_ZOOM_IN_PATH,
+  BUMP_CHART_ZOOM_OUT_PATH,
+  BUMP_CHART_ZOOM_STEPS,
+} from './bumpChartZoom';
+
 function readableStylesheets(): string {
   return Array.from(document.styleSheets)
     .flatMap((sheet) => {
@@ -229,8 +236,85 @@ const STANDALONE_CHART_SCRIPT = String.raw`
   );
 
   applyFocus();
+
+  const zoomSteps = ${JSON.stringify(BUMP_CHART_ZOOM_STEPS)};
+  const defaultZoom = ${BUMP_CHART_DEFAULT_ZOOM};
+  let zoom = defaultZoom;
+  const controls = document.createElement('div');
+  controls.className = 'bump-chart-zoom';
+  controls.setAttribute('role', 'group');
+  controls.setAttribute('aria-label', 'Chart zoom');
+  const zoomButton = (path, title, onClick) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'btn bump-chart-zoom-step';
+    button.innerHTML =
+      '<svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">' +
+      '<path d="' + path + '"/></svg>';
+    button.title = title;
+    button.setAttribute('aria-label', title);
+    button.addEventListener('click', onClick);
+    return button;
+  };
+  const percent = document.createElement('button');
+  percent.type = 'button';
+  percent.className = 'bump-chart-zoom-value';
+  percent.title = 'Reset zoom';
+  const setZoom = (next) => {
+    const scroller = document.scrollingElement || document.documentElement;
+    // keep the viewport's centre point fixed while the chart scales
+    const centerX = (scroller.scrollLeft + window.innerWidth / 2) / (zoom / 100);
+    const centerY = (scroller.scrollTop + window.innerHeight / 2) / (zoom / 100);
+    zoom = next;
+    root.style.zoom = String(zoom / 100);
+    percent.textContent = zoom + '%';
+    scroller.scrollLeft = centerX * (zoom / 100) - window.innerWidth / 2;
+    scroller.scrollTop = centerY * (zoom / 100) - window.innerHeight / 2;
+  };
+  const step = (direction) => {
+    const next =
+      direction > 0
+        ? zoomSteps.find((value) => value > zoom)
+        : [...zoomSteps].reverse().find((value) => value < zoom);
+    if (next != null) setZoom(next);
+  };
+  percent.addEventListener('click', () => setZoom(defaultZoom));
+  controls.append(
+    zoomButton('${BUMP_CHART_ZOOM_OUT_PATH}', 'Zoom out', () => step(-1)),
+    percent,
+    zoomButton('${BUMP_CHART_ZOOM_IN_PATH}', 'Zoom in', () => step(1)),
+  );
+  document.body.append(controls);
+  percent.textContent = zoom + '%';
 })();
 `;
+
+// The SVG paths are baked at export-time coordinates, so anything that can
+// reflow in another browser (text wrapping, fonts, min font size) must be frozen.
+function pinExportGeometry(node: HTMLElement, clone: HTMLElement): void {
+  const pinned = [
+    { selector: '.bump-chart-order-name-row, .bump-chart-row', axis: 'height' },
+    { selector: '[data-bump-event]', axis: 'width' },
+  ] as const;
+  for (const { selector, axis } of pinned) {
+    const sources = node.querySelectorAll<HTMLElement>(selector);
+    const targets = clone.querySelectorAll<HTMLElement>(selector);
+    sources.forEach((source, index) => {
+      const target = targets[index];
+      if (!target) return;
+      const size = `${source.getBoundingClientRect()[axis]}px`;
+      if (axis === 'height') {
+        target.style.height = size;
+        target.style.minHeight = size;
+        target.style.maxHeight = size;
+      } else {
+        target.style.width = size;
+        target.style.minWidth = size;
+        target.style.maxWidth = size;
+      }
+    });
+  }
+}
 
 function escapedAttribute(value: string): string {
   return value
@@ -249,6 +333,7 @@ export function createStandaloneBumpChartHtml(node: HTMLElement): string {
   clone.style.width = `${width}px`;
   clone.style.minWidth = `${width}px`;
   clone.style.margin = '0';
+  pinExportGeometry(node, clone);
   clone.querySelectorAll<HTMLImageElement>('img[src]').forEach((image) => {
     image.setAttribute('src', image.src);
   });
@@ -277,7 +362,7 @@ body { padding: 16px; box-sizing: border-box; overflow: auto; }
 .bump-chart-rank { cursor: default; }
 .bump-chart-lineage-bridge { opacity: 0; }
 .bump-chart-lineage-bridge.is-active { opacity: 0.85; }
-.bump-chart-movement-badge.is-hidden { display: none; }
+.bump-chart-movement-badge.is-hidden { display: none; }.bump-chart-zoom { position: fixed; left: 16px; bottom: 16px; }
 </style>
 </head>
 <body>

@@ -79,6 +79,13 @@ import {
   resolveBumpMalExportImage,
 } from './bumpChartMalExportImages';
 import { exportStandaloneBumpChartHtml } from './bumpChartHtmlExport';
+import {
+  BUMP_CHART_DEFAULT_ZOOM,
+  BUMP_CHART_ZOOM_IN_PATH,
+  BUMP_CHART_ZOOM_OUT_PATH,
+  stepBumpChartZoom,
+  unscaleBumpChartForExport,
+} from './bumpChartZoom';
 
 type ChartSide = 'left' | 'right';
 
@@ -1851,6 +1858,7 @@ export async function exportChartPng(
           fuzzyMalImageItems: [],
         }
       : await resolveExportImages(imageElements, options);
+  const restoreZoom = unscaleBumpChartForExport(node);
   const restoreExportLayout = prepareExportImageLayout(
     node,
     imageElements,
@@ -1860,6 +1868,7 @@ export async function exportChartPng(
     await renderChartPng(node, imageElements, resolvedImages.loadedImages);
   } finally {
     restoreExportLayout();
+    restoreZoom();
     resolvedImages.loadedImages.forEach((loaded) => loaded?.dispose());
   }
   return {
@@ -1911,6 +1920,11 @@ function BumpChart({
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
   const [pinnedKey, setPinnedKey] = useState<string | null>(null);
   const [layout, setLayout] = useState<ChartLayout | null>(null);
+  const [zoom, setZoom] = useState<number>(BUMP_CHART_DEFAULT_ZOOM);
+  const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(
+    null,
+  );
+  const [viewportWidth, setViewportWidth] = useState<number | null>(null);
   const draggingRef = useRef(false);
   const hoverTimerRef = useRef<number | null>(null);
   const rowRefs = useRef<Array<HTMLDivElement | null>>([]);
@@ -1951,6 +1965,28 @@ function BumpChart({
       () => 'var(--bump-intermediate-width)',
     ),
   ].join(' + ')})`;
+
+  const latestLabelByLineage = useMemo(() => {
+    const labels = new Map<string, string>();
+    for (const lineage of timeline.lineages) {
+      for (
+        let columnIndex = lineage.itemIndexes.length - 1;
+        columnIndex >= 0;
+        columnIndex -= 1
+      ) {
+        const itemIndex = lineage.itemIndexes[columnIndex];
+        const label =
+          itemIndex == null
+            ? undefined
+            : displayItemsByColumn[columnIndex]?.[itemIndex]?.item.label;
+        if (label) {
+          labels.set(lineage.key, label);
+          break;
+        }
+      }
+    }
+    return labels;
+  }, [displayItemsByColumn, timeline]);
 
   const lineageAt = useCallback(
     (columnIndex: number, itemIndex: number) =>
@@ -2022,16 +2058,19 @@ function BumpChart({
     const root = chartRef.current;
     if (!root || rowCount === 0) return;
     const measure = (): void => {
+      // Client rects include the zoom transform; the SVG lives inside it, so divide it back out.
+      const scale = zoom / 100;
       const rootRect = root.getBoundingClientRect();
+      const offsetX = (x: number): number => (x - rootRect.left) / scale;
       const rows = rowRefs.current.slice(0, rowCount);
       const rowRects = rows.map((row) => {
         const rect = row?.getBoundingClientRect();
         return {
-          top: rect?.top ?? rootRect.top,
-          height: rect?.height ?? 0,
+          top: ((rect?.top ?? rootRect.top) - rootRect.top) / scale,
+          height: (rect?.height ?? 0) / scale,
         };
       });
-      const centers = bumpRowCenterOffsets(rootRect.top, rowRects);
+      const centers = bumpRowCenterOffsets(0, rowRects);
       const firstRow = rows[0];
       if (!firstRow) return;
       const columnXs = columns.map((_, columnIndex) => {
@@ -2040,12 +2079,11 @@ function BumpChart({
         );
         const rect = cell?.getBoundingClientRect();
         if (!rect) return 0;
-        return bumpTimelineColumnAnchorX(
-          columnIndex,
-          columns.length,
-          rootRect.left,
-          rect,
-        );
+        return bumpTimelineColumnAnchorX(columnIndex, columns.length, 0, {
+          left: offsetX(rect.left),
+          right: offsetX(rect.right),
+          width: rect.width / scale,
+        });
       });
       const centersByColumn = columns.map(({ items }) =>
         items.map((_, itemIndex) => centers[itemIndex] ?? 0),
@@ -2058,15 +2096,15 @@ function BumpChart({
           if (!event) return null;
           const rect = event.getBoundingClientRect();
           return {
-            left: rect.left - rootRect.left,
-            right: rect.right - rootRect.left,
+            left: offsetX(rect.left),
+            right: offsetX(rect.right),
           };
         }),
       );
       const next: ChartLayout = {
-        width: rootRect.width,
+        width: rootRect.width / scale,
         // Avoid an earlier absolute SVG height keeping scrollHeight enlarged.
-        height: rootRect.height,
+        height: rootRect.height / scale,
         columnXs,
         centersByColumn,
         eventBoundsByColumn,
@@ -2085,394 +2123,482 @@ function BumpChart({
       observer?.disconnect();
       window.removeEventListener('resize', measure);
     };
-  }, [chartRef, columns, rowCount]);
+  }, [chartRef, columns, rowCount, zoom]);
+
+  useLayoutEffect(() => {
+    if (!scrollElement) return;
+    const update = (): void => setViewportWidth(scrollElement.clientWidth);
+    update();
+    const observer =
+      typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update);
+    observer?.observe(scrollElement);
+    return () => observer?.disconnect();
+  }, [scrollElement]);
+
+  const scale = zoom / 100;
+  const zoomed = scale !== 1 && viewportWidth != null;
 
   return (
-    <DragScroll
-      className="tool-chart-fullbleed bump-chart-fullbleed bump-chart-scroll"
-      onDragChange={onDragChange}
-    >
-      <div
-        className="bump-chart-grid bump-chart-grid--timeline"
-        ref={chartRef}
-        style={{ minWidth: minimumWidth }}
-        data-bump-pinned-lineage={pinnedKey ?? undefined}
+    <>
+      <DragScroll
+        className="tool-chart-fullbleed bump-chart-fullbleed bump-chart-scroll"
+        onDragChange={onDragChange}
+        scrollRef={setScrollElement}
       >
+        {/* Transforms don't affect layout, so the sizer reserves the scaled footprint for scrolling. */}
         <div
-          className="bump-chart-order-name-row"
-          style={{ gridTemplateColumns }}
-          aria-label="Order names"
+          className={`bump-chart-zoom-sizer${zoomed ? ' is-zoomed' : ''}`}
+          style={
+            zoomed && layout
+              ? { width: layout.width * scale, height: layout.height * scale }
+              : undefined
+          }
         >
-          {columns.flatMap((column, columnIndex) => {
-            const nameCell = (
-              <div
-                key={`order-name:${column.id}`}
-                className="bump-chart-order-name-cell"
-                data-bump-order-id={column.id}
-              >
-                <span className="bump-chart-order-name">{column.name}</span>
-              </div>
-            );
-            return columnIndex === 0
-              ? [nameCell]
-              : [
-                  <div
-                    key={`order-name-corridor:${column.id}`}
-                    className="bump-chart-order-name-corridor"
-                    aria-hidden="true"
-                  />,
-                  nameCell,
-                ];
-          })}
-        </div>
-        {Array.from({ length: rowCount }, (_, rowIndex) => (
           <div
-            key={`row:${rowIndex}`}
-            ref={(element) => {
-              rowRefs.current[rowIndex] = element;
-            }}
-            className="bump-chart-row"
-            style={{ gridTemplateColumns }}
+            className="bump-chart-zoom-scaler"
+            style={
+              zoomed
+                ? { width: viewportWidth / scale, transform: `scale(${scale})` }
+                : undefined
+            }
           >
-            {columns.flatMap((column, columnIndex) => {
-              const sourceEntry = column.items[rowIndex];
-              const entry = displayItemsByColumn[columnIndex]?.[rowIndex];
-              const lineage = lineageAt(columnIndex, rowIndex);
-              const columnCell = (
-                <div
-                  key={`column:${column.id}`}
-                  className={[
-                    columnIndex === 0 || columnIndex === columns.length - 1
-                      ? 'bump-chart-endpoint-cell'
-                      : 'bump-chart-intermediate-cell',
-                    !entry ? 'bump-chart-label-cell--empty' : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' ')}
-                  data-bump-column-cell={columnIndex}
-                >
-                  {entry &&
-                    (columnIndex === 0 ||
-                    columnIndex === columns.length - 1 ? (
-                      <BumpChartLabel
-                        side={columnIndex === 0 ? 'left' : 'right'}
-                        item={entry.item}
-                        rank={rowIndex + 1}
-                        lineageKey={lineage?.key}
-                        focusedKey={focusedKey}
-                        panelProps={panelProps}
-                        onFocus={onHoverFocus}
-                        onEdit={() =>
-                          onEdit(
-                            column.id,
-                            rowIndex,
-                            sourceEntry?.item ?? entry.item,
-                          )
-                        }
-                      />
-                    ) : lineage ? (
-                      <TimelineOccurrenceCell
-                        item={entry.item}
-                        rank={rowIndex + 1}
-                        columnIndex={columnIndex}
-                        itemIndex={rowIndex}
-                        lineageKey={lineage.key}
-                        color={BUMP_CHART_COLORS[lineage.colorIndex]!}
-                        focusedKey={focusedKey}
-                        isEntry={
-                          lineage.itemIndexes[columnIndex - 1] == null
-                        }
-                        isDeparture={
-                          lineage.itemIndexes[columnIndex + 1] == null
-                        }
-                        panelProps={panelProps}
-                        onFocus={onHoverFocus}
-                        onEdit={() =>
-                          onEdit(
-                            column.id,
-                            rowIndex,
-                            sourceEntry?.item ?? entry.item,
-                          )
-                        }
-                      />
-                    ) : null)}
-                </div>
-              );
-              return columnIndex === 0
-                ? [columnCell]
-                : [
+            <div
+              className="bump-chart-grid bump-chart-grid--timeline"
+              ref={chartRef}
+              style={{ minWidth: minimumWidth }}
+              data-bump-pinned-lineage={pinnedKey ?? undefined}
+            >
+              <div
+                className="bump-chart-order-name-row"
+                style={{ gridTemplateColumns }}
+                aria-label="Order names"
+              >
+                {columns.flatMap((column, columnIndex) => {
+                  const nameCell = (
                     <div
-                      key={`corridor:${columnIndex}`}
-                      className="bump-chart-center-cell"
-                      aria-hidden="true"
-                    />,
-                    columnCell,
-                  ];
-            })}
-          </div>
-        ))}
-        {layout && (
-          <svg
-            className="bump-chart-svg"
-            viewBox={`0 0 ${layout.width} ${layout.height}`}
-            preserveAspectRatio="none"
-            aria-label="Rank movement timeline"
-            style={{ width: layout.width, height: layout.height }}
-          >
-            {Array.from({ length: rowCount }, (_, index) => (
-              <line
-                key={`guide:${index}`}
-                className="bump-chart-guide"
-                x1={layout.columnXs[0] ?? 0}
-                y1={
-                  layout.centersByColumn.find(
-                    (centers) => centers[index] != null,
-                  )?.[index] ?? 0
-                }
-                x2={layout.columnXs[layout.columnXs.length - 1] ?? layout.width}
-                y2={
-                  layout.centersByColumn.find(
-                    (centers) => centers[index] != null,
-                  )?.[index] ?? 0
-                }
-              />
-            ))}
-            {timeline.segments.map((connection) => {
-              const path = timelineMovementPath(connection, layout);
-              const color = BUMP_CHART_COLORS[connection.colorIndex]!;
-              const dimmed =
-                focusedKey != null && focusedKey !== connection.lineageKey;
-              const active = focusedKey === connection.lineageKey;
-              const leftX = layout.columnXs[connection.pairIndex] ?? 0;
-              const rightX =
-                layout.columnXs[connection.pairIndex + 1] ?? 0;
-              const leftY =
-                connection.leftIndex == null
-                  ? null
-                  : layout.centersByColumn[connection.pairIndex]?.[
-                      connection.leftIndex
-                    ];
-              const rightY =
-                connection.rightIndex == null
-                  ? null
-                  : layout.centersByColumn[connection.pairIndex + 1]?.[
-                      connection.rightIndex
-                    ];
-              const movement =
-                leftY != null && rightY != null
-                  ? bumpConnectionMovement(connection)
-                  : null;
-              const movementBadge =
-                movement == null || leftY == null || rightY == null
-                  ? null
-                  : {
-                      movement,
-                      ...bumpTimelinePathMidpoint(
-                        leftX,
-                        rightX,
-                        eventBounds(
-                          layout,
-                          connection.pairIndex,
-                          connection.leftIndex!,
-                        ),
-                        eventBounds(
-                          layout,
-                          connection.pairIndex + 1,
-                          connection.rightIndex!,
-                        ),
-                        leftY,
-                        rightY,
-                      ),
-                    };
-              return (
-                <g
-                  key={connection.key}
-                  className={[
-                    'bump-chart-connection',
-                    dimmed ? 'is-dimmed' : '',
-                    active ? 'is-active' : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' ')}
-                  data-bump-lineage={connection.lineageKey}
-                  data-bump-movement={movementBadge?.movement}
-                  data-bump-badge-x={movementBadge?.x}
-                  data-bump-badge-y={movementBadge?.y}
-                  style={{ color }}
-                  onMouseEnter={() => onHoverFocus(connection.lineageKey)}
-                  onMouseLeave={() => onHoverFocus(null)}
+                      key={`order-name:${column.id}`}
+                      className="bump-chart-order-name-cell"
+                      data-bump-order-id={column.id}
+                      title={column.name}
+                    >
+                      <span className="bump-chart-order-name">{column.name}</span>
+                    </div>
+                  );
+                  return columnIndex === 0
+                    ? [nameCell]
+                    : [
+                        <div
+                          key={`order-name-corridor:${column.id}`}
+                          className="bump-chart-order-name-corridor"
+                          aria-hidden="true"
+                        />,
+                        nameCell,
+                      ];
+                })}
+              </div>
+              {Array.from({ length: rowCount }, (_, rowIndex) => (
+                <div
+                  key={`row:${rowIndex}`}
+                  ref={(element) => {
+                    rowRefs.current[rowIndex] = element;
+                  }}
+                  className="bump-chart-row"
+                  style={{ gridTemplateColumns }}
                 >
-                  <path
-                    className="bump-chart-path-hit"
-                    d={path}
-                    data-bump-lineage={connection.lineageKey}
-                  />
-                  <path
-                    className="bump-chart-path"
-                    d={path}
-                    data-bump-lineage={connection.lineageKey}
-                  />
-                  {leftY != null && connection.pairIndex === 0 && (
-                    <circle
-                      className="bump-chart-node"
-                      cx={leftX}
-                      cy={leftY}
-                      r="6"
-                      data-bump-lineage={connection.lineageKey}
+                  {columns.flatMap((column, columnIndex) => {
+                    const sourceEntry = column.items[rowIndex];
+                    const entry = displayItemsByColumn[columnIndex]?.[rowIndex];
+                    const lineage = lineageAt(columnIndex, rowIndex);
+                    const columnCell = (
+                      <div
+                        key={`column:${column.id}`}
+                        className={[
+                          columnIndex === 0 || columnIndex === columns.length - 1
+                            ? 'bump-chart-endpoint-cell'
+                            : 'bump-chart-intermediate-cell',
+                          !entry ? 'bump-chart-label-cell--empty' : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' ')}
+                        data-bump-column-cell={columnIndex}
+                      >
+                        {entry &&
+                          (columnIndex === 0 ||
+                          columnIndex === columns.length - 1 ? (
+                            <BumpChartLabel
+                              side={columnIndex === 0 ? 'left' : 'right'}
+                              item={entry.item}
+                              rank={rowIndex + 1}
+                              lineageKey={lineage?.key}
+                              focusedKey={focusedKey}
+                              panelProps={panelProps}
+                              onFocus={onHoverFocus}
+                              onEdit={() =>
+                                onEdit(
+                                  column.id,
+                                  rowIndex,
+                                  sourceEntry?.item ?? entry.item,
+                                )
+                              }
+                            />
+                          ) : lineage ? (
+                            <TimelineOccurrenceCell
+                              item={entry.item}
+                              rank={rowIndex + 1}
+                              columnIndex={columnIndex}
+                              itemIndex={rowIndex}
+                              lineageKey={lineage.key}
+                              color={BUMP_CHART_COLORS[lineage.colorIndex]!}
+                              focusedKey={focusedKey}
+                              isEntry={
+                                lineage.itemIndexes[columnIndex - 1] == null
+                              }
+                              isDeparture={
+                                lineage.itemIndexes[columnIndex + 1] == null
+                              }
+                              panelProps={panelProps}
+                              onFocus={onHoverFocus}
+                              onEdit={() =>
+                                onEdit(
+                                  column.id,
+                                  rowIndex,
+                                  sourceEntry?.item ?? entry.item,
+                                )
+                              }
+                            />
+                          ) : null)}
+                      </div>
+                    );
+                    return columnIndex === 0
+                      ? [columnCell]
+                      : [
+                          <div
+                            key={`corridor:${columnIndex}`}
+                            className="bump-chart-center-cell"
+                            aria-hidden="true"
+                          />,
+                          columnCell,
+                        ];
+                  })}
+                </div>
+              ))}
+              {layout && (
+                <svg
+                  className="bump-chart-svg"
+                  viewBox={`0 0 ${layout.width} ${layout.height}`}
+                  preserveAspectRatio="none"
+                  aria-label="Rank movement timeline"
+                  style={{ width: layout.width, height: layout.height }}
+                >
+                  {Array.from({ length: rowCount }, (_, index) => (
+                    <line
+                      key={`guide:${index}`}
+                      className="bump-chart-guide"
+                      x1={layout.columnXs[0] ?? 0}
+                      y1={
+                        layout.centersByColumn.find(
+                          (centers) => centers[index] != null,
+                        )?.[index] ?? 0
+                      }
+                      x2={layout.columnXs[layout.columnXs.length - 1] ?? layout.width}
+                      y2={
+                        layout.centersByColumn.find(
+                          (centers) => centers[index] != null,
+                        )?.[index] ?? 0
+                      }
                     />
-                  )}
-                  {rightY != null &&
-                    connection.pairIndex + 1 === columns.length - 1 && (
-                    <circle
-                      className="bump-chart-node"
-                      cx={rightX}
-                      cy={rightY}
-                      r="6"
-                      data-bump-lineage={connection.lineageKey}
-                    />
-                  )}
-                  {connection.kind === 'removed' && leftY != null && (
-                    <ChangeMarker
-                      kind="removed"
-                      x={changeMarkerX(connection, layout)}
-                      y={leftY}
-                    />
-                  )}
-                  {connection.kind === 'added' && rightY != null && (
-                    <ChangeMarker
-                      kind="added"
-                      x={changeMarkerX(connection, layout)}
-                      y={rightY}
-                    />
-                  )}
-                  {connection.matchBasis !== 'logical-id' &&
-                    connection.matchBasis !== 'source-id' &&
-                    connection.matchBasis != null &&
-                    leftY != null &&
-                    rightY != null && (
-                      <InferredMatchMarker
-                        connection={connection}
-                        startX={
-                          eventBounds(
-                            layout,
-                            connection.pairIndex,
-                            connection.leftIndex!,
-                          )?.right ?? leftX
-                        }
-                        endX={
-                          eventBounds(
-                            layout,
-                            connection.pairIndex + 1,
-                            connection.rightIndex!,
-                          )?.left ?? rightX
-                        }
-                        leftY={leftY}
-                        rightY={rightY}
+                  ))}
+                  {timeline.segments.map((connection) => {
+                    const path = timelineMovementPath(connection, layout);
+                    const color = BUMP_CHART_COLORS[connection.colorIndex]!;
+                    const dimmed =
+                      focusedKey != null && focusedKey !== connection.lineageKey;
+                    const active = focusedKey === connection.lineageKey;
+                    const leftX = layout.columnXs[connection.pairIndex] ?? 0;
+                    const rightX =
+                      layout.columnXs[connection.pairIndex + 1] ?? 0;
+                    const leftY =
+                      connection.leftIndex == null
+                        ? null
+                        : layout.centersByColumn[connection.pairIndex]?.[
+                            connection.leftIndex
+                          ];
+                    const rightY =
+                      connection.rightIndex == null
+                        ? null
+                        : layout.centersByColumn[connection.pairIndex + 1]?.[
+                            connection.rightIndex
+                          ];
+                    const movement =
+                      leftY != null && rightY != null
+                        ? bumpConnectionMovement(connection)
+                        : null;
+                    const movementBadge =
+                      movement == null || leftY == null || rightY == null
+                        ? null
+                        : {
+                            movement,
+                            ...bumpTimelinePathMidpoint(
+                              leftX,
+                              rightX,
+                              eventBounds(
+                                layout,
+                                connection.pairIndex,
+                                connection.leftIndex!,
+                              ),
+                              eventBounds(
+                                layout,
+                                connection.pairIndex + 1,
+                                connection.rightIndex!,
+                              ),
+                              leftY,
+                              rightY,
+                            ),
+                          };
+                    return (
+                      <g
+                        key={connection.key}
+                        className={[
+                          'bump-chart-connection',
+                          dimmed ? 'is-dimmed' : '',
+                          active ? 'is-active' : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' ')}
+                        data-bump-lineage={connection.lineageKey}
+                        data-bump-movement={movementBadge?.movement}
+                        data-bump-badge-x={movementBadge?.x}
+                        data-bump-badge-y={movementBadge?.y}
+                        style={{ color }}
+                        onMouseEnter={() => onHoverFocus(connection.lineageKey)}
+                        onMouseLeave={() => onHoverFocus(null)}
+                      >
+                        {latestLabelByLineage.has(connection.lineageKey) && (
+                          <title>
+                            {latestLabelByLineage.get(connection.lineageKey)}
+                          </title>
+                        )}
+                        <path
+                          className="bump-chart-path-hit"
+                          d={path}
+                          data-bump-lineage={connection.lineageKey}
+                        />
+                        <path
+                          className="bump-chart-path"
+                          d={path}
+                          data-bump-lineage={connection.lineageKey}
+                        />
+                        {leftY != null && connection.pairIndex === 0 && (
+                          <circle
+                            className="bump-chart-node"
+                            cx={leftX}
+                            cy={leftY}
+                            r="6"
+                            data-bump-lineage={connection.lineageKey}
+                          />
+                        )}
+                        {rightY != null &&
+                          connection.pairIndex + 1 === columns.length - 1 && (
+                          <circle
+                            className="bump-chart-node"
+                            cx={rightX}
+                            cy={rightY}
+                            r="6"
+                            data-bump-lineage={connection.lineageKey}
+                          />
+                        )}
+                        {connection.kind === 'removed' && leftY != null && (
+                          <ChangeMarker
+                            kind="removed"
+                            x={changeMarkerX(connection, layout)}
+                            y={leftY}
+                          />
+                        )}
+                        {connection.kind === 'added' && rightY != null && (
+                          <ChangeMarker
+                            kind="added"
+                            x={changeMarkerX(connection, layout)}
+                            y={rightY}
+                          />
+                        )}
+                        {connection.matchBasis !== 'logical-id' &&
+                          connection.matchBasis !== 'source-id' &&
+                          connection.matchBasis != null &&
+                          leftY != null &&
+                          rightY != null && (
+                            <InferredMatchMarker
+                              connection={connection}
+                              startX={
+                                eventBounds(
+                                  layout,
+                                  connection.pairIndex,
+                                  connection.leftIndex!,
+                                )?.right ?? leftX
+                              }
+                              endX={
+                                eventBounds(
+                                  layout,
+                                  connection.pairIndex + 1,
+                                  connection.rightIndex!,
+                                )?.left ?? rightX
+                              }
+                              leftY={leftY}
+                              rightY={rightY}
+                            />
+                          )}
+                      </g>
+                    );
+                  })}
+                  {focusedSegments.map((connection) => {
+                    const leftY =
+                      connection.leftIndex == null
+                        ? null
+                        : layout.centersByColumn[connection.pairIndex]?.[
+                            connection.leftIndex
+                          ];
+                    const rightY =
+                      connection.rightIndex == null
+                        ? null
+                        : layout.centersByColumn[connection.pairIndex + 1]?.[
+                            connection.rightIndex
+                          ];
+                    if (leftY == null || rightY == null) return null;
+                    const midpoint = bumpTimelinePathMidpoint(
+                      layout.columnXs[connection.pairIndex] ?? 0,
+                      layout.columnXs[connection.pairIndex + 1] ?? 0,
+                      eventBounds(
+                        layout,
+                        connection.pairIndex,
+                        connection.leftIndex!,
+                      ),
+                      eventBounds(
+                        layout,
+                        connection.pairIndex + 1,
+                        connection.rightIndex!,
+                      ),
+                      leftY,
+                      rightY,
+                    );
+                    return (
+                      <MovementBadge
+                        key={`movement:${connection.key}`}
+                        movement={bumpConnectionMovement(connection) ?? 0}
+                        x={midpoint.x}
+                        y={midpoint.y}
+                        lineageKey={connection.lineageKey}
                       />
-                    )}
-                </g>
-              );
-            })}
-            {focusedSegments.map((connection) => {
-              const leftY =
-                connection.leftIndex == null
-                  ? null
-                  : layout.centersByColumn[connection.pairIndex]?.[
-                      connection.leftIndex
-                    ];
-              const rightY =
-                connection.rightIndex == null
-                  ? null
-                  : layout.centersByColumn[connection.pairIndex + 1]?.[
-                      connection.rightIndex
-                    ];
-              if (leftY == null || rightY == null) return null;
-              const midpoint = bumpTimelinePathMidpoint(
-                layout.columnXs[connection.pairIndex] ?? 0,
-                layout.columnXs[connection.pairIndex + 1] ?? 0,
-                eventBounds(
-                  layout,
-                  connection.pairIndex,
-                  connection.leftIndex!,
-                ),
-                eventBounds(
-                  layout,
-                  connection.pairIndex + 1,
-                  connection.rightIndex!,
-                ),
-                leftY,
-                rightY,
-              );
-              return (
-                <MovementBadge
-                  key={`movement:${connection.key}`}
-                  movement={bumpConnectionMovement(connection) ?? 0}
-                  x={midpoint.x}
-                  y={midpoint.y}
-                  lineageKey={connection.lineageKey}
-                />
-              );
-            })}
-          </svg>
-        )}
-        {layout && lineagesWithGaps.length > 0 && (
-          <svg
-            className="bump-chart-svg bump-chart-bridge-svg"
-            viewBox={`0 0 ${layout.width} ${layout.height}`}
-            preserveAspectRatio="none"
-            aria-hidden="true"
-            style={{ width: layout.width, height: layout.height }}
-          >
-            {lineagesWithGaps.flatMap((lineage) =>
-              lineage.gaps.map((gap) => {
-                const fromY =
-                  layout.centersByColumn[gap.fromColumnIndex]?.[
-                    gap.fromItemIndex
-                  ] ?? 0;
-                const toY =
-                  layout.centersByColumn[gap.toColumnIndex]?.[
-                    gap.toItemIndex
-                  ] ?? 0;
-                const fromBounds = eventBounds(
-                  layout,
-                  gap.fromColumnIndex,
-                  gap.fromItemIndex,
-                );
-                const toBounds = eventBounds(
-                  layout,
-                  gap.toColumnIndex,
-                  gap.toItemIndex,
-                );
-                return (
-                  <path
-                    key={`gap:${lineage.key}:${gap.fromColumnIndex}`}
-                    className={[
-                      'bump-chart-lineage-bridge',
-                      focusedKey === lineage.key ? 'is-active' : '',
-                    ]
-                      .filter(Boolean)
-                      .join(' ')}
-                    data-bump-lineage={lineage.key}
-                    d={`M ${
-                      fromBounds
-                        ? fromBounds.right + 45
-                        : (layout.columnXs[gap.fromColumnIndex] ?? 0) + 55
-                    } ${fromY} L ${
-                      toBounds
-                        ? toBounds.left - 45
-                        : (layout.columnXs[gap.toColumnIndex] ?? 0) - 55
-                    } ${toY}`}
-                    style={{
-                      color: BUMP_CHART_COLORS[lineage.colorIndex],
-                    }}
-                  />
-                );
-              }),
-            )}
-          </svg>
-        )}
+                    );
+                  })}
+                </svg>
+              )}
+              {layout && lineagesWithGaps.length > 0 && (
+                <svg
+                  className="bump-chart-svg bump-chart-bridge-svg"
+                  viewBox={`0 0 ${layout.width} ${layout.height}`}
+                  preserveAspectRatio="none"
+                  aria-hidden="true"
+                  style={{ width: layout.width, height: layout.height }}
+                >
+                  {lineagesWithGaps.flatMap((lineage) =>
+                    lineage.gaps.map((gap) => {
+                      const fromY =
+                        layout.centersByColumn[gap.fromColumnIndex]?.[
+                          gap.fromItemIndex
+                        ] ?? 0;
+                      const toY =
+                        layout.centersByColumn[gap.toColumnIndex]?.[
+                          gap.toItemIndex
+                        ] ?? 0;
+                      const fromBounds = eventBounds(
+                        layout,
+                        gap.fromColumnIndex,
+                        gap.fromItemIndex,
+                      );
+                      const toBounds = eventBounds(
+                        layout,
+                        gap.toColumnIndex,
+                        gap.toItemIndex,
+                      );
+                      return (
+                        <path
+                          key={`gap:${lineage.key}:${gap.fromColumnIndex}`}
+                          className={[
+                            'bump-chart-lineage-bridge',
+                            focusedKey === lineage.key ? 'is-active' : '',
+                          ]
+                            .filter(Boolean)
+                            .join(' ')}
+                          data-bump-lineage={lineage.key}
+                          d={`M ${
+                            fromBounds
+                              ? fromBounds.right + 45
+                              : (layout.columnXs[gap.fromColumnIndex] ?? 0) + 55
+                          } ${fromY} L ${
+                            toBounds
+                              ? toBounds.left - 45
+                              : (layout.columnXs[gap.toColumnIndex] ?? 0) - 55
+                          } ${toY}`}
+                          style={{
+                            color: BUMP_CHART_COLORS[lineage.colorIndex],
+                          }}
+                        />
+                      );
+                    }),
+                  )}
+                </svg>
+              )}
+            </div>
+          </div>
+        </div>
+      </DragScroll>
+      <div className="bump-chart-zoom-dock">
+        <BumpChartZoomControl zoom={zoom} onZoomChange={setZoom} />
       </div>
-    </DragScroll>
+    </>
+  );
+}
+
+function BumpChartZoomControl({
+  zoom,
+  onZoomChange,
+}: {
+  zoom: number;
+  onZoomChange: (zoom: number) => void;
+}) {
+  const zoomIcon = (path: string) => (
+    <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
+      <path d={path} />
+    </svg>
+  );
+  return (
+    <div className="bump-chart-zoom" role="group" aria-label="Chart zoom">
+      <button
+        type="button"
+        className="btn bump-chart-zoom-step"
+        title="Zoom out"
+        aria-label="Zoom out"
+        onClick={() => onZoomChange(stepBumpChartZoom(zoom, -1))}
+      >
+        {zoomIcon(BUMP_CHART_ZOOM_OUT_PATH)}
+      </button>
+      <button
+        type="button"
+        className="bump-chart-zoom-value"
+        title="Reset zoom"
+        onClick={() => onZoomChange(BUMP_CHART_DEFAULT_ZOOM)}
+      >
+        {zoom}%
+      </button>
+      <button
+        type="button"
+        className="btn bump-chart-zoom-step"
+        title="Zoom in"
+        aria-label="Zoom in"
+        onClick={() => onZoomChange(stepBumpChartZoom(zoom, 1))}
+      >
+        {zoomIcon(BUMP_CHART_ZOOM_IN_PATH)}
+      </button>
+    </div>
   );
 }
 
@@ -3588,6 +3714,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
     }
     setExportingHtml(true);
     setExportError(null);
+    const restoreZoom = unscaleBumpChartForExport(chartRef.current);
     try {
       exportStandaloneBumpChartHtml(chartRef.current);
     } catch (error) {
@@ -3595,6 +3722,7 @@ export function BumpChartPanel(panelProps: ToolPanelProps) {
         error instanceof Error ? error.message : 'HTML export failed.',
       );
     } finally {
+      restoreZoom();
       setExportingHtml(false);
     }
   };
