@@ -3,6 +3,7 @@ import {
   createStandaloneBumpChartHtml,
   exportStandaloneBumpChartHtml,
 } from '../panels/bumpChartHtmlExport';
+import { BUMP_CHART_ZOOM_DEBOUNCE_MS } from '../panels/bumpChartZoom';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -160,27 +161,39 @@ describe('standalone Bump Chart HTML export', () => {
     if (!script) {
       throw new Error('Standalone chart script was not exported');
     }
-    window.eval(script);
+    vi.useFakeTimers();
+    try {
+      window.eval(script);
 
-    const root = document.querySelector<HTMLElement>(
-      '[data-bump-export-root]',
-    )!;
-    const value = document.querySelector<HTMLButtonElement>(
-      '.bump-chart-zoom-value',
-    )!;
-    const zoomOut = document.querySelector<HTMLButtonElement>(
-      '[title="Zoom out"]',
-    )!;
-    expect(value.textContent).toBe('100%');
+      const root = document.querySelector<HTMLElement>(
+        '[data-bump-export-root]',
+      )!;
+      const value = document.querySelector<HTMLButtonElement>(
+        '.bump-chart-zoom-value',
+      )!;
+      const zoomOut = document.querySelector<HTMLButtonElement>(
+        '[title="Zoom out"]',
+      )!;
+      expect(value.textContent).toBe('100%');
 
-    zoomOut.click();
-    zoomOut.click();
-    expect(value.textContent).toBe('80%');
-    expect(root.style.zoom).toBe('0.8');
+      // The label follows each click; the chart scales once clicking pauses.
+      zoomOut.click();
+      zoomOut.click();
+      expect(value.textContent).toBe('80%');
+      expect(root.style.zoom).toBeFalsy();
+      vi.advanceTimersByTime(BUMP_CHART_ZOOM_DEBOUNCE_MS);
+      expect(root.style.zoom).toBe('0.8');
 
-    value.click();
-    expect(value.textContent).toBe('100%');
-    expect(root.style.zoom).toBe('1');
+      // Reset applies at once and cancels a pending step.
+      zoomOut.click();
+      value.click();
+      expect(value.textContent).toBe('100%');
+      expect(root.style.zoom).toBe('1');
+      vi.advanceTimersByTime(BUMP_CHART_ZOOM_DEBOUNCE_MS);
+      expect(root.style.zoom).toBe('1');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('downloads one HTML file without a backend', () => {

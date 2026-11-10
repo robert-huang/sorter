@@ -1,5 +1,6 @@
 import {
   BUMP_CHART_DEFAULT_ZOOM,
+  BUMP_CHART_ZOOM_DEBOUNCE_MS,
   BUMP_CHART_ZOOM_IN_PATH,
   BUMP_CHART_ZOOM_OUT_PATH,
   BUMP_CHART_ZOOM_STEPS,
@@ -260,7 +261,13 @@ const STANDALONE_CHART_SCRIPT = String.raw`
   percent.type = 'button';
   percent.className = 'bump-chart-zoom-value';
   percent.title = 'Reset zoom';
+  // Steps update the label at once; the chart only relays out once clicking pauses.
+  let shownZoom = zoom;
+  let commitTimer = null;
   const setZoom = (next) => {
+    clearTimeout(commitTimer);
+    commitTimer = null;
+    shownZoom = next;
     const scroller = document.scrollingElement || document.documentElement;
     // keep the viewport's centre point fixed while the chart scales
     const centerX = (scroller.scrollLeft + window.innerWidth / 2) / (zoom / 100);
@@ -274,9 +281,13 @@ const STANDALONE_CHART_SCRIPT = String.raw`
   const step = (direction) => {
     const next =
       direction > 0
-        ? zoomSteps.find((value) => value > zoom)
-        : [...zoomSteps].reverse().find((value) => value < zoom);
-    if (next != null) setZoom(next);
+        ? zoomSteps.find((value) => value > shownZoom)
+        : [...zoomSteps].reverse().find((value) => value < shownZoom);
+    if (next == null) return;
+    shownZoom = next;
+    percent.textContent = next + '%';
+    clearTimeout(commitTimer);
+    commitTimer = setTimeout(() => setZoom(next), ${BUMP_CHART_ZOOM_DEBOUNCE_MS});
   };
   percent.addEventListener('click', () => setZoom(defaultZoom));
   controls.append(

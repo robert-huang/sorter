@@ -81,6 +81,7 @@ import {
 import { exportStandaloneBumpChartHtml } from './bumpChartHtmlExport';
 import {
   BUMP_CHART_DEFAULT_ZOOM,
+  BUMP_CHART_ZOOM_DEBOUNCE_MS,
   BUMP_CHART_ZOOM_IN_PATH,
   BUMP_CHART_ZOOM_OUT_PATH,
   stepBumpChartZoom,
@@ -2565,6 +2566,34 @@ function BumpChartZoomControl({
   zoom: number;
   onZoomChange: (zoom: number) => void;
 }) {
+  // Steps update the label at once; the chart only re-renders once clicking pauses.
+  const [pendingZoom, setPendingZoom] = useState<number | null>(null);
+  const commitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const shownZoom = pendingZoom ?? zoom;
+
+  const cancelPending = useCallback((): void => {
+    if (commitTimer.current) clearTimeout(commitTimer.current);
+    commitTimer.current = null;
+  }, []);
+  useEffect(() => cancelPending, [cancelPending]);
+
+  const step = (direction: 1 | -1): void => {
+    const next = stepBumpChartZoom(shownZoom, direction);
+    setPendingZoom(next);
+    cancelPending();
+    commitTimer.current = setTimeout(() => {
+      commitTimer.current = null;
+      setPendingZoom(null);
+      onZoomChange(next);
+    }, BUMP_CHART_ZOOM_DEBOUNCE_MS);
+  };
+
+  const reset = (): void => {
+    cancelPending();
+    setPendingZoom(null);
+    onZoomChange(BUMP_CHART_DEFAULT_ZOOM);
+  };
+
   const zoomIcon = (path: string) => (
     <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
       <path d={path} />
@@ -2577,7 +2606,7 @@ function BumpChartZoomControl({
         className="btn bump-chart-zoom-step"
         title="Zoom out"
         aria-label="Zoom out"
-        onClick={() => onZoomChange(stepBumpChartZoom(zoom, -1))}
+        onClick={() => step(-1)}
       >
         {zoomIcon(BUMP_CHART_ZOOM_OUT_PATH)}
       </button>
@@ -2585,16 +2614,16 @@ function BumpChartZoomControl({
         type="button"
         className="bump-chart-zoom-value"
         title="Reset zoom"
-        onClick={() => onZoomChange(BUMP_CHART_DEFAULT_ZOOM)}
+        onClick={reset}
       >
-        {zoom}%
+        {shownZoom}%
       </button>
       <button
         type="button"
         className="btn bump-chart-zoom-step"
         title="Zoom in"
         aria-label="Zoom in"
-        onClick={() => onZoomChange(stepBumpChartZoom(zoom, 1))}
+        onClick={() => step(1)}
       >
         {zoomIcon(BUMP_CHART_ZOOM_IN_PATH)}
       </button>

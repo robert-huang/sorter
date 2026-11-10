@@ -4,6 +4,9 @@ export const BUMP_CHART_ZOOM_STEPS = [
 
 export const BUMP_CHART_DEFAULT_ZOOM = 100;
 
+/** Quiet time after the last +/− click before the chart re-renders at the new zoom. */
+export const BUMP_CHART_ZOOM_DEBOUNCE_MS = 250;
+
 // Drawn as SVG because font glyphs for − and + sit below a button's centre.
 export const BUMP_CHART_ZOOM_OUT_PATH = 'M2 6H10';
 export const BUMP_CHART_ZOOM_IN_PATH = 'M2 6H10M6 2V10';

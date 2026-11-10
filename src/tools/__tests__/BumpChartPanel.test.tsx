@@ -45,6 +45,7 @@ import {
 } from '../panels/bumpChartStorage';
 import { _resetBumpChartImageMemoryCacheForTesting } from '../panels/bumpChartImageCache';
 import * as bumpChartMalExportImages from '../panels/bumpChartMalExportImages';
+import { BUMP_CHART_ZOOM_DEBOUNCE_MS } from '../panels/bumpChartZoom';
 
 let container: HTMLDivElement;
 let root: Root;
@@ -1496,11 +1497,22 @@ describe('BumpChartPanel staging flow', () => {
     expect(value?.textContent).toBe('100%');
     expect(scaler?.style.transform).toBe('');
 
-    await act(async () => {
-      container.querySelector<HTMLButtonElement>('[title="Zoom out"]')?.click();
-    });
-    expect(value?.textContent).toBe('90%');
-    expect(scaler?.style.transform).toBe('scale(0.9)');
+    // Rapid steps update the label at once and apply to the chart once clicking pauses.
+    vi.useFakeTimers();
+    try {
+      const zoomOut = container.querySelector<HTMLButtonElement>('[title="Zoom out"]')!;
+      await act(async () => zoomOut.click());
+      await act(async () => zoomOut.click());
+      expect(value?.textContent).toBe('80%');
+      expect(scaler?.style.transform).toBe('');
+      await act(async () => {
+        vi.advanceTimersByTime(BUMP_CHART_ZOOM_DEBOUNCE_MS);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(value?.textContent).toBe('80%');
+    expect(scaler?.style.transform).toBe('scale(0.8)');
 
     await act(async () => {
       container
