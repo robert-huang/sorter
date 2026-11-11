@@ -327,7 +327,7 @@ describe('mass notes mode', () => {
     );
 
     expect(plan.updates).toEqual([
-      { mediaId: 2, notes: 'aa #aired', previousNotes: 'aa #airing', title: null },
+      { mediaId: 2, notes: 'aa #aired', previousNotes: 'aa #airing', title: null, mediaType: null },
     ]);
     expect(plan.stats).toMatchObject({
       examined: 4,

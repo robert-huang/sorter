@@ -85,6 +85,7 @@ describe('updateListEntry', () => {
     executeQueryMock
       .mockResolvedValueOnce({
         Media: {
+          type: 'ANIME',
           title: { userPreferred: 'Hyouka' },
           mediaListEntry: { id: 1, notes: null, status: 'PLANNING', score: 0 },
         },
@@ -104,7 +105,7 @@ describe('updateListEntry', () => {
     });
     expect(result.message).toContain('status');
     expect(result.changes).toEqual([
-      { mediaId: 55, title: 'Hyouka', changes: ['status: PLANNING → CURRENT'] },
+      { mediaId: 55, title: 'Hyouka', mediaType: 'ANIME', changes: ['status: PLANNING → CURRENT'] },
     ]);
   });
 
@@ -188,7 +189,7 @@ describe('updateListEntry', () => {
     expect(result.updatedCount).toBe(1);
     expect(result.message).toContain('Updated notes on 1 entries');
     const expected = [
-      { mediaId: 10, title: 'Ten', changes: ['notes: "aa #airing" → "aa #aired"'] },
+      { mediaId: 10, title: 'Ten', mediaType: 'ANIME', changes: ['notes: "aa #airing" → "aa #aired"'] },
     ];
     expect(result.changes).toEqual(expected);
     expect(reported).toEqual(expected);

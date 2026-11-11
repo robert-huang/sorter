@@ -8,6 +8,7 @@ import type { ToolPanelProps } from '../toolTypes';
 import { ToolClearableInput } from '../ToolClearableInput';
 import { ToolClearableTextarea } from '../ToolClearableTextarea';
 import { ToolRunButton } from '../ToolRunButton';
+import { ToolShowButton } from '../toolEntityLinks';
 import { updateListEntry, massUpdateListEntryNotes } from './updateListEntryApi';
 import {
   MEDIA_LIST_STATUSES,
@@ -83,7 +84,13 @@ function authHintForUsername(username: string): string | null {
 }
 
 /** Entries changed by the last run. Held in component state only, so a reload clears it. */
-function UpdatedEntriesList({ changes }: { changes: readonly ListEntryChange[] }) {
+function UpdatedEntriesList({
+  changes,
+  onOpenMedia,
+}: {
+  changes: readonly ListEntryChange[];
+  onOpenMedia: ToolPanelProps['onOpenMedia'];
+}) {
   if (changes.length === 0) {
     return null;
   }
@@ -95,9 +102,15 @@ function UpdatedEntriesList({ changes }: { changes: readonly ListEntryChange[] }
       <ul>
         {changes.map((entry) => (
           <li key={entry.mediaId}>
-            <span className="tool-update-list-entry-change-title">
-              {entry.title ?? `Media ${entry.mediaId}`}
-            </span>{' '}
+            <ToolShowButton
+              mediaId={entry.mediaId}
+              title={entry.title ?? `Media ${entry.mediaId}`}
+              mediaType={entry.mediaType ?? undefined}
+              onOpenMedia={onOpenMedia}
+              compact
+              hideAvatar
+              className="tool-update-list-entry-change-title"
+            />{' '}
             <span className="tool-update-list-entry-change-id">#{entry.mediaId}</span>
             {entry.changes.map((line) => (
               <div key={line} className="tool-update-list-entry-change-line">
@@ -111,7 +124,7 @@ function UpdatedEntriesList({ changes }: { changes: readonly ListEntryChange[] }
   );
 }
 
-export function UpdateListEntryPanel(_props: ToolPanelProps) {
+export function UpdateListEntryPanel({ onOpenMedia }: ToolPanelProps) {
   const [form, setForm] = useState<UpdateListEntryForm>(() => loadForm());
   const [running, setRunning] = useState(false);
   const [massConfirmPending, setMassConfirmPending] = useState(false);
@@ -390,7 +403,7 @@ export function UpdateListEntryPanel(_props: ToolPanelProps) {
 
       {error && <p className="tool-error">{error}</p>}
       {success && <p className="tool-field-hint">{success}</p>}
-      <UpdatedEntriesList changes={changes} />
+      <UpdatedEntriesList changes={changes} onOpenMedia={onOpenMedia} />
 
     </section>
   );

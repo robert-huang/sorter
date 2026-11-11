@@ -39,6 +39,7 @@ export type UpdateListEntryResult = {
 
 type CurrentListEntry = {
   title: string | null;
+  mediaType: AnilistMediaType | null;
   entry: NonNullable<NonNullable<ListEntryForMediaResponse['Media']>['mediaListEntry']> | null;
 };
 
@@ -54,6 +55,7 @@ async function fetchCurrentListEntry(
   );
   return {
     title: data?.Media?.title?.userPreferred ?? null,
+    mediaType: data?.Media?.type ?? null,
     entry: data?.Media?.mediaListEntry ?? null,
   };
 }
@@ -143,6 +145,7 @@ const LIST_NOTES_PER_CHUNK = 500;
 
 function dedupeListNotesEntries(
   entries: readonly ListNotesCollectionEntry[],
+  mediaType: AnilistMediaType,
 ): ListEntryNotesRow[] {
   const byMediaId = new Map<number, ListEntryNotesRow>();
   for (const entry of entries) {
@@ -155,6 +158,7 @@ function dedupeListNotesEntries(
         mediaId,
         notes: entry.notes ?? null,
         title: entry.media?.title?.userPreferred ?? null,
+        mediaType,
       });
     }
   }
@@ -190,7 +194,7 @@ async function fetchListNotesForType(
     chunk += 1;
   }
 
-  return dedupeListNotesEntries(accumulated);
+  return dedupeListNotesEntries(accumulated, type);
 }
 
 async function fetchAllListNotes(
@@ -264,6 +268,7 @@ async function runMassUpdateListEntryNotes(
     const change: ListEntryChange = {
       mediaId: update.mediaId,
       title: update.title,
+      mediaType: update.mediaType,
       changes: [`notes: ${summarizeTextChange(update.previousNotes, update.notes)}`],
     };
     changes.push(change);
@@ -320,7 +325,7 @@ export async function updateListEntry(
   const current =
     Number.isInteger(mediaId) && mediaId > 0
       ? await fetchCurrentListEntry(mediaId, accessToken, account?.userId)
-      : { title: null, entry: null };
+      : { title: null, mediaType: null, entry: null };
   const currentNotes = current.entry ? (current.entry.notes ?? null) : undefined;
 
   const resolved = validateAndResolveUpdate(form, currentNotes);
@@ -370,6 +375,7 @@ export async function updateListEntry(
       {
         mediaId: resolved.mediaId,
         title: current.title,
+        mediaType: current.mediaType,
         changes: describeSingleEntryChanges(current.entry, resolved.variables),
       },
     ],

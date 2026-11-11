@@ -1,4 +1,7 @@
-import type { AnilistMediaListStatus } from '../../lib/importers/anilist/types';
+import type {
+  AnilistMediaListStatus,
+  AnilistMediaType,
+} from '../../lib/importers/anilist/types';
 import type {
   SaveMediaListEntryMutationField,
   SaveMediaListEntryVariables,
@@ -55,6 +58,7 @@ export type ListEntryNotesRow = {
   mediaId: number;
   notes: string | null;
   title?: string | null;
+  mediaType?: AnilistMediaType;
 };
 
 export type MassNotesUpdate = {
@@ -62,12 +66,14 @@ export type MassNotesUpdate = {
   notes: string;
   previousNotes: string;
   title: string | null;
+  mediaType: AnilistMediaType | null;
 };
 
 /** One updated entry with a short line per changed field, e.g. `status: PLANNING → CURRENT`. */
 export type ListEntryChange = {
   mediaId: number;
   title: string | null;
+  mediaType: AnilistMediaType | null;
   changes: string[];
 };
 
@@ -155,6 +161,7 @@ export function planMassNotesUpdates(
           notes: result.notes,
           previousNotes: previous,
           title: entry.title ?? null,
+          mediaType: entry.mediaType ?? null,
         });
       }
     } else if (result.kind === 'skip') {

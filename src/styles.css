@@ -8390,10 +8390,6 @@ a:where(.anime-to-anime-anilist-link):visited {
   border-bottom: 1px solid var(--border);
 }
 
-.tool-update-list-entry-change-title {
-  font-weight: 600;
-}
-
 .tool-update-list-entry-change-id {
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;

@@ -3,10 +3,13 @@
  * Foundation for Tools list updates (see updateListEntryLogic).
  */
 
+import type { AnilistMediaType } from './types';
+
 /** Viewer-scoped list entry for one media id (requires bearer token). */
 export const LIST_ENTRY_FOR_MEDIA_QUERY = `
 query ListEntryForMedia($mediaId: Int!) {
   Media(id: $mediaId) {
+    type
     title {
       userPreferred
     }
@@ -24,6 +27,7 @@ query ListEntryForMedia($mediaId: Int!) {
 
 export type ListEntryForMediaResponse = {
   Media: {
+    type?: AnilistMediaType | null;
     title?: { userPreferred: string | null } | null;
     mediaListEntry: {
       id: number;
