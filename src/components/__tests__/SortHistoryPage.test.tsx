@@ -200,6 +200,25 @@ describe('SortHistoryPage', () => {
     expect(applied[0]!.createdAt).toBe(new Date('2025-12-24T18:30').toISOString());
   });
 
+  it("marks the staged copy, not the save's own, when a file repeats a version to the millisecond", async () => {
+    const exact = '2026-11-09T18:18:43.154Z';
+    const own: SortVersion = {
+      id: 'vAAAAAAAAAAAAA',
+      createdAt: exact,
+      rankedIds: [A.id, B.id, C.id],
+      items: { [A.id]: { label: A.label }, [B.id]: { label: B.label }, [C.id]: { label: C.label } },
+    };
+    const file = saveFile([A, B, C], 'copy.json', Date.parse('2026-11-10T23:26'), true, exact);
+    act(() => {
+      root.render(<SortHistoryPage versions={[own]} onApply={vi.fn()} onRename={vi.fn()} onClose={vi.fn()} />);
+    });
+    await upload([file]);
+    expect(document.querySelector('[aria-label="Recorded versions"] li.is-duplicate')).toBeNull();
+    expect(
+      document.querySelectorAll('[aria-label="Staged versions"] li.is-duplicate'),
+    ).toHaveLength(1);
+  });
+
   it("stages a file's current ranking once when it matches its newest version", async () => {
     const versionDate = new Date('2026-10-31T00:35').toISOString();
     const file = saveFile([A, B, C], 'matching.json', Date.parse('2026-10-31T00:37'));

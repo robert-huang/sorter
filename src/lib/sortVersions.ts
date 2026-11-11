@@ -329,8 +329,10 @@ export function mergeImportedVersions(
     // Another save's live version is archived history here.
     ...imported.map((v, index) => ({ v: frozenVersion(v), index, imported: true })),
   ];
+  // Compared to the second, the most a date field can edit, so a retyped date still ties.
   // Array.prototype.sort is stable, so equal dates keep existing-before-imported.
-  tagged.sort((a, b) => Date.parse(a.v.createdAt) - Date.parse(b.v.createdAt));
+  const second = (v: SortVersion): number => Math.floor(Date.parse(v.createdAt) / 1000);
+  tagged.sort((a, b) => second(a.v) - second(b.v));
   const versions: SortVersion[] = [];
   const skippedExisting = new Set<number>();
   const skippedImported = new Set<number>();

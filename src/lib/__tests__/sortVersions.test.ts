@@ -250,6 +250,15 @@ describe('mergeImportedVersions', () => {
     expect(result).toMatchObject({ added: 2, skipped: 0 });
   });
 
+  it("keeps the save's copy when an identical import lands in the same second", () => {
+    const own = version([A, B], '2026-11-09T18:18:43.154Z', 'mine');
+    const retyped = version([A, B], '2026-11-09T18:18:43.000Z');
+    const result = mergeImportedVersions([own], [retyped]);
+    expect(result.versions.map((v) => v.createdAt)).toEqual(['2026-11-09T18:18:43.154Z']);
+    expect(result.skippedExisting.size).toBe(0);
+    expect([...result.skippedImported]).toEqual([0]);
+  });
+
   it('drops a version identical to its direct predecessor', () => {
     const result = mergeImportedVersions(
       [version([A, B], T3)],
