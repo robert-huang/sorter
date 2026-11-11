@@ -490,6 +490,7 @@ export function SortHistoryPage({
               );
               const expanded = expandedId === version.id;
               const isDuplicate = duplicates.existing.has(version.id);
+              const name = (nameDrafts[version.id] ?? version.name ?? "").trim();
               return (
                 <li
                   key={version.id}
@@ -500,7 +501,7 @@ export function SortHistoryPage({
                     className="sort-history-version-name"
                     value={nameDrafts[version.id] ?? version.name ?? ""}
                     placeholder={fullDate}
-                    title={fullDate}
+                    title={name ? `${name}\n\n${fullDate}` : fullDate}
                     maxLength={80}
                     disabled={isDeleted}
                     aria-label={`Name for version from ${label}`}
