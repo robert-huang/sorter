@@ -76,7 +76,7 @@ export function DateTimeField({ value, onChange, label, disabled = false, compac
         className={`date-time-field-text${invalid ? ' is-invalid' : ''}`}
         aria-label={`${label} text`}
         aria-invalid={invalid}
-        placeholder="YYYY-MM-DD HH:MM"
+        placeholder="YYYY-MM-DD HH:MM:SS"
         value={text}
         autoFocus
         onFocus={(e) => e.target.select()}
@@ -89,6 +89,7 @@ export function DateTimeField({ value, onChange, label, disabled = false, compac
         aria-label={label}
         // Out of the tab order so Tab leaves the field and commits the typed text.
         tabIndex={-1}
+        step={1}
         value={value}
         onChange={(e) => {
           if (!e.target.value) return;

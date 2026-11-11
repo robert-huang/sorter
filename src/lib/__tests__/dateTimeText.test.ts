@@ -20,9 +20,11 @@ describe('parseDateTimeText', () => {
     expect(parseDateTimeText(' 2026/1/5 ')).toBe('2026-01-05T00:00');
   });
 
-  it('accepts a time, dropping any seconds', () => {
+  it('accepts a time, keeping seconds when not 0', () => {
     expect(parseDateTimeText('2026-01-05 14:30')).toBe('2026-01-05T14:30');
-    expect(parseDateTimeText('2026-01-05T14:30:15')).toBe('2026-01-05T14:30');
+    expect(parseDateTimeText('2026-01-05T14:30:15')).toBe('2026-01-05T14:30:15');
+    expect(parseDateTimeText('2026-01-05 00:00:01')).toBe('2026-01-05T00:00:01');
+    expect(parseDateTimeText('2026-01-05 14:30:00')).toBe('2026-01-05T14:30');
   });
 
   it('accepts compact YYYYMMDD with an optional time', () => {
@@ -48,8 +50,10 @@ describe('parseDateTimeText', () => {
 });
 
 describe('toDateTimeLocal / formatDateTimeLocal', () => {
-  it('keeps minute precision and formats with a space', () => {
-    expect(toDateTimeLocal(new Date(2026, 0, 5, 9, 7, 3))).toBe('2026-01-05T09:07');
-    expect(formatDateTimeLocal('2026-01-05T09:07:03')).toBe('2026-01-05 09:07');
+  it('keeps seconds only when set, and formats with a space', () => {
+    expect(toDateTimeLocal(new Date(2026, 0, 5, 9, 7, 3))).toBe('2026-01-05T09:07:03');
+    expect(toDateTimeLocal(new Date(2026, 0, 5, 9, 7, 0))).toBe('2026-01-05T09:07');
+    expect(formatDateTimeLocal('2026-01-05T09:07:03')).toBe('2026-01-05 09:07:03');
+    expect(formatDateTimeLocal('2026-01-05T09:07')).toBe('2026-01-05 09:07');
   });
 });

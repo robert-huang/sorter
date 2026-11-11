@@ -441,6 +441,22 @@ html {
   white-space: nowrap;
 }
 
+/* Text and an invisible copy of the widest count share one grid cell, so every
+   row's count is as wide as the widest one. */
+.sort-history-import-count.is-column {
+  display: inline-grid;
+  justify-items: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.sort-history-import-count.is-column > * {
+  grid-area: 1 / 1;
+}
+
+.sort-history-count-sizer {
+  visibility: hidden;
+}
+
 /* Keeps rows without a delete button aligned with those that have one. */
 .sort-history-import-action-spacer {
   flex: 0 0 auto;

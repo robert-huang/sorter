@@ -1,19 +1,20 @@
 const pad2 = (n: number): string => String(n).padStart(2, '0');
 
-/** Local `datetime-local` value to the minute (`YYYY-MM-DDTHH:MM`). */
+/** Local `datetime-local` value (`YYYY-MM-DDTHH:MM`, plus `:SS` when seconds aren't 0). */
 export function toDateTimeLocal(date: Date): string {
-  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}T${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+  const minute = `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}T${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+  return date.getSeconds() ? `${minute}:${pad2(date.getSeconds())}` : minute;
 }
 
-/** `YYYY-MM-DD HH:MM` for display and editing. */
+/** `YYYY-MM-DD HH:MM` (plus `:SS` when the value has seconds) for display and editing. */
 export function formatDateTimeLocal(value: string): string {
-  return value.replace('T', ' ').slice(0, 16);
+  return value.replace('T', ' ').slice(0, 19);
 }
 
 /** Local `YYYY-MM-DD HH:MM:SS` for an ISO timestamp. */
 export function formatDateTimeSeconds(iso: string): string {
   const date = new Date(iso);
-  return `${formatDateTimeLocal(toDateTimeLocal(date))}:${pad2(date.getSeconds())}`;
+  return `${formatDateTimeLocal(toDateTimeLocal(date)).slice(0, 16)}:${pad2(date.getSeconds())}`;
 }
 
 const DATE_TIME_RE =
@@ -22,9 +23,9 @@ const DATE_TIME_RE =
 const COMPACT_DATE_TIME_RE = /^(\d{4})(\d{2})(\d{2})(?:[ T]?(\d{2}):?(\d{2}))?$/;
 
 /**
- * Parses typed local date/time text into a minute-precision `datetime-local` value, or
- * null when it is not a real date/time. A date alone means midnight; seconds are dropped.
- * e.g. "2026-1-5" → "2026-01-05T00:00", "2026-01-05 14:30:15" → "2026-01-05T14:30",
+ * Parses typed local date/time text into a `datetime-local` value, or null when it is not
+ * a real date/time. A date alone means midnight; seconds are kept when not 0.
+ * e.g. "2026-1-5" → "2026-01-05T00:00", "2026-01-05 14:30:15" → "2026-01-05T14:30:15",
  * "20261030" → "2026-10-30T00:00", "20261030 1430" → "2026-10-30T14:30".
  */
 export function parseDateTimeText(text: string): string | null {

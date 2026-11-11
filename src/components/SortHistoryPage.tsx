@@ -133,7 +133,11 @@ function stagedSourceVersions(rows: readonly StagedSource[]): SortVersion[] {
     ...row.nested,
     {
       ...row.snapshot,
-      createdAt: fromDateTimeLocal(row.date, row.snapshot.createdAt),
+      // An untouched date keeps its exact timestamp, milliseconds included.
+      createdAt:
+        row.date === isoToLocal(row.snapshot.createdAt)
+          ? row.snapshot.createdAt
+          : fromDateTimeLocal(row.date, row.snapshot.createdAt),
     },
   ]);
 }
@@ -313,6 +317,14 @@ export function SortHistoryPage({
           prev: i > 0 ? versions[i - 1]! : null,
         }))
         .reverse(),
+    [versions],
+  );
+  // Longest count text; every count cell reserves its width so the column lines up.
+  const widestCount = useMemo(
+    () =>
+      versions
+        .map((v) => plural(v.rankedIds.length, "item"))
+        .reduce((widest, text) => (text.length > widest.length ? text : widest), ""),
     [versions],
   );
   const sortedStaged = useMemo(
@@ -534,8 +546,11 @@ export function SortHistoryPage({
                     compact
                     onChange={(next) => editExistingDate(version, next)}
                   />
-                  <span className="sort-history-import-count">
-                    {plural(version.rankedIds.length, "item")}
+                  <span className="sort-history-import-count is-column">
+                    <span>{plural(version.rankedIds.length, "item")}</span>
+                    <span className="sort-history-count-sizer" aria-hidden="true">
+                      {widestCount}
+                    </span>
                   </span>
                   <button
                     type="button"
