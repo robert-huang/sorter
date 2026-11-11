@@ -189,26 +189,30 @@ export function planMassNotesUpdates(
   };
 }
 
-export function formatMassNotesSuccessMessage(stats: MassNotesPlan['stats']): string {
-  if (stats.updated === 0) {
-    const skipped =
-      stats.skippedBlankOnly + stats.skippedFindNotFound + stats.unchanged;
-    if (skipped === 0) {
-      return 'No list entries found to update.';
-    }
-    return `No list entries updated (${stats.examined} examined).`;
-  }
+function plural(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
 
-  const skipParts: string[] = [];
-  if (stats.skippedBlankOnly > 0) {
-    skipParts.push(`${stats.skippedBlankOnly} blank-only`);
+/** e.g. `Updated notes on 3 of 10 entries · 4 had no match · 2 already had notes`; zero counts are left out. */
+export function formatMassNotesSuccessMessage(stats: MassNotesPlan['stats']): string {
+  if (stats.examined === 0) {
+    return 'No list entries found to update.';
   }
+  const parts = [
+    stats.updated === 0
+      ? `No notes updated (${plural(stats.examined, 'entry', 'entries')} checked)`
+      : `Updated notes on ${stats.updated} of ${plural(stats.examined, 'entry', 'entries')}`,
+  ];
   if (stats.skippedFindNotFound > 0) {
-    skipParts.push(`${stats.skippedFindNotFound} find not found`);
+    parts.push(`${stats.skippedFindNotFound} had no match`);
   }
-  const skipSuffix =
-    skipParts.length > 0 ? `; skipped: ${skipParts.join(', ')}` : '';
-  return `Updated notes on ${stats.updated} entries (${stats.examined} examined${skipSuffix}).`;
+  if (stats.skippedBlankOnly > 0) {
+    parts.push(`${stats.skippedBlankOnly} already had notes`);
+  }
+  if (stats.unchanged > 0) {
+    parts.push(`${stats.unchanged} unchanged`);
+  }
+  return parts.join(' · ');
 }
 
 /**
@@ -256,7 +260,7 @@ export function skippedNotesMessage(reason: NotesResolveResult): string | null {
   }
   switch (reason.reason) {
     case 'find-not-found':
-      return 'Notes skipped (find string not found).';
+      return 'Notes skipped (no match for the Find text).';
     case 'blank-only':
       return 'Notes skipped (entry already has notes; blank-only mode).';
     case 'not-on-list':

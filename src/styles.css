@@ -8366,6 +8366,10 @@ a:where(.anime-to-anime-anilist-link):visited {
   margin: -4px 0 0;
 }
 
+.tool-update-list-entry-result {
+  margin-top: 12px;
+}
+
 .tool-update-list-entry-changes {
   margin-top: 8px;
   font-size: 13px;

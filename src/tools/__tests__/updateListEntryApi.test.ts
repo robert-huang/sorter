@@ -126,7 +126,7 @@ describe('updateListEntry', () => {
     });
 
     expect(executeQueryMock).toHaveBeenCalledTimes(2);
-    expect(result.message).toContain('find string not found');
+    expect(result.message).toContain('no match for the Find text');
     expect(result.message).toContain('status');
   });
 
@@ -187,7 +187,7 @@ describe('updateListEntry', () => {
       notes: 'aa #aired',
     });
     expect(result.updatedCount).toBe(1);
-    expect(result.message).toContain('Updated notes on 1 entries');
+    expect(result.message).toBe('Updated notes on 1 of 2 entries · 1 had no match');
     const expected = [
       { mediaId: 10, title: 'Ten', mediaType: 'ANIME', changes: ['notes: "aa #airing" → "aa #aired"'] },
     ];

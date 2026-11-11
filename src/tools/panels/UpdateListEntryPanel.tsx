@@ -401,8 +401,8 @@ export function UpdateListEntryPanel({ onOpenMedia }: ToolPanelProps) {
         </div>
       </form>
 
-      {error && <p className="tool-error">{error}</p>}
-      {success && <p className="tool-field-hint">{success}</p>}
+      {error && <p className="tool-error tool-update-list-entry-result">{error}</p>}
+      {success && <p className="tool-field-hint tool-update-list-entry-result">{success}</p>}
       <UpdatedEntriesList changes={changes} onOpenMedia={onOpenMedia} />
 
     </section>

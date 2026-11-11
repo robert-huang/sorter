@@ -222,7 +222,7 @@ describe('validateAndResolveUpdate', () => {
       throw new Error('expected success');
     }
     expect(result.mutationFields).toEqual(['status']);
-    expect(result.skippedNotesReason).toContain('find string not found');
+    expect(result.skippedNotesReason).toContain('no match for the Find text');
   });
 
   it('errors when notes-only update and media not on list', () => {
@@ -251,8 +251,8 @@ describe('validateAndResolveUpdate', () => {
 
 describe('formatUpdateSuccessMessage', () => {
   it('combines applied fields and skip reason', () => {
-    expect(formatUpdateSuccessMessage(['status'], 'Notes skipped (find string not found).')).toBe(
-      'Updated: status. Notes skipped (find string not found).',
+    expect(formatUpdateSuccessMessage(['status'], 'Notes skipped (no match for the Find text).')).toBe(
+      'Updated: status. Notes skipped (no match for the Find text).',
     );
   });
 });
@@ -347,7 +347,7 @@ describe('mass notes mode', () => {
         unchanged: 1,
       }),
     ).toBe(
-      'Updated notes on 3 entries (10 examined; skipped: 2 blank-only, 4 find not found).',
+      'Updated notes on 3 of 10 entries · 4 had no match · 2 already had notes · 1 unchanged',
     );
   });
 });
