@@ -81,20 +81,31 @@ describe('updateListEntry', () => {
     ).rejects.toThrow(AnilistAuthRequiredError);
   });
 
-  it('mutates status without fetching notes', async () => {
-    executeQueryMock.mockResolvedValueOnce({
-      SaveMediaListEntry: { id: 1, status: 'CURRENT' },
-    });
+  it('reads the entry, mutates status, and reports the before and after', async () => {
+    executeQueryMock
+      .mockResolvedValueOnce({
+        Media: {
+          title: { userPreferred: 'Hyouka' },
+          mediaListEntry: { id: 1, notes: null, status: 'PLANNING', score: 0 },
+        },
+      })
+      .mockResolvedValueOnce({
+        SaveMediaListEntry: { id: 1, status: 'CURRENT' },
+      });
 
     const result = await updateListEntry({ ...BASE_FORM, status: 'CURRENT' });
 
-    expect(executeQueryMock).toHaveBeenCalledTimes(1);
-    expect(executeQueryMock.mock.calls[0]?.[0]).toContain('SaveMediaListEntry');
-    expect(executeQueryMock.mock.calls[0]?.[1]).toMatchObject({
+    expect(executeQueryMock).toHaveBeenCalledTimes(2);
+    expect(executeQueryMock.mock.calls[0]?.[0]).toContain('ListEntryForMedia');
+    expect(executeQueryMock.mock.calls[1]?.[0]).toContain('SaveMediaListEntry');
+    expect(executeQueryMock.mock.calls[1]?.[1]).toMatchObject({
       mediaId: 55,
       status: 'CURRENT',
     });
     expect(result.message).toContain('status');
+    expect(result.changes).toEqual([
+      { mediaId: 55, title: 'Hyouka', changes: ['status: PLANNING → CURRENT'] },
+    ]);
   });
 
   it('fetches notes then skips when find not found but updates status', async () => {
@@ -119,9 +130,11 @@ describe('updateListEntry', () => {
   });
 
   it('patches local db after successful mutation', async () => {
-    executeQueryMock.mockResolvedValueOnce({
-      SaveMediaListEntry: { id: 1, scoreRaw: 90 },
-    });
+    executeQueryMock
+      .mockResolvedValueOnce({ Media: { mediaListEntry: { id: 1, notes: null } } })
+      .mockResolvedValueOnce({
+        SaveMediaListEntry: { id: 1, scoreRaw: 90 },
+      });
 
     await updateListEntry({ ...BASE_FORM, score: '90' });
 
@@ -138,7 +151,7 @@ describe('updateListEntry', () => {
           lists: [
             {
               entries: [
-                { notes: 'aa #airing', media: { id: 10 } },
+                { notes: 'aa #airing', media: { id: 10, title: { userPreferred: 'Ten' } } },
                 { notes: 'plain', media: { id: 11 } },
               ],
             },
@@ -155,11 +168,16 @@ describe('updateListEntry', () => {
         SaveMediaListEntry: { id: 1, notes: 'aa #aired' },
       });
 
-    const result = await massUpdateListEntryNotes({
-      ...BASE_FORM,
-      notesFind: '#airing',
-      notesReplace: '#aired',
-    });
+    const reported: unknown[] = [];
+    const result = await massUpdateListEntryNotes(
+      {
+        ...BASE_FORM,
+        notesFind: '#airing',
+        notesReplace: '#aired',
+      },
+      undefined,
+      (change) => reported.push(change),
+    );
 
     expect(executeQueryMock).toHaveBeenCalledTimes(3);
     expect(executeQueryMock.mock.calls[0]?.[0]).toContain('ListNotesCollection');
@@ -169,6 +187,11 @@ describe('updateListEntry', () => {
     });
     expect(result.updatedCount).toBe(1);
     expect(result.message).toContain('Updated notes on 1 entries');
+    const expected = [
+      { mediaId: 10, title: 'Ten', changes: ['notes: "aa #airing" → "aa #aired"'] },
+    ];
+    expect(result.changes).toEqual(expected);
+    expect(reported).toEqual(expected);
   });
 
   it('updateListEntry does not mass-update when media id is empty', async () => {

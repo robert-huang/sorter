@@ -54,12 +54,27 @@ export type ResolvedListEntryUpdate = {
 export type ListEntryNotesRow = {
   mediaId: number;
   notes: string | null;
+  title?: string | null;
+};
+
+export type MassNotesUpdate = {
+  mediaId: number;
+  notes: string;
+  previousNotes: string;
+  title: string | null;
+};
+
+/** One updated entry with a short line per changed field, e.g. `status: PLANNING → CURRENT`. */
+export type ListEntryChange = {
+  mediaId: number;
+  title: string | null;
+  changes: string[];
 };
 
 export type MassNotesPlan = {
   kind: 'mass-notes';
   notesInput: NotesUpdateInput;
-  updates: Array<{ mediaId: number; notes: string }>;
+  updates: MassNotesUpdate[];
   stats: {
     examined: number;
     updated: number;
@@ -123,7 +138,7 @@ export function planMassNotesUpdates(
   entries: readonly ListEntryNotesRow[],
   notesInput: NotesUpdateInput,
 ): MassNotesPlan {
-  const updates: Array<{ mediaId: number; notes: string }> = [];
+  const updates: MassNotesUpdate[] = [];
   let skippedBlankOnly = 0;
   let skippedFindNotFound = 0;
   let unchanged = 0;
@@ -135,7 +150,12 @@ export function planMassNotesUpdates(
       if (result.notes === previous) {
         unchanged += 1;
       } else {
-        updates.push({ mediaId: entry.mediaId, notes: result.notes });
+        updates.push({
+          mediaId: entry.mediaId,
+          notes: result.notes,
+          previousNotes: previous,
+          title: entry.title ?? null,
+        });
       }
     } else if (result.kind === 'skip') {
       if (result.reason === 'blank-only') {
@@ -350,6 +370,75 @@ export function validateAndResolveUpdate(
     appliedLabels,
     skippedNotesReason,
   };
+}
+
+const CHANGE_CONTEXT_CHARS = 12;
+const CHANGE_SEGMENT_CHARS = 40;
+
+function clip(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+function showText(text: string): string {
+  return text ? `"${text.replace(/\n/g, '⏎')}"` : '(empty)';
+}
+
+/** Moves `index` back to the start of its word, so context never opens mid-word. */
+function wordStartAtOrBefore(text: string, index: number): number {
+  let i = Math.max(0, index);
+  while (i > 0 && !/\s/.test(text[i - 1])) {
+    i -= 1;
+  }
+  return i;
+}
+
+/** Moves `index` forward to the end of its word, never before `min`. */
+function wordEndAtOrAfter(text: string, index: number, min: number): number {
+  let i = Math.max(min, Math.min(index, text.length));
+  while (i < text.length && !/\s/.test(text[i])) {
+    i += 1;
+  }
+  return i;
+}
+
+/**
+ * Only the differing middle of two strings, with a little context either side.
+ * e.g. `"…nice show #adaptation"` → `"…nice show #redux"`.
+ */
+export function summarizeTextChange(before: string, after: string): string {
+  let start = 0;
+  while (start < before.length && start < after.length && before[start] === after[start]) {
+    start += 1;
+  }
+  let end = 0;
+  while (
+    end < before.length - start &&
+    end < after.length - start &&
+    before[before.length - 1 - end] === after[after.length - 1 - end]
+  ) {
+    end += 1;
+  }
+  const from = wordStartAtOrBefore(before, start - CHANGE_CONTEXT_CHARS);
+  const lead = from > 0 ? '…' : '';
+  const side = (text: string): string => {
+    const stop = text.length - end;
+    const tailEnd = wordEndAtOrAfter(text, stop + CHANGE_CONTEXT_CHARS, stop);
+    const tail = text.slice(stop, tailEnd);
+    const trail = tailEnd < text.length ? '…' : '';
+    const middle = clip(text.slice(start, stop), CHANGE_SEGMENT_CHARS);
+    return showText(text ? `${lead}${text.slice(from, start)}${middle}${tail}${trail}` : '');
+  };
+  return `${side(before)} → ${side(after)}`;
+}
+
+export function describeFieldChange(
+  label: string,
+  before: string | number | null | undefined,
+  after: string | number | null | undefined,
+): string {
+  const show = (value: string | number | null | undefined): string =>
+    value == null || value === '' ? '(none)' : String(value);
+  return `${label}: ${show(before)} → ${show(after)}`;
 }
 
 export function formatUpdateSuccessMessage(

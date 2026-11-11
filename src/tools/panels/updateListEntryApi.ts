@@ -11,18 +11,21 @@ import {
   type ListNotesCollectionEntry,
   type ListNotesCollectionResponse,
   type SaveMediaListEntryResponse,
+  type SaveMediaListEntryVariables,
 } from '../../lib/importers/anilist/listMutations';
 import { getAnilistUserByName } from '../../lib/importers/anilist/readQueries';
 import { sessionMemoDelete } from '../../lib/importers/anilist/toolsSessionMemo';
 import { getToolsImportContext } from '../../lib/importers/anilist/toolsImportContext';
 import type { AnilistMediaType } from '../../lib/importers/anilist/types';
 import {
+  describeFieldChange,
   formatMassNotesSuccessMessage,
   formatUpdateSuccessMessage,
   planMassNotesUpdates,
+  summarizeTextChange,
   validateAndResolveUpdate,
   validateMassNotesMode,
-  wantsNotesUpdate,
+  type ListEntryChange,
   type ListEntryNotesRow,
   type UpdateListEntryForm,
 } from './updateListEntryLogic';
@@ -31,23 +34,53 @@ export type UpdateListEntryResult = {
   message: string;
   mediaId?: number;
   updatedCount?: number;
+  changes: ListEntryChange[];
 };
 
-async function fetchCurrentListEntryNotes(
+type CurrentListEntry = {
+  title: string | null;
+  entry: NonNullable<NonNullable<ListEntryForMediaResponse['Media']>['mediaListEntry']> | null;
+};
+
+async function fetchCurrentListEntry(
   mediaId: number,
   accessToken: string,
   authFailureUserId: number | undefined,
-): Promise<string | null | undefined> {
+): Promise<CurrentListEntry> {
   const ctx = makeAnilistImportContext({ accessToken, authFailureUserId });
   const data = await ctx.executeQuery<ListEntryForMediaResponse>(
     LIST_ENTRY_FOR_MEDIA_QUERY,
     { mediaId },
   );
-  const entry = data?.Media?.mediaListEntry;
-  if (!entry) {
-    return undefined;
+  return {
+    title: data?.Media?.title?.userPreferred ?? null,
+    entry: data?.Media?.mediaListEntry ?? null,
+  };
+}
+
+function describeSingleEntryChanges(
+  before: CurrentListEntry['entry'],
+  variables: SaveMediaListEntryVariables,
+): string[] {
+  const changes: string[] = [];
+  if (variables.status !== undefined) {
+    changes.push(describeFieldChange('status', before?.status, variables.status));
   }
-  return entry.notes ?? null;
+  if (variables.progress !== undefined) {
+    changes.push(describeFieldChange('progress', before?.progress, variables.progress));
+  }
+  if (variables.progressVolumes !== undefined) {
+    changes.push(
+      describeFieldChange('progress volumes', before?.progressVolumes, variables.progressVolumes),
+    );
+  }
+  if (variables.scoreRaw !== undefined) {
+    changes.push(describeFieldChange('score', before?.score, variables.scoreRaw));
+  }
+  if (variables.notes !== undefined) {
+    changes.push(`notes: ${summarizeTextChange(before?.notes ?? '', variables.notes ?? '')}`);
+  }
+  return changes;
 }
 
 async function patchLocalListEntry(
@@ -121,6 +154,7 @@ function dedupeListNotesEntries(
       byMediaId.set(mediaId, {
         mediaId,
         notes: entry.notes ?? null,
+        title: entry.media?.title?.userPreferred ?? null,
       });
     }
   }
@@ -178,12 +212,16 @@ async function fetchAllListNotes(
   return [...byMediaId.values()];
 }
 
+/** Called after each entry saves, so a run that fails midway still reports what it changed. */
+export type OnEntryUpdated = (change: ListEntryChange) => void;
+
 async function runMassUpdateListEntryNotes(
   form: UpdateListEntryForm,
   username: string,
   accessToken: string,
   authFailureUserId: number | undefined,
   signal?: AbortSignal,
+  onEntryUpdated?: OnEntryUpdated,
 ): Promise<UpdateListEntryResult> {
   const validated = validateMassNotesMode(form);
   if (validated.kind === 'validation') {
@@ -203,10 +241,12 @@ async function runMassUpdateListEntryNotes(
     return {
       message: formatMassNotesSuccessMessage(plan.stats),
       updatedCount: 0,
+      changes: [],
     };
   }
 
   const ctx = makeAnilistImportContext({ accessToken, authFailureUserId });
+  const changes: ListEntryChange[] = [];
   for (const update of plan.updates) {
     signal?.throwIfAborted();
     const mutation = buildSaveMediaListEntryMutation(
@@ -221,17 +261,26 @@ async function runMassUpdateListEntryNotes(
       throw new Error(`AniList did not return an updated list entry for media ${update.mediaId}.`);
     }
     await patchLocalListEntry(username, update.mediaId, { notes: update.notes });
+    const change: ListEntryChange = {
+      mediaId: update.mediaId,
+      title: update.title,
+      changes: [`notes: ${summarizeTextChange(update.previousNotes, update.notes)}`],
+    };
+    changes.push(change);
+    onEntryUpdated?.(change);
   }
 
   return {
     message: formatMassNotesSuccessMessage(plan.stats),
     updatedCount: plan.stats.updated,
+    changes,
   };
 }
 
 export async function massUpdateListEntryNotes(
   form: UpdateListEntryForm,
   signal?: AbortSignal,
+  onEntryUpdated?: OnEntryUpdated,
 ): Promise<UpdateListEntryResult> {
   signal?.throwIfAborted();
 
@@ -249,6 +298,7 @@ export async function massUpdateListEntryNotes(
     accessToken,
     account?.userId,
     signal,
+    onEntryUpdated,
   );
 }
 
@@ -266,15 +316,12 @@ export async function updateListEntry(
   const account = findAnilistAccountByName(username);
   const accessToken = requireAccessTokenForUsername(username);
 
-  const notesInput = { find: form.notesFind, replace: form.notesReplace };
-  let currentNotes: string | null | undefined;
-  if (wantsNotesUpdate(notesInput)) {
-    currentNotes = await fetchCurrentListEntryNotes(
-      Number(form.mediaId.trim()),
-      accessToken,
-      account?.userId,
-    );
-  }
+  const mediaId = Number(form.mediaId.trim());
+  const current =
+    Number.isInteger(mediaId) && mediaId > 0
+      ? await fetchCurrentListEntry(mediaId, accessToken, account?.userId)
+      : { title: null, entry: null };
+  const currentNotes = current.entry ? (current.entry.notes ?? null) : undefined;
 
   const resolved = validateAndResolveUpdate(form, currentNotes);
   if (resolved.kind === 'validation') {
@@ -319,6 +366,13 @@ export async function updateListEntry(
   return {
     mediaId: resolved.mediaId,
     message: formatUpdateSuccessMessage(resolved.appliedLabels, resolved.skippedNotesReason),
+    changes: [
+      {
+        mediaId: resolved.mediaId,
+        title: current.title,
+        changes: describeSingleEntryChanges(current.entry, resolved.variables),
+      },
+    ],
   };
 }
 

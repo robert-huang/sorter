@@ -981,6 +981,8 @@ Authenticated `SaveMediaListEntry` for **one media id** at a time. Only fields y
 | **Score** | 0–100 integer, or blank to skip. |
 | **Notes find / replace** | mass_tagger-style: empty find + replace sets notes only when current notes are blank; `find = *` replaces entire notes; non-empty find does first match replace (skip if not found). Applies to **Update** (one media id) or **Mass Update Notes** (whole list — click twice to confirm). Both fields are multi-line textareas with a hover × to clear; type real line breaks with Enter (a literal `\n` is not interpreted). |
 
+After each run an **N entries updated** list shows every changed entry by title and media id, with one line per field (`status: PLANNING → CURRENT`; notes show just the edited words with a little context, e.g. `"…great ending #adaptation #fav" → "…great ending #redux #fav"`). Mass runs fill it in as each entry saves, so a run that fails partway still shows what it changed. It lives only in the page, so a reload or the next run clears it.
+
 On success the local `media_list_entry` row is patched and the seasonal-scores session cache for that user is busted so the next chart run reflects the change. Incremental DB edits bump the pending-changes counter — manual Push if cloud backup is enabled.
 
 ## Cloud backup (optional, opt-in per slot)

@@ -8366,6 +8366,44 @@ a:where(.anime-to-anime-anilist-link):visited {
   margin: -4px 0 0;
 }
 
+.tool-update-list-entry-changes {
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.tool-update-list-entry-changes summary {
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+/* Mass runs can touch hundreds of entries; scroll instead of growing the page. */
+.tool-update-list-entry-changes ul {
+  max-height: 320px;
+  overflow-y: auto;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tool-update-list-entry-changes li {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.tool-update-list-entry-change-title {
+  font-weight: 600;
+}
+
+.tool-update-list-entry-change-id {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.tool-update-list-entry-change-line {
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
 .tool-update-list-entry-actions {
   grid-column: 2;
   margin-top: 4px;

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { buildSaveMediaListEntryMutation } from '../../lib/importers/anilist/listMutations';
 import {
+  describeFieldChange,
+  summarizeTextChange,
   formatMassNotesSuccessMessage,
   formatUpdateSuccessMessage,
   planMassNotesUpdates,
@@ -325,7 +327,7 @@ describe('mass notes mode', () => {
     );
 
     expect(plan.updates).toEqual([
-      { mediaId: 2, notes: 'aa #aired' },
+      { mediaId: 2, notes: 'aa #aired', previousNotes: 'aa #airing', title: null },
     ]);
     expect(plan.stats).toMatchObject({
       examined: 4,
@@ -347,5 +349,28 @@ describe('mass notes mode', () => {
     ).toBe(
       'Updated notes on 3 entries (10 examined; skipped: 2 blank-only, 4 find not found).',
     );
+  });
+});
+
+describe('change summaries', () => {
+  it('shows only the edited part of long notes, with context', () => {
+    expect(
+      summarizeTextChange(
+        'watched with friends, great ending #adaptation #fav',
+        'watched with friends, great ending #redux #fav',
+      ),
+    ).toBe('"…great ending #adaptation #fav" → "…great ending #redux #fav"');
+  });
+
+  it('shows short notes whole and marks empty and multi-line notes', () => {
+    expect(summarizeTextChange('', '#redux')).toBe('(empty) → "#redux"');
+    expect(summarizeTextChange('a\nb', 'a\nc')).toBe('"a⏎b" → "a⏎c"');
+  });
+
+  it('describes field changes, with (none) for unset values', () => {
+    expect(describeFieldChange('status', 'PLANNING', 'CURRENT')).toBe(
+      'status: PLANNING → CURRENT',
+    );
+    expect(describeFieldChange('progress', null, 3)).toBe('progress: (none) → 3');
   });
 });

@@ -12,6 +12,7 @@ import { updateListEntry, massUpdateListEntryNotes } from './updateListEntryApi'
 import {
   MEDIA_LIST_STATUSES,
   wantsNotesUpdate,
+  type ListEntryChange,
   type UpdateListEntryForm,
 } from './updateListEntryLogic';
 
@@ -81,12 +82,42 @@ function authHintForUsername(username: string): string | null {
   return `Signed in as @${account.userName}.`;
 }
 
+/** Entries changed by the last run. Held in component state only, so a reload clears it. */
+function UpdatedEntriesList({ changes }: { changes: readonly ListEntryChange[] }) {
+  if (changes.length === 0) {
+    return null;
+  }
+  return (
+    <details className="tool-update-list-entry-changes" open>
+      <summary>
+        {changes.length === 1 ? '1 entry updated' : `${changes.length} entries updated`}
+      </summary>
+      <ul>
+        {changes.map((entry) => (
+          <li key={entry.mediaId}>
+            <span className="tool-update-list-entry-change-title">
+              {entry.title ?? `Media ${entry.mediaId}`}
+            </span>{' '}
+            <span className="tool-update-list-entry-change-id">#{entry.mediaId}</span>
+            {entry.changes.map((line) => (
+              <div key={line} className="tool-update-list-entry-change-line">
+                {line}
+              </div>
+            ))}
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
 export function UpdateListEntryPanel(_props: ToolPanelProps) {
   const [form, setForm] = useState<UpdateListEntryForm>(() => loadForm());
   const [running, setRunning] = useState(false);
   const [massConfirmPending, setMassConfirmPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [changes, setChanges] = useState<ListEntryChange[]>([]);
   const [authRevision, setAuthRevision] = useState(0);
 
   useEffect(() => {
@@ -123,10 +154,12 @@ export function UpdateListEntryPanel(_props: ToolPanelProps) {
       setRunning(true);
       setError(null);
       setSuccess(null);
+      setChanges([]);
       setMassConfirmPending(false);
       try {
         const result = await updateListEntry(form);
         setSuccess(result.message);
+        setChanges(result.changes);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Update failed.');
       } finally {
@@ -148,8 +181,11 @@ export function UpdateListEntryPanel(_props: ToolPanelProps) {
     setRunning(true);
     setError(null);
     setSuccess(null);
+    setChanges([]);
     try {
-      const result = await massUpdateListEntryNotes(form);
+      const result = await massUpdateListEntryNotes(form, undefined, (change) => {
+        setChanges((prev) => [...prev, change]);
+      });
       setSuccess(result.message);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Mass update failed.');
@@ -354,6 +390,8 @@ export function UpdateListEntryPanel(_props: ToolPanelProps) {
 
       {error && <p className="tool-error">{error}</p>}
       {success && <p className="tool-field-hint">{success}</p>}
+      <UpdatedEntriesList changes={changes} />
+
     </section>
   );
 }

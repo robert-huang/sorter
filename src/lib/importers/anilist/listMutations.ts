@@ -7,6 +7,9 @@
 export const LIST_ENTRY_FOR_MEDIA_QUERY = `
 query ListEntryForMedia($mediaId: Int!) {
   Media(id: $mediaId) {
+    title {
+      userPreferred
+    }
     mediaListEntry {
       id
       notes
@@ -21,6 +24,7 @@ query ListEntryForMedia($mediaId: Int!) {
 
 export type ListEntryForMediaResponse = {
   Media: {
+    title?: { userPreferred: string | null } | null;
     mediaListEntry: {
       id: number;
       notes: string | null;
@@ -121,7 +125,7 @@ export type SaveMediaListEntryResponse = {
   } | null;
 };
 
-/** Minimal list scrape for mass notes tagging — media id + notes only. */
+/** Minimal list scrape for mass notes tagging — media id, title + notes only. */
 export const LIST_NOTES_COLLECTION_QUERY = `
 query ListNotesCollection($username: String!, $type: MediaType!, $chunk: Int!, $perChunk: Int!) {
   MediaListCollection(userName: $username, type: $type, chunk: $chunk, perChunk: $perChunk) {
@@ -131,6 +135,9 @@ query ListNotesCollection($username: String!, $type: MediaType!, $chunk: Int!, $
         notes
         media {
           id
+          title {
+            userPreferred
+          }
         }
       }
     }
@@ -140,7 +147,7 @@ query ListNotesCollection($username: String!, $type: MediaType!, $chunk: Int!, $
 
 export type ListNotesCollectionEntry = {
   notes: string | null;
-  media: { id: number } | null;
+  media: { id: number; title?: { userPreferred: string | null } | null } | null;
 };
 
 export type ListNotesCollectionResponse = {
