@@ -11,6 +11,7 @@ import {
   countSortVersionDiff,
   shouldAutoRecordVersion,
   snapshotSortVersion,
+  sortVersionChangeTooltip,
   summarizeSortVersionDiff,
   upsertLiveVersion,
   versionsFromImportSource,
@@ -442,5 +443,38 @@ describe('shouldAutoRecordVersion', () => {
   it('treats loading a finished save as a baseline only when it has no history', () => {
     expect(shouldAutoRecordVersion({ ...base, isLoad: true })).toBe(false);
     expect(shouldAutoRecordVersion({ ...base, isLoad: true, hasVersions: false })).toBe(true);
+  });
+});
+
+describe('sortVersionChangeTooltip', () => {
+  it('lists each change, biggest move first, with no counts line when they all fit', () => {
+    const prev = version([A, B, C], '2026-01-01T00:00:00.000Z');
+    const next = version([C, A, D], '2026-02-01T00:00:00.000Z');
+    expect(sortVersionChangeTooltip(prev, next)).toBe(
+      [
+        'Gamma ↑1 (#3 → #1)',
+        'Alpha ↓1 (#1 → #2)',
+        'Delta · new (#3)',
+        'Beta · removed (was #2)',
+      ].join('\n'),
+    );
+  });
+
+  it('caps the change lines under a counts line and counts the rest', () => {
+    const prev = version([A, B, C, D], '2026-01-01T00:00:00.000Z');
+    const next = version([D, C, B, A], '2026-02-01T00:00:00.000Z');
+    expect(sortVersionChangeTooltip(prev, next, 'raw', 2).split('\n')).toEqual([
+      '2 up · 2 down',
+      '',
+      'Delta ↑3 (#4 → #1)',
+      'Alpha ↓3 (#1 → #4)',
+      '+2 more',
+    ]);
+  });
+
+  it('is just the summary for a first or unchanged version', () => {
+    const only = version([A, B], '2026-01-01T00:00:00.000Z');
+    expect(sortVersionChangeTooltip(null, only)).toBe('First version');
+    expect(sortVersionChangeTooltip(only, { ...only, id: 'again' })).toBe('No changes');
   });
 });

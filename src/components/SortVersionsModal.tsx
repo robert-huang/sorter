@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import {
   DEFAULT_SORT_VERSION_MOVEMENT_MODE,
   diffSortVersions,
   formatSortVersionDate,
+  sortVersionChangeTooltip,
   summarizeSortVersionDiff,
   type SortVersionMovementMode,
 } from '../lib/sortVersions';
@@ -92,6 +93,26 @@ export function VersionRanking({
   );
 }
 
+/**
+ * Scrolls the row for a newly expanded version to the top of its scroller. Runs after
+ * render because collapsing the previously open row above can move the new one.
+ * Rows mark themselves with `data-version-id` inside the returned container.
+ */
+export function useScrollToExpandedVersion<T extends HTMLElement>(
+  expandedId: string | null,
+): RefObject<T> {
+  const containerRef = useRef<T>(null);
+  useEffect(() => {
+    if (!expandedId) return;
+    const rows = containerRef.current?.querySelectorAll<HTMLElement>('[data-version-id]') ?? [];
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    Array.from(rows)
+      .find((row) => row.dataset.versionId === expandedId)
+      ?.scrollIntoView?.({ block: 'start', behavior: reduceMotion ? 'auto' : 'smooth' });
+  }, [expandedId]);
+  return containerRef;
+}
+
 /** Read-only history of finished rankings, newest first, each diffed against its direct predecessor. */
 export function SortVersionsModal({
   versions,
@@ -99,6 +120,7 @@ export function SortVersionsModal({
   onClose,
 }: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const listRef = useScrollToExpandedVersion<HTMLUListElement>(expandedId);
   const rows = useMemo(
     () =>
       versions
@@ -114,19 +136,19 @@ export function SortVersionsModal({
         Save version. The Current version follows edits to the finished ranking and updates
         when you stop editing, such as switching tabs or slots or leaving the page.
       </p>
-      <ul className="sort-versions-list">
+      <ul className="sort-versions-list" ref={listRef}>
         {rows.map(({ version, prev }) => {
           const expanded = expandedId === version.id;
           const date = formatSortVersionDate(version.createdAt, true);
           const summary = summarizeSortVersionDiff(prev, version, movementMode);
           return (
-            <li key={version.id} className="sort-versions-row">
+            <li key={version.id} className="sort-versions-row" data-version-id={version.id}>
               <div className="sort-versions-row-head">
                 <button
                   type="button"
                   className="sort-versions-toggle"
                   aria-expanded={expanded}
-                  title={summary}
+                  title={sortVersionChangeTooltip(prev, version, movementMode, 10)}
                   onClick={() => setExpandedId(expanded ? null : version.id)}
                 >
                   <span aria-hidden="true">{expanded ? '▾' : '▸'}</span>

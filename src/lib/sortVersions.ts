@@ -251,6 +251,35 @@ export function summarizeSortVersionDiff(
   return parts.length ? parts.join(' · ') : 'No changes';
 }
 
+/**
+ * Hover text: one change per line, biggest moves first, then new, removed and renamed items,
+ * e.g. "Gamma ↑2 (#3 → #1)\nDelta · new (#4)". Past `limit` lines it's cut with "+N more",
+ * and the counts go on top with a blank line so the total isn't lost.
+ */
+export function sortVersionChangeTooltip(
+  prev: SortVersion | null,
+  next: SortVersion,
+  mode: SortVersionMovementMode = DEFAULT_SORT_VERSION_MOVEMENT_MODE,
+  limit = 30,
+): string {
+  const summary = countSortVersionDiff(prev, next, mode);
+  if (!prev) return summary;
+  const diff = diffSortVersions(prev, next, mode);
+  const label = (version: SortVersion, id: ItemId): string => version.items[id]?.label ?? id;
+  const nextRank = new Map(next.rankedIds.map((id, i) => [id, i + 1]));
+  const lines = [
+    ...diff.moved.map(
+      (m) => `${label(next, m.id)} ${m.delta > 0 ? '↑' : '↓'}${Math.abs(m.delta)} (#${m.from} → #${m.to})`,
+    ),
+    ...diff.added.map((id) => `${label(next, id)} · new (#${nextRank.get(id)})`),
+    ...diff.removed.map((id) => `${label(prev, id)} · removed (was #${prev.rankedIds.indexOf(id) + 1})`),
+    ...diff.renamed.map((id) => `${label(next, id)} · renamed (was "${label(prev, id)}")`),
+  ];
+  if (lines.length === 0) return summary;
+  if (lines.length <= limit) return lines.join('\n');
+  return `${summary}\n\n${lines.slice(0, limit).join('\n')}\n+${lines.length - limit} more`;
+}
+
 export type SortVersionCountKind = 'up' | 'down' | 'added' | 'removed' | 'renamed';
 export type SortVersionCount = { kind: SortVersionCountKind; count: number };
 

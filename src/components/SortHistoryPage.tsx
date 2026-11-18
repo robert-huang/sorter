@@ -12,8 +12,8 @@ import {
   snapshotFromRankedItems,
   snapshotSortVersion,
   SORT_VERSION_COUNT_WORDS,
+  sortVersionChangeTooltip,
   sortVersionDiffCounts,
-  summarizeSortVersionDiff,
   withSortVersionName,
   DEFAULT_SORT_VERSION_MOVEMENT_MODE,
   type MergedSortVersions,
@@ -30,7 +30,7 @@ import type { SlotsManifest, SortVersion } from "../lib/types";
 import { DateTimeField } from "./DateTimeField";
 import { RemoveGlyph } from "./RemoveGlyph";
 import { SortResultsImportMode } from "./SortResultsImportMode";
-import { VersionRanking } from "./SortVersionsModal";
+import { useScrollToExpandedVersion, VersionRanking } from "./SortVersionsModal";
 import { dragEventHasFiles } from "./settingsImportDropH";
 
 interface Props {
@@ -268,7 +268,7 @@ function VersionCounts({
         <span
           key={kind}
           className={`sort-version-count ${kind}`}
-          title={`${count} ${SORT_VERSION_COUNT_WORDS[kind]}`}
+          aria-label={`${count} ${SORT_VERSION_COUNT_WORDS[kind]}`}
         >
           {versionCountMark(kind)}
           {count}
@@ -306,6 +306,7 @@ export function SortHistoryPage({
   const [dropActive, setDropActive] = useState(false);
   const [pending, setPending] = useState<PendingSave | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const versionsListRef = useScrollToExpandedVersion<HTMLUListElement>(expandedId);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -477,6 +478,7 @@ export function SortHistoryPage({
           <ul
             className="sort-history-import-rows"
             aria-label="Recorded versions"
+            ref={versionsListRef}
           >
             {existingRows.map(({ version, prev }) => {
               const isDeleted = deleted.has(version.id);
@@ -494,6 +496,7 @@ export function SortHistoryPage({
               return (
                 <li
                   key={version.id}
+                  data-version-id={version.id}
                   className={`sort-history-import-row${isDeleted ? " is-deleted" : ""}${isDuplicate ? " is-duplicate" : ""}`}
                 >
                   <input
@@ -524,7 +527,7 @@ export function SortHistoryPage({
                     type="button"
                     className="sort-history-import-name sort-history-version-toggle"
                     aria-expanded={expanded}
-                    title={summarizeSortVersionDiff(prev, version, movementMode)}
+                    title={sortVersionChangeTooltip(prev, version, movementMode, 30)}
                     onClick={() => setExpandedId(expanded ? null : version.id)}
                   >
                     <span aria-hidden="true">{expanded ? "▾" : "▸"}</span>{" "}

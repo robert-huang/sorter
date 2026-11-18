@@ -280,8 +280,9 @@ describe('SortHistoryPage', () => {
       'First version',
     ]);
     expect(
-      Array.from(toggles[1]!.querySelectorAll('.sort-version-count'), (c) => c.getAttribute('title')),
+      Array.from(toggles[1]!.querySelectorAll('.sort-version-count'), (c) => c.getAttribute('aria-label')),
     ).toEqual(['1 up']);
+    expect(toggles[1]!.title).toBe('Gamma ↑2 (#3 → #1)');
     await act(async () => toggles[1]!.click());
     // The count says only Gamma moved, but rows show every raw rank change.
     expect(
@@ -308,6 +309,36 @@ describe('SortHistoryPage', () => {
       [C.id, A.id, B.id],
     ]);
     expect(applied.map((v) => v.live)).toEqual([undefined, undefined, true]);
+  });
+
+  it('scrolls an expanded version to the top of its row, not on collapse', async () => {
+    const snap = (id: string, createdAt: string, order: Item[]): SortVersion => ({
+      id,
+      createdAt,
+      rankedIds: order.map((it) => it.id),
+      items: Object.fromEntries(order.map((it) => [it.id, { label: it.label }])),
+    });
+    const versions = [
+      snap('one', new Date('2026-01-01T09:00').toISOString(), [A, B, C]),
+      snap('two', new Date('2026-02-01T09:00').toISOString(), [B, A, C]),
+    ];
+    const scrolled: Array<{ id: string | null; options: unknown }> = [];
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (this: Element, options?: unknown) {
+      scrolled.push({ id: this.getAttribute('data-version-id'), options });
+    } as typeof Element.prototype.scrollIntoView;
+    try {
+      act(() => {
+        root.render(<SortHistoryPage versions={versions} onApply={vi.fn()} onRename={vi.fn()} onClose={vi.fn()} />);
+      });
+      const toggles = document.querySelectorAll<HTMLButtonElement>('.sort-history-version-toggle');
+      await act(async () => toggles[1]!.click());
+      expect(scrolled).toEqual([{ id: 'one', options: { block: 'start', behavior: 'smooth' } }]);
+      await act(async () => toggles[1]!.click());
+      expect(scrolled).toHaveLength(1);
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
   });
 
   it('saves a version name when the field loses focus, without Save changes', async () => {
