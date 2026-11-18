@@ -604,6 +604,11 @@ html {
   opacity: 0.5;
 }
 
+/* The ↺ keep button stays at full strength so the way back is obvious. */
+.sort-history-import-row.is-deleted > :not(.btn) {
+  opacity: 0.5;
+}
+
 .sort-history-duplicate-badge {
   padding: 1px 6px;
   border-radius: 999px;
