@@ -1076,6 +1076,14 @@ html {
   overflow: hidden;
 }
 
+/* Sorter only (Tools and Anime-to-Anime have no slot list). Fits the widest slot meta
+   line on one row: "99999 items · 99999 comparisons · done · 9999-99-99 · cloud ✓" is
+   ~354px at 12px Plus Jakarta Sans, plus ~40px of popover and row padding and a ~17px
+   classic scrollbar (Windows). */
+.settings-popover.sorter-settings-popover {
+  width: 420px;
+}
+
 /* Tabbed gear menu: Slots vs Databases. Tabs sit pinned at the top of
    the popover; the persistent settings + autosave-status footer sits
    at the bottom. The body in between scrolls so a giant slot list

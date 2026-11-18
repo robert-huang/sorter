@@ -355,7 +355,7 @@ export function SettingsMenu({
       </button>
       {open && (
         <div
-          className="settings-popover"
+          className="settings-popover sorter-settings-popover"
           style={maxHeight != null ? { maxHeight: `${maxHeight}px` } : undefined}
         >
           <div className="settings-tabs" role="tablist" aria-label="Settings tabs">
