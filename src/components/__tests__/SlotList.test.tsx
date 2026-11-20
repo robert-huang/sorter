@@ -149,6 +149,16 @@ describe('SlotList metadata classes', () => {
     expect(badges[0]?.getAttribute('title')).toBe('3 recorded versions');
   });
 
+  it('counts an unfinished re-sort as the next version', async () => {
+    await renderSlotList([
+      slot('resorting', false, { versionCount: 2 }),
+      slot('first sort', false, { versionCount: 0 }),
+    ]);
+    const badges = Array.from(container.querySelectorAll('.slot-version-badge'));
+    expect(badges.map((b) => b.textContent)).toEqual(['v3']);
+    expect(badges[0]?.getAttribute('title')).toBe('2 recorded versions + 1 in progress');
+  });
+
   it('makes every badge a button that views that slot, loaded or not', async () => {
     const noop = vi.fn();
     const onViewVersions = vi.fn();
@@ -175,7 +185,7 @@ describe('SlotList metadata classes', () => {
     const badges = Array.from(
       container.querySelectorAll<HTMLButtonElement>('button.slot-version-badge'),
     );
-    expect(badges.map((b) => b.textContent)).toEqual(['v2', 'v1']);
+    expect(badges.map((b) => b.textContent)).toEqual(['v3', 'v1']);
     await act(async () => badges[1]!.click());
     expect(onViewVersions).toHaveBeenCalledWith('other');
     expect(noop).not.toHaveBeenCalled();

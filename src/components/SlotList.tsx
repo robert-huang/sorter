@@ -459,6 +459,10 @@ function SlotRow({
 
   const isPinned = !!slot.pinned;
   const versionCount = slot.versionCount ?? 0;
+  // Versions are only recorded on finish, so an unfinished re-sort is the next one.
+  const inProgressVersion = versionCount > 0 && !slot.done;
+  const versionLabel = `v${versionCount + (inProgressVersion ? 1 : 0)}`;
+  const versionTitle = `${pluralize(versionCount, 'recorded version')}${inProgressVersion ? ' + 1 in progress' : ''}`;
   const syncState = deriveCloudSyncState(slot);
   const meta = [
     pluralize(itemCount, 'item'),
@@ -513,18 +517,15 @@ function SlotRow({
               <button
                 type="button"
                 className="slot-version-badge is-button"
-                title={`${pluralize(versionCount, 'recorded version')} — click to view`}
-                aria-label={`View ${pluralize(versionCount, 'version')} of ${slot.name}`}
+                title={`${versionTitle} — click to view`}
+                aria-label={`View ${pluralize(versionCount, 'recorded version')} of ${slot.name}`}
                 onClick={() => onViewVersions(slot.id)}
               >
-                v{versionCount}
+                {versionLabel}
               </button>
             ) : (
-              <span
-                className="slot-version-badge"
-                title={`${pluralize(versionCount, 'recorded version')}`}
-              >
-                v{versionCount}
+              <span className="slot-version-badge" title={versionTitle}>
+                {versionLabel}
               </span>
             ))}
         </div>
