@@ -125,6 +125,10 @@ interface Props {
   onImportVersionHistory: () => void;
   /** True when a sort is loaded and done. */
   canImportVersionHistory: boolean;
+  /** Opens a slot's versions read-only; `null` is the active slot. */
+  onViewSlotVersions: (slotId: string | null) => void;
+  /** True when the active slot has versions to view (editing still needs a finished sort). */
+  canViewVersions: boolean;
 }
 
 /** Persisted tab selection key so reopening the gear menu lands on
@@ -155,6 +159,12 @@ function writePersistedTab(tab: GearTab): void {
   } catch {
     /* ignore */
   }
+}
+
+function versionHistoryTitle(canEdit: boolean, canView: boolean): string {
+  if (canEdit) return 'Edit version dates and turn archived copies of this sort into versions';
+  if (canView) return 'View saved rankings. Finish the sort to edit dates or import versions.';
+  return 'Finish the active sort to edit its version history';
 }
 
 export function SettingsMenu({
@@ -200,6 +210,8 @@ export function SettingsMenu({
   onNewSort,
   onImportVersionHistory,
   canImportVersionHistory,
+  onViewSlotVersions,
+  canViewVersions,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<GearTab>(() => readPersistedTab());
@@ -406,6 +418,7 @@ export function SettingsMenu({
                     onNewSort={handleNewSort}
                     onBackupAll={onBackupAll}
                     listScrollClassName="settings-slots-scroll"
+                    onViewVersions={onViewSlotVersions}
                   />
                 </div>
                 <div className="settings-tab-actions">
@@ -435,16 +448,17 @@ export function SettingsMenu({
                   <button
                     type="button"
                     className="settings-item"
-                    disabled={!canImportVersionHistory}
+                    disabled={!canImportVersionHistory && !canViewVersions}
                     onClick={() => {
+                      // The editor replaces the page; the read-only modal opens over the menu.
+                      if (!canImportVersionHistory) {
+                        onViewSlotVersions(null);
+                        return;
+                      }
                       setOpen(false);
                       onImportVersionHistory();
                     }}
-                    title={
-                      canImportVersionHistory
-                        ? 'Edit version dates and turn archived copies of this sort into versions'
-                        : 'Finish the active sort to edit its version history'
-                    }
+                    title={versionHistoryTitle(canImportVersionHistory, canViewVersions)}
                   >
                     Version history…
                   </button>

@@ -80,6 +80,8 @@ interface Props {
    * thumb starts below the search field.
    */
   listScrollClassName?: string;
+  /** When set, a row's `v{n}` badge is a button that opens that slot's versions read-only. */
+  onViewVersions?: (id: string) => void;
 }
 
 /**
@@ -156,6 +158,7 @@ export function SlotList({
   onCloudPushAll,
   onCloudPullAll,
   listScrollClassName = 'slot-list-scroll',
+  onViewVersions,
 }: Props) {
   // Local-only state — search and completion are render filters, never persisted.
   // Reset is implicit (close + reopen the gear menu remounts SlotList).
@@ -372,6 +375,7 @@ export function SlotList({
               onCloudPull={onCloudPull}
               cloudPushing={cloudPushingIds.has(s.id)}
               cloudPulling={cloudPullingIds.has(s.id)}
+              onViewVersions={onViewVersions}
             />
           ))
         )}
@@ -398,6 +402,7 @@ interface RowProps {
   cloudPushing: boolean;
   /** True while this row's Pull call is in flight (spinner + disabled). */
   cloudPulling: boolean;
+  onViewVersions?: (id: string) => void;
 }
 
 import { deriveCloudSyncState, type CloudSyncState } from '../lib/cloudSync';
@@ -417,6 +422,7 @@ function SlotRow({
   onCloudPull,
   cloudPushing,
   cloudPulling,
+  onViewVersions,
 }: RowProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(slot.name);
@@ -502,14 +508,25 @@ function SlotRow({
               {slot.name}
             </button>
           )}
-          {versionCount > 0 && (
-            <span
-              className="slot-version-badge"
-              title={`${pluralize(versionCount, 'recorded version')}`}
-            >
-              v{versionCount}
-            </span>
-          )}
+          {versionCount > 0 &&
+            (onViewVersions ? (
+              <button
+                type="button"
+                className="slot-version-badge is-button"
+                title={`${pluralize(versionCount, 'recorded version')} — click to view`}
+                aria-label={`View ${pluralize(versionCount, 'version')} of ${slot.name}`}
+                onClick={() => onViewVersions(slot.id)}
+              >
+                v{versionCount}
+              </button>
+            ) : (
+              <span
+                className="slot-version-badge"
+                title={`${pluralize(versionCount, 'recorded version')}`}
+              >
+                v{versionCount}
+              </span>
+            ))}
         </div>
         <div className={`slot-meta${slot.done ? ' slot-meta--done' : ''}`}>
           {/* {isPinned && <PinIcon />} */}

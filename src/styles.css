@@ -4420,6 +4420,18 @@ a:where(.anime-to-anime-anilist-link):visited {
   white-space: nowrap;
 }
 
+.slot-version-badge.is-button {
+  border: none;
+  font-family: inherit;
+  line-height: inherit;
+  cursor: pointer;
+}
+
+.slot-version-badge.is-button:hover {
+  background: rgba(127, 127, 127, 0.3);
+  color: var(--text);
+}
+
 .slot-name-row > .pin-icon {
   width: 18px;
   height: 18px;

@@ -91,6 +91,16 @@ export function renameSortVersion(
   return versions.map((v) => (v === target ? renamed : v));
 }
 
+/** Names the newest version `name` when it has none; same array back otherwise. */
+export function nameLatestVersionIfUnnamed(
+  versions: readonly SortVersion[],
+  name: string,
+): readonly SortVersion[] {
+  const latest = versions[versions.length - 1];
+  if (!latest || latest.name) return versions;
+  return renameSortVersion(versions, latest.id, name);
+}
+
 /**
  * Keeps the newest version in step with a finished sort's current ranking: updates the
  * live version in place, or starts one after a frozen version. Same array back when the

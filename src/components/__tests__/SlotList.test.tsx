@@ -148,6 +148,38 @@ describe('SlotList metadata classes', () => {
     expect(badges.map((b) => b.textContent)).toEqual(['v3', 'v1']);
     expect(badges[0]?.getAttribute('title')).toBe('3 recorded versions');
   });
+
+  it('makes every badge a button that views that slot, loaded or not', async () => {
+    const noop = vi.fn();
+    const onViewVersions = vi.fn();
+    await act(async () => {
+      root.render(
+        <SlotList
+          slots={[slot('loaded', false, { versionCount: 2 }), slot('other', true, { versionCount: 1 })]}
+          loadedSlotId="loaded"
+          onSwitch={noop}
+          onDelete={noop}
+          onRename={noop}
+          onDownload={noop}
+          onTogglePin={noop}
+          cloudControlsVisible={false}
+          onCloudToggleOptIn={noop}
+          onCloudPush={noop}
+          onCloudPull={noop}
+          cloudPushingIds={new Set()}
+          cloudPullingIds={new Set()}
+          onViewVersions={onViewVersions}
+        />,
+      );
+    });
+    const badges = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('button.slot-version-badge'),
+    );
+    expect(badges.map((b) => b.textContent)).toEqual(['v2', 'v1']);
+    await act(async () => badges[1]!.click());
+    expect(onViewVersions).toHaveBeenCalledWith('other');
+    expect(noop).not.toHaveBeenCalled();
+  });
 });
 
 describe('SlotList status icons', () => {

@@ -12,6 +12,8 @@ import { Modal } from './Modal';
 interface Props {
   /** Oldest first, as stored. */
   versions: readonly SortVersion[];
+  /** Shown in the heading when opened from outside the slot's own RESULT tab. */
+  slotName?: string;
   movementMode?: SortVersionMovementMode;
   onClose: () => void;
 }
@@ -116,6 +118,7 @@ export function useScrollToExpandedVersion<T extends HTMLElement>(
 /** Read-only history of finished rankings, newest first, each diffed against its direct predecessor. */
 export function SortVersionsModal({
   versions,
+  slotName,
   movementMode = DEFAULT_SORT_VERSION_MOVEMENT_MODE,
   onClose,
 }: Props) {
@@ -130,12 +133,13 @@ export function SortVersionsModal({
   );
   return (
     <Modal label="Sort versions" onClose={onClose} className="modal-wide">
-      <h3>Versions</h3>
+      <h3>{slotName ? `Versions · ${slotName}` : 'Versions'}</h3>
       <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 0 }}>
         Versions are kept when this sort finishes with a different order and when you press
         Save version. The Current version follows edits to the finished ranking and updates
         when you stop editing, such as switching tabs or slots or leaving the page.
       </p>
+      {rows.length === 0 && <p className="header-hint">No versions recorded yet.</p>}
       <ul className="sort-versions-list" ref={listRef}>
         {rows.map(({ version, prev }) => {
           const expanded = expandedId === version.id;
@@ -154,7 +158,7 @@ export function SortVersionsModal({
                   <span aria-hidden="true">{expanded ? '▾' : '▸'}</span>
                   <span
                     className={`sort-versions-date${version.name ? ' is-named' : ''}`}
-                    title={version.name ? date : undefined}
+                    title={version.name ? `${version.name}\n\n${date}` : date}
                   >
                     {version.name || date}
                   </span>

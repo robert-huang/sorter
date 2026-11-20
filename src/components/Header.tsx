@@ -93,6 +93,10 @@ interface Props {
   onNewSort: () => void;
   /** Gear menu "Version history…" page — enabled only while the sort is done. */
   onImportVersionHistory: () => void;
+  /** Read-only versions modal for a slot; `null` is the active slot. */
+  onViewSlotVersions: (slotId: string | null) => void;
+  /** The active slot has recorded versions. */
+  hasVersions: boolean;
 }
 
 
@@ -149,6 +153,8 @@ export function Header({
   onCloudPullAllSlots,
   onNewSort,
   onImportVersionHistory,
+  onViewSlotVersions,
+  hasVersions,
 }: Props) {
   // `remaining` feeds the optional "~K left" suffix on the toolbar stats
   // label. The progress bar that used to live in the header has moved into
@@ -403,6 +409,8 @@ export function Header({
             onNewSort={onNewSort}
             onImportVersionHistory={onImportVersionHistory}
             canImportVersionHistory={state?.done === true}
+            onViewSlotVersions={onViewSlotVersions}
+            canViewVersions={hasVersions}
           />
         </div>
       </header>

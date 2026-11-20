@@ -113,6 +113,7 @@ import {
 } from './lib/storage';
 import {
   appendVersionIfChanged,
+  nameLatestVersionIfUnnamed,
   DEFAULT_SORT_VERSION_MOVEMENT_MODE,
   renameSortVersion,
   type SortVersionMovementMode,
@@ -145,6 +146,7 @@ import { BackupRestoreConfirmModal } from './components/BackupRestoreConfirmModa
 import { SlotCapConfirmModal } from './components/SlotCapConfirmModal';
 import { SlotDeleteConfirmModal } from './components/SlotDeleteConfirmModal';
 import { StartOverConfirmModal } from './components/StartOverConfirmModal';
+import { SortVersionsModal } from './components/SortVersionsModal';
 import { ConfirmSortConfirmModal } from './components/ConfirmSortConfirmModal';
 import { CompletedSortEditConfirmModal } from './components/CompletedSortEditConfirmModal';
 import {
@@ -626,6 +628,18 @@ export function App() {
       sameVersionContent(latest, snap)
     );
   }, [state, versions]);
+
+  // Slot whose versions the read-only modal shows (gear menu item or a slot's v{n} badge).
+  const [viewVersionsSlotId, setViewVersionsSlotId] = useState<string | null>(null);
+  const viewSlotVersions = useCallback(
+    (slotId: string | null) => {
+      const id = slotId ?? loadedSlotId;
+      if (!id) return;
+      if (id === loadedSlotId) commitLiveVersion();
+      setViewVersionsSlotId(id);
+    },
+    [commitLiveVersion, loadedSlotId],
+  );
 
   const [historyImportOpen, setHistoryImportOpen] = useState(false);
   const openVersionHistory = useCallback(() => {
@@ -2803,9 +2817,18 @@ export function App() {
       .filter((it): it is Item => !!it);
     if (items.length === 0) return;
     const next = initSort(items, engineOptions);
+    const slotName =
+      manifest.slots.find((s) => s.id === (loadedSlotId ?? manifest.activeId))?.name ??
+      'Untitled sort';
     if (target === 'version') {
       const finished = state;
-      setVersions((prev) => appendVersionIfChanged(prev, ranked(finished), new Date()));
+      // The newest version is now the finished ranking; an unnamed one takes the slot's name.
+      setVersions((prev) =>
+        nameLatestVersionIfUnnamed(
+          appendVersionIfChanged(prev, ranked(finished), new Date()),
+          slotName,
+        ),
+      );
       pushUndo(state);
       setState(next);
       setActiveTab('list');
@@ -2814,9 +2837,6 @@ export function App() {
     const session: SavedSession = { state: next, undoRing: [], versions: [] };
     // Land on LIST so the user can preview / tweak the seeded queue
     // before committing to the first comparison.
-    const slotName =
-      manifest.slots.find((s) => s.id === (loadedSlotId ?? manifest.activeId))?.name ??
-      'Untitled sort';
     adoptNewSession(session, derivedSlotName(slotName, 'redo'), 'list');
   }, [state, manifest.slots, manifest.activeId, loadedSlotId, adoptNewSession, engineOptions, pushUndo]);
 
@@ -3233,6 +3253,8 @@ export function App() {
         onCloudPullAllSlots={onCloudPullAllSlots}
         onNewSort={() => handleTabChange('start')}
         onImportVersionHistory={openVersionHistory}
+        onViewSlotVersions={viewSlotVersions}
+        hasVersions={hasState && versions.length > 0}
       />
       <main className="app-main">
         {historyImportOpen && state?.done ? (
@@ -3249,6 +3271,19 @@ export function App() {
           body
         )}
       </main>
+      {viewVersionsSlotId && (
+        <SortVersionsModal
+          // The loaded slot's in-memory versions can be ahead of its last autosave.
+          versions={
+            viewVersionsSlotId === effectiveLoadedSlotId
+              ? versions
+              : (readSlotBlob(viewVersionsSlotId)?.versions ?? [])
+          }
+          slotName={manifest.slots.find((s) => s.id === viewVersionsSlotId)?.name}
+          movementMode={versionMovementMode}
+          onClose={() => setViewVersionsSlotId(null)}
+        />
+      )}
       {slotPendingDelete && (
         <SlotDeleteConfirmModal
           slotName={slotPendingDelete.name}

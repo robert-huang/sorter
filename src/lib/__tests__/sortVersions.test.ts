@@ -6,6 +6,7 @@ import {
   diffSortVersions,
   formatSortVersionDate,
   mergeImportedVersions,
+  nameLatestVersionIfUnnamed,
   normalizeSortVersions,
   renameSortVersion,
   countSortVersionDiff,
@@ -443,6 +444,18 @@ describe('shouldAutoRecordVersion', () => {
   it('treats loading a finished save as a baseline only when it has no history', () => {
     expect(shouldAutoRecordVersion({ ...base, isLoad: true })).toBe(false);
     expect(shouldAutoRecordVersion({ ...base, isLoad: true, hasVersions: false })).toBe(true);
+  });
+});
+
+describe('nameLatestVersionIfUnnamed', () => {
+  it('names only the newest version, and only when it has no name', () => {
+    const older = version([A, B], '2026-01-01T00:00:00.000Z', 'older');
+    const newest = version([B, A], '2026-02-01T00:00:00.000Z', 'newest');
+    const named = nameLatestVersionIfUnnamed([older, newest], 'My sort');
+    expect(named.map((v) => v.name)).toEqual([undefined, 'My sort']);
+    const kept = [older, { ...newest, name: 'Spring' }];
+    expect(nameLatestVersionIfUnnamed(kept, 'My sort')).toBe(kept);
+    expect(nameLatestVersionIfUnnamed([], 'My sort')).toEqual([]);
   });
 });
 
