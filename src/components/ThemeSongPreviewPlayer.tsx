@@ -51,6 +51,9 @@ export function ThemeSongPreviewPlayer({ urls, label }: Props) {
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [volume, setVolume] = useState(() => getThemeSongPreviewVolume());
+  // Read on (re)load only, so volume changes don't restart the source.
+  const volumeRef = useRef(volume);
+  volumeRef.current = volume;
   const [usingAudioFallback, setUsingAudioFallback] = useState(false);
   const [mediaError, setMediaError] = useState(false);
   const [activeSrc, setActiveSrc] = useState(urls.videoUrl);
@@ -109,7 +112,7 @@ export function ThemeSongPreviewPlayer({ urls, label }: Props) {
     setCurrentTime(0);
     setDuration(0);
     setHoverPreview({ visible: false, leftPercent: 0 });
-    el.volume = volume;
+    el.volume = volumeRef.current;
     el.src = primarySrc;
     syncHoverPreviewSrc(primarySrc);
     void el.load();
@@ -119,7 +122,7 @@ export function ThemeSongPreviewPlayer({ urls, label }: Props) {
       },
       () => {},
     );
-  }, [playerId, primarySrc, syncHoverPreviewSrc, volume]);
+  }, [playerId, primarySrc, syncHoverPreviewSrc]);
 
   const onVideoClick = useCallback(
     (event: MouseEvent) => {

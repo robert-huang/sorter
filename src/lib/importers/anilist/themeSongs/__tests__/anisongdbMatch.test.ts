@@ -136,6 +136,8 @@ describe('pickBestAnisongdbHit', () => {
     'Kana Asumi, Saki Fujita & Eri Kitamura',
     'Popura Taneshima (Kana Asumi), Mahiru Inami (Saki Fujita), Yachiyo Todoroki (Eri Kitamura)',
     'Popura Taneshima (CV: Kana Asumi), Mahiru Inami (CV: Saki Fujita) and Yachiyo Todoroki (CV: Eri Kitamura)',
+    // MAL's actual credit: characters first, voice actors grouped in one trailing bracket.
+    'Popura Taneshima, Mahiru Inami, and Yachiyo Todoroki (Kana Asumi, Saki Fujita and Eri Kitamura)',
   ])('matches a multi-performer credit written as %s', (songArtist) => {
     const working: AnisongdbSearchHit = {
       annId: 11017,

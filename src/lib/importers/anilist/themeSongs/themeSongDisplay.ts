@@ -55,7 +55,9 @@ export function extractNativeFromMalText(text: string): string | null {
 export function stripNativeParenthetical(text: string): string {
   let result = text.trim();
   while (result.length > 0) {
-    const match = /^(.+?)\s*\(([^)]*)\)\s*$/.exec(result);
+    // Second pattern: mixed bracket widths, as in MAL's `Golden Day (ゴールデン・デイ）`.
+    const match =
+      /^(.+?)\s*\(([^)]*)\)\s*$/.exec(result) ?? /^(.+?)\s*[(（]([^()（）]*)[)）]\s*$/.exec(result);
     if (!match || !containsCjkScript(match[2] ?? '')) {
       break;
     }

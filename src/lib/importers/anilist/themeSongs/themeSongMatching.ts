@@ -99,38 +99,60 @@ function artistNameKey(name: string): string {
   return comparableKey(name).split(' ').filter(Boolean).sort().join(' ');
 }
 
-/**
- * Splits a credit list into one name set per performer: the outside name plus any
- * parenthesised name, e.g. `Popura Taneshima (CV: Kana Asumi)` → {popura taneshima, kana asumi}.
- */
-function artistCredits(artist: string): Set<string>[] {
-  const credits: Set<string>[] = [];
-  let depth = 0;
-  let current = '';
+function splitArtistNames(text: string): string[] {
+  return text
+    .split(ARTIST_CREDIT_SEPARATOR_RE)
+    .map((name) => name.replace(/^\s*CV\s*[:：]\s*/i, '').trim())
+    .filter(Boolean);
+}
+
+type RawArtistCredit = { outside: string; inside: string[] };
+
+/** Top-level split, so separators inside "(CV: A & B)" stay with their credit. */
+function rawArtistCredits(artist: string): RawArtistCredit[] {
+  const credits: RawArtistCredit[] = [];
+  let current: RawArtistCredit = { outside: '', inside: [] };
   const flush = (): void => {
-    const outside = current.replace(/\([^)]*\)/g, ' ').trim();
-    const inside = [...current.matchAll(/\(\s*(?:CV\s*[:：]\s*)?([^)]+)\)/gi)].map((m) => m[1]!.trim());
-    const names = new Set([outside, ...inside].filter(Boolean).map(artistNameKey).filter(Boolean));
-    if (names.size > 0) credits.push(names);
-    current = '';
+    if (current.outside.trim() || current.inside.length > 0) {
+      credits.push({ outside: current.outside.trim(), inside: current.inside });
+    }
+    current = { outside: '', inside: [] };
   };
-  // Split only at top level so separators inside "(CV: A & B)" stay with their credit.
-  for (const part of artist.normalize('NFKC').split(/(\(|\))/)) {
-    if (part === '(') depth += 1;
-    if (part === ')') depth = Math.max(0, depth - 1);
-    if (depth > 0 || part === ')' || part === '(') {
-      current += part;
+  for (const part of artist.normalize('NFKC').split(/(\([^()]*\))/)) {
+    if (part.startsWith('(') && part.endsWith(')')) {
+      current.inside.push(...splitArtistNames(part.slice(1, -1)));
       continue;
     }
     const pieces = part.split(ARTIST_CREDIT_SEPARATOR_RE);
-    current += pieces[0];
+    current.outside += pieces[0];
     for (const piece of pieces.slice(1)) {
       flush();
-      current = piece;
+      current.outside = piece;
     }
   }
   flush();
   return credits;
+}
+
+/**
+ * One name set per performer: the outside name plus any parenthesised names, e.g.
+ * `Popura Taneshima (CV: Kana Asumi)` → {popura taneshima, kana asumi}. MAL's grouped
+ * form `A, B, and C (X, Y and Z)` pairs the bracketed names with the credits in order.
+ */
+function artistCredits(artist: string): Set<string>[] {
+  const raw = rawArtistCredits(artist);
+  const last = raw[raw.length - 1];
+  const grouped =
+    raw.length > 1 &&
+    last !== undefined &&
+    last.inside.length === raw.length &&
+    raw.slice(0, -1).every((credit) => credit.inside.length === 0);
+  return raw
+    .map((credit, index) => {
+      const inside = grouped ? [last!.inside[index]!] : credit.inside;
+      return new Set([credit.outside, ...inside].map(artistNameKey).filter(Boolean));
+    })
+    .filter((names) => names.size > 0);
 }
 
 /** Every credit on each side shares a name with some credit on the other side. */

@@ -132,6 +132,7 @@ describe('native theme song labels', () => {
   it('extracts nested native text from mal titles', () => {
     expect(extractNativeFromMalText('Kanade (奏（かなで）)')).toBe('奏（かなで）');
     expect(stripNativeParenthetical('Kanade (奏（かなで）)')).toBe('Kanade');
+    expect(stripNativeParenthetical('Golden Day (ゴールデン・デイ）')).toBe('Golden Day');
   });
 
   it('picks the most CJK-heavy candidate', () => {
