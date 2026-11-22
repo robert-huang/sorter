@@ -590,10 +590,10 @@ describe('BumpChartPanel staging flow', () => {
       (card) => card.querySelector('.bump-chart-order-name-button')?.textContent,
     );
     expect(names.slice(0, 2)).toEqual(['1. Versioned · 2026-10-01', '2. Versioned · 2026-10-09']);
-    expect(cards).toHaveLength(3);
+    // The empty current order left after the versions is dropped.
+    expect(cards).toHaveLength(2);
     expect(cards[0]!.textContent).toContain('2 staged');
     expect(cards[1]!.textContent).toContain('2 staged');
-    expect(cards[2]!.textContent).toContain('0 staged');
   });
 
   it('imports a single picked sort version into the clicked column', async () => {

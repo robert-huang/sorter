@@ -213,7 +213,28 @@ function insertImportsAtColumn(
       kind: 'current',
     };
   }
-  return [...columns.slice(0, index), ...segment, ...columns.slice(index + 1)];
+  const result = [...columns.slice(0, index), ...segment, ...columns.slice(index + 1)];
+  const chartWasBlank = columns.every(({ draft }) => draft.groups.length === 0);
+  return chartWasBlank && imports.length > 1
+    ? dropEmptyCurrentAfterImport(result, segment)
+    : result;
+}
+
+/**
+ * On a blank chart, a multi-version import already supplies the newest order,
+ * so the empty "current" column left after it is removed and the last column
+ * takes its place. Charts with any loaded order are left as is.
+ */
+function dropEmptyCurrentAfterImport(
+  columns: BumpColumnDraft[],
+  segment: readonly BumpColumnDraft[],
+): BumpColumnDraft[] {
+  const current = columns.find(({ kind }) => kind === 'current');
+  if (!current || current.draft.groups.length > 0 || segment.includes(current)) return columns;
+  const remaining = columns.filter((column) => column !== current);
+  const last = remaining[remaining.length - 1]!;
+  remaining[remaining.length - 1] = { ...last, id: 'current', kind: 'current' };
+  return remaining;
 }
 
 function emptyDraft(): BumpSideDraft {
