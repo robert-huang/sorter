@@ -108,14 +108,72 @@ function buildAnisongdbRequestHeaders(): Record<string, string> {
   };
 }
 
-export async function searchAnisongdb(songTitle: string): Promise<AnisongdbSearchHit[]> {
-  const url = resolveAnisongdbSearchUrl();
-  const res = await fetch(url, {
+/** Anime-name search: still allowed while song/artist search is disabled for AMQ Ranked. */
+export function buildAnisongdbAnimeSearchBody(animeTitle: string): Record<string, unknown> {
+  return {
+    anime_search_filter: { search: animeTitle.trim(), partial_match: true },
+    and_logic: false,
+    ignore_duplicate: false,
+  };
+}
+
+/** Song/artist text search returned 503 because AMQ Ranked is running. */
+export class AnisongdbRankedError extends Error {
+  constructor(detail: string) {
+    super(detail);
+    this.name = 'AnisongdbRankedError';
+  }
+}
+
+// Mirrors anisongdb.com's client-side schedule (no API exposes it): daily 20:30–21:23 local in each region.
+const RANKED_REGIONS: readonly { region: string; timeZone: string }[] = [
+  { region: 'Central', timeZone: 'Europe/Copenhagen' },
+  { region: 'Western', timeZone: 'America/Chicago' },
+  { region: 'Eastern', timeZone: 'Asia/Tokyo' },
+];
+const RANKED_START_SECONDS = 1230 * 60;
+const RANKED_END_SECONDS = 1283 * 60;
+
+export type AnisongdbRankedStatus =
+  | { active: true; region: string; remainingSeconds: number }
+  | { active: false };
+
+function localSecondsOfDay(now: Date, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).formatToParts(now);
+  const part = (type: string): number => Number(parts.find((p) => p.type === type)?.value ?? 0);
+  return part('hour') * 3600 + part('minute') * 60 + part('second');
+}
+
+export function anisongdbRankedStatus(now = new Date()): AnisongdbRankedStatus {
+  for (const { region, timeZone } of RANKED_REGIONS) {
+    const seconds = localSecondsOfDay(now, timeZone);
+    if (seconds >= RANKED_START_SECONDS && seconds < RANKED_END_SECONDS) {
+      return { active: true, region, remainingSeconds: RANKED_END_SECONDS - seconds };
+    }
+  }
+  return { active: false };
+}
+
+async function postAnisongdbSearch(body: Record<string, unknown>): Promise<AnisongdbSearchHit[]> {
+  const res = await fetch(resolveAnisongdbSearchUrl(), {
     method: 'POST',
     headers: buildAnisongdbRequestHeaders(),
-    body: JSON.stringify(buildAnisongdbSearchBody(songTitle)),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
+    const detail = await res
+      .json()
+      .then((json: unknown) => (json as { detail?: unknown } | null)?.detail)
+      .catch(() => undefined);
+    if (res.status === 503 && typeof detail === 'string' && /ranked/i.test(detail)) {
+      throw new AnisongdbRankedError(detail);
+    }
     throw new Error(`AnisongDB search failed (${res.status})`);
   }
   const data = (await res.json()) as AnisongdbSearchHit[] | unknown;
@@ -123,4 +181,12 @@ export async function searchAnisongdb(songTitle: string): Promise<AnisongdbSearc
     return [];
   }
   return data as AnisongdbSearchHit[];
+}
+
+export function searchAnisongdb(songTitle: string): Promise<AnisongdbSearchHit[]> {
+  return postAnisongdbSearch(buildAnisongdbSearchBody(songTitle));
+}
+
+export function searchAnisongdbByAnime(animeTitle: string): Promise<AnisongdbSearchHit[]> {
+  return postAnisongdbSearch(buildAnisongdbAnimeSearchBody(animeTitle));
 }

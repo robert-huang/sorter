@@ -688,6 +688,30 @@ describe('mergeThemeSongs', () => {
     expect(rows.find((r) => r.type === 'Ending')?.hasResolvableTrackId).toBe(true);
   });
 
+  it('merges a MAL title whose alias mixes half- and full-width brackets (Working!! Golden Day)', () => {
+    const mal = parseMalThemes(
+      ['"SOMEONE ELSE" by Popura Taneshima (Kana Asumi), Mahiru Inami (Saki Fujita), Yachiyo Todoroki (Eri Kitamura)'],
+      ['2: "Golden Day (ゴールデン・デイ）" by Mahiru Inami (Saki Fujita) (eps 9)'],
+    );
+    const hits: AniplaylistHit[] = [
+      {
+        id: 1,
+        anime_id: 6956,
+        score: 60,
+        titles: ['ゴールデン・デイ', 'Golden Day'],
+        song_key: 'ED ep 9',
+        song_type: 'Ending',
+        artists: [{ names: ['伊波まひる (CV: 藤田咲)', 'Mahiru Inami (CV: Saki Fujita)'] }],
+        links: [],
+      },
+    ];
+
+    const endings = mergeThemeSongs(mal, hits).filter((row) => row.type === 'Ending');
+    expect(endings).toHaveLength(1);
+    expect(endings[0]?.malTitle).toBe('Golden Day (ゴールデン・デイ）');
+    expect(endings[0]?.songKey).toBe('ED ep 9');
+  });
+
   it('merges Re:Zero Stay Alive after MAL theme dedupe (production path)', () => {
     const dedupedEndings = dedupeThemeStrings([
       '"Ender Ember" by TK from Ling tosite Sigure',

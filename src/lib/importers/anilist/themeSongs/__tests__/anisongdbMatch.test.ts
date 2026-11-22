@@ -131,6 +131,48 @@ describe('pickBestAnisongdbHit', () => {
     });
     expect(hit).toBeNull();
   });
+
+  it.each([
+    'Kana Asumi, Saki Fujita & Eri Kitamura',
+    'Popura Taneshima (Kana Asumi), Mahiru Inami (Saki Fujita), Yachiyo Todoroki (Eri Kitamura)',
+    'Popura Taneshima (CV: Kana Asumi), Mahiru Inami (CV: Saki Fujita) and Yachiyo Todoroki (CV: Eri Kitamura)',
+  ])('matches a multi-performer credit written as %s', (songArtist) => {
+    const working: AnisongdbSearchHit = {
+      annId: 11017,
+      annSongId: 10462,
+      animeENName: 'Wagnaria!!',
+      animeJPName: 'Working!!',
+      songType: 'Opening 1',
+      songName: 'SOMEONE ELSE',
+      songArtist: 'Kana Asumi, Saki Fujita, Eri Kitamura',
+      HQ: 'wgwi8d.webm',
+      MQ: 'fphl3r.webm',
+      audio: '1vomvz.mp3',
+      linked_ids: { anilist: 6956 },
+    };
+    const hit = pickBestAnisongdbHit([working], {
+      mediaId: 6956,
+      animeTitle: 'Working!!',
+      row: row({ type: 'Opening', displayTitle: 'SOMEONE ELSE', displayArtist: songArtist }),
+      songTitle: 'SOMEONE ELSE',
+      songArtist,
+    });
+    expect(hit?.annSongId).toBe(10462);
+  });
+
+  it('rejects a credit list missing one of the performers', () => {
+    const hit = pickBestAnisongdbHit(
+      [{ ...SAMPLE_HITS[0]!, songArtist: 'Kana Asumi, Saki Fujita, Eri Kitamura' }],
+      {
+        mediaId: 196017,
+        animeTitle: 'Grow Up Show',
+        row: row(),
+        songTitle: 'Yurari Yureru',
+        songArtist: 'Kana Asumi & Saki Fujita',
+      },
+    );
+    expect(hit).toBeNull();
+  });
 });
 
 describe('resolveAnisongdbPreviewFromHits', () => {

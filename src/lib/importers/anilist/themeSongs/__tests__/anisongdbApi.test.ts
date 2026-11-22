@@ -1,6 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   ANISONGDB_DIST_BASE_URL,
+  AnisongdbRankedError,
+  anisongdbRankedStatus,
+  buildAnisongdbAnimeSearchBody,
+  searchAnisongdb,
   buildAnisongdbMediaUrl,
   buildAnisongdbSearchBody,
   pickPlayableSource,
@@ -37,5 +41,35 @@ describe('anisongdbApi', () => {
     });
     expect(source.videoUrl).toContain('hq.webm');
     expect(source.audioUrl).toContain('a.mp3');
+  });
+
+  it('reports the AMQ Ranked window from the regional schedule', () => {
+    // 20:50 in Copenhagen (CET) on a winter day.
+    expect(anisongdbRankedStatus(new Date('2026-11-22T19:50:00Z'))).toEqual({
+      active: true,
+      region: 'Central',
+      remainingSeconds: 33 * 60,
+    });
+    expect(anisongdbRankedStatus(new Date('2026-11-22T05:00:00Z'))).toEqual({ active: false });
+  });
+
+  it('throws a ranked error for the ranked-time 503 and falls back to an anime search body', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ detail: 'Song name/artist/composer text search is disabled during ranked time' }),
+        { status: 503 },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await expect(searchAnisongdb('COOLISH WALK')).rejects.toBeInstanceOf(AnisongdbRankedError);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(buildAnisongdbAnimeSearchBody(' Aharen ')).toEqual({
+      anime_search_filter: { search: 'Aharen', partial_match: true },
+      and_logic: false,
+      ignore_duplicate: false,
+    });
   });
 });

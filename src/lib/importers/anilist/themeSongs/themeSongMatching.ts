@@ -92,7 +92,60 @@ function artistTokenSetsMatch(a: string, b: string): boolean {
   return true;
 }
 
-/** Looser artist match: substring, CV credits, and token-set (word-order insensitive). */
+const ARTIST_CREDIT_SEPARATOR_RE = /\s*(?:,|、|&|＆|×|\bx\b|\band\b|\bfeat\.?|\bft\.)\s*/i;
+
+/** Word-order-insensitive key, so `Kana Asumi` and `Asumi Kana` compare equal. */
+function artistNameKey(name: string): string {
+  return comparableKey(name).split(' ').filter(Boolean).sort().join(' ');
+}
+
+/**
+ * Splits a credit list into one name set per performer: the outside name plus any
+ * parenthesised name, e.g. `Popura Taneshima (CV: Kana Asumi)` → {popura taneshima, kana asumi}.
+ */
+function artistCredits(artist: string): Set<string>[] {
+  const credits: Set<string>[] = [];
+  let depth = 0;
+  let current = '';
+  const flush = (): void => {
+    const outside = current.replace(/\([^)]*\)/g, ' ').trim();
+    const inside = [...current.matchAll(/\(\s*(?:CV\s*[:：]\s*)?([^)]+)\)/gi)].map((m) => m[1]!.trim());
+    const names = new Set([outside, ...inside].filter(Boolean).map(artistNameKey).filter(Boolean));
+    if (names.size > 0) credits.push(names);
+    current = '';
+  };
+  // Split only at top level so separators inside "(CV: A & B)" stay with their credit.
+  for (const part of artist.normalize('NFKC').split(/(\(|\))/)) {
+    if (part === '(') depth += 1;
+    if (part === ')') depth = Math.max(0, depth - 1);
+    if (depth > 0 || part === ')' || part === '(') {
+      current += part;
+      continue;
+    }
+    const pieces = part.split(ARTIST_CREDIT_SEPARATOR_RE);
+    current += pieces[0];
+    for (const piece of pieces.slice(1)) {
+      flush();
+      current = piece;
+    }
+  }
+  flush();
+  return credits;
+}
+
+/** Every credit on each side shares a name with some credit on the other side. */
+function artistCreditsMatch(a: string, b: string): boolean {
+  const creditsA = artistCredits(a);
+  const creditsB = artistCredits(b);
+  if (creditsA.length === 0 || creditsB.length === 0) {
+    return false;
+  }
+  const covered = (from: Set<string>[], into: Set<string>[]): boolean =>
+    from.every((credit) => into.some((other) => [...credit].some((name) => other.has(name))));
+  return covered(creditsA, creditsB) && covered(creditsB, creditsA);
+}
+
+/** Looser artist match: substring, CV credits, token-set, and per-performer credit lists. */
 export function artistsRoughlyMatch(a: string, b: string): boolean {
   if (titlesRoughlyMatch(a, b)) {
     return true;
@@ -111,7 +164,7 @@ export function artistsRoughlyMatch(a: string, b: string): boolean {
   if (cvB && artistTokenSetsMatch(cvB, a)) {
     return true;
   }
-  return false;
+  return artistCreditsMatch(a, b);
 }
 
 /**
@@ -136,11 +189,9 @@ function collectParentheticalRanges(value: string): ParentheticalRange[] {
     if (character !== ')' && character !== '）') {
       continue;
     }
+    // Half- and full-width brackets pair with each other: MAL has e.g. `Golden Day (ゴールデン・デイ）`.
     const opener = stack[stack.length - 1];
-    const closesOpener =
-      (opener?.character === '(' && character === ')') ||
-      (opener?.character === '（' && character === '）');
-    if (!opener || !closesOpener) {
+    if (!opener) {
       continue;
     }
     stack.pop();

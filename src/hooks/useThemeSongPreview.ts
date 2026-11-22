@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { searchAnisongdb } from '../lib/importers/anilist/themeSongs/anisongdbApi';
+import {
+  AnisongdbRankedError,
+  anisongdbRankedStatus,
+  searchAnisongdb,
+  searchAnisongdbByAnime,
+} from '../lib/importers/anilist/themeSongs/anisongdbApi';
 import type { AnisongdbPreviewUrls } from '../lib/importers/anilist/themeSongs/anisongdbMatch';
 import { resolveAnisongdbPreviewFromHits } from '../lib/importers/anilist/themeSongs/anisongdbMatch';
 import {
@@ -28,12 +33,25 @@ function cacheKeyForRow(mediaId: number, row: MediaThemeSongRow): string {
   return `anisongdb:preview:v1:${mediaId}:${themeSongRowKey(row)}`;
 }
 
-export function themeSongPreviewFailureTooltip(status: ThemeSongPreviewStatus): string {
+/** e.g. "AnisongDB song search is paused for AMQ Ranked (Central, about 4 min left)." */
+export function rankedFailureDetail(now = new Date()): string {
+  const ranked = anisongdbRankedStatus(now);
+  if (!ranked.active) {
+    return 'AnisongDB song search is paused for AMQ Ranked.';
+  }
+  const minutes = Math.max(1, Math.ceil(ranked.remainingSeconds / 60));
+  return `AnisongDB song search is paused for AMQ Ranked (${ranked.region}, about ${minutes} min left).`;
+}
+
+export function themeSongPreviewFailureTooltip(
+  status: ThemeSongPreviewStatus,
+  failureDetail: string | null = null,
+): string {
   if (status === 'error') {
-    return 'Preview lookup failed. Right-click to retry.';
+    return `${failureDetail ?? 'Preview lookup failed.'} Click to retry.`;
   }
   if (status === 'unavailable') {
-    return 'No matching AnisongDB preview for this song. Right-click to retry.';
+    return 'No matching AnisongDB preview for this song. Click to retry.';
   }
   return 'Preview on AnisongDB. Right-click to refresh lookup.';
 }
@@ -55,6 +73,7 @@ export function useThemeSongPreview({
   const [urls, setUrls] = useState<AnisongdbPreviewUrls | null>(null);
   const [playerOpen, setPlayerOpen] = useState(false);
   const [cacheHydrated, setCacheHydrated] = useState(false);
+  const [failureDetail, setFailureDetail] = useState<string | null>(null);
 
   const applyResolved = useCallback((value: AnisongdbPreviewUrls | null): ThemeSongPreviewStatus => {
     if (value === null) {
@@ -107,20 +126,30 @@ export function useThemeSongPreview({
       setStatus('loading');
       try {
         const value = await withSessionMemo(cacheKey, async () => {
-            const hits = await searchAnisongdb(songTitle);
-            const resolved = resolveAnisongdbPreviewFromHits(hits, {
-              mediaId,
-              animeTitle,
-              row,
-              songTitle,
-              songArtist,
-            });
+            const input = { mediaId, animeTitle, row, songTitle, songArtist };
+            let hits;
+            try {
+              hits = await searchAnisongdb(songTitle);
+            } catch (error) {
+              if (!(error instanceof AnisongdbRankedError)) throw error;
+              // Anime search still works during Ranked; a miss there isn't cached as "unavailable".
+              const resolved = resolveAnisongdbPreviewFromHits(
+                await searchAnisongdbByAnime(animeTitle),
+                input,
+              );
+              if (resolved === null) throw error;
+              await persistentCacheSet(cacheKey, resolved, ANISONGDB_PREVIEW_CACHE_TTL_MS);
+              return resolved;
+            }
+            const resolved = resolveAnisongdbPreviewFromHits(hits, input);
             await persistentCacheSet(cacheKey, resolved, ANISONGDB_PREVIEW_CACHE_TTL_MS);
             return resolved;
           },
         );
+        setFailureDetail(null);
         return applyResolved(value);
-      } catch {
+      } catch (error) {
+        setFailureDetail(error instanceof AnisongdbRankedError ? rankedFailureDetail() : null);
         setStatus('error');
         setUrls(null);
         return 'error';
@@ -138,8 +167,23 @@ export function useThemeSongPreview({
     ],
   );
 
+  const retryPreview = useCallback(async () => {
+    if (!enabled) {
+      return;
+    }
+    setPlayerOpen(false);
+    const next = await fetchAndMatch({ bustCache: true });
+    if (next === 'ready') {
+      setPlayerOpen(true);
+    }
+  }, [enabled, fetchAndMatch]);
+
   const togglePreview = useCallback(async () => {
-    if (!enabled || status === 'unavailable' || status === 'error') {
+    if (!enabled || status === 'loading') {
+      return;
+    }
+    if (status === 'unavailable' || status === 'error') {
+      await retryPreview();
       return;
     }
     if (playerOpen) {
@@ -153,18 +197,7 @@ export function useThemeSongPreview({
         setPlayerOpen(false);
       }
     }
-  }, [enabled, fetchAndMatch, playerOpen, status]);
-
-  const retryPreview = useCallback(async () => {
-    if (!enabled) {
-      return;
-    }
-    setPlayerOpen(false);
-    const next = await fetchAndMatch({ bustCache: true });
-    if (next === 'ready') {
-      setPlayerOpen(true);
-    }
-  }, [enabled, fetchAndMatch]);
+  }, [enabled, fetchAndMatch, playerOpen, retryPreview, status]);
 
   useEffect(() => {
     if (status === 'unavailable' || status === 'error') {
@@ -180,6 +213,6 @@ export function useThemeSongPreview({
     setPlayerOpen,
     togglePreview,
     retryPreview,
-    failureTooltip: themeSongPreviewFailureTooltip(status),
+    failureTooltip: themeSongPreviewFailureTooltip(status, failureDetail),
   };
 }
