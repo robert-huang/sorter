@@ -34,6 +34,7 @@ import {
 } from './stateStorageValidation';
 import { sweepExpiredDisposableCache } from './disposableCacheDb';
 import { clearDisposableCachesUnderPressure } from './disposableCacheRegistry';
+import { backfillPinOrder, compactPinOrder, nextPinOrder } from './slotPinOrder';
 import './storageCleanupOwners';
 
 // ---------- keys ----------
@@ -497,6 +498,8 @@ export async function initializeSorterStorage(): Promise<void> {
         synthesizeMetaFromBlob(id, slotBlobCache.get(id)!),
     );
   }
+  const pinOrderedSlots = backfillPinOrder(validSlots);
+  validSlots.splice(0, validSlots.length, ...pinOrderedSlots);
   const originalSlotCount = currentSlots.filter((slot) =>
     knownIds.has(slot.id),
   ).length;
@@ -884,22 +887,25 @@ export function isAtCapAndAllPinned(): boolean {
 
 /**
  * Toggle a slot's pinned flag. Pinning excludes the slot from eviction
- * when the cap is hit. No-op for unknown id. Bumps `updatedAt` so the
- * sort order in the LIST tab moves the just-pinned slot to the top of
- * its updated-recent group (matches the user's mental model of "I just
- * touched this slot").
+ * when the cap is hit. No-op for unknown id. Pinning appends the slot to
+ * the end of the pinned group (`pinOrder`); unpinning clears its position,
+ * so re-pinning sends it to the end again.
  */
 export function pinSlot(id: string, pinned: boolean): SlotsManifest {
   const m = readManifest();
   let changed = false;
+  const pinOrder = nextPinOrder(m.slots);
   m.slots = m.slots.map((s) => {
     if (s.id !== id) return s;
     if ((s.pinned ?? false) === pinned) return s;
     changed = true;
     // Pinning is local-only, so it leaves `updatedAt` alone: bumping it would mark a
     // synced slot as having changes to push.
-    return { ...s, pinned };
+    if (pinned) return { ...s, pinned, pinOrder };
+    const { pinOrder: _dropped, ...rest } = s;
+    return { ...rest, pinned };
   });
+  if (changed) m.slots = compactPinOrder(m.slots);
   if (changed) writeManifest(m);
   return m;
 }
@@ -2180,7 +2186,7 @@ export function downloadAllSlots(): void {
  *   in `renamedIds`. Respects `SLOT_CAP` — returns an error without
  *   touching disk if the merged total would exceed cap. Active-slot
  *   pointer is NOT touched (user keeps their current working slot).
- *   The `pinned` flag from archive metas is preserved verbatim.
+ *   Imported slots arrive unpinned (archive `pinned` / `pinOrder` are dropped).
  *
  * - `'replace'`: wipe every existing slot blob + the manifest, then
  *   write archive blobs + manifest. Destructive — caller is responsible
@@ -2402,18 +2408,19 @@ function applyMergeImport(
       key: targetId,
       value: buildSaveFile(blob),
     });
-    // Preserve every meta field except the (possibly-renamed) id —
-    // including `pinned`, `updatedAt`, `createdAt`, etc. updatedAt is
-    // kept verbatim so the imported slots don't artificially bubble
-    // to the top of the LIST tab (the list sorts pinned-first then by
-    // updatedAt, so imported slots slot into their natural recency
-    // position alongside the user's existing slots).
-    importedMetas.push({ ...meta, id: targetId });
+    // Preserve every meta field except the (possibly-renamed) id and the
+    // pin: `updatedAt`, `createdAt`, etc. updatedAt is kept verbatim so
+    // the imported slots don't artificially bubble to the top of the
+    // LIST tab (unpinned slots sort by updatedAt, so imported slots slot
+    // into their natural recency position alongside the user's existing
+    // slots). Pins are a local choice, so merged slots arrive unpinned.
+    const { pinned: _pinned, pinOrder: _pinOrder, ...unpinned } = meta;
+    importedMetas.push({ ...unpinned, id: targetId });
   }
 
   // Prepend imported slots in the manifest. SlotList sorts pinned-first
-  // then by updatedAt at render time, so the visual order is driven by
-  // recency — but if anything ever iterates `manifest.slots` directly
+  // (in pin order) then by updatedAt at render time, so the visual order
+  // of imports is driven by recency — but if anything ever iterates `manifest.slots` directly
   // for "most-recent-import" semantics, the prepend gives a sensible
   // default ordering.
   const newManifest: SlotsManifest = {

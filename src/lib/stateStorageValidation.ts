@@ -47,6 +47,7 @@ export function isSorterSlotMeta(value: unknown): value is {
   }
   return (
     (value.pinned === undefined || typeof value.pinned === 'boolean') &&
+    (value.pinOrder === undefined || typeof value.pinOrder === 'number') &&
     (value.cloudOptIn === undefined || typeof value.cloudOptIn === 'boolean') &&
     (value.cloudId === undefined || typeof value.cloudId === 'string') &&
     (value.cloudPushedAt === undefined ||

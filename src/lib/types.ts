@@ -488,6 +488,12 @@ export interface SlotMeta {
    */
   pinned?: boolean;
   /**
+   * Position among pinned slots, ascending (pin A, B, C shows A B C). Set to one past
+   * the highest on pin and cleared on unpin, so re-pinning moves a slot to the end.
+   * Pinned slots from before this field are backfilled in recency order on startup.
+   */
+  pinOrder?: number;
+  /**
    * Cloud-backup fields (tier 0b). All optional; absence on existing
    * slots is indistinguishable from "not opted in" — no migration code
    * needed, same pattern as `pinned?`.

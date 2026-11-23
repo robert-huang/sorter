@@ -3,6 +3,7 @@ import type { SlotMeta } from '../lib/types';
 import { CircularArrowGlyph } from './CircularArrowGlyph';
 import { PinIcon } from './PinIcon';
 import { RemoveGlyph } from './RemoveGlyph';
+import { compareSlotsForList } from '../lib/slotPinOrder';
 
 interface Props {
   slots: SlotMeta[];
@@ -190,20 +191,13 @@ export function SlotList({
     );
   }
 
-  // Pinned first (so favorites stay visible at the top), then by
-  // most-recently-touched. Inside each group the order matches the
-  // user's recents intuition.
-  const ordered = slots
-    .slice()
-    .sort((a, b) => {
-      const pa = a.pinned ? 1 : 0;
-      const pb = b.pinned ? 1 : 0;
-      if (pa !== pb) return pb - pa;
-      return b.updatedAt.localeCompare(a.updatedAt);
-    });
+  // Pinned first (so favorites stay visible at the top) in the order they
+  // were pinned, so using a pinned slot doesn't reshuffle them. Unpinned
+  // slots follow by most-recently-touched.
+  const ordered = slots.slice().sort(compareSlotsForList);
 
   // Apply the case-insensitive contains filter AFTER the sort so the
-  // pinned-first + recency ordering survives. Trim the query so a
+  // pinned-first ordering survives. Trim the query so a
   // stray trailing space (common when typing fast) doesn't drop every
   // row to zero results.
   const showSearch = slots.length >= SEARCH_THRESHOLD;

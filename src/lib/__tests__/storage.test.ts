@@ -479,6 +479,30 @@ describe('pinSlot', () => {
     const after = pinSlot('does-not-exist', true);
     expect(after).toEqual(before);
   });
+
+  it('appends each pin to the end and sends a re-pinned slot to the end again', () => {
+    const [a, b, c] = ['A', 'B', 'C'].map((name) => mintSlot(makeBlob(), name).id);
+    pinSlot(a!, true);
+    pinSlot(b!, true);
+    pinSlot(c!, true);
+    const order = (): string[] =>
+      readManifest()
+        .slots.filter((slot) => slot.pinned)
+        .sort((x, y) => x.pinOrder! - y.pinOrder!)
+        .map((slot) => slot.name);
+    expect(order()).toEqual(['A', 'B', 'C']);
+    pinSlot(b!, false);
+    expect(readManifest().slots.find((slot) => slot.id === b)?.pinOrder).toBeUndefined();
+    pinSlot(b!, true);
+    expect(order()).toEqual(['A', 'C', 'B']);
+    // Renumbered on every toggle, so repeated cycling never grows the numbers.
+    for (let i = 0; i < 5; i += 1) {
+      pinSlot(a!, false);
+      pinSlot(a!, true);
+    }
+    expect(order()).toEqual(['C', 'B', 'A']);
+    expect(readManifest().slots.map((slot) => slot.pinOrder).sort()).toEqual([0, 1, 2]);
+  });
 });
 
 describe('setActiveSlot', () => {
@@ -1177,13 +1201,14 @@ describe('repairManifestIfCorrupt', () => {
     _resetSorterStorageCacheForTesting();
     await initializeSorterStorage();
 
-    expect(readManifest().slots).toEqual([{ ...meta, versionCount: 0 }]);
+    // Pinned before pin order existed, so startup backfills its position.
+    expect(readManifest().slots).toEqual([{ ...meta, pinOrder: 0, versionCount: 0 }]);
     expect(
       await readStateRecord(
         STATE_METADATA_STORE,
         stateStorageRecordKeys.sorterSlotMeta(meta.id),
       ),
-    ).toEqual(meta);
+    ).toEqual({ ...meta, pinOrder: 0 });
   });
 
   it('rebuilds when the manifest has the wrong shape (e.g. wrong version)', async () => {
@@ -1529,7 +1554,7 @@ describe('exportAllSlots / importAllSlots', () => {
     expect(result.renamedIds).toEqual([]);
 
     const restored = readManifest();
-    // Round-trip preserves both metas (id, name, pinned, timestamps).
+    // Round-trip preserves both metas (id, name, timestamps); pins are dropped.
     const restoredById = new Map(restored.slots.map((s) => [s.id, s]));
     expect(restoredById.get(metaA.id)?.name).toBe('Slot A');
     expect(restoredById.get(metaB.id)?.name).toBe('Slot B');
@@ -1545,6 +1570,23 @@ describe('exportAllSlots / importAllSlots', () => {
     expect(restoredA?.progress.done).toBe(false);
     expect(restoredB?.progress.comparisons).toBe(8);
     expect(restoredB?.progress.done).toBe(true);
+  });
+
+  it('merges archive slots in unpinned, leaving existing pins alone', () => {
+    const archived = mintSlot(makeBlob(1), 'Archived pinned');
+    pinSlot(archived.id, true);
+    const archive = exportAllSlots();
+    window.localStorage.clear();
+    _resetSorterStorageCacheForTesting();
+    const mine = mintSlot(makeBlob(2), 'Mine');
+    pinSlot(mine.id, true);
+
+    expect(importAllSlots(archive, 'merge').error).toBeUndefined();
+
+    const byName = new Map(readManifest().slots.map((s) => [s.name, s]));
+    expect(byName.get('Archived pinned')?.pinned).toBeUndefined();
+    expect(byName.get('Archived pinned')?.pinOrder).toBeUndefined();
+    expect(byName.get('Mine')).toMatchObject({ pinned: true, pinOrder: 0 });
   });
 
   it('merge with collisions mints fresh ids and reports the renames', () => {
