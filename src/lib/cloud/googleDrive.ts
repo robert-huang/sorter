@@ -1120,13 +1120,15 @@ export class GoogleDriveProvider implements CloudProvider {
     return created.id;
   }
 
-  async findSourceDbFile(sourceId: string): Promise<{ id: string; etag: string } | null> {
+  async findSourceDbFile(
+    sourceId: string,
+  ): Promise<{ id: string; etag: string; uploadId: string | null } | null> {
     const dbFolderId = await this.resolveDbFolderId();
     const filename = buildSourceDbFilename(sourceId);
     const q = `'${dbFolderId}' in parents and name = '${filename}' and trashed = false`;
     const params = new URLSearchParams({
       q,
-      fields: 'files(id,md5Checksum,version,modifiedTime)',
+      fields: 'files(id,md5Checksum,version,modifiedTime,appProperties)',
       pageSize: '1',
     });
     const resp = await this.authedFetch(`${DRIVE_API}/files?${params.toString()}`);
@@ -1139,6 +1141,7 @@ export class GoogleDriveProvider implements CloudProvider {
         md5Checksum?: string;
         version?: string;
         modifiedTime?: string;
+        appProperties?: Record<string, string>;
       }>;
     };
     const file = data.files?.[0];
@@ -1146,7 +1149,7 @@ export class GoogleDriveProvider implements CloudProvider {
       return null;
     }
     const etag = pickSourceDbEtag(file);
-    return { id: file.id, etag };
+    return { id: file.id, etag, uploadId: file.appProperties?.sorterUploadId ?? null };
   }
 
   async headSourceDb(fileId: string): Promise<{
@@ -1208,6 +1211,7 @@ export class GoogleDriveProvider implements CloudProvider {
     bytes: Uint8Array,
     fileId: string | null,
     ifMatchEtag?: string,
+    uploadId?: string,
   ): Promise<{ id: string; newEtag: string }> {
     await this.refreshTokenIfNeeded();
     const dbFolderId = await this.resolveDbFolderId();
@@ -1227,7 +1231,9 @@ export class GoogleDriveProvider implements CloudProvider {
     const metadata: Record<string, unknown> = {
       name: filename,
       mimeType: 'application/x-sqlite3',
-      appProperties: { sorterSourceId: sourceId },
+      // `sorterUploadId` lets this device recognise its own upload if the push is cut
+      // off before it records the new etag (see pushDbToDrive).
+      appProperties: { sorterSourceId: sourceId, ...(uploadId ? { sorterUploadId: uploadId } : {}) },
     };
     if (fileId === null) {
       metadata.parents = [dbFolderId];
@@ -1252,7 +1258,7 @@ export class GoogleDriveProvider implements CloudProvider {
       body: JSON.stringify(metadata),
     });
     if (initResp.status === 404 && fileId !== null) {
-      return this.uploadSourceDb(sourceId, bytes, null);
+      return this.uploadSourceDb(sourceId, bytes, null, undefined, uploadId);
     }
     if (initResp.status === 412) {
       const current = fileId ? await this.headSourceDb(fileId) : null;
@@ -1291,7 +1297,9 @@ export class GoogleDriveProvider implements CloudProvider {
       throw new Error('uploadSourceDb response missing id.');
     }
     const newEtagFromResponse = pickSourceDbEtag(data);
-    const head = await this.headSourceDb(data.id);
+    // The bytes are already on Drive: a failed follow-up read must not fail the
+    // push, or the caller never records the new etag and flags its own upload as drift.
+    const head = await this.headSourceDb(data.id).catch(() => null);
     const newEtag = head?.etag ?? newEtagFromResponse;
     return { id: data.id, newEtag };
   }
@@ -1523,7 +1531,7 @@ function getDriveOps(): GoogleDriveProvider {
 
 export async function findSourceDbFile(
   sourceId: string,
-): Promise<{ id: string; etag: string } | null> {
+): Promise<{ id: string; etag: string; uploadId: string | null } | null> {
   return getDriveOps().findSourceDbFile(sourceId);
 }
 
@@ -1544,7 +1552,8 @@ export async function uploadSourceDb(
   bytes: Uint8Array,
   fileId: string | null,
   ifMatchEtag?: string,
+  uploadId?: string,
 ): Promise<{ id: string; newEtag: string }> {
-  return getDriveOps().uploadSourceDb(sourceId, bytes, fileId, ifMatchEtag);
+  return getDriveOps().uploadSourceDb(sourceId, bytes, fileId, ifMatchEtag, uploadId);
 }
 

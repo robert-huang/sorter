@@ -66,6 +66,13 @@ export type SourceSyncMeta = {
    * default-fills it to 0 via `emptyMeta`.
    */
   pendingChanges: number;
+  /**
+   * Random id stamped on the Drive file's `sorterUploadId` by this device's most
+   * recent upload attempt, saved before the upload starts. If a push is cut off
+   * after the bytes land but before `remoteEtag` is updated, the next push sees
+   * its own id on the changed file and adopts the etag instead of flagging drift.
+   */
+  lastUploadId: string | null;
 };
 
 export type DbSyncManifest = {
@@ -84,6 +91,7 @@ function emptyMeta(): SourceSyncMeta {
     driftDetected: false,
     scrapeLock: null,
     pendingChanges: 0,
+    lastUploadId: null,
   };
 }
 
@@ -213,7 +221,7 @@ function isLockStale(lock: ScrapeLock, now: number): boolean {
   return now - lock.lastActivity >= SCRAPE_LOCK_STALE_MS;
 }
 
-function newToken(): string {
+export function newToken(): string {
   // Random-enough for the cross-tab coordination case; not used for any
   // security boundary. crypto.randomUUID is widely available in browsers
   // and jsdom, but fall back to a Math.random-derived hex string for

@@ -179,7 +179,67 @@ describe('pushDbToDrive', () => {
       expect.any(Uint8Array),
       null,
       undefined,
+      meta.lastUploadId,
     );
+    expect(meta.lastUploadId).toEqual(expect.any(String));
+  });
+
+  it("adopts the remote etag when the changed file is this device's own interrupted upload", async () => {
+    await seedThing('x', 'one', 10);
+    const snapshot = localBytesBySource.get(TEST_SOURCE_ID)!;
+    patchSourceSyncMeta(TEST_SOURCE_ID, {
+      remoteEtag: 'md5-old',
+      remoteFileId: 'file-1',
+      hasLocalDb: true,
+      lastPushAt: 1000,
+    });
+    // The bytes reached Drive, then the push failed before recording the new etag.
+    uploadSourceDb.mockRejectedValueOnce(new Error('network dropped'));
+    findSourceDbFile.mockResolvedValueOnce({ id: 'file-1', etag: 'md5-old', uploadId: null });
+    downloadSourceDb.mockResolvedValue({ bytes: snapshot, etag: 'md5-old' });
+    await expect(pushDbToDrive(TEST_SOURCE_ID)).rejects.toThrow('network dropped');
+    const interruptedId = getSourceSyncMeta(TEST_SOURCE_ID).lastUploadId;
+    expect(interruptedId).toEqual(expect.any(String));
+    expect(getSourceSyncMeta(TEST_SOURCE_ID).remoteEtag).toBe('md5-old');
+
+    findSourceDbFile.mockResolvedValue({ id: 'file-1', etag: 'md5-mine', uploadId: interruptedId });
+    headSourceDb.mockResolvedValue({
+      etag: 'md5-mine',
+      etagFields: { md5Checksum: 'md5-mine', version: '7' },
+      size: snapshot.byteLength,
+    });
+    downloadSourceDb.mockResolvedValue({ bytes: snapshot, etag: 'md5-mine' });
+    uploadSourceDb.mockResolvedValue({ id: 'file-1', newEtag: 'md5-next' });
+
+    const result = await pushDbToDrive(TEST_SOURCE_ID);
+    expect(result.remoteEtag).toBe('md5-next');
+    expect(getSourceSyncMeta(TEST_SOURCE_ID).driftDetected).toBe(false);
+    expect(uploadSourceDb).toHaveBeenLastCalledWith(
+      TEST_SOURCE_ID,
+      expect.any(Uint8Array),
+      'file-1',
+      'md5-mine',
+      expect.any(String),
+    );
+  });
+
+  it('still reports drift when the changed file carries another upload id', async () => {
+    await seedThing('x', 'one', 10);
+    patchSourceSyncMeta(TEST_SOURCE_ID, {
+      remoteEtag: 'md5-old',
+      remoteFileId: 'file-1',
+      hasLocalDb: true,
+      lastUploadId: 'mine',
+    });
+    findSourceDbFile.mockResolvedValue({ id: 'file-1', etag: 'md5-theirs', uploadId: 'theirs' });
+    headSourceDb.mockResolvedValue({
+      etag: 'md5-theirs',
+      etagFields: { md5Checksum: 'md5-theirs', version: '9' },
+      size: 100,
+    });
+
+    await expect(pushDbToDrive(TEST_SOURCE_ID)).rejects.toMatchObject({ code: REMOTE_DRIFTED });
+    expect(getSourceSyncMeta(TEST_SOURCE_ID).driftDetected).toBe(true);
   });
 
   it('throws REMOTE_DRIFTED when remote etag changed', async () => {
@@ -234,6 +294,7 @@ describe('pushDbToDrive', () => {
       expect.any(Uint8Array),
       'file-1',
       'md5-abc',
+      expect.any(String),
     );
   });
 

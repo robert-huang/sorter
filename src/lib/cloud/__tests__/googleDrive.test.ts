@@ -62,6 +62,42 @@ describe('Google Drive OAuth', () => {
   });
 });
 
+describe('GoogleDriveProvider.uploadSourceDb', () => {
+  it('stamps the upload id and still returns the new etag when the follow-up read fails', async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = input.toString();
+      calls.push({ url, init });
+      if (url.includes('uploadType=resumable')) {
+        return new Response('{}', { status: 200, headers: { location: 'https://upload.example/session' } });
+      }
+      if (url === 'https://upload.example/session') {
+        return new Response(JSON.stringify({ id: 'db-file', md5Checksum: 'md5-new' }), { status: 200 });
+      }
+      if (url.includes('/files/db-file?')) {
+        return new Response('backend error', { status: 500 });
+      }
+      // Folder lookup for the source-database subfolder.
+      return new Response(JSON.stringify({ files: [{ id: 'db-folder' }] }), { status: 200 });
+    });
+
+    const result = await new GoogleDriveProvider().uploadSourceDb(
+      'anilist',
+      new Uint8Array([1, 2, 3]),
+      null,
+      undefined,
+      'upload-abc',
+    );
+
+    expect(result).toEqual({ id: 'db-file', newEtag: 'md5-new' });
+    const init = calls.find((call) => call.url.includes('uploadType=resumable'))!;
+    expect(JSON.parse(String(init.init?.body)).appProperties).toEqual({
+      sorterSourceId: 'anilist',
+      sorterUploadId: 'upload-abc',
+    });
+  });
+});
+
 describe('GoogleDriveProvider.listCloudSlots', () => {
   it('follows page tokens while preserving API order and existing metadata mapping', async () => {
     const fetchMock = vi

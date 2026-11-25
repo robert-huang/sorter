@@ -20,6 +20,7 @@ export { REMOTE_SCHEMA_NEWER };
 import {
   clearPendingChanges,
   getSourceSyncMeta,
+  newToken,
   patchSourceSyncMeta,
 } from './syncManifest';
 
@@ -144,10 +145,13 @@ export async function pushDbToDrive(sourceId: string): Promise<PushResult> {
   if (remote) {
     if (meta.remoteEtag && remote.etag !== meta.remoteEtag) {
       const head = await headSourceDb(remote.id);
+      const ownUpload = meta.lastUploadId !== null && remote.uploadId === meta.lastUploadId;
       if (
-        head &&
-        sourceDbEtagsSameRevision(meta.remoteEtag, remote.etag, head.etagFields)
+        ownUpload ||
+        (head && sourceDbEtagsSameRevision(meta.remoteEtag, remote.etag, head.etagFields))
       ) {
+        // Same revision under another etag alias, or this device's own upload whose
+        // push was cut off before recording the new etag. Refresh the stored etag.
         // Same Drive revision — meta stored `version` while list/head
         // now prefer md5Checksum (or vice versa). Refresh the alias.
         ifMatchEtag = remote.etag;
@@ -173,6 +177,9 @@ export async function pushDbToDrive(sourceId: string): Promise<PushResult> {
   }
 
   const localBytes = await exportBytes(sourceId);
+  // Saved before uploading so an interrupted push can still recognise its upload.
+  const uploadId = newToken();
+  patchSourceSyncMeta(sourceId, { lastUploadId: uploadId });
   let upload;
   try {
     upload = await uploadSourceDb(
@@ -180,6 +187,7 @@ export async function pushDbToDrive(sourceId: string): Promise<PushResult> {
       localBytes,
       remote?.id ?? meta.remoteFileId,
       remote && ifMatchEtag ? ifMatchEtag : undefined,
+      uploadId,
     );
   } catch (err) {
     if (err instanceof CloudEtagMismatchError) {
