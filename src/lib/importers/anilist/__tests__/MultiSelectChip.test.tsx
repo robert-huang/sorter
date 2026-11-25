@@ -53,6 +53,27 @@ describe('MultiSelectChip highlight', () => {
     expect(chipIsActive([], false, true)).toBe(true);
   });
 
+  it('ignores saved selections that have no matching option', () => {
+    const render = (options: string[], selected: string[]) => {
+      act(() => {
+        root.render(
+          <MultiSelectChip<string>
+            label="genre"
+            emptyFilters
+            options={options}
+            selected={selected}
+            onToggle={vi.fn()}
+          />,
+        );
+      });
+      const chip = container.querySelector('.filter-chip')!;
+      return { active: chip.classList.contains('active'), text: chip.querySelector('.filter-chip-button')!.textContent };
+    };
+
+    expect(render([], ['Action', 'Comedy'])).toEqual({ active: false, text: expect.not.stringContaining('·') });
+    expect(render(['Action', 'Drama'], ['Action', 'Comedy'])).toEqual({ active: true, text: expect.stringContaining('· 1') });
+  });
+
   it('shows a count only while the chip narrows results', () => {
     const label = (selected: string[], allSelectedFilters?: boolean, emptyFilters?: boolean) => {
       chipIsActive(selected, allSelectedFilters, emptyFilters);

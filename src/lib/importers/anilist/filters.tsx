@@ -1269,7 +1269,11 @@ export function MultiSelectChip<T extends string | number>({
   const menuRef = useRef<HTMLDivElement>(null);
   useClickOutside(rootRef, open, () => setOpen(false));
   const menuStyle = useFloatingMenuStyle(floatingMenu, open, triggerRef, menuRef);
-  const count = selected.length;
+  // Persisted selections can outlive their options (e.g. genres saved from a
+  // list that isn't loaded), so only selections the menu can show are counted.
+  const optionSet = new Set<T>(options);
+  const count = selected.filter((value) => optionSet.has(value)).length;
+  const hasOptions = options.length > 0;
 
   // Format-or-stringify helper, used both for rendering and for the
   // search needle match so what the user types matches what they see.
@@ -1334,17 +1338,18 @@ export function MultiSelectChip<T extends string | number>({
       ? 'Add every option that matches the current search'
       : 'Select every option';
 
+  const narrowsWhenEmpty = emptyFilters && hasOptions;
   const chipCountLabel = multiSelectChipCountLabel(
     count,
     allSelected,
     allSelectedFilters,
-    emptyFilters,
+    narrowsWhenEmpty,
   );
 
   return (
     <div
       ref={rootRef}
-      className={`filter-chip ${isMultiSelectChipActive(count, allSelected, allSelectedFilters, emptyFilters) ? 'active' : ''}`}
+      className={`filter-chip ${isMultiSelectChipActive(count, allSelected, allSelectedFilters, narrowsWhenEmpty) ? 'active' : ''}`}
     >
       <button
         ref={triggerRef}
