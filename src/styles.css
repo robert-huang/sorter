@@ -10966,16 +10966,20 @@ a:where(.anime-to-anime-anilist-link):visited {
   margin-bottom: 0;
 }
 
-.tool-weekly-week-start-field {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  align-items: center;
+/* Weekly Calendar week start + time zone rows in the Tools gear menu. */
+/* Less row padding than checkbox rows so the taller select still lands on their
+   ~32px height: 4.5px + 23px select + 4.5px. */
+.tool-field.tool-field-label-row.tools-settings-weekly-field {
+  margin-bottom: 0;
+  padding-top: 4.5px;
+  padding-bottom: 4.5px;
 }
 
-.tool-weekly-week-start-field .settings-spotify-select {
-  width: 100%;
-  min-width: 6rem;
+.tools-settings-weekly-field .settings-spotify-select {
+  width: auto;
+  min-width: 8rem;
+  padding-top: 3px;
+  padding-bottom: 3px;
 }
 
 .tool-weekly-season-segmented {

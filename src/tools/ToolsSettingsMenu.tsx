@@ -14,6 +14,15 @@ import {
   useSpotifySignedIn,
 } from '../hooks/useThemeSongPlaylistEditor';
 import type { ToolId } from './toolTypes';
+import type {
+  WeeklyCalendarTimezone,
+  WeeklyCalendarWeekStartDay,
+} from './panels/weeklyCalendarLogic';
+import {
+  formatWeeklyCalendarWeekStartDay,
+  WEEKLY_CALENDAR_TIMEZONE_OPTIONS,
+  WEEKLY_CALENDAR_WEEK_START_OPTIONS,
+} from './weeklyCalendarSettings';
 import { useScoreComparisonFit, type ScoreComparisonFit } from './scoreComparisonFitStore';
 import {
   DEFAULT_SCORE_COMPARISON_TARGET_MEAN,
@@ -123,6 +132,8 @@ export function ToolsSettingsMenu({
     setWeeklyCalendarShowUnscheduledColumn,
     setWeeklyCalendarShowThemeSongs,
     setWeeklyCalendarAllowPlaylistRemoval,
+    setWeeklyCalendarWeekStartDay,
+    setWeeklyCalendarTimezone,
     setScoreComparisonRescale,
     setScoreComparisonTargetMean,
     setScoreComparisonTargetStdDev,
@@ -312,6 +323,38 @@ export function ToolsSettingsMenu({
                       }
                     />
                     Unknown Airing Day column
+                  </label>
+                  <label className="settings-item tool-field tool-field-label-row tools-settings-weekly-field">
+                    <span className="tool-field-label">Week starts on</span>
+                    <select
+                      className="settings-spotify-select select-chevron"
+                      value={toolsPrefs.weeklyCalendarWeekStartDay}
+                      onChange={(e) =>
+                        setWeeklyCalendarWeekStartDay(e.target.value as WeeklyCalendarWeekStartDay)
+                      }
+                    >
+                      {WEEKLY_CALENDAR_WEEK_START_OPTIONS.map((day) => (
+                        <option key={day} value={day}>
+                          {formatWeeklyCalendarWeekStartDay(day)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="settings-item tool-field tool-field-label-row tools-settings-weekly-field">
+                    <span className="tool-field-label">Time zone</span>
+                    <select
+                      className="settings-spotify-select select-chevron"
+                      value={toolsPrefs.weeklyCalendarTimezone}
+                      onChange={(e) =>
+                        setWeeklyCalendarTimezone(e.target.value as WeeklyCalendarTimezone)
+                      }
+                    >
+                      {WEEKLY_CALENDAR_TIMEZONE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
                   </label>
                 </div>
                 <div

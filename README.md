@@ -908,8 +908,8 @@ Form settings persist in `localStorage` (`anime-tools-stats-form`, `anime-tools-
 
 Chart **airing and upcoming anime** by weekday, or browse **seasonal catalogs** (current season, next season, user list only, or a custom season-year range). Uses the user's **anime list** for watching-list mode; season modes can include shows **not on the list** when **NOT ON LIST** is enabled in the list status filter.
 
-- **Week start** — Monday through Sunday.
-- **Timezone** — Eastern, Pacific, UTC, or local (for broadcast time bucketing).
+- **Week start** (gear → Weekly Calendar) — Monday through Sunday.
+- **Time zone** (gear → Weekly Calendar) — Eastern, Pacific, UTC, or local (for broadcast time bucketing). Both are saved in the tools preferences; values saved by the old panel controls carry over on first load. Changing either re-renders a loaded calendar without refetching.
 - **Filters** — list status, score range, watch dates, format, airing status (same chip patterns as Stats/Seasonal). The watch dates range isn't saved between visits, like the score range.
 - **List status** — the user list and the season tabs each keep their own selection (both default to `CURRENT`, `REPEATING`). Only the season tabs' selection is saved; the user list resets on reload. **NOT ON LIST** is only offered on the season tabs. **DROPPED** is offered on both and is off by default; dropped shows used to be fetched as not-on-list.
 - **Custom season range** — the custom picker runs from past seasons through **one year ahead** of today, so announced future seasons can be browsed.

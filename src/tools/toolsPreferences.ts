@@ -4,6 +4,16 @@
  * with a pub/sub for cross-component reactivity and cross-tab sync via the
  * `storage` event.
  */
+import type {
+  WeeklyCalendarTimezone,
+  WeeklyCalendarWeekStartDay,
+} from './panels/weeklyCalendarLogic';
+import {
+  DEFAULT_WEEKLY_CALENDAR_TIMEZONE,
+  DEFAULT_WEEKLY_CALENDAR_WEEK_START_DAY,
+  isWeeklyCalendarTimezone,
+  isWeeklyCalendarWeekStartDay,
+} from './weeklyCalendarSettings';
 
 export type ToolsPreferences = {
   /**
@@ -31,6 +41,10 @@ export type ToolsPreferences = {
   weeklyCalendarShowThemeSongs: boolean;
   /** Right-click a green theme-song dot to remove it from the Spotify playlist (also in media modals). */
   weeklyCalendarAllowPlaylistRemoval: boolean;
+  /** First Weekly Calendar column. */
+  weeklyCalendarWeekStartDay: WeeklyCalendarWeekStartDay;
+  /** Time zone used to place airings on a weekday and format their times. */
+  weeklyCalendarTimezone: WeeklyCalendarTimezone;
   /** Map User Scores z-scores onto the target mean / std dev below. */
   scoreComparisonRescale: boolean;
   scoreComparisonTargetMean: number;
@@ -61,6 +75,8 @@ const DEFAULT_PREFS: ToolsPreferences = {
   weeklyCalendarShowUnscheduledColumn: false,
   weeklyCalendarShowThemeSongs: false,
   weeklyCalendarAllowPlaylistRemoval: false,
+  weeklyCalendarWeekStartDay: DEFAULT_WEEKLY_CALENDAR_WEEK_START_DAY,
+  weeklyCalendarTimezone: DEFAULT_WEEKLY_CALENDAR_TIMEZONE,
   scoreComparisonRescale: false,
   scoreComparisonTargetMean: DEFAULT_SCORE_COMPARISON_TARGET_MEAN,
   scoreComparisonTargetStdDev: DEFAULT_SCORE_COMPARISON_TARGET_STD_DEV,
@@ -97,9 +113,49 @@ function readLegacyBoolean(storageKey: string, field: string): boolean {
   }
 }
 
+/** A field from an old panel form, when it passes `isValid`. */
+function readLegacyValue<T>(
+  storageKey: string,
+  field: string,
+  isValid: (value: unknown) => value is T,
+  fallback: T,
+): T {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) {
+      return fallback;
+    }
+    const value = (JSON.parse(raw) as Record<string, unknown>)[field];
+    return isValid(value) ? value : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+/** Week start and time zone used to live in the Weekly Calendar form. */
+function legacyWeeklyCalendarWeekStartDay(): WeeklyCalendarWeekStartDay {
+  return readLegacyValue(
+    LEGACY_WEEKLY_CALENDAR_FORM_KEY,
+    'weekStartDay',
+    isWeeklyCalendarWeekStartDay,
+    DEFAULT_WEEKLY_CALENDAR_WEEK_START_DAY,
+  );
+}
+
+function legacyWeeklyCalendarTimezone(): WeeklyCalendarTimezone {
+  return readLegacyValue(
+    LEGACY_WEEKLY_CALENDAR_FORM_KEY,
+    'timezone',
+    isWeeklyCalendarTimezone,
+    DEFAULT_WEEKLY_CALENDAR_TIMEZONE,
+  );
+}
+
 function defaultPreferencesWithLegacyPanelValues(): ToolsPreferences {
   return {
     ...DEFAULT_PREFS,
+    weeklyCalendarWeekStartDay: legacyWeeklyCalendarWeekStartDay(),
+    weeklyCalendarTimezone: legacyWeeklyCalendarTimezone(),
     seasonalScoresSpanAiringSeasons: readLegacyBoolean(
       LEGACY_SEASONAL_FORM_KEY,
       'spanAiringSeasons',
@@ -147,7 +203,9 @@ export function loadToolsPreferences(): ToolsPreferences {
       if (
         cached.seasonalScoresSpanAiringSeasons ||
         cached.weeklyCalendarShowUnscheduledColumn ||
-        cached.weeklyCalendarShowThemeSongs
+        cached.weeklyCalendarShowThemeSongs ||
+        cached.weeklyCalendarWeekStartDay !== DEFAULT_PREFS.weeklyCalendarWeekStartDay ||
+        cached.weeklyCalendarTimezone !== DEFAULT_PREFS.weeklyCalendarTimezone
       ) {
         persistMigratedPreferences(cached);
       }
@@ -186,6 +244,12 @@ export function loadToolsPreferences(): ToolsPreferences {
               'showThemeSongs',
             ),
       weeklyCalendarAllowPlaylistRemoval: parsed.weeklyCalendarAllowPlaylistRemoval === true,
+      weeklyCalendarWeekStartDay: isWeeklyCalendarWeekStartDay(parsed.weeklyCalendarWeekStartDay)
+        ? parsed.weeklyCalendarWeekStartDay
+        : legacyWeeklyCalendarWeekStartDay(),
+      weeklyCalendarTimezone: isWeeklyCalendarTimezone(parsed.weeklyCalendarTimezone)
+        ? parsed.weeklyCalendarTimezone
+        : legacyWeeklyCalendarTimezone(),
       scoreComparisonRescale: parsed.scoreComparisonRescale === true,
       scoreComparisonTargetMean: finiteOr(
         parsed.scoreComparisonTargetMean,
@@ -200,7 +264,9 @@ export function loadToolsPreferences(): ToolsPreferences {
     if (
       typeof parsed.seasonalScoresSpanAiringSeasons !== 'boolean' ||
       typeof parsed.weeklyCalendarShowUnscheduledColumn !== 'boolean' ||
-      typeof parsed.weeklyCalendarShowThemeSongs !== 'boolean'
+      typeof parsed.weeklyCalendarShowThemeSongs !== 'boolean' ||
+      !isWeeklyCalendarWeekStartDay(parsed.weeklyCalendarWeekStartDay) ||
+      !isWeeklyCalendarTimezone(parsed.weeklyCalendarTimezone)
     ) {
       persistMigratedPreferences(cached);
     }

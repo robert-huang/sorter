@@ -111,8 +111,6 @@ import {
   type WeeklyCalendarRawEntry,
   type WeeklyCalendarResult,
   type WeeklyCalendarSeasonScope,
-  type WeeklyCalendarTimezone,
-  type WeeklyCalendarWeekStartDay,
 } from './weeklyCalendarLogic';
 import {
   formatSeasonalScoreLabel,
@@ -130,8 +128,6 @@ type PersistedWeeklyCalendarForm = Pick<
   | 'seasonScope'
   | 'customSeasonMinEncoded'
   | 'customSeasonMaxEncoded'
-  | 'weekStartDay'
-  | 'timezone'
   | 'formatFilters'
   | 'mediaStatusFilters'
   | 'listStatusFilters'
@@ -141,23 +137,6 @@ type WeeklyCalendarFetchIdentity = {
   username: string;
   sourceKey: string;
 };
-
-const WEEK_START_OPTIONS: WeeklyCalendarWeekStartDay[] = [
-  'MONDAY',
-  'TUESDAY',
-  'WEDNESDAY',
-  'THURSDAY',
-  'FRIDAY',
-  'SATURDAY',
-  'SUNDAY',
-];
-
-const TIMEZONE_OPTIONS: Array<{ value: WeeklyCalendarTimezone; label: string }> = [
-  { value: 'eastern', label: 'Eastern' },
-  { value: 'pacific', label: 'Pacific' },
-  { value: 'utc', label: 'UTC' },
-  { value: 'local', label: 'Local' },
-];
 
 export type ThemeSongPlaylistFilter = 'all' | 'in' | 'out';
 
@@ -300,14 +279,6 @@ export function loadWeeklyCalendarForm(): WeeklyCalendarForm {
         seasonScope: normalizePersistedSeasonScope(parsed.seasonScope),
         customSeasonMinEncoded: customSeasonRange.minEncoded,
         customSeasonMaxEncoded: customSeasonRange.maxEncoded,
-        weekStartDay:
-          parsed.weekStartDay && WEEK_START_OPTIONS.includes(parsed.weekStartDay)
-            ? parsed.weekStartDay
-            : DEFAULT_WEEKLY_CALENDAR_FORM.weekStartDay,
-        timezone:
-          parsed.timezone && TIMEZONE_OPTIONS.some((opt) => opt.value === parsed.timezone)
-            ? parsed.timezone
-            : DEFAULT_WEEKLY_CALENDAR_FORM.timezone,
         formatFilters: normalizeWeeklyCalendarFormatFilters(parsed.formatFilters),
         mediaStatusFilters: normalizeWeeklyCalendarMediaStatusFilters(parsed.mediaStatusFilters),
         listStatusFilters: normalizeWeeklyCalendarListStatusFilters(parsed.listStatusFilters),
@@ -330,8 +301,6 @@ export function saveWeeklyCalendarForm(form: WeeklyCalendarForm): void {
       seasonScope: form.seasonScope,
       customSeasonMinEncoded: form.customSeasonMinEncoded,
       customSeasonMaxEncoded: form.customSeasonMaxEncoded,
-      weekStartDay: form.weekStartDay,
-      timezone: form.timezone,
       formatFilters: form.formatFilters,
       mediaStatusFilters: form.mediaStatusFilters,
       listStatusFilters: form.listStatusFilters,
@@ -1132,7 +1101,7 @@ export function WeeklyCalendarPanel({
     setForm((prev) => ({ ...prev, ...patch }));
   }, []);
 
-  const timeZone = weeklyCalendarTimezoneToIana(form.timezone);
+  const timeZone = weeklyCalendarTimezoneToIana(toolsPreferences.weeklyCalendarTimezone);
 
   const customSeasonYearOptions = useMemo(() => buildWeeklyCalendarCustomSeasonYearOptions(), []);
 
@@ -1169,6 +1138,8 @@ export function WeeklyCalendarPanel({
       rawEntries,
       {
         ...form,
+        weekStartDay: toolsPreferences.weeklyCalendarWeekStartDay,
+        timezone: toolsPreferences.weeklyCalendarTimezone,
         showUnscheduledColumn:
           toolsPreferences.weeklyCalendarShowUnscheduledColumn,
       },
@@ -1180,6 +1151,8 @@ export function WeeklyCalendarPanel({
     requestedSourceKey,
     requestedUsername,
     seasonLabel,
+    toolsPreferences.weeklyCalendarWeekStartDay,
+    toolsPreferences.weeklyCalendarTimezone,
     toolsPreferences.weeklyCalendarShowUnscheduledColumn,
   ]);
 
@@ -1575,38 +1548,6 @@ export function WeeklyCalendarPanel({
               onReplaceAll={(formats) =>
                 patchForm({ formatFilters: [...formats] })
               }
-            />
-          </div>
-
-          <div className="tool-adaptation-primary-filters tool-seasonal-primary-filters tool-weekly-primary-filters">
-            <label className="tool-field tool-field-label-row tool-weekly-week-start">
-              <span className="tool-field-label">Week starts on</span>
-              <div className="tool-weekly-week-start-field">
-                <select
-                  className="settings-spotify-select select-chevron"
-                  disabled={running}
-                  value={form.weekStartDay}
-                  onChange={(e) =>
-                    patchForm({ weekStartDay: e.target.value as WeeklyCalendarWeekStartDay })
-                  }
-                >
-                  {WEEK_START_OPTIONS.map((day) => (
-                    <option key={day} value={day}>
-                      {day[0] + day.slice(1).toLowerCase()}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </label>
-
-            <ToolSegmentedFilter
-              label="Time zone"
-              labelId="weekly-calendar-tz-label"
-              className="tool-weekly-timezone"
-              options={TIMEZONE_OPTIONS}
-              value={form.timezone}
-              disabled={running}
-              onChange={(timezone) => patchForm({ timezone })}
             />
           </div>
         </div>

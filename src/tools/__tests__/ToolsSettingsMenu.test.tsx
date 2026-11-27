@@ -49,6 +49,39 @@ afterEach(() => {
 });
 
 describe('ToolsSettingsMenu', () => {
+  it('edits Weekly Calendar week start and time zone', async () => {
+    await act(async () => {
+      root.render(
+        <ToolsSettingsMenu
+          activeTool="weekly-calendar"
+          historyBackGuard={false}
+          onToggleHistoryBackGuard={vi.fn()}
+          dbSync={DB_SYNC}
+        />,
+      );
+    });
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('button[aria-label="Settings"]')?.click();
+    });
+
+    const section = container.querySelector('[data-tool-settings-section="weekly-calendar"]')!;
+    const [weekStart, timezone] = Array.from(section.querySelectorAll('select'));
+    expect(weekStart!.value).toBe('MONDAY');
+    expect(timezone!.value).toBe('eastern');
+    await act(async () => {
+      weekStart!.value = 'SUNDAY';
+      weekStart!.dispatchEvent(new Event('change', { bubbles: true }));
+      timezone!.value = 'utc';
+      timezone!.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    expect(loadToolsPreferences()).toMatchObject({
+      weeklyCalendarWeekStartDay: 'SUNDAY',
+      weeklyCalendarTimezone: 'utc',
+    });
+    expect(timezone!.value).toBe('utc');
+  });
+
   it('explains and persists Best match by title', async () => {
     await act(async () => {
       root.render(

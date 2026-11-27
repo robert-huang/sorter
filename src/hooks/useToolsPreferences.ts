@@ -18,6 +18,8 @@ export function useToolsPreferences(): {
   setWeeklyCalendarShowUnscheduledColumn: (enabled: boolean) => void;
   setWeeklyCalendarShowThemeSongs: (enabled: boolean) => void;
   setWeeklyCalendarAllowPlaylistRemoval: (enabled: boolean) => void;
+  setWeeklyCalendarWeekStartDay: (day: ToolsPreferences['weeklyCalendarWeekStartDay']) => void;
+  setWeeklyCalendarTimezone: (timezone: ToolsPreferences['weeklyCalendarTimezone']) => void;
   setScoreComparisonRescale: (enabled: boolean) => void;
   setScoreComparisonTargetMean: (mean: number) => void;
   setScoreComparisonTargetStdDev: (stdDev: number) => void;
@@ -71,6 +73,18 @@ export function useToolsPreferences(): {
     saveToolsPreferences({ weeklyCalendarAllowPlaylistRemoval: enabled });
   };
 
+  const setWeeklyCalendarWeekStartDay = (
+    day: ToolsPreferences['weeklyCalendarWeekStartDay'],
+  ): void => {
+    saveToolsPreferences({ weeklyCalendarWeekStartDay: day });
+  };
+
+  const setWeeklyCalendarTimezone = (
+    timezone: ToolsPreferences['weeklyCalendarTimezone'],
+  ): void => {
+    saveToolsPreferences({ weeklyCalendarTimezone: timezone });
+  };
+
   const setScoreComparisonRescale = (enabled: boolean): void => {
     saveToolsPreferences({ scoreComparisonRescale: enabled });
   };
@@ -103,6 +117,8 @@ export function useToolsPreferences(): {
     setWeeklyCalendarShowUnscheduledColumn,
     setWeeklyCalendarShowThemeSongs,
     setWeeklyCalendarAllowPlaylistRemoval,
+    setWeeklyCalendarWeekStartDay,
+    setWeeklyCalendarTimezone,
   };
 }
 

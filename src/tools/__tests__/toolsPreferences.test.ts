@@ -89,4 +89,45 @@ describe('tools preferences', () => {
       weeklyCalendarShowThemeSongs: true,
     });
   });
+
+  it('migrates Weekly Calendar week start and time zone from the panel form', () => {
+    localStorage.setItem(
+      'anime-tools-weekly-calendar-form',
+      JSON.stringify({ weekStartDay: 'SUNDAY', timezone: 'pacific' }),
+    );
+
+    expect(loadToolsPreferences()).toMatchObject({
+      weeklyCalendarWeekStartDay: 'SUNDAY',
+      weeklyCalendarTimezone: 'pacific',
+    });
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')).toMatchObject({
+      weeklyCalendarWeekStartDay: 'SUNDAY',
+      weeklyCalendarTimezone: 'pacific',
+    });
+  });
+
+  it('migrates week start and time zone into existing preferences, ignoring invalid values', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ productionAllRoles: true }));
+    localStorage.setItem(
+      'anime-tools-weekly-calendar-form',
+      JSON.stringify({ weekStartDay: 'FUNDAY', timezone: 'utc' }),
+    );
+
+    expect(loadToolsPreferences()).toMatchObject({
+      productionAllRoles: true,
+      weeklyCalendarWeekStartDay: 'MONDAY',
+      weeklyCalendarTimezone: 'utc',
+    });
+
+    saveToolsPreferences({ weeklyCalendarWeekStartDay: 'SATURDAY' });
+    _clearToolsPreferencesForTesting();
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ weeklyCalendarWeekStartDay: 'SATURDAY', weeklyCalendarTimezone: 'local' }),
+    );
+    expect(loadToolsPreferences()).toMatchObject({
+      weeklyCalendarWeekStartDay: 'SATURDAY',
+      weeklyCalendarTimezone: 'local',
+    });
+  });
 });
