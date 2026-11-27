@@ -10551,7 +10551,6 @@ a:where(.anime-to-anime-anilist-link):visited {
   stroke-linecap: round;
   stroke-dasharray: 5 7;
   opacity: 0;
-  vector-effect: non-scaling-stroke;
 }
 
 .bump-chart-lineage-bridge.is-active {
@@ -10572,14 +10571,17 @@ a:where(.anime-to-anime-anilist-link):visited {
   pointer-events: auto;
 }
 
+/* Lines, nodes and bridges scale with the zoom transform. Non-scaling strokes stay
+   3px on screen when zoomed out, so faded lines overlap where rows are packed tighter
+   and their stacked opacity makes long moves look bright. */
 .bump-chart-path {
   fill: none;
   stroke: currentColor;
   stroke-width: 3;
   stroke-linecap: round;
-  vector-effect: non-scaling-stroke;
 }
 
+/* The hover target stays 16px on screen so lines remain easy to hover when zoomed out. */
 .bump-chart-path-hit {
   fill: none;
   stroke: transparent;
@@ -10591,7 +10593,6 @@ a:where(.anime-to-anime-anilist-link):visited {
   fill: var(--surface);
   stroke: currentColor;
   stroke-width: 3;
-  vector-effect: non-scaling-stroke;
 }
 
 .bump-chart-connection.is-active .bump-chart-path {
